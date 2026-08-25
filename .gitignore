@@ -1,0 +1,12 @@
+.DS_Store
+*.log
+*.tmp
+*.part
+/bin/
+/dist/
+/coverage/
+/web/dist/
+/web/node_modules/
+/setting.json
+/data/
+

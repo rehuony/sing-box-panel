@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Sing-Box Panel">
+  <defs>
+    <linearGradient id="sbp-gradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#7c3aed" />
+      <stop offset="100%" stop-color="#f97316" />
+    </linearGradient>
+  </defs>
+  <rect x="4" y="4" width="56" height="56" rx="14" fill="#0f172a" />
+  <rect x="8" y="8" width="48" height="48" rx="11" fill="url(#sbp-gradient)" />
+  <path
+    d="M20 22h24c2.2 0 4 1.8 4 4v2h-6v-1H22v10h18c2.2 0 4 1.8 4 4v2c0 2.2-1.8 4-4 4H16v-6h24v-2H20c-2.2 0-4-1.8-4-4V26c0-2.2 1.8-4 4-4Z"
+    fill="#ffffff"
+  />
+</svg>

@@ -1,0 +1,51 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Managed by sing-box-panel system install.
+
+[Unit]
+Description=Sing-Box Panel control plane
+Documentation=https://github.com/rehuony/sing-box-panel
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=sing-box-panel
+Group=sing-box-panel
+ExecStart=/usr/local/bin/sing-box-panel server run --config /etc/sing-box-panel/setting.json
+WorkingDirectory=/var/lib/sing-box-panel
+Restart=on-failure
+RestartSec=5s
+TimeoutStopSec=30s
+KillMode=mixed
+UMask=0077
+
+StateDirectory=sing-box-panel
+StateDirectoryMode=0700
+RuntimeDirectory=sing-box-panel
+RuntimeDirectoryMode=0700
+NoNewPrivileges=true
+CapabilityBoundingSet=
+AmbientCapabilities=
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectHostname=true
+ProtectClock=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectProc=invisible
+ProcSubset=pid
+LockPersonality=true
+MemoryDenyWriteExecute=true
+RestrictNamespaces=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+RemoveIPC=true
+SystemCallArchitectures=native
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+
+[Install]
+WantedBy=multi-user.target
