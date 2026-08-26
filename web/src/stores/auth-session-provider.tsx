@@ -1,25 +1,14 @@
-import {
-  createContext,
-  type ReactNode,
-  useContext,
-  useEffect,
-  useMemo,
-  useState,
-} from 'react';
+import type { ReactNode } from 'react';
 
-import { useApiClient } from '@/api/api-client-context';
+import { useEffect, useMemo, useState } from 'react';
+
 import type { Session } from '@/api/api-client';
 
-type AuthStatus = 'checking' | 'anonymous' | 'authenticated';
+import { useApiClient } from '@/api/api-client-context';
 
-interface AuthSessionValue {
-  session: Session | null;
-  status: AuthStatus;
-  login(token: string, signal?: AbortSignal): Promise<void>;
-  logout(signal?: AbortSignal): Promise<void>;
-}
+import type { AuthSessionValue, AuthStatus } from './auth-session.store';
 
-const AuthSessionContext = createContext<AuthSessionValue | null>(null);
+import { AuthSessionContext } from './auth-session.store';
 
 export interface AuthSessionProviderProps {
   children: ReactNode;
@@ -44,8 +33,8 @@ export function AuthSessionProvider({ children }: AuthSessionProviderProps) {
       })
       .catch((error: unknown) => {
         if (
-          controller.signal.aborted ||
-          (error instanceof DOMException && error.name === 'AbortError')
+          controller.signal.aborted
+          || (error instanceof DOMException && error.name === 'AbortError')
         ) {
           return;
         }
@@ -74,19 +63,5 @@ export function AuthSessionProvider({ children }: AuthSessionProviderProps) {
     [client, session, status],
   );
 
-  return (
-    <AuthSessionContext.Provider value={value}>
-      {children}
-    </AuthSessionContext.Provider>
-  );
-}
-
-export function useAuthSession(): AuthSessionValue {
-  const value = useContext(AuthSessionContext);
-
-  if (value === null) {
-    throw new Error('useAuthSession must be used within AuthSessionProvider');
-  }
-
-  return value;
+  return <AuthSessionContext value={value}>{children}</AuthSessionContext>;
 }

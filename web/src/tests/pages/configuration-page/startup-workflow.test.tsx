@@ -1,6 +1,6 @@
-import { render, screen } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
+import userEvent from '@testing-library/user-event';
+import { render, screen } from '@testing-library/react';
 
 import { ApiClientProvider } from '@/api/api-client-context';
 import { StartupWorkflow } from '@/pages/configuration-page/startup-workflow';
@@ -11,7 +11,7 @@ import {
   testTask,
 } from '@/tests/api/mock-api-client';
 
-describe('StartupWorkflow', () => {
+describe('startupWorkflow', () => {
   it('requires an explicit decision for every manual reattach conflict', async () => {
     const user = userEvent.setup();
     const stale = { ...testManualArtifact, state: 'stale' as const };
@@ -63,8 +63,8 @@ describe('StartupWorkflow', () => {
       <ApiClientProvider client={client}>
         <StartupWorkflow
           baseRevision={testRevision.id}
-          capability="native_structured"
-          exactVersion="1.13.19"
+          capability='native_structured'
+          exactVersion='1.13.19'
           onCanonicalChange={vi.fn().mockResolvedValue(undefined)}
         />
       </ApiClientProvider>,

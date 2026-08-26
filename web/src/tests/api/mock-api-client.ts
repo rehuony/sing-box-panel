@@ -1,9 +1,11 @@
-import { vi, type Mocked } from 'vitest';
+import type { Mocked } from 'vitest';
+
+import { vi } from 'vitest';
 
 import type {
   ApiClient,
-  CapabilityPresentation,
   CanonicalSnapshot,
+  CapabilityPresentation,
   CatalogAssetList,
   CoreArtifactPage,
   DashboardContext,

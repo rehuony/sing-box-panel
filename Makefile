@@ -1,4 +1,4 @@
-.PHONY: generate notices notices-check openapi-check web-install web-test web-build fmt test vet check build
+.PHONY: generate notices notices-check openapi-check web-install web-lint web-test web-build fmt test vet check build
 
 generate:
 	go generate ./...
@@ -15,6 +15,9 @@ openapi-check:
 web-install:
 	cd web && pnpm install --frozen-lockfile --ignore-scripts --verify-store-integrity
 
+web-lint:
+	cd web && pnpm run lint
+
 web-test:
 	cd web && pnpm test
 
@@ -30,7 +33,7 @@ test:
 vet:
 	go vet ./...
 
-check: notices-check openapi-check web-test web-build fmt vet test
+check: notices-check openapi-check web-lint web-test web-build fmt vet test
 
 build: web-build
 	go build -tags webdist -trimpath -o bin/sing-box-panel ./cmd/sing-box-panel

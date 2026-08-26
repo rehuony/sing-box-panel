@@ -1,8 +1,8 @@
 export interface PageHeadingProps {
-  action?: React.ReactNode;
+  title: string;
   eyebrow: string;
   summary: string;
-  title: string;
+  action?: React.ReactNode;
 }
 
 export function PageHeading({
@@ -12,15 +12,17 @@ export function PageHeading({
   title,
 }: PageHeadingProps) {
   return (
-    <header className="page-heading">
+    <header className='page-heading'>
       <div>
-        <p className="eyebrow">{eyebrow}</p>
+        <p className='eyebrow'>{eyebrow}</p>
         <h1>{title}</h1>
         <p>{summary}</p>
       </div>
-      {action === undefined ? null : (
-        <div className="page-heading__action">{action}</div>
-      )}
+      {action === undefined
+        ? null
+        : (
+            <div className='page-heading__action'>{action}</div>
+          )}
     </header>
   );
 }

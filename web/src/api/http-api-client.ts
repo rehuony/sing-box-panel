@@ -4,60 +4,24 @@ import {
   stringify as stringifyLosslessJSON,
 } from 'lossless-json';
 
+import type { ActivationQueued, ApiClient, CanonicalChange, CanonicalRevisionPage, CanonicalSave, CanonicalSnapshot, CapabilityStatus, CatalogAssetFilter, CatalogAssetList, CoreArtifactFilter, CoreArtifactPage, CreatedSubscriptionToken, DashboardContext, Entity, EntityCollection, EntityList, LogClearFilter, LogEntry, LogFilter, LogPage, ManualArtifact, ManualArtifactList, ManualReattachPreview, ManualReattachSave, ManualReplacePreview, ManualSave, MetricsSnapshot, Session, StartupArtifactPage, StructuredRender, SubscriptionChannel, SubscriptionSource, SubscriptionToken, SubscriptionTokenRotation, Task, TaskFilter, TaskPage, TrafficPeriod, TrafficPeriodFilter, TrafficPeriodPage } from './api-client';
+
 import {
+
   ApiRequestError,
-  type ActivationQueued,
-  type ApiClient,
-  type CanonicalRevisionPage,
-  type CanonicalSave,
-  type CanonicalSnapshot,
-  type CanonicalChange,
-  type CapabilityStatus,
-  type CatalogAssetFilter,
-  type CatalogAssetList,
-  type CoreArtifactFilter,
-  type CoreArtifactPage,
-  type CreatedSubscriptionToken,
-  type DashboardContext,
-  type Entity,
-  type EntityCollection,
-  type EntityList,
-  type LogEntry,
-  type LogClearFilter,
-  type LogFilter,
-  type LogPage,
-  type ManualArtifact,
-  type ManualArtifactList,
-  type ManualReplacePreview,
-  type ManualReattachPreview,
-  type ManualReattachSave,
-  type ManualSave,
-  type MetricsSnapshot,
-  type Session,
-  type StructuredRender,
-  type StartupArtifactPage,
-  type SubscriptionChannel,
-  type SubscriptionSource,
-  type SubscriptionToken,
-  type SubscriptionTokenRotation,
-  type Task,
-  type TaskFilter,
-  type TaskPage,
-  type TrafficPeriod,
-  type TrafficPeriodFilter,
-  type TrafficPeriodPage,
+
 } from './api-client';
 
 interface ProblemDetails {
   code?: string;
+  title?: string;
   detail?: string;
   fields?: Record<string, string>;
-  title?: string;
 }
 
 interface SessionPayload {
-  displayName: string;
   csrfToken?: string;
+  displayName: string;
 }
 
 export interface HttpApiClientOptions {
@@ -124,7 +88,7 @@ function losslessEntities(
   }
   const entities = (parsed as Record<string, unknown>)[collection];
   if (!Array.isArray(entities)) {
-    throw new Error(`The canonical revision document_json does not contain a ${collection} array.`);
+    throw new TypeError(`The canonical revision document_json does not contain a ${collection} array.`);
   }
   for (const [index, entity] of entities.entries()) {
     if (entity === null || Array.isArray(entity) || typeof entity !== 'object' || isLosslessNumber(entity)) {
@@ -147,7 +111,7 @@ export function createHttpApiClient(
 ): ApiClient {
   const baseUrl = (options.baseUrl ?? '/api/v1').replace(/\/$/, '');
   const fetcher = options.fetcher ?? globalThis.fetch.bind(globalThis);
-	let csrfToken = '';
+  let csrfToken = '';
 
   function writeHeaders(headers: HeadersInit = {}): HeadersInit {
     return csrfToken === ''
@@ -174,29 +138,29 @@ export function createHttpApiClient(
     return encoded === '' ? '' : `?${encoded}`;
   }
 
-	function acceptSession(payload: SessionPayload): Session {
-		csrfToken = payload.csrfToken ?? '';
-		return { displayName: payload.displayName };
-	}
+  function acceptSession(payload: SessionPayload): Session {
+    csrfToken = payload.csrfToken ?? '';
+    return { displayName: payload.displayName };
+  }
 
   return {
     async getSession(signal) {
       try {
-		const payload = await request<SessionPayload>(fetcher, `${baseUrl}/auth/session`, {
+        const payload = await request<SessionPayload>(fetcher, `${baseUrl}/auth/session`, {
           method: 'GET',
           signal,
         });
-		return acceptSession(payload);
+        return acceptSession(payload);
       } catch (error) {
         if (error instanceof ApiRequestError && error.status === 401) {
-		  csrfToken = '';
+          csrfToken = '';
           return null;
         }
         throw error;
       }
     },
-	async login(token, signal) {
-	  const payload = await request<SessionPayload>(fetcher, `${baseUrl}/auth/session`, {
+    async login(token, signal) {
+      const payload = await request<SessionPayload>(fetcher, `${baseUrl}/auth/session`, {
         method: 'POST',
         body: JSON.stringify({ token }),
         headers: {
@@ -204,15 +168,15 @@ export function createHttpApiClient(
         },
         signal,
       });
-	  return acceptSession(payload);
+      return acceptSession(payload);
     },
-	async logout(signal) {
-	  await request<void>(fetcher, `${baseUrl}/auth/session`, {
+    async logout(signal) {
+      await request<void>(fetcher, `${baseUrl}/auth/session`, {
         method: 'DELETE',
-		headers: writeHeaders(),
+        headers: writeHeaders(),
         signal,
       });
-	  csrfToken = '';
+      csrfToken = '';
     },
     getDashboardContext(signal) {
       return request<DashboardContext>(fetcher, `${baseUrl}/dashboard/context`, {
@@ -327,7 +291,7 @@ export function createHttpApiClient(
         variant: filter.variant,
         verification_state: filter.verificationState,
       });
-	  return request<CoreArtifactPage>(fetcher, `${baseUrl}/core/artifacts${query}`, {
+      return request<CoreArtifactPage>(fetcher, `${baseUrl}/core/artifacts${query}`, {
         method: 'GET',
         signal,
       });

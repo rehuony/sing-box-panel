@@ -1,12 +1,12 @@
-import { fireEvent, render, screen, within } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
+import userEvent from '@testing-library/user-event';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 
 import { ApiClientProvider } from '@/api/api-client-context';
 import { SubscriptionsPage } from '@/pages/subscriptions-page';
 import { createMockApiClient } from '@/tests/api/mock-api-client';
 
-describe('SubscriptionsPage', () => {
+describe('subscriptionsPage', () => {
   it('creates a channel through the strict management contract', async () => {
     const user = userEvent.setup();
     const client = createMockApiClient();

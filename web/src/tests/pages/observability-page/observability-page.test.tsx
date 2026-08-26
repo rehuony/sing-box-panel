@@ -1,12 +1,12 @@
-import { render, screen } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
+import userEvent from '@testing-library/user-event';
+import { render, screen } from '@testing-library/react';
 
 import { ApiClientProvider } from '@/api/api-client-context';
 import { ObservabilityPage } from '@/pages/observability-page';
 import { createMockApiClient } from '@/tests/api/mock-api-client';
 
-describe('ObservabilityPage', () => {
+describe('observabilityPage', () => {
   it('refreshes logs and collector evidence without mutating runtime state', async () => {
     const user = userEvent.setup();
     const client = createMockApiClient();

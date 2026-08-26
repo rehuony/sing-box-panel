@@ -1,12 +1,12 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { describe, expect, it, vi } from 'vitest';
+import userEvent from '@testing-library/user-event';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 
+import { AppRoutes } from '@/routes';
 import { ApiRequestError } from '@/api/api-client';
 import { ApiClientProvider } from '@/api/api-client-context';
-import { AppRoutes } from '@/routes';
-import { AuthSessionProvider } from '@/stores/auth-session.store';
+import { AuthSessionProvider } from '@/stores/auth-session-provider';
 import {
   createMockApiClient,
   testCatalog,

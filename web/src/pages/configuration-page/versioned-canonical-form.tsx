@@ -1,6 +1,7 @@
+import type { ChangeEvent, ReactNode } from 'react';
+
 import {
-  type ChangeEvent,
-  type ReactNode,
+
   useCallback,
   useEffect,
   useMemo,
@@ -14,29 +15,25 @@ import {
   stringify as stringifyLosslessJSON,
 } from 'lossless-json';
 
+import type { CanonicalChange, CanonicalDocument, CanonicalSnapshot, CapabilityClassification, CapabilitySemanticFact, CapabilityStatus, CapabilityUIDescriptor } from '@/api/api-client';
+
 import {
   ApiRequestError,
-  type CanonicalChange,
-  type CanonicalDocument,
-  type CanonicalSnapshot,
-  type CapabilityClassification,
-  type CapabilitySemanticFact,
-  type CapabilityStatus,
-  type CapabilityUIDescriptor,
+
 } from '@/api/api-client';
 import { useApiClient } from '@/api/api-client-context';
 import { describeRequestError, ErrorNotice } from '@/components/error-notice';
 
 interface VersionedCanonicalFormProps {
-  capability: CapabilityStatus;
   exactVersion: string;
-  onSaved(): Promise<void>;
+  capability: CapabilityStatus;
+  onSaved: () => Promise<void>;
 }
 
-type LoadState =
-  | { status: 'loading'; snapshot: null; error: null }
-  | { status: 'error'; snapshot: null; error: unknown }
-  | { status: 'ready'; snapshot: CanonicalSnapshot; error: null };
+type LoadState
+  = | { status: 'loading'; snapshot: null; error: null }
+    | { status: 'error'; snapshot: null; error: unknown }
+    | { status: 'ready'; snapshot: CanonicalSnapshot; error: null };
 
 const classificationLabels: Record<CapabilityClassification, string> = {
   behavior_changed: 'Behavior changed in this version',
@@ -57,11 +54,11 @@ function valueAtPointer(document: unknown, pointer: string): unknown {
   for (const token of pointerTokens(pointer)) {
     if (current === null || typeof current !== 'object' || isLosslessNumber(current)) return undefined;
     if (Array.isArray(current)) {
-      if (!/^(0|[1-9]\d*)$/.test(token)) return undefined;
+      if (!/^(?:0|[1-9]\d*)$/.test(token)) return undefined;
       current = current[Number(token)];
       continue;
     }
-    if (!Object.prototype.hasOwnProperty.call(current, token)) return undefined;
+    if (!Object.hasOwn(current, token)) return undefined;
     current = (current as Record<string, unknown>)[token];
   }
   return current;
@@ -86,7 +83,7 @@ function cloneCanonicalDocument(source: CanonicalDocument): CanonicalDocument {
 }
 
 function arrayPointerIndex(token: string, pointer: string, length: number): number {
-  if (!/^(0|[1-9]\d*)$/.test(token)) {
+  if (!/^(?:0|[1-9]\d*)$/.test(token)) {
     throw new Error(`Canonical path ${pointer} uses a non-numeric array index.`);
   }
   const index = Number(token);
@@ -139,7 +136,7 @@ function documentWithValue(
       defineObjectValue(object, token, value);
       break;
     }
-    if (!Object.prototype.hasOwnProperty.call(object, token)) {
+    if (!Object.hasOwn(object, token)) {
       throw new Error(`Canonical path ${pointer} has a missing parent container.`);
     }
     if (object[token] === null || typeof object[token] !== 'object') {
@@ -159,7 +156,7 @@ function documentWithoutValue(source: CanonicalDocument, pointer: string): Canon
     if (Array.isArray(current)) {
       current = current[arrayPointerIndex(token, pointer, current.length)];
     } else if (current !== null && typeof current === 'object' && !isLosslessNumber(current)) {
-      if (!Object.prototype.hasOwnProperty.call(current, token)) return copy;
+      if (!Object.hasOwn(current, token)) return copy;
       current = (current as Record<string, unknown>)[token];
     } else {
       throw new Error(`Canonical path ${pointer} crosses a non-container value.`);
@@ -243,8 +240,8 @@ export function VersionedCanonicalForm({
     () => presentation.ui
       .map((descriptor, index) => ({ descriptor, index }))
       .sort((left, right) =>
-        (left.descriptor.order ?? 0) - (right.descriptor.order ?? 0) ||
-        left.index - right.index,
+        (left.descriptor.order ?? 0) - (right.descriptor.order ?? 0)
+        || left.index - right.index,
       )
       .map(({ descriptor }) => descriptor),
     [presentation],
@@ -263,7 +260,7 @@ export function VersionedCanonicalForm({
   const [isSaving, setIsSaving] = useState(false);
   const [message, setMessage] = useState('');
   const [conflict, setConflict] = useState(false);
-  const errorSummary = useRef<HTMLDivElement>(null);
+  const errorSummaryRef = useRef<HTMLDivElement>(null);
   const compatible = capability.support_level === 'compatible_structured';
   const editable = !compatible || acceptedCompatible;
 
@@ -289,13 +286,12 @@ export function VersionedCanonicalForm({
 
   useEffect(() => {
     const controller = new AbortController();
-    setAcceptedCompatible(false);
     void loadCanonical(controller.signal);
     return () => controller.abort();
   }, [capability.pin?.manifest_sha256, exactVersion, loadCanonical]);
 
   useEffect(() => {
-    if (Object.keys(errors).length > 0) errorSummary.current?.focus();
+    if (Object.keys(errors).length > 0) errorSummaryRef.current?.focus();
   }, [errors]);
 
   function updateValue(descriptorID: string, pointer: string, value: unknown) {
@@ -347,75 +343,92 @@ export function VersionedCanonicalForm({
     const common = {
       'aria-describedby': describedBy,
       'aria-invalid': errors[descriptor.id] !== undefined,
-      disabled: !editable || isSaving,
+      'disabled': !editable || isSaving,
       id,
     };
 
     let control: ReactNode;
     switch (descriptor.kind) {
-    case 'text':
-      control = <input {...common} onChange={(event) => updateValue(descriptor.id, fact.canonical_path, event.target.value)} type="text" value={typeof value === 'string' ? value : ''} />;
-      break;
-    case 'number':
-      control = <input {...common} inputMode="decimal" onChange={(event) => {
-        const raw = event.target.value;
-        setNumberDrafts((current) => ({ ...current, [descriptor.id]: raw }));
-        setDirtyFields((current) => ({ ...current, [descriptor.id]: true }));
-        setMessage('');
-        setConflict(false);
-        if (raw === '') {
-          updateUnset(descriptor.id, fact.canonical_path);
-          return;
-        }
-        try {
-          const parsed = parseLosslessJSON(raw);
-          if (isLosslessNumber(parsed)) updateValue(descriptor.id, fact.canonical_path, parsed);
-        } catch {
-          // Intermediate number input is validated when the form is saved.
-        }
-      }} type="text" value={numberDrafts[descriptor.id] ?? ''} />;
-      break;
-    case 'boolean':
-      return (
-        <div className="capability-field capability-field--boolean" key={descriptor.id}>
-          <label className="check-field" htmlFor={id}>
-            <input {...common} checked={value === true} onChange={(event) => updateValue(descriptor.id, fact.canonical_path, event.target.checked)} type="checkbox" />
-            <span><strong>{descriptor.label}</strong>{descriptor.help ? <small id={`${id}-help`}>{descriptor.help}</small> : null}</span>
-          </label>
-          <Classification fact={fact} />
-          {errors[descriptor.id] ? <span className="field-error" id={`${id}-error`}>{errors[descriptor.id]}</span> : null}
-        </div>
-      );
-    case 'select':
-      control = <select {...common} onChange={(event: ChangeEvent<HTMLSelectElement>) => updateValue(descriptor.id, fact.canonical_path, event.target.value)} value={typeof value === 'string' ? value : ''}><option value="">Select a value</option>{descriptor.options?.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select>;
-      break;
-    case 'json':
-      control = <textarea {...common} className="data-editor" onChange={(event) => {
-        const raw = event.target.value;
-        setJSONDrafts((current) => ({ ...current, [descriptor.id]: raw }));
-        setDirtyFields((current) => ({ ...current, [descriptor.id]: true }));
-        setMessage('');
-        setConflict(false);
-        if (raw === '') {
-          updateUnset(descriptor.id, fact.canonical_path);
-          return;
-        }
-        try {
-          updateValue(descriptor.id, fact.canonical_path, parseLosslessJSON(raw));
-        } catch {
-          // Intermediate JSON input is validated when the form is saved.
-        }
-      }} rows={7} spellCheck={false} value={jsonDrafts[descriptor.id] ?? ''} />;
-      break;
-    default:
-      return null;
+      case 'text':
+        control = <input {...common} onChange={(event) => updateValue(descriptor.id, fact.canonical_path, event.target.value)} type='text' value={typeof value === 'string' ? value : ''} />;
+        break;
+      case 'number':
+        control = (
+          <input {...common} inputMode='decimal' onChange={(event) => {
+            const raw = event.target.value;
+            setNumberDrafts((current) => ({ ...current, [descriptor.id]: raw }));
+            setDirtyFields((current) => ({ ...current, [descriptor.id]: true }));
+            setMessage('');
+            setConflict(false);
+            if (raw === '') {
+              updateUnset(descriptor.id, fact.canonical_path);
+              return;
+            }
+            try {
+              const parsed = parseLosslessJSON(raw);
+              if (isLosslessNumber(parsed)) updateValue(descriptor.id, fact.canonical_path, parsed);
+            } catch {
+              // Intermediate number input is validated when the form is saved.
+            }
+          }} type='text' value={numberDrafts[descriptor.id] ?? ''} />
+        );
+        break;
+      case 'boolean':
+        return (
+          <div className='capability-field capability-field--boolean' key={descriptor.id}>
+            <label className='check-field' htmlFor={id}>
+              <input {...common} checked={value === true} onChange={(event) => updateValue(descriptor.id, fact.canonical_path, event.target.checked)} type='checkbox' />
+              <span>
+                <strong>{descriptor.label}</strong>
+                {descriptor.help ? <small id={`${id}-help`}>{descriptor.help}</small> : null}
+              </span>
+            </label>
+            <Classification fact={fact} />
+            {errors[descriptor.id] ? <span className='field-error' id={`${id}-error`}>{errors[descriptor.id]}</span> : null}
+          </div>
+        );
+      case 'select':
+        control = (
+          <select {...common} onChange={(event: ChangeEvent<HTMLSelectElement>) => updateValue(descriptor.id, fact.canonical_path, event.target.value)} value={typeof value === 'string' ? value : ''}>
+            <option value=''>Select a value</option>
+            {descriptor.options?.map((option) => (
+              <option key={option.value} value={option.value}>{option.label}</option>
+            ))}
+          </select>
+        );
+        break;
+      case 'json':
+        control = (
+          <textarea {...common} className='data-editor' onChange={(event) => {
+            const raw = event.target.value;
+            setJSONDrafts((current) => ({ ...current, [descriptor.id]: raw }));
+            setDirtyFields((current) => ({ ...current, [descriptor.id]: true }));
+            setMessage('');
+            setConflict(false);
+            if (raw === '') {
+              updateUnset(descriptor.id, fact.canonical_path);
+              return;
+            }
+            try {
+              updateValue(descriptor.id, fact.canonical_path, parseLosslessJSON(raw));
+            } catch {
+              // Intermediate JSON input is validated when the form is saved.
+            }
+          }} rows={7} spellCheck={false} value={jsonDrafts[descriptor.id] ?? ''} />
+        );
+        break;
+      default:
+        return null;
     }
     return (
-      <div className="capability-field field-group" key={descriptor.id}>
-        <div className="capability-field__label"><label htmlFor={id}>{descriptor.label}</label><Classification fact={fact} /></div>
+      <div className='capability-field field-group' key={descriptor.id}>
+        <div className='capability-field__label'>
+          <label htmlFor={id}>{descriptor.label}</label>
+          <Classification fact={fact} />
+        </div>
         {control}
         {descriptor.help ? <span id={`${id}-help`}>{descriptor.help}</span> : null}
-        {errors[descriptor.id] ? <span className="field-error" id={`${id}-error`}>{errors[descriptor.id]}</span> : null}
+        {errors[descriptor.id] ? <span className='field-error' id={`${id}-error`}>{errors[descriptor.id]}</span> : null}
       </div>
     );
   }
@@ -494,10 +507,10 @@ export function VersionedCanonicalForm({
           validatedDocument = change.op === 'unset'
             ? documentWithoutValue(validatedDocument, change.path)
             : documentWithValue(
-              validatedDocument,
-              change.path,
-              parsedValue ?? parseLosslessJSON(change.value_json),
-            );
+                validatedDocument,
+                change.path,
+                parsedValue ?? parseLosslessJSON(change.value_json),
+              );
           changes.push(change);
           changedPaths.add(change.path);
         } catch (error) {
@@ -546,31 +559,106 @@ export function VersionedCanonicalForm({
   }
 
   return (
-    <section className="capability-form" aria-labelledby="capability-form-title">
-      <div className="section-heading">
-        <div><p className="eyebrow">Pinned manifest presentation</p><h2 id="capability-form-title">Versioned canonical controls</h2></div>
-        <span>sing-box {exactVersion}</span>
+    <section className='capability-form' aria-labelledby='capability-form-title'>
+      <div className='section-heading'>
+        <div>
+          <p className='eyebrow'>Pinned manifest presentation</p>
+          <h2 id='capability-form-title'>Versioned canonical controls</h2>
+        </div>
+        <span>
+          sing-box
+          {' '}
+          {exactVersion}
+        </span>
       </div>
-      <p className="capability-form__intro">These built-in controls come only from the validated, exact pinned manifest. Saving applies lossless pointer changes with compare-and-swap; it does not render or apply.</p>
+      <p className='capability-form__intro'>These built-in controls come only from the validated, exact pinned manifest. Saving applies lossless pointer changes with compare-and-swap; it does not render or apply.</p>
 
-      {compatible ? <label className="check-field capability-acceptance"><input checked={acceptedCompatible} onChange={(event) => setAcceptedCompatible(event.target.checked)} type="checkbox" /><span><strong>Accept compatible controls for sing-box {exactVersion}</strong><small>This manifest declares compatible rather than native structured support. Acceptance is required before any field can be edited or saved.</small></span></label> : null}
-      {load.status === 'loading' ? <div className="inline-loading" aria-busy="true">Loading canonical snapshot…</div> : null}
-      {load.status === 'error' ? <ErrorNotice error={load.error} title="Could not load canonical controls" /> : null}
-      {load.status === 'ready' && draft !== null ? (
-        <form onSubmit={(event) => void save(event)}>
-          {Object.keys(errors).length > 0 ? <div className="form-error capability-error-summary" ref={errorSummary} role="alert" tabIndex={-1}><strong>{conflict ? 'Revision conflict' : 'Review the highlighted fields'}</strong><span>{errors._form ?? 'Correct the following fields before saving.'}</span>{Object.entries(errors).some(([id]) => id !== '_form') ? <ul>{Object.entries(errors).filter(([id]) => id !== '_form').map(([id, message]) => { const descriptor = descriptors.find((candidate) => candidate.id === id); return <li key={id}><a href={`#${descriptor ? descriptorInputID(descriptor) : ''}`}>{descriptor?.label ?? id}: {message}</a></li>; })}</ul> : null}</div> : null}
-          <div className="capability-fields">
-            {descriptors.map((descriptor) => {
-              if (!isVisible(descriptor, draft)) return null;
-              if (descriptor.kind === 'group') return <div className="capability-group" key={descriptor.id}><h3>{descriptor.label}</h3>{descriptor.help ? <p>{descriptor.help}</p> : null}</div>;
-              const fact = facts.get(descriptor.fact_id);
-              return fact === undefined ? null : controlFor(descriptor, fact);
-            })}
-          </div>
-          <div className="inline-actions capability-form__actions"><button className="button button--primary" disabled={!editable || isSaving} type="submit">{isSaving ? 'Saving…' : 'Save canonical revision'}</button>{conflict ? <button className="button button--warning" onClick={() => void loadCanonical()} type="button">Reload current revision</button> : null}<small>Base {load.snapshot.id.slice(0, 14)}…</small></div>
-          {message ? <div className="notice notice--success" role="status"><strong>Canonical revision saved</strong><p>{message}</p></div> : null}
-        </form>
-      ) : null}
+      {compatible
+        ? (
+            <label className='check-field capability-acceptance'>
+              <input checked={acceptedCompatible} onChange={(event) => setAcceptedCompatible(event.target.checked)} type='checkbox' />
+              <span>
+                <strong>
+                  Accept compatible controls for sing-box
+                  {' '}
+                  {exactVersion}
+                </strong>
+                <small>
+                  This manifest declares compatible rather than native structured support.
+                  Acceptance is required before any field can be edited or saved.
+                </small>
+              </span>
+            </label>
+          )
+        : null}
+      {load.status === 'loading' ? <div className='inline-loading' aria-busy='true'>Loading canonical snapshot…</div> : null}
+      {load.status === 'error' ? <ErrorNotice error={load.error} title='Could not load canonical controls' /> : null}
+      {load.status === 'ready' && draft !== null
+        ? (
+            <form onSubmit={(event) => void save(event)}>
+              {Object.keys(errors).length > 0
+                ? (
+                    <div className='form-error capability-error-summary' ref={errorSummaryRef} role='alert' tabIndex={-1}>
+                      <strong>{conflict ? 'Revision conflict' : 'Review the highlighted fields'}</strong>
+                      <span>{errors._form ?? 'Correct the following fields before saving.'}</span>
+                      {Object.entries(errors).some(([id]) => id !== '_form')
+                        ? (
+                            <ul>
+                              {Object.entries(errors).filter(([id]) => id !== '_form').map(([id, message]) => {
+                                const descriptor = descriptors.find((candidate) => candidate.id === id);
+                                return (
+                                  <li key={id}>
+                                    <a href={`#${descriptor ? descriptorInputID(descriptor) : ''}`}>
+                                      {descriptor?.label ?? id}
+                                      :
+                                      {' '}
+                                      {message}
+                                    </a>
+                                  </li>
+                                );
+                              })}
+                            </ul>
+                          )
+                        : null}
+                    </div>
+                  )
+                : null}
+              <div className='capability-fields'>
+                {descriptors.map((descriptor) => {
+                  if (!isVisible(descriptor, draft)) return null;
+                  if (descriptor.kind === 'group') {
+                    return (
+                      <div className='capability-group' key={descriptor.id}>
+                        <h3>{descriptor.label}</h3>
+                        {descriptor.help ? <p>{descriptor.help}</p> : null}
+                      </div>
+                    );
+                  }
+                  const fact = facts.get(descriptor.fact_id);
+                  return fact === undefined ? null : controlFor(descriptor, fact);
+                })}
+              </div>
+              <div className='inline-actions capability-form__actions'>
+                <button className='button button--primary' disabled={!editable || isSaving} type='submit'>{isSaving ? 'Saving…' : 'Save canonical revision'}</button>
+                {conflict ? <button className='button button--warning' onClick={() => void loadCanonical()} type='button'>Reload current revision</button> : null}
+                <small>
+                  Base
+                  {' '}
+                  {load.snapshot.id.slice(0, 14)}
+                  …
+                </small>
+              </div>
+              {message
+                ? (
+                    <div className='notice notice--success' role='status'>
+                      <strong>Canonical revision saved</strong>
+                      <p>{message}</p>
+                    </div>
+                  )
+                : null}
+            </form>
+          )
+        : null}
     </section>
   );
 }

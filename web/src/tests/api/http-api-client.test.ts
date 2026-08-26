@@ -64,7 +64,7 @@ describe('createHttpApiClient', () => {
       expect.objectContaining({
         body: JSON.stringify({ token: 'secret-token' }),
         headers: {
-          Accept: 'application/json',
+          'Accept': 'application/json',
           'Content-Type': 'application/json',
         },
         method: 'POST',
@@ -95,7 +95,7 @@ describe('createHttpApiClient', () => {
       expect.objectContaining({
         method: 'DELETE',
         headers: {
-          Accept: 'application/json',
+          'Accept': 'application/json',
           'X-CSRF-Token': 'csrf-from-session',
         },
       }),
@@ -135,7 +135,7 @@ describe('createHttpApiClient', () => {
         body: JSON.stringify({ id: 'edge', kind: 'socks', enabled: true }),
         method: 'PUT',
         headers: {
-          Accept: 'application/json',
+          'Accept': 'application/json',
           'Content-Type': 'application/json',
           'If-Match': '"revision_42"',
           'X-CSRF-Token': 'csrf-write',
@@ -227,7 +227,7 @@ describe('createHttpApiClient', () => {
         body: documentJSON,
         method: 'PUT',
         headers: {
-          Accept: 'application/json',
+          'Accept': 'application/json',
           'Content-Type': 'application/json',
           'If-Match': '"revision_42"',
           'X-CSRF-Token': 'csrf-canonical',
@@ -267,7 +267,7 @@ describe('createHttpApiClient', () => {
         body: JSON.stringify({ changes }),
         method: 'PATCH',
         headers: {
-          Accept: 'application/json',
+          'Accept': 'application/json',
           'Content-Type': 'application/json',
           'If-Match': '"revision_42"',
           'X-CSRF-Token': 'csrf-patch',
@@ -325,12 +325,12 @@ describe('createHttpApiClient', () => {
   });
 
   it('uses explicit monotonic artifact verification endpoints', async () => {
-	const fetcher = vi.fn<typeof fetch>().mockImplementation(async () =>
-	  new Response(JSON.stringify({ id: 'core/one', verification_state: 'revoked' }), {
-		status: 200,
-		headers: { 'Content-Type': 'application/json' },
-	  }),
-	);
+    const fetcher = vi.fn<typeof fetch>().mockImplementation(async () =>
+      new Response(JSON.stringify({ id: 'core/one', verification_state: 'revoked' }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    );
     const client = createHttpApiClient({ baseUrl: '/panel/api/v1', fetcher });
 
     await client.quarantineCoreArtifact('core/one');
@@ -358,12 +358,12 @@ describe('createHttpApiClient', () => {
         ),
       )
       .mockResolvedValueOnce(
-		new Response(JSON.stringify({ reverse: {} }), {
-		  status: 200,
-		  headers: { 'Content-Type': 'application/json' },
-		}),
-	  )
-	  .mockResolvedValueOnce(
+        new Response(JSON.stringify({ reverse: {} }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        }),
+      )
+      .mockResolvedValueOnce(
         new Response(JSON.stringify({ artifact: {}, revision: {}, task: {} }), {
           status: 200,
           headers: { 'Content-Type': 'application/json' },
@@ -373,26 +373,26 @@ describe('createHttpApiClient', () => {
     const raw = '{\n // exact comment\n "log": {"level":"warn"}\n}\n';
 
     await client.login('secret-token');
-	await client.previewManualReplacement({
-	  baseRevision: 'revision_42',
-	  coreVersion: '1.13.19',
-	  coreArtifactID: 'core_1',
-	  raw,
-	  allowCompatible: true,
-	});
-	expect(fetcher).toHaveBeenLastCalledWith(
-	  '/api/v1/config/manual/preview?core_version=1.13.19&core_artifact_id=core_1&allow_compatible=true',
-	  expect.objectContaining({
-		body: raw,
-		method: 'POST',
-		headers: {
-		  Accept: 'application/json',
-		  'Content-Type': 'application/jsonc',
-		  'If-Match': '"revision_42"',
-		  'X-CSRF-Token': 'csrf-manual',
-		},
-	  }),
-	);
+    await client.previewManualReplacement({
+      baseRevision: 'revision_42',
+      coreVersion: '1.13.19',
+      coreArtifactID: 'core_1',
+      raw,
+      allowCompatible: true,
+    });
+    expect(fetcher).toHaveBeenLastCalledWith(
+      '/api/v1/config/manual/preview?core_version=1.13.19&core_artifact_id=core_1&allow_compatible=true',
+      expect.objectContaining({
+        body: raw,
+        method: 'POST',
+        headers: {
+          'Accept': 'application/json',
+          'Content-Type': 'application/jsonc',
+          'If-Match': '"revision_42"',
+          'X-CSRF-Token': 'csrf-manual',
+        },
+      }),
+    );
     await client.replaceManualArtifact({
       baseRevision: 'revision_42',
       coreVersion: '1.13.19',
@@ -406,7 +406,7 @@ describe('createHttpApiClient', () => {
         body: raw,
         method: 'PUT',
         headers: {
-          Accept: 'application/json',
+          'Accept': 'application/json',
           'Content-Type': 'application/jsonc',
           'If-Match': '"revision_42"',
           'X-CSRF-Token': 'csrf-manual',

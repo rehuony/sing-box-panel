@@ -6,9 +6,13 @@ on backend implementation packages.
 ```sh
 corepack enable pnpm
 pnpm install --frozen-lockfile --ignore-scripts --verify-store-integrity
+pnpm run lint
 pnpm test
 pnpm run build
 ```
+
+Run `pnpm run lint:fix` to apply the configured TypeScript, React, CSS, and HTML
+formatting rules before checking the remaining code-quality diagnostics.
 
 `pnpm run build` produces a deterministic SPA bundle in `web/dist/`. The Go
 delivery adapter should embed that directory and use `index.html` as the

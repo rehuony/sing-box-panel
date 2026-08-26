@@ -1,13 +1,14 @@
 import { BrowserRouter } from 'react-router-dom';
 
 import type { ApiClient } from '@/api/api-client';
-import { ApiClientProvider } from '@/api/api-client-context';
+
 import { AppRoutes } from '@/routes';
-import { AuthSessionProvider } from '@/stores/auth-session.store';
+import { ApiClientProvider } from '@/api/api-client-context';
+import { AuthSessionProvider } from '@/stores/auth-session-provider';
 
 export interface AppProps {
-  apiClient: ApiClient;
   basePath?: string;
+  apiClient: ApiClient;
 }
 
 export function App({ apiClient, basePath }: AppProps) {

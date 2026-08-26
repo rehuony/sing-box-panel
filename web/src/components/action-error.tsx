@@ -1,8 +1,8 @@
 import { useEffect, useRef } from 'react';
 
 export interface ActionErrorProps {
-  message: string;
   title: string;
+  message: string;
 }
 
 export function ActionError({ message, title }: ActionErrorProps) {
@@ -17,7 +17,7 @@ export function ActionError({ message, title }: ActionErrorProps) {
   }
 
   return (
-    <div className="form-error" ref={summaryRef} role="alert" tabIndex={-1}>
+    <div className='form-error' ref={summaryRef} role='alert' tabIndex={-1}>
       <strong>{title}</strong>
       <span>{message}</span>
     </div>

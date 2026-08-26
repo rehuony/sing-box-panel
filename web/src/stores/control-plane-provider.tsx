@@ -1,30 +1,14 @@
-import {
-  createContext,
-  type ReactNode,
-  useCallback,
-  useContext,
-  useEffect,
-  useMemo,
-  useState,
-} from 'react';
+import type { ReactNode } from 'react';
 
-import type { CapabilityStatus, DashboardContext } from '@/api/api-client';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+
+import type { CapabilityStatus } from '@/api/api-client';
+
 import { useApiClient } from '@/api/api-client-context';
 
-type ControlPlaneState =
-  | { status: 'loading'; context: null; message: null }
-  | { status: 'error'; context: null; message: string }
-  | { status: 'ready'; context: DashboardContext; message: null };
+import type { ControlPlaneState, ControlPlaneValue } from './control-plane.store';
 
-type ControlPlaneValue = ControlPlaneState & {
-  refresh(signal?: AbortSignal): Promise<void>;
-  setViewVersion(version: string): void;
-  viewCapability: CapabilityStatus | null;
-  viewCapabilityError: unknown | null;
-  viewVersion: string;
-};
-
-const ControlPlaneContext = createContext<ControlPlaneValue | null>(null);
+import { ControlPlaneContext } from './control-plane.store';
 
 export interface ControlPlaneProviderProps {
   children: ReactNode;
@@ -37,7 +21,7 @@ export function ControlPlaneProvider({ children }: ControlPlaneProviderProps) {
     context: null,
     message: null,
   });
-  const [viewVersion, setViewVersionState] = useState('');
+  const [selectedViewVersion, setSelectedViewVersion] = useState('');
   const [viewCapability, setViewCapability] = useState<CapabilityStatus | null>(null);
   const [viewCapabilityError, setViewCapabilityError] = useState<unknown | null>(null);
 
@@ -46,7 +30,7 @@ export function ControlPlaneProvider({ children }: ControlPlaneProviderProps) {
     if (normalized !== '' && !/^\d+\.\d+\.\d+$/.test(normalized)) return;
     setViewCapability(null);
     setViewCapabilityError(null);
-    setViewVersionState(normalized);
+    setSelectedViewVersion(normalized);
   }, []);
 
   const refresh = useCallback(
@@ -60,7 +44,7 @@ export function ControlPlaneProvider({ children }: ControlPlaneProviderProps) {
         const context = await client.getDashboardContext(signal);
         if (!signal?.aborted) {
           setState({ status: 'ready', context, message: null });
-          setViewVersionState((current) =>
+          setSelectedViewVersion((current) =>
             current !== '' || !/^\d+\.\d+\.\d+$/.test(context.view.exactVersion)
               ? current
               : context.view.exactVersion,
@@ -68,8 +52,8 @@ export function ControlPlaneProvider({ children }: ControlPlaneProviderProps) {
         }
       } catch (error) {
         if (
-          signal?.aborted ||
-          (error instanceof DOMException && error.name === 'AbortError')
+          signal?.aborted
+          || (error instanceof DOMException && error.name === 'AbortError')
         ) {
           return;
         }
@@ -91,15 +75,9 @@ export function ControlPlaneProvider({ children }: ControlPlaneProviderProps) {
   }, [refresh]);
 
   useEffect(() => {
-    if (viewVersion === '') {
-      setViewCapability(null);
-      setViewCapabilityError(null);
-      return;
-    }
+    if (selectedViewVersion === '') return;
     const controller = new AbortController();
-    setViewCapability(null);
-    setViewCapabilityError(null);
-    void client.getCoreCapability(viewVersion, controller.signal)
+    void client.getCoreCapability(selectedViewVersion, controller.signal)
       .then((capability) => {
         if (!controller.signal.aborted) setViewCapability(capability);
       })
@@ -108,7 +86,7 @@ export function ControlPlaneProvider({ children }: ControlPlaneProviderProps) {
         setViewCapabilityError(error);
       });
     return () => controller.abort();
-  }, [client, viewVersion]);
+  }, [client, selectedViewVersion]);
 
   const value = useMemo<ControlPlaneValue>(
     () => ({
@@ -117,22 +95,10 @@ export function ControlPlaneProvider({ children }: ControlPlaneProviderProps) {
       setViewVersion,
       viewCapability,
       viewCapabilityError,
-      viewVersion,
+      viewVersion: selectedViewVersion,
     }),
-    [refresh, setViewVersion, state, viewCapability, viewCapabilityError, viewVersion],
+    [refresh, selectedViewVersion, setViewVersion, state, viewCapability, viewCapabilityError],
   );
 
-  return (
-    <ControlPlaneContext.Provider value={value}>
-      {children}
-    </ControlPlaneContext.Provider>
-  );
-}
-
-export function useControlPlane(): ControlPlaneValue {
-  const value = useContext(ControlPlaneContext);
-  if (value === null) {
-    throw new Error('useControlPlane must be used within ControlPlaneProvider');
-  }
-  return value;
+  return <ControlPlaneContext value={value}>{children}</ControlPlaneContext>;
 }
