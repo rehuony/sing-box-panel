@@ -22,13 +22,15 @@ differ from the checked-out commit:
 The overlay resolves an unavoidable self-reference: committing a ledger that
 names its own resulting commit would change that commit. Every ledger and
 record instead names the immutable source `HEAD` that was reviewed. A formal
-build requires its non-zero lowercase full `RELEASE_COMMIT` to equal that
-actual `HEAD`, rejects every staged, modified, or untracked source outside the
-allowlist above, validates the ledger and record digests, and then embeds the
-validated overlay. Ignore rules and hidden tracked-file index flags do not hide
-other inputs, and inherited Go workspace/overlay settings are disabled. The
-formal path recreates locked Web dependencies, then revalidates the source and
-reruns readiness after rebuilding the Web distribution, so the exact evidence
-bytes embedded by the subsequent Go build have passed the ledger gate. No
-application source or additional evidence filename is accepted through this
-exception.
+build derives that commit directly from Git, exports the committed source, and
+then replaces only the paths above with regular, non-symlink files from the
+working tree. Deleting one of those working-tree files also deletes it from the
+snapshot. All other staged, modified, untracked, and ignored files are outside
+the build context.
+
+The repository-only readiness tool embeds and validates this overlay, including
+the ledger and record digests, before authorizing a formal build. Evidence is
+not linked into the shipped `sing-box-panel` binary. Inherited Go workspaces,
+overlays, experiments, persistent settings, and ordinary dependency caches are
+disabled for the isolated build. No application source or additional evidence
+filename is accepted through the overlay.

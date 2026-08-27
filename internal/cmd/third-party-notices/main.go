@@ -7,6 +7,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 
@@ -14,51 +15,77 @@ import (
 )
 
 func main() {
-	if err := run(context.Background(), os.Args[1:]); err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
-	}
+	os.Exit(run(context.Background(), os.Args[1:], os.Stdout, os.Stderr))
 }
 
-func run(ctx context.Context, arguments []string) error {
+type commandDependencies struct {
+	findRoot func() (string, error)
+	generate func(context.Context, string) ([]byte, error)
+	readFile func(string) ([]byte, error)
+	write    func(string, []byte) error
+}
+
+func run(ctx context.Context, arguments []string, stdout, stderr io.Writer) int {
+	return runWithDependencies(ctx, arguments, stdout, stderr, commandDependencies{
+		findRoot: findRepositoryRoot,
+		generate: notices.Generate,
+		readFile: os.ReadFile,
+		write:    writeAtomically,
+	})
+}
+
+func runWithDependencies(
+	ctx context.Context,
+	arguments []string,
+	stdout io.Writer,
+	stderr io.Writer,
+	dependencies commandDependencies,
+) int {
 	flags := flag.NewFlagSet("third-party-notices", flag.ContinueOnError)
+	flags.SetOutput(stderr)
 	check := flags.Bool("check", false, "fail if THIRD_PARTY_NOTICES is not current")
 	output := flags.String("output", "THIRD_PARTY_NOTICES", "notice file path, relative to the repository root")
 	if err := flags.Parse(arguments); err != nil {
-		return err
+		return 2
 	}
 	if flags.NArg() != 0 {
-		return fmt.Errorf("unexpected positional arguments: %v", flags.Args())
+		_, _ = fmt.Fprintf(stderr, "unexpected positional arguments: %v\n", flags.Args())
+		return 2
 	}
 
-	root, err := findRepositoryRoot()
+	root, err := dependencies.findRoot()
 	if err != nil {
-		return err
+		_, _ = fmt.Fprintln(stderr, err)
+		return 1
 	}
-	generated, err := notices.Generate(ctx, root)
+	generated, err := dependencies.generate(ctx, root)
 	if err != nil {
-		return fmt.Errorf("generate third-party notices: %w", err)
+		_, _ = fmt.Fprintf(stderr, "generate third-party notices: %v\n", err)
+		return 1
 	}
 	outputPath := *output
 	if !filepath.IsAbs(outputPath) {
 		outputPath = filepath.Join(root, outputPath)
 	}
 	if *check {
-		current, err := os.ReadFile(outputPath)
+		current, err := dependencies.readFile(outputPath)
 		if err != nil {
-			return fmt.Errorf("read committed notices: %w", err)
+			_, _ = fmt.Fprintf(stderr, "read committed notices: %v\n", err)
+			return 1
 		}
 		if !bytes.Equal(current, generated) {
-			return fmt.Errorf("%s is stale; run go run ./cmd/third-party-notices", outputPath)
+			_, _ = fmt.Fprintf(stderr, "%s is stale; run make notices\n", outputPath)
+			return 1
 		}
-		fmt.Printf("third-party notices are current: %s\n", outputPath)
-		return nil
+		_, _ = fmt.Fprintf(stdout, "third-party notices are current: %s\n", outputPath)
+		return 0
 	}
-	if err := writeAtomically(outputPath, generated); err != nil {
-		return err
+	if err := dependencies.write(outputPath, generated); err != nil {
+		_, _ = fmt.Fprintln(stderr, err)
+		return 1
 	}
-	fmt.Printf("generated %s\n", outputPath)
-	return nil
+	_, _ = fmt.Fprintf(stdout, "generated %s\n", outputPath)
+	return 0
 }
 
 func findRepositoryRoot() (string, error) {

@@ -1,43 +1,55 @@
 # Release build materials
 
-`scripts/build-release.sh` builds the two supported Linux targets without
-publishing, uploading, signing, installing, or modifying repository files.
+`build-release.sh` is the repository's only release-packaging implementation.
+It builds but never publishes, uploads, signs, installs, or retains artifacts.
 
-Prerequisites:
+## Interface
 
-```sh
-corepack enable pnpm
-(cd web && pnpm install --frozen-lockfile --ignore-scripts --verify-store-integrity)
-(cd web && pnpm run build)
-```
-
-Build into a new output directory:
+From the repository root:
 
 ```sh
-RELEASE_VERSION=v0.1.0 \
-RELEASE_COMMIT="$(git rev-parse HEAD)" \
-RELEASE_DATE=2026-08-26T00:00:00Z \
-./scripts/build-release.sh /absolute/path/to/output
+packaging/release/build-release.sh snapshot --output /absolute/path/to/new-output
+packaging/release/build-release.sh release --version v0.1.0 --output /absolute/path/to/new-output
+packaging/release/build-release.sh release --version v0.1.0 --output /absolute/path/to/new-output --date 2026-08-27T00:00:00Z
+packaging/release/build-release.sh verify
 ```
 
-The script refuses to overwrite any expected output and creates:
+The Make targets `snapshot`, `release`, and `release-verify` are the normal
+developer and CI entry points. The destination of `snapshot` and `release`
+must not exist, and its parent directory must already exist.
+
+`snapshot` uses version `dev` and skips only GA authorization. `release`
+requires a strict v-prefixed SemVer and a successful readiness check. Both
+derive the full source commit from `HEAD`; the build date defaults to that
+commit's timestamp.
+
+## Isolated build model
+
+The script:
+
+1. exports committed `HEAD` to a private temporary source tree;
+2. replaces only the six permitted evidence paths with regular, non-symlink
+   files from the working tree when present;
+3. installs and builds the Web application in another temporary tree using
+   the package-pinned pnpm, frozen lockfile, disabled lifecycle scripts, and
+   an isolated store;
+4. verifies the Web distribution before copying it into the source snapshot;
+5. downloads and verifies Go modules with isolated caches and inherited
+   workspaces, overlays, experiments, and persistent Go settings disabled;
+6. cross-builds Linux amd64 and arm64 with `CGO_ENABLED=0`, fixed CPU
+   baselines, `webdist`, `-trimpath`, and `-buildvcs=false`;
+7. generates and verifies `SHA256SUMS` in staging before atomically renaming
+   the complete output directory.
+
+The resulting directory contains:
 
 - `sing-box-panel-linux-amd64`
 - `sing-box-panel-linux-arm64`
 - `SHA256SUMS`
 
-Both binaries are built with `CGO_ENABLED=0`, `-trimpath`, and the `webdist`
-tag. CI writes them only to `RUNNER_TEMP`; no workflow in this repository
-publishes or retains them. A future release workflow must be reviewed as a
-separate privileged change before it can upload these files.
+The script never moves or edits the caller's `web/node_modules` or `web/dist`.
+Uncommitted non-evidence files are intentionally ignored: use `make build`
+when testing working-tree source changes.
 
-`RELEASE_VERSION` must be set. Only the exact values `dev` and `ci` may build
-while GA readiness is false, and they print the open-gate warning. Every other
-value must be strict v-prefixed SemVer and passes through the executable GA gate
-before any binary is built; unset, empty, arbitrary, and malformed values fail
-closed.
-
-GA requires both an embedded SQLite runtime of 3.53.4 or newer and a complete
-embedded `release/evidence.json` ledger. Ledger records pin reviewed evidence
-documents by source commit and SHA-256. The checked-in ledger is intentionally
-incomplete, so upgrading SQLite alone cannot accidentally enable a release.
+Evidence is a release-authorization input consumed by the repository-only
+readiness tool. It is not embedded in the shipped product binary.

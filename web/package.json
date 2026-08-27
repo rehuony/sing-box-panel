@@ -5,8 +5,9 @@
   "packageManager": "pnpm@11.21.0",
   "type": "module",
   "scripts": {
-    "build": "tsc --noEmit && vite build",
     "dev": "vite",
+    "build": "pnpm run typecheck && pnpm run bundle",
+    "bundle": "vite build",
     "lint": "eslint . --max-warnings 0",
     "lint:fix": "eslint . --fix",
     "preview": "vite preview",

@@ -64,10 +64,8 @@ Install the locked frontend dependencies, run the repository checks, and build
 the web-enabled binary:
 
 ```sh
-corepack enable pnpm
-(cd web && pnpm install --frozen-lockfile --ignore-scripts --verify-store-integrity)
-make check
-make build
+make bootstrap
+make check build
 ```
 
 Initialize an isolated development instance and start the server:
@@ -106,10 +104,11 @@ evidence, and the web application.
 ```text
 api/                 OpenAPI source contract
 capabilities/        Reviewed exact-version capability manifests
-cmd/                 Application and repository tool entry points
+cmd/                 Published sing-box-panel entry point
+internal/cmd/        Repository-only Go tools
 internal/            Go implementation packages
-packaging/           Release and systemd packaging materials
-release/             Embedded release evidence ledger
+packaging/           Release scripts and systemd packaging materials
+release/             Release-authorization evidence
 web/                 React/Vite application managed with pnpm
 ```
 

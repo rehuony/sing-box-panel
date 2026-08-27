@@ -1,113 +1,110 @@
 # Release process
 
-The repository can build static Linux artifacts but does not publish, upload,
-sign, install, or retain them. Formal versions are fail-closed and require the
-executable GA readiness gate to pass.
+The repository builds static Linux artifacts but does not publish, upload,
+sign, install, or retain them. Local builds, reproducible snapshots, and formal
+releases are intentionally separate workflows.
 
-## Development builds
+## Local development build
 
-Build the Web distribution before invoking the release script:
-
-```sh
-corepack enable pnpm
-(cd web && pnpm install --frozen-lockfile --ignore-scripts --verify-store-integrity)
-(cd web && pnpm run build)
-RELEASE_VERSION=dev ./scripts/build-release.sh ./out-dev
-```
-
-`RELEASE_VERSION` is mandatory. Only the exact values `dev` and `ci` may
-continue while GA readiness is false. They emit the open-gate warning and may
-use `unknown` when `RELEASE_COMMIT` is omitted. They resolve the active GOPATH,
-module cache, and build cache through `go env`.
-
-The destination must not already contain an expected output and must not be
-inside a `go:embed` source tree.
-
-## Formal builds
-
-A formal version uses strict v-prefixed SemVer and requires a non-zero,
-lowercase, full 40- or 64-character `RELEASE_COMMIT`:
+Build the current working tree, including uncommitted source changes:
 
 ```sh
-RELEASE_VERSION=v0.1.0 \
-RELEASE_COMMIT="$(git rev-parse HEAD)" \
-./scripts/build-release.sh /absolute/path/to/output
+make bootstrap
+make build
 ```
 
-`RELEASE_DATE` may supply the whitespace-free build timestamp recorded in the
-binary; it defaults to `unknown` when omitted.
+This writes `bin/sing-box-panel`. It is the appropriate command while
+developing, but it is not the release packaging path.
 
-The commit must equal both the checked-out Git `HEAD` and the source commit in
-the validated embedded evidence ledger. A formal build rejects staged,
-modified, or untracked inputs outside the narrow evidence overlay documented
-in [Release evidence records](../release/evidence/README.md). Ignore rules and
-Git `skip-worktree` or `assume-unchanged` flags cannot hide another source
-input.
+## HEAD snapshot
 
-The script also disables inherited Go workspaces, overlays, persistent Go
-environment overrides, experiments, and automatic toolchain selection. It
-uses isolated temporary GOPATH, module, and build caches, forces module mode,
-downloads the complete module graph, and runs `go mod verify` at both readiness
-boundaries. Advertised CPU baselines are fixed to `GOAMD64=v1` and
-`GOARM64=v8.0`.
+Build both supported Linux architectures from committed `HEAD` without
+requiring GA authorization:
 
-After the first readiness decision, the formal path moves existing
-`web/node_modules` and `web/dist` aside. It recreates locked Web dependencies
-with the package-pinned pnpm, isolated Corepack and store state, a frozen
-lockfile, disabled lifecycle scripts, and store-integrity verification. It
-builds a fresh distribution, verifies the index and assets, rechecks source
-state, and reruns readiness against the exact evidence bytes that the Go
-binaries will embed. The caller's original Web trees are restored on exit.
+```sh
+make snapshot OUT=/absolute/path/to/new-output-directory
+```
+
+The output directory must not already exist and its parent must already be a
+directory. The snapshot version is `dev`; its commit and date come from
+`HEAD`. Uncommitted application changes, untracked files, ignored files, and
+existing `web/node_modules` or `web/dist` do not enter or block the build.
+
+## Formal release
+
+A formal version uses strict v-prefixed SemVer and must pass the executable GA
+readiness gate:
+
+```sh
+make release VERSION=v0.1.0 OUT=/absolute/path/to/new-output-directory
+```
+
+The recorded date defaults to the `HEAD` commit timestamp. Supply an explicit
+RFC 3339 value only when the release process requires one:
+
+```sh
+make release VERSION=v0.1.0 DATE=2026-08-27T00:00:00Z OUT=/absolute/path/to/new-output-directory
+```
+
+The commit is always derived from `HEAD`; the release interface does not
+accept caller-provided commit metadata or the former `RELEASE_*` environment
+variables.
+
+## Source isolation and evidence overlay
+
+Snapshot and release builds share one implementation in
+`packaging/release/build-release.sh`. It exports committed `HEAD` into a
+temporary source tree, builds the Web application from a separate temporary
+copy with locked dependencies, and copies only the verified `web/dist` into
+the source snapshot. Go module, build, and package-manager state is isolated
+from the caller's normal caches.
+
+Formal builds may overlay only `release/evidence.json` and the five evidence
+records listed in [Release evidence records](../release/evidence/README.md).
+This narrow exception solves the ledger's commit self-reference; no
+application source or additional evidence filename can enter through it.
+
+Evidence authorizes a formal build. It is embedded in the private
+`release-readiness` repository tool, not in the shipped `sing-box-panel`
+binary.
 
 ## GA readiness
 
 Inspect the authoritative gate directly:
 
 ```sh
-go run ./cmd/release-readiness
+go tool release-readiness
 ```
 
-The argument-free form is diagnostic and emits a JSON status. Readiness is the
-conjunction of:
+The command always emits its JSON status to stdout. It exits `0` when ready,
+`3` when valid evidence reports that release requirements are not yet met,
+`2` for invalid arguments, and `1` for an internal failure. Formal checks pass
+`--release-version` and `--source-commit` together.
 
-- an embedded SQLite version at or above the required minimum; and
-- a complete, digest-pinned, reviewed evidence ledger for the same source
-  commit.
-
-The required evidence categories are the core-version matrix, structured
-capability matrix, Linux runtime resilience, browser contract and
-accessibility, and subscription/observability end-to-end evidence. The exact
-record schema and permitted overlay paths are defined by
-[Release evidence records](../release/evidence/README.md).
-
-Formal use supplies `--release-version` and `--source-commit` together. Either
-one alone is invalid. Upgrading SQLite cannot open the gate while evidence is
-missing or invalid, and complete evidence from another source commit cannot
-authorize the current checkout.
+Readiness requires both the minimum embedded SQLite version and a complete,
+digest-pinned, reviewed evidence ledger for the same source commit. The
+checked-in gate is intentionally closed until all requirements are satisfied.
 
 ## Outputs and verification
 
-The build script creates:
+Both snapshot and formal release create exactly:
 
-- `sing-box-panel-linux-amd64`;
-- `sing-box-panel-linux-arm64`; and
-- `SHA256SUMS`.
+- `sing-box-panel-linux-amd64`
+- `sing-box-panel-linux-arm64`
+- `SHA256SUMS`
 
-Both binaries use `CGO_ENABLED=0`, `-trimpath`, and the `webdist` tag. The
-verification wrapper evaluates readiness, confirms that a formal build is
-blocked when the gate is open, then exercises the `ci` development path and
-checks both Linux outputs:
+The binaries use `CGO_ENABLED=0`, fixed CPU baselines, `-trimpath`,
+`-buildvcs=false`, and the `webdist` tag. Files are assembled and verified in
+a staging directory, then the whole directory is renamed into place so a
+failed build cannot leave partial output.
+
+Exercise the complete snapshot path and the current formal-gate outcome with:
 
 ```sh
-./scripts/verify-release-build.sh /absolute/path/to/output
+make release-verify
 ```
 
-CI additionally validates notices, shell syntax, OpenAPI, Go formatting and
-module tidiness, `go vet`, normal and race-enabled tests, deterministic fuzz
-smoke tests, Web type checking/tests/build, the embedded host binary, and
-checksums for both Linux architectures.
-
-No workflow publishes these files. Adding uploads, release creation, signing,
-or a distribution channel is a separate privileged change. See
-[Release build materials](../packaging/release/README.md) for the authoritative
-script interface.
+For the exact script interface and environment isolation rules, see
+[Release build materials](../packaging/release/README.md). No workflow
+publishes these files; adding uploads, release creation, signing, or a
+distribution channel remains a separate privileged change.

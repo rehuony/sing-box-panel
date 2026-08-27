@@ -13,16 +13,15 @@ package-pinned pnpm 11.21.0. Go and Web dependencies are locked by `go.mod`,
 From the repository root:
 
 ```sh
-corepack enable pnpm
-(cd web && pnpm install --frozen-lockfile --ignore-scripts --verify-store-integrity)
-make check
-make build
+make bootstrap
+make check build
 ```
 
-`make check` validates third-party notices and OpenAPI, runs Web tests and a
-production Web build, verifies that Go sources are already formatted, and runs
-`go vet` and Go tests. It is read-only and does not rewrite the working tree.
-`make build` writes `bin/sing-box-panel` with the `webdist` build tag.
+`make check` validates third-party notices and OpenAPI, runs Web linting,
+type-checking and tests, verifies that Go sources and modules are current, and
+runs `go vet` and Go tests. It is read-only and does not create `web/dist`.
+`make build` builds the production Web bundle and writes
+`bin/sing-box-panel` with the `webdist` build tag.
 
 A plain `go build` embeds only a small development fallback page. It is not the
 production Web build.

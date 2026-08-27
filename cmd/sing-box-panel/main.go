@@ -16,12 +16,6 @@ import (
 	webui "github.com/rehuony/sing-box-panel/web"
 )
 
-var (
-	version = "dev"
-	commit  = "unknown"
-	date    = "unknown"
-)
-
 func main() {
 	os.Exit(run())
 }
@@ -39,7 +33,7 @@ func run() int {
 	defer close(watcherDone)
 	go watchSignalContext(signals, watcherDone, cancel, &signalExit)
 
-	build := buildinfo.Info{Version: version, Commit: commit, Date: date}
+	build := buildinfo.Current()
 	root := cli.NewRootCommand(cli.Dependencies{
 		Stdin:           os.Stdin,
 		Stdout:          os.Stdout,
