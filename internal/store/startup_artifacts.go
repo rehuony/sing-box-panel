@@ -56,6 +56,24 @@ type StartupArtifact struct {
 	CreatedAt           time.Time            `json:"created_at"`
 }
 
+// StartupArtifactSummary contains only metadata safe for collection queries.
+// ConfigBytes remains available exclusively through GetStartupArtifact.
+type StartupArtifactSummary struct {
+	ID                  string
+	Kind                StartupArtifactKind
+	CanonicalRevisionID string
+	ExactCoreVersion    string
+	CapabilityCommit    string
+	CapabilityDigest    string
+	RendererVersion     string
+	CoreArtifactID      string
+	ConfigSHA256        string
+	Diagnostics         json.RawMessage
+	State               StartupArtifactState
+	CheckedAt           *time.Time
+	CreatedAt           time.Time
+}
+
 type StartupArtifactListFilter struct {
 	CanonicalRevisionID string
 	ExactCoreVersion    string
@@ -67,7 +85,7 @@ type StartupArtifactListFilter struct {
 }
 
 type StartupArtifactPage struct {
-	Items []StartupArtifact
+	Items []StartupArtifactSummary
 	Next  *CreatedAtCursor
 }
 
@@ -75,6 +93,11 @@ const startupArtifactColumns = `
     id, kind, canonical_revision_id, exact_core_version, capability_commit,
     capability_digest, renderer_version, core_artifact_id, config_bytes,
     config_sha256, diagnostics_json, state, checked_at, created_at`
+
+const startupArtifactSummaryColumns = `
+    id, kind, canonical_revision_id, exact_core_version, capability_commit,
+    capability_digest, renderer_version, core_artifact_id, config_sha256,
+    diagnostics_json, state, checked_at, created_at`
 
 // CreateStartupArtifact inserts an immutable pending candidate. Only the
 // durable checker may transition it to ready or failed.
@@ -181,7 +204,7 @@ func (s *Store) ListStartupArtifacts(
 	args = append(args, limit+1)
 	rows, err := s.db.QueryContext(
 		ctx,
-		`SELECT `+startupArtifactColumns+` FROM startup_artifacts
+		`SELECT `+startupArtifactSummaryColumns+` FROM startup_artifacts
           WHERE `+strings.Join(clauses, " AND ")+`
           ORDER BY created_at DESC, id DESC LIMIT ?`,
 		args...,
@@ -190,9 +213,9 @@ func (s *Store) ListStartupArtifacts(
 		return StartupArtifactPage{}, fmt.Errorf("list startup artifacts: %w", err)
 	}
 	defer rows.Close()
-	items := make([]StartupArtifact, 0, limit+1)
+	items := make([]StartupArtifactSummary, 0, limit+1)
 	for rows.Next() {
-		artifact, err := scanStartupArtifact(rows)
+		artifact, err := scanStartupArtifactSummary(rows)
 		if err != nil {
 			return StartupArtifactPage{}, fmt.Errorf("scan startup artifact: %w", err)
 		}
@@ -426,6 +449,45 @@ func scanStartupArtifact(row taskScanner) (StartupArtifact, error) {
 		parsed, err := parseTaskTime(checkedAt.String)
 		if err != nil {
 			return StartupArtifact{}, fmt.Errorf("parse checked_at: %w", err)
+		}
+		artifact.CheckedAt = &parsed
+	}
+	return artifact, nil
+}
+
+func scanStartupArtifactSummary(row taskScanner) (StartupArtifactSummary, error) {
+	var artifact StartupArtifactSummary
+	var capabilityCommit, capabilityDigest, checkedAt sql.NullString
+	var diagnostics, createdAt string
+	if err := row.Scan(
+		&artifact.ID,
+		&artifact.Kind,
+		&artifact.CanonicalRevisionID,
+		&artifact.ExactCoreVersion,
+		&capabilityCommit,
+		&capabilityDigest,
+		&artifact.RendererVersion,
+		&artifact.CoreArtifactID,
+		&artifact.ConfigSHA256,
+		&diagnostics,
+		&artifact.State,
+		&checkedAt,
+		&createdAt,
+	); err != nil {
+		return StartupArtifactSummary{}, err
+	}
+	artifact.CapabilityCommit = valueOrEmpty(capabilityCommit)
+	artifact.CapabilityDigest = valueOrEmpty(capabilityDigest)
+	artifact.Diagnostics = append(json.RawMessage(nil), diagnostics...)
+	var err error
+	artifact.CreatedAt, err = parseTaskTime(createdAt)
+	if err != nil {
+		return StartupArtifactSummary{}, fmt.Errorf("parse created_at: %w", err)
+	}
+	if checkedAt.Valid {
+		parsed, err := parseTaskTime(checkedAt.String)
+		if err != nil {
+			return StartupArtifactSummary{}, fmt.Errorf("parse checked_at: %w", err)
 		}
 		artifact.CheckedAt = &parsed
 	}

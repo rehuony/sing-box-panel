@@ -70,23 +70,38 @@ func newSubscriptionChannelCommand(state *options, open openApplicationFunc) *co
 }
 
 func newSubscriptionChannelListCommand(state *options, open openApplicationFunc) *cobra.Command {
-	return &cobra.Command{
+	var beforeTime, beforeID string
+	var limit int
+	command := &cobra.Command{
 		Use:   "list",
 		Short: "List subscription channels",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			cursor, err := parseSubscriptionCursor(beforeTime, beforeID)
+			if err != nil {
+				return err
+			}
 			instance, err := openApplication(cmd.Context(), state.settingsPath, open)
 			if err != nil {
 				return err
 			}
 			defer instance.Close()
-			channels, err := instance.ListSubscriptionChannels(cmd.Context())
+			page, err := instance.ListSubscriptionChannels(cmd.Context(), application.SubscriptionListRequest{
+				Cursor: cursor, Limit: limit,
+			})
 			if err != nil {
 				return classifySubscriptionError("subscription_channel_list_failed", err)
 			}
-			return writeSubscriptionList(cmd.OutOrStdout(), state.format, channels, subscriptionChannelListText)
+			if state.format == outputJSONL {
+				return writeSubscriptionJSONLines(cmd.OutOrStdout(), page.Items)
+			}
+			return writeResult(cmd.OutOrStdout(), state.format, page, subscriptionPageText(
+				subscriptionChannelListText(page.Items), page.Next,
+			))
 		},
 	}
+	addSubscriptionPageFlags(command, &beforeTime, &beforeID, &limit)
+	return command
 }
 
 func newSubscriptionChannelShowCommand(state *options, open openApplicationFunc) *cobra.Command {
@@ -190,7 +205,7 @@ func newSubscriptionChannelDeleteCommand(state *options, open openApplicationFun
 	var expectedRaw string
 	command := &cobra.Command{
 		Use:   "delete CHANNEL_ID",
-		Short: "Delete an unreferenced subscription channel using updated_at compare-and-swap",
+		Short: "Delete a subscription channel using updated_at compare-and-swap",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			channelID, err := requiredSubscriptionID(args[0], "channel")
@@ -265,23 +280,38 @@ func newSubscriptionSourceCommand(state *options, open openApplicationFunc) *cob
 }
 
 func newSubscriptionSourceListCommand(state *options, open openApplicationFunc) *cobra.Command {
-	return &cobra.Command{
+	var beforeTime, beforeID string
+	var limit int
+	command := &cobra.Command{
 		Use:   "list",
 		Short: "List attached subscription sources",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			cursor, err := parseSubscriptionCursor(beforeTime, beforeID)
+			if err != nil {
+				return err
+			}
 			instance, err := openApplication(cmd.Context(), state.settingsPath, open)
 			if err != nil {
 				return err
 			}
 			defer instance.Close()
-			sources, err := instance.ListSubscriptionSources(cmd.Context())
+			page, err := instance.ListSubscriptionSources(cmd.Context(), application.SubscriptionListRequest{
+				Cursor: cursor, Limit: limit,
+			})
 			if err != nil {
 				return classifySubscriptionError("subscription_source_list_failed", err)
 			}
-			return writeSubscriptionList(cmd.OutOrStdout(), state.format, sources, subscriptionSourceListText)
+			if state.format == outputJSONL {
+				return writeSubscriptionJSONLines(cmd.OutOrStdout(), page.Items)
+			}
+			return writeResult(cmd.OutOrStdout(), state.format, page, subscriptionPageText(
+				subscriptionSourceListText(page.Items), page.Next,
+			))
 		},
 	}
+	addSubscriptionPageFlags(command, &beforeTime, &beforeID, &limit)
+	return command
 }
 
 func newSubscriptionSourceShowCommand(state *options, open openApplicationFunc) *cobra.Command {
@@ -469,39 +499,47 @@ func newSubscriptionTokenCommand(state *options, open openApplicationFunc) *cobr
 }
 
 func newSubscriptionTokenListCommand(state *options, open openApplicationFunc) *cobra.Command {
-	return &cobra.Command{
+	var beforeTime, beforeID string
+	var limit int
+	command := &cobra.Command{
 		Use:   "list",
 		Short: "List subscription token metadata without plaintext or digests",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			cursor, err := parseSubscriptionCursor(beforeTime, beforeID)
+			if err != nil {
+				return err
+			}
 			instance, err := openApplication(cmd.Context(), state.settingsPath, open)
 			if err != nil {
 				return err
 			}
 			defer instance.Close()
-			tokens, err := instance.ListSubscriptionTokens(cmd.Context())
+			page, err := instance.ListSubscriptionTokens(cmd.Context(), application.SubscriptionListRequest{
+				Cursor: cursor, Limit: limit,
+			})
 			if err != nil {
 				return classifySubscriptionError("subscription_token_list_failed", err)
 			}
-			return writeSubscriptionList(cmd.OutOrStdout(), state.format, tokens, subscriptionTokenListText)
+			if state.format == outputJSONL {
+				return writeSubscriptionJSONLines(cmd.OutOrStdout(), page.Items)
+			}
+			return writeResult(cmd.OutOrStdout(), state.format, page, subscriptionPageText(
+				subscriptionTokenListText(page.Items), page.Next,
+			))
 		},
 	}
+	addSubscriptionPageFlags(command, &beforeTime, &beforeID, &limit)
+	return command
 }
 
 func newSubscriptionTokenCreateCommand(state *options, open openApplicationFunc) *cobra.Command {
-	var channelID, expiryRaw string
+	var expiryRaw string
 	command := &cobra.Command{
 		Use:   "create",
 		Short: "Create a subscription token and print its plaintext once",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			if channelID != "" {
-				var err error
-				channelID, err = requiredSubscriptionID(channelID, "channel")
-				if err != nil {
-					return err
-				}
-			}
 			expiresAt, err := optionalSubscriptionExpiry(expiryRaw)
 			if err != nil {
 				return err
@@ -512,7 +550,7 @@ func newSubscriptionTokenCreateCommand(state *options, open openApplicationFunc)
 			}
 			defer instance.Close()
 			created, err := instance.CreateSubscriptionToken(cmd.Context(), application.CreateSubscriptionTokenRequest{
-				ChannelID: channelID, ExpiresAt: expiresAt,
+				ExpiresAt: expiresAt,
 			})
 			if err != nil {
 				return classifySubscriptionError("subscription_token_create_failed", err)
@@ -521,7 +559,6 @@ func newSubscriptionTokenCreateCommand(state *options, open openApplicationFunc)
 			return writeResult(cmd.OutOrStdout(), state.format, created, text)
 		},
 	}
-	command.Flags().StringVar(&channelID, "channel", "", "bind the token to one channel ID; omit for format selection at request time")
 	command.Flags().StringVar(&expiryRaw, "expires-at", "", "optional exclusive RFC3339 expiry")
 	return command
 }
@@ -752,6 +789,66 @@ func optionalSubscriptionExpiry(raw string) (*time.Time, error) {
 	return &parsed, nil
 }
 
+func addSubscriptionPageFlags(
+	command *cobra.Command,
+	beforeTime *string,
+	beforeID *string,
+	limit *int,
+) {
+	command.Flags().StringVar(beforeTime, "before-time", "", "exclusive next-page RFC3339 timestamp (requires --before-id)")
+	command.Flags().StringVar(beforeID, "before-id", "", "exclusive next-page resource ID (requires --before-time)")
+	command.Flags().IntVar(limit, "limit", 50, "maximum resources to return (1-200)")
+}
+
+func parseSubscriptionCursor(rawTime string, rawID string) (*application.SubscriptionCursor, error) {
+	rawTime = strings.TrimSpace(rawTime)
+	rawID = strings.TrimSpace(rawID)
+	if rawTime == "" && rawID == "" {
+		return nil, nil
+	}
+	if rawTime == "" || rawID == "" {
+		return nil, &Error{
+			Kind: ErrorUsage, Code: "subscription_cursor_invalid",
+			Message: "--before-time and --before-id must be provided together",
+		}
+	}
+	createdAt, err := time.Parse(time.RFC3339Nano, rawTime)
+	if err != nil {
+		return nil, &Error{
+			Kind: ErrorUsage, Code: "subscription_cursor_invalid",
+			Message: "--before-time must be an RFC3339 timestamp", Cause: err,
+		}
+	}
+	identifier, err := requiredSubscriptionID(rawID, "cursor")
+	if err != nil {
+		return nil, err
+	}
+	return &application.SubscriptionCursor{CreatedAt: createdAt.UTC(), ID: identifier}, nil
+}
+
+func subscriptionPageText(value string, next *application.SubscriptionCursor) string {
+	if next == nil {
+		return value
+	}
+	return fmt.Sprintf(
+		"%s\nnext\t--before-time=%s --before-id=%s",
+		value,
+		formatSubscriptionTime(next.CreatedAt),
+		next.ID,
+	)
+}
+
+func writeSubscriptionJSONLines[T any](writer io.Writer, items []T) error {
+	encoder := json.NewEncoder(writer)
+	encoder.SetEscapeHTML(false)
+	for _, item := range items {
+		if err := encoder.Encode(item); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func subscriptionInputError(code string, err error) error {
 	return &Error{Kind: ErrorValidation, Code: code, Message: err.Error(), Cause: err}
 }
@@ -762,8 +859,8 @@ func classifySubscriptionError(code string, err error) error {
 		return &Error{Kind: ErrorConflict, Code: "subscription_conflict", Message: err.Error(), Cause: err}
 	case errors.Is(err, store.ErrSubscriptionChannelExists):
 		return &Error{Kind: ErrorConflict, Code: "subscription_channel_exists", Message: err.Error(), Cause: err}
-	case errors.Is(err, store.ErrSubscriptionChannelInUse):
-		return &Error{Kind: ErrorConflict, Code: "subscription_channel_in_use", Message: err.Error(), Cause: err}
+	case errors.Is(err, store.ErrSubscriptionLimitExceeded), errors.Is(err, application.ErrSubscriptionSnapshotTooLarge):
+		return &Error{Kind: ErrorValidation, Code: "subscription_limit_exceeded", Message: err.Error(), Cause: err}
 	case errors.Is(err, store.ErrSubscriptionSourceExists):
 		return &Error{Kind: ErrorConflict, Code: "subscription_source_exists", Message: err.Error(), Cause: err}
 	case errors.Is(err, store.ErrSubscriptionTokenExists):
@@ -785,35 +882,7 @@ func classifySubscriptionError(code string, err error) error {
 	}
 }
 
-func writeSubscriptionList[T any](
-	writer io.Writer,
-	format outputFormat,
-	values []T,
-	text func([]T) string,
-) error {
-	switch format {
-	case outputText:
-		_, err := fmt.Fprintln(writer, text(values))
-		return err
-	case outputJSON:
-		encoder := json.NewEncoder(writer)
-		encoder.SetEscapeHTML(false)
-		return encoder.Encode(values)
-	case outputJSONL:
-		encoder := json.NewEncoder(writer)
-		encoder.SetEscapeHTML(false)
-		for _, value := range values {
-			if err := encoder.Encode(value); err != nil {
-				return err
-			}
-		}
-		return nil
-	default:
-		return &Error{Kind: ErrorUsage, Code: "invalid_output", Message: "output must be text, json, or jsonl"}
-	}
-}
-
-func subscriptionChannelListText(values []application.SubscriptionChannel) string {
+func subscriptionChannelListText(values []application.SubscriptionChannelSummary) string {
 	if len(values) == 0 {
 		return "no subscription channels"
 	}
@@ -825,14 +894,14 @@ func subscriptionChannelListText(values []application.SubscriptionChannel) strin
 	return strings.TrimSuffix(output.String(), "\n")
 }
 
-func subscriptionSourceListText(values []application.SubscriptionSource) string {
+func subscriptionSourceListText(values []application.SubscriptionSourceSummary) string {
 	if len(values) == 0 {
 		return "no subscription sources"
 	}
 	var output strings.Builder
 	output.WriteString("ID\tNAME\tKIND\tENABLED\tSNAPSHOT\tUPDATED_AT\n")
 	for _, value := range values {
-		fmt.Fprintf(&output, "%s\t%s\t%s\t%t\t%t\t%s\n", value.ID, value.Name, value.SourceKind, value.Enabled, len(value.LatestSnapshot) != 0, formatSubscriptionTime(value.UpdatedAt))
+		fmt.Fprintf(&output, "%s\t%s\t%s\t%t\t%t\t%s\n", value.ID, value.Name, value.SourceKind, value.Enabled, value.HasSnapshot, formatSubscriptionTime(value.UpdatedAt))
 	}
 	return strings.TrimSuffix(output.String(), "\n")
 }
@@ -842,11 +911,11 @@ func subscriptionTokenListText(values []application.SubscriptionToken) string {
 		return "no subscription tokens"
 	}
 	var output strings.Builder
-	output.WriteString("ID\tCHANNEL\tACTIVE\tEXPIRES_AT\tREVOKED_AT\tCREATED_AT\n")
+	output.WriteString("ID\tACTIVE\tEXPIRES_AT\tREVOKED_AT\tCREATED_AT\n")
 	for _, value := range values {
 		fmt.Fprintf(
-			&output, "%s\t%s\t%t\t%s\t%s\t%s\n",
-			value.ID, emptyAsDash(value.ChannelID), value.Active,
+			&output, "%s\t%t\t%s\t%s\t%s\n",
+			value.ID, value.Active,
 			formatOptionalSubscriptionTime(value.ExpiresAt), formatOptionalSubscriptionTime(value.RevokedAt),
 			formatSubscriptionTime(value.CreatedAt),
 		)

@@ -10,11 +10,13 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/url"
 	"os"
 	pathpkg "path"
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"strconv"
 	"strings"
 
 	"github.com/rehuony/sing-box-panel/internal/jsonstrict"
@@ -37,9 +39,10 @@ type Settings struct {
 }
 
 type Server struct {
-	Host     string `json:"host"`
-	Port     int    `json:"port"`
-	BasePath string `json:"base_path"`
+	Host           string `json:"host"`
+	Port           int    `json:"port"`
+	BasePath       string `json:"base_path"`
+	ExternalOrigin string `json:"external_origin"`
 }
 
 type Auth struct {
@@ -129,6 +132,13 @@ func Load(path string) (Settings, error) {
 		value.DataDir = filepath.Join(filepath.Dir(path), value.DataDir)
 	}
 	value.DataDir = filepath.Clean(value.DataDir)
+	if value.Server.ExternalOrigin != "" {
+		origin, err := NormalizeOrigin(value.Server.ExternalOrigin)
+		if err != nil {
+			return Settings{}, fmt.Errorf("validate settings %q: server.external_origin: %w", path, err)
+		}
+		value.Server.ExternalOrigin = origin
+	}
 	if err := value.Validate(); err != nil {
 		return Settings{}, fmt.Errorf("validate settings %q: %w", path, err)
 	}
@@ -150,6 +160,21 @@ func (value Settings) Validate() error {
 			pathpkg.Clean(value.Server.BasePath) != value.Server.BasePath {
 			return errors.New("server.base_path must be empty or a normalized URL path containing only unreserved characters")
 		}
+	}
+	if value.Server.ExternalOrigin != "" {
+		origin, err := NormalizeOrigin(value.Server.ExternalOrigin)
+		if err != nil {
+			return fmt.Errorf("server.external_origin: %w", err)
+		}
+		if origin != value.Server.ExternalOrigin {
+			return errors.New("server.external_origin must be a normalized HTTP or HTTPS origin")
+		}
+		usesHTTPS := strings.HasPrefix(origin, "https://")
+		if usesHTTPS != value.Auth.SecureCookie {
+			return errors.New("auth.secure_cookie must be true exactly when server.external_origin uses HTTPS")
+		}
+	} else if value.Auth.SecureCookie {
+		return errors.New("server.external_origin must be configured when auth.secure_cookie is true")
 	}
 	if value.DataDir == "" || !filepath.IsAbs(value.DataDir) {
 		return errors.New("data_dir must resolve to an absolute path")
@@ -181,6 +206,52 @@ func (value Settings) Validate() error {
 		return errors.New("Windows is not supported")
 	}
 	return nil
+}
+
+// NormalizeOrigin validates an HTTP Origin value and returns its canonical
+// scheme and authority. Paths, credentials, queries, and fragments are never
+// part of an origin and are rejected instead of silently discarded.
+func NormalizeOrigin(raw string) (string, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return "", errors.New("origin must not be empty")
+	}
+	parsed, err := url.Parse(raw)
+	if err != nil {
+		return "", fmt.Errorf("parse origin: %w", err)
+	}
+	scheme := strings.ToLower(parsed.Scheme)
+	if scheme != "http" && scheme != "https" {
+		return "", errors.New("origin scheme must be http or https")
+	}
+	if parsed.Opaque != "" || parsed.User != nil || parsed.Host == "" || parsed.Path != "" ||
+		parsed.RawPath != "" || parsed.ForceQuery || parsed.RawQuery != "" || parsed.Fragment != "" {
+		return "", errors.New("origin must contain only a scheme and authority")
+	}
+	host := strings.ToLower(parsed.Hostname())
+	if host == "" || strings.Contains(host, "%") {
+		return "", errors.New("origin host is invalid")
+	}
+	port := parsed.Port()
+	if port != "" {
+		numericPort, err := strconv.Atoi(port)
+		if err != nil || numericPort < 1 || numericPort > 65535 {
+			return "", errors.New("origin port must be between 1 and 65535")
+		}
+		if (scheme == "http" && port == "80") || (scheme == "https" && port == "443") {
+			port = ""
+		}
+	}
+	if ip := net.ParseIP(host); ip != nil {
+		host = ip.String()
+	}
+	authority := host
+	if port != "" {
+		authority = net.JoinHostPort(host, port)
+	} else if strings.Contains(host, ":") {
+		authority = "[" + host + "]"
+	}
+	return scheme + "://" + authority, nil
 }
 
 // Initialize writes a new settings file and creates its data directory.

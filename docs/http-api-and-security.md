@@ -33,9 +33,12 @@ same-origin request. Login failures are rate-limited by the direct peer
 address; forwarded-IP headers are not trusted. CORS is disabled by default.
 
 The generated listener is `127.0.0.1:3000`. Before exposing the service beyond
-loopback, place it behind a reviewed HTTPS reverse proxy and set
-`auth.secure_cookie` so the browser session cookie is HTTPS-only. Do not treat
-the management token as a public subscription token.
+loopback, place it behind a reviewed HTTPS reverse proxy, set
+`server.external_origin` to its normalized public origin, and set
+`auth.secure_cookie` so the browser session cookie is HTTPS-only. CSRF origin
+checks use this explicit value and never trust `Forwarded` or
+`X-Forwarded-*` headers. Do not treat the management token as a public
+subscription token.
 
 ## Request and download protections
 

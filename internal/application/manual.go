@@ -43,6 +43,24 @@ type ManualArtifact struct {
 	CreatedAt           time.Time                  `json:"created_at"`
 }
 
+type ManualArtifactSummary struct {
+	ID                  string                     `json:"id"`
+	CanonicalRevisionID string                     `json:"canonical_revision_id"`
+	ExactCoreVersion    string                     `json:"exact_core_version"`
+	CoreArtifactID      string                     `json:"core_artifact_id"`
+	ConfigSHA256        string                     `json:"config_sha256"`
+	Diagnostics         json.RawMessage            `json:"diagnostics"`
+	State               store.StartupArtifactState `json:"state"`
+	CheckedAt           *time.Time                 `json:"checked_at,omitempty"`
+	CreatedAt           time.Time                  `json:"created_at"`
+}
+
+type ManualArtifactPage struct {
+	Resolution CoreVersionResolution   `json:"resolution"`
+	Items      []ManualArtifactSummary `json:"items"`
+	Next       *StartupArtifactCursor  `json:"next,omitempty"`
+}
+
 type ManualSave struct {
 	Resolution CoreVersionResolution `json:"resolution"`
 	Preview    ManualReplacePreview  `json:"preview"`
@@ -466,24 +484,35 @@ func (application *Application) ListManualArtifacts(
 	ctx context.Context,
 	explicitVersion string,
 	coreArtifactID string,
+	cursor *StartupArtifactCursor,
 	limit int,
-) (CoreVersionResolution, []ManualArtifact, error) {
+) (ManualArtifactPage, error) {
 	resolution, err := application.ResolveCoreVersion(ctx, explicitVersion)
 	if err != nil {
-		return CoreVersionResolution{}, nil, err
+		return ManualArtifactPage{}, err
+	}
+	var storeCursor *store.CreatedAtCursor
+	if cursor != nil {
+		storeCursor = &store.CreatedAtCursor{CreatedAt: cursor.CreatedAt, ID: strings.TrimSpace(cursor.ID)}
 	}
 	page, err := application.database.ListStartupArtifacts(ctx, store.StartupArtifactListFilter{
 		ExactCoreVersion: resolution.ExactVersion, CoreArtifactID: strings.TrimSpace(coreArtifactID),
-		Kind: store.StartupArtifactManual, Limit: limit,
+		Kind: store.StartupArtifactManual, Cursor: storeCursor, Limit: limit,
 	})
 	if err != nil {
-		return CoreVersionResolution{}, nil, err
+		return ManualArtifactPage{}, err
 	}
-	result := make([]ManualArtifact, len(page.Items))
+	result := ManualArtifactPage{
+		Resolution: resolution,
+		Items:      make([]ManualArtifactSummary, len(page.Items)),
+	}
 	for index, artifact := range page.Items {
-		result[index] = manualArtifact(artifact)
+		result.Items[index] = manualArtifactSummary(artifact)
 	}
-	return resolution, result, nil
+	if page.Next != nil {
+		result.Next = &StartupArtifactCursor{CreatedAt: page.Next.CreatedAt, ID: page.Next.ID}
+	}
+	return result, nil
 }
 
 func (application *Application) DiscardManualArtifact(
@@ -547,6 +576,16 @@ func manualArtifact(value store.StartupArtifact) ManualArtifact {
 		ExactCoreVersion: value.ExactCoreVersion, CoreArtifactID: value.CoreArtifactID,
 		ConfigSHA256: value.ConfigSHA256, Raw: string(value.ConfigBytes),
 		Diagnostics: append(json.RawMessage(nil), value.Diagnostics...), State: value.State,
+		CheckedAt: cloneTime(value.CheckedAt), CreatedAt: value.CreatedAt,
+	}
+}
+
+func manualArtifactSummary(value store.StartupArtifactSummary) ManualArtifactSummary {
+	return ManualArtifactSummary{
+		ID: value.ID, CanonicalRevisionID: value.CanonicalRevisionID,
+		ExactCoreVersion: value.ExactCoreVersion, CoreArtifactID: value.CoreArtifactID,
+		ConfigSHA256: value.ConfigSHA256,
+		Diagnostics:  append(json.RawMessage(nil), value.Diagnostics...), State: value.State,
 		CheckedAt: cloneTime(value.CheckedAt), CreatedAt: value.CreatedAt,
 	}
 }

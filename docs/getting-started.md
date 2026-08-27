@@ -20,7 +20,8 @@ make build
 ```
 
 `make check` validates third-party notices and OpenAPI, runs Web tests and a
-production Web build, formats Go sources, and runs `go vet` and Go tests.
+production Web build, verifies that Go sources are already formatted, and runs
+`go vet` and Go tests. It is read-only and does not rewrite the working tree.
 `make build` writes `bin/sing-box-panel` with the `webdist` build tag.
 
 A plain `go build` embeds only a small development fallback page. It is not the
@@ -59,10 +60,16 @@ user it is `$XDG_DATA_HOME/sing-box-panel`, or
 `~/.local/share/sing-box-panel` when `XDG_DATA_HOME` is unset. A relative
 `data_dir` in an explicit settings file is resolved relative to that file.
 
-The settings file contains process-bootstrap values only: listener and base
-path, authentication, data directory, GitHub catalog access, traffic-period
-policy, subscription publication metadata, and log retention. Mutable product
-state belongs in SQLite.
+The settings file contains process-bootstrap values only: listener, base path,
+external browser origin, authentication, data directory, GitHub catalog access,
+traffic-period policy, subscription publication metadata, and log retention.
+Mutable product state belongs in SQLite.
+
+When the panel is served through a reverse proxy, set `server.external_origin`
+to the single public HTTP origin, for example `https://panel.example.com`.
+HTTPS origins require `auth.secure_cookie: true`; a secure cookie in turn
+requires an HTTPS external origin. The origin contains no path—continue to use
+`server.base_path` for a public path prefix.
 
 The generated listener is `127.0.0.1:3000`. Change `data_dir` to an absolute,
 empty directory when a test must also isolate the database.

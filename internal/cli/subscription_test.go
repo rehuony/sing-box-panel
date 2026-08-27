@@ -33,7 +33,7 @@ func TestSubscriptionChannelAndSourceCLIEndToEnd(t *testing.T) {
 	listedChannelOutput := runApplicationCommand(t, settingsPath, "",
 		"--output", "jsonl", "subscription", "channel", "list",
 	)
-	var listedChannel application.SubscriptionChannel
+	var listedChannel application.SubscriptionChannelSummary
 	decodeSubscriptionCLIOutput(t, listedChannelOutput, &listedChannel)
 	if listedChannel.ID != channel.ID || bytes.Count(listedChannelOutput, []byte{'\n'}) != 1 {
 		t.Fatalf("listed channel = %+v; output=%s", listedChannel, listedChannelOutput)
@@ -113,9 +113,9 @@ func TestSubscriptionChannelAndSourceCLIEndToEnd(t *testing.T) {
 	listedSourcesOutput := runApplicationCommand(t, settingsPath, "",
 		"--output", "json", "subscription", "source", "list",
 	)
-	var listedSources []application.SubscriptionSource
+	var listedSources application.SubscriptionSourcePage
 	decodeSubscriptionCLIOutput(t, listedSourcesOutput, &listedSources)
-	if len(listedSources) != 1 || listedSources[0].ID != source.ID {
+	if len(listedSources.Items) != 1 || listedSources.Items[0].ID != source.ID {
 		t.Fatalf("listed sources = %+v", listedSources)
 	}
 
@@ -213,17 +213,10 @@ func TestSubscriptionChannelRenderCLIEndToEnd(t *testing.T) {
 
 func TestSubscriptionTokenCLIPlaintextLifecycle(t *testing.T) {
 	settingsPath := commandSettingsFixture(t)
-	channelOutput := runApplicationCommand(t, settingsPath,
-		`{"name":"tokens","format":"sing-box","config":{},"enabled":true}`,
-		"--output", "json", "subscription", "channel", "create", "--file", "-",
-	)
-	var channel application.SubscriptionChannel
-	decodeSubscriptionCLIOutput(t, channelOutput, &channel)
-
 	expiresAt := time.Now().UTC().Add(24 * time.Hour).Format(time.RFC3339Nano)
 	createdOutput := runApplicationCommand(t, settingsPath, "",
 		"--output", "json", "subscription", "token", "create",
-		"--channel", channel.ID, "--expires-at", expiresAt,
+		"--expires-at", expiresAt,
 	)
 	var created application.CreatedSubscriptionToken
 	decodeSubscriptionCLIOutput(t, createdOutput, &created)
@@ -235,9 +228,9 @@ func TestSubscriptionTokenCLIPlaintextLifecycle(t *testing.T) {
 		"--output", "json", "subscription", "token", "list",
 	)
 	assertSubscriptionTokensDoNotLeak(t, listedOutput, created.Token)
-	var listed []application.SubscriptionToken
+	var listed application.SubscriptionTokenPage
 	decodeSubscriptionCLIOutput(t, listedOutput, &listed)
-	if len(listed) != 1 || listed[0].ID != created.Metadata.ID {
+	if len(listed.Items) != 1 || listed.Items[0].ID != created.Metadata.ID {
 		t.Fatalf("listed tokens = %+v", listed)
 	}
 

@@ -16,20 +16,25 @@ sing-box-panel subscription token --help
 ```
 
 A channel defines one public renderer and its filtering configuration. A source
-stores an attached third-party snapshot. A token is either bound to one channel
-or left unbound so the request must select a format. Tokens have explicit
-rotation, revocation, and expiry state. Plaintext is returned only when a token
-is created or rotated.
+stores an attached third-party snapshot. A token is a global public-subscription
+credential; the URL selects a stable channel ID from the applied bundle. Tokens
+have explicit rotation, revocation, and expiry state. Plaintext is returned
+only when a token is created or rotated.
 
 The public endpoint is:
 
 ```text
-GET /sub/{token}?format=sing-box|mihomo|loon
+GET /sub/{token}/{channelId}
 ```
 
-`format` may be omitted only when the token is bound to exactly one channel.
-The sing-box, Mihomo, and Loon renderers omit conversions that cannot be proven
-safe and return positional diagnostics instead of guessing.
+The channel ID, rather than a format name, makes multiple same-format channels
+unambiguous. The sing-box, Mihomo, and Loon renderers omit conversions that
+cannot be proven safe and return positional diagnostics instead of guessing.
+
+Management list operations return newest-first pages without bulk configuration
+or snapshot bodies. Use the returned `next` cursor (or the CLI
+`--before-time`/`--before-id` flags) to continue, and fetch a single channel,
+source, or manual artifact when its secret-bearing detail is actually needed.
 
 ## Applied-snapshot publication
 

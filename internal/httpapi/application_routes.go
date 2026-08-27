@@ -988,7 +988,7 @@ func (handler *Handler) listManualArtifacts(w http.ResponseWriter, request *http
 	if !handler.requireCommands(w, request) {
 		return
 	}
-	query, ok := strictCoreQuery(w, request, "core_version", "core_artifact_id", "limit")
+	query, ok := strictCoreQuery(w, request, "core_version", "core_artifact_id", "limit", "before_time", "before_id")
 	if !ok {
 		return
 	}
@@ -1001,17 +1001,18 @@ func (handler *Handler) listManualArtifacts(w http.ResponseWriter, request *http
 	if !ok {
 		return
 	}
-	resolution, artifacts, err := handler.commands.ListManualArtifacts(
-		request.Context(), query.Get("core_version"), query.Get("core_artifact_id"), limit,
+	cursor, ok := startupArtifactCursor(w, request, query.Get("before_time"), query.Get("before_id"))
+	if !ok {
+		return
+	}
+	page, err := handler.commands.ListManualArtifacts(
+		request.Context(), query.Get("core_version"), query.Get("core_artifact_id"), cursor, limit,
 	)
 	if err != nil {
 		writeManualProblem(w, request, "manual_list_failed", err)
 		return
 	}
-	writeJSON(w, http.StatusOK, struct {
-		Resolution application.CoreVersionResolution `json:"resolution"`
-		Items      []application.ManualArtifact      `json:"items"`
-	}{Resolution: resolution, Items: artifacts})
+	writeJSON(w, http.StatusOK, page)
 }
 
 func (handler *Handler) getManualArtifact(w http.ResponseWriter, request *http.Request, identifier string) {
@@ -1162,6 +1163,8 @@ func writeRuntimeProblem(w http.ResponseWriter, request *http.Request, code stri
 		writeProblem(w, request, http.StatusConflict, "activation_bundle_not_ready", "Activation bundle not ready", "The immutable startup artifact or core binding is not ready.")
 	case application.IsMonitoringTierUnavailable(err):
 		writeProblem(w, request, http.StatusConflict, "monitoring_tier_unavailable", "Monitoring tier unavailable", "Only process_only monitoring is available until a live collector probe is configured.")
+	case errors.Is(err, application.ErrSubscriptionSnapshotTooLarge), errors.Is(err, store.ErrSubscriptionLimitExceeded):
+		writeProblem(w, request, http.StatusUnprocessableEntity, "subscription_snapshot_too_large", "Subscription snapshot too large", "The enabled subscription inputs cannot be frozen within the supported count or byte budget.")
 	case application.IsNoAppliedBundle(err):
 		writeProblem(w, request, http.StatusConflict, "no_applied_bundle", "No applied bundle", "No successfully applied bundle is available for this operation.")
 	case application.IsNoRollbackBundle(err):

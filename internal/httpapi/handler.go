@@ -444,11 +444,19 @@ func (handler *Handler) sameOrigin(request *http.Request) bool {
 	if origin == "" {
 		return false
 	}
+	actual, err := settings.NormalizeOrigin(origin)
+	if err != nil {
+		return false
+	}
+	if handler.settings.Server.ExternalOrigin != "" {
+		return actual == handler.settings.Server.ExternalOrigin
+	}
 	scheme := "http"
 	if request.TLS != nil {
 		scheme = "https"
 	}
-	return origin == scheme+"://"+request.Host
+	expected, err := settings.NormalizeOrigin(scheme + "://" + request.Host)
+	return err == nil && actual == expected
 }
 
 func (handler *Handler) serveAsset(w http.ResponseWriter, request *http.Request, path string) {

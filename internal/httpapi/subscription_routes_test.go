@@ -8,6 +8,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -115,7 +116,7 @@ func TestSubscriptionManagementHTTPCRUDStrictnessAndCAS(t *testing.T) {
 	}
 
 	tokenResponse := authenticatedRequest(handler, http.MethodPost, "/api/v1/subscription/tokens",
-		`{"channel_id":"`+channel.ID+`"}`, "")
+		`{}`, "")
 	if tokenResponse.Code != http.StatusCreated {
 		t.Fatalf("token create status=%d body=%s", tokenResponse.Code, tokenResponse.Body.String())
 	}
@@ -130,10 +131,10 @@ func TestSubscriptionManagementHTTPCRUDStrictnessAndCAS(t *testing.T) {
 	if tokens.Code != http.StatusOK || bytes.Contains(tokens.Body.Bytes(), []byte(token.Token)) {
 		t.Fatalf("token list status=%d body=%s", tokens.Code, tokens.Body.String())
 	}
-	inUse := authenticatedRequest(handler, http.MethodDelete, "/api/v1/subscription/channels/"+channel.ID,
+	deleted := authenticatedRequest(handler, http.MethodDelete, "/api/v1/subscription/channels/"+channel.ID,
 		"", updated.Header().Get("ETag"))
-	if inUse.Code != http.StatusConflict {
-		t.Fatalf("in-use delete status=%d body=%s", inUse.Code, inUse.Body.String())
+	if deleted.Code != http.StatusNoContent {
+		t.Fatalf("delete with global token status=%d body=%s", deleted.Code, deleted.Body.String())
 	}
 
 	// Cookie-authenticated writes are covered by the same CSRF/Origin boundary.
@@ -151,8 +152,8 @@ func TestSubscriptionManagementHTTPCRUDStrictnessAndCAS(t *testing.T) {
 		t.Fatalf("write without CSRF status=%d body=%s", withoutCSRFResponse.Code, withoutCSRFResponse.Body.String())
 	}
 
-	if _, err := app.SubscriptionChannel(ctx, channel.ID); err != nil {
-		t.Fatalf("management CRUD did not persist through application: %v", err)
+	if _, err := app.SubscriptionChannel(ctx, channel.ID); !errors.Is(err, store.ErrSubscriptionChannelNotFound) {
+		t.Fatalf("management delete did not persist through application: %v", err)
 	}
 }
 
@@ -170,12 +171,13 @@ func TestSubscriptionPreviewHTTPUsesCheckedImmutableArtifact(t *testing.T) {
 func TestPublicSubscriptionHTTPFrozenPublicationAndTokenLifecycle(t *testing.T) {
 	ctx := context.Background()
 	database, app, handler, channel, startup := newSubscriptionPublicationHTTPFixture(t, "/panel")
-	created, err := app.CreateSubscriptionToken(ctx, application.CreateSubscriptionTokenRequest{ChannelID: channel.ID})
+	created, err := app.CreateSubscriptionToken(ctx, application.CreateSubscriptionTokenRequest{})
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	beforeApply := publicSubscriptionRequest(handler, "/panel/sub/"+created.Token+"?format=sing-box")
+	publicPath := "/panel/sub/" + created.Token + "/" + channel.ID
+	beforeApply := publicSubscriptionRequest(handler, publicPath)
 	if beforeApply.Code != http.StatusServiceUnavailable || !strings.Contains(beforeApply.Body.String(), `"code":"not_applied"`) ||
 		strings.Contains(beforeApply.Body.String(), created.Token) {
 		t.Fatalf("before apply status=%d body=%s", beforeApply.Code, beforeApply.Body.String())
@@ -187,39 +189,26 @@ func TestPublicSubscriptionHTTPFrozenPublicationAndTokenLifecycle(t *testing.T) 
 	}
 	applySubscriptionHTTPBundle(t, database, app, prepared.Bundle.ID)
 
-	served := publicSubscriptionRequest(handler, "/panel/sub/"+created.Token+"?format=sing-box")
+	served := publicSubscriptionRequest(handler, publicPath)
 	if served.Code != http.StatusOK || served.Header().Get("Content-Type") != "application/json" ||
 		!strings.Contains(served.Body.String(), "publish.example") || served.Header().Get("Cache-Control") != "no-store" {
 		t.Fatalf("served status=%d content-type=%q body=%s", served.Code, served.Header().Get("Content-Type"), served.Body.String())
 	}
-	omittedBoundFormat := publicSubscriptionRequest(handler, "/panel/sub/"+created.Token)
-	if omittedBoundFormat.Code != http.StatusOK {
-		t.Fatalf("bound token without format status=%d body=%s", omittedBoundFormat.Code, omittedBoundFormat.Body.String())
-	}
-	unbound, err := app.CreateSubscriptionToken(ctx, application.CreateSubscriptionTokenRequest{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	unboundWithoutFormat := publicSubscriptionRequest(handler, "/panel/sub/"+unbound.Token)
-	if unboundWithoutFormat.Code != http.StatusBadRequest {
-		t.Fatalf("unbound token without format status=%d body=%s", unboundWithoutFormat.Code, unboundWithoutFormat.Body.String())
-	}
-	unboundWithFormat := publicSubscriptionRequest(handler, "/panel/sub/"+unbound.Token+"?format=sing-box")
-	if unboundWithFormat.Code != http.StatusOK {
-		t.Fatalf("unbound token with format status=%d body=%s", unboundWithFormat.Code, unboundWithFormat.Body.String())
-	}
-	mismatch := publicSubscriptionRequest(handler, "/panel/sub/"+created.Token+"?format=mihomo")
-	if mismatch.Code != http.StatusNotFound || strings.Contains(mismatch.Body.String(), created.Token) {
-		t.Fatalf("format mismatch status=%d body=%s", mismatch.Code, mismatch.Body.String())
+	missingChannel := publicSubscriptionRequest(handler, "/panel/sub/"+created.Token+"/channel_missing")
+	if missingChannel.Code != http.StatusNotFound || strings.Contains(missingChannel.Body.String(), created.Token) {
+		t.Fatalf("missing channel status=%d body=%s", missingChannel.Code, missingChannel.Body.String())
 	}
 	for _, target := range []string{
-		"/panel/sub/" + created.Token + "?format=future",
-		"/panel/sub/" + created.Token + "?format=sing-box&format=loon",
-		"/panel/sub/" + created.Token + "?unexpected=true",
+		"/panel/sub/" + created.Token,
+		publicPath + "/extra",
+		publicPath + "?unexpected=true",
 	} {
 		response := publicSubscriptionRequest(handler, target)
-		if response.Code != http.StatusBadRequest || strings.Contains(response.Body.String(), created.Token) {
-			t.Fatalf("strict query %q status=%d body=%s", target, response.Code, response.Body.String())
+		if response.Code != http.StatusNotFound && response.Code != http.StatusBadRequest {
+			t.Fatalf("strict public path %q status=%d body=%s", target, response.Code, response.Body.String())
+		}
+		if strings.Contains(response.Body.String(), created.Token) {
+			t.Fatalf("strict public path leaked token %q body=%s", target, response.Body.String())
 		}
 	}
 
@@ -231,7 +220,7 @@ func TestPublicSubscriptionHTTPFrozenPublicationAndTokenLifecycle(t *testing.T) 
 	if update.Code != http.StatusOK {
 		t.Fatalf("channel update status=%d body=%s", update.Code, update.Body.String())
 	}
-	stillFrozen := publicSubscriptionRequest(handler, "/panel/sub/"+created.Token+"?format=sing-box")
+	stillFrozen := publicSubscriptionRequest(handler, publicPath)
 	if stillFrozen.Code != http.StatusOK || !bytes.Equal(stillFrozen.Body.Bytes(), served.Body.Bytes()) {
 		t.Fatalf("mutable channel changed applied publication: status=%d body=%s", stillFrozen.Code, stillFrozen.Body.String())
 	}
@@ -245,14 +234,14 @@ func TestPublicSubscriptionHTTPFrozenPublicationAndTokenLifecycle(t *testing.T) 
 	if err := json.Unmarshal(rotationResponse.Body.Bytes(), &rotation); err != nil {
 		t.Fatal(err)
 	}
-	oldAfterRotate := publicSubscriptionRequest(handler, "/panel/sub/"+created.Token+"?format=sing-box")
-	unknown := publicSubscriptionRequest(handler, "/panel/sub/unknown-public-token?format=sing-box")
+	oldAfterRotate := publicSubscriptionRequest(handler, publicPath)
+	unknown := publicSubscriptionRequest(handler, "/panel/sub/unknown-public-token/"+channel.ID)
 	if oldAfterRotate.Code != http.StatusNotFound || unknown.Code != http.StatusNotFound ||
 		!sameSafePublicProblem(oldAfterRotate.Body.Bytes(), unknown.Body.Bytes()) ||
 		bytes.Contains(oldAfterRotate.Body.Bytes(), []byte(created.Token)) {
 		t.Fatalf("old=%s unknown=%s", oldAfterRotate.Body.String(), unknown.Body.String())
 	}
-	newToken := publicSubscriptionRequest(handler, "/panel/sub/"+rotation.Token+"?format=sing-box")
+	newToken := publicSubscriptionRequest(handler, "/panel/sub/"+rotation.Token+"/"+channel.ID)
 	if newToken.Code != http.StatusOK {
 		t.Fatalf("replacement token status=%d body=%s", newToken.Code, newToken.Body.String())
 	}
@@ -261,7 +250,7 @@ func TestPublicSubscriptionHTTPFrozenPublicationAndTokenLifecycle(t *testing.T) 
 	if revokedResponse.Code != http.StatusOK {
 		t.Fatalf("revoke status=%d body=%s", revokedResponse.Code, revokedResponse.Body.String())
 	}
-	revoked := publicSubscriptionRequest(handler, "/panel/sub/"+rotation.Token+"?format=sing-box")
+	revoked := publicSubscriptionRequest(handler, "/panel/sub/"+rotation.Token+"/"+channel.ID)
 	if revoked.Code != http.StatusNotFound || !sameSafePublicProblem(revoked.Body.Bytes(), unknown.Body.Bytes()) ||
 		bytes.Contains(revoked.Body.Bytes(), []byte(rotation.Token)) {
 		t.Fatalf("revoked=%s unknown=%s", revoked.Body.String(), unknown.Body.String())
@@ -272,17 +261,17 @@ func TestPublicSubscriptionHTTPFrozenPublicationAndTokenLifecycle(t *testing.T) 
 	expiresAt := time.Now().UTC().Add(-time.Minute)
 	if _, err := database.CreateSubscriptionToken(ctx, store.SubscriptionToken{
 		ID: "token_http_expired", TokenSHA256: hex.EncodeToString(expiredDigest[:]),
-		ChannelID: channel.ID, ExpiresAt: &expiresAt, CreatedAt: expiresAt.Add(-time.Hour),
+		ExpiresAt: &expiresAt, CreatedAt: expiresAt.Add(-time.Hour),
 	}); err != nil {
 		t.Fatal(err)
 	}
-	expired := publicSubscriptionRequest(handler, "/panel/sub/"+expiredPlaintext+"?format=sing-box")
+	expired := publicSubscriptionRequest(handler, "/panel/sub/"+expiredPlaintext+"/"+channel.ID)
 	if expired.Code != http.StatusNotFound || !sameSafePublicProblem(expired.Body.Bytes(), unknown.Body.Bytes()) ||
 		bytes.Contains(expired.Body.Bytes(), []byte(expiredPlaintext)) {
 		t.Fatalf("expired=%s unknown=%s", expired.Body.String(), unknown.Body.String())
 	}
 
-	outsideBase := publicSubscriptionRequest(handler, "/sub/"+rotation.Token+"?format=sing-box")
+	outsideBase := publicSubscriptionRequest(handler, "/sub/"+rotation.Token+"/"+channel.ID)
 	if outsideBase.Code != http.StatusNotFound {
 		t.Fatalf("outside base path status=%d body=%s", outsideBase.Code, outsideBase.Body.String())
 	}

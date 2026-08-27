@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 
-import type { JsonObject, SubscriptionSource, SubscriptionSourceKind } from '@/api/api-client';
+import type { JsonObject, SubscriptionCursor, SubscriptionSource, SubscriptionSourceKind, SubscriptionSourceSummary } from '@/api/api-client';
 
 import { useApiClient } from '@/api/api-client-context';
 import { ActionError } from '@/components/action-error';
@@ -40,18 +40,26 @@ function parseSnapshot(value: string): unknown {
 
 export function SubscriptionSourcePanel() {
   const client = useApiClient();
-  const [sources, setSources] = useState<SubscriptionSource[] | null>(null);
+  const [sources, setSources] = useState<SubscriptionSourceSummary[] | null>(null);
+  const [next, setNext] = useState<SubscriptionCursor>();
   const [loadError, setLoadError] = useState<unknown>(null);
   const [draft, setDraft] = useState<SourceDraft | null>(null);
   const [actionError, setActionError] = useState('');
   const [message, setMessage] = useState('');
   const [busy, setBusy] = useState(false);
 
-  const load = useCallback(async (signal?: AbortSignal) => {
+  const load = useCallback(async (signal?: AbortSignal, cursor?: SubscriptionCursor, append = false) => {
     try {
       setLoadError(null);
-      const result = await client.listSubscriptionSources(signal);
-      if (!signal?.aborted) setSources(result);
+      const result = await client.listSubscriptionSources({
+        limit: 50,
+        beforeTime: cursor?.created_at,
+        beforeID: cursor?.id,
+      }, signal);
+      if (!signal?.aborted) {
+        setSources((current) => append ? [...(current ?? []), ...result.items] : result.items);
+        setNext(result.next);
+      }
     } catch (error) {
       if (!signal?.aborted) setLoadError(error);
     }
@@ -69,17 +77,25 @@ export function SubscriptionSourcePanel() {
     setMessage('');
   }
 
-  function startEdit(source: SubscriptionSource) {
-    setDraft({
-      editing: source,
-      enabled: source.enabled,
-      kind: source.source_kind,
-      name: source.name,
-      config: JSON.stringify(source.config, null, 2),
-      snapshot: JSON.stringify(source.latest_snapshot ?? [], null, 2),
-    });
+  async function startEdit(summary: SubscriptionSourceSummary) {
+    setBusy(true);
     setActionError('');
     setMessage('');
+    try {
+      const source = await client.getSubscriptionSource(summary.id);
+      setDraft({
+        editing: source,
+        enabled: source.enabled,
+        kind: source.source_kind,
+        name: source.name,
+        config: JSON.stringify(source.config, null, 2),
+        snapshot: JSON.stringify(source.latest_snapshot ?? [], null, 2),
+      });
+    } catch (error) {
+      setActionError(describeRequestError(error));
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function saveMetadata() {
@@ -131,7 +147,7 @@ export function SubscriptionSourcePanel() {
     }
   }
 
-  async function remove(source: SubscriptionSource) {
+  async function remove(source: SubscriptionSourceSummary) {
     setBusy(true);
     setActionError('');
     try {
@@ -156,7 +172,7 @@ export function SubscriptionSourcePanel() {
         <span className='count-label'>
           {sources?.length ?? 0}
           {' '}
-          attached
+          loaded
         </span>
         <button className='button button--primary' onClick={startCreate} type='button'>Attach source</button>
       </div>
@@ -199,10 +215,10 @@ export function SubscriptionSourcePanel() {
                         <small className='table-subline'>{source.enabled ? 'Enabled' : 'Disabled'}</small>
                       </td>
                       <td><code>{source.source_kind}</code></td>
-                      <td>{source.latest_snapshot === undefined ? 'None' : 'Candidate stored'}</td>
+                      <td>{source.has_snapshot ? 'Candidate stored' : 'None'}</td>
                       <td>
                         <div className='table-actions'>
-                          <button className='text-button' onClick={() => startEdit(source)} type='button'>Edit</button>
+                          <button className='text-button' disabled={busy} onClick={() => void startEdit(source)} type='button'>Edit</button>
                           <button className='text-button text-button--danger' disabled={busy} onClick={() => void remove(source)} type='button'>Delete</button>
                         </div>
                       </td>
@@ -212,6 +228,9 @@ export function SubscriptionSourcePanel() {
               </table>
             </div>
           )
+        : null}
+      {next
+        ? <button className='button button--secondary' disabled={busy} onClick={() => void load(undefined, next, true)} type='button'>Load more sources</button>
         : null}
       {draft === null
         ? null

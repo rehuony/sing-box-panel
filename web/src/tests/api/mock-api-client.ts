@@ -232,7 +232,6 @@ export const testSubscriptionSources: SubscriptionSource[] = [
 export const testSubscriptionTokens: SubscriptionToken[] = [
   {
     id: 'token_primary',
-    channel_id: 'channel_sing_box',
     created_at: '2026-08-26T07:10:00Z',
     active: true,
   },
@@ -423,16 +422,23 @@ export function createMockApiClient(
       artifact: testManualArtifact,
       task: { ...testTask, id: 'task_reattach', kind: 'startup-check', status: 'queued' },
     }),
-    listSubscriptionChannels: vi.fn().mockResolvedValue(testSubscriptionChannels),
+    listSubscriptionChannels: vi.fn().mockResolvedValue({ items: testSubscriptionChannels }),
+    getSubscriptionChannel: vi.fn().mockResolvedValue(testSubscriptionChannels[0]),
     createSubscriptionChannel: vi.fn().mockResolvedValue(testSubscriptionChannels[0]),
     updateSubscriptionChannel: vi.fn().mockResolvedValue(testSubscriptionChannels[0]),
     deleteSubscriptionChannel: vi.fn().mockResolvedValue(undefined),
-    listSubscriptionSources: vi.fn().mockResolvedValue(testSubscriptionSources),
+    listSubscriptionSources: vi.fn().mockResolvedValue({
+      items: testSubscriptionSources.map(({ config: _config, latest_snapshot: latestSnapshot, ...source }) => ({
+        ...source,
+        has_snapshot: latestSnapshot !== undefined,
+      })),
+    }),
+    getSubscriptionSource: vi.fn().mockResolvedValue(testSubscriptionSources[0]),
     createSubscriptionSource: vi.fn().mockResolvedValue(testSubscriptionSources[0]),
     updateSubscriptionSource: vi.fn().mockResolvedValue(testSubscriptionSources[0]),
     updateSubscriptionSourceSnapshot: vi.fn().mockResolvedValue(testSubscriptionSources[0]),
     deleteSubscriptionSource: vi.fn().mockResolvedValue(undefined),
-    listSubscriptionTokens: vi.fn().mockResolvedValue(testSubscriptionTokens),
+    listSubscriptionTokens: vi.fn().mockResolvedValue({ items: testSubscriptionTokens }),
     createSubscriptionToken: vi.fn().mockResolvedValue({
       metadata: { ...testSubscriptionTokens[0], id: 'token_new' },
       token: 'one-time-public-token',

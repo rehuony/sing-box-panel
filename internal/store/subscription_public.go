@@ -18,10 +18,15 @@ type SubscriptionPreparationInputs struct {
 	Sources  []SubscriptionSource
 }
 
+type SubscriptionPreparationLimits struct {
+	MaximumChannels   int
+	MaximumSources    int
+	MaximumInputBytes int64
+}
+
 // PublicSubscriptionState is the minimum immutable state needed to serve one
 // public subscription. It intentionally omits token identity and digest.
 type PublicSubscriptionState struct {
-	TokenChannelID         string
 	AppliedBundleID        string
 	SubscriptionSnapshotID string
 	Content                []byte
@@ -32,9 +37,13 @@ type PublicSubscriptionState struct {
 // filesystem operation occurs while the transaction is open.
 func (s *Store) LoadSubscriptionPreparationInputs(
 	ctx context.Context,
+	limits SubscriptionPreparationLimits,
 ) (SubscriptionPreparationInputs, error) {
 	if s == nil || s.db == nil {
 		return SubscriptionPreparationInputs{}, errors.New("SQLite store is not open")
+	}
+	if limits.MaximumChannels < 1 || limits.MaximumSources < 1 || limits.MaximumInputBytes < 1 {
+		return SubscriptionPreparationInputs{}, errors.New("subscription preparation limits are invalid")
 	}
 	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
 	if err != nil {
@@ -42,11 +51,12 @@ func (s *Store) LoadSubscriptionPreparationInputs(
 	}
 	defer func() { _ = tx.Rollback() }()
 
-	channels, err := listEnabledSubscriptionChannels(ctx, tx)
+	remainingBytes := limits.MaximumInputBytes
+	channels, err := listEnabledSubscriptionChannels(ctx, tx, limits.MaximumChannels, &remainingBytes)
 	if err != nil {
 		return SubscriptionPreparationInputs{}, err
 	}
-	sources, err := listEnabledSubscriptionSources(ctx, tx)
+	sources, err := listEnabledSubscriptionSources(ctx, tx, limits.MaximumSources, &remainingBytes)
 	if err != nil {
 		return SubscriptionPreparationInputs{}, err
 	}
@@ -75,11 +85,11 @@ func (s *Store) LoadPublicSubscriptionState(
 		return PublicSubscriptionState{}, err
 	}
 
-	var channelID, appliedBundleID, snapshotID, content sql.NullString
+	var appliedBundleID, snapshotID, content sql.NullString
 	var expiresAt, revokedAt sql.NullString
 	err = s.db.QueryRowContext(
 		ctx,
-		`SELECT t.channel_id, t.expires_at, t.revoked_at,
+		`SELECT t.expires_at, t.revoked_at,
                 h.applied_bundle_id, a.subscription_snapshot_id, s.content_json
            FROM subscription_tokens AS t
            JOIN hub_state AS h ON h.singleton = 1
@@ -87,7 +97,7 @@ func (s *Store) LoadPublicSubscriptionState(
            LEFT JOIN subscription_snapshots AS s ON s.id = a.subscription_snapshot_id
           WHERE t.token_sha256 = ?`,
 		digest,
-	).Scan(&channelID, &expiresAt, &revokedAt, &appliedBundleID, &snapshotID, &content)
+	).Scan(&expiresAt, &revokedAt, &appliedBundleID, &snapshotID, &content)
 	if errors.Is(err, sql.ErrNoRows) {
 		return PublicSubscriptionState{}, ErrSubscriptionTokenNotFound
 	}
@@ -113,7 +123,6 @@ func (s *Store) LoadPublicSubscriptionState(
 		return PublicSubscriptionState{}, errors.New("applied subscription snapshot is inconsistent")
 	}
 	return PublicSubscriptionState{
-		TokenChannelID:         valueOrEmpty(channelID),
 		AppliedBundleID:        appliedBundleID.String,
 		SubscriptionSnapshotID: snapshotID.String,
 		Content:                []byte(content.String),
@@ -123,13 +132,17 @@ func (s *Store) LoadPublicSubscriptionState(
 func listEnabledSubscriptionChannels(
 	ctx context.Context,
 	tx *sql.Tx,
+	maximum int,
+	remainingBytes *int64,
 ) ([]SubscriptionChannel, error) {
 	rows, err := tx.QueryContext(
 		ctx,
 		`SELECT `+subscriptionChannelColumns+`
            FROM subscription_channels
           WHERE enabled = 1
-          ORDER BY id ASC`,
+	          ORDER BY id ASC
+	          LIMIT ?`,
+		maximum+1,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("list enabled subscription channels: %w", err)
@@ -142,6 +155,13 @@ func listEnabledSubscriptionChannels(
 		if scanErr != nil {
 			return nil, fmt.Errorf("scan enabled subscription channel: %w", scanErr)
 		}
+		if len(channels) >= maximum {
+			return nil, fmt.Errorf("%w: too many enabled channels", ErrSubscriptionLimitExceeded)
+		}
+		if int64(len(channel.Config)) > *remainingBytes {
+			return nil, fmt.Errorf("%w: enabled inputs exceed byte budget", ErrSubscriptionLimitExceeded)
+		}
+		*remainingBytes -= int64(len(channel.Config))
 		channels = append(channels, channel)
 	}
 	if err := rows.Err(); err != nil {
@@ -153,13 +173,17 @@ func listEnabledSubscriptionChannels(
 func listEnabledSubscriptionSources(
 	ctx context.Context,
 	tx *sql.Tx,
+	maximum int,
+	remainingBytes *int64,
 ) ([]SubscriptionSource, error) {
 	rows, err := tx.QueryContext(
 		ctx,
 		`SELECT `+subscriptionSourceColumns+`
            FROM subscription_sources
           WHERE enabled = 1
-          ORDER BY id ASC`,
+	          ORDER BY id ASC
+	          LIMIT ?`,
+		maximum+1,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("list enabled subscription sources: %w", err)
@@ -172,6 +196,14 @@ func listEnabledSubscriptionSources(
 		if scanErr != nil {
 			return nil, fmt.Errorf("scan enabled subscription source: %w", scanErr)
 		}
+		if len(sources) >= maximum {
+			return nil, fmt.Errorf("%w: too many enabled sources", ErrSubscriptionLimitExceeded)
+		}
+		inputBytes := int64(len(source.Config) + len(source.LatestSnapshot))
+		if inputBytes > *remainingBytes {
+			return nil, fmt.Errorf("%w: enabled inputs exceed byte budget", ErrSubscriptionLimitExceeded)
+		}
+		*remainingBytes -= inputBytes
 		sources = append(sources, source)
 	}
 	if err := rows.Err(); err != nil {

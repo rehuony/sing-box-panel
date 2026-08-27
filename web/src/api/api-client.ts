@@ -326,9 +326,12 @@ export interface ManualArtifact {
   canonical_revision_id: string;
 }
 
+export type ManualArtifactSummary = Omit<ManualArtifact, 'raw'>;
+
 export interface ManualArtifactList {
-  items: ManualArtifact[];
+  items: ManualArtifactSummary[];
   resolution: CoreVersionResolution;
+  next?: { created_at: string; id: string };
 }
 
 export interface ManualSave {
@@ -442,6 +445,8 @@ export interface SubscriptionChannel {
   config: SubscriptionChannelConfig;
 }
 
+export type SubscriptionChannelSummary = Omit<SubscriptionChannel, 'config'>;
+
 export interface SubscriptionChannelWrite {
   name: string;
   enabled: boolean;
@@ -462,6 +467,10 @@ export interface SubscriptionSource {
   source_kind: SubscriptionSourceKind;
 }
 
+export type SubscriptionSourceSummary = Omit<SubscriptionSource, 'config' | 'latest_snapshot'> & {
+  has_snapshot: boolean;
+};
+
 export interface SubscriptionSourceWrite {
   name: string;
   enabled: boolean;
@@ -474,9 +483,34 @@ export interface SubscriptionToken {
   id: string;
   active: boolean;
   created_at: string;
-  channel_id?: string;
   expires_at?: string;
   revoked_at?: string;
+}
+
+export interface SubscriptionCursor {
+  id: string;
+  created_at: string;
+}
+
+export interface SubscriptionListFilter {
+  limit?: number;
+  beforeID?: string;
+  beforeTime?: string;
+}
+
+export interface SubscriptionChannelPage {
+  next?: SubscriptionCursor;
+  items: SubscriptionChannelSummary[];
+}
+
+export interface SubscriptionSourcePage {
+  next?: SubscriptionCursor;
+  items: SubscriptionSourceSummary[];
+}
+
+export interface SubscriptionTokenPage {
+  next?: SubscriptionCursor;
+  items: SubscriptionToken[];
 }
 
 export interface CreatedSubscriptionToken {
@@ -573,16 +607,15 @@ export interface ApiClient {
   getDashboardContext: (signal?: AbortSignal) => Promise<DashboardContext>;
   listLogs: (filter?: LogFilter, signal?: AbortSignal) => Promise<LogPage>;
   listTasks: (filter?: TaskFilter, signal?: AbortSignal) => Promise<TaskPage>;
-  listSubscriptionTokens: (signal?: AbortSignal) => Promise<SubscriptionToken[]>;
   removeCoreArtifact: (artifactID: string, signal?: AbortSignal) => Promise<void>;
-  listSubscriptionSources: (signal?: AbortSignal) => Promise<SubscriptionSource[]>;
-  listSubscriptionChannels: (signal?: AbortSignal) => Promise<SubscriptionChannel[]>;
   getTrafficPeriod: (periodID: string, signal?: AbortSignal) => Promise<TrafficPeriod>;
   revokeCoreArtifact: (artifactID: string, signal?: AbortSignal) => Promise<CoreArtifact>;
   getManualArtifact: (artifactID: string, signal?: AbortSignal) => Promise<ManualArtifact>;
   clearLogs: (filter?: LogClearFilter, signal?: AbortSignal) => Promise<{ deleted: number }>;
   quarantineCoreArtifact: (artifactID: string, signal?: AbortSignal) => Promise<CoreArtifact>;
   deleteLog: (entryID: string, signal?: AbortSignal) => Promise<{ id: string; deleted: true }>;
+  getSubscriptionSource: (sourceID: string, signal?: AbortSignal) => Promise<SubscriptionSource>;
+  getSubscriptionChannel: (channelID: string, signal?: AbortSignal) => Promise<SubscriptionChannel>;
   listEntities: (
     collection: EntityCollection,
     signal?: AbortSignal,
@@ -611,10 +644,13 @@ export interface ApiClient {
     artifactID: string,
     signal?: AbortSignal,
   ) => Promise<ManualReattachPreview>;
+  listSubscriptionTokens: (filter?: SubscriptionListFilter, signal?: AbortSignal) => Promise<SubscriptionTokenPage>;
+  listSubscriptionSources: (filter?: SubscriptionListFilter, signal?: AbortSignal) => Promise<SubscriptionSourcePage>;
   listTrafficPeriods: (
     filter?: TrafficPeriodFilter,
     signal?: AbortSignal,
   ) => Promise<TrafficPeriodPage>;
+  listSubscriptionChannels: (filter?: SubscriptionListFilter, signal?: AbortSignal) => Promise<SubscriptionChannelPage>;
   deleteSubscriptionSource: (
     sourceID: string,
     updatedAt: string,
@@ -638,6 +674,10 @@ export interface ApiClient {
     baseRevision: string,
     signal?: AbortSignal,
   ) => Promise<CanonicalSave>;
+  createSubscriptionToken: (
+    input: { expiresAt?: string },
+    signal?: AbortSignal,
+  ) => Promise<CreatedSubscriptionToken>;
   patchCanonical: (
     changes: CanonicalChange[],
     baseRevision: string,
@@ -653,14 +693,6 @@ export interface ApiClient {
     monitoringTier: MonitoringTier,
     signal?: AbortSignal,
   ) => Promise<ActivationQueued>;
-  createSubscriptionToken: (
-    input: { channelID?: string; expiresAt?: string },
-    signal?: AbortSignal,
-  ) => Promise<CreatedSubscriptionToken>;
-  listManualArtifacts: (
-    filter: { coreVersion?: string; coreArtifactID?: string; limit?: number },
-    signal?: AbortSignal,
-  ) => Promise<ManualArtifactList>;
   updateSubscriptionSourceSnapshot: (
     sourceID: string,
     snapshot: unknown,
@@ -693,6 +725,10 @@ export interface ApiClient {
     updatedAt: string,
     signal?: AbortSignal,
   ) => Promise<SubscriptionSource>;
+  listManualArtifacts: (
+    filter: { coreVersion?: string; coreArtifactID?: string; beforeTime?: string; beforeID?: string; limit?: number },
+    signal?: AbortSignal,
+  ) => Promise<ManualArtifactList>;
   applyManualReattach: (
     artifactID: string,
     input: {

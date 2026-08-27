@@ -27,6 +27,7 @@ import (
 
 const (
 	readHeaderTimeout = 5 * time.Second
+	readTimeout       = 60 * time.Second
 	idleTimeout       = 60 * time.Second
 	shutdownTimeout   = 10 * time.Second
 	maxHeaderBytes    = 1 << 20
@@ -117,6 +118,7 @@ func Run(ctx context.Context, settingsPath string, build buildinfo.Info, assets 
 	httpServer := &http.Server{
 		Handler:           handler,
 		ReadHeaderTimeout: readHeaderTimeout,
+		ReadTimeout:       readTimeout,
 		IdleTimeout:       idleTimeout,
 		MaxHeaderBytes:    maxHeaderBytes,
 	}

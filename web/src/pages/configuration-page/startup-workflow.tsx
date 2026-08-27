@@ -4,7 +4,7 @@ import type {
   ApiClient,
   CapabilityLevel,
   CoreArtifact,
-  ManualArtifact,
+  ManualArtifactSummary,
   ManualReattachPreview,
   ManualReplacePreview,
   MonitoringTier,
@@ -90,6 +90,64 @@ async function listVerifiedCoreArtifacts(
   }
 }
 
+async function listManualArtifactSummaries(
+  client: ApiClient,
+  exactVersion: string,
+  signal?: AbortSignal,
+): Promise<ManualArtifactSummary[]> {
+  const artifacts: ManualArtifactSummary[] = [];
+  let beforeTime: string | undefined;
+  let beforeID: string | undefined;
+  let previousCursor = '';
+  for (;;) {
+    const page = await client.listManualArtifacts({
+      coreVersion: exactVersion,
+      beforeTime,
+      beforeID,
+      limit: 200,
+    }, signal);
+    artifacts.push(...page.items);
+    if (page.next === undefined) return artifacts;
+
+    const cursor = `${page.next.created_at}\n${page.next.id}`;
+    if (cursor === previousCursor) {
+      throw new Error('Manual artifact pagination returned a repeated cursor.');
+    }
+    previousCursor = cursor;
+    beforeTime = page.next.created_at;
+    beforeID = page.next.id;
+  }
+}
+
+async function listStartupArtifactSummaries(
+  client: ApiClient,
+  exactVersion: string,
+  signal?: AbortSignal,
+): Promise<StartupArtifactSummary[]> {
+  const artifacts: StartupArtifactSummary[] = [];
+  let beforeTime: string | undefined;
+  let beforeID: string | undefined;
+  let previousCursor = '';
+  for (;;) {
+    const page = await client.listStartupArtifacts({
+      coreVersion: exactVersion,
+      beforeTime,
+      beforeID,
+      limit: 200,
+    }, signal);
+    artifacts.push(...page.items);
+    if (page.next === undefined) return artifacts;
+
+    const cursor = `${page.next.created_at}\n${page.next.id}`;
+    if (cursor === previousCursor) {
+      throw new Error('Startup artifact pagination returned a repeated cursor.');
+    }
+    previousCursor = cursor;
+    beforeTime = page.next.created_at;
+    beforeID = page.next.id;
+  }
+}
+
 export function StartupWorkflow({
   baseRevision,
   capability,
@@ -98,7 +156,7 @@ export function StartupWorkflow({
 }: StartupWorkflowProps) {
   const client = useApiClient();
   const [artifacts, setArtifacts] = useState<CoreArtifact[] | null>(null);
-  const [manualArtifacts, setManualArtifacts] = useState<ManualArtifact[] | null>(null);
+  const [manualArtifacts, setManualArtifacts] = useState<ManualArtifactSummary[] | null>(null);
   const [startupArtifacts, setStartupArtifacts] = useState<StartupArtifactSummary[] | null>(null);
   const [selectedCore, setSelectedCore] = useState('');
   const [selectedCandidate, setSelectedCandidate] = useState('');
@@ -125,14 +183,14 @@ export function StartupWorkflow({
     try {
       const [cores, manuals, startups] = await Promise.all([
         listVerifiedCoreArtifacts(client, exactVersion, signal),
-        client.listManualArtifacts({ coreVersion: exactVersion, limit: 50 }, signal),
-        client.listStartupArtifacts({ coreVersion: exactVersion, limit: 100 }, signal),
+        listManualArtifactSummaries(client, exactVersion, signal),
+        listStartupArtifactSummaries(client, exactVersion, signal),
       ]);
       if (!signal?.aborted) {
         const matching = cores;
         setArtifacts(matching);
-        setManualArtifacts(manuals.items);
-        setStartupArtifacts(startups.items);
+        setManualArtifacts(manuals);
+        setStartupArtifacts(startups);
         setSelectedCore((current) => {
           if (matching.some((item) => item.id === current)) return current;
           return matching.length === 1 ? matching[0].id : '';
@@ -285,7 +343,23 @@ export function StartupWorkflow({
     }
   }
 
-  async function discard(artifact: ManualArtifact) {
+  async function editManualCopy(summary: ManualArtifactSummary) {
+    setBusyAction(`edit:${summary.id}`);
+    setActionError('');
+    try {
+      const manual = await client.getManualArtifact(summary.id);
+      setManualRaw(manual.raw);
+      setSelectedCore(manual.core_artifact_id);
+      setManualOpenOverride(true);
+      setMessage(`Loaded an editable copy of ${manual.id}; saving creates a new immutable candidate.`);
+    } catch (error) {
+      setActionError(describeRequestError(error));
+    } finally {
+      setBusyAction('');
+    }
+  }
+
+  async function discard(artifact: ManualArtifactSummary) {
     setBusyAction(`discard:${artifact.id}`);
     setActionError('');
     try {
@@ -300,7 +374,7 @@ export function StartupWorkflow({
     }
   }
 
-  async function previewReattach(artifact: ManualArtifact) {
+  async function previewReattach(artifact: ManualArtifactSummary) {
     setBusyAction(`reattach:${artifact.id}`);
     setActionError('');
     try {
@@ -583,12 +657,7 @@ export function StartupWorkflow({
                             <div className='table-actions'>
                               {manual
                                 ? (
-                                    <button className='text-button' disabled={busyAction !== ''} onClick={() => {
-                                      setManualRaw(manual.raw);
-                                      setSelectedCore(manual.core_artifact_id);
-                                      setManualOpenOverride(true);
-                                      setMessage(`Loaded an editable copy of ${manual.id}; saving creates a new immutable candidate.`);
-                                    }} type='button'>
+                                    <button className='text-button' disabled={busyAction !== ''} onClick={() => void editManualCopy(manual)} type='button'>
                                       Edit copy
                                     </button>
                                   )

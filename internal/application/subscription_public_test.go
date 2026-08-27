@@ -131,18 +131,22 @@ func TestPrepareActivationBundleFreezesAllEnabledPublicationInputs(t *testing.T)
 func TestPublicSubscriptionUsesAppliedFrozenSnapshotAndImmediateTokenState(t *testing.T) {
 	ctx := context.Background()
 	database, app, startup, _ := subscriptionPublicationFixture(t, ctx)
-	channels, err := app.ListSubscriptionChannels(ctx)
+	channels, err := app.ListSubscriptionChannels(ctx, SubscriptionListRequest{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	var singBox SubscriptionChannel
-	for _, channel := range channels {
+	var singBoxSummary SubscriptionChannelSummary
+	for _, channel := range channels.Items {
 		if channel.Format == store.SubscriptionFormatSingBox {
-			singBox = channel
+			singBoxSummary = channel
 		}
 	}
-	if singBox.ID == "" {
+	if singBoxSummary.ID == "" {
 		t.Fatal("missing sing-box channel fixture")
+	}
+	singBox, err := app.SubscriptionChannel(ctx, singBoxSummary.ID)
+	if err != nil {
+		t.Fatal(err)
 	}
 	source, err := app.CreateSubscriptionSource(ctx, CreateSubscriptionSourceRequest{
 		Name: "mutable-source", SourceKind: store.SubscriptionSourceLocal,
@@ -157,11 +161,11 @@ func TestPublicSubscriptionUsesAppliedFrozenSnapshotAndImmediateTokenState(t *te
 	}
 	applyActivationBundle(t, ctx, database, app, first.Bundle.ID)
 
-	created, err := app.CreateSubscriptionToken(ctx, CreateSubscriptionTokenRequest{ChannelID: singBox.ID})
+	created, err := app.CreateSubscriptionToken(ctx, CreateSubscriptionTokenRequest{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	before, err := app.PublicSubscription(ctx, created.Token, "")
+	before, err := app.PublicSubscription(ctx, created.Token, singBox.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -170,8 +174,8 @@ func TestPublicSubscriptionUsesAppliedFrozenSnapshotAndImmediateTokenState(t *te
 		!bytes.Contains(before.Body, []byte("source-v1.example")) {
 		t.Fatalf("public subscription = %+v body=%s", before, before.Body)
 	}
-	if _, err := app.PublicSubscription(ctx, created.Token, "mihomo"); !errors.Is(err, ErrPublicSubscriptionFormatMismatch) {
-		t.Fatalf("format mismatch error = %v", err)
+	if _, err := app.PublicSubscription(ctx, created.Token, "channel-missing"); !errors.Is(err, ErrPublicSubscriptionChannelUnavailable) {
+		t.Fatalf("missing channel error = %v", err)
 	}
 
 	// Mutable control-plane changes can prepare a new bundle, but cannot alter
@@ -196,12 +200,12 @@ func TestPublicSubscriptionUsesAppliedFrozenSnapshotAndImmediateTokenState(t *te
 	if second.Bundle.ID == first.Bundle.ID || second.Snapshot.ID == first.Snapshot.ID {
 		t.Fatalf("mutable inputs did not produce a new frozen identity: first=%s second=%s", first.Bundle.ID, second.Bundle.ID)
 	}
-	stillFirst, err := app.PublicSubscription(ctx, created.Token, "sing-box")
+	stillFirst, err := app.PublicSubscription(ctx, created.Token, singBox.ID)
 	if err != nil || !bytes.Equal(stillFirst.Body, before.Body) {
 		t.Fatalf("unapplied mutation changed publication: body=%s err=%v", stillFirst.Body, err)
 	}
 	applyActivationBundle(t, ctx, database, app, second.Bundle.ID)
-	afterApply, err := app.PublicSubscription(ctx, created.Token, "sing-box")
+	afterApply, err := app.PublicSubscription(ctx, created.Token, singBox.ID)
 	if err != nil || bytes.Equal(afterApply.Body, before.Body) || afterApply.NodeCount != 1 ||
 		bytes.Contains(afterApply.Body, []byte("publish.example")) ||
 		bytes.Contains(afterApply.Body, []byte("source-v1.example")) ||
@@ -213,48 +217,48 @@ func TestPublicSubscriptionUsesAppliedFrozenSnapshotAndImmediateTokenState(t *te
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := app.PublicSubscription(ctx, created.Token, "sing-box"); !errors.Is(err, ErrPublicSubscriptionAccessDenied) || strings.Contains(err.Error(), created.Token) {
+	if _, err := app.PublicSubscription(ctx, created.Token, singBox.ID); !errors.Is(err, ErrPublicSubscriptionAccessDenied) || strings.Contains(err.Error(), created.Token) {
 		t.Fatalf("rotated plaintext error = %v", err)
 	}
-	if _, err := app.PublicSubscription(ctx, rotation.Token, "sing-box"); err != nil {
+	if _, err := app.PublicSubscription(ctx, rotation.Token, singBox.ID); err != nil {
 		t.Fatalf("replacement token: %v", err)
 	}
 	if _, err := app.RevokeSubscriptionToken(ctx, rotation.Created.ID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := app.PublicSubscription(ctx, rotation.Token, "sing-box"); !errors.Is(err, ErrPublicSubscriptionAccessDenied) || strings.Contains(err.Error(), rotation.Token) {
+	if _, err := app.PublicSubscription(ctx, rotation.Token, singBox.ID); !errors.Is(err, ErrPublicSubscriptionAccessDenied) || strings.Contains(err.Error(), rotation.Token) {
 		t.Fatalf("revoked plaintext error = %v", err)
 	}
-	if _, err := app.PublicSubscription(ctx, "unknown-token", "future"); !errors.Is(err, ErrPublicSubscriptionUnknownFormat) {
-		t.Fatalf("unknown explicit format error = %v", err)
+	if _, err := app.PublicSubscription(ctx, "unknown-token", singBox.ID); !errors.Is(err, ErrPublicSubscriptionAccessDenied) {
+		t.Fatalf("unknown token error = %v", err)
 	}
 }
 
 func TestPublicSubscriptionRequiresAppliedBundleAndRejectsExpiredToken(t *testing.T) {
 	ctx := context.Background()
 	_, app, _, _ := subscriptionPublicationFixture(t, ctx)
-	channels, err := app.ListSubscriptionChannels(ctx)
+	channels, err := app.ListSubscriptionChannels(ctx, SubscriptionListRequest{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	token, err := app.CreateSubscriptionToken(ctx, CreateSubscriptionTokenRequest{ChannelID: channels[0].ID})
+	token, err := app.CreateSubscriptionToken(ctx, CreateSubscriptionTokenRequest{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := app.PublicSubscription(ctx, token.Token, "sing-box"); !errors.Is(err, store.ErrNoAppliedBundle) {
+	if _, err := app.PublicSubscription(ctx, token.Token, channels.Items[0].ID); !errors.Is(err, store.ErrNoAppliedBundle) {
 		t.Fatalf("no applied bundle error = %v", err)
 	}
 
 	now := app.now().UTC()
 	expiresAt := now.Add(time.Second)
 	expiring, err := app.CreateSubscriptionToken(ctx, CreateSubscriptionTokenRequest{
-		ChannelID: channels[0].ID, ExpiresAt: &expiresAt,
+		ExpiresAt: &expiresAt,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	app.now = func() time.Time { return expiresAt }
-	if _, err := app.PublicSubscription(ctx, expiring.Token, "sing-box"); !errors.Is(err, ErrPublicSubscriptionAccessDenied) || strings.Contains(err.Error(), expiring.Token) {
+	if _, err := app.PublicSubscription(ctx, expiring.Token, channels.Items[0].ID); !errors.Is(err, ErrPublicSubscriptionAccessDenied) || strings.Contains(err.Error(), expiring.Token) {
 		t.Fatalf("expired token error = %v", err)
 	}
 }

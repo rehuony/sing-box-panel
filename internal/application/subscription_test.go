@@ -42,8 +42,8 @@ func TestApplicationSubscriptionChannelAndSourceCRUD(t *testing.T) {
 	if err != nil || loaded.ID != channel.ID {
 		t.Fatalf("loaded channel = %+v, err=%v", loaded, err)
 	}
-	listed, err := app.ListSubscriptionChannels(ctx)
-	if err != nil || len(listed) != 1 || listed[0].ID != channel.ID {
+	listed, err := app.ListSubscriptionChannels(ctx, SubscriptionListRequest{})
+	if err != nil || len(listed.Items) != 1 || listed.Items[0].ID != channel.ID {
 		t.Fatalf("listed channels = %+v, err=%v", listed, err)
 	}
 	updated, err := app.UpdateSubscriptionChannel(ctx, channel.ID, UpdateSubscriptionChannelRequest{
@@ -85,8 +85,8 @@ func TestApplicationSubscriptionChannelAndSourceCRUD(t *testing.T) {
 		len(updatedSource.LatestSnapshot) == 0 {
 		t.Fatalf("updated source = %+v, err=%v", updatedSource, err)
 	}
-	sources, err := app.ListSubscriptionSources(ctx)
-	if err != nil || len(sources) != 1 || sources[0].ID != source.ID {
+	sources, err := app.ListSubscriptionSources(ctx, SubscriptionListRequest{})
+	if err != nil || len(sources.Items) != 1 || sources.Items[0].ID != source.ID {
 		t.Fatalf("listed sources = %+v, err=%v", sources, err)
 	}
 	if err := app.DeleteSubscriptionSource(ctx, source.ID, updatedSource.UpdatedAt); err != nil {
@@ -113,7 +113,7 @@ func TestApplicationSubscriptionTokenPlaintextLifecycleDoesNotLeakFromReads(t *t
 	}
 	expires := app.now().Add(time.Hour)
 	created, err := app.CreateSubscriptionToken(ctx, CreateSubscriptionTokenRequest{
-		ChannelID: channel.ID, ExpiresAt: &expires,
+		ExpiresAt: &expires,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -138,8 +138,8 @@ func TestApplicationSubscriptionTokenPlaintextLifecycleDoesNotLeakFromReads(t *t
 	if stored.TokenSHA256 != hex.EncodeToString(digest[:]) || stored.TokenSHA256 == created.Token {
 		t.Fatalf("stored token digest = %q", stored.TokenSHA256)
 	}
-	listed, err := app.ListSubscriptionTokens(ctx)
-	if err != nil || len(listed) != 1 {
+	listed, err := app.ListSubscriptionTokens(ctx, SubscriptionListRequest{})
+	if err != nil || len(listed.Items) != 1 {
 		t.Fatalf("listed tokens = %+v, err=%v", listed, err)
 	}
 	encodedList, err := json.Marshal(listed)
@@ -171,8 +171,8 @@ func TestApplicationSubscriptionTokenPlaintextLifecycleDoesNotLeakFromReads(t *t
 	if _, err := app.AuthenticateSubscriptionToken(ctx, rotation.Token); !errors.Is(err, store.ErrSubscriptionTokenInactive) {
 		t.Fatalf("revoked plaintext authentication error = %v", err)
 	}
-	if err := app.DeleteSubscriptionChannel(ctx, channel.ID, channel.UpdatedAt); !errors.Is(err, store.ErrSubscriptionChannelInUse) {
-		t.Fatalf("referenced application channel delete error = %v", err)
+	if err := app.DeleteSubscriptionChannel(ctx, channel.ID, channel.UpdatedAt); err != nil {
+		t.Fatalf("delete channel with global token: %v", err)
 	}
 }
 
@@ -196,8 +196,8 @@ func TestApplicationSubscriptionTokenRandomFailuresDoNotPersist(t *testing.T) {
 			if _, err := app.CreateSubscriptionToken(ctx, CreateSubscriptionTokenRequest{}); err == nil {
 				t.Fatal("token creation accepted failed entropy")
 			}
-			tokens, err := database.ListSubscriptionTokens(ctx)
-			if err != nil || len(tokens) != 0 {
+			tokens, err := database.ListSubscriptionTokens(ctx, store.SubscriptionTokenListFilter{})
+			if err != nil || len(tokens.Items) != 0 {
 				t.Fatalf("tokens after entropy failure = %+v, err=%v", tokens, err)
 			}
 		})

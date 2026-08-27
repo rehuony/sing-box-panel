@@ -72,3 +72,46 @@ func TestValidateRejectsUnsafeBasePath(t *testing.T) {
 		})
 	}
 }
+
+func TestNormalizeOrigin(t *testing.T) {
+	tests := map[string]string{
+		"HTTPS://Example.COM:443": "https://example.com",
+		"http://EXAMPLE.com:80":   "http://example.com",
+		"https://[2001:db8::1]":   "https://[2001:db8::1]",
+		"http://localhost:3000":   "http://localhost:3000",
+	}
+	for input, want := range tests {
+		t.Run(input, func(t *testing.T) {
+			got, err := NormalizeOrigin(input)
+			if err != nil || got != want {
+				t.Fatalf("NormalizeOrigin(%q) = %q, %v; want %q", input, got, err, want)
+			}
+		})
+	}
+	for _, input := range []string{"", "ftp://example.com", "https://user@example.com", "https://example.com/path", "https://example.com?x=1", "null"} {
+		t.Run("reject_"+input, func(t *testing.T) {
+			if _, err := NormalizeOrigin(input); err == nil {
+				t.Fatalf("NormalizeOrigin(%q) unexpectedly succeeded", input)
+			}
+		})
+	}
+}
+
+func TestValidateExternalOriginAndSecureCookie(t *testing.T) {
+	value := Defaults(filepath.Join(t.TempDir(), "setting.json"))
+	value.DataDir = t.TempDir()
+	value.Auth.Token = "token"
+
+	value.Server.ExternalOrigin = "https://panel.example.com"
+	if err := value.Validate(); err == nil {
+		t.Fatal("Validate() accepted HTTPS external origin without secure cookies")
+	}
+	value.Auth.SecureCookie = true
+	if err := value.Validate(); err != nil {
+		t.Fatalf("Validate() rejected matching HTTPS external origin: %v", err)
+	}
+	value.Server.ExternalOrigin = ""
+	if err := value.Validate(); err == nil {
+		t.Fatal("Validate() accepted secure cookies without an external origin")
+	}
+}

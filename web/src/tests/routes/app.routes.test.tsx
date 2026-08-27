@@ -511,13 +511,10 @@ describe('application routes', () => {
     expect(
       await screen.findByRole('heading', { name: 'Publish only frozen state.' }),
     ).toBeInTheDocument();
-    expect(await screen.findByRole('option', { name: /sing-box/ })).toBeInTheDocument();
-    await user.selectOptions(screen.getByLabelText('Channel'), 'channel_sing_box');
     await user.click(screen.getByRole('button', { name: 'Issue token' }));
 
     await waitFor(() => {
       expect(client.createSubscriptionToken).toHaveBeenCalledWith({
-        channelID: 'channel_sing_box',
         expiresAt: undefined,
       });
     });

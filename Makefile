@@ -1,4 +1,4 @@
-.PHONY: generate notices notices-check openapi-check web-install web-lint web-test web-build fmt test vet check build
+.PHONY: generate notices notices-check openapi-check web-install web-lint web-test web-build fmt fmt-check test vet check build
 
 generate:
 	go generate ./...
@@ -27,13 +27,16 @@ web-build:
 fmt:
 	gofmt -w $$(find cmd internal release web -name '*.go' -type f 2>/dev/null)
 
+fmt-check:
+	@files="$$(gofmt -l $$(find cmd internal release web -name '*.go' -type f 2>/dev/null))"; if [ -n "$$files" ]; then printf '%s\n' "$$files"; exit 1; fi
+
 test:
 	go test ./...
 
 vet:
 	go vet ./...
 
-check: notices-check openapi-check web-lint web-test web-build fmt vet test
+check: notices-check openapi-check web-lint web-test web-build fmt-check vet test
 
 build: web-build
 	go build -tags webdist -trimpath -o bin/sing-box-panel ./cmd/sing-box-panel

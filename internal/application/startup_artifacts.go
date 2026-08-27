@@ -90,7 +90,7 @@ func (application *Application) ListStartupArtifacts(
 	return result, nil
 }
 
-func startupArtifactSummary(artifact store.StartupArtifact) StartupArtifactSummary {
+func startupArtifactSummary(artifact store.StartupArtifactSummary) StartupArtifactSummary {
 	return StartupArtifactSummary{
 		ID: artifact.ID, Kind: artifact.Kind, CanonicalRevisionID: artifact.CanonicalRevisionID,
 		ExactCoreVersion: artifact.ExactCoreVersion, CapabilityCommit: artifact.CapabilityCommit,

@@ -2,7 +2,9 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import type {
   SubscriptionChannel,
+  SubscriptionChannelSummary,
   SubscriptionChannelWrite,
+  SubscriptionCursor,
   SubscriptionFormat,
 } from '@/api/api-client';
 
@@ -33,19 +35,25 @@ function splitList(value: string): string[] {
 
 export function SubscriptionChannelPanel() {
   const client = useApiClient();
-  const [channels, setChannels] = useState<SubscriptionChannel[] | null>(null);
+  const [channels, setChannels] = useState<SubscriptionChannelSummary[] | null>(null);
+  const [next, setNext] = useState<SubscriptionCursor>();
   const [loadError, setLoadError] = useState<unknown>(null);
   const [draft, setDraft] = useState<ChannelDraft | null>(null);
   const [actionError, setActionError] = useState('');
   const [message, setMessage] = useState('');
   const [busy, setBusy] = useState(false);
 
-  const load = useCallback(async (signal?: AbortSignal) => {
+  const load = useCallback(async (signal?: AbortSignal, cursor?: SubscriptionCursor, append = false) => {
     try {
       setLoadError(null);
-      const result = await client.listSubscriptionChannels(signal);
+      const result = await client.listSubscriptionChannels({
+        limit: 50,
+        beforeTime: cursor?.created_at,
+        beforeID: cursor?.id,
+      }, signal);
       if (!signal?.aborted) {
-        setChannels(result);
+        setChannels((current) => append ? [...(current ?? []), ...result.items] : result.items);
+        setNext(result.next);
       }
     } catch (error) {
       if (!signal?.aborted) {
@@ -62,17 +70,25 @@ export function SubscriptionChannelPanel() {
 
   const channelCount = useMemo(() => channels?.length ?? 0, [channels]);
 
-  function edit(channel: SubscriptionChannel) {
-    setDraft({
-      editing: channel,
-      enabled: channel.enabled,
-      excludeTags: channel.config.exclude_tags?.join(', ') ?? '',
-      excludeTypes: channel.config.exclude_types?.join(', ') ?? '',
-      format: channel.format,
-      name: channel.name,
-    });
+  async function edit(summary: SubscriptionChannelSummary) {
+    setBusy(true);
     setActionError('');
     setMessage('');
+    try {
+      const channel = await client.getSubscriptionChannel(summary.id);
+      setDraft({
+        editing: channel,
+        enabled: channel.enabled,
+        excludeTags: channel.config.exclude_tags?.join(', ') ?? '',
+        excludeTypes: channel.config.exclude_types?.join(', ') ?? '',
+        format: channel.format,
+        name: channel.name,
+      });
+    } catch (error) {
+      setActionError(describeRequestError(error));
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function save() {
@@ -113,7 +129,7 @@ export function SubscriptionChannelPanel() {
     }
   }
 
-  async function remove(channel: SubscriptionChannel) {
+  async function remove(channel: SubscriptionChannelSummary) {
     setBusy(true);
     setActionError('');
     setMessage('');
@@ -139,7 +155,7 @@ export function SubscriptionChannelPanel() {
         <span className='count-label'>
           {channelCount}
           {' '}
-          configured
+          loaded
         </span>
         <button
           className='button button--primary'
@@ -170,7 +186,7 @@ export function SubscriptionChannelPanel() {
         ? (
             <div className='empty-state'>
               <strong>No publication channels.</strong>
-              <p>Create a channel before issuing a channel-bound token.</p>
+              <p>Create a channel before publishing an applied subscription snapshot.</p>
             </div>
           )
         : null}
@@ -202,7 +218,7 @@ export function SubscriptionChannelPanel() {
                       </td>
                       <td>
                         <div className='table-actions'>
-                          <button className='text-button' onClick={() => edit(channel)} type='button'>Edit</button>
+                          <button className='text-button' disabled={busy} onClick={() => void edit(channel)} type='button'>Edit</button>
                           <button className='text-button text-button--danger' disabled={busy} onClick={() => void remove(channel)} type='button'>Delete</button>
                         </div>
                       </td>
@@ -212,6 +228,9 @@ export function SubscriptionChannelPanel() {
               </table>
             </div>
           )
+        : null}
+      {next
+        ? <button className='button button--secondary' disabled={busy} onClick={() => void load(undefined, next, true)} type='button'>Load more channels</button>
         : null}
 
       {draft === null

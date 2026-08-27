@@ -29,11 +29,7 @@ const (
 
 var (
 	ErrPublicSubscriptionAccessDenied       = errors.New("public subscription access denied")
-	ErrPublicSubscriptionUnknownFormat      = errors.New("unknown public subscription format")
-	ErrPublicSubscriptionFormatRequired     = errors.New("public subscription format is required")
-	ErrPublicSubscriptionFormatMismatch     = errors.New("public subscription format does not match token channel")
 	ErrPublicSubscriptionChannelUnavailable = errors.New("public subscription channel is not in the applied bundle")
-	ErrPublicSubscriptionFormatAmbiguous    = errors.New("multiple applied channels use the requested format")
 	ErrPublicSubscriptionSnapshotInvalid    = errors.New("applied public subscription snapshot is invalid")
 	ErrSubscriptionSnapshotTooLarge         = errors.New("subscription snapshot exceeds its size limit")
 )
@@ -73,19 +69,14 @@ type frozenSubscriptionSourceWire struct {
 }
 
 // PublicSubscription authenticates the token against current revoke/expiry
-// state, then selects bytes solely from the activation bundle that one SQL
-// statement observed as applied. An empty requested format is accepted only
-// for a channel-bound token.
+// state, then selects one channel solely from the activation bundle that one
+// SQL statement observed as applied.
 func (application *Application) PublicSubscription(
 	ctx context.Context,
 	plaintextToken string,
-	requestedFormat string,
+	channelID string,
 ) (PublicSubscriptionResult, error) {
-	format, err := parseRequestedSubscriptionFormat(requestedFormat)
-	if err != nil {
-		return PublicSubscriptionResult{}, err
-	}
-	if plaintextToken == "" || len(plaintextToken) > 512 {
+	if plaintextToken == "" || len(plaintextToken) > 512 || !validFrozenID(channelID) {
 		return PublicSubscriptionResult{}, ErrPublicSubscriptionAccessDenied
 	}
 	digest := sha256.Sum256([]byte(plaintextToken))
@@ -115,7 +106,7 @@ func (application *Application) PublicSubscription(
 	if err := validateSubscriptionSnapshotWire(snapshot); err != nil {
 		return PublicSubscriptionResult{}, err
 	}
-	selected, err := selectFrozenSubscriptionChannel(snapshot.Channels, state.TokenChannelID, format)
+	selected, err := selectFrozenSubscriptionChannel(snapshot.Channels, channelID)
 	if err != nil {
 		return PublicSubscriptionResult{}, err
 	}
@@ -134,8 +125,15 @@ func (application *Application) prepareSubscriptionFreeze(
 	if err != nil {
 		return nil, nil, err
 	}
-	inputs, err := application.database.LoadSubscriptionPreparationInputs(ctx)
+	inputs, err := application.database.LoadSubscriptionPreparationInputs(ctx, store.SubscriptionPreparationLimits{
+		MaximumChannels:   maximumFrozenChannels,
+		MaximumSources:    maximumFrozenSources,
+		MaximumInputBytes: store.MaximumSubscriptionInputBytes,
+	})
 	if err != nil {
+		if errors.Is(err, store.ErrSubscriptionLimitExceeded) {
+			return nil, nil, ErrSubscriptionSnapshotTooLarge
+		}
 		return nil, nil, err
 	}
 	if len(inputs.Channels) > maximumFrozenChannels {
@@ -145,31 +143,51 @@ func (application *Application) prepareSubscriptionFreeze(
 		return nil, nil, fmt.Errorf("%w: too many enabled sources", ErrSubscriptionSnapshotTooLarge)
 	}
 
-	sources := make([]frozenSubscriptionSourceWire, 0, len(inputs.Sources))
 	sourceDocuments := make([][]byte, 0, len(inputs.Sources))
+	sourceSnapshots := bytes.NewBuffer(make([]byte, 0, 1024))
+	if err := appendBoundedSubscriptionBytes(sourceSnapshots, []byte{'['}); err != nil {
+		return nil, nil, err
+	}
 	for _, source := range inputs.Sources {
-		snapshot := bytes.Clone(source.LatestSnapshot)
+		snapshot := source.LatestSnapshot
 		if len(snapshot) == 0 {
 			snapshot = []byte("null")
 		} else {
 			sourceDocuments = append(sourceDocuments, snapshot)
 		}
 		digest := sha256.Sum256(snapshot)
-		sources = append(sources, frozenSubscriptionSourceWire{
+		encoded, encodeErr := json.Marshal(frozenSubscriptionSourceWire{
 			SourceID: source.ID, SourceKind: source.SourceKind,
 			Snapshot: snapshot, SnapshotSHA256: hex.EncodeToString(digest[:]),
 		})
+		if encodeErr != nil {
+			return nil, nil, fmt.Errorf("encode subscription source snapshot: %w", encodeErr)
+		}
+		if sourceSnapshots.Len() > 1 {
+			if err := appendBoundedSubscriptionBytes(sourceSnapshots, []byte{','}); err != nil {
+				return nil, nil, fmt.Errorf("%w: source snapshots", err)
+			}
+		}
+		if err := appendBoundedSubscriptionBytes(sourceSnapshots, encoded); err != nil {
+			return nil, nil, fmt.Errorf("%w: source snapshots", err)
+		}
+	}
+	if err := appendBoundedSubscriptionBytes(sourceSnapshots, []byte{']'}); err != nil {
+		return nil, nil, fmt.Errorf("%w: source snapshots", err)
 	}
 	publicationJSON, err := subscriptionrender.MergeSourceSnapshots(finalStartupJSON, sourceDocuments)
 	if err != nil {
 		return nil, nil, fmt.Errorf("merge enabled subscription sources: %w", err)
 	}
 
-	wire := subscriptionSnapshotWire{
-		SchemaVersion: publicSubscriptionSnapshotSchema,
-		Channels:      make([]frozenSubscriptionChannelWire, 0, len(inputs.Channels)),
+	content := bytes.NewBuffer(make([]byte, 0, 1024))
+	if err := appendBoundedSubscriptionBytes(
+		content,
+		[]byte(`{"schema_version":1,"channels":[`),
+	); err != nil {
+		return nil, nil, err
 	}
-	for _, channel := range inputs.Channels {
+	for index, channel := range inputs.Channels {
 		config, decodeErr := store.DecodeSubscriptionChannelConfig(channel.Config)
 		if decodeErr != nil {
 			return nil, nil, decodeErr
@@ -186,29 +204,27 @@ func (application *Application) prepareSubscriptionFreeze(
 			return nil, nil, fmt.Errorf("%w: rendered channel body", ErrSubscriptionSnapshotTooLarge)
 		}
 		bodyDigest := sha256.Sum256(result.Content)
-		wire.Channels = append(wire.Channels, frozenSubscriptionChannelWire{
+		encoded, encodeErr := json.Marshal(frozenSubscriptionChannelWire{
 			ChannelID: channel.ID, Format: channel.Format, MediaType: result.MediaType,
-			Body: bytes.Clone(result.Content), BodySHA256: hex.EncodeToString(bodyDigest[:]),
-			NodeCount:   result.NodeCount,
-			Diagnostics: append([]subscriptionrender.Diagnostic(nil), result.Diagnostics...),
+			Body: result.Content, BodySHA256: hex.EncodeToString(bodyDigest[:]),
+			NodeCount: result.NodeCount, Diagnostics: result.Diagnostics,
 		})
+		if encodeErr != nil {
+			return nil, nil, fmt.Errorf("encode subscription channel %q: %w", channel.ID, encodeErr)
+		}
+		if index != 0 {
+			if err := appendBoundedSubscriptionBytes(content, []byte{','}); err != nil {
+				return nil, nil, err
+			}
+		}
+		if err := appendBoundedSubscriptionBytes(content, encoded); err != nil {
+			return nil, nil, err
+		}
 	}
-	content, err := json.Marshal(wire)
-	if err != nil {
-		return nil, nil, fmt.Errorf("encode subscription snapshot: %w", err)
+	if err := appendBoundedSubscriptionBytes(content, []byte(`]}`)); err != nil {
+		return nil, nil, err
 	}
-	if int64(len(content)) > store.MaximumSubscriptionSnapshotBytes {
-		return nil, nil, ErrSubscriptionSnapshotTooLarge
-	}
-
-	sourceSnapshots, err := json.Marshal(sources)
-	if err != nil {
-		return nil, nil, fmt.Errorf("encode subscription source snapshots: %w", err)
-	}
-	if int64(len(sourceSnapshots)) > store.MaximumSubscriptionSnapshotBytes {
-		return nil, nil, fmt.Errorf("%w: source snapshots", ErrSubscriptionSnapshotTooLarge)
-	}
-	return content, sourceSnapshots, nil
+	return json.RawMessage(content.Bytes()), json.RawMessage(sourceSnapshots.Bytes()), nil
 }
 
 func (application *Application) subscriptionStartupJSON(
@@ -252,17 +268,6 @@ func (application *Application) subscriptionStartupJSON(
 	}
 }
 
-func parseRequestedSubscriptionFormat(value string) (store.SubscriptionFormat, error) {
-	if value == "" {
-		return "", nil
-	}
-	format := store.SubscriptionFormat(value)
-	if !validPublicSubscriptionFormat(format) {
-		return "", ErrPublicSubscriptionUnknownFormat
-	}
-	return format, nil
-}
-
 func validateSubscriptionSnapshotWire(snapshot subscriptionSnapshotWire) error {
 	if snapshot.SchemaVersion != publicSubscriptionSnapshotSchema || snapshot.Channels == nil ||
 		len(snapshot.Channels) > maximumFrozenChannels {
@@ -301,38 +306,22 @@ func validateSubscriptionSnapshotWire(snapshot subscriptionSnapshotWire) error {
 
 func selectFrozenSubscriptionChannel(
 	channels []frozenSubscriptionChannelWire,
-	tokenChannelID string,
-	requested store.SubscriptionFormat,
+	channelID string,
 ) (frozenSubscriptionChannelWire, error) {
-	if tokenChannelID != "" {
-		for _, channel := range channels {
-			if channel.ChannelID != tokenChannelID {
-				continue
-			}
-			if requested != "" && requested != channel.Format {
-				return frozenSubscriptionChannelWire{}, ErrPublicSubscriptionFormatMismatch
-			}
+	for _, channel := range channels {
+		if channel.ChannelID == channelID {
 			return channel, nil
 		}
-		return frozenSubscriptionChannelWire{}, ErrPublicSubscriptionChannelUnavailable
 	}
-	if requested == "" {
-		return frozenSubscriptionChannelWire{}, ErrPublicSubscriptionFormatRequired
+	return frozenSubscriptionChannelWire{}, ErrPublicSubscriptionChannelUnavailable
+}
+
+func appendBoundedSubscriptionBytes(buffer *bytes.Buffer, value []byte) error {
+	if int64(len(value)) > store.MaximumSubscriptionSnapshotBytes-int64(buffer.Len()) {
+		return ErrSubscriptionSnapshotTooLarge
 	}
-	var selected *frozenSubscriptionChannelWire
-	for index := range channels {
-		if channels[index].Format != requested {
-			continue
-		}
-		if selected != nil {
-			return frozenSubscriptionChannelWire{}, ErrPublicSubscriptionFormatAmbiguous
-		}
-		selected = &channels[index]
-	}
-	if selected == nil {
-		return frozenSubscriptionChannelWire{}, ErrPublicSubscriptionChannelUnavailable
-	}
-	return *selected, nil
+	_, _ = buffer.Write(value)
+	return nil
 }
 
 func validPublicSubscriptionFormat(format store.SubscriptionFormat) bool {

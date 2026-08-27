@@ -671,6 +671,14 @@ paths:
         - name: core_artifact_id
           in: query
           schema: { type: string, minLength: 1, maxLength: 256 }
+        - name: before_time
+          in: query
+          description: RFC 3339 cursor time; must be paired with before_id.
+          schema: { type: string, format: date-time }
+        - name: before_id
+          in: query
+          description: Stable cursor ID; must be paired with before_time.
+          schema: { type: string, minLength: 1, maxLength: 256 }
         - $ref: "#/components/parameters/PageLimit"
       responses:
         "200":
@@ -1216,7 +1224,7 @@ paths:
         "412": { $ref: "#/components/responses/Problem" }
         "422": { $ref: "#/components/responses/Problem" }
         "428": { $ref: "#/components/responses/Problem" }
-  /sub/{token}:
+  /sub/{token}/{channelId}:
     servers:
       - url: /
         description: Public endpoint outside the versioned management API. A configured panel base path prefixes this URL at runtime.
@@ -1226,15 +1234,15 @@ paths:
         required: true
         description: Opaque one-time-issued public subscription credential.
         schema: { type: string, minLength: 1, maxLength: 512 }
+      - name: channelId
+        in: path
+        required: true
+        description: Stable ID of a channel frozen into the applied activation bundle.
+        schema: { type: string, minLength: 1, maxLength: 128 }
     get:
       operationId: getPublicSubscription
       security: []
       description: Returns only bytes frozen into the currently applied activation bundle. Token revocation and expiry are checked immediately; mutable channels and sources are never read for publication.
-      parameters:
-        - name: format
-          in: query
-          description: Required for an unbound token. Optional for a channel-bound token, where it must match the bound channel.
-          schema: { $ref: "#/components/schemas/SubscriptionFormat" }
       responses:
         "200":
           description: Frozen client subscription bytes from the applied bundle.
@@ -1248,13 +1256,8 @@ paths:
               schema: { type: string }
             text/plain:
               schema: { type: string }
-        "400":
-          description: The explicit format or query string is invalid.
-          content:
-            application/problem+json:
-              schema: { $ref: "#/components/schemas/Problem" }
         "404":
-          description: Uniform response for an unknown, expired, revoked, mismatched, or unavailable token/channel selection.
+          description: Uniform response for an unknown, expired, revoked, or unavailable token/channel selection.
           content:
             application/problem+json:
               schema: { $ref: "#/components/schemas/Problem" }
@@ -1266,14 +1269,23 @@ paths:
   /subscription/channels:
     get:
       operationId: listSubscriptionChannels
+      parameters:
+        - name: before_time
+          in: query
+          description: RFC 3339 cursor time; must be paired with before_id.
+          schema: { type: string, format: date-time }
+        - name: before_id
+          in: query
+          description: Stable cursor ID; must be paired with before_time.
+          schema: { type: string, minLength: 1, maxLength: 128 }
+        - $ref: "#/components/parameters/PageLimit"
       responses:
         "200":
-          description: All subscription channels in stable name order.
+          description: A newest-first page of subscription-channel metadata without configuration bodies.
           content:
             application/json:
-              schema:
-                type: array
-                items: { $ref: "#/components/schemas/SubscriptionChannel" }
+              schema: { $ref: "#/components/schemas/SubscriptionChannelPage" }
+        "400": { $ref: "#/components/responses/Problem" }
         "401": { $ref: "#/components/responses/Problem" }
         "500": { $ref: "#/components/responses/Problem" }
         "503": { $ref: "#/components/responses/Problem" }
@@ -1352,7 +1364,7 @@ paths:
         - $ref: "#/components/parameters/CSRFToken"
         - $ref: "#/components/parameters/SubscriptionIfMatch"
       responses:
-        "204": { description: The unreferenced channel was deleted. }
+        "204": { description: The channel was deleted. Tokens are global credentials and do not reference channels. }
         "401": { $ref: "#/components/responses/Problem" }
         "403": { $ref: "#/components/responses/Problem" }
         "404": { $ref: "#/components/responses/Problem" }
@@ -1393,14 +1405,23 @@ paths:
   /subscription/sources:
     get:
       operationId: listSubscriptionSources
+      parameters:
+        - name: before_time
+          in: query
+          description: RFC 3339 cursor time; must be paired with before_id.
+          schema: { type: string, format: date-time }
+        - name: before_id
+          in: query
+          description: Stable cursor ID; must be paired with before_time.
+          schema: { type: string, minLength: 1, maxLength: 128 }
+        - $ref: "#/components/parameters/PageLimit"
       responses:
         "200":
-          description: All attached sources in stable name order.
+          description: A newest-first page of source metadata without configuration or snapshot bodies.
           content:
             application/json:
-              schema:
-                type: array
-                items: { $ref: "#/components/schemas/SubscriptionSource" }
+              schema: { $ref: "#/components/schemas/SubscriptionSourcePage" }
+        "400": { $ref: "#/components/responses/Problem" }
         "401": { $ref: "#/components/responses/Problem" }
         "500": { $ref: "#/components/responses/Problem" }
         "503": { $ref: "#/components/responses/Problem" }
@@ -1525,14 +1546,23 @@ paths:
     get:
       operationId: listSubscriptionTokens
       description: Lists metadata only; plaintext and token SHA-256 are never returned.
+      parameters:
+        - name: before_time
+          in: query
+          description: RFC 3339 cursor time; must be paired with before_id.
+          schema: { type: string, format: date-time }
+        - name: before_id
+          in: query
+          description: Stable cursor ID; must be paired with before_time.
+          schema: { type: string, minLength: 1, maxLength: 128 }
+        - $ref: "#/components/parameters/PageLimit"
       responses:
         "200":
           description: Subscription token metadata, newest first.
           content:
             application/json:
-              schema:
-                type: array
-                items: { $ref: "#/components/schemas/SubscriptionToken" }
+              schema: { $ref: "#/components/schemas/SubscriptionTokenPage" }
+        "400": { $ref: "#/components/responses/Problem" }
         "401": { $ref: "#/components/responses/Problem" }
         "500": { $ref: "#/components/responses/Problem" }
         "503": { $ref: "#/components/responses/Problem" }
@@ -2798,7 +2828,32 @@ components:
         resolution: { $ref: "#/components/schemas/CoreVersionResolution" }
         items:
           type: array
-          items: { $ref: "#/components/schemas/ManualArtifact" }
+          items: { $ref: "#/components/schemas/ManualArtifactSummary" }
+        next: { $ref: "#/components/schemas/StartupArtifactCursor" }
+    ManualArtifactSummary:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - canonical_revision_id
+        - exact_core_version
+        - core_artifact_id
+        - config_sha256
+        - diagnostics
+        - state
+        - created_at
+      properties:
+        id: { type: string }
+        canonical_revision_id: { type: string }
+        exact_core_version: { $ref: "#/components/schemas/ExactCoreVersion" }
+        core_artifact_id: { type: string }
+        config_sha256: { $ref: "#/components/schemas/SHA256" }
+        diagnostics:
+          type: array
+          items: {}
+        state: { $ref: "#/components/schemas/ManualArtifactState" }
+        checked_at: { type: string, format: date-time }
+        created_at: { type: string, format: date-time }
     ManualSave:
       type: object
       additionalProperties: false
@@ -3152,6 +3207,33 @@ components:
         enabled: { type: boolean }
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
+    SubscriptionChannelSummary:
+      type: object
+      additionalProperties: false
+      required: [id, name, format, enabled, created_at, updated_at]
+      properties:
+        id: { type: string, minLength: 1, maxLength: 128 }
+        name: { type: string, minLength: 1, maxLength: 128 }
+        format: { $ref: "#/components/schemas/SubscriptionFormat" }
+        enabled: { type: boolean }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    SubscriptionCursor:
+      type: object
+      additionalProperties: false
+      required: [created_at, id]
+      properties:
+        created_at: { type: string, format: date-time }
+        id: { type: string, minLength: 1, maxLength: 128 }
+    SubscriptionChannelPage:
+      type: object
+      additionalProperties: false
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/SubscriptionChannelSummary" }
+        next: { $ref: "#/components/schemas/SubscriptionCursor" }
     SubscriptionSourceKind:
       type: string
       enum: [remote, local]
@@ -3199,11 +3281,31 @@ components:
         enabled: { type: boolean }
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
+    SubscriptionSourceSummary:
+      type: object
+      additionalProperties: false
+      required: [id, name, source_kind, has_snapshot, enabled, created_at, updated_at]
+      properties:
+        id: { type: string, minLength: 1, maxLength: 128 }
+        name: { type: string, minLength: 1, maxLength: 128 }
+        source_kind: { $ref: "#/components/schemas/SubscriptionSourceKind" }
+        has_snapshot: { type: boolean }
+        enabled: { type: boolean }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    SubscriptionSourcePage:
+      type: object
+      additionalProperties: false
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/SubscriptionSourceSummary" }
+        next: { $ref: "#/components/schemas/SubscriptionCursor" }
     SubscriptionTokenCreateRequest:
       type: object
       additionalProperties: false
       properties:
-        channel_id: { type: string, minLength: 1, maxLength: 128 }
         expires_at: { type: [string, "null"], format: date-time }
     SubscriptionTokenRotateRequest:
       type: object
@@ -3216,11 +3318,19 @@ components:
       required: [id, created_at, active]
       properties:
         id: { type: string, minLength: 1, maxLength: 128 }
-        channel_id: { type: string, minLength: 1, maxLength: 128 }
         expires_at: { type: string, format: date-time }
         revoked_at: { type: string, format: date-time }
         created_at: { type: string, format: date-time }
         active: { type: boolean }
+    SubscriptionTokenPage:
+      type: object
+      additionalProperties: false
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/SubscriptionToken" }
+        next: { $ref: "#/components/schemas/SubscriptionCursor" }
     CreatedSubscriptionToken:
       type: object
       additionalProperties: false

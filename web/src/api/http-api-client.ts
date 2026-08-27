@@ -4,7 +4,7 @@ import {
   stringify as stringifyLosslessJSON,
 } from 'lossless-json';
 
-import type { ActivationQueued, ApiClient, CanonicalChange, CanonicalRevisionPage, CanonicalSave, CanonicalSnapshot, CapabilityStatus, CatalogAssetFilter, CatalogAssetList, CoreArtifactFilter, CoreArtifactPage, CreatedSubscriptionToken, DashboardContext, Entity, EntityCollection, EntityList, LogClearFilter, LogEntry, LogFilter, LogPage, ManualArtifact, ManualArtifactList, ManualReattachPreview, ManualReattachSave, ManualReplacePreview, ManualSave, MetricsSnapshot, Session, StartupArtifactPage, StructuredRender, SubscriptionChannel, SubscriptionSource, SubscriptionToken, SubscriptionTokenRotation, Task, TaskFilter, TaskPage, TrafficPeriod, TrafficPeriodFilter, TrafficPeriodPage } from './api-client';
+import type { ActivationQueued, ApiClient, CanonicalChange, CanonicalRevisionPage, CanonicalSave, CanonicalSnapshot, CapabilityStatus, CatalogAssetFilter, CatalogAssetList, CoreArtifactFilter, CoreArtifactPage, CreatedSubscriptionToken, DashboardContext, Entity, EntityCollection, EntityList, LogClearFilter, LogEntry, LogFilter, LogPage, ManualArtifact, ManualArtifactList, ManualReattachPreview, ManualReattachSave, ManualReplacePreview, ManualSave, MetricsSnapshot, Session, StartupArtifactPage, StructuredRender, SubscriptionChannel, SubscriptionChannelPage, SubscriptionSource, SubscriptionSourcePage, SubscriptionToken, SubscriptionTokenPage, SubscriptionTokenRotation, Task, TaskFilter, TaskPage, TrafficPeriod, TrafficPeriodFilter, TrafficPeriodPage } from './api-client';
 
 import {
 
@@ -365,6 +365,8 @@ export function createHttpApiClient(
       const query = buildQuery({
         core_version: filter.coreVersion,
         core_artifact_id: filter.coreArtifactID,
+        before_time: filter.beforeTime,
+        before_id: filter.beforeID,
         limit: filter.limit ?? 50,
       });
       return request<ManualArtifactList>(fetcher, `${baseUrl}/config/manual${query}`, {
@@ -448,10 +450,22 @@ export function createHttpApiClient(
         },
       );
     },
-    listSubscriptionChannels(signal) {
-      return request<SubscriptionChannel[]>(
+    listSubscriptionChannels(filter = {}, signal) {
+      const query = buildQuery({
+        limit: filter.limit ?? 50,
+        before_time: filter.beforeTime,
+        before_id: filter.beforeID,
+      });
+      return request<SubscriptionChannelPage>(
         fetcher,
-        `${baseUrl}/subscription/channels`,
+        `${baseUrl}/subscription/channels${query}`,
+        { method: 'GET', signal },
+      );
+    },
+    getSubscriptionChannel(channelID, signal) {
+      return request<SubscriptionChannel>(
+        fetcher,
+        `${baseUrl}/subscription/channels/${encodeURIComponent(channelID)}`,
         { method: 'GET', signal },
       );
     },
@@ -490,10 +504,22 @@ export function createHttpApiClient(
         },
       );
     },
-    listSubscriptionSources(signal) {
-      return request<SubscriptionSource[]>(
+    listSubscriptionSources(filter = {}, signal) {
+      const query = buildQuery({
+        limit: filter.limit ?? 50,
+        before_time: filter.beforeTime,
+        before_id: filter.beforeID,
+      });
+      return request<SubscriptionSourcePage>(
         fetcher,
-        `${baseUrl}/subscription/sources`,
+        `${baseUrl}/subscription/sources${query}`,
+        { method: 'GET', signal },
+      );
+    },
+    getSubscriptionSource(sourceID, signal) {
+      return request<SubscriptionSource>(
+        fetcher,
+        `${baseUrl}/subscription/sources/${encodeURIComponent(sourceID)}`,
         { method: 'GET', signal },
       );
     },
@@ -540,8 +566,13 @@ export function createHttpApiClient(
         },
       );
     },
-    listSubscriptionTokens(signal) {
-      return request<SubscriptionToken[]>(fetcher, `${baseUrl}/subscription/tokens`, {
+    listSubscriptionTokens(filter = {}, signal) {
+      const query = buildQuery({
+        limit: filter.limit ?? 50,
+        before_time: filter.beforeTime,
+        before_id: filter.beforeID,
+      });
+      return request<SubscriptionTokenPage>(fetcher, `${baseUrl}/subscription/tokens${query}`, {
         method: 'GET',
         signal,
       });
@@ -553,7 +584,6 @@ export function createHttpApiClient(
         {
           method: 'POST',
           body: JSON.stringify({
-            channel_id: input.channelID,
             expires_at: input.expiresAt,
           }),
           headers: writeJSONHeaders(),

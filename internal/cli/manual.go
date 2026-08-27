@@ -127,27 +127,34 @@ func newManualDetachCommand(state *options, open openApplicationFunc) *cobra.Com
 }
 
 func newManualListCommand(state *options, open openApplicationFunc) *cobra.Command {
-	var version, artifactID string
+	var version, artifactID, beforeTime, beforeID string
 	var limit int
 	command := &cobra.Command{
 		Use:   "list",
 		Short: "List manual candidates for one exact core version",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			parsedCursor, err := parseSubscriptionCursor(beforeTime, beforeID)
+			if err != nil {
+				return err
+			}
+			var cursor *application.StartupArtifactCursor
+			if parsedCursor != nil {
+				cursor = &application.StartupArtifactCursor{CreatedAt: parsedCursor.CreatedAt, ID: parsedCursor.ID}
+			}
 			instance, err := openApplication(cmd.Context(), state.settingsPath, open)
 			if err != nil {
 				return err
 			}
 			defer instance.Close()
-			resolution, artifacts, err := instance.ListManualArtifacts(
-				cmd.Context(), version, artifactID, limit,
+			page, err := instance.ListManualArtifacts(
+				cmd.Context(), version, artifactID, cursor, limit,
 			)
 			if err != nil {
 				return classifyManualError(err, version)
 			}
-			result := map[string]any{"resolution": resolution, "items": artifacts}
 			var output strings.Builder
-			for _, artifact := range artifacts {
+			for _, artifact := range page.Items {
 				fmt.Fprintf(
 					&output, "%s\t%s\t%s\t%s\t%s\n",
 					artifact.ID, artifact.ExactCoreVersion, artifact.CoreArtifactID,
@@ -155,17 +162,25 @@ func newManualListCommand(state *options, open openApplicationFunc) *cobra.Comma
 				)
 			}
 			itemsText := strings.TrimSuffix(output.String(), "\n")
-			text := fmt.Sprintf("core %s from %s", resolution.ExactVersion, resolution.Source)
+			text := fmt.Sprintf("core %s from %s", page.Resolution.ExactVersion, page.Resolution.Source)
 			if itemsText == "" {
 				text += "; no manual candidates"
 			} else {
 				text += "\n" + itemsText
 			}
-			return writeResult(cmd.OutOrStdout(), state.format, result, text)
+			if page.Next != nil {
+				text += fmt.Sprintf(
+					"\nnext\t--before-time=%s --before-id=%s",
+					page.Next.CreatedAt.UTC().Format(time.RFC3339Nano), page.Next.ID,
+				)
+			}
+			return writeResult(cmd.OutOrStdout(), state.format, page, text)
 		},
 	}
 	command.Flags().StringVar(&version, "core-version", "", "exact sing-box version; omit to use the actual running version")
 	command.Flags().StringVar(&artifactID, "artifact", "", "filter by immutable core artifact ID")
+	command.Flags().StringVar(&beforeTime, "before-time", "", "exclusive next-page RFC3339 timestamp (requires --before-id)")
+	command.Flags().StringVar(&beforeID, "before-id", "", "exclusive next-page artifact ID (requires --before-time)")
 	command.Flags().IntVar(&limit, "limit", 50, "maximum candidates to return (1-200)")
 	return command
 }

@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
-	"net/url"
 	"strings"
 	"time"
 
@@ -27,16 +26,16 @@ func (handler *Handler) publicSubscription(w http.ResponseWriter, request *http.
 		writePublicSubscriptionProblem(w, request, errPublicSubscriptionUnavailable)
 		return
 	}
-	query, ok := strictPublicSubscriptionQuery(w, request)
-	if !ok {
+	if _, ok := strictCoreQuery(w, request); !ok {
 		return
 	}
-	token := strings.TrimPrefix(path, "/sub/")
-	if token == "" || len(token) > 512 || strings.Contains(token, "/") {
+	parts := strings.Split(strings.TrimPrefix(path, "/sub/"), "/")
+	if len(parts) != 2 || parts[0] == "" || len(parts[0]) > 512 ||
+		!validStableIdentifier(parts[1]) || len(parts[1]) > 128 {
 		writePublicSubscriptionProblem(w, request, application.ErrPublicSubscriptionAccessDenied)
 		return
 	}
-	result, err := handler.commands.PublicSubscription(request.Context(), token, query.Get("format"))
+	result, err := handler.commands.PublicSubscription(request.Context(), parts[0], parts[1])
 	if err != nil {
 		writePublicSubscriptionProblem(w, request, err)
 		return
@@ -49,31 +48,12 @@ func (handler *Handler) publicSubscription(w http.ResponseWriter, request *http.
 
 var errPublicSubscriptionUnavailable = errors.New("public subscription service unavailable")
 
-func strictPublicSubscriptionQuery(w http.ResponseWriter, request *http.Request) (url.Values, bool) {
-	query, ok := strictCoreQuery(w, request, "format")
-	if !ok {
-		return nil, false
-	}
-	format := query.Get("format")
-	if format != "" && format != string(store.SubscriptionFormatSingBox) &&
-		format != string(store.SubscriptionFormatMihomo) && format != string(store.SubscriptionFormatLoon) {
-		writeProblem(w, request, http.StatusBadRequest, "subscription_format_invalid", "Subscription format invalid", "format must be sing-box, mihomo, or loon.")
-		return nil, false
-	}
-	return query, true
-}
-
 func writePublicSubscriptionProblem(w http.ResponseWriter, request *http.Request, err error) {
 	switch {
-	case errors.Is(err, application.ErrPublicSubscriptionUnknownFormat),
-		errors.Is(err, application.ErrPublicSubscriptionFormatRequired):
-		writeProblem(w, request, http.StatusBadRequest, "subscription_format_invalid", "Subscription format invalid", "format must be sing-box, mihomo, or loon.")
 	case errors.Is(err, store.ErrNoAppliedBundle):
 		writeProblem(w, request, http.StatusServiceUnavailable, "not_applied", "Subscription unavailable", "No applied subscription bundle is available.")
 	case errors.Is(err, application.ErrPublicSubscriptionAccessDenied),
-		errors.Is(err, application.ErrPublicSubscriptionFormatMismatch),
-		errors.Is(err, application.ErrPublicSubscriptionChannelUnavailable),
-		errors.Is(err, application.ErrPublicSubscriptionFormatAmbiguous):
+		errors.Is(err, application.ErrPublicSubscriptionChannelUnavailable):
 		writeProblem(w, request, http.StatusNotFound, "subscription_not_found", "Subscription not found", "The requested subscription is unavailable.")
 	default:
 		writeProblem(w, request, http.StatusServiceUnavailable, "subscription_unavailable", "Subscription unavailable", "The subscription could not be served.")
@@ -178,10 +158,11 @@ func (handler *Handler) subscriptionManagementHandler(
 }
 
 func (handler *Handler) listSubscriptionChannels(w http.ResponseWriter, request *http.Request) {
-	if !handler.subscriptionReadRequest(w, request) {
+	input, ok := handler.subscriptionListRequest(w, request)
+	if !ok {
 		return
 	}
-	channels, err := handler.commands.ListSubscriptionChannels(request.Context())
+	channels, err := handler.commands.ListSubscriptionChannels(request.Context(), input)
 	if err != nil {
 		writeSubscriptionProblem(w, request, "subscription_channel_list_failed", err)
 		return
@@ -298,10 +279,11 @@ func (handler *Handler) previewSubscriptionChannel(w http.ResponseWriter, reques
 }
 
 func (handler *Handler) listSubscriptionSources(w http.ResponseWriter, request *http.Request) {
-	if !handler.subscriptionReadRequest(w, request) {
+	input, ok := handler.subscriptionListRequest(w, request)
+	if !ok {
 		return
 	}
-	sources, err := handler.commands.ListSubscriptionSources(request.Context())
+	sources, err := handler.commands.ListSubscriptionSources(request.Context(), input)
 	if err != nil {
 		writeSubscriptionProblem(w, request, "subscription_source_list_failed", err)
 		return
@@ -427,10 +409,11 @@ func (handler *Handler) deleteSubscriptionSource(w http.ResponseWriter, request 
 }
 
 func (handler *Handler) listSubscriptionTokens(w http.ResponseWriter, request *http.Request) {
-	if !handler.subscriptionReadRequest(w, request) {
+	input, ok := handler.subscriptionListRequest(w, request)
+	if !ok {
 		return
 	}
-	tokens, err := handler.commands.ListSubscriptionTokens(request.Context())
+	tokens, err := handler.commands.ListSubscriptionTokens(request.Context(), input)
 	if err != nil {
 		writeSubscriptionProblem(w, request, "subscription_token_list_failed", err)
 		return
@@ -504,6 +487,32 @@ func (handler *Handler) subscriptionReadRequest(w http.ResponseWriter, request *
 	return ok
 }
 
+func (handler *Handler) subscriptionListRequest(
+	w http.ResponseWriter,
+	request *http.Request,
+) (application.SubscriptionListRequest, bool) {
+	if !handler.requireCommands(w, request) {
+		return application.SubscriptionListRequest{}, false
+	}
+	query, ok := strictCoreQuery(w, request, "limit", "before_time", "before_id")
+	if !ok {
+		return application.SubscriptionListRequest{}, false
+	}
+	limit, ok := optionalLimit(w, request)
+	if !ok {
+		return application.SubscriptionListRequest{}, false
+	}
+	cursor, ok := startupArtifactCursor(w, request, query.Get("before_time"), query.Get("before_id"))
+	if !ok {
+		return application.SubscriptionListRequest{}, false
+	}
+	var subscriptionCursor *application.SubscriptionCursor
+	if cursor != nil {
+		subscriptionCursor = &application.SubscriptionCursor{CreatedAt: cursor.CreatedAt, ID: cursor.ID}
+	}
+	return application.SubscriptionListRequest{Cursor: subscriptionCursor, Limit: limit}, true
+}
+
 func (handler *Handler) subscriptionMutationRequest(w http.ResponseWriter, request *http.Request) bool {
 	return handler.subscriptionReadRequest(w, request)
 }
@@ -545,8 +554,8 @@ func writeSubscriptionProblem(w http.ResponseWriter, request *http.Request, code
 	case errors.Is(err, store.ErrSubscriptionChannelExists), errors.Is(err, store.ErrSubscriptionSourceExists),
 		errors.Is(err, store.ErrSubscriptionTokenExists):
 		writeProblem(w, request, http.StatusConflict, "subscription_resource_exists", "Subscription resource conflict", "A subscription resource with that identity already exists.")
-	case errors.Is(err, store.ErrSubscriptionChannelInUse):
-		writeProblem(w, request, http.StatusConflict, "subscription_channel_in_use", "Subscription channel in use", "The subscription channel is still referenced by a token.")
+	case errors.Is(err, store.ErrSubscriptionLimitExceeded), errors.Is(err, application.ErrSubscriptionSnapshotTooLarge):
+		writeProblem(w, request, http.StatusUnprocessableEntity, "subscription_limit_exceeded", "Subscription limit exceeded", "The enabled subscription inputs exceed the supported count or byte budget.")
 	case errors.Is(err, store.ErrSubscriptionTokenInactive):
 		writeProblem(w, request, http.StatusConflict, "subscription_token_inactive", "Subscription token inactive", "The subscription token is expired or revoked.")
 	case errors.Is(err, application.ErrSubscriptionPreviewArtifactState):

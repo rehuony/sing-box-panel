@@ -11,6 +11,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"modernc.org/sqlite"
 )
 
 func TestOpenConfiguresEveryConnectionAndReopens(t *testing.T) {
@@ -83,6 +85,78 @@ func TestOpenConfiguresEveryConnectionAndReopens(t *testing.T) {
 	}
 	if bootstrap.Head != nil || bootstrap.Hub.HeadRevisionID != "" {
 		t.Fatalf("Bootstrap() head = %+v / %q, want no head", bootstrap.Head, bootstrap.Hub.HeadRevisionID)
+	}
+}
+
+func TestOpenMigratesChannelBoundTokensToGlobalTokens(t *testing.T) {
+	ctx := testContext(t)
+	path := filepath.Join(t.TempDir(), "panel.db")
+	migrations, err := loadMigrations()
+	if err != nil || len(migrations) < 2 {
+		t.Fatalf("loadMigrations() = %d, %v", len(migrations), err)
+	}
+	connector, err := sqlite.NewConnector(databaseDSN(path))
+	if err != nil {
+		t.Fatal(err)
+	}
+	database := sql.OpenDB(connector)
+	tx, err := database.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = tx.ExecContext(ctx, migrations[0].sql); err == nil {
+		_, err = tx.ExecContext(ctx,
+			`INSERT INTO schema_migrations(version, name, applied_at) VALUES (1, ?, ?)`,
+			migrations[0].name, time.Now().UTC().Format(time.RFC3339Nano))
+	}
+	if err == nil {
+		_, err = tx.ExecContext(ctx, fmt.Sprintf("PRAGMA application_id = %d", ApplicationID))
+	}
+	if err == nil {
+		_, err = tx.ExecContext(ctx, "PRAGMA user_version = 1")
+	}
+	now := formatTaskTime(time.Now().UTC())
+	if err == nil {
+		_, err = tx.ExecContext(ctx, `INSERT INTO subscription_channels(
+            id, name, format, config_json, enabled, created_at, updated_at
+        ) VALUES ('channel-old', 'old', 'sing-box', '{}', 1, ?, ?)`, now, now)
+	}
+	if err == nil {
+		_, err = tx.ExecContext(ctx, `INSERT INTO subscription_tokens(
+            id, token_sha256, channel_id, created_at
+        ) VALUES ('token-old', ?, 'channel-old', ?)`, stringsOf('a', 64), now)
+	}
+	if err != nil {
+		_ = tx.Rollback()
+		t.Fatal(err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	migrated, err := Open(ctx, path)
+	if err != nil {
+		t.Fatalf("Open() migration error = %v", err)
+	}
+	t.Cleanup(func() { _ = migrated.Close() })
+	if _, err := migrated.GetSubscriptionToken(ctx, "token-old"); err != nil {
+		t.Fatalf("migrated token lookup: %v", err)
+	}
+	channel, err := migrated.GetSubscriptionChannel(ctx, "channel-old")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := migrated.DeleteSubscriptionChannel(ctx, channel.ID, channel.UpdatedAt); err != nil {
+		t.Fatalf("global token retained a channel reference: %v", err)
+	}
+	var channelColumns int
+	if err := migrated.db.QueryRowContext(ctx,
+		`SELECT count(*) FROM pragma_table_info('subscription_tokens') WHERE name = 'channel_id'`,
+	).Scan(&channelColumns); err != nil || channelColumns != 0 {
+		t.Fatalf("channel_id columns = %d, err=%v", channelColumns, err)
 	}
 }
 

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 
-import type { SubscriptionChannel, SubscriptionToken } from '@/api/api-client';
+import type { SubscriptionCursor, SubscriptionToken } from '@/api/api-client';
 
 import { useApiClient } from '@/api/api-client-context';
 import { ActionError } from '@/components/action-error';
@@ -21,25 +21,25 @@ function localDateTimeToISO(value: string): string | undefined {
 export function SubscriptionTokenPanel() {
   const client = useApiClient();
   const [tokens, setTokens] = useState<SubscriptionToken[] | null>(null);
-  const [channels, setChannels] = useState<SubscriptionChannel[]>([]);
+  const [next, setNext] = useState<SubscriptionCursor>();
   const [loadError, setLoadError] = useState<unknown>(null);
-  const [channelID, setChannelID] = useState('');
   const [expiresAt, setExpiresAt] = useState('');
   const [secret, setSecret] = useState<IssuedSecret | null>(null);
   const [copied, setCopied] = useState(false);
   const [actionError, setActionError] = useState('');
   const [busy, setBusy] = useState(false);
 
-  const load = useCallback(async (signal?: AbortSignal) => {
+  const load = useCallback(async (signal?: AbortSignal, cursor?: SubscriptionCursor, append = false) => {
     try {
       setLoadError(null);
-      const [listedTokens, listedChannels] = await Promise.all([
-        client.listSubscriptionTokens(signal),
-        client.listSubscriptionChannels(signal),
-      ]);
+      const page = await client.listSubscriptionTokens({
+        limit: 50,
+        beforeTime: cursor?.created_at,
+        beforeID: cursor?.id,
+      }, signal);
       if (!signal?.aborted) {
-        setTokens(listedTokens);
-        setChannels(listedChannels);
+        setTokens((current) => append ? [...(current ?? []), ...page.items] : page.items);
+        setNext(page.next);
       }
     } catch (error) {
       if (!signal?.aborted) setLoadError(error);
@@ -58,7 +58,6 @@ export function SubscriptionTokenPanel() {
       setActionError('');
       setSecret(null);
       const issued = await client.createSubscriptionToken({
-        channelID: channelID || undefined,
         expiresAt: localDateTimeToISO(expiresAt),
       });
       setSecret({ kind: 'created', token: issued.token });
@@ -104,11 +103,6 @@ export function SubscriptionTokenPanel() {
     setCopied(true);
   }
 
-  function channelName(id?: string): string {
-    if (!id) return 'Format selected by request';
-    return channels.find((channel) => channel.id === id)?.name ?? id;
-  }
-
   return (
     <section className='subscription-panel' aria-labelledby='subscription-tokens-title'>
       <div className='subscription-panel__heading'>
@@ -120,7 +114,7 @@ export function SubscriptionTokenPanel() {
         <span className='count-label'>
           {tokens?.filter((token) => token.active).length ?? 0}
           {' '}
-          active
+          active loaded
         </span>
       </div>
       <ActionError message={actionError} title='Token change failed' />
@@ -153,21 +147,6 @@ export function SubscriptionTokenPanel() {
         void create();
       }}>
         <div className='field-group'>
-          <label htmlFor='token-channel'>Channel</label>
-          <select id='token-channel' onChange={(event) => setChannelID(event.target.value)} value={channelID}>
-            <option value=''>Any format (explicit request required)</option>
-            {channels.map((channel) => (
-              <option key={channel.id} value={channel.id}>
-                {channel.name}
-                {' '}
-                ·
-                {' '}
-                {channel.format}
-              </option>
-            ))}
-          </select>
-        </div>
-        <div className='field-group'>
           <label htmlFor='token-expiry'>Expires at</label>
           <input id='token-expiry' onChange={(event) => setExpiresAt(event.target.value)} type='datetime-local' value={expiresAt} />
           <span>Leave empty for no expiry.</span>
@@ -180,7 +159,7 @@ export function SubscriptionTokenPanel() {
         ? (
             <div className='empty-state'>
               <strong>No public tokens.</strong>
-              <p>Issue one only after you have a channel or intend callers to select an explicit format.</p>
+              <p>Issue one after an activation has frozen at least one enabled channel.</p>
             </div>
           )
         : null}
@@ -191,7 +170,6 @@ export function SubscriptionTokenPanel() {
                 <thead>
                   <tr>
                     <th>Token ID</th>
-                    <th>Channel</th>
                     <th>State</th>
                     <th>Actions</th>
                   </tr>
@@ -206,7 +184,6 @@ export function SubscriptionTokenPanel() {
                           {new Date(token.created_at).toLocaleDateString()}
                         </small>
                       </td>
-                      <td>{channelName(token.channel_id)}</td>
                       <td>
                         <span className={`state-label ${token.active ? 'state-label--success' : 'state-label--warning'}`}>
                           <span aria-hidden='true' />
@@ -225,6 +202,9 @@ export function SubscriptionTokenPanel() {
               </table>
             </div>
           )
+        : null}
+      {next
+        ? <button className='button button--secondary' disabled={busy} onClick={() => void load(undefined, next, true)} type='button'>Load more tokens</button>
         : null}
     </section>
   );

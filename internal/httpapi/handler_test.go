@@ -466,3 +466,37 @@ func TestSessionRefreshAndCSRFProtectedLogout(t *testing.T) {
 		t.Fatalf("logout status = %d; body = %s", logoutResponse.Code, logoutResponse.Body.String())
 	}
 }
+
+func TestCSRFUsesConfiguredExternalOriginWithoutForwardedHeaders(t *testing.T) {
+	value := settings.Defaults(t.TempDir() + "/setting.json")
+	value.DataDir = t.TempDir()
+	value.Auth.Token = "correct-management-token"
+	value.Server.ExternalOrigin = "http://panel.example"
+	if err := value.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	handler := NewHandler(HandlerOptions{Settings: value, Build: buildinfo.Info{Version: "test"}})
+	login := httptest.NewRequest(http.MethodPost, "/api/v1/auth/session", strings.NewReader(`{"token":"correct-management-token"}`))
+	loginResponse := httptest.NewRecorder()
+	handler.ServeHTTP(loginResponse, login)
+	var payload struct {
+		CSRF string `json:"csrfToken"`
+	}
+	if err := json.Unmarshal(loginResponse.Body.Bytes(), &payload); err != nil {
+		t.Fatal(err)
+	}
+	cookie := loginResponse.Result().Cookies()[0]
+
+	logout := httptest.NewRequest(http.MethodDelete, "/api/v1/auth/session", nil)
+	logout.Host = "127.0.0.1:3000"
+	logout.Header.Set("Origin", "http://panel.example:80")
+	logout.Header.Set("X-Forwarded-Host", "attacker.example")
+	logout.Header.Set("X-Forwarded-Proto", "https")
+	logout.Header.Set("X-CSRF-Token", payload.CSRF)
+	logout.AddCookie(cookie)
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, logout)
+	if response.Code != http.StatusNoContent {
+		t.Fatalf("external-origin logout status=%d body=%s", response.Code, response.Body.String())
+	}
+}

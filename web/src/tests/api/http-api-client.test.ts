@@ -444,7 +444,7 @@ describe('createHttpApiClient', () => {
       { name: 'Primary', format: 'sing-box', config: {}, enabled: true },
       '2026-08-26T07:05:00.000000001Z',
     );
-    await client.createSubscriptionToken({ channelID: 'channel_1' });
+    await client.createSubscriptionToken({});
 
     expect(fetcher).toHaveBeenNthCalledWith(
       2,

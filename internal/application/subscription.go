@@ -31,6 +31,15 @@ type SubscriptionChannel struct {
 	UpdatedAt time.Time                `json:"updated_at"`
 }
 
+type SubscriptionChannelSummary struct {
+	ID        string                   `json:"id"`
+	Name      string                   `json:"name"`
+	Format    store.SubscriptionFormat `json:"format"`
+	Enabled   bool                     `json:"enabled"`
+	CreatedAt time.Time                `json:"created_at"`
+	UpdatedAt time.Time                `json:"updated_at"`
+}
+
 type CreateSubscriptionChannelRequest struct {
 	Name    string                   `json:"name"`
 	Format  store.SubscriptionFormat `json:"format"`
@@ -55,6 +64,16 @@ type SubscriptionSource struct {
 	Enabled        bool                         `json:"enabled"`
 	CreatedAt      time.Time                    `json:"created_at"`
 	UpdatedAt      time.Time                    `json:"updated_at"`
+}
+
+type SubscriptionSourceSummary struct {
+	ID          string                       `json:"id"`
+	Name        string                       `json:"name"`
+	SourceKind  store.SubscriptionSourceKind `json:"source_kind"`
+	HasSnapshot bool                         `json:"has_snapshot"`
+	Enabled     bool                         `json:"enabled"`
+	CreatedAt   time.Time                    `json:"created_at"`
+	UpdatedAt   time.Time                    `json:"updated_at"`
 }
 
 type CreateSubscriptionSourceRequest struct {
@@ -82,7 +101,6 @@ type UpdateSubscriptionSourceSnapshotRequest struct {
 // public plaintext is returned only by create/rotate result types.
 type SubscriptionToken struct {
 	ID        string     `json:"id"`
-	ChannelID string     `json:"channel_id,omitempty"`
 	ExpiresAt *time.Time `json:"expires_at,omitempty"`
 	RevokedAt *time.Time `json:"revoked_at,omitempty"`
 	CreatedAt time.Time  `json:"created_at"`
@@ -90,8 +108,32 @@ type SubscriptionToken struct {
 }
 
 type CreateSubscriptionTokenRequest struct {
-	ChannelID string     `json:"channel_id,omitempty"`
 	ExpiresAt *time.Time `json:"expires_at,omitempty"`
+}
+
+type SubscriptionCursor struct {
+	CreatedAt time.Time `json:"created_at"`
+	ID        string    `json:"id"`
+}
+
+type SubscriptionListRequest struct {
+	Cursor *SubscriptionCursor
+	Limit  int
+}
+
+type SubscriptionChannelPage struct {
+	Items []SubscriptionChannelSummary `json:"items"`
+	Next  *SubscriptionCursor          `json:"next,omitempty"`
+}
+
+type SubscriptionSourcePage struct {
+	Items []SubscriptionSourceSummary `json:"items"`
+	Next  *SubscriptionCursor         `json:"next,omitempty"`
+}
+
+type SubscriptionTokenPage struct {
+	Items []SubscriptionToken `json:"items"`
+	Next  *SubscriptionCursor `json:"next,omitempty"`
 }
 
 type CreatedSubscriptionToken struct {
@@ -145,16 +187,20 @@ func (application *Application) SubscriptionChannel(
 
 func (application *Application) ListSubscriptionChannels(
 	ctx context.Context,
-) ([]SubscriptionChannel, error) {
-	stored, err := application.database.ListSubscriptionChannels(ctx)
+	request SubscriptionListRequest,
+) (SubscriptionChannelPage, error) {
+	stored, err := application.database.ListSubscriptionChannels(ctx, store.SubscriptionChannelListFilter{
+		Cursor: storeSubscriptionCursor(request.Cursor), Limit: request.Limit,
+	})
 	if err != nil {
-		return nil, err
+		return SubscriptionChannelPage{}, err
 	}
-	channels := make([]SubscriptionChannel, len(stored))
-	for index, channel := range stored {
-		channels[index] = applicationSubscriptionChannel(channel)
+	page := SubscriptionChannelPage{Items: make([]SubscriptionChannelSummary, len(stored.Items))}
+	for index, channel := range stored.Items {
+		page.Items[index] = applicationSubscriptionChannelSummary(channel)
 	}
-	return channels, nil
+	page.Next = applicationSubscriptionCursor(stored.Next)
+	return page, nil
 }
 
 func (application *Application) UpdateSubscriptionChannel(
@@ -214,16 +260,20 @@ func (application *Application) SubscriptionSource(
 
 func (application *Application) ListSubscriptionSources(
 	ctx context.Context,
-) ([]SubscriptionSource, error) {
-	stored, err := application.database.ListSubscriptionSources(ctx)
+	request SubscriptionListRequest,
+) (SubscriptionSourcePage, error) {
+	stored, err := application.database.ListSubscriptionSources(ctx, store.SubscriptionSourceListFilter{
+		Cursor: storeSubscriptionCursor(request.Cursor), Limit: request.Limit,
+	})
 	if err != nil {
-		return nil, err
+		return SubscriptionSourcePage{}, err
 	}
-	sources := make([]SubscriptionSource, len(stored))
-	for index, source := range stored {
-		sources[index] = applicationSubscriptionSource(source)
+	page := SubscriptionSourcePage{Items: make([]SubscriptionSourceSummary, len(stored.Items))}
+	for index, source := range stored.Items {
+		page.Items[index] = applicationSubscriptionSourceSummary(source)
 	}
-	return sources, nil
+	page.Next = applicationSubscriptionCursor(stored.Next)
+	return page, nil
 }
 
 func (application *Application) UpdateSubscriptionSource(
@@ -284,8 +334,7 @@ func (application *Application) CreateSubscriptionToken(
 	}
 	now := application.now().UTC()
 	stored, err := application.database.CreateSubscriptionToken(ctx, store.SubscriptionToken{
-		ID: id, TokenSHA256: digest, ChannelID: strings.TrimSpace(request.ChannelID),
-		ExpiresAt: cloneTime(request.ExpiresAt), CreatedAt: now,
+		ID: id, TokenSHA256: digest, ExpiresAt: cloneTime(request.ExpiresAt), CreatedAt: now,
 	})
 	if err != nil {
 		return CreatedSubscriptionToken{}, err
@@ -310,17 +359,21 @@ func (application *Application) SubscriptionToken(
 
 func (application *Application) ListSubscriptionTokens(
 	ctx context.Context,
-) ([]SubscriptionToken, error) {
+	request SubscriptionListRequest,
+) (SubscriptionTokenPage, error) {
 	now := application.now().UTC()
-	stored, err := application.database.ListSubscriptionTokens(ctx)
+	stored, err := application.database.ListSubscriptionTokens(ctx, store.SubscriptionTokenListFilter{
+		Cursor: storeSubscriptionCursor(request.Cursor), Limit: request.Limit,
+	})
 	if err != nil {
-		return nil, err
+		return SubscriptionTokenPage{}, err
 	}
-	tokens := make([]SubscriptionToken, len(stored))
-	for index, token := range stored {
-		tokens[index] = applicationSubscriptionToken(token, now)
+	page := SubscriptionTokenPage{Items: make([]SubscriptionToken, len(stored.Items))}
+	for index, token := range stored.Items {
+		page.Items[index] = applicationSubscriptionToken(token, now)
 	}
-	return tokens, nil
+	page.Next = applicationSubscriptionCursor(stored.Next)
+	return page, nil
 }
 
 func (application *Application) AuthenticateSubscriptionToken(
@@ -366,8 +419,7 @@ func (application *Application) RotateSubscriptionToken(
 		ctx,
 		current.ID,
 		store.SubscriptionToken{
-			ID: replacementID, TokenSHA256: digest, ChannelID: current.ChannelID,
-			ExpiresAt: cloneTime(expiresAt),
+			ID: replacementID, TokenSHA256: digest, ExpiresAt: cloneTime(expiresAt),
 		},
 		now,
 	)
@@ -470,6 +522,13 @@ func applicationSubscriptionChannel(value store.SubscriptionChannel) Subscriptio
 	}
 }
 
+func applicationSubscriptionChannelSummary(value store.SubscriptionChannelSummary) SubscriptionChannelSummary {
+	return SubscriptionChannelSummary{
+		ID: value.ID, Name: value.Name, Format: value.Format, Enabled: value.Enabled,
+		CreatedAt: value.CreatedAt, UpdatedAt: value.UpdatedAt,
+	}
+}
+
 func applicationSubscriptionSource(value store.SubscriptionSource) SubscriptionSource {
 	return SubscriptionSource{
 		ID: value.ID, Name: value.Name, SourceKind: value.SourceKind,
@@ -479,10 +538,32 @@ func applicationSubscriptionSource(value store.SubscriptionSource) SubscriptionS
 	}
 }
 
+func applicationSubscriptionSourceSummary(value store.SubscriptionSourceSummary) SubscriptionSourceSummary {
+	return SubscriptionSourceSummary{
+		ID: value.ID, Name: value.Name, SourceKind: value.SourceKind,
+		HasSnapshot: value.HasSnapshot, Enabled: value.Enabled,
+		CreatedAt: value.CreatedAt, UpdatedAt: value.UpdatedAt,
+	}
+}
+
 func applicationSubscriptionToken(value store.SubscriptionToken, at time.Time) SubscriptionToken {
 	return SubscriptionToken{
-		ID: value.ID, ChannelID: value.ChannelID,
+		ID:        value.ID,
 		ExpiresAt: cloneTime(value.ExpiresAt), RevokedAt: cloneTime(value.RevokedAt),
 		CreatedAt: value.CreatedAt, Active: value.Active(at),
 	}
+}
+
+func storeSubscriptionCursor(value *SubscriptionCursor) *store.CreatedAtCursor {
+	if value == nil {
+		return nil
+	}
+	return &store.CreatedAtCursor{CreatedAt: value.CreatedAt, ID: strings.TrimSpace(value.ID)}
+}
+
+func applicationSubscriptionCursor(value *store.CreatedAtCursor) *SubscriptionCursor {
+	if value == nil {
+		return nil
+	}
+	return &SubscriptionCursor{CreatedAt: value.CreatedAt, ID: value.ID}
 }

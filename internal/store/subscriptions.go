@@ -24,18 +24,22 @@ const (
 	maximumSubscriptionConfigBytes = 64 << 10
 	maximumSourceSnapshotBytes     = 4 << 20
 	maximumChannelExclusions       = 10_000
+
+	MaximumEnabledSubscriptionChannels       = 256
+	MaximumEnabledSubscriptionSources        = 256
+	MaximumSubscriptionInputBytes      int64 = 32 << 20
 )
 
 var (
 	ErrSubscriptionChannelNotFound = errors.New("subscription channel not found")
 	ErrSubscriptionChannelExists   = errors.New("subscription channel already exists")
-	ErrSubscriptionChannelInUse    = errors.New("subscription channel is still referenced")
 	ErrSubscriptionSourceNotFound  = errors.New("subscription source not found")
 	ErrSubscriptionSourceExists    = errors.New("subscription source already exists")
 	ErrSubscriptionTokenNotFound   = errors.New("subscription token not found")
 	ErrSubscriptionTokenExists     = errors.New("subscription token already exists")
 	ErrSubscriptionTokenInactive   = errors.New("subscription token is expired or revoked")
 	ErrSubscriptionConflict        = errors.New("subscription resource changed")
+	ErrSubscriptionLimitExceeded   = errors.New("subscription resource limit exceeded")
 )
 
 // SubscriptionConflictError reports a failed updated_at compare-and-swap.
@@ -84,6 +88,25 @@ type SubscriptionChannel struct {
 	UpdatedAt time.Time
 }
 
+type SubscriptionChannelSummary struct {
+	ID        string
+	Name      string
+	Format    SubscriptionFormat
+	Enabled   bool
+	CreatedAt time.Time
+	UpdatedAt time.Time
+}
+
+type SubscriptionChannelListFilter struct {
+	Cursor *CreatedAtCursor
+	Limit  int
+}
+
+type SubscriptionChannelPage struct {
+	Items []SubscriptionChannelSummary
+	Next  *CreatedAtCursor
+}
+
 type UpdateSubscriptionChannelInput struct {
 	ID                string
 	Name              string
@@ -112,6 +135,26 @@ type SubscriptionSource struct {
 	UpdatedAt      time.Time
 }
 
+type SubscriptionSourceSummary struct {
+	ID          string
+	Name        string
+	SourceKind  SubscriptionSourceKind
+	HasSnapshot bool
+	Enabled     bool
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
+}
+
+type SubscriptionSourceListFilter struct {
+	Cursor *CreatedAtCursor
+	Limit  int
+}
+
+type SubscriptionSourcePage struct {
+	Items []SubscriptionSourceSummary
+	Next  *CreatedAtCursor
+}
+
 type UpdateSubscriptionSourceInput struct {
 	ID                string
 	Name              string
@@ -135,7 +178,6 @@ type UpdateSubscriptionSourceSnapshotInput struct {
 type SubscriptionToken struct {
 	ID          string
 	TokenSHA256 string
-	ChannelID   string
 	ExpiresAt   *time.Time
 	RevokedAt   *time.Time
 	CreatedAt   time.Time
@@ -155,6 +197,16 @@ type SubscriptionTokenRotation struct {
 	Created SubscriptionToken
 }
 
+type SubscriptionTokenListFilter struct {
+	Cursor *CreatedAtCursor
+	Limit  int
+}
+
+type SubscriptionTokenPage struct {
+	Items []SubscriptionToken
+	Next  *CreatedAtCursor
+}
+
 const subscriptionChannelColumns = `
     id, name, format, config_json, enabled, created_at, updated_at`
 
@@ -163,7 +215,7 @@ const subscriptionSourceColumns = `
     created_at, updated_at`
 
 const subscriptionTokenColumns = `
-    id, token_sha256, channel_id, expires_at, revoked_at, created_at`
+    id, token_sha256, expires_at, revoked_at, created_at`
 
 func (s *Store) CreateSubscriptionChannel(
 	ctx context.Context,
@@ -176,6 +228,9 @@ func (s *Store) CreateSubscriptionChannel(
 	var stored SubscriptionChannel
 	err = s.WithTx(ctx, func(tx *sql.Tx) error {
 		if err := ensureChannelIdentityAvailable(ctx, tx, prepared.ID, prepared.Name, ""); err != nil {
+			return err
+		}
+		if err := ensureSubscriptionChannelLimits(ctx, tx, "", prepared); err != nil {
 			return err
 		}
 		if _, err := tx.ExecContext(
@@ -209,29 +264,50 @@ func (s *Store) GetSubscriptionChannel(
 	return getSubscriptionChannel(ctx, s.db, channelID)
 }
 
-func (s *Store) ListSubscriptionChannels(ctx context.Context) ([]SubscriptionChannel, error) {
-	rows, err := s.db.QueryContext(
-		ctx,
-		`SELECT `+subscriptionChannelColumns+`
-           FROM subscription_channels
-          ORDER BY name COLLATE BINARY ASC, id ASC`,
-	)
+func (s *Store) ListSubscriptionChannels(
+	ctx context.Context,
+	filter SubscriptionChannelListFilter,
+) (SubscriptionChannelPage, error) {
+	limit, err := normalizePageLimit(filter.Limit)
 	if err != nil {
-		return nil, fmt.Errorf("list subscription channels: %w", err)
+		return SubscriptionChannelPage{}, err
+	}
+	if err := validateCreatedAtCursor(filter.Cursor); err != nil {
+		return SubscriptionChannelPage{}, err
+	}
+	query := `SELECT id, name, format, enabled, created_at, updated_at
+           FROM subscription_channels`
+	args := make([]any, 0, 4)
+	if filter.Cursor != nil {
+		query += ` WHERE (created_at < ? OR (created_at = ? AND id < ?))`
+		cursorTime := formatTaskTime(filter.Cursor.CreatedAt)
+		args = append(args, cursorTime, cursorTime, filter.Cursor.ID)
+	}
+	query += ` ORDER BY created_at DESC, id DESC LIMIT ?`
+	args = append(args, limit+1)
+	rows, err := s.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return SubscriptionChannelPage{}, fmt.Errorf("list subscription channels: %w", err)
 	}
 	defer rows.Close()
-	channels := make([]SubscriptionChannel, 0)
+	items := make([]SubscriptionChannelSummary, 0, limit+1)
 	for rows.Next() {
-		channel, err := scanSubscriptionChannel(rows)
+		channel, err := scanSubscriptionChannelSummary(rows)
 		if err != nil {
-			return nil, fmt.Errorf("scan subscription channel: %w", err)
+			return SubscriptionChannelPage{}, fmt.Errorf("scan subscription channel: %w", err)
 		}
-		channels = append(channels, channel)
+		items = append(items, channel)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate subscription channels: %w", err)
+		return SubscriptionChannelPage{}, fmt.Errorf("iterate subscription channels: %w", err)
 	}
-	return channels, nil
+	page := SubscriptionChannelPage{Items: items}
+	if len(items) > limit {
+		page.Items = items[:limit]
+		last := page.Items[len(page.Items)-1]
+		page.Next = &CreatedAtCursor{CreatedAt: last.CreatedAt, ID: last.ID}
+	}
+	return page, nil
 }
 
 func (s *Store) UpdateSubscriptionChannel(
@@ -252,6 +328,12 @@ func (s *Store) UpdateSubscriptionChannel(
 			return subscriptionConflict("channel", prepared.ID, prepared.ExpectedUpdatedAt, current.UpdatedAt)
 		}
 		if err := ensureChannelIdentityAvailable(ctx, tx, prepared.ID, prepared.Name, prepared.ID); err != nil {
+			return err
+		}
+		if err := ensureSubscriptionChannelLimits(ctx, tx, prepared.ID, SubscriptionChannel{
+			ID: prepared.ID, Name: prepared.Name, Format: prepared.Format,
+			Config: prepared.Config, Enabled: prepared.Enabled,
+		}); err != nil {
 			return err
 		}
 		result, err := tx.ExecContext(
@@ -299,17 +381,6 @@ func (s *Store) DeleteSubscriptionChannel(
 		if !current.UpdatedAt.Equal(expectedUpdatedAt) {
 			return subscriptionConflict("channel", channelID, expectedUpdatedAt, current.UpdatedAt)
 		}
-		var references int64
-		if err := tx.QueryRowContext(
-			ctx,
-			`SELECT count(*) FROM subscription_tokens WHERE channel_id = ?`,
-			channelID,
-		).Scan(&references); err != nil {
-			return fmt.Errorf("count subscription channel references: %w", err)
-		}
-		if references != 0 {
-			return fmt.Errorf("%w: %s has %d token reference(s)", ErrSubscriptionChannelInUse, channelID, references)
-		}
 		result, err := tx.ExecContext(
 			ctx,
 			`DELETE FROM subscription_channels WHERE id = ? AND updated_at = ?`,
@@ -334,6 +405,9 @@ func (s *Store) CreateSubscriptionSource(
 	var stored SubscriptionSource
 	err = s.WithTx(ctx, func(tx *sql.Tx) error {
 		if err := ensureSourceIdentityAvailable(ctx, tx, prepared.ID, prepared.Name, ""); err != nil {
+			return err
+		}
+		if err := ensureSubscriptionSourceLimits(ctx, tx, "", prepared); err != nil {
 			return err
 		}
 		if _, err := tx.ExecContext(
@@ -369,29 +443,51 @@ func (s *Store) GetSubscriptionSource(
 	return getSubscriptionSource(ctx, s.db, sourceID)
 }
 
-func (s *Store) ListSubscriptionSources(ctx context.Context) ([]SubscriptionSource, error) {
-	rows, err := s.db.QueryContext(
-		ctx,
-		`SELECT `+subscriptionSourceColumns+`
-           FROM subscription_sources
-          ORDER BY name COLLATE BINARY ASC, id ASC`,
-	)
+func (s *Store) ListSubscriptionSources(
+	ctx context.Context,
+	filter SubscriptionSourceListFilter,
+) (SubscriptionSourcePage, error) {
+	limit, err := normalizePageLimit(filter.Limit)
 	if err != nil {
-		return nil, fmt.Errorf("list subscription sources: %w", err)
+		return SubscriptionSourcePage{}, err
+	}
+	if err := validateCreatedAtCursor(filter.Cursor); err != nil {
+		return SubscriptionSourcePage{}, err
+	}
+	query := `SELECT id, name, source_kind, latest_snapshot_json IS NOT NULL,
+                  enabled, created_at, updated_at
+             FROM subscription_sources`
+	args := make([]any, 0, 4)
+	if filter.Cursor != nil {
+		query += ` WHERE (created_at < ? OR (created_at = ? AND id < ?))`
+		cursorTime := formatTaskTime(filter.Cursor.CreatedAt)
+		args = append(args, cursorTime, cursorTime, filter.Cursor.ID)
+	}
+	query += ` ORDER BY created_at DESC, id DESC LIMIT ?`
+	args = append(args, limit+1)
+	rows, err := s.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return SubscriptionSourcePage{}, fmt.Errorf("list subscription sources: %w", err)
 	}
 	defer rows.Close()
-	sources := make([]SubscriptionSource, 0)
+	items := make([]SubscriptionSourceSummary, 0, limit+1)
 	for rows.Next() {
-		source, err := scanSubscriptionSource(rows)
+		source, err := scanSubscriptionSourceSummary(rows)
 		if err != nil {
-			return nil, fmt.Errorf("scan subscription source: %w", err)
+			return SubscriptionSourcePage{}, fmt.Errorf("scan subscription source: %w", err)
 		}
-		sources = append(sources, source)
+		items = append(items, source)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate subscription sources: %w", err)
+		return SubscriptionSourcePage{}, fmt.Errorf("iterate subscription sources: %w", err)
 	}
-	return sources, nil
+	page := SubscriptionSourcePage{Items: items}
+	if len(items) > limit {
+		page.Items = items[:limit]
+		last := page.Items[len(page.Items)-1]
+		page.Next = &CreatedAtCursor{CreatedAt: last.CreatedAt, ID: last.ID}
+	}
+	return page, nil
 }
 
 func (s *Store) UpdateSubscriptionSource(
@@ -412,6 +508,12 @@ func (s *Store) UpdateSubscriptionSource(
 			return subscriptionConflict("source", prepared.ID, prepared.ExpectedUpdatedAt, current.UpdatedAt)
 		}
 		if err := ensureSourceIdentityAvailable(ctx, tx, prepared.ID, prepared.Name, prepared.ID); err != nil {
+			return err
+		}
+		if err := ensureSubscriptionSourceLimits(ctx, tx, prepared.ID, SubscriptionSource{
+			ID: prepared.ID, Name: prepared.Name, SourceKind: prepared.SourceKind,
+			Config: prepared.Config, LatestSnapshot: current.LatestSnapshot, Enabled: prepared.Enabled,
+		}); err != nil {
 			return err
 		}
 		result, err := tx.ExecContext(
@@ -466,6 +568,12 @@ func (s *Store) UpdateSubscriptionSourceSnapshot(
 		}
 		if !current.UpdatedAt.Equal(expected) {
 			return subscriptionConflict("source", input.ID, expected, current.UpdatedAt)
+		}
+		if err := ensureSubscriptionSourceLimits(ctx, tx, input.ID, SubscriptionSource{
+			ID: current.ID, Name: current.Name, SourceKind: current.SourceKind,
+			Config: current.Config, LatestSnapshot: snapshot, Enabled: current.Enabled,
+		}); err != nil {
+			return err
 		}
 		result, err := tx.ExecContext(
 			ctx,
@@ -535,9 +643,6 @@ func (s *Store) CreateSubscriptionToken(
 		if err := ensureTokenIdentityAvailable(ctx, tx, prepared.ID, prepared.TokenSHA256); err != nil {
 			return err
 		}
-		if err := validateTokenChannel(ctx, tx, prepared.ChannelID); err != nil {
-			return err
-		}
 		if err := insertSubscriptionToken(ctx, tx, prepared); err != nil {
 			return err
 		}
@@ -557,29 +662,49 @@ func (s *Store) GetSubscriptionToken(
 	return getSubscriptionToken(ctx, s.db, tokenID)
 }
 
-func (s *Store) ListSubscriptionTokens(ctx context.Context) ([]SubscriptionToken, error) {
-	rows, err := s.db.QueryContext(
-		ctx,
-		`SELECT `+subscriptionTokenColumns+`
-           FROM subscription_tokens
-          ORDER BY created_at DESC, id DESC`,
-	)
+func (s *Store) ListSubscriptionTokens(
+	ctx context.Context,
+	filter SubscriptionTokenListFilter,
+) (SubscriptionTokenPage, error) {
+	limit, err := normalizePageLimit(filter.Limit)
 	if err != nil {
-		return nil, fmt.Errorf("list subscription tokens: %w", err)
+		return SubscriptionTokenPage{}, err
+	}
+	if err := validateCreatedAtCursor(filter.Cursor); err != nil {
+		return SubscriptionTokenPage{}, err
+	}
+	query := `SELECT ` + subscriptionTokenColumns + ` FROM subscription_tokens`
+	args := make([]any, 0, 4)
+	if filter.Cursor != nil {
+		query += ` WHERE (created_at < ? OR (created_at = ? AND id < ?))`
+		cursorTime := formatTaskTime(filter.Cursor.CreatedAt)
+		args = append(args, cursorTime, cursorTime, filter.Cursor.ID)
+	}
+	query += ` ORDER BY created_at DESC, id DESC LIMIT ?`
+	args = append(args, limit+1)
+	rows, err := s.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return SubscriptionTokenPage{}, fmt.Errorf("list subscription tokens: %w", err)
 	}
 	defer rows.Close()
-	tokens := make([]SubscriptionToken, 0)
+	items := make([]SubscriptionToken, 0, limit+1)
 	for rows.Next() {
 		token, err := scanSubscriptionToken(rows)
 		if err != nil {
-			return nil, fmt.Errorf("scan subscription token: %w", err)
+			return SubscriptionTokenPage{}, fmt.Errorf("scan subscription token: %w", err)
 		}
-		tokens = append(tokens, token)
+		items = append(items, token)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate subscription tokens: %w", err)
+		return SubscriptionTokenPage{}, fmt.Errorf("iterate subscription tokens: %w", err)
 	}
-	return tokens, nil
+	page := SubscriptionTokenPage{Items: items}
+	if len(items) > limit {
+		page.Items = items[:limit]
+		last := page.Items[len(page.Items)-1]
+		page.Next = &CreatedAtCursor{CreatedAt: last.CreatedAt, ID: last.ID}
+	}
+	return page, nil
 }
 
 // FindActiveSubscriptionToken resolves a one-way digest and applies immediate
@@ -617,7 +742,7 @@ func (s *Store) FindActiveSubscriptionToken(
 }
 
 // RotateSubscriptionToken atomically revokes the old active token and inserts
-// its replacement. The replacement must target the same channel.
+// its replacement.
 func (s *Store) RotateSubscriptionToken(
 	ctx context.Context,
 	oldTokenID string,
@@ -644,9 +769,6 @@ func (s *Store) RotateSubscriptionToken(
 		}
 		if !current.Active(rotatedAt) {
 			return fmt.Errorf("%w: %s", ErrSubscriptionTokenInactive, current.ID)
-		}
-		if current.ChannelID != prepared.ChannelID {
-			return errors.New("replacement subscription token must preserve channel")
 		}
 		if err := ensureTokenIdentityAvailable(ctx, tx, prepared.ID, prepared.TokenSHA256); err != nil {
 			return err
@@ -886,11 +1008,6 @@ func prepareNewSubscriptionToken(token SubscriptionToken) (SubscriptionToken, er
 	if err != nil {
 		return SubscriptionToken{}, err
 	}
-	if token.ChannelID != "" {
-		if err := validateSubscriptionID(token.ChannelID, "channel"); err != nil {
-			return SubscriptionToken{}, err
-		}
-	}
 	createdAt := token.CreatedAt
 	if createdAt.IsZero() {
 		createdAt = time.Now().UTC()
@@ -960,6 +1077,85 @@ func strictSourceSnapshot(raw json.RawMessage) (json.RawMessage, error) {
 		return nil, fmt.Errorf("encode subscription source snapshot: %w", err)
 	}
 	return bytes.Clone(encoded), nil
+}
+
+func ensureSubscriptionChannelLimits(
+	ctx context.Context,
+	q queryRower,
+	excludeID string,
+	candidate SubscriptionChannel,
+) error {
+	if !candidate.Enabled {
+		return nil
+	}
+	var enabled int64
+	if err := q.QueryRowContext(
+		ctx,
+		`SELECT count(*) FROM subscription_channels WHERE enabled = 1 AND id <> ?`,
+		excludeID,
+	).Scan(&enabled); err != nil {
+		return fmt.Errorf("count enabled subscription channels: %w", err)
+	}
+	if enabled >= MaximumEnabledSubscriptionChannels {
+		return fmt.Errorf("%w: enabled channel count exceeds %d", ErrSubscriptionLimitExceeded, MaximumEnabledSubscriptionChannels)
+	}
+	return ensureSubscriptionInputBudget(ctx, q, excludeID, "", int64(len(candidate.Config)))
+}
+
+func ensureSubscriptionSourceLimits(
+	ctx context.Context,
+	q queryRower,
+	excludeID string,
+	candidate SubscriptionSource,
+) error {
+	if !candidate.Enabled {
+		return nil
+	}
+	var enabled int64
+	if err := q.QueryRowContext(
+		ctx,
+		`SELECT count(*) FROM subscription_sources WHERE enabled = 1 AND id <> ?`,
+		excludeID,
+	).Scan(&enabled); err != nil {
+		return fmt.Errorf("count enabled subscription sources: %w", err)
+	}
+	if enabled >= MaximumEnabledSubscriptionSources {
+		return fmt.Errorf("%w: enabled source count exceeds %d", ErrSubscriptionLimitExceeded, MaximumEnabledSubscriptionSources)
+	}
+	candidateBytes := int64(len(candidate.Config) + len(candidate.LatestSnapshot))
+	return ensureSubscriptionInputBudget(ctx, q, "", excludeID, candidateBytes)
+}
+
+func ensureSubscriptionInputBudget(
+	ctx context.Context,
+	q queryRower,
+	excludeChannelID string,
+	excludeSourceID string,
+	candidateBytes int64,
+) error {
+	var storedBytes int64
+	if err := q.QueryRowContext(
+		ctx,
+		`SELECT
+            coalesce((
+                SELECT sum(length(config_json))
+                  FROM subscription_channels
+                 WHERE enabled = 1 AND id <> ?
+            ), 0) +
+            coalesce((
+                SELECT sum(length(config_json) + coalesce(length(latest_snapshot_json), 0))
+                  FROM subscription_sources
+                 WHERE enabled = 1 AND id <> ?
+            ), 0)`,
+		excludeChannelID,
+		excludeSourceID,
+	).Scan(&storedBytes); err != nil {
+		return fmt.Errorf("measure enabled subscription inputs: %w", err)
+	}
+	if candidateBytes < 0 || storedBytes > MaximumSubscriptionInputBytes-candidateBytes {
+		return fmt.Errorf("%w: enabled input bytes exceed %d", ErrSubscriptionLimitExceeded, MaximumSubscriptionInputBytes)
+	}
+	return nil
 }
 
 func ensureChannelIdentityAvailable(
@@ -1033,23 +1229,14 @@ func ensureTokenIdentityAvailable(ctx context.Context, q queryRower, id string, 
 	return fmt.Errorf("%w: id or digest belongs to %s", ErrSubscriptionTokenExists, existingID)
 }
 
-func validateTokenChannel(ctx context.Context, q queryRower, channelID string) error {
-	if channelID == "" {
-		return nil
-	}
-	_, err := getSubscriptionChannel(ctx, q, channelID)
-	return err
-}
-
 func insertSubscriptionToken(ctx context.Context, tx *sql.Tx, token SubscriptionToken) error {
 	_, err := tx.ExecContext(
 		ctx,
 		`INSERT INTO subscription_tokens(
-            id, token_sha256, channel_id, expires_at, revoked_at, created_at
-         ) VALUES (?, ?, ?, ?, NULL, ?)`,
+            id, token_sha256, expires_at, revoked_at, created_at
+         ) VALUES (?, ?, ?, NULL, ?)`,
 		token.ID,
 		token.TokenSHA256,
-		nullIfEmpty(token.ChannelID),
 		nullableSubscriptionTime(token.ExpiresAt),
 		formatTaskTime(token.CreatedAt),
 	)
@@ -1103,6 +1290,33 @@ func scanSubscriptionChannel(row taskScanner) (SubscriptionChannel, error) {
 	return channel, nil
 }
 
+func scanSubscriptionChannelSummary(row taskScanner) (SubscriptionChannelSummary, error) {
+	var channel SubscriptionChannelSummary
+	var createdAt, updatedAt string
+	var enabled int
+	if err := row.Scan(
+		&channel.ID,
+		&channel.Name,
+		&channel.Format,
+		&enabled,
+		&createdAt,
+		&updatedAt,
+	); err != nil {
+		return SubscriptionChannelSummary{}, err
+	}
+	channel.Enabled = enabled != 0
+	var err error
+	channel.CreatedAt, err = parseTaskTime(createdAt)
+	if err != nil {
+		return SubscriptionChannelSummary{}, fmt.Errorf("parse created_at: %w", err)
+	}
+	channel.UpdatedAt, err = parseTaskTime(updatedAt)
+	if err != nil {
+		return SubscriptionChannelSummary{}, fmt.Errorf("parse updated_at: %w", err)
+	}
+	return channel, nil
+}
+
 func getSubscriptionSource(ctx context.Context, q queryRower, id string) (SubscriptionSource, error) {
 	source, err := scanSubscriptionSource(q.QueryRowContext(
 		ctx,
@@ -1152,6 +1366,35 @@ func scanSubscriptionSource(row taskScanner) (SubscriptionSource, error) {
 	return source, nil
 }
 
+func scanSubscriptionSourceSummary(row taskScanner) (SubscriptionSourceSummary, error) {
+	var source SubscriptionSourceSummary
+	var hasSnapshot, enabled int
+	var createdAt, updatedAt string
+	if err := row.Scan(
+		&source.ID,
+		&source.Name,
+		&source.SourceKind,
+		&hasSnapshot,
+		&enabled,
+		&createdAt,
+		&updatedAt,
+	); err != nil {
+		return SubscriptionSourceSummary{}, err
+	}
+	source.HasSnapshot = hasSnapshot != 0
+	source.Enabled = enabled != 0
+	var err error
+	source.CreatedAt, err = parseTaskTime(createdAt)
+	if err != nil {
+		return SubscriptionSourceSummary{}, fmt.Errorf("parse created_at: %w", err)
+	}
+	source.UpdatedAt, err = parseTaskTime(updatedAt)
+	if err != nil {
+		return SubscriptionSourceSummary{}, fmt.Errorf("parse updated_at: %w", err)
+	}
+	return source, nil
+}
+
 func getSubscriptionToken(ctx context.Context, q queryRower, id string) (SubscriptionToken, error) {
 	token, err := scanSubscriptionToken(q.QueryRowContext(
 		ctx,
@@ -1169,19 +1412,17 @@ func getSubscriptionToken(ctx context.Context, q queryRower, id string) (Subscri
 
 func scanSubscriptionToken(row taskScanner) (SubscriptionToken, error) {
 	var token SubscriptionToken
-	var channelID, expiresAt, revokedAt sql.NullString
+	var expiresAt, revokedAt sql.NullString
 	var createdAt string
 	if err := row.Scan(
 		&token.ID,
 		&token.TokenSHA256,
-		&channelID,
 		&expiresAt,
 		&revokedAt,
 		&createdAt,
 	); err != nil {
 		return SubscriptionToken{}, err
 	}
-	token.ChannelID = valueOrEmpty(channelID)
 	var err error
 	token.CreatedAt, err = parseTaskTime(createdAt)
 	if err != nil {
