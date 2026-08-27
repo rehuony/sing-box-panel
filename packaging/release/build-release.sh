@@ -7,7 +7,7 @@ usage() {
   cat >&2 <<'EOF'
 usage:
   packaging/release/build-release.sh snapshot --output DIRECTORY
-  packaging/release/build-release.sh release --version vX.Y.Z --output DIRECTORY [--date RFC3339]
+  packaging/release/build-release.sh release --version vX.Y.Z --output DIRECTORY --update-public-key-file FILE [--date RFC3339]
   packaging/release/build-release.sh verify
 EOF
 }
@@ -21,6 +21,7 @@ usage_error() {
 script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 workspace_root="$(cd -- "${script_dir}/../.." && pwd -P)"
 buildinfo_package="github.com/rehuony/sing-box-panel/internal/buildinfo"
+selfupdate_package="github.com/rehuony/sing-box-panel/internal/selfupdate"
 
 evidence_overlays=(
   release/evidence.json
@@ -31,11 +32,12 @@ evidence_overlays=(
   release/evidence/subscription-observability-e2e.json
 )
 
-source_commit=""
 source_date=""
+source_commit=""
 release_target_goos=""
 release_target_goarch=""
 release_target_cgo=0
+update_public_key=""
 
 resolve_source_identity() {
   local git_root
@@ -89,6 +91,23 @@ is_rfc3339() {
   *) maximum_day=31 ;;
   esac
   ((day <= maximum_day))
+}
+
+load_update_public_key() {
+  local path="$1"
+  local file_size
+
+  if [[ ! -f "${path}" || -L "${path}" ]]; then
+    echo "update public key must be a regular, non-symbolic file" >&2
+    return 1
+  fi
+  file_size="$(wc -c <"${path}" | tr -d '[:space:]')"
+  update_public_key="$(<"${path}")"
+  if [[ ! "${update_public_key}" =~ ^[A-Za-z0-9+/]{43}=$ ]] ||
+    [[ "${file_size}" != "${#update_public_key}" && "${file_size}" != "$(( ${#update_public_key} + 1 ))" ]]; then
+    echo "update public key must contain one standard-Base64 Ed25519 public key" >&2
+    return 1
+  fi
 }
 
 run_go() {
@@ -313,6 +332,7 @@ check_checksums() {
 check_binary_build() {
   local binary="$1"
   local architecture="$2"
+  local public_key="$3"
   local architecture_baseline
   local metadata
 
@@ -345,10 +365,15 @@ check_binary_build() {
     echo "release binary metadata has the wrong ${architecture} baseline" >&2
     return 1
   fi
+  if [[ -n "${public_key}" ]] && ! LC_ALL=C grep -aFq -- "${public_key}" "${binary}"; then
+    echo "formal release binary does not contain the configured update verification key" >&2
+    return 1
+  fi
 }
 
 validate_staging() {
   local staging_dir="$1"
+  local public_key="$2"
   local entry_count
 
   for binary in \
@@ -370,8 +395,8 @@ validate_staging() {
   fi
 
   check_checksums "${staging_dir}"
-  check_binary_build "${staging_dir}/sing-box-panel-linux-amd64" amd64
-  check_binary_build "${staging_dir}/sing-box-panel-linux-arm64" arm64
+  check_binary_build "${staging_dir}/sing-box-panel-linux-amd64" amd64 "${public_key}"
+  check_binary_build "${staging_dir}/sing-box-panel-linux-arm64" arm64 "${public_key}"
 }
 
 verify_runtime_metadata() {
@@ -413,6 +438,7 @@ build_distribution() (
   local version="$3"
   local date="$4"
   local verify_metadata="$5"
+  local public_key="$6"
   local output_parent_input
   local output_parent
   local output_name
@@ -438,6 +464,10 @@ build_distribution() (
 
   if [[ -z "${requested_output}" ]]; then
     echo "release output directory is empty" >&2
+    return 2
+  fi
+  if [[ "${mode}" == release && ! "${public_key}" =~ ^[A-Za-z0-9+/]{43}=$ ]]; then
+    echo "formal release builds require a valid update verification public key" >&2
     return 2
   fi
   output_parent_input="$(dirname -- "${requested_output}")"
@@ -493,6 +523,9 @@ build_distribution() (
   fi
   staging_dir="$(mktemp -d "${output_parent}/.${output_name}.staging.XXXXXX")"
   ldflags="-s -w -X=${buildinfo_package}.version=${version} -X=${buildinfo_package}.commit=${source_commit} -X=${buildinfo_package}.date=${date}"
+  if [[ -n "${public_key}" ]]; then
+    ldflags+=" -X=${selfupdate_package}.embeddedPublicKey=${public_key}"
+  fi
 
   build_binary \
     "${source_root}" linux amd64 \
@@ -501,7 +534,7 @@ build_distribution() (
     "${source_root}" linux arm64 \
     "${staging_dir}/sing-box-panel-linux-arm64" "${ldflags}"
   write_checksums "${staging_dir}"
-  validate_staging "${staging_dir}"
+  validate_staging "${staging_dir}" "${public_key}"
   if [[ "${verify_metadata}" == true ]]; then
     verify_runtime_metadata \
       "${source_root}" "${staging_dir}" "${build_root}" \
@@ -524,6 +557,8 @@ run_verify() (
   local snapshot_output
   local formal_output
   local formal_status
+  # RFC 8032 test-vector public key; used only by the deleted verification build.
+  local verification_public_key="11qYAYKxCrfVS/7TyWQHOg7hcvPapiMlrwIaaPcHURo="
 
   cleanup_verify() {
     if [[ -n "${verify_root}" && -d "${verify_root}" ]]; then
@@ -536,10 +571,10 @@ run_verify() (
   snapshot_output="${verify_root}/snapshot"
   formal_output="${verify_root}/formal"
 
-  build_distribution snapshot "${snapshot_output}" dev "${source_date}" true
+  build_distribution snapshot "${snapshot_output}" dev "${source_date}" true ""
 
   set +e
-  build_distribution release "${formal_output}" v0.0.0 "${source_date}" true
+  build_distribution release "${formal_output}" v0.0.0 "${source_date}" true "${verification_public_key}"
   formal_status=$?
   set -e
   case "${formal_status}" in
@@ -572,23 +607,26 @@ snapshot)
   [[ $# -eq 2 && "$1" == --output ]] || usage_error "snapshot requires --output DIRECTORY"
   output="$2"
   resolve_source_identity
-  build_distribution snapshot "${output}" dev "${source_date}" true
+  build_distribution snapshot "${output}" dev "${source_date}" true ""
   ;;
 release)
-  if [[ $# -ne 4 && $# -ne 6 ]] || [[ "$1" != --version || "$3" != --output ]] ||
-    [[ $# -eq 6 && "$5" != --date ]]; then
-    usage_error "release requires --version VERSION --output DIRECTORY [--date RFC3339]"
+  if [[ $# -ne 6 && $# -ne 8 ]] ||
+    [[ "$1" != --version || "$3" != --output || "$5" != --update-public-key-file ]] ||
+    [[ $# -eq 8 && "$7" != --date ]]; then
+    usage_error "release requires --version VERSION --output DIRECTORY --update-public-key-file FILE [--date RFC3339]"
   fi
   version="$2"
   output="$4"
+  public_key_file="$6"
+  load_update_public_key "${public_key_file}"
   resolve_source_identity
-  if [[ $# -eq 6 ]]; then
-    date="$6"
+  if [[ $# -eq 8 ]]; then
+    date="$8"
   else
     date="${source_date}"
   fi
   is_rfc3339 "${date}" || usage_error "--date must be an RFC3339 timestamp"
-  build_distribution release "${output}" "${version}" "${date}" true
+  build_distribution release "${output}" "${version}" "${date}" true "${update_public_key}"
   ;;
 verify)
   [[ $# -eq 0 ]] || usage_error "verify accepts no arguments"

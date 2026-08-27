@@ -34,6 +34,7 @@ var goModuleLicenseIDs = map[string]string{
 	"github.com/spf13/cobra":           "Apache-2.0",
 	"github.com/spf13/pflag":           "BSD-3-Clause",
 	"github.com/tailscale/hujson":      "BSD-3-Clause",
+	"golang.org/x/mod":                 "BSD-3-Clause",
 	"golang.org/x/sys":                 "BSD-3-Clause",
 	"modernc.org/libc":                 "BSD-3-Clause",
 	"modernc.org/mathutil":             "BSD-3-Clause",

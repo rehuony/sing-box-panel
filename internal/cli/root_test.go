@@ -36,7 +36,7 @@ func TestRootShowsHelp(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(stdout, "server") || !strings.Contains(stdout, "completion") {
+	if !strings.Contains(stdout, "server") || !strings.Contains(stdout, "update") || !strings.Contains(stdout, "completion") {
 		t.Fatalf("stdout = %q", stdout)
 	}
 	if stderr != "" {
@@ -94,6 +94,7 @@ func TestCommandTreeIncludesContract(t *testing.T) {
 	root := NewRootCommand(Dependencies{Stdin: strings.NewReader(""), Stdout: &stdout, Stderr: &stderr})
 	walk(root)
 	for _, path := range []string{
+		"sing-box-panel update",
 		"sing-box-panel server run",
 		"sing-box-panel core capability pack",
 		"sing-box-panel core capability upgrade",

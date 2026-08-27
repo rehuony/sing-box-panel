@@ -86,6 +86,15 @@ License: BSD-3-Clause
 License documents:
   - LICENSE (SHA-256: a125b6c2721809b6c2a8761771932611833008ed8697d752b3e35d36e4bbd83e)
 
+Component: golang.org/x/mod
+Ecosystem: go-module
+Version: v0.38.0
+Source: https://pkg.go.dev/golang.org/x/mod@v0.38.0
+License: BSD-3-Clause
+License documents:
+  - LICENSE (SHA-256: 911f8f5782931320f5b8d1160a76365b83aea6447ee6c04fa6d5591467db9dad)
+  - PATENTS (SHA-256: 96f408bfae65bf137fc2525d3ecb030271c50c1e90799f87abf8846d8dd505cc)
+
 Component: golang.org/x/sys
 Ecosystem: go-module
 Version: v0.47.0
@@ -570,6 +579,7 @@ uncontaminated with licensed code from other projects.
 ================================================================================
 SHA-256: 911f8f5782931320f5b8d1160a76365b83aea6447ee6c04fa6d5591467db9dad
 Applies to:
+  - go-module:golang.org/x/mod@v0.38.0 — LICENSE
   - go-module:golang.org/x/sys@v0.47.0 — LICENSE
   - go-toolchain:Go runtime and standard library@go directive 1.26 — LICENSE
 --------------------------------------------------------------------------------
@@ -637,6 +647,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ================================================================================
 SHA-256: 96f408bfae65bf137fc2525d3ecb030271c50c1e90799f87abf8846d8dd505cc
 Applies to:
+  - go-module:golang.org/x/mod@v0.38.0 — PATENTS
   - go-module:golang.org/x/sys@v0.47.0 — PATENTS
   - go-toolchain:Go runtime and standard library@go directive 1.26 — PATENTS
 --------------------------------------------------------------------------------

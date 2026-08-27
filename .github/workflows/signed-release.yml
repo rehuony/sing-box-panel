@@ -1,0 +1,136 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+name: Build signed release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Strict v-prefixed SemVer release version
+        required: true
+        type: string
+      date:
+        description: Optional RFC 3339 build date; defaults to the commit timestamp
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: signed-release-${{ inputs.version }}
+  cancel-in-progress: false
+
+jobs:
+  guard:
+    name: Require the default branch
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+
+    steps:
+      - name: Reject non-default branches
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          SELECTED_REF: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          if [[ "${SELECTED_REF}" != "${DEFAULT_BRANCH}" ]]; then
+            printf 'signed releases must run from the default branch (%s), got %s\n' "${DEFAULT_BRANCH}" "${SELECTED_REF}" >&2
+            exit 1
+          fi
+
+  build-sign:
+    name: Build and sign Linux release
+    needs: guard
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    environment: release
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+          package-manager-cache: false
+
+      - name: Materialize update verification key
+        env:
+          UPDATE_PUBLIC_KEY: ${{ vars.RELEASE_SIGNING_PUBLIC_KEY }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${UPDATE_PUBLIC_KEY}" ]]; then
+            printf 'release environment variable RELEASE_SIGNING_PUBLIC_KEY is required\n' >&2
+            exit 1
+          fi
+          umask 077
+          printf '%s\n' "${UPDATE_PUBLIC_KEY}" >"${RUNNER_TEMP}/release-signing-public-key"
+
+      - name: Build formal release
+        env:
+          RELEASE_DATE: ${{ inputs.date }}
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          arguments=(
+            release
+            --version "${RELEASE_VERSION}"
+            --output "${RUNNER_TEMP}/sing-box-panel-release"
+            --update-public-key-file "${RUNNER_TEMP}/release-signing-public-key"
+          )
+          if [[ -n "${RELEASE_DATE}" ]]; then
+            arguments+=(--date "${RELEASE_DATE}")
+          fi
+          packaging/release/build-release.sh "${arguments[@]}"
+
+      - name: Sign checksum manifest
+        env:
+          RELEASE_SIGNING_PRIVATE_KEY: ${{ secrets.RELEASE_SIGNING_PRIVATE_KEY }}
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${RELEASE_SIGNING_PRIVATE_KEY}" ]]; then
+            printf 'release environment secret RELEASE_SIGNING_PRIVATE_KEY is required\n' >&2
+            exit 1
+          fi
+          private_key="${RUNNER_TEMP}/release-signing-private-key.pem"
+          trap 'rm -f -- "${private_key}"' EXIT
+          umask 077
+          printf '%s' "${RELEASE_SIGNING_PRIVATE_KEY}" >"${private_key}"
+          go tool sign-release sign \
+            --private-key "${private_key}" \
+            --public-key "${RUNNER_TEMP}/release-signing-public-key" \
+            --version "${RELEASE_VERSION}" \
+            --checksums "${RUNNER_TEMP}/sing-box-panel-release/SHA256SUMS" \
+            --signature "${RUNNER_TEMP}/sing-box-panel-release/SHA256SUMS.sig"
+
+      - name: Verify signed artifacts
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          go tool sign-release verify \
+            --public-key "${RUNNER_TEMP}/release-signing-public-key" \
+            --version "${RELEASE_VERSION}" \
+            --checksums "${RUNNER_TEMP}/sing-box-panel-release/SHA256SUMS" \
+            --signature "${RUNNER_TEMP}/sing-box-panel-release/SHA256SUMS.sig"
+          cd "${RUNNER_TEMP}/sing-box-panel-release"
+          sha256sum --check SHA256SUMS
+
+      - name: Retain signed release artifacts
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: sing-box-panel-${{ inputs.version }}
+          path: ${{ runner.temp }}/sing-box-panel-release/*
+          if-no-files-found: error
+          compression-level: 0

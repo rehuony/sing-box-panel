@@ -1,8 +1,10 @@
 # Release process
 
-The repository builds static Linux artifacts but does not publish, upload,
-sign, install, or retain them. Local builds, reproducible snapshots, and formal
-releases are intentionally separate workflows.
+The repository builds static Linux artifacts and can sign and retain a formal
+release through a protected, manually dispatched GitHub Actions workflow. It
+does not create or publish a GitHub Release. Local builds, reproducible
+snapshots, and privileged formal releases are intentionally separate
+workflows.
 
 ## Local development build
 
@@ -36,19 +38,25 @@ A formal version uses strict v-prefixed SemVer and must pass the executable GA
 readiness gate:
 
 ```sh
-make release VERSION=v0.1.0 OUT=/absolute/path/to/new-output-directory
+make release VERSION=v0.1.0 \
+  UPDATE_PUBLIC_KEY_FILE=/secure/path/to/release-signing-public-key \
+  OUT=/absolute/path/to/new-output-directory
 ```
 
 The recorded date defaults to the `HEAD` commit timestamp. Supply an explicit
 RFC 3339 value only when the release process requires one:
 
 ```sh
-make release VERSION=v0.1.0 DATE=2026-08-27T00:00:00Z OUT=/absolute/path/to/new-output-directory
+make release VERSION=v0.1.0 \
+  DATE=2026-08-27T00:00:00Z \
+  UPDATE_PUBLIC_KEY_FILE=/secure/path/to/release-signing-public-key \
+  OUT=/absolute/path/to/new-output-directory
 ```
 
-The commit is always derived from `HEAD`; the release interface does not
-accept caller-provided commit metadata or the former `RELEASE_*` environment
-variables.
+The public-key file contains one standard-Base64 Ed25519 public key. It is
+embedded in the formal binaries and is not secret. The commit is always
+derived from `HEAD`; the release interface does not accept caller-provided
+commit metadata or the former `RELEASE_*` environment variables.
 
 ## Source isolation and evidence overlay
 
@@ -85,9 +93,55 @@ Readiness requires both the minimum embedded SQLite version and a complete,
 digest-pinned, reviewed evidence ledger for the same source commit. The
 checked-in gate is intentionally closed until all requirements are satisfied.
 
+## Signing-key setup
+
+Create the Ed25519 key pair once on a trusted machine:
+
+```sh
+openssl genpkey -algorithm ED25519 -out release-signing-private-key.pem
+go tool sign-release public-key \
+  --private-key release-signing-private-key.pem \
+  >release-signing-public-key
+```
+
+Configure a protected GitHub environment named `release`. Restrict it to the
+default branch and require an approving reviewer. In that environment, store:
+
+- the complete PEM file as the `RELEASE_SIGNING_PRIVATE_KEY` secret;
+- the single-line public-key value as the `RELEASE_SIGNING_PUBLIC_KEY`
+  variable.
+
+Keep the private key outside the repository and backups under equivalent
+access controls. The workflow checks that the secret and configured public key
+are a pair before creating a signature. Keep this key pair stable: replacing
+it makes existing installations unable to authenticate later releases. A
+future rotation therefore requires an explicit transition design with both
+keys trusted before the old key is retired.
+
+The first release containing an embedded public key is a trust bootstrap.
+Older unsigned builds cannot authenticate it through `update` and must be
+installed through an independently verified manual path once.
+
+For an authorized local release, create and immediately verify the detached
+signature after packaging:
+
+```sh
+go tool sign-release sign \
+  --private-key release-signing-private-key.pem \
+  --public-key release-signing-public-key \
+  --version v0.1.0 \
+  --checksums /absolute/path/to/output/SHA256SUMS \
+  --signature /absolute/path/to/output/SHA256SUMS.sig
+go tool sign-release verify \
+  --public-key release-signing-public-key \
+  --version v0.1.0 \
+  --checksums /absolute/path/to/output/SHA256SUMS \
+  --signature /absolute/path/to/output/SHA256SUMS.sig
+```
+
 ## Outputs and verification
 
-Both snapshot and formal release create exactly:
+Snapshot and local formal builds create exactly:
 
 - `sing-box-panel-linux-amd64`
 - `sing-box-panel-linux-arm64`
@@ -98,6 +152,24 @@ The binaries use `CGO_ENABLED=0`, fixed CPU baselines, `-trimpath`,
 a staging directory, then the whole directory is renamed into place so a
 failed build cannot leave partial output.
 
+The manual `Build signed release` workflow accepts a strict release version
+and optional build date. It runs only from the default branch, passes the
+environment public key to the isolated build, signs the completed
+release version and `SHA256SUMS` with the environment private key, verifies
+both the signature and checksums, and retains these four workflow-artifact
+files:
+
+- `sing-box-panel-linux-amd64`
+- `sing-box-panel-linux-arm64`
+- `SHA256SUMS`
+- `SHA256SUMS.sig`
+
+If an authorized operator publishes a GitHub Release manually, all four files
+must be attached without renaming them. `sing-box-panel update` verifies the
+signature with its embedded public key before trusting the checksum manifest
+or downloading a replacement binary. The workflow does not create the GitHub
+Release or upload assets to it.
+
 Exercise the complete snapshot path and the current formal-gate outcome with:
 
 ```sh
@@ -105,6 +177,5 @@ make release-verify
 ```
 
 For the exact script interface and environment isolation rules, see
-[Release build materials](../packaging/release/README.md). No workflow
-publishes these files; adding uploads, release creation, signing, or a
-distribution channel remains a separate privileged change.
+[Release build materials](../packaging/release/README.md). Publishing to a
+GitHub Release remains a separate privileged operation.

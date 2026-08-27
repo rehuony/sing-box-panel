@@ -12,6 +12,7 @@ import (
 	"github.com/rehuony/sing-box-panel/internal/application"
 	"github.com/rehuony/sing-box-panel/internal/buildinfo"
 	"github.com/rehuony/sing-box-panel/internal/cli"
+	"github.com/rehuony/sing-box-panel/internal/selfupdate"
 	"github.com/rehuony/sing-box-panel/internal/server"
 	webui "github.com/rehuony/sing-box-panel/web"
 )
@@ -34,11 +35,13 @@ func run() int {
 	go watchSignalContext(signals, watcherDone, cancel, &signalExit)
 
 	build := buildinfo.Current()
+	updater := selfupdate.New(selfupdate.Options{})
 	root := cli.NewRootCommand(cli.Dependencies{
 		Stdin:           os.Stdin,
 		Stdout:          os.Stdout,
 		Stderr:          os.Stderr,
 		Build:           build,
+		Update:          updater.Update,
 		OpenApplication: application.Open,
 		RunServer: func(ctx context.Context, path string) error {
 			return server.Run(ctx, path, build, webui.Assets())

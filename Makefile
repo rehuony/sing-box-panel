@@ -10,7 +10,7 @@ RELEASE_SCRIPT := packaging/release/build-release.sh
 	notices-check openapi-check shell-check \
 	check-go check-web check-contracts check \
 	web-build build \
-	require-out require-version snapshot release release-status release-verify \
+	require-out require-version require-update-public-key snapshot release release-status release-verify \
 	ci
 
 # Bootstrap
@@ -93,11 +93,14 @@ require-out:
 require-version:
 	@test -n "$(VERSION)" || { printf '%s\n' 'VERSION is required' >&2; exit 2; }
 
+require-update-public-key:
+	@test -n "$(UPDATE_PUBLIC_KEY_FILE)" || { printf '%s\n' 'UPDATE_PUBLIC_KEY_FILE is required' >&2; exit 2; }
+
 snapshot: require-out
 	$(RELEASE_SCRIPT) snapshot --output "$(OUT)"
 
-release: require-out require-version
-	$(RELEASE_SCRIPT) release --version "$(VERSION)" --output "$(OUT)" $(if $(strip $(DATE)),--date "$(DATE)")
+release: require-out require-version require-update-public-key
+	$(RELEASE_SCRIPT) release --version "$(VERSION)" --output "$(OUT)" --update-public-key-file "$(UPDATE_PUBLIC_KEY_FILE)" $(if $(strip $(DATE)),--date "$(DATE)")
 
 release-status:
 	go tool release-readiness

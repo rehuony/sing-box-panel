@@ -12,6 +12,7 @@ import (
 
 	"github.com/rehuony/sing-box-panel/internal/application"
 	"github.com/rehuony/sing-box-panel/internal/buildinfo"
+	"github.com/rehuony/sing-box-panel/internal/selfupdate"
 	"github.com/rehuony/sing-box-panel/internal/settings"
 	"github.com/rehuony/sing-box-panel/internal/store"
 	panelSystemd "github.com/rehuony/sing-box-panel/internal/systemd"
@@ -23,6 +24,7 @@ type Dependencies struct {
 	Stdout          io.Writer
 	Stderr          io.Writer
 	Build           buildinfo.Info
+	Update          func(context.Context, string) (selfupdate.Result, error)
 	RunServer       func(context.Context, string) error
 	OpenApplication func(context.Context, string) (*application.Application, error)
 	Systemd         panelSystemd.Service
@@ -61,6 +63,7 @@ func NewRootCommand(deps Dependencies) *cobra.Command {
 		newInitCommand(state),
 		newVerifyCommand(state),
 		newVersionCommand(state, deps.Build),
+		newUpdateCommand(state, deps.Build, deps.Update),
 		newServerCommand(state, deps.RunServer),
 		newCoreCommand(state, deps.OpenApplication),
 		newConfigCommand(state, deps.OpenApplication),

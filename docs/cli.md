@@ -7,7 +7,7 @@ root command or any command group without a leaf prints help.
 
 ```text
 sing-box-panel
-├─ init | verify | version
+├─ init | verify | version | update
 ├─ server run
 ├─ core
 │  ├─ catalog list | refresh
@@ -119,3 +119,34 @@ sing-box-panel completion fish | source
 
 Generated output may instead be installed in the shell's normal completion
 directory.
+
+## Binary self-update
+
+`update` replaces a release build with the newest published, non-prerelease
+GitHub Release for the current architecture:
+
+```sh
+sing-box-panel update
+```
+
+The command supports the same `--output=text|json|jsonl` contract as other
+leaf commands. It is available only to strict v-prefixed release builds on
+Linux amd64 and arm64; development and snapshot builds report that self-update
+is unavailable instead of overwriting an uncertain executable.
+
+The selected GitHub Release must attach all four signed release outputs without
+renaming them: `sing-box-panel-linux-amd64`,
+`sing-box-panel-linux-arm64`, `SHA256SUMS`, and `SHA256SUMS.sig`. The command
+first verifies that the detached Ed25519 signature binds the selected release
+version and checksum manifest to the public key embedded in the running
+release, then verifies the matching binary checksum. Only verified
+bytes are made executable, written and synced to a temporary file beside the
+running executable, and renamed over it atomically. A missing key, missing
+signature, or any download or verification failure leaves the existing
+executable unchanged.
+
+The invoking user must be able to write the executable's directory. A
+system-scope installation at `/usr/local/bin/sing-box-panel` therefore normally
+requires running the update as root. Replacing the file does not restart an
+already-running systemd service; restart that service explicitly when the new
+process should take effect.

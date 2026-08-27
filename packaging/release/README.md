@@ -2,6 +2,8 @@
 
 `build-release.sh` is the repository's only release-packaging implementation.
 It builds but never publishes, uploads, signs, installs, or retains artifacts.
+The separate `Build signed release` workflow signs the completed checksum
+manifest and retains the four-file result as a workflow artifact.
 
 ## Interface
 
@@ -9,8 +11,8 @@ From the repository root:
 
 ```sh
 packaging/release/build-release.sh snapshot --output /absolute/path/to/new-output
-packaging/release/build-release.sh release --version v0.1.0 --output /absolute/path/to/new-output
-packaging/release/build-release.sh release --version v0.1.0 --output /absolute/path/to/new-output --date 2026-08-27T00:00:00Z
+packaging/release/build-release.sh release --version v0.1.0 --output /absolute/path/to/new-output --update-public-key-file /secure/path/to/public-key
+packaging/release/build-release.sh release --version v0.1.0 --output /absolute/path/to/new-output --update-public-key-file /secure/path/to/public-key --date 2026-08-27T00:00:00Z
 packaging/release/build-release.sh verify
 ```
 
@@ -19,9 +21,10 @@ developer and CI entry points. The destination of `snapshot` and `release`
 must not exist, and its parent directory must already exist.
 
 `snapshot` uses version `dev` and skips only GA authorization. `release`
-requires a strict v-prefixed SemVer and a successful readiness check. Both
-derive the full source commit from `HEAD`; the build date defaults to that
-commit's timestamp.
+requires a strict v-prefixed SemVer, a successful readiness check, and a file
+containing one standard-Base64 Ed25519 public key. The formal build embeds that
+key in both binaries. Both modes derive the full source commit from `HEAD`; the
+build date defaults to that commit's timestamp.
 
 ## Isolated build model
 
@@ -38,7 +41,9 @@ The script:
    workspaces, overlays, experiments, and persistent Go settings disabled;
 6. cross-builds Linux amd64 and arm64 with `CGO_ENABLED=0`, fixed CPU
    baselines, `webdist`, `-trimpath`, and `-buildvcs=false`;
-7. generates and verifies `SHA256SUMS` in staging before atomically renaming
+7. embeds and verifies the configured update-verification key in formal
+   release binaries;
+8. generates and verifies `SHA256SUMS` in staging before atomically renaming
    the complete output directory.
 
 The resulting directory contains:
@@ -46,6 +51,11 @@ The resulting directory contains:
 - `sing-box-panel-linux-amd64`
 - `sing-box-panel-linux-arm64`
 - `SHA256SUMS`
+
+The privileged workflow adds `SHA256SUMS.sig` only after the isolated build is
+complete. Its signature binds the formal version and exact manifest bytes.
+Local signing is available through `go tool sign-release`; the private key is
+never an input to the packaging script.
 
 The script never moves or edits the caller's `web/node_modules` or `web/dist`.
 Uncommitted non-evidence files are intentionally ignored: use `make build`

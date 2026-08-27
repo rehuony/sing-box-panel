@@ -4,6 +4,7 @@ go 1.26
 
 tool (
 	github.com/rehuony/sing-box-panel/internal/cmd/release-readiness
+	github.com/rehuony/sing-box-panel/internal/cmd/sign-release
 	github.com/rehuony/sing-box-panel/internal/cmd/third-party-notices
 	github.com/rehuony/sing-box-panel/internal/cmd/verify-openapi
 )
@@ -12,6 +13,7 @@ require (
 	github.com/spf13/cobra v1.10.2
 	github.com/tailscale/hujson v0.0.0-20260727124030-b80ff77dac4f
 	go.yaml.in/yaml/v3 v3.0.5
+	golang.org/x/mod v0.38.0
 	golang.org/x/sys v0.47.0
 	modernc.org/sqlite v1.57.0
 )

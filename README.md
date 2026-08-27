@@ -26,7 +26,8 @@ Node.js, pnpm, or a separate SQLite CLI.
 > sing-box-panel is available for development and integration testing, but is
 > not GA-ready. Formal releases remain blocked until the executable readiness
 > gate confirms both the required SQLite version and all reviewed release
-> evidence. No workflow in this repository publishes release artifacts.
+> evidence. The manual release workflow builds, signs, and retains artifacts,
+> but no workflow publishes a GitHub Release.
 
 ## Features
 
