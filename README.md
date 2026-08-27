@@ -4,7 +4,7 @@
   <p>A Linux control plane for one exact, verifiable sing-box runtime.</p>
   <div>
     <img src="https://img.shields.io/badge/Linux-amd64%20%7C%20arm64-FCC624?logo=linux&logoColor=black" alt="Linux amd64 and arm64">
-    <img src="https://img.shields.io/badge/Go-1.25-00ADD8?logo=go&logoColor=white" alt="Go 1.25">
+    <img src="https://img.shields.io/badge/Go-1.26-00ADD8?logo=go&logoColor=white" alt="Go 1.26">
     <img src="https://img.shields.io/badge/pnpm-11.21-F69220?logo=pnpm&logoColor=white" alt="pnpm 11.21">
     <a href="LICENSE"><img src="https://img.shields.io/badge/license-GPL--3.0--or--later-00A9BE" alt="GNU General Public License 3.0 or later"></a>
   </div>
@@ -51,7 +51,7 @@ outside the current product contract.
 
 Building from source requires:
 
-- Go 1.25, as declared by `go.mod`.
+- Go 1.26, as declared by `go.mod`.
 - Node.js 22.12 or newer.
 - Corepack with the package-pinned pnpm 11.21.0.
 

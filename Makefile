@@ -11,7 +11,7 @@ SHELL_SOURCE_DIRS := packaging .github/scripts
 	notices-check openapi-check shell-check \
 	check-go check-web check-contracts check \
 	web-build build \
-	require-out require-version snapshot release release-verify \
+	require-out require-version release release-verify snapshot \
 	ci
 
 # Bootstrap
@@ -94,14 +94,14 @@ require-out:
 require-version:
 	@test -n "$(VERSION)" || { printf '%s\n' 'VERSION is required' >&2; exit 2; }
 
-snapshot: require-out
-	$(RELEASE_SCRIPT) snapshot --output "$(OUT)"
-
 release: require-out require-version
 	$(RELEASE_SCRIPT) release --version "$(VERSION)" --output "$(OUT)"
 
 release-verify:
 	$(RELEASE_SCRIPT) verify
+
+snapshot: require-out
+	$(RELEASE_SCRIPT) snapshot --output "$(OUT)"
 
 # Continuous integration
 

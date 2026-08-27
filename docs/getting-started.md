@@ -6,7 +6,7 @@ one local development instance. The supported production targets are
 
 ## Build the application
 
-Source builds require Go 1.25, Node.js 22.12 or newer, Corepack, and the
+Source builds require Go 1.26, Node.js 22.12 or newer, Corepack, and the
 package-pinned pnpm 11.21.0. Go and Web dependencies are locked by `go.mod`,
 `go.sum`, and `web/pnpm-lock.yaml`.
 
