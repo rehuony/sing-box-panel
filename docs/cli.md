@@ -145,6 +145,14 @@ running executable, and renamed over it atomically. A missing key, missing
 signature, or any download or verification failure leaves the existing
 executable unchanged.
 
+Draft Releases are deliberately invisible to this update path. The release
+workflow creates and verifies a draft, and a maintainer publishes it only
+after reviewing its source commit, notes, and assets. The first release that
+embeds the repository signing key is a trust bootstrap: older unsigned or
+development builds must install that release once through an independently
+verified manual path before later releases can use authenticated self-update.
+See [Release process](release.md) for the signing and publication procedure.
+
 The invoking user must be able to write the executable's directory. A
 system-scope installation at `/usr/local/bin/sing-box-panel` therefore normally
 requires running the update as root. Replacing the file does not restart an

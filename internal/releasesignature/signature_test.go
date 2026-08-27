@@ -43,6 +43,24 @@ func TestSignVerifyAndKeyEncoding(t *testing.T) {
 	}
 }
 
+func TestSignAcceptsStrictPrereleaseAndBuildMetadata(t *testing.T) {
+	t.Parallel()
+
+	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	version := "v1.2.3-rc.1+linux.amd64"
+	checksums := []byte("0123456789abcdef  sing-box-panel-linux-amd64\n")
+	signature, err := Sign(privateKey, version, checksums)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := Verify(publicKey, version, checksums, signature); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestParsePrivateKeyAndMatch(t *testing.T) {
 	t.Parallel()
 

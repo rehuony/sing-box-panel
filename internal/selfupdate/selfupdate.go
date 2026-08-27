@@ -23,24 +23,29 @@ import (
 	"strings"
 	"time"
 
-	"github.com/rehuony/sing-box-panel/internal/releasegate"
 	"github.com/rehuony/sing-box-panel/internal/releasesignature"
+	"github.com/rehuony/sing-box-panel/internal/releaseversion"
 	"golang.org/x/mod/semver"
 )
 
 const (
-	defaultLatestReleaseURL = "https://api.github.com/repos/rehuony/sing-box-panel/releases/latest"
-	checksumAssetName       = "SHA256SUMS"
-	signatureAssetName      = "SHA256SUMS.sig"
-	maxReleaseBytes         = 1 << 20
-	maxChecksumBytes        = 1 << 20
-	maxSignatureBytes       = 1 << 10
-	maxBinaryBytes          = 256 << 20
+	checksumAssetName  = "SHA256SUMS"
+	signatureAssetName = "SHA256SUMS.sig"
+	maxReleaseBytes    = 1 << 20
+	maxChecksumBytes   = 1 << 20
+	maxSignatureBytes  = 1 << 10
+	maxBinaryBytes     = 256 << 20
 )
 
-// embeddedPublicKey is populated by the formal release build through -X. A
-// release binary without a valid key fails closed before fetching assets.
-var embeddedPublicKey string
+var (
+	// defaultLatestReleaseURL can be replaced only at link time for an isolated
+	// release smoke test. Production builds use the repository's latest release.
+	defaultLatestReleaseURL = "https://api.github.com/repos/rehuony/sing-box-panel/releases/latest"
+
+	// embeddedPublicKey is populated by the formal release build through -X. A
+	// release binary without a valid key fails closed before fetching assets.
+	embeddedPublicKey string
+)
 
 var (
 	ErrUnsupportedPlatform    = errors.New("self-update is unsupported on this platform")
@@ -125,7 +130,7 @@ func (updater *Updater) Update(ctx context.Context, currentVersion string) (Resu
 	if updater.goos != "linux" || updater.goarch != "amd64" && updater.goarch != "arm64" {
 		return Result{}, fmt.Errorf("%w: %s/%s", ErrUnsupportedPlatform, updater.goos, updater.goarch)
 	}
-	if err := releasegate.ValidateReleaseVersion(currentVersion); err != nil {
+	if err := releaseversion.Validate(currentVersion); err != nil {
 		return Result{}, fmt.Errorf("%w: got %q", ErrInvalidVersion, currentVersion)
 	}
 	if updater.publicKeyErr != nil || len(updater.publicKey) != ed25519.PublicKeySize {
@@ -254,7 +259,7 @@ func (updater *Updater) latest(ctx context.Context) (release, error) {
 	if latest.Draft || latest.Prerelease {
 		return release{}, fmt.Errorf("%w: latest endpoint returned a draft or prerelease", ErrReleaseInvalid)
 	}
-	if err := releasegate.ValidateReleaseVersion(latest.TagName); err != nil {
+	if err := releaseversion.Validate(latest.TagName); err != nil {
 		return release{}, fmt.Errorf("%w: tag %q is not strict SemVer", ErrReleaseInvalid, latest.TagName)
 	}
 	return latest, nil

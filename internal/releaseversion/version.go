@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-package releasegate
+// Package releaseversion validates the repository's release version format.
+package releaseversion
 
 import (
 	"errors"
@@ -10,9 +11,9 @@ import (
 
 var ErrInvalidReleaseVersion = errors.New("invalid release version")
 
-// ValidateReleaseVersion accepts the repository's v-prefixed SemVer release
-// identifiers. dev and ci are build-script modes, not release versions.
-func ValidateReleaseVersion(value string) error {
+// Validate accepts strict, v-prefixed SemVer release identifiers. dev and ci
+// are build-script modes, not release versions.
+func Validate(value string) error {
 	if len(value) < 2 || len(value) > 128 || value[0] != 'v' {
 		return fmt.Errorf("%w: expected v-prefixed SemVer", ErrInvalidReleaseVersion)
 	}

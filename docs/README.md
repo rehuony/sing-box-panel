@@ -14,7 +14,7 @@ when exact schemas or packaging details matter.
 | Create, validate, activate, and roll back configuration | [Configuration and runtime](configuration-and-runtime.md) |
 | Publish subscriptions and inspect operational data | [Subscriptions and observability](subscriptions-and-observability.md) |
 | Integrate with the management API securely | [HTTP API and security](http-api-and-security.md) |
-| Build Linux artifacts and evaluate release readiness | [Release process](release.md) |
+| Build, sign, test, and publish Linux artifacts | [Release process](release.md) |
 
 ## Authoritative component references
 
@@ -26,8 +26,6 @@ when exact schemas or packaging details matter.
   layouts, ownership, installation, and hardening.
 - [Release build materials](../packaging/release/README.md) define the release
   script inputs and generated files.
-- [Release evidence records](../release/evidence/README.md) define the GA
-  evidence ledger and its narrow source overlay.
 - [Web application](../web/README.md) defines frontend ownership, pnpm commands,
   embedding, and API-client boundaries.
 

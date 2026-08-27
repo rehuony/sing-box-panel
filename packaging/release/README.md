@@ -1,65 +1,92 @@
 # Release build materials
 
-`build-release.sh` is the repository's only release-packaging implementation.
-It builds but never publishes, uploads, signs, installs, or retains artifacts.
-The separate `Build signed release` workflow signs the completed checksum
-manifest and retains the four-file result as a workflow artifact.
+This directory owns the release-packaging implementation shared by local Make
+targets, CI, and the signed-release workflow. `build-release.sh` builds and
+verifies an isolated source snapshot but never publishes, uploads, signs,
+installs, or retains artifacts. GitHub Actions-only orchestration lives under
+`.github/scripts/`; its `smoke-release.sh` runs the native release smoke test.
+The `Build signed release` workflow adds the signature, runs those smoke tests,
+and creates a verified Draft Release for a maintainer to publish.
 
 ## Interface
 
-From the repository root:
+Use the Make targets from the repository root:
+
+```sh
+make snapshot OUT=/absolute/path/to/new-output
+make release VERSION=v0.1.0 OUT=/absolute/path/to/new-output
+make release-verify
+```
+
+Their underlying script interface is:
 
 ```sh
 packaging/release/build-release.sh snapshot --output /absolute/path/to/new-output
-packaging/release/build-release.sh release --version v0.1.0 --output /absolute/path/to/new-output --update-public-key-file /secure/path/to/public-key
-packaging/release/build-release.sh release --version v0.1.0 --output /absolute/path/to/new-output --update-public-key-file /secure/path/to/public-key --date 2026-08-27T00:00:00Z
+packaging/release/build-release.sh release --version v0.1.0 --output /absolute/path/to/new-output
 packaging/release/build-release.sh verify
 ```
 
-The Make targets `snapshot`, `release`, and `release-verify` are the normal
-developer and CI entry points. The destination of `snapshot` and `release`
-must not exist, and its parent directory must already exist.
+The destination of `snapshot` and `release` must not exist, and its parent
+directory must already exist. `snapshot` uses version `dev`. `release`
+requires strict v-prefixed SemVer and embeds the standard-Base64 Ed25519 public
+key committed at `.github/keypair/release-signing-public-key`. Both modes
+derive the full source commit and build date from `HEAD`; the build date is the
+source commit timestamp and has no caller override.
 
-`snapshot` uses version `dev` and skips only GA authorization. `release`
-requires a strict v-prefixed SemVer, a successful readiness check, and a file
-containing one standard-Base64 Ed25519 public key. The formal build embeds that
-key in both binaries. Both modes derive the full source commit from `HEAD`; the
-build date defaults to that commit's timestamp.
+The manually dispatched GitHub workflow applies an additional release policy:
+its version must be stable `vMAJOR.MINOR.PATCH`, without prerelease or build
+metadata.
+
+Key paths are centralized at their two execution boundaries. The packaging
+script derives both filenames from `release_keypair_dir`; the workflow derives
+all public-key references from its top-level `RELEASE_KEYPAIR_DIR`. Keeping one
+directory variable in each environment avoids another configuration format
+while making a future directory move a two-location change.
 
 ## Isolated build model
 
 The script:
 
 1. exports committed `HEAD` to a private temporary source tree;
-2. replaces only the six permitted evidence paths with regular, non-symlink
-   files from the working tree when present;
-3. installs and builds the Web application in another temporary tree using
-   the package-pinned pnpm, frozen lockfile, disabled lifecycle scripts, and
-   an isolated store;
-4. verifies the Web distribution before copying it into the source snapshot;
-5. downloads and verifies Go modules with isolated caches and inherited
+2. installs and builds the Web application in another temporary tree using
+   the package-pinned pnpm, frozen lockfile, disabled lifecycle scripts, and an
+   isolated store;
+3. verifies the Web distribution before copying it into the source snapshot;
+4. downloads and verifies Go modules with isolated caches and inherited
    workspaces, overlays, experiments, and persistent Go settings disabled;
-6. cross-builds Linux amd64 and arm64 with `CGO_ENABLED=0`, fixed CPU
+5. cross-builds Linux amd64 and arm64 with `CGO_ENABLED=0`, fixed CPU
    baselines, `webdist`, `-trimpath`, and `-buildvcs=false`;
-7. embeds and verifies the configured update-verification key in formal
-   release binaries;
+6. embeds and verifies the committed update-verification key in both release
+   binaries;
+7. verifies the embedded release version, full source commit, and source
+   timestamp through a host-native metadata probe built with the same flags;
 8. generates and verifies `SHA256SUMS` in staging before atomically renaming
    the complete output directory.
 
-The resulting directory contains:
+The resulting directory contains exactly:
 
 - `sing-box-panel-linux-amd64`
 - `sing-box-panel-linux-arm64`
 - `SHA256SUMS`
 
-The privileged workflow adds `SHA256SUMS.sig` only after the isolated build is
-complete. Its signature binds the formal version and exact manifest bytes.
-Local signing is available through `go tool sign-release`; the private key is
-never an input to the packaging script.
+The workflow adds `SHA256SUMS.sig` only after the isolated build is complete.
+Its Ed25519 signature binds the formal version and exact manifest bytes. The
+environment private key must match the public key committed in the source
+snapshot. Local signing is available through `go tool sign-release`; the
+private key is stored locally at the Git-ignored
+`.github/keypair/release-signing-private-key.pem` and is never an input to
+the packaging script. Packaging also rejects a source commit containing that
+path, even if someone force-added it through the ignore rule.
 
 The script never moves or edits the caller's `web/node_modules` or `web/dist`.
-Uncommitted non-evidence files are intentionally ignored: use `make build`
-when testing working-tree source changes.
+All uncommitted files are intentionally ignored: use `make build` when testing
+working-tree source changes.
 
-Evidence is a release-authorization input consumed by the repository-only
-readiness tool. It is not embedded in the shipped product binary.
+`verify` exercises the formal-release path with the committed public key. It
+requires both architectures to build successfully, checks their Go build
+metadata and key, checks the embedded release identity, and confirms that
+invalid release versions fail without leaving an output directory.
+
+See [Release process](../../docs/release.md) for signing-key setup, native
+amd64 and arm64 smoke tests, Draft Release verification, manual publication,
+trust bootstrap, and the release-hardening backlog.

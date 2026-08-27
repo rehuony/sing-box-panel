@@ -15,7 +15,34 @@ import (
 	"testing"
 
 	"github.com/rehuony/sing-box-panel/internal/releasesignature"
+	"github.com/rehuony/sing-box-panel/internal/releaseversion"
 )
+
+func TestValidateVersionCommand(t *testing.T) {
+	t.Parallel()
+
+	for _, test := range []struct {
+		name    string
+		version string
+		valid   bool
+	}{
+		{name: "stable", version: "v1.2.3", valid: true},
+		{name: "prerelease and metadata", version: "v1.2.3-rc.1+linux.amd64", valid: true},
+		{name: "missing prefix", version: "1.2.3"},
+		{name: "leading zero", version: "v1.02.3"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			err := run([]string{"validate-version", "--version", test.version}, io.Discard)
+			if test.valid && err != nil {
+				t.Fatalf("validate-version --version %q: %v", test.version, err)
+			}
+			if !test.valid && !errors.Is(err, releaseversion.ErrInvalidReleaseVersion) {
+				t.Fatalf("validate-version --version %q error = %v, want ErrInvalidReleaseVersion", test.version, err)
+			}
+		})
+	}
+}
 
 func TestSignReleaseCommandsRoundTrip(t *testing.T) {
 	t.Parallel()

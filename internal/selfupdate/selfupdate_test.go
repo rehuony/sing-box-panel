@@ -139,6 +139,36 @@ func TestUpdateDoesNotDownloadAssetsOrDowngrade(t *testing.T) {
 	}
 }
 
+func TestUpdateAcceptsStrictPrereleaseAndBuildMetadata(t *testing.T) {
+	t.Parallel()
+
+	const version = "v1.2.3-rc.1+linux.amd64"
+	var assetRequests atomic.Int32
+	server, publicKey := signedReleaseServer(t, version, map[string][]byte{
+		"sing-box-panel-linux-amd64": []byte("binary"),
+		checksumAssetName:            []byte("checksum"),
+	}, &assetRequests)
+	updater := New(Options{
+		HTTPClient: server.Client(), LatestReleaseURL: server.URL + "/latest",
+		GOOS: "linux", GOARCH: "amd64", PublicKey: publicKey,
+		Executable: func() (string, error) {
+			t.Fatal("an up-to-date check must not inspect the executable")
+			return "", nil
+		},
+	})
+
+	result, err := updater.Update(context.Background(), version)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Updated || result.PreviousVersion != version || result.Version != version {
+		t.Fatalf("result = %+v", result)
+	}
+	if got := assetRequests.Load(); got != 0 {
+		t.Fatalf("asset requests = %d", got)
+	}
+}
+
 func TestUpdateRejectsUnsupportedAndDevelopmentBuildsBeforeNetwork(t *testing.T) {
 	t.Parallel()
 
@@ -371,6 +401,41 @@ func TestParseChecksumRequiresOneExactValidEntry(t *testing.T) {
 			}
 			if !testCase.ok && !errors.Is(err, ErrChecksumInvalid) {
 				t.Fatalf("error = %v", err)
+			}
+		})
+	}
+}
+
+func TestFindAssetRequiresOneWellFormedMatch(t *testing.T) {
+	t.Parallel()
+
+	const name = "sing-box-panel-linux-amd64"
+	valid := asset{Name: name, BrowserDownloadURL: "https://example.com/binary", Size: 1}
+	for _, test := range []struct {
+		name    string
+		assets  []asset
+		wantErr error
+	}{
+		{name: "valid", assets: []asset{valid}},
+		{name: "missing", assets: []asset{{Name: "other"}}, wantErr: ErrAssetMissing},
+		{name: "duplicate", assets: []asset{valid, valid}, wantErr: ErrReleaseInvalid},
+		{name: "missing URL", assets: []asset{{Name: name, Size: 1}}, wantErr: ErrReleaseInvalid},
+		{name: "negative size", assets: []asset{{Name: name, BrowserDownloadURL: valid.BrowserDownloadURL, Size: -1}}, wantErr: ErrReleaseInvalid},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			got, err := findAsset(test.assets, name)
+			if test.wantErr == nil {
+				if err != nil {
+					t.Fatal(err)
+				}
+				if got != valid {
+					t.Fatalf("findAsset() = %+v, want %+v", got, valid)
+				}
+				return
+			}
+			if !errors.Is(err, test.wantErr) {
+				t.Fatalf("findAsset() error = %v, want %v", err, test.wantErr)
 			}
 		})
 	}

@@ -10,3 +10,5 @@
 /setting.json
 /data/
 
+# Local Ed25519 release-signing secret; the paired public trust root is committed.
+/.github/keypair/release-signing-private-key.pem

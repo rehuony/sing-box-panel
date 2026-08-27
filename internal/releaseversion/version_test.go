@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-package releasegate
+package releaseversion
 
 import (
 	"errors"
 	"testing"
 )
 
-func TestValidateReleaseVersion(t *testing.T) {
+func TestValidate(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
 		value string
@@ -35,12 +35,12 @@ func TestValidateReleaseVersion(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.value, func(t *testing.T) {
 			t.Parallel()
-			err := ValidateReleaseVersion(test.value)
+			err := Validate(test.value)
 			if test.valid && err != nil {
-				t.Fatalf("ValidateReleaseVersion(%q): %v", test.value, err)
+				t.Fatalf("Validate(%q): %v", test.value, err)
 			}
 			if !test.valid && !errors.Is(err, ErrInvalidReleaseVersion) {
-				t.Fatalf("ValidateReleaseVersion(%q) error = %v, want ErrInvalidReleaseVersion", test.value, err)
+				t.Fatalf("Validate(%q) error = %v, want ErrInvalidReleaseVersion", test.value, err)
 			}
 		})
 	}

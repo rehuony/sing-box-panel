@@ -14,7 +14,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/rehuony/sing-box-panel/internal/releasegate"
+	"github.com/rehuony/sing-box-panel/internal/releaseversion"
 )
 
 const messageDomain = "sing-box-panel release checksums v1\n"
@@ -134,7 +134,7 @@ func MatchKeyPair(publicKey ed25519.PublicKey, privateKey ed25519.PrivateKey) er
 }
 
 func signedMessage(version string, checksums []byte) ([]byte, error) {
-	if err := releasegate.ValidateReleaseVersion(version); err != nil {
+	if err := releaseversion.Validate(version); err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrVersion, err)
 	}
 	message := make([]byte, 0, len(messageDomain)+len(version)+1+len(checksums))

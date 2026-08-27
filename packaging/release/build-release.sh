@@ -7,7 +7,7 @@ usage() {
   cat >&2 <<'EOF'
 usage:
   packaging/release/build-release.sh snapshot --output DIRECTORY
-  packaging/release/build-release.sh release --version vX.Y.Z --output DIRECTORY --update-public-key-file FILE [--date RFC3339]
+  packaging/release/build-release.sh release --version vX.Y.Z --output DIRECTORY
   packaging/release/build-release.sh verify
 EOF
 }
@@ -22,22 +22,15 @@ script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 workspace_root="$(cd -- "${script_dir}/../.." && pwd -P)"
 buildinfo_package="github.com/rehuony/sing-box-panel/internal/buildinfo"
 selfupdate_package="github.com/rehuony/sing-box-panel/internal/selfupdate"
-
-evidence_overlays=(
-  release/evidence.json
-  release/evidence/core-version-matrix.json
-  release/evidence/structured-capability-matrix.json
-  release/evidence/linux-runtime-resilience.json
-  release/evidence/browser-contract-accessibility.json
-  release/evidence/subscription-observability-e2e.json
-)
+release_keypair_dir=".github/keypair"
+release_public_key_path="${release_keypair_dir}/release-signing-public-key"
+release_private_key_path="${release_keypair_dir}/release-signing-private-key.pem"
 
 source_date=""
 source_commit=""
 release_target_goos=""
 release_target_goarch=""
 release_target_cgo=0
-update_public_key=""
 
 resolve_source_identity() {
   local git_root
@@ -67,47 +60,23 @@ resolve_source_identity() {
   fi
 }
 
-is_rfc3339() {
-  local value="$1"
-  local year
-  local month
-  local day
-  local maximum_day
-
-  if [[ ! "${value}" =~ ^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9](\.[0-9]+)?(Z|[+-]([01][0-9]|2[0-3]):[0-5][0-9])$ ]]; then
-    return 1
-  fi
-  year=$((10#${value:0:4}))
-  month=$((10#${value:5:2}))
-  day=$((10#${value:8:2}))
-  case "${month}" in
-  2)
-    maximum_day=28
-    if ((year % 400 == 0 || (year % 4 == 0 && year % 100 != 0))); then
-      maximum_day=29
-    fi
-    ;;
-  4 | 6 | 9 | 11) maximum_day=30 ;;
-  *) maximum_day=31 ;;
-  esac
-  ((day <= maximum_day))
-}
-
-load_update_public_key() {
+read_update_public_key() {
   local path="$1"
   local file_size
+  local public_key
 
   if [[ ! -f "${path}" || -L "${path}" ]]; then
     echo "update public key must be a regular, non-symbolic file" >&2
     return 1
   fi
   file_size="$(wc -c <"${path}" | tr -d '[:space:]')"
-  update_public_key="$(<"${path}")"
-  if [[ ! "${update_public_key}" =~ ^[A-Za-z0-9+/]{43}=$ ]] ||
-    [[ "${file_size}" != "${#update_public_key}" && "${file_size}" != "$(( ${#update_public_key} + 1 ))" ]]; then
+  public_key="$(<"${path}")"
+  if [[ ! "${public_key}" =~ ^[A-Za-z0-9+/]{43}=$ ]] ||
+    [[ "${file_size}" != "${#public_key}" && "${file_size}" != "$(( ${#public_key} + 1 ))" ]]; then
     echo "update public key must contain one standard-Base64 Ed25519 public key" >&2
     return 1
   fi
+  printf '%s\n' "${public_key}"
 }
 
 run_go() {
@@ -155,15 +124,6 @@ run_pnpm() {
 prepare_source_snapshot() {
   local source_root="$1"
   local web_parent="$2"
-  local overlay
-  local source
-  local target
-
-  if [[ ! -d "${workspace_root}/release" || -L "${workspace_root}/release" ]] ||
-    [[ ! -d "${workspace_root}/release/evidence" || -L "${workspace_root}/release/evidence" ]]; then
-    echo "the working tree must contain regular release evidence directories" >&2
-    return 1
-  fi
 
   mkdir -p -- "${source_root}" "${web_parent}"
   git -C "${workspace_root}" archive --format=tar "${source_commit}" |
@@ -171,9 +131,9 @@ prepare_source_snapshot() {
   git -C "${workspace_root}" archive --format=tar "${source_commit}" web |
     tar -xf - -C "${web_parent}"
 
-  if [[ ! -d "${source_root}/release" || -L "${source_root}/release" ]] ||
-    [[ ! -d "${source_root}/release/evidence" || -L "${source_root}/release/evidence" ]]; then
-    echo "HEAD does not contain regular release evidence directories" >&2
+  if [[ -e "${source_root}/${release_private_key_path}" ||
+    -L "${source_root}/${release_private_key_path}" ]]; then
+    echo "the release signing private key must not be committed to Git" >&2
     return 1
   fi
   if [[ ! -d "${source_root}/web" || -L "${source_root}/web" ]] ||
@@ -181,23 +141,6 @@ prepare_source_snapshot() {
     echo "HEAD does not contain a regular Web source directory" >&2
     return 1
   fi
-
-  for overlay in "${evidence_overlays[@]}"; do
-    source="${workspace_root}/${overlay}"
-    target="${source_root}/${overlay}"
-    rm -rf -- "${target}"
-    if [[ -L "${source}" ]]; then
-      echo "release evidence overlay must not be a symbolic link: ${overlay}" >&2
-      return 1
-    fi
-    if [[ -e "${source}" ]]; then
-      if [[ ! -f "${source}" ]]; then
-        echo "release evidence overlay must be a regular file: ${overlay}" >&2
-        return 1
-      fi
-      cp -- "${source}" "${target}"
-    fi
-  done
 }
 
 prepare_isolated_state() {
@@ -438,7 +381,7 @@ build_distribution() (
   local version="$3"
   local date="$4"
   local verify_metadata="$5"
-  local public_key="$6"
+  local public_key=""
   local output_parent_input
   local output_parent
   local output_name
@@ -449,9 +392,10 @@ build_distribution() (
   local web_parent
   local web_root
   local state_root
-  local gate_status
   local ldflags
 
+  # Invoked by the EXIT trap below.
+  # shellcheck disable=SC2329
   cleanup_build() {
     if [[ -n "${staging_dir}" && -d "${staging_dir}" ]]; then
       rm -rf -- "${staging_dir}"
@@ -464,10 +408,6 @@ build_distribution() (
 
   if [[ -z "${requested_output}" ]]; then
     echo "release output directory is empty" >&2
-    return 2
-  fi
-  if [[ "${mode}" == release && ! "${public_key}" =~ ^[A-Za-z0-9+/]{43}=$ ]]; then
-    echo "formal release builds require a valid update verification public key" >&2
     return 2
   fi
   output_parent_input="$(dirname -- "${requested_output}")"
@@ -494,26 +434,21 @@ build_distribution() (
   state_root="${build_root}/state"
   prepare_source_snapshot "${source_root}" "${web_parent}"
   prepare_isolated_state "${state_root}"
+  if [[ "${mode}" == release ]]; then
+    public_key="$(read_update_public_key "${source_root}/${release_public_key_path}")"
+  fi
 
+  if [[ "${mode}" == release ]]; then
+    (
+      cd -- "${source_root}"
+      run_go tool sign-release validate-version --version "${version}"
+    )
+  fi
   (
     cd -- "${source_root}"
     run_go mod download all
     run_go mod verify
   )
-  if [[ "${mode}" == release ]]; then
-    set +e
-    (
-      cd -- "${source_root}"
-      run_go tool release-readiness \
-        --release-version "${version}" \
-        --source-commit "${source_commit}"
-    )
-    gate_status=$?
-    set -e
-    if [[ ${gate_status} -ne 0 ]]; then
-      return "${gate_status}"
-    fi
-  fi
 
   build_web_distribution "${web_root}" "${source_root}"
 
@@ -554,12 +489,12 @@ run_verify() (
   set -euo pipefail
 
   local verify_root=""
-  local snapshot_output
   local formal_output
-  local formal_status
-  # RFC 8032 test-vector public key; used only by the deleted verification build.
-  local verification_public_key="11qYAYKxCrfVS/7TyWQHOg7hcvPapiMlrwIaaPcHURo="
+  local invalid_output
+  local invalid_status
 
+  # Invoked by the EXIT trap below.
+  # shellcheck disable=SC2329
   cleanup_verify() {
     if [[ -n "${verify_root}" && -d "${verify_root}" ]]; then
       rm -rf -- "${verify_root}"
@@ -568,31 +503,24 @@ run_verify() (
   trap cleanup_verify EXIT
 
   verify_root="$(mktemp -d "${TMPDIR:-/tmp}/sing-box-panel-release-verify.XXXXXX")"
-  snapshot_output="${verify_root}/snapshot"
   formal_output="${verify_root}/formal"
+  invalid_output="${verify_root}/invalid"
 
-  build_distribution snapshot "${snapshot_output}" dev "${source_date}" true ""
+  build_distribution release "${formal_output}" v0.0.0 "${source_date}" true
 
   set +e
-  build_distribution release "${formal_output}" v0.0.0 "${source_date}" true "${verification_public_key}"
-  formal_status=$?
+  build_distribution release "${invalid_output}" v0.0 "${source_date}" true
+  invalid_status=$?
   set -e
-  case "${formal_status}" in
-  0)
-    echo "release readiness passed and the formal release path was verified"
-    ;;
-  3)
-    if [[ -e "${formal_output}" || -L "${formal_output}" ]]; then
-      echo "a blocked formal release left output behind" >&2
-      return 1
-    fi
-    echo "release readiness is blocked and the formal release failed without output as expected"
-    ;;
-  *)
-    echo "formal release verification failed with status ${formal_status}" >&2
+  if [[ ${invalid_status} -eq 0 ]]; then
+    echo "an invalid release version unexpectedly built successfully" >&2
     return 1
-    ;;
-  esac
+  fi
+  if [[ -e "${invalid_output}" || -L "${invalid_output}" ]]; then
+    echo "an invalid release version left output behind" >&2
+    return 1
+  fi
+  echo "formal release build and invalid-version cleanup were verified"
 )
 
 if [[ $# -lt 1 ]]; then
@@ -607,26 +535,15 @@ snapshot)
   [[ $# -eq 2 && "$1" == --output ]] || usage_error "snapshot requires --output DIRECTORY"
   output="$2"
   resolve_source_identity
-  build_distribution snapshot "${output}" dev "${source_date}" true ""
+  build_distribution snapshot "${output}" dev "${source_date}" true
   ;;
 release)
-  if [[ $# -ne 6 && $# -ne 8 ]] ||
-    [[ "$1" != --version || "$3" != --output || "$5" != --update-public-key-file ]] ||
-    [[ $# -eq 8 && "$7" != --date ]]; then
-    usage_error "release requires --version VERSION --output DIRECTORY --update-public-key-file FILE [--date RFC3339]"
-  fi
+  [[ $# -eq 4 && "$1" == --version && "$3" == --output ]] ||
+    usage_error "release requires --version VERSION --output DIRECTORY"
   version="$2"
   output="$4"
-  public_key_file="$6"
-  load_update_public_key "${public_key_file}"
   resolve_source_identity
-  if [[ $# -eq 8 ]]; then
-    date="$8"
-  else
-    date="${source_date}"
-  fi
-  is_rfc3339 "${date}" || usage_error "--date must be an RFC3339 timestamp"
-  build_distribution release "${output}" "${version}" "${date}" true "${update_public_key}"
+  build_distribution release "${output}" "${version}" "${source_date}" true
   ;;
 verify)
   [[ $# -eq 0 ]] || usage_error "verify accepts no arguments"

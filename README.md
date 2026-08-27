@@ -23,11 +23,10 @@ SQLite migrations in one Go executable, so a target host does not need Go,
 Node.js, pnpm, or a separate SQLite CLI.
 
 > [!WARNING]
-> sing-box-panel is available for development and integration testing, but is
-> not GA-ready. Formal releases remain blocked until the executable readiness
-> gate confirms both the required SQLite version and all reviewed release
-> evidence. The manual release workflow builds, signs, and retains artifacts,
-> but no workflow publishes a GitHub Release.
+> sing-box-panel is available for development and integration testing. The
+> release workflow creates a signed Draft Release only after the source commit
+> passes CI and native amd64 and arm64 smoke tests. It never publishes the
+> release automatically; a maintainer must review and publish the draft.
 
 ## Features
 
@@ -94,22 +93,22 @@ configuration, settings precedence, and systemd deployment paths.
 | Edit, check, apply, restart, and roll back configuration | [Configuration and runtime](docs/configuration-and-runtime.md) |
 | Publish subscriptions and inspect operational data | [Subscriptions and observability](docs/subscriptions-and-observability.md) |
 | Integrate with the API and operate its security boundary | [HTTP API and security](docs/http-api-and-security.md) |
-| Build artifacts and understand the GA gate | [Release process](docs/release.md) |
+| Build, sign, test, and publish release artifacts | [Release process](docs/release.md) |
 
 The [documentation index](docs/README.md) also links the component-level
 sources of truth for OpenAPI, capability manifests, systemd packaging, release
-evidence, and the web application.
+builds, and the web application.
 
 ## Project map
 
 ```text
 api/                 OpenAPI source contract
+.github/             CI, release workflows, keys, and Actions-only scripts
 capabilities/        Reviewed exact-version capability manifests
 cmd/                 Published sing-box-panel entry point
 internal/cmd/        Repository-only Go tools
 internal/            Go implementation packages
-packaging/           Release scripts and systemd packaging materials
-release/             Release-authorization evidence
+packaging/           Shared release build and systemd packaging materials
 web/                 React/Vite application managed with pnpm
 ```
 
@@ -123,7 +122,7 @@ make check
 ```
 
 Open an [issue](https://github.com/rehuony/sing-box-panel/issues) before a large
-behavioral or architectural change so its contract and evidence requirements
+behavioral or architectural change so its contract and compatibility impact
 can be reviewed first.
 
 ## License

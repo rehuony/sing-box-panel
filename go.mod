@@ -3,7 +3,6 @@ module github.com/rehuony/sing-box-panel
 go 1.26
 
 tool (
-	github.com/rehuony/sing-box-panel/internal/cmd/release-readiness
 	github.com/rehuony/sing-box-panel/internal/cmd/sign-release
 	github.com/rehuony/sing-box-panel/internal/cmd/third-party-notices
 	github.com/rehuony/sing-box-panel/internal/cmd/verify-openapi

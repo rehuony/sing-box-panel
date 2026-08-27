@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 
 	"github.com/rehuony/sing-box-panel/internal/releasesignature"
+	"github.com/rehuony/sing-box-panel/internal/releaseversion"
 )
 
 const (
@@ -29,7 +30,7 @@ func main() {
 
 func run(arguments []string, stdout io.Writer) error {
 	if len(arguments) == 0 {
-		return errors.New("usage: sign-release public-key|sign|verify [options]")
+		return errors.New("usage: sign-release public-key|sign|verify|validate-version [options]")
 	}
 	switch arguments[0] {
 	case "public-key":
@@ -38,9 +39,21 @@ func run(arguments []string, stdout io.Writer) error {
 		return runSign(arguments[1:])
 	case "verify":
 		return runVerify(arguments[1:])
+	case "validate-version":
+		return runValidateVersion(arguments[1:])
 	default:
 		return fmt.Errorf("unknown command %q", arguments[0])
 	}
+}
+
+func runValidateVersion(arguments []string) error {
+	flags := flag.NewFlagSet("validate-version", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	version := flags.String("version", "", "strict v-prefixed SemVer release version")
+	if err := flags.Parse(arguments); err != nil || flags.NArg() != 0 || *version == "" {
+		return errors.New("usage: sign-release validate-version --version vX.Y.Z")
+	}
+	return releaseversion.Validate(*version)
 }
 
 func runPublicKey(arguments []string, stdout io.Writer) error {

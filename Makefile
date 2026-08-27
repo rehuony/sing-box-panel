@@ -1,6 +1,7 @@
 WEB_PNPM := pnpm --dir web
-GO_SOURCE_DIRS := cmd internal packaging release web
+GO_SOURCE_DIRS := cmd internal packaging web
 RELEASE_SCRIPT := packaging/release/build-release.sh
+SHELL_SOURCE_DIRS := packaging .github/scripts
 
 .PHONY: \
 	bootstrap go-download web-install \
@@ -10,7 +11,7 @@ RELEASE_SCRIPT := packaging/release/build-release.sh
 	notices-check openapi-check shell-check \
 	check-go check-web check-contracts check \
 	web-build build \
-	require-out require-version require-update-public-key snapshot release release-status release-verify \
+	require-out require-version snapshot release release-verify \
 	ci
 
 # Bootstrap
@@ -60,7 +61,7 @@ web-lint web-test web-typecheck:
 	$(WEB_PNPM) run $(patsubst web-%,%,$@)
 
 shell-check:
-	bash -n $$(find packaging -type f -name '*.sh')
+	bash -n $$(find $(SHELL_SOURCE_DIRS) -type f -name '*.sh')
 
 notices-check:
 	go tool third-party-notices --check
@@ -93,17 +94,11 @@ require-out:
 require-version:
 	@test -n "$(VERSION)" || { printf '%s\n' 'VERSION is required' >&2; exit 2; }
 
-require-update-public-key:
-	@test -n "$(UPDATE_PUBLIC_KEY_FILE)" || { printf '%s\n' 'UPDATE_PUBLIC_KEY_FILE is required' >&2; exit 2; }
-
 snapshot: require-out
 	$(RELEASE_SCRIPT) snapshot --output "$(OUT)"
 
-release: require-out require-version require-update-public-key
-	$(RELEASE_SCRIPT) release --version "$(VERSION)" --output "$(OUT)" --update-public-key-file "$(UPDATE_PUBLIC_KEY_FILE)" $(if $(strip $(DATE)),--date "$(DATE)")
-
-release-status:
-	go tool release-readiness
+release: require-out require-version
+	$(RELEASE_SCRIPT) release --version "$(VERSION)" --output "$(OUT)"
 
 release-verify:
 	$(RELEASE_SCRIPT) verify
