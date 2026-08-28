@@ -39,7 +39,7 @@ func TestConfigValueImportExportValidateAndDiffCommands(t *testing.T) {
 		t.Fatalf("value=%+v err=%v output=%s", value, err, getOutput)
 	}
 
-	exportPath := filepath.Join(t.TempDir(), "canonical.json")
+	exportPath := filepath.Join(t.TempDir(), "configuration.json")
 	runApplicationCommand(t, settingsPath, "",
 		"--output", "json", "config", "export", "--file", exportPath,
 	)
@@ -76,7 +76,7 @@ func TestConfigValueImportExportValidateAndDiffCommands(t *testing.T) {
 
 func TestWritePrivateExportNeverOverwritesWithoutForce(t *testing.T) {
 	directory := t.TempDir()
-	destination := filepath.Join(directory, "canonical.json")
+	destination := filepath.Join(directory, "configuration.json")
 	if err := os.WriteFile(destination, []byte("original\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}

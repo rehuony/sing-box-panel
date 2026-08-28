@@ -1,0 +1,118 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+name: Core Version Monitor
+
+on:
+  schedule:
+    - cron: "0 0 * * *"
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: core-version-monitor
+  cancel-in-progress: false
+
+jobs:
+  latest-stable:
+    name: Monitor latest stable sing-box release
+    if: ${{ github.event_name == 'schedule' || github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      issues: write
+
+    steps:
+      - name: Check out the default branch without credentials
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+          ref: ${{ github.event.repository.default_branch }}
+
+      - name: Create, update, or close the rolling update issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE_TITLE: "chore(core): evaluate latest sing-box stable release"
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          catalog="internal/singbox/catalog.json"
+          supported_version="$(jq -er '.versions | if length > 0 then last.version else error("empty support catalog") end' "${catalog}")"
+          if [[ ! "${supported_version}" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+            printf 'catalog latest version is not a stable exact version: %s\n' "${supported_version}" >&2
+            exit 1
+          fi
+
+          release="$(gh api repos/SagerNet/sing-box/releases/latest)"
+          jq -e '
+            .draft == false and
+            .prerelease == false and
+            (.tag_name | test("^v(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$")) and
+            (.html_url | type == "string" and length > 0) and
+            (.published_at | type == "string" and length > 0)
+          ' <<<"${release}" >/dev/null
+          upstream_tag="$(jq -r '.tag_name' <<<"${release}")"
+          upstream_version="${upstream_tag#v}"
+          upstream_url="$(jq -r '.html_url' <<<"${release}")"
+          upstream_published="$(jq -r '.published_at' <<<"${release}")"
+
+          issues="$(gh issue list --repo "${REPOSITORY}" --state open --limit 100 --json number,title,body)"
+          issue_number="$(
+            jq -er --arg title "${ISSUE_TITLE}" '
+              [.[] | select(.title == $title)]
+              | if length > 1 then error("multiple rolling core update issues")
+                elif length == 1 then .[0].number
+                else ""
+                end
+            ' <<<"${issues}"
+          )"
+
+          newest="$(printf '%s\n%s\n' "${supported_version}" "${upstream_version}" | sort -V | tail -n 1)"
+          if [[ "${upstream_version}" != "${supported_version}" && "${newest}" == "${upstream_version}" ]]; then
+            body_file="${RUNNER_TEMP}/core-update-issue.md"
+            cat >"${body_file}" <<EOF
+          <!-- sing-box-panel-core-version-monitor -->
+          A newer stable sing-box release is available for manual evaluation.
+
+          - Highest version currently supported by sing-box-panel: \`v${supported_version}\`
+          - Latest upstream stable release: \`${upstream_tag}\`
+          - Published: \`${upstream_published}\`
+          - Release: ${upstream_url}
+
+          This workflow only reports the update. It does not modify the support catalog, execute upstream binaries, create a branch or pull request, or select a behavior family.
+
+          Maintainer checklist:
+
+          - [ ] Review upstream release and migration notes.
+          - [ ] Decide whether to reuse an existing behavior family or add a new one.
+          - [ ] Record reviewed amd64 and arm64 artifacts, sizes, and SHA-256 digests.
+          - [ ] Update the support catalog and generated Go data.
+          - [ ] Add or update focused adapter and inbound tests.
+          - [ ] Pass the native amd64 and arm64 core contract workflow.
+          EOF
+            if [[ -z "${issue_number}" ]]; then
+              issue_url="$(gh issue create --repo "${REPOSITORY}" --title "${ISSUE_TITLE}" --body-file "${body_file}")"
+              printf 'created rolling update issue: %s\n' "${issue_url}" >>"${GITHUB_STEP_SUMMARY}"
+            else
+              current_body="$(jq -r --argjson number "${issue_number}" '.[] | select(.number == $number) | .body' <<<"${issues}")"
+              desired_body="$(<"${body_file}")"
+              if [[ "${current_body}" != "${desired_body}" ]]; then
+                gh issue edit "${issue_number}" --repo "${REPOSITORY}" --body-file "${body_file}"
+                printf 'updated rolling issue #%s for %s\n' "${issue_number}" "${upstream_tag}" >>"${GITHUB_STEP_SUMMARY}"
+              else
+                printf 'rolling issue #%s already reports %s\n' "${issue_number}" "${upstream_tag}" >>"${GITHUB_STEP_SUMMARY}"
+              fi
+            fi
+            exit 0
+          fi
+
+          if [[ -n "${issue_number}" ]]; then
+            gh issue comment "${issue_number}" --repo "${REPOSITORY}" \
+              --body "The support catalog now reaches upstream stable ${upstream_tag}; closing this monitoring issue automatically."
+            gh issue close "${issue_number}" --repo "${REPOSITORY}" --reason completed
+            printf 'closed resolved rolling issue #%s\n' "${issue_number}" >>"${GITHUB_STEP_SUMMARY}"
+          else
+            printf 'support catalog is current at v%s; no issue required\n' "${supported_version}" >>"${GITHUB_STEP_SUMMARY}"
+          fi

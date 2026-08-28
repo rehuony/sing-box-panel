@@ -10,7 +10,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/rehuony/sing-box-panel/internal/canonical"
+	"github.com/rehuony/sing-box-panel/internal/configuration"
 	"github.com/rehuony/sing-box-panel/internal/jsonstrict"
 	"github.com/rehuony/sing-box-panel/internal/store"
 )
@@ -47,10 +47,10 @@ func (application *Application) SetCanonicalValue(
 	rawValue []byte,
 ) (CanonicalSave, error) {
 	var value any
-	if err := jsonstrict.Decode(rawValue, canonical.MaximumBytes, &value); err != nil {
+	if err := jsonstrict.Decode(rawValue, configuration.MaximumBytes, &value); err != nil {
 		return CanonicalSave{}, fmt.Errorf("canonical pointer value: %w", err)
 	}
-	return application.editConfiguration(ctx, expectedHead, func(document *canonical.V2Document) (*canonical.V2Document, error) {
+	return application.editConfiguration(ctx, expectedHead, func(document *configuration.V2Document) (*configuration.V2Document, error) {
 		return document.SetPointer(pointer, value)
 	})
 }
@@ -60,7 +60,7 @@ func (application *Application) UnsetCanonicalValue(
 	expectedHead string,
 	pointer string,
 ) (CanonicalSave, error) {
-	return application.editConfiguration(ctx, expectedHead, func(document *canonical.V2Document) (*canonical.V2Document, error) {
+	return application.editConfiguration(ctx, expectedHead, func(document *configuration.V2Document) (*configuration.V2Document, error) {
 		return document.UnsetPointer(pointer)
 	})
 }
@@ -80,7 +80,7 @@ func (application *Application) PatchCanonical(
 func (application *Application) editConfiguration(
 	ctx context.Context,
 	expectedHead string,
-	edit func(*canonical.V2Document) (*canonical.V2Document, error),
+	edit func(*configuration.V2Document) (*configuration.V2Document, error),
 ) (CanonicalSave, error) {
 	head, document, err := application.configurationHeadDocument(ctx)
 	if err != nil {
@@ -99,9 +99,9 @@ func (application *Application) editConfiguration(
 func (application *Application) saveCanonicalV2Document(
 	ctx context.Context,
 	expectedHead string,
-	document *canonical.V2Document,
+	document *configuration.V2Document,
 ) (CanonicalSave, error) {
-	return application.saveCanonicalBytes(ctx, expectedHead, canonical.SchemaVersionV2, document.CanonicalJSON())
+	return application.saveCanonicalBytes(ctx, expectedHead, configuration.SchemaVersionV2, document.CanonicalJSON())
 }
 
 func (application *Application) saveCanonicalBytes(

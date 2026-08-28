@@ -19,11 +19,11 @@ import (
 
 	"github.com/rehuony/sing-box-panel/internal/application"
 	"github.com/rehuony/sing-box-panel/internal/buildinfo"
-	"github.com/rehuony/sing-box-panel/internal/canonical"
+	"github.com/rehuony/sing-box-panel/internal/configuration"
 	"github.com/rehuony/sing-box-panel/internal/settings"
+	"github.com/rehuony/sing-box-panel/internal/singbox"
 	"github.com/rehuony/sing-box-panel/internal/store"
-	"github.com/rehuony/sing-box-panel/internal/subscription/inbound"
-	singbox11319 "github.com/rehuony/sing-box-panel/internal/subscription/inbound/singbox/v1_13_19"
+	"github.com/rehuony/sing-box-panel/internal/subscription"
 )
 
 func TestSubscriptionManagementHTTPCRUDStrictnessAndCAS(t *testing.T) {
@@ -248,9 +248,9 @@ func TestPublicSubscriptionHTTPFrozenPublicationAndTokenLifecycle(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	conversion, err := inbound.MustNewRegistry(singbox11319.New()).Convert(
+	conversion, err := singbox.NewInboundRegistry().Convert(
 		startup.ExactCoreVersion,
-		inbound.Request{FinalStartupJSON: startup.ConfigBytes, PublicHost: channel.PublicHost},
+		subscription.InboundRequest{FinalStartupJSON: startup.ConfigBytes, PublicHost: channel.PublicHost},
 	)
 	if err != nil || len(conversion.Nodes) != 1 {
 		t.Fatalf("local nodes=%+v err=%v", conversion.Nodes, err)
@@ -409,13 +409,13 @@ func newSubscriptionPublicationHTTPFixture(
 		RepositoryID: 1, ReleaseID: 2, AssetID: 3, ArchiveSHA256: strings.Repeat("a", 64),
 		BinarySHA256: strings.Repeat("b", 64), BinaryPath: "/secure/core-http-publication/sing-box",
 		ReportedVersion:    "1.13.19",
-		FeatureFingerprint: json.RawMessage(`{"status":"reported","features":["badlinkname","tfogo_checklinkname0","with_acme","with_ccm","with_clash_api","with_dhcp","with_gvisor","with_ocm","with_quic","with_tailscale","with_utls","with_wireguard"]}`),
+		FeatureFingerprint: json.RawMessage(`{"status":"reported","features":["badlinkname","tfogo_checklinkname0","with_acme","with_ccm","with_clash_api","with_dhcp","with_gvisor","with_naive_outbound","with_ocm","with_purego","with_quic","with_tailscale","with_utls","with_wireguard"]}`),
 		VerificationState:  store.CoreArtifactVerified, CreatedAt: now,
 	}
 	if _, err := database.UpsertCoreArtifact(ctx, core); err != nil {
 		t.Fatal(err)
 	}
-	revision, err := app.ReplaceCanonical(ctx, "", canonical.EmptyV2().CanonicalJSON())
+	revision, err := app.ReplaceCanonical(ctx, "", configuration.EmptyV2().CanonicalJSON())
 	if err != nil {
 		t.Fatal(err)
 	}

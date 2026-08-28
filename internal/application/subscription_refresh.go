@@ -12,17 +12,15 @@ import (
 
 	"github.com/rehuony/sing-box-panel/internal/jsonstrict"
 	"github.com/rehuony/sing-box-panel/internal/store"
-	"github.com/rehuony/sing-box-panel/internal/subscription/node"
-	"github.com/rehuony/sing-box-panel/internal/subscription/source"
-	"github.com/rehuony/sing-box-panel/internal/subscriptionfetch"
+	"github.com/rehuony/sing-box-panel/internal/subscription"
 )
 
 const minimumSubscriptionRefreshIntervalMinutes = 15
 
 type remoteSubscriptionSourceConfig struct {
-	URL                    string        `json:"url"`
-	Format                 source.Format `json:"format,omitempty"`
-	RefreshIntervalMinutes int           `json:"refresh_interval_minutes,omitempty"`
+	URL                    string                    `json:"url"`
+	Format                 subscription.SourceFormat `json:"format,omitempty"`
+	RefreshIntervalMinutes int                       `json:"refresh_interval_minutes,omitempty"`
 }
 
 type subscriptionSourceRefreshPayload struct {
@@ -84,7 +82,7 @@ func (application *Application) ExecuteSubscriptionSourceRefresh(
 			return SubscriptionSourceRefreshResult{}, err
 		}
 	}
-	body, fetchErr := subscriptionfetch.Fetch(ctx, config.URL, application.settings.Subscription.PrivateSourceCIDRs)
+	body, fetchErr := subscription.FetchSource(ctx, config.URL, application.settings.Subscription.PrivateSourceCIDRs)
 	if fetchErr != nil {
 		_ = application.scheduleNextSubscriptionSourceRefresh(ctx, source, config)
 		return SubscriptionSourceRefreshResult{}, fetchErr
@@ -102,7 +100,7 @@ func (application *Application) ExecuteSubscriptionSourceRefresh(
 		_ = application.scheduleNextSubscriptionSourceRefresh(ctx, source, config)
 		return SubscriptionSourceRefreshResult{}, saveErr
 	}
-	var nodes []node.Node
+	var nodes []subscription.Node
 	if err := json.Unmarshal(saved.Version.NormalizedNodes, &nodes); err != nil {
 		return SubscriptionSourceRefreshResult{}, err
 	}
@@ -135,11 +133,11 @@ func decodeRemoteSubscriptionSourceConfig(raw json.RawMessage) (remoteSubscripti
 		return remoteSubscriptionSourceConfig{}, errors.New("remote subscription source URL is required")
 	}
 	if config.Format == "" {
-		config.Format = source.FormatAuto
+		config.Format = subscription.SourceFormatAuto
 	}
 	switch config.Format {
-	case source.FormatAuto, source.FormatSingBoxJSON,
-		source.FormatMihomoYAML, source.FormatURIList:
+	case subscription.SourceFormatAuto, subscription.SourceFormatSingBoxJSON,
+		subscription.SourceFormatMihomoYAML, subscription.SourceFormatURIList:
 	default:
 		return remoteSubscriptionSourceConfig{}, errors.New("invalid remote subscription source format")
 	}

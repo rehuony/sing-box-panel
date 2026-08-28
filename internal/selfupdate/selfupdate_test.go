@@ -19,7 +19,7 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/rehuony/sing-box-panel/internal/releasesignature"
+	releasecontract "github.com/rehuony/sing-box-panel/internal/release"
 )
 
 func TestUpdateDownloadsVerifiesAndAtomicallyReplacesExecutable(t *testing.T) {
@@ -225,7 +225,7 @@ func TestUpdateRejectsLatestReleaseChangingInsideLock(t *testing.T) {
 	binary := []byte("new verified binary")
 	digest := sha256.Sum256(binary)
 	checksums := []byte(fmt.Sprintf("%x  sing-box-panel-linux-amd64\n", digest))
-	signature, err := releasesignature.Sign(privateKey, "v1.3.0", checksums)
+	signature, err := releasecontract.Sign(privateKey, "v1.3.0", checksums)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -546,7 +546,7 @@ func TestUpdateRejectsUntrustedSignatureBeforeDownloadingBinary(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	signature, err := releasesignature.Sign(privateKey, "v1.3.0", checksums)
+	signature, err := releasecontract.Sign(privateKey, "v1.3.0", checksums)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -601,7 +601,7 @@ func TestUpdateRejectsSignatureReplayedUnderDifferentVersion(t *testing.T) {
 	binary := []byte("previously signed binary")
 	digest := sha256.Sum256(binary)
 	checksums := []byte(fmt.Sprintf("%x  sing-box-panel-linux-amd64\n", digest))
-	signature, err := releasesignature.Sign(privateKey, "v1.3.0", checksums)
+	signature, err := releasecontract.Sign(privateKey, "v1.3.0", checksums)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -746,7 +746,7 @@ func signedReleaseServer(
 	}
 	checksums, found := signedAssets[checksumAssetName]
 	if found {
-		signature, signErr := releasesignature.Sign(privateKey, tag, checksums)
+		signature, signErr := releasecontract.Sign(privateKey, tag, checksums)
 		if signErr != nil {
 			t.Fatal(signErr)
 		}

@@ -14,8 +14,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/rehuony/sing-box-panel/internal/releasesignature"
-	"github.com/rehuony/sing-box-panel/internal/releaseversion"
+	"github.com/rehuony/sing-box-panel/internal/release"
 )
 
 func TestValidateVersionCommand(t *testing.T) {
@@ -37,7 +36,7 @@ func TestValidateVersionCommand(t *testing.T) {
 			if test.valid && err != nil {
 				t.Fatalf("validate-version --version %q: %v", test.version, err)
 			}
-			if !test.valid && !errors.Is(err, releaseversion.ErrInvalidReleaseVersion) {
+			if !test.valid && !errors.Is(err, release.ErrInvalidReleaseVersion) {
 				t.Fatalf("validate-version --version %q error = %v, want ErrInvalidReleaseVersion", test.version, err)
 			}
 		})
@@ -97,7 +96,7 @@ func TestSignReleaseRejectsMismatchedKeyWithoutOutput(t *testing.T) {
 		"sign", "--private-key", privateKeyPath, "--public-key", publicKeyPath,
 		"--version", "v1.2.3", "--checksums", checksumsPath, "--signature", signaturePath,
 	}, io.Discard)
-	if !errors.Is(err, releasesignature.ErrKeyPair) {
+	if !errors.Is(err, release.ErrKeyPair) {
 		t.Fatalf("error = %v", err)
 	}
 	if _, statErr := os.Stat(signaturePath); !errors.Is(statErr, os.ErrNotExist) {
@@ -122,7 +121,7 @@ func writeKeyPair(t *testing.T, directory string) (string, string) {
 	if err := os.WriteFile(privateKeyPath, pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: der}), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	encoded, err := releasesignature.EncodePublicKey(publicKey)
+	encoded, err := release.EncodePublicKey(publicKey)
 	if err != nil {
 		t.Fatal(err)
 	}

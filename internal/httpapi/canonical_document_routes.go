@@ -8,7 +8,7 @@ import (
 	"strings"
 
 	"github.com/rehuony/sing-box-panel/internal/application"
-	"github.com/rehuony/sing-box-panel/internal/canonical"
+	"github.com/rehuony/sing-box-panel/internal/configuration"
 	"github.com/rehuony/sing-box-panel/internal/jsonstrict"
 )
 
@@ -40,7 +40,7 @@ func (handler *Handler) replaceCanonicalDocument(w http.ResponseWriter, request 
 		writeProblem(w, request, http.StatusPreconditionRequired, "base_revision_required", "Base revision required", err.Error())
 		return
 	}
-	raw, err := readBoundedBody(request, canonical.MaximumBytes)
+	raw, err := readBoundedBody(request, configuration.MaximumBytes)
 	if err != nil {
 		writeProblem(w, request, http.StatusRequestEntityTooLarge, "canonical_too_large", "Configuration rejected", err.Error())
 		return
@@ -50,7 +50,7 @@ func (handler *Handler) replaceCanonicalDocument(w http.ResponseWriter, request 
 		switch {
 		case application.IsRevisionConflict(err):
 			writeProblem(w, request, http.StatusPreconditionFailed, "canonical_revision_conflict", "Revision conflict", err.Error())
-		case errors.Is(err, canonical.ErrInvalidDocument):
+		case errors.Is(err, configuration.ErrInvalidDocument):
 			writeProblem(w, request, http.StatusUnprocessableEntity, "canonical_invalid", "Configuration invalid", err.Error())
 		default:
 			writeProblem(w, request, http.StatusInternalServerError, "canonical_save_failed", "Configuration save failed", "The canonical revision could not be saved.")

@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/rehuony/sing-box-panel/internal/canonical"
+	"github.com/rehuony/sing-box-panel/internal/configuration"
 	"github.com/rehuony/sing-box-panel/internal/store"
 )
 
@@ -21,7 +21,7 @@ func TestCanonicalPointerApplicationUsesRevisionCAS(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = database.Close() })
 	app := newApplication(database)
-	initial, err := app.ReplaceCanonical(ctx, "", canonical.EmptyV2().CanonicalJSON())
+	initial, err := app.ReplaceCanonical(ctx, "", configuration.EmptyV2().CanonicalJSON())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -40,7 +40,7 @@ func TestCanonicalPointerApplicationUsesRevisionCAS(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := app.CanonicalValueAt(ctx, "/configuration/log"); !errors.Is(err, canonical.ErrPointerNotFound) {
+	if _, err := app.CanonicalValueAt(ctx, "/configuration/log"); !errors.Is(err, configuration.ErrPointerNotFound) {
 		t.Fatalf("removed pointer error = %v", err)
 	}
 	if removed.Revision.ID == saved.Revision.ID {

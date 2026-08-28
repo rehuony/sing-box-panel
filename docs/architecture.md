@@ -6,91 +6,80 @@ does not redefine the HTTP API, CLI, database, or subscription semantics.
 
 ## Dependency direction
 
-The repository follows this general dependency direction:
+The backend keeps one main package per domain and introduces another package
+only for a concrete dependency or side-effect boundary:
 
 ```text
-cmd / web
-    -> cli / httpapi
-        -> application
-            -> domain packages and store contracts
-                -> runtime, catalog, artifact, subscription, and persistence
+configuration --\
+subscription ---+--> singbox --> application --> cli / httpapi / server
+coreartifact ---/
+
+catalog / artifactstore / runtime / store --> application / server
+release --> selfupdate / release commands
 ```
 
-Transport packages translate input and output. They do not own use-case rules.
-`application` composes use cases and stable package contracts. Infrastructure
-packages own process, network, filesystem, and database effects. The web client
-depends on the documented HTTP contract rather than Go implementation details.
+`configuration` and `subscription` never import `singbox`. Transport packages
+translate input and output but do not own use-case rules. `application`
+composes use cases and stable package contracts. Infrastructure packages own
+process, network, filesystem, and database effects. The web client depends on
+the documented HTTP contract rather than Go implementation details.
 
-Large packages are split by responsibility within the package when doing so
-makes ownership clearer. A cohesive algorithm or transaction remains together;
-file length alone is not a reason to introduce another abstraction.
+## Domain package layout
 
-## Subscription packages
+A cohesive domain stays in one package and uses file prefixes to make ownership
+visible. File length alone is not a reason to create another package.
 
-Subscription code has explicit boundaries under `internal/subscription`:
+- `internal/configuration` owns canonical documents and the core projection
+  contract. `document_*` and `adapter_*` files distinguish those concerns.
+- `internal/subscription` owns documents, normalized nodes, source parsing and
+  fetching, rendering, and inbound conversion contracts. Files use
+  `document_*`, `node_*`, `source_*`, `render_*`, and `inbound_*` prefixes.
+- `internal/singbox` owns the reviewed support catalog, generated profiles,
+  configuration projection, inbound conversion, and behavior-family dispatch.
+  Exact versions exist as catalog data rather than forwarding packages.
+- `internal/runtime` owns managed processes and its restricted Clash API
+  monitoring client.
+- `internal/application` owns use cases and runtime identity resolution backed
+  by persistent state.
+- `internal/server` owns server composition and its private task runner.
+- `internal/release` owns release-version validation and signatures;
+  `internal/selfupdate` remains the download and atomic-replacement boundary.
 
-- `document` performs bounded, strict document parsing.
-- `node` owns normalized nodes, stable identity, diagnostics, and persistence
-  encoding.
-- `source` dispatches and parses third-party sing-box, Mihomo, and URI sources.
-- `render` emits sing-box, Mihomo, and Loon subscription documents.
-- `inbound` defines the converter contract and exact-version registry.
-- `inbound/singbox/v1_11_15`, `v1_12_25`, and `v1_13_19` contain the initial
-  verified exact-version adapters.
-
-The dependency direction inside this area is:
-
-```text
-application -> inbound registry -> version adapter
-source/render/version adapter -> document, node
-version adapter -> inbound contract
-```
-
-Version adapter packages must not import one another. They may share only the
-stable `document`, `node`, and `inbound` contracts. Source parsing and output
-rendering are independent of local inbound conversion.
-
-Configuration projection has a parallel boundary under
-`internal/configuration/adapter`. It owns the stable profile, diagnostic,
-projection, provenance, and exact registry contracts. Version packages live at
-`internal/configuration/adapter/singbox/vX_Y_Z`; they depend on canonical schema
-v2 and the adapter contract, never on another version package.
+Packages such as `store`, `catalog`, `artifactstore`, `coreartifact`, and
+`runtime` remain separate because they represent durable dependency or
+side-effect boundaries. The top-level `systemd` resource package remains
+separate because Go embedding cannot read files from a parent directory.
 
 ## Adding a sing-box version
 
 Support for a stable release is explicit and fails closed:
 
-1. Add `internal/configuration/adapter/singbox/vX_Y_Z`, implement exact profile
-   matching and projection, and register it in the application composition.
-2. Add `internal/subscription/inbound/singbox/vX_Y_Z` with package name
-   `singboxXYZ` and an implementation of `inbound.Converter`.
-3. Keep version-specific field extraction, credential expansion, and
-   sanitization inside that version directory. Do not reuse another version's
-   implementation by importing its package.
-4. Add contract tests covering projection, ignored fields, every supported and
-   explicitly unsupported inbound, multi-user credential selection, required
-   fields, and removal of server-only secrets.
-5. Register the converter in the read-only default registry assembled by
-   `internal/application/subscription_inbound.go`.
-6. Add exact-dispatch coverage. Unknown, malformed, empty, or approximate
-   versions must continue to fail with `inbound.ErrUnsupportedCoreVersion` or
-   registry construction errors; no nearest-version fallback is permitted.
-7. Update user-facing adapter documentation only after both adapters are
-   verified against the exact stable core release and official binary profile.
+1. Review the upstream release and both official Linux artifacts, then update
+   `internal/singbox/catalog.json`.
+2. Decide whether the release can reuse a reviewed behavior family. Add private
+   same-package projection or inbound functions when behavior has changed.
+3. Run `make support-generate` and `make support-check`.
+4. Add or update catalog- and family-driven tests. Unknown, malformed, empty,
+   or approximate versions must remain unsupported; there is no nearest-version
+   fallback.
+5. Run the native amd64 and arm64 core contracts before merging.
+
+Do not add exact-version forwarding directories. Version identity belongs in
+the catalog; reusable behavior belongs in private `singbox` family functions.
 
 ## Test ownership
 
 - Go unit, integration, fuzz, and package contract tests live beside their
   production package. Shared test helpers remain in that package's
   `test_helpers_test.go`.
-- Version-specific inbound fixtures and contracts live in the corresponding
-  version directory.
+- sing-box behavior differences use catalog- or family-driven table tests in
+  `internal/singbox`. The real-binary contract is
+  `internal/singbox/core_contract_test.go` and runs in dedicated native Linux
+  CI jobs.
 - React tests mirror the `web/src` ownership structure. API client tests are
   split by the same contract domains as the implementation.
-- Any future test that needs an exact sing-box binary must remain beside the
-  owning package, use an explicit environment gate, and run in a dedicated CI
-  job. Missing external inputs must skip locally and fail when that job requires
-  them; do not recreate a centralized Docker E2E suite.
+- External inputs must skip in ordinary local tests and fail when their
+  dedicated job requires them; do not recreate a centralized Docker E2E suite.
 
 When moving a responsibility, move its focused tests and update callers in the
 same change. Generated contracts and public compatibility boundaries must be

@@ -13,9 +13,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/rehuony/sing-box-panel/internal/store"
-	"github.com/rehuony/sing-box-panel/internal/subscription/document"
-	"github.com/rehuony/sing-box-panel/internal/subscription/node"
-	"github.com/rehuony/sing-box-panel/internal/subscription/render"
+	"github.com/rehuony/sing-box-panel/internal/subscription"
 )
 
 var (
@@ -28,13 +26,13 @@ var (
 // pointers. Diagnostics contain stable positions and codes only; neither the
 // plaintext token nor source/configuration secrets are retained in this value.
 type PublicSubscriptionResult struct {
-	TokenID     string                   `json:"-"`
-	Format      store.SubscriptionFormat `json:"format"`
-	MediaType   string                   `json:"media_type"`
-	Body        []byte                   `json:"-"`
-	ETag        string                   `json:"etag"`
-	NodeCount   int                      `json:"node_count"`
-	Diagnostics []render.Diagnostic      `json:"diagnostics"`
+	TokenID     string                          `json:"-"`
+	Format      store.SubscriptionFormat        `json:"format"`
+	MediaType   string                          `json:"media_type"`
+	Body        []byte                          `json:"-"`
+	ETag        string                          `json:"etag"`
+	NodeCount   int                             `json:"node_count"`
+	Diagnostics []subscription.RenderDiagnostic `json:"diagnostics"`
 }
 
 // PublicSubscription authenticates the current token/user state and renders
@@ -85,9 +83,9 @@ func (application *Application) renderSubscriptionState(state store.PublicSubscr
 	if err != nil {
 		return PublicSubscriptionResult{}, err
 	}
-	allNodes := append([]node.Node(nil), conversion.Nodes...)
+	allNodes := append([]subscription.Node(nil), conversion.Nodes...)
 	for _, source := range state.Sources {
-		nodes, decodeErr := node.Decode(source.NormalizedNodes)
+		nodes, decodeErr := subscription.DecodeNodes(source.NormalizedNodes)
 		if decodeErr != nil {
 			return PublicSubscriptionResult{}, fmt.Errorf("decode current source version %q: %w", source.VersionID, decodeErr)
 		}
@@ -97,7 +95,7 @@ func (application *Application) renderSubscriptionState(state store.PublicSubscr
 	for _, key := range state.Grants {
 		granted[key] = struct{}{}
 	}
-	selectedNodes := make([]node.Node, 0, len(allNodes))
+	selectedNodes := make([]subscription.Node, 0, len(allNodes))
 	for _, node := range allNodes {
 		if _, allowed := granted[node.Key]; allowed {
 			selectedNodes = append(selectedNodes, node)
@@ -107,19 +105,19 @@ func (application *Application) renderSubscriptionState(state store.PublicSubscr
 	if err != nil {
 		return PublicSubscriptionResult{}, err
 	}
-	rendered, err := render.RenderNodes(selectedNodes, render.Channel{
-		Format:       render.Format(state.Channel.Format),
+	rendered, err := subscription.RenderNodes(selectedNodes, subscription.RenderChannel{
+		Format:       subscription.RenderFormat(state.Channel.Format),
 		ExcludeTags:  append([]string(nil), config.ExcludeTags...),
 		ExcludeTypes: append([]string(nil), config.ExcludeTypes...),
 	})
 	if err != nil {
 		return PublicSubscriptionResult{}, err
 	}
-	diagnostics := make([]render.Diagnostic, 0, len(conversion.Diagnostics)+len(rendered.Diagnostics))
+	diagnostics := make([]subscription.RenderDiagnostic, 0, len(conversion.Diagnostics)+len(rendered.Diagnostics))
 	for _, diagnostic := range conversion.Diagnostics {
-		diagnostics = append(diagnostics, render.Diagnostic{
+		diagnostics = append(diagnostics, subscription.RenderDiagnostic{
 			Collection: diagnostic.Collection, ItemIndex: diagnostic.ItemIndex,
-			Format: render.Format(state.Channel.Format), Code: diagnostic.Code,
+			Format: subscription.RenderFormat(state.Channel.Format), Code: diagnostic.Code,
 		})
 	}
 	diagnostics = append(diagnostics, rendered.Diagnostics...)
@@ -143,8 +141,8 @@ func (application *Application) subscriptionStartupJSONWithCore(
 	startup store.StartupArtifact,
 	_ store.CoreArtifact,
 ) ([]byte, error) {
-	if _, err := document.DecodeObject(startup.ConfigBytes); err != nil {
-		return nil, fmt.Errorf("%w: compiled startup is not one strict JSON object", render.ErrInvalidStartup)
+	if _, err := subscription.DecodeDocumentObject(startup.ConfigBytes); err != nil {
+		return nil, fmt.Errorf("%w: compiled startup is not one strict JSON object", subscription.ErrInvalidStartup)
 	}
 	return bytes.Clone(startup.ConfigBytes), nil
 }

@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/rehuony/sing-box-panel/internal/application"
-	"github.com/rehuony/sing-box-panel/internal/configuration/adapter"
+	"github.com/rehuony/sing-box-panel/internal/configuration"
 	"github.com/spf13/cobra"
 )
 
@@ -63,11 +63,11 @@ func newConfigCompileCommand(state *options, open openApplicationFunc) *cobra.Co
 
 func classifyConfigurationCompileError(err error) error {
 	switch {
-	case errors.Is(err, adapter.ErrUnsupportedCoreProfile):
+	case errors.Is(err, configuration.ErrUnsupportedCoreProfile):
 		return &Error{Kind: ErrorUnavailable, Code: "core_profile_unsupported", Message: err.Error(), Cause: err}
-	case errors.Is(err, adapter.ErrIgnoredNotAccepted):
+	case errors.Is(err, configuration.ErrIgnoredNotAccepted):
 		return &Error{Kind: ErrorConflict, Code: "ignored_fields_not_accepted", Message: err.Error(), Cause: err}
-	case errors.Is(err, adapter.ErrProjection), errors.Is(err, adapter.ErrProjectionBlocked):
+	case errors.Is(err, configuration.ErrProjection), errors.Is(err, configuration.ErrProjectionBlocked):
 		return &Error{Kind: ErrorValidation, Code: "configuration_projection_failed", Message: err.Error(), Cause: err}
 	default:
 		return &Error{Kind: ErrorDomain, Code: "configuration_compile_failed", Message: err.Error(), Cause: err}

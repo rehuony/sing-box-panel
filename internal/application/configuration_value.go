@@ -7,7 +7,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/rehuony/sing-box-panel/internal/canonical"
+	"github.com/rehuony/sing-box-panel/internal/configuration"
 	"github.com/rehuony/sing-box-panel/internal/jsonstrict"
 	"github.com/rehuony/sing-box-panel/internal/store"
 )
@@ -17,7 +17,7 @@ func (application *Application) ReplaceConfiguration(
 	expectedHead string,
 	raw []byte,
 ) (CanonicalSave, error) {
-	document, err := canonical.ParseV2(raw)
+	document, err := configuration.ParseV2(raw)
 	if err != nil {
 		return CanonicalSave{}, err
 	}
@@ -52,7 +52,7 @@ func (application *Application) PatchConfiguration(
 		switch change.Operation {
 		case "set":
 			var value any
-			if change.ValueJSON == "" || jsonstrict.Decode([]byte(change.ValueJSON), canonical.MaximumBytes, &value) != nil {
+			if change.ValueJSON == "" || jsonstrict.Decode([]byte(change.ValueJSON), configuration.MaximumBytes, &value) != nil {
 				return CanonicalSave{}, fmt.Errorf("%w: changes[%d].value_json is invalid", ErrCanonicalPatchInvalid, index)
 			}
 			updated, err = updated.SetPointer(change.Path, value)
@@ -73,7 +73,7 @@ func (application *Application) PatchConfiguration(
 
 func (application *Application) configurationHeadDocument(
 	ctx context.Context,
-) (*store.CanonicalRevision, *canonical.V2Document, error) {
+) (*store.CanonicalRevision, *configuration.V2Document, error) {
 	head, err := application.database.Head(ctx)
 	if err != nil {
 		return nil, nil, err
@@ -81,7 +81,7 @@ func (application *Application) configurationHeadDocument(
 	if head == nil {
 		return nil, nil, errors.New("canonical configuration is not initialized")
 	}
-	document, err := canonical.ParseV2(head.Document)
+	document, err := configuration.ParseV2(head.Document)
 	if err != nil {
 		return nil, nil, fmt.Errorf("parse stored canonical revision %q: %w", head.ID, err)
 	}

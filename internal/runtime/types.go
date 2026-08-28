@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Package runtime owns validation, materialization, and the lifecycle of the
-// single sing-box child process. It does not select, project, or persist an
-// activation bundle.
+// Package runtime owns validation, materialization, lifecycle, and restricted
+// monitoring access for the single sing-box child process. It does not select,
+// project, or persist an activation bundle.
 package runtime
 
 import (

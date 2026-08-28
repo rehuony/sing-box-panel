@@ -10,8 +10,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-
-	"github.com/rehuony/sing-box-panel/internal/notices"
 )
 
 func main() {
@@ -28,7 +26,7 @@ type commandDependencies struct {
 func run(ctx context.Context, arguments []string, stdout, stderr io.Writer) int {
 	return runWithDependencies(ctx, arguments, stdout, stderr, commandDependencies{
 		findRoot: findRepositoryRoot,
-		generate: notices.Generate,
+		generate: generateNotices,
 		readFile: os.ReadFile,
 		write:    writeAtomically,
 	})

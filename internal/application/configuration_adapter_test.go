@@ -11,8 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/rehuony/sing-box-panel/internal/canonical"
-	"github.com/rehuony/sing-box-panel/internal/configuration/adapter"
+	"github.com/rehuony/sing-box-panel/internal/configuration"
 	"github.com/rehuony/sing-box-panel/internal/store"
 )
 
@@ -27,9 +26,9 @@ func TestPreviewConfigurationUsesExactCompiledProfile(t *testing.T) {
 	now := time.Date(2026, 8, 28, 1, 2, 3, 0, time.UTC)
 	application.now = func() time.Time { return now }
 
-	features, err := json.Marshal(adapter.FeatureFingerprint{Status: "reported", Features: []string{
+	features, err := json.Marshal(configuration.FeatureFingerprint{Status: "reported", Features: []string{
 		"badlinkname", "tfogo_checklinkname0", "with_acme", "with_ccm", "with_clash_api",
-		"with_dhcp", "with_gvisor", "with_ocm", "with_quic", "with_tailscale", "with_utls", "with_wireguard",
+		"with_dhcp", "with_gvisor", "with_naive_outbound", "with_ocm", "with_purego", "with_quic", "with_tailscale", "with_utls", "with_wireguard",
 	}})
 	if err != nil {
 		t.Fatal(err)
@@ -43,9 +42,9 @@ func TestPreviewConfigurationUsesExactCompiledProfile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	document := canonical.EmptyV2().CanonicalJSON()
+	document := configuration.EmptyV2().CanonicalJSON()
 	_, err = database.SaveCanonicalRevisionAndTask(ctx, "", store.NewCanonicalRevision{
-		ID: "rev_1", SchemaVersion: canonical.SchemaVersionV2, Document: document, CommandID: "cmd_1", CreatedAt: now,
+		ID: "rev_1", SchemaVersion: configuration.SchemaVersionV2, Document: document, CommandID: "cmd_1", CreatedAt: now,
 	}, store.NewTask{ID: "task_1", Lane: store.TaskLaneMaintenance, Kind: "canonical-saved", CreatedAt: now})
 	if err != nil {
 		t.Fatal(err)
@@ -85,12 +84,12 @@ func TestConfigurationSupportFailsClosedForUnreviewedFingerprint(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if support.Supported || !strings.Contains(support.Reason, adapter.ErrUnsupportedCoreProfile.Error()) {
+	if support.Supported || !strings.Contains(support.Reason, configuration.ErrUnsupportedCoreProfile.Error()) {
 		t.Fatalf("support = %+v", support)
 	}
 	_, err = database.SaveCanonicalRevisionAndTask(ctx, "", store.NewCanonicalRevision{
-		ID: "rev_unknown", SchemaVersion: canonical.SchemaVersionV2,
-		Document: canonical.EmptyV2().CanonicalJSON(), CommandID: "cmd_unknown", CreatedAt: now,
+		ID: "rev_unknown", SchemaVersion: configuration.SchemaVersionV2,
+		Document: configuration.EmptyV2().CanonicalJSON(), CommandID: "cmd_unknown", CreatedAt: now,
 	}, store.NewTask{
 		ID: "task_unknown", Lane: store.TaskLaneMaintenance, Kind: "canonical-saved", CreatedAt: now,
 	})
@@ -99,7 +98,7 @@ func TestConfigurationSupportFailsClosedForUnreviewedFingerprint(t *testing.T) {
 	}
 	if _, err := application.PreviewConfiguration(ctx, ConfigurationPreviewRequest{
 		CoreArtifactID: "core_unknown",
-	}); !errors.Is(err, adapter.ErrUnsupportedCoreProfile) {
+	}); !errors.Is(err, configuration.ErrUnsupportedCoreProfile) {
 		t.Fatalf("PreviewConfiguration error = %v, want ErrUnsupportedCoreProfile", err)
 	}
 }

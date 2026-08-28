@@ -5,14 +5,12 @@ package application
 import (
 	"encoding/json"
 	"time"
-
-	"github.com/rehuony/sing-box-panel/internal/runtimeidentity"
 )
 
 type CoreVersionResolution struct {
-	ExactVersion string                    `json:"exact_version"`
-	Source       string                    `json:"source"`
-	Running      *runtimeidentity.Identity `json:"running,omitempty"`
+	ExactVersion string           `json:"exact_version"`
+	Source       string           `json:"source"`
+	Running      *RuntimeIdentity `json:"running,omitempty"`
 }
 
 type CanonicalSnapshot struct {

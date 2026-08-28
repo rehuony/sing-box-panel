@@ -1,0 +1,67 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+name: Core Compatibility
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/core-compatibility.yml"
+      - "go.mod"
+      - "go.sum"
+      - "internal/artifactstore/**"
+      - "internal/configuration/**"
+      - "internal/coreartifact/**"
+      - "internal/singbox/**"
+      - "internal/subscription/**"
+      - "scripts/test/core-contract.sh"
+  workflow_call:
+    inputs:
+      source_sha:
+        description: Reviewed source commit to test
+        required: false
+        type: string
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: core-compatibility-${{ github.workflow }}-${{ inputs.source_sha || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  contract:
+    name: Core contract linux/${{ matrix.architecture }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - architecture: amd64
+            runner: ubuntu-24.04
+          - architecture: arm64
+            runner: ubuntu-24.04-arm
+
+    steps:
+      - name: Check out reviewed source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+          ref: ${{ inputs.source_sha || github.sha }}
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+          cache-dependency-path: go.sum
+
+      - name: Check generated support catalog
+        run: go tool singbox-support check
+
+      - name: Run all exact-version contracts
+        env:
+          CORE_CONTRACT_ARCHITECTURE: ${{ matrix.architecture }}
+        run: bash scripts/test/core-contract.sh

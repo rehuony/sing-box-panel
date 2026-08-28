@@ -11,8 +11,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/rehuony/sing-box-panel/internal/releasesignature"
-	"github.com/rehuony/sing-box-panel/internal/releaseversion"
+	"github.com/rehuony/sing-box-panel/internal/release"
 )
 
 const (
@@ -53,7 +52,7 @@ func runValidateVersion(arguments []string) error {
 	if err := flags.Parse(arguments); err != nil || flags.NArg() != 0 || *version == "" {
 		return errors.New("usage: sign-release validate-version --version vX.Y.Z")
 	}
-	return releaseversion.Validate(*version)
+	return release.ValidateVersion(*version)
 }
 
 func runPublicKey(arguments []string, stdout io.Writer) error {
@@ -67,11 +66,11 @@ func runPublicKey(arguments []string, stdout io.Writer) error {
 	if err != nil {
 		return err
 	}
-	publicKey, err := releasesignature.PublicKey(privateKey)
+	publicKey, err := release.PublicKey(privateKey)
 	if err != nil {
 		return err
 	}
-	encoded, err := releasesignature.EncodePublicKey(publicKey)
+	encoded, err := release.EncodePublicKey(publicKey)
 	if err != nil {
 		return err
 	}
@@ -99,14 +98,14 @@ func runSign(arguments []string) error {
 	if err != nil {
 		return err
 	}
-	if err := releasesignature.MatchKeyPair(publicKey, privateKey); err != nil {
+	if err := release.MatchKeyPair(publicKey, privateKey); err != nil {
 		return err
 	}
 	checksums, err := readRegularFile(*checksumsPath, maxChecksumsBytes, false)
 	if err != nil {
 		return err
 	}
-	signature, err := releasesignature.Sign(privateKey, *version, checksums)
+	signature, err := release.Sign(privateKey, *version, checksums)
 	if err != nil {
 		return err
 	}
@@ -157,7 +156,7 @@ func runVerify(arguments []string) error {
 	if err != nil {
 		return err
 	}
-	return releasesignature.Verify(publicKey, *version, checksums, signature)
+	return release.Verify(publicKey, *version, checksums, signature)
 }
 
 func readPrivateKey(path string) (ed25519.PrivateKey, error) {
@@ -165,7 +164,7 @@ func readPrivateKey(path string) (ed25519.PrivateKey, error) {
 	if err != nil {
 		return nil, err
 	}
-	key, err := releasesignature.ParsePrivateKey(data)
+	key, err := release.ParsePrivateKey(data)
 	if err != nil {
 		return nil, err
 	}
@@ -177,7 +176,7 @@ func readPublicKey(path string) (ed25519.PublicKey, error) {
 	if err != nil {
 		return nil, err
 	}
-	return releasesignature.ParsePublicKey(string(bytesTrimSingleNewline(data)))
+	return release.ParsePublicKey(string(bytesTrimSingleNewline(data)))
 }
 
 func readRegularFile(path string, maximum int64, rejectSymlink bool) ([]byte, error) {

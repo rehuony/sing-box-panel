@@ -9,7 +9,7 @@ import (
 
 	"github.com/rehuony/sing-box-panel/internal/application"
 	"github.com/rehuony/sing-box-panel/internal/store"
-	"github.com/rehuony/sing-box-panel/internal/subscription/source"
+	"github.com/rehuony/sing-box-panel/internal/subscription"
 )
 
 func (handler *Handler) listSubscriptionSources(w http.ResponseWriter, request *http.Request) {
@@ -131,8 +131,8 @@ func (handler *Handler) createSubscriptionSourceVersion(w http.ResponseWriter, r
 		return
 	}
 	var input struct {
-		Format  source.Format `json:"format"`
-		RawBody []byte        `json:"raw_body"`
+		Format  subscription.SourceFormat `json:"format"`
+		RawBody []byte                    `json:"raw_body"`
 	}
 	if !decodeStrictRequest(w, request, maximumSubscriptionRequestBytes, &input) {
 		return

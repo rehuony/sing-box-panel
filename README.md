@@ -26,7 +26,8 @@ Node.js, pnpm, or a separate SQLite CLI.
 > [!WARNING]
 > sing-box-panel is available for development and integration testing. The
 > release workflow creates a signed Draft Release only after the source commit
-> passes CI and native amd64 and arm64 smoke tests. It never publishes the
+> passes CI, native amd64 and arm64 real-core contracts, and native packaged-
+> panel smoke tests. It never publishes the
 > release automatically; a maintainer must review and publish the draft.
 
 ## Features

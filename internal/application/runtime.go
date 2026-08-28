@@ -11,24 +11,22 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/rehuony/sing-box-panel/internal/clashapi"
-	"github.com/rehuony/sing-box-panel/internal/configuration/adapter"
+	"github.com/rehuony/sing-box-panel/internal/configuration"
 	"github.com/rehuony/sing-box-panel/internal/coreartifact"
 	coreruntime "github.com/rehuony/sing-box-panel/internal/runtime"
-	"github.com/rehuony/sing-box-panel/internal/runtimeidentity"
 	"github.com/rehuony/sing-box-panel/internal/store"
 )
 
 var ErrMonitoringTierUnavailable = errors.New("requested monitoring tier is unavailable")
 
 type RuntimeStatus struct {
-	DesiredRunning   bool                      `json:"desired_running"`
-	DesiredBundleID  string                    `json:"desired_bundle_id,omitempty"`
-	AppliedBundleID  string                    `json:"applied_bundle_id,omitempty"`
-	RollbackBundleID string                    `json:"rollback_bundle_id,omitempty"`
-	TargetGeneration int64                     `json:"target_generation"`
-	ObservationState string                    `json:"observation_state"`
-	Running          *runtimeidentity.Identity `json:"running,omitempty"`
+	DesiredRunning   bool             `json:"desired_running"`
+	DesiredBundleID  string           `json:"desired_bundle_id,omitempty"`
+	AppliedBundleID  string           `json:"applied_bundle_id,omitempty"`
+	RollbackBundleID string           `json:"rollback_bundle_id,omitempty"`
+	TargetGeneration int64            `json:"target_generation"`
+	ObservationState string           `json:"observation_state"`
+	Running          *RuntimeIdentity `json:"running,omitempty"`
 }
 
 type ActivationPreparation struct {
@@ -95,7 +93,7 @@ func (application *Application) PrepareActivationBundle(
 		return ActivationPreparation{}, fmt.Errorf("%w: invalid monitoring tier %q", ErrMonitoringTierUnavailable, monitoring)
 	}
 	if monitoring == store.MonitoringLimited {
-		if _, err := clashapi.ParseEndpoint(startup.ConfigBytes); err != nil {
+		if _, err := coreruntime.ParseClashEndpoint(startup.ConfigBytes); err != nil {
 			return ActivationPreparation{}, fmt.Errorf("%w: %v", ErrMonitoringTierUnavailable, err)
 		}
 	}
@@ -229,10 +227,10 @@ func (application *Application) RuntimeStatus(ctx context.Context) (RuntimeStatu
 	case err == nil:
 		result.ObservationState = "running"
 		result.Running = &identity
-	case errors.Is(err, runtimeidentity.ErrNoRunningCore):
-	case errors.Is(err, runtimeidentity.ErrStaleObservation):
+	case errors.Is(err, ErrNoRunningCore):
+	case errors.Is(err, ErrStaleObservation):
 		result.ObservationState = "stale"
-	case errors.Is(err, runtimeidentity.ErrInspectionUnavailable):
+	case errors.Is(err, ErrInspectionUnavailable):
 		result.ObservationState = "inspection_unavailable"
 	default:
 		return RuntimeStatus{}, err
@@ -292,7 +290,7 @@ func (application *Application) runtimeMaterial(
 	}
 	resolved, err := application.configurationAdapters.Resolve(coreArtifactProfile(core))
 	if err != nil || resolved.ID() != startup.AdapterID || resolved.Revision() != startup.AdapterRevision {
-		return RuntimeMaterial{}, errors.Join(store.ErrActivationBundleNotReady, adapter.ErrUnsupportedCoreProfile)
+		return RuntimeMaterial{}, errors.Join(store.ErrActivationBundleNotReady, configuration.ErrUnsupportedCoreProfile)
 	}
 	version, err := coreartifact.ParseExactVersion(core.ExactVersion)
 	if err != nil {

@@ -13,7 +13,7 @@ import (
 	"strings"
 
 	"github.com/rehuony/sing-box-panel/internal/application"
-	"github.com/rehuony/sing-box-panel/internal/canonical"
+	"github.com/rehuony/sing-box-panel/internal/configuration"
 	"github.com/spf13/cobra"
 )
 
@@ -80,7 +80,7 @@ func newConfigReplaceCommand(state *options, open openApplicationFunc) *cobra.Co
 				if application.IsRevisionConflict(err) {
 					return &Error{Kind: ErrorConflict, Code: "canonical_revision_conflict", Message: err.Error(), Cause: err}
 				}
-				if errors.Is(err, canonical.ErrInvalidDocument) {
+				if errors.Is(err, configuration.ErrInvalidDocument) {
 					return &Error{Kind: ErrorValidation, Code: "canonical_invalid", Message: err.Error(), Cause: err}
 				}
 				return &Error{Kind: ErrorDomain, Code: "canonical_save_failed", Message: err.Error(), Cause: err}
@@ -130,12 +130,12 @@ func readCanonicalInput(stdin io.Reader, filePath string) ([]byte, error) {
 	if closeFile != nil {
 		defer closeFile()
 	}
-	data, err := io.ReadAll(io.LimitReader(reader, canonical.MaximumBytes+1))
+	data, err := io.ReadAll(io.LimitReader(reader, configuration.MaximumBytes+1))
 	if err != nil {
 		return nil, fmt.Errorf("read canonical input: %w", err)
 	}
-	if len(data) > canonical.MaximumBytes {
-		return nil, fmt.Errorf("canonical input exceeds %d bytes", canonical.MaximumBytes)
+	if len(data) > configuration.MaximumBytes {
+		return nil, fmt.Errorf("canonical input exceeds %d bytes", configuration.MaximumBytes)
 	}
 	return data, nil
 }

@@ -12,7 +12,7 @@ import (
 	"net/http"
 	"net/url"
 
-	"github.com/rehuony/sing-box-panel/internal/releaseversion"
+	releasecontract "github.com/rehuony/sing-box-panel/internal/release"
 )
 
 func (updater *Updater) latest(ctx context.Context) (release, error) {
@@ -49,7 +49,7 @@ func (updater *Updater) latest(ctx context.Context) (release, error) {
 	if latest.Draft || latest.Prerelease {
 		return release{}, fmt.Errorf("%w: latest endpoint returned a draft or prerelease", ErrReleaseInvalid)
 	}
-	if err := releaseversion.Validate(latest.TagName); err != nil {
+	if err := releasecontract.ValidateVersion(latest.TagName); err != nil {
 		return release{}, fmt.Errorf("%w: tag %q is not strict SemVer", ErrReleaseInvalid, latest.TagName)
 	}
 	return latest, nil

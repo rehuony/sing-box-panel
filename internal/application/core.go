@@ -14,7 +14,6 @@ import (
 	"github.com/rehuony/sing-box-panel/internal/catalog"
 	"github.com/rehuony/sing-box-panel/internal/coreartifact"
 	"github.com/rehuony/sing-box-panel/internal/jsonstrict"
-	"github.com/rehuony/sing-box-panel/internal/runtimeidentity"
 	"github.com/rehuony/sing-box-panel/internal/store"
 )
 
@@ -334,5 +333,5 @@ func IsCoreArtifactInUse(err error) bool {
 }
 
 func IsNoRunningCore(err error) bool {
-	return errors.Is(err, runtimeidentity.ErrNoRunningCore)
+	return errors.Is(err, ErrNoRunningCore)
 }

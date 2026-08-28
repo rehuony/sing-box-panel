@@ -8,9 +8,7 @@ import (
 	"time"
 
 	"github.com/rehuony/sing-box-panel/internal/store"
-	"github.com/rehuony/sing-box-panel/internal/subscription/node"
-	"github.com/rehuony/sing-box-panel/internal/subscription/render"
-	"github.com/rehuony/sing-box-panel/internal/subscription/source"
+	"github.com/rehuony/sing-box-panel/internal/subscription"
 )
 
 const subscriptionTokenEntropyBytes = 32
@@ -110,7 +108,7 @@ type SubscriptionSourceVersionPage struct {
 }
 
 type CreateSubscriptionSourceVersionRequest struct {
-	Format            source.Format
+	Format            subscription.SourceFormat
 	RawBody           []byte
 	ExpectedUpdatedAt time.Time
 	FetchedAt         time.Time
@@ -162,9 +160,9 @@ type SubscriptionNodeSummary struct {
 }
 
 type SubscriptionNodeCatalog struct {
-	AppliedBundleID string                      `json:"applied_bundle_id"`
-	Nodes           []SubscriptionNodeSummary   `json:"nodes"`
-	Diagnostics     []node.ConversionDiagnostic `json:"diagnostics"`
+	AppliedBundleID string                              `json:"applied_bundle_id"`
+	Nodes           []SubscriptionNodeSummary           `json:"nodes"`
+	Diagnostics     []subscription.ConversionDiagnostic `json:"diagnostics"`
 }
 
 // SubscriptionToken deliberately omits both plaintext and token_sha256. The
@@ -234,5 +232,5 @@ type SubscriptionPreview struct {
 	CanonicalRevisionID string                     `json:"canonical_revision_id"`
 	ExactCoreVersion    string                     `json:"exact_core_version"`
 	ArtifactState       store.StartupArtifactState `json:"artifact_state"`
-	Result              render.Result              `json:"result"`
+	Result              subscription.RenderResult  `json:"result"`
 }

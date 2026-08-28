@@ -73,11 +73,23 @@ builds of:
 - sing-box 1.12.25; and
 - sing-box 1.13.19.
 
-The package-local contract test accepts an explicitly supplied native binary,
-executes `sing-box version`, resolves the reported full profile through the
-compiled registry, projects a minimal canonical revision, and requires the
-same binary to accept it with `sing-box check`. It skips when no external
-binary is supplied and is not coupled to the ordinary CI workflow.
+The reviewed source catalog at `internal/singbox/catalog.json` records
+each exact tag and commit plus the amd64 and arm64 asset name, URL, size,
+SHA-256, feature fingerprint, and behavior family. `go tool singbox-support
+generate` turns it into immutable Go data; production never loads or downloads
+a support manifest. `go tool singbox-support check` requires the catalog,
+generated output, configuration registry, inbound registry, and compiled
+family map to agree exactly.
+
+The `Core Compatibility` workflow runs every catalog entry on native Linux
+amd64 and arm64 runners. It verifies the reviewed archive size and SHA-256,
+executes the real binary to inspect its exact version and feature fingerprint,
+resolves the compiled adapter, projects a non-empty canonical configuration,
+and requires that binary to accept the result with `sing-box check`. Relevant
+pull requests run this contract automatically, and every signed release must
+pass both architectures before the signing environment is available. On a
+native Linux development host the same evidence is available through `make
+core-contract`.
 
 The dual-architecture review changes these adapters from the former
 `official-linux-arm64@1` identity to `official-linux-plain@2`. Existing checked
@@ -90,8 +102,8 @@ or removed. Preview, compilation, check, Apply, Start, Restart, and Rollback
 fail closed when they would depend on an unavailable adapter.
 
 Adapter provenance records the exact upstream tag and commit used during
-review. There is no `capabilities/` manifest directory, mutable pin, remote
-adapter download, compatibility level, or manual-JSON fallback.
+review. There is no runtime capabilities manifest, mutable pin, remote adapter
+download, compatibility level, or manual-JSON fallback.
 
 ## Trust reduction
 
@@ -109,19 +121,31 @@ silently kill an already-running child.
 
 ## Adding a stable version
 
-A new release needs two independent reviewed packages:
+A patch release in a known release line normally needs one catalog entry
+followed by generation. It may reuse the latest reviewed behavior family while
+the exact catalog profile still prevents fallback to another patch.
+Behavior-family IDs are scoped to the release line: the initial family may be
+`1.13`, while a schema, projection, subscription, or feature-fingerprint change
+uses a new ID such as `1.13-r2`. Family differences are private functions in
+the `singbox` package and are covered by family-driven tests rather than
+version-specific forwarding packages.
 
-1. Add `internal/configuration/adapter/singbox/vX_Y_Z`, record upstream
-   provenance and the official build fingerprint, implement projection from
-   canonical schema v2, and register it explicitly.
-2. Add `internal/subscription/inbound/singbox/vX_Y_Z`, implement the exact
-   inbound-to-node contract, and register it explicitly.
-3. Verify every reviewed official archive digest, reported profile, and
-   projected configuration on its native architecture.
-4. Add exact-dispatch, projection, ignored-field, credential expansion, and
-   secret-sanitization tests. Version packages must not import one another.
-5. Update the Web/API documentation only after the complete profile and
-   behavior are verified.
+Adding support is intentionally manual:
+
+1. Review the upstream stable release and both official Linux artifacts.
+2. Add the exact catalog entry and run `make support-generate`.
+3. Reuse a family only when its schema, projection, subscription contract, and
+   feature fingerprints remain identical; otherwise add a new private family
+   implementation in `internal/singbox`.
+4. Add focused adapter and inbound tests, run `make check`, and require the
+   native amd64 and arm64 core contracts to pass before merging.
+
+The daily `Core Version Monitor` compares only the highest supported catalog
+entry with the latest upstream stable Release. When upstream is newer it creates
+or updates one rolling issue for manual evaluation; it never edits code, opens
+a pull request, chooses a family, executes upstream bytes, or attempts to
+backfill older versions. The issue closes automatically after the support
+catalog catches up.
 
 Unknown, malformed, empty, approximate, or partially matching versions must
 continue to fail rather than falling back.
