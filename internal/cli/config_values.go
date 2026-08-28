@@ -12,7 +12,7 @@ import (
 	"strings"
 
 	"github.com/rehuony/sing-box-panel/internal/application"
-	"github.com/rehuony/sing-box-panel/internal/canonical"
+	"github.com/rehuony/sing-box-panel/internal/configuration"
 	"github.com/spf13/cobra"
 )
 
@@ -196,7 +196,7 @@ func newConfigValidateCommand(state *options) *cobra.Command {
 			if err != nil {
 				return &Error{Kind: ErrorValidation, Code: "canonical_input_failed", Message: err.Error(), Cause: err}
 			}
-			document, err := canonical.ParseV2(raw)
+			document, err := configuration.ParseV2(raw)
 			if err != nil {
 				return &Error{Kind: ErrorValidation, Code: "canonical_invalid", Message: err.Error(), Cause: err}
 			}
@@ -261,7 +261,7 @@ func classifyCanonicalValueError(code string, err error) error {
 	switch {
 	case application.IsRevisionConflict(err):
 		return &Error{Kind: ErrorConflict, Code: "canonical_revision_conflict", Message: err.Error(), Cause: err}
-	case errors.Is(err, canonical.ErrInvalidDocument), errors.Is(err, canonical.ErrPointerNotFound):
+	case errors.Is(err, configuration.ErrInvalidDocument), errors.Is(err, configuration.ErrPointerNotFound):
 		return &Error{Kind: ErrorValidation, Code: "canonical_invalid", Message: err.Error(), Cause: err}
 	case application.IsRevisionNotFound(err):
 		return &Error{Kind: ErrorDomain, Code: "revision_not_found", Message: err.Error(), Cause: err}

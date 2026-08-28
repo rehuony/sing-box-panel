@@ -11,8 +11,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/rehuony/sing-box-panel/internal/configuration/adapter"
-	"github.com/rehuony/sing-box-panel/internal/runtimeidentity"
+	"github.com/rehuony/sing-box-panel/internal/configuration"
 	"github.com/rehuony/sing-box-panel/internal/settings"
 	"github.com/rehuony/sing-box-panel/internal/store"
 )
@@ -24,11 +23,11 @@ type Application struct {
 	random                func([]byte) (int, error)
 	runtime               RuntimeResolver
 	settings              settings.Settings
-	configurationAdapters *adapter.Registry
+	configurationAdapters *configuration.AdapterRegistry
 }
 
 type RuntimeResolver interface {
-	Resolve(context.Context) (runtimeidentity.Identity, error)
+	Resolve(context.Context) (RuntimeIdentity, error)
 }
 
 // Open resolves bootstrap settings and opens the SQLite source of truth.
@@ -59,7 +58,7 @@ func newApplication(database *store.Store) *Application {
 		database:              database,
 		now:                   time.Now,
 		random:                rand.Read,
-		runtime:               runtimeidentity.New(database),
+		runtime:               NewRuntimeIdentityResolver(database),
 		configurationAdapters: compiledConfigurationRegistry,
 	}
 }

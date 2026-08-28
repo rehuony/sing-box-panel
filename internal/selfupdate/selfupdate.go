@@ -16,8 +16,7 @@ import (
 	"runtime"
 	"time"
 
-	"github.com/rehuony/sing-box-panel/internal/releasesignature"
-	"github.com/rehuony/sing-box-panel/internal/releaseversion"
+	releasecontract "github.com/rehuony/sing-box-panel/internal/release"
 	"golang.org/x/mod/semver"
 )
 
@@ -32,7 +31,7 @@ const (
 
 var (
 	// defaultLatestReleaseURL can be replaced only at link time for an isolated
-	// release smoke test. Production builds use the repository's latest release.
+	// release smoke test. Production builds use the repository's latest releasecontract.
 	defaultLatestReleaseURL = "https://api.github.com/repos/rehuony/sing-box-panel/releases/latest"
 
 	// embeddedPublicKey is populated by the formal release build through -X. A
@@ -114,7 +113,7 @@ func New(options Options) *Updater {
 	publicKey := ed25519.PublicKey(bytes.Clone(options.PublicKey))
 	var publicKeyErr error
 	if len(publicKey) == 0 && embeddedPublicKey != "" {
-		publicKey, publicKeyErr = releasesignature.ParsePublicKey(embeddedPublicKey)
+		publicKey, publicKeyErr = releasecontract.ParsePublicKey(embeddedPublicKey)
 	}
 	return &Updater{
 		client: options.HTTPClient, latestReleaseURL: options.LatestReleaseURL,
@@ -128,7 +127,7 @@ func (updater *Updater) Update(ctx context.Context, currentVersion string) (Resu
 	if updater.goos != "linux" || updater.goarch != "amd64" && updater.goarch != "arm64" {
 		return Result{}, fmt.Errorf("%w: %s/%s", ErrUnsupportedPlatform, updater.goos, updater.goarch)
 	}
-	if err := releaseversion.Validate(currentVersion); err != nil {
+	if err := releasecontract.ValidateVersion(currentVersion); err != nil {
 		return Result{}, fmt.Errorf("%w: got %q", ErrInvalidVersion, currentVersion)
 	}
 	if updater.publicKeyErr != nil || len(updater.publicKey) != ed25519.PublicKeySize {
@@ -166,7 +165,7 @@ func (updater *Updater) Update(ctx context.Context, currentVersion string) (Resu
 	if err != nil {
 		return Result{}, fmt.Errorf("download %s: %w", signatureAssetName, err)
 	}
-	if err := releasesignature.Verify(updater.publicKey, latest.TagName, checksums, signature); err != nil {
+	if err := releasecontract.Verify(updater.publicKey, latest.TagName, checksums, signature); err != nil {
 		return Result{}, fmt.Errorf("%w: %v", ErrSignatureInvalid, err)
 	}
 	expected, err := parseChecksum(checksums, binaryName)

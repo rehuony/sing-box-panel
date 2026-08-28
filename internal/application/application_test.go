@@ -9,8 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/rehuony/sing-box-panel/internal/canonical"
-	"github.com/rehuony/sing-box-panel/internal/runtimeidentity"
+	"github.com/rehuony/sing-box-panel/internal/configuration"
 	"github.com/rehuony/sing-box-panel/internal/store"
 )
 
@@ -31,7 +30,7 @@ func TestReplaceCanonicalUsesCASAndNoOpDetection(t *testing.T) {
 		}
 		return len(destination), nil
 	}
-	document := canonical.EmptyV2().CanonicalJSON()
+	document := configuration.EmptyV2().CanonicalJSON()
 
 	first, err := application.ReplaceCanonical(ctx, "", document)
 	if err != nil {
@@ -64,7 +63,7 @@ func TestRevisionHistoryDiffRestoreAndTaskControl(t *testing.T) {
 	t.Cleanup(func() { _ = database.Close() })
 	application := newApplication(database)
 
-	initial, err := application.ReplaceCanonical(ctx, "", canonical.EmptyV2().CanonicalJSON())
+	initial, err := application.ReplaceCanonical(ctx, "", configuration.EmptyV2().CanonicalJSON())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -118,7 +117,7 @@ func TestRevisionHistoryDiffRestoreAndTaskControl(t *testing.T) {
 }
 
 func TestResolveCoreVersionUsesExplicitOrActualRunningIdentityOnly(t *testing.T) {
-	application := &Application{runtime: fakeRuntimeResolver{identity: runtimeidentity.Identity{
+	application := &Application{runtime: fakeRuntimeResolver{identity: RuntimeIdentity{
 		PID: 77, ExactCoreVersion: "1.12.9", CoreArtifactID: "core-a", ActivationBundleID: "bundle-a",
 	}}}
 	explicit, err := application.ResolveCoreVersion(context.Background(), "1.13.19")
@@ -130,8 +129,8 @@ func TestResolveCoreVersionUsesExplicitOrActualRunningIdentityOnly(t *testing.T)
 		t.Fatalf("running resolution=%+v err=%v", running, err)
 	}
 
-	application.runtime = fakeRuntimeResolver{err: runtimeidentity.ErrNoRunningCore}
-	if _, err := application.ResolveCoreVersion(context.Background(), ""); !errors.Is(err, runtimeidentity.ErrNoRunningCore) {
+	application.runtime = fakeRuntimeResolver{err: ErrNoRunningCore}
+	if _, err := application.ResolveCoreVersion(context.Background(), ""); !errors.Is(err, ErrNoRunningCore) {
 		t.Fatalf("omitted resolution error=%v", err)
 	}
 	if _, err := application.ResolveCoreVersion(context.Background(), "latest"); err == nil {
@@ -140,10 +139,10 @@ func TestResolveCoreVersionUsesExplicitOrActualRunningIdentityOnly(t *testing.T)
 }
 
 type fakeRuntimeResolver struct {
-	identity runtimeidentity.Identity
+	identity RuntimeIdentity
 	err      error
 }
 
-func (resolver fakeRuntimeResolver) Resolve(context.Context) (runtimeidentity.Identity, error) {
+func (resolver fakeRuntimeResolver) Resolve(context.Context) (RuntimeIdentity, error) {
 	return resolver.identity, resolver.err
 }

@@ -3,8 +3,9 @@
 This directory owns executable project scripts. `installer.sh` installs a
 published release on a Linux host. `build-release.sh` builds and verifies an
 isolated source snapshot. `test/` contains local script tests and the
-GitHub Actions-only native release smoke orchestration. GitHub workflow YAML
-and the release signing trust root remain under `.github/`.
+GitHub Actions release smoke orchestration plus the native Linux sing-box core
+contract. GitHub workflow YAML and the release signing trust root remain under
+`.github/`.
 
 ## Release installer
 
@@ -50,6 +51,9 @@ Use the Make targets from the repository root:
 make snapshot OUT=/absolute/path/to/new-output
 make release VERSION=v0.1.0 OUT=/absolute/path/to/new-output
 make release-verify
+make support-generate
+make support-check
+make core-contract # native Linux amd64 or arm64 only
 ```
 
 Their underlying script interface is:
@@ -121,6 +125,8 @@ requires both architectures to build successfully, checks their Go build
 metadata and key, checks the embedded release identity, and confirms that
 invalid release versions fail without leaving an output directory.
 
-See [Release process](../docs/release.md) for signing-key setup, native
+See [Core versions and adapters](../docs/core-versions-and-adapters.md) for
+support generation, native core contracts, and manual version onboarding. See
+[Release process](../docs/release.md) for signing-key setup, native
 amd64 and arm64 smoke tests, Draft Release verification, manual publication,
 trust bootstrap, and the release-hardening backlog.

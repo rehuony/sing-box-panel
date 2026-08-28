@@ -11,19 +11,16 @@ import (
 	"time"
 
 	"github.com/rehuony/sing-box-panel/internal/application"
-	"github.com/rehuony/sing-box-panel/internal/clashapi"
 	coreruntime "github.com/rehuony/sing-box-panel/internal/runtime"
-	"github.com/rehuony/sing-box-panel/internal/runtimeidentity"
 	"github.com/rehuony/sing-box-panel/internal/settings"
 	"github.com/rehuony/sing-box-panel/internal/store"
-	"github.com/rehuony/sing-box-panel/internal/taskrunner"
 )
 
 type runtimeServices struct {
 	database *store.Store
 	commands *application.Application
 	manager  *coreruntime.Manager
-	identity *runtimeidentity.Resolver
+	identity *application.RuntimeIdentityResolver
 }
 
 func newRuntimeServices(
@@ -39,7 +36,7 @@ func newRuntimeServices(
 	}
 	return &runtimeServices{
 		database: database, commands: commands, manager: manager,
-		identity: runtimeidentity.New(database),
+		identity: application.NewRuntimeIdentityResolver(database),
 	}, nil
 }
 
@@ -110,8 +107,8 @@ func (services *runtimeServices) Close() error {
 func startupCheckHandler(
 	commands *application.Application,
 	manager *coreruntime.Manager,
-) taskrunner.HandlerFunc {
-	return func(ctx context.Context, task store.Task, control taskrunner.Control) (json.RawMessage, error) {
+) taskHandlerFunc {
+	return func(ctx context.Context, task store.Task, control taskExecutionControl) (json.RawMessage, error) {
 		if err := control.SafePoint(ctx); err != nil {
 			return nil, err
 		}
@@ -165,8 +162,8 @@ func startupCheckDiagnostics(err error) json.RawMessage {
 	return encoded
 }
 
-func runtimeIntentHandler(services *runtimeServices) taskrunner.HandlerFunc {
-	return func(ctx context.Context, task store.Task, control taskrunner.Control) (json.RawMessage, error) {
+func runtimeIntentHandler(services *runtimeServices) taskHandlerFunc {
+	return func(ctx context.Context, task store.Task, control taskExecutionControl) (json.RawMessage, error) {
 		if err := control.SafePoint(ctx); err != nil {
 			return nil, err
 		}
@@ -246,11 +243,11 @@ func runtimeIntentHandler(services *runtimeServices) taskrunner.HandlerFunc {
 }
 
 func (services *runtimeServices) awaitClashAPI(ctx context.Context, material application.RuntimeMaterial) error {
-	endpoint, err := clashapi.ParseEndpoint(material.Bundle.StartupConfig)
+	endpoint, err := coreruntime.ParseClashEndpoint(material.Bundle.StartupConfig)
 	if err != nil {
 		return err
 	}
-	client, err := clashapi.New(endpoint)
+	client, err := coreruntime.NewClashClient(endpoint)
 	if err != nil {
 		return err
 	}
@@ -291,7 +288,7 @@ func (services *runtimeServices) revalidateRuntimeMaterial(
 
 func (services *runtimeServices) stopForTask(
 	ctx context.Context,
-	control taskrunner.Control,
+	control taskExecutionControl,
 ) (json.RawMessage, error) {
 	observation, observationErr := services.database.RuntimeObservation(ctx)
 	if err := services.manager.Stop(ctx); err != nil {

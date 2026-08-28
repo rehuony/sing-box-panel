@@ -10,7 +10,6 @@ import (
 	"strings"
 
 	"github.com/rehuony/sing-box-panel/internal/coreartifact"
-	"github.com/rehuony/sing-box-panel/internal/runtimeidentity"
 	"github.com/rehuony/sing-box-panel/internal/store"
 )
 
@@ -42,7 +41,7 @@ func (application *Application) ResolveCoreVersion(
 		return CoreVersionResolution{ExactVersion: version.String(), Source: "explicit"}, nil
 	}
 	if application == nil || application.runtime == nil {
-		return CoreVersionResolution{}, runtimeidentity.ErrInspectionUnavailable
+		return CoreVersionResolution{}, ErrInspectionUnavailable
 	}
 	running, err := application.runtime.Resolve(ctx)
 	if err != nil {

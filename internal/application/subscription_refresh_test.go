@@ -14,7 +14,7 @@ import (
 
 	"github.com/rehuony/sing-box-panel/internal/settings"
 	"github.com/rehuony/sing-box-panel/internal/store"
-	"github.com/rehuony/sing-box-panel/internal/subscription/source"
+	"github.com/rehuony/sing-box-panel/internal/subscription"
 )
 
 func TestSubscriptionSourceRefreshTaskPublishesOnlySuccessfulVersion(t *testing.T) {
@@ -78,7 +78,7 @@ func TestRemoteSubscriptionSourceConfigRequiresExplicitScheduleMinimum(t *testin
 	app := newSubscriptionTestApplication(database)
 	if _, err := app.CreateSubscriptionSource(ctx, CreateSubscriptionSourceRequest{
 		Name: "too frequent", SourceKind: store.SubscriptionSourceRemote,
-		Config:  json.RawMessage(`{"url":"https://example.test/sub","format":"` + string(source.FormatAuto) + `","refresh_interval_minutes":14}`),
+		Config:  json.RawMessage(`{"url":"https://example.test/sub","format":"` + string(subscription.SourceFormatAuto) + `","refresh_interval_minutes":14}`),
 		Enabled: true,
 	}); err == nil {
 		t.Fatal("sub-15-minute source schedule was accepted")

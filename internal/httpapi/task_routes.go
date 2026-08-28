@@ -8,7 +8,7 @@ import (
 	"strconv"
 
 	"github.com/rehuony/sing-box-panel/internal/application"
-	"github.com/rehuony/sing-box-panel/internal/canonical"
+	"github.com/rehuony/sing-box-panel/internal/configuration"
 	"github.com/rehuony/sing-box-panel/internal/jsonstrict"
 	"github.com/rehuony/sing-box-panel/internal/store"
 )
@@ -106,7 +106,7 @@ func writeCanonicalProblem(w http.ResponseWriter, request *http.Request, code st
 	switch {
 	case application.IsRevisionConflict(err):
 		writeProblem(w, request, http.StatusPreconditionFailed, "canonical_revision_conflict", "Revision conflict", err.Error())
-	case errors.Is(err, canonical.ErrInvalidDocument):
+	case errors.Is(err, configuration.ErrInvalidDocument):
 		writeProblem(w, request, http.StatusUnprocessableEntity, "canonical_invalid", "Configuration invalid", err.Error())
 	default:
 		writeProblem(w, request, http.StatusInternalServerError, code, "Configuration operation failed", "The configuration operation could not be completed.")

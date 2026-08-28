@@ -6,7 +6,7 @@ import (
 	"context"
 	"sort"
 
-	"github.com/rehuony/sing-box-panel/internal/subscription/node"
+	"github.com/rehuony/sing-box-panel/internal/subscription"
 )
 
 func (application *Application) SubscriptionNodeCatalog(ctx context.Context) (SubscriptionNodeCatalog, error) {
@@ -26,7 +26,7 @@ func (application *Application) SubscriptionNodeCatalog(ctx context.Context) (Su
 	}
 	nodes, diagnostics := conversion.Nodes, conversion.Diagnostics
 	for _, source := range state.Sources {
-		sourceNodes, decodeErr := node.Decode(source.NormalizedNodes)
+		sourceNodes, decodeErr := subscription.DecodeNodes(source.NormalizedNodes)
 		if decodeErr != nil {
 			return SubscriptionNodeCatalog{}, decodeErr
 		}

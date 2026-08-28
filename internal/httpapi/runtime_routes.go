@@ -9,7 +9,6 @@ import (
 	"unicode"
 
 	"github.com/rehuony/sing-box-panel/internal/application"
-	"github.com/rehuony/sing-box-panel/internal/runtimeidentity"
 	"github.com/rehuony/sing-box-panel/internal/store"
 )
 
@@ -143,7 +142,7 @@ func writeRuntimeProblem(w http.ResponseWriter, request *http.Request, code stri
 		writeProblem(w, request, http.StatusConflict, "no_applied_bundle", "No applied bundle", "No successfully applied bundle is available for this operation.")
 	case application.IsNoRollbackBundle(err):
 		writeProblem(w, request, http.StatusConflict, "no_rollback_bundle", "No rollback bundle", "No rollback bundle is available.")
-	case errors.Is(err, runtimeidentity.ErrStaleObservation), errors.Is(err, runtimeidentity.ErrInspectionUnavailable):
+	case errors.Is(err, application.ErrStaleObservation), errors.Is(err, application.ErrInspectionUnavailable):
 		writeProblem(w, request, http.StatusServiceUnavailable, "runtime_inspection_unavailable", "Runtime inspection unavailable", "The live core identity could not be verified.")
 	default:
 		writeProblem(w, request, http.StatusInternalServerError, code, "Runtime operation failed", "The runtime operation could not be completed.")

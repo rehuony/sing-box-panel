@@ -6,7 +6,7 @@ import (
 	"context"
 	"strings"
 
-	"github.com/rehuony/sing-box-panel/internal/subscription/render"
+	"github.com/rehuony/sing-box-panel/internal/subscription"
 )
 
 func (application *Application) RenderSubscriptionPreview(
@@ -29,8 +29,8 @@ func (application *Application) RenderSubscriptionPreview(
 		Channel:           applicationSubscriptionChannel(state.Channel),
 		StartupArtifactID: state.Startup.ID, CanonicalRevisionID: state.Startup.CanonicalRevisionID,
 		ExactCoreVersion: state.Startup.ExactCoreVersion, ArtifactState: state.Startup.State,
-		Result: render.Result{
-			Format: render.Format(rendered.Format), MediaType: rendered.MediaType,
+		Result: subscription.RenderResult{
+			Format: subscription.RenderFormat(rendered.Format), MediaType: rendered.MediaType,
 			Content: rendered.Body, NodeCount: rendered.NodeCount, Diagnostics: rendered.Diagnostics,
 		},
 	}, nil

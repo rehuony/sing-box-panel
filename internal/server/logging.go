@@ -13,7 +13,6 @@ import (
 
 	"github.com/rehuony/sing-box-panel/internal/application"
 	"github.com/rehuony/sing-box-panel/internal/store"
-	"github.com/rehuony/sing-box-panel/internal/taskrunner"
 )
 
 func startLogRetention(ctx context.Context, commands *application.Application) <-chan struct{} {
@@ -48,11 +47,11 @@ func startLogRetention(ctx context.Context, commands *application.Application) <
 	return done
 }
 
-func withTaskLogging(commands *application.Application, next taskrunner.Handler) taskrunner.Handler {
-	return taskrunner.HandlerFunc(func(
+func withTaskLogging(commands *application.Application, next taskHandler) taskHandler {
+	return taskHandlerFunc(func(
 		ctx context.Context,
 		task store.Task,
-		control taskrunner.Control,
+		control taskExecutionControl,
 	) (json.RawMessage, error) {
 		metadata := mustLogMetadata(map[string]any{
 			"task_id": task.ID,

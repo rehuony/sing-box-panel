@@ -9,7 +9,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/rehuony/sing-box-panel/internal/configuration/adapter"
+	"github.com/rehuony/sing-box-panel/internal/configuration"
 	"github.com/rehuony/sing-box-panel/internal/store"
 )
 
@@ -19,16 +19,16 @@ type ConfigurationCompileRequest struct {
 }
 
 type CompiledConfigurationArtifact struct {
-	ID                  string                     `json:"id"`
-	CanonicalRevisionID string                     `json:"canonical_revision_id"`
-	ExactCoreVersion    string                     `json:"exact_core_version"`
-	AdapterID           string                     `json:"adapter_id"`
-	AdapterRevision     string                     `json:"adapter_revision"`
-	CoreArtifactID      string                     `json:"core_artifact_id"`
-	ConfigSHA256        string                     `json:"config_sha256"`
-	Diagnostics         []adapter.Diagnostic       `json:"diagnostics"`
-	IgnoredDigest       string                     `json:"ignored_digest,omitempty"`
-	State               store.StartupArtifactState `json:"state"`
+	ID                  string                               `json:"id"`
+	CanonicalRevisionID string                               `json:"canonical_revision_id"`
+	ExactCoreVersion    string                               `json:"exact_core_version"`
+	AdapterID           string                               `json:"adapter_id"`
+	AdapterRevision     string                               `json:"adapter_revision"`
+	CoreArtifactID      string                               `json:"core_artifact_id"`
+	ConfigSHA256        string                               `json:"config_sha256"`
+	Diagnostics         []configuration.ProjectionDiagnostic `json:"diagnostics"`
+	IgnoredDigest       string                               `json:"ignored_digest,omitempty"`
+	State               store.StartupArtifactState           `json:"state"`
 }
 
 type ConfigurationCompile struct {
@@ -49,10 +49,10 @@ func (application *Application) CompileConfiguration(
 	if err != nil {
 		return ConfigurationCompile{}, err
 	}
-	projection := adapter.Result{
+	projection := configuration.ProjectionResult{
 		ConfigJSON: preview.Config, Diagnostics: preview.Diagnostics, IgnoredDigest: preview.IgnoredDigest,
 	}
-	if err := adapter.RequireIgnoredAcceptance(projection, request.AcceptedIgnoredDigest); err != nil {
+	if err := configuration.RequireIgnoredAcceptance(projection, request.AcceptedIgnoredDigest); err != nil {
 		return ConfigurationCompile{}, err
 	}
 	diagnosticsJSON, err := json.Marshal(preview.Diagnostics)
@@ -98,7 +98,7 @@ func (application *Application) CompileConfiguration(
 			ExactCoreVersion: stored.Artifact.ExactCoreVersion, AdapterID: stored.Artifact.AdapterID,
 			AdapterRevision: stored.Artifact.AdapterRevision, CoreArtifactID: stored.Artifact.CoreArtifactID,
 			ConfigSHA256:  stored.Artifact.ConfigSHA256,
-			Diagnostics:   append([]adapter.Diagnostic(nil), preview.Diagnostics...),
+			Diagnostics:   append([]configuration.ProjectionDiagnostic(nil), preview.Diagnostics...),
 			IgnoredDigest: stored.Artifact.IgnoredDigest, State: stored.Artifact.State,
 		},
 		Task: applicationTask(stored.Task),

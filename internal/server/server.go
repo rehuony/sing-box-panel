@@ -20,7 +20,6 @@ import (
 	"github.com/rehuony/sing-box-panel/internal/httpapi"
 	"github.com/rehuony/sing-box-panel/internal/settings"
 	"github.com/rehuony/sing-box-panel/internal/store"
-	"github.com/rehuony/sing-box-panel/internal/taskrunner"
 )
 
 const (
@@ -126,14 +125,14 @@ func Run(ctx context.Context, settingsPath string, build buildinfo.Info, assets 
 		IdleTimeout:       idleTimeout,
 		MaxHeaderBytes:    maxHeaderBytes,
 	}
-	runtimeHandler := taskrunner.HandlerFunc(runtimeIntentHandler(runtimeControl))
-	handlers := map[string]taskrunner.Handler{
-		"canonical-saved":                   taskrunner.HandlerFunc(acknowledgeCanonicalSave),
-		"catalog-refresh":                   taskrunner.HandlerFunc(catalogRefreshHandler(commands)),
-		"core-install":                      taskrunner.HandlerFunc(coreArtifactHandler(commands, artifacts)),
-		"core-import":                       taskrunner.HandlerFunc(coreArtifactHandler(commands, artifacts)),
-		"startup-check":                     taskrunner.HandlerFunc(startupCheckHandler(commands, runtimeControl.manager)),
-		"subscription-source-refresh":       taskrunner.HandlerFunc(subscriptionSourceRefreshHandler(commands)),
+	runtimeHandler := taskHandlerFunc(runtimeIntentHandler(runtimeControl))
+	handlers := map[string]taskHandler{
+		"canonical-saved":                   taskHandlerFunc(acknowledgeCanonicalSave),
+		"catalog-refresh":                   taskHandlerFunc(catalogRefreshHandler(commands)),
+		"core-install":                      taskHandlerFunc(coreArtifactHandler(commands, artifacts)),
+		"core-import":                       taskHandlerFunc(coreArtifactHandler(commands, artifacts)),
+		"startup-check":                     taskHandlerFunc(startupCheckHandler(commands, runtimeControl.manager)),
+		"subscription-source-refresh":       taskHandlerFunc(subscriptionSourceRefreshHandler(commands)),
 		string(store.RuntimeIntentApply):    runtimeHandler,
 		string(store.RuntimeIntentStart):    runtimeHandler,
 		string(store.RuntimeIntentStop):     runtimeHandler,
@@ -143,7 +142,7 @@ func Run(ctx context.Context, settingsPath string, build buildinfo.Info, assets 
 	for kind, taskHandler := range handlers {
 		handlers[kind] = withTaskLogging(commands, taskHandler)
 	}
-	runner, err := taskrunner.New(database, handlers, taskrunner.Options{WorkerID: workerID()})
+	runner, err := newTaskRunner(database, handlers, taskRunnerOptions{WorkerID: workerID()})
 	if err != nil {
 		_ = listener.Close()
 		return fmt.Errorf("construct durable task runner: %w", err)

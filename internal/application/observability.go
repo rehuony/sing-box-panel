@@ -9,7 +9,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/rehuony/sing-box-panel/internal/clashapi"
+	coreruntime "github.com/rehuony/sing-box-panel/internal/runtime"
 	"github.com/rehuony/sing-box-panel/internal/store"
 )
 
@@ -99,11 +99,11 @@ func (application *Application) CollectLimitedTrafficSample(
 	if material.Activation.MonitoringTier != store.MonitoringLimited {
 		return store.TrafficSampleResult{}, ErrMonitoringTierUnavailable
 	}
-	endpoint, err := clashapi.ParseEndpoint(material.Bundle.StartupConfig)
+	endpoint, err := coreruntime.ParseClashEndpoint(material.Bundle.StartupConfig)
 	if err != nil {
 		return store.TrafficSampleResult{}, err
 	}
-	client, err := clashapi.New(endpoint)
+	client, err := coreruntime.NewClashClient(endpoint)
 	if err != nil {
 		return store.TrafficSampleResult{}, err
 	}

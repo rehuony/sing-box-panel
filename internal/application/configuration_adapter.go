@@ -9,26 +9,20 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/rehuony/sing-box-panel/internal/configuration/adapter"
-	singbox11115 "github.com/rehuony/sing-box-panel/internal/configuration/adapter/singbox/v1_11_15"
-	singbox11225 "github.com/rehuony/sing-box-panel/internal/configuration/adapter/singbox/v1_12_25"
-	singbox11319 "github.com/rehuony/sing-box-panel/internal/configuration/adapter/singbox/v1_13_19"
+	"github.com/rehuony/sing-box-panel/internal/configuration"
+	"github.com/rehuony/sing-box-panel/internal/singbox"
 	"github.com/rehuony/sing-box-panel/internal/store"
 )
 
-var compiledConfigurationRegistry = adapter.MustNewRegistry(
-	singbox11115.New(),
-	singbox11225.New(),
-	singbox11319.New(),
-)
+var compiledConfigurationRegistry = singbox.NewConfigurationRegistry()
 
 type ConfigurationAdapterSupport struct {
-	Supported  bool               `json:"supported"`
-	Profile    adapter.Profile    `json:"profile"`
-	AdapterID  string             `json:"adapter_id,omitempty"`
-	Revision   string             `json:"adapter_revision,omitempty"`
-	Provenance adapter.Provenance `json:"provenance,omitempty"`
-	Reason     string             `json:"reason,omitempty"`
+	Supported  bool                            `json:"supported"`
+	Profile    configuration.CoreProfile       `json:"profile"`
+	AdapterID  string                          `json:"adapter_id,omitempty"`
+	Revision   string                          `json:"adapter_revision,omitempty"`
+	Provenance configuration.AdapterProvenance `json:"provenance,omitempty"`
+	Reason     string                          `json:"reason,omitempty"`
 }
 
 type ConfigurationPreviewRequest struct {
@@ -37,16 +31,16 @@ type ConfigurationPreviewRequest struct {
 }
 
 type ConfigurationPreview struct {
-	CanonicalRevision CanonicalSnapshot           `json:"canonical_revision"`
-	CoreArtifact      CoreArtifact                `json:"core_artifact"`
-	Support           ConfigurationAdapterSupport `json:"support"`
-	Config            json.RawMessage             `json:"config"`
-	Diagnostics       []adapter.Diagnostic        `json:"diagnostics"`
-	IgnoredDigest     string                      `json:"ignored_digest,omitempty"`
+	CanonicalRevision CanonicalSnapshot                    `json:"canonical_revision"`
+	CoreArtifact      CoreArtifact                         `json:"core_artifact"`
+	Support           ConfigurationAdapterSupport          `json:"support"`
+	Config            json.RawMessage                      `json:"config"`
+	Diagnostics       []configuration.ProjectionDiagnostic `json:"diagnostics"`
+	IgnoredDigest     string                               `json:"ignored_digest,omitempty"`
 }
 
-func coreArtifactProfile(core store.CoreArtifact) adapter.Profile {
-	return adapter.Profile{
+func coreArtifactProfile(core store.CoreArtifact) configuration.CoreProfile {
+	return configuration.CoreProfile{
 		ExactVersion:       core.ExactVersion,
 		OperatingSystem:    core.OperatingSystem,
 		Architecture:       core.Architecture,
@@ -75,7 +69,7 @@ func (application *Application) configurationSupport(core store.CoreArtifact) Co
 }
 
 // ConfigurationSupport reports whether one installed binary matches a reviewed,
-// compiled adapter. Installation and inspection remain available even when it
+// compiled configuration. Installation and inspection remain available even when it
 // does not; projection and execution fail closed.
 func (application *Application) ConfigurationSupport(
 	ctx context.Context,
@@ -121,15 +115,15 @@ func (application *Application) PreviewConfiguration(
 
 	support := application.configurationSupport(core)
 	if !support.Supported {
-		return ConfigurationPreview{}, fmt.Errorf("%w: %s", adapter.ErrUnsupportedCoreProfile, support.Reason)
+		return ConfigurationPreview{}, fmt.Errorf("%w: %s", configuration.ErrUnsupportedCoreProfile, support.Reason)
 	}
-	result, err := application.configurationAdapters.Project(support.Profile, adapter.Request{
+	result, err := application.configurationAdapters.Project(support.Profile, configuration.ProjectionRequest{
 		CanonicalJSON: revision.Document,
 	})
 	if err != nil {
 		return ConfigurationPreview{}, err
 	}
-	diagnostics := make([]adapter.Diagnostic, len(result.Diagnostics))
+	diagnostics := make([]configuration.ProjectionDiagnostic, len(result.Diagnostics))
 	copy(diagnostics, result.Diagnostics)
 	return ConfigurationPreview{
 		CanonicalRevision: snapshot(revision),

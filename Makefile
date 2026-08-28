@@ -8,7 +8,7 @@ SHELL_SOURCE_DIRS := scripts
 	fmt notices web-lint-fix \
 	fmt-check mod-check vet test test-race fuzz-smoke \
 	web-lint web-test web-typecheck \
-	notices-check openapi-check shell-check installer-test \
+	notices-check openapi-check shell-check installer-test support-generate support-check core-contract \
 	check-go check-web check-contracts check \
 	web-build build \
 	require-out require-version release release-verify snapshot \
@@ -35,6 +35,9 @@ notices: web-build
 web-lint-fix:
 	$(WEB_PNPM) run lint:fix
 
+support-generate:
+	go tool singbox-support generate
+
 # Read-only checks
 
 vet:
@@ -54,7 +57,7 @@ mod-check:
 
 fuzz-smoke:
 	go test ./internal/coreartifact -run '^$$' -fuzz '^FuzzParseExactVersionCanonicalRoundTrip$$' -fuzztime=5s
-	go test ./internal/subscription/render -run '^$$' -fuzz '^FuzzRenderIsPureAndDeterministic$$' -fuzztime=5s
+	go test ./internal/subscription -run '^$$' -fuzz '^FuzzRenderIsPureAndDeterministic$$' -fuzztime=5s
 
 web-lint web-test web-typecheck:
 	$(WEB_PNPM) run $(patsubst web-%,%,$@)
@@ -71,22 +74,25 @@ notices-check: web-build
 openapi-check:
 	go tool verify-openapi api/openapi.yaml
 
+support-check:
+	go tool singbox-support check
+
 check-go: fmt-check mod-check vet test
 
 check-web: web-lint web-typecheck web-test
 
-check-contracts: shell-check installer-test openapi-check notices-check
+check-contracts: shell-check installer-test openapi-check notices-check support-check
 
 check: check-go check-web check-contracts
 
 # Local build
 
-web-build: web-typecheck
-	$(WEB_PNPM) run bundle
-
 build: web-build
 	mkdir -p bin
 	go build -tags webdist -trimpath -o bin/sing-box-panel ./cmd/sing-box-panel
+
+web-build: web-typecheck
+	$(WEB_PNPM) run bundle
 
 # Release
 
@@ -104,6 +110,11 @@ release-verify:
 
 snapshot: require-out
 	$(RELEASE_SCRIPT) snapshot --output "$(OUT)"
+
+# Core compatibility
+
+core-contract:
+	bash scripts/test/core-contract.sh
 
 # Continuous integration
 

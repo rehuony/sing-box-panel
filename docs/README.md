@@ -14,9 +14,9 @@ guide avoids repeating details that can drift independently.
 | This index | All readers | Documentation ownership, navigation, and conflict resolution | Current `docs/` tree |
 | [Getting started](getting-started.md) | Contributor or local operator | Toolchain, initialization, settings paths, first revision, and systemd entry point | `go.mod`, `web/package.json`, `Makefile`, `internal/settings`, and CLI initialization |
 | [CLI reference](cli.md) | CLI user or automation author | Command hierarchy, I/O, task waiting, exit codes, completion, and self-update | Cobra command tree under `internal/cli` and live `--help` output |
-| [Core versions and adapters](core-versions-and-adapters.md) | Core operator or adapter maintainer | Catalog caching, artifact identity and trust, exact compiled profiles, and version onboarding | `internal/catalog`, `internal/coreartifact`, `internal/artifactstore`, and `internal/configuration/adapter` |
-| [Configuration and runtime](configuration-and-runtime.md) | Configuration or runtime operator | Global schema-v2 history, projection, check/apply, lifecycle, and rollback | `internal/canonical`, configuration application services, `internal/runtime`, and activation storage |
-| [Subscriptions and observability](subscriptions-and-observability.md) | Subscription or operations administrator | Users, grants, source versions, renderers, public delivery, logs, metrics, and traffic | Subscription application/store packages, `internal/subscription`, `internal/subscriptionfetch`, and `internal/clashapi` |
+| [Core versions and adapters](core-versions-and-adapters.md) | Core operator or adapter maintainer | Catalog caching, artifact identity and trust, generated exact profiles, behavior families, native core contracts, and manual version onboarding | `internal/catalog`, `internal/coreartifact`, `internal/artifactstore`, `internal/singbox`, and `scripts/test/core-contract.sh` |
+| [Configuration and runtime](configuration-and-runtime.md) | Configuration or runtime operator | Global schema-v2 history, projection, check/apply, lifecycle, and rollback | `internal/configuration`, configuration application services, `internal/runtime`, and activation storage |
+| [Subscriptions and observability](subscriptions-and-observability.md) | Subscription or operations administrator | Users, grants, source versions, renderers, public delivery, logs, metrics, and traffic | Subscription application/store packages, `internal/subscription`, and `internal/runtime` |
 | [HTTP API and security](http-api-and-security.md) | API integrator or security reviewer | Routing, authentication, request boundaries, concurrency, and the Web trust boundary | `api/openapi.yaml`, `internal/httpapi`, and the Web HTTP client |
 | [Release process](release.md) | Release maintainer | Isolated packaging, signing, native smoke tests, Draft Release verification, and publication | `Makefile`, `scripts`, and GitHub Actions workflows |
 | [Repository architecture](architecture.md) | Contributor or maintainer | Dependency direction, package ownership, version adapters, and test placement | Current imports, composition roots, directory layout, and colocated tests |
@@ -25,7 +25,7 @@ guide avoids repeating details that can drift independently.
 
 - [OpenAPI contract](../api/openapi.yaml) defines management HTTP operations,
   request and response schemas, and problem details.
-- [Configuration adapter contract](../internal/configuration/adapter/contract.go)
+- [Configuration adapter contract](../internal/configuration/adapter_contract.go)
   defines exact binary-profile matching, projection diagnostics, and
   fail-closed behavior.
 - [systemd packaging](../systemd/README.md) defines supported service

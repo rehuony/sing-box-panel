@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/rehuony/sing-box-panel/internal/store"
-	"github.com/rehuony/sing-box-panel/internal/subscription/source"
+	"github.com/rehuony/sing-box-panel/internal/subscription"
 )
 
 func (application *Application) CreateSubscriptionSource(
@@ -100,7 +100,7 @@ func (application *Application) CreateSubscriptionSourceVersion(
 	request CreateSubscriptionSourceVersionRequest,
 ) (SubscriptionSourceVersionSave, error) {
 	sourceID = strings.TrimSpace(sourceID)
-	nodes, detected, err := source.Parse(request.Format, request.RawBody, sourceID)
+	nodes, detected, err := subscription.ParseSource(request.Format, request.RawBody, sourceID)
 	if err != nil {
 		return SubscriptionSourceVersionSave{}, err
 	}

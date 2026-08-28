@@ -7,8 +7,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-
-	"github.com/rehuony/sing-box-panel/internal/openapiverify"
 )
 
 func main() {
@@ -22,7 +20,7 @@ func run(arguments []string, stdout, stderr io.Writer) int {
 	}
 
 	path := arguments[0]
-	findings := openapiverify.ValidateFile(path)
+	findings := validateOpenAPIFile(path)
 	if len(findings) != 0 {
 		for _, finding := range findings {
 			fmt.Fprintf(stderr, "OpenAPI validation error: %v\n", finding)

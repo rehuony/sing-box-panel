@@ -10,13 +10,12 @@ import (
 
 	"github.com/rehuony/sing-box-panel/internal/application"
 	"github.com/rehuony/sing-box-panel/internal/store"
-	"github.com/rehuony/sing-box-panel/internal/taskrunner"
 )
 
 func acknowledgeCanonicalSave(
 	ctx context.Context,
 	task store.Task,
-	control taskrunner.Control,
+	control taskExecutionControl,
 ) (json.RawMessage, error) {
 	if err := control.SafePoint(ctx); err != nil {
 		return nil, err
@@ -24,8 +23,8 @@ func acknowledgeCanonicalSave(
 	return json.Marshal(map[string]string{"revision_id": task.CanonicalRevisionID})
 }
 
-func catalogRefreshHandler(commands *application.Application) taskrunner.HandlerFunc {
-	return func(ctx context.Context, task store.Task, control taskrunner.Control) (json.RawMessage, error) {
+func catalogRefreshHandler(commands *application.Application) taskHandlerFunc {
+	return func(ctx context.Context, task store.Task, control taskExecutionControl) (json.RawMessage, error) {
 		if err := control.SafePoint(ctx); err != nil {
 			return nil, err
 		}
@@ -41,8 +40,8 @@ func catalogRefreshHandler(commands *application.Application) taskrunner.Handler
 	}
 }
 
-func subscriptionSourceRefreshHandler(commands *application.Application) taskrunner.HandlerFunc {
-	return func(ctx context.Context, task store.Task, control taskrunner.Control) (json.RawMessage, error) {
+func subscriptionSourceRefreshHandler(commands *application.Application) taskHandlerFunc {
+	return func(ctx context.Context, task store.Task, control taskExecutionControl) (json.RawMessage, error) {
 		result, err := commands.ExecuteSubscriptionSourceRefresh(ctx, task.Payload, control.SafePoint)
 		if err != nil {
 			return nil, err
@@ -54,8 +53,8 @@ func subscriptionSourceRefreshHandler(commands *application.Application) taskrun
 func coreArtifactHandler(
 	commands *application.Application,
 	artifacts application.ArtifactInstaller,
-) taskrunner.HandlerFunc {
-	return func(ctx context.Context, task store.Task, control taskrunner.Control) (json.RawMessage, error) {
+) taskHandlerFunc {
+	return func(ctx context.Context, task store.Task, control taskExecutionControl) (json.RawMessage, error) {
 		if err := control.SafePoint(ctx); err != nil {
 			return nil, err
 		}

@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"github.com/rehuony/sing-box-panel/internal/application"
-	"github.com/rehuony/sing-box-panel/internal/canonical"
+	"github.com/rehuony/sing-box-panel/internal/configuration"
 	"github.com/rehuony/sing-box-panel/internal/store"
 )
 
@@ -155,8 +155,8 @@ func seedRuntimeHTTPStartup(
 	t.Helper()
 	createdAt := time.Date(2026, time.August, 26, 14, 0, 0, 0, time.UTC)
 	revision, err := database.SaveCanonicalRevisionAndTask(context.Background(), "", store.NewCanonicalRevision{
-		ID: "revision_runtime_http", SchemaVersion: canonical.SchemaVersionV2,
-		Document: canonical.EmptyV2().CanonicalJSON(), CommandID: "command_runtime_http", CreatedAt: createdAt,
+		ID: "revision_runtime_http", SchemaVersion: configuration.SchemaVersionV2,
+		Document: configuration.EmptyV2().CanonicalJSON(), CommandID: "command_runtime_http", CreatedAt: createdAt,
 	}, store.NewTask{
 		ID: "task_runtime_http", Lane: store.TaskLaneMaintenance,
 		Kind: "canonical-saved", CreatedAt: createdAt,
@@ -183,7 +183,7 @@ func seedSupportedRuntimeHTTPCore(t *testing.T, database *store.Store) store.Cor
 		SourceKind: store.CoreArtifactSourceUserVerified, UserSource: "runtime HTTP fixture",
 		ArchiveSHA256: strings.Repeat("ca", 32), BinarySHA256: strings.Repeat("cb", 32),
 		BinaryPath: "/var/lib/sing-box-panel/artifacts/core_runtime_http/sing-box", ReportedVersion: "1.13.19",
-		FeatureFingerprint: json.RawMessage(`{"status":"reported","features":["badlinkname","tfogo_checklinkname0","with_acme","with_ccm","with_clash_api","with_dhcp","with_gvisor","with_ocm","with_quic","with_tailscale","with_utls","with_wireguard"]}`),
+		FeatureFingerprint: json.RawMessage(`{"status":"reported","features":["badlinkname","tfogo_checklinkname0","with_acme","with_ccm","with_clash_api","with_dhcp","with_gvisor","with_naive_outbound","with_ocm","with_purego","with_quic","with_tailscale","with_utls","with_wireguard"]}`),
 		VerificationState:  store.CoreArtifactVerified,
 		CreatedAt:          time.Date(2026, time.August, 26, 13, 0, 0, 0, time.UTC),
 	})

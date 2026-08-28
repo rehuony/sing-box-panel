@@ -15,8 +15,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/rehuony/sing-box-panel/internal/canonical"
-	"github.com/rehuony/sing-box-panel/internal/configuration/adapter"
+	"github.com/rehuony/sing-box-panel/internal/configuration"
 	"github.com/rehuony/sing-box-panel/internal/store"
 )
 
@@ -212,9 +211,9 @@ func TestRenderSubscriptionPreviewUsesAppliedVersionAndSelectedUserGrants(t *tes
 	t.Cleanup(func() { _ = database.Close() })
 	app := newSubscriptionTestApplication(database)
 	now := app.now().UTC()
-	features, err := json.Marshal(adapter.FeatureFingerprint{Status: "reported", Features: []string{
+	features, err := json.Marshal(configuration.FeatureFingerprint{Status: "reported", Features: []string{
 		"badlinkname", "tfogo_checklinkname0", "with_acme", "with_ccm", "with_clash_api",
-		"with_dhcp", "with_gvisor", "with_ocm", "with_quic", "with_tailscale", "with_utls", "with_wireguard",
+		"with_dhcp", "with_gvisor", "with_naive_outbound", "with_ocm", "with_purego", "with_quic", "with_tailscale", "with_utls", "with_wireguard",
 	}})
 	if err != nil {
 		t.Fatal(err)
@@ -228,7 +227,7 @@ func TestRenderSubscriptionPreviewUsesAppliedVersionAndSelectedUserGrants(t *tes
 	if _, err := database.UpsertCoreArtifact(ctx, core); err != nil {
 		t.Fatal(err)
 	}
-	canonicalSave, err := app.ReplaceConfiguration(ctx, "", canonical.EmptyV2().CanonicalJSON())
+	canonicalSave, err := app.ReplaceConfiguration(ctx, "", configuration.EmptyV2().CanonicalJSON())
 	if err != nil {
 		t.Fatal(err)
 	}

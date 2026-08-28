@@ -7,7 +7,7 @@ import (
 	"net/http"
 
 	"github.com/rehuony/sing-box-panel/internal/application"
-	"github.com/rehuony/sing-box-panel/internal/configuration/adapter"
+	"github.com/rehuony/sing-box-panel/internal/configuration"
 	"github.com/rehuony/sing-box-panel/internal/store"
 )
 
@@ -74,11 +74,11 @@ func writeConfigurationProblem(w http.ResponseWriter, request *http.Request, cod
 	switch {
 	case application.IsCoreArtifactNotFound(err):
 		writeProblem(w, request, http.StatusNotFound, "core_artifact_not_found", "Core artifact not found", "The selected immutable core artifact does not exist.")
-	case errors.Is(err, adapter.ErrUnsupportedCoreProfile):
+	case errors.Is(err, configuration.ErrUnsupportedCoreProfile):
 		writeProblem(w, request, http.StatusConflict, "core_profile_unsupported", "Core profile unsupported", err.Error())
-	case errors.Is(err, adapter.ErrIgnoredNotAccepted):
+	case errors.Is(err, configuration.ErrIgnoredNotAccepted):
 		writeProblem(w, request, http.StatusConflict, "ignored_fields_not_accepted", "Ignored fields not accepted", err.Error())
-	case errors.Is(err, adapter.ErrProjection), errors.Is(err, adapter.ErrProjectionBlocked):
+	case errors.Is(err, configuration.ErrProjection), errors.Is(err, configuration.ErrProjectionBlocked):
 		writeProblem(w, request, http.StatusUnprocessableEntity, "configuration_projection_failed", "Configuration projection failed", err.Error())
 	case errors.Is(err, store.ErrCompiledStartupEvidenceStale):
 		writeProblem(w, request, http.StatusPreconditionFailed, "configuration_changed", "Configuration changed", "The global configuration changed during compilation; retry with the current revision.")
