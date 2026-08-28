@@ -63,14 +63,27 @@ binary profile.
 Configuration support is compiled into the panel. A registry matches the
 complete installed profile—exact version, Linux operating system,
 architecture, variant, and the sorted feature fingerprint. It never selects a
-nearby patch, another architecture, an unreported fingerprint, or a runtime
-manifest.
+nearby patch, an unsupported architecture, an unreported fingerprint, or a
+runtime manifest.
 
-The initial reviewed profiles are the official plain Linux arm64 builds of:
+The initial reviewed profiles are the official plain Linux amd64 and arm64
+builds of:
 
 - sing-box 1.11.15;
 - sing-box 1.12.25; and
 - sing-box 1.13.19.
+
+The package-local contract test accepts an explicitly supplied native binary,
+executes `sing-box version`, resolves the reported full profile through the
+compiled registry, projects a minimal canonical revision, and requires the
+same binary to accept it with `sing-box check`. It skips when no external
+binary is supplied and is not coupled to the ordinary CI workflow.
+
+The dual-architecture review changes these adapters from the former
+`official-linux-arm64@1` identity to `official-linux-plain@2`. Existing checked
+startup artifacts retain their original evidence and therefore fail closed
+under the new panel build; recompile and check them from the unchanged
+canonical revision before applying them again.
 
 An unmatched artifact may still be installed, inspected, quarantined, revoked,
 or removed. Preview, compilation, check, Apply, Start, Restart, and Rollback
@@ -103,9 +116,11 @@ A new release needs two independent reviewed packages:
    canonical schema v2, and register it explicitly.
 2. Add `internal/subscription/inbound/singbox/vX_Y_Z`, implement the exact
    inbound-to-node contract, and register it explicitly.
-3. Add exact-dispatch, projection, ignored-field, credential expansion, and
+3. Verify every reviewed official archive digest, reported profile, and
+   projected configuration on its native architecture.
+4. Add exact-dispatch, projection, ignored-field, credential expansion, and
    secret-sanitization tests. Version packages must not import one another.
-4. Update the Web/API documentation only after the complete profile and
+5. Update the Web/API documentation only after the complete profile and
    behavior are verified.
 
 Unknown, malformed, empty, approximate, or partially matching versions must

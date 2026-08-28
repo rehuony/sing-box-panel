@@ -37,22 +37,23 @@ func TestCompiledRegistryDispatchesExactOfficialProfiles(t *testing.T) {
 			if err != nil {
 				t.Fatalf("Marshal fingerprint: %v", err)
 			}
+			for _, architecture := range []string{"amd64", "arm64"} {
+				profile := adapter.Profile{
+					ExactVersion: test.version, OperatingSystem: "linux", Architecture: architecture, Variant: "plain",
+					FeatureFingerprint: fingerprint,
+				}
+				resolved, err := registry.Resolve(profile)
+				if err != nil {
+					t.Fatalf("Resolve %s: %v", architecture, err)
+				}
+				if resolved.ExactVersion() != test.version {
+					t.Fatalf("resolved version = %q, want %q", resolved.ExactVersion(), test.version)
+				}
+			}
 			profile := adapter.Profile{
 				ExactVersion: test.version, OperatingSystem: "linux", Architecture: "arm64", Variant: "plain",
 				FeatureFingerprint: fingerprint,
 			}
-			resolved, err := registry.Resolve(profile)
-			if err != nil {
-				t.Fatalf("Resolve: %v", err)
-			}
-			if resolved.ExactVersion() != test.version {
-				t.Fatalf("resolved version = %q, want %q", resolved.ExactVersion(), test.version)
-			}
-			profile.Architecture = "amd64"
-			if _, err := registry.Resolve(profile); !errors.Is(err, adapter.ErrUnsupportedCoreProfile) {
-				t.Fatalf("Resolve amd64 error = %v, want ErrUnsupportedCoreProfile", err)
-			}
-			profile.Architecture = "arm64"
 			profile.FeatureFingerprint = json.RawMessage(`{"status":"reported","features":["with_quic"]}`)
 			if _, err := registry.Resolve(profile); !errors.Is(err, adapter.ErrUnsupportedCoreProfile) {
 				t.Fatalf("Resolve altered fingerprint error = %v, want ErrUnsupportedCoreProfile", err)

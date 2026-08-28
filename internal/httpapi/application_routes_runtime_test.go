@@ -39,7 +39,7 @@ func TestRuntimeAndConfigurationHTTPRoutesUseApplicationServices(t *testing.T) {
 		`{"core_artifact_id":"`+core.ID+`"}`,
 		"",
 	)
-	if previewResponse.Code != http.StatusOK || !strings.Contains(previewResponse.Body.String(), `"adapter_id":"sing-box/v1_13_19/official-linux-arm64"`) {
+	if previewResponse.Code != http.StatusOK || !strings.Contains(previewResponse.Body.String(), `"adapter_id":"sing-box/v1_13_19/official-linux-plain"`) {
 		t.Fatalf("preview status=%d body=%s", previewResponse.Code, previewResponse.Body.String())
 	}
 	compileResponse := authenticatedRequest(
@@ -56,7 +56,7 @@ func TestRuntimeAndConfigurationHTTPRoutesUseApplicationServices(t *testing.T) {
 	if err := json.Unmarshal(compileResponse.Body.Bytes(), &compiled); err != nil {
 		t.Fatal(err)
 	}
-	if compiled.Artifact.AdapterID != "sing-box/v1_13_19/official-linux-arm64" || compiled.Task.Kind != "startup-check" {
+	if compiled.Artifact.AdapterID != "sing-box/v1_13_19/official-linux-plain" || compiled.Artifact.AdapterRevision != "2" || compiled.Task.Kind != "startup-check" {
 		t.Fatalf("compile = %+v", compiled)
 	}
 
@@ -166,8 +166,8 @@ func seedRuntimeHTTPStartup(
 	}
 	startup, err := database.CreateStartupArtifact(context.Background(), store.StartupArtifact{
 		ID: "startup_runtime_http", CanonicalRevisionID: revision.ID,
-		ExactCoreVersion: core.ExactVersion, AdapterID: "sing-box/v1_13_19/official-linux-arm64",
-		AdapterRevision: "1", CoreArtifactID: core.ID, ConfigBytes: []byte(`{}`),
+		ExactCoreVersion: core.ExactVersion, AdapterID: "sing-box/v1_13_19/official-linux-plain",
+		AdapterRevision: "2", CoreArtifactID: core.ID, ConfigBytes: []byte(`{}`),
 		Diagnostics: json.RawMessage(`[]`), CreatedAt: createdAt.Add(time.Second),
 	})
 	if err != nil {

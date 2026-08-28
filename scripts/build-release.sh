@@ -6,9 +6,9 @@ set -euo pipefail
 usage() {
   cat >&2 <<'EOF'
 usage:
-  .github/scripts/build-release.sh snapshot --output DIRECTORY
-  .github/scripts/build-release.sh release --version vX.Y.Z --output DIRECTORY
-  .github/scripts/build-release.sh verify
+  scripts/build-release.sh snapshot --output DIRECTORY
+  scripts/build-release.sh release --version vX.Y.Z --output DIRECTORY
+  scripts/build-release.sh verify
 EOF
 }
 
@@ -19,7 +19,7 @@ usage_error() {
 }
 
 script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
-workspace_root="$(cd -- "${script_dir}/../.." && pwd -P)"
+workspace_root="$(cd -- "${script_dir}/.." && pwd -P)"
 buildinfo_package="github.com/rehuony/sing-box-panel/internal/buildinfo"
 selfupdate_package="github.com/rehuony/sing-box-panel/internal/selfupdate"
 release_keypair_dir=".github/keypair"

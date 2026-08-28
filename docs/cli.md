@@ -144,8 +144,14 @@ sing-box-panel update
 It is available only to strict v-prefixed release builds on Linux amd64 and
 arm64. The selected release must attach both platform binaries, `SHA256SUMS`,
 and `SHA256SUMS.sig`. The command verifies the embedded Ed25519 trust root and
-the selected binary digest before an atomic replacement. Any missing or
-invalid evidence leaves the running executable unchanged.
+the selected binary digest, then requires the staged file to carry the expected
+Go command, module, Linux target, architecture, and disabled-CGO build identity.
+Updates for one executable are serialized through an adjacent process lock;
+the current executable digest is rechecked after waiting and immediately before
+the atomic replacement, and the latest release tag is confirmed again while
+the lock is held. Cancellation is honored until that replacement commit point.
+Any missing or invalid evidence, concurrent replacement, changing release, or
+prior cancellation leaves the running executable unchanged.
 
 The invoking user must be able to write the executable's directory. Replacing
 the file does not restart an already-running systemd service. See

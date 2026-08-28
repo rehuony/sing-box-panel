@@ -145,13 +145,15 @@ func DecodeFeatureFingerprint(raw []byte) (FeatureFingerprint, json.RawMessage, 
 	return fingerprint, canonical, nil
 }
 
-// MatchesOfficialLinuxARM64 accepts only the reviewed normal release build.
-// Binaries with missing, extra, or unreported build tags fail closed.
-func MatchesOfficialLinuxARM64(profile Profile, exactVersion string, expectedFeatures []string) bool {
+// MatchesOfficialLinuxPlain accepts only the reviewed normal release builds
+// for the two supported Linux architectures. Binaries with missing, extra,
+// or unreported build tags fail closed.
+func MatchesOfficialLinuxPlain(profile Profile, exactVersion string, expectedFeatures []string) bool {
 	normalized, err := ValidateProfile(profile)
 	if err != nil || normalized.ExactVersion != exactVersion ||
 		normalized.OperatingSystem != string(coreartifact.OperatingSystemLinux) ||
-		normalized.Architecture != string(coreartifact.ArchitectureARM64) ||
+		(normalized.Architecture != string(coreartifact.ArchitectureARM64) &&
+			normalized.Architecture != string(coreartifact.ArchitectureAMD64)) ||
 		normalized.Variant != string(coreartifact.VariantPlain) {
 		return false
 	}

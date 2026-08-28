@@ -422,7 +422,7 @@ func newSubscriptionPublicationHTTPFixture(
 	startup, err := database.CreateStartupArtifact(ctx, store.StartupArtifact{
 		ID:                  "startup-http-publication",
 		CanonicalRevisionID: revision.Revision.ID, ExactCoreVersion: core.ExactVersion,
-		AdapterID: "sing-box/v1_13_19/official-linux-arm64", AdapterRevision: "1",
+		AdapterID: "sing-box/v1_13_19/official-linux-plain", AdapterRevision: "2",
 		CoreArtifactID: core.ID,
 		ConfigBytes:    []byte(`{"inbounds":[{"type":"shadowsocks","tag":"publish","listen":"::","listen_port":443,"method":"aes-256-gcm","password":"secret"}],"outbounds":[{"type":"shadowsocks","tag":"publish","server":"publish.example","server_port":443,"method":"aes-256-gcm","password":"secret"}]}`),
 		CreatedAt:      now.Add(time.Second),

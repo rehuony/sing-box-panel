@@ -41,15 +41,17 @@ var (
 )
 
 var (
-	ErrUnsupportedPlatform    = errors.New("self-update is unsupported on this platform")
-	ErrInvalidVersion         = errors.New("self-update requires a release build version")
-	ErrVerificationKeyInvalid = errors.New("embedded update verification key is invalid")
-	ErrReleaseUnavailable     = errors.New("release is unavailable")
-	ErrReleaseInvalid         = errors.New("release metadata is invalid")
-	ErrAssetMissing           = errors.New("required release asset is missing")
-	ErrSignatureInvalid       = errors.New("release signature is invalid")
-	ErrChecksumInvalid        = errors.New("release checksum is invalid")
-	ErrExecutableInvalid      = errors.New("current executable is invalid")
+	ErrUnsupportedPlatform     = errors.New("self-update is unsupported on this platform")
+	ErrInvalidVersion          = errors.New("self-update requires a release build version")
+	ErrVerificationKeyInvalid  = errors.New("embedded update verification key is invalid")
+	ErrReleaseUnavailable      = errors.New("release is unavailable")
+	ErrReleaseInvalid          = errors.New("release metadata is invalid")
+	ErrAssetMissing            = errors.New("required release asset is missing")
+	ErrSignatureInvalid        = errors.New("release signature is invalid")
+	ErrChecksumInvalid         = errors.New("release checksum is invalid")
+	ErrExecutableInvalid       = errors.New("current executable is invalid")
+	ErrExecutableChanged       = errors.New("current executable changed during self-update")
+	ErrStagedExecutableInvalid = errors.New("staged executable identity is invalid")
 )
 
 type Options struct {
@@ -62,13 +64,15 @@ type Options struct {
 }
 
 type Updater struct {
-	client           *http.Client
-	latestReleaseURL string
-	goos             string
-	goarch           string
-	executable       func() (string, error)
-	publicKey        ed25519.PublicKey
-	publicKeyErr     error
+	client                   *http.Client
+	latestReleaseURL         string
+	goos                     string
+	goarch                   string
+	executable               func() (string, error)
+	validateStagedExecutable func(string, string, string) error
+	publicKey                ed25519.PublicKey
+	publicKeyErr             error
+	afterTargetSnapshot      func()
 }
 
 type Result struct {
@@ -115,7 +119,8 @@ func New(options Options) *Updater {
 	return &Updater{
 		client: options.HTTPClient, latestReleaseURL: options.LatestReleaseURL,
 		goos: options.GOOS, goarch: options.GOARCH, executable: options.Executable,
-		publicKey: publicKey, publicKeyErr: publicKeyErr,
+		validateStagedExecutable: validateStagedExecutable,
+		publicKey:                publicKey, publicKeyErr: publicKeyErr,
 	}
 }
 
@@ -152,6 +157,7 @@ func (updater *Updater) Update(ctx context.Context, currentVersion string) (Resu
 	if err != nil {
 		return Result{}, err
 	}
+
 	checksums, err := updater.downloadBytes(ctx, checksumAsset, maxChecksumBytes)
 	if err != nil {
 		return Result{}, fmt.Errorf("download %s: %w", checksumAssetName, err)
@@ -172,6 +178,32 @@ func (updater *Updater) Update(ctx context.Context, currentVersion string) (Resu
 	if err != nil {
 		return Result{}, err
 	}
+	targetDigest, err := executableDigest(targetPath)
+	if err != nil {
+		return Result{}, err
+	}
+	if updater.afterTargetSnapshot != nil {
+		updater.afterTargetSnapshot()
+	}
+	lock, err := acquireUpdateLock(ctx, targetPath)
+	if err != nil {
+		return Result{}, fmt.Errorf("acquire update lock: %w", err)
+	}
+	defer func() { _ = lock.Close() }()
+	if err := requireExecutableDigest(targetPath, targetDigest); err != nil {
+		return Result{}, err
+	}
+	confirmedLatest, err := updater.latest(ctx)
+	if err != nil {
+		return Result{}, err
+	}
+	if confirmedLatest.TagName != latest.TagName {
+		return Result{}, fmt.Errorf(
+			"%w: latest release changed from %s to %s; retry",
+			ErrReleaseInvalid, latest.TagName, confirmedLatest.TagName,
+		)
+	}
+
 	temporary, err := os.CreateTemp(filepath.Dir(targetPath), ".sing-box-panel-update-*")
 	if err != nil {
 		return Result{}, fmt.Errorf("stage update beside executable: %w", err)
@@ -205,6 +237,17 @@ func (updater *Updater) Update(ctx context.Context, currentVersion string) (Resu
 		return Result{}, fmt.Errorf("close staged executable: %w", err)
 	}
 	closed = true
+	if err := updater.validateStagedExecutable(temporaryPath, updater.goos, updater.goarch); err != nil {
+		return Result{}, err
+	}
+	if err := requireExecutableDigest(targetPath, targetDigest); err != nil {
+		return Result{}, err
+	}
+	// Cancellation is honored until the atomic replacement commit point. Once
+	// Rename starts, the update is committed and only durability work remains.
+	if err := ctx.Err(); err != nil {
+		return Result{}, err
+	}
 	if err := os.Rename(temporaryPath, targetPath); err != nil {
 		return Result{}, fmt.Errorf("replace current executable: %w", err)
 	}

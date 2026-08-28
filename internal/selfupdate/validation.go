@@ -6,11 +6,18 @@ import (
 	"bufio"
 	"bytes"
 	"crypto/sha256"
+	"debug/buildinfo"
 	"encoding/hex"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
+)
+
+const (
+	panelCommandPath = "github.com/rehuony/sing-box-panel/cmd/sing-box-panel"
+	panelModulePath  = "github.com/rehuony/sing-box-panel"
 )
 
 func (updater *Updater) executableTarget() (string, os.FileMode, error) {
@@ -34,6 +41,75 @@ func (updater *Updater) executableTarget() (string, os.FileMode, error) {
 		return "", 0, fmt.Errorf("%w: path must be a regular executable file", ErrExecutableInvalid)
 	}
 	return path, info.Mode().Perm(), nil
+}
+
+func executableDigest(path string) ([sha256.Size]byte, error) {
+	var digest [sha256.Size]byte
+	file, err := os.Open(path)
+	if err != nil {
+		return digest, fmt.Errorf("%w: open for identity check: %w", ErrExecutableInvalid, err)
+	}
+	defer file.Close()
+	info, err := file.Stat()
+	if err != nil {
+		return digest, fmt.Errorf("%w: inspect for identity check: %w", ErrExecutableInvalid, err)
+	}
+	if !info.Mode().IsRegular() {
+		return digest, fmt.Errorf("%w: path must remain a regular file", ErrExecutableInvalid)
+	}
+	hash := sha256.New()
+	if _, err := io.Copy(hash, file); err != nil {
+		return digest, fmt.Errorf("%w: hash current executable: %w", ErrExecutableInvalid, err)
+	}
+	copy(digest[:], hash.Sum(nil))
+	return digest, nil
+}
+
+func requireExecutableDigest(path string, expected [sha256.Size]byte) error {
+	actual, err := executableDigest(path)
+	if err != nil {
+		return err
+	}
+	if actual != expected {
+		return ErrExecutableChanged
+	}
+	return nil
+}
+
+func validateStagedExecutable(path, expectedGOOS, expectedGOARCH string) error {
+	info, err := buildinfo.ReadFile(path)
+	if err != nil {
+		return fmt.Errorf("%w: read Go build information: %v", ErrStagedExecutableInvalid, err)
+	}
+	return validateStagedBuildIdentity(info, expectedGOOS, expectedGOARCH)
+}
+
+func validateStagedBuildIdentity(info *buildinfo.BuildInfo, expectedGOOS, expectedGOARCH string) error {
+	if info == nil || info.Path != panelCommandPath || info.Main.Path != panelModulePath {
+		return fmt.Errorf("%w: unexpected Go command or module path", ErrStagedExecutableInvalid)
+	}
+	wantedSettings := map[string]string{
+		"CGO_ENABLED": "0",
+		"GOARCH":      expectedGOARCH,
+		"GOOS":        expectedGOOS,
+	}
+	seen := make(map[string]string, len(wantedSettings))
+	for _, setting := range info.Settings {
+		if _, wanted := wantedSettings[setting.Key]; !wanted {
+			continue
+		}
+		if _, duplicate := seen[setting.Key]; duplicate {
+			return fmt.Errorf("%w: duplicate %s build setting", ErrStagedExecutableInvalid, setting.Key)
+		}
+		seen[setting.Key] = setting.Value
+	}
+	for key, expected := range wantedSettings {
+		actual, found := seen[key]
+		if !found || actual != expected {
+			return fmt.Errorf("%w: unexpected %s build setting", ErrStagedExecutableInvalid, key)
+		}
+	}
+	return nil
 }
 
 func findAsset(assets []asset, name string) (asset, error) {

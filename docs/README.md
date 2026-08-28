@@ -18,7 +18,7 @@ guide avoids repeating details that can drift independently.
 | [Configuration and runtime](configuration-and-runtime.md) | Configuration or runtime operator | Global schema-v2 history, projection, check/apply, lifecycle, and rollback | `internal/canonical`, configuration application services, `internal/runtime`, and activation storage |
 | [Subscriptions and observability](subscriptions-and-observability.md) | Subscription or operations administrator | Users, grants, source versions, renderers, public delivery, logs, metrics, and traffic | Subscription application/store packages, `internal/subscription`, `internal/subscriptionfetch`, and `internal/clashapi` |
 | [HTTP API and security](http-api-and-security.md) | API integrator or security reviewer | Routing, authentication, request boundaries, concurrency, and the Web trust boundary | `api/openapi.yaml`, `internal/httpapi`, and the Web HTTP client |
-| [Release process](release.md) | Release maintainer | Isolated packaging, signing, native smoke tests, Draft Release verification, and publication | `Makefile`, `.github/scripts`, and GitHub Actions workflows |
+| [Release process](release.md) | Release maintainer | Isolated packaging, signing, native smoke tests, Draft Release verification, and publication | `Makefile`, `scripts`, and GitHub Actions workflows |
 | [Repository architecture](architecture.md) | Contributor or maintainer | Dependency direction, package ownership, version adapters, and test placement | Current imports, composition roots, directory layout, and colocated tests |
 
 ## Authoritative component references
@@ -30,8 +30,8 @@ guide avoids repeating details that can drift independently.
   fail-closed behavior.
 - [systemd packaging](../systemd/README.md) defines supported service
   layouts, ownership, installation, and hardening.
-- [Release automation](../.github/scripts/README.md) defines the release
-  script inputs and generated files.
+- [Project scripts](../scripts/README.md) defines the installer, release
+  script inputs, local script checks, and generated release files.
 - [Web application](../web/README.md) defines frontend ownership, pnpm commands,
   embedding, and API-client boundaries.
 

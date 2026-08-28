@@ -5,7 +5,7 @@ set -euo pipefail
 
 usage() {
   cat >&2 <<'EOF'
-usage: .github/scripts/smoke-release.sh \
+usage: scripts/test/smoke-release.sh \
   --release-dir DIRECTORY \
   --version vX.Y.Z \
   --source-commit COMMIT \

@@ -241,7 +241,7 @@ func TestRenderSubscriptionPreviewUsesAppliedVersionAndSelectedUserGrants(t *tes
 	ready, err := database.CreateStartupArtifact(ctx, store.StartupArtifact{
 		ID:                  "startup-subscription-ready",
 		CanonicalRevisionID: canonicalSave.Revision.ID, ExactCoreVersion: core.ExactVersion,
-		AdapterID: "sing-box/v1_13_19/official-linux-arm64", AdapterRevision: "1",
+		AdapterID: "sing-box/v1_13_19/official-linux-plain", AdapterRevision: "2",
 		CoreArtifactID: core.ID, ConfigBytes: startupBytes,
 		CreatedAt: now.Add(time.Second),
 	})

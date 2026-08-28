@@ -14,6 +14,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime/debug"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -41,6 +42,7 @@ func TestUpdateDownloadsVerifiesAndAtomicallyReplacesExecutable(t *testing.T) {
 		GOOS: "linux", GOARCH: "amd64", Executable: func() (string, error) { return target, nil },
 		PublicKey: publicKey,
 	})
+	updater.validateStagedExecutable = func(string, string, string) error { return nil }
 
 	result, err := updater.Update(context.Background(), "v1.2.3")
 	if err != nil {
@@ -73,6 +75,256 @@ func TestUpdateDownloadsVerifiesAndAtomicallyReplacesExecutable(t *testing.T) {
 	}
 	if len(staged) != 0 {
 		t.Fatalf("staged files remain: %v", staged)
+	}
+}
+
+func TestUpdateRejectsStagedFileWithoutPanelBuildIdentity(t *testing.T) {
+	t.Parallel()
+
+	target := filepath.Join(t.TempDir(), "sing-box-panel")
+	original := []byte("old binary")
+	if err := os.WriteFile(target, original, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	newBinary := []byte("signed but not a sing-box-panel Go binary")
+	digest := sha256.Sum256(newBinary)
+	server, publicKey := signedReleaseServer(t, "v1.3.0", map[string][]byte{
+		"sing-box-panel-linux-amd64": newBinary,
+		checksumAssetName: []byte(fmt.Sprintf(
+			"%x  sing-box-panel-linux-amd64\n", digest,
+		)),
+	}, nil)
+	updater := New(Options{
+		HTTPClient: server.Client(), LatestReleaseURL: server.URL + "/latest",
+		GOOS: "linux", GOARCH: "amd64", Executable: func() (string, error) { return target, nil },
+		PublicKey: publicKey,
+	})
+
+	_, err := updater.Update(context.Background(), "v1.2.3")
+	if !errors.Is(err, ErrStagedExecutableInvalid) {
+		t.Fatalf("error = %v, want ErrStagedExecutableInvalid", err)
+	}
+	data, readErr := os.ReadFile(target)
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	if string(data) != string(original) {
+		t.Fatalf("executable changed to %q", data)
+	}
+}
+
+func TestUpdateHonorsCancellationAtAtomicCommitBoundary(t *testing.T) {
+	t.Parallel()
+
+	target := filepath.Join(t.TempDir(), "sing-box-panel")
+	original := []byte("old binary")
+	if err := os.WriteFile(target, original, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	newBinary := []byte("new verified binary")
+	digest := sha256.Sum256(newBinary)
+	server, publicKey := signedReleaseServer(t, "v1.3.0", map[string][]byte{
+		"sing-box-panel-linux-amd64": newBinary,
+		checksumAssetName: []byte(fmt.Sprintf(
+			"%x  sing-box-panel-linux-amd64\n", digest,
+		)),
+	}, nil)
+	ctx, cancel := context.WithCancel(context.Background())
+	updater := New(Options{
+		HTTPClient: server.Client(), LatestReleaseURL: server.URL + "/latest",
+		GOOS: "linux", GOARCH: "amd64", Executable: func() (string, error) { return target, nil },
+		PublicKey: publicKey,
+	})
+	updater.validateStagedExecutable = func(string, string, string) error {
+		cancel()
+		return nil
+	}
+
+	_, err := updater.Update(ctx, "v1.2.3")
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("error = %v, want context.Canceled", err)
+	}
+	data, readErr := os.ReadFile(target)
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	if string(data) != string(original) {
+		t.Fatalf("executable changed to %q", data)
+	}
+}
+
+func TestUpdateRejectsExecutableChangedWhileWaitingForLock(t *testing.T) {
+	target := filepath.Join(t.TempDir(), "sing-box-panel")
+	if err := os.WriteFile(target, []byte("old binary"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	lock, err := acquireUpdateLock(context.Background(), target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if lock != nil {
+			_ = lock.Close()
+		}
+	}()
+
+	newBinary := []byte("new verified binary")
+	digest := sha256.Sum256(newBinary)
+	server, publicKey := signedReleaseServer(t, "v1.3.0", map[string][]byte{
+		"sing-box-panel-linux-amd64": newBinary,
+		checksumAssetName: []byte(fmt.Sprintf(
+			"%x  sing-box-panel-linux-amd64\n", digest,
+		)),
+	}, nil)
+	snapshotTaken := make(chan struct{})
+	updater := New(Options{
+		HTTPClient: server.Client(), LatestReleaseURL: server.URL + "/latest",
+		GOOS: "linux", GOARCH: "amd64", Executable: func() (string, error) { return target, nil },
+		PublicKey: publicKey,
+	})
+	updater.afterTargetSnapshot = func() { close(snapshotTaken) }
+	result := make(chan error, 1)
+	go func() {
+		_, updateErr := updater.Update(context.Background(), "v1.2.3")
+		result <- updateErr
+	}()
+
+	<-snapshotTaken
+	changed := []byte("replacement from concurrent updater")
+	if err := os.WriteFile(target, changed, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := lock.Close(); err != nil {
+		t.Fatal(err)
+	}
+	lock = nil
+	if err := <-result; !errors.Is(err, ErrExecutableChanged) {
+		t.Fatalf("error = %v, want ErrExecutableChanged", err)
+	}
+	data, readErr := os.ReadFile(target)
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	if string(data) != string(changed) {
+		t.Fatalf("executable changed to %q", data)
+	}
+}
+
+func TestUpdateRejectsLatestReleaseChangingInsideLock(t *testing.T) {
+	t.Parallel()
+
+	target := filepath.Join(t.TempDir(), "sing-box-panel")
+	original := []byte("old binary")
+	if err := os.WriteFile(target, original, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	binary := []byte("new verified binary")
+	digest := sha256.Sum256(binary)
+	checksums := []byte(fmt.Sprintf("%x  sing-box-panel-linux-amd64\n", digest))
+	signature, err := releasesignature.Sign(privateKey, "v1.3.0", checksums)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assets := map[string][]byte{
+		"sing-box-panel-linux-amd64": binary,
+		checksumAssetName:            checksums,
+		signatureAssetName:           signature,
+	}
+	var latestRequests atomic.Int32
+	var server *httptest.Server
+	server = httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Path == "/latest" {
+			tag := "v1.3.0"
+			if latestRequests.Add(1) > 1 {
+				tag = "v1.4.0"
+			}
+			values := make([]asset, 0, len(assets))
+			for name, data := range assets {
+				values = append(values, asset{
+					Name: name, BrowserDownloadURL: server.URL + "/asset/" + name, Size: int64(len(data)),
+				})
+			}
+			writer.Header().Set("Content-Type", "application/json")
+			if err := json.NewEncoder(writer).Encode(release{TagName: tag, Assets: values}); err != nil {
+				t.Errorf("encode release: %v", err)
+			}
+			return
+		}
+		if strings.HasPrefix(request.URL.Path, "/asset/") {
+			data, found := assets[strings.TrimPrefix(request.URL.Path, "/asset/")]
+			if !found {
+				http.NotFound(writer, request)
+				return
+			}
+			_, _ = writer.Write(data)
+			return
+		}
+		http.NotFound(writer, request)
+	}))
+	t.Cleanup(server.Close)
+	updater := New(Options{
+		HTTPClient: server.Client(), LatestReleaseURL: server.URL + "/latest",
+		GOOS: "linux", GOARCH: "amd64", Executable: func() (string, error) { return target, nil },
+		PublicKey: publicKey,
+	})
+
+	_, err = updater.Update(context.Background(), "v1.2.3")
+	if !errors.Is(err, ErrReleaseInvalid) {
+		t.Fatalf("error = %v, want ErrReleaseInvalid", err)
+	}
+	data, readErr := os.ReadFile(target)
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	if string(data) != string(original) {
+		t.Fatalf("executable changed to %q", data)
+	}
+}
+
+func TestValidateStagedBuildIdentity(t *testing.T) {
+	t.Parallel()
+
+	valid := &debug.BuildInfo{
+		Path: panelCommandPath,
+		Main: debug.Module{Path: panelModulePath},
+		Settings: []debug.BuildSetting{
+			{Key: "CGO_ENABLED", Value: "0"},
+			{Key: "GOARCH", Value: "amd64"},
+			{Key: "GOOS", Value: "linux"},
+		},
+	}
+	if err := validateStagedBuildIdentity(valid, "linux", "amd64"); err != nil {
+		t.Fatalf("valid identity: %v", err)
+	}
+
+	tests := []struct {
+		name   string
+		mutate func(*debug.BuildInfo)
+	}{
+		{name: "command", mutate: func(value *debug.BuildInfo) { value.Path = panelModulePath + "/cmd/other" }},
+		{name: "module", mutate: func(value *debug.BuildInfo) { value.Main.Path = "example.com/other" }},
+		{name: "architecture", mutate: func(value *debug.BuildInfo) { value.Settings[1].Value = "arm64" }},
+		{name: "operating system", mutate: func(value *debug.BuildInfo) { value.Settings[2].Value = "darwin" }},
+		{name: "cgo", mutate: func(value *debug.BuildInfo) { value.Settings[0].Value = "1" }},
+		{name: "missing setting", mutate: func(value *debug.BuildInfo) { value.Settings = value.Settings[:2] }},
+		{name: "duplicate setting", mutate: func(value *debug.BuildInfo) {
+			value.Settings = append(value.Settings, debug.BuildSetting{Key: "GOOS", Value: "linux"})
+		}},
+	}
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			candidate := *valid
+			candidate.Main = valid.Main
+			candidate.Settings = append([]debug.BuildSetting(nil), valid.Settings...)
+			testCase.mutate(&candidate)
+			if err := validateStagedBuildIdentity(&candidate, "linux", "amd64"); !errors.Is(err, ErrStagedExecutableInvalid) {
+				t.Fatalf("error = %v, want ErrStagedExecutableInvalid", err)
+			}
+		})
 	}
 }
 

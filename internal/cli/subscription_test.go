@@ -173,7 +173,7 @@ func TestSubscriptionChannelRenderCLIEndToEnd(t *testing.T) {
 	startup, err := database.CreateStartupArtifact(context.Background(), store.StartupArtifact{
 		ID:                  "startup-subscription-cli",
 		CanonicalRevisionID: canonicalSave.Revision.ID, ExactCoreVersion: core.ExactVersion,
-		AdapterID: "sing-box/v1_13_19/official-linux-arm64", AdapterRevision: "1",
+		AdapterID: "sing-box/v1_13_19/official-linux-plain", AdapterRevision: "2",
 		CoreArtifactID: core.ID, ConfigBytes: startupBytes,
 		Diagnostics: json.RawMessage(`[]`), CreatedAt: now.Add(time.Second),
 	})

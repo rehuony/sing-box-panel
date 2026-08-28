@@ -14,16 +14,20 @@ import (
 func TestOfficialProfileMatchingIsExact(t *testing.T) {
 	t.Parallel()
 
-	profile := officialProfile(t)
-	if !New().Supports(profile) {
-		t.Fatal("official profile was not supported")
+	for _, architecture := range []string{"amd64", "arm64"} {
+		profile := officialProfile(t)
+		profile.Architecture = architecture
+		if !New().Supports(profile) {
+			t.Fatalf("official %s profile was not supported", architecture)
+		}
 	}
+	profile := officialProfile(t)
 	tests := []struct {
 		name   string
 		mutate func(*adapter.Profile)
 	}{
 		{name: "nearby version", mutate: func(value *adapter.Profile) { value.ExactVersion = "1.11.16" }},
-		{name: "other architecture", mutate: func(value *adapter.Profile) { value.Architecture = "amd64" }},
+		{name: "other architecture", mutate: func(value *adapter.Profile) { value.Architecture = "riscv64" }},
 		{name: "unreported features", mutate: func(value *adapter.Profile) { value.FeatureFingerprint = json.RawMessage(`{"status":"not_reported"}`) }},
 		{name: "extra feature", mutate: func(value *adapter.Profile) {
 			features := append([]string(nil), officialFeatures...)

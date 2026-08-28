@@ -22,8 +22,8 @@ type compiledAdapter struct{}
 
 func New() adapter.Adapter { return compiledAdapter{} }
 
-func (compiledAdapter) ID() string           { return "sing-box/v1_13_19/official-linux-arm64" }
-func (compiledAdapter) Revision() string     { return "1" }
+func (compiledAdapter) ID() string           { return "sing-box/v1_13_19/official-linux-plain" }
+func (compiledAdapter) Revision() string     { return "2" }
 func (compiledAdapter) ExactVersion() string { return Version }
 func (compiledAdapter) Provenance() adapter.Provenance {
 	return adapter.Provenance{
@@ -32,7 +32,7 @@ func (compiledAdapter) Provenance() adapter.Provenance {
 	}
 }
 func (compiledAdapter) Supports(profile adapter.Profile) bool {
-	return adapter.MatchesOfficialLinuxARM64(profile, Version, officialFeatures)
+	return adapter.MatchesOfficialLinuxPlain(profile, Version, officialFeatures)
 }
 
 func (compiledAdapter) Project(request adapter.Request) (adapter.Result, error) {

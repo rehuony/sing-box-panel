@@ -1,12 +1,46 @@
-# Release automation
+# Project scripts
 
-This directory owns the release automation used by local Make targets, CI, and
-the signed-release workflow. `build-release.sh` builds and verifies an isolated
-source snapshot but never publishes, uploads, signs, installs, or retains
-artifacts. `smoke-release.sh` is GitHub Actions-only orchestration for native
-release smoke tests. The `Build signed release` workflow adds the signature,
-runs those smoke tests, and creates a verified Draft Release for a maintainer
-to publish.
+This directory owns executable project scripts. `installer.sh` installs a
+published release on a Linux host. `build-release.sh` builds and verifies an
+isolated source snapshot. `test/` contains local script tests and the
+GitHub Actions-only native release smoke orchestration. GitHub workflow YAML
+and the release signing trust root remain under `.github/`.
+
+## Release installer
+
+`installer.sh` supports Linux amd64 and arm64. With no arguments it installs
+the latest published stable release; `--version vMAJOR.MINOR.PATCH` selects one
+exact release. It downloads the target binary, `SHA256SUMS`, and
+`SHA256SUMS.sig`. It obtains the Ed25519 trust root exclusively from
+`.github/keypair/release-signing-public-key`, then verifies the manifest
+signature and binary checksum before executing or installing the binary. The
+installer contains no copied public-key value.
+
+The installer chooses the existing application layout from the effective user:
+
+- root installs the binary at `/usr/local/bin/sing-box-panel`, settings at
+  `/etc/sing-box-panel/setting.json`, and default data under
+  `/var/lib/sing-box-panel`;
+- another user installs the binary under `~/.local/bin` and uses the current
+  XDG configuration and data homes.
+
+Existing settings and data are retained and verified. Missing settings are
+initialized through the verified release binary. The installer does not
+modify shell profiles or configure, start, stop, or restart systemd; it prints
+the appropriate explicit `system install` and `system restart` commands after
+installation. Run its network-independent contract tests locally with:
+
+```sh
+make installer-test
+```
+
+## Release automation
+
+`build-release.sh` is used by local Make targets, CI, and the signed-release
+workflow. It never publishes, uploads, signs, installs, or retains artifacts.
+`test/smoke-release.sh` is GitHub Actions-only orchestration for native release
+smoke tests. The `Build signed release` workflow adds the signature, runs those
+smoke tests, and creates a verified Draft Release for a maintainer to publish.
 
 ## Interface
 
@@ -21,9 +55,9 @@ make release-verify
 Their underlying script interface is:
 
 ```sh
-.github/scripts/build-release.sh snapshot --output /absolute/path/to/new-output
-.github/scripts/build-release.sh release --version v0.1.0 --output /absolute/path/to/new-output
-.github/scripts/build-release.sh verify
+scripts/build-release.sh snapshot --output /absolute/path/to/new-output
+scripts/build-release.sh release --version v0.1.0 --output /absolute/path/to/new-output
+scripts/build-release.sh verify
 ```
 
 The destination of `snapshot` and `release` must not exist, and its parent
@@ -87,6 +121,6 @@ requires both architectures to build successfully, checks their Go build
 metadata and key, checks the embedded release identity, and confirms that
 invalid release versions fail without leaving an output directory.
 
-See [Release process](../../docs/release.md) for signing-key setup, native
+See [Release process](../docs/release.md) for signing-key setup, native
 amd64 and arm64 smoke tests, Draft Release verification, manual publication,
 trust bootstrap, and the release-hardening backlog.

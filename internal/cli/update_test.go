@@ -71,6 +71,8 @@ func TestUpdateCommandClassifiesFailures(t *testing.T) {
 		{name: "signature", err: selfupdate.ErrSignatureInvalid, code: 3},
 		{name: "checksum", err: selfupdate.ErrChecksumInvalid, code: 3},
 		{name: "executable", err: selfupdate.ErrExecutableInvalid, code: 3},
+		{name: "executable changed", err: selfupdate.ErrExecutableChanged, code: 3},
+		{name: "staged executable", err: selfupdate.ErrStagedExecutableInvalid, code: 3},
 		{name: "canceled", err: context.Canceled, code: 130},
 		{name: "other", err: errors.New("replace failed"), code: 1},
 	}

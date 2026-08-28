@@ -188,7 +188,7 @@ func TestDashboardContextUsesAppliedBundleAndExactAdapterEvidence(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if status.ConfigurationState != "sing-box/v1_13_19/official-linux-arm64@1" || status.AppliedBundleID == nil ||
+	if status.ConfigurationState != "sing-box/v1_13_19/official-linux-plain@2" || status.AppliedBundleID == nil ||
 		*status.AppliedBundleID != prepared.Bundle.ID || status.Running {
 		t.Fatalf("system status = %+v", status)
 	}
@@ -199,7 +199,7 @@ func TestDashboardContextUsesAppliedBundleAndExactAdapterEvidence(t *testing.T) 
 	if contextValue.Applied == nil || contextValue.Applied.Bundle != prepared.Bundle.ID ||
 		contextValue.Applied.Revision != canonicalSave.Revision.Sequence ||
 		contextValue.View.ExactVersion != core.ExactVersion || !contextValue.Adapter.Supported ||
-		contextValue.Adapter.Label != "sing-box/v1_13_19/official-linux-arm64@1" ||
+		contextValue.Adapter.Label != "sing-box/v1_13_19/official-linux-plain@2" ||
 		contextValue.Canonical.HasUnappliedChanges {
 		t.Fatalf("dashboard context = %+v", contextValue)
 	}

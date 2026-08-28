@@ -300,7 +300,7 @@ jobs:
           SOURCE_SHA: ${{ needs.guard.outputs.source-sha }}
         run: |
           set -euo pipefail
-          .github/scripts/smoke-release.sh \
+          scripts/test/smoke-release.sh \
             --release-dir "${RUNNER_TEMP}/sing-box-panel-release" \
             --version "${RELEASE_VERSION}" \
             --source-commit "${SOURCE_SHA}" \

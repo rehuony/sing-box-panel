@@ -55,7 +55,7 @@ func TestPreviewConfigurationUsesExactCompiledProfile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("PreviewConfiguration() error = %v", err)
 	}
-	if !preview.Support.Supported || preview.Support.AdapterID != "sing-box/v1_13_19/official-linux-arm64" {
+	if !preview.Support.Supported || preview.Support.AdapterID != "sing-box/v1_13_19/official-linux-plain" || preview.Support.Revision != "2" {
 		t.Fatalf("support = %+v", preview.Support)
 	}
 	if string(preview.Config) != "{}" {

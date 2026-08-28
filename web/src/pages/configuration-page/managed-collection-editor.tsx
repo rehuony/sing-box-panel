@@ -12,7 +12,7 @@ export interface ManagedCollectionEditorProps {
 
 const inboundTypes = [
   'mixed', 'socks', 'http', 'shadowsocks', 'vmess', 'trojan', 'naive',
-  'hysteria', 'shadowtls', 'vless', 'tuic', 'hysteria2', 'anytls', 'snell',
+  'hysteria', 'shadowtls', 'vless', 'tuic', 'hysteria2', 'anytls',
 ] as const;
 const outboundTypes = [
   'direct', 'block', 'dns', 'socks', 'http', 'shadowsocks', 'vmess', 'trojan',

@@ -19,7 +19,8 @@ make check build
 
 `make check` validates third-party notices and OpenAPI, runs Web linting,
 type-checking and tests, verifies that Go sources and modules are current, and
-runs `go vet` and Go tests. It is read-only and does not create `web/dist`.
+runs `go vet`, Go tests, Shell syntax checks, and the network-independent
+installer contract tests. It is read-only and does not create `web/dist`.
 `make build` builds the production Web bundle and writes
 `bin/sing-box-panel` with the `webdist` build tag.
 

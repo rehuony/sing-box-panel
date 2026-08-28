@@ -10,6 +10,7 @@
   </div>
   <div>
     <a href="#features">Features</a> ·
+    <a href="#installation">Installation</a> ·
     <a href="#quick-start">Quick start</a> ·
     <a href="#documentation">Documentation</a> ·
     <a href="https://github.com/rehuony/sing-box-panel/issues">Issues</a>
@@ -47,7 +48,66 @@ The supported deployment targets are `linux/amd64` and `linux/arm64`. Windows,
 macOS, BSD, multiple simultaneous sing-box runtimes, and external databases are
 outside the current product contract.
 
-## Requirements
+## Installation
+
+The installer supports Linux on amd64 and arm64. It downloads one published
+GitHub Release, authenticates the exact `SHA256SUMS` bytes and release version
+with the Ed25519 key retrieved from the repository's canonical
+`.github/keypair/release-signing-public-key` file, verifies the selected
+binary's SHA-256 digest, and then initializes settings only when they do not
+already exist.
+
+Install for the current user:
+
+```sh
+curl --proto '=https' --tlsv1.2 -fsSL \
+  https://raw.githubusercontent.com/rehuony/sing-box-panel/main/scripts/installer.sh | bash
+```
+
+Install the fixed system layout as root:
+
+```sh
+curl --proto '=https' --tlsv1.2 -fsSL \
+  https://raw.githubusercontent.com/rehuony/sing-box-panel/main/scripts/installer.sh | sudo bash
+```
+
+Pin an exact stable release when reproducibility matters:
+
+```sh
+curl --proto '=https' --tlsv1.2 -fsSL \
+  https://raw.githubusercontent.com/rehuony/sing-box-panel/main/scripts/installer.sh | \
+  bash -s -- --version v0.1.0
+```
+
+The default layouts are:
+
+| Effective user | Binary | Settings | Data |
+| --- | --- | --- | --- |
+| Regular user | `~/.local/bin/sing-box-panel` | `${XDG_CONFIG_HOME:-$HOME/.config}/sing-box-panel/setting.json` | `${XDG_DATA_HOME:-$HOME/.local/share}/sing-box-panel` |
+| root | `/usr/local/bin/sing-box-panel` | `/etc/sing-box-panel/setting.json` | `/var/lib/sing-box-panel` |
+
+The installer never overwrites existing settings, modifies shell startup
+files, or configures and starts systemd. Add `~/.local/bin` to `PATH` when it
+is not already present. To install and start the audited service explicitly:
+
+```sh
+# Regular user
+~/.local/bin/sing-box-panel system install --scope=user --now
+
+# Root/system installation
+/usr/local/bin/sing-box-panel system install --scope=system --now
+```
+
+A user service requires administrator-enabled lingering if it must continue
+after logout. An already running service keeps its existing process after a
+binary upgrade; restart it explicitly when ready. See the authoritative
+[systemd packaging guide](systemd/README.md) for ownership and hardening.
+
+The latest-version command requires at least one published, non-prerelease
+GitHub Release. Before the first release is published, the installer exits
+without changing the host and reports that no latest release can be resolved.
+
+## Build requirements
 
 Building from source requires:
 
@@ -103,10 +163,11 @@ builds, and the web application.
 
 ```text
 api/                 OpenAPI source contract
-.github/             CI, release workflows, keys, and release automation
+.github/             CI and release workflows, assets, and signing keys
 cmd/                 Published sing-box-panel entry point
 internal/cmd/        Repository-only Go tools
 internal/            Go implementation packages
+scripts/             End-user installation, release, and local test scripts
 systemd/             Embedded systemd templates and packaging guidance
 web/                 React/Vite application managed with pnpm
 ```

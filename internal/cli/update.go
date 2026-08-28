@@ -52,7 +52,7 @@ func classifyUpdateError(err error) error {
 		return &Error{Kind: ErrorUnavailable, Code: "update_unsupported", Message: err.Error(), Cause: err}
 	case errors.Is(err, selfupdate.ErrReleaseUnavailable), errors.Is(err, selfupdate.ErrAssetMissing):
 		return &Error{Kind: ErrorUnavailable, Code: "update_release_unavailable", Message: err.Error(), Cause: err}
-	case errors.Is(err, selfupdate.ErrVerificationKeyInvalid), errors.Is(err, selfupdate.ErrReleaseInvalid), errors.Is(err, selfupdate.ErrSignatureInvalid), errors.Is(err, selfupdate.ErrChecksumInvalid), errors.Is(err, selfupdate.ErrExecutableInvalid):
+	case errors.Is(err, selfupdate.ErrVerificationKeyInvalid), errors.Is(err, selfupdate.ErrReleaseInvalid), errors.Is(err, selfupdate.ErrSignatureInvalid), errors.Is(err, selfupdate.ErrChecksumInvalid), errors.Is(err, selfupdate.ErrExecutableInvalid), errors.Is(err, selfupdate.ErrExecutableChanged), errors.Is(err, selfupdate.ErrStagedExecutableInvalid):
 		return &Error{Kind: ErrorValidation, Code: "update_validation_failed", Message: err.Error(), Cause: err}
 	default:
 		return &Error{Kind: ErrorDomain, Code: "update_failed", Message: err.Error(), Cause: err}

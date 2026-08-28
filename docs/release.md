@@ -20,16 +20,18 @@ either reproducible CI/workflow jobs or the maintainer's final draft review.
 ## Verification scope
 
 The ordinary `CI` workflow runs Go and contract checks, race and fuzz smoke
-tests, Web and notice checks, and isolated package verification. The repository
-has no Docker E2E harness or Docker CI job. Tests remain beside their owning Go
-or Web packages.
+tests, Web and notice checks, and isolated package verification. It does not
+download or run sing-box core binaries. The repository has no Docker E2E
+harness or Docker CI job. Go and Web tests remain beside their owning packages;
+network-independent installer tests live under `scripts/test/`.
 
 The manually dispatched signed-release workflow adds native amd64 and arm64
 smoke tests for the packaged panel binary, HTTP startup, persistent state, and
 authenticated self-update. Those release smoke tests do not download or run a
-sing-box core. Exact core/config compatibility is enforced later by the
+sing-box core. Exact core/config compatibility remains enforced by the
 installed artifact profile, compiled adapter, and real `sing-box check` on the
-operator host.
+operator host. A package-local environment-gated test is also available when
+an exact native binary is supplied explicitly.
 
 ## Local development build
 
@@ -83,7 +85,7 @@ manifest from being reused for a different version.
 ## Isolated build model
 
 Snapshot and release builds share the implementation in
-`.github/scripts/build-release.sh`. It exports committed `HEAD` into a
+`scripts/build-release.sh`. It exports committed `HEAD` into a
 temporary source tree, builds the Web application from a separate temporary
 copy with locked dependencies, and copies only the verified `web/dist` into
 the source snapshot. Go module, build, and package-manager state is isolated
@@ -201,7 +203,7 @@ runs four stages:
    confirms that the running process remains unchanged until restart and that
    both the new version and SQLite state survive the restart. The arm64 job
    never falls back to QEMU. The Actions-only orchestration is implemented by
-   `.github/scripts/smoke-release.sh`.
+   `scripts/test/smoke-release.sh`.
 4. `draft` obtains `contents: write` only after both smoke jobs pass. It creates
    a Draft Release targeted at the frozen commit, generates release notes,
    uploads the four exact assets, downloads them into an empty directory, and
@@ -233,7 +235,7 @@ make release-verify
 ```
 
 For the exact script interface and environment-isolation rules, see
-[Release automation](../.github/scripts/README.md).
+[Project scripts](../scripts/README.md).
 
 ## Release-hardening backlog
 

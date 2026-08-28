@@ -1,14 +1,14 @@
 WEB_PNPM := pnpm --dir web
 GO_SOURCE_DIRS := cmd internal systemd web
-RELEASE_SCRIPT := .github/scripts/build-release.sh
-SHELL_SOURCE_DIRS := .github/scripts
+RELEASE_SCRIPT := scripts/build-release.sh
+SHELL_SOURCE_DIRS := scripts
 
 .PHONY: \
 	bootstrap go-download web-install \
 	fmt notices web-lint-fix \
 	fmt-check mod-check vet test test-race fuzz-smoke \
 	web-lint web-test web-typecheck \
-	notices-check openapi-check shell-check \
+	notices-check openapi-check shell-check installer-test \
 	check-go check-web check-contracts check \
 	web-build build \
 	require-out require-version release release-verify snapshot \
@@ -63,6 +63,9 @@ web-lint web-test web-typecheck:
 shell-check:
 	bash -n $$(find $(SHELL_SOURCE_DIRS) -type f -name '*.sh')
 
+installer-test:
+	bash scripts/test/installer-test.sh
+
 notices-check:
 	go tool third-party-notices --check
 
@@ -73,7 +76,7 @@ check-go: fmt-check mod-check vet test
 
 check-web: web-lint web-typecheck web-test
 
-check-contracts: shell-check openapi-check notices-check
+check-contracts: shell-check installer-test openapi-check notices-check
 
 check: check-go check-web check-contracts
 
