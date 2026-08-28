@@ -1,0 +1,83 @@
+name: Bug report
+description: Report reproducible behavior that is not working as documented.
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for reporting a problem. Do not include security vulnerability details or secrets here. Use the private security reporting link in the issue chooser instead.
+  - type: input
+    id: version
+    attributes:
+      label: Version or commit
+      description: Provide the sing-box-panel release version or full source commit.
+      placeholder: v0.1.0 or full commit SHA
+    validations:
+      required: true
+  - type: dropdown
+    id: installation
+    attributes:
+      label: Installation scope
+      options:
+        - Regular user installation
+        - Root/system installation
+        - Source build
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Include operating system, architecture, browser or CLI, and relevant sing-box version.
+      placeholder: Linux distribution, amd64 or arm64, browser or CLI, sing-box exact version
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: Describe what happened and the visible impact.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction steps
+      description: Provide the smallest deterministic sequence that reproduces the problem.
+      placeholder: |
+        1. Run ...
+        2. Configure ...
+        3. Observe ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: Describe the result you expected and the documentation or contract it follows.
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Sanitized logs or evidence
+      description: Remove tokens, configuration secrets, private paths, personal data, and credentials before pasting output.
+      render: text
+    validations:
+      required: false
+  - type: checkboxes
+    id: confirmations
+    attributes:
+      label: Confirmations
+      options:
+        - label: I searched existing issues for this problem.
+          required: true
+        - label: This report does not disclose a security vulnerability.
+          required: true
+        - label: I removed secrets and private data from the report.
+          required: true
+        - label: I agree to follow the project's Code of Conduct.
+          required: true

@@ -162,7 +162,7 @@ builds, and the web application.
 ## Project map
 
 ```text
-.github/             CI and release workflows, and signing keys
+.github/             Workflows, community templates, code ownership, and signing keys
 api/                 OpenAPI source contract
 assets/              Repository and GitHub Pages presentation assets
 cmd/                 Published sing-box-panel entry point
@@ -175,16 +175,10 @@ web/                 React/Vite application managed with pnpm
 
 ## Contributing
 
-Use the existing architecture and keep public behavior synchronized with its
-authoritative documentation. Before submitting a change, run:
-
-```sh
-make check
-```
-
-Open an [issue](https://github.com/rehuony/sing-box-panel/issues) before a large
-behavioral or architectural change so its contract and compatibility impact
-can be reviewed first.
+Read the [contribution guide](CONTRIBUTING.md) before opening an issue or pull
+request. Participation is governed by the [Code of Conduct](CODE_OF_CONDUCT.md),
+and vulnerabilities must be reported privately according to the
+[Security Policy](SECURITY.md).
 
 ## License
 

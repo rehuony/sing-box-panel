@@ -1,0 +1,5 @@
+# All repository changes require maintainer review.
+* @rehuony
+
+# Protect the ownership policy itself.
+/.github/CODEOWNERS @rehuony

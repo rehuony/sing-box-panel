@@ -1,0 +1,48 @@
+name: Usage question
+description: Ask for help using a documented sing-box-panel workflow.
+title: "[Question]: "
+labels:
+  - question
+body:
+  - type: textarea
+    id: goal
+    attributes:
+      label: Goal
+      description: Describe what you are trying to accomplish.
+    validations:
+      required: true
+  - type: textarea
+    id: attempted
+    attributes:
+      label: What you tried
+      description: Link the relevant guide and list the commands or steps already attempted.
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Include the panel version or commit, operating system, architecture, and installation scope.
+    validations:
+      required: true
+  - type: textarea
+    id: output
+    attributes:
+      label: Sanitized output
+      description: Remove tokens, configuration secrets, private paths, personal data, and credentials.
+      render: text
+    validations:
+      required: false
+  - type: checkboxes
+    id: confirmations
+    attributes:
+      label: Confirmations
+      options:
+        - label: I searched the documentation and existing issues first.
+          required: true
+        - label: This question does not disclose a security vulnerability.
+          required: true
+        - label: I removed secrets and private data from the question.
+          required: true
+        - label: I agree to follow the project's Code of Conduct.
+          required: true

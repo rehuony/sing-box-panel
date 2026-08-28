@@ -1,0 +1,50 @@
+name: Feature request
+description: Propose a concrete improvement backed by a current use case.
+title: "[Feature]: "
+labels:
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Describe the problem before proposing implementation details. Open an issue before investing in a large compatibility or architectural change.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or use case
+      description: Who needs this, what are they trying to do, and what currently prevents it?
+    validations:
+      required: true
+  - type: textarea
+    id: outcome
+    attributes:
+      label: Desired outcome
+      description: Describe observable behavior and success criteria without prescribing unnecessary architecture.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Describe existing commands, workflows, or designs you evaluated.
+    validations:
+      required: true
+  - type: textarea
+    id: impact
+    attributes:
+      label: Compatibility and security impact
+      description: Note affected public APIs, persisted data, configuration, privileges, release formats, or trust boundaries.
+      placeholder: None, or a concise impact description
+    validations:
+      required: true
+  - type: checkboxes
+    id: confirmations
+    attributes:
+      label: Confirmations
+      options:
+        - label: I searched existing issues and documentation for this request.
+          required: true
+        - label: This request does not disclose a security vulnerability.
+          required: true
+        - label: I agree to follow the project's Code of Conduct.
+          required: true
