@@ -1,5 +1,5 @@
 <div align="center">
-  <img src=".github/assets/sing-box-panel-icon.svg" width="128" height="128" alt="sing-box-panel icon">
+  <img src="assets/sing-box-panel-icon.svg" width="128" height="128" alt="sing-box-panel icon">
   <h1>sing-box-panel</h1>
   <p>A Linux control plane for one exact, verifiable sing-box runtime.</p>
   <div>
@@ -162,8 +162,9 @@ builds, and the web application.
 ## Project map
 
 ```text
+.github/             CI and release workflows, and signing keys
 api/                 OpenAPI source contract
-.github/             CI and release workflows, assets, and signing keys
+assets/              Repository and GitHub Pages presentation assets
 cmd/                 Published sing-box-panel entry point
 internal/cmd/        Repository-only Go tools
 internal/            Go implementation packages

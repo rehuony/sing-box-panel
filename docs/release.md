@@ -19,7 +19,7 @@ either reproducible CI/workflow jobs or the maintainer's final draft review.
 
 ## Verification scope
 
-The ordinary `CI` workflow runs Go and contract checks, race and fuzz smoke
+The ordinary `CI Checks` workflow runs Go and contract checks, race and fuzz smoke
 tests, Web and notice checks, and isolated package verification. It does not
 download or run sing-box core binaries. The repository has no Docker E2E
 harness or Docker CI job. Go and Web tests remain beside their owning packages;
@@ -183,7 +183,7 @@ narrower and accepts only a stable `vMAJOR.MINOR.PATCH` version.
 
 ## Automated Draft Release
 
-Manually dispatch `Build signed release` from the default branch and provide
+Manually dispatch `Release Build` from the default branch and provide
 the stable release version. The workflow freezes the full source commit and
 runs four stages:
 
@@ -220,7 +220,7 @@ For every release:
 
 1. Merge the release source into the default branch and wait for all required
    CI checks to pass.
-2. Dispatch `Build signed release` with the next stable version.
+2. Dispatch `Release Build` with the next stable version.
 3. Wait for build, signing, and both native smoke jobs to succeed.
 4. Open the generated Draft Release and review its version, target commit,
    generated notes, and four assets.

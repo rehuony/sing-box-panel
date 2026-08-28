@@ -6,7 +6,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "pnpm run typecheck && pnpm run bundle",
+    "build": "tsc --noEmit && vite build",
     "bundle": "vite build",
     "lint": "eslint . --max-warnings 0",
     "lint:fix": "eslint . --fix",

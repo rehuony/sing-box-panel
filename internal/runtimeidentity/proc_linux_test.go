@@ -20,8 +20,12 @@ func TestProcInspectorBindsPIDIncarnationAndExecutableInode(t *testing.T) {
 	if err := os.Mkdir(processDirectory, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	fields := append([]string{"S"}, make([]string, 18)...)
-	fields = append(fields, "987654")
+	fields := make([]string, 20)
+	fields[0] = "S"
+	for index := 1; index < 19; index++ {
+		fields[index] = "0"
+	}
+	fields[19] = "987654"
 	if err := os.WriteFile(filepath.Join(processDirectory, "stat"), []byte("42 (sing box worker) "+strings.Join(fields, " ")+"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}

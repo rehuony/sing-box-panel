@@ -1,4 +1,4 @@
-WEB_PNPM := pnpm --dir web
+WEB_PNPM := cd web && corepack pnpm
 GO_SOURCE_DIRS := cmd internal systemd web
 RELEASE_SCRIPT := scripts/build-release.sh
 SHELL_SOURCE_DIRS := scripts
@@ -20,7 +20,6 @@ go-download:
 	go mod download
 
 web-install:
-	corepack enable pnpm
 	$(WEB_PNPM) install --frozen-lockfile --ignore-scripts --verify-store-integrity
 
 bootstrap: go-download web-install
@@ -30,7 +29,7 @@ bootstrap: go-download web-install
 fmt:
 	gofmt -w $$(find $(GO_SOURCE_DIRS) -type f -name '*.go')
 
-notices:
+notices: web-build
 	go tool third-party-notices
 
 web-lint-fix:
@@ -66,7 +65,7 @@ shell-check:
 installer-test:
 	bash scripts/test/installer-test.sh
 
-notices-check:
+notices-check: web-build
 	go tool third-party-notices --check
 
 openapi-check:

@@ -39,7 +39,7 @@ make installer-test
 `build-release.sh` is used by local Make targets, CI, and the signed-release
 workflow. It never publishes, uploads, signs, installs, or retains artifacts.
 `test/smoke-release.sh` is GitHub Actions-only orchestration for native release
-smoke tests. The `Build signed release` workflow adds the signature, runs those
+smoke tests. The `Release Build` workflow adds the signature, runs those
 smoke tests, and creates a verified Draft Release for a maintainer to publish.
 
 ## Interface
