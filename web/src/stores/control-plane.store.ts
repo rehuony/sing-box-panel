@@ -1,6 +1,6 @@
 import { createContext, use } from 'react';
 
-import type { CapabilityStatus, DashboardContext } from '@/api/api-client';
+import type { DashboardContext } from '@/api/api-client';
 
 export type ControlPlaneState
   = | { status: 'loading'; context: null; message: null }
@@ -10,8 +10,6 @@ export type ControlPlaneState
 export type ControlPlaneValue = ControlPlaneState & {
   refresh: (signal?: AbortSignal) => Promise<void>;
   setViewVersion: (version: string) => void;
-  viewCapability: CapabilityStatus | null;
-  viewCapabilityError: unknown | null;
   viewVersion: string;
 };
 

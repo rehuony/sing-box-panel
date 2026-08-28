@@ -32,12 +32,12 @@ Node.js, pnpm, or a separate SQLite CLI.
 
 - Manage official and administrator-verified sing-box artifacts by exact
   version, architecture, variant, and immutable digest.
-- Use structured configuration only with a reviewed exact-version capability;
-  otherwise retain a lossless manual JSON workflow for stable sing-box
-  versions without a proven manifest.
+- Keep one structured, version-independent configuration history and project
+  it only through a reviewed adapter for the exact installed binary profile.
 - Keep canonical revisions, checked startup artifacts, applied bundles, and
   rollback bundles separate and immutable.
-- Publish applied subscription snapshots in sing-box, Mihomo, and Loon formats.
+- Publish live, authorized subscriptions in sing-box, Mihomo, and Loon formats
+  from the last applied local nodes and current third-party source versions.
 - Operate through a Docker-style CLI, versioned HTTP API, embedded React UI, or
   audited systemd integration.
 - Persist runtime and maintenance work as observable, cancelable tasks instead
@@ -89,26 +89,25 @@ configuration, settings precedence, and systemd deployment paths.
 | --- | --- |
 | Build, initialize, and run the panel | [Getting started](docs/getting-started.md) |
 | Use commands, automation output, and shell completion | [CLI reference](docs/cli.md) |
-| Install exact versions and manage capability evidence | [Core versions and capabilities](docs/core-versions-and-capabilities.md) |
+| Install exact versions and inspect adapter support | [Core versions and adapters](docs/core-versions-and-adapters.md) |
 | Edit, check, apply, restart, and roll back configuration | [Configuration and runtime](docs/configuration-and-runtime.md) |
 | Publish subscriptions and inspect operational data | [Subscriptions and observability](docs/subscriptions-and-observability.md) |
 | Integrate with the API and operate its security boundary | [HTTP API and security](docs/http-api-and-security.md) |
 | Build, sign, test, and publish release artifacts | [Release process](docs/release.md) |
 
 The [documentation index](docs/README.md) also links the component-level
-sources of truth for OpenAPI, capability manifests, systemd packaging, release
+sources of truth for OpenAPI, compiled adapters, systemd packaging, release
 builds, and the web application.
 
 ## Project map
 
 ```text
 api/                 OpenAPI source contract
-.github/             CI, release workflows, keys, and Actions-only scripts
-capabilities/        Reviewed exact-version capability manifests
+.github/             CI, release workflows, keys, and release automation
 cmd/                 Published sing-box-panel entry point
 internal/cmd/        Repository-only Go tools
 internal/            Go implementation packages
-packaging/           Shared release build and systemd packaging materials
+systemd/             Embedded systemd templates and packaging guidance
 web/                 React/Vite application managed with pnpm
 ```
 

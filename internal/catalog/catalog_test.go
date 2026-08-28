@@ -5,6 +5,7 @@ package catalog
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"strings"
@@ -335,6 +336,59 @@ func TestGitHubRefreshPropagatesCancellation(t *testing.T) {
 	_, err = client.Refresh(ctx, "")
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("Refresh cancellation error = %v, want context.Canceled", err)
+	}
+}
+
+func TestGitHubRefreshSupportsMoreThanThirtyReleasePages(t *testing.T) {
+	t.Parallel()
+
+	responses := make([]*http.Response, 0, 32)
+	for page := 1; page <= 31; page++ {
+		headers := make(http.Header)
+		headers.Set("ETag", `"page-`+fmt.Sprint(page)+`"`)
+		if page < 31 {
+			headers.Set("Link", `<https://api.github.com/next>; rel="next"`)
+		}
+		responses = append(responses, jsonResponse(http.StatusOK, `[]`, headers))
+	}
+	responses = append(responses, jsonResponse(http.StatusOK, `{"id":509091576,"full_name":"SagerNet/sing-box"}`, nil))
+	doer := &queueDoer{responses: responses}
+	client, err := NewGitHubClient(ClientOptions{HTTP: doer})
+	if err != nil {
+		t.Fatalf("NewGitHubClient: %v", err)
+	}
+	if _, err := client.Refresh(context.Background(), ""); err != nil {
+		t.Fatalf("Refresh: %v", err)
+	}
+	requests := doer.Requests()
+	if len(requests) != 32 {
+		t.Fatalf("requests = %d, want 31 release pages plus repository", len(requests))
+	}
+	if !strings.Contains(requests[0].URL.RawQuery, "per_page=20") {
+		t.Fatalf("release query = %q, want per_page=20", requests[0].URL.RawQuery)
+	}
+}
+
+func TestGitHubRefreshEnforcesAggregateBodyBudget(t *testing.T) {
+	t.Parallel()
+
+	headers := make(http.Header)
+	headers.Set("Link", `<https://api.github.com/next>; rel="next"`)
+	body := "[" + strings.Repeat(" ", 76) + "]"
+	doer := &queueDoer{responses: []*http.Response{
+		jsonResponse(http.StatusOK, body, headers),
+		jsonResponse(http.StatusOK, body, nil),
+	}}
+	client, err := NewGitHubClient(ClientOptions{
+		HTTP: doer, MaximumBytesPerPage: 100, MaximumTotalBytes: 150,
+	})
+	if err != nil {
+		t.Fatalf("NewGitHubClient: %v", err)
+	}
+	_, err = client.Refresh(context.Background(), "")
+	var failure *Failure
+	if !errors.As(err, &failure) || failure.Code != "total_body_too_large" {
+		t.Fatalf("Refresh error = %v, want total_body_too_large", err)
 	}
 }
 

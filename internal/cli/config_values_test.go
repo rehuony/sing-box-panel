@@ -15,7 +15,7 @@ import (
 func TestConfigValueImportExportValidateAndDiffCommands(t *testing.T) {
 	settingsPath := commandSettingsFixture(t)
 	initialOutput := runApplicationCommand(t, settingsPath,
-		`{"schema_version":1,"global":{},"nodes":[],"rules":[],"subscription":{}}`,
+		`{"schema_version":2,"configuration":{"experimental":{}}}`,
 		"--output", "json", "config", "import", "--file", "-", "--base-revision", "none",
 	)
 	var initial application.CanonicalSave
@@ -24,7 +24,7 @@ func TestConfigValueImportExportValidateAndDiffCommands(t *testing.T) {
 	}
 
 	setOutput := runApplicationCommand(t, settingsPath, `"warn"`,
-		"--output", "json", "config", "set", "/global/log_level", "--file", "-",
+		"--output", "json", "config", "set", "/configuration/experimental/log_level", "--file", "-",
 		"--base-revision", initial.Revision.ID,
 	)
 	var set application.CanonicalSave
@@ -32,7 +32,7 @@ func TestConfigValueImportExportValidateAndDiffCommands(t *testing.T) {
 		t.Fatal(err)
 	}
 	getOutput := runApplicationCommand(t, settingsPath, "",
-		"--output", "json", "config", "get", "/global/log_level",
+		"--output", "json", "config", "get", "/configuration/experimental/log_level",
 	)
 	var value application.CanonicalValue
 	if err := json.Unmarshal(getOutput, &value); err != nil || value.Value != "warn" {
@@ -58,7 +58,7 @@ func TestConfigValueImportExportValidateAndDiffCommands(t *testing.T) {
 	}
 
 	unsetOutput := runApplicationCommand(t, settingsPath, "",
-		"--output", "json", "config", "unset", "/global/log_level",
+		"--output", "json", "config", "unset", "/configuration/experimental/log_level",
 		"--base-revision", set.Revision.ID,
 	)
 	var unset application.CanonicalSave
@@ -69,7 +69,7 @@ func TestConfigValueImportExportValidateAndDiffCommands(t *testing.T) {
 		"--output", "json", "config", "diff", "--from", set.Revision.ID, "--to", unset.Revision.ID,
 	)
 	var diff application.CanonicalRevisionDiff
-	if err := json.Unmarshal(diffOutput, &diff); err != nil || len(diff.Changes) != 1 || diff.Changes[0].Path != "/global/log_level" {
+	if err := json.Unmarshal(diffOutput, &diff); err != nil || len(diff.Changes) != 1 || diff.Changes[0].Path != "/configuration/experimental/log_level" {
 		t.Fatalf("diff=%+v err=%v output=%s", diff, err, diffOutput)
 	}
 }

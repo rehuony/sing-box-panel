@@ -34,7 +34,7 @@ func TestConfigReplaceShowAndConflict(t *testing.T) {
 	if err := os.WriteFile(settingsPath, []byte(settingsJSON), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	document := `{"schema_version":1,"global":{},"nodes":[],"rules":[],"subscription":{}}`
+	document := `{"schema_version":2,"configuration":{}}`
 
 	var output bytes.Buffer
 	command := NewRootCommand(Dependencies{
@@ -65,7 +65,7 @@ func TestConfigReplaceShowAndConflict(t *testing.T) {
 	if err := show.ExecuteContext(context.Background()); err != nil {
 		t.Fatalf("config show error = %v", err)
 	}
-	if !strings.Contains(output.String(), `"schema_version": 1`) {
+	if !strings.Contains(output.String(), `"schema_version": 2`) {
 		t.Fatalf("config show output = %s", output.String())
 	}
 

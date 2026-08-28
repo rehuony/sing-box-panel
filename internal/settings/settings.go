@@ -185,8 +185,8 @@ func (value Settings) Validate() error {
 	if value.GitHub.CatalogTTLHours < 1 || value.GitHub.CatalogTTLHours > 24*30 {
 		return errors.New("github.catalog_ttl_hours must be between 1 and 720")
 	}
-	if value.Traffic.QuotaGiB != nil && *value.Traffic.QuotaGiB < 0 {
-		return errors.New("traffic.quota_gib must be null or non-negative")
+	if value.Traffic.QuotaGiB != nil && (*value.Traffic.QuotaGiB < 0 || *value.Traffic.QuotaGiB > (1<<63-1)/(1<<30)) {
+		return errors.New("traffic.quota_gib must be null or a non-negative value representable in bytes")
 	}
 	if value.Traffic.PeriodMonths < 1 || value.Traffic.PeriodMonths > 120 {
 		return errors.New("traffic.period_months must be between 1 and 120")

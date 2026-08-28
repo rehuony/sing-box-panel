@@ -3,8 +3,12 @@
 package httpapi
 
 import (
+	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -34,18 +38,6 @@ func TestCoreHTTPRoutesUseApplicationServices(t *testing.T) {
 	if _, err := database.UpsertCoreArtifact(context.Background(), olderArtifact); err != nil {
 		t.Fatal(err)
 	}
-	generation, commit, manifestDigest := capabilityHTTPGeneration(t, "1.13.19")
-	commands := application.FromStore(database)
-	if _, err := commands.RefreshCapabilityGeneration(context.Background(), generation); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := commands.UpgradeCapability(context.Background(), application.CapabilityUpgradeRequest{
-		ExactCoreVersion: "1.13.19",
-		CommitSHA:        commit,
-		ManifestSHA256:   manifestDigest,
-	}); err != nil {
-		t.Fatal(err)
-	}
 
 	assetsResponse := authenticatedRequest(
 		handler,
@@ -65,7 +57,7 @@ func TestCoreHTTPRoutesUseApplicationServices(t *testing.T) {
 		t.Fatalf("catalog assets = %+v", assets)
 	}
 
-	refreshResponse := authenticatedRequest(handler, http.MethodPost, "/api/v1/core/catalog/refresh", "", "")
+	refreshResponse := authenticatedRequest(handler, http.MethodPost, "/api/v1/core/catalog/refresh", `{"force":true}`, "")
 	assertQueuedCoreHTTPTask(t, refreshResponse, "catalog-refresh")
 
 	installResponse := authenticatedRequest(
@@ -77,41 +69,26 @@ func TestCoreHTTPRoutesUseApplicationServices(t *testing.T) {
 	)
 	assertQueuedCoreHTTPTask(t, installResponse, "core-install")
 
-	importResponse := authenticatedRequest(
-		handler,
-		http.MethodPost,
-		"/api/v1/core/import",
-		`{"source_path":"/var/lib/sing-box-panel/import/core.tar.gz","source_description":"operator verified local archive","sha256":"`+strings.Repeat("cd", 32)+`","exact_version":"1.13.19","architecture":"amd64","variant":"plain"}`,
-		"",
-	)
+	importResponse := authenticatedCoreUpload(handler, []byte("archive fixture"), "")
 	assertQueuedCoreHTTPTask(t, importResponse, "core-import")
 
-	capabilityResponse := authenticatedRequest(
+	supportResponse := authenticatedRequest(
 		handler,
 		http.MethodGet,
-		"/api/v1/core/capability?core_version=1.13.19",
+		"/api/v1/core/artifacts/"+artifact.ID+"/configuration-support",
 		"",
 		"",
 	)
-	if capabilityResponse.Code != http.StatusOK {
-		t.Fatalf("explicit capability status=%d body=%s", capabilityResponse.Code, capabilityResponse.Body.String())
+	if supportResponse.Code != http.StatusOK {
+		t.Fatalf("configuration support status=%d body=%s", supportResponse.Code, supportResponse.Body.String())
 	}
-	var capability application.CapabilityStatus
-	if err := json.Unmarshal(capabilityResponse.Body.Bytes(), &capability); err != nil {
+	var support application.ConfigurationAdapterSupport
+	if err := json.Unmarshal(supportResponse.Body.Bytes(), &support); err != nil {
 		t.Fatal(err)
 	}
-	if capability.Resolution.ExactVersion != "1.13.19" || capability.Resolution.Source != "explicit" {
-		t.Fatalf("capability = %+v", capability)
+	if support.Supported || support.Profile.ExactVersion != "1.13.19" {
+		t.Fatalf("configuration support = %+v", support)
 	}
-	if body := capabilityResponse.Body.String(); !strings.Contains(body, `"pin":{"exact_core_version":"1.13.19"`) || strings.Contains(body, `"ExactCoreVersion"`) {
-		t.Fatalf("capability pin did not use the documented snake-case wire form: %s", body)
-	}
-
-	// The omitted query parameter must reach Application unchanged. With no
-	// verified runtime observation this is a conflict, not a latest-version
-	// catalog fallback.
-	runningResponse := authenticatedRequest(handler, http.MethodGet, "/api/v1/core/capability", "", "")
-	assertCoreHTTPProblem(t, runningResponse, http.StatusConflict, "core_not_running")
 
 	listResponse := authenticatedRequest(
 		handler,
@@ -255,27 +232,17 @@ func TestCoreHTTPRejectsAmbiguousAndOversizedInputs(t *testing.T) {
 		{
 			name: "refresh body", method: http.MethodPost,
 			target: "/api/v1/core/catalog/refresh", body: `{}`,
-			wantStatus: http.StatusUnprocessableEntity, wantCode: "request_body_not_allowed",
+			wantStatus: http.StatusUnprocessableEntity, wantCode: "catalog_refresh_invalid",
 		},
 		{
-			name: "import unknown JSON member", method: http.MethodPost,
+			name: "import requires multipart", method: http.MethodPost,
 			target: "/api/v1/core/import", body: `{"source_path":"/private/core.tar.gz","unexpected":"secret"}`,
-			wantStatus: http.StatusUnprocessableEntity, wantCode: "invalid_json",
+			wantStatus: http.StatusUnsupportedMediaType, wantCode: "core_import_media_type",
 		},
 		{
-			name: "import too large", method: http.MethodPost,
+			name: "import plain body", method: http.MethodPost,
 			target: "/api/v1/core/import", body: strings.Repeat("x", maximumCoreImportRequestBytes+1),
-			wantStatus: http.StatusRequestEntityTooLarge, wantCode: "request_too_large",
-		},
-		{
-			name: "invalid explicit capability version", method: http.MethodGet,
-			target:     "/api/v1/core/capability?core_version=latest",
-			wantStatus: http.StatusBadRequest, wantCode: "core_version_invalid",
-		},
-		{
-			name: "empty explicit capability version", method: http.MethodGet,
-			target:     "/api/v1/core/capability?core_version=",
-			wantStatus: http.StatusBadRequest, wantCode: "query_invalid",
+			wantStatus: http.StatusUnsupportedMediaType, wantCode: "core_import_media_type",
 		},
 		{
 			name: "delete body", method: http.MethodDelete,
@@ -296,13 +263,7 @@ func TestCoreHTTPRejectsAmbiguousAndOversizedInputs(t *testing.T) {
 	}
 
 	secretPath := "/private/customer/upload/core.tar.gz"
-	invalidImport := authenticatedRequest(
-		handler,
-		http.MethodPost,
-		"/api/v1/core/import",
-		`{"source_path":"`+secretPath+`","source_description":"x","sha256":"bad","exact_version":"1.13.19","architecture":"amd64","variant":"plain"}`,
-		"",
-	)
+	invalidImport := authenticatedCoreUpload(handler, []byte("archive fixture"), strings.Repeat("0", 64))
 	assertCoreHTTPProblem(t, invalidImport, http.StatusUnprocessableEntity, "core_import_invalid")
 	if strings.Contains(invalidImport.Body.String(), secretPath) {
 		t.Fatalf("problem response leaked import path: %s", invalidImport.Body.String())
@@ -311,6 +272,31 @@ func TestCoreHTTPRejectsAmbiguousAndOversizedInputs(t *testing.T) {
 	if stillPresent.Code != http.StatusOK {
 		t.Fatalf("artifact was changed by rejected DELETE body: status=%d body=%s", stillPresent.Code, stillPresent.Body.String())
 	}
+}
+
+func authenticatedCoreUpload(handler http.Handler, archive []byte, overrideDigest string) *httptest.ResponseRecorder {
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	part, _ := writer.CreateFormFile("archive", "untrusted-client-name.tar.gz")
+	_, _ = part.Write(archive)
+	sum := sha256.Sum256(archive)
+	digest := hex.EncodeToString(sum[:])
+	if overrideDigest != "" {
+		digest = overrideDigest
+	}
+	for name, value := range map[string]string{
+		"source_description": "browser upload", "sha256": digest,
+		"exact_version": "1.13.19", "architecture": "amd64", "variant": "plain",
+	} {
+		_ = writer.WriteField(name, value)
+	}
+	_ = writer.Close()
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/core/import", &body)
+	request.Header.Set("Authorization", "Bearer correct-management-token")
+	request.Header.Set("Content-Type", writer.FormDataContentType())
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	return response
 }
 
 func TestCoreHTTPRejectsDeletingReferencedArtifact(t *testing.T) {
@@ -327,9 +313,9 @@ func TestCoreHTTPRejectsDeletingReferencedArtifact(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := database.CreateStartupArtifact(context.Background(), store.StartupArtifact{
-		ID: "startup_core_http", Kind: store.StartupArtifactManual,
+		ID:                  "startup_core_http",
 		CanonicalRevisionID: revision.ID, ExactCoreVersion: artifact.ExactVersion,
-		RendererVersion: "manual-v1", CoreArtifactID: artifact.ID,
+		AdapterID: "test/adapter", AdapterRevision: "1", CoreArtifactID: artifact.ID,
 		ConfigBytes: []byte(`{}`), CreatedAt: now.Add(time.Second),
 	}); err != nil {
 		t.Fatal(err)
@@ -376,7 +362,8 @@ func TestCoreHTTPAuthenticationCSRFAndCatalogState(t *testing.T) {
 	handler.ServeHTTP(rejectedResponse, rejected)
 	assertCoreHTTPProblem(t, rejectedResponse, http.StatusForbidden, "csrf_failed")
 
-	accepted := httptest.NewRequest(http.MethodPost, "/api/v1/core/catalog/refresh", nil)
+	accepted := httptest.NewRequest(http.MethodPost, "/api/v1/core/catalog/refresh", strings.NewReader(`{"force":false}`))
+	accepted.Header.Set("Content-Type", "application/json")
 	accepted.Host = "panel.example"
 	accepted.Header.Set("Origin", "http://panel.example")
 	accepted.Header.Set("X-CSRF-Token", session.CSRF)

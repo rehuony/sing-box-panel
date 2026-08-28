@@ -1,5 +1,6 @@
 import { PageHeading } from '@/components/page-heading';
 
+import { SubscriptionUserPanel } from './subscription-user-panel';
 import { SubscriptionTokenPanel } from './subscription-token-panel';
 import { SubscriptionSourcePanel } from './subscription-source-panel';
 import { SubscriptionChannelPanel } from './subscription-channel-panel';
@@ -10,8 +11,8 @@ export function SubscriptionsPage() {
     <div className='page-stack'>
       <PageHeading
         eyebrow='Publication / applied bundle'
-        summary='Channels, attached sources and access tokens are global controls. Public output stays pinned to the last successfully applied bundle.'
-        title='Publish only frozen state.'
+        summary='Applied local nodes and versioned third-party sources combine with live user grants, channels and token state.'
+        title='Publish only explicit grants.'
       />
 
       <section className='publication-contract' aria-labelledby='publication-contract-title'>
@@ -24,12 +25,13 @@ export function SubscriptionsPage() {
           <p className='eyebrow'>Publication boundary</p>
           <h2 id='publication-contract-title'>Edits wait for the next successful apply</h2>
           <p>
-            Token revocation and expiry take effect immediately. Channel, source and address
-            changes do not leak ahead of the frozen bundle.
+            Local nodes come only from the last successful apply. User grants, channels,
+            token state and each source current-version pointer take effect immediately.
           </p>
         </div>
       </section>
 
+      <SubscriptionUserPanel />
       <SubscriptionChannelPanel />
       <SubscriptionSourcePanel />
       <SubscriptionTokenPanel />

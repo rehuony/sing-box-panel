@@ -13,6 +13,7 @@ import (
 	"github.com/rehuony/sing-box-panel/internal/artifactstore"
 	"github.com/rehuony/sing-box-panel/internal/catalog"
 	"github.com/rehuony/sing-box-panel/internal/coreartifact"
+	"github.com/rehuony/sing-box-panel/internal/settings"
 	"github.com/rehuony/sing-box-panel/internal/store"
 )
 
@@ -111,6 +112,44 @@ func TestCatalogNotModifiedRequiresAndReusesLocalSnapshot(t *testing.T) {
 	}
 }
 
+func TestRefreshCatalogHonorsConfiguredTTL(t *testing.T) {
+	ctx := context.Background()
+	database, err := store.Open(ctx, filepath.Join(t.TempDir(), "panel.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = database.Close() })
+	application := newApplication(database)
+	now := time.Date(2026, time.August, 27, 8, 0, 0, 0, time.UTC)
+	application.now = func() time.Time { return now }
+	application.settings = settings.Defaults(filepath.Join(t.TempDir(), "settings.json"))
+	application.settings.GitHub.CatalogTTLHours = 12
+	asset := validCatalogAsset(t)
+	value := catalog.Catalog{RepositoryID: catalog.OfficialRepositoryID, Releases: []catalog.Release{{
+		ID: asset.ReleaseID, Tag: "v1.13.19", Version: asset.Version, Assets: []catalog.Asset{asset},
+	}}}
+	if _, err := application.refreshCatalogWith(ctx, fakeCatalogRefresher{result: catalog.RefreshResult{
+		Catalog: value, ETag: "ttl-v1",
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	application.now = func() time.Time { return now.Add(time.Hour) }
+	result, err := application.RefreshCatalog(ctx, CatalogRefreshOptions{})
+	if err != nil {
+		t.Fatalf("RefreshCatalog: %v", err)
+	}
+	if !result.NotModified || result.Validator != "ttl-v1" {
+		t.Fatalf("TTL result = %+v", result)
+	}
+	found := false
+	for _, diagnostic := range result.Diagnostics {
+		found = found || diagnostic.Code == "ttl_fresh"
+	}
+	if !found {
+		t.Fatalf("TTL diagnostic missing: %+v", result.Diagnostics)
+	}
+}
+
 func TestPersistInstalledCorePreservesFullSourceIdentity(t *testing.T) {
 	ctx := context.Background()
 	database, err := store.Open(ctx, filepath.Join(t.TempDir(), "panel.db"))
@@ -164,6 +203,23 @@ func TestPersistInstalledCorePreservesFullSourceIdentity(t *testing.T) {
 		ExactVersion: version.String(), Architecture: "amd64", Variant: "plain",
 	}); err == nil {
 		t.Fatal("core import accepted a relative path")
+	}
+	firstUpload, err := application.QueueCoreImport(ctx, CoreImportRequest{
+		SourcePath: filepath.Join(t.TempDir(), "upload-one"), SourceDescription: "browser upload", SHA256: digest.String(),
+		ExactVersion: version.String(), Architecture: "amd64", Variant: "plain", DeleteSource: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondUpload, err := application.QueueCoreImport(ctx, CoreImportRequest{
+		SourcePath: filepath.Join(t.TempDir(), "upload-two"), SourceDescription: "browser upload", SHA256: digest.String(),
+		ExactVersion: version.String(), Architecture: "amd64", Variant: "plain", DeleteSource: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if firstUpload.ID == secondUpload.ID || firstUpload.IdempotencyKey == secondUpload.IdempotencyKey {
+		t.Fatalf("distinct staged uploads reused one task: first=%+v second=%+v", firstUpload, secondUpload)
 	}
 }
 

@@ -2,8 +2,6 @@ import type { ReactNode } from 'react';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
-import type { CapabilityStatus } from '@/api/api-client';
-
 import { useApiClient } from '@/api/api-client-context';
 
 import type { ControlPlaneState, ControlPlaneValue } from './control-plane.store';
@@ -22,14 +20,9 @@ export function ControlPlaneProvider({ children }: ControlPlaneProviderProps) {
     message: null,
   });
   const [selectedViewVersion, setSelectedViewVersion] = useState('');
-  const [viewCapability, setViewCapability] = useState<CapabilityStatus | null>(null);
-  const [viewCapabilityError, setViewCapabilityError] = useState<unknown | null>(null);
-
   const setViewVersion = useCallback((version: string) => {
     const normalized = version.trim();
     if (normalized !== '' && !/^\d+\.\d+\.\d+$/.test(normalized)) return;
-    setViewCapability(null);
-    setViewCapabilityError(null);
     setSelectedViewVersion(normalized);
   }, []);
 
@@ -74,30 +67,14 @@ export function ControlPlaneProvider({ children }: ControlPlaneProviderProps) {
     return () => controller.abort();
   }, [refresh]);
 
-  useEffect(() => {
-    if (selectedViewVersion === '') return;
-    const controller = new AbortController();
-    void client.getCoreCapability(selectedViewVersion, controller.signal)
-      .then((capability) => {
-        if (!controller.signal.aborted) setViewCapability(capability);
-      })
-      .catch((error: unknown) => {
-        if (controller.signal.aborted || (error instanceof DOMException && error.name === 'AbortError')) return;
-        setViewCapabilityError(error);
-      });
-    return () => controller.abort();
-  }, [client, selectedViewVersion]);
-
   const value = useMemo<ControlPlaneValue>(
     () => ({
       ...state,
       refresh,
       setViewVersion,
-      viewCapability,
-      viewCapabilityError,
       viewVersion: selectedViewVersion,
     }),
-    [refresh, selectedViewVersion, setViewVersion, state, viewCapability, viewCapabilityError],
+    [refresh, selectedViewVersion, setViewVersion, state],
   );
 
   return <ControlPlaneContext value={value}>{children}</ControlPlaneContext>;

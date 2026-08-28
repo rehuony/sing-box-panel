@@ -37,8 +37,12 @@ const unavailableReasons: Record<string, { title: string; detail: string }> = {
     detail: 'The applied bundle supports metrics, but no current period has been persisted.',
   },
   stale_collector_sample: {
-    title: 'Collector sample belongs to an older bundle',
-    detail: 'The panel will not attribute stale counters to the currently applied bundle.',
+    title: 'Collector sample is stale',
+    detail: 'No successful sample for the current applied process was recorded in the last 30 seconds.',
+  },
+  monitoring_unavailable: {
+    title: 'Monitoring tier unavailable',
+    detail: 'Full monitoring is not implemented and no metrics are fabricated.',
   },
 };
 
@@ -139,12 +143,16 @@ export function ObservabilityPage() {
                     <small>Measured in current period</small>
                   </div>
                   <div className='instrument-reading'>
-                    <span>Bundle</span>
-                    <strong>{metrics.applied_bundle_id ?? 'Unidentified'}</strong>
+                    <span>Memory / connections</span>
+                    <strong>
+                      {metrics.latest_sample
+                        ? `${formatBytes(metrics.latest_sample.memory_bytes)} / ${metrics.latest_sample.active_connections}`
+                        : 'Sample unavailable'}
+                    </strong>
                     <small>
-                      {metrics.monitoring_tier ?? 'Unknown'}
-                      {' '}
-                      monitoring
+                      {metrics.quota_bytes
+                        ? `${metrics.quota_exceeded ? 'Quota reached' : 'Within quota'} · ${formatBytes(metrics.quota_bytes)}`
+                        : 'Unlimited quota'}
                     </small>
                   </div>
                 </>

@@ -67,8 +67,6 @@ func NewRootCommand(deps Dependencies) *cobra.Command {
 		newServerCommand(state, deps.RunServer),
 		newCoreCommand(state, deps.OpenApplication),
 		newConfigCommand(state, deps.OpenApplication),
-		newNodeCommand(state, deps.OpenApplication),
-		newRuleCommand(state, deps.OpenApplication),
 		newSubscriptionCommand(state, deps.OpenApplication),
 		newTaskCommand(state, deps.OpenApplication),
 		newDurableLogCommand(state, deps.OpenApplication),

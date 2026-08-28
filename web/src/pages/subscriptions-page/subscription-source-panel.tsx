@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 
-import type { JsonObject, SubscriptionCursor, SubscriptionSource, SubscriptionSourceKind, SubscriptionSourceSummary } from '@/api/api-client';
+import type { JsonObject, SubscriptionCursor, SubscriptionSource, SubscriptionSourceFormat, SubscriptionSourceKind, SubscriptionSourceSummary, SubscriptionSourceVersion } from '@/api/api-client';
 
 import { useApiClient } from '@/api/api-client-context';
 import { ActionError } from '@/components/action-error';
@@ -10,9 +10,10 @@ interface SourceDraft {
   name: string;
   config: string;
   enabled: boolean;
-  snapshot: string;
+  sourceDocument: string;
   editing?: SubscriptionSource;
   kind: SubscriptionSourceKind;
+  format: SubscriptionSourceFormat;
 }
 
 function parseObject(value: string, label: string): JsonObject {
@@ -28,16 +29,6 @@ function parseObject(value: string, label: string): JsonObject {
   return parsed as JsonObject;
 }
 
-function parseSnapshot(value: string): unknown {
-  try {
-    const parsed: unknown = JSON.parse(value);
-    if (parsed === null || typeof parsed !== 'object') throw new Error('Snapshot is not an object.');
-    return parsed;
-  } catch {
-    throw new Error('The source snapshot must be a JSON object or array.');
-  }
-}
-
 export function SubscriptionSourcePanel() {
   const client = useApiClient();
   const [sources, setSources] = useState<SubscriptionSourceSummary[] | null>(null);
@@ -47,6 +38,8 @@ export function SubscriptionSourcePanel() {
   const [actionError, setActionError] = useState('');
   const [message, setMessage] = useState('');
   const [busy, setBusy] = useState(false);
+  const [versions, setVersions] = useState<SubscriptionSourceVersion[]>([]);
+  const [versionSource, setVersionSource] = useState<SubscriptionSourceSummary | null>(null);
 
   const load = useCallback(async (signal?: AbortSignal, cursor?: SubscriptionCursor, append = false) => {
     try {
@@ -72,7 +65,7 @@ export function SubscriptionSourcePanel() {
   }, [load]);
 
   function startCreate() {
-    setDraft({ enabled: true, kind: 'local', name: '', config: '{}', snapshot: '[]' });
+    setDraft({ enabled: true, format: 'auto', kind: 'local', name: '', config: '{}', sourceDocument: '' });
     setActionError('');
     setMessage('');
   }
@@ -89,7 +82,8 @@ export function SubscriptionSourcePanel() {
         kind: source.source_kind,
         name: source.name,
         config: JSON.stringify(source.config, null, 2),
-        snapshot: JSON.stringify(source.latest_snapshot ?? [], null, 2),
+        format: 'auto',
+        sourceDocument: '',
       });
     } catch (error) {
       setActionError(describeRequestError(error));
@@ -109,13 +103,18 @@ export function SubscriptionSourcePanel() {
         await client.updateSubscriptionSource(draft.editing.id, {
           name: draft.name.trim(), source_kind: draft.kind, config, enabled: draft.enabled,
         }, draft.editing.updated_at);
-        setMessage(`Updated ${draft.name.trim()}. Its frozen snapshot did not change.`);
+        setMessage(`Updated ${draft.name.trim()}. Its current source version did not change.`);
       } else {
-        await client.createSubscriptionSource({
+        const created = await client.createSubscriptionSource({
           name: draft.name.trim(), source_kind: draft.kind, config,
-          latest_snapshot: parseSnapshot(draft.snapshot), enabled: draft.enabled,
+          enabled: draft.enabled,
         });
-        setMessage(`Created ${draft.name.trim()}. Its snapshot will publish after apply.`);
+        if (draft.sourceDocument.trim() !== '') {
+          await client.createSubscriptionSourceVersion(
+            created.id, draft.format, draft.sourceDocument, created.updated_at,
+          );
+        }
+        setMessage(`Created ${draft.name.trim()}. Its current source version is live immediately.`);
       }
       setDraft(null);
       await load();
@@ -126,20 +125,61 @@ export function SubscriptionSourcePanel() {
     }
   }
 
-  async function saveSnapshot() {
+  async function saveSourceVersion() {
     if (!draft?.editing) return;
     try {
-      const snapshot = parseSnapshot(draft.snapshot);
+      if (draft.sourceDocument.trim() === '') throw new Error('Paste a source document.');
       setBusy(true);
       setActionError('');
-      const updated = await client.updateSubscriptionSourceSnapshot(
+      const saved = await client.createSubscriptionSourceVersion(
         draft.editing.id,
-        snapshot,
+        draft.format,
+        draft.sourceDocument,
         draft.editing.updated_at,
       );
-      setDraft({ ...draft, editing: updated });
-      setMessage(`Stored a new candidate snapshot for ${updated.name}. Apply is still required.`);
+      setDraft({ ...draft, editing: saved.source, sourceDocument: '' });
+      setMessage(`Activated a validated ${saved.version.format} version for ${saved.source.name}.`);
       await load();
+    } catch (error) {
+      setActionError(describeRequestError(error));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function refresh(source: SubscriptionSourceSummary) {
+    try {
+      setBusy(true);
+      setActionError('');
+      const task = await client.refreshSubscriptionSource(source.id);
+      setMessage(`Queued refresh task ${task.id}. A failure will preserve the current version.`);
+    } catch (error) {
+      setActionError(describeRequestError(error));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function showVersions(source: SubscriptionSourceSummary) {
+    try {
+      setBusy(true);
+      const page = await client.listSubscriptionSourceVersions(source.id, { limit: 100 });
+      setVersionSource(source);
+      setVersions(page.items);
+    } catch (error) {
+      setActionError(describeRequestError(error));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function restore(version: SubscriptionSourceVersion) {
+    if (!versionSource) return;
+    try {
+      setBusy(true);
+      const source = await client.getSubscriptionSource(versionSource.id);
+      await client.restoreSubscriptionSourceVersion(source.id, version.id, source.updated_at);
+      await Promise.all([load(), showVersions({ ...versionSource, current_version_id: version.id })]);
     } catch (error) {
       setActionError(describeRequestError(error));
     } finally {
@@ -167,7 +207,7 @@ export function SubscriptionSourcePanel() {
         <div>
           <p className='eyebrow'>02 / Attached input</p>
           <h2 id='subscription-sources-title'>Sources</h2>
-          <p>Candidate snapshots remain private until an activation freezes them.</p>
+          <p>Validated versions are append-only; the current pointer is live and refresh failures preserve it.</p>
         </div>
         <span className='count-label'>
           {sources?.length ?? 0}
@@ -203,7 +243,7 @@ export function SubscriptionSourcePanel() {
                   <tr>
                     <th>Name</th>
                     <th>Kind</th>
-                    <th>Snapshot</th>
+                    <th>Current version</th>
                     <th>Actions</th>
                   </tr>
                 </thead>
@@ -215,10 +255,12 @@ export function SubscriptionSourcePanel() {
                         <small className='table-subline'>{source.enabled ? 'Enabled' : 'Disabled'}</small>
                       </td>
                       <td><code>{source.source_kind}</code></td>
-                      <td>{source.has_snapshot ? 'Candidate stored' : 'None'}</td>
+                      <td>{source.current_version_id ? <code>{source.current_version_id}</code> : 'None'}</td>
                       <td>
                         <div className='table-actions'>
                           <button className='text-button' disabled={busy} onClick={() => void startEdit(source)} type='button'>Edit</button>
+                          <button className='text-button' disabled={busy || source.source_kind !== 'remote'} onClick={() => void refresh(source)} type='button'>Refresh</button>
+                          <button className='text-button' disabled={busy} onClick={() => void showVersions(source)} type='button'>Versions</button>
                           <button className='text-button text-button--danger' disabled={busy} onClick={() => void remove(source)} type='button'>Delete</button>
                         </div>
                       </td>
@@ -226,6 +268,37 @@ export function SubscriptionSourcePanel() {
                   ))}
                 </tbody>
               </table>
+            </div>
+          )
+        : null}
+      {versionSource
+        ? (
+            <div className='control-form'>
+              <div className='section-heading'>
+                <div>
+                  <p className='eyebrow'>Version history</p>
+                  <h3>{versionSource.name}</h3>
+                </div>
+                <span>
+                  {versions.length}
+                  {' '}
+                  loaded
+                </span>
+              </div>
+              {versions.map((version) => (
+                <div className='inline-actions' key={version.id}>
+                  <code>{version.id}</code>
+                  <span>
+                    {version.format}
+                    {' '}
+                    ·
+                    {' '}
+                    {new Date(version.fetched_at).toLocaleString()}
+                  </span>
+                  <button className='text-button' disabled={busy || version.id === versionSource.current_version_id} onClick={() => void restore(version)} type='button'>{version.id === versionSource.current_version_id ? 'Current' : 'Restore'}</button>
+                </div>
+              ))}
+              <button className='button button--secondary' onClick={() => setVersionSource(null)} type='button'>Close history</button>
             </div>
           )
         : null}
@@ -265,20 +338,29 @@ export function SubscriptionSourcePanel() {
                 <span>Remote credentials are accepted by the server contract but are never echoed into logs.</span>
               </div>
               <div className='field-group'>
-                <label htmlFor='source-snapshot'>Candidate snapshot JSON</label>
-                <textarea className='data-editor' id='source-snapshot' onChange={(event) => setDraft({ ...draft, snapshot: event.target.value })} rows={7} spellCheck={false} value={draft.snapshot} />
-                <span>{draft.editing ? 'Save snapshot separately. Metadata updates deliberately retain the existing snapshot.' : 'The initial snapshot is stored with this source.'}</span>
+                <label htmlFor='source-format'>Source document format</label>
+                <select id='source-format' onChange={(event) => setDraft({ ...draft, format: event.target.value as SubscriptionSourceFormat })} value={draft.format}>
+                  <option value='auto'>Auto detect</option>
+                  <option value='sing-box-json'>sing-box JSON</option>
+                  <option value='mihomo-yaml'>Mihomo YAML</option>
+                  <option value='uri-list'>Share links</option>
+                </select>
+              </div>
+              <div className='field-group'>
+                <label htmlFor='source-document'>New source document</label>
+                <textarea className='data-editor' id='source-document' onChange={(event) => setDraft({ ...draft, sourceDocument: event.target.value })} rows={7} spellCheck={false} value={draft.sourceDocument} />
+                <span>{draft.editing ? 'Save as a new validated version. Existing versions are never overwritten.' : 'Optional for creation; remote sources can be refreshed later.'}</span>
               </div>
               <label className='check-field'>
                 <input checked={draft.enabled} onChange={(event) => setDraft({ ...draft, enabled: event.target.checked })} type='checkbox' />
                 <span>
                   <strong>Enable this source</strong>
-                  <small>Eligible for freezing during the next apply.</small>
+                  <small>Its current successful version is eligible for live publication.</small>
                 </span>
               </label>
               <div className='inline-actions'>
                 <button className='button button--primary' disabled={busy} type='submit'>{busy ? 'Saving…' : draft.editing ? 'Save metadata' : 'Attach source'}</button>
-                {draft.editing ? <button className='button button--secondary' disabled={busy} onClick={() => void saveSnapshot()} type='button'>Save snapshot candidate</button> : null}
+                {draft.editing ? <button className='button button--secondary' disabled={busy} onClick={() => void saveSourceVersion()} type='button'>Validate and activate version</button> : null}
                 <button className='button button--secondary' disabled={busy} onClick={() => setDraft(null)} type='button'>Cancel</button>
               </div>
             </form>

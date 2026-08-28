@@ -4,18 +4,13 @@ package application
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"path/filepath"
 	"sort"
-	"strings"
 	"time"
 
 	"github.com/rehuony/sing-box-panel/internal/artifactstore"
-	"github.com/rehuony/sing-box-panel/internal/capability"
 	"github.com/rehuony/sing-box-panel/internal/catalog"
 	"github.com/rehuony/sing-box-panel/internal/coreartifact"
 	"github.com/rehuony/sing-box-panel/internal/jsonstrict"
@@ -49,44 +44,6 @@ type CatalogAssetFilter struct {
 	Architecture string
 	Variant      string
 	Installable  bool
-}
-
-type CapabilityStatus struct {
-	Resolution   CoreVersionResolution   `json:"resolution"`
-	SupportLevel capability.SupportLevel `json:"support_level"`
-	Pinned       bool                    `json:"pinned"`
-	Pin          *store.CapabilityPin    `json:"pin,omitempty"`
-	Quarantined  bool                    `json:"quarantined"`
-	ReasonCode   string                  `json:"reason_code,omitempty"`
-	Presentation *CapabilityPresentation `json:"presentation,omitempty"`
-}
-
-// CapabilityPresentation is the inert, validated subset of an exact pinned
-// manifest that transports may expose to built-in editors. It deliberately
-// contains no transforms, executable components, templates, or remote
-// resources.
-type CapabilityPresentation struct {
-	SemanticFacts []capability.SemanticFact    `json:"semantic_facts"`
-	UI            []CapabilityUIDescriptorView `json:"ui"`
-}
-
-type CapabilityUIDescriptorView struct {
-	ID          string                             `json:"id"`
-	FactID      string                             `json:"fact_id"`
-	Kind        capability.UIKind                  `json:"kind"`
-	Label       string                             `json:"label"`
-	Help        string                             `json:"help,omitempty"`
-	Order       int                                `json:"order,omitempty"`
-	Options     []capability.UIOption              `json:"options,omitempty"`
-	VisibleWhen *CapabilityVisibilityConditionView `json:"visible_when,omitempty"`
-}
-
-// CapabilityVisibilityConditionView transports the exact canonical JSON
-// spelling of the validated scalar. Encoding it as a string prevents a browser
-// JSON parser from rounding an integer before comparing visibility rules.
-type CapabilityVisibilityConditionView struct {
-	CanonicalPath string `json:"canonical_path"`
-	EqualsJSON    string `json:"equals_json"`
 }
 
 type CatalogAssetList struct {
@@ -142,6 +99,7 @@ type CoreImportRequest struct {
 	ExactVersion      string
 	Architecture      string
 	Variant           string
+	DeleteSource      bool
 }
 
 type coreInstallPayload struct {
@@ -155,9 +113,34 @@ type coreImportPayload struct {
 	ExactVersion      string `json:"exact_version"`
 	Architecture      string `json:"architecture"`
 	Variant           string `json:"variant"`
+	DeleteSource      bool   `json:"delete_source,omitempty"`
 }
 
-func (application *Application) RefreshCatalog(ctx context.Context) (CatalogSnapshot, error) {
+type CatalogRefreshOptions struct {
+	Force bool `json:"force"`
+}
+
+func (application *Application) RefreshCatalog(ctx context.Context, options CatalogRefreshOptions) (CatalogSnapshot, error) {
+	if !options.Force && application.settings.GitHub.CatalogTTLHours > 0 {
+		state, stateErr := application.database.CatalogState(ctx)
+		if stateErr == nil && application.now().UTC().Before(
+			state.RefreshedAt.Add(time.Duration(application.settings.GitHub.CatalogTTLHours)*time.Hour),
+		) {
+			snapshot, catalogErr := application.Catalog(ctx)
+			if catalogErr != nil {
+				return CatalogSnapshot{}, catalogErr
+			}
+			snapshot.NotModified = true
+			snapshot.Diagnostics = append(snapshot.Diagnostics, catalog.Diagnostic{
+				Step: catalog.StepReleases, Severity: catalog.DiagnosticInfo, Code: "ttl_fresh",
+				Message: "the cached official catalog is still within its configured TTL",
+			})
+			return snapshot, nil
+		}
+		if stateErr != nil && !errors.Is(stateErr, store.ErrCatalogStateNotFound) {
+			return CatalogSnapshot{}, stateErr
+		}
+	}
 	client, err := catalog.NewGitHubClient(catalog.ClientOptions{Token: application.settings.GitHub.Token})
 	if err != nil {
 		return CatalogSnapshot{}, err
@@ -277,351 +260,12 @@ func (application *Application) ListCatalogAssets(
 	return CatalogAssetList{Validator: snapshot.Validator, RefreshedAt: snapshot.RefreshedAt, Assets: assets}, nil
 }
 
-func (application *Application) QueueCatalogRefresh(ctx context.Context) (Task, error) {
-	return application.queueMaintenanceTask(ctx, "catalog-refresh", json.RawMessage(`{}`), "")
-}
-
-func (application *Application) CoreCapabilityStatus(
-	ctx context.Context,
-	explicitVersion string,
-) (CapabilityStatus, error) {
-	resolution, err := application.ResolveCoreVersion(ctx, explicitVersion)
-	if err != nil {
-		return CapabilityStatus{}, err
-	}
-	result := CapabilityStatus{
-		Resolution:   resolution,
-		SupportLevel: capability.SupportManualJSON,
-	}
-	snapshot, err := application.database.PinnedCapability(ctx, resolution.ExactVersion)
-	if errors.Is(err, store.ErrCapabilityPinNotFound) {
-		return result, nil
-	}
-	if err != nil {
-		return CapabilityStatus{}, err
-	}
-	result.Pinned = true
-	pin := snapshot.Pin
-	result.Pin = &pin
-	result.SupportLevel = snapshot.Pin.SupportLevel
-	if snapshot.Quarantine == nil {
-		if snapshot.Pin.SupportLevel == capability.SupportNativeStructured ||
-			snapshot.Pin.SupportLevel == capability.SupportCompatibleStructured {
-			manifest, manifestErr := decodeStoredCapabilityManifest(snapshot.Manifest)
-			if manifestErr != nil {
-				return CapabilityStatus{}, manifestErr
-			}
-			presentation, presentationErr := newCapabilityPresentation(manifest)
-			if presentationErr != nil {
-				return CapabilityStatus{}, presentationErr
-			}
-			result.Presentation = presentation
-		}
-		return result, nil
-	}
-	result.Quarantined = true
-	result.ReasonCode = snapshot.Quarantine.ReasonCode
-	// A quarantined manifest is retained for audit and rollback evidence but is
-	// never effective for new projection work. The safe exact-version fallback
-	// is manual JSON, not another version's manifest.
-	result.SupportLevel = capability.SupportManualJSON
-	return result, nil
-}
-
-func newCapabilityPresentation(manifest *capability.Manifest) (*CapabilityPresentation, error) {
-	descriptors := manifest.UIDescriptors()
-	ui := make([]CapabilityUIDescriptorView, len(descriptors))
-	for index, descriptor := range descriptors {
-		ui[index] = CapabilityUIDescriptorView{
-			ID:      descriptor.ID,
-			FactID:  descriptor.FactID,
-			Kind:    descriptor.Kind,
-			Label:   descriptor.Label,
-			Help:    descriptor.Help,
-			Order:   descriptor.Order,
-			Options: append([]capability.UIOption(nil), descriptor.Options...),
-		}
-		if descriptor.VisibleWhen != nil {
-			equals, err := json.Marshal(descriptor.VisibleWhen.Equals)
-			if err != nil {
-				return nil, fmt.Errorf("encode capability UI visibility condition: %w", err)
-			}
-			ui[index].VisibleWhen = &CapabilityVisibilityConditionView{
-				CanonicalPath: descriptor.VisibleWhen.CanonicalPath,
-				EqualsJSON:    string(equals),
-			}
-		}
-	}
-	return &CapabilityPresentation{
-		SemanticFacts: manifest.SemanticFacts(),
-		UI:            ui,
-	}, nil
-}
-
-func (application *Application) QueueCoreInstall(ctx context.Context, assetID int64) (Task, error) {
-	asset, err := application.catalogAsset(ctx, assetID)
+func (application *Application) QueueCatalogRefresh(ctx context.Context, options CatalogRefreshOptions) (Task, error) {
+	payload, err := json.Marshal(options)
 	if err != nil {
 		return Task{}, err
 	}
-	digest, err := asset.TrustedDigest()
-	if err != nil {
-		return Task{}, err
-	}
-	payload, err := json.Marshal(coreInstallPayload{Asset: asset})
-	if err != nil {
-		return Task{}, err
-	}
-	key := fmt.Sprintf("core-install:%d:%d:%d:%s", asset.RepositoryID, asset.ReleaseID, asset.AssetID, digest.String())
-	return application.queueMaintenanceTask(ctx, "core-install", payload, key)
-}
-
-func (application *Application) QueueCoreImport(ctx context.Context, request CoreImportRequest) (Task, error) {
-	if !filepath.IsAbs(request.SourcePath) || filepath.Clean(request.SourcePath) != request.SourcePath {
-		return Task{}, errors.New("core import path must be absolute and clean")
-	}
-	digest, err := coreartifact.ParseSHA256(request.SHA256)
-	if err != nil || digest.IsZero() {
-		return Task{}, errors.New("core import SHA-256 is invalid")
-	}
-	version, err := coreartifact.ParseExactVersion(request.ExactVersion)
-	if err != nil || version.IsZero() {
-		return Task{}, errors.New("core import exact version is invalid")
-	}
-	architecture := coreartifact.Architecture(request.Architecture)
-	if architecture != coreartifact.ArchitectureAMD64 && architecture != coreartifact.ArchitectureARM64 {
-		return Task{}, errors.New("core import architecture must be amd64 or arm64")
-	}
-	variant := coreartifact.Variant(request.Variant)
-	if variant == "" {
-		variant = coreartifact.VariantPlain
-	}
-	source, err := coreartifact.NewUserSource(request.SourceDescription)
-	if err != nil {
-		return Task{}, err
-	}
-	if _, err := coreartifact.NewIdentity(
-		source, digest, coreartifact.OperatingSystemLinux,
-		architecture, variant, version,
-	); err != nil {
-		return Task{}, err
-	}
-	payload, err := json.Marshal(coreImportPayload{
-		SourcePath: request.SourcePath, SourceDescription: request.SourceDescription,
-		SHA256: digest.String(), ExactVersion: version.String(), Architecture: string(architecture), Variant: string(variant),
-	})
-	if err != nil {
-		return Task{}, err
-	}
-	key := "core-import:" + digest.String() + ":" + version.String() + ":" + string(architecture) + ":" + string(variant)
-	return application.queueMaintenanceTask(ctx, "core-import", payload, key)
-}
-
-func (application *Application) queueMaintenanceTask(
-	ctx context.Context,
-	kind string,
-	payload json.RawMessage,
-	idempotencyKey string,
-) (Task, error) {
-	taskID, err := application.newID("task")
-	if err != nil {
-		return Task{}, err
-	}
-	queued, err := application.database.EnqueueTask(ctx, store.EnqueueTaskInput{
-		ID: taskID, IdempotencyKey: idempotencyKey, Lane: store.TaskLaneMaintenance,
-		Kind: kind, Payload: payload, CreatedAt: application.now().UTC(),
-	})
-	if err != nil {
-		return Task{}, err
-	}
-	return applicationTask(queued), nil
-}
-
-func (application *Application) catalogAsset(ctx context.Context, assetID int64) (catalog.Asset, error) {
-	if assetID <= 0 {
-		return catalog.Asset{}, errors.New("catalog asset id must be positive")
-	}
-	snapshot, err := application.Catalog(ctx)
-	if err != nil {
-		return catalog.Asset{}, err
-	}
-	for _, asset := range snapshot.Catalog.Assets() {
-		if asset.AssetID == assetID {
-			return asset, nil
-		}
-	}
-	return catalog.Asset{}, errors.New("catalog asset not found")
-}
-
-func (application *Application) ListCoreArtifacts(
-	ctx context.Context,
-	filter CoreArtifactListFilter,
-) (CoreArtifactPage, error) {
-	var cursor *store.CreatedAtCursor
-	if filter.Cursor != nil {
-		cursor = &store.CreatedAtCursor{
-			CreatedAt: filter.Cursor.CreatedAt,
-			ID:        strings.TrimSpace(filter.Cursor.ID),
-		}
-	}
-	page, err := application.database.ListCoreArtifacts(ctx, store.CoreArtifactListFilter{
-		ExactVersion: filter.ExactVersion, Architecture: filter.Architecture, Variant: filter.Variant,
-		SourceKind: filter.SourceKind, VerificationState: filter.VerificationState,
-		Cursor: cursor, Limit: filter.Limit,
-	})
-	if err != nil {
-		return CoreArtifactPage{}, err
-	}
-	result := CoreArtifactPage{Items: make([]CoreArtifact, len(page.Items))}
-	for index, artifact := range page.Items {
-		result.Items[index] = coreArtifact(artifact)
-	}
-	if page.Next != nil {
-		result.Next = &CoreArtifactCursor{CreatedAt: page.Next.CreatedAt, ID: page.Next.ID}
-	}
-	return result, nil
-}
-
-func (application *Application) CoreArtifact(ctx context.Context, artifactID string) (CoreArtifact, error) {
-	artifact, err := application.database.GetCoreArtifact(ctx, artifactID)
-	if err != nil {
-		return CoreArtifact{}, err
-	}
-	return coreArtifact(artifact), nil
-}
-
-func (application *Application) RestrictCoreArtifactVerification(
-	ctx context.Context,
-	artifactID string,
-	verificationState store.CoreArtifactVerificationState,
-) (CoreArtifact, error) {
-	artifact, err := application.database.RestrictCoreArtifactVerification(
-		ctx,
-		artifactID,
-		verificationState,
-		application.now().UTC(),
-	)
-	if err != nil {
-		return CoreArtifact{}, err
-	}
-	return coreArtifact(artifact), nil
-}
-
-func (application *Application) RemoveCoreArtifact(ctx context.Context, artifactID string) error {
-	return application.database.RemoveCoreArtifact(ctx, artifactID)
-}
-
-func (application *Application) PersistInstalledCore(
-	ctx context.Context,
-	result artifactstore.Result,
-) (CoreArtifact, error) {
-	featureFingerprint, err := result.FeatureFingerprint.CanonicalJSON()
-	if err != nil {
-		return CoreArtifact{}, fmt.Errorf("normalize installed core feature fingerprint: %w", err)
-	}
-	identityJSON, err := json.Marshal(result.Identity)
-	if err != nil {
-		return CoreArtifact{}, err
-	}
-	id := sha256.Sum256(identityJSON)
-	source := result.Identity.Source()
-	persisted := store.CoreArtifact{
-		ID: "core_" + hex.EncodeToString(id[:]), ExactVersion: result.Identity.ReportedVersion().String(),
-		OperatingSystem: string(result.Identity.OperatingSystem()), Architecture: string(result.Identity.Architecture()),
-		Variant: string(result.Identity.Variant()), ArchiveSHA256: result.Identity.Digest().String(),
-		BinarySHA256: result.BinarySHA256.String(),
-		BinaryPath:   result.BinaryPath, ReportedVersion: result.Identity.ReportedVersion().String(),
-		FeatureFingerprint: featureFingerprint, VerificationState: store.CoreArtifactVerified,
-		CreatedAt: application.now().UTC(),
-	}
-	switch source.Kind() {
-	case coreartifact.SourceOfficial:
-		persisted.SourceKind = store.CoreArtifactSourceOfficial
-		persisted.RepositoryID = source.RepositoryID()
-		persisted.ReleaseID = source.ReleaseID()
-		persisted.AssetID = source.AssetID()
-	case coreartifact.SourceUser:
-		persisted.SourceKind = store.CoreArtifactSourceUserVerified
-		persisted.UserSource = source.UserSource()
-	default:
-		return CoreArtifact{}, errors.New("installed core has an unknown source kind")
-	}
-	stored, err := application.database.UpsertCoreArtifact(ctx, persisted)
-	if err != nil {
-		return CoreArtifact{}, err
-	}
-	if stored.VerificationState != store.CoreArtifactVerified {
-		return CoreArtifact{}, fmt.Errorf(
-			"%w: %s remains %s",
-			ErrCoreArtifactVerificationBlocked,
-			stored.ID,
-			stored.VerificationState,
-		)
-	}
-	return coreArtifact(stored), nil
-}
-
-// ExecuteCoreArtifactTask performs the slow verified install/import outside a
-// database transaction, then crosses one explicit safe cancellation boundary
-// before publishing the immutable identity into SQLite.
-func (application *Application) ExecuteCoreArtifactTask(
-	ctx context.Context,
-	kind string,
-	payload json.RawMessage,
-	installer ArtifactInstaller,
-	beforePersist func(context.Context) error,
-) (CoreArtifact, error) {
-	if installer == nil {
-		return CoreArtifact{}, errors.New("artifact installer is unavailable")
-	}
-	var result artifactstore.Result
-	switch kind {
-	case "core-install":
-		var input coreInstallPayload
-		if err := jsonstrict.Decode(payload, 128<<10, &input); err != nil {
-			return CoreArtifact{}, fmt.Errorf("decode core install task: %w", err)
-		}
-		if err := input.Asset.Validate(); err != nil {
-			return CoreArtifact{}, err
-		}
-		if _, err := input.Asset.TrustedDigest(); err != nil {
-			return CoreArtifact{}, err
-		}
-		installed, err := installer.InstallOfficial(ctx, input.Asset)
-		if err != nil {
-			return CoreArtifact{}, err
-		}
-		result = installed
-	case "core-import":
-		var input coreImportPayload
-		if err := jsonstrict.Decode(payload, 128<<10, &input); err != nil {
-			return CoreArtifact{}, fmt.Errorf("decode core import task: %w", err)
-		}
-		digest, err := coreartifact.ParseSHA256(input.SHA256)
-		if err != nil || digest.IsZero() {
-			return CoreArtifact{}, errors.New("core import task digest is invalid")
-		}
-		version, err := coreartifact.ParseExactVersion(input.ExactVersion)
-		if err != nil || version.IsZero() {
-			return CoreArtifact{}, errors.New("core import task version is invalid")
-		}
-		imported, err := installer.ImportLocal(ctx, artifactstore.ImportRequest{
-			SourcePath: input.SourcePath, SourceDescription: input.SourceDescription,
-			ExpectedSHA256: digest, ExpectedVersion: version,
-			ExpectedArchitecture: coreartifact.Architecture(input.Architecture), Variant: coreartifact.Variant(input.Variant),
-		})
-		if err != nil {
-			return CoreArtifact{}, err
-		}
-		result = imported
-	default:
-		return CoreArtifact{}, fmt.Errorf("unsupported core artifact task %q", kind)
-	}
-	if beforePersist != nil {
-		if err := beforePersist(ctx); err != nil {
-			return CoreArtifact{}, err
-		}
-	}
-	return application.PersistInstalledCore(ctx, result)
+	return application.queueMaintenanceTask(ctx, "catalog-refresh", payload, "")
 }
 
 func decodeCatalog(raw json.RawMessage) (catalog.Catalog, error) {

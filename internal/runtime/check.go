@@ -33,6 +33,13 @@ func (manager *Manager) checkLocked(ctx context.Context, bundle AppliedBundle) e
 	if err := contextError(ctx); err != nil {
 		return fail("check", "cancelled", err, err)
 	}
+	// Every subprocess uses RuntimeDir as its working directory. A fresh panel
+	// has not materialized a config yet, so create and validate the directory
+	// before the version command rather than relying on materialization later in
+	// this method to do it as a side effect.
+	if err := ensurePrivateDirectory(manager.options.RuntimeDir); err != nil {
+		return fail("prepare_runtime", "directory", ErrMaterialization, err)
+	}
 	if err := verifyStartupConfigDigest(bundle.StartupConfig, bundle.StartupConfigDigest); err != nil {
 		return fail("verify_config", "digest_mismatch", ErrStartupConfigDigest, err)
 	}

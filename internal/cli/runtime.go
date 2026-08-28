@@ -45,7 +45,7 @@ func newCoreActivateCommand(state *options, open openApplicationFunc) *cobra.Com
 			return applyStartupArtifact(cmd, state, open, args[0], monitoring, detach)
 		},
 	}
-	command.Flags().StringVar(&monitoring, "monitoring", string(store.MonitoringProcessOnly), "health evidence tier (currently process_only)")
+	command.Flags().StringVar(&monitoring, "monitoring", string(store.MonitoringProcessOnly), "health evidence tier (process_only or limited)")
 	command.Flags().BoolVar(&detach, "detach", false, "return after the durable runtime task is queued")
 	return command
 }
@@ -65,7 +65,7 @@ func newConfigApplyCommand(state *options, open openApplicationFunc) *cobra.Comm
 		},
 	}
 	command.Flags().StringVar(&artifactID, "artifact", "", "ready startup artifact ID")
-	command.Flags().StringVar(&monitoring, "monitoring", string(store.MonitoringProcessOnly), "health evidence tier (currently process_only)")
+	command.Flags().StringVar(&monitoring, "monitoring", string(store.MonitoringProcessOnly), "health evidence tier (process_only or limited)")
 	command.Flags().BoolVar(&detach, "detach", false, "return after the durable runtime task is queued")
 	return command
 }

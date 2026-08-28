@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 
-import type { SubscriptionCursor, SubscriptionToken } from '@/api/api-client';
+import type { SubscriptionCursor, SubscriptionToken, SubscriptionUser } from '@/api/api-client';
 
 import { useApiClient } from '@/api/api-client-context';
 import { ActionError } from '@/components/action-error';
@@ -24,6 +24,9 @@ export function SubscriptionTokenPanel() {
   const [next, setNext] = useState<SubscriptionCursor>();
   const [loadError, setLoadError] = useState<unknown>(null);
   const [expiresAt, setExpiresAt] = useState('');
+  const [userID, setUserID] = useState('');
+  const [label, setLabel] = useState('');
+  const [users, setUsers] = useState<SubscriptionUser[]>([]);
   const [secret, setSecret] = useState<IssuedSecret | null>(null);
   const [copied, setCopied] = useState(false);
   const [actionError, setActionError] = useState('');
@@ -52,15 +55,54 @@ export function SubscriptionTokenPanel() {
     return () => controller.abort();
   }, [load]);
 
+  useEffect(() => {
+    const controller = new AbortController();
+    void client.listSubscriptionUsers({ limit: 100 }, controller.signal).then((page) => {
+      setUsers(page.items);
+      setUserID((current) => current || page.items[0]?.id || '');
+    }).catch(() => {});
+    return () => controller.abort();
+  }, [client]);
+
   async function create() {
     try {
+      if (userID === '') throw new Error('Select a subscription user.');
+      if (label.trim() === '') throw new Error('Enter a token label.');
       setBusy(true);
       setActionError('');
       setSecret(null);
       const issued = await client.createSubscriptionToken({
+        userID,
+        label: label.trim(),
         expiresAt: localDateTimeToISO(expiresAt),
       });
       setSecret({ kind: 'created', token: issued.token });
+      await load();
+    } catch (error) {
+      setActionError(describeRequestError(error));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function toggle(token: SubscriptionToken) {
+    try {
+      setBusy(true);
+      setActionError('');
+      await client.setSubscriptionTokenEnabled(token.id, !token.enabled);
+      await load();
+    } catch (error) {
+      setActionError(describeRequestError(error));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function remove(token: SubscriptionToken) {
+    try {
+      setBusy(true);
+      setActionError('');
+      await client.deleteSubscriptionToken(token.id);
       await load();
     } catch (error) {
       setActionError(describeRequestError(error));
@@ -147,6 +189,17 @@ export function SubscriptionTokenPanel() {
         void create();
       }}>
         <div className='field-group'>
+          <label htmlFor='token-user'>User</label>
+          <select id='token-user' onChange={(event) => setUserID(event.target.value)} value={userID}>
+            <option value=''>Select a user</option>
+            {users.map((user) => <option key={user.id} value={user.id}>{user.name}</option>)}
+          </select>
+        </div>
+        <div className='field-group'>
+          <label htmlFor='token-label'>Label</label>
+          <input id='token-label' onChange={(event) => setLabel(event.target.value)} placeholder='phone, laptop' value={label} />
+        </div>
+        <div className='field-group'>
           <label htmlFor='token-expiry'>Expires at</label>
           <input id='token-expiry' onChange={(event) => setExpiresAt(event.target.value)} type='datetime-local' value={expiresAt} />
           <span>Leave empty for no expiry.</span>
@@ -159,7 +212,11 @@ export function SubscriptionTokenPanel() {
         ? (
             <div className='empty-state'>
               <strong>No public tokens.</strong>
-              <p>Issue one after an activation has frozen at least one enabled channel.</p>
+              <p>
+                Tokens inherit their user&apos;s live grants. A public download still requires
+                {' '}
+                an applied local-node version and an enabled channel.
+              </p>
             </div>
           )
         : null}
@@ -171,6 +228,7 @@ export function SubscriptionTokenPanel() {
                   <tr>
                     <th>Token ID</th>
                     <th>State</th>
+                    <th>Usage</th>
                     <th>Actions</th>
                   </tr>
                 </thead>
@@ -179,21 +237,44 @@ export function SubscriptionTokenPanel() {
                     <tr key={token.id}>
                       <td>
                         <code>{token.id}</code>
+                        <strong className='table-subline'>{token.label}</strong>
                         <small className='table-subline'>
-                          Issued
+                          User
+                          {' '}
+                          {token.user_id}
+                          {' '}
+                          · Issued
                           {new Date(token.created_at).toLocaleDateString()}
                         </small>
                       </td>
                       <td>
                         <span className={`state-label ${token.active ? 'state-label--success' : 'state-label--warning'}`}>
                           <span aria-hidden='true' />
-                          {token.active ? 'Active' : token.revoked_at ? 'Revoked' : 'Expired'}
+                          {token.active ? 'Active' : token.revoked_at ? 'Revoked' : token.enabled ? 'Expired' : 'Disabled'}
                         </span>
+                      </td>
+                      <td>
+                        <strong>
+                          {token.successful_request_count}
+                          {' '}
+                          requests
+                        </strong>
+                        <small className='table-subline'>
+                          {token.body_response_count}
+                          {' '}
+                          bodies ·
+                          {' '}
+                          {token.bytes_served}
+                          {' '}
+                          bytes
+                        </small>
                       </td>
                       <td>
                         <div className='table-actions'>
                           <button className='text-button' disabled={busy || !token.active} onClick={() => void rotate(token)} type='button'>Rotate</button>
+                          <button className='text-button' disabled={busy || token.revoked_at !== undefined} onClick={() => void toggle(token)} type='button'>{token.enabled ? 'Disable' : 'Enable'}</button>
                           <button className='text-button text-button--danger' disabled={busy || !token.active} onClick={() => void revoke(token)} type='button'>Revoke</button>
+                          <button className='text-button text-button--danger' disabled={busy} onClick={() => void remove(token)} type='button'>Delete</button>
                         </div>
                       </td>
                     </tr>

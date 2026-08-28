@@ -1,7 +1,7 @@
 WEB_PNPM := pnpm --dir web
-GO_SOURCE_DIRS := cmd internal packaging web
-RELEASE_SCRIPT := packaging/release/build-release.sh
-SHELL_SOURCE_DIRS := packaging .github/scripts
+GO_SOURCE_DIRS := cmd internal systemd web
+RELEASE_SCRIPT := .github/scripts/build-release.sh
+SHELL_SOURCE_DIRS := .github/scripts
 
 .PHONY: \
 	bootstrap go-download web-install \
@@ -55,7 +55,7 @@ mod-check:
 
 fuzz-smoke:
 	go test ./internal/coreartifact -run '^$$' -fuzz '^FuzzParseExactVersionCanonicalRoundTrip$$' -fuzztime=5s
-	go test ./internal/subscription -run '^$$' -fuzz '^FuzzRenderIsPureAndDeterministic$$' -fuzztime=5s
+	go test ./internal/subscription/render -run '^$$' -fuzz '^FuzzRenderIsPureAndDeterministic$$' -fuzztime=5s
 
 web-lint web-test web-typecheck:
 	$(WEB_PNPM) run $(patsubst web-%,%,$@)

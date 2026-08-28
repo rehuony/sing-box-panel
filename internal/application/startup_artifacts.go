@@ -5,6 +5,7 @@ package application
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -13,20 +14,18 @@ import (
 	"github.com/rehuony/sing-box-panel/internal/store"
 )
 
-// StartupArtifactSummary deliberately excludes startup configuration bytes.
-// Those bytes can contain credentials and are only exposed through the
-// explicit manual-artifact read boundary.
+// StartupArtifactSummary deliberately excludes compiled configuration bytes,
+// which may contain credentials.
 type StartupArtifactSummary struct {
 	ID                  string                     `json:"id"`
-	Kind                store.StartupArtifactKind  `json:"kind"`
 	CanonicalRevisionID string                     `json:"canonical_revision_id"`
 	ExactCoreVersion    string                     `json:"exact_core_version"`
-	CapabilityCommit    string                     `json:"capability_commit,omitempty"`
-	CapabilityDigest    string                     `json:"capability_digest,omitempty"`
-	RendererVersion     string                     `json:"renderer_version"`
+	AdapterID           string                     `json:"adapter_id"`
+	AdapterRevision     string                     `json:"adapter_revision"`
 	CoreArtifactID      string                     `json:"core_artifact_id"`
 	ConfigSHA256        string                     `json:"config_sha256"`
 	Diagnostics         json.RawMessage            `json:"diagnostics"`
+	IgnoredDigest       string                     `json:"ignored_digest,omitempty"`
 	State               store.StartupArtifactState `json:"state"`
 	CheckedAt           *time.Time                 `json:"checked_at,omitempty"`
 	CreatedAt           time.Time                  `json:"created_at"`
@@ -41,7 +40,6 @@ type StartupArtifactListRequest struct {
 	CanonicalRevisionID string
 	ExactCoreVersion    string
 	CoreArtifactID      string
-	Kind                store.StartupArtifactKind
 	State               store.StartupArtifactState
 	Cursor              *StartupArtifactCursor
 	Limit               int
@@ -72,7 +70,6 @@ func (application *Application) ListStartupArtifacts(
 		CanonicalRevisionID: strings.TrimSpace(request.CanonicalRevisionID),
 		ExactCoreVersion:    request.ExactCoreVersion,
 		CoreArtifactID:      strings.TrimSpace(request.CoreArtifactID),
-		Kind:                request.Kind,
 		State:               request.State,
 		Cursor:              cursor,
 		Limit:               request.Limit,
@@ -92,11 +89,43 @@ func (application *Application) ListStartupArtifacts(
 
 func startupArtifactSummary(artifact store.StartupArtifactSummary) StartupArtifactSummary {
 	return StartupArtifactSummary{
-		ID: artifact.ID, Kind: artifact.Kind, CanonicalRevisionID: artifact.CanonicalRevisionID,
-		ExactCoreVersion: artifact.ExactCoreVersion, CapabilityCommit: artifact.CapabilityCommit,
-		CapabilityDigest: artifact.CapabilityDigest, RendererVersion: artifact.RendererVersion,
-		CoreArtifactID: artifact.CoreArtifactID, ConfigSHA256: artifact.ConfigSHA256,
+		ID: artifact.ID, CanonicalRevisionID: artifact.CanonicalRevisionID,
+		ExactCoreVersion: artifact.ExactCoreVersion, AdapterID: artifact.AdapterID,
+		AdapterRevision: artifact.AdapterRevision,
+		CoreArtifactID:  artifact.CoreArtifactID, ConfigSHA256: artifact.ConfigSHA256,
 		Diagnostics: append(json.RawMessage(nil), artifact.Diagnostics...), State: artifact.State,
-		CheckedAt: artifact.CheckedAt, CreatedAt: artifact.CreatedAt,
+		IgnoredDigest: artifact.IgnoredDigest, CheckedAt: artifact.CheckedAt, CreatedAt: artifact.CreatedAt,
 	}
+}
+
+func (application *Application) QueueStartupCheck(ctx context.Context, startupArtifactID string) (Task, error) {
+	artifact, err := application.database.GetStartupArtifact(ctx, strings.TrimSpace(startupArtifactID))
+	if err != nil {
+		return Task{}, err
+	}
+	if artifact.State != store.StartupArtifactPending {
+		return Task{}, store.ErrStartupArtifactState
+	}
+	taskID, err := application.newID("task")
+	if err != nil {
+		return Task{}, err
+	}
+	payload, err := json.Marshal(map[string]string{"startup_artifact_id": artifact.ID})
+	if err != nil {
+		return Task{}, err
+	}
+	queued, err := application.database.EnqueueTask(ctx, store.EnqueueTaskInput{
+		ID: taskID, IdempotencyKey: "startup-check:" + artifact.ID,
+		Lane: store.TaskLaneMaintenance, Kind: "startup-check",
+		CanonicalRevisionID: artifact.CanonicalRevisionID, StartupArtifactID: artifact.ID,
+		Payload: payload, CreatedAt: application.now().UTC(),
+	})
+	if err != nil {
+		return Task{}, err
+	}
+	return applicationTask(queued), nil
+}
+
+func IsStartupArtifactNotFound(err error) bool {
+	return errors.Is(err, store.ErrStartupArtifactNotFound)
 }

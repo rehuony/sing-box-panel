@@ -23,34 +23,25 @@ var (
 	ErrStartupArtifactState    = errors.New("startup artifact state transition is invalid")
 )
 
-type StartupArtifactKind string
-
-const (
-	StartupArtifactStructured StartupArtifactKind = "structured"
-	StartupArtifactManual     StartupArtifactKind = "manual"
-)
-
 type StartupArtifactState string
 
 const (
 	StartupArtifactPending StartupArtifactState = "pending"
 	StartupArtifactReady   StartupArtifactState = "ready"
 	StartupArtifactFailed  StartupArtifactState = "failed"
-	StartupArtifactStale   StartupArtifactState = "stale"
 )
 
 type StartupArtifact struct {
 	ID                  string               `json:"id"`
-	Kind                StartupArtifactKind  `json:"kind"`
 	CanonicalRevisionID string               `json:"canonical_revision_id"`
 	ExactCoreVersion    string               `json:"exact_core_version"`
-	CapabilityCommit    string               `json:"capability_commit,omitempty"`
-	CapabilityDigest    string               `json:"capability_digest,omitempty"`
-	RendererVersion     string               `json:"renderer_version"`
+	AdapterID           string               `json:"adapter_id"`
+	AdapterRevision     string               `json:"adapter_revision"`
 	CoreArtifactID      string               `json:"core_artifact_id"`
 	ConfigBytes         []byte               `json:"-"`
 	ConfigSHA256        string               `json:"config_sha256"`
 	Diagnostics         json.RawMessage      `json:"diagnostics"`
+	IgnoredDigest       string               `json:"ignored_digest,omitempty"`
 	State               StartupArtifactState `json:"state"`
 	CheckedAt           *time.Time           `json:"checked_at,omitempty"`
 	CreatedAt           time.Time            `json:"created_at"`
@@ -60,15 +51,14 @@ type StartupArtifact struct {
 // ConfigBytes remains available exclusively through GetStartupArtifact.
 type StartupArtifactSummary struct {
 	ID                  string
-	Kind                StartupArtifactKind
 	CanonicalRevisionID string
 	ExactCoreVersion    string
-	CapabilityCommit    string
-	CapabilityDigest    string
-	RendererVersion     string
+	AdapterID           string
+	AdapterRevision     string
 	CoreArtifactID      string
 	ConfigSHA256        string
 	Diagnostics         json.RawMessage
+	IgnoredDigest       string
 	State               StartupArtifactState
 	CheckedAt           *time.Time
 	CreatedAt           time.Time
@@ -78,7 +68,6 @@ type StartupArtifactListFilter struct {
 	CanonicalRevisionID string
 	ExactCoreVersion    string
 	CoreArtifactID      string
-	Kind                StartupArtifactKind
 	State               StartupArtifactState
 	Cursor              *CreatedAtCursor
 	Limit               int
@@ -90,14 +79,14 @@ type StartupArtifactPage struct {
 }
 
 const startupArtifactColumns = `
-    id, kind, canonical_revision_id, exact_core_version, capability_commit,
-    capability_digest, renderer_version, core_artifact_id, config_bytes,
-    config_sha256, diagnostics_json, state, checked_at, created_at`
+	    id, canonical_revision_id, exact_core_version, adapter_id,
+	    adapter_revision, core_artifact_id, config_bytes, config_sha256,
+	    diagnostics_json, ignored_digest, state, checked_at, created_at`
 
 const startupArtifactSummaryColumns = `
-    id, kind, canonical_revision_id, exact_core_version, capability_commit,
-    capability_digest, renderer_version, core_artifact_id, config_sha256,
-    diagnostics_json, state, checked_at, created_at`
+	    id, canonical_revision_id, exact_core_version, adapter_id,
+	    adapter_revision, core_artifact_id, config_sha256, diagnostics_json,
+	    ignored_digest, state, checked_at, created_at`
 
 // CreateStartupArtifact inserts an immutable pending candidate. Only the
 // durable checker may transition it to ready or failed.
@@ -128,22 +117,20 @@ func insertStartupArtifactTx(
 	_, err := tx.ExecContext(
 		ctx,
 		`INSERT INTO startup_artifacts(
-                id, kind, canonical_revision_id, exact_core_version,
-                capability_commit, capability_digest, renderer_version,
-                core_artifact_id, config_bytes, config_sha256,
-                diagnostics_json, state, checked_at, created_at
-             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', NULL, ?)`,
+	                id, canonical_revision_id, exact_core_version, adapter_id,
+	                adapter_revision, core_artifact_id, config_bytes, config_sha256,
+	                diagnostics_json, ignored_digest, state, checked_at, created_at
+	             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', NULL, ?)`,
 		prepared.ID,
-		string(prepared.Kind),
 		prepared.CanonicalRevisionID,
 		prepared.ExactCoreVersion,
-		nullIfEmpty(prepared.CapabilityCommit),
-		nullIfEmpty(prepared.CapabilityDigest),
-		prepared.RendererVersion,
+		prepared.AdapterID,
+		prepared.AdapterRevision,
 		prepared.CoreArtifactID,
 		prepared.ConfigBytes,
 		prepared.ConfigSHA256,
 		string(prepared.Diagnostics),
+		nullIfEmpty(prepared.IgnoredDigest),
 		formatTaskTime(prepared.CreatedAt),
 	)
 	if err != nil {
@@ -170,9 +157,6 @@ func (s *Store) ListStartupArtifacts(
 	if err != nil {
 		return StartupArtifactPage{}, err
 	}
-	if filter.Kind != "" && !validStartupArtifactKind(filter.Kind) {
-		return StartupArtifactPage{}, fmt.Errorf("invalid startup artifact kind %q", filter.Kind)
-	}
 	if filter.State != "" && !validStartupArtifactState(filter.State) {
 		return StartupArtifactPage{}, fmt.Errorf("invalid startup artifact state %q", filter.State)
 	}
@@ -188,7 +172,6 @@ func (s *Store) ListStartupArtifacts(
 		{filter.CanonicalRevisionID, "canonical_revision_id = ?"},
 		{filter.ExactCoreVersion, "exact_core_version = ?"},
 		{filter.CoreArtifactID, "core_artifact_id = ?"},
-		{string(filter.Kind), "kind = ?"},
 		{string(filter.State), "state = ?"},
 	} {
 		if item.value != "" {
@@ -261,9 +244,6 @@ func (s *Store) CompleteStartupArtifactCheck(
 			return err
 		}
 		switch current.State {
-		case StartupArtifactStale:
-			stored = current
-			return nil
 		case wanted:
 			stored = current
 			return nil
@@ -289,69 +269,18 @@ func (s *Store) CompleteStartupArtifactCheck(
 	return stored, err
 }
 
-// MarkStartupArtifactStale discards a pending or ready immutable candidate.
-// Applied bundles keep their own reference and bytes; this state transition
-// only prevents preparing a new activation from the candidate.
-func (s *Store) MarkStartupArtifactStale(
-	ctx context.Context,
-	artifactID string,
-) (StartupArtifact, error) {
-	if strings.TrimSpace(artifactID) == "" {
-		return StartupArtifact{}, errors.New("startup artifact id is empty")
-	}
-	var stored StartupArtifact
-	err := s.WithTx(ctx, func(tx *sql.Tx) error {
-		current, err := getStartupArtifact(ctx, tx, artifactID)
-		if err != nil {
-			return err
-		}
-		if current.State == StartupArtifactStale {
-			stored = current
-			return nil
-		}
-		if current.State != StartupArtifactPending && current.State != StartupArtifactReady &&
-			current.State != StartupArtifactFailed {
-			return fmt.Errorf("%w: %s is %s", ErrStartupArtifactState, artifactID, current.State)
-		}
-		if _, err := tx.ExecContext(
-			ctx,
-			`UPDATE startup_artifacts SET state = 'stale' WHERE id = ?`,
-			artifactID,
-		); err != nil {
-			return fmt.Errorf("mark startup artifact stale: %w", err)
-		}
-		stored, err = getStartupArtifact(ctx, tx, artifactID)
-		return err
-	})
-	return stored, err
-}
-
 func prepareNewStartupArtifact(artifact StartupArtifact) (StartupArtifact, error) {
 	if strings.TrimSpace(artifact.ID) == "" || strings.TrimSpace(artifact.CanonicalRevisionID) == "" ||
-		strings.TrimSpace(artifact.RendererVersion) == "" || strings.TrimSpace(artifact.CoreArtifactID) == "" {
+		strings.TrimSpace(artifact.AdapterID) == "" || strings.TrimSpace(artifact.AdapterRevision) == "" ||
+		strings.TrimSpace(artifact.CoreArtifactID) == "" {
 		return StartupArtifact{}, errors.New("startup artifact identity fields are required")
-	}
-	if !validStartupArtifactKind(artifact.Kind) {
-		return StartupArtifact{}, fmt.Errorf("invalid startup artifact kind %q", artifact.Kind)
 	}
 	version, err := coreartifact.ParseExactVersion(artifact.ExactCoreVersion)
 	if err != nil || version.IsZero() {
 		return StartupArtifact{}, errors.New("startup artifact exact version is invalid")
 	}
 	artifact.ExactCoreVersion = version.String()
-	if artifact.Kind == StartupArtifactStructured {
-		if strings.TrimSpace(artifact.CapabilityCommit) == "" {
-			return StartupArtifact{}, errors.New("structured startup artifact capability commit is required")
-		}
-		digest, err := coreartifact.ParseSHA256(artifact.CapabilityDigest)
-		if err != nil || digest.IsZero() {
-			return StartupArtifact{}, errors.New("structured startup artifact capability digest is invalid")
-		}
-		artifact.CapabilityDigest = digest.String()
-	} else if artifact.CapabilityCommit != "" || artifact.CapabilityDigest != "" {
-		return StartupArtifact{}, errors.New("manual startup artifact cannot claim a capability manifest")
-	}
-	if len(artifact.ConfigBytes) == 0 || len(artifact.ConfigBytes) > 4<<20 {
+	if len(artifact.ConfigBytes) == 0 || len(artifact.ConfigBytes) > 4<<20 || !json.Valid(artifact.ConfigBytes) {
 		return StartupArtifact{}, errors.New("startup artifact config bytes are empty or too large")
 	}
 	digest := sha256.Sum256(artifact.ConfigBytes)
@@ -363,6 +292,13 @@ func prepareNewStartupArtifact(artifact StartupArtifact) (StartupArtifact, error
 	artifact.Diagnostics, err = compactJSONArray(artifact.Diagnostics)
 	if err != nil {
 		return StartupArtifact{}, err
+	}
+	if artifact.IgnoredDigest != "" {
+		digest, digestErr := coreartifact.ParseSHA256(artifact.IgnoredDigest)
+		if digestErr != nil || digest.IsZero() {
+			return StartupArtifact{}, errors.New("startup artifact ignored digest is invalid")
+		}
+		artifact.IgnoredDigest = digest.String()
 	}
 	if artifact.State != "" && artifact.State != StartupArtifactPending {
 		return StartupArtifact{}, errors.New("new startup artifact must be pending")
@@ -416,28 +352,26 @@ func getStartupArtifact(ctx context.Context, q queryRower, artifactID string) (S
 
 func scanStartupArtifact(row taskScanner) (StartupArtifact, error) {
 	var artifact StartupArtifact
-	var capabilityCommit, capabilityDigest, checkedAt sql.NullString
+	var ignoredDigest, checkedAt sql.NullString
 	var diagnostics, createdAt string
 	if err := row.Scan(
 		&artifact.ID,
-		&artifact.Kind,
 		&artifact.CanonicalRevisionID,
 		&artifact.ExactCoreVersion,
-		&capabilityCommit,
-		&capabilityDigest,
-		&artifact.RendererVersion,
+		&artifact.AdapterID,
+		&artifact.AdapterRevision,
 		&artifact.CoreArtifactID,
 		&artifact.ConfigBytes,
 		&artifact.ConfigSHA256,
 		&diagnostics,
+		&ignoredDigest,
 		&artifact.State,
 		&checkedAt,
 		&createdAt,
 	); err != nil {
 		return StartupArtifact{}, err
 	}
-	artifact.CapabilityCommit = valueOrEmpty(capabilityCommit)
-	artifact.CapabilityDigest = valueOrEmpty(capabilityDigest)
+	artifact.IgnoredDigest = valueOrEmpty(ignoredDigest)
 	artifact.ConfigBytes = bytes.Clone(artifact.ConfigBytes)
 	artifact.Diagnostics = append(json.RawMessage(nil), diagnostics...)
 	var err error
@@ -457,27 +391,25 @@ func scanStartupArtifact(row taskScanner) (StartupArtifact, error) {
 
 func scanStartupArtifactSummary(row taskScanner) (StartupArtifactSummary, error) {
 	var artifact StartupArtifactSummary
-	var capabilityCommit, capabilityDigest, checkedAt sql.NullString
+	var ignoredDigest, checkedAt sql.NullString
 	var diagnostics, createdAt string
 	if err := row.Scan(
 		&artifact.ID,
-		&artifact.Kind,
 		&artifact.CanonicalRevisionID,
 		&artifact.ExactCoreVersion,
-		&capabilityCommit,
-		&capabilityDigest,
-		&artifact.RendererVersion,
+		&artifact.AdapterID,
+		&artifact.AdapterRevision,
 		&artifact.CoreArtifactID,
 		&artifact.ConfigSHA256,
 		&diagnostics,
+		&ignoredDigest,
 		&artifact.State,
 		&checkedAt,
 		&createdAt,
 	); err != nil {
 		return StartupArtifactSummary{}, err
 	}
-	artifact.CapabilityCommit = valueOrEmpty(capabilityCommit)
-	artifact.CapabilityDigest = valueOrEmpty(capabilityDigest)
+	artifact.IgnoredDigest = valueOrEmpty(ignoredDigest)
 	artifact.Diagnostics = append(json.RawMessage(nil), diagnostics...)
 	var err error
 	artifact.CreatedAt, err = parseTaskTime(createdAt)
@@ -506,13 +438,9 @@ func compactJSONArray(value json.RawMessage) (json.RawMessage, error) {
 	return compacted, nil
 }
 
-func validStartupArtifactKind(value StartupArtifactKind) bool {
-	return value == StartupArtifactStructured || value == StartupArtifactManual
-}
-
 func validStartupArtifactState(value StartupArtifactState) bool {
 	switch value {
-	case StartupArtifactPending, StartupArtifactReady, StartupArtifactFailed, StartupArtifactStale:
+	case StartupArtifactPending, StartupArtifactReady, StartupArtifactFailed:
 		return true
 	default:
 		return false

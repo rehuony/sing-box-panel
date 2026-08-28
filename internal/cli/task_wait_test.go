@@ -20,10 +20,7 @@ func TestSignalInterruptedTaskWaitRequestsCancellationAndNamesTask(t *testing.T)
 		name         string
 		fallbackCode string
 	}{
-		{name: "config render", fallbackCode: "structured_check_wait_failed"},
-		{name: "manual detach", fallbackCode: "manual_detach_check_wait_failed"},
-		{name: "manual replace", fallbackCode: "manual_check_wait_failed"},
-		{name: "manual reattach apply", fallbackCode: "manual_reattach_check_wait_failed"},
+		{name: "configuration compile", fallbackCode: "configuration_check_wait_failed"},
 	}
 
 	for _, testCase := range cases {

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/rehuony/sing-box-panel/internal/application"
+	"github.com/rehuony/sing-box-panel/internal/clashapi"
 	coreruntime "github.com/rehuony/sing-box-panel/internal/runtime"
 	"github.com/rehuony/sing-box-panel/internal/runtimeidentity"
 	"github.com/rehuony/sing-box-panel/internal/settings"
@@ -176,12 +177,14 @@ func runtimeIntentHandler(services *runtimeServices) taskrunner.HandlerFunc {
 		if err != nil {
 			return nil, err
 		}
-		actualMonitoringTier := store.MonitoringTier(services.manager.MonitoringLevel())
-		if material.Activation.MonitoringTier != actualMonitoringTier {
+		processMonitoringTier := store.MonitoringTier(services.manager.MonitoringLevel())
+		if processMonitoringTier != store.MonitoringProcessOnly ||
+			(material.Activation.MonitoringTier != store.MonitoringProcessOnly &&
+				material.Activation.MonitoringTier != store.MonitoringLimited) {
 			return nil, fmt.Errorf(
-				"activation monitoring tier %q is unavailable; runtime probe supplies %q",
+				"activation monitoring tier %q is unavailable; process probe supplies %q",
 				material.Activation.MonitoringTier,
-				actualMonitoringTier,
+				processMonitoringTier,
 			)
 		}
 		if err := services.revalidateRuntimeMaterial(ctx, material); err != nil {
@@ -192,7 +195,7 @@ func runtimeIntentHandler(services *runtimeServices) taskrunner.HandlerFunc {
 			live.ArtifactID == material.Bundle.ArtifactID && live.ExactVersion == material.Bundle.ExactVersion &&
 			live.ArtifactDigest == material.Bundle.ArtifactDigest
 		startedByTask := false
-		if !alreadyExact {
+		if runtimeIntentNeedsTransition(store.RuntimeIntentKind(task.Kind), alreadyExact) {
 			if live.Running {
 				err = services.manager.Restart(ctx, material.Bundle)
 			} else {
@@ -205,6 +208,14 @@ func runtimeIntentHandler(services *runtimeServices) taskrunner.HandlerFunc {
 			startedByTask = true
 			if err := services.revalidateRuntimeMaterial(ctx, material); err != nil {
 				services.stopAfterLostIntent()
+				return nil, err
+			}
+		}
+		if material.Activation.MonitoringTier == store.MonitoringLimited {
+			if err := services.awaitClashAPI(ctx, material); err != nil {
+				if startedByTask {
+					services.stopAfterLostIntent()
+				}
 				return nil, err
 			}
 		}
@@ -228,10 +239,35 @@ func runtimeIntentHandler(services *runtimeServices) taskrunner.HandlerFunc {
 			return nil, err
 		}
 		return json.Marshal(map[string]any{
-			"healthy": true, "monitoring_tier": actualMonitoringTier,
+			"healthy": true, "monitoring_tier": material.Activation.MonitoringTier,
 			"runtime": observation,
 		})
 	}
+}
+
+func (services *runtimeServices) awaitClashAPI(ctx context.Context, material application.RuntimeMaterial) error {
+	endpoint, err := clashapi.ParseEndpoint(material.Bundle.StartupConfig)
+	if err != nil {
+		return err
+	}
+	client, err := clashapi.New(endpoint)
+	if err != nil {
+		return err
+	}
+	handshakeContext, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	version, err := client.Version(handshakeContext)
+	if err != nil {
+		return fmt.Errorf("limited monitoring handshake: %w", err)
+	}
+	if version != material.Core.ExactVersion {
+		return fmt.Errorf("limited monitoring handshake: core version %q does not match %q", version, material.Core.ExactVersion)
+	}
+	return nil
+}
+
+func runtimeIntentNeedsTransition(kind store.RuntimeIntentKind, alreadyExact bool) bool {
+	return kind == store.RuntimeIntentRestart || !alreadyExact
 }
 
 func (services *runtimeServices) revalidateRuntimeMaterial(
@@ -311,4 +347,50 @@ func (services *runtimeServices) clearRecordedObservation() {
 	_, _ = services.database.ClearRuntimeObservation(
 		context.Background(), observation.PID, observation.ProcessStartToken,
 	)
+}
+
+func startTrafficSampler(ctx context.Context, services *runtimeServices) <-chan struct{} {
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		ticker := time.NewTicker(10 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				services.collectTrafficSample(ctx)
+			}
+		}
+	}()
+	return done
+}
+
+func (services *runtimeServices) collectTrafficSample(ctx context.Context) {
+	observation, err := services.database.RuntimeObservation(ctx)
+	if err != nil {
+		return
+	}
+	bundle, err := services.database.GetActivationBundle(ctx, observation.ActivationBundleID)
+	if err != nil || bundle.MonitoringTier != store.MonitoringLimited {
+		return
+	}
+	sampleContext, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	result, err := services.commands.CollectLimitedTrafficSample(sampleContext, observation)
+	if err != nil {
+		recordOperationalLog(services.commands, application.LogRecordRequest{
+			Source: store.LogSourceCore, Level: store.LogLevelWarn, Code: "traffic.sample_failed",
+			Message: "Clash API traffic sample failed", Metadata: json.RawMessage(`{}`),
+		})
+		return
+	}
+	if !result.Sample.Accepted {
+		recordOperationalLog(services.commands, application.LogRecordRequest{
+			Source: store.LogSourceCore, Level: store.LogLevelWarn, Code: "traffic.counter_decreased",
+			Message:  "Clash API counters decreased within one process; sample rejected",
+			Metadata: json.RawMessage(`{}`),
+		})
+	}
 }

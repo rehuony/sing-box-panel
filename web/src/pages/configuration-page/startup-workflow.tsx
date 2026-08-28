@@ -1,415 +1,146 @@
+import { Link } from 'react-router-dom';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
-import type {
-  ApiClient,
-  CapabilityLevel,
-  CoreArtifact,
-  ManualArtifactSummary,
-  ManualReattachPreview,
-  ManualReplacePreview,
-  MonitoringTier,
-  StartupArtifactState,
-  StartupArtifactSummary,
-} from '@/api/api-client';
+import type { ConfigurationAdapterSupport, ConfigurationPreview, CoreArtifact, MonitoringTier, StartupArtifactSummary } from '@/api/api-client';
 
 import { useApiClient } from '@/api/api-client-context';
-import { ActionError } from '@/components/action-error';
-import { describeRequestError, ErrorNotice } from '@/components/error-notice';
+import { ErrorNotice } from '@/components/error-notice';
 
 export interface StartupWorkflowProps {
   exactVersion: string;
-  baseRevision: string | null;
-  capability: CapabilityLevel;
-  onCanonicalChange: () => Promise<void>;
 }
 
-interface Candidate {
-  id: string;
-  sha256: string;
-  createdAt?: string;
-  coreArtifactID: string;
-  state: StartupArtifactState;
-  kind: 'structured' | 'manual';
+function compact(value: string): string {
+  return value.length > 18 ? `${value.slice(0, 15)}…` : value;
 }
 
-interface ManualPreviewState {
-  baseRevision: string;
-  selectedCore: string;
-  allowCompatible: boolean;
-  preview: ManualReplacePreview;
-}
-
-const manualStarter = '{\n  "log": {\n    "level": "info"\n  },\n  "outbounds": []\n}\n';
-
-function formatTimestamp(value?: string): string {
-  if (!value) return 'Created in this browser session';
-  return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value));
-}
-
-function stateClass(state: StartupArtifactState): string {
-  if (state === 'ready') return 'state-label--success';
-  if (state === 'failed' || state === 'stale') return 'state-label--warning';
-  return 'state-label--neutral';
-}
-
-function displayValue(value: { present: boolean; value?: unknown }): string {
-  return value.present ? JSON.stringify(value.value) : 'Absent';
-}
-
-async function listVerifiedCoreArtifacts(
-  client: ApiClient,
-  exactVersion: string,
-  signal?: AbortSignal,
-): Promise<CoreArtifact[]> {
-  const artifacts: CoreArtifact[] = [];
-  let beforeTime: string | undefined;
-  let beforeID: string | undefined;
-  let previousCursor = '';
-
-  for (;;) {
-    const page = await client.listCoreArtifacts(
-      {
-        beforeID,
-        beforeTime,
-        exactVersion,
-        limit: 200,
-        verificationState: 'verified',
-      },
-      signal,
-    );
-    artifacts.push(...page.items);
-    if (page.next === undefined) return artifacts;
-
-    const cursor = `${page.next.created_at}\n${page.next.id}`;
-    if (cursor === previousCursor) {
-      throw new Error('Core artifact pagination returned a repeated cursor.');
-    }
-    previousCursor = cursor;
-    beforeTime = page.next.created_at;
-    beforeID = page.next.id;
-  }
-}
-
-async function listManualArtifactSummaries(
-  client: ApiClient,
-  exactVersion: string,
-  signal?: AbortSignal,
-): Promise<ManualArtifactSummary[]> {
-  const artifacts: ManualArtifactSummary[] = [];
-  let beforeTime: string | undefined;
-  let beforeID: string | undefined;
-  let previousCursor = '';
-  for (;;) {
-    const page = await client.listManualArtifacts({
-      coreVersion: exactVersion,
-      beforeTime,
-      beforeID,
-      limit: 200,
-    }, signal);
-    artifacts.push(...page.items);
-    if (page.next === undefined) return artifacts;
-
-    const cursor = `${page.next.created_at}\n${page.next.id}`;
-    if (cursor === previousCursor) {
-      throw new Error('Manual artifact pagination returned a repeated cursor.');
-    }
-    previousCursor = cursor;
-    beforeTime = page.next.created_at;
-    beforeID = page.next.id;
-  }
-}
-
-async function listStartupArtifactSummaries(
-  client: ApiClient,
-  exactVersion: string,
-  signal?: AbortSignal,
-): Promise<StartupArtifactSummary[]> {
-  const artifacts: StartupArtifactSummary[] = [];
-  let beforeTime: string | undefined;
-  let beforeID: string | undefined;
-  let previousCursor = '';
-  for (;;) {
-    const page = await client.listStartupArtifacts({
-      coreVersion: exactVersion,
-      beforeTime,
-      beforeID,
-      limit: 200,
-    }, signal);
-    artifacts.push(...page.items);
-    if (page.next === undefined) return artifacts;
-
-    const cursor = `${page.next.created_at}\n${page.next.id}`;
-    if (cursor === previousCursor) {
-      throw new Error('Startup artifact pagination returned a repeated cursor.');
-    }
-    previousCursor = cursor;
-    beforeTime = page.next.created_at;
-    beforeID = page.next.id;
-  }
-}
-
-export function StartupWorkflow({
-  baseRevision,
-  capability,
-  exactVersion,
-  onCanonicalChange,
-}: StartupWorkflowProps) {
+export function StartupWorkflow({ exactVersion }: StartupWorkflowProps) {
   const client = useApiClient();
-  const [artifacts, setArtifacts] = useState<CoreArtifact[] | null>(null);
-  const [manualArtifacts, setManualArtifacts] = useState<ManualArtifactSummary[] | null>(null);
-  const [startupArtifacts, setStartupArtifacts] = useState<StartupArtifactSummary[] | null>(null);
+  const [cores, setCores] = useState<CoreArtifact[]>([]);
   const [selectedCore, setSelectedCore] = useState('');
+  const [supportResult, setSupportResult] = useState<{
+    coreArtifactID: string;
+    value: ConfigurationAdapterSupport;
+  } | null>(null);
+  const [previewResult, setPreviewResult] = useState<{
+    coreArtifactID: string;
+    value: ConfigurationPreview;
+  } | null>(null);
+  const [candidates, setCandidates] = useState<StartupArtifactSummary[]>([]);
   const [selectedCandidate, setSelectedCandidate] = useState('');
+  const [acceptedIgnoredDigest, setAcceptedIgnoredDigest] = useState('');
   const [monitoringTier, setMonitoringTier] = useState<MonitoringTier>('process_only');
-  const [allowCompatible, setAllowCompatible] = useState(false);
-  const [manualOpenOverride, setManualOpenOverride] = useState<boolean | null>(null);
-  const [manualRaw, setManualRaw] = useState(manualStarter);
-  const [manualPreviewState, setManualPreviewState] = useState<ManualPreviewState | null>(null);
-  const [reattach, setReattach] = useState<ManualReattachPreview | null>(null);
-  const [decisions, setDecisions] = useState<Record<string, 'current' | 'manual'>>({});
-  const [loadError, setLoadError] = useState<unknown>(null);
-  const [actionError, setActionError] = useState('');
-  const [message, setMessage] = useState('');
+  const [loading, setLoading] = useState(true);
   const [busyAction, setBusyAction] = useState('');
+  const [error, setError] = useState<unknown>(null);
+  const [message, setMessage] = useState('');
 
-  const load = useCallback(async (signal?: AbortSignal) => {
-    if (exactVersion === '' || exactVersion === 'unresolved' || exactVersion === 'Not selected') {
-      setArtifacts([]);
-      setManualArtifacts([]);
-      setStartupArtifacts([]);
+  const loadCandidates = useCallback(async (coreArtifactID: string, signal?: AbortSignal) => {
+    if (coreArtifactID === '') {
+      setCandidates([]);
       return;
     }
-    setLoadError(null);
-    try {
-      const [cores, manuals, startups] = await Promise.all([
-        listVerifiedCoreArtifacts(client, exactVersion, signal),
-        listManualArtifactSummaries(client, exactVersion, signal),
-        listStartupArtifactSummaries(client, exactVersion, signal),
-      ]);
-      if (!signal?.aborted) {
-        const matching = cores;
-        setArtifacts(matching);
-        setManualArtifacts(manuals);
-        setStartupArtifacts(startups);
-        setSelectedCore((current) => {
-          if (matching.some((item) => item.id === current)) return current;
-          return matching.length === 1 ? matching[0].id : '';
-        });
-      }
-    } catch (error) {
-      if (!signal?.aborted) setLoadError(error);
-    }
-  }, [client, exactVersion]);
+    const page = await client.listStartupArtifacts({ coreArtifactID, limit: 100 }, signal);
+    if (!signal?.aborted) setCandidates(page.items);
+  }, [client]);
 
   useEffect(() => {
     const controller = new AbortController();
-    void load(controller.signal);
+    void client.listCoreArtifacts({ exactVersion, verificationState: 'verified', limit: 200 }, controller.signal)
+      .then((page) => {
+        if (controller.signal.aborted) return;
+        setCores(page.items);
+        setSelectedCore((current) => page.items.some((item) => item.id === current) ? current : page.items[0]?.id ?? '');
+      })
+      .catch((loadError: unknown) => {
+        if (!controller.signal.aborted) setError(loadError);
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setLoading(false);
+      });
     return () => controller.abort();
-  }, [load]);
+  }, [client, exactVersion]);
 
-  const manualPreview = manualPreviewState !== null
-    && manualPreviewState.allowCompatible === allowCompatible
-    && manualPreviewState.baseRevision === baseRevision
-    && manualPreviewState.selectedCore === selectedCore
-    ? manualPreviewState.preview
-    : null;
+  useEffect(() => {
+    if (selectedCore === '') return;
+    const controller = new AbortController();
+    void Promise.all([
+      client.getConfigurationSupport(selectedCore, controller.signal),
+      loadCandidates(selectedCore, controller.signal),
+    ]).then(([resolved]) => {
+      if (controller.signal.aborted) return;
+      setError(null);
+      setSupportResult({ coreArtifactID: selectedCore, value: resolved });
+      if (!resolved.supported) return;
+      return client.previewConfiguration({ coreArtifactID: selectedCore }, controller.signal)
+        .then((result) => {
+          if (!controller.signal.aborted) {
+            setPreviewResult({ coreArtifactID: selectedCore, value: result });
+          }
+        });
+    }).catch((loadError: unknown) => {
+      if (!controller.signal.aborted) setError(loadError);
+    });
+    return () => controller.abort();
+  }, [client, loadCandidates, selectedCore]);
 
-  const candidates = useMemo<Candidate[]>(() => {
-    return (startupArtifacts ?? []).map((artifact) => ({
-      coreArtifactID: artifact.core_artifact_id,
-      createdAt: artifact.created_at,
-      id: artifact.id,
-      kind: artifact.kind,
-      sha256: artifact.config_sha256,
-      state: artifact.state,
-    }));
-  }, [startupArtifacts]);
+  const support = supportResult?.coreArtifactID === selectedCore ? supportResult.value : null;
+  const preview = previewResult?.coreArtifactID === selectedCore ? previewResult.value : null;
+  const readyCandidates = useMemo(() => candidates.filter((item) => item.state === 'ready'), [candidates]);
+  const hasIgnored = preview?.diagnostics.some((item) => item.class === 'ignored') === true;
+  const ignoredAccepted = preview?.ignored_digest !== undefined
+    && acceptedIgnoredDigest === preview.ignored_digest;
 
-  const structuredSupported = capability === 'native_structured' || capability === 'compatible_structured';
-  const manualOpen = manualOpenOverride ?? capability === 'manual_json';
-
-  async function renderStructured() {
-    if (selectedCore === '') {
-      setActionError('Select one exact verified core artifact before rendering.');
-      return;
-    }
-    setBusyAction('render');
-    setActionError('');
+  async function compile() {
+    if (selectedCore === '' || preview === null) return;
+    setBusyAction('compile');
+    setError(null);
     setMessage('');
     try {
-      const rendered = await client.renderStructured({
-        coreVersion: exactVersion,
+      const result = await client.compileConfiguration({
         coreArtifactID: selectedCore,
-        allowCompatible,
+        acceptedIgnoredDigest: hasIgnored && ignoredAccepted ? preview.ignored_digest : undefined,
       });
-      setStartupArtifacts((current) => [{
-        id: rendered.artifact.id,
-        kind: 'structured',
-        canonical_revision_id: rendered.artifact.canonical_revision_id,
-        exact_core_version: rendered.artifact.exact_core_version,
-        capability_commit: rendered.artifact.capability_commit,
-        capability_digest: rendered.artifact.capability_digest,
-        renderer_version: rendered.artifact.renderer_version,
-        core_artifact_id: rendered.artifact.core_artifact_id,
-        config_sha256: rendered.artifact.config_sha256,
-        diagnostics: rendered.artifact.diagnostics,
-        state: rendered.artifact.state,
-        created_at: new Date().toISOString(),
-      }, ...(current ?? []).filter((item) => item.id !== rendered.artifact.id)]);
-      setSelectedCandidate(rendered.artifact.id);
-      setMessage(`Rendered ${rendered.artifact.id}; check task ${rendered.task.id} is ${rendered.task.status}. Apply remains separate.`);
-    } catch (error) {
-      setActionError(describeRequestError(error));
-    } finally {
-      setBusyAction('');
-    }
-  }
-
-  async function previewManual() {
-    if (baseRevision === null || selectedCore === '') {
-      setActionError('A canonical base revision and one exact verified core artifact are required.');
-      return;
-    }
-    setBusyAction('manual-preview');
-    setActionError('');
-    setMessage('');
-    try {
-      const preview = await client.previewManualReplacement({
-        baseRevision,
-        coreVersion: exactVersion,
-        coreArtifactID: selectedCore,
-        raw: manualRaw,
-        allowCompatible,
-      });
-      setManualPreviewState({
-        allowCompatible,
-        baseRevision,
-        preview,
-        selectedCore,
-      });
-      setMessage(preview.reverse.available
-        ? `Reverse preview proved ${preview.reverse.residual_paths.length} residual path(s). Review the proposed canonical document before saving.`
-        : `No proven reverse mapping (${preview.reverse.reason_code ?? 'unavailable'}). All listed paths remain manual-owned.`);
-    } catch (error) {
-      setActionError(describeRequestError(error));
-    } finally {
-      setBusyAction('');
-    }
-  }
-
-  async function replaceManual() {
-    if (baseRevision === null || selectedCore === '' || manualPreview === null) {
-      setActionError('Generate and review a reverse-mapping preview before saving.');
-      return;
-    }
-    setBusyAction('manual');
-    setActionError('');
-    setMessage('');
-    try {
-      const saved = await client.replaceManualArtifact({
-        baseRevision,
-        coreVersion: exactVersion,
-        coreArtifactID: selectedCore,
-        raw: manualRaw,
-        allowCompatible,
-      });
-      setSelectedCandidate(saved.artifact.id);
-      setManualPreviewState(null);
-      setMessage(`Saved exact bytes as ${saved.artifact.id}; reverse evidence was recomputed and check task ${saved.task.id} is ${saved.task.status}.`);
-      await Promise.all([load(), onCanonicalChange()]);
-    } catch (error) {
-      setActionError(describeRequestError(error));
+      setMessage(`Compiled ${result.artifact.id}; validation is queued as ${result.task.id}.`);
+      await loadCandidates(selectedCore);
+      setSelectedCandidate(result.artifact.id);
+    } catch (actionError) {
+      setError(actionError);
     } finally {
       setBusyAction('');
     }
   }
 
   async function apply() {
-    const candidate = candidates.find((item) => item.id === selectedCandidate);
-    if (!candidate || candidate.state !== 'ready') {
-      setActionError('Select a ready startup candidate. Pending, failed and stale candidates cannot be applied.');
-      return;
-    }
+    if (selectedCandidate === '') return;
     setBusyAction('apply');
-    setActionError('');
+    setError(null);
     setMessage('');
     try {
-      const queued = await client.activateStartupArtifact(candidate.id, monitoringTier);
-      setMessage(`Apply queued as ${queued.task.id} for immutable bundle ${queued.activation.activation_bundle_id}.`);
-    } catch (error) {
-      setActionError(describeRequestError(error));
+      const result = await client.activateStartupArtifact(selectedCandidate, monitoringTier);
+      setMessage(`Activation ${result.activation.activation_bundle_id} is queued as ${result.task.id}.`);
+    } catch (actionError) {
+      setError(actionError);
     } finally {
       setBusyAction('');
     }
   }
 
-  async function editManualCopy(summary: ManualArtifactSummary) {
-    setBusyAction(`edit:${summary.id}`);
-    setActionError('');
+  async function lifecycle(operation: 'start' | 'stop' | 'restart' | 'rollback') {
+    setBusyAction(operation);
+    setError(null);
+    setMessage('');
     try {
-      const manual = await client.getManualArtifact(summary.id);
-      setManualRaw(manual.raw);
-      setSelectedCore(manual.core_artifact_id);
-      setManualOpenOverride(true);
-      setMessage(`Loaded an editable copy of ${manual.id}; saving creates a new immutable candidate.`);
-    } catch (error) {
-      setActionError(describeRequestError(error));
-    } finally {
-      setBusyAction('');
-    }
-  }
-
-  async function discard(artifact: ManualArtifactSummary) {
-    setBusyAction(`discard:${artifact.id}`);
-    setActionError('');
-    try {
-      await client.discardManualArtifact(artifact.id);
-      if (selectedCandidate === artifact.id) setSelectedCandidate('');
-      setMessage(`Discarded manual candidate ${artifact.id}.`);
-      await load();
-    } catch (error) {
-      setActionError(describeRequestError(error));
-    } finally {
-      setBusyAction('');
-    }
-  }
-
-  async function previewReattach(artifact: ManualArtifactSummary) {
-    setBusyAction(`reattach:${artifact.id}`);
-    setActionError('');
-    try {
-      const preview = await client.previewManualReattach(artifact.id);
-      setReattach(preview);
-      setDecisions({});
-      setMessage(preview.conflicts.length === 0
-        ? 'Reattach preview has no conflicts. Review residual paths before applying.'
-        : `Reattach preview requires ${preview.conflicts.length} explicit decision(s).`);
-    } catch (error) {
-      setActionError(describeRequestError(error));
-    } finally {
-      setBusyAction('');
-    }
-  }
-
-  async function applyReattach() {
-    if (reattach === null) return;
-    if (reattach.conflicts.some((conflict) => decisions[conflict.path] === undefined)) {
-      setActionError('Choose current or manual for every conflict before reattaching.');
-      return;
-    }
-    setBusyAction('reattach-apply');
-    setActionError('');
-    try {
-      const result = await client.applyManualReattach(reattach.evidence.startup_artifact_id, {
-        evidence: reattach.evidence,
-        decisions,
-      });
-      setReattach(null);
-      setSelectedCandidate(result.artifact.id);
-      setMessage(`Reattached into revision #${result.revision.sequence}; startup check ${result.task.id} is ${result.task.status}.`);
-      await Promise.all([load(), onCanonicalChange()]);
-    } catch (error) {
-      setActionError(describeRequestError(error));
+      const task = operation === 'start'
+        ? await client.startRuntime()
+        : operation === 'stop'
+          ? await client.stopRuntime()
+          : operation === 'restart'
+            ? await client.restartRuntime()
+            : await client.rollbackRuntime();
+      setMessage(`${operation} is queued as ${task.id}.`);
+    } catch (actionError) {
+      setError(actionError);
     } finally {
       setBusyAction('');
     }
@@ -417,326 +148,153 @@ export function StartupWorkflow({
 
   return (
     <section className='startup-workflow' aria-labelledby='startup-workflow-title'>
-      <div className='workflow-heading'>
+      <div className='section-heading'>
         <div>
-          <p className='eyebrow'>Save → Render → Apply</p>
-          <h2 id='startup-workflow-title'>Startup pipeline</h2>
-          <p>
-            A canonical save never restarts the core. Rendering creates immutable candidate bytes;
-            apply accepts only a checked ready candidate.
-          </p>
+          <p className='eyebrow'>Exact adapter / immutable startup bytes</p>
+          <h2 id='startup-workflow-title'>Preview, compile, check and apply</h2>
         </div>
-        <button className='button button--secondary button--small' onClick={() => void load()} type='button'>Refresh candidates</button>
-      </div>
-      <div className='workflow-steps' aria-label='Configuration lifecycle'>
-        <div>
-          <span>1</span>
-          <strong>Save intent</strong>
-          <small>{baseRevision ? `Head ${baseRevision.slice(0, 12)}…` : 'No canonical head'}</small>
-        </div>
-        <div>
-          <span>2</span>
-          <strong>Render bytes</strong>
-          <small>
-            Exact
-            {' '}
-            {exactVersion}
-          </small>
-        </div>
-        <div>
-          <span>3</span>
-          <strong>Apply bundle</strong>
-          <small>Runtime task after check</small>
-        </div>
+        <button className='button button--secondary' disabled={selectedCore === '' || loading} onClick={() => void loadCandidates(selectedCore)} type='button'>Refresh candidates</button>
       </div>
 
-      <ActionError message={actionError} title='Startup workflow stopped' />
-      {loadError === null ? null : <ErrorNotice error={loadError} title='Could not load startup candidates' />}
+      {error === null ? null : <ErrorNotice error={error} title='Configuration workflow failed' />}
       {message === ''
         ? null
         : (
             <div className='notice notice--success' role='status'>
-              <strong>Workflow updated</strong>
+              <strong>Operation accepted</strong>
               <p>{message}</p>
+              <Link className='text-link' to='/tasks'>Open task queue</Link>
             </div>
           )}
 
-      <div className='startup-controls'>
-        <div className='startup-control-card'>
-          <p className='eyebrow'>Render target</p>
-          <h3>Exact core artifact</h3>
-          <div className='field-group'>
-            <label htmlFor='render-core-artifact'>Verified artifact</label>
-            <select id='render-core-artifact' onChange={(event) => setSelectedCore(event.target.value)} value={selectedCore}>
-              <option value=''>Select an exact artifact</option>
-              {artifacts?.map((artifact) => (
-                <option key={artifact.id} value={artifact.id}>
-                  {artifact.exact_version}
-                  {' '}
-                  ·
-                  {' '}
-                  {artifact.variant}
-                  {' '}
-                  ·
-                  {' '}
-                  {artifact.arch}
-                  {' '}
-                  ·
-                  {' '}
-                  {artifact.id}
-                </option>
-              ))}
-            </select>
-            <span>{artifacts?.length === 0 ? `No verified artifact is installed for ${exactVersion}.` : 'Multiple artifacts are never guessed.'}</span>
-          </div>
-          {capability === 'compatible_structured'
-            ? (
-                <label className='check-field'>
-                  <input checked={allowCompatible} onChange={(event) => setAllowCompatible(event.target.checked)} type='checkbox' />
-                  <span>
-                    <strong>Accept compatible projection and reverse mapping</strong>
-                    <small>This manifest was not authored as native for the exact version.</small>
-                  </span>
-                </label>
-              )
-            : null}
-          <div className='inline-actions'>
-            <button className='button button--primary' disabled={!structuredSupported || selectedCore === '' || busyAction !== '' || (capability === 'compatible_structured' && !allowCompatible)} onClick={() => void renderStructured()} type='button'>{busyAction === 'render' ? 'Rendering…' : 'Render structured candidate'}</button>
-            <button className='button button--secondary' disabled={selectedCore === '' || busyAction !== ''} onClick={() => setManualOpenOverride(!manualOpen)} type='button'>{manualOpen ? 'Close manual editor' : 'Use manual JSON'}</button>
-          </div>
-          {!structuredSupported ? <small className='unsupported-copy'>Structured render is unavailable for this exact version. Manual JSON remains available and does not replace canonical intent.</small> : null}
+      <div className='form-grid'>
+        <div className='field-group'>
+          <label htmlFor='startup-core'>Verified core artifact</label>
+          <select disabled={loading || cores.length === 0} id='startup-core' onChange={(event) => setSelectedCore(event.target.value)} value={selectedCore}>
+            {cores.length === 0
+              ? (
+                  <option value=''>
+                    No verified
+                    {exactVersion || 'selected-version'}
+                    {' '}
+                    artifact
+                  </option>
+                )
+              : null}
+            {cores.map((core) => (
+              <option key={core.id} value={core.id}>
+                {core.exact_version}
+                {' '}
+                ·
+                {' '}
+                {core.arch}
+                {' '}
+                ·
+                {' '}
+                {compact(core.binary_sha256)}
+              </option>
+            ))}
+          </select>
         </div>
-
-        <div className='startup-control-card'>
-          <p className='eyebrow'>Activation target</p>
-          <h3>Checked startup candidate</h3>
-          <div className='field-group'>
-            <label htmlFor='startup-candidate'>Candidate</label>
-            <select id='startup-candidate' onChange={(event) => setSelectedCandidate(event.target.value)} value={selectedCandidate}>
-              <option value=''>Select a ready candidate</option>
-              {candidates.map((candidate) => (
-                <option key={candidate.id} value={candidate.id}>
-                  {candidate.kind}
-                  {' '}
-                  ·
-                  {' '}
-                  {candidate.state}
-                  {' '}
-                  ·
-                  {' '}
-                  {candidate.id}
-                </option>
-              ))}
-            </select>
-            <span>Only “ready” can apply. A stale candidate remains reviewable for reattach.</span>
-          </div>
-          <div className='field-group'>
-            <label htmlFor='monitoring-tier'>Monitoring tier</label>
-            <select id='monitoring-tier' onChange={(event) => setMonitoringTier(event.target.value as MonitoringTier)} value={monitoringTier}><option value='process_only'>Process only</option></select>
-            <span>
-              A live metrics collector is not configured, so stronger tiers are unavailable rather than simulated.
-            </span>
-          </div>
-          <button className='button button--warning button--wide' disabled={busyAction !== '' || candidates.find((item) => item.id === selectedCandidate)?.state !== 'ready'} onClick={() => void apply()} type='button'>{busyAction === 'apply' ? 'Queuing apply…' : 'Apply ready candidate'}</button>
+        <div className='field-group'>
+          <span className='field-label'>Adapter</span>
+          <strong>{support?.supported === true ? `${support.adapter_id}@${support.adapter_revision}` : 'Unavailable'}</strong>
+          <small>{support?.supported === false ? support.reason : 'Support is matched against the complete installed binary profile.'}</small>
         </div>
       </div>
 
-      {manualOpen
-        ? (
-            <div className='manual-byte-editor'>
-              <div className='section-heading'>
-                <div>
-                  <p className='eyebrow'>Exact byte ownership</p>
-                  <h3>Manual JSON / JSONC</h3>
-                </div>
-                <span>UTF-8 · comments preserved</span>
-              </div>
-              <label htmlFor='manual-json'>Startup bytes</label>
-              <textarea id='manual-json' onChange={(event) => {
-                setManualRaw(event.target.value);
-                setManualPreviewState(null);
-              }} rows={16} spellCheck={false} value={manualRaw} />
-              <small>
-                Configuration can contain credentials. It is sent in the request body, never argv,
-                and this editor does not persist a browser draft.
-              </small>
-              <div className='inline-actions'>
-                <button className='button button--secondary' disabled={busyAction !== '' || baseRevision === null || selectedCore === ''} onClick={() => void previewManual()} type='button'>{busyAction === 'manual-preview' ? 'Generating preview…' : 'Preview reverse mapping'}</button>
-                <button className='button button--primary' disabled={busyAction !== '' || manualPreview === null} onClick={() => void replaceManual()} type='button'>{busyAction === 'manual' ? 'Saving and queuing check…' : 'Save exact bytes'}</button>
-                <span className='separation-copy'>Preview and save do not apply.</span>
-              </div>
-              {manualPreview === null
-                ? null
-                : (
-                    <div className='reattach-panel'>
-                      <div className='section-heading'>
-                        <div>
-                          <p className='eyebrow'>Owned / residual</p>
-                          <h3>Manual reverse preview</h3>
-                        </div>
-                        <span>{manualPreview.reverse.available ? 'Exact pin proven' : 'Manual-only fallback'}</span>
-                      </div>
-                      {manualPreview.reverse.residual_paths.length === 0
-                        ? <p className='reattach-note'>Every discovered path is owned and losslessly reversible by the exact pinned capability.</p>
-                        : (
-                            <div className='notice notice--error'>
-                              <strong>Residual paths remain manual-owned</strong>
-                              <p>{manualPreview.reverse.residual_paths.join(', ')}</p>
-                            </div>
-                          )}
-                      <details>
-                        <summary>Review reversible canonical partial</summary>
-                        <pre>{JSON.stringify(manualPreview.reverse.owned_partial, null, 2)}</pre>
-                      </details>
-                      <details open>
-                        <summary>Review proposed canonical document</summary>
-                        <pre>{JSON.stringify(manualPreview.reverse.proposed_canonical, null, 2)}</pre>
-                      </details>
-                      <small>{manualPreview.reverse.canonical_changed ? 'Saving will create a new canonical revision before queuing the exact-byte check.' : 'Canonical intent will remain unchanged; saving still creates an immutable manual candidate.'}</small>
-                    </div>
-                  )}
-            </div>
-          )
-        : null}
-
-      {candidates.length === 0
-        ? (
-            <div className='empty-state'>
-              <strong>No startup candidates for this exact version.</strong>
-              <p>
-                Render a structured candidate or save exact manual bytes.
-                A real binary check must finish before apply.
-              </p>
-            </div>
-          )
-        : (
-            <div className='candidate-list'>
-              <div className='section-heading'>
-                <div>
-                  <p className='eyebrow'>Immutable candidates</p>
-                  <h3>Render history</h3>
-                </div>
-                <span>
-                  {candidates.length}
-                  {' '}
-                  loaded
-                </span>
-              </div>
-              <div className='entity-table-wrap'>
-                <table className='data-table'>
-                  <thead>
-                    <tr>
-                      <th>Candidate</th>
-                      <th>Kind</th>
-                      <th>Check state</th>
-                      <th>Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {candidates.map((candidate) => {
-                      const manual = manualArtifacts?.find((item) => item.id === candidate.id);
-                      return (
-                        <tr key={candidate.id}>
-                          <td>
-                            <code>{candidate.id}</code>
-                            <small className='table-subline'>
-                              {candidate.sha256.slice(0, 12)}
-                              … ·
-                              {' '}
-                              {formatTimestamp(candidate.createdAt)}
-                            </small>
-                          </td>
-                          <td>{candidate.kind}</td>
-                          <td>
-                            <span className={`state-label ${stateClass(candidate.state)}`}>
-                              <span aria-hidden='true' />
-                              {candidate.state}
-                            </span>
-                          </td>
-                          <td>
-                            <div className='table-actions'>
-                              {manual
-                                ? (
-                                    <button className='text-button' disabled={busyAction !== ''} onClick={() => void editManualCopy(manual)} type='button'>
-                                      Edit copy
-                                    </button>
-                                  )
-                                : null}
-                              {manual?.state === 'stale' ? <button className='text-button' disabled={busyAction !== ''} onClick={() => void previewReattach(manual)} type='button'>Reattach</button> : null}
-                              {manual ? <button className='text-button text-button--danger' disabled={busyAction !== ''} onClick={() => void discard(manual)} type='button'>Discard</button> : null}
-                            </div>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-              <small className='unsupported-copy'>Candidate metadata is durable across browser sessions; configuration bytes remain behind explicit secret-bearing read boundaries.</small>
-            </div>
-          )}
-
-      {reattach === null
+      {preview === null
         ? null
         : (
-            <div className='reattach-panel'>
+            <div className='projection-preview'>
               <div className='section-heading'>
                 <div>
-                  <p className='eyebrow'>Base / current / manual</p>
-                  <h3>Three-way reattach</h3>
+                  <p className='eyebrow'>Projection preview</p>
+                  <h3>
+                    Revision #
+                    {preview.canonical_revision.sequence}
+                  </h3>
                 </div>
                 <span>
-                  {reattach.conflicts.length}
+                  {preview.diagnostics.length}
                   {' '}
-                  conflicts
+                  diagnostics
                 </span>
               </div>
-              {reattach.residual_paths.length === 0
-                ? <p className='reattach-note'>All discovered manual paths are owned by the pinned exact-version capability.</p>
+              {preview.diagnostics.length === 0
+                ? <p className='source-note'>Every configured field is accepted without a projection diagnostic.</p>
                 : (
-                    <div className='notice notice--error'>
-                      <strong>Residual manual paths stay manual</strong>
-                      <p>{reattach.residual_paths.join(', ')}</p>
-                    </div>
+                    <ul className='diagnostic-list'>
+                      {preview.diagnostics.map((diagnostic) => (
+                        <li key={`${diagnostic.path}:${diagnostic.code}`}>
+                          <span className={`state-label state-label--${diagnostic.class === 'ignored' ? 'warning' : 'success'}`}>{diagnostic.class}</span>
+                          <code>{diagnostic.path}</code>
+                          <strong>{diagnostic.code}</strong>
+                          <p>{diagnostic.message}</p>
+                        </li>
+                      ))}
+                    </ul>
                   )}
-              {reattach.conflicts.map((conflict) => (
-                <fieldset className='conflict-card' key={conflict.path}>
-                  <legend>{conflict.path}</legend>
-                  <div className='conflict-values'>
-                    <span>
-                      <small>Base</small>
-                      <code>{displayValue(conflict.base)}</code>
-                    </span>
-                    <label>
-                      <input checked={decisions[conflict.path] === 'current'} name={`decision:${conflict.path}`} onChange={() => setDecisions({ ...decisions, [conflict.path]: 'current' })} type='radio' />
+              {hasIgnored
+                ? (
+                    <label className='checkbox-field' htmlFor='accept-ignored-fields'>
+                      <input
+                        checked={ignoredAccepted}
+                        id='accept-ignored-fields'
+                        onChange={(event) => setAcceptedIgnoredDigest(
+                          event.target.checked ? preview.ignored_digest ?? '' : '',
+                        )}
+                        type='checkbox'
+                      />
                       <span>
-                        <small>Current</small>
-                        <code>{displayValue(conflict.current)}</code>
+                        I understand these fields remain in global history but are ignored by
+                        {exactVersion}
+                        .
                       </span>
                     </label>
-                    <label>
-                      <input checked={decisions[conflict.path] === 'manual'} name={`decision:${conflict.path}`} onChange={() => setDecisions({ ...decisions, [conflict.path]: 'manual' })} type='radio' />
-                      <span>
-                        <small>Manual</small>
-                        <code>{displayValue(conflict.manual)}</code>
-                      </span>
-                    </label>
-                  </div>
-                </fieldset>
-              ))}
-              <details>
-                <summary>Review automatically merged canonical document</summary>
-                <pre>{JSON.stringify(reattach.merged, null, 2)}</pre>
-              </details>
-              <div className='inline-actions'>
-                <button className='button button--primary' disabled={busyAction !== ''} onClick={() => void applyReattach()} type='button'>{busyAction === 'reattach-apply' ? 'Reattaching…' : 'Create reattached revision'}</button>
-                <button className='button button--secondary' disabled={busyAction !== ''} onClick={() => setReattach(null)} type='button'>Cancel</button>
-                <small>
-                  This creates a new revision and checked candidate; it never mutates the old manual artifact.
-                </small>
-              </div>
+                  )
+                : null}
+              <button className='button button--primary' disabled={busyAction !== '' || (hasIgnored && !ignoredAccepted)} onClick={() => void compile()} type='button'>
+                {busyAction === 'compile' ? 'Compiling…' : 'Compile and queue check'}
+              </button>
             </div>
           )}
+
+      <div className='form-grid'>
+        <div className='field-group'>
+          <label htmlFor='startup-candidate'>Ready startup candidate</label>
+          <select id='startup-candidate' onChange={(event) => setSelectedCandidate(event.target.value)} value={readyCandidates.some((item) => item.id === selectedCandidate) ? selectedCandidate : ''}>
+            <option value=''>Select a checked candidate</option>
+            {readyCandidates.map((candidate) => (
+              <option key={candidate.id} value={candidate.id}>
+                {candidate.id}
+                {' '}
+                ·
+                {' '}
+                {compact(candidate.config_sha256)}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className='field-group'>
+          <label htmlFor='monitoring-tier'>Monitoring tier</label>
+          <select id='monitoring-tier' onChange={(event) => setMonitoringTier(event.target.value as MonitoringTier)} value={monitoringTier}>
+            <option value='process_only'>Process only</option>
+            <option value='limited'>Limited Clash API metrics</option>
+          </select>
+        </div>
+        <button className='button button--primary' disabled={selectedCandidate === '' || busyAction !== ''} onClick={() => void apply()} type='button'>
+          {busyAction === 'apply' ? 'Queueing apply…' : 'Apply ready candidate'}
+        </button>
+      </div>
+
+      <div className='inline-actions' aria-label='Runtime lifecycle'>
+        {(['start', 'stop', 'restart', 'rollback'] as const).map((operation) => (
+          <button className='button button--secondary' disabled={busyAction !== ''} key={operation} onClick={() => void lifecycle(operation)} type='button'>
+            {busyAction === operation ? 'Queueing…' : operation[0].toUpperCase() + operation.slice(1)}
+          </button>
+        ))}
+      </div>
     </section>
   );
 }

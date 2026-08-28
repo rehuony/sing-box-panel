@@ -4,81 +4,39 @@ import { render, screen } from '@testing-library/react';
 
 import { ApiClientProvider } from '@/api/api-client-context';
 import { StartupWorkflow } from '@/pages/configuration-page/startup-workflow';
-import {
-  createMockApiClient,
-  testManualArtifact,
-  testRevision,
-  testTask,
-} from '@/tests/api/mock-api-client';
+import { createMockApiClient, testArtifacts, testRevision } from '@/tests/api/mock-api-client';
 
 describe('startupWorkflow', () => {
-  it('requires an explicit decision for every manual reattach conflict', async () => {
+  it('requires explicit acceptance of the exact ignored-fields digest before compiling', async () => {
     const user = userEvent.setup();
-    const stale = { ...testManualArtifact, state: 'stale' as const };
-    const preview = {
-      evidence: {
-        startup_artifact_id: stale.id,
-        config_sha256: stale.config_sha256,
-        base_revision_id: 'revision_40',
-        base_revision_sha256: '3'.repeat(64),
-        current_head_id: testRevision.id,
-        current_head_sha256: testRevision.sha256,
-        exact_core_version: '1.13.19',
-        core_artifact_id: 'core_1',
-        capability: {
-          repository: 'rehuony/sing-box-panel',
-          commit_sha: '4'.repeat(40),
-          manifest_sha256: '5'.repeat(64),
-          support_level: 'native_structured' as const,
-        },
-      },
-      base: { ...testRevision, id: 'revision_40', sequence: 40, sha256: '3'.repeat(64) },
-      current: testRevision,
-      manual: testRevision.document,
-      owned_partial: { global: { mode: 'manual' } },
-      merged: testRevision.document,
-      residual_paths: [],
-      conflicts: [{
-        path: '/global/mode',
-        base: { present: true, value: 'base' },
-        current: { present: true, value: 'current' },
-        manual: { present: true, value: 'manual' },
-      }],
-    };
+    const ignoredDigest = '9'.repeat(64);
+    const compileConfiguration = vi.fn().mockRejectedValue(new Error('test stops after request evidence'));
     const client = createMockApiClient({
-      listManualArtifacts: vi.fn().mockResolvedValue({
-        resolution: { exact_version: '1.13.19', source: 'explicit' },
-        items: [stale],
+      previewConfiguration: vi.fn().mockResolvedValue({
+        canonical_revision: testRevision,
+        core_artifact: testArtifacts.items[0],
+        support: {
+          supported: true,
+          profile: { exact_version: '1.13.19', os: 'linux', arch: 'arm64', variant: 'plain', feature_fingerprint: {} },
+          adapter_id: 'sing-box-1.13.19', adapter_revision: '1',
+        },
+        config: {},
+        diagnostics: [{ class: 'ignored', code: 'unsupported_field', path: '/services', message: 'Not supported by this version.' }],
+        ignored_digest: ignoredDigest,
       }),
-      previewManualReattach: vi.fn().mockResolvedValue(preview),
-      applyManualReattach: vi.fn().mockResolvedValue({
-        preview,
-        revision: testRevision,
-        artifact: stale,
-        task: { ...testTask, id: 'task_reattach', status: 'queued' },
-      }),
+      compileConfiguration,
     });
 
-    render(
-      <ApiClientProvider client={client}>
-        <StartupWorkflow
-          baseRevision={testRevision.id}
-          capability='native_structured'
-          exactVersion='1.13.19'
-          onCanonicalChange={vi.fn().mockResolvedValue(undefined)}
-        />
-      </ApiClientProvider>,
-    );
+    render(<ApiClientProvider client={client}><StartupWorkflow exactVersion='1.13.19' /></ApiClientProvider>);
 
-    await user.click(await screen.findByRole('button', { name: 'Reattach' }));
-    await user.click(screen.getByRole('button', { name: 'Create reattached revision' }));
-    expect(await screen.findByText(/Choose current or manual/)).toBeInTheDocument();
-    await user.click(screen.getByRole('radio', { name: /Manual/ }));
-    await user.click(screen.getByRole('button', { name: 'Create reattached revision' }));
+    const compile = await screen.findByRole('button', { name: 'Compile and queue check' });
+    expect(compile).toBeDisabled();
+    await user.click(screen.getByLabelText(/I understand these fields remain/));
+    await user.click(compile);
 
-    expect(client.applyManualReattach).toHaveBeenCalledWith(stale.id, {
-      evidence: preview.evidence,
-      decisions: { '/global/mode': 'manual' },
+    expect(compileConfiguration).toHaveBeenCalledWith({
+      coreArtifactID: 'core_1',
+      acceptedIgnoredDigest: ignoredDigest,
     });
   });
 });

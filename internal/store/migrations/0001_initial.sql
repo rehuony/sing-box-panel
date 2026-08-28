@@ -71,74 +71,13 @@ CREATE TABLE catalog_state (
     refreshed_at TEXT NOT NULL CHECK (refreshed_at <> '')
 ) STRICT;
 
-CREATE TABLE capability_generations (
-    id TEXT PRIMARY KEY
-        CHECK (length(id) = 64 AND id NOT GLOB '*[^0-9a-f]*'),
-    repository TEXT NOT NULL CHECK (repository <> ''),
-    commit_sha TEXT NOT NULL CHECK (
-        (length(commit_sha) = 40 OR length(commit_sha) = 64)
-        AND commit_sha NOT GLOB '*[^0-9a-f]*'
-    ),
-    source_sha256 TEXT NOT NULL
-        CHECK (length(source_sha256) = 64 AND source_sha256 NOT GLOB '*[^0-9a-f]*'),
-    manifest_count INTEGER NOT NULL CHECK (manifest_count > 0),
-    refreshed_at TEXT NOT NULL CHECK (refreshed_at <> ''),
-    UNIQUE (repository, commit_sha)
-) STRICT;
-
-CREATE TABLE capability_generation_manifests (
-    generation_id TEXT NOT NULL
-        REFERENCES capability_generations(id) ON DELETE RESTRICT,
-    exact_core_version TEXT NOT NULL CHECK (exact_core_version <> ''),
-    path TEXT NOT NULL CHECK (path <> ''),
-    manifest_sha256 TEXT NOT NULL
-        CHECK (length(manifest_sha256) = 64 AND manifest_sha256 NOT GLOB '*[^0-9a-f]*'),
-    support_level TEXT NOT NULL CHECK (
-        support_level IN (
-            'native_structured', 'compatible_structured', 'manual_json', 'unavailable'
-        )
-    ),
-    manifest_json TEXT NOT NULL CHECK (json_valid(manifest_json)),
-    PRIMARY KEY (generation_id, exact_core_version),
-    UNIQUE (generation_id, path)
-) STRICT;
-
-CREATE INDEX capability_generation_manifest_digest
-    ON capability_generation_manifests(manifest_sha256);
-
-CREATE TABLE capability_pins (
-    exact_core_version TEXT PRIMARY KEY CHECK (exact_core_version <> ''),
-    repository TEXT NOT NULL CHECK (repository <> ''),
-    commit_sha TEXT NOT NULL CHECK (commit_sha <> ''),
-    manifest_sha256 TEXT NOT NULL
-        CHECK (length(manifest_sha256) = 64 AND manifest_sha256 NOT GLOB '*[^0-9a-f]*'),
-    support_level TEXT NOT NULL
-        CHECK (support_level IN ('native_structured', 'compatible_structured', 'manual_json', 'unavailable')),
-    pinned_at TEXT NOT NULL CHECK (pinned_at <> '')
-) STRICT;
-
-CREATE TABLE capability_quarantine (
-    manifest_sha256 TEXT PRIMARY KEY
-        CHECK (length(manifest_sha256) = 64 AND manifest_sha256 NOT GLOB '*[^0-9a-f]*'),
-    reason_code TEXT NOT NULL CHECK (reason_code <> ''),
-    diagnostics_json TEXT NOT NULL DEFAULT '{}'
-        CHECK (json_valid(diagnostics_json)),
-    quarantined_at TEXT NOT NULL CHECK (quarantined_at <> '')
-) STRICT;
-
 CREATE TABLE startup_artifacts (
     id TEXT PRIMARY KEY CHECK (id <> ''),
-    kind TEXT NOT NULL CHECK (kind IN ('structured', 'manual')),
     canonical_revision_id TEXT NOT NULL
         REFERENCES canonical_revisions(id) ON DELETE RESTRICT,
     exact_core_version TEXT NOT NULL CHECK (exact_core_version <> ''),
-    capability_commit TEXT,
-    capability_digest TEXT
-        CHECK (
-            capability_digest IS NULL
-            OR (length(capability_digest) = 64 AND capability_digest NOT GLOB '*[^0-9a-f]*')
-        ),
-    renderer_version TEXT NOT NULL CHECK (renderer_version <> ''),
+    adapter_id TEXT NOT NULL CHECK (adapter_id <> ''),
+    adapter_revision TEXT NOT NULL CHECK (adapter_revision <> ''),
     core_artifact_id TEXT NOT NULL
         REFERENCES core_artifacts(id) ON DELETE RESTRICT,
     config_bytes BLOB NOT NULL,
@@ -146,14 +85,14 @@ CREATE TABLE startup_artifacts (
         CHECK (length(config_sha256) = 64 AND config_sha256 NOT GLOB '*[^0-9a-f]*'),
     diagnostics_json TEXT NOT NULL DEFAULT '[]'
         CHECK (json_valid(diagnostics_json)),
+    ignored_digest TEXT CHECK (
+        ignored_digest IS NULL OR
+        (length(ignored_digest) = 64 AND ignored_digest NOT GLOB '*[^0-9a-f]*')
+    ),
     state TEXT NOT NULL DEFAULT 'pending'
-        CHECK (state IN ('pending', 'ready', 'failed', 'stale')),
+        CHECK (state IN ('pending', 'ready', 'failed')),
     checked_at TEXT,
-    created_at TEXT NOT NULL CHECK (created_at <> ''),
-    CHECK (
-        kind = 'manual'
-        OR (capability_commit IS NOT NULL AND capability_digest IS NOT NULL)
-    )
+    created_at TEXT NOT NULL CHECK (created_at <> '')
 ) STRICT;
 
 CREATE INDEX startup_artifacts_projection_lookup
@@ -165,6 +104,7 @@ CREATE TABLE subscription_channels (
     format TEXT NOT NULL CHECK (format IN ('sing-box', 'mihomo', 'loon')),
     config_json TEXT NOT NULL DEFAULT '{}'
         CHECK (json_valid(config_json)),
+    public_host TEXT NOT NULL CHECK (public_host <> ''),
     enabled INTEGER NOT NULL DEFAULT 1 CHECK (enabled IN (0, 1)),
     created_at TEXT NOT NULL CHECK (created_at <> ''),
     updated_at TEXT NOT NULL CHECK (updated_at <> '')
@@ -175,35 +115,49 @@ CREATE TABLE subscription_sources (
     name TEXT NOT NULL UNIQUE CHECK (name <> ''),
     source_kind TEXT NOT NULL CHECK (source_kind IN ('remote', 'local')),
     config_json TEXT NOT NULL CHECK (json_valid(config_json)),
-    latest_snapshot_json TEXT
-        CHECK (latest_snapshot_json IS NULL OR json_valid(latest_snapshot_json)),
+    current_version_id TEXT,
     enabled INTEGER NOT NULL DEFAULT 1 CHECK (enabled IN (0, 1)),
     created_at TEXT NOT NULL CHECK (created_at <> ''),
     updated_at TEXT NOT NULL CHECK (updated_at <> '')
 ) STRICT;
 
-CREATE TABLE subscription_snapshots (
+CREATE TABLE subscription_users (
     id TEXT PRIMARY KEY CHECK (id <> ''),
-    canonical_revision_id TEXT NOT NULL
-        REFERENCES canonical_revisions(id) ON DELETE RESTRICT,
-    startup_artifact_id TEXT NOT NULL
-        REFERENCES startup_artifacts(id) ON DELETE RESTRICT,
-    content_json TEXT NOT NULL CHECK (json_valid(content_json)),
+    name TEXT NOT NULL UNIQUE CHECK (name <> ''),
+    description TEXT NOT NULL DEFAULT '',
+    enabled INTEGER NOT NULL DEFAULT 1 CHECK (enabled IN (0, 1)),
+    created_at TEXT NOT NULL CHECK (created_at <> ''),
+    updated_at TEXT NOT NULL CHECK (updated_at <> '')
+) STRICT;
+
+CREATE TABLE subscription_user_node_grants (
+    user_id TEXT NOT NULL REFERENCES subscription_users(id) ON DELETE CASCADE,
+    node_key TEXT NOT NULL CHECK (node_key <> ''),
+    created_at TEXT NOT NULL CHECK (created_at <> ''),
+    PRIMARY KEY (user_id, node_key)
+) STRICT;
+
+CREATE TABLE subscription_source_versions (
+    id TEXT PRIMARY KEY CHECK (id <> ''),
+    source_id TEXT NOT NULL REFERENCES subscription_sources(id) ON DELETE CASCADE,
+    format TEXT NOT NULL CHECK (format IN ('sing-box-json', 'mihomo-yaml', 'uri-list')),
+    raw_body BLOB NOT NULL,
+    normalized_nodes_json TEXT NOT NULL CHECK (json_valid(normalized_nodes_json)),
+    diagnostics_json TEXT NOT NULL DEFAULT '[]' CHECK (json_valid(diagnostics_json)),
     sha256 TEXT NOT NULL
         CHECK (length(sha256) = 64 AND sha256 NOT GLOB '*[^0-9a-f]*'),
-    created_at TEXT NOT NULL CHECK (created_at <> '')
+    fetched_at TEXT NOT NULL CHECK (fetched_at <> ''),
+    created_at TEXT NOT NULL CHECK (created_at <> ''),
+    UNIQUE(source_id, sha256)
 ) STRICT;
+
+CREATE INDEX subscription_source_versions_source_created
+    ON subscription_source_versions(source_id, created_at DESC, id DESC);
 
 CREATE TABLE activation_bundles (
     id TEXT PRIMARY KEY CHECK (id <> ''),
     startup_artifact_id TEXT NOT NULL
         REFERENCES startup_artifacts(id) ON DELETE RESTRICT,
-    subscription_snapshot_id TEXT NOT NULL
-        REFERENCES subscription_snapshots(id) ON DELETE RESTRICT,
-    public_addresses_json TEXT NOT NULL DEFAULT '{}'
-        CHECK (json_valid(public_addresses_json)),
-    source_snapshots_json TEXT NOT NULL DEFAULT '[]'
-        CHECK (json_valid(source_snapshots_json)),
     monitoring_tier TEXT NOT NULL
         CHECK (monitoring_tier IN ('full', 'limited', 'process_only')),
     sha256 TEXT NOT NULL UNIQUE
@@ -262,13 +216,22 @@ CREATE INDEX tasks_claim_queue
 
 CREATE TABLE subscription_tokens (
     id TEXT PRIMARY KEY CHECK (id <> ''),
+    user_id TEXT NOT NULL REFERENCES subscription_users(id) ON DELETE RESTRICT,
+    label TEXT NOT NULL CHECK (label <> ''),
     token_sha256 TEXT NOT NULL UNIQUE
         CHECK (length(token_sha256) = 64 AND token_sha256 NOT GLOB '*[^0-9a-f]*'),
-    channel_id TEXT REFERENCES subscription_channels(id) ON DELETE RESTRICT,
+    enabled INTEGER NOT NULL DEFAULT 1 CHECK (enabled IN (0, 1)),
     expires_at TEXT,
     revoked_at TEXT,
+    successful_request_count INTEGER NOT NULL DEFAULT 0 CHECK (successful_request_count >= 0),
+    body_response_count INTEGER NOT NULL DEFAULT 0 CHECK (body_response_count >= 0),
+    bytes_served INTEGER NOT NULL DEFAULT 0 CHECK (bytes_served >= 0),
+    last_used_at TEXT,
     created_at TEXT NOT NULL CHECK (created_at <> '')
 ) STRICT;
+
+CREATE INDEX subscription_tokens_user_created
+    ON subscription_tokens(user_id, created_at DESC, id DESC);
 
 CREATE TABLE traffic_periods (
     id TEXT PRIMARY KEY CHECK (id <> ''),
@@ -327,4 +290,41 @@ CREATE TABLE runtime_observation (
         CHECK (length(binary_sha256) = 64 AND binary_sha256 NOT GLOB '*[^0-9a-f]*'),
     started_at TEXT NOT NULL CHECK (started_at <> ''),
     observed_at TEXT NOT NULL CHECK (observed_at <> '')
+) STRICT;
+
+CREATE TABLE traffic_samples (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    activation_bundle_id TEXT NOT NULL
+        REFERENCES activation_bundles(id) ON DELETE RESTRICT,
+    pid INTEGER NOT NULL CHECK (pid > 0),
+    process_start_token TEXT NOT NULL CHECK (process_start_token <> ''),
+    sampled_at TEXT NOT NULL CHECK (sampled_at <> ''),
+    memory_bytes INTEGER NOT NULL CHECK (memory_bytes >= 0),
+    active_connections INTEGER NOT NULL CHECK (active_connections >= 0),
+    upload_total INTEGER NOT NULL CHECK (upload_total >= 0),
+    download_total INTEGER NOT NULL CHECK (download_total >= 0),
+    accepted INTEGER NOT NULL CHECK (accepted IN (0, 1)),
+    diagnostic_code TEXT NOT NULL DEFAULT '' CHECK (length(diagnostic_code) <= 128)
+) STRICT;
+
+CREATE INDEX traffic_samples_timeline
+    ON traffic_samples(sampled_at DESC, id DESC);
+
+CREATE INDEX traffic_samples_bundle_timeline
+    ON traffic_samples(activation_bundle_id, sampled_at DESC, id DESC);
+
+CREATE TABLE traffic_checkpoint (
+    singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+    period_start TEXT NOT NULL CHECK (period_start <> ''),
+    period_end TEXT NOT NULL CHECK (period_end <> ''),
+    pid INTEGER NOT NULL CHECK (pid > 0),
+    process_start_token TEXT NOT NULL CHECK (process_start_token <> ''),
+    activation_bundle_id TEXT NOT NULL
+        REFERENCES activation_bundles(id) ON DELETE RESTRICT,
+    last_upload_total INTEGER NOT NULL CHECK (last_upload_total >= 0),
+    last_download_total INTEGER NOT NULL CHECK (last_download_total >= 0),
+    accumulated_upload INTEGER NOT NULL CHECK (accumulated_upload >= 0),
+    accumulated_download INTEGER NOT NULL CHECK (accumulated_download >= 0),
+    sampled_at TEXT NOT NULL CHECK (sampled_at <> ''),
+    CHECK (period_end > period_start)
 ) STRICT;

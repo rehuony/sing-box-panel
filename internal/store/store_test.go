@@ -11,8 +11,6 @@ import (
 	"sync"
 	"testing"
 	"time"
-
-	"modernc.org/sqlite"
 )
 
 func TestOpenConfiguresEveryConnectionAndReopens(t *testing.T) {
@@ -88,75 +86,30 @@ func TestOpenConfiguresEveryConnectionAndReopens(t *testing.T) {
 	}
 }
 
-func TestOpenMigratesChannelBoundTokensToGlobalTokens(t *testing.T) {
+func TestOpenRejectsPreV2DatabaseIdentity(t *testing.T) {
+	t.Parallel()
+
 	ctx := testContext(t)
 	path := filepath.Join(t.TempDir(), "panel.db")
-	migrations, err := loadMigrations()
-	if err != nil || len(migrations) < 2 {
-		t.Fatalf("loadMigrations() = %d, %v", len(migrations), err)
-	}
-	connector, err := sqlite.NewConnector(databaseDSN(path))
+	legacy, err := sql.Open("sqlite", path)
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("open legacy fixture: %v", err)
 	}
-	database := sql.OpenDB(connector)
-	tx, err := database.BeginTx(ctx, nil)
-	if err != nil {
-		t.Fatal(err)
+	if _, err := legacy.ExecContext(ctx, `PRAGMA application_id = 0x53425031`); err != nil {
+		_ = legacy.Close()
+		t.Fatalf("set legacy application id: %v", err)
 	}
-	if _, err = tx.ExecContext(ctx, migrations[0].sql); err == nil {
-		_, err = tx.ExecContext(ctx,
-			`INSERT INTO schema_migrations(version, name, applied_at) VALUES (1, ?, ?)`,
-			migrations[0].name, time.Now().UTC().Format(time.RFC3339Nano))
-	}
-	if err == nil {
-		_, err = tx.ExecContext(ctx, fmt.Sprintf("PRAGMA application_id = %d", ApplicationID))
-	}
-	if err == nil {
-		_, err = tx.ExecContext(ctx, "PRAGMA user_version = 1")
-	}
-	now := formatTaskTime(time.Now().UTC())
-	if err == nil {
-		_, err = tx.ExecContext(ctx, `INSERT INTO subscription_channels(
-            id, name, format, config_json, enabled, created_at, updated_at
-        ) VALUES ('channel-old', 'old', 'sing-box', '{}', 1, ?, ?)`, now, now)
-	}
-	if err == nil {
-		_, err = tx.ExecContext(ctx, `INSERT INTO subscription_tokens(
-            id, token_sha256, channel_id, created_at
-        ) VALUES ('token-old', ?, 'channel-old', ?)`, stringsOf('a', 64), now)
-	}
-	if err != nil {
-		_ = tx.Rollback()
-		t.Fatal(err)
-	}
-	if err := tx.Commit(); err != nil {
-		t.Fatal(err)
-	}
-	if err := database.Close(); err != nil {
-		t.Fatal(err)
+	if err := legacy.Close(); err != nil {
+		t.Fatalf("close legacy fixture: %v", err)
 	}
 
-	migrated, err := Open(ctx, path)
-	if err != nil {
-		t.Fatalf("Open() migration error = %v", err)
+	opened, err := Open(ctx, path)
+	if opened != nil {
+		_ = opened.Close()
+		t.Fatal("Open returned a store for a pre-v2 database identity")
 	}
-	t.Cleanup(func() { _ = migrated.Close() })
-	if _, err := migrated.GetSubscriptionToken(ctx, "token-old"); err != nil {
-		t.Fatalf("migrated token lookup: %v", err)
-	}
-	channel, err := migrated.GetSubscriptionChannel(ctx, "channel-old")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := migrated.DeleteSubscriptionChannel(ctx, channel.ID, channel.UpdatedAt); err != nil {
-		t.Fatalf("global token retained a channel reference: %v", err)
-	}
-	var channelColumns int
-	if err := migrated.db.QueryRowContext(ctx,
-		`SELECT count(*) FROM pragma_table_info('subscription_tokens') WHERE name = 'channel_id'`,
-	).Scan(&channelColumns); err != nil || channelColumns != 0 {
-		t.Fatalf("channel_id columns = %d, err=%v", channelColumns, err)
+	if !errors.Is(err, ErrUnexpectedApplicationID) {
+		t.Fatalf("Open error = %v, want ErrUnexpectedApplicationID", err)
 	}
 }
 
@@ -201,8 +154,8 @@ func TestWithTxRollsBackCallbackFailure(t *testing.T) {
 		if _, err := tx.ExecContext(
 			ctx,
 			`INSERT INTO subscription_channels(
-                id, name, format, config_json, created_at, updated_at
-             ) VALUES ('channel-1', 'default', 'sing-box', '{}', ?, ?)`,
+		        id, name, format, config_json, public_host, created_at, updated_at
+		     ) VALUES ('channel-1', 'default', 'sing-box', '{}', 'example.test', ?, ?)`,
 			now,
 			now,
 		); err != nil {

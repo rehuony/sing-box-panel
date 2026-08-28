@@ -94,7 +94,7 @@ func newRevisionRestoreCommand(state *options, open openApplicationFunc) *cobra.
 		Short: "Restore an old snapshot by creating a new immutable revision",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			expectedHead, err := requiredBaseRevision(cmd, baseRevision)
+			expectedHead, err := requiredConfigBaseRevision(cmd, baseRevision)
 			if err != nil {
 				return err
 			}
@@ -110,7 +110,7 @@ func newRevisionRestoreCommand(state *options, open openApplicationFunc) *cobra.
 				}
 				return classifyRevisionError("revision_restore_failed", err)
 			}
-			return writeCanonicalSave(cmd, state, result)
+			return writeResult(cmd.OutOrStdout(), state.format, result, canonicalSaveText(result))
 		},
 	}
 	command.Flags().StringVar(&baseRevision, "base-revision", "", "current head revision ID used as the compare-and-swap base")

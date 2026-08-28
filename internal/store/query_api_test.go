@@ -9,8 +9,6 @@ import (
 	"sync"
 	"testing"
 	"time"
-
-	"github.com/rehuony/sing-box-panel/internal/capability"
 )
 
 func TestListTasksFiltersAndPaginatesWithStableCursor(t *testing.T) {
@@ -88,14 +86,6 @@ func TestReadAPIsReturnEmptyCollections(t *testing.T) {
 	artifacts, err := store.ListCoreArtifacts(ctx, CoreArtifactListFilter{})
 	if err != nil || artifacts.Items == nil || len(artifacts.Items) != 0 || artifacts.Next != nil {
 		t.Fatalf("empty ListCoreArtifacts() = %+v, %v", artifacts, err)
-	}
-	pins, err := store.ListCapabilityPins(ctx)
-	if err != nil || pins == nil || len(pins) != 0 {
-		t.Fatalf("empty ListCapabilityPins() = %+v, %v", pins, err)
-	}
-	quarantines, err := store.ListCapabilityQuarantines(ctx)
-	if err != nil || quarantines == nil || len(quarantines) != 0 {
-		t.Fatalf("empty ListCapabilityQuarantines() = %+v, %v", quarantines, err)
 	}
 }
 
@@ -283,10 +273,10 @@ func TestCoreArtifactRepositoryAndRemovalEligibility(t *testing.T) {
 	if _, err := store.db.ExecContext(
 		ctx,
 		`INSERT INTO startup_artifacts(
-            id, kind, canonical_revision_id, exact_core_version,
-            renderer_version, core_artifact_id, config_bytes, config_sha256,
-            diagnostics_json, state, created_at
-         ) VALUES (?, 'manual', ?, '1.13.19', 'test', ?, ?, ?, '[]', 'ready', ?)`,
+		    id, canonical_revision_id, exact_core_version, adapter_id,
+		    adapter_revision, core_artifact_id, config_bytes, config_sha256,
+		    diagnostics_json, state, created_at
+		 ) VALUES (?, ?, '1.13.19', 'test-adapter', '1', ?, ?, ?, '[]', 'ready', ?)`,
 		"startup-reference",
 		revision.ID,
 		"artifact-1",
@@ -367,94 +357,6 @@ func TestConcurrentCoreArtifactUpsertsAndLists(t *testing.T) {
 	}
 	if len(page.Items) != 12 {
 		t.Fatalf("final artifact count = %d, want 12", len(page.Items))
-	}
-}
-
-func TestCapabilityPinAndQuarantineRepositories(t *testing.T) {
-	ctx := testContext(t)
-	store := openTestStore(t, ctx)
-	now := time.Date(2026, time.August, 28, 12, 0, 0, 0, time.UTC)
-	pin := CapabilityPin{
-		ExactCoreVersion: "1.13.19",
-		Repository:       "SagerNet/sing-box",
-		CommitSHA:        strings.Repeat("a", 40),
-		ManifestSHA256:   strings.Repeat("1", 64),
-		SupportLevel:     capability.SupportNativeStructured,
-		PinnedAt:         now,
-	}
-	storedPin, err := store.UpsertCapabilityPin(ctx, pin)
-	if err != nil {
-		t.Fatalf("UpsertCapabilityPin() error = %v", err)
-	}
-	if storedPin.CommitSHA != pin.CommitSHA || storedPin.SupportLevel != pin.SupportLevel {
-		t.Fatalf("stored capability pin = %+v, want input", storedPin)
-	}
-	pin.CommitSHA = strings.Repeat("b", 40)
-	pin.ManifestSHA256 = strings.Repeat("2", 64)
-	pin.SupportLevel = capability.SupportCompatibleStructured
-	pin.PinnedAt = now.Add(time.Second)
-	updatedPin, err := store.UpsertCapabilityPin(ctx, pin)
-	if err != nil {
-		t.Fatalf("UpsertCapabilityPin(update) error = %v", err)
-	}
-	if updatedPin.CommitSHA != pin.CommitSHA || updatedPin.SupportLevel != pin.SupportLevel {
-		t.Fatalf("updated capability pin = %+v, want update", updatedPin)
-	}
-	pins, err := store.ListCapabilityPins(ctx)
-	if err != nil || len(pins) != 1 {
-		t.Fatalf("ListCapabilityPins() = %+v, %v, want one", pins, err)
-	}
-
-	quarantine := CapabilityQuarantine{
-		ManifestSHA256: strings.Repeat("3", 64),
-		ReasonCode:     "roundtrip_failed",
-		Diagnostics:    json.RawMessage(`{ "path": "/dns" }`),
-		QuarantinedAt:  now,
-	}
-	storedQuarantine, err := store.UpsertCapabilityQuarantine(ctx, quarantine)
-	if err != nil {
-		t.Fatalf("UpsertCapabilityQuarantine() error = %v", err)
-	}
-	if string(storedQuarantine.Diagnostics) != `{"path":"/dns"}` {
-		t.Fatalf("quarantine diagnostics = %s, want compact JSON", storedQuarantine.Diagnostics)
-	}
-	storedQuarantine.Diagnostics[0] = 'x'
-	unchanged, err := store.GetCapabilityQuarantine(ctx, quarantine.ManifestSHA256)
-	if err != nil {
-		t.Fatalf("GetCapabilityQuarantine() error = %v", err)
-	}
-	if string(unchanged.Diagnostics) != `{"path":"/dns"}` {
-		t.Fatalf("stored quarantine diagnostics = %s, want defensive copy", unchanged.Diagnostics)
-	}
-	retry, err := store.UpsertCapabilityQuarantine(ctx, CapabilityQuarantine{
-		ManifestSHA256: quarantine.ManifestSHA256,
-		ReasonCode:     "replacement_reason",
-		Diagnostics:    json.RawMessage(`{"path":"/route"}`),
-		QuarantinedAt:  now.Add(time.Hour),
-	})
-	if err != nil {
-		t.Fatalf("repeat UpsertCapabilityQuarantine() error = %v", err)
-	}
-	if retry.ReasonCode != quarantine.ReasonCode || retry.QuarantinedAt != now ||
-		string(retry.Diagnostics) != `{"path":"/dns"}` {
-		t.Fatalf("repeat quarantine rewrote audit record: %+v", retry)
-	}
-	quarantines, err := store.ListCapabilityQuarantines(ctx)
-	if err != nil || len(quarantines) != 1 {
-		t.Fatalf("ListCapabilityQuarantines() = %+v, %v, want one", quarantines, err)
-	}
-
-	if err := store.DeleteCapabilityPin(ctx, pin.ExactCoreVersion); err != nil {
-		t.Fatalf("DeleteCapabilityPin() error = %v", err)
-	}
-	if _, err := store.GetCapabilityPin(ctx, pin.ExactCoreVersion); !errors.Is(err, ErrCapabilityPinNotFound) {
-		t.Fatalf("deleted pin lookup error = %v, want ErrCapabilityPinNotFound", err)
-	}
-	if err := store.DeleteCapabilityQuarantine(ctx, quarantine.ManifestSHA256); err != nil {
-		t.Fatalf("DeleteCapabilityQuarantine() error = %v", err)
-	}
-	if _, err := store.GetCapabilityQuarantine(ctx, quarantine.ManifestSHA256); !errors.Is(err, ErrCapabilityQuarantineNotFound) {
-		t.Fatalf("deleted quarantine lookup error = %v, want ErrCapabilityQuarantineNotFound", err)
 	}
 }
 

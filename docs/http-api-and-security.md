@@ -8,19 +8,23 @@ listener is loopback-only.
 
 The management API is rooted at `/api/v1`. The authoritative operation,
 schema, status-code, and problem-detail contract is
-[`api/openapi.yaml`](../api/openapi.yaml); this guide does not duplicate its
-endpoint inventory.
+[`api/openapi.yaml`](../api/openapi.yaml); this guide describes its trust
+boundaries without duplicating the endpoint inventory.
 
 `server.base_path` prefixes the Web application, management API, and `/sub`
 routes. It must be empty or a normalized path without a trailing slash. Browser
-code uses same-origin paths and does not depend on backend implementation
-packages.
+code uses same-origin paths and depends only on the HTTP contract.
 
-`GET /api/v1/system/status` resolves capability state from the OS-verified live
-exact version. When the child is stopped, it may use the applied bundle's exact
-identity. With neither source, the state is `unresolved`; it never assumes the
-newest catalog release. A quarantined exact pin is reported as
-`quarantined_manual_json`.
+Configuration operations address one global schema-v2 canonical history.
+Preview and compilation bind an immutable installed core artifact, not a
+naked version string. The server derives the artifact's verified version, OS,
+architecture, variant, and feature fingerprint, then requires one exact
+compiled adapter. Unsupported profiles remain inspectable but fail closed for
+projection and runtime work.
+
+`GET /api/v1/system/status` reports the adapter evidence associated with the
+live artifact or, when stopped, the applied bundle. It never selects the newest
+catalog version or a nearby adapter.
 
 ## Management authentication
 
@@ -47,48 +51,57 @@ contract requires it, constant-time token comparison, security response
 headers, and secret-redacting event metadata.
 
 Network downloads use explicit host and resolved-address checks, bounded
-responses, timeouts, and restricted redirects. Archive import rejects path
-traversal, symbolic links, non-regular entries, duplicate binaries, excessive
-expansion, and non-canonical gzip/tar input. These controls reduce common SSRF,
-archive, and resource-exhaustion risks but do not replace the artifact trust
-model described in [Core versions and capabilities](core-versions-and-capabilities.md#artifact-trust-boundary).
+responses, timeouts, and restricted redirects. Browser core import accepts one
+bounded multipart file, verifies its declared SHA-256, and stages it in a
+mode-0700 private data-directory location rather than accepting a server-local
+path. Archive verification rejects path traversal, symbolic links, non-regular
+entries, duplicate binaries, excessive expansion, and non-canonical gzip/tar
+input. See [Core versions and adapters](core-versions-and-adapters.md#artifact-trust-boundary)
+for the artifact trust boundary.
+
+Third-party subscription refresh validates DNS and every redirect destination
+against the configured source-network policy. Public subscription requests use
+only persisted successful source versions and never fetch an upstream URL.
 
 Keep the following data private:
 
 - settings files and management tokens;
-- exported canonical or manual configuration;
-- subscription token plaintext and source snapshots; and
+- exported canonical configuration;
+- subscription token plaintext and raw source versions; and
 - diagnostic files that may contain paths or operator-provided values.
 
 Use file or stdin inputs for secrets instead of command arguments.
 
-## Revision and version boundaries
+## Concurrency and immutable evidence
 
 Canonical writes use revision preconditions. HTTP clients send the current
 revision through `If-Match`; a stale value receives `412 Precondition Failed`
-and must be reviewed rather than overwritten automatically.
+and must be reviewed rather than overwritten automatically. Channel, source,
+user-grant, and token mutations use their documented compare-and-swap or
+lifecycle preconditions.
 
-Version-scoped operations that allow an omitted `core_version` resolve it from
-the live verified process. Collection operations whose OpenAPI description
-defines `core_version` as a filter simply omit filtering when it is absent.
+Compilation stores projected bytes together with the canonical revision,
+immutable core artifact, exact adapter ID/revision, diagnostics, and ignored
+diagnostic digest. Apply and lifecycle operations revalidate that evidence;
+there is no editable startup-JSON bypass.
+
+Public subscription responses are rendered from one consistency read of the
+applied local startup artifact, current enabled source versions, channel,
+token user, and that user's exact grants. Response bodies are not frozen into
+activation bundles.
 
 ## Web presentation boundary
 
-An exact capability pin may expose semantic facts and inert descriptors only.
-The React application maps those descriptors onto built-in group, text,
-number, boolean, select, and JSON controls. It does not load manifest-provided
-scripts, components, templates, or remote resources.
+The React application contains its own trusted structured controls. It does
+not load adapter-provided scripts, components, templates, or remote resources.
+Changing the selected artifact clears the previous preview before requesting
+the new exact adapter result.
 
-Compatible structured support requires explicit acceptance. Changing the
-viewed exact version discards the previous presentation synchronously so
-controls cannot cross version boundaries.
-
-Canonical snapshots include authoritative raw `document_json`. The generic
-editor and manifest controls use a lossless JSON codec, and the versioned form
-sends only edited JSON Pointer values as JSON text in one bounded `If-Match`
-patch. Editing another field therefore cannot rewrite a large integer, large
-exponent, or decimal lexeme through a JavaScript `number`. A `412` response
-preserves the local draft for review.
+The canonical response includes authoritative `document_json`. The Web editor
+uses a lossless codec, preserves unshown global fields, and replaces the whole
+document with the current `If-Match` revision. It offers no editable raw
+startup JSON. An ignored-field acknowledgement is tied to the current stable
+digest, and a `412` response preserves the local draft for review.
 
 See the [Web application reference](../web/README.md) for frontend ownership
 and build behavior.

@@ -94,6 +94,71 @@ func TestManagerStartsOnlyVerifiedAppliedBundle(t *testing.T) {
 	}
 }
 
+func TestManagerStartCreatesPrivateRuntimeDirectoryBeforeExecution(t *testing.T) {
+	t.Parallel()
+
+	fixture := newRuntimeFixture(t, "1.13.19", []byte(`{"inbounds":[]}`))
+	process := newFakeProcess(4198, true)
+	executor := newFakeExecutor(process)
+	executor.versions[fixture.bundle.BinaryPath] = fixture.bundle.ExactVersion.String()
+	inspected := false
+	executor.runHook = func(command Command) {
+		if !reflect.DeepEqual(command.Args, []string{"version"}) {
+			return
+		}
+		inspected = true
+		info, err := os.Stat(command.Dir)
+		if err != nil {
+			t.Errorf("stat runtime directory before first execution: %v", err)
+			return
+		}
+		if !info.IsDir() || info.Mode().Perm() != 0o700 {
+			t.Errorf("runtime directory mode before first execution = %v, want private directory", info.Mode())
+		}
+	}
+	manager := newTestManager(t, fixture.runtimeDir, executor, newFakeClock(), immediateProbe())
+
+	if _, err := os.Stat(fixture.runtimeDir); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("runtime directory unexpectedly existed before start: %v", err)
+	}
+	if err := manager.Start(testContext(t), fixture.bundle); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	if !inspected {
+		t.Fatal("version command did not inspect the runtime directory")
+	}
+	closeManager(t, manager)
+}
+
+func TestManagerCheckCreatesPrivateRuntimeDirectoryBeforeExecution(t *testing.T) {
+	t.Parallel()
+
+	fixture := newRuntimeFixture(t, "1.13.19", []byte(`{"inbounds":[]}`))
+	executor := newFakeExecutor(newFakeProcess(4199, true))
+	executor.versions[fixture.bundle.BinaryPath] = fixture.bundle.ExactVersion.String()
+	manager := newTestManager(t, fixture.runtimeDir, executor, newFakeClock(), immediateProbe())
+
+	if _, err := os.Stat(fixture.runtimeDir); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("runtime directory unexpectedly existed before check: %v", err)
+	}
+	if err := manager.Check(testContext(t), fixture.bundle); err != nil {
+		t.Fatalf("Check: %v", err)
+	}
+	info, err := os.Stat(fixture.runtimeDir)
+	if err != nil {
+		t.Fatalf("stat runtime directory: %v", err)
+	}
+	if !info.IsDir() || info.Mode().Perm() != 0o700 {
+		t.Fatalf("runtime directory mode = %v, want private directory", info.Mode())
+	}
+	for _, command := range executor.Commands() {
+		if command.Dir != fixture.runtimeDir {
+			t.Fatalf("command directory = %q, want %q", command.Dir, fixture.runtimeDir)
+		}
+	}
+	closeManager(t, manager)
+}
+
 func TestManagerRejectsDigestMismatchBeforeExecution(t *testing.T) {
 	t.Parallel()
 

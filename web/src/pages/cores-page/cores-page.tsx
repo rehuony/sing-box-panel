@@ -2,9 +2,9 @@ import { Link } from 'react-router-dom';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import type {
-  CapabilityStatus,
   CatalogAsset,
   CatalogAssetList,
+  ConfigurationAdapterSupport,
   CoreArtifact,
   CoreArtifactCursor,
   CoreArtifactPage,
@@ -44,21 +44,6 @@ function compactDigest(digest: string): string {
   return digest.length > 18 ? `${digest.slice(0, 15)}…` : digest;
 }
 
-function supportLabel(status: CapabilityStatus | null): string {
-  switch (status?.support_level) {
-    case 'native_structured':
-      return 'Native structured';
-    case 'compatible_structured':
-      return 'Compatible structured';
-    case 'manual_json':
-      return 'Manual JSON';
-    case 'unavailable':
-      return 'Unavailable';
-    default:
-      return 'Capability unresolved';
-  }
-}
-
 export function CoresPage() {
   const client = useApiClient();
   const controlPlane = useControlPlane();
@@ -68,8 +53,11 @@ export function CoresPage() {
   const [catalogError, setCatalogError] = useState<unknown>(null);
   const [artifacts, setArtifacts] = useState<CoreArtifactPage | null>(null);
   const [artifactError, setArtifactError] = useState<unknown>(null);
-  const capability = controlPlane.viewCapability;
-  const capabilityError = controlPlane.viewCapabilityError;
+  const [adapterResult, setAdapterResult] = useState<{
+    artifactID: string;
+    support?: ConfigurationAdapterSupport;
+    error?: unknown;
+  } | null>(null);
   const [pendingAction, setPendingAction] = useState<string | null>(null);
   const [actionMessage, setActionMessage] = useState('');
   const [actionError, setActionError] = useState<unknown>(null);
@@ -78,6 +66,9 @@ export function CoresPage() {
     artifactID: string;
     state: VerificationRestriction;
   } | null>(null);
+  const [importFile, setImportFile] = useState<File | null>(null);
+  const [importVersion, setImportVersion] = useState('1.13.19');
+  const [importDescription, setImportDescription] = useState('browser upload');
 
   const loadCatalog = useCallback(
     async (signal?: AbortSignal) => {
@@ -140,6 +131,21 @@ export function CoresPage() {
     return () => controller.abort();
   }, [loadArtifacts, loadCatalog]);
 
+  useEffect(() => {
+    const artifact = artifacts?.items.find((item) =>
+      item.exact_version === selectedVersion && item.verification_state === 'verified');
+    if (artifact === undefined) return;
+    const controller = new AbortController();
+    void client.getConfigurationSupport(artifact.id, controller.signal)
+      .then((support) => {
+        if (!controller.signal.aborted) setAdapterResult({ artifactID: artifact.id, support });
+      })
+      .catch((error: unknown) => {
+        if (!controller.signal.aborted) setAdapterResult({ artifactID: artifact.id, error });
+      });
+    return () => controller.abort();
+  }, [artifacts, client, selectedVersion]);
+
   const versions = useMemo<VersionEntry[]>(() => {
     const counts = new Map<string, VersionEntry>();
     function accept(version: string) {
@@ -175,6 +181,10 @@ export function CoresPage() {
   const selectedArtifacts = (artifacts?.items ?? []).filter(
     (artifact) => artifact.exact_version === selectedVersion,
   );
+  const adapterArtifact = selectedArtifacts.find((item) => item.verification_state === 'verified');
+  const activeAdapterResult = adapterResult?.artifactID === adapterArtifact?.id ? adapterResult : null;
+  const adapterSupport = activeAdapterResult?.support ?? null;
+  const adapterError = activeAdapterResult?.error ?? null;
   const runningVersion
     = controlPlane.status === 'ready'
       ? controlPlane.context.running?.exactVersion
@@ -186,7 +196,7 @@ export function CoresPage() {
     setActionError(null);
     setActionMessage('');
     try {
-      const task = await client.refreshCatalog();
+      const task = await client.refreshCatalog(true);
       setActionMessage(
         `Catalog refresh queued as ${task.id}. The rail updates after the task succeeds.`,
       );
@@ -266,6 +276,34 @@ export function CoresPage() {
     }
   }
 
+  async function importArchive() {
+    if (importFile === null || !isExactVersion(importVersion) || importDescription.trim() === '') {
+      setActionError(new Error('Choose an archive and provide an exact stable version and description.'));
+      return;
+    }
+    if (importFile.size < 1 || importFile.size > 128 * 1024 * 1024) {
+      setActionError(new Error('The core archive must be between 1 byte and 128 MiB.'));
+      return;
+    }
+    setPendingAction('import');
+    setActionError(null);
+    try {
+      const task = await client.importCoreArchive({
+        archive: importFile,
+        sourceDescription: importDescription.trim(),
+        exactVersion: importVersion,
+        architecture: 'arm64',
+        variant: 'plain',
+      });
+      setActionMessage(`Private core upload queued as ${task.id}.`);
+      setSelectedVersion(importVersion);
+    } catch (error) {
+      setActionError(error);
+    } finally {
+      setPendingAction(null);
+    }
+  }
+
   return (
     <div className='page-stack core-page'>
       <PageHeading
@@ -305,6 +343,34 @@ export function CoresPage() {
               <Link className='text-link' to='/tasks'>Open task queue</Link>
             </div>
           )}
+
+      <section className='adapter-strip' aria-labelledby='core-upload-title'>
+        <div>
+          <p className='eyebrow'>Private local import</p>
+          <h2 id='core-upload-title'>Upload a verified Linux arm64 archive</h2>
+          <small>
+            The browser computes SHA-256; the server stages at most 128 MiB in a
+            mode-0700 private directory and verifies the exact binary version.
+          </small>
+        </div>
+        <div className='form-grid'>
+          <div className='field-group'>
+            <label htmlFor='core-import-file'>Archive</label>
+            <input accept='.tar.gz,.tgz,.zip' id='core-import-file' onChange={(event) => setImportFile(event.target.files?.[0] ?? null)} type='file' />
+          </div>
+          <div className='field-group'>
+            <label htmlFor='core-import-version'>Exact version</label>
+            <input id='core-import-version' onChange={(event) => setImportVersion(event.target.value)} value={importVersion} />
+          </div>
+          <div className='field-group'>
+            <label htmlFor='core-import-description'>Source description</label>
+            <input id='core-import-description' onChange={(event) => setImportDescription(event.target.value)} value={importDescription} />
+          </div>
+          <button className='button button--primary' disabled={pendingAction !== null} onClick={() => void importArchive()} type='button'>
+            {pendingAction === 'import' ? 'Hashing and queueing…' : 'Upload core archive'}
+          </button>
+        </div>
+      </section>
 
       <div className='core-layout'>
         <aside className='version-rail-panel' aria-labelledby='version-rail-title'>
@@ -381,33 +447,35 @@ export function CoresPage() {
         </aside>
 
         <div className='core-detail-stack'>
-          <section className='capability-strip' aria-labelledby='capability-title'>
+          <section className='adapter-strip' aria-labelledby='adapter-title'>
             <div>
-              <p className='eyebrow'>Selected contract</p>
-              <h2 id='capability-title'>{selectedLabel}</h2>
+              <p className='eyebrow'>Compiled exact-version adapter</p>
+              <h2 id='adapter-title'>{selectedLabel}</h2>
             </div>
-            {capabilityError === null
+            {adapterError === null
               ? (
-                  <div className='capability-strip__state'>
-                    <span className={`support-pill support-pill--${capability?.support_level ?? 'unavailable'}`}>
+                  <div className='adapter-strip__state'>
+                    <span className={`support-pill support-pill--${adapterSupport?.supported === true ? 'supported' : 'unavailable'}`}>
                       <span aria-hidden='true' className='support-pill__mark' />
-                      {supportLabel(capability)}
+                      {adapterSupport?.supported === true
+                        ? `${adapterSupport.adapter_id}@${adapterSupport.adapter_revision}`
+                        : 'Adapter unavailable'}
                     </span>
                     <small>
                       {selectedVersion === ''
                         ? 'Select one exact catalog or installed version on the rail.'
-                        : capability === null
-                          ? 'Resolving exact-version capability…'
-                          : capability.quarantined
-                            ? `Quarantined · ${capability.reason_code ?? 'reason unavailable'}`
-                            : capability.pinned
-                              ? 'Pinned manifest'
-                              : 'No manifest pin; manual JSON fallback'}
+                        : !selectedArtifacts.some((item) => item.verification_state === 'verified')
+                            ? 'Install a verified artifact before resolving its complete binary profile.'
+                            : adapterSupport === null
+                              ? 'Resolving the exact binary profile…'
+                              : adapterSupport.supported
+                                ? 'Projection is compiled into this panel build and matches the full binary profile.'
+                                : adapterSupport.reason ?? 'This binary may be installed and inspected, but cannot be compiled or run.'}
                     </small>
                   </div>
                 )
               : (
-                  <ErrorNotice error={capabilityError} title='Capability could not be resolved' />
+                  <ErrorNotice error={adapterError} title='Adapter support could not be resolved' />
                 )}
           </section>
 

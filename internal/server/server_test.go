@@ -14,6 +14,7 @@ import (
 
 	"github.com/rehuony/sing-box-panel/internal/application"
 	"github.com/rehuony/sing-box-panel/internal/buildinfo"
+	"github.com/rehuony/sing-box-panel/internal/canonical"
 	"github.com/rehuony/sing-box-panel/internal/store"
 	"github.com/rehuony/sing-box-panel/internal/taskrunner"
 )
@@ -29,6 +30,20 @@ func TestPrepareDataDirectory(t *testing.T) {
 	}
 	if got := info.Mode().Perm(); got != 0o700 {
 		t.Fatalf("data directory permissions = %#o, want %#o", got, os.FileMode(0o700))
+	}
+}
+
+func TestRuntimeRestartAlwaysRequiresTransition(t *testing.T) {
+	t.Parallel()
+
+	if !runtimeIntentNeedsTransition(store.RuntimeIntentRestart, true) {
+		t.Fatal("restart of an already exact bundle was treated as a no-op")
+	}
+	if runtimeIntentNeedsTransition(store.RuntimeIntentStart, true) {
+		t.Fatal("start of an already exact bundle should remain idempotent")
+	}
+	if !runtimeIntentNeedsTransition(store.RuntimeIntentApply, false) {
+		t.Fatal("a non-running apply must start the runtime")
 	}
 }
 
@@ -118,12 +133,12 @@ func TestStatusProviderReadsCanonicalHead(t *testing.T) {
 		t.Fatalf("SystemStatus() error = %v", err)
 	}
 	if status.PanelVersion != "test-version" || status.CanonicalRevision != 0 || status.AppliedBundleID != nil ||
-		status.CapabilityState != "unresolved" {
+		status.ConfigurationState != "unresolved" {
 		t.Fatalf("SystemStatus() = %+v", status)
 	}
 }
 
-func TestDashboardContextUsesAppliedBundleAndExactCapabilityEvidence(t *testing.T) {
+func TestDashboardContextUsesAppliedBundleAndExactAdapterEvidence(t *testing.T) {
 	ctx := context.Background()
 	database, err := store.Open(ctx, filepath.Join(t.TempDir(), "panel.db"))
 	if err != nil {
@@ -133,30 +148,28 @@ func TestDashboardContextUsesAppliedBundleAndExactCapabilityEvidence(t *testing.
 	commands := application.FromStore(database)
 	now := time.Date(2026, time.August, 26, 12, 0, 0, 0, time.UTC)
 	core := store.CoreArtifact{
-		ID: "core-dashboard", ExactVersion: "1.13.19", OperatingSystem: "linux", Architecture: "amd64", Variant: "plain",
+		ID: "core-dashboard", ExactVersion: "1.13.19", OperatingSystem: "linux", Architecture: "arm64", Variant: "plain",
 		SourceKind: store.CoreArtifactSourceUserVerified, UserSource: "dashboard fixture",
 		ArchiveSHA256: strings.Repeat("a", 64), BinarySHA256: strings.Repeat("b", 64),
 		BinaryPath: "/opt/sing-box-panel/core-dashboard/sing-box", ReportedVersion: "1.13.19",
-		FeatureFingerprint: json.RawMessage(`{}`), VerificationState: store.CoreArtifactVerified, CreatedAt: now,
+		FeatureFingerprint: json.RawMessage(`{"status":"reported","features":["badlinkname","tfogo_checklinkname0","with_acme","with_ccm","with_clash_api","with_dhcp","with_gvisor","with_ocm","with_quic","with_tailscale","with_utls","with_wireguard"]}`),
+		VerificationState:  store.CoreArtifactVerified, CreatedAt: now,
 	}
 	if _, err := database.UpsertCoreArtifact(ctx, core); err != nil {
 		t.Fatal(err)
 	}
-	canonicalSave, err := commands.ReplaceCanonical(ctx, "", []byte(`{"schema_version":1,"global":{},"nodes":[],"rules":[],"subscription":{}}`))
+	canonicalSave, err := commands.ReplaceCanonical(ctx, "", canonical.EmptyV2().CanonicalJSON())
 	if err != nil {
 		t.Fatal(err)
 	}
-	manual, err := commands.ReplaceManualJSON(ctx, application.ManualReplaceRequest{
-		ExpectedHead: canonicalSave.Revision.ID, CoreVersion: core.ExactVersion,
-		CoreArtifactID: core.ID, Raw: []byte("{}"),
-	})
+	compiled, err := commands.CompileConfiguration(ctx, application.ConfigurationCompileRequest{CoreArtifactID: core.ID})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := commands.CompleteStartupCheck(ctx, manual.Artifact.ID, true, json.RawMessage(`[]`)); err != nil {
+	if _, err := commands.CompleteStartupCheck(ctx, compiled.Artifact.ID, true, json.RawMessage(`[]`)); err != nil {
 		t.Fatal(err)
 	}
-	prepared, task, err := commands.PrepareAndQueueRuntimeApply(ctx, manual.Artifact.ID, store.MonitoringProcessOnly)
+	prepared, task, err := commands.PrepareAndQueueRuntimeApply(ctx, compiled.Artifact.ID, store.MonitoringProcessOnly)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -175,7 +188,7 @@ func TestDashboardContextUsesAppliedBundleAndExactCapabilityEvidence(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	if status.CapabilityState != "manual_json" || status.AppliedBundleID == nil ||
+	if status.ConfigurationState != "sing-box/v1_13_19/official-linux-arm64@1" || status.AppliedBundleID == nil ||
 		*status.AppliedBundleID != prepared.Bundle.ID || status.Running {
 		t.Fatalf("system status = %+v", status)
 	}
@@ -185,11 +198,12 @@ func TestDashboardContextUsesAppliedBundleAndExactCapabilityEvidence(t *testing.
 	}
 	if contextValue.Applied == nil || contextValue.Applied.Bundle != prepared.Bundle.ID ||
 		contextValue.Applied.Revision != canonicalSave.Revision.Sequence ||
-		contextValue.View.ExactVersion != core.ExactVersion || contextValue.Capability.Level != "manual_json" ||
+		contextValue.View.ExactVersion != core.ExactVersion || !contextValue.Adapter.Supported ||
+		contextValue.Adapter.Label != "sing-box/v1_13_19/official-linux-arm64@1" ||
 		contextValue.Canonical.HasUnappliedChanges {
 		t.Fatalf("dashboard context = %+v", contextValue)
 	}
-	if _, err := commands.SetCanonicalValue(ctx, canonicalSave.Revision.ID, "/global/mode", json.RawMessage(`"direct"`)); err != nil {
+	if _, err := commands.SetCanonicalValue(ctx, canonicalSave.Revision.ID, "/configuration/log", json.RawMessage(`{"level":"info"}`)); err != nil {
 		t.Fatal(err)
 	}
 	contextValue, err = provider.DashboardContext(ctx)

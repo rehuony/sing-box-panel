@@ -420,12 +420,10 @@ select:focus {
   width: 0.42rem;
 }
 
-.support-pill--native_structured {
+.support-pill--supported {
   color: var(--color-success-text);
 }
 
-.support-pill--compatible_structured,
-.support-pill--manual_json,
 .support-pill--unavailable {
   color: var(--color-warning-text);
 }

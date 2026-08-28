@@ -13,7 +13,7 @@ function compactDigest(digest: string): string {
 export function ContextRail({ context }: ContextRailProps) {
   const running = context.running;
   const applied = context.applied;
-  const hasWarning = context.capability.warning !== null;
+  const hasWarning = context.adapter.warning !== null;
 
   return (
     <section className='context-rail' aria-labelledby='context-rail-title'>
@@ -23,10 +23,10 @@ export function ContextRail({ context }: ContextRailProps) {
           <h2 id='context-rail-title'>Exact-version rail</h2>
         </div>
         <span
-          className={`support-pill support-pill--${context.capability.level}`}
+          className={`support-pill support-pill--${context.adapter.supported ? 'supported' : 'unavailable'}`}
         >
           <span aria-hidden='true' className='support-pill__mark' />
-          {context.capability.label}
+          {context.adapter.label}
         </span>
       </div>
 
@@ -72,8 +72,8 @@ export function ContextRail({ context }: ContextRailProps) {
                 <path d='M12 9v5m0 3v.1' />
               </svg>
               <div>
-                <strong>Capability attention required</strong>
-                <p>{context.capability.warning}</p>
+                <strong>Adapter attention required</strong>
+                <p>{context.adapter.warning}</p>
               </div>
             </div>
           )

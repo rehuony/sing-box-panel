@@ -16,6 +16,7 @@ describe('subscriptionsPage', () => {
     expect(panel).not.toBeNull();
     await user.click(within(panel!).getByRole('button', { name: 'New channel' }));
     await user.type(within(panel!).getByLabelText('Name'), 'Mobile clients');
+    await user.type(within(panel!).getByLabelText('Public host'), 'proxy.example');
     await user.selectOptions(within(panel!).getByLabelText('Format'), 'mihomo');
     await user.type(within(panel!).getByLabelText('Excluded tags'), 'private, private, lab');
     await user.click(within(panel!).getByRole('button', { name: 'Save channel' }));
@@ -23,12 +24,13 @@ describe('subscriptionsPage', () => {
     expect(client.createSubscriptionChannel).toHaveBeenCalledWith({
       name: 'Mobile clients',
       format: 'mihomo',
+      public_host: 'proxy.example',
       config: { exclude_tags: ['private', 'lab'], exclude_types: [] },
       enabled: true,
     });
   });
 
-  it('updates a source snapshot separately from metadata', async () => {
+  it('creates a validated source version separately from metadata', async () => {
     const user = userEvent.setup();
     const client = createMockApiClient();
     render(<ApiClientProvider client={client}><SubscriptionsPage /></ApiClientProvider>);
@@ -36,13 +38,14 @@ describe('subscriptionsPage', () => {
     const panel = (await screen.findByRole('heading', { name: 'Sources' })).closest('section');
     expect(panel).not.toBeNull();
     await user.click(within(panel!).getByRole('button', { name: 'Edit' }));
-    const snapshot = within(panel!).getByLabelText('Candidate snapshot JSON');
+    const snapshot = within(panel!).getByLabelText('New source document');
     fireEvent.change(snapshot, { target: { value: '{"outbounds":[{"tag":"extra"}]}' } });
-    await user.click(within(panel!).getByRole('button', { name: 'Save snapshot candidate' }));
+    await user.click(within(panel!).getByRole('button', { name: 'Validate and activate version' }));
 
-    expect(client.updateSubscriptionSourceSnapshot).toHaveBeenCalledWith(
+    expect(client.createSubscriptionSourceVersion).toHaveBeenCalledWith(
       'source_local',
-      { outbounds: [{ tag: 'extra' }] },
+      'auto',
+      '{"outbounds":[{"tag":"extra"}]}',
       '2026-08-26T07:06:00Z',
     );
     expect(client.updateSubscriptionSource).not.toHaveBeenCalled();

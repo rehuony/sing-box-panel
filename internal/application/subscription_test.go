@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/rehuony/sing-box-panel/internal/canonical"
+	"github.com/rehuony/sing-box-panel/internal/configuration/adapter"
 	"github.com/rehuony/sing-box-panel/internal/store"
 )
 
@@ -29,7 +30,7 @@ func TestApplicationSubscriptionChannelAndSourceCRUD(t *testing.T) {
 	app := newSubscriptionTestApplication(database)
 
 	channel, err := app.CreateSubscriptionChannel(ctx, CreateSubscriptionChannelRequest{
-		Name: "public", Format: store.SubscriptionFormatMihomo,
+		Name: "public", Format: store.SubscriptionFormatMihomo, PublicHost: "public.example",
 		Config: json.RawMessage(`{"exclude_tags":["private"]}`), Enabled: true,
 	})
 	if err != nil {
@@ -47,14 +48,14 @@ func TestApplicationSubscriptionChannelAndSourceCRUD(t *testing.T) {
 		t.Fatalf("listed channels = %+v, err=%v", listed, err)
 	}
 	updated, err := app.UpdateSubscriptionChannel(ctx, channel.ID, UpdateSubscriptionChannelRequest{
-		Name: "renamed", Format: store.SubscriptionFormatLoon, Config: json.RawMessage(`{}`),
+		Name: "renamed", Format: store.SubscriptionFormatLoon, PublicHost: "renamed.example", Config: json.RawMessage(`{}`),
 		Enabled: false, ExpectedUpdatedAt: channel.UpdatedAt,
 	})
 	if err != nil || updated.Enabled || !updated.UpdatedAt.After(channel.UpdatedAt) {
 		t.Fatalf("updated channel = %+v, err=%v", updated, err)
 	}
 	if _, err := app.UpdateSubscriptionChannel(ctx, channel.ID, UpdateSubscriptionChannelRequest{
-		Name: "stale", Format: store.SubscriptionFormatLoon, ExpectedUpdatedAt: channel.UpdatedAt,
+		Name: "stale", Format: store.SubscriptionFormatLoon, PublicHost: "stale.example", ExpectedUpdatedAt: channel.UpdatedAt,
 	}); !errors.Is(err, store.ErrSubscriptionConflict) {
 		t.Fatalf("stale application channel update error = %v", err)
 	}
@@ -66,23 +67,15 @@ func TestApplicationSubscriptionChannelAndSourceCRUD(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.HasPrefix(source.ID, "source_") || len(source.LatestSnapshot) != 0 {
+	if !strings.HasPrefix(source.ID, "source_") || source.CurrentVersionID != "" {
 		t.Fatalf("created source = %+v", source)
-	}
-	snapshotted, err := app.UpdateSubscriptionSourceSnapshot(ctx, source.ID, UpdateSubscriptionSourceSnapshotRequest{
-		LatestSnapshot:    json.RawMessage(`{"nodes":[{"tag":"upstream"}]}`),
-		ExpectedUpdatedAt: source.UpdatedAt,
-	})
-	if err != nil || !bytes.Contains(snapshotted.LatestSnapshot, []byte(`"upstream"`)) {
-		t.Fatalf("snapshotted source = %+v, err=%v", snapshotted, err)
 	}
 	updatedSource, err := app.UpdateSubscriptionSource(ctx, source.ID, UpdateSubscriptionSourceRequest{
 		Name: "local copy", SourceKind: store.SubscriptionSourceLocal,
 		Config: json.RawMessage(`{}`), Enabled: false,
-		ExpectedUpdatedAt: snapshotted.UpdatedAt,
+		ExpectedUpdatedAt: source.UpdatedAt,
 	})
-	if err != nil || updatedSource.Enabled || updatedSource.SourceKind != store.SubscriptionSourceLocal ||
-		len(updatedSource.LatestSnapshot) == 0 {
+	if err != nil || updatedSource.Enabled || updatedSource.SourceKind != store.SubscriptionSourceLocal {
 		t.Fatalf("updated source = %+v, err=%v", updatedSource, err)
 	}
 	sources, err := app.ListSubscriptionSources(ctx, SubscriptionListRequest{})
@@ -106,14 +99,20 @@ func TestApplicationSubscriptionTokenPlaintextLifecycleDoesNotLeakFromReads(t *t
 	t.Cleanup(func() { _ = database.Close() })
 	app := newSubscriptionTestApplication(database)
 	channel, err := app.CreateSubscriptionChannel(ctx, CreateSubscriptionChannelRequest{
-		Name: "token channel", Format: store.SubscriptionFormatSingBox, Enabled: true,
+		Name: "token channel", Format: store.SubscriptionFormatSingBox, PublicHost: "token.example", Enabled: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	user, err := app.CreateSubscriptionUser(ctx, CreateSubscriptionUserRequest{
+		Name: "token user", Description: "application token owner", Enabled: true,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	expires := app.now().Add(time.Hour)
 	created, err := app.CreateSubscriptionToken(ctx, CreateSubscriptionTokenRequest{
-		ExpiresAt: &expires,
+		UserID: user.ID, Label: "primary", ExpiresAt: &expires,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -204,7 +203,7 @@ func TestApplicationSubscriptionTokenRandomFailuresDoNotPersist(t *testing.T) {
 	}
 }
 
-func TestRenderSubscriptionPreviewUsesReadyOrFrozenStaleArtifact(t *testing.T) {
+func TestRenderSubscriptionPreviewUsesAppliedVersionAndSelectedUserGrants(t *testing.T) {
 	ctx := context.Background()
 	database, err := store.Open(ctx, filepath.Join(t.TempDir(), "panel.db"))
 	if err != nil {
@@ -213,24 +212,37 @@ func TestRenderSubscriptionPreviewUsesReadyOrFrozenStaleArtifact(t *testing.T) {
 	t.Cleanup(func() { _ = database.Close() })
 	app := newSubscriptionTestApplication(database)
 	now := app.now().UTC()
-	core := applicationTestCore("core-subscription", "1.13.19", 'a', 'b', now)
+	features, err := json.Marshal(adapter.FeatureFingerprint{Status: "reported", Features: []string{
+		"badlinkname", "tfogo_checklinkname0", "with_acme", "with_ccm", "with_clash_api",
+		"with_dhcp", "with_gvisor", "with_ocm", "with_quic", "with_tailscale", "with_utls", "with_wireguard",
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	core := store.CoreArtifact{
+		ID: "core-subscription", ExactVersion: "1.13.19", OperatingSystem: "linux", Architecture: "arm64", Variant: "plain",
+		SourceKind: store.CoreArtifactSourceUserVerified, UserSource: "test", ArchiveSHA256: strings.Repeat("a", 64),
+		BinarySHA256: strings.Repeat("b", 64), BinaryPath: "/tmp/sing-box", ReportedVersion: "1.13.19",
+		FeatureFingerprint: features, VerificationState: store.CoreArtifactVerified, CreatedAt: now,
+	}
 	if _, err := database.UpsertCoreArtifact(ctx, core); err != nil {
 		t.Fatal(err)
 	}
-	canonicalSave, err := app.ReplaceCanonical(ctx, "", canonical.Empty().CanonicalJSON())
+	canonicalSave, err := app.ReplaceConfiguration(ctx, "", canonical.EmptyV2().CanonicalJSON())
 	if err != nil {
 		t.Fatal(err)
 	}
 	startupBytes := []byte(`{
-      "outbounds":[
-        {"type":"shadowsocks","tag":"hidden","server":"hidden.example","server_port":443,"method":"aes-128-gcm","password":"hidden-secret"},
-        {"type":"shadowsocks","tag":"public","server":"public.example","server_port":8443,"method":"aes-256-gcm","password":"public-secret"}
+      "inbounds":[
+        {"type":"shadowsocks","tag":"hidden","listen_port":443,"method":"aes-128-gcm","password":"hidden-secret"},
+        {"type":"shadowsocks","tag":"public","listen_port":8443,"method":"aes-256-gcm","password":"public-secret"}
       ]
     }`)
 	ready, err := database.CreateStartupArtifact(ctx, store.StartupArtifact{
-		ID: "startup-subscription-ready", Kind: store.StartupArtifactManual,
+		ID:                  "startup-subscription-ready",
 		CanonicalRevisionID: canonicalSave.Revision.ID, ExactCoreVersion: core.ExactVersion,
-		RendererVersion: "manual-v1", CoreArtifactID: core.ID, ConfigBytes: startupBytes,
+		AdapterID: "sing-box/v1_13_19/official-linux-arm64", AdapterRevision: "1",
+		CoreArtifactID: core.ID, ConfigBytes: startupBytes,
 		CreatedAt: now.Add(time.Second),
 	})
 	if err != nil {
@@ -241,43 +253,56 @@ func TestRenderSubscriptionPreviewUsesReadyOrFrozenStaleArtifact(t *testing.T) {
 		t.Fatal(err)
 	}
 	channel, err := app.CreateSubscriptionChannel(ctx, CreateSubscriptionChannelRequest{
-		Name: "filtered", Format: store.SubscriptionFormatSingBox,
+		Name: "filtered", Format: store.SubscriptionFormatSingBox, PublicHost: "filtered.example",
 		Config: json.RawMessage(`{"exclude_tags":["hidden"]}`), Enabled: true,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	preview, err := app.RenderSubscriptionPreview(ctx, ready.ID, channel.ID)
+	prepared, err := app.PrepareActivationBundle(ctx, ready.ID, store.MonitoringProcessOnly)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if preview.ArtifactState != store.StartupArtifactReady || preview.Result.NodeCount != 1 ||
+	task, err := app.QueueRuntimeApply(ctx, prepared.Bundle.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	claimed, err := database.ClaimTask(ctx, store.ClaimTaskInput{
+		Lane: store.TaskLaneRuntime, LeaseOwner: "preview-test", Now: now.Add(3 * time.Second), LeaseDuration: time.Minute,
+	})
+	if err != nil || claimed == nil || claimed.ID != task.ID {
+		t.Fatalf("claim apply task = %+v, %v", claimed, err)
+	}
+	if _, err := database.CompleteTask(ctx, claimed.ID, claimed.LeaseOwner, now.Add(4*time.Second), store.TaskCompletion{Succeeded: true}); err != nil {
+		t.Fatal(err)
+	}
+	user, err := app.CreateSubscriptionUser(ctx, CreateSubscriptionUserRequest{Name: "preview", Enabled: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	catalog, err := app.SubscriptionNodeCatalog(ctx)
+	if err != nil || len(catalog.Nodes) != 2 {
+		t.Fatalf("catalog = %+v, %v", catalog, err)
+	}
+	var publicKey string
+	for _, node := range catalog.Nodes {
+		if node.Tag == "public" {
+			publicKey = node.Key
+		}
+	}
+	if _, err := app.ReplaceSubscriptionUserGrants(ctx, user.ID, []string{publicKey}, user.UpdatedAt); err != nil {
+		t.Fatal(err)
+	}
+	preview, err := app.RenderSubscriptionPreview(ctx, user.ID, channel.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if preview.AppliedBundleID != prepared.Bundle.ID || preview.UserID != user.ID ||
+		preview.ArtifactState != store.StartupArtifactReady || preview.Result.NodeCount != 1 ||
 		!bytes.Contains(preview.Result.Content, []byte(`"tag":"public"`)) ||
 		bytes.Contains(preview.Result.Content, []byte(`"tag":"hidden"`)) {
 		t.Fatalf("ready preview = %+v, content=%s", preview, preview.Result.Content)
-	}
-	stale, err := database.MarkStartupArtifactStale(ctx, ready.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	frozen, err := app.RenderSubscriptionPreview(ctx, stale.ID, channel.ID)
-	if err != nil || frozen.ArtifactState != store.StartupArtifactStale ||
-		!bytes.Equal(frozen.Result.Content, preview.Result.Content) {
-		t.Fatalf("stale preview = %+v, err=%v", frozen, err)
-	}
-
-	pending, err := database.CreateStartupArtifact(ctx, store.StartupArtifact{
-		ID: "startup-subscription-pending", Kind: store.StartupArtifactManual,
-		CanonicalRevisionID: canonicalSave.Revision.ID, ExactCoreVersion: core.ExactVersion,
-		RendererVersion: "manual-v1", CoreArtifactID: core.ID, ConfigBytes: startupBytes,
-		CreatedAt: now.Add(3 * time.Second),
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := app.RenderSubscriptionPreview(ctx, pending.ID, channel.ID); !errors.Is(err, ErrSubscriptionPreviewArtifactState) {
-		t.Fatalf("pending preview error = %v", err)
 	}
 }
 

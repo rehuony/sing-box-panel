@@ -1,6 +1,6 @@
 import { NavLink, Outlet } from 'react-router-dom';
 
-import type { CapabilityStatus, DashboardContext } from '@/api/api-client';
+import type { DashboardContext } from '@/api/api-client';
 
 import { PanelLogo } from '@/components/panel-logo';
 import { ContextRail } from '@/components/context-rail';
@@ -17,42 +17,6 @@ const navigationItems = [
   { label: 'Observability', to: '/observability' },
   { label: 'Tasks', to: '/tasks' },
 ] as const;
-
-function capabilityView(
-  selectedVersion: string,
-  status: CapabilityStatus | null,
-  error: unknown | null,
-  fallback: DashboardContext['capability'],
-  fallbackVersion: string,
-): DashboardContext['capability'] {
-  if (selectedVersion === '') {
-    return { level: 'unavailable', label: 'No core selected', warning: null };
-  }
-  if (error !== null) {
-    return { level: 'unavailable', label: 'Capability unavailable', warning: 'The selected exact-version capability could not be resolved.' };
-  }
-  if (status === null) {
-    return selectedVersion === fallbackVersion
-      ? fallback
-      : { level: 'unavailable', label: 'Resolving capability', warning: null };
-  }
-  const level = status.support_level;
-  const label = level === 'native_structured'
-    ? 'Native structured'
-    : level === 'compatible_structured'
-      ? 'Compatible structured'
-      : level === 'manual_json'
-        ? 'Manual JSON'
-        : 'Unavailable';
-  const warning = status.quarantined
-    ? 'The pinned capability is quarantined; use manual JSON.'
-    : level === 'compatible_structured'
-      ? 'Compatible projection requires explicit acceptance.'
-      : level === 'unavailable'
-        ? 'This exact version has no usable configuration path.'
-        : null;
-  return { level, label, warning };
-}
 
 export function AppShell() {
   const { logout, session } = useAuthSession();
@@ -94,13 +58,6 @@ export function AppShell() {
   const context: DashboardContext = {
     ...serverContext,
     view: { exactVersion: controlPlane.viewVersion || 'Not selected' },
-    capability: capabilityView(
-      controlPlane.viewVersion,
-      controlPlane.viewCapability,
-      controlPlane.viewCapabilityError,
-      serverContext.capability,
-      serverContext.view.exactVersion,
-    ),
   };
 
   return (

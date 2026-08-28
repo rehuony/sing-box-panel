@@ -1,5 +1,9 @@
 # Release process
 
+This guide is for maintainers producing signed Linux releases. It describes
+the packaging and publication boundary; it is not a deployment guide or a
+sing-box core compatibility matrix.
+
 The release path has one responsibility at each boundary:
 
 1. CI proves that one exact source commit passes the repository checks.
@@ -12,6 +16,20 @@ The release path has one responsibility at each boundary:
 
 The workflow never publishes a release automatically. All required checks are
 either reproducible CI/workflow jobs or the maintainer's final draft review.
+
+## Verification scope
+
+The ordinary `CI` workflow runs Go and contract checks, race and fuzz smoke
+tests, Web and notice checks, and isolated package verification. The repository
+has no Docker E2E harness or Docker CI job. Tests remain beside their owning Go
+or Web packages.
+
+The manually dispatched signed-release workflow adds native amd64 and arm64
+smoke tests for the packaged panel binary, HTTP startup, persistent state, and
+authenticated self-update. Those release smoke tests do not download or run a
+sing-box core. Exact core/config compatibility is enforced later by the
+installed artifact profile, compiled adapter, and real `sing-box check` on the
+operator host.
 
 ## Local development build
 
@@ -65,7 +83,7 @@ manifest from being reused for a different version.
 ## Isolated build model
 
 Snapshot and release builds share the implementation in
-`packaging/release/build-release.sh`. It exports committed `HEAD` into a
+`.github/scripts/build-release.sh`. It exports committed `HEAD` into a
 temporary source tree, builds the Web application from a separate temporary
 copy with locked dependencies, and copies only the verified `web/dist` into
 the source snapshot. Go module, build, and package-manager state is isolated
@@ -215,7 +233,7 @@ make release-verify
 ```
 
 For the exact script interface and environment-isolation rules, see
-[Release build materials](../packaging/release/README.md).
+[Release automation](../.github/scripts/README.md).
 
 ## Release-hardening backlog
 

@@ -119,13 +119,6 @@ func (s *Store) SaveCanonicalRevisionAndTask(
 			return err
 		}
 		preparedRevision = storedRevision
-		// Manual candidates are exact residuals bound to their base revision.
-		// Advancing the semantic head invalidates pending/ready reuse, while old
-		// activation bundles continue to reference the immutable bytes safely.
-		if err := markManualStartupArtifactsStaleForNewHead(ctx, tx, preparedRevision.ID); err != nil {
-			return err
-		}
-
 		return insertCanonicalTaskTx(ctx, tx, preparedTask, preparedRevision.ID, "")
 	})
 	if err != nil {
@@ -228,25 +221,6 @@ func saveCanonicalRevisionTx(
 		}
 	}
 	return prepared, true, nil
-}
-
-func markManualStartupArtifactsStaleForNewHead(
-	ctx context.Context,
-	tx *sql.Tx,
-	headRevisionID string,
-) error {
-	if _, err := tx.ExecContext(
-		ctx,
-		`UPDATE startup_artifacts
-                SET state = 'stale'
-              WHERE kind = 'manual'
-                AND canonical_revision_id <> ?
-                AND state IN ('pending', 'ready')`,
-		headRevisionID,
-	); err != nil {
-		return fmt.Errorf("mark old manual startup artifacts stale: %w", err)
-	}
-	return nil
 }
 
 func insertCanonicalTaskTx(

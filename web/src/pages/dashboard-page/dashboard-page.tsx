@@ -212,7 +212,7 @@ export function DashboardPage() {
           <p className='operation-panel__copy'>
             {context.canonical.hasUnappliedChanges
               ? 'The canonical revision is newer than the applied bundle. Runtime actions remain separate from editing.'
-              : 'Capability and configuration forms are always resolved against an exact sing-box version.'}
+              : 'Configuration projection is always resolved against an exact installed core artifact.'}
           </p>
           <div className='inline-actions'>
             <Link className='button button--primary' to='/configuration'>

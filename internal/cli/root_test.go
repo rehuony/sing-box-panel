@@ -96,12 +96,9 @@ func TestCommandTreeIncludesContract(t *testing.T) {
 	for _, path := range []string{
 		"sing-box-panel update",
 		"sing-box-panel server run",
-		"sing-box-panel core capability pack",
-		"sing-box-panel core capability upgrade",
-		"sing-box-panel core capability quarantine",
+		"sing-box-panel config compile",
 		"sing-box-panel core quarantine",
 		"sing-box-panel core revoke",
-		"sing-box-panel config manual reattach preview",
 		"sing-box-panel subscription source refresh",
 		"sing-box-panel task cancel",
 		"sing-box-panel completion fish",

@@ -17,7 +17,7 @@ func (handler *Handler) listStartupArtifacts(w http.ResponseWriter, request *htt
 	}
 	query, ok := strictCoreQuery(
 		w, request,
-		"canonical_revision_id", "core_version", "core_artifact_id", "kind", "state",
+		"canonical_revision_id", "core_version", "core_artifact_id", "state",
 		"before_time", "before_id", "limit",
 	)
 	if !ok {
@@ -29,15 +29,10 @@ func (handler *Handler) listStartupArtifacts(w http.ResponseWriter, request *htt
 		writeProblem(w, request, http.StatusBadRequest, "startup_artifact_filter_invalid", "Startup artifact filter invalid", "The startup artifact filter contains an invalid identity or exact version.")
 		return
 	}
-	kind := store.StartupArtifactKind(query.Get("kind"))
-	if kind != "" && kind != store.StartupArtifactStructured && kind != store.StartupArtifactManual {
-		writeProblem(w, request, http.StatusBadRequest, "startup_artifact_filter_invalid", "Startup artifact filter invalid", "kind must be structured or manual.")
-		return
-	}
 	state := store.StartupArtifactState(query.Get("state"))
 	if state != "" && state != store.StartupArtifactPending && state != store.StartupArtifactReady &&
-		state != store.StartupArtifactFailed && state != store.StartupArtifactStale {
-		writeProblem(w, request, http.StatusBadRequest, "startup_artifact_filter_invalid", "Startup artifact filter invalid", "state must be pending, ready, failed, or stale.")
+		state != store.StartupArtifactFailed {
+		writeProblem(w, request, http.StatusBadRequest, "startup_artifact_filter_invalid", "Startup artifact filter invalid", "state must be pending, ready, or failed.")
 		return
 	}
 	cursor, ok := startupArtifactCursor(w, request, query.Get("before_time"), query.Get("before_id"))
@@ -50,7 +45,7 @@ func (handler *Handler) listStartupArtifacts(w http.ResponseWriter, request *htt
 	}
 	page, err := handler.commands.ListStartupArtifacts(request.Context(), application.StartupArtifactListRequest{
 		CanonicalRevisionID: query.Get("canonical_revision_id"), ExactCoreVersion: query.Get("core_version"),
-		CoreArtifactID: query.Get("core_artifact_id"), Kind: kind, State: state, Cursor: cursor, Limit: limit,
+		CoreArtifactID: query.Get("core_artifact_id"), State: state, Cursor: cursor, Limit: limit,
 	})
 	if err != nil {
 		writeProblem(w, request, http.StatusBadRequest, "startup_artifact_filter_invalid", "Startup artifact filter invalid", err.Error())

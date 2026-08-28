@@ -31,7 +31,7 @@ func TestReplaceCanonicalUsesCASAndNoOpDetection(t *testing.T) {
 		}
 		return len(destination), nil
 	}
-	document := []byte(`{"schema_version":1,"global":{},"nodes":[],"rules":[],"subscription":{}}`)
+	document := canonical.EmptyV2().CanonicalJSON()
 
 	first, err := application.ReplaceCanonical(ctx, "", document)
 	if err != nil {
@@ -55,40 +55,6 @@ func TestReplaceCanonicalUsesCASAndNoOpDetection(t *testing.T) {
 	}
 }
 
-func TestEntityMutationCreatesFullCASRevision(t *testing.T) {
-	ctx := context.Background()
-	database, err := store.Open(ctx, filepath.Join(t.TempDir(), "panel.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = database.Close() })
-	application := newApplication(database)
-	initial, err := application.ReplaceCanonical(ctx, "", canonical.Empty().CanonicalJSON())
-	if err != nil {
-		t.Fatal(err)
-	}
-	created, err := application.CreateEntity(ctx, initial.Revision.ID, canonical.CollectionNodes, map[string]any{
-		"id": "node-a", "kind": "outbound", "enabled": true,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if created.Revision.Sequence != 2 || created.Revision.ParentID != initial.Revision.ID {
-		t.Fatalf("created revision = %+v", created.Revision)
-	}
-	listed, err := application.ListEntities(ctx, canonical.CollectionNodes)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(listed.Entities) != 1 || listed.Entities[0]["id"] != "node-a" {
-		t.Fatalf("listed entities = %#v", listed.Entities)
-	}
-	_, err = application.SetEntityEnabled(ctx, initial.Revision.ID, canonical.CollectionNodes, "node-a", false)
-	if !errors.Is(err, store.ErrRevisionConflict) {
-		t.Fatalf("stale entity edit error = %v", err)
-	}
-}
-
 func TestRevisionHistoryDiffRestoreAndTaskControl(t *testing.T) {
 	ctx := context.Background()
 	database, err := store.Open(ctx, filepath.Join(t.TempDir(), "panel.db"))
@@ -98,13 +64,13 @@ func TestRevisionHistoryDiffRestoreAndTaskControl(t *testing.T) {
 	t.Cleanup(func() { _ = database.Close() })
 	application := newApplication(database)
 
-	initial, err := application.ReplaceCanonical(ctx, "", canonical.Empty().CanonicalJSON())
+	initial, err := application.ReplaceCanonical(ctx, "", canonical.EmptyV2().CanonicalJSON())
 	if err != nil {
 		t.Fatal(err)
 	}
-	changed, err := application.CreateEntity(ctx, initial.Revision.ID, canonical.CollectionNodes, map[string]any{
-		"id": "node-a", "kind": "outbound", "enabled": true,
-	})
+	changed, err := application.SetCanonicalValue(
+		ctx, initial.Revision.ID, "/configuration/log", []byte(`{"level":"info"}`),
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -124,7 +90,7 @@ func TestRevisionHistoryDiffRestoreAndTaskControl(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(diff.Changes) != 1 || diff.Changes[0].Path != "/nodes" {
+	if len(diff.Changes) != 1 || diff.Changes[0].Path != "/configuration/log" {
 		t.Fatalf("revision diff = %+v", diff.Changes)
 	}
 	restored, err := application.RestoreCanonicalRevision(ctx, changed.Revision.ID, "#1")

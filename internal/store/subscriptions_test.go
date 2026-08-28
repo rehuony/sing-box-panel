@@ -19,7 +19,7 @@ func TestSubscriptionChannelCRUDValidationOrderingAndCAS(t *testing.T) {
 	now := time.Date(2026, time.August, 26, 8, 0, 0, 0, time.UTC)
 
 	beta, err := database.CreateSubscriptionChannel(ctx, SubscriptionChannel{
-		ID: "channel-beta", Name: "beta", Format: SubscriptionFormatLoon,
+		ID: "channel-beta", Name: "beta", Format: SubscriptionFormatLoon, PublicHost: "beta.example",
 		Config:  json.RawMessage(` { "exclude_tags": ["private"] } `),
 		Enabled: true, CreatedAt: now,
 	})
@@ -27,7 +27,7 @@ func TestSubscriptionChannelCRUDValidationOrderingAndCAS(t *testing.T) {
 		t.Fatal(err)
 	}
 	alpha, err := database.CreateSubscriptionChannel(ctx, SubscriptionChannel{
-		ID: "channel-alpha", Name: "alpha", Format: SubscriptionFormatSingBox,
+		ID: "channel-alpha", Name: "alpha", Format: SubscriptionFormatSingBox, PublicHost: "alpha.example",
 		Config: json.RawMessage(`{}`), Enabled: true, CreatedAt: now.Add(time.Second),
 	})
 	if err != nil {
@@ -50,13 +50,13 @@ func TestSubscriptionChannelCRUDValidationOrderingAndCAS(t *testing.T) {
 	}
 
 	if _, err := database.CreateSubscriptionChannel(ctx, SubscriptionChannel{
-		ID: "channel-other", Name: alpha.Name, Format: SubscriptionFormatMihomo,
+		ID: "channel-other", Name: alpha.Name, Format: SubscriptionFormatMihomo, PublicHost: "other.example",
 		CreatedAt: now.Add(2 * time.Second),
 	}); !errors.Is(err, ErrSubscriptionChannelExists) {
 		t.Fatalf("duplicate channel name error = %v", err)
 	}
 	if _, err := database.CreateSubscriptionChannel(ctx, SubscriptionChannel{
-		ID: "channel-invalid", Name: "bad", Format: "clash", CreatedAt: now,
+		ID: "channel-invalid", Name: "bad", Format: "clash", PublicHost: "bad.example", CreatedAt: now,
 	}); err == nil {
 		t.Fatal("unsupported channel format was accepted")
 	}
@@ -71,7 +71,7 @@ func TestSubscriptionChannelCRUDValidationOrderingAndCAS(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			_, err := database.CreateSubscriptionChannel(ctx, SubscriptionChannel{
 				ID: "invalid-" + strings.ReplaceAll(name, " ", "-"), Name: "invalid " + name,
-				Format: SubscriptionFormatSingBox, Config: config, CreatedAt: now,
+				Format: SubscriptionFormatSingBox, PublicHost: "invalid.example", Config: config, CreatedAt: now,
 			})
 			if err == nil {
 				t.Fatalf("invalid config %s was accepted", config)
@@ -80,7 +80,7 @@ func TestSubscriptionChannelCRUDValidationOrderingAndCAS(t *testing.T) {
 	}
 
 	updated, err := database.UpdateSubscriptionChannel(ctx, UpdateSubscriptionChannelInput{
-		ID: alpha.ID, Name: "alpha-renamed", Format: SubscriptionFormatMihomo,
+		ID: alpha.ID, Name: "alpha-renamed", Format: SubscriptionFormatMihomo, PublicHost: "renamed.example",
 		Config: json.RawMessage(`{"exclude_types":["direct"]}`), Enabled: false,
 		ExpectedUpdatedAt: alpha.UpdatedAt, UpdatedAt: now.Add(3 * time.Second),
 	})
@@ -91,7 +91,7 @@ func TestSubscriptionChannelCRUDValidationOrderingAndCAS(t *testing.T) {
 		t.Fatalf("updated channel = %+v", updated)
 	}
 	if _, err := database.UpdateSubscriptionChannel(ctx, UpdateSubscriptionChannelInput{
-		ID: alpha.ID, Name: "stale", Format: SubscriptionFormatLoon, Enabled: true,
+		ID: alpha.ID, Name: "stale", Format: SubscriptionFormatLoon, PublicHost: "stale.example", Enabled: true,
 		ExpectedUpdatedAt: alpha.UpdatedAt, UpdatedAt: now.Add(4 * time.Second),
 	}); !errors.Is(err, ErrSubscriptionConflict) {
 		t.Fatalf("stale channel update error = %v", err)
@@ -107,7 +107,7 @@ func TestSubscriptionChannelCRUDValidationOrderingAndCAS(t *testing.T) {
 	}
 }
 
-func TestSubscriptionSourceCRUDSnapshotAndCAS(t *testing.T) {
+func TestSubscriptionSourceCRUDAndCAS(t *testing.T) {
 	ctx := testContext(t)
 	database := openTestStore(t, ctx)
 	now := time.Date(2026, time.August, 26, 9, 0, 0, 0, time.UTC)
@@ -121,7 +121,7 @@ func TestSubscriptionSourceCRUDSnapshotAndCAS(t *testing.T) {
 	}
 	alpha, err := database.CreateSubscriptionSource(ctx, SubscriptionSource{
 		ID: "source-alpha", Name: "alpha", SourceKind: SubscriptionSourceLocal,
-		Config: json.RawMessage(`{}`), LatestSnapshot: json.RawMessage(`[{"tag":"a"}]`),
+		Config:  json.RawMessage(`{}`),
 		Enabled: true, CreatedAt: now.Add(time.Second),
 	})
 	if err != nil {
@@ -131,10 +131,6 @@ func TestSubscriptionSourceCRUDSnapshotAndCAS(t *testing.T) {
 	if err != nil || len(sources.Items) != 2 || sources.Items[0].ID != alpha.ID || sources.Items[1].ID != zulu.ID {
 		t.Fatalf("ordered sources = %+v, err=%v", sources, err)
 	}
-	if string(alpha.LatestSnapshot) != `[{"tag":"a"}]` {
-		t.Fatalf("initial snapshot = %s", alpha.LatestSnapshot)
-	}
-
 	if _, err := database.CreateSubscriptionSource(ctx, SubscriptionSource{
 		ID: "source-duplicate", Name: zulu.Name, SourceKind: SubscriptionSourceLocal,
 		CreatedAt: now.Add(2 * time.Second),
@@ -153,32 +149,18 @@ func TestSubscriptionSourceCRUDSnapshotAndCAS(t *testing.T) {
 		t.Fatal("ambiguous source config was accepted")
 	}
 
-	snapshotted, err := database.UpdateSubscriptionSourceSnapshot(ctx, UpdateSubscriptionSourceSnapshotInput{
-		ID: zulu.ID, LatestSnapshot: json.RawMessage(` { "nodes": [1, 2] } `),
-		ExpectedUpdatedAt: zulu.UpdatedAt, UpdatedAt: now.Add(3 * time.Second),
-	})
-	if err != nil || string(snapshotted.LatestSnapshot) != `{"nodes":[1,2]}` {
-		t.Fatalf("snapshot update = %+v, err=%v", snapshotted, err)
-	}
-	if _, err := database.UpdateSubscriptionSourceSnapshot(ctx, UpdateSubscriptionSourceSnapshotInput{
-		ID: zulu.ID, LatestSnapshot: json.RawMessage(`null`),
-		ExpectedUpdatedAt: snapshotted.UpdatedAt, UpdatedAt: now.Add(4 * time.Second),
-	}); err == nil {
-		t.Fatal("null source snapshot was accepted")
-	}
 	if _, err := database.UpdateSubscriptionSource(ctx, UpdateSubscriptionSourceInput{
 		ID: zulu.ID, Name: "stale", SourceKind: SubscriptionSourceRemote, Config: json.RawMessage(`{}`),
-		Enabled: true, ExpectedUpdatedAt: zulu.UpdatedAt, UpdatedAt: now.Add(5 * time.Second),
+		Enabled: true, ExpectedUpdatedAt: now.Add(-time.Second), UpdatedAt: now.Add(5 * time.Second),
 	}); !errors.Is(err, ErrSubscriptionConflict) {
 		t.Fatalf("stale source update error = %v", err)
 	}
 
 	updated, err := database.UpdateSubscriptionSource(ctx, UpdateSubscriptionSourceInput{
 		ID: zulu.ID, Name: "remote", SourceKind: SubscriptionSourceLocal, Config: json.RawMessage(`{"mode":"manual"}`),
-		Enabled: false, ExpectedUpdatedAt: snapshotted.UpdatedAt, UpdatedAt: now.Add(5 * time.Second),
+		Enabled: false, ExpectedUpdatedAt: zulu.UpdatedAt, UpdatedAt: now.Add(5 * time.Second),
 	})
-	if err != nil || updated.Enabled || updated.SourceKind != SubscriptionSourceLocal ||
-		string(updated.LatestSnapshot) != string(snapshotted.LatestSnapshot) {
+	if err != nil || updated.Enabled || updated.SourceKind != SubscriptionSourceLocal {
 		t.Fatalf("updated source = %+v, err=%v", updated, err)
 	}
 	updated.Config[0] = 'x'
@@ -197,15 +179,22 @@ func TestSubscriptionTokenHashRotationRevocationExpiryAndGlobalScope(t *testing.
 	now := time.Date(2026, time.August, 26, 10, 0, 0, 0, time.UTC)
 	channel, err := database.CreateSubscriptionChannel(ctx, SubscriptionChannel{
 		ID: "channel-token", Name: "token", Format: SubscriptionFormatSingBox,
-		Enabled: true, CreatedAt: now,
+		PublicHost: "token.example", Enabled: true, CreatedAt: now,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	user, err := database.CreateSubscriptionUser(ctx, SubscriptionUser{
+		ID: "user-token", Name: "token user", Enabled: true, CreatedAt: now,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	expires := now.Add(time.Hour)
 	original, err := database.CreateSubscriptionToken(ctx, SubscriptionToken{
-		ID: "token-original", TokenSHA256: testTokenDigest("original-secret"),
-		ExpiresAt: &expires, CreatedAt: now.Add(time.Second),
+		ID: "token-original", UserID: user.ID, Label: "original", Enabled: true,
+		TokenSHA256: testTokenDigest("original-secret"),
+		ExpiresAt:   &expires, CreatedAt: now.Add(time.Second),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -232,7 +221,8 @@ func TestSubscriptionTokenHashRotationRevocationExpiryAndGlobalScope(t *testing.
 		t.Fatalf("expired token lookup error = %v", err)
 	}
 	if _, err := database.CreateSubscriptionToken(ctx, SubscriptionToken{
-		ID: "token-duplicate", TokenSHA256: original.TokenSHA256, CreatedAt: now.Add(2 * time.Second),
+		ID: "token-duplicate", UserID: user.ID, Label: "duplicate", Enabled: true,
+		TokenSHA256: original.TokenSHA256, CreatedAt: now.Add(2 * time.Second),
 	}); !errors.Is(err, ErrSubscriptionTokenExists) {
 		t.Fatalf("duplicate token digest error = %v", err)
 	}
@@ -240,8 +230,9 @@ func TestSubscriptionTokenHashRotationRevocationExpiryAndGlobalScope(t *testing.
 	rotationAt := now.Add(2 * time.Minute)
 	newExpiry := now.Add(2 * time.Hour)
 	rotation, err := database.RotateSubscriptionToken(ctx, original.ID, SubscriptionToken{
-		ID: "token-rotated", TokenSHA256: testTokenDigest("rotated-secret"),
-		ExpiresAt: &newExpiry,
+		ID: "token-rotated", UserID: user.ID, Label: original.Label, Enabled: true,
+		TokenSHA256: testTokenDigest("rotated-secret"),
+		ExpiresAt:   &newExpiry,
 	}, rotationAt)
 	if err != nil {
 		t.Fatal(err)
@@ -258,14 +249,16 @@ func TestSubscriptionTokenHashRotationRevocationExpiryAndGlobalScope(t *testing.
 	}
 
 	rollbackCandidate, err := database.CreateSubscriptionToken(ctx, SubscriptionToken{
-		ID: "token-rollback", TokenSHA256: testTokenDigest("rollback-secret"),
-		CreatedAt: now.Add(3 * time.Minute),
+		ID: "token-rollback", UserID: user.ID, Label: "rollback", Enabled: true,
+		TokenSHA256: testTokenDigest("rollback-secret"),
+		CreatedAt:   now.Add(3 * time.Minute),
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if _, err := database.RotateSubscriptionToken(ctx, rollbackCandidate.ID, SubscriptionToken{
-		ID: "token-collision", TokenSHA256: rotation.Created.TokenSHA256,
+		ID: "token-collision", UserID: user.ID, Label: rollbackCandidate.Label, Enabled: true,
+		TokenSHA256: rotation.Created.TokenSHA256,
 	}, now.Add(4*time.Minute)); !errors.Is(err, ErrSubscriptionTokenExists) {
 		t.Fatalf("colliding rotation error = %v", err)
 	}
@@ -290,29 +283,46 @@ func TestSubscriptionTokenHashRotationRevocationExpiryAndGlobalScope(t *testing.
 	if err := database.DeleteSubscriptionChannel(ctx, channel.ID, channel.UpdatedAt); err != nil {
 		t.Fatalf("delete channel with global token: %v", err)
 	}
+	if err := database.DeleteSubscriptionUser(ctx, user.ID, user.UpdatedAt); err != nil {
+		t.Fatalf("delete user with owned tokens: %v", err)
+	}
+	if _, err := database.GetSubscriptionToken(ctx, rollbackCandidate.ID); !errors.Is(err, ErrSubscriptionTokenNotFound) {
+		t.Fatalf("token survived owner deletion: %v", err)
+	}
+	if _, err := database.GetSubscriptionUser(ctx, user.ID); !errors.Is(err, ErrSubscriptionUserNotFound) {
+		t.Fatalf("user survived deletion: %v", err)
+	}
 }
 
 func TestSubscriptionNamesAndTokenMetadataAreStrict(t *testing.T) {
 	ctx := testContext(t)
 	database := openTestStore(t, ctx)
 	now := time.Date(2026, time.August, 26, 11, 0, 0, 0, time.UTC)
+	user, err := database.CreateSubscriptionUser(ctx, SubscriptionUser{
+		ID: "user-strict", Name: "strict user", Enabled: true, CreatedAt: now,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
 	for _, name := range []string{"", " leading", "trailing ", "line\nbreak", strings.Repeat("x", 129)} {
 		_, err := database.CreateSubscriptionChannel(ctx, SubscriptionChannel{
 			ID: "channel-" + testTokenDigest(name)[:8], Name: name,
-			Format: SubscriptionFormatLoon, CreatedAt: now,
+			Format: SubscriptionFormatLoon, PublicHost: "strict.example", CreatedAt: now,
 		})
 		if err == nil {
 			t.Fatalf("invalid name %q was accepted", name)
 		}
 	}
 	if _, err := database.CreateSubscriptionToken(ctx, SubscriptionToken{
-		ID: "token-uppercase", TokenSHA256: strings.ToUpper(testTokenDigest("secret")), CreatedAt: now,
+		ID: "token-uppercase", UserID: user.ID, Label: "uppercase", Enabled: true,
+		TokenSHA256: strings.ToUpper(testTokenDigest("secret")), CreatedAt: now,
 	}); err == nil {
 		t.Fatal("uppercase token digest was accepted")
 	}
 	past := now.Add(-time.Second)
 	if _, err := database.CreateSubscriptionToken(ctx, SubscriptionToken{
-		ID: "token-past", TokenSHA256: testTokenDigest("past"), ExpiresAt: &past, CreatedAt: now,
+		ID: "token-past", UserID: user.ID, Label: "past", Enabled: true,
+		TokenSHA256: testTokenDigest("past"), ExpiresAt: &past, CreatedAt: now,
 	}); err == nil {
 		t.Fatal("token expiring before creation was accepted")
 	}
@@ -327,7 +337,7 @@ func TestSubscriptionChannelPaginationAndEnabledLimit(t *testing.T) {
 	now := time.Date(2026, time.August, 26, 12, 0, 0, 0, time.UTC)
 	for _, id := range []string{"channel-a", "channel-c", "channel-b"} {
 		if _, err := database.CreateSubscriptionChannel(ctx, SubscriptionChannel{
-			ID: id, Name: id, Format: SubscriptionFormatSingBox,
+			ID: id, Name: id, Format: SubscriptionFormatSingBox, PublicHost: "page.example",
 			Config: json.RawMessage(`{}`), CreatedAt: now,
 		}); err != nil {
 			t.Fatal(err)
@@ -346,14 +356,14 @@ func TestSubscriptionChannelPaginationAndEnabledLimit(t *testing.T) {
 	for index := 0; index < MaximumEnabledSubscriptionChannels; index++ {
 		if _, err := database.CreateSubscriptionChannel(ctx, SubscriptionChannel{
 			ID: fmt.Sprintf("enabled-%03d", index), Name: fmt.Sprintf("enabled %03d", index),
-			Format: SubscriptionFormatLoon, Config: json.RawMessage(`{}`), Enabled: true,
+			Format: SubscriptionFormatLoon, PublicHost: "enabled.example", Config: json.RawMessage(`{}`), Enabled: true,
 			CreatedAt: now.Add(time.Duration(index+1) * time.Second),
 		}); err != nil {
 			t.Fatalf("create enabled channel %d: %v", index, err)
 		}
 	}
 	if _, err := database.CreateSubscriptionChannel(ctx, SubscriptionChannel{
-		ID: "enabled-overflow", Name: "enabled overflow", Format: SubscriptionFormatLoon,
+		ID: "enabled-overflow", Name: "enabled overflow", Format: SubscriptionFormatLoon, PublicHost: "overflow.example",
 		Config: json.RawMessage(`{}`), Enabled: true, CreatedAt: now.Add(time.Hour),
 	}); !errors.Is(err, ErrSubscriptionLimitExceeded) {
 		t.Fatalf("enabled overflow error = %v", err)

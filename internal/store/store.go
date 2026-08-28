@@ -14,11 +14,11 @@ import (
 )
 
 const (
-	// ApplicationID is the SQLite application_id for sing-box-panel ("SBPN").
-	ApplicationID = 0x5342504e
+	// ApplicationID identifies the schema-v2 configuration architecture ("SBP2").
+	ApplicationID = 0x53425032
 
 	// CurrentSchemaVersion is the newest schema this package can open.
-	CurrentSchemaVersion = 2
+	CurrentSchemaVersion = 1
 
 	defaultBusyTimeoutMillis  = 5_000
 	defaultMaxOpenConnections = 4

@@ -3,8 +3,10 @@
 package store
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -24,12 +26,87 @@ type SubscriptionPreparationLimits struct {
 	MaximumInputBytes int64
 }
 
-// PublicSubscriptionState is the minimum immutable state needed to serve one
-// public subscription. It intentionally omits token identity and digest.
+type PublicSubscriptionSourceVersion struct {
+	SourceID        string
+	VersionID       string
+	NormalizedNodes json.RawMessage
+}
+
+// PublicSubscriptionState is one point-in-time authorization and publication
+// view. Mutable channel, user, grants, and source pointers are read in the same
+// transaction as the applied local startup version.
 type PublicSubscriptionState struct {
-	AppliedBundleID        string
-	SubscriptionSnapshotID string
-	Content                []byte
+	TokenID         string
+	UserID          string
+	AppliedBundleID string
+	Channel         SubscriptionChannel
+	Startup         StartupArtifact
+	Core            CoreArtifact
+	Grants          []string
+	Sources         []PublicSubscriptionSourceVersion
+}
+
+type SubscriptionNodeCatalogState struct {
+	AppliedBundleID string
+	Startup         StartupArtifact
+	Core            CoreArtifact
+	Sources         []PublicSubscriptionSourceVersion
+}
+
+func (s *Store) LoadSubscriptionNodeCatalogState(ctx context.Context) (SubscriptionNodeCatalogState, error) {
+	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		return SubscriptionNodeCatalogState{}, fmt.Errorf("begin subscription node catalog read: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	var state SubscriptionNodeCatalogState
+	var appliedBundleID sql.NullString
+	if err := tx.QueryRowContext(ctx, `SELECT applied_bundle_id FROM hub_state WHERE singleton = 1`).Scan(&appliedBundleID); err != nil {
+		return SubscriptionNodeCatalogState{}, err
+	}
+	if !appliedBundleID.Valid || appliedBundleID.String == "" {
+		return SubscriptionNodeCatalogState{}, ErrNoAppliedBundle
+	}
+	state.AppliedBundleID = appliedBundleID.String
+	bundle, err := getActivationBundle(ctx, tx, state.AppliedBundleID)
+	if err != nil {
+		return SubscriptionNodeCatalogState{}, err
+	}
+	state.Startup, err = getStartupArtifact(ctx, tx, bundle.StartupArtifactID)
+	if err != nil {
+		return SubscriptionNodeCatalogState{}, err
+	}
+	state.Core, err = getCoreArtifact(ctx, tx, state.Startup.CoreArtifactID)
+	if err != nil {
+		return SubscriptionNodeCatalogState{}, err
+	}
+	rows, err := tx.QueryContext(ctx, `SELECT s.id, v.id, v.normalized_nodes_json
+        FROM subscription_sources AS s
+        JOIN subscription_source_versions AS v ON v.id = s.current_version_id AND v.source_id = s.id
+        WHERE s.enabled = 1 ORDER BY s.id`)
+	if err != nil {
+		return SubscriptionNodeCatalogState{}, err
+	}
+	for rows.Next() {
+		var source PublicSubscriptionSourceVersion
+		var nodes []byte
+		if err := rows.Scan(&source.SourceID, &source.VersionID, &nodes); err != nil {
+			_ = rows.Close()
+			return SubscriptionNodeCatalogState{}, err
+		}
+		source.NormalizedNodes = bytes.Clone(nodes)
+		state.Sources = append(state.Sources, source)
+	}
+	if err := rows.Close(); err != nil {
+		return SubscriptionNodeCatalogState{}, err
+	}
+	if err := rows.Err(); err != nil {
+		return SubscriptionNodeCatalogState{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return SubscriptionNodeCatalogState{}, err
+	}
+	return state, nil
 }
 
 // LoadSubscriptionPreparationInputs takes one short, consistent database
@@ -66,14 +143,12 @@ func (s *Store) LoadSubscriptionPreparationInputs(
 	return SubscriptionPreparationInputs{Channels: channels, Sources: sources}, nil
 }
 
-// LoadPublicSubscriptionState authenticates a plaintext-derived digest and
-// resolves the applied publication in one SQL statement. The query reads
-// applied_bundle_id exactly once and joins only through immutable bundle and
-// snapshot rows; it never consults current canonical, channel, source, or
-// address state.
+// LoadPublicSubscriptionState authenticates the token and assembles all live
+// authorization and version pointers in one consistent SQLite read.
 func (s *Store) LoadPublicSubscriptionState(
 	ctx context.Context,
 	tokenSHA256 string,
+	channelID string,
 	at time.Time,
 ) (PublicSubscriptionState, error) {
 	digest, err := normalizeTokenDigest(tokenSHA256)
@@ -84,49 +159,154 @@ func (s *Store) LoadPublicSubscriptionState(
 	if err != nil {
 		return PublicSubscriptionState{}, err
 	}
+	if err := validateSubscriptionID(channelID, "channel"); err != nil {
+		return PublicSubscriptionState{}, ErrSubscriptionChannelNotFound
+	}
+	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		return PublicSubscriptionState{}, fmt.Errorf("begin public subscription read: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
 
-	var appliedBundleID, snapshotID, content sql.NullString
-	var expiresAt, revokedAt sql.NullString
-	err = s.db.QueryRowContext(
-		ctx,
-		`SELECT t.expires_at, t.revoked_at,
-                h.applied_bundle_id, a.subscription_snapshot_id, s.content_json
-           FROM subscription_tokens AS t
-           JOIN hub_state AS h ON h.singleton = 1
-           LEFT JOIN activation_bundles AS a ON a.id = h.applied_bundle_id
-           LEFT JOIN subscription_snapshots AS s ON s.id = a.subscription_snapshot_id
-          WHERE t.token_sha256 = ?`,
-		digest,
-	).Scan(&expiresAt, &revokedAt, &appliedBundleID, &snapshotID, &content)
+	var state PublicSubscriptionState
+	token, err := scanSubscriptionToken(tx.QueryRowContext(ctx, `SELECT
+            t.id, t.user_id, t.label, t.token_sha256, t.enabled, t.expires_at, t.revoked_at,
+            t.successful_request_count, t.body_response_count, t.bytes_served,
+            t.last_used_at, t.created_at
+        FROM subscription_tokens AS t
+        JOIN subscription_users AS u ON u.id = t.user_id AND u.enabled = 1
+        WHERE t.token_sha256 = ?`, digest))
 	if errors.Is(err, sql.ErrNoRows) {
 		return PublicSubscriptionState{}, ErrSubscriptionTokenNotFound
 	}
 	if err != nil {
-		return PublicSubscriptionState{}, fmt.Errorf("load public subscription state: %w", err)
+		return PublicSubscriptionState{}, fmt.Errorf("authenticate public subscription token: %w", err)
 	}
-	if revokedAt.Valid {
+	if !token.Active(at) {
 		return PublicSubscriptionState{}, ErrSubscriptionTokenInactive
 	}
-	if expiresAt.Valid {
-		expires, parseErr := parseTaskTime(expiresAt.String)
-		if parseErr != nil {
-			return PublicSubscriptionState{}, fmt.Errorf("parse subscription token expires_at: %w", parseErr)
-		}
-		if !at.Before(expires) {
-			return PublicSubscriptionState{}, ErrSubscriptionTokenInactive
-		}
+	state.TokenID, state.UserID = token.ID, token.UserID
+	if err := loadSubscriptionPublicationState(ctx, tx, &state, channelID, true); err != nil {
+		return PublicSubscriptionState{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return PublicSubscriptionState{}, fmt.Errorf("commit public subscription read: %w", err)
+	}
+	return state, nil
+}
+
+// LoadSubscriptionPreviewState assembles the same live view as a public
+// request, but starts from an administrator-selected enabled user instead of a
+// token. It is one read transaction so the preview cannot mix versions.
+func (s *Store) LoadSubscriptionPreviewState(ctx context.Context, userID, channelID string) (PublicSubscriptionState, error) {
+	if err := validateSubscriptionID(userID, "user"); err != nil {
+		return PublicSubscriptionState{}, ErrSubscriptionUserNotFound
+	}
+	if err := validateSubscriptionID(channelID, "channel"); err != nil {
+		return PublicSubscriptionState{}, ErrSubscriptionChannelNotFound
+	}
+	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		return PublicSubscriptionState{}, fmt.Errorf("begin subscription preview read: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	var state PublicSubscriptionState
+	if err := tx.QueryRowContext(ctx, `SELECT id FROM subscription_users WHERE id = ? AND enabled = 1`, userID).Scan(&state.UserID); errors.Is(err, sql.ErrNoRows) {
+		return PublicSubscriptionState{}, ErrSubscriptionUserNotFound
+	} else if err != nil {
+		return PublicSubscriptionState{}, err
+	}
+	if err := loadSubscriptionPublicationState(ctx, tx, &state, channelID, false); err != nil {
+		return PublicSubscriptionState{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return PublicSubscriptionState{}, fmt.Errorf("commit subscription preview read: %w", err)
+	}
+	return state, nil
+}
+
+func loadSubscriptionPublicationState(
+	ctx context.Context,
+	tx *sql.Tx,
+	state *PublicSubscriptionState,
+	channelID string,
+	requireEnabledChannel bool,
+) error {
+	var err error
+	state.Channel, err = getSubscriptionChannel(ctx, tx, channelID)
+	if err != nil || requireEnabledChannel && !state.Channel.Enabled {
+		return ErrSubscriptionChannelNotFound
+	}
+	var appliedBundleID sql.NullString
+	if err := tx.QueryRowContext(ctx, `SELECT applied_bundle_id FROM hub_state WHERE singleton = 1`).Scan(&appliedBundleID); err != nil {
+		return fmt.Errorf("read applied subscription bundle: %w", err)
 	}
 	if !appliedBundleID.Valid || appliedBundleID.String == "" {
-		return PublicSubscriptionState{}, ErrNoAppliedBundle
+		return ErrNoAppliedBundle
 	}
-	if !snapshotID.Valid || snapshotID.String == "" || !content.Valid {
-		return PublicSubscriptionState{}, errors.New("applied subscription snapshot is inconsistent")
+	state.AppliedBundleID = appliedBundleID.String
+	bundle, err := getActivationBundle(ctx, tx, state.AppliedBundleID)
+	if err != nil {
+		return err
 	}
-	return PublicSubscriptionState{
-		AppliedBundleID:        appliedBundleID.String,
-		SubscriptionSnapshotID: snapshotID.String,
-		Content:                []byte(content.String),
-	}, nil
+	state.Startup, err = getStartupArtifact(ctx, tx, bundle.StartupArtifactID)
+	if err != nil {
+		return err
+	}
+	state.Core, err = getCoreArtifact(ctx, tx, state.Startup.CoreArtifactID)
+	if err != nil {
+		return err
+	}
+
+	grantRows, err := tx.QueryContext(ctx, `SELECT node_key FROM subscription_user_node_grants WHERE user_id = ? ORDER BY node_key`, state.UserID)
+	if err != nil {
+		return fmt.Errorf("read public subscription grants: %w", err)
+	}
+	for grantRows.Next() {
+		var key string
+		if err := grantRows.Scan(&key); err != nil {
+			_ = grantRows.Close()
+			return err
+		}
+		state.Grants = append(state.Grants, key)
+	}
+	if err := grantRows.Close(); err != nil {
+		return err
+	}
+	if err := grantRows.Err(); err != nil {
+		return err
+	}
+
+	sourceRows, err := tx.QueryContext(ctx, `SELECT s.id, v.id, v.normalized_nodes_json
+        FROM subscription_sources AS s
+        JOIN subscription_source_versions AS v ON v.id = s.current_version_id AND v.source_id = s.id
+        WHERE s.enabled = 1 ORDER BY s.id`)
+	if err != nil {
+		return fmt.Errorf("read public subscription source versions: %w", err)
+	}
+	var totalSourceBytes int
+	for sourceRows.Next() {
+		var source PublicSubscriptionSourceVersion
+		var nodes []byte
+		if err := sourceRows.Scan(&source.SourceID, &source.VersionID, &nodes); err != nil {
+			_ = sourceRows.Close()
+			return err
+		}
+		totalSourceBytes += len(nodes)
+		if totalSourceBytes > int(MaximumSubscriptionInputBytes) {
+			_ = sourceRows.Close()
+			return ErrSubscriptionLimitExceeded
+		}
+		source.NormalizedNodes = bytes.Clone(nodes)
+		state.Sources = append(state.Sources, source)
+	}
+	if err := sourceRows.Close(); err != nil {
+		return err
+	}
+	if err := sourceRows.Err(); err != nil {
+		return err
+	}
+	return nil
 }
 
 func listEnabledSubscriptionChannels(
@@ -199,7 +379,7 @@ func listEnabledSubscriptionSources(
 		if len(sources) >= maximum {
 			return nil, fmt.Errorf("%w: too many enabled sources", ErrSubscriptionLimitExceeded)
 		}
-		inputBytes := int64(len(source.Config) + len(source.LatestSnapshot))
+		inputBytes := int64(len(source.Config))
 		if inputBytes > *remainingBytes {
 			return nil, fmt.Errorf("%w: enabled inputs exceed byte budget", ErrSubscriptionLimitExceeded)
 		}

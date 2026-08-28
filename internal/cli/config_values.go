@@ -196,7 +196,7 @@ func newConfigValidateCommand(state *options) *cobra.Command {
 			if err != nil {
 				return &Error{Kind: ErrorValidation, Code: "canonical_input_failed", Message: err.Error(), Cause: err}
 			}
-			document, err := canonical.Parse(raw)
+			document, err := canonical.ParseV2(raw)
 			if err != nil {
 				return &Error{Kind: ErrorValidation, Code: "canonical_invalid", Message: err.Error(), Cause: err}
 			}

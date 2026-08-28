@@ -11,7 +11,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/rehuony/sing-box-panel/internal/capability"
+	"github.com/rehuony/sing-box-panel/internal/clashapi"
+	"github.com/rehuony/sing-box-panel/internal/configuration/adapter"
 	"github.com/rehuony/sing-box-panel/internal/coreartifact"
 	coreruntime "github.com/rehuony/sing-box-panel/internal/runtime"
 	"github.com/rehuony/sing-box-panel/internal/runtimeidentity"
@@ -31,9 +32,8 @@ type RuntimeStatus struct {
 }
 
 type ActivationPreparation struct {
-	StartupArtifact store.StartupArtifact      `json:"startup_artifact"`
-	Snapshot        store.SubscriptionSnapshot `json:"subscription_snapshot"`
-	Bundle          store.ActivationBundle     `json:"bundle"`
+	StartupArtifact store.StartupArtifact  `json:"startup_artifact"`
+	Bundle          store.ActivationBundle `json:"bundle"`
 }
 
 // ActivationSummary is safe for management transports. It deliberately omits
@@ -41,30 +41,26 @@ type ActivationPreparation struct {
 // discovered addresses while retaining every immutable identity and digest an
 // operator needs to audit an apply.
 type ActivationSummary struct {
-	StartupArtifactID    string               `json:"startup_artifact_id"`
-	CanonicalRevisionID  string               `json:"canonical_revision_id"`
-	ExactCoreVersion     string               `json:"exact_core_version"`
-	CoreArtifactID       string               `json:"core_artifact_id"`
-	ConfigSHA256         string               `json:"config_sha256"`
-	SubscriptionSnapshot string               `json:"subscription_snapshot_id"`
-	SubscriptionSHA256   string               `json:"subscription_sha256"`
-	ActivationBundleID   string               `json:"activation_bundle_id"`
-	ActivationSHA256     string               `json:"activation_sha256"`
-	MonitoringTier       store.MonitoringTier `json:"monitoring_tier"`
+	StartupArtifactID   string               `json:"startup_artifact_id"`
+	CanonicalRevisionID string               `json:"canonical_revision_id"`
+	ExactCoreVersion    string               `json:"exact_core_version"`
+	CoreArtifactID      string               `json:"core_artifact_id"`
+	ConfigSHA256        string               `json:"config_sha256"`
+	ActivationBundleID  string               `json:"activation_bundle_id"`
+	ActivationSHA256    string               `json:"activation_sha256"`
+	MonitoringTier      store.MonitoringTier `json:"monitoring_tier"`
 }
 
 func (preparation ActivationPreparation) Summary() ActivationSummary {
 	return ActivationSummary{
-		StartupArtifactID:    preparation.StartupArtifact.ID,
-		CanonicalRevisionID:  preparation.StartupArtifact.CanonicalRevisionID,
-		ExactCoreVersion:     preparation.StartupArtifact.ExactCoreVersion,
-		CoreArtifactID:       preparation.StartupArtifact.CoreArtifactID,
-		ConfigSHA256:         preparation.StartupArtifact.ConfigSHA256,
-		SubscriptionSnapshot: preparation.Snapshot.ID,
-		SubscriptionSHA256:   preparation.Snapshot.SHA256,
-		ActivationBundleID:   preparation.Bundle.ID,
-		ActivationSHA256:     preparation.Bundle.SHA256,
-		MonitoringTier:       preparation.Bundle.MonitoringTier,
+		StartupArtifactID:   preparation.StartupArtifact.ID,
+		CanonicalRevisionID: preparation.StartupArtifact.CanonicalRevisionID,
+		ExactCoreVersion:    preparation.StartupArtifact.ExactCoreVersion,
+		CoreArtifactID:      preparation.StartupArtifact.CoreArtifactID,
+		ConfigSHA256:        preparation.StartupArtifact.ConfigSHA256,
+		ActivationBundleID:  preparation.Bundle.ID,
+		ActivationSHA256:    preparation.Bundle.SHA256,
+		MonitoringTier:      preparation.Bundle.MonitoringTier,
 	}
 }
 
@@ -75,9 +71,8 @@ type RuntimeMaterial struct {
 	Core       store.CoreArtifact
 }
 
-// PrepareActivationBundle freezes the already-checked startup bytes and every
-// enabled publication input before entering the short atomic save. Rendering
-// and source snapshot collection never occur inside the database transaction.
+// PrepareActivationBundle binds already-checked startup bytes to one runtime
+// monitoring policy. Subscription publication remains live and independent.
 func (application *Application) PrepareActivationBundle(
 	ctx context.Context,
 	startupArtifactID string,
@@ -93,62 +88,42 @@ func (application *Application) PrepareActivationBundle(
 	if monitoring == "" {
 		monitoring = store.MonitoringProcessOnly
 	}
-	if monitoring != store.MonitoringProcessOnly {
-		return ActivationPreparation{}, fmt.Errorf("%w: only process_only has an active health probe", ErrMonitoringTierUnavailable)
+	if monitoring == store.MonitoringFull {
+		return ActivationPreparation{}, fmt.Errorf("%w: full monitoring is not implemented", ErrMonitoringTierUnavailable)
+	}
+	if monitoring != store.MonitoringProcessOnly && monitoring != store.MonitoringLimited {
+		return ActivationPreparation{}, fmt.Errorf("%w: invalid monitoring tier %q", ErrMonitoringTierUnavailable, monitoring)
+	}
+	if monitoring == store.MonitoringLimited {
+		if _, err := clashapi.ParseEndpoint(startup.ConfigBytes); err != nil {
+			return ActivationPreparation{}, fmt.Errorf("%w: %v", ErrMonitoringTierUnavailable, err)
+		}
 	}
 	if err := application.verifyActivationCandidate(ctx, startup); err != nil {
 		return ActivationPreparation{}, err
 	}
 
-	content, sourceSnapshots, err := application.prepareSubscriptionFreeze(ctx, startup)
-	if err != nil {
-		return ActivationPreparation{}, err
-	}
-	publicAddresses := json.RawMessage(`{}`)
-	snapshotID := stableRuntimeID("snapshot", startup.ID, string(content))
-	bundleID := stableRuntimeID(
-		"bundle",
-		startup.ID,
-		snapshotID,
-		string(publicAddresses),
-		string(sourceSnapshots),
-		string(monitoring),
-	)
+	bundleID := stableRuntimeID("bundle", startup.ID, string(monitoring))
 	if existing, getErr := application.database.GetActivationBundle(ctx, bundleID); getErr == nil {
-		snapshot, snapshotErr := application.database.GetSubscriptionSnapshot(ctx, existing.SubscriptionSnapshotID)
-		if snapshotErr != nil {
-			return ActivationPreparation{}, snapshotErr
-		}
-		return ActivationPreparation{StartupArtifact: startup, Snapshot: snapshot, Bundle: existing}, nil
+		return ActivationPreparation{StartupArtifact: startup, Bundle: existing}, nil
 	} else if !errors.Is(getErr, store.ErrActivationBundleNotFound) {
 		return ActivationPreparation{}, getErr
 	}
 
 	createdAt := application.now().UTC()
-	snapshot := store.SubscriptionSnapshot{
-		ID: snapshotID, CanonicalRevisionID: startup.CanonicalRevisionID,
-		StartupArtifactID: startup.ID, Content: content, CreatedAt: createdAt,
-	}
 	bundle := store.ActivationBundle{
-		ID: bundleID, StartupArtifactID: startup.ID, SubscriptionSnapshotID: snapshot.ID,
-		PublicAddresses: publicAddresses, SourceSnapshots: sourceSnapshots,
-		MonitoringTier: monitoring, CreatedAt: createdAt,
+		ID: bundleID, StartupArtifactID: startup.ID, MonitoringTier: monitoring, CreatedAt: createdAt,
 	}
-	stored, err := application.database.SaveActivationBundle(ctx, snapshot, bundle)
+	stored, err := application.database.SaveActivationBundle(ctx, bundle)
 	if err != nil {
 		return ActivationPreparation{}, err
 	}
-	storedSnapshot, err := application.database.GetSubscriptionSnapshot(ctx, stored.SubscriptionSnapshotID)
-	if err != nil {
-		return ActivationPreparation{}, err
-	}
-	return ActivationPreparation{StartupArtifact: startup, Snapshot: storedSnapshot, Bundle: stored}, nil
+	return ActivationPreparation{StartupArtifact: startup, Bundle: stored}, nil
 }
 
 // verifyActivationCandidate rechecks every mutable eligibility decision at
-// bundle-preparation time. Old bundles remain immutable and usable for their
-// dedicated start/rollback paths, but a stale head, moved capability pin, or
-// revoked binary can never produce a new bundle.
+// bundle-preparation time. Old bundles remain immutable, while a stale head,
+// changed compiled adapter, or revoked binary cannot produce a new bundle.
 func (application *Application) verifyActivationCandidate(
 	ctx context.Context,
 	startup store.StartupArtifact,
@@ -175,19 +150,10 @@ func (application *Application) verifyActivationCandidate(
 			store.ErrActivationBundleNotReady,
 		)
 	}
-	if startup.Kind != store.StartupArtifactStructured {
-		return nil
-	}
-	manifest, pin, err := application.PinnedCapabilityManifest(ctx, startup.ExactCoreVersion)
-	if err != nil {
-		return fmt.Errorf("%w: pinned capability is unavailable: %v", store.ErrActivationBundleNotReady, err)
-	}
-	if (manifest.SupportLevel() != capability.SupportNativeStructured &&
-		manifest.SupportLevel() != capability.SupportCompatibleStructured) ||
-		pin.CommitSHA != startup.CapabilityCommit ||
-		pin.ManifestSHA256 != startup.CapabilityDigest {
+	resolved, err := application.configurationAdapters.Resolve(coreArtifactProfile(core))
+	if err != nil || resolved.ID() != startup.AdapterID || resolved.Revision() != startup.AdapterRevision {
 		return fmt.Errorf(
-			"%w: structured startup artifact does not match the active immutable capability pin",
+			"%w: startup artifact does not match the compiled adapter for the exact core profile",
 			store.ErrActivationBundleNotReady,
 		)
 	}
@@ -288,7 +254,7 @@ func (application *Application) LoadRuntimeMaterial(
 	if err != nil {
 		return RuntimeMaterial{}, err
 	}
-	if startup.State != store.StartupArtifactReady && startup.State != store.StartupArtifactStale {
+	if startup.State != store.StartupArtifactReady {
 		return RuntimeMaterial{}, store.ErrActivationBundleNotReady
 	}
 	return application.runtimeMaterial(ctx, activation.ID, activation, startup)
@@ -323,6 +289,10 @@ func (application *Application) runtimeMaterial(
 	if core.VerificationState != store.CoreArtifactVerified || core.ExactVersion != startup.ExactCoreVersion ||
 		core.ReportedVersion != startup.ExactCoreVersion {
 		return RuntimeMaterial{}, store.ErrActivationBundleNotReady
+	}
+	resolved, err := application.configurationAdapters.Resolve(coreArtifactProfile(core))
+	if err != nil || resolved.ID() != startup.AdapterID || resolved.Revision() != startup.AdapterRevision {
+		return RuntimeMaterial{}, errors.Join(store.ErrActivationBundleNotReady, adapter.ErrUnsupportedCoreProfile)
 	}
 	version, err := coreartifact.ParseExactVersion(core.ExactVersion)
 	if err != nil {

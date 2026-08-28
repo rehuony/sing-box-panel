@@ -21,7 +21,7 @@ func TestSubscriptionChannelAndSourceCLIEndToEnd(t *testing.T) {
 	settingsPath := commandSettingsFixture(t)
 
 	createdChannelOutput := runApplicationCommand(t, settingsPath,
-		`{"name":"public","format":"mihomo","config":{"exclude_tags":["private"]},"enabled":true}`,
+		`{"name":"public","format":"mihomo","public_host":"public.example","config":{"exclude_tags":["private"]},"enabled":true}`,
 		"--output", "json", "subscription", "channel", "create", "--file", "-",
 	)
 	var channel application.SubscriptionChannel
@@ -49,7 +49,7 @@ func TestSubscriptionChannelAndSourceCLIEndToEnd(t *testing.T) {
 	}
 
 	updatedChannelOutput := runApplicationCommand(t, settingsPath,
-		`{"name":"public-loon","format":"loon","config":{},"enabled":false}`,
+		`{"name":"public-loon","format":"loon","public_host":"loon.example","config":{},"enabled":false}`,
 		"--output", "json", "subscription", "channel", "update", channel.ID,
 		"--file", "-", "--updated-at", formatSubscriptionTime(channel.UpdatedAt),
 	)
@@ -62,7 +62,7 @@ func TestSubscriptionChannelAndSourceCLIEndToEnd(t *testing.T) {
 
 	_, _, staleErr := executeSubscriptionCLI(
 		t, settingsPath,
-		`{"name":"stale","format":"loon","config":{},"enabled":false}`,
+		`{"name":"stale","format":"loon","public_host":"stale.example","config":{},"enabled":false}`,
 		"--output", "json", "subscription", "channel", "update", channel.ID,
 		"--file", "-", "--updated-at", formatSubscriptionTime(channel.UpdatedAt),
 	)
@@ -74,39 +74,35 @@ func TestSubscriptionChannelAndSourceCLIEndToEnd(t *testing.T) {
 	)
 	var source application.SubscriptionSource
 	decodeSubscriptionCLIOutput(t, createdSourceOutput, &source)
-	if source.ID == "" || source.SourceKind != store.SubscriptionSourceRemote || len(source.LatestSnapshot) != 0 {
+	if source.ID == "" || source.SourceKind != store.SubscriptionSourceRemote || source.CurrentVersionID != "" {
 		t.Fatalf("created source = %+v", source)
 	}
 
-	refreshedSourceOutput := runApplicationCommand(t, settingsPath,
-		`{"nodes":[{"tag":"upstream"}]}`,
+	refreshedSourceOutput := runApplicationCommand(t, settingsPath, "",
 		"--output", "json", "subscription", "source", "refresh", source.ID,
-		"--file", "-", "--updated-at", formatSubscriptionTime(source.UpdatedAt),
 	)
-	var refreshedSource application.SubscriptionSource
-	decodeSubscriptionCLIOutput(t, refreshedSourceOutput, &refreshedSource)
-	if !bytes.Contains(refreshedSource.LatestSnapshot, []byte(`"upstream"`)) ||
-		!refreshedSource.UpdatedAt.After(source.UpdatedAt) {
-		t.Fatalf("refreshed source = %+v", refreshedSource)
+	var refreshTask application.Task
+	decodeSubscriptionCLIOutput(t, refreshedSourceOutput, &refreshTask)
+	if refreshTask.Kind != "subscription-source-refresh" || refreshTask.Status != store.TaskStatusQueued {
+		t.Fatalf("refresh task = %+v", refreshTask)
 	}
 	shownSourceOutput := runApplicationCommand(t, settingsPath, "",
 		"--output", "json", "subscription", "source", "show", source.ID,
 	)
 	var shownSource application.SubscriptionSource
 	decodeSubscriptionCLIOutput(t, shownSourceOutput, &shownSource)
-	if shownSource.ID != source.ID || !bytes.Equal(shownSource.LatestSnapshot, refreshedSource.LatestSnapshot) {
+	if shownSource.ID != source.ID || shownSource.CurrentVersionID != "" {
 		t.Fatalf("shown source = %+v", shownSource)
 	}
 
 	updatedSourceOutput := runApplicationCommand(t, settingsPath,
 		`{"name":"local-copy","source_kind":"local","config":{},"enabled":false}`,
 		"--output", "json", "subscription", "source", "update", source.ID,
-		"--file", "-", "--updated-at", formatSubscriptionTime(refreshedSource.UpdatedAt),
+		"--file", "-", "--updated-at", formatSubscriptionTime(source.UpdatedAt),
 	)
 	var updatedSource application.SubscriptionSource
 	decodeSubscriptionCLIOutput(t, updatedSourceOutput, &updatedSource)
-	if updatedSource.SourceKind != store.SubscriptionSourceLocal || updatedSource.Enabled ||
-		!bytes.Equal(updatedSource.LatestSnapshot, refreshedSource.LatestSnapshot) {
+	if updatedSource.SourceKind != store.SubscriptionSourceLocal || updatedSource.Enabled {
 		t.Fatalf("updated source = %+v", updatedSource)
 	}
 
@@ -132,14 +128,14 @@ func TestSubscriptionChannelAndSourceCLIEndToEnd(t *testing.T) {
 func TestSubscriptionChannelRenderCLIEndToEnd(t *testing.T) {
 	settingsPath := commandSettingsFixture(t)
 	canonicalOutput := runApplicationCommand(t, settingsPath,
-		`{"schema_version":1,"global":{},"nodes":[],"rules":[],"subscription":{}}`,
+		`{"schema_version":2,"configuration":{}}`,
 		"--output", "json", "config", "replace", "--file", "-", "--base-revision", "none",
 	)
 	var canonicalSave application.CanonicalSave
 	decodeSubscriptionCLIOutput(t, canonicalOutput, &canonicalSave)
 
 	channelOutput := runApplicationCommand(t, settingsPath,
-		`{"name":"preview","format":"sing-box","config":{"exclude_tags":["hidden"]},"enabled":true}`,
+		`{"name":"preview","format":"sing-box","public_host":"preview.example","config":{"exclude_tags":["hidden"]},"enabled":true}`,
 		"--output", "json", "subscription", "channel", "create", "--file", "-",
 	)
 	var channel application.SubscriptionChannel
@@ -156,11 +152,11 @@ func TestSubscriptionChannelRenderCLIEndToEnd(t *testing.T) {
 	now := time.Now().UTC()
 	core, err := database.UpsertCoreArtifact(context.Background(), store.CoreArtifact{
 		ID: "core-subscription-cli", ExactVersion: "1.13.19",
-		OperatingSystem: "linux", Architecture: "amd64", Variant: "plain",
+		OperatingSystem: "linux", Architecture: "arm64", Variant: "plain",
 		SourceKind: store.CoreArtifactSourceOfficial, RepositoryID: 1, ReleaseID: 2, AssetID: 3,
 		ArchiveSHA256: strings.Repeat("a", 64), BinarySHA256: strings.Repeat("b", 64),
 		BinaryPath: filepath.Join(configuration.DataDir, "sing-box"), ReportedVersion: "1.13.19",
-		FeatureFingerprint: json.RawMessage(`{"features":[]}`),
+		FeatureFingerprint: json.RawMessage(`{"status":"reported","features":["badlinkname","tfogo_checklinkname0","with_acme","with_ccm","with_clash_api","with_dhcp","with_gvisor","with_ocm","with_quic","with_tailscale","with_utls","with_wireguard"]}`),
 		VerificationState:  store.CoreArtifactVerified,
 		CreatedAt:          now,
 	})
@@ -169,21 +165,68 @@ func TestSubscriptionChannelRenderCLIEndToEnd(t *testing.T) {
 		t.Fatal(err)
 	}
 	startupBytes := []byte(`{
-      "outbounds":[
-        {"type":"shadowsocks","tag":"hidden","server":"hidden.example","server_port":443,"method":"aes-128-gcm","password":"hidden-password"},
-        {"type":"shadowsocks","tag":"public","server":"public.example","server_port":8443,"method":"aes-256-gcm","password":"public-password"}
-      ]
-    }`)
+	  "inbounds":[
+	    {"type":"shadowsocks","tag":"hidden","listen_port":443,"method":"aes-128-gcm","password":"hidden-password"},
+	    {"type":"shadowsocks","tag":"public","listen_port":8443,"method":"aes-256-gcm","password":"public-password"}
+	  ]
+	}`)
 	startup, err := database.CreateStartupArtifact(context.Background(), store.StartupArtifact{
-		ID: "startup-subscription-cli", Kind: store.StartupArtifactManual,
+		ID:                  "startup-subscription-cli",
 		CanonicalRevisionID: canonicalSave.Revision.ID, ExactCoreVersion: core.ExactVersion,
-		RendererVersion: "manual-v1", CoreArtifactID: core.ID, ConfigBytes: startupBytes,
+		AdapterID: "sing-box/v1_13_19/official-linux-arm64", AdapterRevision: "1",
+		CoreArtifactID: core.ID, ConfigBytes: startupBytes,
 		Diagnostics: json.RawMessage(`[]`), CreatedAt: now.Add(time.Second),
 	})
 	if err == nil {
 		startup, err = database.CompleteStartupArtifactCheck(
 			context.Background(), startup.ID, true, json.RawMessage(`[]`), now.Add(2*time.Second),
 		)
+	}
+	var user application.SubscriptionUser
+	if err == nil {
+		instance := application.FromStore(database)
+		var prepared application.ActivationPreparation
+		prepared, err = instance.PrepareActivationBundle(context.Background(), startup.ID, store.MonitoringProcessOnly)
+		if err == nil {
+			var task application.Task
+			task, err = instance.QueueRuntimeApply(context.Background(), prepared.Bundle.ID)
+			if err == nil {
+				var claimed *store.Task
+				claimed, err = database.ClaimTask(context.Background(), store.ClaimTaskInput{
+					Lane: store.TaskLaneRuntime, LeaseOwner: "subscription-cli-test",
+					Now: time.Now().UTC(), LeaseDuration: time.Minute,
+				})
+				if err == nil && (claimed == nil || claimed.ID != task.ID) {
+					err = errors.New("runtime apply task was not claimable")
+				}
+				if err == nil {
+					_, err = database.CompleteTask(context.Background(), claimed.ID, claimed.LeaseOwner,
+						time.Now().UTC(), store.TaskCompletion{Succeeded: true})
+				}
+			}
+		}
+		if err == nil {
+			user, err = instance.CreateSubscriptionUser(context.Background(), application.CreateSubscriptionUserRequest{
+				Name: "CLI preview user", Enabled: true,
+			})
+		}
+		if err == nil {
+			var catalog application.SubscriptionNodeCatalog
+			catalog, err = instance.SubscriptionNodeCatalog(context.Background())
+			if err == nil {
+				var publicKey string
+				for _, node := range catalog.Nodes {
+					if node.Tag == "public" {
+						publicKey = node.Key
+					}
+				}
+				if publicKey == "" {
+					err = errors.New("public node was not found")
+				} else {
+					_, err = instance.ReplaceSubscriptionUserGrants(context.Background(), user.ID, []string{publicKey}, user.UpdatedAt)
+				}
+			}
+		}
 	}
 	if closeErr := database.Close(); err == nil && closeErr != nil {
 		err = closeErr
@@ -193,7 +236,7 @@ func TestSubscriptionChannelRenderCLIEndToEnd(t *testing.T) {
 	}
 
 	previewOutput := runApplicationCommand(t, settingsPath, "",
-		"--output", "json", "subscription", "channel", "render", channel.ID, "--artifact", startup.ID,
+		"--output", "json", "subscription", "channel", "render", channel.ID, "--user", user.ID,
 	)
 	var preview application.SubscriptionPreview
 	decodeSubscriptionCLIOutput(t, previewOutput, &preview)
@@ -204,7 +247,7 @@ func TestSubscriptionChannelRenderCLIEndToEnd(t *testing.T) {
 	}
 
 	textOutput := runApplicationCommand(t, settingsPath, "",
-		"--output", "text", "subscription", "channel", "render", channel.ID, "--artifact", startup.ID,
+		"--output", "text", "subscription", "channel", "render", channel.ID, "--user", user.ID,
 	)
 	if !bytes.Contains(textOutput, []byte(`"tag":"public"`)) || bytes.Contains(textOutput, []byte(`"tag":"hidden"`)) {
 		t.Fatalf("text preview = %s", textOutput)
@@ -213,10 +256,23 @@ func TestSubscriptionChannelRenderCLIEndToEnd(t *testing.T) {
 
 func TestSubscriptionTokenCLIPlaintextLifecycle(t *testing.T) {
 	settingsPath := commandSettingsFixture(t)
+	instance, err := application.Open(context.Background(), settingsPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	user, err := instance.CreateSubscriptionUser(context.Background(), application.CreateSubscriptionUserRequest{
+		Name: "CLI token user", Enabled: true,
+	})
+	if closeErr := instance.Close(); err == nil && closeErr != nil {
+		err = closeErr
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
 	expiresAt := time.Now().UTC().Add(24 * time.Hour).Format(time.RFC3339Nano)
 	createdOutput := runApplicationCommand(t, settingsPath, "",
 		"--output", "json", "subscription", "token", "create",
-		"--expires-at", expiresAt,
+		"--user-id", user.ID, "--label", "primary", "--expires-at", expiresAt,
 	)
 	var created application.CreatedSubscriptionToken
 	decodeSubscriptionCLIOutput(t, createdOutput, &created)
@@ -277,7 +333,7 @@ func TestSubscriptionCLIRequiresFileCASAndDoesNotEchoSensitiveInput(t *testing.T
 
 	stdout, stderr, err = executeSubscriptionCLI(
 		t, settingsPath,
-		`{"name":"safe","format":"sing-box","config":{},"enabled":true,"unexpected":"`+secret+`"}`,
+		`{"name":"safe","format":"sing-box","public_host":"safe.example","config":{},"enabled":true,"unexpected":"`+secret+`"}`,
 		"subscription", "channel", "create", "--file", "-",
 	)
 	assertSubscriptionCLIError(t, err, ErrorValidation, "subscription_input_invalid")
@@ -286,10 +342,10 @@ func TestSubscriptionCLIRequiresFileCASAndDoesNotEchoSensitiveInput(t *testing.T
 	}
 
 	stdout, stderr, err = executeSubscriptionCLI(
-		t, settingsPath, `{"nodes":[]}`,
-		"subscription", "source", "refresh", "source_missing", "--file", "-",
+		t, settingsPath, secret,
+		"subscription", "source", "refresh", "source_missing",
 	)
-	assertSubscriptionCLIError(t, err, ErrorUsage, "subscription_updated_at_required")
+	assertSubscriptionCLIError(t, err, ErrorDomain, "subscription_source_not_found")
 	if strings.Contains(stdout+stderr+err.Error(), secret) {
 		t.Fatalf("CAS error leaked secret: stdout=%q stderr=%q err=%v", stdout, stderr, err)
 	}

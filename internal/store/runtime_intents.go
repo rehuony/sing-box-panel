@@ -213,7 +213,7 @@ func validateApplicableBundle(ctx context.Context, tx *sql.Tx, bundleID, headID 
 	if startup.CanonicalRevisionID != headID || startup.State != StartupArtifactReady {
 		return ErrActivationBundleNotReady
 	}
-	return validateActivationCapabilityPin(ctx, tx, startup)
+	return nil
 }
 
 func validateRunnableBundle(ctx context.Context, tx *sql.Tx, bundleID string) error {
@@ -235,8 +235,7 @@ func validateRunnableBundle(ctx context.Context, tx *sql.Tx, bundleID string) er
 	if err != nil {
 		return fmt.Errorf("read activation bundle eligibility: %w", err)
 	}
-	if (state != StartupArtifactReady && state != StartupArtifactStale) ||
-		verification != CoreArtifactVerified {
+	if state != StartupArtifactReady || verification != CoreArtifactVerified {
 		return ErrActivationBundleNotReady
 	}
 	return nil

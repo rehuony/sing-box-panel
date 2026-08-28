@@ -6,6 +6,8 @@ import type {
   SubscriptionChannelWrite,
   SubscriptionCursor,
   SubscriptionFormat,
+  SubscriptionPreview,
+  SubscriptionUser,
 } from '@/api/api-client';
 
 import { useApiClient } from '@/api/api-client-context';
@@ -15,6 +17,7 @@ import { describeRequestError, ErrorNotice } from '@/components/error-notice';
 interface ChannelDraft {
   name: string;
   enabled: boolean;
+  publicHost: string;
   excludeTags: string;
   excludeTypes: string;
   format: SubscriptionFormat;
@@ -27,6 +30,7 @@ const emptyChannel: ChannelDraft = {
   excludeTypes: '',
   format: 'sing-box',
   name: '',
+  publicHost: '',
 };
 
 function splitList(value: string): string[] {
@@ -42,6 +46,9 @@ export function SubscriptionChannelPanel() {
   const [actionError, setActionError] = useState('');
   const [message, setMessage] = useState('');
   const [busy, setBusy] = useState(false);
+  const [users, setUsers] = useState<SubscriptionUser[]>([]);
+  const [previewUserID, setPreviewUserID] = useState('');
+  const [preview, setPreview] = useState<SubscriptionPreview | null>(null);
 
   const load = useCallback(async (signal?: AbortSignal, cursor?: SubscriptionCursor, append = false) => {
     try {
@@ -68,6 +75,15 @@ export function SubscriptionChannelPanel() {
     return () => controller.abort();
   }, [load]);
 
+  useEffect(() => {
+    const controller = new AbortController();
+    void client.listSubscriptionUsers({ limit: 100 }, controller.signal).then((page) => {
+      setUsers(page.items);
+      setPreviewUserID((current) => current || page.items[0]?.id || '');
+    }).catch(() => {});
+    return () => controller.abort();
+  }, [client]);
+
   const channelCount = useMemo(() => channels?.length ?? 0, [channels]);
 
   async function edit(summary: SubscriptionChannelSummary) {
@@ -83,6 +99,7 @@ export function SubscriptionChannelPanel() {
         excludeTypes: channel.config.exclude_types?.join(', ') ?? '',
         format: channel.format,
         name: channel.name,
+        publicHost: channel.public_host,
       });
     } catch (error) {
       setActionError(describeRequestError(error));
@@ -97,9 +114,14 @@ export function SubscriptionChannelPanel() {
       setActionError('Enter a channel name.');
       return;
     }
+    if (draft.publicHost.trim() === '') {
+      setActionError('Enter the public host clients use to reach these inbounds.');
+      return;
+    }
     const input: SubscriptionChannelWrite = {
       name: draft.name.trim(),
       format: draft.format,
+      public_host: draft.publicHost.trim(),
       enabled: draft.enabled,
       config: {
         exclude_tags: splitList(draft.excludeTags),
@@ -115,13 +137,29 @@ export function SubscriptionChannelPanel() {
           input,
           draft.editing.updated_at,
         );
-        setMessage(`Updated ${input.name}. The public result changes after apply.`);
+        setMessage(`Updated ${input.name}. Live channel policy changed immediately.`);
       } else {
         await client.createSubscriptionChannel(input);
-        setMessage(`Created ${input.name}. The public result changes after apply.`);
+        setMessage(`Created ${input.name}.`);
       }
       setDraft(null);
       await load();
+    } catch (error) {
+      setActionError(describeRequestError(error));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function previewChannel(channel: SubscriptionChannelSummary) {
+    if (previewUserID === '') {
+      setActionError('Create and select a subscription user before previewing.');
+      return;
+    }
+    try {
+      setBusy(true);
+      setActionError('');
+      setPreview(await client.previewSubscriptionChannel(channel.id, previewUserID));
     } catch (error) {
       setActionError(describeRequestError(error));
     } finally {
@@ -150,7 +188,7 @@ export function SubscriptionChannelPanel() {
         <div>
           <p className='eyebrow'>01 / Output policy</p>
           <h2 id='subscription-channels-title'>Channels</h2>
-          <p>One deterministic renderer contract per client format.</p>
+          <p>Live renderer policy for one client format and public inbound host.</p>
         </div>
         <span className='count-label'>
           {channelCount}
@@ -181,12 +219,38 @@ export function SubscriptionChannelPanel() {
             </div>
           )}
 
+      <div className='token-issuer'>
+        <div className='field-group'>
+          <label htmlFor='preview-user'>Preview as user</label>
+          <select id='preview-user' onChange={(event) => setPreviewUserID(event.target.value)} value={previewUserID}>
+            <option value=''>Select a user</option>
+            {users.map((user) => <option key={user.id} value={user.id}>{user.name}</option>)}
+          </select>
+        </div>
+        {preview
+          ? (
+              <p role='status'>
+                {preview.result.node_count}
+                {' '}
+                nodes from bundle
+                {' '}
+                <code>{preview.applied_bundle_id}</code>
+                ;
+                {' '}
+                {preview.result.diagnostics.length}
+                {' '}
+                diagnostics.
+              </p>
+            )
+          : null}
+      </div>
+
       {channels === null ? <div className='inline-loading' aria-busy='true'>Loading channels…</div> : null}
       {channels?.length === 0
         ? (
             <div className='empty-state'>
               <strong>No publication channels.</strong>
-              <p>Create a channel before publishing an applied subscription snapshot.</p>
+              <p>Create a channel before publishing authorized nodes from the applied configuration.</p>
             </div>
           )
         : null}
@@ -198,6 +262,7 @@ export function SubscriptionChannelPanel() {
                   <tr>
                     <th>Name</th>
                     <th>Format</th>
+                    <th>Public host</th>
                     <th>State</th>
                     <th>Actions</th>
                   </tr>
@@ -210,6 +275,7 @@ export function SubscriptionChannelPanel() {
                         <small className='table-subline'>{channel.id}</small>
                       </td>
                       <td><code>{channel.format}</code></td>
+                      <td><code>{channel.public_host}</code></td>
                       <td>
                         <span className={`state-label ${channel.enabled ? 'state-label--success' : 'state-label--neutral'}`}>
                           <span aria-hidden='true' />
@@ -219,6 +285,7 @@ export function SubscriptionChannelPanel() {
                       <td>
                         <div className='table-actions'>
                           <button className='text-button' disabled={busy} onClick={() => void edit(channel)} type='button'>Edit</button>
+                          <button className='text-button' disabled={busy} onClick={() => void previewChannel(channel)} type='button'>Preview</button>
                           <button className='text-button text-button--danger' disabled={busy} onClick={() => void remove(channel)} type='button'>Delete</button>
                         </div>
                       </td>
@@ -253,6 +320,11 @@ export function SubscriptionChannelPanel() {
                   <input id='channel-name' maxLength={128} onChange={(event) => setDraft({ ...draft, name: event.target.value })} value={draft.name} />
                 </div>
                 <div className='field-group'>
+                  <label htmlFor='channel-public-host'>Public host</label>
+                  <input id='channel-public-host' onChange={(event) => setDraft({ ...draft, publicHost: event.target.value })} placeholder='proxy.example.com' value={draft.publicHost} />
+                  <span>Combined with each inbound listen_port; no scheme or path.</span>
+                </div>
+                <div className='field-group'>
                   <label htmlFor='channel-format'>Format</label>
                   <select id='channel-format' onChange={(event) => setDraft({ ...draft, format: event.target.value as SubscriptionFormat })} value={draft.format}>
                     <option value='sing-box'>sing-box</option>
@@ -275,7 +347,7 @@ export function SubscriptionChannelPanel() {
                 <input checked={draft.enabled} onChange={(event) => setDraft({ ...draft, enabled: event.target.checked })} type='checkbox' />
                 <span>
                   <strong>Enable this channel</strong>
-                  <small>It will be included in the next successful activation bundle.</small>
+                  <small>Disabled channels are unavailable immediately.</small>
                 </span>
               </label>
               <div className='inline-actions'>

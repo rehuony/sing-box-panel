@@ -45,6 +45,20 @@ Use an explicit settings path for an isolated repository-local instance:
 Do not commit the settings file, management token, database, exported
 configuration, or subscription data.
 
+### Database compatibility
+
+The current configuration architecture identifies its SQLite database as
+`SBP2`. Opening a new empty database applies the embedded migration series;
+opening an unidentified non-empty database, an older `SBP1` database, or a
+database newer than this binary fails closed. There is no in-place `SBP1` to
+`SBP2` migration in the current local-development contract. Use a fresh
+`data_dir` and retain any earlier database separately when testing this
+architecture.
+
+The canonical document's `schema_version: 2` and SQLite's migration version
+are independent values. The former describes global sing-box intent; the
+latter describes panel storage tables.
+
 ### Settings selection
 
 The persistent `-c, --config PATH` flag always selects the settings file for a
@@ -81,10 +95,13 @@ empty directory when a test must also isolate the database.
 
 The server exposes the embedded UI and management API and is the only durable
 task executor. Keep it active while commands install or check cores, refresh
-the catalog, prepare or apply configuration, or control the child process.
+the catalog or a subscription source, prepare or apply configuration, or
+control the child process.
 
-Long-running commands wait for their task by default. Add `--detach` where the
-command supports it to return immediately, then inspect the task separately:
+Core, catalog, configuration, and runtime commands normally wait for their
+task. Add `--detach` where supported to return immediately. Subscription source
+refresh always returns its queued task immediately. Inspect either kind of
+task separately with:
 
 ```sh
 ./bin/sing-box-panel task show TASK_ID --config ./setting.json
@@ -96,7 +113,7 @@ command supports it to return immediately, then inspect the task separately:
 Save this minimal document as `canonical.json`:
 
 ```json
-{"schema_version":1,"global":{},"nodes":[],"rules":[],"subscription":{}}
+{"schema_version":2,"configuration":{}}
 ```
 
 Import it with an explicit empty compare-and-swap base:
@@ -110,7 +127,7 @@ Import it with an explicit empty compare-and-swap base:
 
 Later writes must provide the current revision ID as `--base-revision`. A
 stale base is rejected instead of being merged implicitly. Continue with
-[Core versions and capabilities](core-versions-and-capabilities.md), then
+[Core versions and adapters](core-versions-and-adapters.md), then
 [Configuration and runtime](configuration-and-runtime.md).
 
 ## Install a systemd service
@@ -128,5 +145,5 @@ sing-box-panel system status --scope=user
 `--scope=auto` selects `system` for root and `user` otherwise. The default unit
 grants no Linux capabilities; TUN, transparent proxying, raw sockets, and
 privileged ports require a reviewed local override. See the authoritative
-[systemd packaging guide](../packaging/systemd/README.md) before deploying a
+[systemd packaging guide](../systemd/README.md) before deploying a
 system service.

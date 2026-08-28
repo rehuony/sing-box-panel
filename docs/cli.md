@@ -1,7 +1,8 @@
 # CLI reference
 
-The sing-box-panel CLI uses a Docker- and sing-box-style hierarchy. Running the
-root command or any command group without a leaf prints help.
+The sing-box-panel CLI manages one global canonical configuration, exact
+sing-box artifacts, runtime state, subscriptions, and operational evidence.
+Running the root command or a command group without a leaf prints help.
 
 ## Command hierarchy
 
@@ -11,26 +12,27 @@ sing-box-panel
 ├─ server run
 ├─ core
 │  ├─ catalog list | refresh
-│  ├─ capability status | pack | refresh | inspect | upgrade | quarantine
 │  ├─ list | show | install | import | remove | quarantine | revoke
 │  └─ check | activate | rollback | status | start | stop | restart
-├─ config show | get | set | unset | replace | export | import
-│  ├─ render | validate | diff | apply
-│  ├─ manual list | show | detach | preview | replace | discard | reattach
+├─ config
+│  ├─ show | get | set | unset | replace | export | import | validate
+│  ├─ compile | apply | diff
 │  └─ revision list | show | diff | restore
-├─ node list | show | create | update | delete | enable | disable | move | check | import
-├─ rule list | show | create | update | delete | enable | disable | move
-├─ subscription channel | source | token
+├─ subscription
+│  ├─ channel list | show | create | update | delete | render
+│  ├─ source list | show | create | update | refresh | delete
+│  └─ token list | create | rotate | revoke
 ├─ task list | show | wait | cancel
 ├─ log list | show | tail | clear | delete
 ├─ metrics show | watch
-├─ traffic status | period
+├─ traffic status | period list | show
 ├─ system install | uninstall | status | start | stop | restart | logs
 └─ completion bash | zsh | fish
 ```
 
 Use `sing-box-panel COMMAND --help` at any level for current flags and leaf
-commands.
+commands. The HTTP/Web management surface additionally exposes subscription
+user profiles, grant matrices, and source-version history.
 
 ## Global flags and output
 
@@ -42,32 +44,42 @@ written to stderr, allowing scripts to redirect them independently. JSON and
 JSONL errors contain `code`, `message`, and `exit_code`; underlying causes are
 not serialized because they may expose filesystem or upstream details.
 
-Configuration values, manual JSON, capability generations, subscription
-definitions and snapshots, and other bulk or secret-bearing values use
-`--file PATH` or `--file -` for stdin. Do not place secrets in command
-arguments. `config manual show` writes the exact raw configuration and must be
-handled as secret-bearing output.
+Complete canonical documents, subscription source definitions, and other bulk
+or secret-bearing values use `--file PATH` or `--file -` for stdin. Do not
+place secrets in command arguments. Exported canonical configuration and
+subscription source details may contain credentials and must be handled as
+secret-bearing output.
 
-## Exact core-version resolution
+## Exact artifact and adapter selection
 
-When a version-scoped command documents `--core-version` as optional, omission
-means: resolve the exact version once from the live, OS-verified sing-box
-process. If no verified core is running, the command fails. It does not fall
-back to the newest catalog release, a desired or applied bundle, or a version
-edited previously.
+Executable configuration is always derived from the single global canonical
+revision. `config compile` requires an immutable installed artifact ID; the
+panel resolves the complete verified binary profile and then selects one exact
+compiled adapter. The Web and HTTP surfaces expose the same projection as a
+non-persisting preview. No surface guesses from a version string, uses the
+newest catalog release, or falls back to a nearby patch.
 
-An explicit exact version has the form `MAJOR.MINOR.PATCH`, without a leading
-`v`, prerelease suffix, or build metadata. `core list` and
-`core catalog list` are exceptions because `--core-version` is a filter;
-omitting it returns all matching versions. Version-scoped HTTP operations use
-the same live-identity rule unless their OpenAPI description defines the value
-as a collection filter.
+An artifact without a compiled adapter remains installable and inspectable,
+but preview, compilation, check, Apply, Start, Restart, and Rollback fail
+closed when they would depend on that artifact. If preview reports ignored
+fields, compilation requires the exact current diagnostic digest:
+
+```sh
+sing-box-panel config compile \
+  --artifact CORE_ARTIFACT_ID \
+  --accept-ignored IGNORED_DIGEST
+```
+
+The ignored fields remain in the global revision and become effective again
+when a selected adapter supports them.
 
 ## Durable tasks and cancellation
 
 Core download and verification, catalog refresh, configuration checks and
-activation, and child-process control are durable tasks. Commands that create
-them wait by default and may expose `--detach` to return the task immediately.
+activation, source refresh, and child-process control are durable tasks. Core,
+catalog, configuration, and runtime commands wait by default and expose
+`--detach` where applicable. `subscription source refresh` instead returns the
+queued task immediately, because that command has no local waiting mode.
 
 ```sh
 sing-box-panel task list --lane runtime
@@ -129,32 +141,12 @@ GitHub Release for the current architecture:
 sing-box-panel update
 ```
 
-The command supports the same `--output=text|json|jsonl` contract as other
-leaf commands. It is available only to strict v-prefixed release builds on
-Linux amd64 and arm64; development and snapshot builds report that self-update
-is unavailable instead of overwriting an uncertain executable.
+It is available only to strict v-prefixed release builds on Linux amd64 and
+arm64. The selected release must attach both platform binaries, `SHA256SUMS`,
+and `SHA256SUMS.sig`. The command verifies the embedded Ed25519 trust root and
+the selected binary digest before an atomic replacement. Any missing or
+invalid evidence leaves the running executable unchanged.
 
-The selected GitHub Release must attach all four signed release outputs without
-renaming them: `sing-box-panel-linux-amd64`,
-`sing-box-panel-linux-arm64`, `SHA256SUMS`, and `SHA256SUMS.sig`. The command
-first verifies that the detached Ed25519 signature binds the selected release
-version and checksum manifest to the public key embedded in the running
-release, then verifies the matching binary checksum. Only verified
-bytes are made executable, written and synced to a temporary file beside the
-running executable, and renamed over it atomically. A missing key, missing
-signature, or any download or verification failure leaves the existing
-executable unchanged.
-
-Draft Releases are deliberately invisible to this update path. The release
-workflow creates and verifies a draft, and a maintainer publishes it only
-after reviewing its source commit, notes, and assets. The first release that
-embeds the repository signing key is a trust bootstrap: older unsigned or
-development builds must install that release once through an independently
-verified manual path before later releases can use authenticated self-update.
-See [Release process](release.md) for the signing and publication procedure.
-
-The invoking user must be able to write the executable's directory. A
-system-scope installation at `/usr/local/bin/sing-box-panel` therefore normally
-requires running the update as root. Replacing the file does not restart an
-already-running systemd service; restart that service explicitly when the new
-process should take effect.
+The invoking user must be able to write the executable's directory. Replacing
+the file does not restart an already-running systemd service. See
+[Release process](release.md) for the signing and publication procedure.

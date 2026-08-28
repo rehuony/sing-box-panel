@@ -21,26 +21,26 @@ func TestCanonicalPointerApplicationUsesRevisionCAS(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = database.Close() })
 	app := newApplication(database)
-	initial, err := app.ReplaceCanonical(ctx, "", canonical.Empty().CanonicalJSON())
+	initial, err := app.ReplaceCanonical(ctx, "", canonical.EmptyV2().CanonicalJSON())
 	if err != nil {
 		t.Fatal(err)
 	}
-	saved, err := app.SetCanonicalValue(ctx, initial.Revision.ID, "/global/log_level", []byte(`"warn"`))
+	saved, err := app.SetCanonicalValue(ctx, initial.Revision.ID, "/configuration/log", []byte(`{"level":"warn"}`))
 	if err != nil {
 		t.Fatal(err)
 	}
-	value, err := app.CanonicalValueAt(ctx, "/global/log_level")
+	value, err := app.CanonicalValueAt(ctx, "/configuration/log/level")
 	if err != nil || value.Value != "warn" || value.Revision.ID != saved.Revision.ID {
 		t.Fatalf("value=%+v err=%v", value, err)
 	}
-	if _, err := app.UnsetCanonicalValue(ctx, initial.Revision.ID, "/global/log_level"); !IsRevisionConflict(err) {
+	if _, err := app.UnsetCanonicalValue(ctx, initial.Revision.ID, "/configuration/log"); !IsRevisionConflict(err) {
 		t.Fatalf("stale unset error = %v", err)
 	}
-	removed, err := app.UnsetCanonicalValue(ctx, saved.Revision.ID, "/global/log_level")
+	removed, err := app.UnsetCanonicalValue(ctx, saved.Revision.ID, "/configuration/log")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := app.CanonicalValueAt(ctx, "/global/log_level"); !errors.Is(err, canonical.ErrPointerNotFound) {
+	if _, err := app.CanonicalValueAt(ctx, "/configuration/log"); !errors.Is(err, canonical.ErrPointerNotFound) {
 		t.Fatalf("removed pointer error = %v", err)
 	}
 	if removed.Revision.ID == saved.Revision.ID {
@@ -57,14 +57,14 @@ func TestCanonicalPatchPreservesNumericLexemesAndAdvancesOnce(t *testing.T) {
 	t.Cleanup(func() { _ = database.Close() })
 	app := newApplication(database)
 	initial, err := app.ReplaceCanonical(ctx, "", []byte(
-		`{"schema_version":1,"global":{"large":9007199254740993,"huge":1e999,"decimal":1.0,"scalar":"leaf"},"nodes":[],"rules":[],"subscription":{}}`,
+		`{"schema_version":2,"configuration":{"experimental":{"large":9007199254740993,"huge":1e999,"decimal":1.0,"scalar":"leaf"}}}`,
 	))
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	saved, err := app.PatchCanonical(ctx, initial.Revision.ID, []CanonicalChange{
-		{Operation: "set", Path: "/global/note", ValueJSON: `"unrelated edit"`},
+		{Operation: "set", Path: "/configuration/experimental/note", ValueJSON: `"unrelated edit"`},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -84,8 +84,8 @@ func TestCanonicalPatchPreservesNumericLexemesAndAdvancesOnce(t *testing.T) {
 	}
 
 	updated, err := app.PatchCanonical(ctx, saved.Revision.ID, []CanonicalChange{
-		{Operation: "set", Path: "/global/large", ValueJSON: `9007199254740995`},
-		{Operation: "set", Path: "/global/payload", ValueJSON: `{"long":9007199254740997,"huge":1e999,"decimal":1.0}`},
+		{Operation: "set", Path: "/configuration/experimental/large", ValueJSON: `9007199254740995`},
+		{Operation: "set", Path: "/configuration/experimental/payload", ValueJSON: `{"long":9007199254740997,"huge":1e999,"decimal":1.0}`},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -100,12 +100,12 @@ func TestCanonicalPatchPreservesNumericLexemesAndAdvancesOnce(t *testing.T) {
 	}
 
 	if _, err := app.PatchCanonical(ctx, saved.Revision.ID, []CanonicalChange{
-		{Operation: "set", Path: "/global/stale", ValueJSON: `true`},
+		{Operation: "set", Path: "/configuration/experimental/stale", ValueJSON: `true`},
 	}); !IsRevisionConflict(err) {
 		t.Fatalf("stale patch error = %v", err)
 	}
 	if _, err := app.PatchCanonical(ctx, updated.Revision.ID, []CanonicalChange{
-		{Operation: "set", Path: "/global/scalar/child", ValueJSON: `true`},
+		{Operation: "set", Path: "/configuration/experimental/scalar/child", ValueJSON: `true`},
 	}); !errors.Is(err, ErrCanonicalPatchInvalid) {
 		t.Fatalf("scalar-crossing patch error = %v", err)
 	}

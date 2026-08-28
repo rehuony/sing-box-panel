@@ -1,12 +1,19 @@
 openapi: 3.1.0
 info:
   title: sing-box-panel API
-  version: 0.1.0
+  version: 0.2.0
+  description: >-
+    Local management API for one version-independent sing-box configuration
+    history, exact compiled adapters, immutable startup artifacts, runtime
+    operations, live subscription publication, and sanitized observability.
   license:
     name: GPL-3.0-or-later
     identifier: GPL-3.0-or-later
 servers:
   - url: /api/v1
+security:
+  - bearerAuth: []
+  - sessionCookie: []
 paths:
   /health:
     get:
@@ -14,21 +21,13 @@ paths:
       security: []
       responses:
         "200":
-          description: The panel HTTP process is ready to answer requests.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Health"
+          $ref: "#/components/responses/JSON"
   /auth/session:
     get:
       operationId: getSession
       responses:
         "200":
-          description: Current browser or bearer session.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Session"
+          $ref: "#/components/responses/JSON"
         "401":
           $ref: "#/components/responses/Problem"
     post:
@@ -39,839 +38,48 @@ paths:
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/LoginRequest"
+              type: object
+              required: [token]
+              properties:
+                token:
+                  type: string
       responses:
         "200":
-          description: A new browser session. The management token is never returned.
-          headers:
-            Set-Cookie:
-              schema:
-                type: string
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Session"
-        "400":
-          $ref: "#/components/responses/Problem"
-        "401":
-          $ref: "#/components/responses/Problem"
-        "429":
-          $ref: "#/components/responses/Problem"
+          $ref: "#/components/responses/JSON"
     delete:
       operationId: deleteSession
       parameters:
         - $ref: "#/components/parameters/CSRFToken"
       responses:
         "204":
-          description: The current browser session was removed.
-        "401":
-          $ref: "#/components/responses/Problem"
-        "403":
-          $ref: "#/components/responses/Problem"
+          $ref: "#/components/responses/NoContent"
   /system/status:
     get:
       operationId: getSystemStatus
       responses:
         "200":
-          description: Machine-readable runtime and control-plane status.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/SystemStatus"
-        "401":
-          $ref: "#/components/responses/Problem"
-        "503":
-          $ref: "#/components/responses/Problem"
+          $ref: "#/components/responses/JSON"
   /dashboard/context:
     get:
       operationId: getDashboardContext
       responses:
         "200":
-          description: Human-facing summary for the initial panel dashboard.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/DashboardContext"
-        "401":
-          $ref: "#/components/responses/Problem"
-        "503":
-          $ref: "#/components/responses/Problem"
-  /core/catalog/assets:
-    get:
-      operationId: listCoreCatalogAssets
-      description: Lists exact-version Linux assets from the locally persisted official catalog. No network refresh is performed.
-      parameters:
-        - $ref: "#/components/parameters/ExactVersionQuery"
-        - $ref: "#/components/parameters/CoreArchitectureQuery"
-        - $ref: "#/components/parameters/CoreVariantQuery"
-        - name: installable
-          in: query
-          description: When true, omit assets that lack one unambiguous trusted SHA-256 digest.
-          schema: { type: boolean, default: false }
-      responses:
-        "200":
-          description: Matching catalog assets in stable newest-version and asset-ID order.
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/CatalogAssetList" }
-        "400": { $ref: "#/components/responses/Problem" }
-        "401": { $ref: "#/components/responses/Problem" }
-        "409":
-          description: The local catalog has not been initialized.
-          content:
-            application/problem+json:
-              schema: { $ref: "#/components/schemas/Problem" }
-        "500": { $ref: "#/components/responses/Problem" }
-        "503": { $ref: "#/components/responses/Problem" }
-  /core/catalog/refresh:
-    post:
-      operationId: refreshCoreCatalog
-      description: Queues a maintenance task that refreshes the official core catalog.
-      parameters:
-        - $ref: "#/components/parameters/CSRFToken"
-      responses:
-        "202":
-          description: The catalog refresh task was durably queued.
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/Task" }
-        "401": { $ref: "#/components/responses/Problem" }
-        "403": { $ref: "#/components/responses/Problem" }
-        "413": { $ref: "#/components/responses/Problem" }
-        "422": { $ref: "#/components/responses/Problem" }
-        "500": { $ref: "#/components/responses/Problem" }
-        "503": { $ref: "#/components/responses/Problem" }
-  /core/artifacts:
-    get:
-      operationId: listCoreArtifacts
-      parameters:
-        - $ref: "#/components/parameters/ExactVersionQuery"
-        - $ref: "#/components/parameters/CoreArchitectureQuery"
-        - $ref: "#/components/parameters/CoreVariantQuery"
-        - name: source_kind
-          in: query
-          schema: { $ref: "#/components/schemas/CoreArtifactSourceKind" }
-        - name: verification_state
-          in: query
-          schema: { $ref: "#/components/schemas/CoreArtifactVerificationState" }
-        - name: before_time
-          in: query
-          description: RFC 3339 keyset cursor time; must be paired with before_id.
-          schema: { type: string, format: date-time }
-        - name: before_id
-          in: query
-          description: Stable keyset cursor ID; must be paired with before_time.
-          schema: { type: string, minLength: 1, maxLength: 256 }
-        - $ref: "#/components/parameters/PageLimit"
-      responses:
-        "200":
-          description: Installed immutable core artifacts, newest first.
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/CoreArtifactPage" }
-        "400": { $ref: "#/components/responses/Problem" }
-        "401": { $ref: "#/components/responses/Problem" }
-        "500": { $ref: "#/components/responses/Problem" }
-        "503": { $ref: "#/components/responses/Problem" }
-  /core/artifacts/{artifactId}:
-    parameters:
-      - $ref: "#/components/parameters/CoreArtifactID"
-    get:
-      operationId: getCoreArtifact
-      responses:
-        "200":
-          description: One installed immutable core artifact.
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/CoreArtifact" }
-        "400": { $ref: "#/components/responses/Problem" }
-        "401": { $ref: "#/components/responses/Problem" }
-        "404": { $ref: "#/components/responses/Problem" }
-        "500": { $ref: "#/components/responses/Problem" }
-        "503": { $ref: "#/components/responses/Problem" }
-    delete:
-      operationId: deleteCoreArtifact
-      description: Removes an unreferenced immutable core artifact. Referenced artifacts cannot be removed.
-      parameters:
-        - $ref: "#/components/parameters/CSRFToken"
-      responses:
-        "204":
-          description: The core artifact was removed.
-        "400": { $ref: "#/components/responses/Problem" }
-        "401": { $ref: "#/components/responses/Problem" }
-        "403": { $ref: "#/components/responses/Problem" }
-        "404": { $ref: "#/components/responses/Problem" }
-        "409": { $ref: "#/components/responses/Problem" }
-        "413": { $ref: "#/components/responses/Problem" }
-        "422": { $ref: "#/components/responses/Problem" }
-        "500": { $ref: "#/components/responses/Problem" }
-        "503": { $ref: "#/components/responses/Problem" }
-  /core/artifacts/{artifactId}/quarantine:
-    parameters:
-      - $ref: "#/components/parameters/CoreArtifactID"
-    post:
-      operationId: quarantineCoreArtifact
-      description: Monotonically quarantines immutable bytes. A currently running child is not stopped, but new checks, activations, starts, and rollbacks cannot use the artifact.
-      parameters:
-        - $ref: "#/components/parameters/CSRFToken"
-      responses:
-        "200":
-          description: The artifact after applying the monotonic verification restriction.
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/CoreArtifact" }
-        "400": { $ref: "#/components/responses/Problem" }
-        "401": { $ref: "#/components/responses/Problem" }
-        "403": { $ref: "#/components/responses/Problem" }
-        "404": { $ref: "#/components/responses/Problem" }
-        "413": { $ref: "#/components/responses/Problem" }
-        "422": { $ref: "#/components/responses/Problem" }
-        "500": { $ref: "#/components/responses/Problem" }
-        "503": { $ref: "#/components/responses/Problem" }
-  /core/artifacts/{artifactId}/revoke:
-    parameters:
-      - $ref: "#/components/parameters/CoreArtifactID"
-    post:
-      operationId: revokeCoreArtifact
-      description: Permanently revokes immutable bytes. A currently running child is not stopped, but no future check, activation, start, or rollback may use the artifact; reinstalling identical bytes cannot restore trust.
-      parameters:
-        - $ref: "#/components/parameters/CSRFToken"
-      responses:
-        "200":
-          description: The terminally revoked artifact.
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/CoreArtifact" }
-        "400": { $ref: "#/components/responses/Problem" }
-        "401": { $ref: "#/components/responses/Problem" }
-        "403": { $ref: "#/components/responses/Problem" }
-        "404": { $ref: "#/components/responses/Problem" }
-        "413": { $ref: "#/components/responses/Problem" }
-        "422": { $ref: "#/components/responses/Problem" }
-        "500": { $ref: "#/components/responses/Problem" }
-        "503": { $ref: "#/components/responses/Problem" }
-  /core/install:
-    post:
-      operationId: installCoreCatalogAsset
-      description: Queues verified installation of one exact catalog asset.
-      parameters:
-        - $ref: "#/components/parameters/CSRFToken"
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: "#/components/schemas/CoreInstallRequest" }
-      responses:
-        "202":
-          description: The core installation task was durably queued.
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/Task" }
-        "401": { $ref: "#/components/responses/Problem" }
-        "403": { $ref: "#/components/responses/Problem" }
-        "409": { $ref: "#/components/responses/Problem" }
-        "413": { $ref: "#/components/responses/Problem" }
-        "422": { $ref: "#/components/responses/Problem" }
-        "500": { $ref: "#/components/responses/Problem" }
-        "503": { $ref: "#/components/responses/Problem" }
-  /core/import:
-    post:
-      operationId: importCoreArchive
-      description: Queues verified import of a local archive identified by absolute path and trusted SHA-256 metadata.
-      parameters:
-        - $ref: "#/components/parameters/CSRFToken"
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: "#/components/schemas/CoreImportRequest" }
-      responses:
-        "202":
-          description: The core import task was durably queued.
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/Task" }
-        "401": { $ref: "#/components/responses/Problem" }
-        "403": { $ref: "#/components/responses/Problem" }
-        "413": { $ref: "#/components/responses/Problem" }
-        "422": { $ref: "#/components/responses/Problem" }
-        "500": { $ref: "#/components/responses/Problem" }
-        "503": { $ref: "#/components/responses/Problem" }
-  /core/capability:
-    get:
-      operationId: getCoreCapability
-      description: Resolves capability support for an explicit exact version. When core_version is omitted, the application verifies and uses the actual running core version; it never substitutes the latest catalog version.
-      parameters:
-        - name: core_version
-          in: query
-          description: Optional non-zero exact stable semantic version. Omit to inspect the verified running core.
-          schema: { $ref: "#/components/schemas/ExactCoreVersion" }
-      responses:
-        "200":
-          description: Capability support and the exact version-resolution source.
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/CoreCapabilityStatus" }
-        "400": { $ref: "#/components/responses/Problem" }
-        "401": { $ref: "#/components/responses/Problem" }
-        "409":
-          description: core_version was omitted and no verified core is running.
-          content:
-            application/problem+json:
-              schema: { $ref: "#/components/schemas/Problem" }
-        "503": { $ref: "#/components/responses/Problem" }
-        "500": { $ref: "#/components/responses/Problem" }
-  /core/capability/generations:
-    get:
-      operationId: listCapabilityGenerations
-      description: Lists complete, locally validated capability generations. Listing candidates never changes an active pin.
-      parameters:
-        - $ref: "#/components/parameters/PageLimit"
-      responses:
-        "200":
-          description: Locally available immutable generations, newest first.
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/CapabilityGenerationPage" }
-        "400": { $ref: "#/components/responses/Problem" }
-        "401": { $ref: "#/components/responses/Problem" }
-        "500": { $ref: "#/components/responses/Problem" }
-  /core/capability/refresh:
-    post:
-      operationId: refreshCapabilityGeneration
-      description: Validates and atomically saves one complete, commit-bound local generation as candidates. It never changes an active pin.
-      parameters:
-        - $ref: "#/components/parameters/CSRFToken"
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: "#/components/schemas/CapabilityGenerationInput" }
-      responses:
-        "200":
-          description: The saved generation and its candidates.
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/CapabilityGenerationRefresh" }
-        "400": { $ref: "#/components/responses/Problem" }
-        "401": { $ref: "#/components/responses/Problem" }
-        "403": { $ref: "#/components/responses/Problem" }
-        "409": { $ref: "#/components/responses/Problem" }
-        "413": { $ref: "#/components/responses/Problem" }
-        "422": { $ref: "#/components/responses/Problem" }
-        "500": { $ref: "#/components/responses/Problem" }
-  /core/capability/inspect:
-    get:
-      operationId: inspectCapabilityCandidate
-      description: Reads one exact immutable candidate, including its declarative manifest, without changing the active pin.
-      parameters:
-        - name: core_version
-          in: query
-          required: true
-          schema: { $ref: "#/components/schemas/ExactCoreVersion" }
-        - name: commit
-          in: query
-          required: true
-          schema: { $ref: "#/components/schemas/GitObjectID" }
-        - name: manifest_sha256
-          in: query
-          required: true
-          schema: { $ref: "#/components/schemas/SHA256" }
-      responses:
-        "200":
-          description: The exact locally stored candidate.
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/CapabilityManifestCandidate" }
-        "400": { $ref: "#/components/responses/Problem" }
-        "401": { $ref: "#/components/responses/Problem" }
-        "404": { $ref: "#/components/responses/Problem" }
-        "500": { $ref: "#/components/responses/Problem" }
-  /core/capability/upgrade:
-    post:
-      operationId: upgradeCapabilityCandidate
-      description: Previews an immutable candidate when accept is false; pins that exact candidate only when accept is explicitly true.
-      parameters:
-        - $ref: "#/components/parameters/CSRFToken"
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: "#/components/schemas/CapabilityUpgradeRequest" }
-      responses:
-        "200":
-          description: A preview, or the accepted pin together with the preview.
-          content:
-            application/json:
-              schema:
-                oneOf:
-                  - $ref: "#/components/schemas/CapabilityUpgradePreview"
-                  - $ref: "#/components/schemas/CapabilityUpgrade"
-        "400": { $ref: "#/components/responses/Problem" }
-        "401": { $ref: "#/components/responses/Problem" }
-        "403": { $ref: "#/components/responses/Problem" }
-        "404": { $ref: "#/components/responses/Problem" }
-        "409": { $ref: "#/components/responses/Problem" }
-        "413": { $ref: "#/components/responses/Problem" }
-        "422": { $ref: "#/components/responses/Problem" }
-        "500": { $ref: "#/components/responses/Problem" }
-  /core/capabilities/{manifestSha256}/quarantine:
-    post:
-      operationId: quarantineCapabilityManifest
-      description: Permanently quarantines one immutable capability manifest digest. The first reason and timestamp are retained; repeating that reason is idempotent and a different reason conflicts. No unquarantine operation is exposed.
-      parameters:
-        - name: manifestSha256
-          in: path
-          required: true
-          schema: { $ref: "#/components/schemas/SHA256" }
-        - $ref: "#/components/parameters/CSRFToken"
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: "#/components/schemas/CapabilityQuarantineRequest" }
-      responses:
-        "200":
-          description: The original permanent quarantine record, including for an idempotent retry.
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/CapabilityQuarantine" }
-        "400": { $ref: "#/components/responses/Problem" }
-        "401": { $ref: "#/components/responses/Problem" }
-        "403": { $ref: "#/components/responses/Problem" }
-        "409": { $ref: "#/components/responses/Problem" }
-        "413": { $ref: "#/components/responses/Problem" }
-        "422": { $ref: "#/components/responses/Problem" }
-        "500": { $ref: "#/components/responses/Problem" }
-  /core/status:
-    get:
-      operationId: getCoreRuntimeStatus
-      responses:
-        "200":
-          description: Desired, applied, rollback, and independently verified live runtime identities.
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/RuntimeStatus" }
-        "401": { $ref: "#/components/responses/Problem" }
-        "500": { $ref: "#/components/responses/Problem" }
-        "503": { $ref: "#/components/responses/Problem" }
-  /core/check:
-    post:
-      operationId: checkStartupArtifact
-      parameters:
-        - $ref: "#/components/parameters/CSRFToken"
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: "#/components/schemas/StartupCheckRequest" }
-      responses:
-        "202":
-          description: Exact binary and startup-byte check durably queued.
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/Task" }
-        "401": { $ref: "#/components/responses/Problem" }
-        "403": { $ref: "#/components/responses/Problem" }
-        "404": { $ref: "#/components/responses/Problem" }
-        "409": { $ref: "#/components/responses/Problem" }
-        "413": { $ref: "#/components/responses/Problem" }
-        "422": { $ref: "#/components/responses/Problem" }
-        "500": { $ref: "#/components/responses/Problem" }
-  /core/activate:
-    post:
-      operationId: activateStartupArtifact
-      description: Freezes an activation bundle and queues the same runtime apply service used by config apply.
-      parameters:
-        - $ref: "#/components/parameters/CSRFToken"
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: "#/components/schemas/ActivationRequest" }
-      responses:
-        "202":
-          description: Immutable activation inputs and the durable runtime task.
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/ActivationQueued" }
-        "401": { $ref: "#/components/responses/Problem" }
-        "403": { $ref: "#/components/responses/Problem" }
-        "404": { $ref: "#/components/responses/Problem" }
-        "409": { $ref: "#/components/responses/Problem" }
-        "413": { $ref: "#/components/responses/Problem" }
-        "422": { $ref: "#/components/responses/Problem" }
-        "500": { $ref: "#/components/responses/Problem" }
-  /core/start:
-    post:
-      operationId: startCoreRuntime
-      description: Queues a start using exactly the last successfully applied bundle.
-      parameters:
-        - $ref: "#/components/parameters/CSRFToken"
-      responses:
-        "202":
-          description: Durable runtime start task.
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/Task" }
-        "401": { $ref: "#/components/responses/Problem" }
-        "403": { $ref: "#/components/responses/Problem" }
-        "409": { $ref: "#/components/responses/Problem" }
-        "413": { $ref: "#/components/responses/Problem" }
-        "422": { $ref: "#/components/responses/Problem" }
-        "500": { $ref: "#/components/responses/Problem" }
-  /core/stop:
-    post:
-      operationId: stopCoreRuntime
-      parameters:
-        - $ref: "#/components/parameters/CSRFToken"
-      responses:
-        "202":
-          description: Durable runtime stop task.
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/Task" }
-        "401": { $ref: "#/components/responses/Problem" }
-        "403": { $ref: "#/components/responses/Problem" }
-        "413": { $ref: "#/components/responses/Problem" }
-        "422": { $ref: "#/components/responses/Problem" }
-        "500": { $ref: "#/components/responses/Problem" }
-  /core/restart:
-    post:
-      operationId: restartCoreRuntime
-      description: Queues a restart using exactly the last successfully applied bundle.
-      parameters:
-        - $ref: "#/components/parameters/CSRFToken"
-      responses:
-        "202":
-          description: Durable runtime restart task.
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/Task" }
-        "401": { $ref: "#/components/responses/Problem" }
-        "403": { $ref: "#/components/responses/Problem" }
-        "409": { $ref: "#/components/responses/Problem" }
-        "413": { $ref: "#/components/responses/Problem" }
-        "422": { $ref: "#/components/responses/Problem" }
-        "500": { $ref: "#/components/responses/Problem" }
-  /core/rollback:
-    post:
-      operationId: rollbackCoreRuntime
-      description: Queues the frozen rollback bundle without re-rendering any input.
-      parameters:
-        - $ref: "#/components/parameters/CSRFToken"
-      responses:
-        "202":
-          description: Durable rollback task.
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/Task" }
-        "401": { $ref: "#/components/responses/Problem" }
-        "403": { $ref: "#/components/responses/Problem" }
-        "409": { $ref: "#/components/responses/Problem" }
-        "413": { $ref: "#/components/responses/Problem" }
-        "422": { $ref: "#/components/responses/Problem" }
-        "500": { $ref: "#/components/responses/Problem" }
-  /config/apply:
-    post:
-      operationId: applyStartupArtifact
-      description: Alias of core activate backed by the identical application service.
-      parameters:
-        - $ref: "#/components/parameters/CSRFToken"
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: "#/components/schemas/ActivationRequest" }
-      responses:
-        "202":
-          description: Immutable activation inputs and the durable runtime task.
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/ActivationQueued" }
-        "401": { $ref: "#/components/responses/Problem" }
-        "403": { $ref: "#/components/responses/Problem" }
-        "404": { $ref: "#/components/responses/Problem" }
-        "409": { $ref: "#/components/responses/Problem" }
-        "413": { $ref: "#/components/responses/Problem" }
-        "422": { $ref: "#/components/responses/Problem" }
-        "500": { $ref: "#/components/responses/Problem" }
-  /config/render:
-    post:
-      operationId: renderStructuredConfiguration
-      description: Projects the current canonical head through one exact pinned declarative capability, persists immutable startup bytes, and queues their exact-binary check. When core_version is omitted, the verified running exact version and artifact are used; latest is never substituted.
-      parameters:
-        - $ref: "#/components/parameters/CSRFToken"
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: "#/components/schemas/StructuredRenderRequest" }
-      responses:
-        "202":
-          description: The pending immutable structured candidate and its durable startup-check task.
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/StructuredRender" }
-        "400": { $ref: "#/components/responses/Problem" }
-        "401": { $ref: "#/components/responses/Problem" }
-        "403": { $ref: "#/components/responses/Problem" }
-        "404": { $ref: "#/components/responses/Problem" }
-        "409": { $ref: "#/components/responses/Problem" }
-        "413": { $ref: "#/components/responses/Problem" }
-        "422": { $ref: "#/components/responses/Problem" }
-        "500": { $ref: "#/components/responses/Problem" }
-        "503": { $ref: "#/components/responses/Problem" }
-  /config/artifacts:
-    get:
-      operationId: listStartupArtifacts
-      description: Lists durable structured and manual startup candidates without exposing their potentially secret configuration bytes.
-      parameters:
-        - name: canonical_revision_id
-          in: query
-          schema: { type: string, minLength: 1, maxLength: 256 }
-        - name: core_version
-          in: query
-          schema: { $ref: "#/components/schemas/ExactCoreVersion" }
-        - name: core_artifact_id
-          in: query
-          schema: { type: string, minLength: 1, maxLength: 256 }
-        - name: kind
-          in: query
-          schema: { type: string, enum: [structured, manual] }
-        - name: state
-          in: query
-          schema: { $ref: "#/components/schemas/ManualArtifactState" }
-        - name: before_time
-          in: query
-          description: RFC 3339 cursor time; must be paired with before_id.
-          schema: { type: string, format: date-time }
-        - name: before_id
-          in: query
-          description: Stable cursor ID; must be paired with before_time.
-          schema: { type: string, minLength: 1, maxLength: 256 }
-        - $ref: "#/components/parameters/PageLimit"
-      responses:
-        "200":
-          description: A newest-first page of immutable startup-candidate metadata.
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/StartupArtifactPage" }
-        "400": { $ref: "#/components/responses/Problem" }
-        "401": { $ref: "#/components/responses/Problem" }
-        "500": { $ref: "#/components/responses/Problem" }
-  /config/manual:
-    get:
-      operationId: listManualStartupArtifacts
-      description: Lists exact-byte manual candidates for an explicit exact version, or the verified running version when omitted.
-      parameters:
-        - name: core_version
-          in: query
-          schema: { $ref: "#/components/schemas/ExactCoreVersion" }
-        - name: core_artifact_id
-          in: query
-          schema: { type: string, minLength: 1, maxLength: 256 }
-        - name: before_time
-          in: query
-          description: RFC 3339 cursor time; must be paired with before_id.
-          schema: { type: string, format: date-time }
-        - name: before_id
-          in: query
-          description: Stable cursor ID; must be paired with before_time.
-          schema: { type: string, minLength: 1, maxLength: 256 }
-        - $ref: "#/components/parameters/PageLimit"
-      responses:
-        "200":
-          description: Resolution evidence and matching manual candidates.
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/ManualArtifactList" }
-        "400": { $ref: "#/components/responses/Problem" }
-        "401": { $ref: "#/components/responses/Problem" }
-        "409": { $ref: "#/components/responses/Problem" }
-        "500": { $ref: "#/components/responses/Problem" }
-        "503": { $ref: "#/components/responses/Problem" }
-    put:
-      operationId: replaceManualStartupArtifact
-      description: Recomputes the reverse preview, preserves the request body as exact UTF-8 JSONC bytes, imports only proven reversible fields, and atomically queues its binary check.
-      parameters:
-        - $ref: "#/components/parameters/CSRFToken"
-        - $ref: "#/components/parameters/IfMatch"
-        - name: core_version
-          in: query
-          schema: { $ref: "#/components/schemas/ExactCoreVersion" }
-        - name: core_artifact_id
-          in: query
-          schema: { type: string, minLength: 1, maxLength: 256 }
-        - name: allow_compatible
-          in: query
-          schema: { type: boolean, default: false }
-          description: Explicit acceptance required before compatible_structured ownership may reverse into canonical state.
-      requestBody:
-        required: true
-        content:
-          application/jsonc:
-            schema:
-              type: string
-              description: Exact sing-box JSON or JSONC bytes; comments, whitespace, and key order are retained.
-      responses:
-        "202":
-          description: Atomic manual save and durable startup check task.
-          headers:
-            ETag: { schema: { type: string } }
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/ManualSave" }
-        "400": { $ref: "#/components/responses/Problem" }
-        "401": { $ref: "#/components/responses/Problem" }
-        "403": { $ref: "#/components/responses/Problem" }
-        "409": { $ref: "#/components/responses/Problem" }
-        "412": { $ref: "#/components/responses/Problem" }
-        "413": { $ref: "#/components/responses/Problem" }
-        "422": { $ref: "#/components/responses/Problem" }
-        "428": { $ref: "#/components/responses/Problem" }
-        "500": { $ref: "#/components/responses/Problem" }
-  /config/manual/preview:
-    post:
-      operationId: previewManualStartupReplacement
-      description: Parses exact JSONC bytes without writing and reports the exact-version capability evidence, reversible canonical partial, proposed canonical document, and residual manual-owned paths.
-      parameters:
-        - $ref: "#/components/parameters/CSRFToken"
-        - $ref: "#/components/parameters/IfMatch"
-        - name: core_version
-          in: query
-          schema: { $ref: "#/components/schemas/ExactCoreVersion" }
-        - name: core_artifact_id
-          in: query
-          schema: { type: string, minLength: 1, maxLength: 256 }
-        - name: allow_compatible
-          in: query
-          schema: { type: boolean, default: false }
-      requestBody:
-        required: true
-        content:
-          application/jsonc:
-            schema:
-              type: string
-              description: Exact sing-box JSON or JSONC bytes; the preview response never echoes them.
-      responses:
-        "200":
-          description: Read-only reverse-mapping preview bound to the current canonical head and exact binary.
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/ManualReplacePreview" }
-        "400": { $ref: "#/components/responses/Problem" }
-        "401": { $ref: "#/components/responses/Problem" }
-        "403": { $ref: "#/components/responses/Problem" }
-        "409": { $ref: "#/components/responses/Problem" }
-        "412": { $ref: "#/components/responses/Problem" }
-        "413": { $ref: "#/components/responses/Problem" }
-        "422": { $ref: "#/components/responses/Problem" }
-        "428": { $ref: "#/components/responses/Problem" }
-        "500": { $ref: "#/components/responses/Problem" }
-  /config/manual/{startupArtifactId}:
-    parameters:
-      - $ref: "#/components/parameters/StartupArtifactID"
-    get:
-      operationId: getManualStartupArtifact
-      responses:
-        "200":
-          description: One exact-byte manual candidate and its immutable bindings.
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/ManualArtifact" }
-        "400": { $ref: "#/components/responses/Problem" }
-        "401": { $ref: "#/components/responses/Problem" }
-        "404": { $ref: "#/components/responses/Problem" }
-        "500": { $ref: "#/components/responses/Problem" }
-    delete:
-      operationId: discardManualStartupArtifact
-      parameters:
-        - $ref: "#/components/parameters/CSRFToken"
-      responses:
-        "200":
-          description: The immutable candidate after its idempotent stale transition.
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/ManualArtifact" }
-        "400": { $ref: "#/components/responses/Problem" }
-        "401": { $ref: "#/components/responses/Problem" }
-        "403": { $ref: "#/components/responses/Problem" }
-        "404": { $ref: "#/components/responses/Problem" }
-        "413": { $ref: "#/components/responses/Problem" }
-        "422": { $ref: "#/components/responses/Problem" }
-        "500": { $ref: "#/components/responses/Problem" }
-  /config/manual/{startupArtifactId}/reattach/preview:
-    parameters:
-      - $ref: "#/components/parameters/StartupArtifactID"
-    get:
-      operationId: previewManualReattach
-      description: Recomputes a read-only base/current/manual three-way preview using the exact currently pinned structured manifest.
-      responses:
-        "200":
-          description: Immutable evidence, reversible owned partial, residual paths, and explicit conflicts.
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/ManualReattachPreview" }
-        "400": { $ref: "#/components/responses/Problem" }
-        "401": { $ref: "#/components/responses/Problem" }
-        "404": { $ref: "#/components/responses/Problem" }
-        "409": { $ref: "#/components/responses/Problem" }
-        "500": { $ref: "#/components/responses/Problem" }
-  /config/manual/{startupArtifactId}/reattach:
-    parameters:
-      - $ref: "#/components/parameters/StartupArtifactID"
-    post:
-      operationId: applyManualReattach
-      description: Recomputes the preview, verifies all evidence, requires one explicit choice per conflict, and atomically creates a new revision, manual artifact, and startup-check task.
-      parameters:
-        - $ref: "#/components/parameters/CSRFToken"
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: "#/components/schemas/ManualReattachApplyRequest" }
-      responses:
-        "202":
-          description: Newly committed canonical revision and immutable manual candidate.
-          headers:
-            ETag: { schema: { type: string } }
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/ManualReattachSave" }
-        "400": { $ref: "#/components/responses/Problem" }
-        "401": { $ref: "#/components/responses/Problem" }
-        "403": { $ref: "#/components/responses/Problem" }
-        "404": { $ref: "#/components/responses/Problem" }
-        "409": { $ref: "#/components/responses/Problem" }
-        "412": { $ref: "#/components/responses/Problem" }
-        "413": { $ref: "#/components/responses/Problem" }
-        "422": { $ref: "#/components/responses/Problem" }
-        "500": { $ref: "#/components/responses/Problem" }
+          $ref: "#/components/responses/JSON"
   /config/canonical:
     get:
       operationId: getCanonicalConfiguration
       responses:
         "200":
-          description: Current immutable canonical snapshot.
-          headers:
-            ETag:
-              schema: { type: string }
+          description: Current global immutable revision.
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/CanonicalSnapshot"
-        "401": { $ref: "#/components/responses/Problem" }
-        "404": { $ref: "#/components/responses/Problem" }
     put:
       operationId: replaceCanonicalConfiguration
       parameters:
+        - $ref: "#/components/parameters/IfMatch"
         - $ref: "#/components/parameters/CSRFToken"
-        - name: If-Match
-          in: header
-          required: true
-          description: Quoted base revision ID, or `"none"` for the first revision.
-          schema: { type: string }
       requestBody:
         required: true
         content:
@@ -880,63 +88,112 @@ paths:
               $ref: "#/components/schemas/CanonicalDocument"
       responses:
         "200":
-          description: Canonical head after the compare-and-swap save.
-          headers:
-            ETag:
-              schema: { type: string }
+          description: Saved global revision.
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/CanonicalSave"
-        "401": { $ref: "#/components/responses/Problem" }
-        "403": { $ref: "#/components/responses/Problem" }
-        "412": { $ref: "#/components/responses/Problem" }
-        "428": { $ref: "#/components/responses/Problem" }
     patch:
       operationId: patchCanonicalConfiguration
-      description: Applies one ordered set of lossless JSON-pointer changes in a single canonical compare-and-swap revision.
       parameters:
+        - $ref: "#/components/parameters/IfMatch"
         - $ref: "#/components/parameters/CSRFToken"
-        - name: If-Match
-          in: header
-          required: true
-          description: Quoted base revision ID.
-          schema: { type: string }
       requestBody:
         required: true
         content:
           application/json:
-            schema: { $ref: "#/components/schemas/CanonicalPatchRequest" }
+            schema:
+              type: object
+              required: [changes]
+              properties:
+                changes:
+                  type: array
+                  items:
+                    $ref: "#/components/schemas/CanonicalChange"
       responses:
         "200":
-          description: Canonical head after applying every change atomically.
-          headers:
-            ETag: { schema: { type: string } }
+          $ref: "#/components/responses/JSON"
+  /config/preview:
+    post:
+      operationId: previewConfiguration
+      parameters:
+        - $ref: "#/components/parameters/CSRFToken"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [core_artifact_id]
+              properties:
+                core_artifact_id:
+                  type: string
+                canonical_revision_id:
+                  type: string
+      responses:
+        "200":
+          description: Non-persisted projection through the exact adapter.
           content:
             application/json:
-              schema: { $ref: "#/components/schemas/CanonicalSave" }
-        "401": { $ref: "#/components/responses/Problem" }
-        "403": { $ref: "#/components/responses/Problem" }
-        "412": { $ref: "#/components/responses/Problem" }
-        "413": { $ref: "#/components/responses/Problem" }
-        "422": { $ref: "#/components/responses/Problem" }
-        "428": { $ref: "#/components/responses/Problem" }
+              schema:
+                $ref: "#/components/schemas/ConfigurationPreview"
+  /config/compile:
+    post:
+      operationId: compileConfiguration
+      parameters:
+        - $ref: "#/components/parameters/CSRFToken"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [core_artifact_id]
+              properties:
+                core_artifact_id:
+                  type: string
+                accepted_ignored_digest:
+                  type: string
+      responses:
+        "202":
+          description: Immutable compiled candidate and queued exact-core check.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConfigurationCompile"
+  /config/artifacts:
+    get:
+      operationId: listStartupArtifacts
+      parameters:
+        - $ref: "#/components/parameters/CanonicalRevisionFilter"
+        - $ref: "#/components/parameters/CoreVersionFilter"
+        - $ref: "#/components/parameters/CoreArtifactFilter"
+        - $ref: "#/components/parameters/StartupStateFilter"
+        - $ref: "#/components/parameters/BeforeTime"
+        - $ref: "#/components/parameters/BeforeID"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          $ref: "#/components/responses/JSON"
+  /config/apply:
+    post:
+      operationId: applyStartupArtifact
+      parameters:
+        - $ref: "#/components/parameters/CSRFToken"
+      requestBody:
+        $ref: "#/components/requestBodies/Activation"
+      responses:
+        "202":
+          $ref: "#/components/responses/Accepted"
   /config/revisions:
     get:
       operationId: listCanonicalRevisions
       parameters:
-        - name: before_sequence
-          in: query
-          schema: { type: integer, format: int64, minimum: 1 }
-        - $ref: "#/components/parameters/PageLimit"
+        - $ref: "#/components/parameters/BeforeSequence"
+        - $ref: "#/components/parameters/Limit"
       responses:
         "200":
-          description: Immutable canonical revisions, newest first.
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/CanonicalRevisionPage" }
-        "400": { $ref: "#/components/responses/Problem" }
-        "401": { $ref: "#/components/responses/Problem" }
+          $ref: "#/components/responses/JSON"
   /config/revisions/diff:
     get:
       operationId: diffCanonicalRevisions
@@ -944,20 +201,16 @@ paths:
         - name: from
           in: query
           required: true
-          schema: { type: string }
+          schema:
+            type: string
         - name: to
           in: query
           required: true
-          schema: { type: string }
+          schema:
+            type: string
       responses:
         "200":
-          description: Deterministic JSON-pointer changes between two revisions.
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/CanonicalRevisionDiff" }
-        "400": { $ref: "#/components/responses/Problem" }
-        "401": { $ref: "#/components/responses/Problem" }
-        "404": { $ref: "#/components/responses/Problem" }
+          $ref: "#/components/responses/JSON"
   /config/revisions/{revisionId}:
     parameters:
       - $ref: "#/components/parameters/RevisionID"
@@ -965,913 +218,229 @@ paths:
       operationId: getCanonicalRevision
       responses:
         "200":
-          description: One immutable canonical revision.
-          headers:
-            ETag: { schema: { type: string } }
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/CanonicalSnapshot" }
-        "401": { $ref: "#/components/responses/Problem" }
-        "404": { $ref: "#/components/responses/Problem" }
+          $ref: "#/components/responses/JSON"
   /config/revisions/{revisionId}/restore:
     parameters:
       - $ref: "#/components/parameters/RevisionID"
     post:
       operationId: restoreCanonicalRevision
       parameters:
-        - $ref: "#/components/parameters/CSRFToken"
         - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/CSRFToken"
       responses:
         "200":
-          description: A new head revision containing the selected old snapshot.
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/CanonicalSave" }
-        "401": { $ref: "#/components/responses/Problem" }
-        "403": { $ref: "#/components/responses/Problem" }
-        "404": { $ref: "#/components/responses/Problem" }
-        "412": { $ref: "#/components/responses/Problem" }
-        "428": { $ref: "#/components/responses/Problem" }
-  /nodes:
+          $ref: "#/components/responses/JSON"
+  /core/catalog/assets:
     get:
-      operationId: listNodes
+      operationId: listCoreCatalogAssets
+      parameters:
+        - $ref: "#/components/parameters/ExactVersion"
+        - $ref: "#/components/parameters/Architecture"
+        - $ref: "#/components/parameters/Variant"
+        - $ref: "#/components/parameters/Installable"
       responses:
         "200":
-          description: Nodes from the current canonical revision.
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/EntityList" }
-        "401": { $ref: "#/components/responses/Problem" }
+          $ref: "#/components/responses/JSON"
+  /core/catalog/refresh:
     post:
-      operationId: createNode
+      operationId: refreshCoreCatalog
       parameters:
         - $ref: "#/components/parameters/CSRFToken"
-        - $ref: "#/components/parameters/IfMatch"
       requestBody:
         required: true
         content:
           application/json:
-            schema: { $ref: "#/components/schemas/Node" }
+            schema:
+              type: object
+              additionalProperties: false
+              required: [force]
+              properties:
+                force:
+                  type: boolean
       responses:
-        "201":
-          description: Node saved in a new canonical revision.
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/CanonicalSave" }
-        "401": { $ref: "#/components/responses/Problem" }
-        "403": { $ref: "#/components/responses/Problem" }
-        "409": { $ref: "#/components/responses/Problem" }
-        "412": { $ref: "#/components/responses/Problem" }
-        "422": { $ref: "#/components/responses/Problem" }
-        "428": { $ref: "#/components/responses/Problem" }
-  /nodes/{entityId}:
-    parameters:
-      - $ref: "#/components/parameters/EntityID"
+        "202":
+          $ref: "#/components/responses/Accepted"
+  /core/artifacts:
     get:
-      operationId: getNode
+      operationId: listCoreArtifacts
+      parameters:
+        - $ref: "#/components/parameters/ExactVersion"
+        - $ref: "#/components/parameters/Architecture"
+        - $ref: "#/components/parameters/Variant"
+        - $ref: "#/components/parameters/CoreSourceKind"
+        - $ref: "#/components/parameters/VerificationState"
+        - $ref: "#/components/parameters/BeforeTime"
+        - $ref: "#/components/parameters/BeforeID"
+        - $ref: "#/components/parameters/Limit"
       responses:
         "200":
-          description: One node and its canonical revision.
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/EntityResult" }
-        "401": { $ref: "#/components/responses/Problem" }
-        "404": { $ref: "#/components/responses/Problem" }
-    put:
-      operationId: replaceNode
-      parameters:
-        - $ref: "#/components/parameters/CSRFToken"
-        - $ref: "#/components/parameters/IfMatch"
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: "#/components/schemas/Node" }
+          $ref: "#/components/responses/JSON"
+  /core/artifacts/{artifactId}:
+    parameters:
+      - $ref: "#/components/parameters/ArtifactID"
+    get:
+      operationId: getCoreArtifact
       responses:
-        "200": { $ref: "#/components/responses/CanonicalSave" }
-        "401": { $ref: "#/components/responses/Problem" }
-        "403": { $ref: "#/components/responses/Problem" }
-        "404": { $ref: "#/components/responses/Problem" }
-        "412": { $ref: "#/components/responses/Problem" }
-        "422": { $ref: "#/components/responses/Problem" }
-        "428": { $ref: "#/components/responses/Problem" }
+        "200":
+          $ref: "#/components/responses/JSON"
     delete:
-      operationId: deleteNode
+      operationId: deleteCoreArtifact
       parameters:
         - $ref: "#/components/parameters/CSRFToken"
-        - $ref: "#/components/parameters/IfMatch"
       responses:
-        "200": { $ref: "#/components/responses/CanonicalSave" }
-        "401": { $ref: "#/components/responses/Problem" }
-        "403": { $ref: "#/components/responses/Problem" }
-        "404": { $ref: "#/components/responses/Problem" }
-        "409": { $ref: "#/components/responses/Problem" }
-        "412": { $ref: "#/components/responses/Problem" }
-        "428": { $ref: "#/components/responses/Problem" }
-  /nodes/{entityId}/enabled:
+        "204":
+          $ref: "#/components/responses/NoContent"
+  /core/artifacts/{artifactId}/configuration-support:
     parameters:
-      - $ref: "#/components/parameters/EntityID"
-    patch:
-      operationId: setNodeEnabled
-      parameters:
-        - $ref: "#/components/parameters/CSRFToken"
-        - $ref: "#/components/parameters/IfMatch"
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: "#/components/schemas/EnabledRequest" }
+      - $ref: "#/components/parameters/ArtifactID"
+    get:
+      operationId: getCoreArtifactConfigurationSupport
       responses:
-        "200": { $ref: "#/components/responses/CanonicalSave" }
-        "401": { $ref: "#/components/responses/Problem" }
-        "403": { $ref: "#/components/responses/Problem" }
-        "404": { $ref: "#/components/responses/Problem" }
-        "412": { $ref: "#/components/responses/Problem" }
-        "422": { $ref: "#/components/responses/Problem" }
-        "428": { $ref: "#/components/responses/Problem" }
-  /nodes/{entityId}/move:
+        "200":
+          description: Exact compiled adapter support for the complete binary profile.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConfigurationAdapterSupport"
+  /core/artifacts/{artifactId}/quarantine:
     parameters:
-      - $ref: "#/components/parameters/EntityID"
+      - $ref: "#/components/parameters/ArtifactID"
     post:
-      operationId: moveNode
+      operationId: quarantineCoreArtifact
       parameters:
         - $ref: "#/components/parameters/CSRFToken"
-        - $ref: "#/components/parameters/IfMatch"
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: "#/components/schemas/MoveRequest" }
-      responses:
-        "200": { $ref: "#/components/responses/CanonicalSave" }
-        "401": { $ref: "#/components/responses/Problem" }
-        "403": { $ref: "#/components/responses/Problem" }
-        "404": { $ref: "#/components/responses/Problem" }
-        "412": { $ref: "#/components/responses/Problem" }
-        "422": { $ref: "#/components/responses/Problem" }
-        "428": { $ref: "#/components/responses/Problem" }
-  /rules:
-    get:
-      operationId: listRules
       responses:
         "200":
-          description: Rules from the current canonical revision.
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/EntityList" }
-        "401": { $ref: "#/components/responses/Problem" }
+          $ref: "#/components/responses/JSON"
+  /core/artifacts/{artifactId}/revoke:
+    parameters:
+      - $ref: "#/components/parameters/ArtifactID"
     post:
-      operationId: createRule
+      operationId: revokeCoreArtifact
       parameters:
         - $ref: "#/components/parameters/CSRFToken"
-        - $ref: "#/components/parameters/IfMatch"
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: "#/components/schemas/Rule" }
-      responses:
-        "201": { $ref: "#/components/responses/CanonicalSave" }
-        "401": { $ref: "#/components/responses/Problem" }
-        "403": { $ref: "#/components/responses/Problem" }
-        "409": { $ref: "#/components/responses/Problem" }
-        "412": { $ref: "#/components/responses/Problem" }
-        "422": { $ref: "#/components/responses/Problem" }
-        "428": { $ref: "#/components/responses/Problem" }
-  /rules/{entityId}:
-    parameters:
-      - $ref: "#/components/parameters/EntityID"
-    get:
-      operationId: getRule
       responses:
         "200":
-          description: One rule and its canonical revision.
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/EntityResult" }
-        "401": { $ref: "#/components/responses/Problem" }
-        "404": { $ref: "#/components/responses/Problem" }
-    put:
-      operationId: replaceRule
-      parameters:
-        - $ref: "#/components/parameters/CSRFToken"
-        - $ref: "#/components/parameters/IfMatch"
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: "#/components/schemas/Rule" }
-      responses:
-        "200": { $ref: "#/components/responses/CanonicalSave" }
-        "401": { $ref: "#/components/responses/Problem" }
-        "403": { $ref: "#/components/responses/Problem" }
-        "404": { $ref: "#/components/responses/Problem" }
-        "412": { $ref: "#/components/responses/Problem" }
-        "422": { $ref: "#/components/responses/Problem" }
-        "428": { $ref: "#/components/responses/Problem" }
-    delete:
-      operationId: deleteRule
-      parameters:
-        - $ref: "#/components/parameters/CSRFToken"
-        - $ref: "#/components/parameters/IfMatch"
-      responses:
-        "200": { $ref: "#/components/responses/CanonicalSave" }
-        "401": { $ref: "#/components/responses/Problem" }
-        "403": { $ref: "#/components/responses/Problem" }
-        "404": { $ref: "#/components/responses/Problem" }
-        "409": { $ref: "#/components/responses/Problem" }
-        "412": { $ref: "#/components/responses/Problem" }
-        "428": { $ref: "#/components/responses/Problem" }
-  /rules/{entityId}/enabled:
-    parameters:
-      - $ref: "#/components/parameters/EntityID"
-    patch:
-      operationId: setRuleEnabled
-      parameters:
-        - $ref: "#/components/parameters/CSRFToken"
-        - $ref: "#/components/parameters/IfMatch"
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: "#/components/schemas/EnabledRequest" }
-      responses:
-        "200": { $ref: "#/components/responses/CanonicalSave" }
-        "401": { $ref: "#/components/responses/Problem" }
-        "403": { $ref: "#/components/responses/Problem" }
-        "404": { $ref: "#/components/responses/Problem" }
-        "412": { $ref: "#/components/responses/Problem" }
-        "422": { $ref: "#/components/responses/Problem" }
-        "428": { $ref: "#/components/responses/Problem" }
-  /rules/{entityId}/move:
-    parameters:
-      - $ref: "#/components/parameters/EntityID"
+          $ref: "#/components/responses/JSON"
+  /core/install:
     post:
-      operationId: moveRule
+      operationId: installCoreArtifact
       parameters:
         - $ref: "#/components/parameters/CSRFToken"
-        - $ref: "#/components/parameters/IfMatch"
       requestBody:
         required: true
         content:
           application/json:
-            schema: { $ref: "#/components/schemas/MoveRequest" }
+            schema:
+              type: object
+              additionalProperties: false
+              required: [asset_id]
+              properties:
+                asset_id:
+                  type: integer
+                  format: int64
+                  minimum: 1
       responses:
-        "200": { $ref: "#/components/responses/CanonicalSave" }
-        "401": { $ref: "#/components/responses/Problem" }
-        "403": { $ref: "#/components/responses/Problem" }
-        "404": { $ref: "#/components/responses/Problem" }
-        "412": { $ref: "#/components/responses/Problem" }
-        "422": { $ref: "#/components/responses/Problem" }
-        "428": { $ref: "#/components/responses/Problem" }
-  /sub/{token}/{channelId}:
-    servers:
-      - url: /
-        description: Public endpoint outside the versioned management API. A configured panel base path prefixes this URL at runtime.
-    parameters:
-      - name: token
-        in: path
-        required: true
-        description: Opaque one-time-issued public subscription credential.
-        schema: { type: string, minLength: 1, maxLength: 512 }
-      - name: channelId
-        in: path
-        required: true
-        description: Stable ID of a channel frozen into the applied activation bundle.
-        schema: { type: string, minLength: 1, maxLength: 128 }
-    get:
-      operationId: getPublicSubscription
-      security: []
-      description: Returns only bytes frozen into the currently applied activation bundle. Token revocation and expiry are checked immediately; mutable channels and sources are never read for publication.
-      responses:
-        "200":
-          description: Frozen client subscription bytes from the applied bundle.
-          headers:
-            Cache-Control:
-              schema: { type: string, const: no-store }
-          content:
-            application/json:
-              schema: { type: object, additionalProperties: true }
-            application/yaml:
-              schema: { type: string }
-            text/plain:
-              schema: { type: string }
-        "404":
-          description: Uniform response for an unknown, expired, revoked, or unavailable token/channel selection.
-          content:
-            application/problem+json:
-              schema: { $ref: "#/components/schemas/Problem" }
-        "503":
-          description: No bundle has been applied, or frozen publication is temporarily unavailable. The response never reflects the token.
-          content:
-            application/problem+json:
-              schema: { $ref: "#/components/schemas/Problem" }
-  /subscription/channels:
-    get:
-      operationId: listSubscriptionChannels
-      parameters:
-        - name: before_time
-          in: query
-          description: RFC 3339 cursor time; must be paired with before_id.
-          schema: { type: string, format: date-time }
-        - name: before_id
-          in: query
-          description: Stable cursor ID; must be paired with before_time.
-          schema: { type: string, minLength: 1, maxLength: 128 }
-        - $ref: "#/components/parameters/PageLimit"
-      responses:
-        "200":
-          description: A newest-first page of subscription-channel metadata without configuration bodies.
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/SubscriptionChannelPage" }
-        "400": { $ref: "#/components/responses/Problem" }
-        "401": { $ref: "#/components/responses/Problem" }
-        "500": { $ref: "#/components/responses/Problem" }
-        "503": { $ref: "#/components/responses/Problem" }
+        "202":
+          $ref: "#/components/responses/Accepted"
+  /core/import:
     post:
-      operationId: createSubscriptionChannel
+      operationId: importCoreArtifact
       parameters:
         - $ref: "#/components/parameters/CSRFToken"
       requestBody:
         required: true
         content:
-          application/json:
-            schema: { $ref: "#/components/schemas/SubscriptionChannelWrite" }
+          multipart/form-data:
+            schema:
+              type: object
+              required: [archive, sha256, exact_version, architecture, variant]
+              properties:
+                archive:
+                  type: string
+                  format: binary
+                sha256:
+                  type: string
+                exact_version:
+                  type: string
+                architecture:
+                  type: string
+                variant:
+                  type: string
+                source_description:
+                  type: string
       responses:
-        "201":
-          description: The channel was created. ETag is its updated_at CAS version.
-          headers:
-            ETag: { schema: { type: string } }
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/SubscriptionChannel" }
-        "401": { $ref: "#/components/responses/Problem" }
-        "403": { $ref: "#/components/responses/Problem" }
-        "409": { $ref: "#/components/responses/Problem" }
-        "413": { $ref: "#/components/responses/Problem" }
-        "422": { $ref: "#/components/responses/Problem" }
-        "500": { $ref: "#/components/responses/Problem" }
-        "503": { $ref: "#/components/responses/Problem" }
-  /subscription/channels/{channelId}:
-    parameters:
-      - $ref: "#/components/parameters/SubscriptionChannelID"
+        "202":
+          $ref: "#/components/responses/Accepted"
+  /core/status:
     get:
-      operationId: getSubscriptionChannel
+      operationId: getCoreRuntimeStatus
       responses:
         "200":
-          description: One channel. ETag is its updated_at CAS version.
-          headers:
-            ETag: { schema: { type: string } }
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/SubscriptionChannel" }
-        "401": { $ref: "#/components/responses/Problem" }
-        "404": { $ref: "#/components/responses/Problem" }
-        "500": { $ref: "#/components/responses/Problem" }
-        "503": { $ref: "#/components/responses/Problem" }
-    put:
-      operationId: updateSubscriptionChannel
-      parameters:
-        - $ref: "#/components/parameters/CSRFToken"
-        - $ref: "#/components/parameters/SubscriptionIfMatch"
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: "#/components/schemas/SubscriptionChannelWrite" }
-      responses:
-        "200":
-          description: The channel after the CAS update.
-          headers:
-            ETag: { schema: { type: string } }
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/SubscriptionChannel" }
-        "401": { $ref: "#/components/responses/Problem" }
-        "403": { $ref: "#/components/responses/Problem" }
-        "404": { $ref: "#/components/responses/Problem" }
-        "409": { $ref: "#/components/responses/Problem" }
-        "412": { $ref: "#/components/responses/Problem" }
-        "413": { $ref: "#/components/responses/Problem" }
-        "422": { $ref: "#/components/responses/Problem" }
-        "428": { $ref: "#/components/responses/Problem" }
-        "500": { $ref: "#/components/responses/Problem" }
-        "503": { $ref: "#/components/responses/Problem" }
-    delete:
-      operationId: deleteSubscriptionChannel
-      parameters:
-        - $ref: "#/components/parameters/CSRFToken"
-        - $ref: "#/components/parameters/SubscriptionIfMatch"
-      responses:
-        "204": { description: The channel was deleted. Tokens are global credentials and do not reference channels. }
-        "401": { $ref: "#/components/responses/Problem" }
-        "403": { $ref: "#/components/responses/Problem" }
-        "404": { $ref: "#/components/responses/Problem" }
-        "409": { $ref: "#/components/responses/Problem" }
-        "412": { $ref: "#/components/responses/Problem" }
-        "413": { $ref: "#/components/responses/Problem" }
-        "422": { $ref: "#/components/responses/Problem" }
-        "428": { $ref: "#/components/responses/Problem" }
-        "500": { $ref: "#/components/responses/Problem" }
-        "503": { $ref: "#/components/responses/Problem" }
-  /subscription/channels/{channelId}/preview:
-    parameters:
-      - $ref: "#/components/parameters/SubscriptionChannelID"
+          $ref: "#/components/responses/JSON"
+  /core/check:
     post:
-      operationId: previewSubscriptionChannel
-      description: Renders from one ready or stale immutable startup artifact without changing public publication.
+      operationId: checkStartupArtifact
       parameters:
         - $ref: "#/components/parameters/CSRFToken"
       requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: "#/components/schemas/SubscriptionPreviewRequest" }
+        $ref: "#/components/requestBodies/StartupArtifact"
       responses:
-        "200":
-          description: Renderer result and stable diagnostics.
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/SubscriptionPreview" }
-        "401": { $ref: "#/components/responses/Problem" }
-        "403": { $ref: "#/components/responses/Problem" }
-        "404": { $ref: "#/components/responses/Problem" }
-        "409": { $ref: "#/components/responses/Problem" }
-        "413": { $ref: "#/components/responses/Problem" }
-        "422": { $ref: "#/components/responses/Problem" }
-        "500": { $ref: "#/components/responses/Problem" }
-        "503": { $ref: "#/components/responses/Problem" }
-  /subscription/sources:
-    get:
-      operationId: listSubscriptionSources
-      parameters:
-        - name: before_time
-          in: query
-          description: RFC 3339 cursor time; must be paired with before_id.
-          schema: { type: string, format: date-time }
-        - name: before_id
-          in: query
-          description: Stable cursor ID; must be paired with before_time.
-          schema: { type: string, minLength: 1, maxLength: 128 }
-        - $ref: "#/components/parameters/PageLimit"
-      responses:
-        "200":
-          description: A newest-first page of source metadata without configuration or snapshot bodies.
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/SubscriptionSourcePage" }
-        "400": { $ref: "#/components/responses/Problem" }
-        "401": { $ref: "#/components/responses/Problem" }
-        "500": { $ref: "#/components/responses/Problem" }
-        "503": { $ref: "#/components/responses/Problem" }
+        "202":
+          $ref: "#/components/responses/Accepted"
+  /core/activate:
     post:
-      operationId: createSubscriptionSource
+      operationId: activateStartupArtifact
       parameters:
         - $ref: "#/components/parameters/CSRFToken"
       requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: "#/components/schemas/SubscriptionSourceCreate" }
+        $ref: "#/components/requestBodies/Activation"
       responses:
-        "201":
-          description: The source was created. ETag is its updated_at CAS version.
-          headers:
-            ETag: { schema: { type: string } }
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/SubscriptionSource" }
-        "401": { $ref: "#/components/responses/Problem" }
-        "403": { $ref: "#/components/responses/Problem" }
-        "409": { $ref: "#/components/responses/Problem" }
-        "413": { $ref: "#/components/responses/Problem" }
-        "422": { $ref: "#/components/responses/Problem" }
-        "500": { $ref: "#/components/responses/Problem" }
-        "503": { $ref: "#/components/responses/Problem" }
-  /subscription/sources/{sourceId}:
-    parameters:
-      - $ref: "#/components/parameters/SubscriptionSourceID"
-    get:
-      operationId: getSubscriptionSource
-      responses:
-        "200":
-          description: One attached source. ETag is its updated_at CAS version.
-          headers:
-            ETag: { schema: { type: string } }
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/SubscriptionSource" }
-        "401": { $ref: "#/components/responses/Problem" }
-        "404": { $ref: "#/components/responses/Problem" }
-        "500": { $ref: "#/components/responses/Problem" }
-        "503": { $ref: "#/components/responses/Problem" }
-    put:
-      operationId: updateSubscriptionSource
-      description: Replaces source metadata while retaining its latest snapshot.
-      parameters:
-        - $ref: "#/components/parameters/CSRFToken"
-        - $ref: "#/components/parameters/SubscriptionIfMatch"
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: "#/components/schemas/SubscriptionSourceWrite" }
-      responses:
-        "200":
-          description: The source after the CAS update.
-          headers:
-            ETag: { schema: { type: string } }
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/SubscriptionSource" }
-        "401": { $ref: "#/components/responses/Problem" }
-        "403": { $ref: "#/components/responses/Problem" }
-        "404": { $ref: "#/components/responses/Problem" }
-        "409": { $ref: "#/components/responses/Problem" }
-        "412": { $ref: "#/components/responses/Problem" }
-        "413": { $ref: "#/components/responses/Problem" }
-        "422": { $ref: "#/components/responses/Problem" }
-        "428": { $ref: "#/components/responses/Problem" }
-        "500": { $ref: "#/components/responses/Problem" }
-        "503": { $ref: "#/components/responses/Problem" }
-    delete:
-      operationId: deleteSubscriptionSource
-      parameters:
-        - $ref: "#/components/parameters/CSRFToken"
-        - $ref: "#/components/parameters/SubscriptionIfMatch"
-      responses:
-        "204": { description: The source was deleted. }
-        "401": { $ref: "#/components/responses/Problem" }
-        "403": { $ref: "#/components/responses/Problem" }
-        "404": { $ref: "#/components/responses/Problem" }
-        "412": { $ref: "#/components/responses/Problem" }
-        "413": { $ref: "#/components/responses/Problem" }
-        "422": { $ref: "#/components/responses/Problem" }
-        "428": { $ref: "#/components/responses/Problem" }
-        "500": { $ref: "#/components/responses/Problem" }
-        "503": { $ref: "#/components/responses/Problem" }
-  /subscription/sources/{sourceId}/snapshot:
-    parameters:
-      - $ref: "#/components/parameters/SubscriptionSourceID"
-    put:
-      operationId: updateSubscriptionSourceSnapshot
-      description: Stores a new strict source snapshot candidate. Public publication changes only after a later successful apply freezes it.
-      parameters:
-        - $ref: "#/components/parameters/CSRFToken"
-        - $ref: "#/components/parameters/SubscriptionIfMatch"
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: "#/components/schemas/SubscriptionSourceSnapshotWrite" }
-      responses:
-        "200":
-          description: The source after the snapshot CAS update.
-          headers:
-            ETag: { schema: { type: string } }
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/SubscriptionSource" }
-        "401": { $ref: "#/components/responses/Problem" }
-        "403": { $ref: "#/components/responses/Problem" }
-        "404": { $ref: "#/components/responses/Problem" }
-        "412": { $ref: "#/components/responses/Problem" }
-        "413": { $ref: "#/components/responses/Problem" }
-        "422": { $ref: "#/components/responses/Problem" }
-        "428": { $ref: "#/components/responses/Problem" }
-        "500": { $ref: "#/components/responses/Problem" }
-        "503": { $ref: "#/components/responses/Problem" }
-  /subscription/tokens:
-    get:
-      operationId: listSubscriptionTokens
-      description: Lists metadata only; plaintext and token SHA-256 are never returned.
-      parameters:
-        - name: before_time
-          in: query
-          description: RFC 3339 cursor time; must be paired with before_id.
-          schema: { type: string, format: date-time }
-        - name: before_id
-          in: query
-          description: Stable cursor ID; must be paired with before_time.
-          schema: { type: string, minLength: 1, maxLength: 128 }
-        - $ref: "#/components/parameters/PageLimit"
-      responses:
-        "200":
-          description: Subscription token metadata, newest first.
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/SubscriptionTokenPage" }
-        "400": { $ref: "#/components/responses/Problem" }
-        "401": { $ref: "#/components/responses/Problem" }
-        "500": { $ref: "#/components/responses/Problem" }
-        "503": { $ref: "#/components/responses/Problem" }
+        "202":
+          $ref: "#/components/responses/Accepted"
+  /core/start:
     post:
-      operationId: createSubscriptionToken
-      description: Creates a token and returns its plaintext exactly once.
+      operationId: startCoreRuntime
       parameters:
         - $ref: "#/components/parameters/CSRFToken"
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: "#/components/schemas/SubscriptionTokenCreateRequest" }
       responses:
-        "201":
-          description: New token metadata and one-time plaintext.
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/CreatedSubscriptionToken" }
-        "401": { $ref: "#/components/responses/Problem" }
-        "403": { $ref: "#/components/responses/Problem" }
-        "404": { $ref: "#/components/responses/Problem" }
-        "409": { $ref: "#/components/responses/Problem" }
-        "413": { $ref: "#/components/responses/Problem" }
-        "422": { $ref: "#/components/responses/Problem" }
-        "500": { $ref: "#/components/responses/Problem" }
-        "503": { $ref: "#/components/responses/Problem" }
-  /subscription/tokens/{tokenId}:
-    parameters:
-      - $ref: "#/components/parameters/SubscriptionTokenID"
-    get:
-      operationId: getSubscriptionToken
-      description: Returns metadata only; never plaintext or the persisted digest.
-      responses:
-        "200":
-          description: Token metadata.
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/SubscriptionToken" }
-        "401": { $ref: "#/components/responses/Problem" }
-        "404": { $ref: "#/components/responses/Problem" }
-        "500": { $ref: "#/components/responses/Problem" }
-        "503": { $ref: "#/components/responses/Problem" }
-  /subscription/tokens/{tokenId}/rotate:
-    parameters:
-      - $ref: "#/components/parameters/SubscriptionTokenID"
+        "202":
+          $ref: "#/components/responses/Accepted"
+  /core/stop:
     post:
-      operationId: rotateSubscriptionToken
-      description: Atomically revokes the old active token and returns one replacement plaintext exactly once.
+      operationId: stopCoreRuntime
       parameters:
         - $ref: "#/components/parameters/CSRFToken"
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: "#/components/schemas/SubscriptionTokenRotateRequest" }
       responses:
-        "201":
-          description: Atomic rotation result and one-time replacement plaintext.
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/SubscriptionTokenRotation" }
-        "401": { $ref: "#/components/responses/Problem" }
-        "403": { $ref: "#/components/responses/Problem" }
-        "404": { $ref: "#/components/responses/Problem" }
-        "409": { $ref: "#/components/responses/Problem" }
-        "413": { $ref: "#/components/responses/Problem" }
-        "422": { $ref: "#/components/responses/Problem" }
-        "500": { $ref: "#/components/responses/Problem" }
-        "503": { $ref: "#/components/responses/Problem" }
-  /subscription/tokens/{tokenId}/revoke:
-    parameters:
-      - $ref: "#/components/parameters/SubscriptionTokenID"
+        "202":
+          $ref: "#/components/responses/Accepted"
+  /core/restart:
     post:
-      operationId: revokeSubscriptionToken
-      description: Idempotently revokes the token; public access stops immediately.
+      operationId: restartCoreRuntime
       parameters:
         - $ref: "#/components/parameters/CSRFToken"
       responses:
-        "200":
-          description: Current revoked token metadata.
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/SubscriptionToken" }
-        "401": { $ref: "#/components/responses/Problem" }
-        "403": { $ref: "#/components/responses/Problem" }
-        "404": { $ref: "#/components/responses/Problem" }
-        "413": { $ref: "#/components/responses/Problem" }
-        "422": { $ref: "#/components/responses/Problem" }
-        "500": { $ref: "#/components/responses/Problem" }
-        "503": { $ref: "#/components/responses/Problem" }
-  /logs:
-    get:
-      operationId: listDurableLogs
-      description: Lists sanitized durable event metadata newest first. It never returns full configuration, subscription content, or credentials.
-      parameters:
-        - name: source
-          in: query
-          schema: { $ref: "#/components/schemas/LogSource" }
-        - name: level
-          in: query
-          schema: { $ref: "#/components/schemas/LogLevel" }
-        - name: code
-          in: query
-          schema: { type: string, pattern: "^[a-z][a-z0-9_.-]*$" }
-        - name: since
-          in: query
-          schema: { type: string, format: date-time }
-        - name: until
-          in: query
-          schema: { type: string, format: date-time }
-        - name: after_time
-          in: query
-          description: Exclusive newest-first cursor time; requires after_id.
-          schema: { type: string, format: date-time }
-        - name: after_id
-          in: query
-          description: Exclusive newest-first cursor ID; requires after_time.
-          schema: { type: string }
-        - $ref: "#/components/parameters/PageLimit"
-      responses:
-        "200":
-          description: Sanitized durable log page.
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/LogPage" }
-        "400": { $ref: "#/components/responses/Problem" }
-        "401": { $ref: "#/components/responses/Problem" }
-        "500": { $ref: "#/components/responses/Problem" }
-    delete:
-      operationId: clearDurableLogs
-      description: Explicitly deletes sanitized durable logs matching the optional source and exclusive before cutoff.
-      parameters:
-        - $ref: "#/components/parameters/CSRFToken"
-        - name: source
-          in: query
-          schema: { $ref: "#/components/schemas/LogSource" }
-        - name: before
-          in: query
-          schema: { type: string, format: date-time }
-      responses:
-        "200":
-          description: Number of deleted entries.
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/LogClearResult" }
-        "400": { $ref: "#/components/responses/Problem" }
-        "401": { $ref: "#/components/responses/Problem" }
-        "403": { $ref: "#/components/responses/Problem" }
-        "413": { $ref: "#/components/responses/Problem" }
-        "422": { $ref: "#/components/responses/Problem" }
-        "500": { $ref: "#/components/responses/Problem" }
-  /logs/stream:
-    get:
-      operationId: streamDurableLogs
-      description: Streams sanitized durable log entries as SSE. Without since, an after cursor, or Last-Event-ID, the stream begins at connection time. Event IDs encode the durable time/id cursor for reconnects.
-      parameters:
-        - name: source
-          in: query
-          schema: { $ref: "#/components/schemas/LogSource" }
-        - name: level
-          in: query
-          schema: { $ref: "#/components/schemas/LogLevel" }
-        - name: code
-          in: query
-          schema: { type: string, pattern: "^[a-z][a-z0-9_.-]*$" }
-        - name: since
-          in: query
-          schema: { type: string, format: date-time }
-        - name: after_time
-          in: query
-          description: Exclusive cursor time; requires after_id and cannot be combined with since.
-          schema: { type: string, format: date-time }
-        - name: after_id
-          in: query
-          description: Exclusive cursor ID; requires after_time and cannot be combined with since.
-          schema: { type: string }
-        - $ref: "#/components/parameters/PageLimit"
-      responses:
-        "200":
-          description: A text/event-stream of log events with keepalive comments.
-          content:
-            text/event-stream:
-              schema: { type: string }
-        "400": { $ref: "#/components/responses/Problem" }
-        "401": { $ref: "#/components/responses/Problem" }
-        "500": { $ref: "#/components/responses/Problem" }
-  /logs/{logId}:
-    parameters:
-      - name: logId
-        in: path
-        required: true
-        schema: { type: string, minLength: 1, maxLength: 80 }
-    get:
-      operationId: getDurableLog
-      responses:
-        "200":
-          description: One sanitized durable event.
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/LogEntry" }
-        "400": { $ref: "#/components/responses/Problem" }
-        "401": { $ref: "#/components/responses/Problem" }
-        "404": { $ref: "#/components/responses/Problem" }
-    delete:
-      operationId: deleteDurableLog
-      description: Explicitly deletes one sanitized durable log entry.
+        "202":
+          $ref: "#/components/responses/Accepted"
+  /core/rollback:
+    post:
+      operationId: rollbackCoreRuntime
       parameters:
         - $ref: "#/components/parameters/CSRFToken"
       responses:
-        "200":
-          description: Stable deletion acknowledgement.
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/LogDeleteResult" }
-        "400": { $ref: "#/components/responses/Problem" }
-        "401": { $ref: "#/components/responses/Problem" }
-        "403": { $ref: "#/components/responses/Problem" }
-        "404": { $ref: "#/components/responses/Problem" }
-        "413": { $ref: "#/components/responses/Problem" }
-        "422": { $ref: "#/components/responses/Problem" }
-        "500": { $ref: "#/components/responses/Problem" }
-  /metrics:
-    get:
-      operationId: getCurrentMetrics
-      description: Returns actual collector evidence for the exact applied bundle, or an explicit unavailable reason; it never invents zero counters.
-      responses:
-        "200":
-          description: Current collector-backed metric availability and data.
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/MetricsSnapshot" }
-        "401": { $ref: "#/components/responses/Problem" }
-        "503": { $ref: "#/components/responses/Problem" }
-  /traffic/status:
-    get:
-      operationId: getTrafficStatus
-      description: Returns the same applied-bundle evidence contract as current metrics.
-      responses:
-        "200":
-          description: Current traffic collector availability and data.
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/MetricsSnapshot" }
-        "401": { $ref: "#/components/responses/Problem" }
-        "503": { $ref: "#/components/responses/Problem" }
-  /traffic/periods:
-    get:
-      operationId: listTrafficPeriods
-      parameters:
-        - name: activation_bundle_id
-          in: query
-          schema: { type: string }
-        - name: from
-          in: query
-          description: Include periods whose end is later than this instant.
-          schema: { type: string, format: date-time }
-        - name: to
-          in: query
-          description: Include periods whose start is earlier than this instant.
-          schema: { type: string, format: date-time }
-        - $ref: "#/components/parameters/PageLimit"
-      responses:
-        "200":
-          description: Persisted collector periods, newest first.
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/TrafficPeriodPage" }
-        "400": { $ref: "#/components/responses/Problem" }
-        "401": { $ref: "#/components/responses/Problem" }
-  /traffic/periods/{periodId}:
-    parameters:
-      - name: periodId
-        in: path
-        required: true
-        schema: { type: string, minLength: 1, maxLength: 256 }
-    get:
-      operationId: getTrafficPeriod
-      responses:
-        "200":
-          description: One persisted collector period.
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/TrafficPeriod" }
-        "400": { $ref: "#/components/responses/Problem" }
-        "401": { $ref: "#/components/responses/Problem" }
-        "404": { $ref: "#/components/responses/Problem" }
+        "202":
+          $ref: "#/components/responses/Accepted"
   /tasks:
     get:
       operationId: listTasks
       parameters:
-        - name: lane
-          in: query
-          schema: { type: string, enum: [runtime, maintenance] }
-        - name: status
-          in: query
-          schema: { $ref: "#/components/schemas/TaskStatus" }
-        - name: kind
-          in: query
-          schema: { type: string }
-        - $ref: "#/components/parameters/PageLimit"
+        - $ref: "#/components/parameters/TaskLane"
+        - $ref: "#/components/parameters/TaskStatus"
+        - $ref: "#/components/parameters/TaskKind"
+        - $ref: "#/components/parameters/Limit"
       responses:
         "200":
-          description: Durable tasks newest first.
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/TaskPage" }
-        "400": { $ref: "#/components/responses/Problem" }
-        "401": { $ref: "#/components/responses/Problem" }
+          $ref: "#/components/responses/JSON"
   /tasks/{taskId}:
     parameters:
       - $ref: "#/components/parameters/TaskID"
@@ -1879,12 +448,7 @@ paths:
       operationId: getTask
       responses:
         "200":
-          description: One durable task.
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/Task" }
-        "401": { $ref: "#/components/responses/Problem" }
-        "404": { $ref: "#/components/responses/Problem" }
+          $ref: "#/components/responses/JSON"
   /tasks/{taskId}/cancel:
     parameters:
       - $ref: "#/components/parameters/TaskID"
@@ -1894,16 +458,463 @@ paths:
         - $ref: "#/components/parameters/CSRFToken"
       responses:
         "200":
-          description: Current task after the idempotent cancellation request.
+          $ref: "#/components/responses/JSON"
+  /subscription/nodes:
+    get:
+      operationId: listSubscriptionNodes
+      responses:
+        "200":
+          $ref: "#/components/responses/JSON"
+  /subscription/users:
+    get:
+      operationId: listSubscriptionUsers
+      parameters:
+        - $ref: "#/components/parameters/BeforeTime"
+        - $ref: "#/components/parameters/BeforeID"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          $ref: "#/components/responses/JSON"
+    post:
+      operationId: createSubscriptionUser
+      parameters:
+        - $ref: "#/components/parameters/CSRFToken"
+      requestBody:
+        $ref: "#/components/requestBodies/SubscriptionUser"
+      responses:
+        "201":
+          $ref: "#/components/responses/JSON"
+  /subscription/users/{userId}:
+    parameters:
+      - $ref: "#/components/parameters/UserID"
+    get:
+      operationId: getSubscriptionUser
+      responses:
+        "200":
+          $ref: "#/components/responses/JSON"
+    put:
+      operationId: updateSubscriptionUser
+      parameters:
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/CSRFToken"
+      requestBody:
+        $ref: "#/components/requestBodies/SubscriptionUser"
+      responses:
+        "200":
+          $ref: "#/components/responses/JSON"
+    delete:
+      operationId: deleteSubscriptionUser
+      parameters:
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/CSRFToken"
+      responses:
+        "204":
+          $ref: "#/components/responses/NoContent"
+  /subscription/users/{userId}/grants:
+    parameters:
+      - $ref: "#/components/parameters/UserID"
+    get:
+      operationId: getSubscriptionUserGrants
+      responses:
+        "200":
+          $ref: "#/components/responses/JSON"
+    put:
+      operationId: replaceSubscriptionUserGrants
+      parameters:
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/CSRFToken"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [grants]
+              properties:
+                grants:
+                  type: array
+                  items:
+                    type: string
+      responses:
+        "200":
+          $ref: "#/components/responses/JSON"
+  /subscription/channels:
+    get:
+      operationId: listSubscriptionChannels
+      parameters:
+        - $ref: "#/components/parameters/BeforeTime"
+        - $ref: "#/components/parameters/BeforeID"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          $ref: "#/components/responses/JSON"
+    post:
+      operationId: createSubscriptionChannel
+      parameters:
+        - $ref: "#/components/parameters/CSRFToken"
+      requestBody:
+        $ref: "#/components/requestBodies/SubscriptionChannel"
+      responses:
+        "201":
+          $ref: "#/components/responses/JSON"
+  /subscription/channels/{channelId}:
+    parameters:
+      - $ref: "#/components/parameters/ChannelID"
+    get:
+      operationId: getSubscriptionChannel
+      responses:
+        "200":
+          $ref: "#/components/responses/JSON"
+    put:
+      operationId: updateSubscriptionChannel
+      parameters:
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/CSRFToken"
+      requestBody:
+        $ref: "#/components/requestBodies/SubscriptionChannel"
+      responses:
+        "200":
+          $ref: "#/components/responses/JSON"
+    delete:
+      operationId: deleteSubscriptionChannel
+      parameters:
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/CSRFToken"
+      responses:
+        "204":
+          $ref: "#/components/responses/NoContent"
+  /subscription/channels/{channelId}/preview:
+    parameters:
+      - $ref: "#/components/parameters/ChannelID"
+    post:
+      operationId: previewSubscriptionChannel
+      parameters:
+        - $ref: "#/components/parameters/CSRFToken"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [user_id]
+              properties:
+                user_id:
+                  type: string
+      responses:
+        "200":
+          $ref: "#/components/responses/JSON"
+  /subscription/sources:
+    get:
+      operationId: listSubscriptionSources
+      parameters:
+        - $ref: "#/components/parameters/BeforeTime"
+        - $ref: "#/components/parameters/BeforeID"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          $ref: "#/components/responses/JSON"
+    post:
+      operationId: createSubscriptionSource
+      parameters:
+        - $ref: "#/components/parameters/CSRFToken"
+      requestBody:
+        $ref: "#/components/requestBodies/SubscriptionSource"
+      responses:
+        "201":
+          $ref: "#/components/responses/JSON"
+  /subscription/sources/{sourceId}:
+    parameters:
+      - $ref: "#/components/parameters/SourceID"
+    get:
+      operationId: getSubscriptionSource
+      responses:
+        "200":
+          $ref: "#/components/responses/JSON"
+    put:
+      operationId: updateSubscriptionSource
+      parameters:
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/CSRFToken"
+      requestBody:
+        $ref: "#/components/requestBodies/SubscriptionSource"
+      responses:
+        "200":
+          $ref: "#/components/responses/JSON"
+    delete:
+      operationId: deleteSubscriptionSource
+      parameters:
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/CSRFToken"
+      responses:
+        "204":
+          $ref: "#/components/responses/NoContent"
+  /subscription/sources/{sourceId}/refresh:
+    parameters:
+      - $ref: "#/components/parameters/SourceID"
+    post:
+      operationId: refreshSubscriptionSource
+      parameters:
+        - $ref: "#/components/parameters/CSRFToken"
+      responses:
+        "202":
+          $ref: "#/components/responses/Accepted"
+  /subscription/sources/{sourceId}/versions:
+    parameters:
+      - $ref: "#/components/parameters/SourceID"
+    get:
+      operationId: listSubscriptionSourceVersions
+      parameters:
+        - $ref: "#/components/parameters/BeforeTime"
+        - $ref: "#/components/parameters/BeforeID"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          $ref: "#/components/responses/JSON"
+    post:
+      operationId: createSubscriptionSourceVersion
+      parameters:
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/CSRFToken"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [format, raw_body]
+              properties:
+                format:
+                  type: string
+                  enum: [auto, sing-box-json, mihomo-yaml, uri-list]
+                raw_body:
+                  type: string
+                  format: byte
+      responses:
+        "201":
+          $ref: "#/components/responses/JSON"
+  /subscription/sources/{sourceId}/versions/{versionId}:
+    parameters:
+      - $ref: "#/components/parameters/SourceID"
+      - $ref: "#/components/parameters/SourceVersionID"
+    get:
+      operationId: getSubscriptionSourceVersion
+      responses:
+        "200":
+          $ref: "#/components/responses/JSON"
+  /subscription/sources/{sourceId}/versions/{versionId}/restore:
+    parameters:
+      - $ref: "#/components/parameters/SourceID"
+      - $ref: "#/components/parameters/SourceVersionID"
+    post:
+      operationId: restoreSubscriptionSourceVersion
+      parameters:
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/CSRFToken"
+      responses:
+        "200":
+          $ref: "#/components/responses/JSON"
+  /subscription/tokens:
+    get:
+      operationId: listSubscriptionTokens
+      parameters:
+        - $ref: "#/components/parameters/BeforeTime"
+        - $ref: "#/components/parameters/BeforeID"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          $ref: "#/components/responses/JSON"
+    post:
+      operationId: createSubscriptionToken
+      parameters:
+        - $ref: "#/components/parameters/CSRFToken"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SubscriptionTokenCreate"
+      responses:
+        "201":
+          $ref: "#/components/responses/JSON"
+  /subscription/tokens/{tokenId}:
+    parameters:
+      - $ref: "#/components/parameters/TokenID"
+    get:
+      operationId: getSubscriptionToken
+      responses:
+        "200":
+          $ref: "#/components/responses/JSON"
+    delete:
+      operationId: deleteSubscriptionToken
+      parameters:
+        - $ref: "#/components/parameters/CSRFToken"
+      responses:
+        "204":
+          $ref: "#/components/responses/NoContent"
+  /subscription/tokens/{tokenId}/rotate:
+    parameters:
+      - $ref: "#/components/parameters/TokenID"
+    post:
+      operationId: rotateSubscriptionToken
+      parameters:
+        - $ref: "#/components/parameters/CSRFToken"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                expires_at:
+                  type: [string, "null"]
+                  format: date-time
+      responses:
+        "201":
+          $ref: "#/components/responses/JSON"
+  /subscription/tokens/{tokenId}/revoke:
+    parameters:
+      - $ref: "#/components/parameters/TokenID"
+    post:
+      operationId: revokeSubscriptionToken
+      parameters:
+        - $ref: "#/components/parameters/CSRFToken"
+      responses:
+        "200":
+          $ref: "#/components/responses/JSON"
+  /subscription/tokens/{tokenId}/enable:
+    parameters:
+      - $ref: "#/components/parameters/TokenID"
+    post:
+      operationId: enableSubscriptionToken
+      parameters:
+        - $ref: "#/components/parameters/CSRFToken"
+      responses:
+        "200":
+          $ref: "#/components/responses/JSON"
+  /subscription/tokens/{tokenId}/disable:
+    parameters:
+      - $ref: "#/components/parameters/TokenID"
+    post:
+      operationId: disableSubscriptionToken
+      parameters:
+        - $ref: "#/components/parameters/CSRFToken"
+      responses:
+        "200":
+          $ref: "#/components/responses/JSON"
+  /sub/{token}/{channelId}:
+    servers:
+      - url: /
+    parameters:
+      - name: token
+        in: path
+        required: true
+        schema:
+          type: string
+      - $ref: "#/components/parameters/ChannelID"
+    get:
+      operationId: downloadSubscription
+      security: []
+      responses:
+        "200":
+          description: Rendered subscription for the token user's live grants.
+        "304":
+          description: The current live publication matches If-None-Match.
+  /logs:
+    get:
+      operationId: listLogs
+      parameters:
+        - $ref: "#/components/parameters/LogSource"
+        - $ref: "#/components/parameters/LogLevel"
+        - $ref: "#/components/parameters/LogCode"
+        - $ref: "#/components/parameters/Since"
+        - $ref: "#/components/parameters/Until"
+        - $ref: "#/components/parameters/AfterTime"
+        - $ref: "#/components/parameters/AfterID"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          $ref: "#/components/responses/JSON"
+    delete:
+      operationId: clearLogs
+      parameters:
+        - $ref: "#/components/parameters/CSRFToken"
+        - $ref: "#/components/parameters/LogSource"
+        - $ref: "#/components/parameters/Before"
+      responses:
+        "200":
+          $ref: "#/components/responses/JSON"
+  /logs/stream:
+    get:
+      operationId: streamLogs
+      parameters:
+        - $ref: "#/components/parameters/LogSource"
+        - $ref: "#/components/parameters/LogLevel"
+        - $ref: "#/components/parameters/LogCode"
+        - $ref: "#/components/parameters/Since"
+        - $ref: "#/components/parameters/AfterTime"
+        - $ref: "#/components/parameters/AfterID"
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/LastEventID"
+      responses:
+        "200":
+          description: Sanitized durable log stream.
           content:
-            application/json:
-              schema: { $ref: "#/components/schemas/Task" }
-        "401": { $ref: "#/components/responses/Problem" }
-        "403": { $ref: "#/components/responses/Problem" }
-        "404": { $ref: "#/components/responses/Problem" }
+            text/event-stream:
+              schema:
+                type: string
+  /logs/{logId}:
+    parameters:
+      - $ref: "#/components/parameters/LogID"
+    get:
+      operationId: getLog
+      responses:
+        "200":
+          $ref: "#/components/responses/JSON"
+    delete:
+      operationId: deleteLog
+      parameters:
+        - $ref: "#/components/parameters/CSRFToken"
+      responses:
+        "200":
+          $ref: "#/components/responses/JSON"
+  /metrics:
+    get:
+      operationId: getMetrics
+      responses:
+        "200":
+          $ref: "#/components/responses/JSON"
+  /traffic/status:
+    get:
+      operationId: getTrafficStatus
+      responses:
+        "200":
+          $ref: "#/components/responses/JSON"
+  /traffic/periods:
+    get:
+      operationId: listTrafficPeriods
+      parameters:
+        - $ref: "#/components/parameters/ActivationBundleFilter"
+        - $ref: "#/components/parameters/From"
+        - $ref: "#/components/parameters/To"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          $ref: "#/components/responses/JSON"
+  /traffic/periods/{periodId}:
+    parameters:
+      - $ref: "#/components/parameters/TrafficPeriodID"
+    get:
+      operationId: getTrafficPeriod
+      responses:
+        "200":
+          $ref: "#/components/responses/JSON"
 components:
   securitySchemes:
-    managementBearer:
+    bearerAuth:
       type: http
       scheme: bearer
     sessionCookie:
@@ -1915,1539 +926,512 @@ components:
       name: X-CSRF-Token
       in: header
       required: false
-      description: Required for cookie-authenticated state-changing requests.
+      description: Required for cookie-authenticated writes; bearer writes do not require it.
       schema:
         type: string
-        minLength: 1
     IfMatch:
       name: If-Match
       in: header
       required: true
-      description: Quoted current canonical revision ID.
-      schema: { type: string }
+      schema:
+        type: string
+    Limit:
+      name: limit
+      in: query
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 200
+        default: 50
+    BeforeTime:
+      name: before_time
+      in: query
+      description: Must be supplied together with before_id.
+      schema:
+        type: string
+        format: date-time
+    BeforeID:
+      name: before_id
+      in: query
+      description: Must be supplied together with before_time.
+      schema:
+        type: string
+    BeforeSequence:
+      name: before_sequence
+      in: query
+      schema:
+        type: integer
+        format: int64
+        minimum: 1
+    ExactVersion:
+      name: exact_version
+      in: query
+      schema:
+        type: string
+        pattern: '^[0-9]+\.[0-9]+\.[0-9]+$'
+    Architecture:
+      name: architecture
+      in: query
+      schema:
+        type: string
+        enum: [amd64, arm64]
+    Variant:
+      name: variant
+      in: query
+      schema:
+        type: string
+    Installable:
+      name: installable
+      in: query
+      schema:
+        type: boolean
+    CoreSourceKind:
+      name: source_kind
+      in: query
+      schema:
+        type: string
+        enum: [official, user_verified]
+    VerificationState:
+      name: verification_state
+      in: query
+      schema:
+        type: string
+        enum: [verified, quarantined, revoked]
+    CanonicalRevisionFilter:
+      name: canonical_revision_id
+      in: query
+      schema:
+        type: string
+    CoreVersionFilter:
+      name: core_version
+      in: query
+      schema:
+        type: string
+        pattern: '^[0-9]+\.[0-9]+\.[0-9]+$'
+    CoreArtifactFilter:
+      name: core_artifact_id
+      in: query
+      schema:
+        type: string
+    StartupStateFilter:
+      name: state
+      in: query
+      schema:
+        type: string
+        enum: [pending, ready, failed]
+    TaskLane:
+      name: lane
+      in: query
+      schema:
+        type: string
+        enum: [runtime, maintenance]
+    TaskStatus:
+      name: status
+      in: query
+      schema:
+        type: string
+        enum: [queued, running, succeeded, failed, canceled, superseded]
+    TaskKind:
+      name: kind
+      in: query
+      schema:
+        type: string
+    LogSource:
+      name: source
+      in: query
+      schema:
+        type: string
+    LogLevel:
+      name: level
+      in: query
+      schema:
+        type: string
+    LogCode:
+      name: code
+      in: query
+      schema:
+        type: string
+    Since:
+      name: since
+      in: query
+      schema:
+        type: string
+        format: date-time
+    Until:
+      name: until
+      in: query
+      schema:
+        type: string
+        format: date-time
+    Before:
+      name: before
+      in: query
+      schema:
+        type: string
+        format: date-time
+    AfterTime:
+      name: after_time
+      in: query
+      description: Must be supplied together with after_id.
+      schema:
+        type: string
+        format: date-time
+    AfterID:
+      name: after_id
+      in: query
+      description: Must be supplied together with after_time.
+      schema:
+        type: string
+    LastEventID:
+      name: Last-Event-ID
+      in: header
+      schema:
+        type: string
+    ActivationBundleFilter:
+      name: activation_bundle_id
+      in: query
+      schema:
+        type: string
+    From:
+      name: from
+      in: query
+      schema:
+        type: string
+        format: date-time
+    To:
+      name: to
+      in: query
+      schema:
+        type: string
+        format: date-time
+    ArtifactID:
+      name: artifactId
+      in: path
+      required: true
+      schema:
+        type: string
     RevisionID:
       name: revisionId
       in: path
       required: true
-      schema: { type: string, minLength: 1, maxLength: 256 }
-    EntityID:
-      name: entityId
-      in: path
-      required: true
-      schema: { type: string, pattern: "^[a-z][a-z0-9._-]{0,127}$" }
+      schema:
+        type: string
     TaskID:
       name: taskId
       in: path
       required: true
-      schema: { type: string, minLength: 1, maxLength: 256 }
-    CoreArtifactID:
-      name: artifactId
+      schema:
+        type: string
+    UserID:
+      name: userId
       in: path
       required: true
-      schema: { type: string, minLength: 1, maxLength: 256 }
-    StartupArtifactID:
-      name: startupArtifactId
-      in: path
-      required: true
-      schema: { type: string, minLength: 1, maxLength: 256 }
-    SubscriptionChannelID:
+      schema:
+        type: string
+    ChannelID:
       name: channelId
       in: path
       required: true
-      schema: { type: string, minLength: 1, maxLength: 128 }
-    SubscriptionSourceID:
+      schema:
+        type: string
+    SourceID:
       name: sourceId
       in: path
       required: true
-      schema: { type: string, minLength: 1, maxLength: 128 }
-    SubscriptionTokenID:
+      schema:
+        type: string
+    SourceVersionID:
+      name: versionId
+      in: path
+      required: true
+      schema:
+        type: string
+    TokenID:
       name: tokenId
       in: path
       required: true
-      schema: { type: string, minLength: 1, maxLength: 128 }
-    SubscriptionIfMatch:
-      name: If-Match
-      in: header
+      schema:
+        type: string
+    LogID:
+      name: logId
+      in: path
       required: true
-      description: Quoted RFC 3339 updated_at value from the current resource ETag.
-      schema: { type: string }
-    ExactVersionQuery:
-      name: exact_version
-      in: query
-      schema: { $ref: "#/components/schemas/ExactCoreVersion" }
-    CoreArchitectureQuery:
-      name: architecture
-      in: query
-      schema: { $ref: "#/components/schemas/CoreArchitecture" }
-    CoreVariantQuery:
-      name: variant
-      in: query
-      schema: { $ref: "#/components/schemas/CoreVariant" }
-    PageLimit:
-      name: limit
-      in: query
-      schema: { type: integer, minimum: 1, maximum: 200, default: 50 }
+      schema:
+        type: string
+    TrafficPeriodID:
+      name: periodId
+      in: path
+      required: true
+      schema:
+        type: string
+  requestBodies:
+    StartupArtifact:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            additionalProperties: false
+            required: [startup_artifact_id]
+            properties:
+              startup_artifact_id:
+                type: string
+    Activation:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            additionalProperties: false
+            required: [startup_artifact_id, monitoring_tier]
+            properties:
+              startup_artifact_id:
+                type: string
+              monitoring_tier:
+                type: string
+                enum: [process_only, limited, full]
+    SubscriptionUser:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/SubscriptionUserInput"
+    SubscriptionChannel:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/SubscriptionChannelInput"
+    SubscriptionSource:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/SubscriptionSourceInput"
   responses:
+    JSON:
+      description: Successful JSON response.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/AnyObject"
+    Accepted:
+      description: Durable task accepted.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/AnyObject"
+    NoContent:
+      description: Operation completed without a response body.
     Problem:
-      description: Stable RFC 9457-compatible problem response.
+      description: RFC 9457 problem response.
       content:
         application/problem+json:
           schema:
             $ref: "#/components/schemas/Problem"
-    CanonicalSave:
-      description: Canonical head after a compare-and-swap mutation.
-      headers:
-        ETag: { schema: { type: string } }
-      content:
-        application/json:
-          schema: { $ref: "#/components/schemas/CanonicalSave" }
   schemas:
-    Health:
+    AnyObject:
       type: object
-      additionalProperties: false
-      required: [status, version]
-      properties:
-        status:
-          type: string
-          const: ok
-        version:
-          type: string
-    LoginRequest:
-      type: object
-      additionalProperties: false
-      required: [token]
-      properties:
-        token:
-          type: string
-          minLength: 1
-          writeOnly: true
-    Session:
-      type: object
-      additionalProperties: false
-      required: [displayName]
-      properties:
-        displayName:
-          type: string
-        csrfToken:
-          type: string
-          description: Present for cookie sessions so the browser can make writes.
-        expiresAt:
-          type: string
-          format: date-time
-    SystemStatus:
-      type: object
-      additionalProperties: false
-      required:
-        - panel_version
-        - canonical_revision
-        - running
-        - capability_state
-      properties:
-        panel_version:
-          type: string
-        canonical_revision:
-          type: integer
-          format: int64
-          minimum: 0
-        applied_bundle_id:
-          type: [string, "null"]
-        running:
-          type: boolean
-        running_version:
-          type: [string, "null"]
-        running_artifact:
-          type: [string, "null"]
-        capability_state:
-          type: string
-          enum: [unavailable, unresolved, native_structured, compatible_structured, manual_json, quarantined_manual_json]
-          description: Exact-version capability state for the running core, or the applied bundle while stopped; never an assumed latest-version state.
-    DashboardContext:
-      type: object
-      additionalProperties: false
-      required: [view, running, canonical, applied, capability]
-      properties:
-        view:
-          type: object
-          additionalProperties: false
-          required: [exactVersion]
-          properties:
-            exactVersion:
-              type: string
-        running:
-          oneOf:
-            - type: "null"
-            - type: object
-              additionalProperties: false
-              required: [exactVersion, artifactName, digest]
-              properties:
-                exactVersion: { type: string }
-                artifactName: { type: string }
-                digest: { type: string }
-        canonical:
-          type: object
-          additionalProperties: false
-          required: [revision, savedAt, hasUnappliedChanges]
-          properties:
-            revision: { type: integer, format: int64, minimum: 0 }
-            savedAt: { type: string, format: date-time }
-            hasUnappliedChanges: { type: boolean }
-        applied:
-          oneOf:
-            - type: "null"
-            - type: object
-              additionalProperties: false
-              required: [bundle, revision, appliedAt]
-              properties:
-                bundle: { type: string, minLength: 1 }
-                revision: { type: integer, format: int64, minimum: 1 }
-                appliedAt: { type: string, format: date-time }
-        capability:
-          type: object
-          additionalProperties: false
-          required: [level, label, warning]
-          properties:
-            level:
-              type: string
-              enum: [native_structured, compatible_structured, manual_json, unavailable]
-            label: { type: string }
-            warning: { type: [string, "null"] }
+      additionalProperties: true
     Problem:
       type: object
-      additionalProperties: false
-      required: [type, title, status, code]
+      required: [code, detail]
       properties:
-        type: { type: string }
-        title: { type: string }
-        status: { type: integer }
-        code: { type: string }
-        detail: { type: string }
-        request_id: { type: string }
+        code:
+          type: string
+        detail:
+          type: string
         fields:
           type: object
-          additionalProperties: { type: string }
+          additionalProperties:
+            type: string
     CanonicalDocument:
       type: object
       additionalProperties: false
-      required: [schema_version, global, nodes, rules, subscription]
+      required: [schema_version, configuration]
       properties:
-        schema_version: { type: integer, const: 1 }
-        global: { type: object, additionalProperties: true }
-        nodes:
-          type: array
-          maxItems: 10000
-          items:
-            type: object
-            required: [id, kind, enabled]
-            properties:
-              id: { type: string }
-              kind: { type: string }
-              enabled: { type: boolean }
-            additionalProperties: true
-        rules:
-          type: array
-          maxItems: 10000
-          items:
-            type: object
-            required: [id, enabled]
-            properties:
-              id: { type: string }
-              enabled: { type: boolean }
-            additionalProperties: true
-        subscription: { type: object, additionalProperties: true }
+        schema_version:
+          type: integer
+          const: 2
+        configuration:
+          type: object
+          description: >-
+            Version-independent superset intent. Managed top-level collection
+            items carry an _panel object with a stable id and enabled flag.
+          additionalProperties: true
     CanonicalSnapshot:
       type: object
-      additionalProperties: false
       required: [id, sequence, schema_version, document, document_json, sha256, created_at]
       properties:
-        id: { type: string }
-        sequence: { type: integer, format: int64, minimum: 1 }
-        parent_id: { type: string }
-        schema_version: { type: integer, const: 1 }
-        document: { $ref: "#/components/schemas/CanonicalDocument" }
+        id:
+          type: string
+        sequence:
+          type: integer
+          format: int64
+        parent_id:
+          type: string
+        schema_version:
+          type: integer
+          const: 2
+        document:
+          $ref: "#/components/schemas/CanonicalDocument"
         document_json:
           type: string
-          description: Exact canonical JSON bytes encoded as a JSON string for lossless browser parsing.
-        sha256: { type: string, pattern: "^[0-9a-f]{64}$" }
-        created_at: { type: string, format: date-time }
+          description: Lossless JSON representation for clients that preserve large integers.
+        sha256:
+          type: string
+        created_at:
+          type: string
+          format: date-time
     CanonicalChange:
       type: object
-      additionalProperties: false
       required: [op, path]
       properties:
         op:
           type: string
           enum: [set, unset]
-        path: { type: string, minLength: 1, maxLength: 4096 }
+        path:
+          type: string
         value_json:
           type: string
-          description: Required for set and forbidden for unset; contains exactly one JSON value without numeric coercion.
-    CanonicalPatchRequest:
-      type: object
-      additionalProperties: false
-      required: [changes]
-      properties:
-        changes:
-          type: array
-          minItems: 1
-          maxItems: 4096
-          items: { $ref: "#/components/schemas/CanonicalChange" }
     CanonicalSave:
       type: object
-      additionalProperties: false
       required: [revision, no_change]
       properties:
-        revision: { $ref: "#/components/schemas/CanonicalSnapshot" }
-        task_id: { type: string }
-        no_change: { type: boolean }
-    CanonicalRevisionPage:
-      type: object
-      additionalProperties: false
-      required: [items]
-      properties:
-        items:
-          type: array
-          items: { $ref: "#/components/schemas/CanonicalSnapshot" }
-        next_before_sequence: { type: integer, format: int64, minimum: 1 }
-    DiffValue:
-      type: object
-      additionalProperties: false
-      required: [present]
-      properties:
-        present: { type: boolean }
-        value: {}
-    CanonicalDiffEntry:
-      type: object
-      additionalProperties: false
-      required: [path, from, to]
-      properties:
-        path: { type: string }
-        from: { $ref: "#/components/schemas/DiffValue" }
-        to: { $ref: "#/components/schemas/DiffValue" }
-    CanonicalRevisionDiff:
-      type: object
-      additionalProperties: false
-      required: [from, to, changes]
-      properties:
-        from: { $ref: "#/components/schemas/CanonicalSnapshot" }
-        to: { $ref: "#/components/schemas/CanonicalSnapshot" }
-        changes:
-          type: array
-          items: { $ref: "#/components/schemas/CanonicalDiffEntry" }
-    Node:
-      type: object
-      required: [id, kind, enabled]
-      properties:
-        id: { type: string, pattern: "^[a-z][a-z0-9._-]{0,127}$" }
-        kind: { type: string, pattern: "^[a-z][a-z0-9._-]{0,127}$" }
-        enabled: { type: boolean }
-      additionalProperties: true
-    Rule:
-      type: object
-      required: [id, enabled]
-      properties:
-        id: { type: string, pattern: "^[a-z][a-z0-9._-]{0,127}$" }
-        enabled: { type: boolean }
-      additionalProperties: true
-    Entity:
-      oneOf:
-        - $ref: "#/components/schemas/Node"
-        - $ref: "#/components/schemas/Rule"
-    EntityList:
-      type: object
-      additionalProperties: false
-      required: [revision, entities]
-      properties:
-        revision: { $ref: "#/components/schemas/CanonicalSnapshot" }
-        entities:
-          type: array
-          items: { $ref: "#/components/schemas/Entity" }
-    EntityResult:
-      type: object
-      additionalProperties: false
-      required: [revision, entity]
-      properties:
-        revision: { $ref: "#/components/schemas/CanonicalSnapshot" }
-        entity: { $ref: "#/components/schemas/Entity" }
-    EnabledRequest:
-      type: object
-      additionalProperties: false
-      required: [enabled]
-      properties:
-        enabled: { type: boolean }
-    MoveRequest:
-      type: object
-      additionalProperties: false
-      properties:
-        before_id:
+        revision:
+          $ref: "#/components/schemas/CanonicalSnapshot"
+        no_change:
+          type: boolean
+        task_id:
           type: string
-          description: Omit or use an empty string to move the entity to the end.
-    ExactCoreVersion:
-      type: string
-      description: A non-zero exact stable semantic version without a leading v, prerelease, or build metadata.
-      maxLength: 62
-      pattern: "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$"
-      not: { const: "0.0.0" }
-    SHA256:
-      type: string
-      pattern: "^[0-9a-f]{64}$"
-    GitObjectID:
-      type: string
-      pattern: "^([0-9a-f]{40}|[0-9a-f]{64})$"
-    CoreArchitecture:
-      type: string
-      enum: [amd64, arm64]
-    CoreVariant:
-      type: string
-      pattern: "^[a-z][a-z0-9._-]{0,63}$"
-    CoreArtifactSourceKind:
-      type: string
-      enum: [official, user_verified]
-    CoreArtifactVerificationState:
-      type: string
-      enum: [verified, revoked, quarantined]
-    CapabilitySupportLevel:
-      type: string
-      enum: [native_structured, compatible_structured, manual_json, unavailable]
-    CatalogAsset:
+    ConfigurationProfile:
       type: object
-      additionalProperties: false
-      required:
-        - repository_id
-        - release_id
-        - asset_id
-        - name
-        - download_url
-        - size
-        - version
-        - os
-        - arch
-        - variant
-        - has_api_digest
-        - has_catalog_digest
+      required: [exact_version, os, arch, variant, feature_fingerprint]
       properties:
-        repository_id: { type: integer, format: int64, minimum: 1 }
-        release_id: { type: integer, format: int64, minimum: 1 }
-        asset_id: { type: integer, format: int64, minimum: 1 }
-        name: { type: string, minLength: 1, maxLength: 512 }
-        download_url: { type: string, format: uri }
-        size: { type: integer, format: int64, minimum: 1 }
-        version: { $ref: "#/components/schemas/ExactCoreVersion" }
-        os: { type: string, const: linux }
-        arch: { $ref: "#/components/schemas/CoreArchitecture" }
-        variant: { $ref: "#/components/schemas/CoreVariant" }
-        api_digest: { $ref: "#/components/schemas/SHA256" }
-        has_api_digest: { type: boolean }
-        catalog_digest: { $ref: "#/components/schemas/SHA256" }
-        has_catalog_digest: { type: boolean }
-    CatalogAssetList:
-      type: object
-      additionalProperties: false
-      required: [validator, refreshed_at, assets]
-      properties:
-        validator: { type: string }
-        refreshed_at: { type: string, format: date-time }
-        assets:
-          type: array
-          items: { $ref: "#/components/schemas/CatalogAsset" }
-    CoreArtifact:
-      type: object
-      additionalProperties: false
-      required:
-        - id
-        - exact_version
-        - os
-        - arch
-        - variant
-        - source_kind
-        - archive_sha256
-        - binary_sha256
-        - binary_path
-        - reported_version
-        - feature_fingerprint
-        - verification_state
-        - created_at
-      properties:
-        id: { type: string, minLength: 1, maxLength: 256 }
-        exact_version: { $ref: "#/components/schemas/ExactCoreVersion" }
-        os: { type: string, const: linux }
-        arch: { $ref: "#/components/schemas/CoreArchitecture" }
-        variant: { $ref: "#/components/schemas/CoreVariant" }
-        source_kind: { $ref: "#/components/schemas/CoreArtifactSourceKind" }
-        user_source: { type: string, minLength: 1, maxLength: 512 }
-        repository_id: { type: integer, format: int64, minimum: 1 }
-        release_id: { type: integer, format: int64, minimum: 1 }
-        asset_id: { type: integer, format: int64, minimum: 1 }
-        archive_sha256: { $ref: "#/components/schemas/SHA256" }
-        binary_sha256: { $ref: "#/components/schemas/SHA256" }
-        binary_path:
+        exact_version:
           type: string
-          minLength: 1
-          readOnly: true
-        reported_version: { $ref: "#/components/schemas/ExactCoreVersion" }
-        feature_fingerprint: {}
-        verification_state: { $ref: "#/components/schemas/CoreArtifactVerificationState" }
-        created_at: { type: string, format: date-time }
-    CoreArtifactCursor:
-      type: object
-      additionalProperties: false
-      required: [created_at, id]
-      properties:
-        created_at: { type: string, format: date-time }
-        id: { type: string, minLength: 1, maxLength: 256 }
-    CoreArtifactPage:
-      type: object
-      additionalProperties: false
-      required: [items]
-      properties:
-        items:
-          type: array
-          items: { $ref: "#/components/schemas/CoreArtifact" }
-        next: { $ref: "#/components/schemas/CoreArtifactCursor" }
-    CoreInstallRequest:
-      type: object
-      additionalProperties: false
-      required: [asset_id]
-      properties:
-        asset_id: { type: integer, format: int64, minimum: 1 }
-    CoreImportRequest:
-      type: object
-      additionalProperties: false
-      required: [source_path, source_description, sha256, exact_version, architecture]
-      properties:
-        source_path:
+        os:
           type: string
-          pattern: "^/"
-          minLength: 1
-          maxLength: 32768
-          writeOnly: true
-          description: Absolute, clean local path visible to the panel process.
-        source_description:
+        arch:
           type: string
-          minLength: 1
-          maxLength: 512
-          description: Trimmed UTF-8 description limited to 512 encoded bytes.
-        sha256: { $ref: "#/components/schemas/SHA256" }
-        exact_version: { $ref: "#/components/schemas/ExactCoreVersion" }
-        architecture: { $ref: "#/components/schemas/CoreArchitecture" }
         variant:
-          allOf:
-            - $ref: "#/components/schemas/CoreVariant"
-          default: plain
-    RuntimeCoreIdentity:
-      type: object
-      additionalProperties: false
-      required:
-        - pid
-        - process_start_token
-        - exact_core_version
-        - core_artifact_id
-        - archive_sha256
-        - binary_sha256
-        - activation_bundle_id
-      properties:
-        pid: { type: integer, minimum: 1 }
-        process_start_token: { type: string }
-        exact_core_version: { $ref: "#/components/schemas/ExactCoreVersion" }
-        core_artifact_id: { type: string }
-        archive_sha256: { $ref: "#/components/schemas/SHA256" }
-        binary_sha256: { $ref: "#/components/schemas/SHA256" }
-        activation_bundle_id: { type: string }
-    CoreVersionResolution:
-      type: object
-      additionalProperties: false
-      required: [exact_version, source]
-      properties:
-        exact_version: { $ref: "#/components/schemas/ExactCoreVersion" }
-        source:
           type: string
-          enum: [explicit, running]
-        running: { $ref: "#/components/schemas/RuntimeCoreIdentity" }
-    CapabilityPin:
+        feature_fingerprint:
+          $ref: "#/components/schemas/AnyObject"
+    ConfigurationAdapterSupport:
       type: object
-      additionalProperties: false
-      description: Persisted immutable capability reference.
-      required: [exact_core_version, repository, commit_sha, manifest_sha256, support_level, pinned_at]
+      required: [supported, profile]
       properties:
-        exact_core_version: { $ref: "#/components/schemas/ExactCoreVersion" }
-        repository: { type: string, pattern: "^[^/]+/[^/]+$" }
-        commit_sha: { $ref: "#/components/schemas/GitObjectID" }
-        manifest_sha256: { $ref: "#/components/schemas/SHA256" }
-        support_level: { $ref: "#/components/schemas/CapabilitySupportLevel" }
-        pinned_at: { type: string, format: date-time }
-    CapabilityManifest:
-      type: object
-      additionalProperties: false
-      required: [schema_version, core_version, support_level, semantic_facts]
-      properties:
-        schema_version: { type: integer, const: 1 }
-        core_version: { $ref: "#/components/schemas/ExactCoreVersion" }
-        support_level: { $ref: "#/components/schemas/CapabilitySupportLevel" }
-        semantic_facts:
-          type: array
-          maxItems: 4096
-          items: { $ref: "#/components/schemas/CapabilitySemanticFact" }
-        transforms:
-          type: array
-          maxItems: 4096
-          items:
-            type: object
-            description: One strictly validated built-in data transformation; scripts and remote references are forbidden.
-        ui:
-          type: array
-          maxItems: 4096
-          items: { $ref: "#/components/schemas/CapabilityUIDescriptor" }
-    CapabilitySemanticFact:
-      type: object
-      additionalProperties: false
-      required: [id, canonical_path, classification]
-      properties:
-        id: { type: string }
-        canonical_path: { type: string }
-        classification:
-          type: string
-          enum: [supported, intentionally_unsupported, behavior_changed]
-        owned_paths:
-          type: array
-          items: { type: string }
-    CapabilityUIOption:
-      type: object
-      additionalProperties: false
-      required: [value, label]
-      properties:
-        value: { type: string }
-        label: { type: string }
-    CapabilityVisibilityCondition:
-      type: object
-      additionalProperties: false
-      required: [canonical_path, equals]
-      properties:
-        canonical_path: { type: string }
-        equals:
-          oneOf:
-            - { type: string }
-            - { type: number }
-            - { type: boolean }
-            - { type: "null" }
-    CapabilityUIDescriptor:
-      type: object
-      additionalProperties: false
-      description: A validated descriptor for built-in controls only; executable components, templates, and remote resources are forbidden.
-      required: [id, fact_id, kind, label]
-      properties:
-        id: { type: string }
-        fact_id: { type: string }
-        kind:
-          type: string
-          enum: [group, text, number, boolean, select, json]
-        label: { type: string }
-        help: { type: string }
-        order: { type: integer, minimum: 0, maximum: 1000000 }
-        options:
-          type: array
-          items: { $ref: "#/components/schemas/CapabilityUIOption" }
-        visible_when: { $ref: "#/components/schemas/CapabilityVisibilityCondition" }
-    CapabilityPresentation:
-      type: object
-      additionalProperties: false
-      required: [semantic_facts, ui]
-      properties:
-        semantic_facts:
-          type: array
-          maxItems: 4096
-          items: { $ref: "#/components/schemas/CapabilitySemanticFact" }
-        ui:
-          type: array
-          maxItems: 4096
-          items: { $ref: "#/components/schemas/CapabilityPresentationUIDescriptor" }
-    CapabilityPresentationVisibilityCondition:
-      type: object
-      additionalProperties: false
-      required: [canonical_path, equals_json]
-      properties:
-        canonical_path: { type: string }
-        equals_json:
-          type: string
-          description: Exact JSON spelling of the validated scalar, preventing browser numeric coercion.
-    CapabilityPresentationUIDescriptor:
-      type: object
-      additionalProperties: false
-      description: An inert, validated descriptor consumed only by panel-owned built-in controls.
-      required: [id, fact_id, kind, label]
-      properties:
-        id: { type: string }
-        fact_id: { type: string }
-        kind:
-          type: string
-          enum: [group, text, number, boolean, select, json]
-        label: { type: string }
-        help: { type: string }
-        order: { type: integer, minimum: 0, maximum: 1000000 }
-        options:
-          type: array
-          items: { $ref: "#/components/schemas/CapabilityUIOption" }
-        visible_when: { $ref: "#/components/schemas/CapabilityPresentationVisibilityCondition" }
-    CapabilityGenerationManifestInput:
-      type: object
-      additionalProperties: false
-      required: [path, manifest_sha256, manifest]
-      properties:
-        path: { type: string, pattern: "^capabilities/[0-9]+\\.[0-9]+\\.[0-9]+\\.json$" }
-        manifest_sha256: { $ref: "#/components/schemas/SHA256" }
-        manifest: { $ref: "#/components/schemas/CapabilityManifest" }
-    CapabilityGenerationInput:
-      type: object
-      additionalProperties: false
-      required: [schema_version, repository, commit_sha, manifest_count, manifests]
-      properties:
-        schema_version: { type: integer, const: 1 }
-        repository: { type: string, const: rehuony/sing-box-panel }
-        commit_sha: { $ref: "#/components/schemas/GitObjectID" }
-        manifest_count: { type: integer, minimum: 1, maximum: 4096 }
-        manifests:
-          type: array
-          minItems: 1
-          maxItems: 4096
-          items: { $ref: "#/components/schemas/CapabilityGenerationManifestInput" }
-    CapabilityGenerationView:
-      type: object
-      additionalProperties: false
-      required: [id, repository, commit_sha, source_sha256, manifest_count, refreshed_at]
-      properties:
-        id: { type: string }
-        repository: { type: string, const: rehuony/sing-box-panel }
-        commit_sha: { $ref: "#/components/schemas/GitObjectID" }
-        source_sha256: { $ref: "#/components/schemas/SHA256" }
-        manifest_count: { type: integer, minimum: 1, maximum: 4096 }
-        refreshed_at: { type: string, format: date-time }
-    CapabilityGenerationPage:
-      type: object
-      additionalProperties: false
-      required: [items]
-      properties:
-        items:
-          type: array
-          items: { $ref: "#/components/schemas/CapabilityGenerationView" }
-    CapabilityManifestCandidate:
-      type: object
-      additionalProperties: false
-      required:
-        - generation_id
-        - repository
-        - commit_sha
-        - exact_core_version
-        - path
-        - manifest_sha256
-        - support_level
-        - quarantined
-      properties:
-        generation_id: { type: string }
-        repository: { type: string, const: rehuony/sing-box-panel }
-        commit_sha: { $ref: "#/components/schemas/GitObjectID" }
-        exact_core_version: { $ref: "#/components/schemas/ExactCoreVersion" }
-        path: { type: string }
-        manifest_sha256: { $ref: "#/components/schemas/SHA256" }
-        support_level: { $ref: "#/components/schemas/CapabilitySupportLevel" }
-        manifest: { $ref: "#/components/schemas/CapabilityManifest" }
-        quarantined: { type: boolean }
-        reason_code: { type: string }
-    CapabilityGenerationRefresh:
-      type: object
-      additionalProperties: false
-      required: [generation, candidates, created]
-      properties:
-        generation: { $ref: "#/components/schemas/CapabilityGenerationView" }
-        candidates:
-          type: array
-          items: { $ref: "#/components/schemas/CapabilityManifestCandidate" }
-        created: { type: boolean }
-    CapabilityQuarantineReasonCode:
-      type: string
-      minLength: 3
-      maxLength: 64
-      pattern: "^[a-z0-9](?:[a-z0-9_]{1,62}[a-z0-9])$"
-      description: Stable lowercase machine-readable reason code recorded in the immutable quarantine audit entry.
-    CapabilityQuarantineRequest:
-      type: object
-      additionalProperties: false
-      required: [reason_code]
-      properties:
-        reason_code: { $ref: "#/components/schemas/CapabilityQuarantineReasonCode" }
-    CapabilityQuarantine:
-      type: object
-      additionalProperties: false
-      required: [manifest_sha256, reason_code, quarantined_at]
-      properties:
-        manifest_sha256: { $ref: "#/components/schemas/SHA256" }
-        reason_code: { $ref: "#/components/schemas/CapabilityQuarantineReasonCode" }
-        quarantined_at: { type: string, format: date-time }
-    CapabilityUpgradeRequest:
-      type: object
-      additionalProperties: false
-      required: [exact_core_version, commit_sha, manifest_sha256, accept]
-      properties:
-        exact_core_version: { $ref: "#/components/schemas/ExactCoreVersion" }
-        commit_sha: { $ref: "#/components/schemas/GitObjectID" }
-        manifest_sha256: { $ref: "#/components/schemas/SHA256" }
-        accept:
+        supported:
           type: boolean
-          description: false returns only a preview; true explicitly accepts and pins the exact candidate.
-    CapabilityUpgradePreview:
-      type: object
-      additionalProperties: false
-      required: [candidate, changed, blocked, warnings]
-      properties:
-        current: { $ref: "#/components/schemas/CapabilityPin" }
-        candidate: { $ref: "#/components/schemas/CapabilityManifestCandidate" }
-        changed: { type: boolean }
-        blocked: { type: boolean }
-        block_reason: { type: string }
-        warnings:
-          type: array
-          items: { type: string }
-    CapabilityUpgrade:
-      type: object
-      additionalProperties: false
-      required: [preview, pin]
-      properties:
-        preview: { $ref: "#/components/schemas/CapabilityUpgradePreview" }
-        pin: { $ref: "#/components/schemas/CapabilityPin" }
-    CoreCapabilityStatus:
-      type: object
-      additionalProperties: false
-      required: [resolution, support_level, pinned, quarantined]
-      properties:
-        resolution: { $ref: "#/components/schemas/CoreVersionResolution" }
-        support_level: { $ref: "#/components/schemas/CapabilitySupportLevel" }
-        pinned: { type: boolean }
-        pin: { $ref: "#/components/schemas/CapabilityPin" }
-        quarantined: { type: boolean }
-        reason_code: { type: string }
-        presentation:
-          allOf:
-            - { $ref: "#/components/schemas/CapabilityPresentation" }
-          description: Present only for a usable, unquarantined native or compatible exact-version pin.
-    MonitoringTier:
-      type: string
-      enum: [full, limited, process_only]
-    RuntimeStatus:
-      type: object
-      additionalProperties: false
-      required: [desired_running, target_generation, observation_state]
-      properties:
-        desired_running: { type: boolean }
-        desired_bundle_id: { type: string }
-        applied_bundle_id: { type: string }
-        rollback_bundle_id: { type: string }
-        target_generation: { type: integer, format: int64, minimum: 0 }
-        observation_state:
+        profile:
+          $ref: "#/components/schemas/ConfigurationProfile"
+        adapter_id:
           type: string
-          enum: [stopped, running, stale, inspection_unavailable]
-        running: { $ref: "#/components/schemas/RuntimeCoreIdentity" }
-    StartupCheckRequest:
-      type: object
-      additionalProperties: false
-      required: [startup_artifact_id]
-      properties:
-        startup_artifact_id: { type: string, minLength: 1, maxLength: 256 }
-    ActivationRequest:
-      type: object
-      additionalProperties: false
-      required: [startup_artifact_id]
-      properties:
-        startup_artifact_id: { type: string, minLength: 1, maxLength: 256 }
-        monitoring_tier:
-          allOf:
-            - $ref: "#/components/schemas/MonitoringTier"
-          default: process_only
-    ActivationSummary:
-      type: object
-      additionalProperties: false
-      required:
-        - startup_artifact_id
-        - canonical_revision_id
-        - exact_core_version
-        - core_artifact_id
-        - config_sha256
-        - subscription_snapshot_id
-        - subscription_sha256
-        - activation_bundle_id
-        - activation_sha256
-        - monitoring_tier
-      properties:
-        startup_artifact_id: { type: string }
-        canonical_revision_id: { type: string }
-        exact_core_version: { $ref: "#/components/schemas/ExactCoreVersion" }
-        core_artifact_id: { type: string }
-        config_sha256: { $ref: "#/components/schemas/SHA256" }
-        subscription_snapshot_id: { type: string }
-        subscription_sha256: { $ref: "#/components/schemas/SHA256" }
-        activation_bundle_id: { type: string }
-        activation_sha256: { $ref: "#/components/schemas/SHA256" }
-        monitoring_tier: { $ref: "#/components/schemas/MonitoringTier" }
-    ActivationQueued:
-      type: object
-      additionalProperties: false
-      required: [activation, task]
-      properties:
-        activation: { $ref: "#/components/schemas/ActivationSummary" }
-        task: { $ref: "#/components/schemas/Task" }
-    ManualArtifactState:
-      type: string
-      enum: [pending, ready, failed, stale]
-    ManualArtifact:
-      type: object
-      additionalProperties: false
-      required:
-        - id
-        - canonical_revision_id
-        - exact_core_version
-        - core_artifact_id
-        - config_sha256
-        - raw
-        - diagnostics
-        - state
-        - created_at
-      properties:
-        id: { type: string }
-        canonical_revision_id: { type: string }
-        exact_core_version: { $ref: "#/components/schemas/ExactCoreVersion" }
-        core_artifact_id: { type: string }
-        config_sha256: { $ref: "#/components/schemas/SHA256" }
-        raw: { type: string }
-        diagnostics:
-          type: array
-          items: {}
-        state: { $ref: "#/components/schemas/ManualArtifactState" }
-        checked_at: { type: string, format: date-time }
-        created_at: { type: string, format: date-time }
-    ManualArtifactList:
-      type: object
-      additionalProperties: false
-      required: [resolution, items]
-      properties:
-        resolution: { $ref: "#/components/schemas/CoreVersionResolution" }
-        items:
-          type: array
-          items: { $ref: "#/components/schemas/ManualArtifactSummary" }
-        next: { $ref: "#/components/schemas/StartupArtifactCursor" }
-    ManualArtifactSummary:
-      type: object
-      additionalProperties: false
-      required:
-        - id
-        - canonical_revision_id
-        - exact_core_version
-        - core_artifact_id
-        - config_sha256
-        - diagnostics
-        - state
-        - created_at
-      properties:
-        id: { type: string }
-        canonical_revision_id: { type: string }
-        exact_core_version: { $ref: "#/components/schemas/ExactCoreVersion" }
-        core_artifact_id: { type: string }
-        config_sha256: { $ref: "#/components/schemas/SHA256" }
-        diagnostics:
-          type: array
-          items: {}
-        state: { $ref: "#/components/schemas/ManualArtifactState" }
-        checked_at: { type: string, format: date-time }
-        created_at: { type: string, format: date-time }
-    ManualSave:
-      type: object
-      additionalProperties: false
-      required: [resolution, preview, revision, no_change, artifact, task]
-      properties:
-        resolution: { $ref: "#/components/schemas/CoreVersionResolution" }
-        preview: { $ref: "#/components/schemas/ManualReplacePreview" }
-        revision: { $ref: "#/components/schemas/CanonicalSnapshot" }
-        no_change: { type: boolean }
-        artifact: { $ref: "#/components/schemas/ManualArtifact" }
-        task: { $ref: "#/components/schemas/Task" }
-    ManualReplacePreview:
-      type: object
-      additionalProperties: false
-      required: [resolution, base, core_artifact_id, config_sha256, reverse]
-      properties:
-        resolution: { $ref: "#/components/schemas/CoreVersionResolution" }
-        base: { $ref: "#/components/schemas/CanonicalSnapshot" }
-        core_artifact_id: { type: string }
-        config_sha256: { $ref: "#/components/schemas/SHA256" }
-        reverse: { $ref: "#/components/schemas/ManualReverseMapping" }
-    ManualReverseMapping:
-      type: object
-      additionalProperties: false
-      required: [available, owned_partial, proposed_canonical, residual_paths, canonical_changed]
-      properties:
-        available: { type: boolean }
-        reason_code: { type: string }
-        capability: { $ref: "#/components/schemas/ManualReattachPinEvidence" }
-        owned_partial:
-          type: object
-          additionalProperties: true
-        proposed_canonical: { $ref: "#/components/schemas/CanonicalDocument" }
-        residual_paths:
-          type: array
-          items: { type: string }
-        canonical_changed: { type: boolean }
-    CapabilityDiagnostic:
-      type: object
-      additionalProperties: false
-      required: [severity, code, fact_id, message]
-      properties:
-        severity: { type: string, const: warning }
-        code: { type: string }
-        fact_id: { type: string }
-        message: { type: string }
-    StructuredRenderRequest:
-      type: object
-      additionalProperties: false
-      properties:
-        core_version:
-          allOf:
-            - { $ref: "#/components/schemas/ExactCoreVersion" }
-          description: Optional exact version. Omit to use the OS-verified running exact core version; latest is never inferred.
-        core_artifact_id: { type: string, minLength: 1, maxLength: 256 }
-        allow_compatible:
-          type: boolean
-          default: false
-          description: Explicit acceptance required for compatible_structured capability support.
-    StructuredArtifact:
-      type: object
-      additionalProperties: false
-      required:
-        - id
-        - canonical_revision_id
-        - exact_core_version
-        - capability_commit
-        - capability_digest
-        - renderer_version
-        - core_artifact_id
-        - config_sha256
-        - config
-        - diagnostics
-        - state
-      properties:
-        id: { type: string }
-        canonical_revision_id: { type: string }
-        exact_core_version: { $ref: "#/components/schemas/ExactCoreVersion" }
-        capability_commit: { $ref: "#/components/schemas/GitObjectID" }
-        capability_digest: { $ref: "#/components/schemas/SHA256" }
-        renderer_version: { type: string }
-        core_artifact_id: { type: string }
-        config:
-          type: object
-          additionalProperties: true
-          description: Exact strict sing-box JSON bytes persisted in the startup artifact.
-        config_sha256: { $ref: "#/components/schemas/SHA256" }
-        diagnostics:
-          type: array
-          items: { $ref: "#/components/schemas/CapabilityDiagnostic" }
-        state: { $ref: "#/components/schemas/ManualArtifactState" }
-    StructuredRender:
-      type: object
-      additionalProperties: false
-      required: [resolution, pin, artifact, task]
-      properties:
-        resolution: { $ref: "#/components/schemas/CoreVersionResolution" }
-        pin: { $ref: "#/components/schemas/CapabilityPin" }
-        artifact: { $ref: "#/components/schemas/StructuredArtifact" }
-        task: { $ref: "#/components/schemas/Task" }
-    StartupArtifactSummary:
-      type: object
-      additionalProperties: false
-      required:
-        - id
-        - kind
-        - canonical_revision_id
-        - exact_core_version
-        - renderer_version
-        - core_artifact_id
-        - config_sha256
-        - diagnostics
-        - state
-        - created_at
-      properties:
-        id: { type: string }
-        kind: { type: string, enum: [structured, manual] }
-        canonical_revision_id: { type: string }
-        exact_core_version: { $ref: "#/components/schemas/ExactCoreVersion" }
-        capability_commit: { $ref: "#/components/schemas/GitObjectID" }
-        capability_digest: { $ref: "#/components/schemas/SHA256" }
-        renderer_version: { type: string }
-        core_artifact_id: { type: string }
-        config_sha256: { $ref: "#/components/schemas/SHA256" }
-        diagnostics:
-          type: array
-          items: {}
-        state: { $ref: "#/components/schemas/ManualArtifactState" }
-        checked_at: { type: string, format: date-time }
-        created_at: { type: string, format: date-time }
-    StartupArtifactCursor:
-      type: object
-      additionalProperties: false
-      required: [created_at, id]
-      properties:
-        created_at: { type: string, format: date-time }
-        id: { type: string }
-    StartupArtifactPage:
-      type: object
-      additionalProperties: false
-      required: [items]
-      properties:
-        items:
-          type: array
-          items: { $ref: "#/components/schemas/StartupArtifactSummary" }
-        next: { $ref: "#/components/schemas/StartupArtifactCursor" }
-    ManualReattachPinEvidence:
-      type: object
-      additionalProperties: false
-      required: [repository, commit_sha, manifest_sha256, support_level]
-      properties:
-        repository: { type: string, const: rehuony/sing-box-panel }
-        commit_sha: { $ref: "#/components/schemas/GitObjectID" }
-        manifest_sha256: { $ref: "#/components/schemas/SHA256" }
-        support_level: { $ref: "#/components/schemas/CapabilitySupportLevel" }
-    ManualReattachEvidence:
-      type: object
-      additionalProperties: false
-      required:
-        - startup_artifact_id
-        - config_sha256
-        - base_revision_id
-        - base_revision_sha256
-        - current_head_id
-        - current_head_sha256
-        - exact_core_version
-        - core_artifact_id
-        - capability
-      properties:
-        startup_artifact_id: { type: string }
-        config_sha256: { $ref: "#/components/schemas/SHA256" }
-        base_revision_id: { type: string }
-        base_revision_sha256: { $ref: "#/components/schemas/SHA256" }
-        current_head_id: { type: string }
-        current_head_sha256: { $ref: "#/components/schemas/SHA256" }
-        exact_core_version: { $ref: "#/components/schemas/ExactCoreVersion" }
-        core_artifact_id: { type: string }
-        capability: { $ref: "#/components/schemas/ManualReattachPinEvidence" }
-    ReconcileEncodedValue:
-      type: object
-      additionalProperties: false
-      required: [present]
-      properties:
-        present: { type: boolean }
-        value: {}
-    ManualReattachConflict:
-      type: object
-      additionalProperties: false
-      required: [path, base, current, manual]
-      properties:
-        path: { type: string }
-        base: { $ref: "#/components/schemas/ReconcileEncodedValue" }
-        current: { $ref: "#/components/schemas/ReconcileEncodedValue" }
-        manual: { $ref: "#/components/schemas/ReconcileEncodedValue" }
-    ManualReattachPreview:
-      type: object
-      additionalProperties: false
-      required: [evidence, base, current, manual, owned_partial, merged, residual_paths, conflicts]
-      properties:
-        evidence: { $ref: "#/components/schemas/ManualReattachEvidence" }
-        base: { $ref: "#/components/schemas/CanonicalSnapshot" }
-        current: { $ref: "#/components/schemas/CanonicalSnapshot" }
-        manual: { $ref: "#/components/schemas/CanonicalDocument" }
-        owned_partial: { type: object, additionalProperties: true }
-        merged: { $ref: "#/components/schemas/CanonicalDocument" }
-        residual_paths:
-          type: array
-          items: { type: string }
-        conflicts:
-          type: array
-          items: { $ref: "#/components/schemas/ManualReattachConflict" }
-    ManualReattachApplyRequest:
-      type: object
-      additionalProperties: false
-      required: [evidence, decisions]
-      properties:
-        evidence: { $ref: "#/components/schemas/ManualReattachEvidence" }
-        decisions:
-          type: object
-          additionalProperties:
-            type: string
-            enum: [current, manual]
-    ManualReattachSave:
-      type: object
-      additionalProperties: false
-      required: [preview, revision, artifact, task]
-      properties:
-        preview: { $ref: "#/components/schemas/ManualReattachPreview" }
-        revision: { $ref: "#/components/schemas/CanonicalSnapshot" }
-        artifact: { $ref: "#/components/schemas/ManualArtifact" }
-        task: { $ref: "#/components/schemas/Task" }
-    LogSource:
-      type: string
-      enum: [panel, core, task, security]
-    LogLevel:
-      type: string
-      enum: [trace, debug, info, warn, error, fatal]
-    LogEntry:
-      type: object
-      additionalProperties: false
-      required: [id, time, source, level, code, message, metadata]
-      properties:
-        id: { type: string }
-        time: { type: string, format: date-time }
-        source: { $ref: "#/components/schemas/LogSource" }
-        level: { $ref: "#/components/schemas/LogLevel" }
-        code: { type: string }
-        message: { type: string }
-        metadata:
-          type: object
-          additionalProperties: true
-          description: Sanitized bounded metadata; credentials and complete configuration/subscription bodies are never persisted.
-    LogCursor:
-      type: object
-      additionalProperties: false
-      required: [time, id]
-      properties:
-        time: { type: string, format: date-time }
-        id: { type: string }
-    LogPage:
-      type: object
-      additionalProperties: false
-      required: [items]
-      properties:
-        items:
-          type: array
-          items: { $ref: "#/components/schemas/LogEntry" }
-        next: { $ref: "#/components/schemas/LogCursor" }
-    LogClearResult:
-      type: object
-      additionalProperties: false
-      required: [deleted]
-      properties:
-        deleted: { type: integer, format: int64, minimum: 0 }
-    LogDeleteResult:
-      type: object
-      additionalProperties: false
-      required: [id, deleted]
-      properties:
-        id: { type: string }
-        deleted: { type: boolean, const: true }
-    TrafficPeriod:
-      type: object
-      additionalProperties: false
-      required: [id, period_start, period_end, inbound_bytes, outbound_bytes, counters, created_at]
-      properties:
-        id: { type: string }
-        activation_bundle_id: { type: string }
-        period_start: { type: string, format: date-time }
-        period_end: { type: string, format: date-time }
-        inbound_bytes: { type: integer, format: int64, minimum: 0 }
-        outbound_bytes: { type: integer, format: int64, minimum: 0 }
-        counters: { type: object, additionalProperties: true }
-        created_at: { type: string, format: date-time }
-    TrafficPeriodPage:
-      type: object
-      additionalProperties: false
-      required: [items]
-      properties:
-        items:
-          type: array
-          items: { $ref: "#/components/schemas/TrafficPeriod" }
-    MetricsSnapshot:
-      type: object
-      additionalProperties: false
-      required: [available, collected_at]
-      properties:
-        available: { type: boolean }
-        reason_code:
+        adapter_revision:
           type: string
-          enum: [not_applied, process_only, no_collector_sample, stale_collector_sample]
-        applied_bundle_id: { type: string }
-        monitoring_tier: { $ref: "#/components/schemas/MonitoringTier" }
-        collected_at: { type: string, format: date-time }
-        current_traffic_period: { $ref: "#/components/schemas/TrafficPeriod" }
-    SubscriptionFormat:
-      type: string
-      enum: [sing-box, mihomo, loon]
-    SubscriptionChannelConfig:
-      type: object
-      additionalProperties: false
-      properties:
-        exclude_tags:
-          type: array
-          maxItems: 10000
-          uniqueItems: true
-          items: { type: string }
-        exclude_types:
-          type: array
-          maxItems: 10000
-          uniqueItems: true
-          items: { type: string }
-    SubscriptionChannelWrite:
-      type: object
-      additionalProperties: false
-      required: [name, format, enabled]
-      properties:
-        name: { type: string, minLength: 1, maxLength: 128 }
-        format: { $ref: "#/components/schemas/SubscriptionFormat" }
-        config: { $ref: "#/components/schemas/SubscriptionChannelConfig" }
-        enabled: { type: boolean }
-    SubscriptionChannel:
-      type: object
-      additionalProperties: false
-      required: [id, name, format, config, enabled, created_at, updated_at]
-      properties:
-        id: { type: string, minLength: 1, maxLength: 128 }
-        name: { type: string, minLength: 1, maxLength: 128 }
-        format: { $ref: "#/components/schemas/SubscriptionFormat" }
-        config: { $ref: "#/components/schemas/SubscriptionChannelConfig" }
-        enabled: { type: boolean }
-        created_at: { type: string, format: date-time }
-        updated_at: { type: string, format: date-time }
-    SubscriptionChannelSummary:
-      type: object
-      additionalProperties: false
-      required: [id, name, format, enabled, created_at, updated_at]
-      properties:
-        id: { type: string, minLength: 1, maxLength: 128 }
-        name: { type: string, minLength: 1, maxLength: 128 }
-        format: { $ref: "#/components/schemas/SubscriptionFormat" }
-        enabled: { type: boolean }
-        created_at: { type: string, format: date-time }
-        updated_at: { type: string, format: date-time }
-    SubscriptionCursor:
-      type: object
-      additionalProperties: false
-      required: [created_at, id]
-      properties:
-        created_at: { type: string, format: date-time }
-        id: { type: string, minLength: 1, maxLength: 128 }
-    SubscriptionChannelPage:
-      type: object
-      additionalProperties: false
-      required: [items]
-      properties:
-        items:
-          type: array
-          items: { $ref: "#/components/schemas/SubscriptionChannelSummary" }
-        next: { $ref: "#/components/schemas/SubscriptionCursor" }
-    SubscriptionSourceKind:
-      type: string
-      enum: [remote, local]
-    SubscriptionSourceSnapshot:
-      oneOf:
-        - type: object
-          additionalProperties: true
-        - type: array
-          items: {}
-    SubscriptionSourceWrite:
-      type: object
-      additionalProperties: false
-      required: [name, source_kind, enabled]
-      properties:
-        name: { type: string, minLength: 1, maxLength: 128 }
-        source_kind: { $ref: "#/components/schemas/SubscriptionSourceKind" }
-        config: { type: object, additionalProperties: true }
-        enabled: { type: boolean }
-    SubscriptionSourceCreate:
-      type: object
-      additionalProperties: false
-      required: [name, source_kind, enabled]
-      properties:
-        name: { type: string, minLength: 1, maxLength: 128 }
-        source_kind: { $ref: "#/components/schemas/SubscriptionSourceKind" }
-        config: { type: object, additionalProperties: true }
-        latest_snapshot: { $ref: "#/components/schemas/SubscriptionSourceSnapshot" }
-        enabled: { type: boolean }
-    SubscriptionSourceSnapshotWrite:
-      type: object
-      additionalProperties: false
-      required: [latest_snapshot]
-      properties:
-        latest_snapshot: { $ref: "#/components/schemas/SubscriptionSourceSnapshot" }
-    SubscriptionSource:
-      type: object
-      additionalProperties: false
-      required: [id, name, source_kind, config, enabled, created_at, updated_at]
-      properties:
-        id: { type: string, minLength: 1, maxLength: 128 }
-        name: { type: string, minLength: 1, maxLength: 128 }
-        source_kind: { $ref: "#/components/schemas/SubscriptionSourceKind" }
-        config: { type: object, additionalProperties: true }
-        latest_snapshot: { $ref: "#/components/schemas/SubscriptionSourceSnapshot" }
-        enabled: { type: boolean }
-        created_at: { type: string, format: date-time }
-        updated_at: { type: string, format: date-time }
-    SubscriptionSourceSummary:
-      type: object
-      additionalProperties: false
-      required: [id, name, source_kind, has_snapshot, enabled, created_at, updated_at]
-      properties:
-        id: { type: string, minLength: 1, maxLength: 128 }
-        name: { type: string, minLength: 1, maxLength: 128 }
-        source_kind: { $ref: "#/components/schemas/SubscriptionSourceKind" }
-        has_snapshot: { type: boolean }
-        enabled: { type: boolean }
-        created_at: { type: string, format: date-time }
-        updated_at: { type: string, format: date-time }
-    SubscriptionSourcePage:
-      type: object
-      additionalProperties: false
-      required: [items]
-      properties:
-        items:
-          type: array
-          items: { $ref: "#/components/schemas/SubscriptionSourceSummary" }
-        next: { $ref: "#/components/schemas/SubscriptionCursor" }
-    SubscriptionTokenCreateRequest:
-      type: object
-      additionalProperties: false
-      properties:
-        expires_at: { type: [string, "null"], format: date-time }
-    SubscriptionTokenRotateRequest:
-      type: object
-      additionalProperties: false
-      properties:
-        expires_at: { type: [string, "null"], format: date-time }
-    SubscriptionToken:
-      type: object
-      additionalProperties: false
-      required: [id, created_at, active]
-      properties:
-        id: { type: string, minLength: 1, maxLength: 128 }
-        expires_at: { type: string, format: date-time }
-        revoked_at: { type: string, format: date-time }
-        created_at: { type: string, format: date-time }
-        active: { type: boolean }
-    SubscriptionTokenPage:
-      type: object
-      additionalProperties: false
-      required: [items]
-      properties:
-        items:
-          type: array
-          items: { $ref: "#/components/schemas/SubscriptionToken" }
-        next: { $ref: "#/components/schemas/SubscriptionCursor" }
-    CreatedSubscriptionToken:
-      type: object
-      additionalProperties: false
-      required: [metadata, token]
-      properties:
-        metadata: { $ref: "#/components/schemas/SubscriptionToken" }
-        token:
+        reason:
           type: string
-          description: Plaintext returned only by this create response.
-    SubscriptionTokenRotation:
-      type: object
-      additionalProperties: false
-      required: [revoked, created, token]
-      properties:
-        revoked: { $ref: "#/components/schemas/SubscriptionToken" }
-        created: { $ref: "#/components/schemas/SubscriptionToken" }
-        token:
-          type: string
-          description: Replacement plaintext returned only by this rotation response.
-    SubscriptionPreviewRequest:
-      type: object
-      additionalProperties: false
-      required: [startup_artifact_id]
-      properties:
-        startup_artifact_id: { type: string, minLength: 1, maxLength: 256 }
-    SubscriptionDiagnostic:
-      type: object
-      additionalProperties: false
-      required: [collection, item_index, format, code]
-      properties:
-        collection: { type: string, enum: [outbounds, endpoints] }
-        item_index: { type: integer, minimum: 0 }
-        format: { $ref: "#/components/schemas/SubscriptionFormat" }
-        code: { type: string }
-    SubscriptionRenderResult:
-      type: object
-      additionalProperties: false
-      required: [format, media_type, content, node_count, diagnostics]
-      properties:
-        format: { $ref: "#/components/schemas/SubscriptionFormat" }
-        media_type: { type: string }
-        content:
-          type: string
-          format: byte
-          description: Base64-encoded rendered bytes in the management JSON preview.
-        node_count: { type: integer, minimum: 0 }
-        diagnostics:
-          type: array
-          items: { $ref: "#/components/schemas/SubscriptionDiagnostic" }
-    SubscriptionPreview:
-      type: object
-      additionalProperties: false
-      required:
-        - channel
-        - startup_artifact_id
-        - canonical_revision_id
-        - exact_core_version
-        - artifact_state
-        - result
-      properties:
-        channel: { $ref: "#/components/schemas/SubscriptionChannel" }
-        startup_artifact_id: { type: string }
-        canonical_revision_id: { type: string }
-        exact_core_version: { $ref: "#/components/schemas/ExactCoreVersion" }
-        artifact_state: { type: string, enum: [ready, stale] }
-        result: { $ref: "#/components/schemas/SubscriptionRenderResult" }
-    TaskStatus:
-      type: string
-      enum: [queued, running, succeeded, failed, canceled, superseded]
-    Task:
-      type: object
-      additionalProperties: false
-      required:
-        - id
-        - lane
-        - kind
-        - status
-        - generation
-        - payload
-        - cancel_requested
-        - attempt
-        - created_at
-        - updated_at
-      properties:
-        id: { type: string }
-        idempotency_key: { type: string }
-        lane: { type: string, enum: [runtime, maintenance] }
-        kind: { type: string }
-        status: { $ref: "#/components/schemas/TaskStatus" }
-        generation: { type: integer, format: int64, minimum: 0 }
-        canonical_revision_id: { type: string }
-        startup_artifact_id: { type: string }
-        activation_bundle_id: { type: string }
-        payload: {}
-        result: {}
-        failure: {}
-        cancel_requested: { type: boolean }
-        attempt: { type: integer, minimum: 0 }
-        lease_expires_at: { type: string, format: date-time }
-        not_before: { type: string, format: date-time }
-        created_at: { type: string, format: date-time }
-        updated_at: { type: string, format: date-time }
-    TaskPage:
-      type: object
-      additionalProperties: false
-      required: [items]
-      properties:
-        items:
-          type: array
-          items: { $ref: "#/components/schemas/Task" }
-        next:
+        provenance:
           type: object
-          additionalProperties: false
-          required: [created_at, id]
           properties:
-            created_at: { type: string, format: date-time }
-            id: { type: string }
-security:
-  - sessionCookie: []
-  - managementBearer: []
+            upstream_tag:
+              type: string
+            upstream_commit:
+              type: string
+            source:
+              type: string
+    ConfigurationDiagnostic:
+      type: object
+      required: [class, code, path, message]
+      properties:
+        class:
+          type: string
+          enum: [direct, mapped, ignored, blocking]
+        code:
+          type: string
+        path:
+          type: string
+        message:
+          type: string
+    ConfigurationPreview:
+      type: object
+      required: [canonical_revision, core_artifact, support, config, diagnostics]
+      properties:
+        canonical_revision:
+          $ref: "#/components/schemas/CanonicalSnapshot"
+        core_artifact:
+          $ref: "#/components/schemas/AnyObject"
+        support:
+          $ref: "#/components/schemas/ConfigurationAdapterSupport"
+        config:
+          $ref: "#/components/schemas/AnyObject"
+        diagnostics:
+          type: array
+          items:
+            $ref: "#/components/schemas/ConfigurationDiagnostic"
+        ignored_digest:
+          type: string
+    ConfigurationCompile:
+      type: object
+      required: [support, artifact, task]
+      properties:
+        support:
+          $ref: "#/components/schemas/ConfigurationAdapterSupport"
+        artifact:
+          $ref: "#/components/schemas/AnyObject"
+        task:
+          $ref: "#/components/schemas/AnyObject"
+    SubscriptionUserInput:
+      type: object
+      additionalProperties: false
+      required: [name, description, enabled]
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        enabled:
+          type: boolean
+    SubscriptionChannelInput:
+      type: object
+      additionalProperties: false
+      required: [name, format, public_host, config, enabled]
+      properties:
+        name:
+          type: string
+        format:
+          type: string
+          enum: [sing-box, mihomo, loon]
+        public_host:
+          type: string
+        config:
+          $ref: "#/components/schemas/AnyObject"
+        enabled:
+          type: boolean
+    SubscriptionSourceInput:
+      type: object
+      additionalProperties: false
+      required: [name, source_kind, config, enabled]
+      properties:
+        name:
+          type: string
+        source_kind:
+          type: string
+          enum: [local, remote]
+        config:
+          $ref: "#/components/schemas/AnyObject"
+        enabled:
+          type: boolean
+    SubscriptionTokenCreate:
+      type: object
+      additionalProperties: false
+      required: [user_id, label]
+      properties:
+        user_id:
+          type: string
+        label:
+          type: string
+        expires_at:
+          type: [string, "null"]
+          format: date-time

@@ -43,7 +43,7 @@ func TestCanonicalHTTPUsesIfMatchCAS(t *testing.T) {
 	value.DataDir = t.TempDir()
 	value.Auth.Token = "correct-management-token"
 	handler := NewHandler(HandlerOptions{Settings: value, Commands: application.FromStore(database)})
-	document := `{"schema_version":1,"global":{},"nodes":[],"rules":[],"subscription":{}}`
+	document := `{"schema_version":2,"configuration":{}}`
 
 	replace := httptest.NewRequest(http.MethodPut, "/api/v1/config/canonical", strings.NewReader(document))
 	replace.Header.Set("Authorization", "Bearer correct-management-token")
@@ -88,7 +88,7 @@ func TestCanonicalPatchHTTPPreservesLosslessValuesAndRejectsInvalidInput(t *test
 		handler,
 		http.MethodPut,
 		"/api/v1/config/canonical",
-		`{"schema_version":1,"global":{"untouched":9007199254740993},"nodes":[],"rules":[],"subscription":{}}`,
+		`{"schema_version":2,"configuration":{"experimental":{"untouched":9007199254740993}}}`,
 		`"none"`,
 	)
 	if initialResponse.Code != http.StatusOK {
@@ -103,7 +103,7 @@ func TestCanonicalPatchHTTPPreservesLosslessValuesAndRejectsInvalidInput(t *test
 		handler,
 		http.MethodPatch,
 		"/api/v1/config/canonical",
-		`{"changes":[{"op":"set","path":"/global/large","value_json":"9007199254740995"},{"op":"set","path":"/global/payload","value_json":"{\"huge\":1e999,\"decimal\":1.0}"}]}`,
+		`{"changes":[{"op":"set","path":"/configuration/experimental/large","value_json":"9007199254740995"},{"op":"set","path":"/configuration/experimental/payload","value_json":"{\"huge\":1e999,\"decimal\":1.0}"}]}`,
 		quoteETag(initial.Revision.ID),
 	)
 	if patchResponse.Code != http.StatusOK {
@@ -126,7 +126,7 @@ func TestCanonicalPatchHTTPPreservesLosslessValuesAndRejectsInvalidInput(t *test
 		handler,
 		http.MethodPatch,
 		"/api/v1/config/canonical",
-		`{"changes":[{"op":"set","path":"/global/value","value_json":"true"}]}`,
+		`{"changes":[{"op":"set","path":"/configuration/experimental/value","value_json":"true"}]}`,
 		"",
 	)
 	if missingBase.Code != http.StatusPreconditionRequired {
@@ -136,7 +136,7 @@ func TestCanonicalPatchHTTPPreservesLosslessValuesAndRejectsInvalidInput(t *test
 		handler,
 		http.MethodPatch,
 		"/api/v1/config/canonical",
-		`{"changes":[{"op":"set","path":"/global/value","value_json":"{\"x\":1,\"x\":2}"}]}`,
+		`{"changes":[{"op":"set","path":"/configuration/experimental/value","value_json":"{\"x\":1,\"x\":2}"}]}`,
 		patchResponse.Header().Get("ETag"),
 	)
 	if duplicateValueKey.Code != http.StatusUnprocessableEntity {
@@ -146,7 +146,7 @@ func TestCanonicalPatchHTTPPreservesLosslessValuesAndRejectsInvalidInput(t *test
 		handler,
 		http.MethodPatch,
 		"/api/v1/config/canonical",
-		`{"changes":[{"op":"set","path":"/global/value","value_json":"true"}]}`,
+		`{"changes":[{"op":"set","path":"/configuration/experimental/value","value_json":"true"}]}`,
 		quoteETag(initial.Revision.ID),
 	)
 	if stale.Code != http.StatusPreconditionFailed {
@@ -154,88 +154,11 @@ func TestCanonicalPatchHTTPPreservesLosslessValuesAndRejectsInvalidInput(t *test
 	}
 }
 
-func TestEntityRevisionAndTaskHTTPShareApplicationCAS(t *testing.T) {
-	ctx := context.Background()
-	database, err := store.Open(ctx, filepath.Join(t.TempDir(), "panel.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = database.Close() })
-	value := settings.Defaults(t.TempDir() + "/setting.json")
-	value.DataDir = t.TempDir()
-	value.Auth.Token = "correct-management-token"
-	handler := NewHandler(HandlerOptions{Settings: value, Commands: application.FromStore(database)})
-
-	initialResponse := authenticatedRequest(handler, http.MethodPut, "/api/v1/config/canonical",
-		`{"schema_version":1,"global":{},"nodes":[],"rules":[],"subscription":{}}`, `"none"`)
-	if initialResponse.Code != http.StatusOK {
-		t.Fatalf("initial status=%d body=%s", initialResponse.Code, initialResponse.Body.String())
-	}
-	var initial application.CanonicalSave
-	if err := json.Unmarshal(initialResponse.Body.Bytes(), &initial); err != nil {
-		t.Fatal(err)
-	}
-
-	createdResponse := authenticatedRequest(handler, http.MethodPost, "/api/v1/nodes",
-		`{"id":"node-a","kind":"outbound","enabled":true}`, quoteETag(initial.Revision.ID))
-	if createdResponse.Code != http.StatusCreated {
-		t.Fatalf("create status=%d body=%s", createdResponse.Code, createdResponse.Body.String())
-	}
-	var created application.CanonicalSave
-	if err := json.Unmarshal(createdResponse.Body.Bytes(), &created); err != nil {
-		t.Fatal(err)
-	}
-	if created.Revision.Sequence != 2 || createdResponse.Header().Get("ETag") != quoteETag(created.Revision.ID) {
-		t.Fatalf("created=%+v etag=%q", created, createdResponse.Header().Get("ETag"))
-	}
-
-	listedResponse := authenticatedRequest(handler, http.MethodGet, "/api/v1/nodes", "", "")
-	if listedResponse.Code != http.StatusOK || !strings.Contains(listedResponse.Body.String(), `"id":"node-a"`) {
-		t.Fatalf("list status=%d body=%s", listedResponse.Code, listedResponse.Body.String())
-	}
-
-	staleResponse := authenticatedRequest(handler, http.MethodPatch, "/api/v1/nodes/node-a/enabled",
-		`{"enabled":false}`, quoteETag(initial.Revision.ID))
-	if staleResponse.Code != http.StatusPreconditionFailed {
-		t.Fatalf("stale status=%d body=%s", staleResponse.Code, staleResponse.Body.String())
-	}
-
-	diffResponse := authenticatedRequest(handler, http.MethodGet, "/api/v1/config/revisions/diff?from=%231&to=%232", "", "")
-	if diffResponse.Code != http.StatusOK || !strings.Contains(diffResponse.Body.String(), `"path":"/nodes"`) {
-		t.Fatalf("diff status=%d body=%s", diffResponse.Code, diffResponse.Body.String())
-	}
-
-	cancelResponse := authenticatedRequest(handler, http.MethodPost, "/api/v1/tasks/"+initial.TaskID+"/cancel", "", "")
-	if cancelResponse.Code != http.StatusOK || !strings.Contains(cancelResponse.Body.String(), `"status":"canceled"`) {
-		t.Fatalf("cancel status=%d body=%s", cancelResponse.Code, cancelResponse.Body.String())
-	}
-	tasksResponse := authenticatedRequest(handler, http.MethodGet, "/api/v1/tasks?status=canceled", "", "")
-	if tasksResponse.Code != http.StatusOK || !strings.Contains(tasksResponse.Body.String(), initial.TaskID) {
-		t.Fatalf("tasks status=%d body=%s", tasksResponse.Code, tasksResponse.Body.String())
-	}
-}
-
-func TestEntityHTTPRejectsAmbiguousJSONAndRequiresBase(t *testing.T) {
-	ctx := context.Background()
-	database, err := store.Open(ctx, filepath.Join(t.TempDir(), "panel.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = database.Close() })
-	value := settings.Defaults(t.TempDir() + "/setting.json")
-	value.DataDir = t.TempDir()
-	value.Auth.Token = "correct-management-token"
-	handler := NewHandler(HandlerOptions{Settings: value, Commands: application.FromStore(database)})
-
-	missingBase := authenticatedRequest(handler, http.MethodPost, "/api/v1/nodes",
-		`{"id":"node-a","kind":"outbound","enabled":true}`, "")
-	if missingBase.Code != http.StatusPreconditionRequired {
-		t.Fatalf("missing base status=%d body=%s", missingBase.Code, missingBase.Body.String())
-	}
-	ambiguous := authenticatedRequest(handler, http.MethodPost, "/api/v1/nodes",
-		`{"id":"node-a","id":"node-b","kind":"outbound","enabled":true}`, `"none"`)
-	if ambiguous.Code != http.StatusUnprocessableEntity {
-		t.Fatalf("ambiguous status=%d body=%s", ambiguous.Code, ambiguous.Body.String())
+func TestLegacyEntityRoutesAreNotExposed(t *testing.T) {
+	handler := testHandler(t)
+	response := authenticatedRequest(handler, http.MethodGet, "/api/v1/nodes", "", "")
+	if response.Code != http.StatusNotFound {
+		t.Fatalf("legacy entity route status=%d body=%s", response.Code, response.Body.String())
 	}
 }
 

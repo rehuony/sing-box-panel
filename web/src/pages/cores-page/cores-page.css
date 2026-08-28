@@ -22,7 +22,7 @@
 
 .version-rail-panel,
 .core-section,
-.capability-strip,
+.adapter-strip,
 .runtime-contract-note {
   background: var(--color-surface);
   border: 1px solid var(--color-border);
@@ -39,7 +39,7 @@
 
 .version-rail-panel h2,
 .core-section h2,
-.capability-strip h2 {
+.adapter-strip h2 {
   font-size: 1.05rem;
   margin: var(--space-1) 0 0;
 }
@@ -151,7 +151,7 @@
   min-width: 0;
 }
 
-.capability-strip,
+.adapter-strip,
 .runtime-contract-note {
   align-items: center;
   display: flex;
@@ -159,14 +159,14 @@
   justify-content: space-between;
 }
 
-.capability-strip__state {
+.adapter-strip__state {
   align-items: flex-end;
   display: grid;
   gap: var(--space-2);
   justify-items: end;
 }
 
-.capability-strip__state small {
+.adapter-strip__state small {
   color: var(--color-text-muted);
   font-size: 0.68rem;
 }
@@ -242,20 +242,20 @@
 }
 
 @media (max-width: 620px) {
-  .capability-strip,
+  .adapter-strip,
   .runtime-contract-note {
     align-items: stretch;
     flex-direction: column;
   }
 
-  .capability-strip__state {
+  .adapter-strip__state {
     align-items: start;
     justify-items: start;
   }
 
   .version-rail-panel,
   .core-section,
-  .capability-strip,
+  .adapter-strip,
   .runtime-contract-note {
     padding: var(--space-4);
   }
