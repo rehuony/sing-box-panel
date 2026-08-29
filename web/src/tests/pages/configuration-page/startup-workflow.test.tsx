@@ -4,7 +4,7 @@ import { render, screen } from '@testing-library/react';
 
 import { ApiClientProvider } from '@/api/api-client-context';
 import { StartupWorkflow } from '@/pages/configuration-page/startup-workflow';
-import { createMockApiClient, testArtifacts, testRevision } from '@/tests/api/mock-api-client';
+import { createMockApiClient, testArtifacts, testRevision, testStartupArtifact } from '@/tests/api/mock-api-client';
 
 describe('startupWorkflow', () => {
   it('requires explicit acceptance of the exact ignored-fields digest before compiling', async () => {
@@ -38,5 +38,31 @@ describe('startupWorkflow', () => {
       coreArtifactID: 'core_1',
       acceptedIgnoredDigest: ignoredDigest,
     });
+  });
+
+  it('cannot apply a candidate from the previously selected core', async () => {
+    const user = userEvent.setup();
+    const secondCore = { ...testArtifacts.items[0], id: 'core_2' };
+    const activateStartupArtifact = vi.fn();
+    const client = createMockApiClient({
+      activateStartupArtifact,
+      listCoreArtifacts: vi.fn().mockResolvedValue({ items: [...testArtifacts.items, secondCore] }),
+      listStartupArtifacts: vi.fn().mockImplementation(async (filter) => ({
+        items: filter.coreArtifactID === 'core_1' ? [testStartupArtifact] : [],
+      })),
+    });
+
+    render(<ApiClientProvider client={client}><StartupWorkflow exactVersion='1.13.19' /></ApiClientProvider>);
+
+    const candidate = await screen.findByLabelText('Ready startup candidate');
+    await screen.findByRole('option', { name: /startup_1/ });
+    await user.selectOptions(candidate, testStartupArtifact.id);
+    expect(screen.getByRole('button', { name: 'Apply ready candidate' })).toBeEnabled();
+
+    await user.selectOptions(screen.getByLabelText('Verified core artifact'), secondCore.id);
+    const apply = screen.getByRole('button', { name: 'Apply ready candidate' });
+    expect(apply).toBeDisabled();
+    await user.click(apply);
+    expect(activateStartupArtifact).not.toHaveBeenCalled();
   });
 });

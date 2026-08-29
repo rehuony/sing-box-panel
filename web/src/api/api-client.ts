@@ -18,12 +18,13 @@ export interface ApiClient {
   stopRuntime: (signal?: AbortSignal) => Promise<Task>;
   startRuntime: (signal?: AbortSignal) => Promise<Task>;
   restartRuntime: (signal?: AbortSignal) => Promise<Task>;
-
   rollbackRuntime: (signal?: AbortSignal) => Promise<Task>;
+
   getSession: (signal?: AbortSignal) => Promise<Session | null>;
   getMetrics: (signal?: AbortSignal) => Promise<MetricsSnapshot>;
   getTask: (taskID: string, signal?: AbortSignal) => Promise<Task>;
   login: (token: string, signal?: AbortSignal) => Promise<Session>;
+  subscribeSessionInvalidated: (listener: () => void) => () => void;
   getCanonical: (signal?: AbortSignal) => Promise<CanonicalSnapshot>;
   getRuntimeStatus: (signal?: AbortSignal) => Promise<RuntimeStatus>;
 

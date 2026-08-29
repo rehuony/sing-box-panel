@@ -143,6 +143,7 @@ export function createMockApiClient(overrides: Partial<ApiClient> = {}): Mocked<
     },
   };
   const client: ApiClient = {
+    subscribeSessionInvalidated: vi.fn().mockReturnValue(() => undefined),
     getSession: vi.fn().mockResolvedValue(testSession),
     login: vi.fn().mockResolvedValue(testSession),
     logout: vi.fn().mockResolvedValue(undefined),

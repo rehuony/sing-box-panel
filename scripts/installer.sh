@@ -26,8 +26,11 @@ usage: installer.sh [--version vMAJOR.MINOR.PATCH]
 Install a signed sing-box-panel Linux release for the current effective user.
 
 options:
-  --version VERSION  install one exact stable release (for example v0.1.0)
+  --version VERSION  install one exact published release (for example v0.1.0)
   -h, --help         show this help
+
+Without --version, the installer selects the latest stable GitHub Release.
+An explicit version may identify a stable release or a GitHub pre-release.
 
 The installer verifies the signed checksum manifest, installs the binary, and
 initializes settings only when they do not already exist. It does not install,
@@ -557,7 +560,7 @@ installer_main() {
     return 0
   fi
   if [[ -n "${installer_requested_version}" ]] && ! installer_validate_version "${installer_requested_version}"; then
-    installer_error "--version must use stable vMAJOR.MINOR.PATCH syntax"
+    installer_error "--version must use vMAJOR.MINOR.PATCH syntax"
     return 2
   fi
 
@@ -602,6 +605,6 @@ installer_main() {
   installer_print_next_steps
 }
 
-if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+if [[ "${BASH_SOURCE[0]:-$0}" == "$0" ]]; then
   installer_main "$@"
 fi

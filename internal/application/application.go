@@ -21,6 +21,7 @@ type Application struct {
 	ownsDatabase          bool
 	now                   func() time.Time
 	random                func([]byte) (int, error)
+	removeFile            func(string) error
 	runtime               RuntimeResolver
 	settings              settings.Settings
 	configurationAdapters *configuration.AdapterRegistry
@@ -58,6 +59,7 @@ func newApplication(database *store.Store) *Application {
 		database:              database,
 		now:                   time.Now,
 		random:                rand.Read,
+		removeFile:            os.Remove,
 		runtime:               NewRuntimeIdentityResolver(database),
 		configurationAdapters: compiledConfigurationRegistry,
 	}

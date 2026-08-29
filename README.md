@@ -51,8 +51,10 @@ outside the current product contract.
 
 ## Installation
 
-The installer supports Linux on amd64 and arm64. It downloads one published
-GitHub Release, authenticates the exact `SHA256SUMS` bytes and release version
+The installer supports Linux on amd64 and arm64. With no arguments it selects
+the latest published stable GitHub Release. An explicit `--version vX.Y.Z`
+may select an already published stable release or GitHub pre-release. The
+installer authenticates the exact `SHA256SUMS` bytes and release version
 with the Ed25519 key retrieved from the repository's canonical
 `.github/keypair/release-signing-public-key` file, verifies the selected
 binary's SHA-256 digest, and then initializes settings only when they do not
@@ -72,7 +74,8 @@ curl --proto '=https' --tlsv1.2 -fsSL \
   https://raw.githubusercontent.com/rehuony/sing-box-panel/main/scripts/installer.sh | sudo bash
 ```
 
-Pin an exact stable release when reproducibility matters:
+Pin an exact published release, including a pre-release, when reproducibility
+matters:
 
 ```sh
 curl --proto '=https' --tlsv1.2 -fsSL \
@@ -104,9 +107,11 @@ after logout. An already running service keeps its existing process after a
 binary upgrade; restart it explicitly when ready. See the authoritative
 [systemd packaging guide](systemd/README.md) for ownership and hardening.
 
-The latest-version command requires at least one published, non-prerelease
-GitHub Release. Before the first release is published, the installer exits
-without changing the host and reports that no latest release can be resolved.
+The no-argument latest-version lookup requires at least one published,
+non-prerelease GitHub Release. Before the first stable release is published,
+the installer exits without changing the host and reports that no latest
+release can be resolved. Use `--version` to install an already published
+pre-release such as `v0.1.0` explicitly.
 
 ## Build requirements
 

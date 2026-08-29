@@ -12,20 +12,24 @@ import (
 	"time"
 )
 
+// RequestTaskCancellation returns queuedCanceled only when this transaction
+// changed the task from queued to canceled. Callers may use that commit-backed
+// signal to release resources owned exclusively by queued work.
 func (s *Store) RequestTaskCancellation(
 	ctx context.Context,
 	taskID string,
 	now time.Time,
-) (Task, error) {
+) (Task, bool, error) {
 	if strings.TrimSpace(taskID) == "" {
-		return Task{}, errors.New("task id is empty")
+		return Task{}, false, errors.New("task id is empty")
 	}
 	if now.IsZero() {
-		return Task{}, errors.New("task cancellation time is zero")
+		return Task{}, false, errors.New("task cancellation time is zero")
 	}
 	now = now.UTC()
 
 	var task Task
+	queuedCanceled := false
 	err := s.WithTx(ctx, func(tx *sql.Tx) error {
 		current, err := getTask(ctx, tx, taskID)
 		if err != nil {
@@ -33,7 +37,8 @@ func (s *Store) RequestTaskCancellation(
 		}
 		switch current.Status {
 		case TaskStatusQueued:
-			_, err = tx.ExecContext(
+			var result sql.Result
+			result, err = tx.ExecContext(
 				ctx,
 				`UPDATE tasks
                         SET status = 'canceled', cancel_requested = 1, updated_at = ?
@@ -41,6 +46,16 @@ func (s *Store) RequestTaskCancellation(
 				formatTaskTime(now),
 				taskID,
 			)
+			if err == nil {
+				rows, rowsErr := result.RowsAffected()
+				if rowsErr != nil {
+					return fmt.Errorf("inspect queued task cancellation: %w", rowsErr)
+				}
+				if rows != 1 {
+					return errors.New("queued task cancellation did not update exactly one task")
+				}
+				queuedCanceled = true
+			}
 		case TaskStatusRunning:
 			_, err = tx.ExecContext(
 				ctx,
@@ -59,7 +74,7 @@ func (s *Store) RequestTaskCancellation(
 		task, err = getTask(ctx, tx, taskID)
 		return err
 	})
-	return task, err
+	return task, queuedCanceled && err == nil, err
 }
 
 // CompleteTask commits the terminal state only for the current, unexpired

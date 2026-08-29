@@ -29,6 +29,23 @@ type RuntimeStatus struct {
 	Running          *RuntimeIdentity `json:"running,omitempty"`
 }
 
+type RuntimeRecoveryRequest struct {
+	ExpectedBundleID    string
+	ExpectedGeneration  int64
+	ExpectedObservation *store.RuntimeObservation
+	StableRunProven     bool
+	CleanBoundaryProven bool
+}
+
+type RuntimeRecoveryResult struct {
+	Task       *Task  `json:"task,omitempty"`
+	BundleID   string `json:"bundle_id,omitempty"`
+	Generation int64  `json:"generation,omitempty"`
+	EpisodeID  string `json:"episode_id,omitempty"`
+	Attempt    int    `json:"attempt,omitempty"`
+	Exhausted  bool   `json:"exhausted"`
+}
+
 type ActivationPreparation struct {
 	StartupArtifact store.StartupArtifact  `json:"startup_artifact"`
 	Bundle          store.ActivationBundle `json:"bundle"`
@@ -207,6 +224,46 @@ func (application *Application) queueRuntimeIntent(
 		return Task{}, err
 	}
 	return applicationTask(queued), nil
+}
+
+// RequestRuntimeRecovery asks the store to fence the observed failed process
+// incarnation and schedule one bounded recovery attempt. The store rechecks all
+// desired-state and generation inputs atomically against concurrent user
+// runtime commands.
+func (application *Application) RequestRuntimeRecovery(
+	ctx context.Context,
+	request RuntimeRecoveryRequest,
+) (RuntimeRecoveryResult, error) {
+	taskID, err := application.newID("task")
+	if err != nil {
+		return RuntimeRecoveryResult{}, err
+	}
+	episodeID, err := application.newID("recovery")
+	if err != nil {
+		return RuntimeRecoveryResult{}, err
+	}
+	decision, err := application.database.RequestRuntimeRecovery(ctx, store.RuntimeRecoveryInput{
+		TaskID:              taskID,
+		NewEpisodeID:        episodeID,
+		ExpectedBundleID:    strings.TrimSpace(request.ExpectedBundleID),
+		ExpectedGeneration:  request.ExpectedGeneration,
+		ExpectedObservation: request.ExpectedObservation,
+		StableRunProven:     request.StableRunProven,
+		CleanBoundaryProven: request.CleanBoundaryProven,
+		CreatedAt:           application.now().UTC(),
+	})
+	if err != nil {
+		return RuntimeRecoveryResult{}, err
+	}
+	result := RuntimeRecoveryResult{
+		BundleID: decision.BundleID, Generation: decision.Generation,
+		EpisodeID: decision.EpisodeID, Attempt: decision.Attempt, Exhausted: decision.Exhausted,
+	}
+	if decision.Task != nil {
+		task := applicationTask(*decision.Task)
+		result.Task = &task
+	}
+	return result, nil
 }
 
 func (application *Application) RuntimeStatus(ctx context.Context) (RuntimeStatus, error) {

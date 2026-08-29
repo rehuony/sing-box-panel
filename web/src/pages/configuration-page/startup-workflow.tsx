@@ -27,6 +27,7 @@ export function StartupWorkflow({ exactVersion }: StartupWorkflowProps) {
     value: ConfigurationPreview;
   } | null>(null);
   const [candidates, setCandidates] = useState<StartupArtifactSummary[]>([]);
+  const [candidateCoreArtifactID, setCandidateCoreArtifactID] = useState('');
   const [selectedCandidate, setSelectedCandidate] = useState('');
   const [acceptedIgnoredDigest, setAcceptedIgnoredDigest] = useState('');
   const [monitoringTier, setMonitoringTier] = useState<MonitoringTier>('process_only');
@@ -36,12 +37,17 @@ export function StartupWorkflow({ exactVersion }: StartupWorkflowProps) {
   const [message, setMessage] = useState('');
 
   const loadCandidates = useCallback(async (coreArtifactID: string, signal?: AbortSignal) => {
+    setCandidates([]);
+    setCandidateCoreArtifactID('');
+    setSelectedCandidate('');
     if (coreArtifactID === '') {
-      setCandidates([]);
       return;
     }
     const page = await client.listStartupArtifacts({ coreArtifactID, limit: 100 }, signal);
-    if (!signal?.aborted) setCandidates(page.items);
+    if (!signal?.aborted) {
+      setCandidateCoreArtifactID(coreArtifactID);
+      setCandidates(page.items);
+    }
   }, [client]);
 
   useEffect(() => {
@@ -86,7 +92,13 @@ export function StartupWorkflow({ exactVersion }: StartupWorkflowProps) {
 
   const support = supportResult?.coreArtifactID === selectedCore ? supportResult.value : null;
   const preview = previewResult?.coreArtifactID === selectedCore ? previewResult.value : null;
-  const readyCandidates = useMemo(() => candidates.filter((item) => item.state === 'ready'), [candidates]);
+  const readyCandidates = useMemo(
+    () => candidateCoreArtifactID === selectedCore
+      ? candidates.filter((item) => item.state === 'ready')
+      : [],
+    [candidateCoreArtifactID, candidates, selectedCore],
+  );
+  const selectedReadyCandidate = readyCandidates.find((item) => item.id === selectedCandidate) ?? null;
   const hasIgnored = preview?.diagnostics.some((item) => item.class === 'ignored') === true;
   const ignoredAccepted = preview?.ignored_digest !== undefined
     && acceptedIgnoredDigest === preview.ignored_digest;
@@ -112,18 +124,28 @@ export function StartupWorkflow({ exactVersion }: StartupWorkflowProps) {
   }
 
   async function apply() {
-    if (selectedCandidate === '') return;
+    if (selectedReadyCandidate === null) return;
     setBusyAction('apply');
     setError(null);
     setMessage('');
     try {
-      const result = await client.activateStartupArtifact(selectedCandidate, monitoringTier);
+      const result = await client.activateStartupArtifact(selectedReadyCandidate.id, monitoringTier);
       setMessage(`Activation ${result.activation.activation_bundle_id} is queued as ${result.task.id}.`);
     } catch (actionError) {
       setError(actionError);
     } finally {
       setBusyAction('');
     }
+  }
+
+  function changeCore(coreArtifactID: string) {
+    setSelectedCore(coreArtifactID);
+    setSupportResult(null);
+    setPreviewResult(null);
+    setCandidates([]);
+    setCandidateCoreArtifactID('');
+    setSelectedCandidate('');
+    setAcceptedIgnoredDigest('');
   }
 
   async function lifecycle(operation: 'start' | 'stop' | 'restart' | 'rollback') {
@@ -170,7 +192,7 @@ export function StartupWorkflow({ exactVersion }: StartupWorkflowProps) {
       <div className='form-grid'>
         <div className='field-group'>
           <label htmlFor='startup-core'>Verified core artifact</label>
-          <select disabled={loading || cores.length === 0} id='startup-core' onChange={(event) => setSelectedCore(event.target.value)} value={selectedCore}>
+          <select disabled={loading || cores.length === 0} id='startup-core' onChange={(event) => changeCore(event.target.value)} value={selectedCore}>
             {cores.length === 0
               ? (
                   <option value=''>
@@ -263,7 +285,7 @@ export function StartupWorkflow({ exactVersion }: StartupWorkflowProps) {
       <div className='form-grid'>
         <div className='field-group'>
           <label htmlFor='startup-candidate'>Ready startup candidate</label>
-          <select id='startup-candidate' onChange={(event) => setSelectedCandidate(event.target.value)} value={readyCandidates.some((item) => item.id === selectedCandidate) ? selectedCandidate : ''}>
+          <select id='startup-candidate' onChange={(event) => setSelectedCandidate(event.target.value)} value={selectedReadyCandidate?.id ?? ''}>
             <option value=''>Select a checked candidate</option>
             {readyCandidates.map((candidate) => (
               <option key={candidate.id} value={candidate.id}>
@@ -283,7 +305,7 @@ export function StartupWorkflow({ exactVersion }: StartupWorkflowProps) {
             <option value='limited'>Limited Clash API metrics</option>
           </select>
         </div>
-        <button className='button button--primary' disabled={selectedCandidate === '' || busyAction !== ''} onClick={() => void apply()} type='button'>
+        <button className='button button--primary' disabled={selectedReadyCandidate === null || busyAction !== ''} onClick={() => void apply()} type='button'>
           {busyAction === 'apply' ? 'Queueing apply…' : 'Apply ready candidate'}
         </button>
       </div>

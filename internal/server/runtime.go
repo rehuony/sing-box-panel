@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"time"
 
@@ -56,26 +57,17 @@ func newRuntimeServices(
 	}, nil
 }
 
-// ReconcileStartup clears only a proven-stale observation and restarts the
-// last applied bundle when durable desired state says it should be running.
-// A genuinely live, unowned process is never adopted implicitly.
+// ReconcileStartup refuses to adopt a live unowned process and routes startup
+// convergence through the same fenced, bounded recovery history used at
+// runtime. An active durable intent remains the sole owner of convergence.
 func (services *runtimeServices) ReconcileStartup(ctx context.Context) error {
+	var expectedObservation *store.RuntimeObservation
 	observation, err := services.database.RuntimeObservation(ctx)
 	if err == nil {
-		if identity, resolveErr := services.identity.Resolve(ctx); resolveErr == nil {
-			return fmt.Errorf(
-				"refuse to adopt live sing-box process %d for bundle %s",
-				identity.PID,
-				identity.ActivationBundleID,
-			)
-		} else if !errors.Is(resolveErr, application.ErrStaleObservation) {
-			return fmt.Errorf("reconcile runtime observation: %w", resolveErr)
+		if proveErr := services.proveCapturedObservationExited(&observation); proveErr != nil {
+			return fmt.Errorf("reconcile runtime observation: %w", proveErr)
 		}
-		if _, clearErr := services.database.ClearRuntimeObservation(
-			ctx, observation.PID, observation.ProcessStartToken,
-		); clearErr != nil {
-			return clearErr
-		}
+		expectedObservation = &observation
 	} else if !errors.Is(err, store.ErrRuntimeObservationNotFound) {
 		return err
 	}
@@ -86,40 +78,47 @@ func (services *runtimeServices) ReconcileStartup(ctx context.Context) error {
 	}
 	if !bootstrap.Hub.DesiredRunning || bootstrap.Hub.AppliedBundleID == "" ||
 		bootstrap.Hub.DesiredBundleID != bootstrap.Hub.AppliedBundleID {
-		return nil
+		return services.clearCapturedRuntimeObservation(expectedObservation)
 	}
-	for _, status := range []store.TaskStatus{store.TaskStatusQueued, store.TaskStatusRunning} {
-		page, listErr := services.database.ListTasks(ctx, store.TaskListFilter{
-			Lane: store.TaskLaneRuntime, Status: status, Limit: 1,
-		})
-		if listErr != nil {
-			return listErr
-		}
-		if len(page.Items) != 0 {
-			return nil
-		}
+	recovery, err := services.commands.RequestRuntimeRecovery(ctx, application.RuntimeRecoveryRequest{
+		ExpectedBundleID:    bootstrap.Hub.AppliedBundleID,
+		ExpectedGeneration:  bootstrap.Hub.TargetGeneration,
+		ExpectedObservation: expectedObservation,
+		StableRunProven:     runtimeObservationProvesStableRun(expectedObservation),
+		// A successful recovery with no remaining observation is the durable
+		// shape left by a clean panel shutdown. Failed/crashed children retain
+		// their observation and therefore cannot consume this reset boundary.
+		CleanBoundaryProven: expectedObservation == nil,
+	})
+	if err != nil {
+		return err
 	}
-	_, err = services.commands.QueueRuntimeStart(ctx)
-	return err
+	if recovery.Task != nil {
+		recordRuntimeRecoveryQueued(services.commands, recovery)
+	}
+	if recovery.Exhausted {
+		recordRuntimeRecoveryExhausted(services.commands, recovery)
+	}
+	return nil
 }
 
 func (services *runtimeServices) Close() error {
 	if services == nil || services.manager == nil {
 		return nil
 	}
-	observation, observationErr := services.database.RuntimeObservation(context.Background())
+	observation, observationErr := services.captureRuntimeObservation(context.Background())
 	ctx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 	defer cancel()
 	closeErr := services.manager.Close(ctx)
-	if observationErr == nil {
-		_, clearErr := services.database.ClearRuntimeObservation(
-			context.Background(), observation.PID, observation.ProcessStartToken,
-		)
-		closeErr = errors.Join(closeErr, clearErr)
-	} else if !errors.Is(observationErr, store.ErrRuntimeObservationNotFound) {
+	waitErr := services.manager.Wait()
+	if observationErr != nil {
 		closeErr = errors.Join(closeErr, observationErr)
+	} else if closeErr == nil && waitErr == nil {
+		closeErr = errors.Join(closeErr, services.clearCapturedRuntimeObservation(observation))
+	} else {
+		closeErr = errors.Join(closeErr, services.clearCapturedObservationAfterFailedStop(observation))
 	}
-	return errors.Join(closeErr, services.manager.Wait())
+	return errors.Join(closeErr, waitErr)
 }
 
 func startupCheckHandler(
@@ -205,6 +204,11 @@ func runtimeIntentHandler(services *runtimeServices) taskHandlerFunc {
 		if err := services.revalidateRuntimeMaterial(ctx, material); err != nil {
 			return nil, err
 		}
+		capturedObservation, err := services.captureRuntimeObservation(ctx)
+		if err != nil {
+			return nil, err
+		}
+		var recordedObservation *store.RuntimeObservation
 		live := services.manager.ObserveLiveIdentity()
 		alreadyExact := live.Running && live.BundleID == material.Bundle.ID &&
 			live.ArtifactID == material.Bundle.ArtifactID && live.ExactVersion == material.Bundle.ExactVersion &&
@@ -217,45 +221,51 @@ func runtimeIntentHandler(services *runtimeServices) taskHandlerFunc {
 				err = services.manager.Start(ctx, material.Bundle)
 			}
 			if err != nil {
-				services.clearRecordedObservation()
-				return nil, err
+				return nil, errors.Join(err, services.clearCapturedObservationAfterFailedStop(capturedObservation))
 			}
 			startedByTask = true
+			observation, recordErr := services.recordLiveObservation(ctx, material)
+			if recordErr != nil {
+				return nil, errors.Join(recordErr, services.stopAfterLostIntent(capturedObservation))
+			}
+			recordedObservation = &observation
 			if err := services.revalidateRuntimeMaterial(ctx, material); err != nil {
-				services.stopAfterLostIntent()
-				return nil, err
+				return nil, errors.Join(err, services.stopAfterLostIntent(recordedObservation))
 			}
 		}
 		if material.Activation.MonitoringTier == store.MonitoringLimited {
 			if err := services.awaitClashAPI(ctx, material); err != nil {
 				if startedByTask {
-					services.stopAfterLostIntent()
+					err = errors.Join(err, services.stopAfterLostIntent(recordedObservation))
 				}
 				return nil, err
 			}
 		}
 		if err := control.SafePoint(ctx); err != nil {
 			if startedByTask {
-				services.stopAfterLostIntent()
+				err = errors.Join(err, services.stopAfterLostIntent(recordedObservation))
 			}
 			return nil, err
 		}
-		observation, err := services.recordLiveObservation(ctx, material)
-		if err != nil {
-			if startedByTask {
-				services.stopAfterLostIntent()
+		if recordedObservation == nil {
+			observation, recordErr := services.recordLiveObservation(ctx, material)
+			if recordErr != nil {
+				if startedByTask {
+					recordErr = errors.Join(recordErr, services.stopAfterLostIntent(recordedObservation))
+				}
+				return nil, recordErr
 			}
-			return nil, err
+			recordedObservation = &observation
 		}
 		if err := control.SafePoint(ctx); err != nil {
 			if startedByTask {
-				services.stopAfterLostIntent()
+				err = errors.Join(err, services.stopAfterLostIntent(recordedObservation))
 			}
 			return nil, err
 		}
 		return json.Marshal(map[string]any{
 			"healthy": true, "monitoring_tier": material.Activation.MonitoringTier,
-			"runtime": observation,
+			"runtime": *recordedObservation,
 		})
 	}
 }
@@ -308,19 +318,15 @@ func (services *runtimeServices) stopForTask(
 	ctx context.Context,
 	control taskExecutionControl,
 ) (json.RawMessage, error) {
-	observation, observationErr := services.database.RuntimeObservation(ctx)
-	if observationErr != nil && !errors.Is(observationErr, store.ErrRuntimeObservationNotFound) {
-		return nil, observationErr
-	}
-	if err := services.manager.Stop(ctx); err != nil {
+	observation, err := services.captureRuntimeObservation(ctx)
+	if err != nil {
 		return nil, err
 	}
-	if observationErr == nil {
-		if _, err := services.database.ClearRuntimeObservation(
-			ctx, observation.PID, observation.ProcessStartToken,
-		); err != nil {
-			return nil, err
-		}
+	if err := services.manager.Stop(ctx); err != nil {
+		return nil, errors.Join(err, services.clearCapturedObservationAfterFailedStop(observation))
+	}
+	if err := services.clearCapturedRuntimeObservation(observation); err != nil {
+		return nil, err
 	}
 	if err := control.SafePoint(ctx); err != nil {
 		return nil, err
@@ -348,21 +354,67 @@ func (services *runtimeServices) recordLiveObservation(
 	})
 }
 
-func (services *runtimeServices) stopAfterLostIntent() {
+func (services *runtimeServices) stopAfterLostIntent(observation *store.RuntimeObservation) error {
 	ctx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 	defer cancel()
-	_ = services.manager.Stop(ctx)
-	services.clearRecordedObservation()
+	if err := services.manager.Stop(ctx); err != nil {
+		return errors.Join(err, services.clearCapturedObservationAfterFailedStop(observation))
+	}
+	return services.clearCapturedRuntimeObservation(observation)
 }
 
-func (services *runtimeServices) clearRecordedObservation() {
-	observation, err := services.database.RuntimeObservation(context.Background())
-	if err != nil {
-		return
+func (services *runtimeServices) captureRuntimeObservation(ctx context.Context) (*store.RuntimeObservation, error) {
+	observation, err := services.database.RuntimeObservation(ctx)
+	if errors.Is(err, store.ErrRuntimeObservationNotFound) {
+		return nil, nil
 	}
-	_, _ = services.database.ClearRuntimeObservation(
-		context.Background(), observation.PID, observation.ProcessStartToken,
+	if err != nil {
+		return nil, err
+	}
+	return &observation, nil
+}
+
+func (services *runtimeServices) clearCapturedRuntimeObservation(observation *store.RuntimeObservation) error {
+	if observation == nil {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	_, err := services.database.ClearRuntimeObservation(
+		ctx, observation.PID, observation.ProcessStartToken,
 	)
+	return err
+}
+
+func (services *runtimeServices) clearCapturedObservationAfterFailedStop(
+	observation *store.RuntimeObservation,
+) error {
+	if observation == nil {
+		return nil
+	}
+	if err := services.proveCapturedObservationExited(observation); err != nil {
+		return err
+	}
+	return services.clearCapturedRuntimeObservation(observation)
+}
+
+func (services *runtimeServices) proveCapturedObservationExited(observation *store.RuntimeObservation) error {
+	if observation == nil {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	startToken, err := services.identity.ProcessStartToken(ctx, observation.PID)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("prove stopped runtime process incarnation: %w", err)
+	}
+	if startToken == observation.ProcessStartToken {
+		return fmt.Errorf("runtime process %d still has the captured process start token", observation.PID)
+	}
+	return nil
 }
 
 func startTrafficSampler(ctx context.Context, services *runtimeServices) <-chan struct{} {

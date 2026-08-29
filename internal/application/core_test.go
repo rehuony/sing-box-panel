@@ -5,6 +5,7 @@ package application
 import (
 	"context"
 	"errors"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -158,6 +159,11 @@ func TestPersistInstalledCorePreservesFullSourceIdentity(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = database.Close() })
 	application := newApplication(database)
+	application.settings = settings.Defaults(filepath.Join(t.TempDir(), "settings.json"))
+	application.settings.DataDir = t.TempDir()
+	if err := os.MkdirAll(filepath.Join(application.settings.DataDir, "imports"), 0o700); err != nil {
+		t.Fatal(err)
+	}
 	digest := mustDigest(t, "ab")
 	version, _ := coreartifact.ParseExactVersion("1.13.19")
 	source, _ := coreartifact.NewUserSource("administrator verified local archive")
@@ -204,15 +210,23 @@ func TestPersistInstalledCorePreservesFullSourceIdentity(t *testing.T) {
 	}); err == nil {
 		t.Fatal("core import accepted a relative path")
 	}
+	firstUploadPath := filepath.Join(application.settings.DataDir, "imports", "core-upload-one")
+	secondUploadPath := filepath.Join(application.settings.DataDir, "imports", "core-upload-two")
+	if err := os.WriteFile(firstUploadPath, []byte("one"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(secondUploadPath, []byte("two"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	firstUpload, err := application.QueueCoreImport(ctx, CoreImportRequest{
-		SourcePath: filepath.Join(t.TempDir(), "upload-one"), SourceDescription: "browser upload", SHA256: digest.String(),
+		SourcePath: firstUploadPath, SourceDescription: "browser upload", SHA256: digest.String(),
 		ExactVersion: version.String(), Architecture: "amd64", Variant: "plain", DeleteSource: true,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	secondUpload, err := application.QueueCoreImport(ctx, CoreImportRequest{
-		SourcePath: filepath.Join(t.TempDir(), "upload-two"), SourceDescription: "browser upload", SHA256: digest.String(),
+		SourcePath: secondUploadPath, SourceDescription: "browser upload", SHA256: digest.String(),
 		ExactVersion: version.String(), Architecture: "amd64", Variant: "plain", DeleteSource: true,
 	})
 	if err != nil {

@@ -5,7 +5,8 @@ import { ApiRequestError } from '../api-client';
 
 export function createSessionHttpApi(context: HttpApiContext) {
   const {
-    acceptSession, baseUrl, clearSession, fetcher, request, writeHeaders,
+    acceptSession, baseUrl, clearSession, fetcher, request,
+    subscribeSessionInvalidated, writeHeaders,
   } = context;
   return {
     async getSession(signal) {
@@ -35,13 +36,22 @@ export function createSessionHttpApi(context: HttpApiContext) {
       return acceptSession(payload);
     },
     async logout(signal) {
-      await request<void>(fetcher, `${baseUrl}/auth/session`, {
-        method: 'DELETE',
-        headers: writeHeaders(),
-        signal,
-      });
-      clearSession();
+      try {
+        await request<void>(fetcher, `${baseUrl}/auth/session`, {
+          method: 'DELETE',
+          headers: writeHeaders(),
+          signal,
+        });
+        clearSession();
+      } catch (error) {
+        if (error instanceof ApiRequestError && error.status === 401) {
+          clearSession();
+          return;
+        }
+        throw error;
+      }
     },
+    subscribeSessionInvalidated,
     getDashboardContext(signal) {
       return request<DashboardContext>(fetcher, `${baseUrl}/dashboard/context`, {
         method: 'GET',

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import type { Task, TaskPage, TaskStatus } from '@/api/api-client';
 
@@ -45,24 +45,32 @@ export function TasksPage() {
   const [actionError, setActionError] = useState('');
   const [cancelingID, setCancelingID] = useState<string | null>(null);
   const [expandedID, setExpandedID] = useState<string | null>(null);
+  const [loadingOlder, setLoadingOlder] = useState(false);
+  const loadGenerationRef = useRef(0);
 
   const loadTasks = useCallback(
-    async (signal?: AbortSignal) => {
+    async (signal?: AbortSignal, cursor?: NonNullable<TaskPage['next']>, append = false) => {
+      const generation = ++loadGenerationRef.current;
       try {
         setLoadError(null);
-        setTasks(
-          await client.listTasks(
-            {
-              lane: lane === '' ? undefined : lane,
-              limit: 100,
-              status: status === '' ? undefined : status,
-            },
-            signal,
-          ),
+        const page = await client.listTasks(
+          {
+            beforeID: cursor?.id,
+            beforeTime: cursor?.created_at,
+            lane: lane === '' ? undefined : lane,
+            limit: 100,
+            status: status === '' ? undefined : status,
+          },
+          signal,
         );
+        if (signal?.aborted || generation !== loadGenerationRef.current) return;
+        setTasks((current) => append && current !== null
+          ? { items: [...current.items, ...page.items], next: page.next }
+          : page);
       } catch (error) {
         if (
-          signal?.aborted
+          generation !== loadGenerationRef.current
+          || signal?.aborted
           || (error instanceof DOMException && error.name === 'AbortError')
         ) {
           return;
@@ -89,6 +97,16 @@ export function TasksPage() {
       setActionError(describeRequestError(error));
     } finally {
       setCancelingID(null);
+    }
+  }
+
+  async function loadOlderTasks() {
+    if (tasks?.next === undefined) return;
+    setLoadingOlder(true);
+    try {
+      await loadTasks(undefined, tasks.next, true);
+    } finally {
+      setLoadingOlder(false);
     }
   }
 
@@ -232,6 +250,18 @@ export function TasksPage() {
                   );
                 })}
               </div>
+            )}
+        {tasks?.next === undefined
+          ? null
+          : (
+              <button
+                className='button button--secondary'
+                disabled={loadingOlder}
+                onClick={() => void loadOlderTasks()}
+                type='button'
+              >
+                {loadingOlder ? 'Loading older tasks…' : 'Load older tasks'}
+              </button>
             )}
       </section>
     </div>

@@ -88,12 +88,16 @@ func (application *Application) Task(ctx context.Context, taskID string) (Task, 
 }
 
 func (application *Application) CancelTask(ctx context.Context, taskID string) (Task, error) {
-	task, err := application.database.RequestTaskCancellation(ctx, taskID, application.now().UTC())
+	task, queuedCanceled, err := application.database.RequestTaskCancellation(ctx, taskID, application.now().UTC())
 	if err != nil {
 		return Task{}, err
 	}
+	if queuedCanceled {
+		application.FinalizeTaskResources(ctx, task)
+	}
 	return applicationTask(task), nil
 }
+
 func applicationTask(value store.Task) Task {
 	return Task{
 		ID:                  value.ID,

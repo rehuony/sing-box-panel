@@ -6,6 +6,8 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"strings"
+	"time"
 
 	"github.com/rehuony/sing-box-panel/internal/application"
 	"github.com/rehuony/sing-box-panel/internal/configuration"
@@ -17,21 +19,87 @@ func (handler *Handler) listTasks(w http.ResponseWriter, request *http.Request) 
 	if !handler.requireCommands(w, request) {
 		return
 	}
+	query, ok := strictCoreQuery(
+		w, request,
+		"lane", "status", "kind", "before_time", "before_id", "limit",
+	)
+	if !ok {
+		return
+	}
 	limit, ok := optionalLimit(w, request)
 	if !ok {
 		return
 	}
+	cursor, ok := taskCursor(w, request, query.Get("before_time"), query.Get("before_id"))
+	if !ok {
+		return
+	}
+	lane := store.TaskLane(query.Get("lane"))
+	status := store.TaskStatus(query.Get("status"))
+	kind := store.TaskKind(query.Get("kind"))
+	if !validOptionalTaskLane(lane) || !validOptionalTaskStatus(status) || !validOptionalTaskKind(kind) {
+		writeProblem(w, request, http.StatusBadRequest, "task_filter_invalid", "Task filter invalid", "The task filter contains an unsupported value.")
+		return
+	}
 	page, err := handler.commands.ListTasks(request.Context(), application.TaskListFilter{
-		Lane:   store.TaskLane(request.URL.Query().Get("lane")),
-		Status: store.TaskStatus(request.URL.Query().Get("status")),
-		Kind:   store.TaskKind(request.URL.Query().Get("kind")),
+		Lane:   lane,
+		Status: status,
+		Kind:   kind,
+		Cursor: cursor,
 		Limit:  limit,
 	})
 	if err != nil {
-		writeProblem(w, request, http.StatusBadRequest, "task_filter_invalid", "Task filter invalid", err.Error())
+		writeProblem(w, request, http.StatusInternalServerError, "task_list_failed", "Task operation failed", "The durable task records could not be listed.")
 		return
 	}
 	writeJSON(w, http.StatusOK, page)
+}
+
+func validOptionalTaskLane(lane store.TaskLane) bool {
+	return lane == "" || lane == store.TaskLaneRuntime || lane == store.TaskLaneMaintenance
+}
+
+func validOptionalTaskStatus(status store.TaskStatus) bool {
+	switch status {
+	case "", store.TaskStatusQueued, store.TaskStatusRunning, store.TaskStatusSucceeded,
+		store.TaskStatusFailed, store.TaskStatusCanceled, store.TaskStatusSuperseded:
+		return true
+	default:
+		return false
+	}
+}
+
+func validOptionalTaskKind(kind store.TaskKind) bool {
+	if kind == "" {
+		return true
+	}
+	for _, candidate := range store.BuiltInTaskKinds() {
+		if kind == candidate {
+			return true
+		}
+	}
+	return false
+}
+
+func taskCursor(
+	w http.ResponseWriter,
+	request *http.Request,
+	rawTime string,
+	identifier string,
+) (*store.CreatedAtCursor, bool) {
+	if rawTime == "" && identifier == "" {
+		return nil, true
+	}
+	if rawTime == "" || identifier == "" || !validStableIdentifier(identifier) {
+		writeProblem(w, request, http.StatusBadRequest, "query_invalid", "Query invalid", "before_time and before_id must be supplied together.")
+		return nil, false
+	}
+	createdAt, err := time.Parse(time.RFC3339Nano, strings.TrimSpace(rawTime))
+	if err != nil {
+		writeProblem(w, request, http.StatusBadRequest, "query_invalid", "Query invalid", "before_time must be an RFC 3339 timestamp.")
+		return nil, false
+	}
+	return &store.CreatedAtCursor{CreatedAt: createdAt.UTC(), ID: identifier}, true
 }
 
 func (handler *Handler) getTask(w http.ResponseWriter, request *http.Request, taskID string) {

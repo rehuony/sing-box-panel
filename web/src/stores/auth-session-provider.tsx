@@ -18,6 +18,12 @@ export function AuthSessionProvider({ children }: AuthSessionProviderProps) {
   const client = useApiClient();
   const [session, setSession] = useState<Session | null>(null);
   const [status, setStatus] = useState<AuthStatus>('checking');
+  const [checkGeneration, setCheckGeneration] = useState(0);
+
+  useEffect(() => client.subscribeSessionInvalidated(() => {
+    setSession(null);
+    setStatus('anonymous');
+  }), [client]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -38,17 +44,20 @@ export function AuthSessionProvider({ children }: AuthSessionProviderProps) {
         ) {
           return;
         }
-        setSession(null);
-        setStatus('anonymous');
+        setStatus('unavailable');
       });
 
     return () => controller.abort();
-  }, [client]);
+  }, [checkGeneration, client]);
 
   const value = useMemo<AuthSessionValue>(
     () => ({
       session,
       status,
+      retrySession() {
+        setStatus('checking');
+        setCheckGeneration((current) => current + 1);
+      },
       async login(token, signal) {
         const nextSession = await client.login(token, signal);
         setSession(nextSession);

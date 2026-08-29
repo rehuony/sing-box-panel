@@ -9,7 +9,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 
@@ -40,6 +39,11 @@ func (application *Application) QueueCoreInstall(ctx context.Context, assetID in
 func (application *Application) QueueCoreImport(ctx context.Context, request CoreImportRequest) (Task, error) {
 	if !filepath.IsAbs(request.SourcePath) || filepath.Clean(request.SourcePath) != request.SourcePath {
 		return Task{}, errors.New("core import path must be absolute and clean")
+	}
+	if request.DeleteSource {
+		if err := application.validatePrivateUploadedCoreFile(request.SourcePath); err != nil {
+			return Task{}, err
+		}
 	}
 	digest, err := coreartifact.ParseSHA256(request.SHA256)
 	if err != nil || digest.IsZero() {
@@ -218,24 +222,17 @@ func (application *Application) ExecuteCoreArtifactTask(ctx context.Context, kin
 		}
 		result = installed
 	case store.TaskKindCoreImport:
-		var input coreImportPayload
-		if err := jsonstrict.Decode(payload, 128<<10, &input); err != nil {
+		input, err := decodeCoreImportPayload(payload)
+		if err != nil {
 			return CoreArtifact{}, fmt.Errorf("decode core import task: %w", err)
 		}
 		if input.DeleteSource {
-			if !application.isPrivateUploadedCore(input.SourcePath) {
-				return CoreArtifact{}, errors.New("core import task upload path is outside the private staging directory")
+			if err := application.validatePrivateUploadedCoreFile(input.SourcePath); err != nil {
+				return CoreArtifact{}, err
 			}
-			defer func() { _ = os.Remove(input.SourcePath) }()
 		}
-		digest, err := coreartifact.ParseSHA256(input.SHA256)
-		if err != nil || digest.IsZero() {
-			return CoreArtifact{}, errors.New("core import task digest is invalid")
-		}
-		version, err := coreartifact.ParseExactVersion(input.ExactVersion)
-		if err != nil || version.IsZero() {
-			return CoreArtifact{}, errors.New("core import task version is invalid")
-		}
+		digest, _ := coreartifact.ParseSHA256(input.SHA256)
+		version, _ := coreartifact.ParseExactVersion(input.ExactVersion)
 		imported, err := installer.ImportLocal(ctx, artifactstore.ImportRequest{
 			SourcePath: input.SourcePath, SourceDescription: input.SourceDescription,
 			ExpectedSHA256: digest, ExpectedVersion: version,
@@ -254,13 +251,4 @@ func (application *Application) ExecuteCoreArtifactTask(ctx context.Context, kin
 		}
 	}
 	return application.PersistInstalledCore(ctx, result)
-}
-
-func (application *Application) isPrivateUploadedCore(path string) bool {
-	if application.settings.DataDir == "" || !filepath.IsAbs(path) || filepath.Clean(path) != path {
-		return false
-	}
-	directory := filepath.Join(application.settings.DataDir, "imports")
-	relative, err := filepath.Rel(directory, path)
-	return err == nil && relative != "." && !filepath.IsAbs(relative) && !strings.HasPrefix(relative, ".."+string(filepath.Separator))
 }

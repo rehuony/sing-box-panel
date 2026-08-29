@@ -38,6 +38,17 @@ expect_failure() {
   fi
 }
 
+test_entrypoints() {
+  local direct_output
+  local stdin_output
+
+  direct_output="$(bash "${script_dir}/../installer.sh" --help)" || fail "direct --help entrypoint failed"
+  stdin_output="$(bash -s -- --help <"${script_dir}/../installer.sh")" || fail "stdin --help entrypoint failed"
+  [[ "${direct_output}" == *"usage: installer.sh"* ]] || fail "direct --help omitted usage"
+  [[ "${stdin_output}" == *"usage: installer.sh"* ]] || fail "stdin --help omitted usage"
+  pass
+}
+
 # Values asserted below are globals assigned by the sourced installer.
 # shellcheck disable=SC2154
 test_arguments_and_versions() {
@@ -223,6 +234,7 @@ test_configuration_preservation() {
   pass
 }
 
+test_entrypoints
 test_arguments_and_versions
 test_architectures_and_layouts
 test_signature_and_checksums

@@ -35,7 +35,7 @@ jobs:
           cache-dependency-path: go.sum
 
       - name: Run Go and contract checks
-        run: make check-go openapi-check shell-check support-check
+        run: make check-go openapi-check shell-check installer-test support-check
 
   go-race-fuzz:
     name: Go race and fuzz smoke tests

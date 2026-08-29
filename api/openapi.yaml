@@ -437,6 +437,8 @@ paths:
         - $ref: "#/components/parameters/TaskLane"
         - $ref: "#/components/parameters/TaskStatus"
         - $ref: "#/components/parameters/TaskKind"
+        - $ref: "#/components/parameters/BeforeTime"
+        - $ref: "#/components/parameters/BeforeID"
         - $ref: "#/components/parameters/Limit"
       responses:
         "200":

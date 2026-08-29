@@ -88,6 +88,63 @@ func TestOpenConfiguresEveryConnectionAndReopens(t *testing.T) {
 	}
 }
 
+func TestOpenMigratesV1TaskIdempotencyWithoutLosingHistory(t *testing.T) {
+	ctx := testContext(t)
+	path := filepath.Join(t.TempDir(), "panel.db")
+	legacy, err := Open(ctx, path)
+	if err != nil {
+		t.Fatalf("Open() fixture error = %v", err)
+	}
+	now := time.Date(2026, time.August, 29, 8, 0, 0, 0, time.UTC)
+	historical, err := legacy.EnqueueTask(ctx, EnqueueTaskInput{
+		ID: "historical", IdempotencyKey: "catalog-refresh:shared", Lane: TaskLaneMaintenance,
+		Kind: TaskKindCatalogRefresh, Payload: json.RawMessage(`{"force":true}`), CreatedAt: now,
+	})
+	if err != nil {
+		t.Fatalf("EnqueueTask() fixture error = %v", err)
+	}
+	if _, _, err := legacy.RequestTaskCancellation(ctx, historical.ID, now.Add(time.Second)); err != nil {
+		t.Fatalf("RequestTaskCancellation() fixture error = %v", err)
+	}
+	if _, err := legacy.db.ExecContext(ctx, `
+		DROP INDEX tasks_lane_idempotency;
+		CREATE UNIQUE INDEX tasks_lane_idempotency
+		    ON tasks(lane, idempotency_key)
+		    WHERE idempotency_key IS NOT NULL;
+		DELETE FROM schema_migrations WHERE version = 2;
+		PRAGMA user_version = 1;
+	`); err != nil {
+		t.Fatalf("construct v1 fixture: %v", err)
+	}
+	if err := legacy.Close(); err != nil {
+		t.Fatalf("close v1 fixture: %v", err)
+	}
+
+	migrated, err := Open(ctx, path)
+	if err != nil {
+		t.Fatalf("Open() v1 fixture error = %v", err)
+	}
+	t.Cleanup(func() { _ = migrated.Close() })
+	info, err := migrated.SchemaInfo(ctx)
+	if err != nil || info.Version != 2 || info.LatestMigration != 2 {
+		t.Fatalf("migrated schema = %+v, %v; want version 2", info, err)
+	}
+	preserved, err := migrated.GetTask(ctx, historical.ID)
+	if err != nil || preserved.Status != TaskStatusCanceled {
+		t.Fatalf("historical task = %+v, %v; want canceled task preserved", preserved, err)
+	}
+	retry, err := migrated.EnqueueTask(ctx, EnqueueTaskInput{
+		ID: "retry", IdempotencyKey: historical.IdempotencyKey, Lane: TaskLaneMaintenance,
+		Kind: historical.Kind, Payload: historical.Payload, CreatedAt: now.Add(2 * time.Second),
+	})
+	if err != nil {
+		t.Fatalf("EnqueueTask() after migration error = %v", err)
+	}
+	if retry.ID != "retry" {
+		t.Fatalf("retry task ID = %q, want a new task", retry.ID)
+	}
+}
+
 func TestOpenRejectsPreviousDatabaseIdentity(t *testing.T) {
 	t.Parallel()
 

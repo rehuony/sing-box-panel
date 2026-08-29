@@ -389,7 +389,7 @@ func newCoreHTTPFixture(t *testing.T) (*Handler, *store.Store) {
 	}
 	return NewHandler(HandlerOptions{
 		Settings: configuration,
-		Commands: application.FromStore(database),
+		Commands: application.FromStoreWithSettings(database, configuration),
 	}), database
 }
 

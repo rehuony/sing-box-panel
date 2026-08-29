@@ -1,9 +1,11 @@
+import { useState } from 'react';
 import { NavLink, Outlet } from 'react-router-dom';
 
 import type { DashboardContext } from '@/api/api-client';
 
 import { PanelLogo } from '@/components/panel-logo';
 import { ContextRail } from '@/components/context-rail';
+import { ErrorNotice } from '@/components/error-notice';
 import { useAuthSession } from '@/stores/auth-session.store';
 import { useControlPlane } from '@/stores/control-plane.store';
 
@@ -21,6 +23,20 @@ const navigationItems = [
 export function AppShell() {
   const { logout, session } = useAuthSession();
   const controlPlane = useControlPlane();
+  const [logoutError, setLogoutError] = useState<unknown | null>(null);
+  const [loggingOut, setLoggingOut] = useState(false);
+
+  async function signOut() {
+    setLoggingOut(true);
+    setLogoutError(null);
+    try {
+      await logout();
+    } catch (error) {
+      setLogoutError(error);
+    } finally {
+      setLoggingOut(false);
+    }
+  }
 
   if (session === null) {
     return null;
@@ -76,13 +92,18 @@ export function AppShell() {
           <span className='session-name'>{session.displayName}</span>
           <button
             className='button button--quiet'
-            onClick={() => void logout()}
+            disabled={loggingOut}
+            onClick={() => void signOut()}
             type='button'
           >
-            Sign out
+            {loggingOut ? 'Signing out…' : 'Sign out'}
           </button>
         </div>
       </header>
+
+      {logoutError === null
+        ? null
+        : <ErrorNotice error={logoutError} title='Sign out failed; your current session is still active' />}
 
       <div className='app-shell__layout'>
         <aside className='side-panel'>

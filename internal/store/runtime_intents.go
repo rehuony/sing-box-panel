@@ -249,7 +249,10 @@ func getTaskByLaneIdempotency(
 ) (Task, error) {
 	task, err := scanTask(q.QueryRowContext(
 		ctx,
-		`SELECT `+taskColumns+` FROM tasks WHERE lane = ? AND idempotency_key = ?`,
+		`SELECT `+taskColumns+`
+		   FROM tasks
+		  WHERE lane = ? AND idempotency_key = ?
+		    AND status IN ('queued', 'running')`,
 		string(lane),
 		idempotencyKey,
 	))

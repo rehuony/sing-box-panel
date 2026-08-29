@@ -62,6 +62,7 @@ type taskRunnerOptions struct {
 	LeaseDuration     time.Duration
 	HeartbeatInterval time.Duration
 	PollInterval      time.Duration
+	FinalizeTask      func(context.Context, store.Task)
 	taskClock         taskClock
 }
 
@@ -245,7 +246,7 @@ func (r *taskRunner) runTask(ctx context.Context, task store.Task) error {
 	handler, ok := r.handlers[task.Kind]
 	if !ok {
 		failure := encodeTaskFailure("handler_not_registered", fmt.Errorf("no handler for kind %q", task.Kind))
-		_, err := r.store.CompleteTask(
+		completed, err := r.store.CompleteTask(
 			ctx,
 			task.ID,
 			task.LeaseOwner,
@@ -255,7 +256,11 @@ func (r *taskRunner) runTask(ctx context.Context, task store.Task) error {
 		if errors.Is(err, store.ErrTaskLeaseLost) {
 			return nil
 		}
-		return err
+		if err != nil {
+			return err
+		}
+		r.finalizeTask(ctx, completed)
+		return nil
 	}
 
 	handlerCtx, cancelHandler := context.WithCancelCause(ctx)
@@ -306,7 +311,7 @@ func (r *taskRunner) runTask(ctx context.Context, task store.Task) error {
 	if handlerErr != nil {
 		completion.Failure = encodeTaskFailure("handler_failed", handlerErr)
 	}
-	_, err := r.store.CompleteTask(
+	completed, err := r.store.CompleteTask(
 		ctx,
 		task.ID,
 		task.LeaseOwner,
@@ -316,7 +321,17 @@ func (r *taskRunner) runTask(ctx context.Context, task store.Task) error {
 	if errors.Is(err, store.ErrTaskLeaseLost) {
 		return nil
 	}
-	return err
+	if err != nil {
+		return err
+	}
+	r.finalizeTask(ctx, completed)
+	return nil
+}
+
+func (r *taskRunner) finalizeTask(ctx context.Context, task store.Task) {
+	if r.options.FinalizeTask != nil {
+		r.options.FinalizeTask(ctx, task)
+	}
 }
 
 func (r *taskRunner) fail(err error) {

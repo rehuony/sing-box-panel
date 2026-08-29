@@ -24,7 +24,7 @@ func TestListTasksFiltersAndPaginatesWithStableCursor(t *testing.T) {
 	} {
 		enqueueTask(t, ctx, store, input)
 	}
-	if _, err := store.RequestTaskCancellation(ctx, "m4", now.Add(3*time.Second)); err != nil {
+	if _, _, err := store.RequestTaskCancellation(ctx, "m4", now.Add(3*time.Second)); err != nil {
 		t.Fatalf("RequestTaskCancellation(m4) error = %v", err)
 	}
 

@@ -13,7 +13,7 @@ import { SubscriptionsPage } from '@/pages/subscriptions-page';
 import { ControlPlaneProvider } from '@/stores/control-plane-provider';
 
 function ProtectedRoute() {
-  const { status } = useAuthSession();
+  const { retrySession, status } = useAuthSession();
   const location = useLocation();
 
   if (status === 'checking') {
@@ -27,6 +27,19 @@ function ProtectedRoute() {
 
   if (status === 'anonymous') {
     return <Navigate replace state={{ from: location.pathname }} to='/login' />;
+  }
+
+  if (status === 'unavailable') {
+    return (
+      <main className='loading-screen'>
+        <div className='load-error' role='alert'>
+          <p className='eyebrow'>Service unavailable</p>
+          <h1>The panel service could not be reached.</h1>
+          <p>Your session has not been changed. Check the server and try again.</p>
+          <button className='button button--primary' onClick={retrySession} type='button'>Try again</button>
+        </div>
+      </main>
+    );
   }
 
   return (

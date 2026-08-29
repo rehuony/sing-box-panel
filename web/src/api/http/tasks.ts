@@ -8,6 +8,8 @@ export function createTasksHttpApi(context: HttpApiContext) {
   return {
     listTasks(filter: TaskFilter = {}, signal) {
       const query = buildQuery({
+        before_id: filter.beforeID,
+        before_time: filter.beforeTime,
         kind: filter.kind,
         lane: filter.lane,
         limit: filter.limit ?? 50,

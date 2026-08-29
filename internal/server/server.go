@@ -76,6 +76,20 @@ func Run(ctx context.Context, settingsPath string, build buildinfo.Info, assets 
 			Metadata: mustLogMetadata(map[string]any{"deleted": retention.Deleted}),
 		})
 	}
+	uploadGC, uploadGCErr := commands.GarbageCollectCoreUploads(ctx)
+	if uploadGCErr != nil {
+		recordOperationalLog(commands, application.LogRecordRequest{
+			Source: store.LogSourcePanel, Level: store.LogLevelWarn, Code: "core_upload.gc_aborted",
+			Message:  "Staged core upload cleanup was skipped because active task ownership was uncertain",
+			Metadata: mustLogMetadata(map[string]any{"error": uploadGCErr.Error()}),
+		})
+	} else if uploadGC.Deleted > 0 {
+		recordOperationalLog(commands, application.LogRecordRequest{
+			Source: store.LogSourcePanel, Level: store.LogLevelInfo, Code: "core_upload.gc_completed",
+			Message:  "Unreferenced staged core uploads were removed",
+			Metadata: mustLogMetadata(map[string]any{"deleted": uploadGC.Deleted, "retained": uploadGC.Retained}),
+		})
+	}
 	retentionContext, stopRetention := context.WithCancel(ctx)
 	retentionDone := startLogRetention(retentionContext, commands)
 	defer func() {
@@ -129,7 +143,9 @@ func Run(ctx context.Context, settingsPath string, build buildinfo.Info, assets 
 	for kind, taskHandler := range handlers {
 		handlers[kind] = withTaskLogging(commands, taskHandler)
 	}
-	runner, err := newTaskRunner(database, handlers, taskRunnerOptions{WorkerID: workerID()})
+	runner, err := newTaskRunner(database, handlers, taskRunnerOptions{
+		WorkerID: workerID(), FinalizeTask: commands.FinalizeTaskResources,
+	})
 	if err != nil {
 		_ = listener.Close()
 		return fmt.Errorf("construct durable task runner: %w", err)
@@ -138,6 +154,12 @@ func Run(ctx context.Context, settingsPath string, build buildinfo.Info, assets 
 		_ = listener.Close()
 		return fmt.Errorf("start durable task runner: %w", err)
 	}
+	recoveryContext, stopRecovery := context.WithCancel(ctx)
+	recoveryDone := startRuntimeReconciler(recoveryContext, runtimeControl)
+	defer func() {
+		stopRecovery()
+		<-recoveryDone
+	}()
 	recordOperationalLog(commands, application.LogRecordRequest{
 		Source: store.LogSourcePanel, Level: store.LogLevelInfo, Code: "panel.ready",
 		Message:  "Panel HTTP server and durable task executor are ready",

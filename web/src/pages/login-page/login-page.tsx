@@ -26,7 +26,7 @@ function describeLoginError(error: unknown): string {
 }
 
 export function LoginPage() {
-  const { login, status } = useAuthSession();
+  const { login, retrySession, status } = useAuthSession();
   const location = useLocation();
   const navigate = useNavigate();
   const [token, setToken] = useState('');
@@ -50,6 +50,28 @@ export function LoginPage() {
 
   if (status === 'authenticated') {
     return <Navigate replace to='/' />;
+  }
+
+  if (status === 'checking') {
+    return (
+      <main className='loading-screen' aria-busy='true' aria-live='polite'>
+        <span aria-hidden='true' className='loading-screen__mark' />
+        <p>Checking panel session…</p>
+      </main>
+    );
+  }
+
+  if (status === 'unavailable') {
+    return (
+      <main className='loading-screen'>
+        <div className='load-error' role='alert'>
+          <p className='eyebrow'>Service unavailable</p>
+          <h1>The panel service could not be reached.</h1>
+          <p>Your session has not been changed. Check the server and try again.</p>
+          <button className='button button--primary' onClick={retrySession} type='button'>Try again</button>
+        </div>
+      </main>
+    );
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -134,7 +156,7 @@ export function LoginPage() {
               aria-invalid={error.length > 0}
               autoComplete='current-password'
               autoFocus
-              disabled={isSubmitting || status === 'checking'}
+              disabled={isSubmitting}
               id='management-token'
               name='management-token'
               onChange={(event) => setToken(event.target.value)}
@@ -163,14 +185,10 @@ export function LoginPage() {
 
           <button
             className='button button--primary button--wide'
-            disabled={isSubmitting || status === 'checking'}
+            disabled={isSubmitting}
             type='submit'
           >
-            {status === 'checking'
-              ? 'Checking session…'
-              : isSubmitting
-                ? 'Opening console…'
-                : 'Open console'}
+            {isSubmitting ? 'Opening console…' : 'Open console'}
           </button>
 
           <p className='login-card__footnote'>

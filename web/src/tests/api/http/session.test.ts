@@ -100,4 +100,50 @@ describe('createHttpApiClient session domain', () => {
       }),
     );
   });
+
+  it('invalidates the local session and clears CSRF after any unauthorized response', async () => {
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(new Response(
+        JSON.stringify({ displayName: 'Panel administrator', csrfToken: 'csrf-active' }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      ))
+      .mockResolvedValueOnce(new Response(
+        JSON.stringify({ code: 'unauthorized', detail: 'Session expired.' }),
+        { status: 401, headers: { 'Content-Type': 'application/problem+json' } },
+      ))
+      .mockResolvedValueOnce(new Response(JSON.stringify({}), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }));
+    const client = createHttpApiClient({ fetcher });
+    const invalidated = vi.fn();
+    client.subscribeSessionInvalidated(invalidated);
+
+    await client.login('secret-token');
+    await expect(client.getDashboardContext()).rejects.toMatchObject({ status: 401 });
+    await client.cancelTask('task_1');
+
+    expect(invalidated).toHaveBeenCalledOnce();
+    expect(fetcher).toHaveBeenLastCalledWith(
+      '/api/v1/tasks/task_1/cancel',
+      expect.objectContaining({
+        headers: { Accept: 'application/json' },
+        method: 'POST',
+      }),
+    );
+  });
+
+  it('treats an unauthorized logout response as locally signed out', async () => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(new Response(
+      JSON.stringify({ code: 'unauthorized', detail: 'Session already expired.' }),
+      { status: 401, headers: { 'Content-Type': 'application/problem+json' } },
+    ));
+    const client = createHttpApiClient({ fetcher });
+    const invalidated = vi.fn();
+    client.subscribeSessionInvalidated(invalidated);
+
+    await expect(client.logout()).resolves.toBeUndefined();
+    expect(invalidated).toHaveBeenCalledOnce();
+  });
 });

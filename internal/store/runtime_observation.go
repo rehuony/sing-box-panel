@@ -143,6 +143,41 @@ func (s *Store) RuntimeObservation(ctx context.Context) (RuntimeObservation, err
 	return observation, nil
 }
 
+// ConfirmRuntimeObservation advances liveness evidence only for the exact PID
+// incarnation captured by the caller. A delayed confirmation from an older
+// supervisor cannot overwrite or extend a newer child's observation.
+func (s *Store) ConfirmRuntimeObservation(
+	ctx context.Context,
+	pid int,
+	processStartToken string,
+	observedAt time.Time,
+) (bool, error) {
+	if pid <= 0 || !validProcessStartToken(processStartToken) || observedAt.IsZero() {
+		return false, errors.New("runtime PID, process start token, and observation time are required")
+	}
+	observedAt = observedAt.UTC()
+	result, err := s.db.ExecContext(
+		ctx,
+		`UPDATE runtime_observation
+		    SET observed_at = ?
+		  WHERE singleton = 1 AND pid = ? AND process_start_token = ?
+		    AND started_at <= ? AND observed_at <= ?`,
+		formatTaskTime(observedAt),
+		pid,
+		processStartToken,
+		formatTaskTime(observedAt),
+		formatTaskTime(observedAt),
+	)
+	if err != nil {
+		return false, fmt.Errorf("confirm fenced runtime observation: %w", err)
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return false, fmt.Errorf("inspect fenced runtime observation confirmation: %w", err)
+	}
+	return rows == 1, nil
+}
+
 // ClearRuntimeObservation only clears the exact PID incarnation supplied by
 // its owner. A late cleanup from an old supervisor cannot erase a newer child.
 func (s *Store) ClearRuntimeObservation(

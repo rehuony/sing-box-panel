@@ -132,7 +132,7 @@ func TestRunnerCancellationOccursAtExplicitSafePoint(t *testing.T) {
 	waitSignal(t, ctx, started)
 
 	clock.Advance(time.Second)
-	if _, err := taskStore.RequestTaskCancellation(ctx, "cancel-at-safe-point", clock.Now()); err != nil {
+	if _, _, err := taskStore.RequestTaskCancellation(ctx, "cancel-at-safe-point", clock.Now()); err != nil {
 		t.Fatalf("RequestTaskCancellation() error = %v", err)
 	}
 	close(checkNow)
@@ -218,18 +218,25 @@ func TestRunnerShutdownLeavesRunningTaskForCrashReclaim(t *testing.T) {
 
 	started := make(chan struct{})
 	handlerStopped := make(chan struct{})
-	runner := newTestRunner(t, taskStore, clock, map[store.TaskKind]taskHandler{
-		store.TaskKindCoreImport: taskHandlerFunc(func(
-			ctx context.Context,
-			_ store.Task,
-			_ taskExecutionControl,
-		) (json.RawMessage, error) {
-			close(started)
-			<-ctx.Done()
-			close(handlerStopped)
-			return nil, ctx.Err()
-		}),
-	})
+	finalized := make(chan store.Task, 1)
+	runner := newTestRunnerWithFinalizer(
+		t,
+		taskStore,
+		clock,
+		map[store.TaskKind]taskHandler{
+			store.TaskKindCoreImport: taskHandlerFunc(func(
+				ctx context.Context,
+				_ store.Task,
+				_ taskExecutionControl,
+			) (json.RawMessage, error) {
+				close(started)
+				<-ctx.Done()
+				close(handlerStopped)
+				return nil, ctx.Err()
+			}),
+		},
+		func(_ context.Context, task store.Task) { finalized <- task },
+	)
 	if err := runner.Start(ctx); err != nil {
 		t.Fatalf("Start() error = %v", err)
 	}
@@ -247,6 +254,11 @@ func TestRunnerShutdownLeavesRunningTaskForCrashReclaim(t *testing.T) {
 	if unfinished.Status != store.TaskStatusRunning {
 		t.Fatalf("shutdown task status = %q, want running until lease reclaim", unfinished.Status)
 	}
+	select {
+	case task := <-finalized:
+		t.Fatalf("shutdown task was finalized before reclaim: %+v", task)
+	default:
+	}
 
 	clock.Advance(31 * time.Second)
 	reclaimed, err := taskStore.ClaimTask(ctx, store.ClaimTaskInput{
@@ -263,11 +275,99 @@ func TestRunnerShutdownLeavesRunningTaskForCrashReclaim(t *testing.T) {
 	}
 }
 
+func TestRunnerFinalizesResourcesOnlyAfterTerminalCommit(t *testing.T) {
+	ctx := runnerTestContext(t)
+	taskStore := openRunnerStore(t, ctx)
+	now := time.Date(2026, time.August, 29, 13, 0, 0, 0, time.UTC)
+	clock := newFakeClock(now)
+	enqueueRunnerTask(t, ctx, taskStore, store.EnqueueTaskInput{
+		ID: "finalized", Lane: store.TaskLaneMaintenance, Kind: store.TaskKindCoreImport, CreatedAt: now,
+	})
+	finalized := make(chan store.Task, 1)
+	runner := newTestRunnerWithFinalizer(
+		t,
+		taskStore,
+		clock,
+		map[store.TaskKind]taskHandler{
+			store.TaskKindCoreImport: taskHandlerFunc(func(
+				context.Context,
+				store.Task,
+				taskExecutionControl,
+			) (json.RawMessage, error) {
+				return json.RawMessage(`{"done":true}`), nil
+			}),
+		},
+		func(_ context.Context, task store.Task) { finalized <- task },
+	)
+	if err := runner.Start(ctx); err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+	select {
+	case task := <-finalized:
+		if task.ID != "finalized" || task.Status != store.TaskStatusSucceeded {
+			t.Fatalf("finalized task = %+v, want committed success", task)
+		}
+	case <-ctx.Done():
+		t.Fatalf("waiting for finalizer: %v", ctx.Err())
+	}
+	runner.Close()
+	if err := runner.Wait(); err != nil {
+		t.Fatalf("Wait() error = %v", err)
+	}
+}
+
+func TestRunnerDoesNotFinalizeAfterLeaseLoss(t *testing.T) {
+	ctx := runnerTestContext(t)
+	now := time.Date(2026, time.August, 29, 13, 30, 0, 0, time.UTC)
+	finalized := false
+	runner, err := newTaskRunner(
+		leaseLostTaskStore{},
+		map[store.TaskKind]taskHandler{
+			store.TaskKindCoreImport: taskHandlerFunc(func(
+				context.Context,
+				store.Task,
+				taskExecutionControl,
+			) (json.RawMessage, error) {
+				return nil, nil
+			}),
+		},
+		taskRunnerOptions{
+			WorkerID: "test-worker", LeaseDuration: 30 * time.Second,
+			HeartbeatInterval: 10 * time.Second, PollInterval: time.Second,
+			FinalizeTask: func(context.Context, store.Task) { finalized = true },
+			taskClock:    newFakeClock(now),
+		},
+	)
+	if err != nil {
+		t.Fatalf("newTaskRunner() error = %v", err)
+	}
+	err = runner.runTask(ctx, store.Task{
+		ID: "lease-lost", Lane: store.TaskLaneMaintenance, Kind: store.TaskKindCoreImport,
+		Status: store.TaskStatusRunning, LeaseOwner: "old-owner",
+	})
+	if err != nil {
+		t.Fatalf("runTask() error = %v, want lease loss handled", err)
+	}
+	if finalized {
+		t.Fatal("lease-lost task resources were finalized")
+	}
+}
+
 func newTestRunner(
 	t *testing.T,
 	taskStore taskStore,
 	clock taskClock,
 	handlers map[store.TaskKind]taskHandler,
+) *taskRunner {
+	return newTestRunnerWithFinalizer(t, taskStore, clock, handlers, nil)
+}
+
+func newTestRunnerWithFinalizer(
+	t *testing.T,
+	taskStore taskStore,
+	clock taskClock,
+	handlers map[store.TaskKind]taskHandler,
+	finalizeTask func(context.Context, store.Task),
 ) *taskRunner {
 	t.Helper()
 	runner, err := newTaskRunner(taskStore, handlers, taskRunnerOptions{
@@ -275,6 +375,7 @@ func newTestRunner(
 		LeaseDuration:     30 * time.Second,
 		HeartbeatInterval: 10 * time.Second,
 		PollInterval:      time.Second,
+		FinalizeTask:      finalizeTask,
 		taskClock:         clock,
 	})
 	if err != nil {
@@ -390,6 +491,32 @@ type fakeClock struct {
 	mu      sync.Mutex
 	now     time.Time
 	tickers map[*fakeTicker]struct{}
+}
+
+type leaseLostTaskStore struct{}
+
+func (leaseLostTaskStore) ClaimTask(context.Context, store.ClaimTaskInput) (*store.Task, error) {
+	return nil, nil
+}
+
+func (leaseLostTaskStore) HeartbeatTask(
+	context.Context,
+	string,
+	string,
+	time.Time,
+	time.Duration,
+) (store.TaskLeaseState, error) {
+	return store.TaskLeaseState{}, nil
+}
+
+func (leaseLostTaskStore) CompleteTask(
+	context.Context,
+	string,
+	string,
+	time.Time,
+	store.TaskCompletion,
+) (store.Task, error) {
+	return store.Task{}, store.ErrTaskLeaseLost
 }
 
 func newFakeClock(now time.Time) *fakeClock {

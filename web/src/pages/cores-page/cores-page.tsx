@@ -69,6 +69,8 @@ export function CoresPage() {
   const [importFile, setImportFile] = useState<File | null>(null);
   const [importVersion, setImportVersion] = useState('1.13.19');
   const [importDescription, setImportDescription] = useState('browser upload');
+  const [importArchitecture, setImportArchitecture] = useState<'' | 'amd64' | 'arm64'>('');
+  const [importVariant, setImportVariant] = useState('plain');
 
   const loadCatalog = useCallback(
     async (signal?: AbortSignal) => {
@@ -277,8 +279,14 @@ export function CoresPage() {
   }
 
   async function importArchive() {
-    if (importFile === null || !isExactVersion(importVersion) || importDescription.trim() === '') {
-      setActionError(new Error('Choose an archive and provide an exact stable version and description.'));
+    if (
+      importFile === null
+      || !isExactVersion(importVersion)
+      || importDescription.trim() === ''
+      || importArchitecture === ''
+      || !/^[a-z][a-z0-9._-]{0,63}$/.test(importVariant)
+    ) {
+      setActionError(new Error('Choose an archive, architecture, valid variant, exact stable version, and description.'));
       return;
     }
     if (importFile.size < 1 || importFile.size > 128 * 1024 * 1024) {
@@ -292,8 +300,8 @@ export function CoresPage() {
         archive: importFile,
         sourceDescription: importDescription.trim(),
         exactVersion: importVersion,
-        architecture: 'arm64',
-        variant: 'plain',
+        architecture: importArchitecture,
+        variant: importVariant,
       });
       setActionMessage(`Private core upload queued as ${task.id}.`);
       setSelectedVersion(importVersion);
@@ -347,7 +355,7 @@ export function CoresPage() {
       <section className='adapter-strip' aria-labelledby='core-upload-title'>
         <div>
           <p className='eyebrow'>Private local import</p>
-          <h2 id='core-upload-title'>Upload a verified Linux arm64 archive</h2>
+          <h2 id='core-upload-title'>Upload a verified Linux archive</h2>
           <small>
             The browser computes SHA-256; the server stages at most 128 MiB in a
             mode-0700 private directory and verifies the exact binary version.
@@ -365,6 +373,18 @@ export function CoresPage() {
           <div className='field-group'>
             <label htmlFor='core-import-description'>Source description</label>
             <input id='core-import-description' onChange={(event) => setImportDescription(event.target.value)} value={importDescription} />
+          </div>
+          <div className='field-group'>
+            <label htmlFor='core-import-architecture'>Architecture</label>
+            <select id='core-import-architecture' onChange={(event) => setImportArchitecture(event.target.value as '' | 'amd64' | 'arm64')} required value={importArchitecture}>
+              <option value=''>Select architecture</option>
+              <option value='amd64'>amd64</option>
+              <option value='arm64'>arm64</option>
+            </select>
+          </div>
+          <div className='field-group'>
+            <label htmlFor='core-import-variant'>Variant</label>
+            <input id='core-import-variant' onChange={(event) => setImportVariant(event.target.value)} required value={importVariant} />
           </div>
           <button className='button button--primary' disabled={pendingAction !== null} onClick={() => void importArchive()} type='button'>
             {pendingAction === 'import' ? 'Hashing and queueing…' : 'Upload core archive'}

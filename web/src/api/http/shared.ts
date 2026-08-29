@@ -27,6 +27,7 @@ export interface HttpApiContext {
   acceptSession: (payload: SessionPayload) => Session;
   writeHeaders: (headers?: HeadersInit) => HeadersInit;
   writeJSONHeaders: (headers?: HeadersInit) => HeadersInit;
+  subscribeSessionInvalidated: (listener: () => void) => () => void;
   request: <T>(fetcher: typeof fetch, url: string, init: RequestInit) => Promise<T>;
   buildQuery: (values: Record<string, string | number | boolean | undefined>) => string;
 }
@@ -48,6 +49,7 @@ export function createHttpApiContext(options: HttpApiOptions): HttpApiContext {
   const baseUrl = (options.baseUrl ?? '/api/v1').replace(/\/$/, '');
   const fetcher = options.fetcher ?? globalThis.fetch.bind(globalThis);
   let csrfToken = '';
+  const sessionInvalidatedListeners = new Set<() => void>();
 
   const writeHeaders = (headers: HeadersInit = {}): HeadersInit =>
     csrfToken === '' ? headers : { ...headers, 'X-CSRF-Token': csrfToken };
@@ -61,7 +63,13 @@ export function createHttpApiContext(options: HttpApiOptions): HttpApiContext {
         credentials: 'same-origin',
         headers: { Accept: 'application/json', ...init.headers },
       });
-      if (!response.ok) throw await readProblem(response);
+      if (!response.ok) {
+        if (response.status === 401) {
+          csrfToken = '';
+          for (const listener of [...sessionInvalidatedListeners]) listener();
+        }
+        throw await readProblem(response);
+      }
       if (response.status === 204) return undefined as T;
       return (await response.json()) as T;
     },
@@ -83,6 +91,10 @@ export function createHttpApiContext(options: HttpApiOptions): HttpApiContext {
     },
     clearSession() {
       csrfToken = '';
+    },
+    subscribeSessionInvalidated(listener) {
+      sessionInvalidatedListeners.add(listener);
+      return () => sessionInvalidatedListeners.delete(listener);
     },
   };
 }
