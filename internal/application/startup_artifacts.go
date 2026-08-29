@@ -116,7 +116,7 @@ func (application *Application) QueueStartupCheck(ctx context.Context, startupAr
 	}
 	queued, err := application.database.EnqueueTask(ctx, store.EnqueueTaskInput{
 		ID: taskID, IdempotencyKey: "startup-check:" + artifact.ID,
-		Lane: store.TaskLaneMaintenance, Kind: "startup-check",
+		Lane: store.TaskLaneMaintenance, Kind: store.TaskKindStartupCheck,
 		CanonicalRevisionID: artifact.CanonicalRevisionID, StartupArtifactID: artifact.ID,
 		Payload: payload, CreatedAt: application.now().UTC(),
 	})

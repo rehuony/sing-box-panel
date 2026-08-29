@@ -1,1 +1,1 @@
-export type JsonObject = Record<string, unknown>;
+export type { DynamicObject as JsonObject } from '../generated';

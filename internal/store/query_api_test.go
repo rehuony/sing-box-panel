@@ -17,10 +17,10 @@ func TestListTasksFiltersAndPaginatesWithStableCursor(t *testing.T) {
 	now := time.Date(2026, time.August, 28, 8, 0, 0, 0, time.UTC)
 
 	for _, input := range []EnqueueTaskInput{
-		{ID: "m1", Lane: TaskLaneMaintenance, Kind: "alpha", Payload: json.RawMessage(`{"n":1}`), CreatedAt: now},
-		{ID: "m2", Lane: TaskLaneMaintenance, Kind: "alpha", Payload: json.RawMessage(`{"n":2}`), CreatedAt: now.Add(time.Second)},
-		{ID: "m3", Lane: TaskLaneMaintenance, Kind: "beta", Payload: json.RawMessage(`{"n":3}`), CreatedAt: now.Add(time.Second)},
-		{ID: "m4", Lane: TaskLaneMaintenance, Kind: "alpha", Payload: json.RawMessage(`{"n":4}`), CreatedAt: now.Add(2 * time.Second)},
+		{ID: "m1", Lane: TaskLaneMaintenance, Kind: TaskKindCatalogRefresh, Payload: json.RawMessage(`{"n":1}`), CreatedAt: now},
+		{ID: "m2", Lane: TaskLaneMaintenance, Kind: TaskKindCatalogRefresh, Payload: json.RawMessage(`{"n":2}`), CreatedAt: now.Add(time.Second)},
+		{ID: "m3", Lane: TaskLaneMaintenance, Kind: TaskKindCoreInstall, Payload: json.RawMessage(`{"n":3}`), CreatedAt: now.Add(time.Second)},
+		{ID: "m4", Lane: TaskLaneMaintenance, Kind: TaskKindCatalogRefresh, Payload: json.RawMessage(`{"n":4}`), CreatedAt: now.Add(2 * time.Second)},
 	} {
 		enqueueTask(t, ctx, store, input)
 	}
@@ -46,19 +46,15 @@ func TestListTasksFiltersAndPaginatesWithStableCursor(t *testing.T) {
 	}
 
 	filtered, err := store.ListTasks(ctx, TaskListFilter{
-		Lane: TaskLaneMaintenance, Status: TaskStatusQueued, Kind: "alpha", Limit: 10,
+		Lane: TaskLaneMaintenance, Status: TaskStatusQueued, Kind: TaskKindCatalogRefresh, Limit: 10,
 	})
 	if err != nil {
 		t.Fatalf("ListTasks(filtered) error = %v", err)
 	}
 	assertTaskIDs(t, filtered.Items, "m2", "m1")
 
-	injection, err := store.ListTasks(ctx, TaskListFilter{Kind: `alpha' OR 1=1 --`, Limit: 10})
-	if err != nil {
-		t.Fatalf("ListTasks(injection-shaped value) error = %v", err)
-	}
-	if len(injection.Items) != 0 {
-		t.Fatalf("injection-shaped filter returned %d tasks, want 0", len(injection.Items))
+	if _, err := store.ListTasks(ctx, TaskListFilter{Kind: `alpha' OR 1=1 --`, Limit: 10}); err == nil {
+		t.Fatal("ListTasks accepted an unknown injection-shaped task kind")
 	}
 
 	first.Items[0].Payload[0] = 'x'
@@ -100,15 +96,15 @@ func TestCanonicalRevisionQueriesAndPagination(t *testing.T) {
 			head,
 			NewCanonicalRevision{
 				ID:            fmt.Sprintf("revision-%d", i),
-				SchemaVersion: 1,
-				Document:      json.RawMessage(fmt.Sprintf(`{"value":%d}`, i)),
+				SchemaVersion: 2,
+				Document:      json.RawMessage(fmt.Sprintf(`{"schema_version":2,"configuration":{"experimental":{"value":%d}}}`, i)),
 				CommandID:     fmt.Sprintf("command-%d", i),
 				CreatedAt:     now.Add(time.Duration(i) * time.Second),
 			},
 			NewTask{
 				ID:      fmt.Sprintf("revision-task-%d", i),
 				Lane:    TaskLaneMaintenance,
-				Kind:    "project-canonical",
+				Kind:    TaskKindCanonicalSaved,
 				Payload: json.RawMessage(`{}`),
 			},
 		)
@@ -155,7 +151,7 @@ func TestCanonicalRevisionQueriesAndPagination(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetCanonicalRevision() after mutation error = %v", err)
 	}
-	if string(unchanged.Document) != `{"value":2}` {
+	if string(unchanged.Document) != `{"configuration":{"experimental":{"value":2}},"schema_version":2}` {
 		t.Fatalf("stored canonical document = %s, want defensive copy", unchanged.Document)
 	}
 	if _, err := store.GetCanonicalRevision(ctx, "missing"); !errors.Is(err, ErrCanonicalRevisionNotFound) {
@@ -262,10 +258,10 @@ func TestCoreArtifactRepositoryAndRemovalEligibility(t *testing.T) {
 		ctx,
 		"",
 		NewCanonicalRevision{
-			ID: "artifact-reference-revision", SchemaVersion: 1,
-			Document: json.RawMessage(`{}`), CommandID: "artifact-reference-command", CreatedAt: now,
+			ID: "artifact-reference-revision", SchemaVersion: 2,
+			Document: json.RawMessage(`{"schema_version":2,"configuration":{}}`), CommandID: "artifact-reference-command", CreatedAt: now,
 		},
-		NewTask{ID: "artifact-reference-task", Lane: TaskLaneMaintenance, Kind: "project-canonical"},
+		NewTask{ID: "artifact-reference-task", Lane: TaskLaneMaintenance, Kind: TaskKindCanonicalSaved},
 	)
 	if err != nil {
 		t.Fatalf("SaveCanonicalRevisionAndTask(reference) error = %v", err)

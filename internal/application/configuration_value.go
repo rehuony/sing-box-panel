@@ -17,11 +17,11 @@ func (application *Application) ReplaceConfiguration(
 	expectedHead string,
 	raw []byte,
 ) (CanonicalSave, error) {
-	document, err := configuration.ParseV2(raw)
+	document, err := configuration.Parse(raw)
 	if err != nil {
 		return CanonicalSave{}, err
 	}
-	return application.saveCanonicalV2Document(ctx, expectedHead, document)
+	return application.saveCanonicalDocument(ctx, expectedHead, document)
 }
 
 func (application *Application) PatchConfiguration(
@@ -68,12 +68,12 @@ func (application *Application) PatchConfiguration(
 			return CanonicalSave{}, fmt.Errorf("%w: changes[%d]: %v", ErrCanonicalPatchInvalid, index, err)
 		}
 	}
-	return application.saveCanonicalV2Document(ctx, expectedHead, updated)
+	return application.saveCanonicalDocument(ctx, expectedHead, updated)
 }
 
 func (application *Application) configurationHeadDocument(
 	ctx context.Context,
-) (*store.CanonicalRevision, *configuration.V2Document, error) {
+) (*store.CanonicalRevision, *configuration.Document, error) {
 	head, err := application.database.Head(ctx)
 	if err != nil {
 		return nil, nil, err
@@ -81,7 +81,7 @@ func (application *Application) configurationHeadDocument(
 	if head == nil {
 		return nil, nil, errors.New("canonical configuration is not initialized")
 	}
-	document, err := configuration.ParseV2(head.Document)
+	document, err := configuration.Parse(head.Document)
 	if err != nil {
 		return nil, nil, fmt.Errorf("parse stored canonical revision %q: %w", head.ID, err)
 	}

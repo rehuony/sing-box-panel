@@ -114,8 +114,8 @@ payloads.
 
 ## Limited monitoring and traffic
 
-`process_only` reports child-process health without counters. `full` remains
-explicitly unavailable. `limited` requires the final configuration to enable a
+`process_only` reports child-process health without counters. `limited`
+requires the final configuration to enable a
 Clash API on a numeric loopback address with a non-empty secret. The panel
 reads that configuration and never modifies startup bytes.
 

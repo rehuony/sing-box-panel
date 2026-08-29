@@ -58,7 +58,7 @@ func TestCoreHTTPRoutesUseApplicationServices(t *testing.T) {
 	}
 
 	refreshResponse := authenticatedRequest(handler, http.MethodPost, "/api/v1/core/catalog/refresh", `{"force":true}`, "")
-	assertQueuedCoreHTTPTask(t, refreshResponse, "catalog-refresh")
+	assertQueuedCoreHTTPTask(t, refreshResponse, store.TaskKindCatalogRefresh)
 
 	installResponse := authenticatedRequest(
 		handler,
@@ -67,10 +67,10 @@ func TestCoreHTTPRoutesUseApplicationServices(t *testing.T) {
 		`{"asset_id":3001}`,
 		"",
 	)
-	assertQueuedCoreHTTPTask(t, installResponse, "core-install")
+	assertQueuedCoreHTTPTask(t, installResponse, store.TaskKindCoreInstall)
 
 	importResponse := authenticatedCoreUpload(handler, []byte("archive fixture"), "")
-	assertQueuedCoreHTTPTask(t, importResponse, "core-import")
+	assertQueuedCoreHTTPTask(t, importResponse, store.TaskKindCoreImport)
 
 	supportResponse := authenticatedRequest(
 		handler,
@@ -304,10 +304,10 @@ func TestCoreHTTPRejectsDeletingReferencedArtifact(t *testing.T) {
 	artifact := seedCoreHTTPArtifact(t, database)
 	now := time.Date(2026, time.August, 26, 13, 0, 0, 0, time.UTC)
 	revision, err := database.SaveCanonicalRevisionAndTask(context.Background(), "", store.NewCanonicalRevision{
-		ID: "revision_core_http", SchemaVersion: 1, Document: json.RawMessage(`{}`),
+		ID: "revision_core_http", SchemaVersion: 2, Document: json.RawMessage(`{"schema_version":2,"configuration":{}}`),
 		CommandID: "command_core_http", CreatedAt: now,
 	}, store.NewTask{
-		ID: "task_core_http", Lane: store.TaskLaneMaintenance, Kind: "canonical-saved", CreatedAt: now,
+		ID: "task_core_http", Lane: store.TaskLaneMaintenance, Kind: store.TaskKindCanonicalSaved, CreatedAt: now,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -370,7 +370,7 @@ func TestCoreHTTPAuthenticationCSRFAndCatalogState(t *testing.T) {
 	accepted.AddCookie(cookie)
 	acceptedResponse := httptest.NewRecorder()
 	handler.ServeHTTP(acceptedResponse, accepted)
-	assertQueuedCoreHTTPTask(t, acceptedResponse, "catalog-refresh")
+	assertQueuedCoreHTTPTask(t, acceptedResponse, store.TaskKindCatalogRefresh)
 }
 
 func newCoreHTTPFixture(t *testing.T) (*Handler, *store.Store) {
@@ -462,7 +462,7 @@ func seedCoreHTTPArtifact(t *testing.T, database *store.Store) store.CoreArtifac
 	return artifact
 }
 
-func assertQueuedCoreHTTPTask(t *testing.T, response *httptest.ResponseRecorder, kind string) {
+func assertQueuedCoreHTTPTask(t *testing.T, response *httptest.ResponseRecorder, kind store.TaskKind) {
 	t.Helper()
 	if response.Code != http.StatusAccepted {
 		t.Fatalf("queue %s status=%d body=%s", kind, response.Code, response.Body.String())

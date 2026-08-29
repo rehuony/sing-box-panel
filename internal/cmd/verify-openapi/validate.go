@@ -118,8 +118,100 @@ func validateDocument(value any) []error {
 		findings = append(findings, errors.New(`$["paths"]: must be a mapping`))
 	} else {
 		findings = append(findings, validateOperations(paths)...)
+		findings = append(findings, validateSuccessResponses(document, paths)...)
 	}
 	return walkReferences(document, document, nil, findings)
+}
+
+func validateSuccessResponses(document map[string]any, paths map[string]any) []error {
+	var findings []error
+	for _, route := range sortedKeys(paths) {
+		pathItem, ok := paths[route].(map[string]any)
+		if !ok {
+			continue
+		}
+		for _, method := range httpMethods {
+			operation, ok := pathItem[method].(map[string]any)
+			if !ok {
+				continue
+			}
+			responses, ok := operation["responses"].(map[string]any)
+			if !ok {
+				findings = append(findings, fmt.Errorf(
+					"%s: responses must be a mapping",
+					location([]any{"paths", route, method, "responses"}),
+				))
+				continue
+			}
+			for _, status := range sortedKeys(responses) {
+				if len(status) != 3 || status[0] != '2' {
+					continue
+				}
+				responsePath := []any{"paths", route, method, "responses", status}
+				response, ok := resolveReferencedObject(document, responses[status])
+				if !ok {
+					continue
+				}
+				content, ok := response["content"].(map[string]any)
+				if !ok {
+					continue
+				}
+				media, exists := content["application/json"]
+				if !exists {
+					continue
+				}
+				mediaObject, ok := media.(map[string]any)
+				if !ok {
+					continue
+				}
+				schema, exists := mediaObject["schema"]
+				if !exists {
+					findings = append(findings, fmt.Errorf(
+						"%s: successful JSON response must declare a schema", location(responsePath),
+					))
+					continue
+				}
+				if genericSuccessSchema(schema) {
+					findings = append(findings, fmt.Errorf(
+						"%s: successful JSON response must not use a generic object schema", location(responsePath),
+					))
+				}
+			}
+		}
+	}
+	return findings
+}
+
+func resolveReferencedObject(document map[string]any, value any) (map[string]any, bool) {
+	for range 16 {
+		object, ok := value.(map[string]any)
+		if !ok {
+			return nil, false
+		}
+		reference, referenced := object["$ref"].(string)
+		if !referenced {
+			return object, true
+		}
+		value, ok = resolveJSONPointer(document, reference)
+		if !ok {
+			return nil, false
+		}
+	}
+	return nil, false
+}
+
+func genericSuccessSchema(value any) bool {
+	object, ok := value.(map[string]any)
+	if !ok {
+		return true
+	}
+	if reference, ok := object["$ref"].(string); ok {
+		return reference == "#/components/schemas/DynamicObject" ||
+			reference == "#/components/schemas/AnyObject"
+	}
+	additional, _ := object["additionalProperties"].(bool)
+	_, hasProperties := object["properties"]
+	return object["type"] == "object" && additional && !hasProperties
 }
 
 func validateOperations(paths map[string]any) []error {

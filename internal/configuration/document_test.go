@@ -5,13 +5,16 @@ package configuration
 import (
 	"encoding/json"
 	"errors"
+	"os"
+	"path/filepath"
+	"runtime"
 	"testing"
 )
 
-func TestV2DocumentPreservesGlobalIntentAndStripsPanelMetadata(t *testing.T) {
+func TestDocumentPreservesGlobalIntentAndStripsPanelMetadata(t *testing.T) {
 	t.Parallel()
 
-	document, err := ParseV2([]byte(`{
+	document, err := Parse([]byte(`{
 		"schema_version": 2,
 		"configuration": {
 			"inbounds": [
@@ -22,7 +25,7 @@ func TestV2DocumentPreservesGlobalIntentAndStripsPanelMetadata(t *testing.T) {
 		}
 	}`))
 	if err != nil {
-		t.Fatalf("ParseV2: %v", err)
+		t.Fatalf("Parse: %v", err)
 	}
 
 	configuration := document.Configuration()
@@ -45,7 +48,7 @@ func TestV2DocumentPreservesGlobalIntentAndStripsPanelMetadata(t *testing.T) {
 	}
 }
 
-func TestV2DocumentRejectsUnknownEnvelopeAndInvalidManagedEntities(t *testing.T) {
+func TestDocumentRejectsUnknownEnvelopeAndInvalidManagedEntities(t *testing.T) {
 	t.Parallel()
 
 	tests := []string{
@@ -60,17 +63,39 @@ func TestV2DocumentRejectsUnknownEnvelopeAndInvalidManagedEntities(t *testing.T)
 		input := input
 		t.Run(input, func(t *testing.T) {
 			t.Parallel()
-			if _, err := ParseV2([]byte(input)); !errors.Is(err, ErrInvalidDocument) {
-				t.Fatalf("ParseV2 error = %v, want ErrInvalidDocument", err)
+			if _, err := Parse([]byte(input)); !errors.Is(err, ErrInvalidDocument) {
+				t.Fatalf("Parse error = %v, want ErrInvalidDocument", err)
 			}
 		})
 	}
 }
 
-func TestEmptyV2IsCompleteAndStable(t *testing.T) {
+func TestEmptyIsCompleteAndStable(t *testing.T) {
 	t.Parallel()
 
-	if got, want := string(EmptyV2().CanonicalJSON()), `{"configuration":{},"schema_version":2}`; got != want {
-		t.Fatalf("EmptyV2 = %s, want %s", got, want)
+	if got, want := string(Empty().CanonicalJSON()), `{"configuration":{},"schema_version":2}`; got != want {
+		t.Fatalf("Empty = %s, want %s", got, want)
+	}
+}
+
+func TestReleaseCanonicalFixture(t *testing.T) {
+	t.Parallel()
+
+	_, filename, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("locate configuration test source")
+	}
+	fixturePath := filepath.Join(filepath.Dir(filename), "..", "..", "scripts", "testdata", "release-canonical.json")
+	fixture, err := os.ReadFile(fixturePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	document, err := Parse(fixture)
+	if err != nil {
+		t.Fatalf("Parse(release fixture): %v", err)
+	}
+	log, ok := document.Configuration()["log"].(map[string]any)
+	if !ok || log["level"] != "debug" {
+		t.Fatalf("release fixture log configuration = %#v", log)
 	}
 }

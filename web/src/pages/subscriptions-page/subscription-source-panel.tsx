@@ -110,9 +110,17 @@ export function SubscriptionSourcePanel() {
           enabled: draft.enabled,
         });
         if (draft.sourceDocument.trim() !== '') {
-          await client.createSubscriptionSourceVersion(
-            created.id, draft.format, draft.sourceDocument, created.updated_at,
-          );
+          try {
+            await client.createSubscriptionSourceVersion(
+              created.id, draft.format, draft.sourceDocument, created.updated_at,
+            );
+          } catch (error) {
+            setDraft({ ...draft, editing: created });
+            setMessage(`Created ${created.name}, but its initial version was not saved. The source is open for editing; retry the version upload directly.`);
+            setActionError(describeRequestError(error));
+            await load();
+            return;
+          }
         }
         setMessage(`Created ${draft.name.trim()}. Its current source version is live immediately.`);
       }

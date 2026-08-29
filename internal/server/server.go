@@ -125,20 +125,7 @@ func Run(ctx context.Context, settingsPath string, build buildinfo.Info, assets 
 		IdleTimeout:       idleTimeout,
 		MaxHeaderBytes:    maxHeaderBytes,
 	}
-	runtimeHandler := taskHandlerFunc(runtimeIntentHandler(runtimeControl))
-	handlers := map[string]taskHandler{
-		"canonical-saved":                   taskHandlerFunc(acknowledgeCanonicalSave),
-		"catalog-refresh":                   taskHandlerFunc(catalogRefreshHandler(commands)),
-		"core-install":                      taskHandlerFunc(coreArtifactHandler(commands, artifacts)),
-		"core-import":                       taskHandlerFunc(coreArtifactHandler(commands, artifacts)),
-		"startup-check":                     taskHandlerFunc(startupCheckHandler(commands, runtimeControl.manager)),
-		"subscription-source-refresh":       taskHandlerFunc(subscriptionSourceRefreshHandler(commands)),
-		string(store.RuntimeIntentApply):    runtimeHandler,
-		string(store.RuntimeIntentStart):    runtimeHandler,
-		string(store.RuntimeIntentStop):     runtimeHandler,
-		string(store.RuntimeIntentRestart):  runtimeHandler,
-		string(store.RuntimeIntentRollback): runtimeHandler,
-	}
+	handlers := builtInTaskHandlers(commands, artifacts, runtimeControl)
 	for kind, taskHandler := range handlers {
 		handlers[kind] = withTaskLogging(commands, taskHandler)
 	}
@@ -197,5 +184,26 @@ func Run(ctx context.Context, settingsPath string, build buildinfo.Info, assets 
 			return fmt.Errorf("stop durable task executor: %w", runnerErr)
 		}
 		return nil
+	}
+}
+
+func builtInTaskHandlers(
+	commands *application.Application,
+	artifacts application.ArtifactInstaller,
+	runtimeControl *runtimeServices,
+) map[store.TaskKind]taskHandler {
+	runtimeHandler := taskHandlerFunc(runtimeIntentHandler(runtimeControl))
+	return map[store.TaskKind]taskHandler{
+		store.TaskKindCanonicalSaved:            taskHandlerFunc(acknowledgeCanonicalSave),
+		store.TaskKindCatalogRefresh:            taskHandlerFunc(catalogRefreshHandler(commands)),
+		store.TaskKindCoreInstall:               taskHandlerFunc(coreArtifactHandler(commands, artifacts)),
+		store.TaskKindCoreImport:                taskHandlerFunc(coreArtifactHandler(commands, artifacts)),
+		store.TaskKindStartupCheck:              taskHandlerFunc(startupCheckHandler(commands, runtimeControl.manager)),
+		store.TaskKindSubscriptionSourceRefresh: taskHandlerFunc(subscriptionSourceRefreshHandler(commands)),
+		store.TaskKindRuntimeApply:              runtimeHandler,
+		store.TaskKindRuntimeStart:              runtimeHandler,
+		store.TaskKindRuntimeStop:               runtimeHandler,
+		store.TaskKindRuntimeRestart:            runtimeHandler,
+		store.TaskKindRuntimeRollback:           runtimeHandler,
 	}
 }

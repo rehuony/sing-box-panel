@@ -21,7 +21,7 @@ func TestCanonicalPointerApplicationUsesRevisionCAS(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = database.Close() })
 	app := newApplication(database)
-	initial, err := app.ReplaceCanonical(ctx, "", configuration.EmptyV2().CanonicalJSON())
+	initial, err := app.ReplaceCanonical(ctx, "", configuration.Empty().CanonicalJSON())
 	if err != nil {
 		t.Fatal(err)
 	}

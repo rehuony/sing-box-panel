@@ -46,7 +46,7 @@ func (probe processOnlyProbe) AwaitHealthy(
 
 func validMonitoringLevel(level MonitoringLevel) bool {
 	switch level {
-	case MonitoringFull, MonitoringLimited, MonitoringProcessOnly:
+	case MonitoringLimited, MonitoringProcessOnly:
 		return true
 	default:
 		return false

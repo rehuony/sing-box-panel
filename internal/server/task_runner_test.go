@@ -13,6 +13,19 @@ import (
 	"github.com/rehuony/sing-box-panel/internal/store"
 )
 
+func TestBuiltInTaskHandlersCoverTaskKinds(t *testing.T) {
+	handlers := builtInTaskHandlers(nil, nil, &runtimeServices{manager: &fakeRuntimeManager{}})
+	builtIns := store.BuiltInTaskKinds()
+	if len(handlers) != len(builtIns) {
+		t.Fatalf("handler count = %d, built-in task kind count = %d", len(handlers), len(builtIns))
+	}
+	for _, kind := range builtIns {
+		if handlers[kind] == nil {
+			t.Errorf("built-in task kind %q has no handler", kind)
+		}
+	}
+}
+
 func TestRunnerProcessesLanesIndependentlyAndSerially(t *testing.T) {
 	ctx := runnerTestContext(t)
 	taskStore := openRunnerStore(t, ctx)
@@ -20,13 +33,13 @@ func TestRunnerProcessesLanesIndependentlyAndSerially(t *testing.T) {
 	clock := newFakeClock(now)
 
 	enqueueRunnerTask(t, ctx, taskStore, store.EnqueueTaskInput{
-		ID: "maintenance-1", Lane: store.TaskLaneMaintenance, Kind: "maintenance", CreatedAt: now,
+		ID: "maintenance-1", Lane: store.TaskLaneMaintenance, Kind: store.TaskKindCanonicalSaved, CreatedAt: now,
 	})
 	enqueueRunnerTask(t, ctx, taskStore, store.EnqueueTaskInput{
-		ID: "maintenance-2", Lane: store.TaskLaneMaintenance, Kind: "maintenance", CreatedAt: now.Add(time.Second),
+		ID: "maintenance-2", Lane: store.TaskLaneMaintenance, Kind: store.TaskKindCanonicalSaved, CreatedAt: now.Add(time.Second),
 	})
 	enqueueRunnerTask(t, ctx, taskStore, store.EnqueueTaskInput{
-		ID: "runtime-1", Lane: store.TaskLaneRuntime, Kind: "runtime", Generation: 1, CreatedAt: now,
+		ID: "runtime-1", Lane: store.TaskLaneRuntime, Kind: store.TaskKindRuntimeStop, Generation: 1, CreatedAt: now,
 	})
 
 	started := make(chan string, 3)
@@ -48,9 +61,9 @@ func TestRunnerProcessesLanesIndependentlyAndSerially(t *testing.T) {
 			return json.RawMessage(`{"done":true}`), nil
 		}
 	})
-	runner := newTestRunner(t, taskStore, clock, map[string]taskHandler{
-		"maintenance": handler,
-		"runtime":     handler,
+	runner := newTestRunner(t, taskStore, clock, map[store.TaskKind]taskHandler{
+		store.TaskKindCanonicalSaved: handler,
+		store.TaskKindRuntimeStop:    handler,
 	})
 	if err := runner.Start(ctx); err != nil {
 		t.Fatalf("Start() error = %v", err)
@@ -90,14 +103,14 @@ func TestRunnerCancellationOccursAtExplicitSafePoint(t *testing.T) {
 	now := time.Date(2026, time.August, 27, 13, 0, 0, 0, time.UTC)
 	clock := newFakeClock(now)
 	enqueueRunnerTask(t, ctx, taskStore, store.EnqueueTaskInput{
-		ID: "cancel-at-safe-point", Lane: store.TaskLaneMaintenance, Kind: "cancellable", CreatedAt: now,
+		ID: "cancel-at-safe-point", Lane: store.TaskLaneMaintenance, Kind: store.TaskKindCatalogRefresh, CreatedAt: now,
 	})
 
 	started := make(chan struct{})
 	checkNow := make(chan struct{})
 	checkpointError := make(chan error, 1)
-	runner := newTestRunner(t, taskStore, clock, map[string]taskHandler{
-		"cancellable": taskHandlerFunc(func(
+	runner := newTestRunner(t, taskStore, clock, map[store.TaskKind]taskHandler{
+		store.TaskKindCatalogRefresh: taskHandlerFunc(func(
 			ctx context.Context,
 			_ store.Task,
 			control taskExecutionControl,
@@ -145,13 +158,13 @@ func TestRunnerHeartbeatPreventsPrematureReclaim(t *testing.T) {
 	now := time.Date(2026, time.August, 27, 14, 0, 0, 0, time.UTC)
 	clock := newFakeClock(now)
 	enqueueRunnerTask(t, ctx, taskStore, store.EnqueueTaskInput{
-		ID: "heartbeat", Lane: store.TaskLaneMaintenance, Kind: "blocking", CreatedAt: now,
+		ID: "heartbeat", Lane: store.TaskLaneMaintenance, Kind: store.TaskKindCoreInstall, CreatedAt: now,
 	})
 
 	started := make(chan struct{})
 	release := make(chan struct{})
-	runner := newTestRunner(t, taskStore, clock, map[string]taskHandler{
-		"blocking": taskHandlerFunc(func(
+	runner := newTestRunner(t, taskStore, clock, map[store.TaskKind]taskHandler{
+		store.TaskKindCoreInstall: taskHandlerFunc(func(
 			ctx context.Context,
 			_ store.Task,
 			_ taskExecutionControl,
@@ -200,13 +213,13 @@ func TestRunnerShutdownLeavesRunningTaskForCrashReclaim(t *testing.T) {
 	now := time.Date(2026, time.August, 27, 15, 0, 0, 0, time.UTC)
 	clock := newFakeClock(now)
 	enqueueRunnerTask(t, ctx, taskStore, store.EnqueueTaskInput{
-		ID: "shutdown", Lane: store.TaskLaneMaintenance, Kind: "until-shutdown", CreatedAt: now,
+		ID: "shutdown", Lane: store.TaskLaneMaintenance, Kind: store.TaskKindCoreImport, CreatedAt: now,
 	})
 
 	started := make(chan struct{})
 	handlerStopped := make(chan struct{})
-	runner := newTestRunner(t, taskStore, clock, map[string]taskHandler{
-		"until-shutdown": taskHandlerFunc(func(
+	runner := newTestRunner(t, taskStore, clock, map[store.TaskKind]taskHandler{
+		store.TaskKindCoreImport: taskHandlerFunc(func(
 			ctx context.Context,
 			_ store.Task,
 			_ taskExecutionControl,
@@ -254,7 +267,7 @@ func newTestRunner(
 	t *testing.T,
 	taskStore taskStore,
 	clock taskClock,
-	handlers map[string]taskHandler,
+	handlers map[store.TaskKind]taskHandler,
 ) *taskRunner {
 	t.Helper()
 	runner, err := newTaskRunner(taskStore, handlers, taskRunnerOptions{

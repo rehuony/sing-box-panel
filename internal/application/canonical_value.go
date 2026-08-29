@@ -50,7 +50,7 @@ func (application *Application) SetCanonicalValue(
 	if err := jsonstrict.Decode(rawValue, configuration.MaximumBytes, &value); err != nil {
 		return CanonicalSave{}, fmt.Errorf("canonical pointer value: %w", err)
 	}
-	return application.editConfiguration(ctx, expectedHead, func(document *configuration.V2Document) (*configuration.V2Document, error) {
+	return application.editConfiguration(ctx, expectedHead, func(document *configuration.Document) (*configuration.Document, error) {
 		return document.SetPointer(pointer, value)
 	})
 }
@@ -60,7 +60,7 @@ func (application *Application) UnsetCanonicalValue(
 	expectedHead string,
 	pointer string,
 ) (CanonicalSave, error) {
-	return application.editConfiguration(ctx, expectedHead, func(document *configuration.V2Document) (*configuration.V2Document, error) {
+	return application.editConfiguration(ctx, expectedHead, func(document *configuration.Document) (*configuration.Document, error) {
 		return document.UnsetPointer(pointer)
 	})
 }
@@ -80,7 +80,7 @@ func (application *Application) PatchCanonical(
 func (application *Application) editConfiguration(
 	ctx context.Context,
 	expectedHead string,
-	edit func(*configuration.V2Document) (*configuration.V2Document, error),
+	edit func(*configuration.Document) (*configuration.Document, error),
 ) (CanonicalSave, error) {
 	head, document, err := application.configurationHeadDocument(ctx)
 	if err != nil {
@@ -93,15 +93,15 @@ func (application *Application) editConfiguration(
 	if err != nil {
 		return CanonicalSave{}, err
 	}
-	return application.saveCanonicalV2Document(ctx, expectedHead, edited)
+	return application.saveCanonicalDocument(ctx, expectedHead, edited)
 }
 
-func (application *Application) saveCanonicalV2Document(
+func (application *Application) saveCanonicalDocument(
 	ctx context.Context,
 	expectedHead string,
-	document *configuration.V2Document,
+	document *configuration.Document,
 ) (CanonicalSave, error) {
-	return application.saveCanonicalBytes(ctx, expectedHead, configuration.SchemaVersionV2, document.CanonicalJSON())
+	return application.saveCanonicalBytes(ctx, expectedHead, configuration.SchemaVersion, document.CanonicalJSON())
 }
 
 func (application *Application) saveCanonicalBytes(
@@ -153,7 +153,7 @@ func (application *Application) saveCanonicalBytes(
 			ID:             taskID,
 			IdempotencyKey: "canonical:" + expectedHead + ":" + hex.EncodeToString(digest[:]),
 			Lane:           store.TaskLaneMaintenance,
-			Kind:           "canonical-saved",
+			Kind:           store.TaskKindCanonicalSaved,
 			Payload:        json.RawMessage(`{"revision_id":"` + revisionID + `"}`),
 			CreatedAt:      createdAt,
 		},

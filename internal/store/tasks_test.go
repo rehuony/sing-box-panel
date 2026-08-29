@@ -16,13 +16,13 @@ func TestTaskClaimsAreSerialPerLaneAndIndependentAcrossLanes(t *testing.T) {
 	now := time.Date(2026, time.August, 27, 8, 0, 0, 0, time.UTC)
 
 	enqueueTask(t, ctx, store, EnqueueTaskInput{
-		ID: "maintenance-1", Lane: TaskLaneMaintenance, Kind: "download", CreatedAt: now,
+		ID: "maintenance-1", Lane: TaskLaneMaintenance, Kind: TaskKindCoreInstall, CreatedAt: now,
 	})
 	enqueueTask(t, ctx, store, EnqueueTaskInput{
-		ID: "maintenance-2", Lane: TaskLaneMaintenance, Kind: "refresh", CreatedAt: now.Add(time.Second),
+		ID: "maintenance-2", Lane: TaskLaneMaintenance, Kind: TaskKindCatalogRefresh, CreatedAt: now.Add(time.Second),
 	})
 	enqueueTask(t, ctx, store, EnqueueTaskInput{
-		ID: "runtime-1", Lane: TaskLaneRuntime, Kind: "activate", Generation: 1, CreatedAt: now,
+		ID: "runtime-1", Lane: TaskLaneRuntime, Kind: TaskKindRuntimeApply, Generation: 1, CreatedAt: now,
 	})
 
 	maintenance, err := store.ClaimTask(ctx, ClaimTaskInput{
@@ -80,7 +80,7 @@ func TestTaskHeartbeatAndExpiredLeaseReclaim(t *testing.T) {
 	store := openTestStore(t, ctx)
 	now := time.Date(2026, time.August, 27, 9, 0, 0, 0, time.UTC)
 	enqueueTask(t, ctx, store, EnqueueTaskInput{
-		ID: "recoverable", Lane: TaskLaneMaintenance, Kind: "download", CreatedAt: now,
+		ID: "recoverable", Lane: TaskLaneMaintenance, Kind: TaskKindCoreInstall, CreatedAt: now,
 	})
 
 	claimed, err := store.ClaimTask(ctx, ClaimTaskInput{
@@ -154,7 +154,7 @@ func TestTaskCancellationAndRuntimeGenerationSupersession(t *testing.T) {
 	now := time.Date(2026, time.August, 27, 10, 0, 0, 0, time.UTC)
 
 	enqueueTask(t, ctx, store, EnqueueTaskInput{
-		ID: "queued-cancel", Lane: TaskLaneMaintenance, Kind: "refresh", CreatedAt: now,
+		ID: "queued-cancel", Lane: TaskLaneMaintenance, Kind: TaskKindCatalogRefresh, CreatedAt: now,
 	})
 	canceled, err := store.RequestTaskCancellation(ctx, "queued-cancel", now.Add(time.Second))
 	if err != nil {
@@ -165,7 +165,7 @@ func TestTaskCancellationAndRuntimeGenerationSupersession(t *testing.T) {
 	}
 
 	enqueueTask(t, ctx, store, EnqueueTaskInput{
-		ID: "runtime-1", Lane: TaskLaneRuntime, Kind: "activate", Generation: 1, CreatedAt: now,
+		ID: "runtime-1", Lane: TaskLaneRuntime, Kind: TaskKindRuntimeApply, Generation: 1, CreatedAt: now,
 	})
 	first, err := store.ClaimTask(ctx, ClaimTaskInput{
 		Lane: TaskLaneRuntime, LeaseOwner: "runtime-worker", Now: now, LeaseDuration: time.Minute,
@@ -174,7 +174,7 @@ func TestTaskCancellationAndRuntimeGenerationSupersession(t *testing.T) {
 		t.Fatalf("ClaimTask(runtime-1) = %+v, %v", first, err)
 	}
 	enqueueTask(t, ctx, store, EnqueueTaskInput{
-		ID: "runtime-2", Lane: TaskLaneRuntime, Kind: "activate", Generation: 2, CreatedAt: now.Add(time.Second),
+		ID: "runtime-2", Lane: TaskLaneRuntime, Kind: TaskKindRuntimeApply, Generation: 2, CreatedAt: now.Add(time.Second),
 	})
 
 	lease, err := store.HeartbeatTask(
@@ -205,7 +205,7 @@ func TestTaskCancellationAndRuntimeGenerationSupersession(t *testing.T) {
 	}
 
 	enqueueTask(t, ctx, store, EnqueueTaskInput{
-		ID: "runtime-3", Lane: TaskLaneRuntime, Kind: "activate", Generation: 3, CreatedAt: now.Add(4 * time.Second),
+		ID: "runtime-3", Lane: TaskLaneRuntime, Kind: TaskKindRuntimeApply, Generation: 3, CreatedAt: now.Add(4 * time.Second),
 	})
 	second, err := store.GetTask(ctx, "runtime-2")
 	if err != nil {
@@ -249,7 +249,7 @@ func TestTaskCancellationAndRuntimeGenerationSupersession(t *testing.T) {
 	}
 
 	_, err = store.EnqueueTask(ctx, EnqueueTaskInput{
-		ID: "stale-generation", Lane: TaskLaneRuntime, Kind: "activate", Generation: 2,
+		ID: "stale-generation", Lane: TaskLaneRuntime, Kind: TaskKindRuntimeApply, Generation: 2,
 	})
 	if !errors.Is(err, ErrTaskGenerationConflict) {
 		t.Fatalf("stale runtime enqueue error = %v, want ErrTaskGenerationConflict", err)
@@ -261,7 +261,7 @@ func TestExpiredRuntimeLeaseIsSupersededInsteadOfRetried(t *testing.T) {
 	store := openTestStore(t, ctx)
 	now := time.Date(2026, time.August, 27, 10, 30, 0, 0, time.UTC)
 	enqueueTask(t, ctx, store, EnqueueTaskInput{
-		ID: "old-runtime", Lane: TaskLaneRuntime, Kind: "activate", Generation: 1, CreatedAt: now,
+		ID: "old-runtime", Lane: TaskLaneRuntime, Kind: TaskKindRuntimeApply, Generation: 1, CreatedAt: now,
 	})
 	old, err := store.ClaimTask(ctx, ClaimTaskInput{
 		Lane: TaskLaneRuntime, LeaseOwner: "crashed-worker", Now: now, LeaseDuration: 10 * time.Second,
@@ -270,7 +270,7 @@ func TestExpiredRuntimeLeaseIsSupersededInsteadOfRetried(t *testing.T) {
 		t.Fatalf("ClaimTask(old runtime) = %+v, %v", old, err)
 	}
 	enqueueTask(t, ctx, store, EnqueueTaskInput{
-		ID: "new-runtime", Lane: TaskLaneRuntime, Kind: "activate", Generation: 2, CreatedAt: now.Add(time.Second),
+		ID: "new-runtime", Lane: TaskLaneRuntime, Kind: TaskKindRuntimeApply, Generation: 2, CreatedAt: now.Add(time.Second),
 	})
 
 	claimed, err := store.ClaimTask(ctx, ClaimTaskInput{
@@ -310,7 +310,7 @@ func TestTaskClaimIsAtomicAcrossStores(t *testing.T) {
 
 	now := time.Date(2026, time.August, 27, 11, 0, 0, 0, time.UTC)
 	enqueueTask(t, ctx, first, EnqueueTaskInput{
-		ID: "contended", Lane: TaskLaneMaintenance, Kind: "download", CreatedAt: now,
+		ID: "contended", Lane: TaskLaneMaintenance, Kind: TaskKindCoreInstall, CreatedAt: now,
 	})
 
 	start := make(chan struct{})

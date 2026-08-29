@@ -5,6 +5,7 @@ package application
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -40,7 +41,7 @@ func TestSubscriptionSourceRefreshTaskPublishesOnlySuccessfulVersion(t *testing.
 		t.Fatal(err)
 	}
 	queued, err := app.QueueSubscriptionSourceRefresh(ctx, source.ID)
-	if err != nil || queued.Kind != "subscription-source-refresh" || queued.Status != store.TaskStatusQueued {
+	if err != nil || queued.Kind != store.TaskKindSubscriptionSourceRefresh || queued.Status != store.TaskStatusQueued {
 		t.Fatalf("queued=%+v err=%v", queued, err)
 	}
 	result, err := app.ExecuteSubscriptionSourceRefresh(ctx, queued.Payload, nil)
@@ -91,10 +92,42 @@ func TestRemoteSubscriptionSourceConfigRequiresExplicitScheduleMinimum(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	tasks, err := database.ListTasks(ctx, store.TaskListFilter{Kind: "subscription-source-refresh"})
+	tasks, err := database.ListTasks(ctx, store.TaskListFilter{Kind: store.TaskKindSubscriptionSourceRefresh})
 	if err != nil || len(tasks.Items) != 1 || tasks.Items[0].NotBefore == nil ||
 		!tasks.Items[0].NotBefore.Equal(app.now().UTC().Add(15*time.Minute)) ||
 		!strings.Contains(string(tasks.Items[0].Payload), scheduled.ID) {
 		t.Fatalf("scheduled refresh tasks=%+v err=%v", tasks, err)
+	}
+}
+
+func TestScheduledSubscriptionSourceIsNotCreatedWhenRefreshTaskPreparationFails(t *testing.T) {
+	ctx := context.Background()
+	database, err := store.Open(ctx, filepath.Join(t.TempDir(), "panel.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = database.Close() })
+	app := newSubscriptionTestApplication(database)
+	calls := 0
+	app.random = func(destination []byte) (int, error) {
+		calls++
+		if calls == 2 {
+			return 0, errors.New("task identity unavailable")
+		}
+		for index := range destination {
+			destination[index] = 1
+		}
+		return len(destination), nil
+	}
+	if _, err := app.CreateSubscriptionSource(ctx, CreateSubscriptionSourceRequest{
+		Name: "atomic scheduled source", SourceKind: store.SubscriptionSourceRemote,
+		Config:  json.RawMessage(`{"url":"https://example.test/sub","refresh_interval_minutes":15}`),
+		Enabled: true,
+	}); err == nil || !strings.Contains(err.Error(), "task identity unavailable") {
+		t.Fatalf("CreateSubscriptionSource() error = %v", err)
+	}
+	sources, err := app.ListSubscriptionSources(ctx, SubscriptionListRequest{})
+	if err != nil || len(sources.Items) != 0 {
+		t.Fatalf("failed scheduled create partially persisted source: page=%+v err=%v", sources, err)
 	}
 }

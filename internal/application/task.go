@@ -14,7 +14,7 @@ type Task struct {
 	ID                  string           `json:"id"`
 	IdempotencyKey      string           `json:"idempotency_key,omitempty"`
 	Lane                store.TaskLane   `json:"lane"`
-	Kind                string           `json:"kind"`
+	Kind                store.TaskKind   `json:"kind"`
 	Status              store.TaskStatus `json:"status"`
 	Generation          int64            `json:"generation"`
 	CanonicalRevisionID string           `json:"canonical_revision_id,omitempty"`
@@ -43,7 +43,7 @@ func (task Task) Terminal() bool {
 type TaskListFilter struct {
 	Lane   store.TaskLane
 	Status store.TaskStatus
-	Kind   string
+	Kind   store.TaskKind
 	Cursor *store.CreatedAtCursor
 	Limit  int
 }

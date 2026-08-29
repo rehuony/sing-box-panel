@@ -7,6 +7,7 @@
 /coverage/
 /web/dist/
 /web/node_modules/
+/web/src/api/generated/
 /setting.json
 /data/
 

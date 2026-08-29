@@ -58,7 +58,6 @@ const (
 type MonitoringLevel string
 
 const (
-	MonitoringFull        MonitoringLevel = "full"
 	MonitoringLimited     MonitoringLevel = "limited"
 	MonitoringProcessOnly MonitoringLevel = "process_only"
 )

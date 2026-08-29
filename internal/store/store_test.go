@@ -11,6 +11,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/rehuony/sing-box-panel/internal/configuration"
 )
 
 func TestOpenConfiguresEveryConnectionAndReopens(t *testing.T) {
@@ -86,7 +88,7 @@ func TestOpenConfiguresEveryConnectionAndReopens(t *testing.T) {
 	}
 }
 
-func TestOpenRejectsPreV2DatabaseIdentity(t *testing.T) {
+func TestOpenRejectsPreviousDatabaseIdentity(t *testing.T) {
 	t.Parallel()
 
 	ctx := testContext(t)
@@ -95,7 +97,7 @@ func TestOpenRejectsPreV2DatabaseIdentity(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open legacy fixture: %v", err)
 	}
-	if _, err := legacy.ExecContext(ctx, `PRAGMA application_id = 0x53425031`); err != nil {
+	if _, err := legacy.ExecContext(ctx, `PRAGMA application_id = 0x53425032`); err != nil {
 		_ = legacy.Close()
 		t.Fatalf("set legacy application id: %v", err)
 	}
@@ -106,7 +108,7 @@ func TestOpenRejectsPreV2DatabaseIdentity(t *testing.T) {
 	opened, err := Open(ctx, path)
 	if opened != nil {
 		_ = opened.Close()
-		t.Fatal("Open returned a store for a pre-v2 database identity")
+		t.Fatal("Open returned a store for a previous database identity")
 	}
 	if !errors.Is(err, ErrUnexpectedApplicationID) {
 		t.Fatalf("Open error = %v, want ErrUnexpectedApplicationID", err)
@@ -116,17 +118,38 @@ func TestOpenRejectsPreV2DatabaseIdentity(t *testing.T) {
 func TestSchemaConstraints(t *testing.T) {
 	ctx := testContext(t)
 	store := openTestStore(t, ctx)
+	now := time.Now().UTC().Format(time.RFC3339Nano)
 
-	_, err := store.db.ExecContext(
-		ctx,
-		`INSERT INTO canonical_revisions(
+	for _, test := range []struct {
+		name     string
+		version  int
+		document string
+	}{
+		{name: "invalid JSON", version: 2, document: `{`},
+		{name: "schema v1", version: 1, document: `{"schema_version":1,"configuration":{}}`},
+		{name: "missing document version", version: 2, document: `{"configuration":{}}`},
+		{name: "mismatched document version", version: 2, document: `{"schema_version":1,"configuration":{}}`},
+		{name: "non-object document", version: 2, document: `[{"schema_version":2}]`},
+	} {
+		_, err := store.db.ExecContext(
+			ctx,
+			`INSERT INTO canonical_revisions(
             id, sequence, schema_version, document_json, sha256, command_id, created_at
-         ) VALUES ('bad-json', 1, 1, '{', ?, 'bad-json-command', ?)`,
-		stringsOf('0', 64),
-		time.Now().UTC().Format(time.RFC3339Nano),
-	)
-	if err == nil {
-		t.Fatal("invalid canonical JSON insert succeeded")
+		 ) VALUES (?, 1, ?, ?, ?, ?, ?)`,
+			test.name, test.version, test.document, stringsOf('0', 64), test.name+"-command", now,
+		)
+		if err == nil {
+			t.Errorf("%s canonical insert succeeded", test.name)
+		}
+	}
+
+	if _, err := store.db.ExecContext(
+		ctx,
+		`INSERT INTO tasks(id, lane, kind, created_at, updated_at)
+		 VALUES ('invalid-lane-kind', 'runtime', 'catalog-refresh', ?, ?)`,
+		now, now,
+	); err == nil {
+		t.Fatal("task with an invalid lane/kind combination succeeded")
 	}
 
 	if _, err := store.db.ExecContext(
@@ -184,13 +207,33 @@ func TestCanonicalSaveAndTaskAreAtomic(t *testing.T) {
 	store := openTestStore(t, ctx)
 	createdAt := time.Date(2026, time.August, 26, 12, 0, 0, 0, time.UTC)
 
+	_, err := store.SaveCanonicalRevisionAndTask(
+		ctx,
+		"",
+		NewCanonicalRevision{
+			ID: "revision-invalid", SchemaVersion: configuration.SchemaVersion,
+			Document:  json.RawMessage(`{"schema_version":2,"configuration":{},"unexpected":true}`),
+			CommandID: "command-invalid", CreatedAt: createdAt,
+		},
+		NewTask{ID: "task-invalid", Lane: TaskLaneMaintenance, Kind: TaskKindCanonicalSaved},
+	)
+	if !errors.Is(err, configuration.ErrInvalidDocument) {
+		t.Fatalf("invalid canonical save error = %v, want ErrInvalidDocument", err)
+	}
+	if head, headErr := store.Head(ctx); headErr != nil || head != nil {
+		t.Fatalf("invalid canonical save changed head: head=%+v err=%v", head, headErr)
+	}
+	if _, taskErr := store.GetTask(ctx, "task-invalid"); !errors.Is(taskErr, ErrTaskNotFound) {
+		t.Fatalf("invalid canonical save created task: %v", taskErr)
+	}
+
 	first, err := store.SaveCanonicalRevisionAndTask(
 		ctx,
 		"",
 		NewCanonicalRevision{
 			ID:            "revision-1",
-			SchemaVersion: 1,
-			Document:      json.RawMessage(`{"port":8080}`),
+			SchemaVersion: 2,
+			Document:      json.RawMessage(`{"schema_version":2,"configuration":{"experimental":{"port":8080}}}`),
 			CommandID:     "command-1",
 			CreatedAt:     createdAt,
 		},
@@ -198,7 +241,7 @@ func TestCanonicalSaveAndTaskAreAtomic(t *testing.T) {
 			ID:             "task-1",
 			IdempotencyKey: "project-revision-1",
 			Lane:           TaskLaneMaintenance,
-			Kind:           "project-canonical",
+			Kind:           TaskKindCanonicalSaved,
 			Payload:        json.RawMessage(`{"revision":"revision-1"}`),
 		},
 	)
@@ -222,15 +265,15 @@ func TestCanonicalSaveAndTaskAreAtomic(t *testing.T) {
 		first.ID,
 		NewCanonicalRevision{
 			ID:            "revision-rolled-back",
-			SchemaVersion: 1,
-			Document:      json.RawMessage(`{"port":9090}`),
+			SchemaVersion: 2,
+			Document:      json.RawMessage(`{"schema_version":2,"configuration":{"experimental":{"port":9090}}}`),
 			CommandID:     "command-rolled-back",
 			CreatedAt:     createdAt.Add(time.Minute),
 		},
 		NewTask{
 			ID:      "task-1",
 			Lane:    TaskLaneMaintenance,
-			Kind:    "project-canonical",
+			Kind:    TaskKindCanonicalSaved,
 			Payload: json.RawMessage(`{}`),
 		},
 	)
@@ -245,15 +288,15 @@ func TestCanonicalSaveAndTaskAreAtomic(t *testing.T) {
 		first.ID,
 		NewCanonicalRevision{
 			ID:            "revision-2",
-			SchemaVersion: 1,
-			Document:      json.RawMessage(`{"port":9090}`),
+			SchemaVersion: 2,
+			Document:      json.RawMessage(`{"schema_version":2,"configuration":{"experimental":{"port":9090}}}`),
 			CommandID:     "command-2",
 			CreatedAt:     createdAt.Add(2 * time.Minute),
 		},
 		NewTask{
 			ID:         "task-2",
 			Lane:       TaskLaneMaintenance,
-			Kind:       "project-canonical",
+			Kind:       TaskKindCanonicalSaved,
 			Generation: 1,
 			Payload:    json.RawMessage(`{"revision":"revision-2"}`),
 		},
@@ -270,11 +313,11 @@ func TestCanonicalSaveAndTaskAreAtomic(t *testing.T) {
 		first.ID,
 		NewCanonicalRevision{
 			ID:            "revision-conflict",
-			SchemaVersion: 1,
-			Document:      json.RawMessage(`{"port":10000}`),
+			SchemaVersion: 2,
+			Document:      json.RawMessage(`{"schema_version":2,"configuration":{"experimental":{"port":10000}}}`),
 			CommandID:     "command-conflict",
 		},
-		NewTask{ID: "task-conflict", Lane: TaskLaneMaintenance, Kind: "project-canonical"},
+		NewTask{ID: "task-conflict", Lane: TaskLaneMaintenance, Kind: TaskKindCanonicalSaved},
 	)
 	if !errors.Is(err, ErrRevisionConflict) {
 		t.Fatalf("stale save error = %v, want ErrRevisionConflict", err)
@@ -325,14 +368,14 @@ func TestCanonicalCASAcrossStores(t *testing.T) {
 				"",
 				NewCanonicalRevision{
 					ID:            fmt.Sprintf("revision-%d", i),
-					SchemaVersion: 1,
-					Document:      json.RawMessage(fmt.Sprintf(`{"writer":%d}`, i)),
+					SchemaVersion: 2,
+					Document:      json.RawMessage(fmt.Sprintf(`{"schema_version":2,"configuration":{"experimental":{"writer":%d}}}`, i)),
 					CommandID:     fmt.Sprintf("command-%d", i),
 				},
 				NewTask{
 					ID:      fmt.Sprintf("task-%d", i),
 					Lane:    TaskLaneMaintenance,
-					Kind:    "project-canonical",
+					Kind:    TaskKindCanonicalSaved,
 					Payload: json.RawMessage(`{}`),
 				},
 			)

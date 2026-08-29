@@ -11,7 +11,7 @@ import (
 )
 
 func projectV112(_ string, request configuration.ProjectionRequest) (configuration.ProjectionResult, error) {
-	document, err := configuration.ParseV2(request.CanonicalJSON)
+	document, err := configuration.Parse(request.CanonicalJSON)
 	if err != nil {
 		return configuration.ProjectionResult{}, fmt.Errorf("%w: %v", configuration.ErrProjection, err)
 	}

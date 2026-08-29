@@ -5,15 +5,16 @@
   "packageManager": "pnpm@11.21.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "build": "tsc --noEmit && vite build",
-    "bundle": "vite build",
+    "api:generate": "openapi-ts -i ../api/openapi.yaml -o src/api/generated -p @hey-api/typescript --no-log-file",
+    "dev": "pnpm run api:generate && vite",
+    "build": "pnpm run api:generate && tsc --noEmit && vite build",
+    "bundle": "pnpm run api:generate && vite build",
     "lint": "eslint . --max-warnings 0",
     "lint:fix": "eslint . --fix",
     "preview": "vite preview",
-    "test": "vitest run",
-    "test:watch": "vitest",
-    "typecheck": "tsc --noEmit"
+    "test": "pnpm run api:generate && vitest run",
+    "test:watch": "pnpm run api:generate && vitest",
+    "typecheck": "pnpm run api:generate && tsc --noEmit"
   },
   "dependencies": {
     "lossless-json": "4.3.1",
@@ -24,6 +25,7 @@
   "devDependencies": {
     "@antfu/eslint-config": "9.3.0",
     "@eslint-react/eslint-plugin": "5.18.6",
+    "@hey-api/openapi-ts": "0.99.0",
     "@testing-library/jest-dom": "7.0.1",
     "@testing-library/react": "16.3.2",
     "@testing-library/user-event": "14.6.6",

@@ -42,10 +42,10 @@ func TestPreviewConfigurationUsesExactCompiledProfile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	document := configuration.EmptyV2().CanonicalJSON()
+	document := configuration.Empty().CanonicalJSON()
 	_, err = database.SaveCanonicalRevisionAndTask(ctx, "", store.NewCanonicalRevision{
-		ID: "rev_1", SchemaVersion: configuration.SchemaVersionV2, Document: document, CommandID: "cmd_1", CreatedAt: now,
-	}, store.NewTask{ID: "task_1", Lane: store.TaskLaneMaintenance, Kind: "canonical-saved", CreatedAt: now})
+		ID: "rev_1", SchemaVersion: configuration.SchemaVersion, Document: document, CommandID: "cmd_1", CreatedAt: now,
+	}, store.NewTask{ID: "task_1", Lane: store.TaskLaneMaintenance, Kind: store.TaskKindCanonicalSaved, CreatedAt: now})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -88,10 +88,10 @@ func TestConfigurationSupportFailsClosedForUnreviewedFingerprint(t *testing.T) {
 		t.Fatalf("support = %+v", support)
 	}
 	_, err = database.SaveCanonicalRevisionAndTask(ctx, "", store.NewCanonicalRevision{
-		ID: "rev_unknown", SchemaVersion: configuration.SchemaVersionV2,
-		Document: configuration.EmptyV2().CanonicalJSON(), CommandID: "cmd_unknown", CreatedAt: now,
+		ID: "rev_unknown", SchemaVersion: configuration.SchemaVersion,
+		Document: configuration.Empty().CanonicalJSON(), CommandID: "cmd_unknown", CreatedAt: now,
 	}, store.NewTask{
-		ID: "task_unknown", Lane: store.TaskLaneMaintenance, Kind: "canonical-saved", CreatedAt: now,
+		ID: "task_unknown", Lane: store.TaskLaneMaintenance, Kind: store.TaskKindCanonicalSaved, CreatedAt: now,
 	})
 	if err != nil {
 		t.Fatal(err)

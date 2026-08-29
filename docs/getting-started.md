@@ -48,11 +48,11 @@ configuration, or subscription data.
 
 ### Database compatibility
 
-The current configuration architecture identifies its SQLite database as
-`SBP2`. Opening a new empty database applies the embedded migration series;
-opening an unidentified non-empty database, an older `SBP1` database, or a
-database newer than this binary fails closed. There is no in-place `SBP1` to
-`SBP2` migration in the current local-development contract. Use a fresh
+The current application uses a new SQLite database identity. Opening a new
+empty database applies the embedded migration series; opening an unidentified
+non-empty database, a database with a previous identity, or a database newer
+than this binary fails closed. There is no in-place migration from previous
+database identities in the current local-development contract. Use a fresh
 `data_dir` and retain any earlier database separately when testing this
 architecture.
 

@@ -8,8 +8,13 @@ CREATE TABLE canonical_revisions (
     id TEXT PRIMARY KEY CHECK (id <> ''),
     sequence INTEGER NOT NULL UNIQUE CHECK (sequence > 0),
     parent_id TEXT REFERENCES canonical_revisions(id) ON DELETE RESTRICT,
-    schema_version INTEGER NOT NULL CHECK (schema_version > 0),
-    document_json TEXT NOT NULL CHECK (json_valid(document_json)),
+    schema_version INTEGER NOT NULL CHECK (schema_version = 2),
+    document_json TEXT NOT NULL CHECK (
+        json_valid(document_json)
+        AND json_type(document_json, '$') = 'object'
+        AND COALESCE(json_type(document_json, '$.schema_version') = 'integer', 0)
+        AND COALESCE(json_extract(document_json, '$.schema_version') = 2, 0)
+    ),
     sha256 TEXT NOT NULL
         CHECK (length(sha256) = 64 AND sha256 NOT GLOB '*[^0-9a-f]*'),
     command_id TEXT NOT NULL UNIQUE CHECK (command_id <> ''),
@@ -154,12 +159,36 @@ CREATE TABLE subscription_source_versions (
 CREATE INDEX subscription_source_versions_source_created
     ON subscription_source_versions(source_id, created_at DESC, id DESC);
 
+CREATE TRIGGER subscription_sources_current_version_same_source
+BEFORE UPDATE OF current_version_id ON subscription_sources
+WHEN NEW.current_version_id IS NOT NULL
+BEGIN
+    SELECT CASE WHEN NOT EXISTS (
+        SELECT 1
+          FROM subscription_source_versions AS version
+         WHERE version.id = NEW.current_version_id
+           AND version.source_id = NEW.id
+    ) THEN RAISE(ABORT, 'subscription current version belongs to another source') END;
+END;
+
+CREATE TRIGGER subscription_sources_initial_version_same_source
+BEFORE INSERT ON subscription_sources
+WHEN NEW.current_version_id IS NOT NULL
+BEGIN
+    SELECT CASE WHEN NOT EXISTS (
+        SELECT 1
+          FROM subscription_source_versions AS version
+         WHERE version.id = NEW.current_version_id
+           AND version.source_id = NEW.id
+    ) THEN RAISE(ABORT, 'subscription current version belongs to another source') END;
+END;
+
 CREATE TABLE activation_bundles (
     id TEXT PRIMARY KEY CHECK (id <> ''),
     startup_artifact_id TEXT NOT NULL
         REFERENCES startup_artifacts(id) ON DELETE RESTRICT,
     monitoring_tier TEXT NOT NULL
-        CHECK (monitoring_tier IN ('full', 'limited', 'process_only')),
+        CHECK (monitoring_tier IN ('limited', 'process_only')),
     sha256 TEXT NOT NULL UNIQUE
         CHECK (length(sha256) = 64 AND sha256 NOT GLOB '*[^0-9a-f]*'),
     created_at TEXT NOT NULL CHECK (created_at <> '')
@@ -184,7 +213,7 @@ CREATE TABLE tasks (
     id TEXT PRIMARY KEY CHECK (id <> ''),
     idempotency_key TEXT,
     lane TEXT NOT NULL CHECK (lane IN ('runtime', 'maintenance')),
-    kind TEXT NOT NULL CHECK (kind <> ''),
+    kind TEXT NOT NULL,
     status TEXT NOT NULL DEFAULT 'queued'
         CHECK (status IN ('queued', 'running', 'succeeded', 'failed', 'canceled', 'superseded')),
     generation INTEGER NOT NULL DEFAULT 0 CHECK (generation >= 0),
@@ -204,7 +233,17 @@ CREATE TABLE tasks (
     lease_expires_at TEXT,
     not_before TEXT,
     created_at TEXT NOT NULL CHECK (created_at <> ''),
-    updated_at TEXT NOT NULL CHECK (updated_at <> '')
+    updated_at TEXT NOT NULL CHECK (updated_at <> ''),
+    CHECK (
+        (lane = 'maintenance' AND kind IN (
+            'canonical-saved', 'catalog-refresh', 'core-install', 'core-import',
+            'startup-check', 'subscription-source-refresh'
+        ))
+        OR
+        (lane = 'runtime' AND kind IN (
+            'runtime-apply', 'runtime-start', 'runtime-stop', 'runtime-restart', 'runtime-rollback'
+        ))
+    )
 ) STRICT;
 
 CREATE UNIQUE INDEX tasks_lane_idempotency

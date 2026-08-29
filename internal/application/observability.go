@@ -52,8 +52,7 @@ func (application *Application) Metrics(ctx context.Context) (MetricsSnapshot, e
 		return result, nil
 	}
 	if bundle.MonitoringTier != store.MonitoringLimited {
-		result.ReasonCode = "monitoring_unavailable"
-		return result, nil
+		return MetricsSnapshot{}, fmt.Errorf("invalid activation monitoring tier %q", bundle.MonitoringTier)
 	}
 	period, err := application.database.CurrentTrafficPeriod(ctx, now)
 	if errors.Is(err, store.ErrTrafficPeriodNotFound) {

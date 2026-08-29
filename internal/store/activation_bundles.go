@@ -25,7 +25,6 @@ var (
 type MonitoringTier string
 
 const (
-	MonitoringFull        MonitoringTier = "full"
 	MonitoringLimited     MonitoringTier = "limited"
 	MonitoringProcessOnly MonitoringTier = "process_only"
 )
@@ -183,5 +182,5 @@ func canonicalJSONArrayWithLimit(value json.RawMessage, fallback string, maximum
 }
 
 func validMonitoringTier(value MonitoringTier) bool {
-	return value == MonitoringFull || value == MonitoringLimited || value == MonitoringProcessOnly
+	return value == MonitoringLimited || value == MonitoringProcessOnly
 }

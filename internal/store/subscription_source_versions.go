@@ -35,6 +35,7 @@ type SaveSubscriptionSourceVersionInput struct {
 	Version                 SubscriptionSourceVersion
 	ExpectedSourceUpdatedAt time.Time
 	UpdatedAt               time.Time
+	RefreshTask             *EnqueueTaskInput
 }
 
 type SubscriptionSourceVersionListFilter struct {
@@ -70,6 +71,10 @@ func (s *Store) SaveSubscriptionSourceVersion(
 		return SubscriptionSourceVersionSave{}, err
 	}
 	updated, err := nextSubscriptionUpdateTime(input.UpdatedAt, expected)
+	if err != nil {
+		return SubscriptionSourceVersionSave{}, err
+	}
+	refreshTask, err := prepareSubscriptionRefreshTask(input.RefreshTask)
 	if err != nil {
 		return SubscriptionSourceVersionSave{}, err
 	}
@@ -114,7 +119,7 @@ func (s *Store) SaveSubscriptionSourceVersion(
 			return err
 		}
 		saved.Version = cloneSubscriptionSourceVersion(version)
-		return nil
+		return enqueueSubscriptionRefreshTaskTx(ctx, tx, refreshTask)
 	})
 	return saved, err
 }
@@ -191,6 +196,19 @@ func (s *Store) ActivateSubscriptionSourceVersion(
 	expectedUpdatedAt time.Time,
 	updatedAt time.Time,
 ) (SubscriptionSource, error) {
+	return s.ActivateSubscriptionSourceVersionAndTask(ctx, sourceID, versionID, expectedUpdatedAt, updatedAt, nil)
+}
+
+// ActivateSubscriptionSourceVersionAndTask changes the current immutable
+// version and schedules the next refresh in the same transaction.
+func (s *Store) ActivateSubscriptionSourceVersionAndTask(
+	ctx context.Context,
+	sourceID string,
+	versionID string,
+	expectedUpdatedAt time.Time,
+	updatedAt time.Time,
+	refreshTask *EnqueueTaskInput,
+) (SubscriptionSource, error) {
 	if err := validateSubscriptionID(sourceID, "source"); err != nil {
 		return SubscriptionSource{}, err
 	}
@@ -202,6 +220,10 @@ func (s *Store) ActivateSubscriptionSourceVersion(
 		return SubscriptionSource{}, err
 	}
 	updated, err := nextSubscriptionUpdateTime(updatedAt, expected)
+	if err != nil {
+		return SubscriptionSource{}, err
+	}
+	preparedTask, err := prepareSubscriptionRefreshTask(refreshTask)
 	if err != nil {
 		return SubscriptionSource{}, err
 	}
@@ -226,7 +248,10 @@ func (s *Store) ActivateSubscriptionSourceVersion(
 			return err
 		}
 		stored, err = getSubscriptionSource(ctx, tx, sourceID)
-		return err
+		if err != nil {
+			return err
+		}
+		return enqueueSubscriptionRefreshTaskTx(ctx, tx, preparedTask)
 	})
 	return stored, err
 }

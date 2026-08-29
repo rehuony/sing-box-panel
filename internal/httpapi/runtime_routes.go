@@ -125,7 +125,7 @@ func validMonitoringTier(value store.MonitoringTier, allowDefault bool) bool {
 	if value == "" {
 		return allowDefault
 	}
-	return value == store.MonitoringFull || value == store.MonitoringLimited || value == store.MonitoringProcessOnly
+	return value == store.MonitoringLimited || value == store.MonitoringProcessOnly
 }
 
 func writeRuntimeProblem(w http.ResponseWriter, request *http.Request, code string, err error) {

@@ -26,7 +26,7 @@ func TestManagerStartsOnlyVerifiedAppliedBundle(t *testing.T) {
 	executor := newFakeExecutor(process)
 	executor.versions[fixture.bundle.BinaryPath] = fixture.bundle.ExactVersion.String()
 	clock := newFakeClock()
-	probe := &fakeProbe{level: MonitoringFull, observation: HealthObservation{Healthy: true, Code: "api_ready"}}
+	probe := &fakeProbe{level: MonitoringLimited, observation: HealthObservation{Healthy: true, Code: "api_ready"}}
 	manager := newTestManager(t, fixture.runtimeDir, executor, clock, probe)
 
 	if err := manager.Start(testContext(t), fixture.bundle); err != nil {
@@ -44,9 +44,9 @@ func TestManagerStartsOnlyVerifiedAppliedBundle(t *testing.T) {
 		status.ActualArtifactDigest != fixture.bundle.ArtifactDigest {
 		t.Fatalf("verified identity not recorded: %+v", status)
 	}
-	if status.Health == nil || status.Health.Level != MonitoringFull ||
+	if status.Health == nil || status.Health.Level != MonitoringLimited ||
 		status.Health.Code != "api_ready" || !status.Health.Healthy {
-		t.Fatalf("health = %+v, want full api_ready", status.Health)
+		t.Fatalf("health = %+v, want limited api_ready", status.Health)
 	}
 	live := manager.ObserveLiveIdentity()
 	if !live.Running || live.State != StateRunning || live.PID != process.PID() ||
@@ -440,7 +440,7 @@ func TestStopCancelsInProgressStartupAndJoinsChild(t *testing.T) {
 func TestManagerCheckHealthUsesDeclaredMonitoringLevel(t *testing.T) {
 	t.Parallel()
 
-	for _, level := range []MonitoringLevel{MonitoringFull, MonitoringLimited, MonitoringProcessOnly} {
+	for _, level := range []MonitoringLevel{MonitoringLimited, MonitoringProcessOnly} {
 		t.Run(string(level), func(t *testing.T) {
 			t.Parallel()
 			fixture := newRuntimeFixture(t, "1.13.19", []byte(`{"route":{}}`))

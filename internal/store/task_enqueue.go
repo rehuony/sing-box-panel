@@ -21,99 +21,63 @@ func (s *Store) EnqueueTask(ctx context.Context, input EnqueueTaskInput) (Task, 
 
 	var queued Task
 	err = s.WithTx(ctx, func(tx *sql.Tx) error {
-		if prepared.IdempotencyKey != "" {
-			existing, existingErr := getTaskByLaneIdempotency(ctx, tx, prepared.Lane, prepared.IdempotencyKey)
-			if existingErr == nil {
-				if !sameIdempotentTask(existing, prepared) {
-					return ErrIdempotencyConflict
-				}
-				queued = existing
-				return nil
-			}
-			if !errors.Is(existingErr, ErrTaskNotFound) {
-				return existingErr
-			}
-		}
-		if prepared.Lane == TaskLaneRuntime {
-			var currentGeneration int64
-			if err := tx.QueryRowContext(
-				ctx,
-				`SELECT target_generation FROM hub_state WHERE singleton = 1`,
-			).Scan(&currentGeneration); err != nil {
-				return fmt.Errorf("read runtime target generation: %w", err)
-			}
-			if prepared.Generation <= currentGeneration {
-				return fmt.Errorf(
-					"%w: requested=%d current=%d",
-					ErrTaskGenerationConflict,
-					prepared.Generation,
-					currentGeneration,
-				)
-			}
-
-			updatedAt := formatTaskTime(prepared.CreatedAt)
-			if _, err := tx.ExecContext(
-				ctx,
-				`UPDATE tasks
-                    SET status = 'superseded', updated_at = ?
-                  WHERE lane = 'runtime' AND status = 'queued' AND generation < ?`,
-				updatedAt,
-				prepared.Generation,
-			); err != nil {
-				return fmt.Errorf("supersede queued runtime tasks: %w", err)
-			}
-			if _, err := tx.ExecContext(
-				ctx,
-				`UPDATE tasks
-                    SET cancel_requested = 1, updated_at = ?
-                  WHERE lane = 'runtime' AND status = 'running' AND generation < ?`,
-				updatedAt,
-				prepared.Generation,
-			); err != nil {
-				return fmt.Errorf("request cancellation of older runtime task: %w", err)
-			}
-			if _, err := tx.ExecContext(
-				ctx,
-				`UPDATE hub_state
-                    SET target_generation = ?, updated_at = ?
-                  WHERE singleton = 1`,
-				prepared.Generation,
-				updatedAt,
-			); err != nil {
-				return fmt.Errorf("advance runtime target generation: %w", err)
-			}
-		}
-
-		if _, err := tx.ExecContext(
-			ctx,
-			`INSERT INTO tasks(
-                id, idempotency_key, lane, kind, status, generation,
-                canonical_revision_id, startup_artifact_id, activation_bundle_id,
-                payload_json, not_before, created_at, updated_at
-             ) VALUES (?, ?, ?, ?, 'queued', ?, ?, ?, ?, ?, ?, ?, ?)`,
-			prepared.ID,
-			nullIfEmpty(prepared.IdempotencyKey),
-			string(prepared.Lane),
-			prepared.Kind,
-			prepared.Generation,
-			nullIfEmpty(prepared.CanonicalRevisionID),
-			nullIfEmpty(prepared.StartupArtifactID),
-			nullIfEmpty(prepared.ActivationBundleID),
-			string(prepared.Payload),
-			nullableTaskTime(prepared.NotBefore),
-			formatTaskTime(prepared.CreatedAt),
-			formatTaskTime(prepared.CreatedAt),
-		); err != nil {
-			return fmt.Errorf("enqueue task: %w", err)
-		}
-
-		queued, err = getTask(ctx, tx, prepared.ID)
-		return err
+		var enqueueErr error
+		queued, enqueueErr = enqueuePreparedTaskTx(ctx, tx, prepared)
+		return enqueueErr
 	})
 	if err != nil {
 		return Task{}, err
 	}
 	return queued, nil
+}
+
+func enqueuePreparedTaskTx(ctx context.Context, tx *sql.Tx, prepared EnqueueTaskInput) (Task, error) {
+	if prepared.IdempotencyKey != "" {
+		existing, err := getTaskByLaneIdempotency(ctx, tx, prepared.Lane, prepared.IdempotencyKey)
+		if err == nil {
+			if !sameIdempotentTask(existing, prepared) {
+				return Task{}, ErrIdempotencyConflict
+			}
+			return existing, nil
+		}
+		if !errors.Is(err, ErrTaskNotFound) {
+			return Task{}, err
+		}
+	}
+	if prepared.Lane == TaskLaneRuntime {
+		var currentGeneration int64
+		if err := tx.QueryRowContext(ctx, `SELECT target_generation FROM hub_state WHERE singleton = 1`).Scan(&currentGeneration); err != nil {
+			return Task{}, fmt.Errorf("read runtime target generation: %w", err)
+		}
+		if prepared.Generation <= currentGeneration {
+			return Task{}, fmt.Errorf("%w: requested=%d current=%d", ErrTaskGenerationConflict, prepared.Generation, currentGeneration)
+		}
+		updatedAt := formatTaskTime(prepared.CreatedAt)
+		if _, err := tx.ExecContext(ctx, `UPDATE tasks SET status = 'superseded', updated_at = ?
+            WHERE lane = 'runtime' AND status = 'queued' AND generation < ?`, updatedAt, prepared.Generation); err != nil {
+			return Task{}, fmt.Errorf("supersede queued runtime tasks: %w", err)
+		}
+		if _, err := tx.ExecContext(ctx, `UPDATE tasks SET cancel_requested = 1, updated_at = ?
+            WHERE lane = 'runtime' AND status = 'running' AND generation < ?`, updatedAt, prepared.Generation); err != nil {
+			return Task{}, fmt.Errorf("request cancellation of older runtime task: %w", err)
+		}
+		if _, err := tx.ExecContext(ctx, `UPDATE hub_state SET target_generation = ?, updated_at = ?
+            WHERE singleton = 1`, prepared.Generation, updatedAt); err != nil {
+			return Task{}, fmt.Errorf("advance runtime target generation: %w", err)
+		}
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO tasks(
+        id, idempotency_key, lane, kind, status, generation,
+        canonical_revision_id, startup_artifact_id, activation_bundle_id,
+        payload_json, not_before, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, 'queued', ?, ?, ?, ?, ?, ?, ?, ?)`,
+		prepared.ID, nullIfEmpty(prepared.IdempotencyKey), string(prepared.Lane), prepared.Kind,
+		prepared.Generation, nullIfEmpty(prepared.CanonicalRevisionID), nullIfEmpty(prepared.StartupArtifactID),
+		nullIfEmpty(prepared.ActivationBundleID), string(prepared.Payload), nullableTaskTime(prepared.NotBefore),
+		formatTaskTime(prepared.CreatedAt), formatTaskTime(prepared.CreatedAt)); err != nil {
+		return Task{}, fmt.Errorf("enqueue task: %w", err)
+	}
+	return getTask(ctx, tx, prepared.ID)
 }
 
 func sameIdempotentTask(existing Task, requested EnqueueTaskInput) bool {
@@ -133,8 +97,8 @@ func prepareEnqueuedTask(input EnqueueTaskInput) (EnqueueTaskInput, error) {
 	if input.Lane != TaskLaneRuntime && input.Lane != TaskLaneMaintenance {
 		return EnqueueTaskInput{}, fmt.Errorf("invalid task lane %q", input.Lane)
 	}
-	if strings.TrimSpace(input.Kind) == "" {
-		return EnqueueTaskInput{}, errors.New("task kind is empty")
+	if !validTaskLaneKind(input.Lane, input.Kind) {
+		return EnqueueTaskInput{}, fmt.Errorf("invalid %s task kind %q", input.Lane, input.Kind)
 	}
 	if input.Generation < 0 {
 		return EnqueueTaskInput{}, errors.New("task generation must not be negative")

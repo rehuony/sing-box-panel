@@ -91,8 +91,8 @@ build: web-build
 	mkdir -p bin
 	go build -tags webdist -trimpath -o bin/sing-box-panel ./cmd/sing-box-panel
 
-web-build: web-typecheck
-	$(WEB_PNPM) run bundle
+web-build:
+	$(WEB_PNPM) run build
 
 # Release
 

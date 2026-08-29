@@ -14,8 +14,8 @@ import (
 )
 
 const (
-	// ApplicationID identifies the schema-v2 configuration architecture ("SBP2").
-	ApplicationID = 0x53425032
+	// ApplicationID identifies the current incompatible storage epoch.
+	ApplicationID = 0x53425033
 
 	// CurrentSchemaVersion is the newest schema this package can open.
 	CurrentSchemaVersion = 1

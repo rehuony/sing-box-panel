@@ -57,7 +57,7 @@ func TestCatalogSnapshotRoundTripFilteringAndInstallQueue(t *testing.T) {
 	if err != nil || retry.ID != queued.ID {
 		t.Fatalf("install retry=%+v err=%v", retry, err)
 	}
-	if queued.Kind != "core-install" || queued.Status != store.TaskStatusQueued {
+	if queued.Kind != store.TaskKindCoreInstall || queued.Status != store.TaskStatusQueued {
 		t.Fatalf("queued install=%+v", queued)
 	}
 	source, err := coreartifact.NewOfficialSource(asset.RepositoryID, asset.ReleaseID, asset.AssetID)
