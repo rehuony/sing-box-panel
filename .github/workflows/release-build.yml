@@ -140,7 +140,26 @@ jobs:
             return "${request_status}"
           }
           require_absent "repos/${REPOSITORY}/git/ref/tags/${RELEASE_VERSION}" "tag"
-          require_absent "repos/${REPOSITORY}/releases/tags/${RELEASE_VERSION}" "release"
+          # The REST release-by-tag endpoint excludes Draft Releases.
+          repository_owner="${REPOSITORY%%/*}"
+          repository_name="${REPOSITORY#*/}"
+          # shellcheck disable=SC2016
+          release_id="$(
+            gh api graphql \
+              -F owner="${repository_owner}" \
+              -F name="${repository_name}" \
+              -F tag="${RELEASE_VERSION}" \
+              -f query='query($owner: String!, $name: String!, $tag: String!) {
+                repository(owner: $owner, name: $name) {
+                  release(tagName: $tag) { databaseId }
+                }
+              }' \
+              --jq '.data.repository.release.databaseId // empty'
+          )"
+          if [[ -n "${release_id}" ]]; then
+            printf 'release already exists for %s\n' "${RELEASE_VERSION}" >&2
+            exit 1
+          fi
 
   core-contract:
     needs: guard
@@ -383,7 +402,26 @@ jobs:
             return "${request_status}"
           }
           require_absent "repos/${REPOSITORY}/git/ref/tags/${RELEASE_VERSION}" "tag"
-          require_absent "repos/${REPOSITORY}/releases/tags/${RELEASE_VERSION}" "release"
+          # The REST release-by-tag endpoint excludes Draft Releases.
+          repository_owner="${REPOSITORY%%/*}"
+          repository_name="${REPOSITORY#*/}"
+          # shellcheck disable=SC2016
+          release_id="$(
+            gh api graphql \
+              -F owner="${repository_owner}" \
+              -F name="${repository_name}" \
+              -F tag="${RELEASE_VERSION}" \
+              -f query='query($owner: String!, $name: String!, $tag: String!) {
+                repository(owner: $owner, name: $name) {
+                  release(tagName: $tag) { databaseId }
+                }
+              }' \
+              --jq '.data.repository.release.databaseId // empty'
+          )"
+          if [[ -n "${release_id}" ]]; then
+            printf 'release appeared while the release was being verified\n' >&2
+            exit 1
+          fi
 
       - name: Create empty Draft Release
         id: create-draft
@@ -397,24 +435,50 @@ jobs:
         run: |
           set -euo pipefail
           marker="<!-- sing-box-panel-release-run:${RUN_ID}:${RUN_ATTEMPT}:${SOURCE_SHA} -->"
-          draft_url="$(
-            gh release create "${RELEASE_VERSION}" \
-              --repo "${REPOSITORY}" \
-              --draft \
-              --generate-notes \
-              --notes "${marker}" \
-              --target "${SOURCE_SHA}" \
-              --title "sing-box-panel ${RELEASE_VERSION}"
+          release_json="$(
+            gh api --method POST "repos/${REPOSITORY}/releases" \
+              -f tag_name="${RELEASE_VERSION}" \
+              -f target_commitish="${SOURCE_SHA}" \
+              -f name="sing-box-panel ${RELEASE_VERSION}" \
+              -f body="${marker}" \
+              -F draft=true \
+              -F prerelease=false \
+              -F generate_release_notes=true
           )"
-          printf 'created=true\n' >>"${GITHUB_OUTPUT}"
-          release_json="$(gh api "repos/${REPOSITORY}/releases/tags/${RELEASE_VERSION}")"
+          release_id="$(jq -er '.id | tostring' <<<"${release_json}")"
+          draft_url="$(jq -er '.html_url' <<<"${release_json}")"
+          {
+            printf 'created=true\n'
+            printf 'release-id=%s\n' "${release_id}"
+            printf 'draft-url=%s\n' "${draft_url}"
+            printf 'tag-created=false\n'
+          } >>"${GITHUB_OUTPUT}"
           jq -e \
             --arg marker "${marker}" \
             --arg sha "${SOURCE_SHA}" \
             --arg tag "${RELEASE_VERSION}" \
             '.draft == true and .tag_name == $tag and .target_commitish == $sha and ((.body // "") | contains($marker)) and (.assets | length == 0)' \
             <<<"${release_json}" >/dev/null
-          printf 'draft-url=%s\n' "${draft_url}" >>"${GITHUB_OUTPUT}"
+
+          tag_created=false
+          response_file="${RUNNER_TEMP}/github-response"
+          set +e
+          gh api --include "repos/${REPOSITORY}/git/ref/tags/${RELEASE_VERSION}" >"${response_file}" 2>&1
+          tag_status=$?
+          set -e
+          if [[ ${tag_status} -eq 0 ]]; then
+            tag_json="$(gh api "repos/${REPOSITORY}/git/ref/tags/${RELEASE_VERSION}")"
+            jq -e --arg sha "${SOURCE_SHA}" \
+              '.object.type == "commit" and .object.sha == $sha' \
+              <<<"${tag_json}" >/dev/null
+            tag_created=true
+          elif ! grep -Eq '^HTTP/[^ ]+ 404([ .]|$)' "${response_file}"; then
+            cat "${response_file}" >&2
+            exit "${tag_status}"
+          fi
+          if [[ "${tag_created}" == true ]]; then
+            printf 'tag-created=true\n' >>"${GITHUB_OUTPUT}"
+          fi
 
       - name: Upload exact release assets
         env:
@@ -434,11 +498,13 @@ jobs:
       - name: Download and verify Draft Release
         env:
           GH_TOKEN: ${{ github.token }}
+          RELEASE_ID: ${{ steps.create-draft.outputs.release-id }}
           RELEASE_VERSION: ${{ needs.guard.outputs.release-version }}
           REPOSITORY: ${{ github.repository }}
           RUN_ATTEMPT: ${{ github.run_attempt }}
           RUN_ID: ${{ github.run_id }}
           SOURCE_SHA: ${{ needs.guard.outputs.source-sha }}
+          TAG_CREATED: ${{ steps.create-draft.outputs.tag-created }}
         run: |
           set -euo pipefail
           local_dir="${RUNNER_TEMP}/sing-box-panel-release"
@@ -446,8 +512,7 @@ jobs:
           mkdir -- "${downloaded_dir}"
 
           marker="<!-- sing-box-panel-release-run:${RUN_ID}:${RUN_ATTEMPT}:${SOURCE_SHA} -->"
-          release_json="$(gh api "repos/${REPOSITORY}/releases/tags/${RELEASE_VERSION}")"
-          tag_json="$(gh api "repos/${REPOSITORY}/git/ref/tags/${RELEASE_VERSION}")"
+          release_json="$(gh api "repos/${REPOSITORY}/releases/${RELEASE_ID}")"
           expected_names='["SHA256SUMS","SHA256SUMS.sig","sing-box-panel-linux-amd64","sing-box-panel-linux-arm64"]'
           jq -e \
             --arg marker "${marker}" \
@@ -456,9 +521,26 @@ jobs:
             --argjson names "${expected_names}" \
             '.draft == true and .prerelease == false and .tag_name == $tag and .target_commitish == $sha and ((.body // "") | contains($marker)) and ([.assets[].name] | sort) == $names and ([.assets[].name] | unique | length) == 4' \
             <<<"${release_json}" >/dev/null
-          jq -e --arg sha "${SOURCE_SHA}" \
-            '.object.type == "commit" and .object.sha == $sha' \
-            <<<"${tag_json}" >/dev/null
+          if [[ "${TAG_CREATED}" == true ]]; then
+            tag_json="$(gh api "repos/${REPOSITORY}/git/ref/tags/${RELEASE_VERSION}")"
+            jq -e --arg sha "${SOURCE_SHA}" \
+              '.object.type == "commit" and .object.sha == $sha' \
+              <<<"${tag_json}" >/dev/null
+          else
+            response_file="${RUNNER_TEMP}/github-response"
+            set +e
+            gh api --include "repos/${REPOSITORY}/git/ref/tags/${RELEASE_VERSION}" >"${response_file}" 2>&1
+            tag_status=$?
+            set -e
+            if [[ ${tag_status} -eq 0 ]]; then
+              printf 'tag appeared after Draft creation\n' >&2
+              exit 1
+            fi
+            if ! grep -Eq '^HTTP/[^ ]+ 404([ .]|$)' "${response_file}"; then
+              cat "${response_file}" >&2
+              exit "${tag_status}"
+            fi
+          fi
           while IFS=$'\t' read -r asset_name remote_size; do
             local_size="$(wc -c <"${local_dir}/${asset_name}" | tr -d '[:space:]')"
             if [[ "${local_size}" != "${remote_size}" ]]; then
@@ -525,16 +607,17 @@ jobs:
         if: ${{ (failure() || cancelled()) && steps.create-draft.outputs.created == 'true' }}
         env:
           GH_TOKEN: ${{ github.token }}
+          RELEASE_ID: ${{ steps.create-draft.outputs.release-id }}
           RELEASE_VERSION: ${{ needs.guard.outputs.release-version }}
           REPOSITORY: ${{ github.repository }}
           RUN_ATTEMPT: ${{ github.run_attempt }}
           RUN_ID: ${{ github.run_id }}
           SOURCE_SHA: ${{ needs.guard.outputs.source-sha }}
+          TAG_CREATED: ${{ steps.create-draft.outputs.tag-created }}
         run: |
           set -euo pipefail
           marker="<!-- sing-box-panel-release-run:${RUN_ID}:${RUN_ATTEMPT}:${SOURCE_SHA} -->"
-          release_json="$(gh api "repos/${REPOSITORY}/releases/tags/${RELEASE_VERSION}")"
-          tag_json="$(gh api "repos/${REPOSITORY}/git/ref/tags/${RELEASE_VERSION}")"
+          release_json="$(gh api "repos/${REPOSITORY}/releases/${RELEASE_ID}")"
           if ! jq -e \
             --arg marker "${marker}" \
             --arg sha "${SOURCE_SHA}" \
@@ -544,20 +627,24 @@ jobs:
             printf 'refusing to clean up a Draft not owned by this workflow run\n' >&2
             exit 1
           fi
-          if ! jq -e --arg sha "${SOURCE_SHA}" '.object.type == "commit" and .object.sha == $sha' <<<"${tag_json}" >/dev/null; then
-            printf 'refusing to clean up a tag that does not point to the frozen source\n' >&2
-            exit 1
+          if [[ "${TAG_CREATED}" == true ]]; then
+            tag_json="$(gh api "repos/${REPOSITORY}/git/ref/tags/${RELEASE_VERSION}")"
+            if ! jq -e --arg sha "${SOURCE_SHA}" '.object.type == "commit" and .object.sha == $sha' <<<"${tag_json}" >/dev/null; then
+              printf 'refusing to clean up a tag that does not point to the frozen source\n' >&2
+              exit 1
+            fi
           fi
 
-          release_json="$(gh api "repos/${REPOSITORY}/releases/tags/${RELEASE_VERSION}")"
+          release_json="$(gh api "repos/${REPOSITORY}/releases/${RELEASE_ID}")"
           jq -e \
             --arg marker "${marker}" \
             --arg sha "${SOURCE_SHA}" \
             '.draft == true and .target_commitish == $sha and ((.body // "") | contains($marker))' \
             <<<"${release_json}" >/dev/null
-          release_id="$(jq -er '.id' <<<"${release_json}")"
-          gh api --method DELETE "repos/${REPOSITORY}/releases/${release_id}"
+          gh api --method DELETE "repos/${REPOSITORY}/releases/${RELEASE_ID}"
 
-          tag_json="$(gh api "repos/${REPOSITORY}/git/ref/tags/${RELEASE_VERSION}")"
-          jq -e --arg sha "${SOURCE_SHA}" '.object.type == "commit" and .object.sha == $sha' <<<"${tag_json}" >/dev/null
-          gh api --method DELETE "repos/${REPOSITORY}/git/refs/tags/${RELEASE_VERSION}"
+          if [[ "${TAG_CREATED}" == true ]]; then
+            tag_json="$(gh api "repos/${REPOSITORY}/git/ref/tags/${RELEASE_VERSION}")"
+            jq -e --arg sha "${SOURCE_SHA}" '.object.type == "commit" and .object.sha == $sha' <<<"${tag_json}" >/dev/null
+            gh api --method DELETE "repos/${REPOSITORY}/git/refs/tags/${RELEASE_VERSION}"
+          fi

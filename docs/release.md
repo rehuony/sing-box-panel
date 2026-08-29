@@ -213,9 +213,12 @@ runs five stages:
    re-verifies the asset set, bytes, checksums, signature, version, source
    commit, and embedded public key.
 
-The workflow never replaces an existing tag, Release, or asset. If draft
-verification fails or is cancelled after creation, cleanup is limited to the
-draft and tag created for the same target commit by that workflow run.
+The workflow never replaces an existing tag, Release, or asset. Draft-aware
+existence checks reject both published and unpublished releases. If draft
+verification fails or is cancelled after creation, cleanup uses the exact
+Release ID and ownership marker returned at creation. It removes only that
+Draft and, when creation also produced a tag, removes that tag only while it
+still targets the frozen commit.
 
 ## Publish a release
 
