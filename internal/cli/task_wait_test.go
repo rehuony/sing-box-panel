@@ -35,7 +35,7 @@ func TestSignalInterruptedTaskWaitRequestsCancellationAndNamesTask(t *testing.T)
 			taskID := "task-" + strings.ReplaceAll(testCase.name, " ", "-")
 			now := time.Date(2026, time.August, 26, 22, 0, 0, 0, time.UTC)
 			if _, err := database.EnqueueTask(ctx, store.EnqueueTaskInput{
-				ID: taskID, Lane: store.TaskLaneMaintenance, Kind: "startup-check",
+				ID: taskID, Lane: store.TaskLaneMaintenance, Kind: store.TaskKindStartupCheck,
 				Payload: []byte(`{}`), CreatedAt: now,
 			}); err != nil {
 				t.Fatal(err)

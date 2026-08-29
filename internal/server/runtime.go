@@ -19,8 +19,24 @@ import (
 type runtimeServices struct {
 	database *store.Store
 	commands *application.Application
-	manager  *coreruntime.Manager
-	identity *application.RuntimeIdentityResolver
+	manager  runtimeManager
+	identity runtimeIdentityResolver
+}
+
+type runtimeManager interface {
+	Check(context.Context, coreruntime.AppliedBundle) error
+	Start(context.Context, coreruntime.AppliedBundle) error
+	Stop(context.Context) error
+	Restart(context.Context, coreruntime.AppliedBundle) error
+	Close(context.Context) error
+	Wait() error
+	MonitoringLevel() coreruntime.MonitoringLevel
+	ObserveLiveIdentity() coreruntime.LiveIdentity
+}
+
+type runtimeIdentityResolver interface {
+	Resolve(context.Context) (application.RuntimeIdentity, error)
+	ProcessStartToken(context.Context, int) (string, error)
 }
 
 func newRuntimeServices(
@@ -52,6 +68,8 @@ func (services *runtimeServices) ReconcileStartup(ctx context.Context) error {
 				identity.PID,
 				identity.ActivationBundleID,
 			)
+		} else if !errors.Is(resolveErr, application.ErrStaleObservation) {
+			return fmt.Errorf("reconcile runtime observation: %w", resolveErr)
 		}
 		if _, clearErr := services.database.ClearRuntimeObservation(
 			ctx, observation.PID, observation.ProcessStartToken,
@@ -106,7 +124,7 @@ func (services *runtimeServices) Close() error {
 
 func startupCheckHandler(
 	commands *application.Application,
-	manager *coreruntime.Manager,
+	manager runtimeManager,
 ) taskHandlerFunc {
 	return func(ctx context.Context, task store.Task, control taskExecutionControl) (json.RawMessage, error) {
 		if err := control.SafePoint(ctx); err != nil {
@@ -291,6 +309,9 @@ func (services *runtimeServices) stopForTask(
 	control taskExecutionControl,
 ) (json.RawMessage, error) {
 	observation, observationErr := services.database.RuntimeObservation(ctx)
+	if observationErr != nil && !errors.Is(observationErr, store.ErrRuntimeObservationNotFound) {
+		return nil, observationErr
+	}
 	if err := services.manager.Stop(ctx); err != nil {
 		return nil, err
 	}
@@ -300,8 +321,6 @@ func (services *runtimeServices) stopForTask(
 		); err != nil {
 			return nil, err
 		}
-	} else if !errors.Is(observationErr, store.ErrRuntimeObservationNotFound) {
-		return nil, observationErr
 	}
 	if err := control.SafePoint(ctx); err != nil {
 		return nil, err

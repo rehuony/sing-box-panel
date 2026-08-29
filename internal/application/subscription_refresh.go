@@ -110,18 +110,28 @@ func (application *Application) ExecuteSubscriptionSourceRefresh(
 	}, nil
 }
 
-func (application *Application) scheduleConfiguredSubscriptionSourceRefresh(
-	ctx context.Context,
+func (application *Application) configuredSubscriptionSourceRefreshTask(
 	source store.SubscriptionSource,
-) error {
-	if source.SourceKind != store.SubscriptionSourceRemote || !source.Enabled {
-		return nil
+) (*store.EnqueueTaskInput, error) {
+	if source.SourceKind != store.SubscriptionSourceRemote {
+		return nil, nil
 	}
 	config, err := decodeRemoteSubscriptionSourceConfig(source.Config)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	return application.scheduleNextSubscriptionSourceRefresh(ctx, source, config)
+	if !source.Enabled {
+		return nil, nil
+	}
+	if config.RefreshIntervalMinutes == 0 {
+		return nil, nil
+	}
+	notBefore := application.now().UTC().Add(time.Duration(config.RefreshIntervalMinutes) * time.Minute)
+	prepared, err := application.subscriptionSourceRefreshTask(source, &notBefore)
+	if err != nil {
+		return nil, err
+	}
+	return &prepared, nil
 }
 
 func decodeRemoteSubscriptionSourceConfig(raw json.RawMessage) (remoteSubscriptionSourceConfig, error) {
@@ -165,15 +175,30 @@ func (application *Application) enqueueSubscriptionSourceRefresh(
 	source store.SubscriptionSource,
 	notBefore *time.Time,
 ) (Task, error) {
+	input, err := application.subscriptionSourceRefreshTask(source, notBefore)
+	if err != nil {
+		return Task{}, err
+	}
+	queued, err := application.database.EnqueueTask(ctx, input)
+	if err != nil {
+		return Task{}, err
+	}
+	return applicationTask(queued), nil
+}
+
+func (application *Application) subscriptionSourceRefreshTask(
+	source store.SubscriptionSource,
+	notBefore *time.Time,
+) (store.EnqueueTaskInput, error) {
 	payload, err := json.Marshal(subscriptionSourceRefreshPayload{
 		SourceID: source.ID, ExpectedUpdatedAt: source.UpdatedAt,
 	})
 	if err != nil {
-		return Task{}, err
+		return store.EnqueueTaskInput{}, err
 	}
 	taskID, err := application.newID("task")
 	if err != nil {
-		return Task{}, err
+		return store.EnqueueTaskInput{}, err
 	}
 	keySuffix := "manual"
 	if notBefore != nil {
@@ -181,13 +206,9 @@ func (application *Application) enqueueSubscriptionSourceRefresh(
 	}
 	key := "subscription-source-refresh:" + source.ID + ":" +
 		source.UpdatedAt.UTC().Format(time.RFC3339Nano) + ":" + keySuffix
-	queued, err := application.database.EnqueueTask(ctx, store.EnqueueTaskInput{
+	return store.EnqueueTaskInput{
 		ID: taskID, IdempotencyKey: key, Lane: store.TaskLaneMaintenance,
-		Kind: "subscription-source-refresh", Payload: payload,
+		Kind: store.TaskKindSubscriptionSourceRefresh, Payload: payload,
 		NotBefore: notBefore, CreatedAt: application.now().UTC(),
-	})
-	if err != nil {
-		return Task{}, err
-	}
-	return applicationTask(queued), nil
+	}, nil
 }

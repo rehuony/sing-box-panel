@@ -28,12 +28,48 @@ const (
 	TaskStatusSuperseded TaskStatus = "superseded"
 )
 
+// TaskKind identifies every durable operation understood by this binary.
+// Keeping this list closed prevents producers from persisting work for which
+// the server has no handler.
+type TaskKind string
+
+const (
+	TaskKindCanonicalSaved            TaskKind = "canonical-saved"
+	TaskKindCatalogRefresh            TaskKind = "catalog-refresh"
+	TaskKindCoreInstall               TaskKind = "core-install"
+	TaskKindCoreImport                TaskKind = "core-import"
+	TaskKindStartupCheck              TaskKind = "startup-check"
+	TaskKindSubscriptionSourceRefresh TaskKind = "subscription-source-refresh"
+	TaskKindRuntimeApply              TaskKind = "runtime-apply"
+	TaskKindRuntimeStart              TaskKind = "runtime-start"
+	TaskKindRuntimeStop               TaskKind = "runtime-stop"
+	TaskKindRuntimeRestart            TaskKind = "runtime-restart"
+	TaskKindRuntimeRollback           TaskKind = "runtime-rollback"
+)
+
+// BuiltInTaskKinds returns the closed task contract in stable order.
+func BuiltInTaskKinds() []TaskKind {
+	return []TaskKind{
+		TaskKindCanonicalSaved,
+		TaskKindCatalogRefresh,
+		TaskKindCoreInstall,
+		TaskKindCoreImport,
+		TaskKindStartupCheck,
+		TaskKindSubscriptionSourceRefresh,
+		TaskKindRuntimeApply,
+		TaskKindRuntimeStart,
+		TaskKindRuntimeStop,
+		TaskKindRuntimeRestart,
+		TaskKindRuntimeRollback,
+	}
+}
+
 // Task is one durable unit of runtime or maintenance work.
 type Task struct {
 	ID                  string
 	IdempotencyKey      string
 	Lane                TaskLane
-	Kind                string
+	Kind                TaskKind
 	Status              TaskStatus
 	Generation          int64
 	CanonicalRevisionID string
@@ -58,7 +94,7 @@ type EnqueueTaskInput struct {
 	ID                  string
 	IdempotencyKey      string
 	Lane                TaskLane
-	Kind                string
+	Kind                TaskKind
 	Generation          int64
 	CanonicalRevisionID string
 	StartupArtifactID   string

@@ -51,6 +51,14 @@ func TestValidateRejectsInvalidContracts(t *testing.T) {
 			message: "missing non-empty operationId",
 		},
 		{
+			name: "generic successful response",
+			source: strings.Replace(validDocument,
+				`$ref: "#/components/schemas/Result~1Value"`,
+				`type: object
+                additionalProperties: true`, 1),
+			message: "must not use a generic object schema",
+		},
+		{
 			name:    "unresolved reference",
 			source:  strings.Replace(validDocument, "#/components/schemas/Result~1Value", "#/components/schemas/Missing", 1),
 			message: "unresolved reference",

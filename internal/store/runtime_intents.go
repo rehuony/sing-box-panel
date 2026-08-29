@@ -18,14 +18,14 @@ var (
 	ErrIdempotencyConflict = errors.New("idempotency key belongs to a different runtime intent")
 )
 
-type RuntimeIntentKind string
+type RuntimeIntentKind = TaskKind
 
 const (
-	RuntimeIntentApply    RuntimeIntentKind = "runtime-apply"
-	RuntimeIntentStart    RuntimeIntentKind = "runtime-start"
-	RuntimeIntentStop     RuntimeIntentKind = "runtime-stop"
-	RuntimeIntentRestart  RuntimeIntentKind = "runtime-restart"
-	RuntimeIntentRollback RuntimeIntentKind = "runtime-rollback"
+	RuntimeIntentApply    RuntimeIntentKind = TaskKindRuntimeApply
+	RuntimeIntentStart    RuntimeIntentKind = TaskKindRuntimeStart
+	RuntimeIntentStop     RuntimeIntentKind = TaskKindRuntimeStop
+	RuntimeIntentRestart  RuntimeIntentKind = TaskKindRuntimeRestart
+	RuntimeIntentRollback RuntimeIntentKind = TaskKindRuntimeRollback
 )
 
 type RuntimeIntentInput struct {
@@ -54,7 +54,7 @@ func (s *Store) requestRuntimeIntentNullable(ctx context.Context, input RuntimeI
 		if input.IdempotencyKey != "" {
 			existing, err := getTaskByLaneIdempotency(ctx, tx, TaskLaneRuntime, input.IdempotencyKey)
 			if err == nil {
-				if existing.Kind != string(input.Kind) ||
+				if existing.Kind != input.Kind ||
 					(input.BundleID != "" && existing.ActivationBundleID != input.BundleID) {
 					return ErrIdempotencyConflict
 				}

@@ -2,8 +2,8 @@
 
 package configuration
 
-// Map returns a defensive copy of the complete schema-v2 envelope.
-func (document *V2Document) Map() map[string]any {
+// Map returns a defensive copy of the complete canonical envelope.
+func (document *Document) Map() map[string]any {
 	if document == nil {
 		return nil
 	}
@@ -14,7 +14,7 @@ func (document *V2Document) Map() map[string]any {
 	return value.(map[string]any)
 }
 
-func (document *V2Document) ConfigurationEnvelope() map[string]any {
+func (document *Document) ConfigurationEnvelope() map[string]any {
 	if document == nil {
 		return nil
 	}
@@ -25,7 +25,7 @@ func (document *V2Document) ConfigurationEnvelope() map[string]any {
 	return root
 }
 
-func (document *V2Document) ValueAtPointer(pointer string) (any, error) {
+func (document *Document) ValueAtPointer(pointer string) (any, error) {
 	if document == nil {
 		return nil, ErrInvalidDocument
 	}
@@ -43,7 +43,7 @@ func (document *V2Document) ValueAtPointer(pointer string) (any, error) {
 	return clonePointerValue(current)
 }
 
-func (document *V2Document) SetPointer(pointer string, value any) (*V2Document, error) {
+func (document *Document) SetPointer(pointer string, value any) (*Document, error) {
 	if document == nil {
 		return nil, ErrInvalidDocument
 	}
@@ -56,7 +56,7 @@ func (document *V2Document) SetPointer(pointer string, value any) (*V2Document, 
 		if !ok {
 			return nil, ErrInvalidDocument
 		}
-		return buildEditedV2(object)
+		return buildEdited(object)
 	}
 	root := document.ConfigurationEnvelope()
 	parent, err := pointerParent(root, tokens[:len(tokens)-1])
@@ -80,10 +80,10 @@ func (document *V2Document) SetPointer(pointer string, value any) (*V2Document, 
 	default:
 		return nil, ErrPointerNotFound
 	}
-	return buildEditedV2(root)
+	return buildEdited(root)
 }
 
-func (document *V2Document) UnsetPointer(pointer string) (*V2Document, error) {
+func (document *Document) UnsetPointer(pointer string) (*Document, error) {
 	if document == nil {
 		return nil, ErrInvalidDocument
 	}
@@ -117,13 +117,13 @@ func (document *V2Document) UnsetPointer(pointer string) (*V2Document, error) {
 	default:
 		return nil, ErrPointerNotFound
 	}
-	return buildEditedV2(root)
+	return buildEdited(root)
 }
 
-func buildEditedV2(root map[string]any) (*V2Document, error) {
+func buildEdited(root map[string]any) (*Document, error) {
 	encoded, err := encodeCanonicalMap(root)
 	if err != nil {
 		return nil, err
 	}
-	return ParseV2(encoded)
+	return Parse(encoded)
 }

@@ -415,7 +415,7 @@ func newSubscriptionPublicationHTTPFixture(
 	if _, err := database.UpsertCoreArtifact(ctx, core); err != nil {
 		t.Fatal(err)
 	}
-	revision, err := app.ReplaceCanonical(ctx, "", configuration.EmptyV2().CanonicalJSON())
+	revision, err := app.ReplaceCanonical(ctx, "", configuration.Empty().CanonicalJSON())
 	if err != nil {
 		t.Fatal(err)
 	}

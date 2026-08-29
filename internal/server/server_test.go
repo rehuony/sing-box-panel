@@ -95,7 +95,7 @@ func TestTaskLoggingRecordsLifecycleWithoutPayloadOrErrorText(t *testing.T) {
 		return nil, wantErr
 	}))
 	task := store.Task{
-		ID: "task-log-test", Kind: "core-install", Lane: store.TaskLaneMaintenance,
+		ID: "task-log-test", Kind: store.TaskKindCoreInstall, Lane: store.TaskLaneMaintenance,
 		Attempt: 2, Payload: json.RawMessage(`{"token":"also-must-not-be-persisted"}`),
 	}
 	if _, err := handler.Handle(ctx, task, nil); !errors.Is(err, wantErr) {
@@ -157,7 +157,7 @@ func TestDashboardContextUsesAppliedBundleAndExactAdapterEvidence(t *testing.T) 
 	if _, err := database.UpsertCoreArtifact(ctx, core); err != nil {
 		t.Fatal(err)
 	}
-	canonicalSave, err := commands.ReplaceCanonical(ctx, "", configuration.EmptyV2().CanonicalJSON())
+	canonicalSave, err := commands.ReplaceCanonical(ctx, "", configuration.Empty().CanonicalJSON())
 	if err != nil {
 		t.Fatal(err)
 	}

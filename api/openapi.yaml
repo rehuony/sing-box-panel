@@ -21,13 +21,13 @@ paths:
       security: []
       responses:
         "200":
-          $ref: "#/components/responses/JSON"
+          $ref: "#/components/responses/Health"
   /auth/session:
     get:
       operationId: getSession
       responses:
         "200":
-          $ref: "#/components/responses/JSON"
+          $ref: "#/components/responses/Session"
         "401":
           $ref: "#/components/responses/Problem"
     post:
@@ -45,7 +45,7 @@ paths:
                   type: string
       responses:
         "200":
-          $ref: "#/components/responses/JSON"
+          $ref: "#/components/responses/Session"
     delete:
       operationId: deleteSession
       parameters:
@@ -58,13 +58,13 @@ paths:
       operationId: getSystemStatus
       responses:
         "200":
-          $ref: "#/components/responses/JSON"
+          $ref: "#/components/responses/SystemStatus"
   /dashboard/context:
     get:
       operationId: getDashboardContext
       responses:
         "200":
-          $ref: "#/components/responses/JSON"
+          $ref: "#/components/responses/DashboardContext"
   /config/canonical:
     get:
       operationId: getCanonicalConfiguration
@@ -112,7 +112,7 @@ paths:
                     $ref: "#/components/schemas/CanonicalChange"
       responses:
         "200":
-          $ref: "#/components/responses/JSON"
+          $ref: "#/components/responses/CanonicalSave"
   /config/preview:
     post:
       operationId: previewConfiguration
@@ -174,7 +174,7 @@ paths:
         - $ref: "#/components/parameters/Limit"
       responses:
         "200":
-          $ref: "#/components/responses/JSON"
+          $ref: "#/components/responses/StartupArtifactPage"
   /config/apply:
     post:
       operationId: applyStartupArtifact
@@ -184,7 +184,7 @@ paths:
         $ref: "#/components/requestBodies/Activation"
       responses:
         "202":
-          $ref: "#/components/responses/Accepted"
+          $ref: "#/components/responses/ActivationQueued"
   /config/revisions:
     get:
       operationId: listCanonicalRevisions
@@ -193,7 +193,7 @@ paths:
         - $ref: "#/components/parameters/Limit"
       responses:
         "200":
-          $ref: "#/components/responses/JSON"
+          $ref: "#/components/responses/CanonicalRevisionPage"
   /config/revisions/diff:
     get:
       operationId: diffCanonicalRevisions
@@ -210,7 +210,7 @@ paths:
             type: string
       responses:
         "200":
-          $ref: "#/components/responses/JSON"
+          $ref: "#/components/responses/CanonicalRevisionDiff"
   /config/revisions/{revisionId}:
     parameters:
       - $ref: "#/components/parameters/RevisionID"
@@ -218,7 +218,7 @@ paths:
       operationId: getCanonicalRevision
       responses:
         "200":
-          $ref: "#/components/responses/JSON"
+          $ref: "#/components/responses/CanonicalSnapshot"
   /config/revisions/{revisionId}/restore:
     parameters:
       - $ref: "#/components/parameters/RevisionID"
@@ -229,7 +229,7 @@ paths:
         - $ref: "#/components/parameters/CSRFToken"
       responses:
         "200":
-          $ref: "#/components/responses/JSON"
+          $ref: "#/components/responses/CanonicalSave"
   /core/catalog/assets:
     get:
       operationId: listCoreCatalogAssets
@@ -240,7 +240,7 @@ paths:
         - $ref: "#/components/parameters/Installable"
       responses:
         "200":
-          $ref: "#/components/responses/JSON"
+          $ref: "#/components/responses/CatalogAssetList"
   /core/catalog/refresh:
     post:
       operationId: refreshCoreCatalog
@@ -259,7 +259,7 @@ paths:
                   type: boolean
       responses:
         "202":
-          $ref: "#/components/responses/Accepted"
+          $ref: "#/components/responses/Task"
   /core/artifacts:
     get:
       operationId: listCoreArtifacts
@@ -274,7 +274,7 @@ paths:
         - $ref: "#/components/parameters/Limit"
       responses:
         "200":
-          $ref: "#/components/responses/JSON"
+          $ref: "#/components/responses/CoreArtifactPage"
   /core/artifacts/{artifactId}:
     parameters:
       - $ref: "#/components/parameters/ArtifactID"
@@ -282,7 +282,7 @@ paths:
       operationId: getCoreArtifact
       responses:
         "200":
-          $ref: "#/components/responses/JSON"
+          $ref: "#/components/responses/CoreArtifact"
     delete:
       operationId: deleteCoreArtifact
       parameters:
@@ -311,7 +311,7 @@ paths:
         - $ref: "#/components/parameters/CSRFToken"
       responses:
         "200":
-          $ref: "#/components/responses/JSON"
+          $ref: "#/components/responses/CoreArtifact"
   /core/artifacts/{artifactId}/revoke:
     parameters:
       - $ref: "#/components/parameters/ArtifactID"
@@ -321,7 +321,7 @@ paths:
         - $ref: "#/components/parameters/CSRFToken"
       responses:
         "200":
-          $ref: "#/components/responses/JSON"
+          $ref: "#/components/responses/CoreArtifact"
   /core/install:
     post:
       operationId: installCoreArtifact
@@ -342,7 +342,7 @@ paths:
                   minimum: 1
       responses:
         "202":
-          $ref: "#/components/responses/Accepted"
+          $ref: "#/components/responses/Task"
   /core/import:
     post:
       operationId: importCoreArtifact
@@ -366,18 +366,18 @@ paths:
                 architecture:
                   type: string
                 variant:
-                  type: string
+                  $ref: "#/components/schemas/CoreVariant"
                 source_description:
                   type: string
       responses:
         "202":
-          $ref: "#/components/responses/Accepted"
+          $ref: "#/components/responses/Task"
   /core/status:
     get:
       operationId: getCoreRuntimeStatus
       responses:
         "200":
-          $ref: "#/components/responses/JSON"
+          $ref: "#/components/responses/RuntimeStatus"
   /core/check:
     post:
       operationId: checkStartupArtifact
@@ -387,7 +387,7 @@ paths:
         $ref: "#/components/requestBodies/StartupArtifact"
       responses:
         "202":
-          $ref: "#/components/responses/Accepted"
+          $ref: "#/components/responses/Task"
   /core/activate:
     post:
       operationId: activateStartupArtifact
@@ -397,7 +397,7 @@ paths:
         $ref: "#/components/requestBodies/Activation"
       responses:
         "202":
-          $ref: "#/components/responses/Accepted"
+          $ref: "#/components/responses/ActivationQueued"
   /core/start:
     post:
       operationId: startCoreRuntime
@@ -405,7 +405,7 @@ paths:
         - $ref: "#/components/parameters/CSRFToken"
       responses:
         "202":
-          $ref: "#/components/responses/Accepted"
+          $ref: "#/components/responses/Task"
   /core/stop:
     post:
       operationId: stopCoreRuntime
@@ -413,7 +413,7 @@ paths:
         - $ref: "#/components/parameters/CSRFToken"
       responses:
         "202":
-          $ref: "#/components/responses/Accepted"
+          $ref: "#/components/responses/Task"
   /core/restart:
     post:
       operationId: restartCoreRuntime
@@ -421,7 +421,7 @@ paths:
         - $ref: "#/components/parameters/CSRFToken"
       responses:
         "202":
-          $ref: "#/components/responses/Accepted"
+          $ref: "#/components/responses/Task"
   /core/rollback:
     post:
       operationId: rollbackCoreRuntime
@@ -429,7 +429,7 @@ paths:
         - $ref: "#/components/parameters/CSRFToken"
       responses:
         "202":
-          $ref: "#/components/responses/Accepted"
+          $ref: "#/components/responses/Task"
   /tasks:
     get:
       operationId: listTasks
@@ -440,7 +440,7 @@ paths:
         - $ref: "#/components/parameters/Limit"
       responses:
         "200":
-          $ref: "#/components/responses/JSON"
+          $ref: "#/components/responses/TaskPage"
   /tasks/{taskId}:
     parameters:
       - $ref: "#/components/parameters/TaskID"
@@ -448,7 +448,7 @@ paths:
       operationId: getTask
       responses:
         "200":
-          $ref: "#/components/responses/JSON"
+          $ref: "#/components/responses/Task"
   /tasks/{taskId}/cancel:
     parameters:
       - $ref: "#/components/parameters/TaskID"
@@ -458,13 +458,13 @@ paths:
         - $ref: "#/components/parameters/CSRFToken"
       responses:
         "200":
-          $ref: "#/components/responses/JSON"
+          $ref: "#/components/responses/Task"
   /subscription/nodes:
     get:
       operationId: listSubscriptionNodes
       responses:
         "200":
-          $ref: "#/components/responses/JSON"
+          $ref: "#/components/responses/SubscriptionNodeCatalog"
   /subscription/users:
     get:
       operationId: listSubscriptionUsers
@@ -474,7 +474,7 @@ paths:
         - $ref: "#/components/parameters/Limit"
       responses:
         "200":
-          $ref: "#/components/responses/JSON"
+          $ref: "#/components/responses/SubscriptionUserPage"
     post:
       operationId: createSubscriptionUser
       parameters:
@@ -483,7 +483,7 @@ paths:
         $ref: "#/components/requestBodies/SubscriptionUser"
       responses:
         "201":
-          $ref: "#/components/responses/JSON"
+          $ref: "#/components/responses/SubscriptionUser"
   /subscription/users/{userId}:
     parameters:
       - $ref: "#/components/parameters/UserID"
@@ -491,7 +491,7 @@ paths:
       operationId: getSubscriptionUser
       responses:
         "200":
-          $ref: "#/components/responses/JSON"
+          $ref: "#/components/responses/SubscriptionUser"
     put:
       operationId: updateSubscriptionUser
       parameters:
@@ -501,7 +501,7 @@ paths:
         $ref: "#/components/requestBodies/SubscriptionUser"
       responses:
         "200":
-          $ref: "#/components/responses/JSON"
+          $ref: "#/components/responses/SubscriptionUser"
     delete:
       operationId: deleteSubscriptionUser
       parameters:
@@ -517,7 +517,7 @@ paths:
       operationId: getSubscriptionUserGrants
       responses:
         "200":
-          $ref: "#/components/responses/JSON"
+          $ref: "#/components/responses/SubscriptionUserGrants"
     put:
       operationId: replaceSubscriptionUserGrants
       parameters:
@@ -538,7 +538,7 @@ paths:
                     type: string
       responses:
         "200":
-          $ref: "#/components/responses/JSON"
+          $ref: "#/components/responses/SubscriptionUserGrants"
   /subscription/channels:
     get:
       operationId: listSubscriptionChannels
@@ -548,7 +548,7 @@ paths:
         - $ref: "#/components/parameters/Limit"
       responses:
         "200":
-          $ref: "#/components/responses/JSON"
+          $ref: "#/components/responses/SubscriptionChannelPage"
     post:
       operationId: createSubscriptionChannel
       parameters:
@@ -557,7 +557,7 @@ paths:
         $ref: "#/components/requestBodies/SubscriptionChannel"
       responses:
         "201":
-          $ref: "#/components/responses/JSON"
+          $ref: "#/components/responses/SubscriptionChannel"
   /subscription/channels/{channelId}:
     parameters:
       - $ref: "#/components/parameters/ChannelID"
@@ -565,7 +565,7 @@ paths:
       operationId: getSubscriptionChannel
       responses:
         "200":
-          $ref: "#/components/responses/JSON"
+          $ref: "#/components/responses/SubscriptionChannel"
     put:
       operationId: updateSubscriptionChannel
       parameters:
@@ -575,7 +575,7 @@ paths:
         $ref: "#/components/requestBodies/SubscriptionChannel"
       responses:
         "200":
-          $ref: "#/components/responses/JSON"
+          $ref: "#/components/responses/SubscriptionChannel"
     delete:
       operationId: deleteSubscriptionChannel
       parameters:
@@ -604,7 +604,7 @@ paths:
                   type: string
       responses:
         "200":
-          $ref: "#/components/responses/JSON"
+          $ref: "#/components/responses/SubscriptionPreview"
   /subscription/sources:
     get:
       operationId: listSubscriptionSources
@@ -614,7 +614,7 @@ paths:
         - $ref: "#/components/parameters/Limit"
       responses:
         "200":
-          $ref: "#/components/responses/JSON"
+          $ref: "#/components/responses/SubscriptionSourcePage"
     post:
       operationId: createSubscriptionSource
       parameters:
@@ -623,7 +623,7 @@ paths:
         $ref: "#/components/requestBodies/SubscriptionSource"
       responses:
         "201":
-          $ref: "#/components/responses/JSON"
+          $ref: "#/components/responses/SubscriptionSource"
   /subscription/sources/{sourceId}:
     parameters:
       - $ref: "#/components/parameters/SourceID"
@@ -631,7 +631,7 @@ paths:
       operationId: getSubscriptionSource
       responses:
         "200":
-          $ref: "#/components/responses/JSON"
+          $ref: "#/components/responses/SubscriptionSource"
     put:
       operationId: updateSubscriptionSource
       parameters:
@@ -641,7 +641,7 @@ paths:
         $ref: "#/components/requestBodies/SubscriptionSource"
       responses:
         "200":
-          $ref: "#/components/responses/JSON"
+          $ref: "#/components/responses/SubscriptionSource"
     delete:
       operationId: deleteSubscriptionSource
       parameters:
@@ -659,7 +659,7 @@ paths:
         - $ref: "#/components/parameters/CSRFToken"
       responses:
         "202":
-          $ref: "#/components/responses/Accepted"
+          $ref: "#/components/responses/Task"
   /subscription/sources/{sourceId}/versions:
     parameters:
       - $ref: "#/components/parameters/SourceID"
@@ -671,7 +671,7 @@ paths:
         - $ref: "#/components/parameters/Limit"
       responses:
         "200":
-          $ref: "#/components/responses/JSON"
+          $ref: "#/components/responses/SubscriptionSourceVersionPage"
     post:
       operationId: createSubscriptionSourceVersion
       parameters:
@@ -694,7 +694,7 @@ paths:
                   format: byte
       responses:
         "201":
-          $ref: "#/components/responses/JSON"
+          $ref: "#/components/responses/SubscriptionSourceVersionSave"
   /subscription/sources/{sourceId}/versions/{versionId}:
     parameters:
       - $ref: "#/components/parameters/SourceID"
@@ -703,7 +703,7 @@ paths:
       operationId: getSubscriptionSourceVersion
       responses:
         "200":
-          $ref: "#/components/responses/JSON"
+          $ref: "#/components/responses/SubscriptionSourceVersion"
   /subscription/sources/{sourceId}/versions/{versionId}/restore:
     parameters:
       - $ref: "#/components/parameters/SourceID"
@@ -715,7 +715,7 @@ paths:
         - $ref: "#/components/parameters/CSRFToken"
       responses:
         "200":
-          $ref: "#/components/responses/JSON"
+          $ref: "#/components/responses/SubscriptionSource"
   /subscription/tokens:
     get:
       operationId: listSubscriptionTokens
@@ -725,7 +725,7 @@ paths:
         - $ref: "#/components/parameters/Limit"
       responses:
         "200":
-          $ref: "#/components/responses/JSON"
+          $ref: "#/components/responses/SubscriptionTokenPage"
     post:
       operationId: createSubscriptionToken
       parameters:
@@ -738,7 +738,7 @@ paths:
               $ref: "#/components/schemas/SubscriptionTokenCreate"
       responses:
         "201":
-          $ref: "#/components/responses/JSON"
+          $ref: "#/components/responses/CreatedSubscriptionToken"
   /subscription/tokens/{tokenId}:
     parameters:
       - $ref: "#/components/parameters/TokenID"
@@ -746,7 +746,7 @@ paths:
       operationId: getSubscriptionToken
       responses:
         "200":
-          $ref: "#/components/responses/JSON"
+          $ref: "#/components/responses/SubscriptionToken"
     delete:
       operationId: deleteSubscriptionToken
       parameters:
@@ -774,7 +774,7 @@ paths:
                   format: date-time
       responses:
         "201":
-          $ref: "#/components/responses/JSON"
+          $ref: "#/components/responses/SubscriptionTokenRotation"
   /subscription/tokens/{tokenId}/revoke:
     parameters:
       - $ref: "#/components/parameters/TokenID"
@@ -784,7 +784,7 @@ paths:
         - $ref: "#/components/parameters/CSRFToken"
       responses:
         "200":
-          $ref: "#/components/responses/JSON"
+          $ref: "#/components/responses/SubscriptionToken"
   /subscription/tokens/{tokenId}/enable:
     parameters:
       - $ref: "#/components/parameters/TokenID"
@@ -794,7 +794,7 @@ paths:
         - $ref: "#/components/parameters/CSRFToken"
       responses:
         "200":
-          $ref: "#/components/responses/JSON"
+          $ref: "#/components/responses/SubscriptionToken"
   /subscription/tokens/{tokenId}/disable:
     parameters:
       - $ref: "#/components/parameters/TokenID"
@@ -804,7 +804,7 @@ paths:
         - $ref: "#/components/parameters/CSRFToken"
       responses:
         "200":
-          $ref: "#/components/responses/JSON"
+          $ref: "#/components/responses/SubscriptionToken"
   /sub/{token}/{channelId}:
     servers:
       - url: /
@@ -837,7 +837,7 @@ paths:
         - $ref: "#/components/parameters/Limit"
       responses:
         "200":
-          $ref: "#/components/responses/JSON"
+          $ref: "#/components/responses/LogPage"
     delete:
       operationId: clearLogs
       parameters:
@@ -846,7 +846,7 @@ paths:
         - $ref: "#/components/parameters/Before"
       responses:
         "200":
-          $ref: "#/components/responses/JSON"
+          $ref: "#/components/responses/LogClearResult"
   /logs/stream:
     get:
       operationId: streamLogs
@@ -873,26 +873,26 @@ paths:
       operationId: getLog
       responses:
         "200":
-          $ref: "#/components/responses/JSON"
+          $ref: "#/components/responses/LogEntry"
     delete:
       operationId: deleteLog
       parameters:
         - $ref: "#/components/parameters/CSRFToken"
       responses:
         "200":
-          $ref: "#/components/responses/JSON"
+          $ref: "#/components/responses/LogDeleteResult"
   /metrics:
     get:
       operationId: getMetrics
       responses:
         "200":
-          $ref: "#/components/responses/JSON"
+          $ref: "#/components/responses/MetricsSnapshot"
   /traffic/status:
     get:
       operationId: getTrafficStatus
       responses:
         "200":
-          $ref: "#/components/responses/JSON"
+          $ref: "#/components/responses/MetricsSnapshot"
   /traffic/periods:
     get:
       operationId: listTrafficPeriods
@@ -903,7 +903,7 @@ paths:
         - $ref: "#/components/parameters/Limit"
       responses:
         "200":
-          $ref: "#/components/responses/JSON"
+          $ref: "#/components/responses/TrafficPeriodPage"
   /traffic/periods/{periodId}:
     parameters:
       - $ref: "#/components/parameters/TrafficPeriodID"
@@ -911,7 +911,7 @@ paths:
       operationId: getTrafficPeriod
       responses:
         "200":
-          $ref: "#/components/responses/JSON"
+          $ref: "#/components/responses/TrafficPeriod"
 components:
   securitySchemes:
     bearerAuth:
@@ -979,7 +979,7 @@ components:
       name: variant
       in: query
       schema:
-        type: string
+        $ref: "#/components/schemas/CoreVariant"
     Installable:
       name: installable
       in: query
@@ -1036,16 +1036,19 @@ components:
       in: query
       schema:
         type: string
+        enum: [canonical-saved, catalog-refresh, core-install, core-import, startup-check, subscription-source-refresh, runtime-apply, runtime-start, runtime-stop, runtime-restart, runtime-rollback]
     LogSource:
       name: source
       in: query
       schema:
         type: string
+        enum: [panel, core, task, security]
     LogLevel:
       name: level
       in: query
       schema:
         type: string
+        enum: [trace, debug, info, warn, error, fatal]
     LogCode:
       name: code
       in: query
@@ -1189,7 +1192,7 @@ components:
                 type: string
               monitoring_tier:
                 type: string
-                enum: [process_only, limited, full]
+                enum: [process_only, limited]
     SubscriptionUser:
       required: true
       content:
@@ -1209,18 +1212,125 @@ components:
           schema:
             $ref: "#/components/schemas/SubscriptionSourceInput"
   responses:
-    JSON:
-      description: Successful JSON response.
-      content:
-        application/json:
-          schema:
-            $ref: "#/components/schemas/AnyObject"
-    Accepted:
-      description: Durable task accepted.
-      content:
-        application/json:
-          schema:
-            $ref: "#/components/schemas/AnyObject"
+    Health:
+      $ref: "#/components/responses/HealthResponse"
+    HealthResponse:
+      description: Panel process health and build version.
+      content: {application/json: {schema: {$ref: "#/components/schemas/Health"}}}
+    Session:
+      description: Current management session.
+      content: {application/json: {schema: {$ref: "#/components/schemas/Session"}}}
+    SystemStatus:
+      description: Current control-plane status.
+      content: {application/json: {schema: {$ref: "#/components/schemas/SystemStatus"}}}
+    DashboardContext:
+      description: Dashboard projection of durable and observed state.
+      content: {application/json: {schema: {$ref: "#/components/schemas/DashboardContext"}}}
+    CanonicalSave:
+      description: Saved canonical revision.
+      content: {application/json: {schema: {$ref: "#/components/schemas/CanonicalSave"}}}
+    StartupArtifactPage:
+      description: Page of immutable startup artifacts.
+      content: {application/json: {schema: {$ref: "#/components/schemas/StartupArtifactPage"}}}
+    ActivationQueued:
+      description: Activation bundle prepared and runtime task accepted.
+      content: {application/json: {schema: {$ref: "#/components/schemas/ActivationQueued"}}}
+    CanonicalRevisionPage:
+      description: Page of canonical revisions.
+      content: {application/json: {schema: {$ref: "#/components/schemas/CanonicalRevisionPage"}}}
+    CanonicalRevisionDiff:
+      description: Structural diff between two canonical revisions.
+      content: {application/json: {schema: {$ref: "#/components/schemas/CanonicalRevisionDiff"}}}
+    CanonicalSnapshot:
+      description: Immutable canonical revision.
+      content: {application/json: {schema: {$ref: "#/components/schemas/CanonicalSnapshot"}}}
+    CatalogAssetList:
+      description: Filtered catalog assets.
+      content: {application/json: {schema: {$ref: "#/components/schemas/CatalogAssetList"}}}
+    Task:
+      description: Durable task state.
+      content: {application/json: {schema: {$ref: "#/components/schemas/Task"}}}
+    CoreArtifactPage:
+      description: Page of immutable core artifacts.
+      content: {application/json: {schema: {$ref: "#/components/schemas/CoreArtifactPage"}}}
+    CoreArtifact:
+      description: Immutable core artifact metadata.
+      content: {application/json: {schema: {$ref: "#/components/schemas/CoreArtifact"}}}
+    RuntimeStatus:
+      description: Durable runtime intent and observed process identity.
+      content: {application/json: {schema: {$ref: "#/components/schemas/RuntimeStatus"}}}
+    TaskPage:
+      description: Page of durable tasks.
+      content: {application/json: {schema: {$ref: "#/components/schemas/TaskPage"}}}
+    SubscriptionNodeCatalog:
+      description: Current publishable subscription node catalog.
+      content: {application/json: {schema: {$ref: "#/components/schemas/SubscriptionNodeCatalog"}}}
+    SubscriptionUserPage:
+      description: Page of subscription users.
+      content: {application/json: {schema: {$ref: "#/components/schemas/SubscriptionUserPage"}}}
+    SubscriptionUser:
+      description: Subscription user.
+      content: {application/json: {schema: {$ref: "#/components/schemas/SubscriptionUser"}}}
+    SubscriptionUserGrants:
+      description: Subscription user and live node grants.
+      content: {application/json: {schema: {$ref: "#/components/schemas/SubscriptionUserGrants"}}}
+    SubscriptionChannelPage:
+      description: Page of subscription channels.
+      content: {application/json: {schema: {$ref: "#/components/schemas/SubscriptionChannelPage"}}}
+    SubscriptionChannel:
+      description: Subscription channel.
+      content: {application/json: {schema: {$ref: "#/components/schemas/SubscriptionChannel"}}}
+    SubscriptionPreview:
+      description: Rendered subscription preview and provenance.
+      content: {application/json: {schema: {$ref: "#/components/schemas/SubscriptionPreview"}}}
+    SubscriptionSourcePage:
+      description: Page of subscription sources.
+      content: {application/json: {schema: {$ref: "#/components/schemas/SubscriptionSourcePage"}}}
+    SubscriptionSource:
+      description: Subscription source.
+      content: {application/json: {schema: {$ref: "#/components/schemas/SubscriptionSource"}}}
+    SubscriptionSourceVersionPage:
+      description: Page of immutable subscription source versions.
+      content: {application/json: {schema: {$ref: "#/components/schemas/SubscriptionSourceVersionPage"}}}
+    SubscriptionSourceVersionSave:
+      description: Saved source version and advanced source pointer.
+      content: {application/json: {schema: {$ref: "#/components/schemas/SubscriptionSourceVersionSave"}}}
+    SubscriptionSourceVersion:
+      description: Immutable subscription source version.
+      content: {application/json: {schema: {$ref: "#/components/schemas/SubscriptionSourceVersion"}}}
+    SubscriptionTokenPage:
+      description: Page of subscription token metadata.
+      content: {application/json: {schema: {$ref: "#/components/schemas/SubscriptionTokenPage"}}}
+    CreatedSubscriptionToken:
+      description: Token metadata and one-time plaintext token.
+      content: {application/json: {schema: {$ref: "#/components/schemas/CreatedSubscriptionToken"}}}
+    SubscriptionToken:
+      description: Subscription token metadata.
+      content: {application/json: {schema: {$ref: "#/components/schemas/SubscriptionToken"}}}
+    SubscriptionTokenRotation:
+      description: Revoked token, replacement metadata, and one-time plaintext token.
+      content: {application/json: {schema: {$ref: "#/components/schemas/SubscriptionTokenRotation"}}}
+    LogPage:
+      description: Page of sanitized durable logs.
+      content: {application/json: {schema: {$ref: "#/components/schemas/LogPage"}}}
+    LogClearResult:
+      description: Count of deleted log entries.
+      content: {application/json: {schema: {$ref: "#/components/schemas/LogClearResult"}}}
+    LogEntry:
+      description: Sanitized durable log entry.
+      content: {application/json: {schema: {$ref: "#/components/schemas/LogEntry"}}}
+    LogDeleteResult:
+      description: Deleted log identity.
+      content: {application/json: {schema: {$ref: "#/components/schemas/LogDeleteResult"}}}
+    MetricsSnapshot:
+      description: Collector-backed metrics availability and latest evidence.
+      content: {application/json: {schema: {$ref: "#/components/schemas/MetricsSnapshot"}}}
+    TrafficPeriodPage:
+      description: Traffic periods.
+      content: {application/json: {schema: {$ref: "#/components/schemas/TrafficPeriodPage"}}}
+    TrafficPeriod:
+      description: One persisted traffic period.
+      content: {application/json: {schema: {$ref: "#/components/schemas/TrafficPeriod"}}}
     NoContent:
       description: Operation completed without a response body.
     Problem:
@@ -1230,16 +1340,236 @@ components:
           schema:
             $ref: "#/components/schemas/Problem"
   schemas:
-    AnyObject:
+    DynamicObject:
       type: object
       additionalProperties: true
+    DynamicValue: {}
+    Health:
+      type: object
+      additionalProperties: false
+      required: [status, version]
+      properties:
+        status: {type: string, const: ok}
+        version: {type: string}
+    Session:
+      type: object
+      additionalProperties: false
+      required: [displayName]
+      properties:
+        displayName: {type: string}
+        csrfToken: {type: string}
+        expiresAt: {type: string, format: date-time}
+    SystemStatus:
+      type: object
+      additionalProperties: false
+      required: [panel_version, canonical_revision, applied_bundle_id, running, running_version, running_artifact, configuration_state]
+      properties:
+        panel_version: {type: string}
+        canonical_revision: {type: integer, format: int64}
+        applied_bundle_id: {type: [string, "null"]}
+        running: {type: boolean}
+        running_version: {type: [string, "null"]}
+        running_artifact: {type: [string, "null"]}
+        configuration_state: {type: string}
+    DashboardContext:
+      type: object
+      additionalProperties: false
+      required: [view, running, canonical, applied, adapter]
+      properties:
+        view:
+          type: object
+          additionalProperties: false
+          required: [exactVersion]
+          properties: {exactVersion: {type: string}}
+        running:
+          oneOf:
+            - type: "null"
+            - $ref: "#/components/schemas/DashboardRuntime"
+        canonical:
+          type: object
+          additionalProperties: false
+          required: [revision, savedAt, hasUnappliedChanges]
+          properties:
+            revision: {type: integer, format: int64}
+            savedAt: {type: string, format: date-time}
+            hasUnappliedChanges: {type: boolean}
+        applied:
+          oneOf:
+            - type: "null"
+            - $ref: "#/components/schemas/DashboardApplied"
+        adapter:
+          type: object
+          additionalProperties: false
+          required: [supported, label, warning]
+          properties:
+            supported: {type: boolean}
+            label: {type: string}
+            warning: {type: [string, "null"]}
+    DashboardRuntime:
+      type: object
+      additionalProperties: false
+      required: [exactVersion, artifactName, digest]
+      properties:
+        exactVersion: {type: string}
+        artifactName: {type: string}
+        digest: {type: string}
+    DashboardApplied:
+      type: object
+      additionalProperties: false
+      required: [bundle, revision, appliedAt]
+      properties:
+        bundle: {type: string}
+        revision: {type: integer, format: int64}
+        appliedAt: {type: string, format: date-time}
+    CreatedAtCursor:
+      type: object
+      additionalProperties: false
+      required: [created_at, id]
+      properties:
+        created_at: {type: string, format: date-time}
+        id: {type: string}
+    Task:
+      type: object
+      additionalProperties: false
+      required: [id, lane, kind, status, generation, payload, cancel_requested, attempt, created_at, updated_at]
+      properties:
+        id: {type: string}
+        idempotency_key: {type: string}
+        lane: {type: string, enum: [runtime, maintenance]}
+        kind:
+          type: string
+          enum: [canonical-saved, catalog-refresh, core-install, core-import, startup-check, subscription-source-refresh, runtime-apply, runtime-start, runtime-stop, runtime-restart, runtime-rollback]
+        status: {type: string, enum: [queued, running, succeeded, failed, canceled, superseded]}
+        generation: {type: integer, format: int64, minimum: 0}
+        canonical_revision_id: {type: string}
+        startup_artifact_id: {type: string}
+        activation_bundle_id: {type: string}
+        payload: {$ref: "#/components/schemas/DynamicValue"}
+        result: {$ref: "#/components/schemas/DynamicValue"}
+        failure: {$ref: "#/components/schemas/DynamicValue"}
+        cancel_requested: {type: boolean}
+        attempt: {type: integer, minimum: 0}
+        lease_expires_at: {type: string, format: date-time}
+        not_before: {type: string, format: date-time}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+    TaskPage:
+      type: object
+      additionalProperties: false
+      required: [items]
+      properties:
+        items: {type: array, items: {$ref: "#/components/schemas/Task"}}
+        next: {$ref: "#/components/schemas/CreatedAtCursor"}
+    RuntimeIdentity:
+      type: object
+      additionalProperties: false
+      required: [pid, process_start_token, exact_core_version, core_artifact_id, archive_sha256, binary_sha256, activation_bundle_id]
+      properties:
+        pid: {type: integer, minimum: 1}
+        process_start_token: {type: string}
+        exact_core_version: {$ref: "#/components/schemas/ExactCoreVersion"}
+        core_artifact_id: {type: string}
+        archive_sha256: {$ref: "#/components/schemas/SHA256"}
+        binary_sha256: {$ref: "#/components/schemas/SHA256"}
+        activation_bundle_id: {type: string}
+    RuntimeStatus:
+      type: object
+      additionalProperties: false
+      required: [desired_running, target_generation, observation_state]
+      properties:
+        desired_running: {type: boolean}
+        desired_bundle_id: {type: string}
+        applied_bundle_id: {type: string}
+        rollback_bundle_id: {type: string}
+        target_generation: {type: integer, format: int64, minimum: 0}
+        observation_state: {type: string, enum: [stopped, running, stale, inspection_unavailable]}
+        running: {$ref: "#/components/schemas/RuntimeIdentity"}
+    ExactCoreVersion:
+      type: string
+      pattern: '^[0-9]+\.[0-9]+\.[0-9]+$'
+    CoreVariant:
+      type: string
+      minLength: 1
+      maxLength: 64
+      pattern: '^[a-z][a-z0-9._-]*$'
+    SHA256:
+      type: string
+      pattern: '^[0-9a-f]{64}$'
+    CoreArtifact:
+      type: object
+      additionalProperties: false
+      required: [id, exact_version, os, arch, variant, source_kind, archive_sha256, binary_sha256, binary_path, reported_version, feature_fingerprint, verification_state, created_at]
+      properties:
+        id: {type: string}
+        exact_version: {$ref: "#/components/schemas/ExactCoreVersion"}
+        os: {type: string, const: linux}
+        arch: {type: string, enum: [amd64, arm64]}
+        variant: {$ref: "#/components/schemas/CoreVariant"}
+        source_kind: {type: string, enum: [official, user_verified]}
+        user_source: {type: string}
+        repository_id: {type: integer, format: int64, minimum: 1}
+        release_id: {type: integer, format: int64, minimum: 1}
+        asset_id: {type: integer, format: int64, minimum: 1}
+        archive_sha256: {$ref: "#/components/schemas/SHA256"}
+        binary_sha256: {$ref: "#/components/schemas/SHA256"}
+        binary_path: {type: string}
+        reported_version: {$ref: "#/components/schemas/ExactCoreVersion"}
+        feature_fingerprint: {$ref: "#/components/schemas/DynamicObject"}
+        verification_state: {type: string, enum: [verified, quarantined, revoked]}
+        created_at: {type: string, format: date-time}
+    CoreArtifactPage:
+      type: object
+      additionalProperties: false
+      required: [items]
+      properties:
+        items: {type: array, items: {$ref: "#/components/schemas/CoreArtifact"}}
+        next: {$ref: "#/components/schemas/CreatedAtCursor"}
+    CatalogAsset:
+      type: object
+      additionalProperties: false
+      required: [repository_id, release_id, asset_id, name, download_url, size, version, os, arch, variant, has_api_digest, has_catalog_digest]
+      properties:
+        repository_id: {type: integer, format: int64, minimum: 1}
+        release_id: {type: integer, format: int64, minimum: 1}
+        asset_id: {type: integer, format: int64, minimum: 1}
+        name: {type: string}
+        download_url: {type: string, format: uri}
+        size: {type: integer, format: int64, minimum: 0}
+        version: {$ref: "#/components/schemas/ExactCoreVersion"}
+        os: {type: string, const: linux}
+        arch: {type: string, enum: [amd64, arm64]}
+        variant: {$ref: "#/components/schemas/CoreVariant"}
+        api_digest: {$ref: "#/components/schemas/SHA256"}
+        catalog_digest: {$ref: "#/components/schemas/SHA256"}
+        has_api_digest: {type: boolean}
+        has_catalog_digest: {type: boolean}
+    CatalogAssetList:
+      type: object
+      additionalProperties: false
+      required: [validator, refreshed_at, assets]
+      properties:
+        validator: {type: string}
+        refreshed_at: {type: string, format: date-time}
+        assets: {type: array, items: {$ref: "#/components/schemas/CatalogAsset"}}
     Problem:
       type: object
-      required: [code, detail]
+      additionalProperties: false
+      required: [type, title, status, code]
       properties:
+        type:
+          type: string
+          format: uri-reference
+        title:
+          type: string
+        status:
+          type: integer
+          minimum: 400
+          maximum: 599
         code:
           type: string
         detail:
+          type: string
+        request_id:
           type: string
         fields:
           type: object
@@ -1304,6 +1634,37 @@ components:
           type: boolean
         task_id:
           type: string
+    CanonicalRevisionPage:
+      type: object
+      additionalProperties: false
+      required: [items]
+      properties:
+        items: {type: array, items: {$ref: "#/components/schemas/CanonicalSnapshot"}}
+        next_before_sequence: {type: integer, format: int64, minimum: 1}
+    CanonicalDiffValue:
+      type: object
+      additionalProperties: false
+      required: [present]
+      properties:
+        present: {type: boolean}
+        value: {$ref: "#/components/schemas/DynamicValue"}
+    CanonicalRevisionDiff:
+      type: object
+      additionalProperties: false
+      required: [from, to, changes]
+      properties:
+        from: {$ref: "#/components/schemas/CanonicalSnapshot"}
+        to: {$ref: "#/components/schemas/CanonicalSnapshot"}
+        changes:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [path, from, to]
+            properties:
+              path: {type: string}
+              from: {$ref: "#/components/schemas/CanonicalDiffValue"}
+              to: {$ref: "#/components/schemas/CanonicalDiffValue"}
     ConfigurationProfile:
       type: object
       required: [exact_version, os, arch, variant, feature_fingerprint]
@@ -1315,9 +1676,9 @@ components:
         arch:
           type: string
         variant:
-          type: string
+          $ref: "#/components/schemas/CoreVariant"
         feature_fingerprint:
-          $ref: "#/components/schemas/AnyObject"
+          $ref: "#/components/schemas/DynamicObject"
     ConfigurationAdapterSupport:
       type: object
       required: [supported, profile]
@@ -1361,11 +1722,11 @@ components:
         canonical_revision:
           $ref: "#/components/schemas/CanonicalSnapshot"
         core_artifact:
-          $ref: "#/components/schemas/AnyObject"
+          $ref: "#/components/schemas/CoreArtifact"
         support:
           $ref: "#/components/schemas/ConfigurationAdapterSupport"
         config:
-          $ref: "#/components/schemas/AnyObject"
+          $ref: "#/components/schemas/DynamicObject"
         diagnostics:
           type: array
           items:
@@ -1379,9 +1740,378 @@ components:
         support:
           $ref: "#/components/schemas/ConfigurationAdapterSupport"
         artifact:
-          $ref: "#/components/schemas/AnyObject"
+          $ref: "#/components/schemas/CompiledConfigurationArtifact"
         task:
-          $ref: "#/components/schemas/AnyObject"
+          $ref: "#/components/schemas/Task"
+    CompiledConfigurationArtifact:
+      type: object
+      additionalProperties: false
+      required: [id, canonical_revision_id, exact_core_version, adapter_id, adapter_revision, core_artifact_id, config_sha256, diagnostics, state]
+      properties:
+        id: {type: string}
+        canonical_revision_id: {type: string}
+        exact_core_version: {$ref: "#/components/schemas/ExactCoreVersion"}
+        adapter_id: {type: string}
+        adapter_revision: {type: string}
+        core_artifact_id: {type: string}
+        config_sha256: {$ref: "#/components/schemas/SHA256"}
+        diagnostics: {type: array, items: {$ref: "#/components/schemas/ConfigurationDiagnostic"}}
+        ignored_digest: {$ref: "#/components/schemas/SHA256"}
+        state: {type: string, enum: [pending, ready, failed]}
+    StartupArtifactSummary:
+      type: object
+      additionalProperties: false
+      required: [id, canonical_revision_id, exact_core_version, adapter_id, adapter_revision, core_artifact_id, config_sha256, diagnostics, state, created_at]
+      properties:
+        id: {type: string}
+        canonical_revision_id: {type: string}
+        exact_core_version: {$ref: "#/components/schemas/ExactCoreVersion"}
+        adapter_id: {type: string}
+        adapter_revision: {type: string}
+        core_artifact_id: {type: string}
+        config_sha256: {$ref: "#/components/schemas/SHA256"}
+        diagnostics: {type: array, items: {$ref: "#/components/schemas/ConfigurationDiagnostic"}}
+        ignored_digest: {$ref: "#/components/schemas/SHA256"}
+        state: {type: string, enum: [pending, ready, failed]}
+        checked_at: {type: string, format: date-time}
+        created_at: {type: string, format: date-time}
+    StartupArtifactPage:
+      type: object
+      additionalProperties: false
+      required: [items]
+      properties:
+        items: {type: array, items: {$ref: "#/components/schemas/StartupArtifactSummary"}}
+        next: {$ref: "#/components/schemas/CreatedAtCursor"}
+    ActivationSummary:
+      type: object
+      additionalProperties: false
+      required: [startup_artifact_id, canonical_revision_id, exact_core_version, core_artifact_id, config_sha256, activation_bundle_id, activation_sha256, monitoring_tier]
+      properties:
+        startup_artifact_id: {type: string}
+        canonical_revision_id: {type: string}
+        exact_core_version: {$ref: "#/components/schemas/ExactCoreVersion"}
+        core_artifact_id: {type: string}
+        config_sha256: {$ref: "#/components/schemas/SHA256"}
+        activation_bundle_id: {type: string}
+        activation_sha256: {$ref: "#/components/schemas/SHA256"}
+        monitoring_tier: {type: string, enum: [process_only, limited]}
+    ActivationQueued:
+      type: object
+      additionalProperties: false
+      required: [activation, task]
+      properties:
+        activation: {$ref: "#/components/schemas/ActivationSummary"}
+        task: {$ref: "#/components/schemas/Task"}
+    SubscriptionCursor:
+      $ref: "#/components/schemas/CreatedAtCursor"
+    SubscriptionUser:
+      type: object
+      additionalProperties: false
+      required: [id, name, description, enabled, created_at, updated_at]
+      properties:
+        id: {type: string}
+        name: {type: string}
+        description: {type: string}
+        enabled: {type: boolean}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+    SubscriptionUserPage:
+      type: object
+      additionalProperties: false
+      required: [items]
+      properties:
+        items: {type: array, items: {$ref: "#/components/schemas/SubscriptionUser"}}
+        next: {$ref: "#/components/schemas/SubscriptionCursor"}
+    SubscriptionUserGrants:
+      type: object
+      additionalProperties: false
+      required: [user, grants]
+      properties:
+        user: {$ref: "#/components/schemas/SubscriptionUser"}
+        grants: {type: array, items: {type: string}}
+    SubscriptionChannelSummary:
+      type: object
+      additionalProperties: false
+      required: [id, name, format, public_host, enabled, created_at, updated_at]
+      properties:
+        id: {type: string}
+        name: {type: string}
+        format: {type: string, enum: [sing-box, mihomo, loon]}
+        public_host: {type: string}
+        enabled: {type: boolean}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+    SubscriptionChannel:
+      type: object
+      additionalProperties: false
+      required: [id, name, format, public_host, config, enabled, created_at, updated_at]
+      properties:
+        id: {type: string}
+        name: {type: string}
+        format: {type: string, enum: [sing-box, mihomo, loon]}
+        public_host: {type: string}
+        config: {$ref: "#/components/schemas/SubscriptionChannelConfig"}
+        enabled: {type: boolean}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+    SubscriptionChannelConfig:
+      type: object
+      additionalProperties: false
+      properties:
+        exclude_tags: {type: array, items: {type: string}, uniqueItems: true}
+        exclude_types: {type: array, items: {type: string}, uniqueItems: true}
+    SubscriptionChannelPage:
+      type: object
+      additionalProperties: false
+      required: [items]
+      properties:
+        items: {type: array, items: {$ref: "#/components/schemas/SubscriptionChannelSummary"}}
+        next: {$ref: "#/components/schemas/SubscriptionCursor"}
+    SubscriptionSourceSummary:
+      type: object
+      additionalProperties: false
+      required: [id, name, source_kind, has_version, enabled, created_at, updated_at]
+      properties:
+        id: {type: string}
+        name: {type: string}
+        source_kind: {type: string, enum: [local, remote]}
+        has_version: {type: boolean}
+        current_version_id: {type: string}
+        enabled: {type: boolean}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+    SubscriptionSource:
+      type: object
+      additionalProperties: false
+      required: [id, name, source_kind, config, enabled, created_at, updated_at]
+      properties:
+        id: {type: string}
+        name: {type: string}
+        source_kind: {type: string, enum: [local, remote]}
+        config: {$ref: "#/components/schemas/DynamicObject"}
+        current_version_id: {type: string}
+        enabled: {type: boolean}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+    SubscriptionSourcePage:
+      type: object
+      additionalProperties: false
+      required: [items]
+      properties:
+        items: {type: array, items: {$ref: "#/components/schemas/SubscriptionSourceSummary"}}
+        next: {$ref: "#/components/schemas/SubscriptionCursor"}
+    SubscriptionDiagnostic:
+      type: object
+      additionalProperties: false
+      required: [collection, item_index, code]
+      properties:
+        collection: {type: string, enum: [outbounds, endpoints, inbounds]}
+        item_index: {type: integer, minimum: 0}
+        code: {type: string}
+    SubscriptionSourceVersion:
+      type: object
+      additionalProperties: false
+      required: [id, source_id, format, normalized_nodes, diagnostics, sha256, fetched_at, created_at]
+      properties:
+        id: {type: string}
+        source_id: {type: string}
+        format: {type: string, enum: [sing-box-json, mihomo-yaml, uri-list]}
+        raw_body: {type: string, format: byte}
+        normalized_nodes: {type: array, items: {$ref: "#/components/schemas/DynamicObject"}}
+        diagnostics: {type: array, items: {$ref: "#/components/schemas/SubscriptionDiagnostic"}}
+        sha256: {$ref: "#/components/schemas/SHA256"}
+        fetched_at: {type: string, format: date-time}
+        created_at: {type: string, format: date-time}
+    SubscriptionSourceVersionPage:
+      type: object
+      additionalProperties: false
+      required: [items]
+      properties:
+        items: {type: array, items: {$ref: "#/components/schemas/SubscriptionSourceVersion"}}
+        next: {$ref: "#/components/schemas/SubscriptionCursor"}
+    SubscriptionSourceVersionSave:
+      type: object
+      additionalProperties: false
+      required: [source, version]
+      properties:
+        source: {$ref: "#/components/schemas/SubscriptionSource"}
+        version: {$ref: "#/components/schemas/SubscriptionSourceVersion"}
+    SubscriptionNodeSummary:
+      type: object
+      additionalProperties: false
+      required: [key, source_id, type, tag]
+      properties:
+        key: {type: string}
+        source_id: {type: string}
+        type: {type: string}
+        tag: {type: string}
+        credential: {type: string}
+    SubscriptionNodeCatalog:
+      type: object
+      additionalProperties: false
+      required: [applied_bundle_id, nodes, diagnostics]
+      properties:
+        applied_bundle_id: {type: string}
+        nodes: {type: array, items: {$ref: "#/components/schemas/SubscriptionNodeSummary"}}
+        diagnostics: {type: array, items: {$ref: "#/components/schemas/SubscriptionDiagnostic"}}
+    SubscriptionToken:
+      type: object
+      additionalProperties: false
+      required: [id, user_id, label, enabled, successful_request_count, body_response_count, bytes_served, created_at, active]
+      properties:
+        id: {type: string}
+        user_id: {type: string}
+        label: {type: string}
+        enabled: {type: boolean}
+        expires_at: {type: string, format: date-time}
+        revoked_at: {type: string, format: date-time}
+        successful_request_count: {type: integer, format: int64, minimum: 0}
+        body_response_count: {type: integer, format: int64, minimum: 0}
+        bytes_served: {type: integer, format: int64, minimum: 0}
+        last_used_at: {type: string, format: date-time}
+        created_at: {type: string, format: date-time}
+        active: {type: boolean}
+    SubscriptionTokenPage:
+      type: object
+      additionalProperties: false
+      required: [items]
+      properties:
+        items: {type: array, items: {$ref: "#/components/schemas/SubscriptionToken"}}
+        next: {$ref: "#/components/schemas/SubscriptionCursor"}
+    CreatedSubscriptionToken:
+      type: object
+      additionalProperties: false
+      required: [metadata, token]
+      properties:
+        metadata: {$ref: "#/components/schemas/SubscriptionToken"}
+        token: {type: string}
+    SubscriptionTokenRotation:
+      type: object
+      additionalProperties: false
+      required: [revoked, created, token]
+      properties:
+        revoked: {$ref: "#/components/schemas/SubscriptionToken"}
+        created: {$ref: "#/components/schemas/SubscriptionToken"}
+        token: {type: string}
+    SubscriptionRenderDiagnostic:
+      type: object
+      additionalProperties: false
+      required: [collection, item_index, code, format]
+      properties:
+        collection: {type: string, enum: [outbounds, endpoints, inbounds]}
+        item_index: {type: integer, minimum: 0}
+        code: {type: string}
+        format: {type: string, enum: [sing-box, mihomo, loon]}
+    SubscriptionPreview:
+      type: object
+      additionalProperties: false
+      required: [user_id, applied_bundle_id, channel, startup_artifact_id, canonical_revision_id, exact_core_version, artifact_state, result]
+      properties:
+        user_id: {type: string}
+        applied_bundle_id: {type: string}
+        channel: {$ref: "#/components/schemas/SubscriptionChannel"}
+        startup_artifact_id: {type: string}
+        canonical_revision_id: {type: string}
+        exact_core_version: {$ref: "#/components/schemas/ExactCoreVersion"}
+        artifact_state: {type: string, enum: [pending, ready, failed]}
+        result:
+          type: object
+          additionalProperties: false
+          required: [format, media_type, content, node_count, diagnostics]
+          properties:
+            format: {type: string, enum: [sing-box, mihomo, loon]}
+            media_type: {type: string}
+            content: {type: string, format: byte}
+            node_count: {type: integer, minimum: 0}
+            diagnostics: {type: array, items: {$ref: "#/components/schemas/SubscriptionRenderDiagnostic"}}
+    LogEntry:
+      type: object
+      additionalProperties: false
+      required: [id, time, source, level, code, message, metadata]
+      properties:
+        id: {type: string}
+        time: {type: string, format: date-time}
+        source: {type: string, enum: [panel, core, task, security]}
+        level: {type: string, enum: [trace, debug, info, warn, error, fatal]}
+        code: {type: string}
+        message: {type: string}
+        metadata: {$ref: "#/components/schemas/DynamicObject"}
+    LogCursor:
+      type: object
+      additionalProperties: false
+      required: [time, id]
+      properties:
+        time: {type: string, format: date-time}
+        id: {type: string}
+    LogPage:
+      type: object
+      additionalProperties: false
+      required: [items]
+      properties:
+        items: {type: array, items: {$ref: "#/components/schemas/LogEntry"}}
+        next: {$ref: "#/components/schemas/LogCursor"}
+    LogClearResult:
+      type: object
+      additionalProperties: false
+      required: [deleted]
+      properties:
+        deleted: {type: integer, format: int64, minimum: 0}
+    LogDeleteResult:
+      type: object
+      additionalProperties: false
+      required: [id, deleted]
+      properties:
+        id: {type: string}
+        deleted: {type: boolean, const: true}
+    TrafficPeriod:
+      type: object
+      additionalProperties: false
+      required: [id, period_start, period_end, inbound_bytes, outbound_bytes, counters, created_at]
+      properties:
+        id: {type: string}
+        activation_bundle_id: {type: string}
+        period_start: {type: string, format: date-time}
+        period_end: {type: string, format: date-time}
+        inbound_bytes: {type: integer, format: int64, minimum: 0}
+        outbound_bytes: {type: integer, format: int64, minimum: 0}
+        counters: {$ref: "#/components/schemas/DynamicObject"}
+        created_at: {type: string, format: date-time}
+    TrafficSample:
+      type: object
+      additionalProperties: false
+      required: [id, activation_bundle_id, pid, process_start_token, sampled_at, memory_bytes, active_connections, upload_total, download_total, accepted]
+      properties:
+        id: {type: integer, format: int64, minimum: 1}
+        activation_bundle_id: {type: string}
+        pid: {type: integer, minimum: 1}
+        process_start_token: {type: string}
+        sampled_at: {type: string, format: date-time}
+        memory_bytes: {type: integer, format: int64, minimum: 0}
+        active_connections: {type: integer, format: int64, minimum: 0}
+        upload_total: {type: integer, format: int64, minimum: 0}
+        download_total: {type: integer, format: int64, minimum: 0}
+        accepted: {type: boolean}
+        diagnostic_code: {type: string}
+    MetricsSnapshot:
+      type: object
+      additionalProperties: false
+      required: [available, collected_at, quota_exceeded]
+      properties:
+        available: {type: boolean}
+        reason_code: {type: string, enum: [not_applied, process_only, no_collector_sample, stale_collector_sample]}
+        applied_bundle_id: {type: string}
+        monitoring_tier: {type: string, enum: [process_only, limited]}
+        collected_at: {type: string, format: date-time}
+        current_traffic_period: {$ref: "#/components/schemas/TrafficPeriod"}
+        latest_sample: {$ref: "#/components/schemas/TrafficSample"}
+        quota_bytes: {type: integer, format: int64, minimum: 0}
+        quota_exceeded: {type: boolean}
+    TrafficPeriodPage:
+      type: object
+      additionalProperties: false
+      required: [items]
+      properties:
+        items: {type: array, items: {$ref: "#/components/schemas/TrafficPeriod"}}
     SubscriptionUserInput:
       type: object
       additionalProperties: false
@@ -1406,7 +2136,7 @@ components:
         public_host:
           type: string
         config:
-          $ref: "#/components/schemas/AnyObject"
+          $ref: "#/components/schemas/SubscriptionChannelConfig"
         enabled:
           type: boolean
     SubscriptionSourceInput:
@@ -1420,7 +2150,7 @@ components:
           type: string
           enum: [local, remote]
         config:
-          $ref: "#/components/schemas/AnyObject"
+          $ref: "#/components/schemas/DynamicObject"
         enabled:
           type: boolean
     SubscriptionTokenCreate:

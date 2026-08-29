@@ -133,6 +133,17 @@ func (handler *Handler) ServeHTTP(w http.ResponseWriter, request *http.Request) 
 		http.NotFound(w, request)
 		return
 	}
+	if strings.HasPrefix(path, "/api/v1/") {
+		_, methodAllowed, pathRegistered := registeredManagementOperation(request.Method, path)
+		if !pathRegistered {
+			writeProblem(w, request, http.StatusNotFound, "operation_not_found", "Operation not found", "The API operation does not exist.")
+			return
+		}
+		if !methodAllowed {
+			methodNotAllowed(w, request)
+			return
+		}
+	}
 	switch {
 	case request.Method == http.MethodGet && path == "/api/v1/health":
 		handler.health(w)

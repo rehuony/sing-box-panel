@@ -69,7 +69,7 @@ type taskRunnerOptions struct {
 // heartbeat goroutine is additionally owned while a handler is running.
 type taskRunner struct {
 	store    taskStore
-	handlers map[string]taskHandler
+	handlers map[store.TaskKind]taskHandler
 	options  taskRunnerOptions
 	wake     map[store.TaskLane]chan struct{}
 
@@ -83,7 +83,7 @@ type taskRunner struct {
 
 // New constructs a stopped runner. taskHandler registration is immutable after
 // construction so lane goroutines never race on the map.
-func newTaskRunner(taskStore taskStore, handlers map[string]taskHandler, options taskRunnerOptions) (*taskRunner, error) {
+func newTaskRunner(taskStore taskStore, handlers map[store.TaskKind]taskHandler, options taskRunnerOptions) (*taskRunner, error) {
 	if taskStore == nil {
 		return nil, errors.New("task store is nil")
 	}
@@ -109,9 +109,9 @@ func newTaskRunner(taskStore taskStore, handlers map[string]taskHandler, options
 		options.taskClock = systemClock{}
 	}
 
-	registered := make(map[string]taskHandler, len(handlers))
+	registered := make(map[store.TaskKind]taskHandler, len(handlers))
 	for kind, handler := range handlers {
-		if strings.TrimSpace(kind) == "" {
+		if strings.TrimSpace(string(kind)) == "" {
 			return nil, errors.New("task handler kind is empty")
 		}
 		if handler == nil {

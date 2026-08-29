@@ -26,7 +26,7 @@ function parseDraft(snapshot: CanonicalSnapshot): CanonicalDraft {
   const envelope = parsed as Record<string, unknown>;
   if (envelope.schema_version !== 2 || envelope.configuration === null
     || Array.isArray(envelope.configuration) || typeof envelope.configuration !== 'object') {
-    throw new Error('The canonical revision is not a schema-v2 configuration envelope.');
+    throw new Error('The canonical revision is not a valid configuration envelope.');
   }
   return envelope as unknown as CanonicalDraft;
 }

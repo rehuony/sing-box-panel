@@ -80,7 +80,7 @@ func (application *Application) CompileConfiguration(
 		Diagnostics: diagnosticsJSON, IgnoredDigest: preview.IgnoredDigest, CreatedAt: createdAt,
 	}, store.NewTask{
 		ID: taskID, IdempotencyKey: "startup-check:" + startupID,
-		Lane: store.TaskLaneMaintenance, Kind: "startup-check", Payload: payload, CreatedAt: createdAt,
+		Lane: store.TaskLaneMaintenance, Kind: store.TaskKindStartupCheck, Payload: payload, CreatedAt: createdAt,
 	}, store.CompiledStartupEvidence{
 		ExpectedCanonicalHeadID: preview.CanonicalRevision.ID,
 		AdapterID:               preview.Support.AdapterID, AdapterRevision: preview.Support.Revision,
@@ -98,7 +98,7 @@ func (application *Application) CompileConfiguration(
 			ExactCoreVersion: stored.Artifact.ExactCoreVersion, AdapterID: stored.Artifact.AdapterID,
 			AdapterRevision: stored.Artifact.AdapterRevision, CoreArtifactID: stored.Artifact.CoreArtifactID,
 			ConfigSHA256:  stored.Artifact.ConfigSHA256,
-			Diagnostics:   append([]configuration.ProjectionDiagnostic(nil), preview.Diagnostics...),
+			Diagnostics:   append([]configuration.ProjectionDiagnostic{}, preview.Diagnostics...),
 			IgnoredDigest: stored.Artifact.IgnoredDigest, State: stored.Artifact.State,
 		},
 		Task: applicationTask(stored.Task),

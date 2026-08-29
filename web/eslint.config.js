@@ -6,7 +6,7 @@ export default antfu(
       css: true,
       html: true,
     },
-    ignores: ['**/*.md', '**/*.json', 'pnpm-lock.yaml'],
+    ignores: ['**/*.md', '**/*.json', 'pnpm-lock.yaml', 'src/api/generated/**'],
     jsonc: false,
     markdown: false,
     react: true,

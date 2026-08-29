@@ -255,7 +255,7 @@ wait_for_url() {
   local count
 
   for ((count = 0; count < 80; count++)); do
-    if curl --fail --silent --show-error --max-time 2 "${url}" >/dev/null 2>&1; then
+    if curl --fail-with-body --silent --show-error --max-time 2 "${url}" >/dev/null 2>&1; then
       return 0
     fi
     sleep 0.25
@@ -352,7 +352,7 @@ start_panel() {
     >"${smoke_root}/panel-${expected_version}.log" 2>&1 &
   panel_pid=$!
   wait_for_url "${panel_origin}/api/v1/health"
-  health_payload="$(curl --fail --silent --show-error --max-time 2 "${panel_origin}/api/v1/health")"
+  health_payload="$(curl --fail-with-body --silent --show-error --max-time 2 "${panel_origin}/api/v1/health")"
   jq -e --arg version "${expected_version}" \
     '.status == "ok" and .version == $version' <<<"${health_payload}" >/dev/null
 }
@@ -386,7 +386,7 @@ stop_panel() {
 authenticated_get() {
   local path="$1"
   curl \
-    --fail \
+    --fail-with-body \
     --silent \
     --show-error \
     --max-time 5 \
@@ -399,10 +399,10 @@ status_payload="$(authenticated_get '/api/v1/system/status')"
 jq -e --arg version "${probe_version}" \
   '.panel_version == $version and .canonical_revision == 0' <<<"${status_payload}" >/dev/null
 
-canonical_document='{"schema_version":1,"global":{"release_smoke":"persistent"},"nodes":[],"rules":[],"subscription":{}}'
+canonical_fixture="${workspace_root}/scripts/testdata/release-canonical.json"
 canonical_save="$(
   curl \
-    --fail \
+    --fail-with-body \
     --silent \
     --show-error \
     --max-time 10 \
@@ -410,7 +410,7 @@ canonical_save="$(
     --header "Authorization: Bearer ${management_token}" \
     --header 'Content-Type: application/json' \
     --header 'If-Match: "none"' \
-    --data-binary "${canonical_document}" \
+    --data-binary "@${canonical_fixture}" \
     "${panel_origin}/api/v1/config/canonical"
 )"
 canonical_id="$(jq -er '.revision.id' <<<"${canonical_save}")"
@@ -426,7 +426,7 @@ jq -e \
   <<<"${update_result}" >/dev/null
 cmp "${installed_binary}" "${release_binary}"
 
-health_after_update="$(curl --fail --silent --show-error --max-time 2 "${panel_origin}/api/v1/health")"
+health_after_update="$(curl --fail-with-body --silent --show-error --max-time 2 "${panel_origin}/api/v1/health")"
 jq -e --arg version "${probe_version}" \
   '.status == "ok" and .version == $version' <<<"${health_after_update}" >/dev/null
 
@@ -446,7 +446,7 @@ persisted_canonical="$(authenticated_get '/api/v1/config/canonical')"
 jq -e \
   --arg id "${canonical_id}" \
   --arg sha "${canonical_sha}" \
-  '.id == $id and .sha256 == $sha and .sequence == 1 and .document.global.release_smoke == "persistent"' \
+  '.id == $id and .sha256 == $sha and .sequence == 1 and .document.schema_version == 2 and .document.configuration.log.level == "debug"' \
   <<<"${persisted_canonical}" >/dev/null
 stop_panel
 

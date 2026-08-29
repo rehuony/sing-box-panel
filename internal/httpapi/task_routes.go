@@ -24,7 +24,7 @@ func (handler *Handler) listTasks(w http.ResponseWriter, request *http.Request) 
 	page, err := handler.commands.ListTasks(request.Context(), application.TaskListFilter{
 		Lane:   store.TaskLane(request.URL.Query().Get("lane")),
 		Status: store.TaskStatus(request.URL.Query().Get("status")),
-		Kind:   request.URL.Query().Get("kind"),
+		Kind:   store.TaskKind(request.URL.Query().Get("kind")),
 		Limit:  limit,
 	})
 	if err != nil {

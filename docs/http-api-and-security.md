@@ -15,7 +15,7 @@ boundaries without duplicating the endpoint inventory.
 routes. It must be empty or a normalized path without a trailing slash. Browser
 code uses same-origin paths and depends only on the HTTP contract.
 
-Configuration operations address one global schema-v2 canonical history.
+Configuration operations address one global canonical history.
 Preview and compilation bind an immutable installed core artifact, not a
 naked version string. The server derives the artifact's verified version, OS,
 architecture, variant, and feature fingerprint, then requires one exact

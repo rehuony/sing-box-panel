@@ -34,7 +34,7 @@ func (application *Application) QueueCoreInstall(ctx context.Context, assetID in
 		return Task{}, err
 	}
 	key := fmt.Sprintf("core-install:%d:%d:%d:%s", asset.RepositoryID, asset.ReleaseID, asset.AssetID, digest.String())
-	return application.queueMaintenanceTask(ctx, "core-install", payload, key)
+	return application.queueMaintenanceTask(ctx, store.TaskKindCoreInstall, payload, key)
 }
 
 func (application *Application) QueueCoreImport(ctx context.Context, request CoreImportRequest) (Task, error) {
@@ -77,10 +77,10 @@ func (application *Application) QueueCoreImport(ctx context.Context, request Cor
 		pathDigest := sha256.Sum256([]byte(request.SourcePath))
 		key += ":upload:" + hex.EncodeToString(pathDigest[:16])
 	}
-	return application.queueMaintenanceTask(ctx, "core-import", payload, key)
+	return application.queueMaintenanceTask(ctx, store.TaskKindCoreImport, payload, key)
 }
 
-func (application *Application) queueMaintenanceTask(ctx context.Context, kind string, payload json.RawMessage, idempotencyKey string) (Task, error) {
+func (application *Application) queueMaintenanceTask(ctx context.Context, kind store.TaskKind, payload json.RawMessage, idempotencyKey string) (Task, error) {
 	taskID, err := application.newID("task")
 	if err != nil {
 		return Task{}, err
@@ -195,13 +195,13 @@ func (application *Application) PersistInstalledCore(ctx context.Context, result
 	return coreArtifact(stored), nil
 }
 
-func (application *Application) ExecuteCoreArtifactTask(ctx context.Context, kind string, payload json.RawMessage, installer ArtifactInstaller, beforePersist func(context.Context) error) (CoreArtifact, error) {
+func (application *Application) ExecuteCoreArtifactTask(ctx context.Context, kind store.TaskKind, payload json.RawMessage, installer ArtifactInstaller, beforePersist func(context.Context) error) (CoreArtifact, error) {
 	if installer == nil {
 		return CoreArtifact{}, errors.New("artifact installer is unavailable")
 	}
 	var result artifactstore.Result
 	switch kind {
-	case "core-install":
+	case store.TaskKindCoreInstall:
 		var input coreInstallPayload
 		if err := jsonstrict.Decode(payload, 128<<10, &input); err != nil {
 			return CoreArtifact{}, fmt.Errorf("decode core install task: %w", err)
@@ -217,7 +217,7 @@ func (application *Application) ExecuteCoreArtifactTask(ctx context.Context, kin
 			return CoreArtifact{}, err
 		}
 		result = installed
-	case "core-import":
+	case store.TaskKindCoreImport:
 		var input coreImportPayload
 		if err := jsonstrict.Decode(payload, 128<<10, &input); err != nil {
 			return CoreArtifact{}, fmt.Errorf("decode core import task: %w", err)

@@ -14,6 +14,11 @@ pnpm run build
 Run `pnpm run lint:fix` to apply the configured TypeScript, React, CSS, and HTML
 formatting rules before checking the remaining code-quality diagnostics.
 
+Transport types under `src/api/generated/` are build artifacts generated from
+`../api/openapi.yaml`. Development, typecheck, test, and build commands refresh
+them automatically; they are not committed or edited by hand. The custom HTTP
+client remains hand-written.
+
 `pnpm run build` produces a deterministic SPA bundle in `web/dist/`. The Go
 delivery adapter should embed that directory and use `index.html` as the
 fallback for non-API routes. `dist/` is generated output and is not a source of

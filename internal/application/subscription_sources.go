@@ -17,24 +17,22 @@ func (application *Application) CreateSubscriptionSource(
 	ctx context.Context,
 	request CreateSubscriptionSourceRequest,
 ) (SubscriptionSource, error) {
-	if request.SourceKind == store.SubscriptionSourceRemote {
-		if _, err := decodeRemoteSubscriptionSourceConfig(request.Config); err != nil {
-			return SubscriptionSource{}, err
-		}
-	}
 	id, err := application.newID("source")
 	if err != nil {
 		return SubscriptionSource{}, err
 	}
-	stored, err := application.database.CreateSubscriptionSource(ctx, store.SubscriptionSource{
+	now := application.now().UTC()
+	source := store.SubscriptionSource{
 		ID: id, Name: request.Name, SourceKind: request.SourceKind,
 		Config:  request.Config,
-		Enabled: request.Enabled, CreatedAt: application.now().UTC(),
-	})
+		Enabled: request.Enabled, CreatedAt: now, UpdatedAt: now,
+	}
+	refreshTask, err := application.configuredSubscriptionSourceRefreshTask(source)
 	if err != nil {
 		return SubscriptionSource{}, err
 	}
-	if err := application.scheduleConfiguredSubscriptionSourceRefresh(ctx, stored); err != nil {
+	stored, err := application.database.CreateSubscriptionSourceAndTask(ctx, source, refreshTask)
+	if err != nil {
 		return SubscriptionSource{}, err
 	}
 	return applicationSubscriptionSource(stored), nil
@@ -74,21 +72,23 @@ func (application *Application) UpdateSubscriptionSource(
 	sourceID string,
 	request UpdateSubscriptionSourceRequest,
 ) (SubscriptionSource, error) {
-	if request.SourceKind == store.SubscriptionSourceRemote {
-		if _, err := decodeRemoteSubscriptionSourceConfig(request.Config); err != nil {
-			return SubscriptionSource{}, err
-		}
+	updatedAt := application.nextSubscriptionUpdateTime(request.ExpectedUpdatedAt)
+	prospective := store.SubscriptionSource{
+		ID: strings.TrimSpace(sourceID), Name: request.Name, SourceKind: request.SourceKind,
+		Config: request.Config, Enabled: request.Enabled, UpdatedAt: updatedAt,
+	}
+	refreshTask, err := application.configuredSubscriptionSourceRefreshTask(prospective)
+	if err != nil {
+		return SubscriptionSource{}, err
 	}
 	stored, err := application.database.UpdateSubscriptionSource(ctx, store.UpdateSubscriptionSourceInput{
 		ID: strings.TrimSpace(sourceID), Name: request.Name, SourceKind: request.SourceKind,
 		Config: request.Config, Enabled: request.Enabled,
 		ExpectedUpdatedAt: request.ExpectedUpdatedAt,
-		UpdatedAt:         application.nextSubscriptionUpdateTime(request.ExpectedUpdatedAt),
+		UpdatedAt:         updatedAt,
+		RefreshTask:       refreshTask,
 	})
 	if err != nil {
-		return SubscriptionSource{}, err
-	}
-	if err := application.scheduleConfiguredSubscriptionSourceRefresh(ctx, stored); err != nil {
 		return SubscriptionSource{}, err
 	}
 	return applicationSubscriptionSource(stored), nil
@@ -113,6 +113,16 @@ func (application *Application) CreateSubscriptionSourceVersion(
 		return SubscriptionSourceVersionSave{}, err
 	}
 	now := application.now().UTC()
+	source, err := application.database.GetSubscriptionSource(ctx, sourceID)
+	if err != nil {
+		return SubscriptionSourceVersionSave{}, err
+	}
+	updatedAt := application.nextSubscriptionUpdateTime(request.ExpectedUpdatedAt)
+	source.UpdatedAt = updatedAt
+	refreshTask, err := application.configuredSubscriptionSourceRefreshTask(source)
+	if err != nil {
+		return SubscriptionSourceVersionSave{}, err
+	}
 	fetchedAt := request.FetchedAt.UTC()
 	if request.FetchedAt.IsZero() {
 		fetchedAt = now
@@ -124,12 +134,10 @@ func (application *Application) CreateSubscriptionSourceVersion(
 			Diagnostics: json.RawMessage(`[]`), FetchedAt: fetchedAt, CreatedAt: now,
 		},
 		ExpectedSourceUpdatedAt: request.ExpectedUpdatedAt,
-		UpdatedAt:               application.nextSubscriptionUpdateTime(request.ExpectedUpdatedAt),
+		UpdatedAt:               updatedAt,
+		RefreshTask:             refreshTask,
 	})
 	if err != nil {
-		return SubscriptionSourceVersionSave{}, err
-	}
-	if err := application.scheduleConfiguredSubscriptionSourceRefresh(ctx, stored.Source); err != nil {
 		return SubscriptionSourceVersionSave{}, err
 	}
 	return SubscriptionSourceVersionSave{
@@ -177,14 +185,22 @@ func (application *Application) RestoreSubscriptionSourceVersion(
 	versionID string,
 	expectedUpdatedAt time.Time,
 ) (SubscriptionSource, error) {
-	stored, err := application.database.ActivateSubscriptionSourceVersion(
-		ctx, strings.TrimSpace(sourceID), strings.TrimSpace(versionID), expectedUpdatedAt,
-		application.nextSubscriptionUpdateTime(expectedUpdatedAt),
-	)
+	sourceID = strings.TrimSpace(sourceID)
+	updatedAt := application.nextSubscriptionUpdateTime(expectedUpdatedAt)
+	source, err := application.database.GetSubscriptionSource(ctx, sourceID)
 	if err != nil {
 		return SubscriptionSource{}, err
 	}
-	if err := application.scheduleConfiguredSubscriptionSourceRefresh(ctx, stored); err != nil {
+	source.UpdatedAt = updatedAt
+	refreshTask, err := application.configuredSubscriptionSourceRefreshTask(source)
+	if err != nil {
+		return SubscriptionSource{}, err
+	}
+	stored, err := application.database.ActivateSubscriptionSourceVersionAndTask(
+		ctx, sourceID, strings.TrimSpace(versionID), expectedUpdatedAt,
+		updatedAt, refreshTask,
+	)
+	if err != nil {
 		return SubscriptionSource{}, err
 	}
 	return applicationSubscriptionSource(stored), nil

@@ -10,6 +10,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/rehuony/sing-box-panel/internal/configuration"
 )
 
 var ErrRevisionConflict = errors.New("canonical revision head conflict")
@@ -68,7 +70,7 @@ type NewTask struct {
 	ID             string
 	IdempotencyKey string
 	Lane           TaskLane
-	Kind           string
+	Kind           TaskKind
 	Generation     int64
 	Payload        json.RawMessage
 	CreatedAt      time.Time
@@ -260,12 +262,17 @@ func prepareCanonicalSave(
 	if strings.TrimSpace(revision.ID) == "" {
 		return CanonicalRevision{}, NewTask{}, errors.New("canonical revision id is empty")
 	}
-	if revision.SchemaVersion < 1 {
-		return CanonicalRevision{}, NewTask{}, errors.New("canonical schema version must be positive")
+	if revision.SchemaVersion != configuration.SchemaVersion {
+		return CanonicalRevision{}, NewTask{}, fmt.Errorf(
+			"canonical schema version must be exactly %d",
+			configuration.SchemaVersion,
+		)
 	}
-	if !json.Valid(revision.Document) {
-		return CanonicalRevision{}, NewTask{}, errors.New("canonical document is not valid JSON")
+	document, err := configuration.Parse(revision.Document)
+	if err != nil {
+		return CanonicalRevision{}, NewTask{}, fmt.Errorf("canonical document: %w", err)
 	}
+	revision.Document = document.CanonicalJSON()
 	if strings.TrimSpace(revision.CommandID) == "" {
 		return CanonicalRevision{}, NewTask{}, errors.New("canonical command id is empty")
 	}
@@ -281,8 +288,8 @@ func prepareCanonicalSave(
 	if task.Lane != TaskLaneRuntime && task.Lane != TaskLaneMaintenance {
 		return CanonicalRevision{}, NewTask{}, fmt.Errorf("invalid task lane %q", task.Lane)
 	}
-	if strings.TrimSpace(task.Kind) == "" {
-		return CanonicalRevision{}, NewTask{}, errors.New("task kind is empty")
+	if !validTaskLaneKind(task.Lane, task.Kind) {
+		return CanonicalRevision{}, NewTask{}, fmt.Errorf("invalid %s task kind %q", task.Lane, task.Kind)
 	}
 	if task.Generation < 0 {
 		return CanonicalRevision{}, NewTask{}, errors.New("task generation must not be negative")

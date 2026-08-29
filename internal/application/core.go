@@ -264,7 +264,7 @@ func (application *Application) QueueCatalogRefresh(ctx context.Context, options
 	if err != nil {
 		return Task{}, err
 	}
-	return application.queueMaintenanceTask(ctx, "catalog-refresh", payload, "")
+	return application.queueMaintenanceTask(ctx, store.TaskKindCatalogRefresh, payload, "")
 }
 
 func decodeCatalog(raw json.RawMessage) (catalog.Catalog, error) {

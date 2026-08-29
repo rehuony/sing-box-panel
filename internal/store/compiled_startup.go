@@ -43,7 +43,7 @@ func (s *Store) CreateStartupArtifactAndCheckTask(
 	if err != nil {
 		return StartupArtifactTask{}, err
 	}
-	if preparedTask.Lane != TaskLaneMaintenance || preparedTask.Kind != "startup-check" {
+	if preparedTask.Lane != TaskLaneMaintenance || preparedTask.Kind != TaskKindStartupCheck {
 		return StartupArtifactTask{}, errors.New("compiled startup artifact requires a maintenance startup-check task")
 	}
 	if evidence.ExpectedCanonicalHeadID == "" || evidence.ExpectedCanonicalHeadID != preparedArtifact.CanonicalRevisionID ||

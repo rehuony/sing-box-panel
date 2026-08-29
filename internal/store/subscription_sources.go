@@ -58,6 +58,7 @@ type UpdateSubscriptionSourceInput struct {
 	Enabled           bool
 	ExpectedUpdatedAt time.Time
 	UpdatedAt         time.Time
+	RefreshTask       *EnqueueTaskInput
 }
 
 // SubscriptionToken contains only persisted token metadata and the one-way
@@ -67,7 +68,21 @@ func (s *Store) CreateSubscriptionSource(
 	ctx context.Context,
 	source SubscriptionSource,
 ) (SubscriptionSource, error) {
+	return s.CreateSubscriptionSourceAndTask(ctx, source, nil)
+}
+
+// CreateSubscriptionSourceAndTask persists a source and its next automatic
+// refresh as one invariant. A task failure rolls the source insert back.
+func (s *Store) CreateSubscriptionSourceAndTask(
+	ctx context.Context,
+	source SubscriptionSource,
+	refreshTask *EnqueueTaskInput,
+) (SubscriptionSource, error) {
 	prepared, err := prepareNewSubscriptionSource(source)
+	if err != nil {
+		return SubscriptionSource{}, err
+	}
+	preparedTask, err := prepareSubscriptionRefreshTask(refreshTask)
 	if err != nil {
 		return SubscriptionSource{}, err
 	}
@@ -96,7 +111,10 @@ func (s *Store) CreateSubscriptionSource(
 			return fmt.Errorf("insert subscription source: %w", err)
 		}
 		stored, err = getSubscriptionSource(ctx, tx, prepared.ID)
-		return err
+		if err != nil {
+			return err
+		}
+		return enqueueSubscriptionRefreshTaskTx(ctx, tx, preparedTask)
 	})
 	return stored, err
 }
@@ -205,9 +223,34 @@ func (s *Store) UpdateSubscriptionSource(
 			return err
 		}
 		stored, err = getSubscriptionSource(ctx, tx, prepared.ID)
-		return err
+		if err != nil {
+			return err
+		}
+		return enqueueSubscriptionRefreshTaskTx(ctx, tx, prepared.RefreshTask)
 	})
 	return stored, err
+}
+
+func prepareSubscriptionRefreshTask(input *EnqueueTaskInput) (*EnqueueTaskInput, error) {
+	if input == nil {
+		return nil, nil
+	}
+	prepared, err := prepareEnqueuedTask(*input)
+	if err != nil {
+		return nil, err
+	}
+	if prepared.Lane != TaskLaneMaintenance || prepared.Kind != TaskKindSubscriptionSourceRefresh {
+		return nil, errors.New("subscription source refresh requires a maintenance subscription-source-refresh task")
+	}
+	return &prepared, nil
+}
+
+func enqueueSubscriptionRefreshTaskTx(ctx context.Context, tx *sql.Tx, task *EnqueueTaskInput) error {
+	if task == nil {
+		return nil
+	}
+	_, err := enqueuePreparedTaskTx(ctx, tx, *task)
+	return err
 }
 
 func (s *Store) DeleteSubscriptionSource(
@@ -294,6 +337,10 @@ func prepareSubscriptionSourceUpdate(
 		return UpdateSubscriptionSourceInput{}, err
 	}
 	input.Config = config
+	input.RefreshTask, err = prepareSubscriptionRefreshTask(input.RefreshTask)
+	if err != nil {
+		return UpdateSubscriptionSourceInput{}, err
+	}
 	return input, nil
 }
 

@@ -11,7 +11,7 @@ import (
 type TaskListFilter struct {
 	Lane   TaskLane
 	Status TaskStatus
-	Kind   string
+	Kind   TaskKind
 	Cursor *CreatedAtCursor
 	Limit  int
 }
@@ -35,6 +35,9 @@ func (s *Store) ListTasks(ctx context.Context, filter TaskListFilter) (TaskPage,
 	}
 	if filter.Status != "" && !validTaskStatus(filter.Status) {
 		return TaskPage{}, fmt.Errorf("invalid task status %q", filter.Status)
+	}
+	if filter.Kind != "" && !validTaskKind(filter.Kind) {
+		return TaskPage{}, fmt.Errorf("invalid task kind %q", filter.Kind)
 	}
 	if err := validateCreatedAtCursor(filter.Cursor); err != nil {
 		return TaskPage{}, err
@@ -91,6 +94,40 @@ func (s *Store) ListTasks(ctx context.Context, filter TaskListFilter) (TaskPage,
 		page.Next = &CreatedAtCursor{CreatedAt: last.CreatedAt, ID: last.ID}
 	}
 	return page, nil
+}
+
+func validTaskKind(kind TaskKind) bool {
+	for _, candidate := range BuiltInTaskKinds() {
+		if kind == candidate {
+			return true
+		}
+	}
+	return false
+}
+
+func validTaskLaneKind(lane TaskLane, kind TaskKind) bool {
+	if !validTaskKind(kind) {
+		return false
+	}
+	if lane == TaskLaneRuntime {
+		switch kind {
+		case TaskKindRuntimeApply, TaskKindRuntimeStart, TaskKindRuntimeStop,
+			TaskKindRuntimeRestart, TaskKindRuntimeRollback:
+			return true
+		default:
+			return false
+		}
+	}
+	if lane == TaskLaneMaintenance {
+		switch kind {
+		case TaskKindCanonicalSaved, TaskKindCatalogRefresh, TaskKindCoreInstall,
+			TaskKindCoreImport, TaskKindStartupCheck, TaskKindSubscriptionSourceRefresh:
+			return true
+		default:
+			return false
+		}
+	}
+	return false
 }
 
 func validTaskStatus(status TaskStatus) bool {

@@ -8,7 +8,7 @@ branch and saving configuration never changes the live process implicitly.
 
 The control plane separates four layers:
 
-1. The **canonical revision** stores global schema-v2 superset intent.
+1. The **canonical revision** stores global configuration intent.
 2. An exact compiled **adapter projection** produces candidate sing-box JSON
    for one installed core artifact.
 3. A **startup artifact** binds projected bytes, adapter identity, canonical
@@ -21,7 +21,7 @@ The control plane separates four layers:
 Subscriptions remain live authorization and rendering state; activation
 bundles do not freeze channel response bodies or third-party source snapshots.
 
-## One global schema-v2 history
+## One global canonical history
 
 The minimal document is:
 
@@ -113,8 +113,7 @@ combined with stale bytes.
 
 `process_only` monitoring checks process health. `limited` additionally
 requires the final configuration to expose a secret-protected Clash API on a
-loopback address and complete the `/version` handshake. `full` remains
-explicitly unavailable.
+loopback address and complete the `/version` handshake.
 
 ## Lifecycle and rollback
 

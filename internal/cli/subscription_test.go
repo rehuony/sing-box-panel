@@ -83,7 +83,7 @@ func TestSubscriptionChannelAndSourceCLIEndToEnd(t *testing.T) {
 	)
 	var refreshTask application.Task
 	decodeSubscriptionCLIOutput(t, refreshedSourceOutput, &refreshTask)
-	if refreshTask.Kind != "subscription-source-refresh" || refreshTask.Status != store.TaskStatusQueued {
+	if refreshTask.Kind != store.TaskKindSubscriptionSourceRefresh || refreshTask.Status != store.TaskStatusQueued {
 		t.Fatalf("refresh task = %+v", refreshTask)
 	}
 	shownSourceOutput := runApplicationCommand(t, settingsPath, "",

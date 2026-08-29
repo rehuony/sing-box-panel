@@ -41,7 +41,7 @@ func newTaskListCommand(state *options, open openApplicationFunc) *cobra.Command
 			page, err := instance.ListTasks(cmd.Context(), application.TaskListFilter{
 				Lane:   store.TaskLane(strings.TrimSpace(lane)),
 				Status: store.TaskStatus(strings.TrimSpace(status)),
-				Kind:   strings.TrimSpace(kind),
+				Kind:   store.TaskKind(strings.TrimSpace(kind)),
 				Limit:  limit,
 			})
 			if err != nil {

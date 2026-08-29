@@ -30,7 +30,7 @@ func TestReplaceCanonicalUsesCASAndNoOpDetection(t *testing.T) {
 		}
 		return len(destination), nil
 	}
-	document := configuration.EmptyV2().CanonicalJSON()
+	document := configuration.Empty().CanonicalJSON()
 
 	first, err := application.ReplaceCanonical(ctx, "", document)
 	if err != nil {
@@ -63,7 +63,7 @@ func TestRevisionHistoryDiffRestoreAndTaskControl(t *testing.T) {
 	t.Cleanup(func() { _ = database.Close() })
 	application := newApplication(database)
 
-	initial, err := application.ReplaceCanonical(ctx, "", configuration.EmptyV2().CanonicalJSON())
+	initial, err := application.ReplaceCanonical(ctx, "", configuration.Empty().CanonicalJSON())
 	if err != nil {
 		t.Fatal(err)
 	}

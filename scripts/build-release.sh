@@ -128,7 +128,7 @@ prepare_source_snapshot() {
   mkdir -p -- "${source_root}" "${web_parent}"
   git -C "${workspace_root}" archive --format=tar "${source_commit}" |
     tar -xf - -C "${source_root}"
-  git -C "${workspace_root}" archive --format=tar "${source_commit}" web |
+  git -C "${workspace_root}" archive --format=tar "${source_commit}" web api/openapi.yaml |
     tar -xf - -C "${web_parent}"
 
   if [[ -e "${source_root}/${release_private_key_path}" ||
@@ -137,8 +137,9 @@ prepare_source_snapshot() {
     return 1
   fi
   if [[ ! -d "${source_root}/web" || -L "${source_root}/web" ]] ||
-    [[ ! -d "${web_parent}/web" || -L "${web_parent}/web" ]]; then
-    echo "HEAD does not contain a regular Web source directory" >&2
+    [[ ! -d "${web_parent}/web" || -L "${web_parent}/web" ]] ||
+    [[ ! -f "${web_parent}/api/openapi.yaml" || -L "${web_parent}/api/openapi.yaml" ]]; then
+    echo "HEAD does not contain the regular Web and OpenAPI build inputs" >&2
     return 1
   fi
 }

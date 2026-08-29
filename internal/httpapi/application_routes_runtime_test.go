@@ -56,7 +56,7 @@ func TestRuntimeAndConfigurationHTTPRoutesUseApplicationServices(t *testing.T) {
 	if err := json.Unmarshal(compileResponse.Body.Bytes(), &compiled); err != nil {
 		t.Fatal(err)
 	}
-	if compiled.Artifact.AdapterID != "sing-box/v1_13_19/official-linux-plain" || compiled.Artifact.AdapterRevision != "2" || compiled.Task.Kind != "startup-check" {
+	if compiled.Artifact.AdapterID != "sing-box/v1_13_19/official-linux-plain" || compiled.Artifact.AdapterRevision != "2" || compiled.Task.Kind != store.TaskKindStartupCheck {
 		t.Fatalf("compile = %+v", compiled)
 	}
 
@@ -67,7 +67,7 @@ func TestRuntimeAndConfigurationHTTPRoutesUseApplicationServices(t *testing.T) {
 		`{"startup_artifact_id":"`+startup.ID+`"}`,
 		"",
 	)
-	assertQueuedCoreHTTPTask(t, checkResponse, "startup-check")
+	assertQueuedCoreHTTPTask(t, checkResponse, store.TaskKindStartupCheck)
 	if _, err := database.CompleteStartupArtifactCheck(
 		context.Background(), startup.ID, true, json.RawMessage(`[]`), time.Now().UTC(),
 	); err != nil {
@@ -92,14 +92,14 @@ func TestRuntimeAndConfigurationHTTPRoutesUseApplicationServices(t *testing.T) {
 		t.Fatal(err)
 	}
 	if activated.Activation.StartupArtifactID != startup.ID ||
-		activated.Task.Kind != "runtime-apply" || activated.Task.Status != store.TaskStatusQueued {
+		activated.Task.Kind != store.TaskKindRuntimeApply || activated.Task.Status != store.TaskStatusQueued {
 		t.Fatalf("activation response = %+v", activated)
 	}
 
 	startResponse := authenticatedRequest(handler, http.MethodPost, "/api/v1/core/start", "", "")
 	assertCoreHTTPProblem(t, startResponse, http.StatusConflict, "no_applied_bundle")
 	stopResponse := authenticatedRequest(handler, http.MethodPost, "/api/v1/core/stop", "", "")
-	assertQueuedCoreHTTPTask(t, stopResponse, "runtime-stop")
+	assertQueuedCoreHTTPTask(t, stopResponse, store.TaskKindRuntimeStop)
 }
 
 func TestRuntimeAndConfigurationHTTPRejectAmbiguousInputs(t *testing.T) {
@@ -155,11 +155,11 @@ func seedRuntimeHTTPStartup(
 	t.Helper()
 	createdAt := time.Date(2026, time.August, 26, 14, 0, 0, 0, time.UTC)
 	revision, err := database.SaveCanonicalRevisionAndTask(context.Background(), "", store.NewCanonicalRevision{
-		ID: "revision_runtime_http", SchemaVersion: configuration.SchemaVersionV2,
-		Document: configuration.EmptyV2().CanonicalJSON(), CommandID: "command_runtime_http", CreatedAt: createdAt,
+		ID: "revision_runtime_http", SchemaVersion: configuration.SchemaVersion,
+		Document: configuration.Empty().CanonicalJSON(), CommandID: "command_runtime_http", CreatedAt: createdAt,
 	}, store.NewTask{
 		ID: "task_runtime_http", Lane: store.TaskLaneMaintenance,
-		Kind: "canonical-saved", CreatedAt: createdAt,
+		Kind: store.TaskKindCanonicalSaved, CreatedAt: createdAt,
 	})
 	if err != nil {
 		t.Fatal(err)

@@ -86,9 +86,6 @@ func (application *Application) PrepareActivationBundle(
 	if monitoring == "" {
 		monitoring = store.MonitoringProcessOnly
 	}
-	if monitoring == store.MonitoringFull {
-		return ActivationPreparation{}, fmt.Errorf("%w: full monitoring is not implemented", ErrMonitoringTierUnavailable)
-	}
 	if monitoring != store.MonitoringProcessOnly && monitoring != store.MonitoringLimited {
 		return ActivationPreparation{}, fmt.Errorf("%w: invalid monitoring tier %q", ErrMonitoringTierUnavailable, monitoring)
 	}

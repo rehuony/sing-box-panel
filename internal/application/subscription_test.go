@@ -227,7 +227,7 @@ func TestRenderSubscriptionPreviewUsesAppliedVersionAndSelectedUserGrants(t *tes
 	if _, err := database.UpsertCoreArtifact(ctx, core); err != nil {
 		t.Fatal(err)
 	}
-	canonicalSave, err := app.ReplaceConfiguration(ctx, "", configuration.EmptyV2().CanonicalJSON())
+	canonicalSave, err := app.ReplaceConfiguration(ctx, "", configuration.Empty().CanonicalJSON())
 	if err != nil {
 		t.Fatal(err)
 	}
