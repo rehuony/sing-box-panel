@@ -115,15 +115,38 @@ a successful wait.
 
 ## Shell completion
 
-Completion generation opens no settings, database, or network connection.
+Completion generation opens no settings, database, or network connection. The
+supported shells are Bash, Zsh, and Fish.
+
+### Bash
+
+Bash completion includes command descriptions and requires the
+`bash-completion` package. Install and load that package before loading the
+generated script. For Debian and Ubuntu containers:
 
 ```bash
+apt-get update
+apt-get install -y bash-completion
+source /usr/share/bash-completion/bash_completion
 source <(sing-box-panel completion bash)
 ```
+
+Use `source <(...)` as shown above; unquoted `eval "$(...)"` does not preserve
+the generated script's line breaks. With the default Readline behavior, press Tab
+twice to list matching commands with their descriptions. Readline controls the
+column layout, and long descriptions may be shortened to fit the terminal.
+
+After upgrading `sing-box-panel`, run the `source <(...)` command again in each
+active Bash session. If generated output is installed in a completion directory,
+regenerate that file with the upgraded binary before starting a new shell.
+
+### Zsh
 
 ```zsh
 source <(sing-box-panel completion zsh)
 ```
+
+### Fish
 
 ```fish
 sing-box-panel completion fish | source
