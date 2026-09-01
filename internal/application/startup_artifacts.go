@@ -20,12 +20,8 @@ type StartupArtifactSummary struct {
 	ID                  string                     `json:"id"`
 	CanonicalRevisionID string                     `json:"canonical_revision_id"`
 	ExactCoreVersion    string                     `json:"exact_core_version"`
-	AdapterID           string                     `json:"adapter_id"`
-	AdapterRevision     string                     `json:"adapter_revision"`
 	CoreArtifactID      string                     `json:"core_artifact_id"`
 	ConfigSHA256        string                     `json:"config_sha256"`
-	Diagnostics         json.RawMessage            `json:"diagnostics"`
-	IgnoredDigest       string                     `json:"ignored_digest,omitempty"`
 	State               store.StartupArtifactState `json:"state"`
 	CheckedAt           *time.Time                 `json:"checked_at,omitempty"`
 	CreatedAt           time.Time                  `json:"created_at"`
@@ -90,11 +86,9 @@ func (application *Application) ListStartupArtifacts(
 func startupArtifactSummary(artifact store.StartupArtifactSummary) StartupArtifactSummary {
 	return StartupArtifactSummary{
 		ID: artifact.ID, CanonicalRevisionID: artifact.CanonicalRevisionID,
-		ExactCoreVersion: artifact.ExactCoreVersion, AdapterID: artifact.AdapterID,
-		AdapterRevision: artifact.AdapterRevision,
-		CoreArtifactID:  artifact.CoreArtifactID, ConfigSHA256: artifact.ConfigSHA256,
-		Diagnostics: append(json.RawMessage(nil), artifact.Diagnostics...), State: artifact.State,
-		IgnoredDigest: artifact.IgnoredDigest, CheckedAt: artifact.CheckedAt, CreatedAt: artifact.CreatedAt,
+		ExactCoreVersion: artifact.ExactCoreVersion,
+		CoreArtifactID:   artifact.CoreArtifactID, ConfigSHA256: artifact.ConfigSHA256,
+		State: artifact.State, CheckedAt: artifact.CheckedAt, CreatedAt: artifact.CreatedAt,
 	}
 }
 

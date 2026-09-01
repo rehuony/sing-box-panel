@@ -3,6 +3,8 @@ import { BrowserRouter } from 'react-router-dom';
 import type { ApiClient } from '@/api/api-client';
 
 import { AppRoutes } from '@/routes';
+import { ThemeProvider } from '@/theme';
+import { TooltipProvider } from '@/components/ui/tooltip';
 import { ApiClientProvider } from '@/api/api-client-context';
 import { AuthSessionProvider } from '@/stores/auth-session-provider';
 
@@ -14,11 +16,15 @@ export interface AppProps {
 export function App({ apiClient, basePath }: AppProps) {
   return (
     <ApiClientProvider client={apiClient}>
-      <AuthSessionProvider>
-        <BrowserRouter basename={basePath || undefined}>
-          <AppRoutes />
-        </BrowserRouter>
-      </AuthSessionProvider>
+      <ThemeProvider>
+        <TooltipProvider delay={800}>
+          <AuthSessionProvider>
+            <BrowserRouter basename={basePath || undefined}>
+              <AppRoutes />
+            </BrowserRouter>
+          </AuthSessionProvider>
+        </TooltipProvider>
+      </ThemeProvider>
     </ApiClientProvider>
   );
 }

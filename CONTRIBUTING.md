@@ -47,7 +47,7 @@ runtime identity, or release behavior.
   with public contract changes.
 - Run `make notices` when production dependencies change and include the
   resulting `THIRD_PARTY_NOTICES` update.
-- Follow the version-onboarding and release guides for adapter or packaging
+- Follow the version-onboarding and release guides for core-version or packaging
   changes instead of adding compatibility fallbacks.
 - Do not commit settings, databases, generated binaries, `web/dist`, release
   private keys, credentials, tokens, or secret-bearing diagnostics.

@@ -5,6 +5,7 @@ package singbox
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -14,7 +15,6 @@ import (
 	"time"
 
 	"github.com/rehuony/sing-box-panel/internal/artifactstore"
-	"github.com/rehuony/sing-box-panel/internal/configuration"
 )
 
 const (
@@ -25,7 +25,7 @@ const (
 	maximumContractOutput           = 64 << 10
 )
 
-func TestCompiledAdaptersAcceptExactOfficialBinary(t *testing.T) {
+func TestExactOfficialBinaryAcceptsRawConfiguration(t *testing.T) {
 	binaryPath, expectedVersion, expectedArchitecture := exactCoreContractInput(t)
 	if runtime.GOOS != "linux" || runtime.GOARCH != expectedArchitecture {
 		t.Fatalf("contract runner = %s/%s, want linux/%s", runtime.GOOS, runtime.GOARCH, expectedArchitecture)
@@ -52,37 +52,22 @@ func TestCompiledAdaptersAcceptExactOfficialBinary(t *testing.T) {
 	if got := report.Version.String(); got != expectedVersion {
 		t.Fatalf("reported version = %q, want %q", got, expectedVersion)
 	}
-	fingerprint, err := report.FeatureFingerprint.CanonicalJSON()
-	if err != nil {
-		t.Fatalf("encode reported feature fingerprint: %v", err)
+	version, found := Lookup(expectedVersion)
+	if !found {
+		t.Fatalf("sing-box %s is not in the support catalog", expectedVersion)
 	}
-
-	registry := NewConfigurationRegistry()
-	profile := configuration.CoreProfile{
-		ExactVersion:       expectedVersion,
-		OperatingSystem:    "linux",
-		Architecture:       expectedArchitecture,
-		Variant:            "plain",
-		FeatureFingerprint: fingerprint,
+	if _, found := version.Profiles[expectedArchitecture]; !found {
+		t.Fatalf("sing-box %s has no %s release profile", expectedVersion, expectedArchitecture)
 	}
-	resolved, err := registry.Resolve(profile)
-	if err != nil {
-		t.Fatalf("resolve exact compiled adapter: %v", err)
-	}
-	if resolved.ExactVersion() != expectedVersion {
-		t.Fatalf("resolved version = %q, want %q", resolved.ExactVersion(), expectedVersion)
-	}
-	projection, err := registry.Project(profile, configuration.ProjectionRequest{
-		CanonicalJSON: []byte(`{"schema_version":2,"configuration":{"log":{"disabled":true},"inbounds":[{"_panel":{"id":"contract-mixed","enabled":true},"type":"mixed","tag":"contract-mixed","listen":"127.0.0.1","listen_port":19090}]}}`),
-	})
-	if err != nil {
-		t.Fatalf("project compatible canonical configuration: %v", err)
+	rawConfiguration := []byte(`{"log":{"disabled":true},"inbounds":[{"type":"mixed","tag":"contract-mixed","listen":"127.0.0.1","listen_port":19090}]}`)
+	if err := ValidateConfiguration(expectedVersion, rawConfiguration); err != nil && !errors.Is(err, ErrConfigurationSchemaUnavailable) {
+		t.Fatalf("validate raw configuration: %v", err)
 	}
 
 	configurationDirectory := t.TempDir()
 	configurationPath := filepath.Join(configurationDirectory, "config.json")
-	if err := os.WriteFile(configurationPath, projection.ConfigJSON, 0o600); err != nil {
-		t.Fatalf("write projected configuration: %v", err)
+	if err := os.WriteFile(configurationPath, rawConfiguration, 0o600); err != nil {
+		t.Fatalf("write raw configuration: %v", err)
 	}
 	command := exec.CommandContext(ctx, absoluteBinary, "check", "-c", configurationPath)
 	command.Env = []string{"HOME=" + configurationDirectory, "LANG=C", "LC_ALL=C", "PATH=/usr/bin:/bin"}

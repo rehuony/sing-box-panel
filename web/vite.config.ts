@@ -1,18 +1,19 @@
 import react from '@vitejs/plugin-react';
+import tailwindcss from '@tailwindcss/vite';
 import { defineConfig } from 'vitest/config';
+
+import { configurationSchemaPlugin } from './vite/configuration-schema-plugin.ts';
 
 export default defineConfig({
   base: './',
-  plugins: [react()],
+  publicDir: 'public',
+  plugins: [react(), tailwindcss(), configurationSchemaPlugin()],
   resolve: {
-    alias: {
-      '@': new URL('./src', import.meta.url).pathname,
-    },
+    tsconfigPaths: true,
   },
   build: {
     outDir: 'dist',
     emptyOutDir: true,
-    sourcemap: true,
   },
   test: {
     environment: 'jsdom',

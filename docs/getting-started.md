@@ -17,15 +17,13 @@ make bootstrap
 make check build
 ```
 
-`make check` validates third-party notices and OpenAPI, runs Web linting,
-type-checking and tests, verifies that Go sources and modules are current, and
-runs `go vet`, Go tests, Shell syntax checks, and the network-independent
-installer contract tests. It is read-only and does not create `web/dist`.
-`make build` builds the production Web bundle and writes
-`bin/sing-box-panel` with the `webdist` build tag.
-
-A plain `go build` embeds only a small development fallback page. It is not the
-production Web build.
+`make check` validates the offline configuration-schema artifacts,
+third-party notices, and OpenAPI; runs Web linting, type-checking, tests, and a
+production Web build; then verifies Go sources and modules and runs `go vet`,
+Go tests, Shell syntax checks, and the network-independent installer contract
+tests. `make build` uses the same Web-first boundary and writes
+`bin/sing-box-panel`. Go compilation requires the generated `web/dist` tree;
+that generated tree is the only UI source accepted by the Go build.
 
 ## Initialize settings and storage
 
@@ -48,17 +46,18 @@ configuration, or subscription data.
 
 ### Database compatibility
 
-The current application uses a new SQLite database identity. Opening a new
-empty database applies the embedded migration series; opening an unidentified
-non-empty database, a database with a previous identity, or a database newer
-than this binary fails closed. There is no in-place migration from previous
-database identities in the current local-development contract. Use a fresh
-`data_dir` and retain any earlier database separately when testing this
+The current application uses SQLite `application_id = 0x53425034` and storage
+schema version 1, represented by the single consolidated `0001_initial.sql`.
+Opening a new empty database applies that schema; opening an unidentified
+non-empty database, a database with a previous application ID, or a database
+newer than this binary fails closed. There is no in-place migration or
+backfill from previous database identities in the current contract. Use a
+fresh `data_dir` and retain any earlier database separately when testing this
 architecture.
 
-The canonical document's `schema_version: 2` and SQLite's migration version
-are independent values. The former describes global sing-box intent; the
-latter describes panel storage tables.
+Configuration revisions contain a sing-box JSON object directly. SQLite's
+storage schema version describes panel tables and is unrelated to sing-box
+configuration or JSON Schema versions.
 
 ### Settings selection
 
@@ -76,8 +75,11 @@ user it is `$XDG_DATA_HOME/sing-box-panel`, or
 
 The settings file contains process-bootstrap values only: listener, base path,
 external browser origin, authentication, data directory, GitHub catalog access,
-traffic-period policy, subscription publication metadata, and log retention.
-Mutable product state belongs in SQLite.
+traffic-period and raw-sample retention policy, subscription publication
+metadata, and log retention. Mutable product state belongs in SQLite. New
+settings initialize `traffic.sample_retention_days` to 90. The field is
+required in every settings file and must be between 1 and 366; older settings
+without it are rejected instead of receiving a compatibility default.
 
 When the panel is served through a reverse proxy, set `server.external_origin`
 to the single public HTTP origin, for example `https://panel.example.com`.
@@ -109,12 +111,12 @@ task separately with:
 ./bin/sing-box-panel task wait TASK_ID --config ./setting.json
 ```
 
-## Create the first canonical revision
+## Create the first configuration revision
 
-Save this minimal document as `canonical.json`:
+Save this minimal document as `configuration.json`:
 
 ```json
-{"schema_version":2,"configuration":{}}
+{}
 ```
 
 Import it with an explicit empty compare-and-swap base:
@@ -122,13 +124,13 @@ Import it with an explicit empty compare-and-swap base:
 ```sh
 ./bin/sing-box-panel config import \
   --config ./setting.json \
-  --file ./canonical.json \
+  --file ./configuration.json \
   --base-revision none
 ```
 
 Later writes must provide the current revision ID as `--base-revision`. A
 stale base is rejected instead of being merged implicitly. Continue with
-[Core versions and adapters](core-versions-and-adapters.md), then
+[Core versions](core-versions.md), then
 [Configuration and runtime](configuration-and-runtime.md).
 
 ## Install a systemd service

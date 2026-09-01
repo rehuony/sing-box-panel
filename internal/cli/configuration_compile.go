@@ -13,7 +13,7 @@ import (
 )
 
 func newConfigCompileCommand(state *options, open openApplicationFunc) *cobra.Command {
-	var artifactID, acceptedIgnoredDigest string
+	var artifactID string
 	var detach bool
 	command := &cobra.Command{
 		Use:   "compile",
@@ -29,7 +29,7 @@ func newConfigCompileCommand(state *options, open openApplicationFunc) *cobra.Co
 			}
 			defer instance.Close()
 			compiled, err := instance.CompileConfiguration(cmd.Context(), application.ConfigurationCompileRequest{
-				CoreArtifactID: artifactID, AcceptedIgnoredDigest: acceptedIgnoredDigest,
+				CoreArtifactID: artifactID,
 			})
 			if err != nil {
 				return classifyConfigurationCompileError(err)
@@ -56,19 +56,16 @@ func newConfigCompileCommand(state *options, open openApplicationFunc) *cobra.Co
 		},
 	}
 	command.Flags().StringVar(&artifactID, "artifact", "", "required immutable core artifact ID")
-	command.Flags().StringVar(&acceptedIgnoredDigest, "accept-ignored", "", "exact ignored diagnostic digest shown by preview")
 	command.Flags().BoolVar(&detach, "detach", false, "return after the durable check task is queued")
 	return command
 }
 
 func classifyConfigurationCompileError(err error) error {
 	switch {
-	case errors.Is(err, configuration.ErrUnsupportedCoreProfile):
-		return &Error{Kind: ErrorUnavailable, Code: "core_profile_unsupported", Message: err.Error(), Cause: err}
-	case errors.Is(err, configuration.ErrIgnoredNotAccepted):
-		return &Error{Kind: ErrorConflict, Code: "ignored_fields_not_accepted", Message: err.Error(), Cause: err}
-	case errors.Is(err, configuration.ErrProjection), errors.Is(err, configuration.ErrProjectionBlocked):
-		return &Error{Kind: ErrorValidation, Code: "configuration_projection_failed", Message: err.Error(), Cause: err}
+	case errors.Is(err, configuration.ErrInvalidDocument):
+		return &Error{Kind: ErrorValidation, Code: "configuration_invalid", Message: err.Error(), Cause: err}
+	case errors.Is(err, application.ErrConfigurationSchemaValidation):
+		return &Error{Kind: ErrorValidation, Code: "configuration_schema_validation_failed", Message: err.Error(), Cause: err}
 	default:
 		return &Error{Kind: ErrorDomain, Code: "configuration_compile_failed", Message: err.Error(), Cause: err}
 	}

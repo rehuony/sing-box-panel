@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -21,6 +22,8 @@ func matchObservabilityRoute(path string) (resource string, identifier string, m
 		return "log-stream", "", true
 	case "/api/v1/metrics":
 		return "metrics", "", true
+	case "/api/v1/metrics/history":
+		return "metrics-history", "", true
 	case "/api/v1/traffic/status":
 		return "traffic-status", "", true
 	case "/api/v1/traffic/periods":
@@ -58,6 +61,8 @@ func (handler *Handler) observabilityHandler(method, resource, identifier string
 		return func(w http.ResponseWriter, request *http.Request) { handler.deleteDurableLog(w, request, identifier) }
 	case resource == "metrics" && method == http.MethodGet:
 		return handler.currentMetrics
+	case resource == "metrics-history" && method == http.MethodGet:
+		return handler.metricsHistory
 	case resource == "traffic-status" && method == http.MethodGet:
 		return handler.trafficStatus
 	case resource == "traffic-periods" && identifier == "" && method == http.MethodGet:
@@ -320,6 +325,42 @@ func (handler *Handler) currentMetrics(w http.ResponseWriter, request *http.Requ
 	writeJSON(w, http.StatusOK, result)
 }
 
+func (handler *Handler) metricsHistory(w http.ResponseWriter, request *http.Request) {
+	if !handler.requireCommands(w, request) {
+		return
+	}
+	query, ok := strictCoreQuery(w, request, "from", "to", "bucket_seconds", "activation_bundle_id")
+	if !ok {
+		return
+	}
+	from, ok := optionalHTTPTime(w, request, query.Get("from"), "from")
+	if !ok {
+		return
+	}
+	to, ok := optionalHTTPTime(w, request, query.Get("to"), "to")
+	if !ok {
+		return
+	}
+	bucketSeconds, err := strconv.ParseInt(query.Get("bucket_seconds"), 10, 64)
+	if from == nil || to == nil || err != nil || bucketSeconds < 1 {
+		writeProblem(w, request, http.StatusBadRequest, "metrics_history_filter_invalid", "Metrics history filter invalid", "from, to, and a positive integer bucket_seconds are required.")
+		return
+	}
+	bundleID := query.Get("activation_bundle_id")
+	if bundleID != "" && !validStableIdentifier(bundleID) {
+		writeProblem(w, request, http.StatusBadRequest, "metrics_history_filter_invalid", "Metrics history filter invalid", "activation_bundle_id is invalid.")
+		return
+	}
+	result, err := handler.commands.MetricsHistory(request.Context(), store.MetricsHistoryFilter{
+		From: *from, To: *to, BucketSeconds: bucketSeconds, ActivationBundleID: bundleID,
+	})
+	if err != nil {
+		writeProblem(w, request, http.StatusBadRequest, "metrics_history_filter_invalid", "Metrics history filter invalid", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
 func (handler *Handler) trafficStatus(w http.ResponseWriter, request *http.Request) {
 	if !handler.requireCommands(w, request) {
 		return
@@ -339,7 +380,9 @@ func (handler *Handler) listTrafficPeriods(w http.ResponseWriter, request *http.
 	if !handler.requireCommands(w, request) {
 		return
 	}
-	query, ok := strictCoreQuery(w, request, "activation_bundle_id", "from", "to", "limit")
+	query, ok := strictCoreQuery(
+		w, request, "activation_bundle_id", "from", "to", "before_time", "before_id", "limit",
+	)
 	if !ok {
 		return
 	}
@@ -359,16 +402,41 @@ func (handler *Handler) listTrafficPeriods(w http.ResponseWriter, request *http.
 		writeProblem(w, request, http.StatusBadRequest, "traffic_range_invalid", "Traffic range invalid", "to must be later than from.")
 		return
 	}
-	periods, err := handler.commands.ListTrafficPeriods(request.Context(), store.TrafficPeriodFilter{
-		ActivationBundleID: query.Get("activation_bundle_id"), OverlapsStart: from, OverlapsEnd: to, Limit: limit,
+	cursor, ok := optionalTrafficPeriodCursor(
+		w, request, query.Get("before_time"), query.Get("before_id"),
+	)
+	if !ok {
+		return
+	}
+	page, err := handler.commands.ListTrafficPeriodPage(request.Context(), store.TrafficPeriodFilter{
+		ActivationBundleID: query.Get("activation_bundle_id"), OverlapsStart: from, OverlapsEnd: to,
+		Cursor: cursor, Limit: limit,
 	})
 	if err != nil {
 		writeProblem(w, request, http.StatusBadRequest, "traffic_filter_invalid", "Traffic filter invalid", err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, struct {
-		Items []store.TrafficPeriod `json:"items"`
-	}{Items: periods})
+	writeJSON(w, http.StatusOK, page)
+}
+
+func optionalTrafficPeriodCursor(
+	w http.ResponseWriter,
+	request *http.Request,
+	rawTime, identifier string,
+) (*store.TrafficPeriodCursor, bool) {
+	if rawTime == "" && identifier == "" {
+		return nil, true
+	}
+	if rawTime == "" || identifier == "" || !validStableIdentifier(identifier) {
+		writeProblem(w, request, http.StatusBadRequest, "traffic_cursor_invalid", "Traffic cursor invalid", "before_time and before_id must be supplied together.")
+		return nil, false
+	}
+	value, err := time.Parse(time.RFC3339Nano, strings.TrimSpace(rawTime))
+	if err != nil {
+		writeProblem(w, request, http.StatusBadRequest, "traffic_cursor_invalid", "Traffic cursor invalid", "before_time must be an RFC3339 instant.")
+		return nil, false
+	}
+	return &store.TrafficPeriodCursor{PeriodStart: value.UTC(), ID: identifier}, true
 }
 
 func (handler *Handler) getTrafficPeriod(w http.ResponseWriter, request *http.Request, identifier string) {

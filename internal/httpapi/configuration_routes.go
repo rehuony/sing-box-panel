@@ -3,11 +3,14 @@
 package httpapi
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"net/http"
 
 	"github.com/rehuony/sing-box-panel/internal/application"
 	"github.com/rehuony/sing-box-panel/internal/configuration"
+	"github.com/rehuony/sing-box-panel/internal/singbox"
 	"github.com/rehuony/sing-box-panel/internal/store"
 )
 
@@ -70,16 +73,50 @@ func (handler *Handler) coreConfigurationSupport(w http.ResponseWriter, request 
 	writeJSON(w, http.StatusOK, result)
 }
 
+func (handler *Handler) coreConfigurationSchema(w http.ResponseWriter, request *http.Request, identifier string) {
+	if !handler.requireCommands(w, request) {
+		return
+	}
+	if !validCoreArtifactID(identifier) {
+		writeProblem(w, request, http.StatusBadRequest, "core_artifact_id_invalid", "Core artifact ID invalid", "The core artifact ID is invalid.")
+		return
+	}
+	if _, ok := strictCoreQuery(w, request); !ok {
+		return
+	}
+	result, err := handler.commands.ConfigurationSchema(request.Context(), identifier)
+	if err != nil {
+		writeConfigurationProblem(w, request, "configuration_schema_failed", err)
+		return
+	}
+	etag := configurationSchemaETag(result)
+	w.Header().Set("ETag", etag)
+	w.Header().Set("Cache-Control", "private, no-cache")
+	if publicSubscriptionETagMatches(request.Header.Get("If-None-Match"), etag) {
+		w.WriteHeader(http.StatusNotModified)
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
+func configurationSchemaETag(contract application.ConfigurationSchema) string {
+	digest := sha256.New()
+	_, _ = digest.Write([]byte(contract.ExactVersion))
+	_, _ = digest.Write([]byte{0})
+	_, _ = digest.Write([]byte(contract.SchemaSHA256))
+	return quoteETag(hex.EncodeToString(digest.Sum(nil)))
+}
+
 func writeConfigurationProblem(w http.ResponseWriter, request *http.Request, code string, err error) {
 	switch {
 	case application.IsCoreArtifactNotFound(err):
 		writeProblem(w, request, http.StatusNotFound, "core_artifact_not_found", "Core artifact not found", "The selected immutable core artifact does not exist.")
-	case errors.Is(err, configuration.ErrUnsupportedCoreProfile):
-		writeProblem(w, request, http.StatusConflict, "core_profile_unsupported", "Core profile unsupported", err.Error())
-	case errors.Is(err, configuration.ErrIgnoredNotAccepted):
-		writeProblem(w, request, http.StatusConflict, "ignored_fields_not_accepted", "Ignored fields not accepted", err.Error())
-	case errors.Is(err, configuration.ErrProjection), errors.Is(err, configuration.ErrProjectionBlocked):
-		writeProblem(w, request, http.StatusUnprocessableEntity, "configuration_projection_failed", "Configuration projection failed", err.Error())
+	case errors.Is(err, singbox.ErrConfigurationSchemaUnavailable):
+		writeProblem(w, request, http.StatusConflict, "configuration_schema_unavailable", "Configuration schema unavailable", err.Error())
+	case errors.Is(err, configuration.ErrInvalidDocument):
+		writeProblem(w, request, http.StatusUnprocessableEntity, "configuration_invalid", "Configuration invalid", err.Error())
+	case errors.Is(err, application.ErrConfigurationSchemaValidation):
+		writeProblem(w, request, http.StatusUnprocessableEntity, "configuration_schema_validation_failed", "Configuration schema validation failed", err.Error())
 	case errors.Is(err, store.ErrCompiledStartupEvidenceStale):
 		writeProblem(w, request, http.StatusPreconditionFailed, "configuration_changed", "Configuration changed", "The global configuration changed during compilation; retry with the current revision.")
 	default:

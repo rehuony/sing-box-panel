@@ -89,7 +89,7 @@ jobs:
           - [ ] Decide whether to reuse an existing behavior family or add a new one.
           - [ ] Record reviewed amd64 and arm64 artifacts, sizes, and SHA-256 digests.
           - [ ] Update the support catalog and generated Go data.
-          - [ ] Add or update focused adapter and inbound tests.
+          - [ ] Add native Schema tests when available and review inbound conversion separately.
           - [ ] Pass the native amd64 and arm64 core contract workflow.
           EOF
             if [[ -z "${issue_number}" ]]; then

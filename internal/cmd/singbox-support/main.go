@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Command singbox-support generates and checks the reviewed sing-box support catalog.
+// Command singbox-support generates and checks sing-box support assets.
 package main
 
 import (
@@ -32,17 +32,31 @@ type sourceCatalog struct {
 }
 
 func main() {
-	if len(os.Args) != 2 || (os.Args[1] != "generate" && os.Args[1] != "check") {
-		fatalf("usage: singbox-support generate|check")
+	if len(os.Args) < 2 {
+		fatalf("usage: singbox-support generate|check|export-web --out DIRECTORY")
 	}
 	root, err := repositoryRoot()
 	if err != nil {
 		fatalf("locate repository: %v", err)
 	}
-	if os.Args[1] == "generate" {
+	switch os.Args[1] {
+	case "generate":
+		if len(os.Args) != 2 {
+			fatalf("usage: singbox-support generate")
+		}
 		err = generate(root)
-	} else {
+	case "check":
+		if len(os.Args) != 2 {
+			fatalf("usage: singbox-support check")
+		}
 		err = check(root)
+	case "export-web":
+		if len(os.Args) != 4 || os.Args[2] != "--out" || strings.TrimSpace(os.Args[3]) == "" {
+			fatalf("usage: singbox-support export-web --out DIRECTORY")
+		}
+		err = exportWebSchemas(os.Args[3])
+	default:
+		fatalf("usage: singbox-support generate|check|export-web --out DIRECTORY")
 	}
 	if err != nil {
 		fatalf("%v", err)
@@ -52,13 +66,33 @@ func main() {
 func repositoryRoot() (string, error) {
 	command := exec.Command("git", "rev-parse", "--show-toplevel")
 	output, err := command.Output()
+	if err == nil {
+		return strings.TrimSpace(string(output)), nil
+	}
+	directory, err := os.Getwd()
 	if err != nil {
 		return "", err
 	}
-	return strings.TrimSpace(string(output)), nil
+	for {
+		if _, statErr := os.Stat(filepath.Join(directory, "go.mod")); statErr == nil {
+			return directory, nil
+		}
+		parent := filepath.Dir(directory)
+		if parent == directory {
+			return "", errors.New("go.mod was not found in this directory or its parents")
+		}
+		directory = parent
+	}
 }
 
 func generate(root string) error {
+	if err := generateCatalog(root); err != nil {
+		return err
+	}
+	return generateSchemas(root)
+}
+
+func generateCatalog(root string) error {
 	catalog, err := loadCatalog(filepath.Join(root, catalogPath))
 	if err != nil {
 		return err
@@ -97,18 +131,20 @@ func check(root string) error {
 	if !bytes.Equal(onDisk, generated) {
 		return errors.New("generated support catalog is stale; run `go tool singbox-support generate`")
 	}
+	if err := singbox.ValidateConfigurationSchemaAssets(); err != nil {
+		return fmt.Errorf("validate configuration schema assets: %w", err)
+	}
 	if err := singbox.ValidateFamilies(); err != nil {
 		return err
 	}
-	expectedVersions := make([]string, len(catalog.Versions))
-	for index, version := range catalog.Versions {
-		expectedVersions[index] = version.ExactVersion
+	expectedInboundVersions := make([]string, 0, len(catalog.Versions))
+	for _, version := range catalog.Versions {
+		if version.InboundFamily != "" {
+			expectedInboundVersions = append(expectedInboundVersions, version.ExactVersion)
+		}
 	}
-	if got := singbox.NewConfigurationRegistry().Versions(); !slices.Equal(got, expectedVersions) {
-		return fmt.Errorf("configuration registry versions %v differ from catalog %v", got, expectedVersions)
-	}
-	if got := singbox.NewInboundRegistry().Versions(); !slices.Equal(got, expectedVersions) {
-		return fmt.Errorf("inbound registry versions %v differ from catalog %v", got, expectedVersions)
+	if got := singbox.NewInboundRegistry().Versions(); !slices.Equal(got, expectedInboundVersions) {
+		return fmt.Errorf("inbound registry versions %v differ from catalog %v", got, expectedInboundVersions)
 	}
 	return nil
 }
@@ -159,14 +195,12 @@ func validateCatalog(catalog sourceCatalog) error {
 		}
 		previous = parsed
 		releaseLine := fmt.Sprintf("%d.%d", parsed.Major(), parsed.Minor())
-		if !validBehaviorFamily(version.Family, releaseLine) {
-			return fmt.Errorf("version %s has mismatched family %s", version.ExactVersion, version.Family)
+		if version.InboundFamily != "" && !validBehaviorFamily(version.InboundFamily, releaseLine) {
+			return fmt.Errorf("version %s has mismatched inbound family %s", version.ExactVersion, version.InboundFamily)
 		}
-		if version.Upstream.Tag != "v"+version.ExactVersion || !isLowerHex(version.Upstream.Commit, 40) {
+		if version.Upstream.Tag != "v"+version.ExactVersion || !isLowerHex(version.Upstream.Commit, 40) ||
+			!validModuleSum(version.Upstream.ModuleSum) || !validModuleSum(version.Upstream.GoModSum) {
 			return fmt.Errorf("version %s has invalid upstream provenance", version.ExactVersion)
-		}
-		if strings.TrimSpace(version.AdapterRevision) == "" {
-			return fmt.Errorf("version %s has empty adapter revision", version.ExactVersion)
 		}
 		if len(version.Profiles) != 2 {
 			return fmt.Errorf("version %s must have exactly amd64 and arm64 profiles", version.ExactVersion)
@@ -184,20 +218,25 @@ func validateCatalog(catalog sourceCatalog) error {
 			if len(profile.Features) == 0 || !slices.IsSorted(profile.Features) || hasDuplicate(profile.Features) {
 				return fmt.Errorf("version %s %s features must be non-empty, unique, and sorted", version.ExactVersion, architecture)
 			}
+			for _, feature := range profile.Features {
+				if !validBuildTag(feature) {
+					return fmt.Errorf("version %s %s has unsafe build tag %q", version.ExactVersion, architecture, feature)
+				}
+			}
 		}
-		contract, _ := json.Marshal(struct {
-			Revision string
-			AMD64    []string
-			ARM64    []string
-		}{
-			Revision: version.AdapterRevision,
-			AMD64:    version.Profiles[singbox.ArchitectureAMD64].Features,
-			ARM64:    version.Profiles[singbox.ArchitectureARM64].Features,
-		})
-		if expected, ok := familyContracts[version.Family]; ok && expected != string(contract) {
-			return fmt.Errorf("version %s changes the reviewed contract inside family %s", version.ExactVersion, version.Family)
+		if version.InboundFamily != "" {
+			contract, _ := json.Marshal(struct {
+				AMD64 []string
+				ARM64 []string
+			}{
+				AMD64: version.Profiles[singbox.ArchitectureAMD64].Features,
+				ARM64: version.Profiles[singbox.ArchitectureARM64].Features,
+			})
+			if expected, ok := familyContracts[version.InboundFamily]; ok && expected != string(contract) {
+				return fmt.Errorf("version %s changes the reviewed contract inside inbound family %s", version.ExactVersion, version.InboundFamily)
+			}
+			familyContracts[version.InboundFamily] = string(contract)
 		}
-		familyContracts[version.Family] = string(contract)
 	}
 	return nil
 }
@@ -208,8 +247,9 @@ func renderGenerated(catalog sourceCatalog) ([]byte, error) {
 	output.WriteString("// SPDX-License-Identifier: GPL-3.0-or-later\n\npackage singbox\n\n")
 	output.WriteString("var generatedVersions = []Version{\n")
 	for _, version := range catalog.Versions {
-		fmt.Fprintf(&output, "{ExactVersion:%q, Family:%q, Upstream:Upstream{Tag:%q, Commit:%q}, AdapterRevision:%q, Profiles:map[string]Profile{\n",
-			version.ExactVersion, version.Family, version.Upstream.Tag, version.Upstream.Commit, version.AdapterRevision)
+		fmt.Fprintf(&output, "{ExactVersion:%q, InboundFamily:%q, Upstream:Upstream{Tag:%q, Commit:%q, ModuleSum:%q, GoModSum:%q}, Profiles:map[string]Profile{\n",
+			version.ExactVersion, version.InboundFamily, version.Upstream.Tag, version.Upstream.Commit,
+			version.Upstream.ModuleSum, version.Upstream.GoModSum)
 		for _, architecture := range []string{singbox.ArchitectureAMD64, singbox.ArchitectureARM64} {
 			profile := version.Profiles[architecture]
 			fmt.Fprintf(&output, "%q:{AssetName:%q, URL:%q, SHA256:%q, Size:%d, Features:%#v},\n",
@@ -245,6 +285,20 @@ func isLowerHex(value string, length int) bool {
 	return true
 }
 
+func validModuleSum(value string) bool {
+	if !strings.HasPrefix(value, "h1:") || len(value) < 8 {
+		return false
+	}
+	for _, character := range strings.TrimPrefix(value, "h1:") {
+		if (character >= 'a' && character <= 'z') || (character >= 'A' && character <= 'Z') ||
+			(character >= '0' && character <= '9') || character == '+' || character == '/' || character == '=' {
+			continue
+		}
+		return false
+	}
+	return true
+}
+
 func hasDuplicate(values []string) bool {
 	for index := 1; index < len(values); index++ {
 		if values[index] == values[index-1] {
@@ -252,6 +306,18 @@ func hasDuplicate(values []string) bool {
 		}
 	}
 	return false
+}
+
+func validBuildTag(value string) bool {
+	if value == "" {
+		return false
+	}
+	for _, character := range value {
+		if character != '_' && (character < 'a' || character > 'z') && (character < '0' || character > '9') {
+			return false
+		}
+	}
+	return true
 }
 
 func validBehaviorFamily(value, releaseLine string) bool {

@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/rehuony/sing-box-panel/internal/store"
 )
@@ -17,13 +18,14 @@ var (
 )
 
 type RuntimeIdentity struct {
-	PID                int    `json:"pid"`
-	ProcessStartToken  string `json:"process_start_token"`
-	ExactCoreVersion   string `json:"exact_core_version"`
-	CoreArtifactID     string `json:"core_artifact_id"`
-	ArchiveSHA256      string `json:"archive_sha256"`
-	BinarySHA256       string `json:"binary_sha256"`
-	ActivationBundleID string `json:"activation_bundle_id"`
+	PID                int       `json:"pid"`
+	ProcessStartToken  string    `json:"process_start_token"`
+	ExactCoreVersion   string    `json:"exact_core_version"`
+	CoreArtifactID     string    `json:"core_artifact_id"`
+	ArchiveSHA256      string    `json:"archive_sha256"`
+	BinarySHA256       string    `json:"binary_sha256"`
+	ActivationBundleID string    `json:"activation_bundle_id"`
+	StartedAt          time.Time `json:"started_at"`
 }
 
 type runtimeIdentityStore interface {
@@ -78,6 +80,7 @@ func (resolver *RuntimeIdentityResolver) Resolve(ctx context.Context) (RuntimeId
 		ArchiveSHA256:      observation.ArchiveSHA256,
 		BinarySHA256:       observation.BinarySHA256,
 		ActivationBundleID: observation.ActivationBundleID,
+		StartedAt:          observation.StartedAt,
 	}, nil
 }
 

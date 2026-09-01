@@ -99,10 +99,14 @@ func (s *Store) CompleteTask(
 	if len(completion.Failure) != 0 && !json.Valid(completion.Failure) {
 		return Task{}, errors.New("task failure is not valid JSON")
 	}
+	runtimeCommit, err := prepareRuntimeTaskCommit(completion.Runtime)
+	if err != nil {
+		return Task{}, err
+	}
 	now = now.UTC()
 
 	var completed Task
-	err := s.WithTx(ctx, func(tx *sql.Tx) error {
+	err = s.WithTx(ctx, func(tx *sql.Tx) error {
 		current, err := getTask(ctx, tx, taskID)
 		if err != nil {
 			if errors.Is(err, ErrTaskNotFound) {
@@ -141,7 +145,16 @@ func (s *Store) CompleteTask(
 				failureJSON = nil
 			}
 		}
-		if status == TaskStatusSucceeded && current.Lane == TaskLaneRuntime {
+		if runtimeCommit != nil {
+			if err := applyRuntimeTaskCommit(
+				ctx, tx, current, completion.Succeeded, status, runtimeCommit,
+			); err != nil {
+				return err
+			}
+		}
+		commitRuntimeIntent := status == TaskStatusSucceeded ||
+			(status == TaskStatusCanceled && completion.Succeeded && runtimeCommit != nil)
+		if commitRuntimeIntent && current.Lane == TaskLaneRuntime {
 			if err := commitSuccessfulRuntimeIntent(ctx, tx, current, now); err != nil {
 				return err
 			}
@@ -152,13 +165,14 @@ func (s *Store) CompleteTask(
 			`UPDATE tasks
                     SET status = ?, result_json = ?, error_json = ?,
                         lease_owner = NULL, lease_expires_at = NULL, updated_at = ?
-                  WHERE id = ? AND status = 'running' AND lease_owner = ?`,
+				  WHERE id = ? AND status = 'running' AND lease_owner = ? AND generation = ?`,
 			string(status),
 			resultJSON,
 			failureJSON,
 			formatTaskTime(now),
 			taskID,
 			leaseOwner,
+			current.Generation,
 		)
 		if err != nil {
 			return fmt.Errorf("complete task: %w", err)

@@ -87,19 +87,24 @@ func TestTaskLoggingRecordsLifecycleWithoutPayloadOrErrorText(t *testing.T) {
 	t.Cleanup(func() { _ = database.Close() })
 	commands := application.FromStore(database)
 	wantErr := errors.New("token=must-not-be-persisted")
-	handler := withTaskLogging(commands, taskHandlerFunc(func(
+	commit := &store.RuntimeTaskCommit{}
+	handler := withTaskLogging(commands, taskResultHandlerFunc(func(
 		context.Context,
 		store.Task,
 		taskExecutionControl,
-	) (json.RawMessage, error) {
-		return nil, wantErr
+	) (taskHandlerResult, error) {
+		return taskHandlerResult{Runtime: commit}, wantErr
 	}))
 	task := store.Task{
 		ID: "task-log-test", Kind: store.TaskKindCoreInstall, Lane: store.TaskLaneMaintenance,
 		Attempt: 2, Payload: json.RawMessage(`{"token":"also-must-not-be-persisted"}`),
 	}
-	if _, err := handler.Handle(ctx, task, nil); !errors.Is(err, wantErr) {
+	result, err := handler.Handle(ctx, task, nil)
+	if !errors.Is(err, wantErr) {
 		t.Fatalf("Handle() error = %v", err)
+	}
+	if result.Runtime != commit {
+		t.Fatal("task logging did not preserve runtime completion evidence")
 	}
 	page, err := commands.ListLogs(ctx, application.LogListRequest{Source: store.LogSourceTask, Limit: 10})
 	if err != nil {
@@ -137,7 +142,7 @@ func TestStatusProviderReadsCanonicalHead(t *testing.T) {
 	}
 }
 
-func TestDashboardContextUsesAppliedBundleAndExactAdapterEvidence(t *testing.T) {
+func TestDashboardContextUsesAppliedBundleAndConfigurationSupport(t *testing.T) {
 	ctx := context.Background()
 	database, err := store.Open(ctx, filepath.Join(t.TempDir(), "panel.db"))
 	if err != nil {
@@ -165,7 +170,7 @@ func TestDashboardContextUsesAppliedBundleAndExactAdapterEvidence(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := commands.CompleteStartupCheck(ctx, compiled.Artifact.ID, true, json.RawMessage(`[]`)); err != nil {
+	if _, err := commands.CompleteStartupCheck(ctx, compiled.Artifact.ID, true); err != nil {
 		t.Fatal(err)
 	}
 	prepared, task, err := commands.PrepareAndQueueRuntimeApply(ctx, compiled.Artifact.ID, store.MonitoringProcessOnly)
@@ -187,7 +192,7 @@ func TestDashboardContextUsesAppliedBundleAndExactAdapterEvidence(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if status.ConfigurationState != "sing-box/v1_13_19/official-linux-plain@2" || status.AppliedBundleID == nil ||
+	if status.ConfigurationState != "raw" || status.AppliedBundleID == nil ||
 		*status.AppliedBundleID != prepared.Bundle.ID || status.Running {
 		t.Fatalf("system status = %+v", status)
 	}
@@ -197,12 +202,12 @@ func TestDashboardContextUsesAppliedBundleAndExactAdapterEvidence(t *testing.T) 
 	}
 	if contextValue.Applied == nil || contextValue.Applied.Bundle != prepared.Bundle.ID ||
 		contextValue.Applied.Revision != canonicalSave.Revision.Sequence ||
-		contextValue.View.ExactVersion != core.ExactVersion || !contextValue.Adapter.Supported ||
-		contextValue.Adapter.Label != "sing-box/v1_13_19/official-linux-plain@2" ||
+		contextValue.View.ExactVersion != core.ExactVersion || contextValue.Configuration.Supported ||
+		contextValue.Configuration.Label != "Raw JSON" ||
 		contextValue.Canonical.HasUnappliedChanges {
 		t.Fatalf("dashboard context = %+v", contextValue)
 	}
-	if _, err := commands.SetCanonicalValue(ctx, canonicalSave.Revision.ID, "/configuration/log", json.RawMessage(`{"level":"info"}`)); err != nil {
+	if _, err := commands.SetCanonicalValue(ctx, canonicalSave.Revision.ID, "/log", json.RawMessage(`{"level":"info"}`)); err != nil {
 		t.Fatal(err)
 	}
 	contextValue, err = provider.DashboardContext(ctx)

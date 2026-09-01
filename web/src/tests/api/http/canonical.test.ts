@@ -3,6 +3,20 @@ import { describe, expect, it, vi } from 'vitest';
 import { createHttpApiClient } from '@/api/http-api-client';
 
 describe('createHttpApiClient canonical domain', () => {
+  it('forwards the revision sequence cursor and requested page size', async () => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(new Response(JSON.stringify({ items: [] }), {
+      status: 200, headers: { 'Content-Type': 'application/json' },
+    }));
+    const client = createHttpApiClient({ baseUrl: '/panel/api/v1', fetcher });
+
+    await client.listRevisions({ beforeSequence: 41, limit: 24 });
+
+    expect(fetcher).toHaveBeenCalledWith(
+      '/panel/api/v1/config/revisions?before_sequence=41&limit=24',
+      expect.objectContaining({ method: 'GET' }),
+    );
+  });
+
   it('uses the one global canonical document and immutable revision routes', async () => {
     const fetcher = vi.fn<typeof fetch>().mockImplementation(async () =>
       new Response(JSON.stringify({ id: 'revision_2', revision: { id: 'revision_2' } }), {

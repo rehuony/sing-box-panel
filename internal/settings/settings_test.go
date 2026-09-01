@@ -33,6 +33,9 @@ func TestInitializeAndLoad(t *testing.T) {
 	if loaded.Auth.Token != value.Auth.Token {
 		t.Fatal("Load() did not preserve the token")
 	}
+	if loaded.Traffic.SampleRetentionDays != 90 {
+		t.Fatalf("initialized sample retention = %d, want 90", loaded.Traffic.SampleRetentionDays)
+	}
 	if _, err := Initialize(path, false); err == nil {
 		t.Fatal("Initialize() unexpectedly overwrote settings")
 	}
@@ -59,10 +62,45 @@ func TestLoadRejectsAmbiguousSettings(t *testing.T) {
 	}
 }
 
+func TestLoadRejectsMissingOrInvalidTrafficSampleRetention(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "setting.json")
+	legacy := `{
+  "server":{"host":"127.0.0.1","port":3000,"base_path":""},
+  "data_dir":"data",
+  "auth":{"token":"token","secure_cookie":false},
+  "github":{"token":"","catalog_ttl_hours":12},
+  "traffic":{"quota_gib":null,"period_months":1},
+  "subscription":{"author":"a","provider":"p","private_source_cidrs":[]},
+  "logs":{"retention_days":7}
+}`
+	if err := os.WriteFile(path, []byte(legacy), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Load(path); err == nil || !strings.Contains(err.Error(), "sample_retention_days") {
+		t.Fatalf("Load() missing retention error = %v", err)
+	}
+	loaded := Defaults()
+	loaded.DataDir = root
+	loaded.Auth.Token = "token"
+	loaded.Traffic.SampleRetentionDays = 367
+	if err := loaded.Validate(); err == nil || !strings.Contains(err.Error(), "sample_retention_days") {
+		t.Fatalf("Validate() oversized retention error = %v", err)
+	}
+
+	invalid := strings.Replace(legacy, `"period_months":1`, `"period_months":1,"sample_retention_days":0`, 1)
+	if err := os.WriteFile(path, []byte(invalid), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Load(path); err == nil || !strings.Contains(err.Error(), "sample_retention_days") {
+		t.Fatalf("Load() explicit invalid retention error = %v", err)
+	}
+}
+
 func TestValidateRejectsUnsafeBasePath(t *testing.T) {
 	for _, basePath := range []string{"relative", "/trailing/", "/double//slash", "/../escape", "/panel?<script>"} {
 		t.Run(basePath, func(t *testing.T) {
-			value := Defaults(filepath.Join(t.TempDir(), "setting.json"))
+			value := Defaults()
 			value.DataDir = t.TempDir()
 			value.Auth.Token = "token"
 			value.Server.BasePath = basePath
@@ -98,7 +136,7 @@ func TestNormalizeOrigin(t *testing.T) {
 }
 
 func TestValidateExternalOriginAndSecureCookie(t *testing.T) {
-	value := Defaults(filepath.Join(t.TempDir(), "setting.json"))
+	value := Defaults()
 	value.DataDir = t.TempDir()
 	value.Auth.Token = "token"
 

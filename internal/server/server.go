@@ -76,6 +76,19 @@ func Run(ctx context.Context, settingsPath string, build buildinfo.Info, assets 
 			Metadata: mustLogMetadata(map[string]any{"deleted": retention.Deleted}),
 		})
 	}
+	trafficRetention, err := commands.EnforceTrafficSampleRetention(ctx)
+	if err != nil {
+		return fmt.Errorf("enforce traffic sample retention: %w", err)
+	}
+	if trafficRetention.Deleted > 0 {
+		recordOperationalLog(commands, application.LogRecordRequest{
+			Source: store.LogSourcePanel, Level: store.LogLevelInfo, Code: "traffic.retention_enforced",
+			Message: "Expired raw traffic samples were deleted",
+			Metadata: mustLogMetadata(map[string]any{
+				"deleted": trafficRetention.Deleted, "cutoff": trafficRetention.Cutoff,
+			}),
+		})
+	}
 	uploadGC, uploadGCErr := commands.GarbageCollectCoreUploads(ctx)
 	if uploadGCErr != nil {
 		recordOperationalLog(commands, application.LogRecordRequest{
@@ -95,6 +108,12 @@ func Run(ctx context.Context, settingsPath string, build buildinfo.Info, assets 
 	defer func() {
 		stopRetention()
 		<-retentionDone
+	}()
+	sampleRetentionContext, stopSampleRetention := context.WithCancel(ctx)
+	sampleRetentionDone := startTrafficSampleRetention(sampleRetentionContext, commands)
+	defer func() {
+		stopSampleRetention()
+		<-sampleRetentionDone
 	}()
 	artifacts, err := artifactstore.New(artifactstore.Options{Root: filepath.Join(configuration.DataDir, "artifacts")})
 	if err != nil {
@@ -214,7 +233,7 @@ func builtInTaskHandlers(
 	artifacts application.ArtifactInstaller,
 	runtimeControl *runtimeServices,
 ) map[store.TaskKind]taskHandler {
-	runtimeHandler := taskHandlerFunc(runtimeIntentHandler(runtimeControl))
+	runtimeHandler := runtimeIntentHandler(runtimeControl)
 	return map[store.TaskKind]taskHandler{
 		store.TaskKindCanonicalSaved:            taskHandlerFunc(acknowledgeCanonicalSave),
 		store.TaskKindCatalogRefresh:            taskHandlerFunc(catalogRefreshHandler(commands)),

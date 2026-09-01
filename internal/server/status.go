@@ -56,8 +56,10 @@ func (provider *statusProvider) SystemStatus(ctx context.Context) (httpapi.Syste
 			return httpapi.SystemStatus{}, supportErr
 		}
 		status.ConfigurationState = "unsupported"
-		if support.Supported {
-			status.ConfigurationState = support.AdapterID + "@" + support.Revision
+		if support.Structured {
+			status.ConfigurationState = "schema@" + support.ExactVersion
+		} else {
+			status.ConfigurationState = "raw"
 		}
 	}
 	if bootstrap.Head != nil {
@@ -79,7 +81,7 @@ func (provider *statusProvider) DashboardContext(ctx context.Context) (httpapi.D
 			SavedAt:             bootstrap.Hub.UpdatedAt,
 			HasUnappliedChanges: false,
 		},
-		Adapter: httpapi.DashboardAdapter{
+		Configuration: httpapi.DashboardConfiguration{
 			Supported: false,
 			Label:     "No core selected",
 			Warning:   &warning,
@@ -139,13 +141,14 @@ func (provider *statusProvider) DashboardContext(ctx context.Context) (httpapi.D
 		if err != nil {
 			return httpapi.DashboardContext{}, err
 		}
-		result.Adapter.Supported = support.Supported
-		if support.Supported {
-			result.Adapter.Label = support.AdapterID + "@" + support.Revision
-			result.Adapter.Warning = nil
+		result.Configuration.Supported = support.Structured
+		if support.Structured {
+			result.Configuration.Label = "Schema " + support.ExactVersion
+			result.Configuration.Warning = nil
 		} else {
-			result.Adapter.Label = "Unsupported core profile"
-			result.Adapter.Warning = stringPointer(support.Reason)
+			result.Configuration.Label = "Raw JSON"
+			warning := "Structured editing is unavailable for this version; exact-binary check still gates activation."
+			result.Configuration.Warning = &warning
 		}
 	}
 	return result, nil

@@ -34,6 +34,13 @@ func TestObservabilityHTTPReadsOnlyPersistedEvidence(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	olderPeriod, err := database.UpsertTrafficPeriod(context.Background(), store.TrafficPeriod{
+		ID: "period-http-older", PeriodStart: now.Add(-3 * time.Hour), PeriodEnd: now.Add(-2 * time.Hour),
+		InboundBytes: 5, OutboundBytes: 8, Counters: json.RawMessage(`{}`), CreatedAt: now.Add(-3 * time.Hour),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	logs := authenticatedRequest(handler, http.MethodGet, "/api/v1/logs?source=panel&level=warn&limit=1", "", "")
 	if logs.Code != http.StatusOK || !strings.Contains(logs.Body.String(), entry.ID) {
@@ -78,15 +85,36 @@ func TestObservabilityHTTPReadsOnlyPersistedEvidence(t *testing.T) {
 		t.Fatalf("traffic status=%d body=%s", trafficStatus.Code, trafficStatus.Body.String())
 	}
 
-	from := url.QueryEscape(now.Add(-2 * time.Hour).Format(time.RFC3339Nano))
+	from := url.QueryEscape(now.Add(-4 * time.Hour).Format(time.RFC3339Nano))
 	to := url.QueryEscape(now.Add(2 * time.Hour).Format(time.RFC3339Nano))
 	periods := authenticatedRequest(handler, http.MethodGet, "/api/v1/traffic/periods?from="+from+"&to="+to+"&limit=1", "", "")
 	if periods.Code != http.StatusOK || !strings.Contains(periods.Body.String(), period.ID) {
 		t.Fatalf("periods status=%d body=%s", periods.Code, periods.Body.String())
 	}
+	var firstPage store.TrafficPeriodPage
+	if err := json.Unmarshal(periods.Body.Bytes(), &firstPage); err != nil || firstPage.Next == nil {
+		t.Fatalf("traffic first page = %+v, err=%v", firstPage, err)
+	}
+	cursorTime := url.QueryEscape(firstPage.Next.PeriodStart.Format(time.RFC3339Nano))
+	cursorID := url.QueryEscape(firstPage.Next.ID)
+	nextPeriods := authenticatedRequest(handler, http.MethodGet, "/api/v1/traffic/periods?before_time="+cursorTime+"&before_id="+cursorID+"&limit=1", "", "")
+	if nextPeriods.Code != http.StatusOK || !strings.Contains(nextPeriods.Body.String(), olderPeriod.ID) {
+		t.Fatalf("next periods status=%d body=%s", nextPeriods.Code, nextPeriods.Body.String())
+	}
 	shownPeriod := authenticatedRequest(handler, http.MethodGet, "/api/v1/traffic/periods/"+period.ID, "", "")
 	if shownPeriod.Code != http.StatusOK || !strings.Contains(shownPeriod.Body.String(), `"outbound_bytes":34`) {
 		t.Fatalf("period status=%d body=%s", shownPeriod.Code, shownPeriod.Body.String())
+	}
+	history := authenticatedRequest(
+		handler,
+		http.MethodGet,
+		"/api/v1/metrics/history?from="+url.QueryEscape(now.Add(-time.Hour).Format(time.RFC3339Nano))+"&to="+url.QueryEscape(now.Format(time.RFC3339Nano))+"&bucket_seconds=900",
+		"",
+		"",
+	)
+	if history.Code != http.StatusOK || !strings.Contains(history.Body.String(), `"coverage":"missing"`) ||
+		!strings.Contains(history.Body.String(), `"bucket_seconds":900`) {
+		t.Fatalf("metrics history status=%d body=%s", history.Code, history.Body.String())
 	}
 }
 
@@ -104,7 +132,10 @@ func TestObservabilityHTTPIsAuthenticatedAndStrict(t *testing.T) {
 		{target: "/api/v1/logs?after_time=2026-08-26T00%3A00%3A00Z", code: "log_cursor_invalid"},
 		{target: "/api/v1/logs?source=other", code: "log_filter_invalid"},
 		{target: "/api/v1/traffic/periods?from=2026-08-27T00%3A00%3A00Z&to=2026-08-26T00%3A00%3A00Z", code: "traffic_range_invalid"},
+		{target: "/api/v1/traffic/periods?before_time=2026-08-27T00%3A00%3A00Z", code: "traffic_cursor_invalid"},
 		{target: "/api/v1/metrics?latest=true", code: "query_invalid"},
+		{target: "/api/v1/metrics/history?from=2026-08-26T00%3A00%3A00Z&to=2026-08-27T00%3A00%3A00Z", code: "metrics_history_filter_invalid"},
+		{target: "/api/v1/metrics/history?from=2026-08-26T00%3A00%3A00Z&to=2026-11-27T00%3A00%3A00Z&bucket_seconds=3600", code: "metrics_history_filter_invalid"},
 	}
 	for _, test := range tests {
 		response := authenticatedRequest(handler, http.MethodGet, test.target, "", "")

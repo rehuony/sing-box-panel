@@ -56,8 +56,9 @@ type GitHub struct {
 }
 
 type Traffic struct {
-	QuotaGiB     *int64 `json:"quota_gib"`
-	PeriodMonths int    `json:"period_months"`
+	QuotaGiB            *int64 `json:"quota_gib"`
+	PeriodMonths        int    `json:"period_months"`
+	SampleRetentionDays int    `json:"sample_retention_days"`
 }
 
 type Subscription struct {
@@ -71,13 +72,13 @@ type Logs struct {
 }
 
 // Defaults returns safe defaults for the current effective user.
-func Defaults(configPath string) Settings {
+func Defaults() Settings {
 	dataDir := defaultDataDir()
 	return Settings{
 		Server:  Server{Host: "127.0.0.1", Port: 3000},
 		DataDir: dataDir,
 		GitHub:  GitHub{CatalogTTLHours: 12},
-		Traffic: Traffic{PeriodMonths: 1},
+		Traffic: Traffic{PeriodMonths: 1, SampleRetentionDays: 90},
 		Subscription: Subscription{
 			Author:             "reagin",
 			Provider:           "ZgoCloud",
@@ -191,6 +192,9 @@ func (value Settings) Validate() error {
 	if value.Traffic.PeriodMonths < 1 || value.Traffic.PeriodMonths > 120 {
 		return errors.New("traffic.period_months must be between 1 and 120")
 	}
+	if value.Traffic.SampleRetentionDays < 1 || value.Traffic.SampleRetentionDays > 366 {
+		return errors.New("traffic.sample_retention_days must be between 1 and 366")
+	}
 	if strings.TrimSpace(value.Subscription.Author) == "" || strings.TrimSpace(value.Subscription.Provider) == "" {
 		return errors.New("subscription.author and subscription.provider must not be empty")
 	}
@@ -263,7 +267,7 @@ func Initialize(path string, overwrite bool) (Settings, error) {
 			return Settings{}, fmt.Errorf("inspect settings %q: %w", path, err)
 		}
 	}
-	value := Defaults(path)
+	value := Defaults()
 	token, err := randomToken(32)
 	if err != nil {
 		return Settings{}, err

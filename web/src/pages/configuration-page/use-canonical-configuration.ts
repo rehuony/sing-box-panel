@@ -1,16 +1,19 @@
-import { useCallback, useEffect, useState } from 'react';
+import type { TFunction } from 'i18next';
+
+import { useTranslation } from 'react-i18next';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
+  isLosslessNumber,
   parse as parseLosslessJSON,
   stringify as stringifyLosslessJSON,
 } from 'lossless-json';
 
-import type { CanonicalRevisionPage, CanonicalSnapshot, JsonObject } from '@/api/api-client';
+import type { CanonicalRevisionPage, CanonicalSnapshot } from '@/api/api-client';
 
 import { useApiClient } from '@/api/api-client-context';
 
 export interface CanonicalDraft {
-  schema_version: 2;
-  configuration: JsonObject;
+  [key: string]: unknown;
 }
 
 type LoadState
@@ -18,39 +21,60 @@ type LoadState
     | { status: 'error'; snapshot: null; draft: null; error: unknown }
     | { status: 'ready'; snapshot: CanonicalSnapshot; draft: CanonicalDraft; error: null };
 
-function parseDraft(snapshot: CanonicalSnapshot): CanonicalDraft {
-  const parsed = parseLosslessJSON(snapshot.document_json);
-  if (parsed === null || Array.isArray(parsed) || typeof parsed !== 'object') {
-    throw new Error('The canonical revision is not an object.');
+type CanonicalDraftErrorCode = 'notEncoded' | 'object';
+
+class CanonicalDraftError extends Error {
+  constructor(readonly code: CanonicalDraftErrorCode) {
+    super(code);
+    this.name = 'CanonicalDraftError';
   }
-  const envelope = parsed as Record<string, unknown>;
-  if (envelope.schema_version !== 2 || envelope.configuration === null
-    || Array.isArray(envelope.configuration) || typeof envelope.configuration !== 'object') {
-    throw new Error('The canonical revision is not a valid configuration envelope.');
-  }
-  return envelope as unknown as CanonicalDraft;
 }
 
-function encodeDraft(draft: CanonicalDraft): string {
-  const encoded = stringifyLosslessJSON(draft);
-  if (encoded === undefined) throw new Error('The structured configuration cannot be encoded.');
+export function localizeCanonicalDraftError(error: unknown, t: TFunction): unknown {
+  return error instanceof CanonicalDraftError
+    ? new Error(t(`configuration.advanced.error.${error.code}`))
+    : error;
+}
+
+export function parseCanonicalDraft(documentJSON: string): CanonicalDraft {
+  const parsed = parseLosslessJSON(documentJSON);
+  if (parsed === null || Array.isArray(parsed) || typeof parsed !== 'object' || isLosslessNumber(parsed)) {
+    throw new CanonicalDraftError('object');
+  }
+  return parsed as CanonicalDraft;
+}
+
+export function encodeCanonicalValue(value: unknown, indentation?: number): string {
+  const encoded = stringifyLosslessJSON(value, null, indentation);
+  if (encoded === undefined) throw new CanonicalDraftError('notEncoded');
   return encoded;
+}
+
+export function encodeCanonicalDraft(draft: CanonicalDraft, indentation?: number): string {
+  return encodeCanonicalValue(draft, indentation);
+}
+
+function parseDraft(snapshot: CanonicalSnapshot): CanonicalDraft {
+  return parseCanonicalDraft(snapshot.document_json);
 }
 
 export function useCanonicalConfiguration() {
   const client = useApiClient();
+  const { i18n, t } = useTranslation();
   const [state, setState] = useState<LoadState>({ status: 'loading', snapshot: null, draft: null, error: null });
   const [revisions, setRevisions] = useState<CanonicalRevisionPage | null>(null);
   const [revisionError, setRevisionError] = useState<unknown>(null);
+  const [loadingOlderRevisions, setLoadingOlderRevisions] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<unknown>(null);
   const [message, setMessage] = useState('');
+  const loadingOlderRevisionsRef = useRef(false);
 
   const load = useCallback(async (signal?: AbortSignal) => {
     try {
       const [snapshot, revisionPage] = await Promise.all([
         client.getCanonical(signal),
-        client.listRevisions(signal),
+        client.listRevisions({ limit: 8 }, signal),
       ]);
       if (signal?.aborted) return;
       setState({ status: 'ready', snapshot, draft: parseDraft(snapshot), error: null });
@@ -58,9 +82,12 @@ export function useCanonicalConfiguration() {
       setRevisionError(null);
     } catch (error) {
       if (signal?.aborted || (error instanceof DOMException && error.name === 'AbortError')) return;
-      setState({ status: 'error', snapshot: null, draft: null, error });
+      setState({
+        status: 'error', snapshot: null, draft: null,
+        error: localizeCanonicalDraftError(error, i18n.t),
+      });
     }
-  }, [client]);
+  }, [client, i18n]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -68,13 +95,14 @@ export function useCanonicalConfiguration() {
     return () => controller.abort();
   }, [load]);
 
-  const update = useCallback((change: (draft: CanonicalDraft) => CanonicalDraft) => {
+  const applyUpdate = useCallback((change: (draft: CanonicalDraft) => CanonicalDraft) => {
+    if (saving) return;
     setState((current) => current.status === 'ready'
       ? { ...current, draft: change(current.draft) }
       : current);
     setMessage('');
     setSaveError(null);
-  }, []);
+  }, [saving]);
 
   const save = useCallback(async () => {
     if (state.status !== 'ready') return;
@@ -82,22 +110,29 @@ export function useCanonicalConfiguration() {
     setSaveError(null);
     setMessage('');
     try {
-      const result = await client.replaceCanonical(encodeDraft(state.draft), state.snapshot.id);
+      const result = await client.replaceCanonical(
+        encodeCanonicalDraft(state.draft),
+        state.snapshot.id,
+      );
       const next = result.revision;
       setState({ status: 'ready', snapshot: next, draft: parseDraft(next), error: null });
-      setMessage(result.no_change ? 'Configuration already matched the saved revision.' : `Saved global revision #${next.sequence}.`);
+      setMessage(result.no_change
+        ? t('configuration.message.noChange')
+        : t('configuration.message.saved', {
+            sequence: new Intl.NumberFormat(i18n.language).format(next.sequence),
+          }));
       try {
-        setRevisions(await client.listRevisions());
+        setRevisions(await client.listRevisions({ limit: 8 }));
         setRevisionError(null);
       } catch (error) {
         setRevisionError(error);
       }
     } catch (error) {
-      setSaveError(error);
+      setSaveError(localizeCanonicalDraftError(error, t));
     } finally {
       setSaving(false);
     }
-  }, [client, state]);
+  }, [client, i18n.language, state, t]);
 
   const reset = useCallback(() => {
     setState((current) => current.status === 'ready'
@@ -107,36 +142,62 @@ export function useCanonicalConfiguration() {
     setSaveError(null);
   }, []);
 
-  const restore = useCallback(async (reference: string) => {
+  const restore = useCallback(async (reference: string, baseRevisionID: string) => {
     if (state.status !== 'ready') return;
     setSaving(true);
     setSaveError(null);
     setMessage('');
     try {
-      const result = await client.restoreRevision(reference, state.snapshot.id);
+      const result = await client.restoreRevision(reference, baseRevisionID);
       const next = result.revision;
       setState({ status: 'ready', snapshot: next, draft: parseDraft(next), error: null });
-      setMessage(`Restored revision ${reference} as new global revision #${next.sequence}.`);
-      setRevisions(await client.listRevisions());
+      setMessage(t('configuration.message.restored', {
+        reference,
+        sequence: new Intl.NumberFormat(i18n.language).format(next.sequence),
+      }));
+      setRevisions(await client.listRevisions({ limit: 8 }));
       setRevisionError(null);
     } catch (error) {
-      setSaveError(error);
+      setSaveError(localizeCanonicalDraftError(error, t));
     } finally {
       setSaving(false);
     }
-  }, [client, state]);
+  }, [client, i18n.language, state, t]);
+
+  const loadOlderRevisions = useCallback(async () => {
+    const beforeSequence = revisions?.next_before_sequence;
+    if (beforeSequence === undefined || loadingOlderRevisionsRef.current) return;
+    loadingOlderRevisionsRef.current = true;
+    setLoadingOlderRevisions(true);
+    try {
+      const page = await client.listRevisions({ beforeSequence, limit: 8 });
+      setRevisions((current) => current === null
+        ? page
+        : {
+            items: [...current.items, ...page.items],
+            next_before_sequence: page.next_before_sequence,
+          });
+      setRevisionError(null);
+    } catch (error) {
+      setRevisionError(error);
+    } finally {
+      loadingOlderRevisionsRef.current = false;
+      setLoadingOlderRevisions(false);
+    }
+  }, [client, revisions?.next_before_sequence]);
 
   return {
     state,
     revisions,
     revisionError,
+    loadingOlderRevisions,
     saving,
     saveError,
     message,
-    load,
-    update,
+    update: applyUpdate,
     save,
     reset,
     restore,
+    loadOlderRevisions,
   };
 }

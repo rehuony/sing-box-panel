@@ -14,7 +14,10 @@ import (
 	"github.com/rehuony/sing-box-panel/internal/store"
 )
 
-const runtimeReconcileInterval = time.Second
+const (
+	runtimeReconcileInterval            = time.Second
+	runtimeObservationHeartbeatInterval = 30 * time.Second
+)
 
 type runtimeReconciler struct {
 	services           *runtimeServices
@@ -24,6 +27,7 @@ type runtimeReconciler struct {
 	lastError          string
 	runningFence       string
 	runningSince       time.Time
+	lastHeartbeat      time.Time
 	stableFence        string
 }
 
@@ -104,10 +108,10 @@ func (reconciler *runtimeReconciler) recordRecoveryDecision(result application.R
 }
 
 // observeRunningIncarnation requires the same manager-owned PID and OS start
-// token to be confirmed on every reconciliation tick. Only after one complete
-// stability window does it durably advance ObservedAt for that exact fence.
-// This preserves proof across panel restarts without counting downtime as
-// process uptime.
+// token to be confirmed on every reconciliation tick. ObservedAt advances at a
+// bounded 30-second cadence, while StableObservedAt is set only after one full
+// locally witnessed stability window. A heartbeat therefore cannot reset a
+// recovery episode by itself.
 func (reconciler *runtimeReconciler) observeRunningIncarnation(
 	ctx context.Context,
 	live coreruntime.LiveIdentity,
@@ -145,29 +149,46 @@ func (reconciler *runtimeReconciler) observeRunningIncarnation(
 	if reconciler.runningFence != fence {
 		reconciler.runningFence = fence
 		reconciler.runningSince = now
+		reconciler.lastHeartbeat = observation.ObservedAt
 		reconciler.stableFence = ""
 		return nil
 	}
-	if reconciler.stableFence == fence || now.Before(reconciler.runningSince.Add(store.RuntimeRecoveryStableWindow)) {
+	if reconciler.stableFence != fence && !now.Before(reconciler.runningSince.Add(store.RuntimeRecoveryStableWindow)) {
+		confirmed, err := reconciler.services.database.ConfirmRuntimeObservation(
+			ctx, observation.PID, observation.ProcessStartToken, now,
+		)
+		if err != nil {
+			return err
+		}
+		if !confirmed {
+			reconciler.resetRunningIncarnation()
+			return errors.New("runtime observation changed before stable-run confirmation")
+		}
+		reconciler.lastHeartbeat = now
+		reconciler.stableFence = fence
 		return nil
 	}
-	confirmed, err := reconciler.services.database.ConfirmRuntimeObservation(
-		ctx, observation.PID, observation.ProcessStartToken, now,
-	)
-	if err != nil {
-		return err
+	if reconciler.lastHeartbeat.IsZero() ||
+		!now.Before(reconciler.lastHeartbeat.Add(runtimeObservationHeartbeatInterval)) {
+		heartbeat, err := reconciler.services.database.HeartbeatRuntimeObservation(
+			ctx, observation.PID, observation.ProcessStartToken, now,
+		)
+		if err != nil {
+			return err
+		}
+		if !heartbeat {
+			reconciler.resetRunningIncarnation()
+			return errors.New("runtime observation changed before heartbeat")
+		}
+		reconciler.lastHeartbeat = now
 	}
-	if !confirmed {
-		reconciler.resetRunningIncarnation()
-		return errors.New("runtime observation changed before stable-run confirmation")
-	}
-	reconciler.stableFence = fence
 	return nil
 }
 
 func (reconciler *runtimeReconciler) resetRunningIncarnation() {
 	reconciler.runningFence = ""
 	reconciler.runningSince = time.Time{}
+	reconciler.lastHeartbeat = time.Time{}
 	reconciler.stableFence = ""
 }
 
@@ -245,10 +266,8 @@ func (services *runtimeServices) reconcileFailedRuntime(
 	if err != nil {
 		return application.RuntimeRecoveryResult{}, err
 	}
-	if !bootstrap.Hub.DesiredRunning || bootstrap.Hub.AppliedBundleID == "" ||
-		bootstrap.Hub.DesiredBundleID != bootstrap.Hub.AppliedBundleID {
-		return application.RuntimeRecoveryResult{}, nil
-	}
+	recoveryEligible := bootstrap.Hub.DesiredRunning && bootstrap.Hub.AppliedBundleID != "" &&
+		bootstrap.Hub.DesiredBundleID == bootstrap.Hub.AppliedBundleID
 
 	var expectedObservation *store.RuntimeObservation
 	observation, err := services.database.RuntimeObservation(ctx)
@@ -264,17 +283,72 @@ func (services *runtimeServices) reconcileFailedRuntime(
 	default:
 		return application.RuntimeRecoveryResult{}, err
 	}
+	reason := runtimeFailureReason(live, "unexpected_exit")
+	occurredAt := runtimeFailureTime(live, time.Now())
+	transitionTask := store.Task{}
+	if recoveryEligible {
+		transitionTask.Generation = bootstrap.Hub.TargetGeneration
+	}
+	var transition store.RuntimeTransitionInput
+	if expectedObservation != nil {
+		occurredAt = runtimeEventTime(occurredAt, expectedObservation.ObservedAt)
+		transition = runtimeTransitionFromObservation(
+			runtimeIncarnationTransitionKey(*expectedObservation, store.RuntimeTransitionFailed, reason),
+			store.RuntimeTransitionFailed,
+			reason,
+			*expectedObservation,
+			occurredAt,
+			nil,
+			transitionTask,
+		)
+	} else {
+		bundleID := live.BundleID
+		if bundleID == "" {
+			bundleID = bootstrap.Hub.AppliedBundleID
+		}
+		transition = runtimeTransitionWithoutObservation(
+			runtimeTransitionDedupeKey(
+				"unobserved-failure",
+				live.BundleID,
+				live.StartedAt.UTC().Format(time.RFC3339Nano),
+				reason,
+			),
+			store.RuntimeTransitionFailed,
+			reason,
+			bundleID,
+			occurredAt,
+			nil,
+			transitionTask,
+		)
+	}
+	if !recoveryEligible {
+		if expectedObservation == nil {
+			return application.RuntimeRecoveryResult{}, services.appendRuntimeTransition(ctx, transition)
+		}
+		cleared, err := services.database.ClearRuntimeObservationAndTransitions(
+			ctx,
+			expectedObservation.PID,
+			expectedObservation.ProcessStartToken,
+			[]store.RuntimeTransitionInput{transition},
+		)
+		if err != nil {
+			return application.RuntimeRecoveryResult{}, err
+		}
+		if !cleared {
+			return application.RuntimeRecoveryResult{}, store.ErrRuntimeIdentityMismatch
+		}
+		return application.RuntimeRecoveryResult{}, nil
+	}
 
 	return services.commands.RequestRuntimeRecovery(ctx, application.RuntimeRecoveryRequest{
 		ExpectedBundleID:    bootstrap.Hub.AppliedBundleID,
 		ExpectedGeneration:  bootstrap.Hub.TargetGeneration,
 		ExpectedObservation: expectedObservation,
 		StableRunProven:     runtimeObservationProvesStableRun(expectedObservation),
+		Transition:          &transition,
 	})
 }
 
 func runtimeObservationProvesStableRun(observation *store.RuntimeObservation) bool {
-	return observation != nil && !observation.ObservedAt.Before(
-		observation.StartedAt.Add(store.RuntimeRecoveryStableWindow),
-	)
+	return observation != nil && observation.StableObservedAt != nil
 }

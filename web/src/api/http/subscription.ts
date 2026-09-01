@@ -1,5 +1,5 @@
 import type { HttpApiContext } from './shared';
-import type { ApiClient, CreatedSubscriptionToken, SubscriptionChannel, SubscriptionChannelPage, SubscriptionNodeCatalog, SubscriptionPreview, SubscriptionSource, SubscriptionSourcePage, SubscriptionSourceVersionPage, SubscriptionSourceVersionSave, SubscriptionToken, SubscriptionTokenPage, SubscriptionTokenRotation, SubscriptionUser, SubscriptionUserGrants, SubscriptionUserPage, Task } from '../api-client';
+import type { ApiClient, CreatedSubscriptionToken, SubscriptionChannel, SubscriptionChannelPage, SubscriptionNodeCatalog, SubscriptionPreview, SubscriptionSource, SubscriptionSourcePage, SubscriptionSourceVersion, SubscriptionSourceVersionPage, SubscriptionSourceVersionSave, SubscriptionToken, SubscriptionTokenPage, SubscriptionTokenRotation, SubscriptionUser, SubscriptionUserGrants, SubscriptionUserPage, Task } from '../api-client';
 
 function utf8Base64(value: string): string {
   const bytes = new TextEncoder().encode(value);
@@ -196,6 +196,13 @@ export function createSubscriptionHttpApi(context: HttpApiContext) {
         { method: 'GET', signal },
       );
     },
+    getSubscriptionSourceVersion(sourceID, versionID, signal) {
+      return request<SubscriptionSourceVersion>(
+        fetcher,
+        `${baseUrl}/subscription/sources/${encodeURIComponent(sourceID)}/versions/${encodeURIComponent(versionID)}`,
+        { method: 'GET', signal },
+      );
+    },
     createSubscriptionSourceVersion(sourceID, format, rawBody, updatedAt, signal) {
       return request<SubscriptionSourceVersionSave>(
         fetcher,
@@ -240,6 +247,13 @@ export function createSubscriptionHttpApi(context: HttpApiContext) {
         method: 'GET',
         signal,
       });
+    },
+    getSubscriptionToken(tokenID, signal) {
+      return request<SubscriptionToken>(
+        fetcher,
+        `${baseUrl}/subscription/tokens/${encodeURIComponent(tokenID)}`,
+        { method: 'GET', signal },
+      );
     },
     createSubscriptionToken(input, signal) {
       return request<CreatedSubscriptionToken>(

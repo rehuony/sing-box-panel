@@ -6,6 +6,8 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"net/url"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -14,6 +16,80 @@ import (
 	"github.com/rehuony/sing-box-panel/internal/configuration"
 	"github.com/rehuony/sing-box-panel/internal/store"
 )
+
+func TestRuntimeHistoryHTTPUsesStablePairedCursor(t *testing.T) {
+	handler, database := newCoreHTTPFixture(t)
+	initialized, err := database.LatestRuntimeTransition(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := initialized.OccurredAt.Add(time.Minute)
+	for index, reason := range []string{"startup_reconciled_stopped", "stop_succeeded"} {
+		if _, err := database.AppendRuntimeTransition(context.Background(), store.RuntimeTransitionInput{
+			DedupeKey:  "runtime-http-" + strconv.Itoa(index),
+			State:      store.RuntimeTransitionStopped,
+			Reason:     reason,
+			OccurredAt: now.Add(time.Duration(index) * time.Second),
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	query := url.Values{
+		"state": []string{string(store.RuntimeTransitionStopped)},
+		"limit": []string{"1"},
+	}
+	response := authenticatedRequest(
+		handler,
+		http.MethodGet,
+		"/api/v1/core/runtime/history?"+query.Encode(),
+		"",
+		"",
+	)
+	if response.Code != http.StatusOK {
+		t.Fatalf("runtime history status=%d body=%s", response.Code, response.Body.String())
+	}
+	var page application.RuntimeHistoryPage
+	if err := json.Unmarshal(response.Body.Bytes(), &page); err != nil {
+		t.Fatal(err)
+	}
+	if len(page.Items) != 1 || page.Items[0].Reason != "stop_succeeded" ||
+		page.Next == nil || page.HistoryStartedAt.IsZero() {
+		t.Fatalf("runtime history page = %+v", page)
+	}
+	nextQuery := url.Values{
+		"state":       []string{string(store.RuntimeTransitionStopped)},
+		"before_time": []string{page.Next.OccurredAt.Format(time.RFC3339Nano)},
+		"before_id":   []string{strconv.FormatInt(page.Next.ID, 10)},
+		"limit":       []string{"1"},
+	}
+	nextResponse := authenticatedRequest(
+		handler,
+		http.MethodGet,
+		"/api/v1/core/runtime/history?"+nextQuery.Encode(),
+		"",
+		"",
+	)
+	if nextResponse.Code != http.StatusOK {
+		t.Fatalf("next runtime history status=%d body=%s", nextResponse.Code, nextResponse.Body.String())
+	}
+	var next application.RuntimeHistoryPage
+	if err := json.Unmarshal(nextResponse.Body.Bytes(), &next); err != nil {
+		t.Fatal(err)
+	}
+	if len(next.Items) != 1 || next.Items[0].Reason != "startup_reconciled_stopped" || next.Next != nil {
+		t.Fatalf("next runtime history page = %+v", next)
+	}
+
+	for _, target := range []string{
+		"/api/v1/core/runtime/history?before_time=" + url.QueryEscape(now.Format(time.RFC3339Nano)),
+		"/api/v1/core/runtime/history?state=starting",
+	} {
+		invalid := authenticatedRequest(handler, http.MethodGet, target, "", "")
+		if invalid.Code != http.StatusBadRequest {
+			t.Fatalf("invalid runtime history %q status=%d body=%s", target, invalid.Code, invalid.Body.String())
+		}
+	}
+}
 
 func TestRuntimeAndConfigurationHTTPRoutesUseApplicationServices(t *testing.T) {
 	handler, database := newCoreHTTPFixture(t)
@@ -39,7 +115,8 @@ func TestRuntimeAndConfigurationHTTPRoutesUseApplicationServices(t *testing.T) {
 		`{"core_artifact_id":"`+core.ID+`"}`,
 		"",
 	)
-	if previewResponse.Code != http.StatusOK || !strings.Contains(previewResponse.Body.String(), `"adapter_id":"sing-box/v1_13_19/official-linux-plain"`) {
+	if previewResponse.Code != http.StatusOK || !strings.Contains(previewResponse.Body.String(), `"structured":false`) ||
+		!strings.Contains(previewResponse.Body.String(), `"config":{}`) {
 		t.Fatalf("preview status=%d body=%s", previewResponse.Code, previewResponse.Body.String())
 	}
 	compileResponse := authenticatedRequest(
@@ -56,7 +133,7 @@ func TestRuntimeAndConfigurationHTTPRoutesUseApplicationServices(t *testing.T) {
 	if err := json.Unmarshal(compileResponse.Body.Bytes(), &compiled); err != nil {
 		t.Fatal(err)
 	}
-	if compiled.Artifact.AdapterID != "sing-box/v1_13_19/official-linux-plain" || compiled.Artifact.AdapterRevision != "2" || compiled.Task.Kind != store.TaskKindStartupCheck {
+	if compiled.Task.Kind != store.TaskKindStartupCheck {
 		t.Fatalf("compile = %+v", compiled)
 	}
 
@@ -69,7 +146,7 @@ func TestRuntimeAndConfigurationHTTPRoutesUseApplicationServices(t *testing.T) {
 	)
 	assertQueuedCoreHTTPTask(t, checkResponse, store.TaskKindStartupCheck)
 	if _, err := database.CompleteStartupArtifactCheck(
-		context.Background(), startup.ID, true, json.RawMessage(`[]`), time.Now().UTC(),
+		context.Background(), startup.ID, true, time.Now().UTC(),
 	); err != nil {
 		t.Fatal(err)
 	}
@@ -130,6 +207,10 @@ func TestRuntimeAndConfigurationHTTPRejectAmbiguousInputs(t *testing.T) {
 			wantStatus: http.StatusUnprocessableEntity, wantCode: "request_body_not_allowed",
 		},
 		{
+			name: "rollback evidence required", method: http.MethodPost, target: "/api/v1/core/rollback", body: `{}`,
+			wantStatus: http.StatusUnprocessableEntity, wantCode: "rollback_bundle_id_invalid",
+		},
+		{
 			name: "preview missing core", method: http.MethodPost, target: "/api/v1/config/preview", body: `{}`,
 			wantStatus: http.StatusUnprocessableEntity, wantCode: "configuration_preview_invalid",
 		},
@@ -166,9 +247,8 @@ func seedRuntimeHTTPStartup(
 	}
 	startup, err := database.CreateStartupArtifact(context.Background(), store.StartupArtifact{
 		ID: "startup_runtime_http", CanonicalRevisionID: revision.ID,
-		ExactCoreVersion: core.ExactVersion, AdapterID: "sing-box/v1_13_19/official-linux-plain",
-		AdapterRevision: "2", CoreArtifactID: core.ID, ConfigBytes: []byte(`{}`),
-		Diagnostics: json.RawMessage(`[]`), CreatedAt: createdAt.Add(time.Second),
+		ExactCoreVersion: core.ExactVersion, CoreArtifactID: core.ID, ConfigBytes: []byte(`{}`),
+		CreatedAt: createdAt.Add(time.Second),
 	})
 	if err != nil {
 		t.Fatal(err)

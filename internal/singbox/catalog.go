@@ -13,8 +13,10 @@ const (
 )
 
 type Upstream struct {
-	Tag    string `json:"tag"`
-	Commit string `json:"commit"`
+	Tag       string `json:"tag"`
+	Commit    string `json:"commit"`
+	ModuleSum string `json:"module_sum"`
+	GoModSum  string `json:"go_mod_sum"`
 }
 
 type Profile struct {
@@ -27,13 +29,12 @@ type Profile struct {
 
 type Version struct {
 	ExactVersion string `json:"version"`
-	// Family is a reviewed behavior identifier scoped to the version's
-	// major.minor release line. The line itself is the initial family; suffixes
-	// such as 1.13-r2 represent patch-level schema or fingerprint forks.
-	Family          string             `json:"family"`
-	Upstream        Upstream           `json:"upstream"`
-	AdapterRevision string             `json:"adapter_revision"`
-	Profiles        map[string]Profile `json:"profiles"`
+	// InboundFamily is present only when this exact version has a compiled
+	// subscription inbound converter. Runtime and Schema support do not depend
+	// on this optional capability.
+	InboundFamily string             `json:"inbound_family,omitempty"`
+	Upstream      Upstream           `json:"upstream"`
+	Profiles      map[string]Profile `json:"profiles"`
 }
 
 func Versions() []Version {

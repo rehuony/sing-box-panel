@@ -52,6 +52,14 @@ func TestRenderIsDeterministicAndDeduplicatesLicenseText(t *testing.T) {
 		!bytes.Contains(first, []byte("web-package:z-example-web@1.0.0 — LICENSE")) {
 		t.Fatalf("deduplicated license uses missing from output:\n%s", first)
 	}
+	if !bytes.Contains(first, []byte("embeds one canonical Schema")) ||
+		!bytes.Contains(first, []byte("derived from the exact official Linux release binary's native output")) ||
+		!bytes.Contains(first, []byte("sing-box source and binaries are not bundled")) {
+		t.Fatalf("sing-box Schema notice missing from output:\n%s", first)
+	}
+	if !bytes.Contains(first, []byte("linux/amd64 or linux/arm64 binary")) {
+		t.Fatalf("notice scope omits supported release targets:\n%s", first)
+	}
 	if goOffset, webOffset := bytes.Index(first, []byte("Component: a.example/go")), bytes.Index(first, []byte("Component: z-example-web")); goOffset < 0 || webOffset < 0 || goOffset > webOffset {
 		t.Fatalf("components are not sorted by name:\n%s", first)
 	}
@@ -87,7 +95,7 @@ func TestFindLicenseFilesIncludesNestedDocuments(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "LICENSE"), []byte("root license\n"), 0o644); err != nil {
 		t.Fatalf("write root license: %v", err)
 	}
-	nested := filepath.Join(root, "third_party")
+	nested := filepath.Join(root, "licenses")
 	if err := os.Mkdir(nested, 0o755); err != nil {
 		t.Fatalf("mkdir nested: %v", err)
 	}
@@ -102,7 +110,7 @@ func TestFindLicenseFilesIncludesNestedDocuments(t *testing.T) {
 	if err != nil {
 		t.Fatalf("findLicenseFiles: %v", err)
 	}
-	if len(files) != 2 || files[0].Path != "LICENSE" || files[1].Path != "third_party/NOTICE.txt" {
+	if len(files) != 2 || files[0].Path != "LICENSE" || files[1].Path != "licenses/NOTICE.txt" {
 		t.Fatalf("license paths = %#v", files)
 	}
 }
@@ -110,6 +118,25 @@ func TestFindLicenseFilesIncludesNestedDocuments(t *testing.T) {
 func TestFindLicenseFilesRejectsMissingDocuments(t *testing.T) {
 	if _, err := findLicenseFiles(t.TempDir()); err == nil || !strings.Contains(err.Error(), "no LICENSE") {
 		t.Fatalf("findLicenseFiles error = %v", err)
+	}
+}
+
+func TestReadLicensePathsNormalizesTextLineEndingsAndTrailingWhitespace(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "LICENSE")
+	if err := os.WriteFile(path, []byte("first \r\nsecond\t\rthird  \n"), 0o644); err != nil {
+		t.Fatalf("write license: %v", err)
+	}
+
+	files, err := readLicensePaths(map[string]string{"LICENSE": path})
+	if err != nil {
+		t.Fatalf("readLicensePaths: %v", err)
+	}
+	want := []byte("first\nsecond\nthird\n")
+	if len(files) != 1 || !bytes.Equal(files[0].Content, want) {
+		t.Fatalf("normalized license = %q, want %q", files[0].Content, want)
+	}
+	if files[0].Digest != digestForTest(want) {
+		t.Fatalf("normalized license digest = %q, want %q", files[0].Digest, digestForTest(want))
 	}
 }
 

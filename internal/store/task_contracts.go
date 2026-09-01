@@ -127,6 +127,17 @@ type TaskCompletion struct {
 	Succeeded bool
 	Result    json.RawMessage
 	Failure   json.RawMessage
+	Runtime   *RuntimeTaskCommit
+}
+
+// RuntimeTaskCommit is the durable runtime evidence produced by one runtime
+// task. CompleteTask applies it together with any semantically completed hub
+// intent and the terminal task state, or rolls the whole completion back.
+type RuntimeTaskCommit struct {
+	ExpectedObservation *RuntimeObservation
+	Observation         *RuntimeObservation
+	ClearObservation    bool
+	Transitions         []RuntimeTransitionInput
 }
 
 type taskScanner interface {

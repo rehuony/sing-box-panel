@@ -1,13 +1,16 @@
 import { Link } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 
 export function NotFoundPage() {
+  const { t } = useTranslation();
+
   return (
     <div className='load-error not-found-page'>
-      <p className='eyebrow'>Route unavailable</p>
-      <h1>This console area does not exist.</h1>
-      <p>Use the control-plane navigation to return to a supported operation.</p>
+      <p className='eyebrow'>{t('notFound.eyebrow')}</p>
+      <h1>{t('notFound.title')}</h1>
+      <p>{t('notFound.description')}</p>
       <Link className='button button--primary' to='/'>
-        Return to overview
+        {t('notFound.return')}
       </Link>
     </div>
   );

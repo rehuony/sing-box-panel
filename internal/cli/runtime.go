@@ -175,7 +175,7 @@ func newCoreRestartCommand(state *options, open openApplicationFunc) *cobra.Comm
 
 func newCoreRollbackCommand(state *options, open openApplicationFunc) *cobra.Command {
 	return newCoreLifecycleCommand("rollback", state, open, func(instance *application.Application, cmd *cobra.Command) (application.Task, error) {
-		return instance.QueueRuntimeRollback(cmd.Context())
+		return instance.QueueRuntimeRollback(cmd.Context(), "")
 	})
 }
 

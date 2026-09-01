@@ -23,7 +23,7 @@ import (
 
 func testHandler(t *testing.T) *Handler {
 	t.Helper()
-	value := settings.Defaults(t.TempDir() + "/setting.json")
+	value := settings.Defaults()
 	value.DataDir = t.TempDir()
 	value.Auth.Token = "correct-management-token"
 	if err := value.Validate(); err != nil {
@@ -39,11 +39,11 @@ func TestCanonicalHTTPUsesIfMatchCAS(t *testing.T) {
 		t.Fatalf("store.Open() error = %v", err)
 	}
 	t.Cleanup(func() { _ = database.Close() })
-	value := settings.Defaults(t.TempDir() + "/setting.json")
+	value := settings.Defaults()
 	value.DataDir = t.TempDir()
 	value.Auth.Token = "correct-management-token"
 	handler := NewHandler(HandlerOptions{Settings: value, Commands: application.FromStore(database)})
-	document := `{"schema_version":2,"configuration":{}}`
+	document := `{}`
 
 	replace := httptest.NewRequest(http.MethodPut, "/api/v1/config/canonical", strings.NewReader(document))
 	replace.Header.Set("Authorization", "Bearer correct-management-token")
@@ -79,7 +79,7 @@ func TestCanonicalPatchHTTPPreservesLosslessValuesAndRejectsInvalidInput(t *test
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = database.Close() })
-	value := settings.Defaults(t.TempDir() + "/setting.json")
+	value := settings.Defaults()
 	value.DataDir = t.TempDir()
 	value.Auth.Token = "correct-management-token"
 	handler := NewHandler(HandlerOptions{Settings: value, Commands: application.FromStore(database)})
@@ -88,7 +88,7 @@ func TestCanonicalPatchHTTPPreservesLosslessValuesAndRejectsInvalidInput(t *test
 		handler,
 		http.MethodPut,
 		"/api/v1/config/canonical",
-		`{"schema_version":2,"configuration":{"experimental":{"untouched":9007199254740993}}}`,
+		`{"experimental":{"untouched":9007199254740993}}`,
 		`"none"`,
 	)
 	if initialResponse.Code != http.StatusOK {
@@ -103,7 +103,7 @@ func TestCanonicalPatchHTTPPreservesLosslessValuesAndRejectsInvalidInput(t *test
 		handler,
 		http.MethodPatch,
 		"/api/v1/config/canonical",
-		`{"changes":[{"op":"set","path":"/configuration/experimental/large","value_json":"9007199254740995"},{"op":"set","path":"/configuration/experimental/payload","value_json":"{\"huge\":1e999,\"decimal\":1.0}"}]}`,
+		`{"changes":[{"op":"set","path":"/experimental/large","value_json":"9007199254740995"},{"op":"set","path":"/experimental/payload","value_json":"{\"huge\":1e999,\"decimal\":1.0}"}]}`,
 		quoteETag(initial.Revision.ID),
 	)
 	if patchResponse.Code != http.StatusOK {
@@ -126,7 +126,7 @@ func TestCanonicalPatchHTTPPreservesLosslessValuesAndRejectsInvalidInput(t *test
 		handler,
 		http.MethodPatch,
 		"/api/v1/config/canonical",
-		`{"changes":[{"op":"set","path":"/configuration/experimental/value","value_json":"true"}]}`,
+		`{"changes":[{"op":"set","path":"/experimental/value","value_json":"true"}]}`,
 		"",
 	)
 	if missingBase.Code != http.StatusPreconditionRequired {
@@ -136,7 +136,7 @@ func TestCanonicalPatchHTTPPreservesLosslessValuesAndRejectsInvalidInput(t *test
 		handler,
 		http.MethodPatch,
 		"/api/v1/config/canonical",
-		`{"changes":[{"op":"set","path":"/configuration/experimental/value","value_json":"{\"x\":1,\"x\":2}"}]}`,
+		`{"changes":[{"op":"set","path":"/experimental/value","value_json":"{\"x\":1,\"x\":2}"}]}`,
 		patchResponse.Header().Get("ETag"),
 	)
 	if duplicateValueKey.Code != http.StatusUnprocessableEntity {
@@ -146,7 +146,7 @@ func TestCanonicalPatchHTTPPreservesLosslessValuesAndRejectsInvalidInput(t *test
 		handler,
 		http.MethodPatch,
 		"/api/v1/config/canonical",
-		`{"changes":[{"op":"set","path":"/configuration/experimental/value","value_json":"true"}]}`,
+		`{"changes":[{"op":"set","path":"/experimental/value","value_json":"true"}]}`,
 		quoteETag(initial.Revision.ID),
 	)
 	if stale.Code != http.StatusPreconditionFailed {
@@ -162,6 +162,21 @@ func TestLegacyEntityRoutesAreNotExposed(t *testing.T) {
 	}
 }
 
+func TestContentSecurityPolicyDoesNotPermitRuntimeSchemaEvaluation(t *testing.T) {
+	handler := testHandler(t)
+	request := httptest.NewRequest(http.MethodGet, "/health", nil)
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+
+	policy := response.Header().Get("Content-Security-Policy")
+	if !strings.Contains(policy, "script-src 'self'") {
+		t.Fatalf("content security policy is missing self-only scripts: %q", policy)
+	}
+	if strings.Contains(policy, "'unsafe-eval'") || strings.Contains(policy, "'unsafe-inline'") {
+		t.Fatalf("content security policy permits dynamic script evaluation: %q", policy)
+	}
+}
+
 func authenticatedRequest(handler http.Handler, method, target, body, ifMatch string) *httptest.ResponseRecorder {
 	request := httptest.NewRequest(method, target, strings.NewReader(body))
 	request.Header.Set("Authorization", "Bearer correct-management-token")
@@ -174,7 +189,7 @@ func authenticatedRequest(handler http.Handler, method, target, body, ifMatch st
 }
 
 func TestBasePathAndSPAFallback(t *testing.T) {
-	value := settings.Defaults(t.TempDir() + "/setting.json")
+	value := settings.Defaults()
 	value.DataDir = t.TempDir()
 	value.Auth.Token = "correct-management-token"
 	value.Server.BasePath = "/panel"
@@ -391,7 +406,7 @@ func TestSessionRefreshAndCSRFProtectedLogout(t *testing.T) {
 }
 
 func TestCSRFUsesConfiguredExternalOriginWithoutForwardedHeaders(t *testing.T) {
-	value := settings.Defaults(t.TempDir() + "/setting.json")
+	value := settings.Defaults()
 	value.DataDir = t.TempDir()
 	value.Auth.Token = "correct-management-token"
 	value.Server.ExternalOrigin = "http://panel.example"

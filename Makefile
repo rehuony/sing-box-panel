@@ -40,22 +40,22 @@ support-generate:
 
 # Read-only checks
 
-vet:
+vet: web-build
 	go vet ./...
 
-test:
+test: web-build
 	go test ./...
 
-test-race:
+test-race: web-build
 	go test -race ./...
 
 fmt-check:
 	@files="$$(gofmt -l $$(find $(GO_SOURCE_DIRS) -type f -name '*.go'))"; if [ -n "$$files" ]; then printf '%s\n' "$$files"; exit 1; fi
 
-mod-check:
+mod-check: web-build
 	go mod tidy -diff
 
-fuzz-smoke:
+fuzz-smoke: web-build
 	go test ./internal/coreartifact -run '^$$' -fuzz '^FuzzParseExactVersionCanonicalRoundTrip$$' -fuzztime=5s
 	go test ./internal/subscription -run '^$$' -fuzz '^FuzzRenderIsPureAndDeterministic$$' -fuzztime=5s
 
@@ -71,10 +71,10 @@ installer-test:
 notices-check: web-build
 	go tool third-party-notices --check
 
-openapi-check:
+openapi-check: web-build
 	go tool verify-openapi api/openapi.yaml
 
-support-check:
+support-check: web-build
 	go tool singbox-support check
 
 check-go: fmt-check mod-check vet test
@@ -89,7 +89,7 @@ check: check-go check-web check-contracts
 
 build: web-build
 	mkdir -p bin
-	go build -tags webdist -trimpath -o bin/sing-box-panel ./cmd/sing-box-panel
+	go build -trimpath -o bin/sing-box-panel ./cmd/sing-box-panel
 
 web-build:
 	$(WEB_PNPM) run build
@@ -113,7 +113,7 @@ snapshot: require-out
 
 # Core compatibility
 
-core-contract:
+core-contract: web-build
 	bash scripts/test/core-contract.sh
 
 # Continuous integration

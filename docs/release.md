@@ -23,9 +23,10 @@ either reproducible CI/workflow jobs or the maintainer's final draft review.
 
 The ordinary `CI Checks` workflow runs Go, Web, package, race, and fuzz checks.
 A separate path-filtered `Core Compatibility` workflow downloads every reviewed
-sing-box archive and runs the adapter projection and real `sing-box check`
-contract on native amd64 and arm64 runners. It receives no secrets and does not
-run for unrelated documentation or Web changes.
+sing-box archive and runs the raw-configuration and real `sing-box check`
+contract on native amd64 and arm64 runners. Schema reproducibility is a separate
+CI job. The core job receives no secrets and does not run for unrelated
+documentation changes.
 
 The signed-release workflow calls the same reusable native core contract with
 read-only permissions before `build-sign` can enter the protected `release`
@@ -86,15 +87,19 @@ manifest from being reused for a different version.
 
 Snapshot and release builds share the implementation in
 `scripts/build-release.sh`. It exports committed `HEAD` into a
-temporary source tree, builds the Web application from a separate temporary
-copy with locked dependencies, and copies only the verified `web/dist` into
-the source snapshot. Go module, build, and package-manager state is isolated
-from the caller's normal caches.
+temporary source tree and builds the Web application inside that complete
+snapshot with locked dependencies. Keeping `web/` beneath the snapshot's
+`go.mod` is required because the Vite Schema plugin invokes the offline Go
+exporter. Go module, build, and package-manager state is isolated from the
+caller's normal caches.
 
-Both Linux binaries use `CGO_ENABLED=0`, fixed CPU baselines, `-trimpath`,
-`-buildvcs=false`, and the `webdist` tag. Files are assembled and verified in a
-staging directory, then the whole directory is renamed into place so a failed
-build cannot leave a partial destination.
+Both Linux binaries use `CGO_ENABLED=0`, fixed CPU baselines, `-trimpath`, and
+`-buildvcs=false`. Module download and repository-only tools may run first,
+but the verified Web distribution—including `index.html`, the single public
+`favicon.svg`, and bundled assets—is present before the Go package containing
+the Web embed is loaded or either panel binary is compiled. Files are assembled
+and verified in a staging directory, then the whole directory is renamed into
+place so a failed build cannot leave a partial destination.
 
 ## One-time repository setup
 
@@ -251,8 +256,9 @@ The following work should expand automated release coverage.
 ### P1
 
 - Test a real previous stable release upgrading to the candidate, including
-  database migrations, instead of relying only on a lower-version build of the
-  same source.
+  fail-closed rejection of the previous SQLite application identity and the
+  operator's explicit fresh-data transition, instead of relying only on a
+  lower-version build of the same source.
 - Verify systemd installation, startup, update, restart, and failed-update
   recovery in clean virtual machines.
 - Add failure injection for insufficient disk space, permissions, interrupted

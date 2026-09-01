@@ -15,9 +15,28 @@ import (
 	"testing"
 	"time"
 
-	"github.com/rehuony/sing-box-panel/internal/configuration"
 	"github.com/rehuony/sing-box-panel/internal/store"
+	"github.com/rehuony/sing-box-panel/internal/subscription"
 )
+
+func TestSubscriptionStartupRequiresMatchingCoreIdentity(t *testing.T) {
+	t.Parallel()
+
+	app := &Application{}
+	startup := store.StartupArtifact{
+		CoreArtifactID: "core-a", ExactCoreVersion: "1.13.19", ConfigBytes: []byte(`{}`),
+	}
+	if _, err := app.subscriptionStartupJSONWithCore(startup, store.CoreArtifact{
+		ID: "core-b", ExactVersion: "1.13.19",
+	}); !errors.Is(err, subscription.ErrInvalidStartup) {
+		t.Fatalf("mismatched core error = %v, want ErrInvalidStartup", err)
+	}
+	if raw, err := app.subscriptionStartupJSONWithCore(startup, store.CoreArtifact{
+		ID: "core-a", ExactVersion: "1.13.19",
+	}); err != nil || string(raw) != `{}` {
+		t.Fatalf("matching core raw = %s, error = %v", raw, err)
+	}
+}
 
 func TestApplicationSubscriptionChannelAndSourceCRUD(t *testing.T) {
 	ctx := context.Background()
@@ -211,13 +230,7 @@ func TestRenderSubscriptionPreviewUsesAppliedVersionAndSelectedUserGrants(t *tes
 	t.Cleanup(func() { _ = database.Close() })
 	app := newSubscriptionTestApplication(database)
 	now := app.now().UTC()
-	features, err := json.Marshal(configuration.FeatureFingerprint{Status: "reported", Features: []string{
-		"badlinkname", "tfogo_checklinkname0", "with_acme", "with_ccm", "with_clash_api",
-		"with_dhcp", "with_gvisor", "with_naive_outbound", "with_ocm", "with_purego", "with_quic", "with_tailscale", "with_utls", "with_wireguard",
-	}})
-	if err != nil {
-		t.Fatal(err)
-	}
+	features := json.RawMessage(`{"status":"reported","features":["badlinkname","tfogo_checklinkname0","with_acme","with_ccm","with_clash_api","with_dhcp","with_gvisor","with_naive_outbound","with_ocm","with_purego","with_quic","with_tailscale","with_utls","with_wireguard"]}`)
 	core := store.CoreArtifact{
 		ID: "core-subscription", ExactVersion: "1.13.19", OperatingSystem: "linux", Architecture: "arm64", Variant: "plain",
 		SourceKind: store.CoreArtifactSourceUserVerified, UserSource: "test", ArchiveSHA256: strings.Repeat("a", 64),
@@ -227,27 +240,26 @@ func TestRenderSubscriptionPreviewUsesAppliedVersionAndSelectedUserGrants(t *tes
 	if _, err := database.UpsertCoreArtifact(ctx, core); err != nil {
 		t.Fatal(err)
 	}
-	canonicalSave, err := app.ReplaceConfiguration(ctx, "", configuration.Empty().CanonicalJSON())
-	if err != nil {
-		t.Fatal(err)
-	}
 	startupBytes := []byte(`{
       "inbounds":[
         {"type":"shadowsocks","tag":"hidden","listen_port":443,"method":"aes-128-gcm","password":"hidden-secret"},
         {"type":"shadowsocks","tag":"public","listen_port":8443,"method":"aes-256-gcm","password":"public-secret"}
       ]
     }`)
+	canonicalSave, err := app.ReplaceConfiguration(ctx, "", startupBytes)
+	if err != nil {
+		t.Fatal(err)
+	}
 	ready, err := database.CreateStartupArtifact(ctx, store.StartupArtifact{
 		ID:                  "startup-subscription-ready",
 		CanonicalRevisionID: canonicalSave.Revision.ID, ExactCoreVersion: core.ExactVersion,
-		AdapterID: "sing-box/v1_13_19/official-linux-plain", AdapterRevision: "2",
 		CoreArtifactID: core.ID, ConfigBytes: startupBytes,
 		CreatedAt: now.Add(time.Second),
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	ready, err = database.CompleteStartupArtifactCheck(ctx, ready.ID, true, nil, now.Add(2*time.Second))
+	ready, err = database.CompleteStartupArtifactCheck(ctx, ready.ID, true, now.Add(2*time.Second))
 	if err != nil {
 		t.Fatal(err)
 	}

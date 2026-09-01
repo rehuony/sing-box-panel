@@ -69,7 +69,7 @@ func collectGoModules(ctx context.Context, root string) ([]component, error) {
 			"GOOS=linux",
 			"GOTOOLCHAIN=local",
 			"GOWORK=off",
-		}, "go", "list", "-mod=readonly", "-deps", "-tags", "webdist", "-json", "./cmd/sing-box-panel")
+		}, "go", "list", "-mod=readonly", "-deps", "-json", "./cmd/sing-box-panel")
 		if err != nil {
 			return nil, fmt.Errorf("list linux/%s dependencies: %w", architecture, err)
 		}

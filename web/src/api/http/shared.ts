@@ -30,6 +30,7 @@ export interface HttpApiContext {
   subscribeSessionInvalidated: (listener: () => void) => () => void;
   request: <T>(fetcher: typeof fetch, url: string, init: RequestInit) => Promise<T>;
   buildQuery: (values: Record<string, string | number | boolean | undefined>) => string;
+  openEventStream: (fetcher: typeof fetch, url: string, init: RequestInit) => Promise<Response>;
 }
 
 async function readProblem(response: Response): Promise<ApiRequestError> {
@@ -54,24 +55,37 @@ export function createHttpApiContext(options: HttpApiOptions): HttpApiContext {
   const writeHeaders = (headers: HeadersInit = {}): HeadersInit =>
     csrfToken === '' ? headers : { ...headers, 'X-CSRF-Token': csrfToken };
 
+  async function execute(
+    requestFetcher: typeof fetch,
+    url: string,
+    init: RequestInit,
+    accept: string,
+  ): Promise<Response> {
+    const response = await requestFetcher(url, {
+      ...init,
+      credentials: 'same-origin',
+      headers: { Accept: accept, ...init.headers },
+    });
+    if (!response.ok) {
+      if (response.status === 401) {
+        csrfToken = '';
+        for (const listener of [...sessionInvalidatedListeners]) listener();
+      }
+      throw await readProblem(response);
+    }
+    return response;
+  }
+
   return {
     baseUrl,
     fetcher,
     async request<T>(requestFetcher: typeof fetch, url: string, init: RequestInit): Promise<T> {
-      const response = await requestFetcher(url, {
-        ...init,
-        credentials: 'same-origin',
-        headers: { Accept: 'application/json', ...init.headers },
-      });
-      if (!response.ok) {
-        if (response.status === 401) {
-          csrfToken = '';
-          for (const listener of [...sessionInvalidatedListeners]) listener();
-        }
-        throw await readProblem(response);
-      }
+      const response = await execute(requestFetcher, url, init, 'application/json');
       if (response.status === 204) return undefined as T;
       return (await response.json()) as T;
+    },
+    openEventStream(requestFetcher, url, init) {
+      return execute(requestFetcher, url, init, 'text/event-stream');
     },
     writeHeaders,
     writeJSONHeaders: (headers: HeadersInit = {}) =>

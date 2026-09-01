@@ -9,6 +9,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/rehuony/sing-box-panel/internal/configuration"
 )
 
 func TestListTasksFiltersAndPaginatesWithStableCursor(t *testing.T) {
@@ -96,8 +98,8 @@ func TestCanonicalRevisionQueriesAndPagination(t *testing.T) {
 			head,
 			NewCanonicalRevision{
 				ID:            fmt.Sprintf("revision-%d", i),
-				SchemaVersion: 2,
-				Document:      json.RawMessage(fmt.Sprintf(`{"schema_version":2,"configuration":{"experimental":{"value":%d}}}`, i)),
+				SchemaVersion: configuration.SchemaVersion,
+				Document:      json.RawMessage(fmt.Sprintf(`{"experimental":{"value":%d}}`, i)),
 				CommandID:     fmt.Sprintf("command-%d", i),
 				CreatedAt:     now.Add(time.Duration(i) * time.Second),
 			},
@@ -151,7 +153,7 @@ func TestCanonicalRevisionQueriesAndPagination(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetCanonicalRevision() after mutation error = %v", err)
 	}
-	if string(unchanged.Document) != `{"configuration":{"experimental":{"value":2}},"schema_version":2}` {
+	if string(unchanged.Document) != `{"experimental":{"value":2}}` {
 		t.Fatalf("stored canonical document = %s, want defensive copy", unchanged.Document)
 	}
 	if _, err := store.GetCanonicalRevision(ctx, "missing"); !errors.Is(err, ErrCanonicalRevisionNotFound) {
@@ -258,8 +260,8 @@ func TestCoreArtifactRepositoryAndRemovalEligibility(t *testing.T) {
 		ctx,
 		"",
 		NewCanonicalRevision{
-			ID: "artifact-reference-revision", SchemaVersion: 2,
-			Document: json.RawMessage(`{"schema_version":2,"configuration":{}}`), CommandID: "artifact-reference-command", CreatedAt: now,
+			ID: "artifact-reference-revision", SchemaVersion: configuration.SchemaVersion,
+			Document: json.RawMessage(`{}`), CommandID: "artifact-reference-command", CreatedAt: now,
 		},
 		NewTask{ID: "artifact-reference-task", Lane: TaskLaneMaintenance, Kind: TaskKindCanonicalSaved},
 	)
@@ -269,10 +271,9 @@ func TestCoreArtifactRepositoryAndRemovalEligibility(t *testing.T) {
 	if _, err := store.db.ExecContext(
 		ctx,
 		`INSERT INTO startup_artifacts(
-		    id, canonical_revision_id, exact_core_version, adapter_id,
-		    adapter_revision, core_artifact_id, config_bytes, config_sha256,
-		    diagnostics_json, state, created_at
-		 ) VALUES (?, ?, '1.13.19', 'test-adapter', '1', ?, ?, ?, '[]', 'ready', ?)`,
+		    id, canonical_revision_id, exact_core_version, core_artifact_id,
+		    config_bytes, config_sha256, state, created_at
+		 ) VALUES (?, ?, '1.13.19', ?, ?, ?, 'ready', ?)`,
 		"startup-reference",
 		revision.ID,
 		"artifact-1",

@@ -1,0 +1,512 @@
+import type { ComponentType } from 'react';
+
+import { useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
+import {
+  ArrowDown,
+  ArrowUp,
+  ChartNoAxesCombined,
+  CircleCheck,
+  Clock3,
+  Ellipsis,
+  PackageCheck,
+  PanelLeft,
+  Play,
+  RotateCw,
+  Square,
+  TriangleAlert,
+} from 'lucide-react';
+
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Spinner } from '@/components/ui/spinner';
+import { Separator } from '@/components/ui/separator';
+import { useSidebar } from '@/components/ui/sidebar-context';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogMedia,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
+
+import type { RuntimeAction } from './use-runtime-control';
+
+import { LanguageMenu } from './language-menu';
+import { ThemeCycleButton } from './theme-cycle-button';
+import { useSharedTelemetry } from './telemetry-context';
+import { useRuntimeControl } from './use-runtime-control';
+import { EM_DASH, formatBytes, formatRate, formatUptime } from './telemetry-format';
+
+interface TelemetryMetricProps {
+  label: string;
+  value: string;
+  title?: string;
+  icon: ComponentType<{ 'aria-hidden'?: boolean }>;
+  id: 'download' | 'total' | 'upload' | 'uptime' | 'version';
+}
+
+function TelemetryMetric({
+  id,
+  icon: Icon,
+  label,
+  value,
+  title = value,
+}: TelemetryMetricProps) {
+  const accessibleLabel = title === value
+    ? `${label}: ${value}`
+    : `${label}: ${value}. ${title}`;
+
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={(
+          <div
+            aria-label={accessibleLabel}
+            className='telemetry-metric'
+            data-metric={id}
+            role='group'
+            tabIndex={0}
+          />
+        )}
+      >
+        <Icon aria-hidden={true} />
+        <strong>{value}</strong>
+      </TooltipTrigger>
+      <TooltipContent>{accessibleLabel}</TooltipContent>
+    </Tooltip>
+  );
+}
+
+interface RuntimeConfirmationProps {
+  disabled: boolean;
+  onConfirm: () => void;
+  action: Extract<RuntimeAction, 'restart' | 'stop'>;
+}
+
+function RuntimeConfirmation({ action, disabled, onConfirm }: RuntimeConfirmationProps) {
+  const { t } = useTranslation();
+  const [open, setOpen] = useState(false);
+  const restarting = action === 'restart';
+  const Icon = restarting ? RotateCw : Square;
+  const label = t(`telemetry.control.${action}`);
+
+  return (
+    <AlertDialog onOpenChange={setOpen} open={open}>
+      <Tooltip>
+        <TooltipTrigger
+          render={(
+            <Button
+              aria-label={label}
+              className={`telemetry-action-button telemetry-action-button--${action}`}
+              disabled={disabled}
+              onClick={() => setOpen(true)}
+              size='icon-sm'
+              title={label}
+              variant='ghost'
+            />
+          )}
+        >
+          <Icon aria-hidden='true' />
+        </TooltipTrigger>
+        <TooltipContent>{label}</TooltipContent>
+      </Tooltip>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogMedia><Icon aria-hidden='true' /></AlertDialogMedia>
+          <AlertDialogTitle>{t(`telemetry.confirm.${action}.title`)}</AlertDialogTitle>
+          <AlertDialogDescription>
+            {t(`telemetry.confirm.${action}.description`)}
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>{t('telemetry.confirm.cancel')}</AlertDialogCancel>
+          <AlertDialogAction
+            onClick={() => {
+              setOpen(false);
+              onConfirm();
+            }}
+            variant={restarting ? 'default' : 'destructive'}
+          >
+            {t(`telemetry.confirm.${action}.action`)}
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  );
+}
+
+interface MobileTelemetryMenuProps {
+  busy: boolean;
+  canStop: boolean;
+  canStart: boolean;
+  canRestart: boolean;
+  actionMessage: string;
+  onAction: (action: RuntimeAction) => void;
+}
+
+function MobileTelemetryMenu({
+  actionMessage,
+  busy,
+  canRestart,
+  canStart,
+  canStop,
+  onAction,
+}: MobileTelemetryMenuProps) {
+  const { t } = useTranslation();
+  const [confirmation, setConfirmation] = useState<Extract<RuntimeAction, 'restart' | 'stop'> | null>(null);
+  const ConfirmationIcon = confirmation === 'restart' ? RotateCw : Square;
+  const hasControls = canStart || canStop || canRestart;
+
+  if (!busy && !hasControls) return null;
+
+  return (
+    <div className='telemetry-mobile-actions'>
+      <DropdownMenu>
+        <DropdownMenuTrigger
+          render={(
+            <Button aria-label={t('telemetry.moreActions')} size='icon-sm' variant='ghost' />
+          )}
+        >
+          {busy ? <Spinner aria-label={actionMessage} /> : <Ellipsis aria-hidden='true' />}
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align='end' sideOffset={8}>
+          <DropdownMenuGroup>
+            <DropdownMenuLabel>{t('telemetry.control.label')}</DropdownMenuLabel>
+            {busy
+              ? (
+                  <DropdownMenuItem disabled>
+                    <Spinner />
+                    {actionMessage}
+                  </DropdownMenuItem>
+                )
+              : null}
+            {!busy && canStart
+              ? (
+                  <DropdownMenuItem onClick={() => onAction('start')}>
+                    <Play aria-hidden='true' />
+                    {t('telemetry.control.start')}
+                  </DropdownMenuItem>
+                )
+              : null}
+            {!busy && canStop
+              ? (
+                  <DropdownMenuItem
+                    onClick={() => setConfirmation('stop')}
+                    variant='destructive'
+                  >
+                    <Square aria-hidden='true' />
+                    {t('telemetry.control.stop')}
+                  </DropdownMenuItem>
+                )
+              : null}
+            {!busy && canRestart
+              ? (
+                  <DropdownMenuItem onClick={() => setConfirmation('restart')}>
+                    <RotateCw aria-hidden='true' />
+                    {t('telemetry.control.restart')}
+                  </DropdownMenuItem>
+                )
+              : null}
+          </DropdownMenuGroup>
+        </DropdownMenuContent>
+      </DropdownMenu>
+
+      <AlertDialog
+        onOpenChange={(open) => {
+          if (!open) setConfirmation(null);
+        }}
+        open={confirmation !== null}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogMedia><ConfirmationIcon aria-hidden='true' /></AlertDialogMedia>
+            <AlertDialogTitle>
+              {confirmation === null ? '' : t(`telemetry.confirm.${confirmation}.title`)}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {confirmation === null ? '' : t(`telemetry.confirm.${confirmation}.description`)}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t('telemetry.confirm.cancel')}</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                if (confirmation !== null) onAction(confirmation);
+                setConfirmation(null);
+              }}
+              variant={confirmation === 'stop' ? 'destructive' : 'default'}
+            >
+              {confirmation === null ? '' : t(`telemetry.confirm.${confirmation}.action`)}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </div>
+  );
+}
+
+export function TelemetryBanner() {
+  const { i18n, t } = useTranslation();
+  const locale = i18n.resolvedLanguage ?? i18n.language ?? 'en';
+  const { setOpenMobile } = useSidebar();
+  const telemetry = useSharedTelemetry();
+  const runtimeControl = useRuntimeControl({ onRuntimeStatus: telemetry.acceptRuntimeStatus });
+  const [now, setNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 30_000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  const runtimeStatus = telemetry.runtimeStatus;
+  const verifiedRunning = runtimeStatus?.observation_state === 'running'
+    && runtimeStatus.running !== undefined;
+  const verifiedStopped = runtimeStatus?.observation_state === 'stopped';
+  const runtimeLabel = verifiedRunning
+    ? t('telemetry.runtime.running')
+    : verifiedStopped
+      ? t('telemetry.runtime.stopped')
+      : t('telemetry.runtime.unknown');
+  const runtimeDetail = verifiedRunning
+    ? t('telemetry.runtime.runningDetail')
+    : verifiedStopped
+      ? t('telemetry.runtime.stoppedDetail')
+      : runtimeStatus?.observation_state === 'stale'
+        ? t('telemetry.runtime.stale')
+        : runtimeStatus?.observation_state === 'inspection_unavailable'
+          ? t('telemetry.runtime.inspectionUnavailable')
+          : t('telemetry.runtime.evidenceUnavailable');
+  const runningIdentity = verifiedRunning ? runtimeStatus.running : undefined;
+  const trafficAvailable = telemetry.snapshot?.available === true;
+  const currentPeriod = trafficAvailable ? telemetry.snapshot?.current_traffic_period : undefined;
+  const currentPeriodTotal = currentPeriod === undefined
+    ? null
+    : currentPeriod.inbound_bytes + currentPeriod.outbound_bytes;
+  const durationLabels = {
+    day: t('telemetry.unit.day'),
+    hour: t('telemetry.unit.hour'),
+    minute: t('telemetry.unit.minute'),
+    second: t('telemetry.unit.second'),
+  };
+  const uptime = formatUptime(runningIdentity?.started_at, now, durationLabels);
+  const parsedStartedAt = runningIdentity?.started_at === undefined
+    ? Number.NaN
+    : new Date(runningIdentity.started_at).getTime();
+  const startedAtTitle = Number.isFinite(parsedStartedAt)
+    ? t('telemetry.startedAt', {
+        value: new Intl.DateTimeFormat(locale, {
+          dateStyle: 'medium',
+          timeStyle: 'medium',
+        }).format(new Date(parsedStartedAt)),
+      })
+    : EM_DASH;
+  const action = runtimeControl.state.action;
+  const actionLabel = action === null ? '' : t(`telemetry.control.${action}`);
+  const taskStatus = runtimeControl.state.task?.status;
+  const actionMessage = action === null
+    ? ''
+    : runtimeControl.state.phase === 'queueing'
+      ? t('telemetry.action.queueing', { action: actionLabel })
+      : runtimeControl.state.phase === 'tracking'
+        ? t('telemetry.action.queued', {
+            action: actionLabel,
+            status: taskStatus === undefined ? EM_DASH : t(`telemetry.taskStatus.${taskStatus}`),
+          })
+        : runtimeControl.state.phase === 'verifying'
+          ? t('telemetry.action.verifying', { action: actionLabel })
+          : runtimeControl.state.phase === 'verified'
+            ? t('telemetry.action.verified', { action: actionLabel })
+            : runtimeControl.state.phase === 'task_timeout'
+              ? t('telemetry.action.taskTimedOut', { action: actionLabel })
+              : runtimeControl.state.phase === 'verification_timeout'
+                ? t('telemetry.action.timedOut', { action: actionLabel })
+                : runtimeControl.state.phase === 'failed'
+                  ? t('telemetry.action.failed', { action: actionLabel })
+                  : '';
+  const actionVariant = runtimeControl.state.phase === 'verified'
+    ? 'success'
+    : runtimeControl.state.phase === 'failed'
+      ? 'destructive'
+      : runtimeControl.state.phase === 'task_timeout'
+        || runtimeControl.state.phase === 'verification_timeout'
+        ? 'warning'
+        : 'info';
+
+  function runRuntimeAction(nextAction: RuntimeAction) {
+    void runtimeControl.run(nextAction, runtimeStatus);
+  }
+
+  return (
+    <header className='telemetry-banner' aria-label={t('telemetry.ariaLabel')}>
+      <div className='telemetry-banner__identity'>
+        <Button
+          aria-label={t('telemetry.toggleNavigation')}
+          className='telemetry-banner__navigation-trigger'
+          onClick={() => setOpenMobile(true)}
+          size='icon-sm'
+          variant='ghost'
+        >
+          <PanelLeft aria-hidden='true' />
+        </Button>
+        <div className='telemetry-runtime'>
+          <Badge variant={verifiedRunning ? 'success' : verifiedStopped ? 'secondary' : 'warning'}>
+            <span aria-hidden='true' className='telemetry-runtime__dot' />
+            {runtimeLabel}
+          </Badge>
+          <div>
+            <span>sing-box</span>
+            <strong>{runtimeDetail}</strong>
+          </div>
+        </div>
+      </div>
+
+      <div className='telemetry-banner__metrics'>
+        <Separator className='telemetry-banner__metric-lead' orientation='vertical' />
+        <TelemetryMetric
+          icon={PackageCheck}
+          id='version'
+          label={t('telemetry.metric.version')}
+          value={runningIdentity?.exact_core_version ?? EM_DASH}
+        />
+        <Separator orientation='vertical' />
+        <TelemetryMetric
+          icon={Clock3}
+          id='uptime'
+          label={t('telemetry.metric.uptime')}
+          title={startedAtTitle}
+          value={uptime}
+        />
+        <Separator orientation='vertical' />
+        <TelemetryMetric
+          icon={ArrowUp}
+          id='upload'
+          label={t('telemetry.metric.upload')}
+          value={trafficAvailable ? formatRate(telemetry.rates.uploadBytesPerSecond, locale, t('telemetry.unit.perSecond')) : EM_DASH}
+        />
+        <Separator orientation='vertical' />
+        <TelemetryMetric
+          icon={ArrowDown}
+          id='download'
+          label={t('telemetry.metric.download')}
+          value={trafficAvailable ? formatRate(telemetry.rates.downloadBytesPerSecond, locale, t('telemetry.unit.perSecond')) : EM_DASH}
+        />
+        <Separator orientation='vertical' />
+        <TelemetryMetric
+          icon={ChartNoAxesCombined}
+          id='total'
+          label={t('telemetry.metric.total')}
+          value={formatBytes(currentPeriodTotal, locale)}
+        />
+      </div>
+
+      <div className='telemetry-banner__actions'>
+        {actionMessage === ''
+          ? null
+          : (
+              <Badge
+                className='runtime-action-progress'
+                role='status'
+                title={runtimeControl.state.error instanceof Error
+                  ? runtimeControl.state.error.message
+                  : runtimeControl.state.task?.id}
+                variant={actionVariant}
+              >
+                {runtimeControl.busy
+                  ? <Spinner data-icon='inline-start' />
+                  : runtimeControl.state.phase === 'verified'
+                    ? <CircleCheck aria-hidden='true' data-icon='inline-start' />
+                    : runtimeControl.state.phase === 'failed'
+                      || runtimeControl.state.phase === 'task_timeout'
+                      || runtimeControl.state.phase === 'verification_timeout'
+                      ? <TriangleAlert aria-hidden='true' data-icon='inline-start' />
+                      : null}
+                <span>{actionMessage}</span>
+                {runtimeControl.state.task === null
+                  ? null
+                  : <code>{runtimeControl.state.task.id}</code>}
+              </Badge>
+            )}
+        <div className='telemetry-runtime-controls telemetry-runtime-controls--desktop' aria-label={t('telemetry.control.label')}>
+          {runtimeControl.busy && action !== null
+            ? (
+                <Button
+                  aria-label={actionMessage}
+                  className={`telemetry-action-button telemetry-action-button--${action}`}
+                  disabled
+                  size='icon-sm'
+                  variant='ghost'
+                >
+                  <Spinner />
+                </Button>
+              )
+            : verifiedStopped
+              ? (
+                  <Tooltip>
+                    <TooltipTrigger
+                      render={(
+                        <Button
+                          aria-label={t('telemetry.control.start')}
+                          className='telemetry-action-button telemetry-action-button--start'
+                          onClick={() => runRuntimeAction('start')}
+                          size='icon-sm'
+                          title={t('telemetry.control.start')}
+                          variant='ghost'
+                        />
+                      )}
+                    >
+                      <Play aria-hidden='true' />
+                    </TooltipTrigger>
+                    <TooltipContent>{t('telemetry.control.start')}</TooltipContent>
+                  </Tooltip>
+                )
+              : verifiedRunning
+                ? (
+                    <>
+                      <RuntimeConfirmation
+                        action='stop'
+                        disabled={false}
+                        onConfirm={() => runRuntimeAction('stop')}
+                      />
+                      <RuntimeConfirmation
+                        action='restart'
+                        disabled={false}
+                        onConfirm={() => runRuntimeAction('restart')}
+                      />
+                    </>
+                  )
+                : null}
+        </div>
+        <MobileTelemetryMenu
+          actionMessage={actionMessage}
+          busy={runtimeControl.busy}
+          canRestart={!runtimeControl.busy && verifiedRunning}
+          canStart={!runtimeControl.busy && verifiedStopped}
+          canStop={!runtimeControl.busy && verifiedRunning}
+          onAction={runRuntimeAction}
+        />
+        <div className='telemetry-personalization-actions'>
+          <ThemeCycleButton />
+          <LanguageMenu />
+        </div>
+      </div>
+    </header>
+  );
+}

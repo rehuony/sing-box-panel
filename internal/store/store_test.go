@@ -88,87 +88,33 @@ func TestOpenConfiguresEveryConnectionAndReopens(t *testing.T) {
 	}
 }
 
-func TestOpenMigratesV1TaskIdempotencyWithoutLosingHistory(t *testing.T) {
-	ctx := testContext(t)
-	path := filepath.Join(t.TempDir(), "panel.db")
-	legacy, err := Open(ctx, path)
-	if err != nil {
-		t.Fatalf("Open() fixture error = %v", err)
-	}
-	now := time.Date(2026, time.August, 29, 8, 0, 0, 0, time.UTC)
-	historical, err := legacy.EnqueueTask(ctx, EnqueueTaskInput{
-		ID: "historical", IdempotencyKey: "catalog-refresh:shared", Lane: TaskLaneMaintenance,
-		Kind: TaskKindCatalogRefresh, Payload: json.RawMessage(`{"force":true}`), CreatedAt: now,
-	})
-	if err != nil {
-		t.Fatalf("EnqueueTask() fixture error = %v", err)
-	}
-	if _, _, err := legacy.RequestTaskCancellation(ctx, historical.ID, now.Add(time.Second)); err != nil {
-		t.Fatalf("RequestTaskCancellation() fixture error = %v", err)
-	}
-	if _, err := legacy.db.ExecContext(ctx, `
-		DROP INDEX tasks_lane_idempotency;
-		CREATE UNIQUE INDEX tasks_lane_idempotency
-		    ON tasks(lane, idempotency_key)
-		    WHERE idempotency_key IS NOT NULL;
-		DELETE FROM schema_migrations WHERE version = 2;
-		PRAGMA user_version = 1;
-	`); err != nil {
-		t.Fatalf("construct v1 fixture: %v", err)
-	}
-	if err := legacy.Close(); err != nil {
-		t.Fatalf("close v1 fixture: %v", err)
-	}
-
-	migrated, err := Open(ctx, path)
-	if err != nil {
-		t.Fatalf("Open() v1 fixture error = %v", err)
-	}
-	t.Cleanup(func() { _ = migrated.Close() })
-	info, err := migrated.SchemaInfo(ctx)
-	if err != nil || info.Version != 2 || info.LatestMigration != 2 {
-		t.Fatalf("migrated schema = %+v, %v; want version 2", info, err)
-	}
-	preserved, err := migrated.GetTask(ctx, historical.ID)
-	if err != nil || preserved.Status != TaskStatusCanceled {
-		t.Fatalf("historical task = %+v, %v; want canceled task preserved", preserved, err)
-	}
-	retry, err := migrated.EnqueueTask(ctx, EnqueueTaskInput{
-		ID: "retry", IdempotencyKey: historical.IdempotencyKey, Lane: TaskLaneMaintenance,
-		Kind: historical.Kind, Payload: historical.Payload, CreatedAt: now.Add(2 * time.Second),
-	})
-	if err != nil {
-		t.Fatalf("EnqueueTask() after migration error = %v", err)
-	}
-	if retry.ID != "retry" {
-		t.Fatalf("retry task ID = %q, want a new task", retry.ID)
-	}
-}
-
 func TestOpenRejectsPreviousDatabaseIdentity(t *testing.T) {
-	t.Parallel()
+	for _, applicationID := range []string{"0x53425032", "0x53425033"} {
+		t.Run(applicationID, func(t *testing.T) {
+			t.Parallel()
+			ctx := testContext(t)
+			path := filepath.Join(t.TempDir(), "panel.db")
+			legacy, err := sql.Open("sqlite", path)
+			if err != nil {
+				t.Fatalf("open legacy fixture: %v", err)
+			}
+			if _, err := legacy.ExecContext(ctx, `PRAGMA application_id = `+applicationID); err != nil {
+				_ = legacy.Close()
+				t.Fatalf("set legacy application id: %v", err)
+			}
+			if err := legacy.Close(); err != nil {
+				t.Fatalf("close legacy fixture: %v", err)
+			}
 
-	ctx := testContext(t)
-	path := filepath.Join(t.TempDir(), "panel.db")
-	legacy, err := sql.Open("sqlite", path)
-	if err != nil {
-		t.Fatalf("open legacy fixture: %v", err)
-	}
-	if _, err := legacy.ExecContext(ctx, `PRAGMA application_id = 0x53425032`); err != nil {
-		_ = legacy.Close()
-		t.Fatalf("set legacy application id: %v", err)
-	}
-	if err := legacy.Close(); err != nil {
-		t.Fatalf("close legacy fixture: %v", err)
-	}
-
-	opened, err := Open(ctx, path)
-	if opened != nil {
-		_ = opened.Close()
-		t.Fatal("Open returned a store for a previous database identity")
-	}
-	if !errors.Is(err, ErrUnexpectedApplicationID) {
-		t.Fatalf("Open error = %v, want ErrUnexpectedApplicationID", err)
+			opened, err := Open(ctx, path)
+			if opened != nil {
+				_ = opened.Close()
+				t.Fatal("Open returned a store for a previous database identity")
+			}
+			if !errors.Is(err, ErrUnexpectedApplicationID) {
+				t.Fatalf("Open error = %v, want ErrUnexpectedApplicationID", err)
+			}
+		})
 	}
 }
 
@@ -182,11 +128,10 @@ func TestSchemaConstraints(t *testing.T) {
 		version  int
 		document string
 	}{
-		{name: "invalid JSON", version: 2, document: `{`},
-		{name: "schema v1", version: 1, document: `{"schema_version":1,"configuration":{}}`},
-		{name: "missing document version", version: 2, document: `{"configuration":{}}`},
-		{name: "mismatched document version", version: 2, document: `{"schema_version":1,"configuration":{}}`},
-		{name: "non-object document", version: 2, document: `[{"schema_version":2}]`},
+		{name: "invalid JSON", version: 1, document: `{`},
+		{name: "wrong document schema", version: 2, document: `{}`},
+		{name: "non-object document", version: 1, document: `[]`},
+		{name: "null document", version: 1, document: `null`},
 	} {
 		_, err := store.db.ExecContext(
 			ctx,
@@ -269,7 +214,7 @@ func TestCanonicalSaveAndTaskAreAtomic(t *testing.T) {
 		"",
 		NewCanonicalRevision{
 			ID: "revision-invalid", SchemaVersion: configuration.SchemaVersion,
-			Document:  json.RawMessage(`{"schema_version":2,"configuration":{},"unexpected":true}`),
+			Document:  json.RawMessage(`[]`),
 			CommandID: "command-invalid", CreatedAt: createdAt,
 		},
 		NewTask{ID: "task-invalid", Lane: TaskLaneMaintenance, Kind: TaskKindCanonicalSaved},
@@ -289,8 +234,8 @@ func TestCanonicalSaveAndTaskAreAtomic(t *testing.T) {
 		"",
 		NewCanonicalRevision{
 			ID:            "revision-1",
-			SchemaVersion: 2,
-			Document:      json.RawMessage(`{"schema_version":2,"configuration":{"experimental":{"port":8080}}}`),
+			SchemaVersion: configuration.SchemaVersion,
+			Document:      json.RawMessage(`{"experimental":{"port":8080}}`),
 			CommandID:     "command-1",
 			CreatedAt:     createdAt,
 		},
@@ -322,8 +267,8 @@ func TestCanonicalSaveAndTaskAreAtomic(t *testing.T) {
 		first.ID,
 		NewCanonicalRevision{
 			ID:            "revision-rolled-back",
-			SchemaVersion: 2,
-			Document:      json.RawMessage(`{"schema_version":2,"configuration":{"experimental":{"port":9090}}}`),
+			SchemaVersion: configuration.SchemaVersion,
+			Document:      json.RawMessage(`{"experimental":{"port":9090}}`),
 			CommandID:     "command-rolled-back",
 			CreatedAt:     createdAt.Add(time.Minute),
 		},
@@ -345,8 +290,8 @@ func TestCanonicalSaveAndTaskAreAtomic(t *testing.T) {
 		first.ID,
 		NewCanonicalRevision{
 			ID:            "revision-2",
-			SchemaVersion: 2,
-			Document:      json.RawMessage(`{"schema_version":2,"configuration":{"experimental":{"port":9090}}}`),
+			SchemaVersion: configuration.SchemaVersion,
+			Document:      json.RawMessage(`{"experimental":{"port":9090}}`),
 			CommandID:     "command-2",
 			CreatedAt:     createdAt.Add(2 * time.Minute),
 		},
@@ -370,8 +315,8 @@ func TestCanonicalSaveAndTaskAreAtomic(t *testing.T) {
 		first.ID,
 		NewCanonicalRevision{
 			ID:            "revision-conflict",
-			SchemaVersion: 2,
-			Document:      json.RawMessage(`{"schema_version":2,"configuration":{"experimental":{"port":10000}}}`),
+			SchemaVersion: configuration.SchemaVersion,
+			Document:      json.RawMessage(`{"experimental":{"port":10000}}`),
 			CommandID:     "command-conflict",
 		},
 		NewTask{ID: "task-conflict", Lane: TaskLaneMaintenance, Kind: TaskKindCanonicalSaved},
@@ -425,8 +370,8 @@ func TestCanonicalCASAcrossStores(t *testing.T) {
 				"",
 				NewCanonicalRevision{
 					ID:            fmt.Sprintf("revision-%d", i),
-					SchemaVersion: 2,
-					Document:      json.RawMessage(fmt.Sprintf(`{"schema_version":2,"configuration":{"experimental":{"writer":%d}}}`, i)),
+					SchemaVersion: configuration.SchemaVersion,
+					Document:      json.RawMessage(fmt.Sprintf(`{"experimental":{"writer":%d}}`, i)),
 					CommandID:     fmt.Sprintf("command-%d", i),
 				},
 				NewTask{

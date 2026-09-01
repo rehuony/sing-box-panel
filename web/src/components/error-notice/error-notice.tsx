@@ -1,3 +1,5 @@
+import { useTranslation } from 'react-i18next';
+
 import { describeRequestError } from './error-notice.utils';
 
 export interface ErrorNoticeProps {
@@ -7,11 +9,13 @@ export interface ErrorNoticeProps {
 
 export function ErrorNotice({
   error,
-  title = 'This view could not be loaded',
+  title,
 }: ErrorNoticeProps) {
+  const { t } = useTranslation();
+
   return (
     <div className='notice notice--error' role='alert'>
-      <strong>{title}</strong>
+      <strong>{title ?? t('common.viewLoadFailed')}</strong>
       <p>{describeRequestError(error)}</p>
     </div>
   );

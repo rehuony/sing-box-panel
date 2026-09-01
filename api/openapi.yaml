@@ -3,8 +3,8 @@ info:
   title: sing-box-panel API
   version: 0.2.0
   description: >-
-    Local management API for one version-independent sing-box configuration
-    history, exact compiled adapters, immutable startup artifacts, runtime
+    Local management API for one raw sing-box configuration
+    history, optional native schemas, immutable startup artifacts, runtime
     operations, live subscription publication, and sanitized observability.
   license:
     name: GPL-3.0-or-later
@@ -124,6 +124,7 @@ paths:
           application/json:
             schema:
               type: object
+              additionalProperties: false
               required: [core_artifact_id]
               properties:
                 core_artifact_id:
@@ -132,7 +133,7 @@ paths:
                   type: string
       responses:
         "200":
-          description: Non-persisted projection through the exact adapter.
+          description: Non-persisted raw sing-box JSON for the selected exact binary.
           content:
             application/json:
               schema:
@@ -148,15 +149,14 @@ paths:
           application/json:
             schema:
               type: object
+              additionalProperties: false
               required: [core_artifact_id]
               properties:
                 core_artifact_id:
                   type: string
-                accepted_ignored_digest:
-                  type: string
       responses:
         "202":
-          description: Immutable compiled candidate and queued exact-core check.
+          description: Immutable raw configuration candidate and queued exact-core check.
           content:
             application/json:
               schema:
@@ -297,11 +297,37 @@ paths:
       operationId: getCoreArtifactConfigurationSupport
       responses:
         "200":
-          description: Exact compiled adapter support for the complete binary profile.
+          description: Structured editor availability for the exact sing-box version.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ConfigurationAdapterSupport"
+                $ref: "#/components/schemas/ConfigurationSupport"
+  /core/artifacts/{artifactId}/configuration-schema:
+    parameters:
+      - $ref: "#/components/parameters/ArtifactID"
+    get:
+      operationId: getCoreArtifactConfigurationSchema
+      parameters:
+        - $ref: "#/components/parameters/IfNoneMatch"
+      responses:
+        "200":
+          description: Native Draft 2020-12 schema for the artifact's exact sing-box version.
+          headers:
+            ETag:
+              description: Validator bound to the exact version and Schema digest.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConfigurationSchemaContract"
+        "304":
+          description: The exact-version Schema has not changed.
+          headers:
+            ETag:
+              description: Validator bound to the exact version and Schema digest.
+              schema:
+                type: string
   /core/artifacts/{artifactId}/quarantine:
     parameters:
       - $ref: "#/components/parameters/ArtifactID"
@@ -378,6 +404,21 @@ paths:
       responses:
         "200":
           $ref: "#/components/responses/RuntimeStatus"
+  /core/runtime/history:
+    get:
+      operationId: getCoreRuntimeHistory
+      parameters:
+        - $ref: "#/components/parameters/From"
+        - $ref: "#/components/parameters/To"
+        - $ref: "#/components/parameters/RuntimeTransitionStateFilter"
+        - $ref: "#/components/parameters/RuntimeTransitionReasonFilter"
+        - $ref: "#/components/parameters/ActivationBundleFilter"
+        - $ref: "#/components/parameters/BeforeTime"
+        - $ref: "#/components/parameters/RuntimeTransitionBeforeID"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          $ref: "#/components/responses/RuntimeHistoryPage"
   /core/check:
     post:
       operationId: checkStartupArtifact
@@ -427,6 +468,12 @@ paths:
       operationId: rollbackCoreRuntime
       parameters:
         - $ref: "#/components/parameters/CSRFToken"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RuntimeRollbackRequest"
       responses:
         "202":
           $ref: "#/components/responses/Task"
@@ -889,6 +936,18 @@ paths:
       responses:
         "200":
           $ref: "#/components/responses/MetricsSnapshot"
+  /metrics/history:
+    get:
+      operationId: getMetricsHistory
+      description: Returns at most 512 buckets across a range no longer than 90 days; missing evidence remains null.
+      parameters:
+        - $ref: "#/components/parameters/MetricsHistoryFrom"
+        - $ref: "#/components/parameters/MetricsHistoryTo"
+        - $ref: "#/components/parameters/MetricsHistoryBucketSeconds"
+        - $ref: "#/components/parameters/ActivationBundleFilter"
+      responses:
+        "200":
+          $ref: "#/components/responses/MetricsHistory"
   /traffic/status:
     get:
       operationId: getTrafficStatus
@@ -902,6 +961,8 @@ paths:
         - $ref: "#/components/parameters/ActivationBundleFilter"
         - $ref: "#/components/parameters/From"
         - $ref: "#/components/parameters/To"
+        - $ref: "#/components/parameters/BeforeTime"
+        - $ref: "#/components/parameters/BeforeID"
         - $ref: "#/components/parameters/Limit"
       responses:
         "200":
@@ -937,6 +998,12 @@ components:
       required: true
       schema:
         type: string
+    IfNoneMatch:
+      name: If-None-Match
+      in: header
+      required: false
+      schema:
+        type: string
     Limit:
       name: limit
       in: query
@@ -958,6 +1025,14 @@ components:
       description: Must be supplied together with before_time.
       schema:
         type: string
+    RuntimeTransitionBeforeID:
+      name: before_id
+      in: query
+      description: Numeric runtime-transition ID; must be supplied together with before_time.
+      schema:
+        type: integer
+        format: int64
+        minimum: 1
     BeforeSequence:
       name: before_sequence
       in: query
@@ -1097,6 +1172,20 @@ components:
       in: query
       schema:
         type: string
+    RuntimeTransitionStateFilter:
+      name: state
+      in: query
+      schema:
+        type: string
+        enum: [running, stopped, failed, unknown]
+    RuntimeTransitionReasonFilter:
+      name: reason
+      in: query
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 128
+        pattern: '^[a-z][a-z0-9_.-]*$'
     From:
       name: from
       in: query
@@ -1109,6 +1198,28 @@ components:
       schema:
         type: string
         format: date-time
+    MetricsHistoryFrom:
+      name: from
+      in: query
+      required: true
+      schema:
+        type: string
+        format: date-time
+    MetricsHistoryTo:
+      name: to
+      in: query
+      required: true
+      schema:
+        type: string
+        format: date-time
+    MetricsHistoryBucketSeconds:
+      name: bucket_seconds
+      in: query
+      required: true
+      schema:
+        type: integer
+        format: int64
+        minimum: 1
     ArtifactID:
       name: artifactId
       in: path
@@ -1261,6 +1372,9 @@ components:
     RuntimeStatus:
       description: Durable runtime intent and observed process identity.
       content: {application/json: {schema: {$ref: "#/components/schemas/RuntimeStatus"}}}
+    RuntimeHistoryPage:
+      description: Stable newest-first page of durable runtime transitions.
+      content: {application/json: {schema: {$ref: "#/components/schemas/RuntimeHistoryPage"}}}
     TaskPage:
       description: Page of durable tasks.
       content: {application/json: {schema: {$ref: "#/components/schemas/TaskPage"}}}
@@ -1327,6 +1441,9 @@ components:
     MetricsSnapshot:
       description: Collector-backed metrics availability and latest evidence.
       content: {application/json: {schema: {$ref: "#/components/schemas/MetricsSnapshot"}}}
+    MetricsHistory:
+      description: Bounded, gap-preserving historical metric buckets.
+      content: {application/json: {schema: {$ref: "#/components/schemas/MetricsHistory"}}}
     TrafficPeriodPage:
       description: Traffic periods.
       content: {application/json: {schema: {$ref: "#/components/schemas/TrafficPeriodPage"}}}
@@ -1376,7 +1493,7 @@ components:
     DashboardContext:
       type: object
       additionalProperties: false
-      required: [view, running, canonical, applied, adapter]
+      required: [view, running, canonical, applied, configuration]
       properties:
         view:
           type: object
@@ -1399,7 +1516,7 @@ components:
           oneOf:
             - type: "null"
             - $ref: "#/components/schemas/DashboardApplied"
-        adapter:
+        configuration:
           type: object
           additionalProperties: false
           required: [supported, label, warning]
@@ -1465,7 +1582,7 @@ components:
     RuntimeIdentity:
       type: object
       additionalProperties: false
-      required: [pid, process_start_token, exact_core_version, core_artifact_id, archive_sha256, binary_sha256, activation_bundle_id]
+      required: [pid, process_start_token, exact_core_version, core_artifact_id, archive_sha256, binary_sha256, activation_bundle_id, started_at]
       properties:
         pid: {type: integer, minimum: 1}
         process_start_token: {type: string}
@@ -1474,6 +1591,7 @@ components:
         archive_sha256: {$ref: "#/components/schemas/SHA256"}
         binary_sha256: {$ref: "#/components/schemas/SHA256"}
         activation_bundle_id: {type: string}
+        started_at: {type: string, format: date-time}
     RuntimeStatus:
       type: object
       additionalProperties: false
@@ -1486,6 +1604,45 @@ components:
         target_generation: {type: integer, format: int64, minimum: 0}
         observation_state: {type: string, enum: [stopped, running, stale, inspection_unavailable]}
         running: {$ref: "#/components/schemas/RuntimeIdentity"}
+    RuntimeRollbackRequest:
+      type: object
+      additionalProperties: false
+      required: [activation_bundle_id]
+      properties:
+        activation_bundle_id: {type: string, minLength: 1}
+    RuntimeTransition:
+      type: object
+      additionalProperties: false
+      required: [id, state, reason, occurred_at]
+      properties:
+        id: {type: integer, format: int64, minimum: 1}
+        state: {type: string, enum: [running, stopped, failed, unknown]}
+        reason: {type: string}
+        activation_bundle_id: {type: string}
+        generation: {type: integer, format: int64, minimum: 0}
+        task_id: {type: string}
+        pid: {type: integer, minimum: 1}
+        process_started_at: {type: string, format: date-time}
+        occurred_at: {type: string, format: date-time}
+        uncertain_since: {type: string, format: date-time}
+    RuntimeTransitionCursor:
+      type: object
+      additionalProperties: false
+      required: [occurred_at, id]
+      properties:
+        occurred_at: {type: string, format: date-time}
+        id: {type: integer, format: int64, minimum: 1}
+    RuntimeHistoryPage:
+      type: object
+      additionalProperties: false
+      required: [items, history_started_at]
+      properties:
+        items:
+          type: array
+          items: {$ref: "#/components/schemas/RuntimeTransition"}
+        next: {$ref: "#/components/schemas/RuntimeTransitionCursor"}
+        preceding: {$ref: "#/components/schemas/RuntimeTransition"}
+        history_started_at: {type: string, format: date-time}
     ExactCoreVersion:
       type: string
       pattern: '^[0-9]+\.[0-9]+\.[0-9]+$'
@@ -1579,18 +1736,8 @@ components:
             type: string
     CanonicalDocument:
       type: object
-      additionalProperties: false
-      required: [schema_version, configuration]
-      properties:
-        schema_version:
-          type: integer
-          const: 2
-        configuration:
-          type: object
-          description: >-
-            Version-independent superset intent. Managed top-level collection
-            items carry an _panel object with a stable id and enabled flag.
-          additionalProperties: true
+      description: Raw sing-box configuration JSON. Field semantics are gated by the selected exact binary's check command.
+      additionalProperties: true
     CanonicalSnapshot:
       type: object
       required: [id, sequence, schema_version, document, document_json, sha256, created_at]
@@ -1604,7 +1751,7 @@ components:
           type: string
         schema_version:
           type: integer
-          const: 2
+          const: 1
         document:
           $ref: "#/components/schemas/CanonicalDocument"
         document_json:
@@ -1667,80 +1814,47 @@ components:
               path: {type: string}
               from: {$ref: "#/components/schemas/CanonicalDiffValue"}
               to: {$ref: "#/components/schemas/CanonicalDiffValue"}
-    ConfigurationProfile:
+    ConfigurationSupport:
       type: object
-      required: [exact_version, os, arch, variant, feature_fingerprint]
+      additionalProperties: false
+      required: [structured, exact_version]
       properties:
-        exact_version:
-          type: string
-        os:
-          type: string
-        arch:
-          type: string
-        variant:
-          $ref: "#/components/schemas/CoreVariant"
-        feature_fingerprint:
-          $ref: "#/components/schemas/DynamicObject"
-    ConfigurationAdapterSupport:
-      type: object
-      required: [supported, profile]
-      properties:
-        supported:
+        structured:
           type: boolean
-        profile:
-          $ref: "#/components/schemas/ConfigurationProfile"
-        adapter_id:
-          type: string
-        adapter_revision:
+        exact_version:
           type: string
         reason:
           type: string
-        provenance:
-          type: object
-          properties:
-            upstream_tag:
-              type: string
-            upstream_commit:
-              type: string
-            source:
-              type: string
-    ConfigurationDiagnostic:
+    ConfigurationSchemaContract:
       type: object
-      required: [class, code, path, message]
+      additionalProperties: false
+      required: [exact_version, schema_sha256, schema]
       properties:
-        class:
-          type: string
-          enum: [direct, mapped, ignored, blocking]
-        code:
-          type: string
-        path:
-          type: string
-        message:
-          type: string
+        exact_version:
+          $ref: "#/components/schemas/ExactCoreVersion"
+        schema_sha256:
+          $ref: "#/components/schemas/SHA256"
+        schema:
+          type: object
+          additionalProperties: true
     ConfigurationPreview:
       type: object
-      required: [canonical_revision, core_artifact, support, config, diagnostics]
+      required: [canonical_revision, core_artifact, support, config]
       properties:
         canonical_revision:
           $ref: "#/components/schemas/CanonicalSnapshot"
         core_artifact:
           $ref: "#/components/schemas/CoreArtifact"
         support:
-          $ref: "#/components/schemas/ConfigurationAdapterSupport"
+          $ref: "#/components/schemas/ConfigurationSupport"
         config:
           $ref: "#/components/schemas/DynamicObject"
-        diagnostics:
-          type: array
-          items:
-            $ref: "#/components/schemas/ConfigurationDiagnostic"
-        ignored_digest:
-          type: string
     ConfigurationCompile:
       type: object
       required: [support, artifact, task]
       properties:
         support:
-          $ref: "#/components/schemas/ConfigurationAdapterSupport"
+          $ref: "#/components/schemas/ConfigurationSupport"
         artifact:
           $ref: "#/components/schemas/CompiledConfigurationArtifact"
         task:
@@ -1748,32 +1862,24 @@ components:
     CompiledConfigurationArtifact:
       type: object
       additionalProperties: false
-      required: [id, canonical_revision_id, exact_core_version, adapter_id, adapter_revision, core_artifact_id, config_sha256, diagnostics, state]
+      required: [id, canonical_revision_id, exact_core_version, core_artifact_id, config_sha256, state]
       properties:
         id: {type: string}
         canonical_revision_id: {type: string}
         exact_core_version: {$ref: "#/components/schemas/ExactCoreVersion"}
-        adapter_id: {type: string}
-        adapter_revision: {type: string}
         core_artifact_id: {type: string}
         config_sha256: {$ref: "#/components/schemas/SHA256"}
-        diagnostics: {type: array, items: {$ref: "#/components/schemas/ConfigurationDiagnostic"}}
-        ignored_digest: {$ref: "#/components/schemas/SHA256"}
         state: {type: string, enum: [pending, ready, failed]}
     StartupArtifactSummary:
       type: object
       additionalProperties: false
-      required: [id, canonical_revision_id, exact_core_version, adapter_id, adapter_revision, core_artifact_id, config_sha256, diagnostics, state, created_at]
+      required: [id, canonical_revision_id, exact_core_version, core_artifact_id, config_sha256, state, created_at]
       properties:
         id: {type: string}
         canonical_revision_id: {type: string}
         exact_core_version: {$ref: "#/components/schemas/ExactCoreVersion"}
-        adapter_id: {type: string}
-        adapter_revision: {type: string}
         core_artifact_id: {type: string}
         config_sha256: {$ref: "#/components/schemas/SHA256"}
-        diagnostics: {type: array, items: {$ref: "#/components/schemas/ConfigurationDiagnostic"}}
-        ignored_digest: {$ref: "#/components/schemas/SHA256"}
         state: {type: string, enum: [pending, ready, failed]}
         checked_at: {type: string, format: date-time}
         created_at: {type: string, format: date-time}
@@ -2081,7 +2187,7 @@ components:
     TrafficSample:
       type: object
       additionalProperties: false
-      required: [id, activation_bundle_id, pid, process_start_token, sampled_at, memory_bytes, active_connections, upload_total, download_total, accepted]
+      required: [id, activation_bundle_id, pid, process_start_token, sampled_at, memory_bytes, active_connections, upload_total, download_total, upload_delta, download_delta, coverage, accepted]
       properties:
         id: {type: integer, format: int64, minimum: 1}
         activation_bundle_id: {type: string}
@@ -2092,12 +2198,21 @@ components:
         active_connections: {type: integer, format: int64, minimum: 0}
         upload_total: {type: integer, format: int64, minimum: 0}
         download_total: {type: integer, format: int64, minimum: 0}
+        upload_delta:
+          type: [integer, "null"]
+          format: int64
+          minimum: 0
+        download_delta:
+          type: [integer, "null"]
+          format: int64
+          minimum: 0
+        coverage: {$ref: "#/components/schemas/CoverageStatus"}
         accepted: {type: boolean}
         diagnostic_code: {type: string}
     MetricsSnapshot:
       type: object
       additionalProperties: false
-      required: [available, collected_at, quota_exceeded]
+      required: [available, collected_at, traffic_available, quota_exceeded]
       properties:
         available: {type: boolean}
         reason_code: {type: string, enum: [not_applied, process_only, no_collector_sample, stale_collector_sample]}
@@ -2106,14 +2221,70 @@ components:
         collected_at: {type: string, format: date-time}
         current_traffic_period: {$ref: "#/components/schemas/TrafficPeriod"}
         latest_sample: {$ref: "#/components/schemas/TrafficSample"}
+        traffic_available: {type: boolean}
         quota_bytes: {type: integer, format: int64, minimum: 0}
         quota_exceeded: {type: boolean}
+    CoverageStatus:
+      type: string
+      enum: [complete, partial, missing]
+    MetricsHistoryBucket:
+      type: object
+      additionalProperties: false
+      required: [from, to, upload_bytes, download_bytes, memory_bytes_avg, memory_bytes_peak, active_connections_avg, active_connections_peak, sample_count, coverage]
+      properties:
+        from: {type: string, format: date-time}
+        to: {type: string, format: date-time}
+        upload_bytes:
+          type: [integer, "null"]
+          format: int64
+          minimum: 0
+        download_bytes:
+          type: [integer, "null"]
+          format: int64
+          minimum: 0
+        memory_bytes_avg:
+          type: [number, "null"]
+          minimum: 0
+        memory_bytes_peak:
+          type: [integer, "null"]
+          format: int64
+          minimum: 0
+        active_connections_avg:
+          type: [number, "null"]
+          minimum: 0
+        active_connections_peak:
+          type: [integer, "null"]
+          format: int64
+          minimum: 0
+        sample_count: {type: integer, format: int64, minimum: 0}
+        coverage: {$ref: "#/components/schemas/CoverageStatus"}
+    MetricsHistory:
+      type: object
+      additionalProperties: false
+      required: [from, to, bucket_seconds, buckets]
+      properties:
+        from: {type: string, format: date-time}
+        to: {type: string, format: date-time}
+        bucket_seconds: {type: integer, format: int64, minimum: 1}
+        activation_bundle_id: {type: string}
+        buckets:
+          type: array
+          maxItems: 512
+          items: {$ref: "#/components/schemas/MetricsHistoryBucket"}
+    TrafficPeriodCursor:
+      type: object
+      additionalProperties: false
+      required: [period_start, id]
+      properties:
+        period_start: {type: string, format: date-time}
+        id: {type: string}
     TrafficPeriodPage:
       type: object
       additionalProperties: false
       required: [items]
       properties:
         items: {type: array, items: {$ref: "#/components/schemas/TrafficPeriod"}}
+        next: {$ref: "#/components/schemas/TrafficPeriodCursor"}
     SubscriptionUserInput:
       type: object
       additionalProperties: false

@@ -97,7 +97,7 @@ func TestRepresentativeHTTPResponsesConformToOpenAPI(t *testing.T) {
 	})
 
 	canonical := serveConformingRequest(t, router, handler, http.MethodPut, "/api/v1/config/canonical",
-		`{"schema_version":2,"configuration":{}}`, http.StatusOK, true, map[string]string{"If-Match": `"none"`})
+		`{}`, http.StatusOK, true, map[string]string{"If-Match": `"none"`})
 	var saved application.CanonicalSave
 	if err := json.Unmarshal(canonical.Body.Bytes(), &saved); err != nil || saved.TaskID == "" {
 		t.Fatalf("decode canonical save: save=%+v err=%v", saved, err)

@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
 
+import { useTranslation } from 'react-i18next';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { useApiClient } from '@/api/api-client-context';
@@ -13,6 +14,7 @@ export interface ControlPlaneProviderProps {
 }
 
 export function ControlPlaneProvider({ children }: ControlPlaneProviderProps) {
+  const { t } = useTranslation();
   const client = useApiClient();
   const [state, setState] = useState<ControlPlaneState>({
     status: 'loading',
@@ -53,12 +55,11 @@ export function ControlPlaneProvider({ children }: ControlPlaneProviderProps) {
         setState({
           status: 'error',
           context: null,
-          message:
-            'Control-plane context is unavailable. The panel may still be starting.',
+          message: t('shell.error.contextUnavailable'),
         });
       }
     },
-    [client],
+    [client, t],
   );
 
   useEffect(() => {

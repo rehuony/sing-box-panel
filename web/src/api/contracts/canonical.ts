@@ -1,4 +1,4 @@
-import type { JsonObject } from './common';
+import type { CanonicalDocument } from '../generated';
 
 export type {
   CanonicalChange,
@@ -9,11 +9,12 @@ export type {
   CanonicalSnapshot,
 } from '../generated';
 
-export interface ManagedConfigurationEntry extends JsonObject {
+export interface CanonicalRevisionListFilter {
+  limit?: number;
+  beforeSequence?: number;
+}
+
+export interface ManagedConfigurationEntry extends CanonicalDocument {
   tag?: string;
   type?: string;
-  _panel: {
-    id: string;
-    enabled: boolean;
-  };
 }

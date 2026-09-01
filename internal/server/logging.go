@@ -48,11 +48,11 @@ func startLogRetention(ctx context.Context, commands *application.Application) <
 }
 
 func withTaskLogging(commands *application.Application, next taskHandler) taskHandler {
-	return taskHandlerFunc(func(
+	return taskResultHandlerFunc(func(
 		ctx context.Context,
 		task store.Task,
 		control taskExecutionControl,
-	) (json.RawMessage, error) {
+	) (taskHandlerResult, error) {
 		metadata := mustLogMetadata(map[string]any{
 			"task_id": task.ID,
 			"kind":    task.Kind,

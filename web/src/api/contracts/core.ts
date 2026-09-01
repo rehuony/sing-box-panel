@@ -1,8 +1,8 @@
 import type {
   ActivationSummary,
-  ConfigurationDiagnostic,
   CoreArtifact,
   CreatedAtCursor,
+  RuntimeTransition,
   StartupArtifactSummary,
 } from '../generated';
 
@@ -12,22 +12,35 @@ export type {
   CatalogAsset,
   CatalogAssetList,
   CompiledConfigurationArtifact,
-  ConfigurationAdapterSupport,
   ConfigurationCompile,
-  ConfigurationDiagnostic,
   ConfigurationPreview,
-  ConfigurationProfile,
+  ConfigurationSchemaContract,
+  ConfigurationSupport,
   CoreArtifact,
   CoreArtifactPage,
+  RuntimeHistoryPage,
   RuntimeStatus,
+  RuntimeTransition,
+  RuntimeTransitionCursor,
   StartupArtifactPage,
   StartupArtifactSummary,
 } from '../generated';
 
-export type ConfigurationDiagnosticClass = ConfigurationDiagnostic['class'];
 export type StartupArtifactState = StartupArtifactSummary['state'];
 export type MonitoringTier = ActivationSummary['monitoring_tier'];
 export type CoreArtifactCursor = CreatedAtCursor;
+export type RuntimeTransitionState = RuntimeTransition['state'];
+
+export interface RuntimeHistoryFilter {
+  to?: string;
+  from?: string;
+  limit?: number;
+  reason?: string;
+  beforeID?: number;
+  beforeTime?: string;
+  activationBundleID?: string;
+  state?: RuntimeTransitionState;
+}
 
 export interface CatalogAssetFilter {
   variant?: string;

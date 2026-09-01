@@ -29,7 +29,20 @@ type TrafficPeriodFilter struct {
 	ActivationBundleID string
 	OverlapsStart      *time.Time
 	OverlapsEnd        *time.Time
+	Cursor             *TrafficPeriodCursor
 	Limit              int
+}
+
+// TrafficPeriodCursor is an exclusive cursor in the stable newest-first
+// (period_start, id) ordering.
+type TrafficPeriodCursor struct {
+	PeriodStart time.Time `json:"period_start"`
+	ID          string    `json:"id"`
+}
+
+type TrafficPeriodPage struct {
+	Items []TrafficPeriod      `json:"items"`
+	Next  *TrafficPeriodCursor `json:"next,omitempty"`
 }
 
 // UpsertTrafficPeriod records an actual collector sample. Identity and period
@@ -122,12 +135,20 @@ func (s *Store) CurrentTrafficPeriod(ctx context.Context, at time.Time) (Traffic
 }
 
 func (s *Store) ListTrafficPeriods(ctx context.Context, filter TrafficPeriodFilter) ([]TrafficPeriod, error) {
+	page, err := s.ListTrafficPeriodPage(ctx, filter)
+	return page.Items, err
+}
+
+func (s *Store) ListTrafficPeriodPage(ctx context.Context, filter TrafficPeriodFilter) (TrafficPeriodPage, error) {
 	limit, err := normalizePageLimit(filter.Limit)
 	if err != nil {
-		return nil, err
+		return TrafficPeriodPage{}, err
+	}
+	if err := validateTrafficPeriodCursor(filter.Cursor); err != nil {
+		return TrafficPeriodPage{}, err
 	}
 	clauses := []string{"1 = 1"}
-	args := make([]any, 0, 6)
+	args := make([]any, 0, 10)
 	if filter.ActivationBundleID != "" {
 		clauses = append(clauses, "activation_bundle_id = ?")
 		args = append(args, filter.ActivationBundleID)
@@ -140,7 +161,12 @@ func (s *Store) ListTrafficPeriods(ctx context.Context, filter TrafficPeriodFilt
 		clauses = append(clauses, "period_start < ?")
 		args = append(args, formatTaskTime(filter.OverlapsEnd.UTC()))
 	}
-	args = append(args, limit)
+	if filter.Cursor != nil {
+		cursorTime := formatTaskTime(filter.Cursor.PeriodStart.UTC())
+		clauses = append(clauses, "(period_start < ? OR (period_start = ? AND id < ?))")
+		args = append(args, cursorTime, cursorTime, filter.Cursor.ID)
+	}
+	args = append(args, limit+1)
 	rows, err := s.db.QueryContext(
 		ctx,
 		`SELECT id, activation_bundle_id, period_start, period_end,
@@ -151,21 +177,37 @@ func (s *Store) ListTrafficPeriods(ctx context.Context, filter TrafficPeriodFilt
 		args...,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("list traffic periods: %w", err)
+		return TrafficPeriodPage{}, fmt.Errorf("list traffic periods: %w", err)
 	}
 	defer rows.Close()
-	periods := make([]TrafficPeriod, 0)
+	periods := make([]TrafficPeriod, 0, limit+1)
 	for rows.Next() {
 		period, err := scanTrafficPeriod(rows)
 		if err != nil {
-			return nil, fmt.Errorf("scan traffic period: %w", err)
+			return TrafficPeriodPage{}, fmt.Errorf("scan traffic period: %w", err)
 		}
 		periods = append(periods, period)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate traffic periods: %w", err)
+		return TrafficPeriodPage{}, fmt.Errorf("iterate traffic periods: %w", err)
 	}
-	return periods, nil
+	page := TrafficPeriodPage{Items: periods}
+	if len(periods) > limit {
+		page.Items = periods[:limit]
+		last := page.Items[len(page.Items)-1]
+		page.Next = &TrafficPeriodCursor{PeriodStart: last.PeriodStart, ID: last.ID}
+	}
+	return page, nil
+}
+
+func validateTrafficPeriodCursor(cursor *TrafficPeriodCursor) error {
+	if cursor == nil {
+		return nil
+	}
+	if cursor.PeriodStart.IsZero() || strings.TrimSpace(cursor.ID) == "" || strings.TrimSpace(cursor.ID) != cursor.ID {
+		return errors.New("traffic period cursor is invalid")
+	}
+	return nil
 }
 
 func prepareTrafficPeriod(period TrafficPeriod) (TrafficPeriod, error) {

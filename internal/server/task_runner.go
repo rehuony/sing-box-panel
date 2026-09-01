@@ -13,9 +13,10 @@ import (
 )
 
 var (
-	errTaskRunnerAlreadyStarted = errors.New("task runner already started")
-	errTaskRunnerClosed         = errors.New("task runner is closed")
-	errTaskRunnerNotStarted     = errors.New("task runner is not started")
+	errTaskRunnerAlreadyStarted       = errors.New("task runner already started")
+	errTaskRunnerClosed               = errors.New("task runner is closed")
+	errTaskRunnerNotStarted           = errors.New("task runner is not started")
+	errRuntimeTaskEvidenceUnavailable = errors.New("runtime task changed the external process without durable completion evidence")
 )
 
 // taskHandler performs one claimed task. Calls are serial within a lane and may
@@ -23,7 +24,12 @@ var (
 // lease loss and process shutdown, and call control.SafePoint at safe external
 // cancellation boundaries.
 type taskHandler interface {
-	Handle(context.Context, store.Task, taskExecutionControl) (json.RawMessage, error)
+	Handle(context.Context, store.Task, taskExecutionControl) (taskHandlerResult, error)
+}
+
+type taskHandlerResult struct {
+	Payload json.RawMessage
+	Runtime *store.RuntimeTaskCommit
 }
 
 // taskHandlerFunc adapts a function to taskHandler.
@@ -33,7 +39,18 @@ func (f taskHandlerFunc) Handle(
 	ctx context.Context,
 	task store.Task,
 	control taskExecutionControl,
-) (json.RawMessage, error) {
+) (taskHandlerResult, error) {
+	payload, err := f(ctx, task, control)
+	return taskHandlerResult{Payload: payload}, err
+}
+
+type taskResultHandlerFunc func(context.Context, store.Task, taskExecutionControl) (taskHandlerResult, error)
+
+func (f taskResultHandlerFunc) Handle(
+	ctx context.Context,
+	task store.Task,
+	control taskExecutionControl,
+) (taskHandlerResult, error) {
 	return f(ctx, task, control)
 }
 
@@ -263,7 +280,7 @@ func (r *taskRunner) runTask(ctx context.Context, task store.Task) error {
 		return nil
 	}
 
-	handlerCtx, cancelHandler := context.WithCancelCause(ctx)
+	handlerBaseCtx, cancelHandler := context.WithCancelCause(ctx)
 	defer cancelHandler(context.Canceled)
 	control := &taskControl{
 		store:         r.store,
@@ -284,7 +301,7 @@ func (r *taskRunner) runTask(ctx context.Context, task store.Task) error {
 			case <-heartbeatCtx.Done():
 				return
 			case <-heartbeatTicker.C():
-				if _, err := control.heartbeat(handlerCtx); err != nil {
+				if _, err := control.heartbeat(handlerBaseCtx); err != nil {
 					cancelHandler(err)
 					return
 				}
@@ -292,7 +309,7 @@ func (r *taskRunner) runTask(ctx context.Context, task store.Task) error {
 		}
 	}()
 
-	result, handlerErr := handler.Handle(handlerCtx, task, control)
+	result, handlerErr := handler.Handle(handlerBaseCtx, task, control)
 	stopHeartbeat()
 	<-heartbeatDone
 
@@ -300,14 +317,30 @@ func (r *taskRunner) runTask(ctx context.Context, task store.Task) error {
 		// Shutdown leaves the lease to expire; a new process can reclaim it.
 		return nil
 	}
-	if cause := context.Cause(handlerCtx); cause != nil {
+	if cause := context.Cause(handlerBaseCtx); cause != nil {
 		if errors.Is(cause, store.ErrTaskLeaseLost) {
 			return nil
 		}
 		return cause
 	}
 
-	completion := store.TaskCompletion{Succeeded: handlerErr == nil, Result: result}
+	if handlerErr == nil && task.Lane == store.TaskLaneRuntime && result.Runtime == nil {
+		handlerErr = errors.Join(
+			errRuntimeTaskEvidenceUnavailable,
+			errors.New("runtime handler did not return durable completion evidence"),
+		)
+	}
+	if errors.Is(handlerErr, errRuntimeTaskEvidenceUnavailable) {
+		// Do not invent a terminal result when an external lifecycle effect may
+		// have happened but its fenced evidence could not be returned. The running
+		// task and any preliminary observation remain reclaimable after the lease.
+		return handlerErr
+	}
+	completion := store.TaskCompletion{
+		Succeeded: handlerErr == nil,
+		Result:    result.Payload,
+		Runtime:   result.Runtime,
+	}
 	if handlerErr != nil {
 		completion.Failure = encodeTaskFailure("handler_failed", handlerErr)
 	}

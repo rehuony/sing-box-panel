@@ -15,9 +15,13 @@ export function compareExactVersions(left: string, right: string): number {
   return 0;
 }
 
-export function formatBytes(bytes: number): string {
+export function formatBytes(
+  bytes: number,
+  locale = 'en',
+  unknownLabel = 'Unknown size',
+): string {
   if (!Number.isFinite(bytes) || bytes < 0) {
-    return 'Unknown size';
+    return unknownLabel;
   }
   const units = ['B', 'KiB', 'MiB', 'GiB'];
   let value = bytes;
@@ -26,5 +30,7 @@ export function formatBytes(bytes: number): string {
     value /= 1024;
     unit += 1;
   }
-  return `${value.toFixed(unit === 0 ? 0 : 1)} ${units[unit]}`;
+  return `${new Intl.NumberFormat(locale, {
+    maximumFractionDigits: unit === 0 ? 0 : 1,
+  }).format(value)} ${units[unit]}`;
 }

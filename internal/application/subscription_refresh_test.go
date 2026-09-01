@@ -31,7 +31,7 @@ func TestSubscriptionSourceRefreshTaskPublishesOnlySuccessfulVersion(t *testing.
 	}
 	t.Cleanup(func() { _ = database.Close() })
 	app := newSubscriptionTestApplication(database)
-	app.settings = settings.Defaults(filepath.Join(t.TempDir(), "setting.json"))
+	app.settings = settings.Defaults()
 	app.settings.Subscription.PrivateSourceCIDRs = []string{"127.0.0.1/32"}
 	source, err := app.CreateSubscriptionSource(ctx, CreateSubscriptionSourceRequest{
 		Name: "remote", SourceKind: store.SubscriptionSourceRemote, Enabled: true,

@@ -66,6 +66,10 @@ func (handler *Handler) handleApplicationRoute(w http.ResponseWriter, request *h
 			next = func(w http.ResponseWriter, request *http.Request) {
 				handler.coreConfigurationSupport(w, request, identifier)
 			}
+		case resource == "artifact-configuration-schema" && request.Method == http.MethodGet:
+			next = func(w http.ResponseWriter, request *http.Request) {
+				handler.coreConfigurationSchema(w, request, identifier)
+			}
 		case resource == "artifact-quarantine" && request.Method == http.MethodPost:
 			next = func(w http.ResponseWriter, request *http.Request) {
 				handler.restrictCoreArtifact(w, request, identifier, store.CoreArtifactQuarantined)
@@ -80,6 +84,8 @@ func (handler *Handler) handleApplicationRoute(w http.ResponseWriter, request *h
 			next = handler.queueCoreImport
 		case resource == "status" && request.Method == http.MethodGet:
 			next = handler.coreRuntimeStatus
+		case resource == "runtime-history" && request.Method == http.MethodGet:
+			next = handler.coreRuntimeHistory
 		case resource == "check" && request.Method == http.MethodPost:
 			next = handler.queueStartupCheck
 		case resource == "activate" && request.Method == http.MethodPost:
@@ -151,6 +157,8 @@ func matchCoreRoute(path string) (string, string, bool) {
 		return "import", "", true
 	case "/api/v1/core/status":
 		return "status", "", true
+	case "/api/v1/core/runtime/history":
+		return "runtime-history", "", true
 	case "/api/v1/core/check":
 		return "check", "", true
 	case "/api/v1/core/activate":
@@ -177,6 +185,8 @@ func matchCoreRoute(path string) (string, string, bool) {
 		switch parts[1] {
 		case "configuration-support":
 			return "artifact-configuration-support", parts[0], true
+		case "configuration-schema":
+			return "artifact-configuration-schema", parts[0], true
 		case "quarantine":
 			return "artifact-quarantine", parts[0], true
 		case "revoke":

@@ -44,8 +44,8 @@ integration, installation, and authenticated self-update.
 
 Security review covers the Go backend and CLI, Web application, OpenAPI
 boundary, persistence and runtime management, installer and systemd paths,
-release build and signing workflow, and project-owned adapters and subscription
-rendering.
+release build and signing workflow, version-scoped Schema support, and
+subscription rendering.
 
 Important attacker-controlled inputs include HTTP requests, browser uploads,
 subscription source responses, GitHub release metadata and assets, imported
@@ -67,7 +67,7 @@ The following properties must hold:
   ambiguous input.
 - Imported core artifacts preserve exact version, architecture, feature,
   checksum, and immutable binary identity; unsupported profiles must not fall
-  back to a nearby adapter.
+  back to a nearby version's Schema or subscription converter.
 - Installer and self-update paths verify the project Ed25519 signature and the
   selected binary checksum before replacing an executable.
 - Filesystem writes and executable replacement reject unsafe symbolic links,

@@ -26,17 +26,22 @@ type TrafficSampleInput struct {
 }
 
 type TrafficSample struct {
-	ID                 int64     `json:"id"`
-	ActivationBundleID string    `json:"activation_bundle_id"`
-	PID                int       `json:"pid"`
-	ProcessStartToken  string    `json:"process_start_token"`
-	SampledAt          time.Time `json:"sampled_at"`
-	MemoryBytes        int64     `json:"memory_bytes"`
-	ActiveConnections  int64     `json:"active_connections"`
-	UploadTotal        int64     `json:"upload_total"`
-	DownloadTotal      int64     `json:"download_total"`
-	Accepted           bool      `json:"accepted"`
-	DiagnosticCode     string    `json:"diagnostic_code,omitempty"`
+	ID                 int64          `json:"id"`
+	ActivationBundleID string         `json:"activation_bundle_id"`
+	PID                int            `json:"pid"`
+	ProcessStartToken  string         `json:"process_start_token"`
+	SampledAt          time.Time      `json:"sampled_at"`
+	MemoryBytes        int64          `json:"memory_bytes"`
+	ActiveConnections  int64          `json:"active_connections"`
+	UploadTotal        int64          `json:"upload_total"`
+	DownloadTotal      int64          `json:"download_total"`
+	UploadDelta        *int64         `json:"upload_delta"`
+	DownloadDelta      *int64         `json:"download_delta"`
+	IntervalStart      *time.Time     `json:"interval_start"`
+	IntervalEnd        *time.Time     `json:"interval_end"`
+	Coverage           CoverageStatus `json:"coverage"`
+	Accepted           bool           `json:"accepted"`
+	DiagnosticCode     string         `json:"diagnostic_code,omitempty"`
 }
 
 type TrafficSampleResult struct {
@@ -50,13 +55,15 @@ type trafficCheckpoint struct {
 	ProcessStartToken, ActivationBundleID  string
 	LastUpload, LastDownload               int64
 	AccumulatedUpload, AccumulatedDownload int64
+	HasDelta                               bool
 	SampledAt                              time.Time
 }
 
 // RecordTrafficSample converts process-local counters into monotonic period
 // totals. A PID/start-token change begins a new segment while preserving the
-// current UTC period total. Counter regression within one process is retained
-// as rejected evidence and cannot corrupt the checkpoint.
+// current UTC period total, but its first lifetime counter is not guessed as a
+// period delta. Counter regression or out-of-order evidence is retained as a
+// rejected sample and cannot corrupt the checkpoint.
 func (s *Store) RecordTrafficSample(ctx context.Context, input TrafficSampleInput) (TrafficSampleResult, error) {
 	prepared, err := prepareTrafficSampleInput(input)
 	if err != nil {
@@ -65,21 +72,42 @@ func (s *Store) RecordTrafficSample(ctx context.Context, input TrafficSampleInpu
 	var result TrafficSampleResult
 	err = s.WithTx(ctx, func(tx *sql.Tx) error {
 		checkpoint, checkpointErr := getTrafficCheckpoint(ctx, tx)
-		samePeriod := checkpointErr == nil && checkpoint.PeriodStart.Equal(prepared.PeriodStart) &&
+		hasCheckpoint := checkpointErr == nil
+		samePeriod := hasCheckpoint && checkpoint.PeriodStart.Equal(prepared.PeriodStart) &&
 			checkpoint.PeriodEnd.Equal(prepared.PeriodEnd)
-		sameProcess := samePeriod && checkpoint.PID == prepared.PID &&
+		sameProcess := hasCheckpoint && checkpoint.PID == prepared.PID &&
 			checkpoint.ProcessStartToken == prepared.ProcessStartToken
+		sameSegment := sameProcess && checkpoint.ActivationBundleID == prepared.ActivationBundleID
 		if checkpointErr != nil && !errors.Is(checkpointErr, sql.ErrNoRows) {
 			return checkpointErr
 		}
 
 		accepted := true
 		diagnostic := ""
-		if sameProcess && (prepared.UploadTotal < checkpoint.LastUpload || prepared.DownloadTotal < checkpoint.LastDownload) {
+		if hasCheckpoint && !prepared.SampledAt.After(checkpoint.SampledAt) {
+			accepted = false
+			diagnostic = "sample_out_of_order"
+		} else if sameSegment && (prepared.UploadTotal < checkpoint.LastUpload || prepared.DownloadTotal < checkpoint.LastDownload) {
 			accepted = false
 			diagnostic = "counter_decreased"
 		}
-		sample, err := insertTrafficSample(ctx, tx, prepared, accepted, diagnostic)
+		var uploadDelta, downloadDelta *int64
+		var intervalStart, intervalEnd *time.Time
+		coverage := CoveragePartial
+		if accepted && sameSegment {
+			upload := prepared.UploadTotal - checkpoint.LastUpload
+			download := prepared.DownloadTotal - checkpoint.LastDownload
+			uploadDelta, downloadDelta = &upload, &download
+			start, end := checkpoint.SampledAt, prepared.SampledAt
+			intervalStart, intervalEnd = &start, &end
+			if samePeriod && prepared.SampledAt.Sub(checkpoint.SampledAt) <= maximumCompleteSampleGap {
+				coverage = CoverageComplete
+			}
+		}
+		sample, err := insertTrafficSample(
+			ctx, tx, prepared, uploadDelta, downloadDelta, intervalStart, intervalEnd,
+			coverage, accepted, diagnostic,
+		)
 		if err != nil {
 			return err
 		}
@@ -94,20 +122,28 @@ func (s *Store) RecordTrafficSample(ctx context.Context, input TrafficSampleInpu
 			return periodErr
 		}
 
-		accumulatedUpload := prepared.UploadTotal
-		accumulatedDownload := prepared.DownloadTotal
+		accumulatedUpload, accumulatedDownload := int64(0), int64(0)
 		if samePeriod {
-			accumulatedUpload = checkpoint.AccumulatedUpload + prepared.UploadTotal
-			accumulatedDownload = checkpoint.AccumulatedDownload + prepared.DownloadTotal
-			if sameProcess {
-				accumulatedUpload = checkpoint.AccumulatedUpload + prepared.UploadTotal - checkpoint.LastUpload
-				accumulatedDownload = checkpoint.AccumulatedDownload + prepared.DownloadTotal - checkpoint.LastDownload
-			}
+			accumulatedUpload = checkpoint.AccumulatedUpload
+			accumulatedDownload = checkpoint.AccumulatedDownload
 		}
-		if err := upsertTrafficCheckpoint(ctx, tx, prepared, accumulatedUpload, accumulatedDownload); err != nil {
+		if uploadDelta != nil && samePeriod {
+			accumulatedUpload += *uploadDelta
+			accumulatedDownload += *downloadDelta
+		}
+		hasDelta := uploadDelta != nil && samePeriod
+		if samePeriod {
+			hasDelta = hasDelta || checkpoint.HasDelta
+		}
+		if err := upsertTrafficCheckpoint(
+			ctx, tx, prepared, accumulatedUpload, accumulatedDownload, hasDelta,
+		); err != nil {
 			return err
 		}
-		period, err := upsertCollectedTrafficPeriod(ctx, tx, prepared, accumulatedUpload, accumulatedDownload)
+		period, err := upsertCollectedTrafficPeriod(
+			ctx, tx, prepared, accumulatedUpload, accumulatedDownload,
+			uploadDelta, downloadDelta, coverage, hasDelta,
+		)
 		if err != nil {
 			return err
 		}
@@ -119,9 +155,10 @@ func (s *Store) RecordTrafficSample(ctx context.Context, input TrafficSampleInpu
 
 func (s *Store) LatestAcceptedTrafficSample(ctx context.Context) (TrafficSample, error) {
 	return scanTrafficSample(s.db.QueryRowContext(ctx, `
-        SELECT id, activation_bundle_id, pid, process_start_token, sampled_at,
+		SELECT id, activation_bundle_id, pid, process_start_token, sampled_at,
                memory_bytes, active_connections, upload_total, download_total,
-               accepted, diagnostic_code
+               upload_delta, download_delta, interval_start, interval_end,
+               coverage, accepted, diagnostic_code
           FROM traffic_samples WHERE accepted = 1
           ORDER BY sampled_at DESC, id DESC LIMIT 1`))
 }
@@ -149,11 +186,11 @@ func getTrafficCheckpoint(ctx context.Context, tx *sql.Tx) (trafficCheckpoint, e
 	err := tx.QueryRowContext(ctx, `
         SELECT period_start, period_end, pid, process_start_token, activation_bundle_id,
                last_upload_total, last_download_total, accumulated_upload,
-               accumulated_download, sampled_at
+			   accumulated_download, has_delta, sampled_at
           FROM traffic_checkpoint WHERE singleton = 1`).Scan(
 		&start, &end, &checkpoint.PID, &checkpoint.ProcessStartToken, &checkpoint.ActivationBundleID,
 		&checkpoint.LastUpload, &checkpoint.LastDownload, &checkpoint.AccumulatedUpload,
-		&checkpoint.AccumulatedDownload, &sampled,
+		&checkpoint.AccumulatedDownload, &checkpoint.HasDelta, &sampled,
 	)
 	if err != nil {
 		return trafficCheckpoint{}, err
@@ -170,14 +207,26 @@ func getTrafficCheckpoint(ctx context.Context, tx *sql.Tx) (trafficCheckpoint, e
 	return checkpoint, err
 }
 
-func insertTrafficSample(ctx context.Context, tx *sql.Tx, input TrafficSampleInput, accepted bool, diagnostic string) (TrafficSample, error) {
+func insertTrafficSample(
+	ctx context.Context,
+	tx *sql.Tx,
+	input TrafficSampleInput,
+	uploadDelta, downloadDelta *int64,
+	intervalStart, intervalEnd *time.Time,
+	coverage CoverageStatus,
+	accepted bool,
+	diagnostic string,
+) (TrafficSample, error) {
 	result, err := tx.ExecContext(ctx, `
         INSERT INTO traffic_samples(
             activation_bundle_id, pid, process_start_token, sampled_at, memory_bytes,
-            active_connections, upload_total, download_total, accepted, diagnostic_code
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            active_connections, upload_total, download_total, upload_delta, download_delta,
+			interval_start, interval_end, coverage, accepted, diagnostic_code
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		input.ActivationBundleID, input.PID, input.ProcessStartToken, formatTaskTime(input.SampledAt),
-		input.MemoryBytes, input.ActiveConnections, input.UploadTotal, input.DownloadTotal, accepted, diagnostic,
+		input.MemoryBytes, input.ActiveConnections, input.UploadTotal, input.DownloadTotal,
+		uploadDelta, downloadDelta, nullRuntimeTime(intervalStart), nullRuntimeTime(intervalEnd),
+		coverage, accepted, diagnostic,
 	)
 	if err != nil {
 		return TrafficSample{}, fmt.Errorf("insert traffic sample: %w", err)
@@ -191,26 +240,35 @@ func insertTrafficSample(ctx context.Context, tx *sql.Tx, input TrafficSampleInp
 		ProcessStartToken: input.ProcessStartToken, SampledAt: input.SampledAt,
 		MemoryBytes: input.MemoryBytes, ActiveConnections: input.ActiveConnections,
 		UploadTotal: input.UploadTotal, DownloadTotal: input.DownloadTotal,
+		UploadDelta: uploadDelta, DownloadDelta: downloadDelta,
+		IntervalStart: intervalStart, IntervalEnd: intervalEnd, Coverage: coverage,
 		Accepted: accepted, DiagnosticCode: diagnostic,
 	}, nil
 }
 
-func upsertTrafficCheckpoint(ctx context.Context, tx *sql.Tx, input TrafficSampleInput, upload, download int64) error {
+func upsertTrafficCheckpoint(
+	ctx context.Context,
+	tx *sql.Tx,
+	input TrafficSampleInput,
+	upload, download int64,
+	hasDelta bool,
+) error {
 	_, err := tx.ExecContext(ctx, `
         INSERT INTO traffic_checkpoint(
             singleton, period_start, period_end, pid, process_start_token, activation_bundle_id,
-            last_upload_total, last_download_total, accumulated_upload, accumulated_download, sampled_at
-        ) VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			last_upload_total, last_download_total, accumulated_upload, accumulated_download,
+			has_delta, sampled_at
+		) VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(singleton) DO UPDATE SET
             period_start=excluded.period_start, period_end=excluded.period_end,
             pid=excluded.pid, process_start_token=excluded.process_start_token,
             activation_bundle_id=excluded.activation_bundle_id,
             last_upload_total=excluded.last_upload_total, last_download_total=excluded.last_download_total,
             accumulated_upload=excluded.accumulated_upload, accumulated_download=excluded.accumulated_download,
-            sampled_at=excluded.sampled_at`,
+			has_delta=excluded.has_delta, sampled_at=excluded.sampled_at`,
 		formatTaskTime(input.PeriodStart), formatTaskTime(input.PeriodEnd), input.PID,
 		input.ProcessStartToken, input.ActivationBundleID, input.UploadTotal, input.DownloadTotal,
-		upload, download, formatTaskTime(input.SampledAt),
+		upload, download, hasDelta, formatTaskTime(input.SampledAt),
 	)
 	if err != nil {
 		return fmt.Errorf("update traffic checkpoint: %w", err)
@@ -218,12 +276,22 @@ func upsertTrafficCheckpoint(ctx context.Context, tx *sql.Tx, input TrafficSampl
 	return nil
 }
 
-func upsertCollectedTrafficPeriod(ctx context.Context, tx *sql.Tx, input TrafficSampleInput, upload, download int64) (TrafficPeriod, error) {
+func upsertCollectedTrafficPeriod(
+	ctx context.Context,
+	tx *sql.Tx,
+	input TrafficSampleInput,
+	upload, download int64,
+	uploadDelta, downloadDelta *int64,
+	coverage CoverageStatus,
+	hasDelta bool,
+) (TrafficPeriod, error) {
 	periodID := trafficPeriodID(input.PeriodStart, input.PeriodEnd)
 	counters, err := json.Marshal(map[string]any{
 		"latest_sample_at": input.SampledAt, "memory_bytes": input.MemoryBytes,
 		"active_connections": input.ActiveConnections, "latest_bundle_id": input.ActivationBundleID,
 		"upload_total": input.UploadTotal, "download_total": input.DownloadTotal,
+		"upload_delta": uploadDelta, "download_delta": downloadDelta, "coverage": coverage,
+		"traffic_evidence_available": hasDelta,
 	})
 	if err != nil {
 		return TrafficPeriod{}, err
@@ -253,14 +321,37 @@ func trafficPeriodID(start, end time.Time) string {
 func scanTrafficSample(row taskScanner) (TrafficSample, error) {
 	var sample TrafficSample
 	var sampledAt string
+	var uploadDelta, downloadDelta sql.NullInt64
+	var intervalStart, intervalEnd sql.NullString
 	err := row.Scan(
 		&sample.ID, &sample.ActivationBundleID, &sample.PID, &sample.ProcessStartToken,
 		&sampledAt, &sample.MemoryBytes, &sample.ActiveConnections, &sample.UploadTotal,
-		&sample.DownloadTotal, &sample.Accepted, &sample.DiagnosticCode,
+		&sample.DownloadTotal, &uploadDelta, &downloadDelta, &intervalStart, &intervalEnd, &sample.Coverage,
+		&sample.Accepted, &sample.DiagnosticCode,
 	)
 	if err != nil {
 		return TrafficSample{}, err
 	}
 	sample.SampledAt, err = parseTaskTime(sampledAt)
+	if uploadDelta.Valid {
+		sample.UploadDelta = &uploadDelta.Int64
+	}
+	if downloadDelta.Valid {
+		sample.DownloadDelta = &downloadDelta.Int64
+	}
+	if intervalStart.Valid {
+		parsed, parseErr := parseTaskTime(intervalStart.String)
+		if parseErr != nil {
+			return TrafficSample{}, fmt.Errorf("parse traffic interval_start: %w", parseErr)
+		}
+		sample.IntervalStart = &parsed
+	}
+	if intervalEnd.Valid {
+		parsed, parseErr := parseTaskTime(intervalEnd.String)
+		if parseErr != nil {
+			return TrafficSample{}, fmt.Errorf("parse traffic interval_end: %w", parseErr)
+		}
+		sample.IntervalEnd = &parsed
+	}
 	return sample, err
 }

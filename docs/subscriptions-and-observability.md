@@ -128,9 +128,45 @@ than 30 seconds is stale.
 Counters are checkpointed by PID and OS start token. A restart opens a new
 segment and preserves the UTC natural-month period total. A decrease inside
 one process is stored as rejected diagnostic evidence and cannot lower totals.
+Cross-period checkpoints retain the last process counters but add only the
+delta proven inside the new natural period, so a long-lived process cannot
+re-add its lifetime counters each month. Samples and period contributions use
+nullable upload/download deltas: legacy or interrupted intervals that cannot
+be proven are marked `partial` instead of being rendered as zero.
+
 Periods span `traffic.period_months`; `traffic.quota_gib=0` is unlimited.
 Current periods aggregate across activation bundles while individual samples
-retain bundle evidence.
+retain bundle evidence. Period list responses include the paired
+`period_start`/`id` cursor in `next`, so every matching record remains
+reachable beyond the requested limit.
+
+Raw samples follow the required `traffic.sample_retention_days` setting, which
+is initialized to 90 and accepts 1 through 366 days. A settings file without
+the field is rejected. The server removes expired raw samples during startup
+and every 24 hours. Traffic period totals remain retained after raw samples
+are removed.
+
+The authenticated history endpoint is:
+
+```text
+GET /api/v1/metrics/history?from&to&bucket_seconds&activation_bundle_id
+```
+
+`from`, `to`, and a positive `bucket_seconds` are required; the bundle filter
+is optional. A request may cover at most 90 days and produce at most 512
+buckets. Each bucket returns traffic deltas, average and peak memory, average
+and peak active connections, sample count, and `complete`, `partial`, or
+`missing` coverage. Missing buckets are emitted explicitly with nullable
+measurements, never synthetic zero traffic.
+
+Coverage is derived from persisted sampling intervals rather than sample
+count. A bucket is `complete` only when accepted same-process, same-bundle,
+same-period intervals of at most 30 seconds cover both bucket boundaries and
+the whole span between them. An uncovered gap, an over-limit interval, a
+process or bundle boundary, rejected counter evidence, or a retained sample
+without a provable interval makes the bucket `partial`; no evidence makes it
+`missing`. Traffic deltas remain nullable whenever the interval that would
+justify them is unknown.
 
 ```sh
 sing-box-panel metrics show

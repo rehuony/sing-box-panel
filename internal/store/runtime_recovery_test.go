@@ -5,6 +5,7 @@ package store
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"sync"
 	"testing"
 	"time"
@@ -304,13 +305,12 @@ func seedAppliedRuntime(
 	}
 	startup, err := database.CreateStartupArtifact(ctx, StartupArtifact{
 		ID: "startup-runtime-recovery", CanonicalRevisionID: revision.ID, ExactCoreVersion: core.ExactVersion,
-		AdapterID: "test-adapter", AdapterRevision: "1", CoreArtifactID: core.ID,
-		ConfigBytes: []byte(`{}`), Diagnostics: json.RawMessage(`[]`), CreatedAt: now.Add(time.Second),
+		CoreArtifactID: core.ID, ConfigBytes: []byte(`{}`), CreatedAt: now.Add(time.Second),
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	startup, err = database.CompleteStartupArtifactCheck(ctx, startup.ID, true, json.RawMessage(`[]`), now.Add(2*time.Second))
+	startup, err = database.CompleteStartupArtifactCheck(ctx, startup.ID, true, now.Add(2*time.Second))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -343,6 +343,50 @@ func seedAppliedRuntime(
 		t.Fatal(err)
 	}
 	return bundle, observation
+}
+
+func TestRequestRuntimeRollbackBindsFrozenBundle(t *testing.T) {
+	ctx := testContext(t)
+	database := openTestStore(t, ctx)
+	initialized, err := database.LatestRuntimeTransition(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bundle, _ := seedAppliedRuntime(t, ctx, database, initialized.OccurredAt.Add(time.Minute))
+	if _, err := database.db.ExecContext(
+		ctx,
+		`UPDATE hub_state SET rollback_bundle_id = ? WHERE singleton = 1`,
+		bundle.ID,
+	); err != nil {
+		t.Fatal(err)
+	}
+	before, err := database.Bootstrap(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = database.RequestRuntimeIntent(ctx, RuntimeIntentInput{
+		TaskID: "runtime-rollback-stale", Kind: RuntimeIntentRollback,
+		BundleID: "bundle-shown-before-drift", CreatedAt: initialized.OccurredAt.Add(2 * time.Minute),
+	})
+	if !errors.Is(err, ErrRuntimeIntentStale) {
+		t.Fatalf("RequestRuntimeIntent(stale rollback) error = %v", err)
+	}
+	after, err := database.Bootstrap(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.Hub.TargetGeneration != before.Hub.TargetGeneration || after.Hub.RollbackBundleID != bundle.ID {
+		t.Fatalf("stale rollback changed hub: before=%+v after=%+v", before.Hub, after.Hub)
+	}
+
+	queued, err := database.RequestRuntimeIntent(ctx, RuntimeIntentInput{
+		TaskID: "runtime-rollback-exact", Kind: RuntimeIntentRollback,
+		BundleID: bundle.ID, CreatedAt: initialized.OccurredAt.Add(3 * time.Minute),
+	})
+	if err != nil || queued.ActivationBundleID != bundle.ID || queued.Kind != TaskKindRuntimeRollback {
+		t.Fatalf("RequestRuntimeIntent(exact rollback) = %+v, %v", queued, err)
+	}
 }
 
 func runtimeObservationFixture(

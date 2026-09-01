@@ -1,52 +1,148 @@
+import type { TFunction } from 'i18next';
+
 import { Link } from 'react-router-dom';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-import type { ConfigurationAdapterSupport, ConfigurationPreview, CoreArtifact, MonitoringTier, StartupArtifactSummary } from '@/api/api-client';
+import type { ConfigurationPreview, CoreArtifact, MonitoringTier, RuntimeHistoryPage, RuntimeStatus, StartupArtifactPage, StartupArtifactSummary, Task } from '@/api/api-client';
 
+import { Button } from '@/components/ui/button';
 import { useApiClient } from '@/api/api-client-context';
 import { ErrorNotice } from '@/components/error-notice';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
+
+import { ActivationHistory } from './activation-history';
+import { encodeCanonicalValue } from './use-canonical-configuration';
 
 export interface StartupWorkflowProps {
   exactVersion: string;
+  mutationsDisabled: boolean;
 }
 
 function compact(value: string): string {
   return value.length > 18 ? `${value.slice(0, 15)}…` : value;
 }
 
-export function StartupWorkflow({ exactVersion }: StartupWorkflowProps) {
+function formatTimestamp(timestamp: string | undefined, locale: string): string {
+  if (timestamp === undefined) return '—';
+  return new Intl.DateTimeFormat(locale, { dateStyle: 'medium', timeStyle: 'short' })
+    .format(new Date(timestamp));
+}
+
+function describeAcceptedTask(task: Task, action: string, t: TFunction): string {
+  return t('configuration.deploy.task.accepted', { action, id: task.id });
+}
+
+export function StartupWorkflow({ exactVersion, mutationsDisabled }: StartupWorkflowProps) {
   const client = useApiClient();
+  const { i18n, t } = useTranslation();
   const [cores, setCores] = useState<CoreArtifact[]>([]);
   const [selectedCore, setSelectedCore] = useState('');
-  const [supportResult, setSupportResult] = useState<{
-    coreArtifactID: string;
-    value: ConfigurationAdapterSupport;
-  } | null>(null);
   const [previewResult, setPreviewResult] = useState<{
     coreArtifactID: string;
     value: ConfigurationPreview;
   } | null>(null);
   const [candidates, setCandidates] = useState<StartupArtifactSummary[]>([]);
+  const [candidateNext, setCandidateNext] = useState<StartupArtifactPage['next']>();
   const [candidateCoreArtifactID, setCandidateCoreArtifactID] = useState('');
   const [selectedCandidate, setSelectedCandidate] = useState('');
-  const [acceptedIgnoredDigest, setAcceptedIgnoredDigest] = useState('');
   const [monitoringTier, setMonitoringTier] = useState<MonitoringTier>('process_only');
   const [loading, setLoading] = useState(true);
   const [busyAction, setBusyAction] = useState('');
   const [error, setError] = useState<unknown>(null);
   const [message, setMessage] = useState('');
+  const [applyConfirmation, setApplyConfirmation] = useState<{
+    monitoringTier: MonitoringTier;
+    startupArtifactID: string;
+  } | null>(null);
+  const [rollbackConfirmationOpen, setRollbackConfirmationOpen] = useState(false);
+  const [rollbackEvidence, setRollbackEvidence] = useState<RuntimeStatus | null>(null);
+  const [rollbackConfirmation, setRollbackConfirmation] = useState('');
+  const [activationHistory, setActivationHistory] = useState<RuntimeHistoryPage | null>(null);
+  const [activationHistoryError, setActivationHistoryError] = useState<unknown>(null);
+  const [activationHistoryLoading, setActivationHistoryLoading] = useState(true);
+  const [loadingOlderCandidates, setLoadingOlderCandidates] = useState(false);
+  const candidateRequestRef = useRef(0);
+  const activationHistoryRequestRef = useRef(0);
+  const loadingOlderCandidatesRef = useRef(false);
 
-  const loadCandidates = useCallback(async (coreArtifactID: string, signal?: AbortSignal) => {
-    setCandidates([]);
-    setCandidateCoreArtifactID('');
-    setSelectedCandidate('');
+  const loadCandidates = useCallback(async (
+    coreArtifactID: string,
+    signal?: AbortSignal,
+    cursor?: NonNullable<StartupArtifactPage['next']>,
+    append = false,
+  ) => {
+    const request = candidateRequestRef.current + 1;
+    candidateRequestRef.current = request;
     if (coreArtifactID === '') {
       return;
     }
-    const page = await client.listStartupArtifacts({ coreArtifactID, limit: 100 }, signal);
-    if (!signal?.aborted) {
+    const page = await client.listStartupArtifacts({
+      beforeID: cursor?.id,
+      beforeTime: cursor?.created_at,
+      coreArtifactID,
+      limit: 100,
+    }, signal);
+    if (!signal?.aborted && candidateRequestRef.current === request) {
       setCandidateCoreArtifactID(coreArtifactID);
-      setCandidates(page.items);
+      setCandidates((current) => append ? [...current, ...page.items] : page.items);
+      setCandidateNext(page.next);
+      if (!append) {
+        setSelectedCandidate((current) => page.items.some((item) => item.id === current) ? current : '');
+      }
+    }
+  }, [client]);
+
+  async function loadOlderCandidatesPage() {
+    if (candidateNext === undefined || selectedCore === '' || loadingOlderCandidatesRef.current) return;
+    loadingOlderCandidatesRef.current = true;
+    setLoadingOlderCandidates(true);
+    try {
+      await loadCandidates(selectedCore, undefined, candidateNext, true);
+      setError(null);
+    } catch (loadError) {
+      setError(loadError);
+    } finally {
+      loadingOlderCandidatesRef.current = false;
+      setLoadingOlderCandidates(false);
+    }
+  }
+
+  async function refreshCandidates() {
+    if (selectedCore === '') return;
+    try {
+      await loadCandidates(selectedCore);
+      setError(null);
+    } catch (loadError) {
+      setError(loadError);
+    }
+  }
+
+  const loadActivationHistory = useCallback(async (signal?: AbortSignal) => {
+    const request = activationHistoryRequestRef.current + 1;
+    activationHistoryRequestRef.current = request;
+    setActivationHistoryLoading(true);
+    try {
+      const page = await client.getRuntimeHistory({ limit: 100 }, signal);
+      if (signal?.aborted || activationHistoryRequestRef.current !== request) return;
+      setActivationHistory(page);
+      setActivationHistoryError(null);
+    } catch (loadError) {
+      if (signal?.aborted || activationHistoryRequestRef.current !== request) return;
+      setActivationHistoryError(loadError);
+    } finally {
+      if (!signal?.aborted && activationHistoryRequestRef.current === request) {
+        setActivationHistoryLoading(false);
+      }
     }
   }, [client]);
 
@@ -68,30 +164,29 @@ export function StartupWorkflow({ exactVersion }: StartupWorkflowProps) {
   }, [client, exactVersion]);
 
   useEffect(() => {
+    const controller = new AbortController();
+    void loadActivationHistory(controller.signal);
+    return () => controller.abort();
+  }, [loadActivationHistory]);
+
+  useEffect(() => {
     if (selectedCore === '') return;
     const controller = new AbortController();
     void Promise.all([
-      client.getConfigurationSupport(selectedCore, controller.signal),
       loadCandidates(selectedCore, controller.signal),
-    ]).then(([resolved]) => {
+      client.previewConfiguration({ coreArtifactID: selectedCore }, controller.signal),
+    ]).then(([, result]) => {
       if (controller.signal.aborted) return;
       setError(null);
-      setSupportResult({ coreArtifactID: selectedCore, value: resolved });
-      if (!resolved.supported) return;
-      return client.previewConfiguration({ coreArtifactID: selectedCore }, controller.signal)
-        .then((result) => {
-          if (!controller.signal.aborted) {
-            setPreviewResult({ coreArtifactID: selectedCore, value: result });
-          }
-        });
+      setPreviewResult({ coreArtifactID: selectedCore, value: result });
     }).catch((loadError: unknown) => {
       if (!controller.signal.aborted) setError(loadError);
     });
     return () => controller.abort();
   }, [client, loadCandidates, selectedCore]);
 
-  const support = supportResult?.coreArtifactID === selectedCore ? supportResult.value : null;
   const preview = previewResult?.coreArtifactID === selectedCore ? previewResult.value : null;
+  const support = preview?.support ?? null;
   const readyCandidates = useMemo(
     () => candidateCoreArtifactID === selectedCore
       ? candidates.filter((item) => item.state === 'ready')
@@ -99,21 +194,19 @@ export function StartupWorkflow({ exactVersion }: StartupWorkflowProps) {
     [candidateCoreArtifactID, candidates, selectedCore],
   );
   const selectedReadyCandidate = readyCandidates.find((item) => item.id === selectedCandidate) ?? null;
-  const hasIgnored = preview?.diagnostics.some((item) => item.class === 'ignored') === true;
-  const ignoredAccepted = preview?.ignored_digest !== undefined
-    && acceptedIgnoredDigest === preview.ignored_digest;
-
   async function compile() {
-    if (selectedCore === '' || preview === null) return;
+    if (mutationsDisabled || selectedCore === '' || preview === null) return;
     setBusyAction('compile');
     setError(null);
     setMessage('');
     try {
       const result = await client.compileConfiguration({
         coreArtifactID: selectedCore,
-        acceptedIgnoredDigest: hasIgnored && ignoredAccepted ? preview.ignored_digest : undefined,
       });
-      setMessage(`Compiled ${result.artifact.id}; validation is queued as ${result.task.id}.`);
+      setMessage(t('configuration.deploy.compiled', {
+        id: result.artifact.id,
+        progress: describeAcceptedTask(result.task, t('configuration.deploy.action.validation'), t),
+      }));
       await loadCandidates(selectedCore);
       setSelectedCandidate(result.artifact.id);
     } catch (actionError) {
@@ -124,13 +217,21 @@ export function StartupWorkflow({ exactVersion }: StartupWorkflowProps) {
   }
 
   async function apply() {
-    if (selectedReadyCandidate === null) return;
+    if (applyConfirmation === null || mutationsDisabled) return;
     setBusyAction('apply');
     setError(null);
     setMessage('');
     try {
-      const result = await client.activateStartupArtifact(selectedReadyCandidate.id, monitoringTier);
-      setMessage(`Activation ${result.activation.activation_bundle_id} is queued as ${result.task.id}.`);
+      const result = await client.activateStartupArtifact(
+        applyConfirmation.startupArtifactID,
+        applyConfirmation.monitoringTier,
+      );
+      setMessage(describeAcceptedTask(
+        result.task,
+        t('configuration.deploy.action.activation', { id: result.activation.activation_bundle_id }),
+        t,
+      ));
+      setApplyConfirmation(null);
     } catch (actionError) {
       setError(actionError);
     } finally {
@@ -140,27 +241,67 @@ export function StartupWorkflow({ exactVersion }: StartupWorkflowProps) {
 
   function changeCore(coreArtifactID: string) {
     setSelectedCore(coreArtifactID);
-    setSupportResult(null);
     setPreviewResult(null);
     setCandidates([]);
+    setCandidateNext(undefined);
     setCandidateCoreArtifactID('');
     setSelectedCandidate('');
-    setAcceptedIgnoredDigest('');
   }
 
-  async function lifecycle(operation: 'start' | 'stop' | 'restart' | 'rollback') {
-    setBusyAction(operation);
+  async function checkCandidate(candidate: StartupArtifactSummary) {
+    if (mutationsDisabled) return;
+    setBusyAction(`check:${candidate.id}`);
     setError(null);
     setMessage('');
     try {
-      const task = operation === 'start'
-        ? await client.startRuntime()
-        : operation === 'stop'
-          ? await client.stopRuntime()
-          : operation === 'restart'
-            ? await client.restartRuntime()
-            : await client.rollbackRuntime();
-      setMessage(`${operation} is queued as ${task.id}.`);
+      const task = await client.checkStartupArtifact(candidate.id);
+      setMessage(describeAcceptedTask(
+        task,
+        t('configuration.deploy.action.candidateCheck', { id: candidate.id }),
+        t,
+      ));
+    } catch (actionError) {
+      setError(actionError);
+    } finally {
+      setBusyAction('');
+    }
+  }
+
+  async function prepareRollback() {
+    setBusyAction('rollback-evidence');
+    setError(null);
+    setMessage('');
+    try {
+      const status = await client.getRuntimeStatus();
+      if (status.rollback_bundle_id === undefined) {
+        throw new Error(t('configuration.deploy.rollback.unavailable'));
+      }
+      setRollbackEvidence(status);
+      setRollbackConfirmation('');
+      setRollbackConfirmationOpen(true);
+    } catch (actionError) {
+      setError(actionError);
+    } finally {
+      setBusyAction('');
+    }
+  }
+
+  async function rollback() {
+    const rollbackBundleID = rollbackEvidence?.rollback_bundle_id;
+    if (mutationsDisabled || rollbackBundleID === undefined || rollbackConfirmation !== rollbackBundleID) return;
+    setBusyAction('rollback');
+    setError(null);
+    setMessage('');
+    try {
+      const task = await client.rollbackRuntime(rollbackBundleID);
+      setMessage(describeAcceptedTask(
+        task,
+        t('configuration.deploy.action.rollback', { id: rollbackBundleID }),
+        t,
+      ));
+      setRollbackConfirmationOpen(false);
+      setRollbackEvidence(null);
+      setRollbackConfirmation('');
     } catch (actionError) {
       setError(actionError);
     } finally {
@@ -172,34 +313,32 @@ export function StartupWorkflow({ exactVersion }: StartupWorkflowProps) {
     <section className='startup-workflow' aria-labelledby='startup-workflow-title'>
       <div className='section-heading'>
         <div>
-          <p className='eyebrow'>Exact adapter / immutable startup bytes</p>
-          <h2 id='startup-workflow-title'>Preview, compile, check and apply</h2>
+          <h2 id='startup-workflow-title'>{t('configuration.deploy.title')}</h2>
         </div>
-        <button className='button button--secondary' disabled={selectedCore === '' || loading} onClick={() => void loadCandidates(selectedCore)} type='button'>Refresh candidates</button>
+        <button className='button button--secondary' disabled={selectedCore === '' || loading} onClick={() => void refreshCandidates()} type='button'>{t('configuration.deploy.refreshCandidates')}</button>
       </div>
 
-      {error === null ? null : <ErrorNotice error={error} title='Configuration workflow failed' />}
+      {error === null ? null : <ErrorNotice error={error} title={t('configuration.deploy.error')} />}
       {message === ''
         ? null
         : (
             <div className='notice notice--success' role='status'>
-              <strong>Operation accepted</strong>
+              <strong>{t('configuration.deploy.accepted')}</strong>
               <p>{message}</p>
-              <Link className='text-link' to='/tasks'>Open task queue</Link>
+              <Link className='text-link' to='/tasks'>{t('configuration.deploy.openTasks')}</Link>
             </div>
           )}
 
       <div className='form-grid'>
         <div className='field-group'>
-          <label htmlFor='startup-core'>Verified core artifact</label>
+          <label htmlFor='startup-core'>{t('configuration.deploy.core.label')}</label>
           <select disabled={loading || cores.length === 0} id='startup-core' onChange={(event) => changeCore(event.target.value)} value={selectedCore}>
             {cores.length === 0
               ? (
                   <option value=''>
-                    No verified
-                    {exactVersion || 'selected-version'}
-                    {' '}
-                    artifact
+                    {t('configuration.deploy.core.noVerified', {
+                      version: exactVersion || t('configuration.deploy.core.selectedVersion'),
+                    })}
                   </option>
                 )
               : null}
@@ -219,9 +358,9 @@ export function StartupWorkflow({ exactVersion }: StartupWorkflowProps) {
           </select>
         </div>
         <div className='field-group'>
-          <span className='field-label'>Adapter</span>
-          <strong>{support?.supported === true ? `${support.adapter_id}@${support.adapter_revision}` : 'Unavailable'}</strong>
-          <small>{support?.supported === false ? support.reason : 'Support is matched against the complete installed binary profile.'}</small>
+          <span className='field-label'>{t('configuration.deploy.schemaCapability.label')}</span>
+          <strong>{support?.structured === true ? t('configuration.deploy.schemaCapability.structured') : t('configuration.deploy.schemaCapability.unavailable')}</strong>
+          <small>{support?.structured === false ? support.reason : t('configuration.deploy.schemaCapability.matched')}</small>
         </div>
       </div>
 
@@ -231,62 +370,48 @@ export function StartupWorkflow({ exactVersion }: StartupWorkflowProps) {
             <div className='projection-preview'>
               <div className='section-heading'>
                 <div>
-                  <p className='eyebrow'>Projection preview</p>
                   <h3>
-                    Revision #
-                    {preview.canonical_revision.sequence}
+                    {t('configuration.revision', {
+                      sequence: new Intl.NumberFormat(i18n.language).format(preview.canonical_revision.sequence),
+                    })}
                   </h3>
                 </div>
-                <span>
-                  {preview.diagnostics.length}
-                  {' '}
-                  diagnostics
-                </span>
+                <span>{preview.support.exact_version}</span>
               </div>
-              {preview.diagnostics.length === 0
-                ? <p className='source-note'>Every configured field is accepted without a projection diagnostic.</p>
-                : (
-                    <ul className='diagnostic-list'>
-                      {preview.diagnostics.map((diagnostic) => (
-                        <li key={`${diagnostic.path}:${diagnostic.code}`}>
-                          <span className={`state-label state-label--${diagnostic.class === 'ignored' ? 'warning' : 'success'}`}>{diagnostic.class}</span>
-                          <code>{diagnostic.path}</code>
-                          <strong>{diagnostic.code}</strong>
-                          <p>{diagnostic.message}</p>
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-              {hasIgnored
-                ? (
-                    <label className='checkbox-field' htmlFor='accept-ignored-fields'>
-                      <input
-                        checked={ignoredAccepted}
-                        id='accept-ignored-fields'
-                        onChange={(event) => setAcceptedIgnoredDigest(
-                          event.target.checked ? preview.ignored_digest ?? '' : '',
-                        )}
-                        type='checkbox'
-                      />
-                      <span>
-                        I understand these fields remain in global history but are ignored by
-                        {exactVersion}
-                        .
-                      </span>
-                    </label>
-                  )
-                : null}
-              <button className='button button--primary' disabled={busyAction !== '' || (hasIgnored && !ignoredAccepted)} onClick={() => void compile()} type='button'>
-                {busyAction === 'compile' ? 'Compiling…' : 'Compile and queue check'}
+              <dl className='detail-list' aria-label={t('configuration.deploy.previewEvidence')}>
+                <div>
+                  <dt>{t('configuration.deploy.evidence.canonicalRevision')}</dt>
+                  <dd><code>{preview.canonical_revision.id}</code></dd>
+                </div>
+                <div>
+                  <dt>{t('configuration.deploy.evidence.canonicalDigest')}</dt>
+                  <dd><code>{preview.canonical_revision.sha256}</code></dd>
+                </div>
+                <div>
+                  <dt>{t('configuration.deploy.evidence.coreArtifact')}</dt>
+                  <dd><code>{preview.core_artifact.id}</code></dd>
+                </div>
+                <div>
+                  <dt>{t('configuration.deploy.evidence.binaryDigest')}</dt>
+                  <dd><code>{preview.core_artifact.binary_sha256}</code></dd>
+                </div>
+                <div>
+                  <dt>{t('configuration.deploy.evidence.schemaCapability')}</dt>
+                  <dd>{preview.support.structured ? t('configuration.deploy.schemaCapability.structured') : t('configuration.deploy.schemaCapability.unavailable')}</dd>
+                </div>
+              </dl>
+              <pre className='configuration-entity-json'>{encodeCanonicalValue(preview.config, 2)}</pre>
+              <button className='button button--primary' disabled={mutationsDisabled || busyAction !== ''} onClick={() => void compile()} type='button'>
+                {busyAction === 'compile' ? t('configuration.deploy.compiling') : t('configuration.deploy.compile')}
               </button>
             </div>
           )}
 
       <div className='form-grid'>
         <div className='field-group'>
-          <label htmlFor='startup-candidate'>Ready startup candidate</label>
+          <label htmlFor='startup-candidate'>{t('configuration.deploy.candidate.label')}</label>
           <select id='startup-candidate' onChange={(event) => setSelectedCandidate(event.target.value)} value={selectedReadyCandidate?.id ?? ''}>
-            <option value=''>Select a checked candidate</option>
+            <option value=''>{t('configuration.deploy.candidate.select')}</option>
             {readyCandidates.map((candidate) => (
               <option key={candidate.id} value={candidate.id}>
                 {candidate.id}
@@ -299,24 +424,163 @@ export function StartupWorkflow({ exactVersion }: StartupWorkflowProps) {
           </select>
         </div>
         <div className='field-group'>
-          <label htmlFor='monitoring-tier'>Monitoring tier</label>
+          <label htmlFor='monitoring-tier'>{t('configuration.deploy.monitoring.label')}</label>
           <select id='monitoring-tier' onChange={(event) => setMonitoringTier(event.target.value as MonitoringTier)} value={monitoringTier}>
-            <option value='process_only'>Process only</option>
-            <option value='limited'>Limited Clash API metrics</option>
+            <option value='process_only'>{t('configuration.deploy.monitoring.processOnly')}</option>
+            <option value='limited'>{t('configuration.deploy.monitoring.limited')}</option>
           </select>
         </div>
-        <button className='button button--primary' disabled={selectedReadyCandidate === null || busyAction !== ''} onClick={() => void apply()} type='button'>
-          {busyAction === 'apply' ? 'Queueing apply…' : 'Apply ready candidate'}
+        <button
+          className='button button--primary'
+          disabled={mutationsDisabled || selectedReadyCandidate === null || busyAction !== ''}
+          onClick={() => selectedReadyCandidate !== null && setApplyConfirmation({
+            monitoringTier,
+            startupArtifactID: selectedReadyCandidate.id,
+          })}
+          type='button'
+        >
+          {busyAction === 'apply' ? t('configuration.deploy.queueingApply') : t('configuration.deploy.apply')}
         </button>
       </div>
 
-      <div className='inline-actions' aria-label='Runtime lifecycle'>
-        {(['start', 'stop', 'restart', 'rollback'] as const).map((operation) => (
-          <button className='button button--secondary' disabled={busyAction !== ''} key={operation} onClick={() => void lifecycle(operation)} type='button'>
-            {busyAction === operation ? 'Queueing…' : operation[0].toUpperCase() + operation.slice(1)}
-          </button>
-        ))}
+      <section aria-labelledby='startup-artifact-evidence-title'>
+        <div className='section-heading'>
+          <h3 id='startup-artifact-evidence-title'>{t('configuration.deploy.artifacts.title')}</h3>
+          <span>{t('configuration.deploy.artifacts.loaded', { count: candidates.length })}</span>
+        </div>
+        {candidates.length === 0
+          ? <p className='source-note'>{t('configuration.deploy.artifacts.empty')}</p>
+          : (
+              <div className='revision-history__list'>
+                {candidates.map((candidate) => (
+                  <article className='revision-card' key={candidate.id}>
+                    <div>
+                      <strong><code>{candidate.id}</code></strong>
+                      <span className={`state-label state-label--${candidate.state === 'ready' ? 'success' : candidate.state === 'failed' ? 'danger' : 'warning'}`}>
+                        {t(`configuration.deploy.artifacts.state.${candidate.state}`)}
+                      </span>
+                      <span>{formatTimestamp(candidate.created_at, i18n.language)}</span>
+                    </div>
+                    <dl className='detail-list'>
+                      <div>
+                        <dt>{t('configuration.deploy.evidence.canonicalRevision')}</dt>
+                        <dd><code>{candidate.canonical_revision_id}</code></dd>
+                      </div>
+                      <div>
+                        <dt>{t('configuration.deploy.evidence.coreArtifact')}</dt>
+                        <dd><code>{candidate.core_artifact_id}</code></dd>
+                      </div>
+                      <div>
+                        <dt>{t('configuration.deploy.evidence.configDigest')}</dt>
+                        <dd><code>{candidate.config_sha256}</code></dd>
+                      </div>
+                      <div>
+                        <dt>{t('configuration.deploy.evidence.checkedAt')}</dt>
+                        <dd>{formatTimestamp(candidate.checked_at, i18n.language)}</dd>
+                      </div>
+                    </dl>
+                    {candidate.state === 'pending'
+                      ? (
+                          <button className='button button--secondary' disabled={mutationsDisabled || busyAction !== ''} onClick={() => void checkCandidate(candidate)} type='button'>
+                            {busyAction === `check:${candidate.id}` ? t('configuration.deploy.queueing') : t('configuration.deploy.artifacts.check', { id: candidate.id })}
+                          </button>
+                        )
+                      : null}
+                  </article>
+                ))}
+              </div>
+            )}
+        {candidateNext === undefined
+          ? null
+          : (
+              <Button
+                aria-busy={loadingOlderCandidates}
+                disabled={loadingOlderCandidates}
+                onClick={() => void loadOlderCandidatesPage()}
+                type='button'
+                variant='outline'
+              >
+                {loadingOlderCandidates
+                  ? t('configuration.deploy.artifacts.loadingOlder')
+                  : t('configuration.deploy.artifacts.loadOlder')}
+              </Button>
+            )}
+      </section>
+
+      <ActivationHistory
+        error={activationHistoryError}
+        loading={activationHistoryLoading}
+        onRefresh={loadActivationHistory}
+        page={activationHistory}
+      />
+
+      <div className='inline-actions' aria-label={t('configuration.deploy.rollback.label')}>
+        <button className='button button--secondary' disabled={busyAction !== ''} onClick={() => void prepareRollback()} type='button'>
+          {busyAction === 'rollback-evidence' ? t('configuration.deploy.rollback.loading') : t('configuration.deploy.rollback.open')}
+        </button>
       </div>
+
+      <AlertDialog
+        onOpenChange={(open) => {
+          if (!open) setApplyConfirmation(null);
+        }}
+        open={applyConfirmation !== null}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t('configuration.deploy.confirmApply.title')}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {t('configuration.deploy.confirmApply.description', { id: applyConfirmation?.startupArtifactID ?? '' })}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
+            <AlertDialogAction disabled={mutationsDisabled || applyConfirmation === null || busyAction !== ''} onClick={() => void apply()}>
+              {t('configuration.deploy.confirmApply.action', { id: applyConfirmation?.startupArtifactID ?? '' })}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog
+        onOpenChange={(open) => {
+          setRollbackConfirmationOpen(open);
+          if (!open) {
+            setRollbackConfirmation('');
+            setRollbackEvidence(null);
+          }
+        }}
+        open={rollbackConfirmationOpen}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t('configuration.deploy.rollback.title')}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {t('configuration.deploy.rollback.description', { id: rollbackEvidence?.rollback_bundle_id ?? '' })}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className='field-group'>
+            <label htmlFor='rollback-bundle-confirmation'>{t('configuration.deploy.rollback.confirmLabel')}</label>
+            <input
+              autoComplete='off'
+              id='rollback-bundle-confirmation'
+              onChange={(event) => setRollbackConfirmation(event.target.value)}
+              spellCheck={false}
+              value={rollbackConfirmation}
+            />
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={mutationsDisabled || busyAction !== '' || rollbackConfirmation !== rollbackEvidence?.rollback_bundle_id}
+              onClick={() => void rollback()}
+              variant='destructive'
+            >
+              {busyAction === 'rollback' ? t('configuration.deploy.queueing') : t('configuration.deploy.rollback.action')}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </section>
   );
 }

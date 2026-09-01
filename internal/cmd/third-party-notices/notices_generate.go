@@ -12,27 +12,34 @@ import (
 var goDirectivePattern = regexp.MustCompile(`(?m)^go[ \t]+([0-9]+(?:\.[0-9]+){1,2})[ \t]*$`)
 
 var goModuleLicenseIDs = map[string]string{
-	"github.com/dustin/go-humanize":    "MIT",
-	"github.com/google/uuid":           "BSD-3-Clause",
-	"github.com/mattn/go-isatty":       "MIT",
-	"github.com/ncruces/go-strftime":   "MIT",
-	"github.com/remyoudompheng/bigfft": "BSD-3-Clause",
-	"github.com/spf13/cobra":           "Apache-2.0",
-	"github.com/spf13/pflag":           "BSD-3-Clause",
-	"github.com/tailscale/hujson":      "BSD-3-Clause",
-	"go.yaml.in/yaml/v3":               "MIT AND Apache-2.0",
-	"golang.org/x/mod":                 "BSD-3-Clause",
-	"golang.org/x/sys":                 "BSD-3-Clause",
-	"modernc.org/libc":                 "BSD-3-Clause",
-	"modernc.org/mathutil":             "BSD-3-Clause",
-	"modernc.org/memory":               "BSD-3-Clause",
-	"modernc.org/sqlite":               "BSD-3-Clause",
+	"github.com/dustin/go-humanize":            "MIT",
+	"github.com/google/uuid":                   "BSD-3-Clause",
+	"github.com/mattn/go-isatty":               "MIT",
+	"github.com/ncruces/go-strftime":           "MIT",
+	"github.com/remyoudompheng/bigfft":         "BSD-3-Clause",
+	"github.com/santhosh-tekuri/jsonschema/v6": "Apache-2.0",
+	"github.com/spf13/cobra":                   "Apache-2.0",
+	"github.com/spf13/pflag":                   "BSD-3-Clause",
+	"github.com/tailscale/hujson":              "BSD-3-Clause",
+	"go.yaml.in/yaml/v3":                       "MIT AND Apache-2.0",
+	"golang.org/x/mod":                         "BSD-3-Clause",
+	"golang.org/x/sys":                         "BSD-3-Clause",
+	"golang.org/x/text":                        "BSD-3-Clause",
+	"modernc.org/libc":                         "BSD-3-Clause",
+	"modernc.org/mathutil":                     "BSD-3-Clause",
+	"modernc.org/memory":                       "BSD-3-Clause",
+	"modernc.org/sqlite":                       "BSD-3-Clause",
 }
 
 // Web license identifiers are deliberately review-gated. A new production
 // license must be inspected before it can be included in a release notice.
 var webLicenseIDs = map[string]struct{}{
-	"MIT": {},
+	"0BSD":         {},
+	"Apache-2.0":   {},
+	"BSD-3-Clause": {},
+	"ISC":          {},
+	"MIT":          {},
+	"MIT AND ISC":  {},
 }
 
 type component struct {

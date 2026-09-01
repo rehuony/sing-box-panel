@@ -196,6 +196,11 @@ func (manager *Manager) MonitoringLevel() MonitoringLevel {
 func (manager *Manager) ObserveLiveIdentity() LiveIdentity {
 	manager.mu.Lock()
 	defer manager.mu.Unlock()
+	var failure *FailureStatus
+	if manager.status.Failure != nil {
+		copy := *manager.status.Failure
+		failure = &copy
+	}
 	return LiveIdentity{
 		Running:        manager.process != nil && manager.status.State == StateRunning,
 		State:          manager.status.State,
@@ -205,5 +210,7 @@ func (manager *Manager) ObserveLiveIdentity() LiveIdentity {
 		ArtifactID:     manager.status.ActualArtifactID,
 		BundleID:       manager.status.BundleID,
 		StartedAt:      manager.status.StartedAt,
+		TransitionedAt: manager.status.TransitionedAt,
+		Failure:        failure,
 	}
 }

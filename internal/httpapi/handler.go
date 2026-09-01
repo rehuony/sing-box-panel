@@ -37,11 +37,11 @@ type SystemStatus struct {
 }
 
 type DashboardContext struct {
-	View      DashboardView      `json:"view"`
-	Running   *DashboardRuntime  `json:"running"`
-	Canonical DashboardCanonical `json:"canonical"`
-	Applied   *DashboardApplied  `json:"applied"`
-	Adapter   DashboardAdapter   `json:"adapter"`
+	View          DashboardView          `json:"view"`
+	Running       *DashboardRuntime      `json:"running"`
+	Canonical     DashboardCanonical     `json:"canonical"`
+	Applied       *DashboardApplied      `json:"applied"`
+	Configuration DashboardConfiguration `json:"configuration"`
 }
 
 type DashboardView struct {
@@ -66,7 +66,7 @@ type DashboardApplied struct {
 	AppliedAt time.Time `json:"appliedAt"`
 }
 
-type DashboardAdapter struct {
+type DashboardConfiguration struct {
 	Supported bool    `json:"supported"`
 	Label     string  `json:"label"`
 	Warning   *string `json:"warning"`

@@ -13,6 +13,8 @@ on:
       - "internal/coreartifact/**"
       - "internal/singbox/**"
       - "internal/subscription/**"
+      - "web/**"
+      - "Makefile"
       - "scripts/test/core-contract.sh"
   workflow_call:
     inputs:
@@ -57,6 +59,21 @@ jobs:
           go-version-file: go.mod
           cache: true
           cache-dependency-path: go.sum
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+          package-manager-cache: false
+
+      - name: Enable pinned pnpm
+        working-directory: web
+        run: |
+          corepack enable pnpm
+          pnpm --version
+
+      - name: Build the required Web distribution
+        run: make web-install web-build
 
       - name: Check generated support catalog
         run: go tool singbox-support check

@@ -8,12 +8,10 @@ CREATE TABLE canonical_revisions (
     id TEXT PRIMARY KEY CHECK (id <> ''),
     sequence INTEGER NOT NULL UNIQUE CHECK (sequence > 0),
     parent_id TEXT REFERENCES canonical_revisions(id) ON DELETE RESTRICT,
-    schema_version INTEGER NOT NULL CHECK (schema_version = 2),
+    schema_version INTEGER NOT NULL CHECK (schema_version = 1),
     document_json TEXT NOT NULL CHECK (
         json_valid(document_json)
         AND json_type(document_json, '$') = 'object'
-        AND COALESCE(json_type(document_json, '$.schema_version') = 'integer', 0)
-        AND COALESCE(json_extract(document_json, '$.schema_version') = 2, 0)
     ),
     sha256 TEXT NOT NULL
         CHECK (length(sha256) = 64 AND sha256 NOT GLOB '*[^0-9a-f]*'),
@@ -81,26 +79,18 @@ CREATE TABLE startup_artifacts (
     canonical_revision_id TEXT NOT NULL
         REFERENCES canonical_revisions(id) ON DELETE RESTRICT,
     exact_core_version TEXT NOT NULL CHECK (exact_core_version <> ''),
-    adapter_id TEXT NOT NULL CHECK (adapter_id <> ''),
-    adapter_revision TEXT NOT NULL CHECK (adapter_revision <> ''),
     core_artifact_id TEXT NOT NULL
         REFERENCES core_artifacts(id) ON DELETE RESTRICT,
     config_bytes BLOB NOT NULL,
     config_sha256 TEXT NOT NULL
         CHECK (length(config_sha256) = 64 AND config_sha256 NOT GLOB '*[^0-9a-f]*'),
-    diagnostics_json TEXT NOT NULL DEFAULT '[]'
-        CHECK (json_valid(diagnostics_json)),
-    ignored_digest TEXT CHECK (
-        ignored_digest IS NULL OR
-        (length(ignored_digest) = 64 AND ignored_digest NOT GLOB '*[^0-9a-f]*')
-    ),
     state TEXT NOT NULL DEFAULT 'pending'
         CHECK (state IN ('pending', 'ready', 'failed')),
     checked_at TEXT,
     created_at TEXT NOT NULL CHECK (created_at <> '')
 ) STRICT;
 
-CREATE INDEX startup_artifacts_projection_lookup
+CREATE INDEX startup_artifacts_configuration_lookup
     ON startup_artifacts(canonical_revision_id, exact_core_version, core_artifact_id, state);
 
 CREATE TABLE subscription_channels (
@@ -248,7 +238,8 @@ CREATE TABLE tasks (
 
 CREATE UNIQUE INDEX tasks_lane_idempotency
     ON tasks(lane, idempotency_key)
-    WHERE idempotency_key IS NOT NULL;
+    WHERE idempotency_key IS NOT NULL
+      AND status IN ('queued', 'running');
 
 CREATE INDEX tasks_claim_queue
     ON tasks(lane, status, not_before, created_at);
@@ -328,7 +319,8 @@ CREATE TABLE runtime_observation (
     binary_sha256 TEXT NOT NULL
         CHECK (length(binary_sha256) = 64 AND binary_sha256 NOT GLOB '*[^0-9a-f]*'),
     started_at TEXT NOT NULL CHECK (started_at <> ''),
-    observed_at TEXT NOT NULL CHECK (observed_at <> '')
+    observed_at TEXT NOT NULL CHECK (observed_at <> ''),
+    stable_observed_at TEXT
 ) STRICT;
 
 CREATE TABLE traffic_samples (
@@ -342,8 +334,24 @@ CREATE TABLE traffic_samples (
     active_connections INTEGER NOT NULL CHECK (active_connections >= 0),
     upload_total INTEGER NOT NULL CHECK (upload_total >= 0),
     download_total INTEGER NOT NULL CHECK (download_total >= 0),
+    upload_delta INTEGER CHECK (upload_delta IS NULL OR upload_delta >= 0),
+    download_delta INTEGER CHECK (download_delta IS NULL OR download_delta >= 0),
+    interval_start TEXT,
+    interval_end TEXT,
+    coverage TEXT NOT NULL DEFAULT 'partial'
+        CHECK (coverage IN ('complete', 'partial')),
     accepted INTEGER NOT NULL CHECK (accepted IN (0, 1)),
-    diagnostic_code TEXT NOT NULL DEFAULT '' CHECK (length(diagnostic_code) <= 128)
+    diagnostic_code TEXT NOT NULL DEFAULT '' CHECK (length(diagnostic_code) <= 128),
+    CHECK (
+        (interval_start IS NULL AND interval_end IS NULL)
+        OR
+        (interval_start IS NOT NULL AND interval_start <> ''
+            AND interval_end IS NOT NULL AND interval_end > interval_start
+            AND interval_end = sampled_at
+            AND upload_delta IS NOT NULL AND download_delta IS NOT NULL)
+    ),
+    CHECK (accepted = 1 OR interval_start IS NULL),
+    CHECK (coverage <> 'complete' OR interval_start IS NOT NULL)
 ) STRICT;
 
 CREATE INDEX traffic_samples_timeline
@@ -351,6 +359,19 @@ CREATE INDEX traffic_samples_timeline
 
 CREATE INDEX traffic_samples_bundle_timeline
     ON traffic_samples(activation_bundle_id, sampled_at DESC, id DESC);
+
+CREATE INDEX traffic_samples_history
+    ON traffic_samples(sampled_at, id);
+
+CREATE INDEX traffic_samples_bundle_history
+    ON traffic_samples(activation_bundle_id, sampled_at, id);
+
+CREATE INDEX traffic_samples_interval_history
+    ON traffic_samples(interval_start, interval_end, id)
+    WHERE interval_start IS NOT NULL;
+
+CREATE INDEX traffic_periods_page
+    ON traffic_periods(period_start DESC, id DESC);
 
 CREATE TABLE traffic_checkpoint (
     singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
@@ -364,6 +385,69 @@ CREATE TABLE traffic_checkpoint (
     last_download_total INTEGER NOT NULL CHECK (last_download_total >= 0),
     accumulated_upload INTEGER NOT NULL CHECK (accumulated_upload >= 0),
     accumulated_download INTEGER NOT NULL CHECK (accumulated_download >= 0),
+    has_delta INTEGER NOT NULL DEFAULT 0 CHECK (has_delta IN (0, 1)),
     sampled_at TEXT NOT NULL CHECK (sampled_at <> ''),
     CHECK (period_end > period_start)
 ) STRICT;
+
+CREATE TABLE runtime_transitions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    dedupe_key TEXT NOT NULL UNIQUE
+        CHECK (dedupe_key <> '' AND length(dedupe_key) <= 256),
+    state TEXT NOT NULL
+        CHECK (state IN ('running', 'stopped', 'failed', 'unknown')),
+    reason TEXT NOT NULL
+        CHECK (reason <> '' AND length(reason) <= 128),
+    activation_bundle_id TEXT
+        REFERENCES activation_bundles(id) ON DELETE RESTRICT,
+    generation INTEGER CHECK (generation IS NULL OR generation >= 0),
+    task_id TEXT REFERENCES tasks(id) ON DELETE RESTRICT,
+    pid INTEGER CHECK (pid IS NULL OR pid > 0),
+    process_start_token TEXT,
+    process_started_at TEXT,
+    occurred_at TEXT NOT NULL CHECK (occurred_at <> ''),
+    uncertain_since TEXT,
+    CHECK (
+        (pid IS NULL AND process_start_token IS NULL AND process_started_at IS NULL)
+        OR
+        (pid IS NOT NULL AND process_start_token IS NOT NULL AND process_start_token <> ''
+            AND process_started_at IS NOT NULL AND process_started_at <> '')
+    ),
+    CHECK (state <> 'running' OR (activation_bundle_id IS NOT NULL AND pid IS NOT NULL)),
+    CHECK (state <> 'unknown' OR uncertain_since IS NOT NULL),
+    CHECK (uncertain_since IS NULL OR uncertain_since <= occurred_at)
+) STRICT;
+
+CREATE INDEX runtime_transitions_timeline
+    ON runtime_transitions(occurred_at DESC, id DESC);
+
+CREATE INDEX runtime_transitions_state_timeline
+    ON runtime_transitions(state, occurred_at DESC, id DESC);
+
+CREATE INDEX runtime_transitions_reason_timeline
+    ON runtime_transitions(reason, occurred_at DESC, id DESC);
+
+CREATE INDEX runtime_transitions_bundle_timeline
+    ON runtime_transitions(activation_bundle_id, occurred_at DESC, id DESC);
+
+CREATE TRIGGER runtime_transitions_reject_update
+BEFORE UPDATE ON runtime_transitions
+BEGIN
+    SELECT RAISE(ABORT, 'runtime transitions are append-only');
+END;
+
+CREATE TRIGGER runtime_transitions_reject_delete
+BEFORE DELETE ON runtime_transitions
+BEGIN
+    SELECT RAISE(ABORT, 'runtime transitions are append-only');
+END;
+
+INSERT INTO runtime_transitions(
+    dedupe_key, state, reason, occurred_at, uncertain_since
+) VALUES (
+    'history_initialized',
+    'unknown',
+    'history_initialized',
+    strftime('%Y-%m-%dT%H:%M:%f000000Z', 'now'),
+    strftime('%Y-%m-%dT%H:%M:%f000000Z', 'now')
+);

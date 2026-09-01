@@ -53,7 +53,7 @@ make release VERSION=v0.1.0 OUT=/absolute/path/to/new-output
 make release-verify
 make support-generate
 make support-check
-make core-contract # native Linux amd64 or arm64 only
+make core-contract # exact binaries plus raw configuration checks; native Linux only
 ```
 
 Their underlying script interface is:
@@ -86,14 +86,17 @@ while making a future directory move a two-location change.
 The script:
 
 1. exports committed `HEAD` to a private temporary source tree;
-2. installs and builds the Web application in another temporary tree using
-   the package-pinned pnpm, frozen lockfile, disabled lifecycle scripts, and an
-   isolated store;
-3. verifies the Web distribution before copying it into the source snapshot;
-4. downloads and verifies Go modules with isolated caches and inherited
+2. downloads and verifies Go modules with isolated caches and inherited
    workspaces, overlays, experiments, and persistent Go settings disabled;
+3. installs and builds the Web application inside that complete source
+   snapshot using the package-pinned pnpm, frozen lockfile, disabled lifecycle
+   scripts, and an isolated store; this lets the Vite Schema exporter use the
+   snapshot's parent Go module without reading the caller's working tree;
+4. requires the fresh Web distribution to contain `index.html`, the single
+   public `favicon.svg`, and bundled assets before loading the Go package that
+   embeds `web/dist`;
 5. cross-builds Linux amd64 and arm64 with `CGO_ENABLED=0`, fixed CPU
-   baselines, `webdist`, `-trimpath`, and `-buildvcs=false`;
+   baselines, `-trimpath`, and `-buildvcs=false`;
 6. embeds and verifies the committed update-verification key in both release
    binaries;
 7. verifies the embedded release version, full source commit, and source
@@ -125,7 +128,7 @@ requires both architectures to build successfully, checks their Go build
 metadata and key, checks the embedded release identity, and confirms that
 invalid release versions fail without leaving an output directory.
 
-See [Core versions and adapters](../docs/core-versions-and-adapters.md) for
+See [Core versions](../docs/core-versions.md) for
 support generation, native core contracts, and manual version onboarding. See
 [Release process](../docs/release.md) for signing-key setup, native
 amd64 and arm64 smoke tests, Draft Release verification, manual publication,

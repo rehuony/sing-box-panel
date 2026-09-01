@@ -3,7 +3,6 @@
 package configuration
 
 import (
-	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -11,53 +10,33 @@ import (
 	"testing"
 )
 
-func TestDocumentPreservesGlobalIntentAndStripsPanelMetadata(t *testing.T) {
+func TestDocumentPreservesRawSingBoxConfiguration(t *testing.T) {
 	t.Parallel()
 
 	document, err := Parse([]byte(`{
-		"schema_version": 2,
-		"configuration": {
-			"inbounds": [
-				{"_panel":{"id":"public","enabled":true},"type":"mixed","tag":"public","listen_port":1080},
-				{"_panel":{"id":"disabled","enabled":false},"type":"direct","tag":"disabled"}
-			],
-			"route": {"rules":[{"_panel":{"id":"private-rule","enabled":false},"action":"reject"}]}
-		}
-	}`))
+			"inbounds": [{"type":"mixed","tag":"public","listen_port":1080}],
+			"route": {"rules":[{"action":"reject"}]},
+			"future_option": {"enabled": true}
+		}`))
 	if err != nil {
 		t.Fatalf("Parse: %v", err)
 	}
 
-	configuration := document.Configuration()
-	configuration["log"] = map[string]any{"level": "debug"}
-	if string(document.CanonicalJSON()) == "" {
-		t.Fatal("CanonicalJSON returned empty bytes")
-	}
-
-	stripped, err := StripPanelMetadata(document.Configuration())
-	if err != nil {
-		t.Fatalf("StripPanelMetadata: %v", err)
-	}
-	encoded, err := json.Marshal(stripped)
-	if err != nil {
-		t.Fatalf("Marshal stripped configuration: %v", err)
-	}
-	want := `{"inbounds":[{"listen_port":1080,"tag":"public","type":"mixed"}],"route":{"rules":[]}}`
-	if string(encoded) != want {
-		t.Fatalf("stripped configuration = %s, want %s", encoded, want)
+	copy := document.Configuration()
+	copy["log"] = map[string]any{"level": "debug"}
+	want := `{"future_option":{"enabled":true},"inbounds":[{"listen_port":1080,"tag":"public","type":"mixed"}],"route":{"rules":[{"action":"reject"}]}}`
+	if got := string(document.CanonicalJSON()); got != want {
+		t.Fatalf("CanonicalJSON = %s, want %s", got, want)
 	}
 }
 
-func TestDocumentRejectsUnknownEnvelopeAndInvalidManagedEntities(t *testing.T) {
+func TestDocumentRejectsNonObjectAndAmbiguousJSON(t *testing.T) {
 	t.Parallel()
 
 	tests := []string{
-		`{"schema_version":2,"configuration":{},"other":true}`,
-		`{"schema_version":2,"configuration":{"unknown":{}}}`,
-		`{"schema_version":2,"configuration":{"inbounds":[{"type":"mixed"}]}}`,
-		`{"schema_version":2,"configuration":{"inbounds":[{"_panel":{"id":"same","enabled":true}},{"_panel":{"id":"same","enabled":false}}]}}`,
-		`{"schema_version":2,"configuration":{"outbounds":[{"_panel":{"id":"Bad ID","enabled":true}}]}}`,
-		`{"schema_version":2,"configuration":{"services":{}}}`,
+		`[]`,
+		`null`,
+		`{"duplicate":1,"duplicate":2}`,
 	}
 	for _, input := range tests {
 		input := input
@@ -73,7 +52,7 @@ func TestDocumentRejectsUnknownEnvelopeAndInvalidManagedEntities(t *testing.T) {
 func TestEmptyIsCompleteAndStable(t *testing.T) {
 	t.Parallel()
 
-	if got, want := string(Empty().CanonicalJSON()), `{"configuration":{},"schema_version":2}`; got != want {
+	if got, want := string(Empty().CanonicalJSON()), `{}`; got != want {
 		t.Fatalf("Empty = %s, want %s", got, want)
 	}
 }

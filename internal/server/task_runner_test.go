@@ -26,6 +26,83 @@ func TestBuiltInTaskHandlersCoverTaskKinds(t *testing.T) {
 	}
 }
 
+func TestRunTaskCarriesRuntimeEvidenceFromFailedHandler(t *testing.T) {
+	now := time.Date(2026, time.August, 31, 9, 0, 0, 0, time.UTC)
+	task := store.Task{
+		ID: "runtime-handler-failure", Lane: store.TaskLaneRuntime,
+		Kind: store.TaskKindRuntimeStop, Generation: 7, LeaseOwner: "runtime-lease-token",
+	}
+	captured := &completionCaptureTaskStore{completed: store.Task{
+		ID: task.ID, Lane: task.Lane, Kind: task.Kind,
+		Generation: task.Generation, Status: store.TaskStatusFailed,
+	}}
+	runner, err := newTaskRunner(captured, map[store.TaskKind]taskHandler{
+		task.Kind: taskResultHandlerFunc(func(
+			_ context.Context,
+			task store.Task,
+			_ taskExecutionControl,
+		) (taskHandlerResult, error) {
+			commit := &store.RuntimeTaskCommit{
+				ClearObservation: true,
+				Transitions: []store.RuntimeTransitionInput{{
+					DedupeKey: "runtime-handler-failure", State: store.RuntimeTransitionFailed,
+					Reason: "stop_failed", TaskID: task.ID, Generation: task.Generation,
+					OccurredAt: now,
+				}},
+			}
+			return taskHandlerResult{Runtime: commit}, errors.New("injected handler failure")
+		}),
+	}, taskRunnerOptions{
+		WorkerID: "runtime-worker", LeaseDuration: time.Minute,
+		HeartbeatInterval: 10 * time.Second, PollInterval: time.Second,
+		taskClock: newFakeClock(now),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := runner.runTask(context.Background(), task); err != nil {
+		t.Fatalf("runTask() error = %v", err)
+	}
+	if captured.calls != 1 || captured.completion.Succeeded || captured.completion.Runtime == nil {
+		t.Fatalf("captured completion = %+v; calls = %d", captured.completion, captured.calls)
+	}
+	if len(captured.completion.Runtime.Transitions) != 1 ||
+		captured.completion.Runtime.Transitions[0].TaskID != task.ID {
+		t.Fatalf("captured runtime evidence = %+v", captured.completion.Runtime)
+	}
+}
+
+func TestRunTaskLeavesRuntimeTaskRecoverableWhenEvidenceIsUnavailable(t *testing.T) {
+	now := time.Date(2026, time.August, 31, 9, 30, 0, 0, time.UTC)
+	task := store.Task{
+		ID: "runtime-evidence-unavailable", Lane: store.TaskLaneRuntime,
+		Kind: store.TaskKindRuntimeStop, Generation: 8, LeaseOwner: "runtime-lease-token",
+	}
+	captured := &completionCaptureTaskStore{}
+	runner, err := newTaskRunner(captured, map[store.TaskKind]taskHandler{
+		task.Kind: taskHandlerFunc(func(
+			context.Context,
+			store.Task,
+			taskExecutionControl,
+		) (json.RawMessage, error) {
+			return json.RawMessage(`{"changed":true}`), nil
+		}),
+	}, taskRunnerOptions{
+		WorkerID: "runtime-worker", LeaseDuration: time.Minute,
+		HeartbeatInterval: 10 * time.Second, PollInterval: time.Second,
+		taskClock: newFakeClock(now),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := runner.runTask(context.Background(), task); !errors.Is(err, errRuntimeTaskEvidenceUnavailable) {
+		t.Fatalf("runTask() error = %v", err)
+	}
+	if captured.calls != 0 {
+		t.Fatalf("CompleteTask() calls = %d, want 0", captured.calls)
+	}
+}
+
 func TestRunnerProcessesLanesIndependentlyAndSerially(t *testing.T) {
 	ctx := runnerTestContext(t)
 	taskStore := openRunnerStore(t, ctx)
@@ -48,17 +125,28 @@ func TestRunnerProcessesLanesIndependentlyAndSerially(t *testing.T) {
 		"maintenance-2": make(chan struct{}),
 		"runtime-1":     make(chan struct{}),
 	}
-	handler := taskHandlerFunc(func(
+	handler := taskResultHandlerFunc(func(
 		ctx context.Context,
 		task store.Task,
 		_ taskExecutionControl,
-	) (json.RawMessage, error) {
+	) (taskHandlerResult, error) {
 		started <- task.ID
 		select {
 		case <-ctx.Done():
-			return nil, ctx.Err()
+			return taskHandlerResult{}, ctx.Err()
 		case <-releases[task.ID]:
-			return json.RawMessage(`{"done":true}`), nil
+			if task.Lane == store.TaskLaneRuntime {
+				commit := &store.RuntimeTaskCommit{
+					ClearObservation: true,
+					Transitions: []store.RuntimeTransitionInput{{
+						DedupeKey: "runner-runtime-stop", State: store.RuntimeTransitionStopped,
+						Reason: "stop_succeeded", TaskID: task.ID, Generation: task.Generation,
+						OccurredAt: now,
+					}},
+				}
+				return taskHandlerResult{Payload: json.RawMessage(`{"done":true}`), Runtime: commit}, nil
+			}
+			return taskHandlerResult{Payload: json.RawMessage(`{"done":true}`)}, nil
 		}
 	})
 	runner := newTestRunner(t, taskStore, clock, map[store.TaskKind]taskHandler{
@@ -494,6 +582,38 @@ type fakeClock struct {
 }
 
 type leaseLostTaskStore struct{}
+
+type completionCaptureTaskStore struct {
+	completion store.TaskCompletion
+	completed  store.Task
+	calls      int
+}
+
+func (*completionCaptureTaskStore) ClaimTask(context.Context, store.ClaimTaskInput) (*store.Task, error) {
+	return nil, nil
+}
+
+func (*completionCaptureTaskStore) HeartbeatTask(
+	context.Context,
+	string,
+	string,
+	time.Time,
+	time.Duration,
+) (store.TaskLeaseState, error) {
+	return store.TaskLeaseState{}, nil
+}
+
+func (capture *completionCaptureTaskStore) CompleteTask(
+	_ context.Context,
+	_ string,
+	_ string,
+	_ time.Time,
+	completion store.TaskCompletion,
+) (store.Task, error) {
+	capture.calls++
+	capture.completion = completion
+	return capture.completed, nil
+}
 
 func (leaseLostTaskStore) ClaimTask(context.Context, store.ClaimTaskInput) (*store.Task, error) {
 	return nil, nil

@@ -6,12 +6,10 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
 
-	"github.com/rehuony/sing-box-panel/internal/configuration"
 	"github.com/rehuony/sing-box-panel/internal/coreartifact"
 	coreruntime "github.com/rehuony/sing-box-panel/internal/runtime"
 	"github.com/rehuony/sing-box-panel/internal/store"
@@ -35,6 +33,7 @@ type RuntimeRecoveryRequest struct {
 	ExpectedObservation *store.RuntimeObservation
 	StableRunProven     bool
 	CleanBoundaryProven bool
+	Transition          *store.RuntimeTransitionInput
 }
 
 type RuntimeRecoveryResult struct {
@@ -134,8 +133,8 @@ func (application *Application) PrepareActivationBundle(
 }
 
 // verifyActivationCandidate rechecks every mutable eligibility decision at
-// bundle-preparation time. Old bundles remain immutable, while a stale head,
-// changed compiled adapter, or revoked binary cannot produce a new bundle.
+// bundle-preparation time. Old bundles remain immutable, while a stale head or
+// revoked binary cannot produce a new bundle.
 func (application *Application) verifyActivationCandidate(
 	ctx context.Context,
 	startup store.StartupArtifact,
@@ -159,13 +158,6 @@ func (application *Application) verifyActivationCandidate(
 		core.ReportedVersion != startup.ExactCoreVersion {
 		return fmt.Errorf(
 			"%w: exact core artifact is no longer eligible",
-			store.ErrActivationBundleNotReady,
-		)
-	}
-	resolved, err := application.configurationAdapters.Resolve(coreArtifactProfile(core))
-	if err != nil || resolved.ID() != startup.AdapterID || resolved.Revision() != startup.AdapterRevision {
-		return fmt.Errorf(
-			"%w: startup artifact does not match the compiled adapter for the exact core profile",
 			store.ErrActivationBundleNotReady,
 		)
 	}
@@ -204,8 +196,8 @@ func (application *Application) QueueRuntimeRestart(ctx context.Context) (Task, 
 	return application.queueRuntimeIntent(ctx, store.RuntimeIntentRestart, "")
 }
 
-func (application *Application) QueueRuntimeRollback(ctx context.Context) (Task, error) {
-	return application.queueRuntimeIntent(ctx, store.RuntimeIntentRollback, "")
+func (application *Application) QueueRuntimeRollback(ctx context.Context, expectedBundleID string) (Task, error) {
+	return application.queueRuntimeIntent(ctx, store.RuntimeIntentRollback, expectedBundleID)
 }
 
 func (application *Application) queueRuntimeIntent(
@@ -251,6 +243,7 @@ func (application *Application) RequestRuntimeRecovery(
 		StableRunProven:     request.StableRunProven,
 		CleanBoundaryProven: request.CleanBoundaryProven,
 		CreatedAt:           application.now().UTC(),
+		Transition:          request.Transition,
 	})
 	if err != nil {
 		return RuntimeRecoveryResult{}, err
@@ -342,10 +335,6 @@ func (application *Application) runtimeMaterial(
 		core.ReportedVersion != startup.ExactCoreVersion {
 		return RuntimeMaterial{}, store.ErrActivationBundleNotReady
 	}
-	resolved, err := application.configurationAdapters.Resolve(coreArtifactProfile(core))
-	if err != nil || resolved.ID() != startup.AdapterID || resolved.Revision() != startup.AdapterRevision {
-		return RuntimeMaterial{}, errors.Join(store.ErrActivationBundleNotReady, configuration.ErrUnsupportedCoreProfile)
-	}
 	version, err := coreartifact.ParseExactVersion(core.ExactVersion)
 	if err != nil {
 		return RuntimeMaterial{}, err
@@ -372,10 +361,9 @@ func (application *Application) CompleteStartupCheck(
 	ctx context.Context,
 	startupArtifactID string,
 	succeeded bool,
-	diagnostics json.RawMessage,
 ) (store.StartupArtifact, error) {
 	return application.database.CompleteStartupArtifactCheck(
-		ctx, startupArtifactID, succeeded, diagnostics, application.now().UTC(),
+		ctx, startupArtifactID, succeeded, application.now().UTC(),
 	)
 }
 

@@ -1,18 +1,51 @@
+import { lazy, Suspense } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Navigate, Outlet, Route, Routes, useLocation } from 'react-router-dom';
 
-import { CoresPage } from '@/pages/cores-page';
 import { LoginPage } from '@/pages/login-page';
-import { TasksPage } from '@/pages/tasks-page';
+import { Button } from '@/components/ui/button';
 import { AppShell } from '@/components/app-shell';
 import { NotFoundPage } from '@/pages/not-found-page';
-import { DashboardPage } from '@/pages/dashboard-page';
 import { useAuthSession } from '@/stores/auth-session.store';
-import { ConfigurationPage } from '@/pages/configuration-page';
-import { ObservabilityPage } from '@/pages/observability-page';
-import { SubscriptionsPage } from '@/pages/subscriptions-page';
 import { ControlPlaneProvider } from '@/stores/control-plane-provider';
 
+const ConfigurationPage = lazy(async () => {
+  const page = await import('@/pages/configuration-page/configuration-page');
+  return { default: page.ConfigurationPage };
+});
+const CoresPage = lazy(async () => {
+  const page = await import('@/pages/cores-page/cores-page');
+  return { default: page.CoresPage };
+});
+const DashboardPage = lazy(async () => {
+  const page = await import('@/pages/dashboard-page/dashboard-page');
+  return { default: page.DashboardPage };
+});
+const ObservabilityPage = lazy(async () => {
+  const page = await import('@/pages/observability-page/observability-page');
+  return { default: page.ObservabilityPage };
+});
+const SubscriptionsPage = lazy(async () => {
+  const page = await import('@/pages/subscriptions-page/subscriptions-page');
+  return { default: page.SubscriptionsPage };
+});
+const TasksPage = lazy(async () => {
+  const page = await import('@/pages/tasks-page/tasks-page');
+  return { default: page.TasksPage };
+});
+
+function RouteLoadingState() {
+  const { t } = useTranslation();
+  return (
+    <main className='loading-screen' aria-busy='true' aria-live='polite'>
+      <span aria-hidden='true' className='loading-screen__mark' />
+      <p>{t('shell.loading.page')}</p>
+    </main>
+  );
+}
+
 function ProtectedRoute() {
+  const { t } = useTranslation();
   const { retrySession, status } = useAuthSession();
   const location = useLocation();
 
@@ -20,23 +53,28 @@ function ProtectedRoute() {
     return (
       <main className='loading-screen' aria-busy='true' aria-live='polite'>
         <span aria-hidden='true' className='loading-screen__mark' />
-        <p>Checking panel session…</p>
+        <p>{t('login.checking')}</p>
       </main>
     );
   }
 
   if (status === 'anonymous') {
-    return <Navigate replace state={{ from: location.pathname }} to='/login' />;
+    return (
+      <Navigate
+        replace
+        state={{ from: `${location.pathname}${location.search}${location.hash}` }}
+        to='/login'
+      />
+    );
   }
 
   if (status === 'unavailable') {
     return (
       <main className='loading-screen'>
         <div className='load-error' role='alert'>
-          <p className='eyebrow'>Service unavailable</p>
-          <h1>The panel service could not be reached.</h1>
-          <p>Your session has not been changed. Check the server and try again.</p>
-          <button className='button button--primary' onClick={retrySession} type='button'>Try again</button>
+          <h1>{t('login.unavailable.title')}</h1>
+          <p>{t('login.unavailable.description')}</p>
+          <Button onClick={retrySession} type='button'>{t('login.unavailable.retry')}</Button>
         </div>
       </main>
     );
@@ -51,19 +89,21 @@ function ProtectedRoute() {
 
 export function AppRoutes() {
   return (
-    <Routes>
-      <Route element={<ProtectedRoute />}>
-        <Route element={<AppShell />}>
-          <Route element={<DashboardPage />} index />
-          <Route element={<ConfigurationPage />} path='configuration' />
-          <Route element={<CoresPage />} path='cores' />
-          <Route element={<SubscriptionsPage />} path='subscriptions' />
-          <Route element={<ObservabilityPage />} path='observability' />
-          <Route element={<TasksPage />} path='tasks' />
-          <Route element={<NotFoundPage />} path='*' />
+    <Suspense fallback={<RouteLoadingState />}>
+      <Routes>
+        <Route element={<ProtectedRoute />}>
+          <Route element={<AppShell />}>
+            <Route element={<DashboardPage />} index />
+            <Route element={<ConfigurationPage />} path='configuration' />
+            <Route element={<CoresPage />} path='cores' />
+            <Route element={<SubscriptionsPage />} path='subscriptions' />
+            <Route element={<ObservabilityPage />} path='observability' />
+            <Route element={<TasksPage />} path='tasks' />
+            <Route element={<NotFoundPage />} path='*' />
+          </Route>
         </Route>
-      </Route>
-      <Route element={<LoginPage />} path='/login' />
-    </Routes>
+        <Route element={<LoginPage />} path='/login' />
+      </Routes>
+    </Suspense>
   );
 }

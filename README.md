@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="assets/sing-box-panel-icon.svg" width="128" height="128" alt="sing-box-panel icon">
+  <img src="web/public/favicon.svg" width="128" height="128" alt="sing-box-panel icon">
   <h1>sing-box-panel</h1>
   <p>A Linux control plane for one exact, verifiable sing-box runtime.</p>
   <div>
@@ -20,7 +20,7 @@
 sing-box-panel manages exact-version sing-box binaries, immutable
 configuration and activation artifacts, subscriptions, durable tasks, and
 sanitized operational metadata. Release builds embed the React interface and
-SQLite migrations in one Go executable, so a target host does not need Go,
+the SQLite schema in one Go executable, so a target host does not need Go,
 Node.js, pnpm, or a separate SQLite CLI.
 
 > [!WARNING]
@@ -34,8 +34,9 @@ Node.js, pnpm, or a separate SQLite CLI.
 
 - Manage official and administrator-verified sing-box artifacts by exact
   version, architecture, variant, and immutable digest.
-- Keep one structured, version-independent configuration history and project
-  it only through a reviewed adapter for the exact installed binary profile.
+- Keep one lossless JSON configuration history, validate every candidate with
+  the selected exact binary, and add structured editing only for versions that
+  publish a native JSON Schema.
 - Keep canonical revisions, checked startup artifacts, applied bundles, and
   rollback bundles separate and immutable.
 - Publish live, authorized subscriptions in sing-box, Mihomo, and Loon formats
@@ -122,7 +123,9 @@ Building from source requires:
 - Corepack with the package-pinned pnpm 11.21.0.
 
 A production build targets Linux and embeds its web assets. The managed
-sing-box binary is installed or imported separately through the panel.
+sing-box binary is installed or imported separately through the panel. The
+supported build workflow generates `web/dist` before compiling the panel; Go
+has no alternate UI input.
 
 ## Quick start
 
@@ -146,8 +149,8 @@ The default listener is `127.0.0.1:3000`. The settings file contains a random
 management token and must not be committed. Keep `server run` active while
 using commands that queue core, configuration, or runtime tasks.
 
-See [Getting started](docs/getting-started.md) for the first canonical
-configuration, settings precedence, and systemd deployment paths.
+See [Getting started](docs/getting-started.md) for the first configuration,
+settings precedence, and systemd deployment paths.
 
 ## Documentation
 
@@ -155,14 +158,14 @@ configuration, settings precedence, and systemd deployment paths.
 | --- | --- |
 | Build, initialize, and run the panel | [Getting started](docs/getting-started.md) |
 | Use commands, automation output, and shell completion | [CLI reference](docs/cli.md) |
-| Install exact versions and inspect adapter support | [Core versions and adapters](docs/core-versions-and-adapters.md) |
+| Install exact versions and inspect configuration capabilities | [Core versions](docs/core-versions.md) |
 | Edit, check, apply, restart, and roll back configuration | [Configuration and runtime](docs/configuration-and-runtime.md) |
 | Publish subscriptions and inspect operational data | [Subscriptions and observability](docs/subscriptions-and-observability.md) |
 | Integrate with the API and operate its security boundary | [HTTP API and security](docs/http-api-and-security.md) |
 | Build, sign, test, and publish release artifacts | [Release process](docs/release.md) |
 
 The [documentation index](docs/README.md) also links the component-level
-sources of truth for OpenAPI, compiled adapters, systemd packaging, release
+sources of truth for OpenAPI, version capabilities, systemd packaging, release
 builds, and the web application.
 
 ## Project map
@@ -170,7 +173,6 @@ builds, and the web application.
 ```text
 .github/             Workflows, community templates, code ownership, and signing keys
 api/                 OpenAPI source contract
-assets/              Repository and GitHub Pages presentation assets
 cmd/                 Published sing-box-panel entry point
 internal/cmd/        Repository-only Go tools
 internal/            Go implementation packages

@@ -69,10 +69,6 @@ func (application *Application) PublicSubscription(
 }
 
 func (application *Application) renderSubscriptionState(state store.PublicSubscriptionState) (PublicSubscriptionResult, error) {
-	resolved, err := application.configurationAdapters.Resolve(coreArtifactProfile(state.Core))
-	if err != nil || resolved.ID() != state.Startup.AdapterID || resolved.Revision() != state.Startup.AdapterRevision {
-		return PublicSubscriptionResult{}, fmt.Errorf("applied startup adapter is unavailable: %w", err)
-	}
 	startupJSON, err := application.subscriptionStartupJSONWithCore(state.Startup, state.Core)
 	if err != nil {
 		return PublicSubscriptionResult{}, fmt.Errorf("prepare applied local subscription version: %w", err)
@@ -139,8 +135,11 @@ func (application *Application) RecordPublicSubscriptionUse(
 
 func (application *Application) subscriptionStartupJSONWithCore(
 	startup store.StartupArtifact,
-	_ store.CoreArtifact,
+	core store.CoreArtifact,
 ) ([]byte, error) {
+	if core.ID != startup.CoreArtifactID || core.ExactVersion != startup.ExactCoreVersion {
+		return nil, fmt.Errorf("%w: startup and core identity do not match", subscription.ErrInvalidStartup)
+	}
 	if _, err := subscription.DecodeDocumentObject(startup.ConfigBytes); err != nil {
 		return nil, fmt.Errorf("%w: compiled startup is not one strict JSON object", subscription.ErrInvalidStartup)
 	}

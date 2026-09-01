@@ -1,5 +1,5 @@
 import type { HttpApiContext } from './shared';
-import type { ActivationQueued, ApiClient, CatalogAssetFilter, CatalogAssetList, ConfigurationAdapterSupport, ConfigurationCompile, ConfigurationPreview, CoreArtifact, CoreArtifactFilter, CoreArtifactPage, CoreImportUpload, RuntimeStatus, StartupArtifactPage, Task } from '../api-client';
+import type { ActivationQueued, ApiClient, CatalogAssetFilter, CatalogAssetList, ConfigurationCompile, ConfigurationPreview, ConfigurationSchemaContract, ConfigurationSupport, CoreArtifact, CoreArtifactFilter, CoreArtifactPage, CoreImportUpload, RuntimeHistoryPage, RuntimeStatus, StartupArtifactPage, Task } from '../api-client';
 
 async function fileSHA256(file: File): Promise<string> {
   const digest = await crypto.subtle.digest('SHA-256', await file.arrayBuffer());
@@ -11,7 +11,7 @@ export function createCoreHttpApi(context: HttpApiContext) {
     baseUrl, buildQuery, fetcher, request, writeHeaders, writeJSONHeaders,
   } = context;
 
-  function runtimeAction(operation: 'start' | 'stop' | 'restart' | 'rollback', signal?: AbortSignal) {
+  function runtimeAction(operation: 'start' | 'stop' | 'restart', signal?: AbortSignal) {
     return request<Task>(fetcher, `${baseUrl}/core/${operation}`, {
       method: 'POST', headers: writeHeaders(), signal,
     });
@@ -87,7 +87,12 @@ export function createCoreHttpApi(context: HttpApiContext) {
       });
     },
     getConfigurationSupport(artifactID, signal) {
-      return request<ConfigurationAdapterSupport>(fetcher, `${baseUrl}/core/artifacts/${encodeURIComponent(artifactID)}/configuration-support`, {
+      return request<ConfigurationSupport>(fetcher, `${baseUrl}/core/artifacts/${encodeURIComponent(artifactID)}/configuration-support`, {
+        method: 'GET', signal,
+      });
+    },
+    getConfigurationSchema(artifactID, signal) {
+      return request<ConfigurationSchemaContract>(fetcher, `${baseUrl}/core/artifacts/${encodeURIComponent(artifactID)}/configuration-schema`, {
         method: 'GET', signal,
       });
     },
@@ -106,7 +111,6 @@ export function createCoreHttpApi(context: HttpApiContext) {
         method: 'POST',
         body: JSON.stringify({
           core_artifact_id: input.coreArtifactID,
-          accepted_ignored_digest: input.acceptedIgnoredDigest,
         }),
         headers: writeJSONHeaders(), signal,
       });
@@ -140,6 +144,21 @@ export function createCoreHttpApi(context: HttpApiContext) {
     getRuntimeStatus(signal) {
       return request<RuntimeStatus>(fetcher, `${baseUrl}/core/status`, { method: 'GET', signal });
     },
+    getRuntimeHistory(filter = {}, signal) {
+      const query = buildQuery({
+        from: filter.from,
+        to: filter.to,
+        state: filter.state,
+        reason: filter.reason,
+        activation_bundle_id: filter.activationBundleID,
+        before_time: filter.beforeTime,
+        before_id: filter.beforeID,
+        limit: filter.limit ?? 50,
+      });
+      return request<RuntimeHistoryPage>(fetcher, `${baseUrl}/core/runtime/history${query}`, {
+        method: 'GET', signal,
+      });
+    },
     startRuntime(signal) {
       return runtimeAction('start', signal);
     },
@@ -149,8 +168,13 @@ export function createCoreHttpApi(context: HttpApiContext) {
     restartRuntime(signal) {
       return runtimeAction('restart', signal);
     },
-    rollbackRuntime(signal) {
-      return runtimeAction('rollback', signal);
+    rollbackRuntime(activationBundleID, signal) {
+      return request<Task>(fetcher, `${baseUrl}/core/rollback`, {
+        method: 'POST',
+        body: JSON.stringify({ activation_bundle_id: activationBundleID }),
+        headers: writeJSONHeaders(),
+        signal,
+      });
     },
   } satisfies Partial<ApiClient>;
 }

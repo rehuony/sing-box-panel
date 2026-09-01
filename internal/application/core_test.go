@@ -123,7 +123,7 @@ func TestRefreshCatalogHonorsConfiguredTTL(t *testing.T) {
 	application := newApplication(database)
 	now := time.Date(2026, time.August, 27, 8, 0, 0, 0, time.UTC)
 	application.now = func() time.Time { return now }
-	application.settings = settings.Defaults(filepath.Join(t.TempDir(), "settings.json"))
+	application.settings = settings.Defaults()
 	application.settings.GitHub.CatalogTTLHours = 12
 	asset := validCatalogAsset(t)
 	value := catalog.Catalog{RepositoryID: catalog.OfficialRepositoryID, Releases: []catalog.Release{{
@@ -159,7 +159,7 @@ func TestPersistInstalledCorePreservesFullSourceIdentity(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = database.Close() })
 	application := newApplication(database)
-	application.settings = settings.Defaults(filepath.Join(t.TempDir(), "settings.json"))
+	application.settings = settings.Defaults()
 	application.settings.DataDir = t.TempDir()
 	if err := os.MkdirAll(filepath.Join(application.settings.DataDir, "imports"), 0o700); err != nil {
 		t.Fatal(err)

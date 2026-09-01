@@ -61,11 +61,27 @@ func newRuntimeServices(
 // convergence through the same fenced, bounded recovery history used at
 // runtime. An active durable intent remains the sole owner of convergence.
 func (services *runtimeServices) ReconcileStartup(ctx context.Context) error {
+	history, err := services.database.ListRuntimeTransitions(ctx, store.RuntimeHistoryFilter{Limit: 1})
+	if err != nil {
+		return err
+	}
+	reconciledAt := runtimeEventTime(time.Now(), history.HistoryStartedAt)
 	var expectedObservation *store.RuntimeObservation
 	observation, err := services.database.RuntimeObservation(ctx)
 	if err == nil {
 		if proveErr := services.proveCapturedObservationExited(&observation); proveErr != nil {
-			return fmt.Errorf("reconcile runtime observation: %w", proveErr)
+			uncertainSince := runtimeEventTime(observation.ObservedAt, history.HistoryStartedAt)
+			transition := runtimeTransitionFromObservation(
+				runtimeIncarnationTransitionKey(observation, store.RuntimeTransitionUnknown, "panel_restart_gap"),
+				store.RuntimeTransitionUnknown,
+				"panel_restart_gap",
+				observation,
+				uncertainSince,
+				&uncertainSince,
+				store.Task{},
+			)
+			_, historyErr := services.database.AppendRuntimeObservationTransition(ctx, observation, transition)
+			return errors.Join(fmt.Errorf("reconcile runtime observation: %w", proveErr), historyErr)
 		}
 		expectedObservation = &observation
 	} else if !errors.Is(err, store.ErrRuntimeObservationNotFound) {
@@ -78,7 +94,55 @@ func (services *runtimeServices) ReconcileStartup(ctx context.Context) error {
 	}
 	if !bootstrap.Hub.DesiredRunning || bootstrap.Hub.AppliedBundleID == "" ||
 		bootstrap.Hub.DesiredBundleID != bootstrap.Hub.AppliedBundleID {
-		return services.clearCapturedRuntimeObservation(expectedObservation)
+		if expectedObservation == nil {
+			return services.ensureRuntimeStopped(ctx, reconciledAt, "startup_reconciled_stopped")
+		}
+		uncertainSince := runtimeEventTime(expectedObservation.ObservedAt, history.HistoryStartedAt)
+		unknown := runtimeTransitionFromObservation(
+			runtimeIncarnationTransitionKey(*expectedObservation, store.RuntimeTransitionUnknown, "panel_restart_gap"),
+			store.RuntimeTransitionUnknown,
+			"panel_restart_gap",
+			*expectedObservation,
+			uncertainSince,
+			&uncertainSince,
+			store.Task{},
+		)
+		stopped := runtimeTransitionFromObservation(
+			runtimeIncarnationTransitionKey(*expectedObservation, store.RuntimeTransitionStopped, "startup_reconciled_stopped"),
+			store.RuntimeTransitionStopped,
+			"startup_reconciled_stopped",
+			*expectedObservation,
+			runtimeEventTime(reconciledAt, uncertainSince),
+			nil,
+			store.Task{},
+		)
+		cleared, clearErr := services.database.ClearRuntimeObservationAndTransitions(
+			ctx,
+			expectedObservation.PID,
+			expectedObservation.ProcessStartToken,
+			[]store.RuntimeTransitionInput{unknown, stopped},
+		)
+		if clearErr != nil {
+			return clearErr
+		}
+		if !cleared {
+			return store.ErrRuntimeIdentityMismatch
+		}
+		return nil
+	}
+	var transition *store.RuntimeTransitionInput
+	if expectedObservation != nil {
+		uncertainSince := runtimeEventTime(expectedObservation.ObservedAt, history.HistoryStartedAt)
+		value := runtimeTransitionFromObservation(
+			runtimeIncarnationTransitionKey(*expectedObservation, store.RuntimeTransitionUnknown, "panel_restart_gap"),
+			store.RuntimeTransitionUnknown,
+			"panel_restart_gap",
+			*expectedObservation,
+			uncertainSince,
+			&uncertainSince,
+			store.Task{Generation: bootstrap.Hub.TargetGeneration},
+		)
+		transition = &value
 	}
 	recovery, err := services.commands.RequestRuntimeRecovery(ctx, application.RuntimeRecoveryRequest{
 		ExpectedBundleID:    bootstrap.Hub.AppliedBundleID,
@@ -89,6 +153,7 @@ func (services *runtimeServices) ReconcileStartup(ctx context.Context) error {
 		// shape left by a clean panel shutdown. Failed/crashed children retain
 		// their observation and therefore cannot consume this reset boundary.
 		CleanBoundaryProven: expectedObservation == nil,
+		Transition:          transition,
 	})
 	if err != nil {
 		return err
@@ -114,7 +179,26 @@ func (services *runtimeServices) Close() error {
 	if observationErr != nil {
 		closeErr = errors.Join(closeErr, observationErr)
 	} else if closeErr == nil && waitErr == nil {
-		closeErr = errors.Join(closeErr, services.clearCapturedRuntimeObservation(observation))
+		if observation != nil {
+			live := services.manager.ObserveLiveIdentity()
+			occurredAt := runtimeEventTime(runtimeTransitionTime(live, time.Now()), observation.ObservedAt)
+			transition := runtimeTransitionFromObservation(
+				runtimeIncarnationTransitionKey(*observation, store.RuntimeTransitionStopped, "panel_shutdown"),
+				store.RuntimeTransitionStopped,
+				"panel_shutdown",
+				*observation,
+				occurredAt,
+				nil,
+				store.Task{},
+			)
+			_, transitionErr := services.database.ClearRuntimeObservationAndTransitions(
+				ctx,
+				observation.PID,
+				observation.ProcessStartToken,
+				[]store.RuntimeTransitionInput{transition},
+			)
+			closeErr = errors.Join(closeErr, transitionErr)
+		}
 	} else {
 		closeErr = errors.Join(closeErr, services.clearCapturedObservationAfterFailedStop(observation))
 	}
@@ -141,9 +225,8 @@ func startupCheckHandler(
 			return nil, err
 		}
 		succeeded := checkErr == nil
-		diagnostics := startupCheckDiagnostics(checkErr)
 		completed, completeErr := commands.CompleteStartupCheck(
-			ctx, task.StartupArtifactID, succeeded, diagnostics,
+			ctx, task.StartupArtifactID, succeeded,
 		)
 		if completeErr != nil {
 			return nil, errors.Join(checkErr, completeErr)
@@ -160,53 +243,34 @@ func startupCheckHandler(
 	}
 }
 
-func startupCheckDiagnostics(err error) json.RawMessage {
-	code := "sing_box_check_passed"
-	if err != nil {
-		code = "sing_box_check_failed"
-		switch {
-		case errors.Is(err, coreruntime.ErrArtifactDigest):
-			code = "binary_digest_mismatch"
-		case errors.Is(err, coreruntime.ErrStartupConfigDigest):
-			code = "config_digest_mismatch"
-		case errors.Is(err, coreruntime.ErrVersionMismatch):
-			code = "exact_version_mismatch"
-		case errors.Is(err, coreruntime.ErrCheckFailed):
-			code = "sing_box_rejected_config"
-		}
-	}
-	encoded, _ := json.Marshal([]map[string]string{{"code": code}})
-	return encoded
-}
-
-func runtimeIntentHandler(services *runtimeServices) taskHandlerFunc {
-	return func(ctx context.Context, task store.Task, control taskExecutionControl) (json.RawMessage, error) {
+func runtimeIntentHandler(services *runtimeServices) taskResultHandlerFunc {
+	return func(ctx context.Context, task store.Task, control taskExecutionControl) (taskHandlerResult, error) {
 		if err := control.SafePoint(ctx); err != nil {
-			return nil, err
+			return taskHandlerResult{}, err
 		}
 		if store.RuntimeIntentKind(task.Kind) == store.RuntimeIntentStop {
-			return services.stopForTask(ctx, control)
+			return services.stopForTask(ctx, task, control)
 		}
 		material, err := services.commands.LoadRuntimeMaterial(ctx, task.ActivationBundleID)
 		if err != nil {
-			return nil, err
+			return taskHandlerResult{}, err
 		}
 		processMonitoringTier := store.MonitoringTier(services.manager.MonitoringLevel())
 		if processMonitoringTier != store.MonitoringProcessOnly ||
 			(material.Activation.MonitoringTier != store.MonitoringProcessOnly &&
 				material.Activation.MonitoringTier != store.MonitoringLimited) {
-			return nil, fmt.Errorf(
+			return taskHandlerResult{}, fmt.Errorf(
 				"activation monitoring tier %q is unavailable; process probe supplies %q",
 				material.Activation.MonitoringTier,
 				processMonitoringTier,
 			)
 		}
 		if err := services.revalidateRuntimeMaterial(ctx, material); err != nil {
-			return nil, err
+			return taskHandlerResult{}, err
 		}
 		capturedObservation, err := services.captureRuntimeObservation(ctx)
 		if err != nil {
-			return nil, err
+			return taskHandlerResult{}, err
 		}
 		var recordedObservation *store.RuntimeObservation
 		live := services.manager.ObserveLiveIdentity()
@@ -221,52 +285,120 @@ func runtimeIntentHandler(services *runtimeServices) taskHandlerFunc {
 				err = services.manager.Start(ctx, material.Bundle)
 			}
 			if err != nil {
-				return nil, errors.Join(err, services.clearCapturedObservationAfterFailedStop(capturedObservation))
+				commit, evidenceErr := services.runtimeTaskFailureCommit(task, material, capturedObservation)
+				return taskHandlerResult{Runtime: commit}, errors.Join(err, evidenceErr)
 			}
 			startedByTask = true
-			observation, recordErr := services.recordLiveObservation(ctx, material)
+			observation, recordErr := services.recordLiveObservation(
+				ctx, material, capturedObservation,
+			)
 			if recordErr != nil {
-				return nil, errors.Join(recordErr, services.stopAfterLostIntent(capturedObservation))
+				commit, stopErr := services.stopAfterLostIntent(
+					capturedObservation,
+					task,
+					material.Activation.ID,
+					store.RuntimeTransitionFailed,
+					"observation_record_failed",
+				)
+				return taskHandlerResult{Runtime: commit}, errors.Join(recordErr, stopErr)
 			}
 			recordedObservation = &observation
 			if err := services.revalidateRuntimeMaterial(ctx, material); err != nil {
-				return nil, errors.Join(err, services.stopAfterLostIntent(recordedObservation))
+				commit, stopErr := services.stopAfterLostIntent(
+					recordedObservation,
+					task,
+					material.Activation.ID,
+					store.RuntimeTransitionStopped,
+					"intent_superseded",
+				)
+				return taskHandlerResult{Runtime: commit}, errors.Join(err, stopErr)
 			}
 		}
 		if material.Activation.MonitoringTier == store.MonitoringLimited {
 			if err := services.awaitClashAPI(ctx, material); err != nil {
 				if startedByTask {
-					err = errors.Join(err, services.stopAfterLostIntent(recordedObservation))
+					commit, stopErr := services.stopAfterLostIntent(
+						recordedObservation,
+						task,
+						material.Activation.ID,
+						store.RuntimeTransitionFailed,
+						"monitoring_handshake_failed",
+					)
+					return taskHandlerResult{Runtime: commit}, errors.Join(err, stopErr)
 				}
-				return nil, err
+				return taskHandlerResult{}, err
 			}
 		}
 		if err := control.SafePoint(ctx); err != nil {
 			if startedByTask {
-				err = errors.Join(err, services.stopAfterLostIntent(recordedObservation))
+				commit, stopErr := services.stopAfterLostIntent(
+					recordedObservation,
+					task,
+					material.Activation.ID,
+					store.RuntimeTransitionStopped,
+					"intent_superseded",
+				)
+				return taskHandlerResult{Runtime: commit}, errors.Join(err, stopErr)
 			}
-			return nil, err
+			return taskHandlerResult{}, err
 		}
 		if recordedObservation == nil {
-			observation, recordErr := services.recordLiveObservation(ctx, material)
+			observation, recordErr := services.recordLiveObservation(
+				ctx, material, capturedObservation,
+			)
 			if recordErr != nil {
 				if startedByTask {
-					recordErr = errors.Join(recordErr, services.stopAfterLostIntent(recordedObservation))
+					commit, stopErr := services.stopAfterLostIntent(
+						recordedObservation,
+						task,
+						material.Activation.ID,
+						store.RuntimeTransitionFailed,
+						"observation_record_failed",
+					)
+					return taskHandlerResult{Runtime: commit}, errors.Join(recordErr, stopErr)
 				}
-				return nil, recordErr
+				return taskHandlerResult{}, recordErr
 			}
 			recordedObservation = &observation
 		}
 		if err := control.SafePoint(ctx); err != nil {
 			if startedByTask {
-				err = errors.Join(err, services.stopAfterLostIntent(recordedObservation))
+				commit, stopErr := services.stopAfterLostIntent(
+					recordedObservation,
+					task,
+					material.Activation.ID,
+					store.RuntimeTransitionStopped,
+					"intent_superseded",
+				)
+				return taskHandlerResult{Runtime: commit}, errors.Join(err, stopErr)
 			}
-			return nil, err
+			return taskHandlerResult{}, err
 		}
-		return json.Marshal(map[string]any{
+		observation, runtimeCommit, transitionErr := services.prepareRuntimeTaskRunningCommit(
+			ctx,
+			task,
+			*recordedObservation,
+			capturedObservation,
+		)
+		if transitionErr != nil {
+			if startedByTask {
+				commit, stopErr := services.stopAfterLostIntent(
+					recordedObservation,
+					task,
+					material.Activation.ID,
+					store.RuntimeTransitionFailed,
+					"observation_transition_failed",
+				)
+				return taskHandlerResult{Runtime: commit}, errors.Join(transitionErr, stopErr)
+			}
+			return taskHandlerResult{}, transitionErr
+		}
+		recordedObservation = &observation
+		payload, err := json.Marshal(map[string]any{
 			"healthy": true, "monitoring_tier": material.Activation.MonitoringTier,
 			"runtime": *recordedObservation,
 		})
+		return taskHandlerResult{Payload: payload, Runtime: &runtimeCommit}, err
 	}
 }
 
@@ -316,27 +448,120 @@ func (services *runtimeServices) revalidateRuntimeMaterial(
 
 func (services *runtimeServices) stopForTask(
 	ctx context.Context,
+	task store.Task,
 	control taskExecutionControl,
-) (json.RawMessage, error) {
+) (taskHandlerResult, error) {
 	observation, err := services.captureRuntimeObservation(ctx)
 	if err != nil {
-		return nil, err
+		return taskHandlerResult{}, err
+	}
+	// Fence the task immediately before changing the external process. The
+	// second fence below detects cancellation or supersession that races with a
+	// successful Stop, but the resulting runtime evidence must still be returned.
+	if err := control.SafePoint(ctx); err != nil {
+		return taskHandlerResult{}, err
 	}
 	if err := services.manager.Stop(ctx); err != nil {
-		return nil, errors.Join(err, services.clearCapturedObservationAfterFailedStop(observation))
+		commit, evidenceErr := services.runtimeCommitAfterFailedTaskStop(observation, task)
+		return taskHandlerResult{Runtime: commit}, errors.Join(err, evidenceErr)
 	}
-	if err := services.clearCapturedRuntimeObservation(observation); err != nil {
-		return nil, err
+	live := services.manager.ObserveLiveIdentity()
+	occurredAt := runtimeTransitionTime(live, time.Now())
+	commit := store.RuntimeTaskCommit{
+		ExpectedObservation: observation,
+		ClearObservation:    true,
+		Transitions:         make([]store.RuntimeTransitionInput, 0, 1),
+	}
+	if observation != nil {
+		occurredAt = runtimeEventTime(occurredAt, observation.ObservedAt)
+		transition := runtimeTransitionFromObservation(
+			runtimeTaskTransitionKey(task, "stopped"),
+			store.RuntimeTransitionStopped,
+			"stop_succeeded",
+			*observation,
+			occurredAt,
+			nil,
+			task,
+		)
+		commit.Transitions = append(commit.Transitions, transition)
+	} else {
+		transition := runtimeTransitionWithoutObservation(
+			runtimeTaskTransitionKey(task, "stopped"),
+			store.RuntimeTransitionStopped,
+			"stop_succeeded",
+			task.ActivationBundleID,
+			occurredAt,
+			nil,
+			task,
+		)
+		commit.Transitions = append(commit.Transitions, transition)
 	}
 	if err := control.SafePoint(ctx); err != nil {
-		return nil, err
+		return taskHandlerResult{Runtime: &commit}, err
 	}
-	return json.RawMessage(`{"running":false}`), nil
+	return taskHandlerResult{Payload: json.RawMessage(`{"running":false}`), Runtime: &commit}, nil
+}
+
+func (services *runtimeServices) prepareRuntimeTaskRunningCommit(
+	ctx context.Context,
+	task store.Task,
+	observation store.RuntimeObservation,
+	previous *store.RuntimeObservation,
+) (store.RuntimeObservation, store.RuntimeTaskCommit, error) {
+	live := services.manager.ObserveLiveIdentity()
+	if !live.Running || live.PID != observation.PID || live.BundleID != observation.ActivationBundleID ||
+		!live.StartedAt.Equal(observation.StartedAt) {
+		return store.RuntimeObservation{}, store.RuntimeTaskCommit{}, coreruntime.ErrNotRunning
+	}
+	startToken, err := services.identity.ProcessStartToken(ctx, live.PID)
+	if err != nil {
+		return store.RuntimeObservation{}, store.RuntimeTaskCommit{}, err
+	}
+	if startToken != observation.ProcessStartToken {
+		return store.RuntimeObservation{}, store.RuntimeTaskCommit{}, store.ErrRuntimeIdentityMismatch
+	}
+	expected := observation
+	observation.ObservedAt = runtimeEventTime(time.Now(), observation.ObservedAt)
+	transitions := make([]store.RuntimeTransitionInput, 0, 2)
+	if previous != nil && !sameRuntimeIncarnation(*previous, observation) {
+		boundaryAt := runtimeEventTime(live.StartedAt, previous.ObservedAt)
+		transitions = append(transitions, runtimeTransitionFromObservation(
+			runtimeTaskTransitionKey(task, "boundary"),
+			store.RuntimeTransitionStopped,
+			runtimeTaskReason(task, "boundary"),
+			*previous,
+			boundaryAt,
+			nil,
+			task,
+		))
+	}
+	transitionAt := runtimeEventTime(runtimeTransitionTime(live, observation.ObservedAt), live.StartedAt)
+	transitions = append(transitions, runtimeTransitionFromObservation(
+		runtimeTaskTransitionKey(task, "running"),
+		store.RuntimeTransitionRunning,
+		runtimeTaskReason(task, "succeeded"),
+		observation,
+		transitionAt,
+		nil,
+		task,
+	))
+	return observation, store.RuntimeTaskCommit{
+		ExpectedObservation: &expected,
+		Observation:         &observation,
+		Transitions:         transitions,
+	}, nil
+}
+
+func sameRuntimeIncarnation(left, right store.RuntimeObservation) bool {
+	return left.PID == right.PID &&
+		left.ProcessStartToken == right.ProcessStartToken &&
+		left.StartedAt.Equal(right.StartedAt)
 }
 
 func (services *runtimeServices) recordLiveObservation(
 	ctx context.Context,
 	material application.RuntimeMaterial,
+	expected *store.RuntimeObservation,
 ) (store.RuntimeObservation, error) {
 	live := services.manager.ObserveLiveIdentity()
 	if !live.Running || live.PID <= 0 {
@@ -346,21 +571,79 @@ func (services *runtimeServices) recordLiveObservation(
 	if err != nil {
 		return store.RuntimeObservation{}, err
 	}
-	return services.database.RecordRuntimeObservation(ctx, store.RuntimeObservation{
+	observedAt := runtimeEventTime(time.Now(), live.StartedAt)
+	observation := store.RuntimeObservation{
 		PID: live.PID, ProcessStartToken: startToken, CoreArtifactID: material.Core.ID,
 		ActivationBundleID: material.Activation.ID, ExactCoreVersion: material.Core.ExactVersion,
 		ArchiveSHA256: material.Core.ArchiveSHA256, BinarySHA256: material.Core.BinarySHA256,
-		StartedAt: live.StartedAt, ObservedAt: time.Now().UTC(),
-	})
+		StartedAt: live.StartedAt, ObservedAt: observedAt,
+	}
+	return services.database.RecordRuntimeObservationAndTransitions(
+		ctx,
+		expected,
+		observation,
+		nil,
+	)
 }
 
-func (services *runtimeServices) stopAfterLostIntent(observation *store.RuntimeObservation) error {
-	ctx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
+func (services *runtimeServices) stopAfterLostIntent(
+	observation *store.RuntimeObservation,
+	task store.Task,
+	bundleID string,
+	state store.RuntimeTransitionState,
+	reason string,
+) (*store.RuntimeTaskCommit, error) {
+	stopCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 	defer cancel()
-	if err := services.manager.Stop(ctx); err != nil {
-		return errors.Join(err, services.clearCapturedObservationAfterFailedStop(observation))
+	if err := services.manager.Stop(stopCtx); err != nil {
+		commit, evidenceErr := services.runtimeCommitAfterFailedTaskStop(observation, task)
+		return commit, errors.Join(err, evidenceErr)
 	}
-	return services.clearCapturedRuntimeObservation(observation)
+	live := services.manager.ObserveLiveIdentity()
+	occurredAt := runtimeTransitionTime(live, time.Now())
+	commit := store.RuntimeTaskCommit{
+		ExpectedObservation: observation,
+		ClearObservation:    true,
+		Transitions:         make([]store.RuntimeTransitionInput, 0, 1),
+	}
+	if observation != nil {
+		occurredAt = runtimeEventTime(occurredAt, observation.ObservedAt)
+		var transition store.RuntimeTransitionInput
+		if observation.ActivationBundleID == bundleID {
+			transition = runtimeTransitionFromObservation(
+				runtimeTaskTransitionKey(task, "abort:"+reason),
+				state,
+				reason,
+				*observation,
+				occurredAt,
+				nil,
+				task,
+			)
+		} else {
+			transition = runtimeTransitionWithoutObservation(
+				runtimeTaskTransitionKey(task, "abort:"+reason),
+				state,
+				reason,
+				bundleID,
+				occurredAt,
+				nil,
+				task,
+			)
+		}
+		commit.Transitions = append(commit.Transitions, transition)
+		return &commit, nil
+	}
+	transition := runtimeTransitionWithoutObservation(
+		runtimeTaskTransitionKey(task, "abort:"+reason),
+		state,
+		reason,
+		bundleID,
+		occurredAt,
+		nil,
+		task,
+	)
+	commit.Transitions = append(commit.Transitions, transition)
+	return &commit, nil
 }
 
 func (services *runtimeServices) captureRuntimeObservation(ctx context.Context) (*store.RuntimeObservation, error) {
@@ -374,18 +657,6 @@ func (services *runtimeServices) captureRuntimeObservation(ctx context.Context) 
 	return &observation, nil
 }
 
-func (services *runtimeServices) clearCapturedRuntimeObservation(observation *store.RuntimeObservation) error {
-	if observation == nil {
-		return nil
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-	_, err := services.database.ClearRuntimeObservation(
-		ctx, observation.PID, observation.ProcessStartToken,
-	)
-	return err
-}
-
 func (services *runtimeServices) clearCapturedObservationAfterFailedStop(
 	observation *store.RuntimeObservation,
 ) error {
@@ -395,26 +666,91 @@ func (services *runtimeServices) clearCapturedObservationAfterFailedStop(
 	if err := services.proveCapturedObservationExited(observation); err != nil {
 		return err
 	}
-	return services.clearCapturedRuntimeObservation(observation)
+	uncertainSince := observation.ObservedAt
+	transition := runtimeTransitionFromObservation(
+		runtimeIncarnationTransitionKey(*observation, store.RuntimeTransitionUnknown, "termination_result_uncertain"),
+		store.RuntimeTransitionUnknown,
+		"termination_result_uncertain",
+		*observation,
+		uncertainSince,
+		&uncertainSince,
+		store.Task{},
+	)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	_, err := services.database.ClearRuntimeObservationAndTransitions(
+		ctx,
+		observation.PID,
+		observation.ProcessStartToken,
+		[]store.RuntimeTransitionInput{transition},
+	)
+	return err
+}
+
+func (services *runtimeServices) runtimeCommitAfterFailedTaskStop(
+	observation *store.RuntimeObservation,
+	task store.Task,
+) (*store.RuntimeTaskCommit, error) {
+	if observation == nil {
+		return nil, errors.Join(
+			errRuntimeTaskEvidenceUnavailable,
+			errors.New("failed runtime stop has no captured observation fence"),
+		)
+	}
+	exited, err := services.capturedObservationExited(observation)
+	if err != nil {
+		return nil, errors.Join(errRuntimeTaskEvidenceUnavailable, err)
+	}
+	if !exited {
+		// The exact captured incarnation is still present, so the failed Stop did
+		// not change the durable runtime fact and needs no completion evidence.
+		return nil, nil
+	}
+	uncertainSince := observation.ObservedAt
+	transition := runtimeTransitionFromObservation(
+		runtimeTaskTransitionKey(task, "termination-result-uncertain"),
+		store.RuntimeTransitionUnknown,
+		"termination_result_uncertain",
+		*observation,
+		uncertainSince,
+		&uncertainSince,
+		task,
+	)
+	commit := &store.RuntimeTaskCommit{
+		ExpectedObservation: observation,
+		ClearObservation:    true,
+		Transitions:         []store.RuntimeTransitionInput{transition},
+	}
+	return commit, nil
 }
 
 func (services *runtimeServices) proveCapturedObservationExited(observation *store.RuntimeObservation) error {
-	if observation == nil {
+	exited, err := services.capturedObservationExited(observation)
+	if err != nil {
+		return err
+	}
+	if exited {
 		return nil
+	}
+	return fmt.Errorf("runtime process %d still has the captured process start token", observation.PID)
+}
+
+func (services *runtimeServices) capturedObservationExited(
+	observation *store.RuntimeObservation,
+) (bool, error) {
+	if observation == nil {
+		return true, nil
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	startToken, err := services.identity.ProcessStartToken(ctx, observation.PID)
 	if errors.Is(err, os.ErrNotExist) {
-		return nil
+		return true, nil
 	}
 	if err != nil {
-		return fmt.Errorf("prove stopped runtime process incarnation: %w", err)
+		return false, fmt.Errorf("prove stopped runtime process incarnation: %w", err)
 	}
-	if startToken == observation.ProcessStartToken {
-		return fmt.Errorf("runtime process %d still has the captured process start token", observation.PID)
-	}
-	return nil
+	return startToken != observation.ProcessStartToken, nil
 }
 
 func startTrafficSampler(ctx context.Context, services *runtimeServices) <-chan struct{} {

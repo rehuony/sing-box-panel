@@ -5,6 +5,7 @@ package application
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -15,9 +16,10 @@ import (
 
 const gibibyte = int64(1 << 30)
 
-// MetricsSnapshot never invents missing counters. Available is true only when
-// a collector has persisted a current period for the exact applied bundle and
-// the bundle declared a monitoring tier capable of supplying metrics.
+// MetricsSnapshot never invents missing counters. Available identifies a fresh
+// collector sample for the exact applied bundle. TrafficAvailable separately
+// proves that at least one process-local counter delta contributes to the
+// current period, so an unproven first lifetime counter is not exposed as zero.
 type MetricsSnapshot struct {
 	Available          bool                 `json:"available"`
 	ReasonCode         string               `json:"reason_code,omitempty"`
@@ -26,8 +28,14 @@ type MetricsSnapshot struct {
 	CollectedAt        time.Time            `json:"collected_at"`
 	CurrentTrafficData *store.TrafficPeriod `json:"current_traffic_period,omitempty"`
 	LatestSample       *store.TrafficSample `json:"latest_sample,omitempty"`
+	TrafficAvailable   bool                 `json:"traffic_available"`
 	QuotaBytes         *int64               `json:"quota_bytes,omitempty"`
 	QuotaExceeded      bool                 `json:"quota_exceeded"`
+}
+
+type TrafficSampleRetentionResult struct {
+	Deleted int64     `json:"deleted"`
+	Cutoff  time.Time `json:"cutoff"`
 }
 
 func (application *Application) Metrics(ctx context.Context) (MetricsSnapshot, error) {
@@ -77,7 +85,14 @@ func (application *Application) Metrics(ctx context.Context) (MetricsSnapshot, e
 	}
 	result.Available = true
 	result.CurrentTrafficData = &period
-	if configured := application.settings.Traffic.QuotaGiB; configured != nil && *configured > 0 {
+	var counters struct {
+		TrafficEvidenceAvailable bool `json:"traffic_evidence_available"`
+	}
+	if err := json.Unmarshal(period.Counters, &counters); err != nil {
+		return MetricsSnapshot{}, fmt.Errorf("decode traffic period evidence: %w", err)
+	}
+	result.TrafficAvailable = counters.TrafficEvidenceAvailable
+	if configured := application.settings.Traffic.QuotaGiB; result.TrafficAvailable && configured != nil && *configured > 0 {
 		quota := *configured * gibibyte
 		result.QuotaBytes = &quota
 		result.QuotaExceeded = period.InboundBytes+period.OutboundBytes >= quota
@@ -147,6 +162,28 @@ func (application *Application) TrafficStatus(ctx context.Context) (MetricsSnaps
 	return application.Metrics(ctx)
 }
 
+func (application *Application) MetricsHistory(
+	ctx context.Context,
+	filter store.MetricsHistoryFilter,
+) (store.MetricsHistory, error) {
+	return application.database.MetricsHistory(ctx, filter)
+}
+
+// EnforceTrafficSampleRetention removes only raw samples. Aggregated traffic
+// periods are intentionally retained as the long-lived accounting record.
+func (application *Application) EnforceTrafficSampleRetention(ctx context.Context) (TrafficSampleRetentionResult, error) {
+	days := application.settings.Traffic.SampleRetentionDays
+	if days < 1 || days > 366 {
+		return TrafficSampleRetentionResult{}, errors.New("traffic sample retention setting is unavailable")
+	}
+	cutoff := application.now().UTC().Add(-time.Duration(days) * 24 * time.Hour)
+	deleted, err := application.database.DeleteTrafficSamplesBefore(ctx, cutoff)
+	if err != nil {
+		return TrafficSampleRetentionResult{}, err
+	}
+	return TrafficSampleRetentionResult{Deleted: deleted, Cutoff: cutoff}, nil
+}
+
 func (application *Application) TrafficPeriod(ctx context.Context, periodID string) (store.TrafficPeriod, error) {
 	return application.database.GetTrafficPeriod(ctx, periodID)
 }
@@ -156,6 +193,13 @@ func (application *Application) ListTrafficPeriods(
 	filter store.TrafficPeriodFilter,
 ) ([]store.TrafficPeriod, error) {
 	return application.database.ListTrafficPeriods(ctx, filter)
+}
+
+func (application *Application) ListTrafficPeriodPage(
+	ctx context.Context,
+	filter store.TrafficPeriodFilter,
+) (store.TrafficPeriodPage, error) {
+	return application.database.ListTrafficPeriodPage(ctx, filter)
 }
 
 func IsTrafficPeriodNotFound(err error) bool {

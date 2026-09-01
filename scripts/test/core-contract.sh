@@ -28,12 +28,11 @@ cleanup() {
 }
 trap cleanup EXIT
 
-contract_test="${work_directory}/adapter-contract.test"
+contract_test="${work_directory}/core-contract.test"
 (
   cd -- "${repository_root}"
   CGO_ENABLED=0 go test -c -o "${contract_test}" ./internal/singbox
 )
-
 while IFS=$'\t' read -r version asset_name url expected_sha256 expected_size; do
   case_directory="${work_directory}/${version}"
   archive="${case_directory}/${asset_name}"
@@ -59,7 +58,7 @@ while IFS=$'\t' read -r version asset_name url expected_sha256 expected_size; do
   SING_BOX_CONTRACT_VERSION="${version}" \
   SING_BOX_CONTRACT_ARCHITECTURE="${architecture}" \
     "${contract_test}" \
-      -test.run '^TestCompiledAdaptersAcceptExactOfficialBinary$' \
+      -test.run '^TestExactOfficialBinaryAcceptsRawConfiguration$' \
       -test.count=1
 done < <(
   jq -r --arg architecture "${architecture}" '

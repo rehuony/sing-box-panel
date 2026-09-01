@@ -9,36 +9,33 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/rehuony/sing-box-panel/internal/configuration"
+	"github.com/rehuony/sing-box-panel/internal/singbox"
 	"github.com/rehuony/sing-box-panel/internal/store"
 )
 
+var ErrConfigurationSchemaValidation = errors.New("configuration schema validation failed")
+
 type ConfigurationCompileRequest struct {
-	CoreArtifactID        string `json:"core_artifact_id"`
-	AcceptedIgnoredDigest string `json:"accepted_ignored_digest,omitempty"`
+	CoreArtifactID string `json:"core_artifact_id"`
 }
 
 type CompiledConfigurationArtifact struct {
-	ID                  string                               `json:"id"`
-	CanonicalRevisionID string                               `json:"canonical_revision_id"`
-	ExactCoreVersion    string                               `json:"exact_core_version"`
-	AdapterID           string                               `json:"adapter_id"`
-	AdapterRevision     string                               `json:"adapter_revision"`
-	CoreArtifactID      string                               `json:"core_artifact_id"`
-	ConfigSHA256        string                               `json:"config_sha256"`
-	Diagnostics         []configuration.ProjectionDiagnostic `json:"diagnostics"`
-	IgnoredDigest       string                               `json:"ignored_digest,omitempty"`
-	State               store.StartupArtifactState           `json:"state"`
+	ID                  string                     `json:"id"`
+	CanonicalRevisionID string                     `json:"canonical_revision_id"`
+	ExactCoreVersion    string                     `json:"exact_core_version"`
+	CoreArtifactID      string                     `json:"core_artifact_id"`
+	ConfigSHA256        string                     `json:"config_sha256"`
+	State               store.StartupArtifactState `json:"state"`
 }
 
 type ConfigurationCompile struct {
-	Support  ConfigurationAdapterSupport   `json:"support"`
+	Support  ConfigurationSupport          `json:"support"`
 	Artifact CompiledConfigurationArtifact `json:"artifact"`
 	Task     Task                          `json:"task"`
 }
 
-// CompileConfiguration projects the current global revision through the exact
-// reviewed adapter and atomically queues validation by the selected binary.
+// CompileConfiguration snapshots the current raw JSON revision and atomically
+// queues validation by the selected exact binary.
 func (application *Application) CompileConfiguration(
 	ctx context.Context,
 	request ConfigurationCompileRequest,
@@ -49,15 +46,10 @@ func (application *Application) CompileConfiguration(
 	if err != nil {
 		return ConfigurationCompile{}, err
 	}
-	projection := configuration.ProjectionResult{
-		ConfigJSON: preview.Config, Diagnostics: preview.Diagnostics, IgnoredDigest: preview.IgnoredDigest,
-	}
-	if err := configuration.RequireIgnoredAcceptance(projection, request.AcceptedIgnoredDigest); err != nil {
-		return ConfigurationCompile{}, err
-	}
-	diagnosticsJSON, err := json.Marshal(preview.Diagnostics)
-	if err != nil {
-		return ConfigurationCompile{}, fmt.Errorf("encode projection diagnostics: %w", err)
+	if preview.Support.Structured {
+		if err := singbox.ValidateConfiguration(preview.CoreArtifact.ExactVersion, preview.Config); err != nil {
+			return ConfigurationCompile{}, fmt.Errorf("%w: %v", ErrConfigurationSchemaValidation, err)
+		}
 	}
 	startupID, err := application.newID("startup")
 	if err != nil {
@@ -75,15 +67,13 @@ func (application *Application) CompileConfiguration(
 	stored, err := application.database.CreateStartupArtifactAndCheckTask(ctx, store.StartupArtifact{
 		ID: startupID, CanonicalRevisionID: preview.CanonicalRevision.ID,
 		ExactCoreVersion: preview.CoreArtifact.ExactVersion,
-		AdapterID:        preview.Support.AdapterID, AdapterRevision: preview.Support.Revision,
-		CoreArtifactID: preview.CoreArtifact.ID, ConfigBytes: preview.Config,
-		Diagnostics: diagnosticsJSON, IgnoredDigest: preview.IgnoredDigest, CreatedAt: createdAt,
+		CoreArtifactID:   preview.CoreArtifact.ID, ConfigBytes: preview.Config,
+		CreatedAt: createdAt,
 	}, store.NewTask{
 		ID: taskID, IdempotencyKey: "startup-check:" + startupID,
 		Lane: store.TaskLaneMaintenance, Kind: store.TaskKindStartupCheck, Payload: payload, CreatedAt: createdAt,
 	}, store.CompiledStartupEvidence{
 		ExpectedCanonicalHeadID: preview.CanonicalRevision.ID,
-		AdapterID:               preview.Support.AdapterID, AdapterRevision: preview.Support.Revision,
 	})
 	if err != nil {
 		if errors.Is(err, store.ErrCompiledStartupEvidenceStale) {
@@ -95,11 +85,8 @@ func (application *Application) CompileConfiguration(
 		Support: preview.Support,
 		Artifact: CompiledConfigurationArtifact{
 			ID: stored.Artifact.ID, CanonicalRevisionID: stored.Artifact.CanonicalRevisionID,
-			ExactCoreVersion: stored.Artifact.ExactCoreVersion, AdapterID: stored.Artifact.AdapterID,
-			AdapterRevision: stored.Artifact.AdapterRevision, CoreArtifactID: stored.Artifact.CoreArtifactID,
-			ConfigSHA256:  stored.Artifact.ConfigSHA256,
-			Diagnostics:   append([]configuration.ProjectionDiagnostic{}, preview.Diagnostics...),
-			IgnoredDigest: stored.Artifact.IgnoredDigest, State: stored.Artifact.State,
+			ExactCoreVersion: stored.Artifact.ExactCoreVersion, CoreArtifactID: stored.Artifact.CoreArtifactID,
+			ConfigSHA256: stored.Artifact.ConfigSHA256, State: stored.Artifact.State,
 		},
 		Task: applicationTask(stored.Task),
 	}, nil

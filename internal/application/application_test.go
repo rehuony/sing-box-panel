@@ -68,7 +68,7 @@ func TestRevisionHistoryDiffRestoreAndTaskControl(t *testing.T) {
 		t.Fatal(err)
 	}
 	changed, err := application.SetCanonicalValue(
-		ctx, initial.Revision.ID, "/configuration/log", []byte(`{"level":"info"}`),
+		ctx, initial.Revision.ID, "/log", []byte(`{"level":"info"}`),
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -89,7 +89,7 @@ func TestRevisionHistoryDiffRestoreAndTaskControl(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(diff.Changes) != 1 || diff.Changes[0].Path != "/configuration/log" {
+	if len(diff.Changes) != 1 || diff.Changes[0].Path != "/log" {
 		t.Fatalf("revision diff = %+v", diff.Changes)
 	}
 	restored, err := application.RestoreCanonicalRevision(ctx, changed.Revision.ID, "#1")

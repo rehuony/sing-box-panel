@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/rehuony/sing-box-panel/internal/store"
 )
@@ -16,6 +17,7 @@ func TestResolverRequiresVerifiedLiveObservation(t *testing.T) {
 		ActivationBundleID: "bundle-a", ExactCoreVersion: "1.13.19",
 		ArchiveSHA256: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 		BinarySHA256:  "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+		StartedAt:     time.Date(2026, time.August, 30, 10, 0, 0, 0, time.UTC),
 	}
 	artifact := store.CoreArtifact{
 		ID: "core-a", ExactVersion: "1.13.19", ReportedVersion: "1.13.19",
@@ -27,7 +29,8 @@ func TestResolverRequiresVerifiedLiveObservation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if identity.ExactCoreVersion != "1.13.19" || identity.PID != 42 || inspector.verified != 1 {
+	if identity.ExactCoreVersion != "1.13.19" || identity.PID != 42 ||
+		!identity.StartedAt.Equal(observation.StartedAt) || inspector.verified != 1 {
 		t.Fatalf("identity=%+v verified=%d", identity, inspector.verified)
 	}
 

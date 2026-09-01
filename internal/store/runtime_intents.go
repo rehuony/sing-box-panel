@@ -15,6 +15,7 @@ import (
 var (
 	ErrNoAppliedBundle     = errors.New("no activation bundle has been applied")
 	ErrNoRollbackBundle    = errors.New("no rollback activation bundle is available")
+	ErrRuntimeIntentStale  = errors.New("runtime intent evidence is stale")
 	ErrIdempotencyConflict = errors.New("idempotency key belongs to a different runtime intent")
 )
 
@@ -103,7 +104,7 @@ func (s *Store) requestRuntimeIntentNullable(ctx context.Context, input RuntimeI
 				return ErrNoRollbackBundle
 			}
 			if bundleID != valueOrEmpty(rollbackBundleID) {
-				return errors.New("rollback must use the frozen rollback bundle")
+				return fmt.Errorf("%w: rollback bundle changed", ErrRuntimeIntentStale)
 			}
 			if err := validateRunnableBundle(ctx, tx, bundleID); err != nil {
 				return err

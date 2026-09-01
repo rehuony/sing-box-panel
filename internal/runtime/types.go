@@ -108,6 +108,8 @@ type LiveIdentity struct {
 	ArtifactID     string
 	BundleID       string
 	StartedAt      time.Time
+	TransitionedAt time.Time
+	Failure        *FailureStatus
 }
 
 // Failure keeps the public error text free of command output and filesystem

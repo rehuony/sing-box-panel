@@ -19,6 +19,7 @@ import (
 
 	"github.com/rehuony/sing-box-panel/internal/application"
 	"github.com/rehuony/sing-box-panel/internal/catalog"
+	"github.com/rehuony/sing-box-panel/internal/configuration"
 	"github.com/rehuony/sing-box-panel/internal/coreartifact"
 	"github.com/rehuony/sing-box-panel/internal/settings"
 	"github.com/rehuony/sing-box-panel/internal/store"
@@ -82,13 +83,21 @@ func TestCoreHTTPRoutesUseApplicationServices(t *testing.T) {
 	if supportResponse.Code != http.StatusOK {
 		t.Fatalf("configuration support status=%d body=%s", supportResponse.Code, supportResponse.Body.String())
 	}
-	var support application.ConfigurationAdapterSupport
+	var support application.ConfigurationSupport
 	if err := json.Unmarshal(supportResponse.Body.Bytes(), &support); err != nil {
 		t.Fatal(err)
 	}
-	if support.Supported || support.Profile.ExactVersion != "1.13.19" {
+	if support.Structured || support.ExactVersion != "1.13.19" {
 		t.Fatalf("configuration support = %+v", support)
 	}
+	legacySchemaResponse := authenticatedRequest(
+		handler,
+		http.MethodGet,
+		"/api/v1/core/artifacts/"+artifact.ID+"/configuration-schema",
+		"",
+		"",
+	)
+	assertCoreHTTPProblem(t, legacySchemaResponse, http.StatusConflict, "configuration_schema_unavailable")
 
 	listResponse := authenticatedRequest(
 		handler,
@@ -159,6 +168,70 @@ func TestCoreHTTPRoutesUseApplicationServices(t *testing.T) {
 	}
 	missingResponse := authenticatedRequest(handler, http.MethodGet, "/api/v1/core/artifacts/"+artifact.ID, "", "")
 	assertCoreHTTPProblem(t, missingResponse, http.StatusNotFound, "core_artifact_not_found")
+}
+
+func TestCoreConfigurationSchemaUsesExactVersionContractAndETag(t *testing.T) {
+	handler, database := newCoreHTTPFixture(t)
+	artifact, err := database.UpsertCoreArtifact(context.Background(), store.CoreArtifact{
+		ID: "core_schema_http", ExactVersion: "1.14.0", OperatingSystem: "linux", Architecture: "amd64", Variant: "plain",
+		SourceKind: store.CoreArtifactSourceUserVerified, UserSource: "schema HTTP fixture",
+		ArchiveSHA256: strings.Repeat("a1", 32), BinarySHA256: strings.Repeat("b1", 32),
+		BinaryPath: "/var/lib/sing-box-panel/artifacts/core_schema_http/sing-box", ReportedVersion: "1.14.0",
+		FeatureFingerprint: json.RawMessage(`{"status":"not_reported"}`), VerificationState: store.CoreArtifactVerified,
+		CreatedAt: time.Date(2026, time.August, 31, 12, 0, 0, 0, time.UTC),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	target := "/api/v1/core/artifacts/" + artifact.ID + "/configuration-schema"
+
+	response := authenticatedRequest(handler, http.MethodGet, target, "", "")
+	if response.Code != http.StatusOK {
+		t.Fatalf("configuration schema status=%d body=%s", response.Code, response.Body.String())
+	}
+	var contract application.ConfigurationSchema
+	if err := json.Unmarshal(response.Body.Bytes(), &contract); err != nil {
+		t.Fatal(err)
+	}
+	if contract.ExactVersion != artifact.ExactVersion {
+		t.Fatalf("configuration schema version = %q", contract.ExactVersion)
+	}
+	if contract.SchemaSHA256 == "" || len(contract.Schema) == 0 {
+		t.Fatalf("configuration schema contract = %+v", contract)
+	}
+	etag := response.Header().Get("ETag")
+	if etag != configurationSchemaETag(contract) {
+		t.Fatalf("configuration schema ETag=%q want=%q", etag, configurationSchemaETag(contract))
+	}
+	if response.Header().Get("Cache-Control") != "private, no-cache" {
+		t.Fatalf("configuration schema cache control = %q", response.Header().Get("Cache-Control"))
+	}
+
+	request := httptest.NewRequest(http.MethodGet, target, nil)
+	request.Header.Set("Authorization", "Bearer correct-management-token")
+	request.Header.Set("If-None-Match", etag)
+	notModified := httptest.NewRecorder()
+	handler.ServeHTTP(notModified, request)
+	if notModified.Code != http.StatusNotModified || notModified.Body.Len() != 0 {
+		t.Fatalf("conditional configuration schema status=%d body=%s", notModified.Code, notModified.Body.String())
+	}
+}
+
+func TestConfigurationSchemaETagBindsVersionAndDigest(t *testing.T) {
+	base := application.ConfigurationSchema{
+		ExactVersion: "1.14.0",
+		SchemaSHA256: strings.Repeat("b", 64),
+	}
+	baseETag := configurationSchemaETag(base)
+	variants := []application.ConfigurationSchema{
+		{ExactVersion: "1.14.1", SchemaSHA256: base.SchemaSHA256},
+		{ExactVersion: base.ExactVersion, SchemaSHA256: strings.Repeat("d", 64)},
+	}
+	for _, variant := range variants {
+		if got := configurationSchemaETag(variant); got == baseETag {
+			t.Fatalf("configuration schema ETag did not bind variant: %+v", variant)
+		}
+	}
 }
 
 func TestCoreHTTPRejectsAmbiguousAndOversizedInputs(t *testing.T) {
@@ -304,7 +377,7 @@ func TestCoreHTTPRejectsDeletingReferencedArtifact(t *testing.T) {
 	artifact := seedCoreHTTPArtifact(t, database)
 	now := time.Date(2026, time.August, 26, 13, 0, 0, 0, time.UTC)
 	revision, err := database.SaveCanonicalRevisionAndTask(context.Background(), "", store.NewCanonicalRevision{
-		ID: "revision_core_http", SchemaVersion: 2, Document: json.RawMessage(`{"schema_version":2,"configuration":{}}`),
+		ID: "revision_core_http", SchemaVersion: configuration.SchemaVersion, Document: json.RawMessage(`{}`),
 		CommandID: "command_core_http", CreatedAt: now,
 	}, store.NewTask{
 		ID: "task_core_http", Lane: store.TaskLaneMaintenance, Kind: store.TaskKindCanonicalSaved, CreatedAt: now,
@@ -315,8 +388,7 @@ func TestCoreHTTPRejectsDeletingReferencedArtifact(t *testing.T) {
 	if _, err := database.CreateStartupArtifact(context.Background(), store.StartupArtifact{
 		ID:                  "startup_core_http",
 		CanonicalRevisionID: revision.ID, ExactCoreVersion: artifact.ExactVersion,
-		AdapterID: "test/adapter", AdapterRevision: "1", CoreArtifactID: artifact.ID,
-		ConfigBytes: []byte(`{}`), CreatedAt: now.Add(time.Second),
+		CoreArtifactID: artifact.ID, ConfigBytes: []byte(`{}`), CreatedAt: now.Add(time.Second),
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -381,7 +453,7 @@ func newCoreHTTPFixture(t *testing.T) (*Handler, *store.Store) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = database.Close() })
-	configuration := settings.Defaults(filepath.Join(dataDirectory, "settings.json"))
+	configuration := settings.Defaults()
 	configuration.DataDir = dataDirectory
 	configuration.Auth.Token = "correct-management-token"
 	if err := configuration.Validate(); err != nil {

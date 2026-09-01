@@ -3,6 +3,7 @@
 package main
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -68,6 +69,13 @@ func readLicensePaths(paths map[string]string) ([]licenseFile, error) {
 		if !utf8.Valid(content) {
 			return nil, fmt.Errorf("license document %s is not UTF-8", paths[name])
 		}
+		content = bytes.ReplaceAll(content, []byte("\r\n"), []byte("\n"))
+		content = bytes.ReplaceAll(content, []byte("\r"), []byte("\n"))
+		lines := bytes.Split(content, []byte("\n"))
+		for index := range lines {
+			lines[index] = bytes.TrimRight(lines[index], " \t")
+		}
+		content = bytes.Join(lines, []byte("\n"))
 		digest := sha256.Sum256(content)
 		files = append(files, licenseFile{
 			Path:    name,

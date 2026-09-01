@@ -29,14 +29,14 @@ the documented HTTP contract rather than Go implementation details.
 A cohesive domain stays in one package and uses file prefixes to make ownership
 visible. File length alone is not a reason to create another package.
 
-- `internal/configuration` owns canonical documents and the core projection
-  contract. `document_*` and `adapter_*` files distinguish those concerns.
+- `internal/configuration` owns strict, lossless sing-box JSON documents and
+  immutable revision operations.
 - `internal/subscription` owns documents, normalized nodes, source parsing and
   fetching, rendering, and inbound conversion contracts. Files use
   `document_*`, `node_*`, `source_*`, `render_*`, and `inbound_*` prefixes.
-- `internal/singbox` owns the reviewed support catalog, generated profiles,
-  configuration projection, inbound conversion, and behavior-family dispatch.
-  Exact versions exist as catalog data rather than forwarding packages.
+- `internal/singbox` owns the reviewed support catalog, version-scoped native
+  Schema assets, inbound conversion, and behavior-family dispatch. Exact
+  versions exist as catalog data rather than forwarding packages.
 - `internal/runtime` owns managed processes and its restricted Clash API
   monitoring client.
 - `internal/application` owns use cases and runtime identity resolution backed
@@ -56,13 +56,17 @@ Support for a stable release is explicit and fails closed:
 
 1. Review the upstream release and both official Linux artifacts, then update
    `internal/singbox/catalog.json`.
-2. Decide whether the release can reuse a reviewed behavior family. Add private
-   same-package projection or inbound functions when behavior has changed.
-3. Run `make support-generate` and `make support-check`.
-4. Add or update catalog- and family-driven tests. Unknown, malformed, empty,
-   or approximate versions must remain unsupported; there is no nearest-version
-   fallback.
-5. Run the native amd64 and arm64 core contracts before merging.
+2. Decide whether the release can reuse a reviewed inbound-conversion behavior
+   family. Runtime eligibility does not depend on that optional capability.
+3. When the release provides the native `sing-box schema` command, generate
+   and commit that exact version's canonical Schema. Older releases remain
+   JSON-only; do not synthesize a replacement Schema.
+4. Run the offline `make support-check`; it verifies the catalog and every
+   committed native Schema asset without downloading upstream source.
+5. Add or update catalog- and family-driven tests. Unknown, malformed, empty,
+   or approximate versions must remain unsupported and must never select a
+   nearby release.
+6. Run the native amd64 and arm64 core contracts before merging.
 
 Do not add exact-version forwarding directories. Version identity belongs in
 the catalog; reusable behavior belongs in private `singbox` family functions.

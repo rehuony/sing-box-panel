@@ -6,6 +6,8 @@ import {
 
 import type { CanonicalDocument, CanonicalSnapshot } from '@/api/api-client';
 
+import i18n from '@/i18n';
+
 function pointerTokens(pointer: string): string[] {
   if (!pointer.startsWith('/')) return [];
   return pointer
@@ -32,31 +34,31 @@ export function valueAtPointer(document: unknown, pointer: string): unknown {
 export function parseCanonicalDocument(snapshot: CanonicalSnapshot): CanonicalDocument {
   const parsed = parseLosslessJSON(snapshot.document_json);
   if (parsed === null || Array.isArray(parsed) || typeof parsed !== 'object') {
-    throw new Error('The canonical snapshot is not one JSON object.');
+    throw new Error(i18n.t('configuration.canonical.error.snapshotObject'));
   }
   return parsed as CanonicalDocument;
 }
 
 export function cloneCanonicalDocument(source: CanonicalDocument): CanonicalDocument {
   const encoded = stringifyLosslessJSON(source);
-  if (encoded === undefined) throw new Error('The canonical snapshot cannot be encoded losslessly.');
+  if (encoded === undefined) throw new Error(i18n.t('configuration.canonical.error.encodeLossless'));
   const parsed = parseLosslessJSON(encoded);
   if (parsed === null || Array.isArray(parsed) || typeof parsed !== 'object') {
-    throw new Error('The canonical snapshot clone is not one JSON object.');
+    throw new Error(i18n.t('configuration.canonical.error.cloneObject'));
   }
   return parsed as CanonicalDocument;
 }
 
 function arrayPointerIndex(token: string, pointer: string, length: number): number {
   if (!/^(?:0|[1-9]\d*)$/.test(token)) {
-    throw new Error(`Canonical path ${pointer} uses a non-numeric array index.`);
+    throw new Error(i18n.t('configuration.canonical.error.arrayIndexNumeric', { pointer }));
   }
   const index = Number(token);
   if (!Number.isSafeInteger(index) || index > 100_000) {
-    throw new Error(`Canonical path ${pointer} exceeds the safe array-index limit.`);
+    throw new Error(i18n.t('configuration.canonical.error.arrayIndexLimit', { pointer }));
   }
   if (index >= length) {
-    throw new Error(`Canonical path ${pointer} addresses an array item that does not exist.`);
+    throw new Error(i18n.t('configuration.canonical.error.arrayItemMissing', { pointer }));
   }
   return index;
 }
@@ -88,13 +90,13 @@ export function documentWithValue(
         break;
       }
       if (current[arrayIndex] === null || typeof current[arrayIndex] !== 'object') {
-        throw new Error(`Canonical path ${pointer} crosses a non-container value.`);
+        throw new Error(i18n.t('configuration.canonical.error.nonContainer', { pointer }));
       }
       current = current[arrayIndex];
       continue;
     }
     if (current === null || typeof current !== 'object' || isLosslessNumber(current)) {
-      throw new Error(`Canonical path ${pointer} crosses a non-container value.`);
+      throw new Error(i18n.t('configuration.canonical.error.nonContainer', { pointer }));
     }
     const object = current as Record<string, unknown>;
     if (final) {
@@ -102,10 +104,10 @@ export function documentWithValue(
       break;
     }
     if (!Object.hasOwn(object, token)) {
-      throw new Error(`Canonical path ${pointer} has a missing parent container.`);
+      throw new Error(i18n.t('configuration.canonical.error.parentMissing', { pointer }));
     }
     if (object[token] === null || typeof object[token] !== 'object') {
-      throw new Error(`Canonical path ${pointer} crosses a non-container value.`);
+      throw new Error(i18n.t('configuration.canonical.error.nonContainer', { pointer }));
     }
     current = object[token];
   }
@@ -124,7 +126,7 @@ export function documentWithoutValue(source: CanonicalDocument, pointer: string)
       if (!Object.hasOwn(current, token)) return copy;
       current = (current as Record<string, unknown>)[token];
     } else {
-      throw new Error(`Canonical path ${pointer} crosses a non-container value.`);
+      throw new Error(i18n.t('configuration.canonical.error.nonContainer', { pointer }));
     }
   }
   const final = tokens.at(-1);
@@ -135,7 +137,7 @@ export function documentWithoutValue(source: CanonicalDocument, pointer: string)
   } else if (current !== null && typeof current === 'object' && !isLosslessNumber(current)) {
     delete (current as Record<string, unknown>)[final];
   } else {
-    throw new Error(`Canonical path ${pointer} crosses a non-container value.`);
+    throw new Error(i18n.t('configuration.canonical.error.nonContainer', { pointer }));
   }
   return copy;
 }

@@ -16,13 +16,10 @@ type StartupArtifactTask struct {
 	Task     Task
 }
 
-// CompiledStartupEvidence binds projected bytes to the immutable global head
-// and compile-time adapter identity observed before the short insert
-// transaction. The Store cannot load adapters; it only prevents stale writes.
+// CompiledStartupEvidence binds startup bytes to the immutable global head
+// observed before the short insert transaction.
 type CompiledStartupEvidence struct {
 	ExpectedCanonicalHeadID string
-	AdapterID               string
-	AdapterRevision         string
 }
 
 func (s *Store) CreateStartupArtifactAndCheckTask(
@@ -46,8 +43,7 @@ func (s *Store) CreateStartupArtifactAndCheckTask(
 	if preparedTask.Lane != TaskLaneMaintenance || preparedTask.Kind != TaskKindStartupCheck {
 		return StartupArtifactTask{}, errors.New("compiled startup artifact requires a maintenance startup-check task")
 	}
-	if evidence.ExpectedCanonicalHeadID == "" || evidence.ExpectedCanonicalHeadID != preparedArtifact.CanonicalRevisionID ||
-		evidence.AdapterID != preparedArtifact.AdapterID || evidence.AdapterRevision != preparedArtifact.AdapterRevision {
+	if evidence.ExpectedCanonicalHeadID == "" || evidence.ExpectedCanonicalHeadID != preparedArtifact.CanonicalRevisionID {
 		return StartupArtifactTask{}, errors.New("compiled startup evidence is missing or inconsistent")
 	}
 

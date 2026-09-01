@@ -27,14 +27,14 @@ func TestConfigReplaceShowAndConflict(t *testing.T) {
       "data_dir":%q,
       "auth":{"token":"test-token","secure_cookie":false},
       "github":{"token":"","catalog_ttl_hours":12},
-      "traffic":{"quota_gib":null,"period_months":1},
+      "traffic":{"quota_gib":null,"period_months":1,"sample_retention_days":90},
       "subscription":{"author":"a","provider":"p","private_source_cidrs":[]},
       "logs":{"retention_days":7}
     }`, dataDir)
 	if err := os.WriteFile(settingsPath, []byte(settingsJSON), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	document := `{"schema_version":2,"configuration":{}}`
+	document := `{}`
 
 	var output bytes.Buffer
 	command := NewRootCommand(Dependencies{
@@ -65,7 +65,7 @@ func TestConfigReplaceShowAndConflict(t *testing.T) {
 	if err := show.ExecuteContext(context.Background()); err != nil {
 		t.Fatalf("config show error = %v", err)
 	}
-	if !strings.Contains(output.String(), `"schema_version": 2`) {
+	if strings.TrimSpace(output.String()) != `{}` {
 		t.Fatalf("config show output = %s", output.String())
 	}
 

@@ -1,6 +1,6 @@
 # CLI reference
 
-The sing-box-panel CLI manages one global canonical configuration, exact
+The sing-box-panel CLI manages one global sing-box JSON configuration, exact
 sing-box artifacts, runtime state, subscriptions, and operational evidence.
 Running the root command or a command group without a leaf prints help.
 
@@ -44,34 +44,27 @@ written to stderr, allowing scripts to redirect them independently. JSON and
 JSONL errors contain `code`, `message`, and `exit_code`; underlying causes are
 not serialized because they may expose filesystem or upstream details.
 
-Complete canonical documents, subscription source definitions, and other bulk
+Complete sing-box configuration documents, subscription source definitions, and other bulk
 or secret-bearing values use `--file PATH` or `--file -` for stdin. Do not
-place secrets in command arguments. Exported canonical configuration and
+place secrets in command arguments. Exported configuration and
 subscription source details may contain credentials and must be handled as
 secret-bearing output.
 
-## Exact artifact and adapter selection
+## Exact artifact selection
 
-Executable configuration is always derived from the single global canonical
-revision. `config compile` requires an immutable installed artifact ID; the
-panel resolves the complete verified binary profile and then selects one exact
-compiled adapter. The Web and HTTP surfaces expose the same projection as a
-non-persisting preview. No surface guesses from a version string, uses the
-newest catalog release, or falls back to a nearby patch.
+Executable configuration is always the selected global JSON revision.
+`config compile` requires an immutable installed artifact ID and snapshots the
+same bytes for that exact, verified binary. No surface guesses from a version
+string, uses the newest catalog release, or falls back to a nearby patch.
 
-An artifact without a compiled adapter remains installable and inspectable,
-but preview, compilation, check, Apply, Start, Restart, and Rollback fail
-closed when they would depend on that artifact. If preview reports ignored
-fields, compilation requires the exact current diagnostic digest:
+A missing JSON Schema disables only structured editing. Raw JSON compilation,
+check, Apply, Start, Restart, and Rollback remain available, with the selected
+binary's `sing-box check` as the final gate:
 
 ```sh
 sing-box-panel config compile \
-  --artifact CORE_ARTIFACT_ID \
-  --accept-ignored IGNORED_DIGEST
+  --artifact CORE_ARTIFACT_ID
 ```
-
-The ignored fields remain in the global revision and become effective again
-when a selected adapter supports them.
 
 ## Durable tasks and cancellation
 

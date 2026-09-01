@@ -58,6 +58,7 @@ type RuntimeRecoveryInput struct {
 	StableRunProven     bool
 	CleanBoundaryProven bool
 	CreatedAt           time.Time
+	Transition          *RuntimeTransitionInput
 }
 
 // RuntimeRecoveryDecision reports whether recovery was scheduled or its
@@ -119,6 +120,11 @@ func (s *Store) RequestRuntimeRecovery(
 
 		if err := clearRuntimeRecoveryObservation(ctx, tx, prepared.ExpectedObservation); err != nil {
 			return err
+		}
+		if prepared.Transition != nil {
+			if _, err := appendRuntimeTransition(ctx, tx, *prepared.Transition); err != nil {
+				return err
+			}
 		}
 		if metadata.Attempt > RuntimeRecoveryMaximumAttempts {
 			decision.Attempt = RuntimeRecoveryMaximumAttempts
@@ -188,6 +194,30 @@ func prepareRuntimeRecoveryInput(input RuntimeRecoveryInput) (RuntimeRecoveryInp
 		observation.StartedAt = observation.StartedAt.UTC()
 		input.ExpectedObservation = &observation
 	}
+	if input.Transition != nil {
+		transition, err := prepareRuntimeTransition(*input.Transition)
+		if err != nil {
+			return RuntimeRecoveryInput{}, fmt.Errorf("prepare runtime recovery transition: %w", err)
+		}
+		if transition.ActivationBundleID != "" && transition.ActivationBundleID != input.ExpectedBundleID {
+			return RuntimeRecoveryInput{}, errors.New("runtime recovery transition bundle does not match recovery bundle")
+		}
+		if transition.Generation != 0 && transition.Generation != input.ExpectedGeneration {
+			return RuntimeRecoveryInput{}, errors.New("runtime recovery transition generation does not match recovery generation")
+		}
+		if input.ExpectedObservation == nil {
+			if transition.PID != 0 {
+				return RuntimeRecoveryInput{}, errors.New("runtime recovery transition has an unobserved process identity")
+			}
+		} else if transition.PID != 0 &&
+			(transition.PID != input.ExpectedObservation.PID ||
+				transition.ProcessStartToken != input.ExpectedObservation.ProcessStartToken ||
+				transition.ProcessStartedAt == nil ||
+				!transition.ProcessStartedAt.Equal(input.ExpectedObservation.StartedAt)) {
+			return RuntimeRecoveryInput{}, errors.New("runtime recovery transition process fence does not match")
+		}
+		input.Transition = &transition
+	}
 	return input, nil
 }
 
@@ -231,19 +261,7 @@ func runtimeRecoveryObservationMatches(
 	tx *sql.Tx,
 	expected *RuntimeObservation,
 ) (bool, error) {
-	var pid int
-	var processStartToken string
-	err := tx.QueryRowContext(
-		ctx,
-		`SELECT pid, process_start_token FROM runtime_observation WHERE singleton = 1`,
-	).Scan(&pid, &processStartToken)
-	if errors.Is(err, sql.ErrNoRows) {
-		return expected == nil, nil
-	}
-	if err != nil {
-		return false, fmt.Errorf("read runtime recovery observation fence: %w", err)
-	}
-	return expected != nil && pid == expected.PID && processStartToken == expected.ProcessStartToken, nil
+	return runtimeObservationMatches(ctx, tx, expected)
 }
 
 func clearRuntimeRecoveryObservation(

@@ -2,6 +2,8 @@ import { createContext, use } from 'react';
 
 import type { Session } from '@/api/api-client';
 
+import i18n from '@/i18n';
+
 export type AuthStatus = 'checking' | 'unavailable' | 'anonymous' | 'authenticated';
 
 export interface AuthSessionValue {
@@ -18,7 +20,10 @@ export function useAuthSession(): AuthSessionValue {
   const value = use(AuthSessionContext);
 
   if (value === null) {
-    throw new Error('useAuthSession must be used within AuthSessionProvider');
+    throw new Error(i18n.t('common.providerRequired', {
+      hook: 'useAuthSession',
+      provider: 'AuthSessionProvider',
+    }));
   }
 
   return value;

@@ -3,6 +3,33 @@ import { describe, expect, it, vi } from 'vitest';
 import { createHttpApiClient } from '@/api/http-api-client';
 
 describe('createHttpApiClient subscription domain', () => {
+  it('reads token metadata and immutable source-version details by encoded identifiers', async () => {
+    const token = { id: 'token/1', label: 'phone' };
+    const version = { id: 'version/1', source_id: 'source/1' };
+    const fetcher = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(new Response(JSON.stringify(token), {
+        status: 200, headers: { 'Content-Type': 'application/json' },
+      }))
+      .mockResolvedValueOnce(new Response(JSON.stringify(version), {
+        status: 200, headers: { 'Content-Type': 'application/json' },
+      }));
+    const client = createHttpApiClient({ baseUrl: '/panel/api/v1', fetcher });
+
+    await expect(client.getSubscriptionToken('token/1')).resolves.toEqual(token);
+    await expect(client.getSubscriptionSourceVersion('source/1', 'version/1')).resolves.toEqual(version);
+
+    expect(fetcher).toHaveBeenNthCalledWith(
+      1,
+      '/panel/api/v1/subscription/tokens/token%2F1',
+      expect.objectContaining({ method: 'GET' }),
+    );
+    expect(fetcher).toHaveBeenNthCalledWith(
+      2,
+      '/panel/api/v1/subscription/sources/source%2F1/versions/version%2F1',
+      expect.objectContaining({ method: 'GET' }),
+    );
+  });
+
   it('uses updated_at as subscription CAS evidence and never puts plaintext in metadata URLs', async () => {
     const fetcher = vi
       .fn<typeof fetch>()

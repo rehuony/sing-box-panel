@@ -27,8 +27,12 @@ export function createCanonicalHttpApi(context: HttpApiContext) {
         signal,
       });
     },
-    listRevisions(signal) {
-      return request<CanonicalRevisionPage>(fetcher, `${baseUrl}/config/revisions?limit=8`, {
+    listRevisions(filter = {}, signal) {
+      const query = buildQuery({
+        before_sequence: filter.beforeSequence,
+        limit: filter.limit ?? 8,
+      });
+      return request<CanonicalRevisionPage>(fetcher, `${baseUrl}/config/revisions${query}`, {
         method: 'GET', signal,
       });
     },

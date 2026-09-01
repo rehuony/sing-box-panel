@@ -110,6 +110,14 @@ run_pnpm() {
     CI=true \
     COREPACK_ENABLE_DOWNLOAD_PROMPT=0 \
     COREPACK_HOME="${release_web_state}/corepack" \
+    GO111MODULE=on \
+    GOENV=off \
+    "GOFLAGS=-mod=readonly -modcacherw" \
+    GOCACHE="${release_go_build_cache}" \
+    GOMODCACHE="${release_go_module_cache}" \
+    GOPATH="${release_go_path}" \
+    GOTOOLCHAIN=local \
+    GOWORK=off \
     NODE_OPTIONS= \
     NODE_PATH= \
     NPM_CONFIG_CACHE="${release_web_state}/npm-cache" \
@@ -123,13 +131,10 @@ run_pnpm() {
 
 prepare_source_snapshot() {
   local source_root="$1"
-  local web_parent="$2"
 
-  mkdir -p -- "${source_root}" "${web_parent}"
+  mkdir -p -- "${source_root}"
   git -C "${workspace_root}" archive --format=tar "${source_commit}" |
     tar -xf - -C "${source_root}"
-  git -C "${workspace_root}" archive --format=tar "${source_commit}" web api/openapi.yaml |
-    tar -xf - -C "${web_parent}"
 
   if [[ -e "${source_root}/${release_private_key_path}" ||
     -L "${source_root}/${release_private_key_path}" ]]; then
@@ -137,8 +142,7 @@ prepare_source_snapshot() {
     return 1
   fi
   if [[ ! -d "${source_root}/web" || -L "${source_root}/web" ]] ||
-    [[ ! -d "${web_parent}/web" || -L "${web_parent}/web" ]] ||
-    [[ ! -f "${web_parent}/api/openapi.yaml" || -L "${web_parent}/api/openapi.yaml" ]]; then
+    [[ ! -f "${source_root}/api/openapi.yaml" || -L "${source_root}/api/openapi.yaml" ]]; then
     echo "HEAD does not contain the regular Web and OpenAPI build inputs" >&2
     return 1
   fi
@@ -168,7 +172,6 @@ prepare_isolated_state() {
 
 build_web_distribution() {
   local web_root="$1"
-  local source_root="$2"
   local expected_pnpm
   local actual_pnpm
 
@@ -203,18 +206,16 @@ build_web_distribution() {
     return 1
   fi
   if [[ ! -s "${web_root}/dist/index.html" ]] ||
+    [[ ! -s "${web_root}/dist/favicon.svg" ]] ||
     [[ ! -d "${web_root}/dist/assets" ]] ||
     ! find "${web_root}/dist/assets" -type f -print -quit | grep -q .; then
-    echo "the Web build did not create dist/index.html and assets" >&2
+    echo "the Web build did not create dist/index.html, favicon.svg, and assets" >&2
     return 1
   fi
   if find "${web_root}/dist" -type l -print -quit | grep -q .; then
     echo "the Web distribution must not contain symbolic links" >&2
     return 1
   fi
-
-  rm -rf -- "${source_root}/web/dist"
-  cp -R -- "${web_root}/dist" "${source_root}/web/dist"
 }
 
 build_binary() {
@@ -232,7 +233,6 @@ build_binary() {
       run_go build \
         -mod=readonly \
         -buildvcs=false \
-        -tags webdist \
         -trimpath \
         -ldflags="${ldflags}" \
         -o "${target}" \
@@ -283,7 +283,6 @@ check_binary_build() {
   metadata="$(go version -m "${binary}")"
   for expected in \
     $'\tpath\tgithub.com/rehuony/sing-box-panel/cmd/sing-box-panel' \
-    $'\tbuild\t-tags=webdist' \
     $'\tbuild\t-trimpath=true' \
     $'\tbuild\tCGO_ENABLED=0' \
     $'\tbuild\tGOOS=linux' \
@@ -390,7 +389,6 @@ build_distribution() (
   local build_root=""
   local staging_dir=""
   local source_root
-  local web_parent
   local web_root
   local state_root
   local ldflags
@@ -430,10 +428,9 @@ build_distribution() (
 
   build_root="$(mktemp -d "${TMPDIR:-/tmp}/sing-box-panel-release.XXXXXX")"
   source_root="${build_root}/source"
-  web_parent="${build_root}/web-input"
-  web_root="${web_parent}/web"
+  web_root="${source_root}/web"
   state_root="${build_root}/state"
-  prepare_source_snapshot "${source_root}" "${web_parent}"
+  prepare_source_snapshot "${source_root}"
   prepare_isolated_state "${state_root}"
   if [[ "${mode}" == release ]]; then
     public_key="$(read_update_public_key "${source_root}/${release_public_key_path}")"
@@ -451,7 +448,7 @@ build_distribution() (
     run_go mod verify
   )
 
-  build_web_distribution "${web_root}" "${source_root}"
+  build_web_distribution "${web_root}"
 
   if [[ -e "${final_output}" || -L "${final_output}" ]]; then
     echo "release output appeared while the build was running: ${final_output}" >&2

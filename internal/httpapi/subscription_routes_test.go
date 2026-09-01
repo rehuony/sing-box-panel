@@ -19,7 +19,6 @@ import (
 
 	"github.com/rehuony/sing-box-panel/internal/application"
 	"github.com/rehuony/sing-box-panel/internal/buildinfo"
-	"github.com/rehuony/sing-box-panel/internal/configuration"
 	"github.com/rehuony/sing-box-panel/internal/settings"
 	"github.com/rehuony/sing-box-panel/internal/singbox"
 	"github.com/rehuony/sing-box-panel/internal/store"
@@ -381,7 +380,7 @@ func newSubscriptionHTTPServices(t *testing.T, basePath string) (*store.Store, *
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = database.Close() })
-	value := settings.Defaults(t.TempDir() + "/setting.json")
+	value := settings.Defaults()
 	value.DataDir = t.TempDir()
 	value.Auth.Token = "correct-management-token"
 	value.Server.BasePath = basePath
@@ -415,22 +414,22 @@ func newSubscriptionPublicationHTTPFixture(
 	if _, err := database.UpsertCoreArtifact(ctx, core); err != nil {
 		t.Fatal(err)
 	}
-	revision, err := app.ReplaceCanonical(ctx, "", configuration.Empty().CanonicalJSON())
+	startupBytes := []byte(`{"inbounds":[{"type":"shadowsocks","tag":"publish","listen":"::","listen_port":443,"method":"aes-256-gcm","password":"secret"}],"outbounds":[{"type":"shadowsocks","tag":"publish","server":"publish.example","server_port":443,"method":"aes-256-gcm","password":"secret"}]}`)
+	revision, err := app.ReplaceCanonical(ctx, "", startupBytes)
 	if err != nil {
 		t.Fatal(err)
 	}
 	startup, err := database.CreateStartupArtifact(ctx, store.StartupArtifact{
 		ID:                  "startup-http-publication",
 		CanonicalRevisionID: revision.Revision.ID, ExactCoreVersion: core.ExactVersion,
-		AdapterID: "sing-box/v1_13_19/official-linux-plain", AdapterRevision: "2",
 		CoreArtifactID: core.ID,
-		ConfigBytes:    []byte(`{"inbounds":[{"type":"shadowsocks","tag":"publish","listen":"::","listen_port":443,"method":"aes-256-gcm","password":"secret"}],"outbounds":[{"type":"shadowsocks","tag":"publish","server":"publish.example","server_port":443,"method":"aes-256-gcm","password":"secret"}]}`),
+		ConfigBytes:    startupBytes,
 		CreatedAt:      now.Add(time.Second),
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	startup, err = database.CompleteStartupArtifactCheck(ctx, startup.ID, true, nil, now.Add(2*time.Second))
+	startup, err = database.CompleteStartupArtifactCheck(ctx, startup.ID, true, now.Add(2*time.Second))
 	if err != nil {
 		t.Fatal(err)
 	}

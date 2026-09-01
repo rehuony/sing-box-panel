@@ -2,29 +2,6 @@
 
 package configuration
 
-// Map returns a defensive copy of the complete canonical envelope.
-func (document *Document) Map() map[string]any {
-	if document == nil {
-		return nil
-	}
-	value, err := clonePointerValue(document.ConfigurationEnvelope())
-	if err != nil {
-		panic(err)
-	}
-	return value.(map[string]any)
-}
-
-func (document *Document) ConfigurationEnvelope() map[string]any {
-	if document == nil {
-		return nil
-	}
-	var root map[string]any
-	if err := decodeCanonicalMap(document.canonical, &root); err != nil {
-		panic(err)
-	}
-	return root
-}
-
 func (document *Document) ValueAtPointer(pointer string) (any, error) {
 	if document == nil {
 		return nil, ErrInvalidDocument
@@ -33,7 +10,7 @@ func (document *Document) ValueAtPointer(pointer string) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	var current any = document.ConfigurationEnvelope()
+	var current any = document.Configuration()
 	for _, token := range tokens {
 		current, err = pointerChild(current, token)
 		if err != nil {
@@ -58,7 +35,7 @@ func (document *Document) SetPointer(pointer string, value any) (*Document, erro
 		}
 		return buildEdited(object)
 	}
-	root := document.ConfigurationEnvelope()
+	root := document.Configuration()
 	parent, err := pointerParent(root, tokens[:len(tokens)-1])
 	if err != nil {
 		return nil, err
@@ -94,7 +71,7 @@ func (document *Document) UnsetPointer(pointer string) (*Document, error) {
 	if len(tokens) == 0 {
 		return nil, ErrInvalidDocument
 	}
-	root := document.ConfigurationEnvelope()
+	root := document.Configuration()
 	parent, err := pointerParent(root, tokens[:len(tokens)-1])
 	if err != nil {
 		return nil, err

@@ -127,8 +127,14 @@ func TestSubscriptionChannelAndSourceCLIEndToEnd(t *testing.T) {
 
 func TestSubscriptionChannelRenderCLIEndToEnd(t *testing.T) {
 	settingsPath := commandSettingsFixture(t)
+	startupBytes := []byte(`{
+	  "inbounds":[
+	    {"type":"shadowsocks","tag":"hidden","listen_port":443,"method":"aes-128-gcm","password":"hidden-password"},
+	    {"type":"shadowsocks","tag":"public","listen_port":8443,"method":"aes-256-gcm","password":"public-password"}
+	  ]
+	}`)
 	canonicalOutput := runApplicationCommand(t, settingsPath,
-		`{"schema_version":2,"configuration":{}}`,
+		string(startupBytes),
 		"--output", "json", "config", "replace", "--file", "-", "--base-revision", "none",
 	)
 	var canonicalSave application.CanonicalSave
@@ -164,22 +170,15 @@ func TestSubscriptionChannelRenderCLIEndToEnd(t *testing.T) {
 		_ = database.Close()
 		t.Fatal(err)
 	}
-	startupBytes := []byte(`{
-	  "inbounds":[
-	    {"type":"shadowsocks","tag":"hidden","listen_port":443,"method":"aes-128-gcm","password":"hidden-password"},
-	    {"type":"shadowsocks","tag":"public","listen_port":8443,"method":"aes-256-gcm","password":"public-password"}
-	  ]
-	}`)
 	startup, err := database.CreateStartupArtifact(context.Background(), store.StartupArtifact{
 		ID:                  "startup-subscription-cli",
 		CanonicalRevisionID: canonicalSave.Revision.ID, ExactCoreVersion: core.ExactVersion,
-		AdapterID: "sing-box/v1_13_19/official-linux-plain", AdapterRevision: "2",
 		CoreArtifactID: core.ID, ConfigBytes: startupBytes,
-		Diagnostics: json.RawMessage(`[]`), CreatedAt: now.Add(time.Second),
+		CreatedAt: now.Add(time.Second),
 	})
 	if err == nil {
 		startup, err = database.CompleteStartupArtifactCheck(
-			context.Background(), startup.ID, true, json.RawMessage(`[]`), now.Add(2*time.Second),
+			context.Background(), startup.ID, true, now.Add(2*time.Second),
 		)
 	}
 	var user application.SubscriptionUser

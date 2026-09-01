@@ -182,7 +182,6 @@ jq -e \
 binary_metadata="$(go version -m "${release_binary}")"
 for expected_line in \
   $'\tpath\tgithub.com/rehuony/sing-box-panel/cmd/sing-box-panel' \
-  $'\tbuild\t-tags=webdist' \
   $'\tbuild\t-trimpath=true' \
   $'\tbuild\tCGO_ENABLED=0' \
   $'\tbuild\tGOOS=linux' \
@@ -303,6 +302,10 @@ smoke_config_home="${smoke_root}/xdg-config"
 smoke_data_home="${smoke_root}/xdg-data"
 installed_binary="${install_dir}/sing-box-panel"
 mkdir -p -- "${install_dir}" "$(dirname -- "${settings_path}")" "${smoke_config_home}" "${smoke_data_home}"
+if [[ ! -s "${workspace_root}/web/dist/index.html" ]]; then
+  printf 'web/dist must be built before the native smoke-test probe\n' >&2
+  exit 1
+fi
 (
   cd -- "${workspace_root}"
   env \

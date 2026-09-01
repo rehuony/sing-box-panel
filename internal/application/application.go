@@ -11,20 +11,18 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/rehuony/sing-box-panel/internal/configuration"
 	"github.com/rehuony/sing-box-panel/internal/settings"
 	"github.com/rehuony/sing-box-panel/internal/store"
 )
 
 type Application struct {
-	database              *store.Store
-	ownsDatabase          bool
-	now                   func() time.Time
-	random                func([]byte) (int, error)
-	removeFile            func(string) error
-	runtime               RuntimeResolver
-	settings              settings.Settings
-	configurationAdapters *configuration.AdapterRegistry
+	database     *store.Store
+	ownsDatabase bool
+	now          func() time.Time
+	random       func([]byte) (int, error)
+	removeFile   func(string) error
+	runtime      RuntimeResolver
+	settings     settings.Settings
 }
 
 type RuntimeResolver interface {
@@ -56,12 +54,11 @@ func Open(ctx context.Context, settingsPath string) (*Application, error) {
 
 func newApplication(database *store.Store) *Application {
 	return &Application{
-		database:              database,
-		now:                   time.Now,
-		random:                rand.Read,
-		removeFile:            os.Remove,
-		runtime:               NewRuntimeIdentityResolver(database),
-		configurationAdapters: compiledConfigurationRegistry,
+		database:   database,
+		now:        time.Now,
+		random:     rand.Read,
+		removeFile: os.Remove,
+		runtime:    NewRuntimeIdentityResolver(database),
 	}
 }
 

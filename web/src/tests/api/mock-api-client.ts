@@ -2,9 +2,24 @@ import type { Mocked } from 'vitest';
 
 import { vi } from 'vitest';
 
-import type { ApiClient, CanonicalSnapshot, CatalogAssetList, CoreArtifactPage, DashboardContext, LogEntry, MetricsSnapshot, Session, StartupArtifactSummary, SubscriptionChannel, SubscriptionSource, SubscriptionToken, Task, TrafficPeriod } from '@/api/api-client';
+import type { ApiClient, CanonicalSnapshot, CatalogAssetList, ConfigurationSupport, CoreArtifactPage, DashboardContext, LogEntry, LogStreamEvent, MetricsHistory, MetricsSnapshot, RuntimeHistoryPage, Session, StartupArtifactSummary, SubscriptionChannel, SubscriptionSource, SubscriptionSourceVersion, SubscriptionToken, SystemStatus, Task, TrafficPeriod } from '@/api/api-client';
+
+import { reviewedSchemaManifest } from '@/schemas/generated';
+
+const testSchemaVersion = '1.14.0';
+const unavailableSchemaSHA256 = '0'.repeat(64);
 
 export const testSession: Session = { displayName: 'Panel administrator' };
+
+export const testSystemStatus: SystemStatus = {
+  panel_version: '0.1.0',
+  canonical_revision: 42,
+  applied_bundle_id: 'bundle_18',
+  running: true,
+  running_version: '1.13.19',
+  running_artifact: 'core_1',
+  configuration_state: 'sing-box-1.13.19@1',
+};
 
 export const testDashboardContext: DashboardContext = {
   view: { exactVersion: '1.13.19' },
@@ -23,9 +38,9 @@ export const testDashboardContext: DashboardContext = {
     revision: 41,
     appliedAt: '2026-08-26T07:12:00Z',
   },
-  adapter: {
+  configuration: {
     supported: true,
-    label: 'sing-box-1.13.19@1',
+    label: 'Raw JSON',
     warning: null,
   },
 };
@@ -34,19 +49,15 @@ export const testRevision: CanonicalSnapshot = {
   id: 'revision_42',
   sequence: 42,
   parent_id: 'revision_41',
-  schema_version: 2,
+  schema_version: 1,
   document: {
-    schema_version: 2,
-    configuration: {
-      log: { level: 'info' },
-      inbounds: [{
-        _panel: { id: 'edge-socks', enabled: true },
-        type: 'socks', tag: 'edge-socks', listen: '127.0.0.1', listen_port: 1080,
-      }],
-      outbounds: [{ _panel: { id: 'direct', enabled: true }, type: 'direct', tag: 'direct' }],
-    },
-  },
-  document_json: '{"configuration":{"inbounds":[{"_panel":{"enabled":true,"id":"edge-socks"},"listen":"127.0.0.1","listen_port":1080,"tag":"edge-socks","type":"socks"}],"log":{"level":"info"},"outbounds":[{"_panel":{"enabled":true,"id":"direct"},"tag":"direct","type":"direct"}]},"schema_version":2}',
+    log: { level: 'info' },
+    inbounds: [{
+      type: 'socks', tag: 'edge-socks', listen: '127.0.0.1', listen_port: 1080,
+    }],
+    outbounds: [{ type: 'direct', tag: 'direct' }],
+  } as unknown as CanonicalSnapshot['document'],
+  document_json: '{"inbounds":[{"listen":"127.0.0.1","listen_port":1080,"tag":"edge-socks","type":"socks"}],"log":{"level":"info"},"outbounds":[{"tag":"direct","type":"direct"}]}',
   sha256: 'a'.repeat(64),
   created_at: '2026-08-26T07:30:00Z',
 };
@@ -82,8 +93,7 @@ export const testArtifacts: CoreArtifactPage = {
 
 export const testStartupArtifact: StartupArtifactSummary = {
   id: 'startup_1', canonical_revision_id: testRevision.id, exact_core_version: '1.13.19',
-  adapter_id: 'sing-box-1.13.19', adapter_revision: '1', core_artifact_id: 'core_1',
-  config_sha256: 'c'.repeat(64), diagnostics: [], state: 'ready',
+  core_artifact_id: 'core_1', config_sha256: 'c'.repeat(64), state: 'ready',
   checked_at: '2026-08-26T07:31:00Z', created_at: '2026-08-26T07:30:00Z',
 };
 
@@ -98,6 +108,12 @@ export const testSubscriptionSources: SubscriptionSource[] = [{
   current_version_id: 'source_version_1', enabled: true,
   created_at: '2026-08-26T07:00:00Z', updated_at: '2026-08-26T07:06:00Z',
 }];
+
+export const testSubscriptionSourceVersion: SubscriptionSourceVersion = {
+  id: 'version_1', source_id: 'source_local', format: 'sing-box-json',
+  normalized_nodes: [], diagnostics: [], sha256: 'a'.repeat(64),
+  fetched_at: '2026-08-26T07:00:00Z', created_at: '2026-08-26T07:00:00Z',
+};
 
 export const testSubscriptionTokens: SubscriptionToken[] = [{
   id: 'token_primary', user_id: 'user_1', label: 'phone', enabled: true,
@@ -116,6 +132,10 @@ export const testLogEntry: LogEntry = {
   metadata: { exact_version: '1.13.19', activation_bundle_id: 'bundle_18' },
 };
 
+async function* testLogStream(): AsyncGenerator<LogStreamEvent> {
+  yield { id: `${testLogEntry.time}|${testLogEntry.id}`, entry: testLogEntry };
+}
+
 export const testTrafficPeriod: TrafficPeriod = {
   id: 'traffic_20260826_0730', activation_bundle_id: 'bundle_18',
   period_start: '2026-08-26T07:30:00Z', period_end: '2026-08-26T07:35:00Z',
@@ -125,26 +145,53 @@ export const testTrafficPeriod: TrafficPeriod = {
 
 export const testMetrics: MetricsSnapshot = {
   available: true, applied_bundle_id: 'bundle_18', monitoring_tier: 'limited',
-  collected_at: '2026-08-26T07:34:00Z', quota_exceeded: false,
+  collected_at: '2026-08-26T07:34:00Z', traffic_available: true, quota_exceeded: false,
   current_traffic_period: testTrafficPeriod,
+};
+
+export const testMetricsHistory: MetricsHistory = {
+  from: '2026-08-26T07:30:00Z',
+  to: '2026-08-26T07:40:00Z',
+  bucket_seconds: 300,
+  activation_bundle_id: 'bundle_18',
+  buckets: [{
+    from: '2026-08-26T07:30:00Z', to: '2026-08-26T07:35:00Z',
+    upload_bytes: 4_096, download_bytes: 2_048,
+    memory_bytes_avg: 58_000_000, memory_bytes_peak: 60_000_000,
+    active_connections_avg: 12.5, active_connections_peak: 17,
+    sample_count: 10, coverage: 'complete',
+  }, {
+    from: '2026-08-26T07:35:00Z', to: '2026-08-26T07:40:00Z',
+    upload_bytes: null, download_bytes: null,
+    memory_bytes_avg: null, memory_bytes_peak: null,
+    active_connections_avg: null, active_connections_peak: null,
+    sample_count: 0, coverage: 'missing',
+  }],
+};
+
+export const testRuntimeHistory: RuntimeHistoryPage = {
+  items: [{
+    id: 2, state: 'running', reason: 'apply_succeeded', activation_bundle_id: 'bundle_18',
+    generation: 7, task_id: 'task_apply', pid: 4182,
+    process_started_at: '2026-08-26T07:32:00Z', occurred_at: '2026-08-26T07:32:00Z',
+  }],
+  preceding: {
+    id: 1, state: 'unknown', reason: 'history_initialized',
+    occurred_at: '2026-08-26T07:00:00Z', uncertain_since: '2026-08-26T07:00:00Z',
+  },
+  history_started_at: '2026-08-26T07:00:00Z',
 };
 
 export function createMockApiClient(overrides: Partial<ApiClient> = {}): Mocked<ApiClient> {
   const support = {
-    supported: true,
-    profile: {
-      exact_version: '1.13.19', os: 'linux', arch: 'arm64', variant: 'plain',
-      feature_fingerprint: { status: 'reported', features: ['with_quic'] },
-    },
-    adapter_id: 'sing-box-1.13.19',
-    adapter_revision: '1',
-    provenance: {
-      upstream_tag: 'v1.13.19', upstream_commit: 'b'.repeat(40), source: 'compiled',
-    },
-  };
+    structured: false,
+    exact_version: '1.13.19',
+    reason: 'Native configuration Schema is unavailable before sing-box 1.14.',
+  } satisfies ConfigurationSupport;
   const client: ApiClient = {
     subscribeSessionInvalidated: vi.fn().mockReturnValue(() => undefined),
     getSession: vi.fn().mockResolvedValue(testSession),
+    getSystemStatus: vi.fn().mockResolvedValue(testSystemStatus),
     login: vi.fn().mockResolvedValue(testSession),
     logout: vi.fn().mockResolvedValue(undefined),
     getDashboardContext: vi.fn().mockResolvedValue(testDashboardContext),
@@ -175,9 +222,17 @@ export function createMockApiClient(overrides: Partial<ApiClient> = {}): Mocked<
       ...testArtifacts.items[0], verification_state: 'revoked',
     }),
     getConfigurationSupport: vi.fn().mockResolvedValue(support),
+    getConfigurationSchema: vi.fn(async () => {
+      const reviewed = await reviewedSchemaManifest[testSchemaVersion]?.load();
+      return {
+        exact_version: testSchemaVersion,
+        schema_sha256: reviewed?.schemaSHA256 ?? unavailableSchemaSHA256,
+        schema: reviewed?.schema ?? {},
+      };
+    }),
     previewConfiguration: vi.fn().mockResolvedValue({
       canonical_revision: testRevision, core_artifact: testArtifacts.items[0],
-      support, config: { log: { level: 'info' } }, diagnostics: [],
+      support, config: { log: { level: 'info' } },
     }),
     compileConfiguration: vi.fn().mockResolvedValue({
       support,
@@ -200,6 +255,7 @@ export function createMockApiClient(overrides: Partial<ApiClient> = {}): Mocked<
     getRuntimeStatus: vi.fn().mockResolvedValue({
       desired_running: true, target_generation: 1, observation_state: 'running',
     }),
+    getRuntimeHistory: vi.fn().mockResolvedValue(testRuntimeHistory),
     startRuntime: vi.fn().mockResolvedValue(testTask),
     stopRuntime: vi.fn().mockResolvedValue(testTask),
     restartRuntime: vi.fn().mockResolvedValue(testTask),
@@ -243,17 +299,15 @@ export function createMockApiClient(overrides: Partial<ApiClient> = {}): Mocked<
     updateSubscriptionSource: vi.fn().mockResolvedValue(testSubscriptionSources[0]),
     deleteSubscriptionSource: vi.fn().mockResolvedValue(undefined),
     refreshSubscriptionSource: vi.fn().mockResolvedValue(testTask),
-    listSubscriptionSourceVersions: vi.fn().mockResolvedValue({ items: [] }),
+    listSubscriptionSourceVersions: vi.fn().mockResolvedValue({ items: [testSubscriptionSourceVersion] }),
+    getSubscriptionSourceVersion: vi.fn().mockResolvedValue(testSubscriptionSourceVersion),
     createSubscriptionSourceVersion: vi.fn().mockResolvedValue({
       source: testSubscriptionSources[0],
-      version: {
-        id: 'version_1', source_id: 'source_local', format: 'sing-box-json',
-        normalized_nodes: [], diagnostics: [], sha256: 'a'.repeat(64),
-        fetched_at: '2026-08-26T07:00:00Z', created_at: '2026-08-26T07:00:00Z',
-      },
+      version: testSubscriptionSourceVersion,
     }),
     restoreSubscriptionSourceVersion: vi.fn().mockResolvedValue(testSubscriptionSources[0]),
     listSubscriptionTokens: vi.fn().mockResolvedValue({ items: testSubscriptionTokens }),
+    getSubscriptionToken: vi.fn().mockResolvedValue(testSubscriptionTokens[0]),
     createSubscriptionToken: vi.fn().mockResolvedValue({
       metadata: { ...testSubscriptionTokens[0], id: 'token_new' },
       token: 'one-time-public-token',
@@ -267,12 +321,14 @@ export function createMockApiClient(overrides: Partial<ApiClient> = {}): Mocked<
     setSubscriptionTokenEnabled: vi.fn().mockResolvedValue(testSubscriptionTokens[0]),
     deleteSubscriptionToken: vi.fn().mockResolvedValue(undefined),
     listLogs: vi.fn().mockResolvedValue({ items: [testLogEntry] }),
+    streamLogs: vi.fn(testLogStream),
     getLog: vi.fn().mockResolvedValue(testLogEntry),
     clearLogs: vi.fn().mockResolvedValue({ deleted: 1 }),
     deleteLog: vi.fn().mockImplementation(async (entryID: string) => ({
       id: entryID, deleted: true as const,
     })),
     getMetrics: vi.fn().mockResolvedValue(testMetrics),
+    getMetricsHistory: vi.fn().mockResolvedValue(testMetricsHistory),
     getTrafficStatus: vi.fn().mockResolvedValue(testMetrics),
     listTrafficPeriods: vi.fn().mockResolvedValue({ items: [testTrafficPeriod] }),
     getTrafficPeriod: vi.fn().mockResolvedValue(testTrafficPeriod),
