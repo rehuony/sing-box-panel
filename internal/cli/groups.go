@@ -22,22 +22,6 @@ func newCoreCommand(state *options, open openApplicationFunc) *cobra.Command {
 	return root
 }
 
-func newConfigCommand(state *options, open openApplicationFunc) *cobra.Command {
-	root := group("config", "Manage the one saved sing-box configuration file shared with the Web UI")
-	root.Long = root.Short + `
-
-validate checks JSON structure in a file or stdin without saving it.
-check runs sing-box check on a snapshot of the saved configuration with an
-installed core; it persists a check task and snapshot.`
-	root.AddCommand(
-		newConfigShowCommand(state, open), newConfigExportCommand(state, open),
-		newConfigImportCommand(state, open), newConfigValidateCommand(state),
-		newConfigGetCommand(state, open), newConfigSetCommand(state, open), newConfigUnsetCommand(state, open),
-		newConfigCheckCommand(state, open), newConfigApplyCommand(state, open),
-	)
-	return root
-}
-
 func newTaskCommand(state *options, open openApplicationFunc) *cobra.Command {
 	return newDurableTaskCommand(state, open)
 }

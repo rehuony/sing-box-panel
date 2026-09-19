@@ -2,7 +2,6 @@ package store
 
 import (
 	"database/sql"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"path/filepath"
@@ -58,9 +57,12 @@ func TestPanelSettingsMigrationPreservesExistingData(t *testing.T) {
 	}
 }
 
-func TestConcurrentPanelSettingsSaveRejectsLostUpdate(t *testing.T) {
+func TestConcurrentPanelSettingsMigrationRejectsLostUpdate(t *testing.T) {
 	ctx := testContext(t)
 	db := openTestStore(t, ctx)
+	if _, err := db.db.ExecContext(ctx, `INSERT INTO panel_settings VALUES(1,1,'{}')`); err != nil {
+		t.Fatal(err)
+	}
 	var writers sync.WaitGroup
 	var results [2]error
 	start := make(chan struct{})
@@ -69,7 +71,8 @@ func TestConcurrentPanelSettingsSaveRejectsLostUpdate(t *testing.T) {
 		go func() {
 			defer writers.Done()
 			<-start
-			_, results[i] = db.SavePanelSettings(ctx, json.RawMessage(fmt.Sprintf(`{"writer":%d}`, i)), 0, nil)
+			revision := int64(1)
+			results[i] = db.CommitPanelSettingsFile(ctx, "settings.json", fmt.Sprint(i), &revision, nil, func() error { return nil })
 		}()
 	}
 	close(start)

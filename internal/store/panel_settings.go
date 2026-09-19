@@ -12,8 +12,7 @@ import (
 
 var ErrPanelSettingsConflict = errors.New("panel settings changed")
 
-// PanelSettings returns revision zero before the first save. Bootstrap defaults
-// are resolved by the application, not frozen into a database migration.
+// PanelSettings reads legacy preferences for one-time migration into the file.
 func (s *Store) PanelSettings(ctx context.Context) (json.RawMessage, int64, error) {
 	var document string
 	var revision int64
@@ -27,34 +26,41 @@ func (s *Store) PanelSettings(ctx context.Context) (json.RawMessage, int64, erro
 	return json.RawMessage(document), revision, nil
 }
 
-// SavePanelSettings uses a compare-and-swap even for the first save. No settings
-// values are included in errors because the document contains credentials.
-func (s *Store) SavePanelSettings(ctx context.Context, document json.RawMessage, expected int64, configuration *ConfigurationFileUpdate) (int64, error) {
-	if expected < 0 || len(document) > 64<<10 || !json.Valid(document) {
-		return 0, errors.New("invalid panel settings document")
-	}
-	var revision int64
-	err := s.WithTx(ctx, func(tx *sql.Tx) error {
-		var current int64
-		err := tx.QueryRowContext(ctx, "SELECT revision FROM panel_settings WHERE singleton = 1").Scan(&current)
-		if err != nil && !errors.Is(err, sql.ErrNoRows) {
-			return fmt.Errorf("read settings revision: %w", err)
-		}
-		if current != expected {
-			return ErrPanelSettingsConflict
+// CommitPanelSettingsFile couples identity changes and the recovery marker in
+// one transaction. publish runs before commit while application readers hold
+// the selected file lock; its journal resolves ambiguous commit outcomes.
+func (s *Store) CommitPanelSettingsFile(ctx context.Context, path, id string, legacyRevision *int64, configuration *ConfigurationFileUpdate, publish func() error) error {
+	return s.WithTx(ctx, func(tx *sql.Tx) error {
+		if legacyRevision != nil {
+			var current int64
+			err := tx.QueryRowContext(ctx, "SELECT revision FROM panel_settings WHERE singleton=1").Scan(&current)
+			if err != nil && !errors.Is(err, sql.ErrNoRows) {
+				return err
+			}
+			if current != *legacyRevision {
+				return ErrPanelSettingsConflict
+			}
+			if _, err := tx.ExecContext(ctx, "DELETE FROM panel_settings WHERE singleton=1"); err != nil {
+				return err
+			}
 		}
 		if configuration != nil {
 			if _, err := saveConfigurationFileTx(ctx, tx, configuration.ExpectedRevision, configuration.Content, configuration.Revision, configuration.Task); err != nil {
 				return err
 			}
 		}
-		revision = current + 1
-		_, err = tx.ExecContext(ctx, `INSERT INTO panel_settings(singleton, revision, document) VALUES(1, ?, ?)
-			ON CONFLICT(singleton) DO UPDATE SET revision=excluded.revision, document=excluded.document`, revision, string(document))
-		if err != nil {
-			return errors.New("save panel settings failed")
+		if _, err := tx.ExecContext(ctx, `INSERT INTO panel_settings_file_commits(settings_path, transaction_id) VALUES(?,?)
+    ON CONFLICT(settings_path) DO UPDATE SET transaction_id=excluded.transaction_id`, path, id); err != nil {
+			return err
 		}
-		return nil
+		return publish()
 	})
-	return revision, err
+}
+
+// PanelSettingsFileCommitted uses transaction identity so alternate spellings or
+// symlinked parent directories of the same settings file recover identically.
+func (s *Store) PanelSettingsFileCommitted(ctx context.Context, id string) (bool, error) {
+	var committed bool
+	err := s.db.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM panel_settings_file_commits WHERE transaction_id=?)", id).Scan(&committed)
+	return committed, err
 }

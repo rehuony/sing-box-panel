@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Package settings owns the process bootstrap configuration contract.
+// Package settings owns the panel configuration file contract.
 package settings
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
@@ -20,13 +21,16 @@ import (
 	"strings"
 )
 
-const maxSettingsBytes = 1 << 20
+// MaximumBytes limits settings documents read from disk or supplied by the CLI.
+const MaximumBytes = 1 << 20
 
 var basePathPattern = regexp.MustCompile(`^/[A-Za-z0-9._~/-]+$`)
 
-// Settings contains only process-bootstrap configuration. Mutable product state
-// belongs in SQLite.
+// Settings is the shared file contract for panel configuration. Sing-box
+// documents, subscriptions, tasks, and runtime evidence belong in SQLite.
 type Settings struct {
+	sourcePath   string
+	Panel        Panel        `json:"panel"`
 	Server       Server       `json:"server"`
 	DataDir      string       `json:"data_dir"`
 	Auth         Auth         `json:"auth"`
@@ -73,13 +77,14 @@ type Logs struct {
 func Defaults() Settings {
 	dataDir := defaultDataDir()
 	return Settings{
+		Panel:   DefaultPanel(),
 		Server:  Server{Host: "127.0.0.1", Port: 3000},
 		DataDir: dataDir,
 		GitHub:  GitHub{CatalogTTLHours: 12},
 		Traffic: Traffic{PeriodMonths: 1, SampleRetentionDays: 90},
 		Subscription: Subscription{
 			Author:             "reagin",
-			Provider:           "ZgoCloud",
+			Provider:           "default",
 			PrivateSourceCIDRs: []string{},
 		},
 		Logs: Logs{RetentionDays: 7},
@@ -119,11 +124,22 @@ func defaultDataDir() string {
 
 // Load parses and validates one settings file.
 func Load(path string) (Settings, error) {
-	var value Settings
-	if err := readSettings(path, &value); err != nil {
+	data, err := Read(path)
+	if err != nil {
 		return Settings{}, err
 	}
-	var err error
+	return parse(path, data)
+}
+
+func parse(path string, data []byte) (Settings, error) {
+	absolutePath, err := filepath.Abs(path)
+	if err != nil {
+		return Settings{}, err
+	}
+	value := Settings{sourcePath: absolutePath, Panel: DefaultPanel()}
+	if err := decodeSettings(path, data, &value); err != nil {
+		return Settings{}, err
+	}
 	value.DataDir, err = resolveDataDir(path, value.DataDir)
 	if err != nil {
 		return Settings{}, err
@@ -144,7 +160,7 @@ func Load(path string) (Settings, error) {
 // LoadOrInitialize loads settings, creating defaults only when the selected file
 // is absent. Concurrent callers use the same atomically published settings.
 func LoadOrInitialize(path string) (value Settings, created bool, err error) {
-	value, err = Load(path)
+	value, err = LoadForStartup(path)
 	if !errors.Is(err, os.ErrNotExist) {
 		return value, false, err
 	}
@@ -158,6 +174,9 @@ func LoadOrInitialize(path string) (value Settings, created bool, err error) {
 
 // Validate verifies the complete resolved settings contract.
 func (value Settings) Validate() error {
+	if err := value.Panel.Validate(); err != nil {
+		return err
+	}
 	if net.ParseIP(value.Server.Host) == nil && value.Server.Host != "localhost" {
 		return errors.New("server.host must be an IP address or localhost")
 	}
@@ -270,6 +289,17 @@ func NormalizeOrigin(raw string) (string, error) {
 
 // Initialize writes a new settings file and creates its data directory.
 func Initialize(path string, overwrite bool) (Settings, error) {
+	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+		return Settings{}, err
+	}
+	lock, err := Lock(context.Background(), path)
+	if err != nil {
+		return Settings{}, err
+	}
+	defer lock.Close()
+	if err := CheckPending(path); err != nil {
+		return Settings{}, err
+	}
 	if !overwrite {
 		if _, err := os.Lstat(path); err == nil {
 			return Settings{}, fmt.Errorf("settings file %q already exists: %w", path, os.ErrExist)
@@ -278,6 +308,10 @@ func Initialize(path string, overwrite bool) (Settings, error) {
 		}
 	}
 	value := Defaults()
+	value.sourcePath, err = filepath.Abs(path)
+	if err != nil {
+		return Settings{}, err
+	}
 	token, err := randomToken(32)
 	if err != nil {
 		return Settings{}, err
@@ -297,7 +331,15 @@ func Initialize(path string, overwrite bool) (Settings, error) {
 		return Settings{}, fmt.Errorf("encode settings: %w", err)
 	}
 	data = append(data, '\n')
+	if old, err := ConfiguredDataDir(path); err == nil {
+		if err := RememberDataLocation(path, old); err != nil {
+			return Settings{}, err
+		}
+	}
 	if err := atomicWrite(path, data, 0o600, overwrite); err != nil {
+		return Settings{}, err
+	}
+	if err := RememberDataLocation(path, value.DataDir); err != nil {
 		return Settings{}, err
 	}
 	return value, nil
@@ -319,6 +361,10 @@ func atomicWrite(path string, data []byte, mode os.FileMode, overwrite bool) err
 	}
 	temporaryPath := temporary.Name()
 	defer os.Remove(temporaryPath)
+	if err := preserveOwner(temporary, path); err != nil {
+		temporary.Close()
+		return err
+	}
 	if err := temporary.Chmod(mode); err != nil {
 		temporary.Close()
 		return fmt.Errorf("set temporary settings permissions: %w", err)
@@ -352,4 +398,20 @@ func atomicWrite(path string, data []byte, mode os.FileMode, overwrite bool) err
 		return fmt.Errorf("sync settings directory: %w", err)
 	}
 	return nil
+}
+
+// Path identifies the file from which these settings were loaded.
+func (value Settings) Path() string { return value.sourcePath }
+
+// Parse validates settings bytes using path as the base for relative paths.
+func Parse(path string, data []byte) (Settings, error) { return parse(path, data) }
+
+// LoadForStartup lets the server locate its database before recovering a pending
+// settings transaction. Other callers should use Load.
+func LoadForStartup(path string) (Settings, error) {
+	data, err := ReadRaw(path)
+	if err != nil {
+		return Settings{}, err
+	}
+	return parse(path, data)
 }

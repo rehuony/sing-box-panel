@@ -7,7 +7,6 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"time"
 
 	"github.com/rehuony/sing-box-panel/internal/subscription"
@@ -36,9 +35,8 @@ type SubscriptionNodeVisibility struct {
 // Node controls are copied in the same transaction as source versions and core
 // identity. Rendering must not mix visibility from a different publication view.
 type SubscriptionNodeControls struct {
-	ManualNodes   []ManualSubscriptionNode
-	Visibility    map[string]SubscriptionNodeVisibility
-	PanelSettings json.RawMessage
+	ManualNodes []ManualSubscriptionNode
+	Visibility  map[string]SubscriptionNodeVisibility
 }
 
 func (s *Store) SaveManualSubscriptionNode(ctx context.Context, node ManualSubscriptionNode, expected int64) (ManualSubscriptionNode, error) {
@@ -199,14 +197,6 @@ func loadSubscriptionNodeControls(ctx context.Context, tx *sql.Tx) (Subscription
 	}
 	if err := rows.Err(); err != nil {
 		return value, err
-	}
-	var document string
-	err = tx.QueryRowContext(ctx, `SELECT document FROM panel_settings WHERE singleton=1`).Scan(&document)
-	if err != nil && !errors.Is(err, sql.ErrNoRows) {
-		return value, fmt.Errorf("read publication settings: %w", err)
-	}
-	if document != "" {
-		value.PanelSettings = json.RawMessage(document)
 	}
 	return value, nil
 }

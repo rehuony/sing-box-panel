@@ -11,6 +11,8 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/rehuony/sing-box-panel/internal/installation"
+	"github.com/rehuony/sing-box-panel/internal/settings"
 	systemdassets "github.com/rehuony/sing-box-panel/systemd"
 )
 
@@ -74,11 +76,25 @@ func (manager *Manager) validateInstallPaths(scope Scope, request InstallRequest
 		return "", "", "", err
 	}
 	if scope == ScopeSystem {
-		if executablePath != manager.layout.SystemExecutablePath || settingsPath != manager.layout.SystemSettingsPath || dataDir != manager.layout.SystemDataDir {
+		if executablePath != manager.layout.SystemExecutablePath || settingsPath != manager.layout.SystemSettingsPath {
 			return "", "", "", fmt.Errorf(
-				"%w: system scope requires executable=%q settings=%q data=%q",
-				ErrInvalid, manager.layout.SystemExecutablePath, manager.layout.SystemSettingsPath, manager.layout.SystemDataDir,
+				"%w: system scope requires executable=%q settings=%q",
+				ErrInvalid, manager.layout.SystemExecutablePath, manager.layout.SystemSettingsPath,
 			)
+		}
+		for _, protected := range []string{"/home", "/root", "/run/user"} {
+			if dataDir == protected || strings.HasPrefix(dataDir, protected+"/") {
+				return "", "", "", fmt.Errorf("%w: system service data must be outside protected home directories", ErrInvalid)
+			}
+		}
+		for _, protected := range []string{"/home", "/root", "/run/user"} {
+			inside, err := installation.DataDirectoryContainsPath(protected, dataDir)
+			if err != nil {
+				return "", "", "", err
+			}
+			if inside {
+				return "", "", "", fmt.Errorf("%w: system service data must be outside protected home directories", ErrInvalid)
+			}
 		}
 	}
 	if err := requireRegularExecutable(executablePath); err != nil {
@@ -87,18 +103,26 @@ func (manager *Manager) validateInstallPaths(scope Scope, request InstallRequest
 	if err := requireRegularFile(settingsPath, "settings"); err != nil {
 		return "", "", "", err
 	}
+	if err := installation.ValidateCleanup(installation.Report{DataDir: dataDir, SettingsPath: settingsPath, Entries: []installation.Entry{{Path: executablePath}}}); err != nil {
+		return "", "", "", fmt.Errorf("%w: %v", ErrInvalid, err)
+	}
 	if err := requireDirectory(dataDir); err != nil {
-		return "", "", "", err
+		location, locationErr := settings.ReadDataLocation(settingsPath)
+		if locationErr != nil || location.DataDir == dataDir {
+			return "", "", "", fmt.Errorf("%w: %v", ErrInvalid, err)
+		}
 	}
 	return executablePath, settingsPath, dataDir, nil
 }
 
-func (manager *Manager) installFiles(scope Scope, unit []byte) []managedFile {
+func (manager *Manager) installFiles(scope Scope, unit []byte, dataDir string) []managedFile {
 	files := []managedFile{{path: manager.unitPath(scope), data: unit}}
 	if scope == ScopeSystem {
+		path, _ := quotePathDirective(dataDir)
+		tmpfiles := strings.Replace(string(systemdassets.Tmpfiles), "/var/lib/sing-box-panel", path, 1)
 		files = append(files,
 			managedFile{path: manager.layout.SystemSysusersPath, data: systemdassets.Sysusers},
-			managedFile{path: manager.layout.SystemTmpfilesPath, data: systemdassets.Tmpfiles},
+			managedFile{path: manager.layout.SystemTmpfilesPath, data: []byte(tmpfiles)},
 		)
 	}
 	return files

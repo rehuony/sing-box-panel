@@ -4,7 +4,6 @@ package application
 
 import (
 	"context"
-	"encoding/json"
 
 	"github.com/rehuony/sing-box-panel/internal/store"
 	"github.com/rehuony/sing-box-panel/internal/subscription"
@@ -12,15 +11,13 @@ import (
 
 // A saved panel override wins over the legacy per-channel host. It only changes
 // generated client endpoints, never listener addresses, ports or explicit SNI.
-func (app *Application) publicationHost(ctx context.Context, controls store.SubscriptionNodeControls, fallback string) (string, error) {
-	if len(controls.PanelSettings) != 0 {
-		var settings storedPanelSettings
-		if err := json.Unmarshal(controls.PanelSettings, &settings); err != nil {
-			return "", err
-		}
-		if settings.Preferences.PublicNodeHost != "" {
-			return settings.Preferences.PublicNodeHost, nil
-		}
+func (app *Application) publicationHost(ctx context.Context, _ store.SubscriptionNodeControls, fallback string) (string, error) {
+	value, _, err := app.storedPanelSettings(ctx)
+	if err != nil {
+		return "", err
+	}
+	if value.Preferences.PublicNodeHost != "" {
+		return value.Preferences.PublicNodeHost, nil
 	}
 	if fallback != "" {
 		return fallback, nil

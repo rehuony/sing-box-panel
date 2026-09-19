@@ -59,7 +59,7 @@ func TestTrafficSampleRetentionUsesConfiguredDays(t *testing.T) {
 	}
 }
 
-func TestLocalMetricsQuotaUsesBootstrapThenPersistedPreferences(t *testing.T) {
+func TestLocalMetricsQuotaAlwaysReadsFile(t *testing.T) {
 	directory := t.TempDir()
 	path := filepath.Join(directory, "setting.json")
 	if err := os.WriteFile(path, []byte(`{"data_dir":".","traffic":{"quota_gib":7,"sample_retention_days":0}}`), 0o600); err != nil {
@@ -80,20 +80,13 @@ func TestLocalMetricsQuotaUsesBootstrapThenPersistedPreferences(t *testing.T) {
 	if _, err := app.trafficQuota(t.Context()); err == nil {
 		t.Fatal("invalid bootstrap quota accepted")
 	}
-	for _, document := range []string{
-		`{"preferences":{"traffic_quota_gib":3}}`,
-		`{"preferences":{"traffic_quota_gib":null}}`,
-	} {
-		_, revision, err := app.database.PanelSettings(t.Context())
-		if err != nil {
-			t.Fatal(err)
-		}
-		if _, err := app.database.SavePanelSettings(t.Context(), []byte(document), revision, nil); err != nil {
+	for _, quotaJSON := range []string{"3", "null"} {
+		if err := os.WriteFile(path, []byte(`{"data_dir":".","traffic":{"quota_gib":`+quotaJSON+`}}`), 0600); err != nil {
 			t.Fatal(err)
 		}
 		quota, err = app.trafficQuota(t.Context())
-		if err != nil || revision == 0 && (quota == nil || *quota != 3) || revision == 1 && quota != nil {
-			t.Fatalf("persisted quota = %v, %v", quota, err)
+		if err != nil || quotaJSON == "3" && (quota == nil || *quota != 3) || quotaJSON == "null" && quota != nil {
+			t.Fatalf("file quota = %v, %v", quota, err)
 		}
 	}
 }

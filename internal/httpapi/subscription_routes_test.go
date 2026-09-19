@@ -387,7 +387,8 @@ func newSubscriptionHTTPServices(t *testing.T, basePath string) (*store.Store, *
 	if err := value.Validate(); err != nil {
 		t.Fatal(err)
 	}
-	app := application.FromStore(database)
+	value = settingsFileFixture(t, value)
+	app := application.FromStoreWithSettings(database, value)
 	handler := NewHandler(HandlerOptions{
 		Settings: value, Build: buildinfo.Info{Version: "test"}, Commands: app,
 	})

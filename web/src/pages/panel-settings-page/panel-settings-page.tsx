@@ -148,7 +148,7 @@ function SettingsEditor({ initial }: { initial: PanelSettingsView }) {
             <SettingsGroup title={t('panelSettings.traffic')}>
               <SettingsField id='quota' label={t('panelSettings.quota')}>
                 <div className='settings-inline'>
-                  <Input id='quota' type='number' min={0} max={1000000000} step={1} placeholder={t('panelSettings.unlimited')} value={preferences.traffic_quota_gib ?? ''} onChange={e => update('traffic_quota_gib', e.target.value === '' ? null : Number(e.target.value))} />
+                  <Input id='quota' type='number' min={0} max={8589934591} step={1} placeholder={t('panelSettings.unlimited')} value={preferences.traffic_quota_gib ?? ''} onChange={e => update('traffic_quota_gib', e.target.value === '' ? null : Number(e.target.value))} />
                   <span>GiB</span>
                 </div>
               </SettingsField>

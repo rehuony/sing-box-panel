@@ -208,7 +208,7 @@ func TestDashboardContextUsesAppliedBundleAndConfigurationSupport(t *testing.T) 
 		contextValue.Canonical.HasUnappliedChanges {
 		t.Fatalf("dashboard context = %+v", contextValue)
 	}
-	if _, err := commands.SetCanonicalValue(ctx, canonicalSave.Revision.ID, "/log", json.RawMessage(`{"level":"info"}`)); err != nil {
+	if _, err := commands.PatchCanonical(ctx, canonicalSave.Revision.ID, []application.CanonicalChange{{Operation: "set", Path: "/log", ValueJSON: `{"level":"info"}`}}); err != nil {
 		t.Fatal(err)
 	}
 	contextValue, err = provider.DashboardContext(ctx)

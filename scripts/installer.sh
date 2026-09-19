@@ -417,7 +417,7 @@ installer_prepare_configuration() {
       return 1
     fi
     printf 'Verifying existing settings at %s\n' "${settings_path}"
-    "${binary_path}" verify --config "${settings_path}"
+    "${binary_path}" config check --config "${settings_path}"
     return 0
   fi
 

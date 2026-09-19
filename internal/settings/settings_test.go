@@ -33,6 +33,9 @@ func TestInitializeAndLoad(t *testing.T) {
 	if loaded.Auth.Token != value.Auth.Token {
 		t.Fatal("Load() did not preserve the token")
 	}
+	if loaded.Subscription.Provider != "default" {
+		t.Fatalf("initialized provider = %q, want default", loaded.Subscription.Provider)
+	}
 	if loaded.Traffic.SampleRetentionDays != 90 {
 		t.Fatalf("initialized sample retention = %d, want 90", loaded.Traffic.SampleRetentionDays)
 	}

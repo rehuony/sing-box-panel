@@ -23,9 +23,10 @@ func TestPanelSettingsPersistCASAndRedact(t *testing.T) {
 	bootstrap := settings.Defaults()
 	bootstrap.Auth.Token = strings.Repeat("a", 32)
 	bootstrap.GitHub.Token = "github-original-secret"
+	bootstrap = settingsFileFixture(t, bootstrap)
 	app := FromStoreWithSettings(db, bootstrap)
 	view, err := app.PanelSettings(ctx)
-	if err != nil || view.Revision != 0 || view.Preferences.Appearance.Radius != 24 {
+	if err != nil || view.Revision == 0 || view.Preferences.Appearance.Radius != 24 {
 		t.Fatalf("defaults: %+v %v", view, err)
 	}
 	p := view.Preferences
@@ -33,7 +34,7 @@ func TestPanelSettingsPersistCASAndRedact(t *testing.T) {
 	p.Appearance.Radius = 0
 	p.PublicNodeHost = "2001:db8::1"
 	p.ExternalOrigin = "https://panel.example.com"
-	input := PanelSettingsWrite{Preferences: p, Revision: 0, IdentityKey: "identity-secret", ManagementToken: strings.Repeat("b", 32)}
+	input := PanelSettingsWrite{Preferences: p, Revision: view.Revision, IdentityKey: "identity-secret", ManagementToken: strings.Repeat("b", 32)}
 	saved, err := app.SavePanelSettings(ctx, input)
 	if err != nil {
 		t.Fatal(err)
@@ -44,7 +45,7 @@ func TestPanelSettingsPersistCASAndRedact(t *testing.T) {
 			t.Fatal("response contains secret")
 		}
 	}
-	if !saved.GitHubTokenConfigured || !saved.IdentityKeyConfigured || saved.Revision != 1 {
+	if !saved.GitHubTokenConfigured || !saved.IdentityKeyConfigured || saved.Revision == view.Revision {
 		t.Fatalf("save: %+v", saved)
 	}
 	if _, err := app.SavePanelSettings(ctx, input); !errors.Is(err, store.ErrPanelSettingsConflict) {
@@ -106,7 +107,7 @@ func TestPublicNodeHostOverrideAndDetectionHint(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer db.Close()
-	app := FromStoreWithSettings(db, settings.Defaults())
+	app := FromStoreWithSettings(db, settingsFileFixture(t, settings.Defaults()))
 	app.SetPublicIPResolver(func(context.Context) string { return "1.1.1.1" })
 	view, err := app.PanelSettings(ctx)
 	if err != nil || view.DetectedPublicIP != "1.1.1.1" || view.Preferences.PublicNodeHost != "" {
@@ -121,17 +122,13 @@ func TestPublicNodeHostOverrideAndDetectionHint(t *testing.T) {
 	if err != nil || saved.DetectedPublicIP != "1.1.1.1" {
 		t.Fatal(saved, err)
 	}
-	raw, _, err := db.PanelSettings(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	got, err = app.publicationHost(ctx, store.SubscriptionNodeControls{PanelSettings: raw}, "legacy.example.com")
+	got, err = app.publicationHost(ctx, store.SubscriptionNodeControls{}, "legacy.example.com")
 	if err != nil || got != "nodes.example.com" {
 		t.Fatal(got, err)
 	}
 	app.SetPublicIPResolver(func(context.Context) string { return "" })
 	got, err = app.publicationHost(ctx, store.SubscriptionNodeControls{}, "")
-	if err != nil || got != "" {
-		t.Fatal("failed detection invented a host", got, err)
+	if err != nil || got != "nodes.example.com" {
+		t.Fatal("configured host lost when detection failed", got, err)
 	}
 }

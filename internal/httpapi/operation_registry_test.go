@@ -90,10 +90,13 @@ func TestRepresentativeHTTPResponsesConformToOpenAPI(t *testing.T) {
 		t.Fatalf("open test store: %v", err)
 	}
 	t.Cleanup(func() { _ = database.Close() })
+	value := settings.Defaults()
+	value.Auth.Token = "openapi-response-test"
+	value = settingsFileFixture(t, value)
 	handler := NewHandler(HandlerOptions{
-		Settings: settings.Settings{Auth: settings.Auth{Token: "openapi-response-test"}},
+		Settings: value,
 		Build:    buildinfo.Info{Version: "test"},
-		Commands: application.FromStore(database),
+		Commands: application.FromStoreWithSettings(database, value),
 	})
 
 	canonical := serveConformingRequest(t, router, handler, http.MethodPut, "/api/v1/config/canonical",

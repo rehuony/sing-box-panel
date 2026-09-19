@@ -45,7 +45,7 @@ func TestCommandsWithoutSettingsDependencies(t *testing.T) {
 	commands := [][]string{
 		{}, {"--help"}, {"help"}, {"version"},
 		{"completion", "bash"}, {"completion", "zsh"}, {"completion", "fish"},
-		{"config", "validate", "--file", "-"}, {"update"},
+		{"update"},
 	}
 	for _, action := range []string{"uninstall", "status", "start", "stop", "restart", "logs"} {
 		commands = append(commands, []string{"systemd", action, "--scope=user"})
@@ -96,7 +96,7 @@ func TestCommandsRequiringSettingsRejectUnavailableSettings(t *testing.T) {
 	for name, path := range unavailableSettingsFixtures(t) {
 		t.Run(name, func(t *testing.T) {
 			commands := [][]string{
-				{"verify"}, {"config", "show"}, {"core", "list"},
+				{"config", "check"}, {"core", "list"},
 				{"server", "status"}, {"server", "stop"}, {"systemd", "install"},
 				{"system", "prune", "--yes"},
 			}
@@ -135,7 +135,7 @@ func TestInstanceCommandsIgnoreInvalidRuntimeSettings(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	runApplicationCommand(t, path, "{}", "config", "import", "--file", "-", "--revision", "0")
+	saveConfigurationFixture(t, path, "{}")
 	valid, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)
@@ -172,7 +172,7 @@ func TestInstanceCommandsIgnoreInvalidRuntimeSettings(t *testing.T) {
 			}
 		})
 	}
-	for _, args := range [][]string{{"verify"}, {"systemd", "install", "--now"}} {
+	for _, args := range [][]string{{"config", "check"}, {"systemd", "install", "--now"}} {
 		service := &fakeSystemdService{}
 		_, _, err := executeSystemCommand(t, service, append([]string{"--config", path}, args...)...)
 		if ExitCode(err) != 3 || !strings.Contains(err.Error(), "sample_retention_days") || service.installRequest.Scope != "" {

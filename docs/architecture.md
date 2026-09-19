@@ -29,6 +29,9 @@ the documented HTTP contract rather than Go implementation details.
 A cohesive domain stays in one package and uses file prefixes to make ownership
 visible. File length alone is not a reason to create another package.
 
+- `internal/settings` owns the shared panel settings file, validation, defaults,
+  atomic replacement and writer locking. `application` owns one-time migration
+  and recovery when a Web save also updates sing-box protocol identity.
 - `internal/configuration` owns strict, lossless sing-box JSON documents and
   immutable revision operations.
 - `internal/subscription` owns documents, normalized nodes, source parsing and

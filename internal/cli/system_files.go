@@ -204,7 +204,7 @@ func instanceFilesText(report instanceFilesReport, style fileTreeStyle) string {
 	text.WriteString(style.paint("1", heading) + "\n")
 	configPath := style.path(report.SettingsPath)
 	for _, entry := range report.Entries {
-		if entry.Role == "panel bootstrap settings" && entry.State == "missing" {
+		if entry.Role == "panel settings" && entry.State == "missing" {
 			configPath += " (missing)"
 			break
 		}
@@ -248,7 +248,7 @@ func instanceFilesText(report instanceFilesReport, style fileTreeStyle) string {
 		switch entry.Role {
 		case "panel executable":
 			labels = append(labels, "executable")
-		case "panel bootstrap settings":
+		case "panel settings":
 			labels = append(labels, "settings")
 		case "instance data directory":
 			labels = append(labels, "data")

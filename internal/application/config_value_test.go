@@ -9,44 +9,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/rehuony/sing-box-panel/internal/configuration"
 	"github.com/rehuony/sing-box-panel/internal/store"
 )
-
-func TestCanonicalPointerApplicationUsesRevisionCAS(t *testing.T) {
-	ctx := context.Background()
-	database, err := store.Open(ctx, filepath.Join(t.TempDir(), "panel.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = database.Close() })
-	app := newApplication(database)
-	initial, err := app.ReplaceCanonical(ctx, "", configuration.Empty().CanonicalJSON())
-	if err != nil {
-		t.Fatal(err)
-	}
-	saved, err := app.SetCanonicalValue(ctx, initial.Revision.ID, "/log", []byte(`{"level":"warn"}`))
-	if err != nil {
-		t.Fatal(err)
-	}
-	value, err := app.CanonicalValueAt(ctx, "/log/level")
-	if err != nil || value.Value != "warn" || value.Revision.ID != saved.Revision.ID {
-		t.Fatalf("value=%+v err=%v", value, err)
-	}
-	if _, err := app.UnsetCanonicalValue(ctx, initial.Revision.ID, "/log"); !IsRevisionConflict(err) {
-		t.Fatalf("stale unset error = %v", err)
-	}
-	removed, err := app.UnsetCanonicalValue(ctx, saved.Revision.ID, "/log")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := app.CanonicalValueAt(ctx, "/log"); !errors.Is(err, configuration.ErrPointerNotFound) {
-		t.Fatalf("removed pointer error = %v", err)
-	}
-	if removed.Revision.ID == saved.Revision.ID {
-		t.Fatal("unset did not create a revision")
-	}
-}
 
 func TestCanonicalPatchPreservesNumericLexemesAndAdvancesOnce(t *testing.T) {
 	ctx := context.Background()

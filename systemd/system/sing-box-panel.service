@@ -30,6 +30,7 @@ AmbientCapabilities=
 PrivateTmp=true
 PrivateDevices=true
 ProtectSystem=strict
+ReadWritePaths=/etc/sing-box-panel
 ProtectHome=true
 ProtectHostname=true
 ProtectClock=true

@@ -4,9 +4,13 @@ package systemd
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+
+	"github.com/rehuony/sing-box-panel/internal/installation"
+	"github.com/rehuony/sing-box-panel/internal/settings"
 )
 
 func (manager *Manager) Install(ctx context.Context, request InstallRequest) (InstallResult, error) {
@@ -29,8 +33,19 @@ func (manager *Manager) Install(ctx context.Context, request InstallRequest) (In
 	if err != nil {
 		return InstallResult{}, err
 	}
-	files := manager.installFiles(scope, unit)
+	files := manager.installFiles(scope, unit, dataDir)
 	if err := preflightInstall(files, request.Force); err != nil {
+		return InstallResult{}, err
+	}
+	if location, err := settings.ReadDataLocation(settingsPath); err == nil && (location.DataDir != dataDir || location.Move != nil) {
+		prepared, err := installation.PrepareDataLocation(ctx, settingsPath)
+		if err != nil {
+			return InstallResult{}, err
+		}
+		if prepared.DataDir != dataDir {
+			return InstallResult{}, errors.New("data directory changed during service installation; retry with the current settings")
+		}
+	} else if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return InstallResult{}, err
 	}
 	installed := make([]string, 0, len(files))
@@ -51,11 +66,28 @@ func (manager *Manager) Install(ctx context.Context, request InstallRequest) (In
 		if err := manager.run(ctx, "systemd-tmpfiles", "--create", manager.layout.SystemTmpfilesPath); err != nil {
 			return InstallResult{}, err
 		}
-		if err := manager.run(ctx, "chown", "root:"+serviceGroup, settingsPath); err != nil {
-			return InstallResult{}, err
-		}
-		if err := os.Chmod(settingsPath, 0o640); err != nil {
-			return InstallResult{}, fmt.Errorf("set system settings permissions %q: %w", settingsPath, err)
+		settingsDirectory := filepath.Dir(settingsPath)
+		for _, path := range []string{settingsDirectory, settingsPath, settingsPath + ".lock", settingsPath + ".pending", settingsPath + ".location"} {
+			info, err := os.Lstat(path)
+			if errors.Is(err, os.ErrNotExist) && path != settingsPath && path != settingsDirectory {
+				continue
+			}
+			if err != nil {
+				return InstallResult{}, err
+			}
+			if info.Mode()&os.ModeSymlink != 0 || (path != settingsDirectory && !info.Mode().IsRegular()) {
+				return InstallResult{}, fmt.Errorf("invalid settings path %q", path)
+			}
+			if err := manager.run(ctx, "chown", serviceUser+":"+serviceGroup, path); err != nil {
+				return InstallResult{}, err
+			}
+			mode := os.FileMode(0600)
+			if path == settingsDirectory {
+				mode = 0700
+			}
+			if err := os.Chmod(path, mode); err != nil {
+				return InstallResult{}, fmt.Errorf("set settings permissions: %w", err)
+			}
 		}
 		if err := manager.run(ctx, "chown", "--recursive", "--no-dereference", serviceUser+":"+serviceGroup, dataDir); err != nil {
 			return InstallResult{}, err

@@ -18,6 +18,7 @@ import (
 	"github.com/rehuony/sing-box-panel/internal/artifactstore"
 	"github.com/rehuony/sing-box-panel/internal/buildinfo"
 	"github.com/rehuony/sing-box-panel/internal/httpapi"
+	"github.com/rehuony/sing-box-panel/internal/installation"
 	"github.com/rehuony/sing-box-panel/internal/panelprocess"
 	"github.com/rehuony/sing-box-panel/internal/publicip"
 	"github.com/rehuony/sing-box-panel/internal/settings"
@@ -37,9 +38,9 @@ const (
 func Run(ctx context.Context, settingsPath string, build buildinfo.Info, assets fs.FS) (runErr error) {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	configuration, err := settings.Load(settingsPath)
+	configuration, err := installation.PrepareDataLocation(ctx, settingsPath)
 	if err != nil {
-		return fmt.Errorf("load server settings: %w", err)
+		return startupError(ctx, "load server settings", err)
 	}
 	if err := prepareDataDirectory(configuration.DataDir); err != nil {
 		return err
@@ -74,10 +75,27 @@ func Run(ctx context.Context, settingsPath string, build buildinfo.Info, assets 
 		runErr = errors.Join(runErr, database.Close())
 	}()
 
+	if err := settings.EstablishDataLocation(ctx, settingsPath, configuration.DataDir); err != nil {
+		return startupError(ctx, "record initialized data directory", err)
+	}
+	openedDataDir := configuration.DataDir
+	configuration, err = settings.LoadForStartup(settingsPath)
+	if err != nil {
+		return err
+	}
+	if configuration.DataDir != openedDataDir {
+		return errors.New("settings changed data directory during startup; restart with a stable settings file")
+	}
 	commands := application.FromStoreWithSettings(database, configuration)
+	if err := commands.MigratePanelSettings(ctx); err != nil {
+		return startupError(ctx, "migrate panel settings to file", err)
+	}
 	configuration, err = commands.EffectiveSettings(ctx)
 	if err != nil {
-		return startupError(ctx, "load persisted panel settings", err)
+		return startupError(ctx, "load shared panel settings", err)
+	}
+	if configuration.DataDir != openedDataDir {
+		return errors.New("settings changed data directory during startup; restart with a stable settings file")
 	}
 	commands = application.FromStoreWithSettings(database, configuration)
 	commands.SetPublicIPResolver(publicip.New().Resolve)

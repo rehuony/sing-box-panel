@@ -4,11 +4,9 @@ package application
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"net"
-	"net/netip"
-	"regexp"
+	"slices"
 	"strings"
 	"unicode"
 
@@ -16,11 +14,7 @@ import (
 	"github.com/rehuony/sing-box-panel/internal/store"
 )
 
-type AppearanceSettings struct {
-	Theme  string `json:"theme"`
-	Color  string `json:"color"`
-	Radius int    `json:"radius"`
-}
+type AppearanceSettings = settings.Appearance
 
 // PanelPreferences is safe to return to authenticated clients. Credentials are
 // write-only and stored separately from this response projection.
@@ -61,38 +55,14 @@ type storedPanelSettings struct {
 }
 
 var ErrPanelSettingsInvalid = errors.New("panel settings are invalid")
-var panelColor = regexp.MustCompile(`^#[0-9a-fA-F]{6}$`)
-var hostnameLabel = regexp.MustCompile(`^[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?$`)
 
 func (app *Application) storedPanelSettings(ctx context.Context) (storedPanelSettings, int64, error) {
-	document, revision, err := app.database.PanelSettings(ctx)
-	if err != nil {
-		return storedPanelSettings{}, 0, err
-	}
-	value := storedPanelSettings{
-		Preferences: PanelPreferences{
-			ListenHost: app.settings.Server.Host, ListenPort: app.settings.Server.Port,
-			ExternalOrigin: app.settings.Server.ExternalOrigin, TrafficQuotaGiB: app.settings.Traffic.QuotaGiB,
-			Language: "zh-CN", Appearance: AppearanceSettings{Theme: "light", Color: "#6D4ED1", Radius: 24},
-		},
-		GitHubToken: app.settings.GitHub.Token, ManagementToken: app.settings.Auth.Token,
-	}
-	if value.Preferences.ListenHost == "" {
-		value.Preferences.ListenHost = "127.0.0.1"
-	}
-	if value.Preferences.ListenPort == 0 {
-		value.Preferences.ListenPort = 3000
-	}
-	if document != nil {
-		if err := json.Unmarshal(document, &value); err != nil {
-			return storedPanelSettings{}, 0, errors.New("stored panel settings are invalid")
-		}
-	}
-	return value, revision, nil
+	value, revision, err := app.currentSettings(ctx)
+	return panelValues(value), revision, err
 }
 
 func (app *Application) PanelSettings(ctx context.Context) (PanelSettingsView, error) {
-	value, revision, err := app.storedPanelSettings(ctx)
+	value, revision, err := app.currentSettings(ctx)
 	if err != nil {
 		return PanelSettingsView{}, err
 	}
@@ -103,12 +73,18 @@ func (app *Application) PanelSettings(ctx context.Context) (PanelSettingsView, e
 	return view, nil
 }
 
-func (app *Application) panelSettingsView(value storedPanelSettings, revision int64) PanelSettingsView {
+func (app *Application) panelSettingsView(configuration settings.Settings, revision int64) PanelSettingsView {
+	value := panelValues(configuration)
 	p := value.Preferences
+	loaded := app.settings
+	restartRequired := configuration.Server != loaded.Server || configuration.DataDir != loaded.DataDir ||
+		configuration.Auth.SecureCookie != loaded.Auth.SecureCookie || configuration.GitHub.CatalogTTLHours != loaded.GitHub.CatalogTTLHours ||
+		configuration.Traffic.PeriodMonths != loaded.Traffic.PeriodMonths || configuration.Traffic.SampleRetentionDays != loaded.Traffic.SampleRetentionDays ||
+		configuration.Logs != loaded.Logs || !slices.Equal(configuration.Subscription.PrivateSourceCIDRs, loaded.Subscription.PrivateSourceCIDRs)
 	return PanelSettingsView{
 		Revision: revision, Preferences: p,
 		GitHubTokenConfigured: value.GitHubToken != "", IdentityKeyConfigured: value.IdentityKey != "",
-		RestartRequired: revision > 0 && (p.ListenHost != app.settings.Server.Host || p.ListenPort != app.settings.Server.Port || p.ExternalOrigin != app.settings.Server.ExternalOrigin),
+		RestartRequired: restartRequired,
 	}
 }
 
@@ -116,14 +92,31 @@ func (app *Application) SavePanelSettings(ctx context.Context, input PanelSettin
 	if err := validatePanelSettings(input); err != nil {
 		return PanelSettingsView{}, err
 	}
-	value, revision, err := app.storedPanelSettings(ctx)
+	if app.settingsPath == "" {
+		return PanelSettingsView{}, errors.New("panel settings file path is required")
+	}
+	lock, err := settings.Lock(ctx, app.settingsPath)
 	if err != nil {
 		return PanelSettingsView{}, err
 	}
+	defer lock.Close()
+	if err := app.recoverSettingsFile(ctx); err != nil {
+		return PanelSettingsView{}, err
+	}
+	before, err := settings.Read(app.settingsPath)
+	if err != nil {
+		return PanelSettingsView{}, err
+	}
+	configurationFile, err := settings.Parse(app.settingsPath, before)
+	if err != nil {
+		return PanelSettingsView{}, err
+	}
+	revision := settings.Revision(before)
+	value := panelValues(configurationFile)
 	if input.Revision != revision {
 		return PanelSettingsView{}, store.ErrPanelSettingsConflict
 	}
-	identityChanged := input.Preferences.IdentityName != value.Preferences.IdentityName || (input.IdentityKey != "" && input.IdentityKey != value.IdentityKey)
+	identityChanged := input.Preferences.IdentityName != value.Preferences.IdentityName || input.IdentityKey != ""
 	value.Preferences = input.Preferences
 	value.Preferences.Appearance.Color = strings.ToUpper(input.Preferences.Appearance.Color)
 	if input.GitHubToken != "" {
@@ -138,10 +131,6 @@ func (app *Application) SavePanelSettings(ctx context.Context, input PanelSettin
 	if input.ManagementToken != "" {
 		value.ManagementToken = input.ManagementToken
 	}
-	document, err := json.Marshal(value)
-	if err != nil {
-		return PanelSettingsView{}, errors.New("encode panel settings failed")
-	}
 	var configuration *store.ConfigurationFileUpdate
 	if identityChanged {
 		configuration, err = app.identityConfigurationUpdate(ctx, value)
@@ -149,11 +138,16 @@ func (app *Application) SavePanelSettings(ctx context.Context, input PanelSettin
 			return PanelSettingsView{}, err
 		}
 	}
-	revision, err = app.database.SavePanelSettings(ctx, document, revision, configuration)
+	applyPanelValues(&configurationFile, value)
+	after, err := encodeSettings(configurationFile, before)
 	if err != nil {
 		return PanelSettingsView{}, err
 	}
-	view := app.panelSettingsView(value, revision)
+	if err := app.commitSettingsFile(ctx, before, after, nil, configuration); err != nil {
+		return PanelSettingsView{}, err
+	}
+	revision = settings.Revision(after)
+	view := app.panelSettingsView(configurationFile, revision)
 	if app.publicIP != nil {
 		view.DetectedPublicIP = app.publicIP(ctx)
 	}
@@ -162,11 +156,11 @@ func (app *Application) SavePanelSettings(ctx context.Context, input PanelSettin
 
 func validatePanelSettings(input PanelSettingsWrite) error {
 	p := input.Preferences
+	if err := panelFields(p, input.IdentityKey).Validate(); err != nil {
+		return ErrPanelSettingsInvalid
+	}
 	if input.Revision < 0 || (net.ParseIP(p.ListenHost) == nil && p.ListenHost != "localhost") || p.ListenPort < 1 || p.ListenPort > 65535 ||
-		!panelColor.MatchString(p.Appearance.Color) || p.Appearance.Radius < 0 || p.Appearance.Radius > 32 ||
-		(p.Appearance.Theme != "light" && p.Appearance.Theme != "dark" && p.Appearance.Theme != "system") ||
-		(p.Language != "zh-CN" && p.Language != "en") || len(p.IdentityName) > 128 || strings.ContainsAny(p.IdentityName, "\x00\r\n") ||
-		(p.TrafficQuotaGiB != nil && (*p.TrafficQuotaGiB < 0 || *p.TrafficQuotaGiB > 1_000_000_000)) {
+		settings.ValidateTrafficQuota(p.TrafficQuotaGiB) != nil {
 		return ErrPanelSettingsInvalid
 	}
 	if p.ExternalOrigin != "" {
@@ -175,7 +169,7 @@ func validatePanelSettings(input PanelSettingsWrite) error {
 			return ErrPanelSettingsInvalid
 		}
 	}
-	if p.PublicNodeHost != "" && !validPublishedHost(p.PublicNodeHost) {
+	if p.PublicNodeHost != "" && !settings.ValidPublishedHost(p.PublicNodeHost) {
 		return ErrPanelSettingsInvalid
 	}
 	for _, secret := range []string{input.GitHubToken, input.IdentityKey, input.ManagementToken} {
@@ -196,36 +190,9 @@ func validatePanelSettings(input PanelSettingsWrite) error {
 	return nil
 }
 
-func validPublishedHost(host string) bool {
-	if address, err := netip.ParseAddr(strings.Trim(host, "[]")); err == nil {
-		return address.Zone() == "" && address.IsGlobalUnicast() && !address.IsLoopback() && !address.IsPrivate()
-	}
-	if len(host) > 253 || strings.EqualFold(host, "localhost") {
-		return false
-	}
-	for _, label := range strings.Split(strings.TrimSuffix(host, "."), ".") {
-		if !hostnameLabel.MatchString(label) {
-			return false
-		}
-	}
-	return strings.Contains(host, ".")
-}
-
-// EffectiveSettings overlays persisted settings without mutating shared process
-// configuration. Listener and origin changes take effect on panel restart;
-// credentials and quota can be read by their consumers at operation boundaries.
+// EffectiveSettings reads the shared file. The running listener remains pinned
+// until restart; operation-boundary consumers see current credentials and quota.
 func (app *Application) EffectiveSettings(ctx context.Context) (settings.Settings, error) {
-	value, _, err := app.storedPanelSettings(ctx)
-	if err != nil {
-		return settings.Settings{}, err
-	}
-	result := app.settings
-	result.Server.Host = value.Preferences.ListenHost
-	result.Server.Port = value.Preferences.ListenPort
-	result.Server.ExternalOrigin = value.Preferences.ExternalOrigin
-	result.Auth.SecureCookie = strings.HasPrefix(result.Server.ExternalOrigin, "https://")
-	result.GitHub.Token = value.GitHubToken
-	result.Auth.Token = value.ManagementToken
-	result.Traffic.QuotaGiB = value.Preferences.TrafficQuotaGiB
-	return result, nil
+	value, _, err := app.currentSettings(ctx)
+	return value, err
 }

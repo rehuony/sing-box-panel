@@ -67,9 +67,9 @@ func TestRevisionHistoryDiffRestoreAndTaskControl(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	changed, err := application.SetCanonicalValue(
-		ctx, initial.Revision.ID, "/log", []byte(`{"level":"info"}`),
-	)
+	changed, err := application.PatchCanonical(ctx, initial.Revision.ID, []CanonicalChange{
+		{Operation: "set", Path: "/log", ValueJSON: `{"level":"info"}`},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}

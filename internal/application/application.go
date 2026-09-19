@@ -55,7 +55,11 @@ func Open(ctx context.Context, settingsPath string) (*Application, error) {
 	application := newApplication(database)
 	application.ownsDatabase = true
 	application.settings.DataDir = dataDir
-	application.settingsPath = settingsPath
+	application.settingsPath, err = filepath.Abs(settingsPath)
+	if err != nil {
+		database.Close()
+		return nil, err
+	}
 	application.publicIP = publicip.New().Resolve
 	return application, nil
 }
@@ -95,6 +99,7 @@ func FromStoreWithRuntimeResolver(database *store.Store, resolver RuntimeResolve
 func FromStoreWithSettings(database *store.Store, configuration settings.Settings) *Application {
 	application := newApplication(database)
 	application.settings = configuration
+	application.settingsPath = configuration.Path()
 	return application
 }
 

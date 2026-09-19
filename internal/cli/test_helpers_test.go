@@ -50,3 +50,17 @@ func commandSettingsFixture(t *testing.T) string {
 	}
 	return settingsPath
 }
+
+func saveConfigurationFixture(t *testing.T, path, content string) application.ConfigurationFile {
+	t.Helper()
+	app, err := application.Open(t.Context(), path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer app.Close()
+	file, err := app.SaveConfigurationFile(t.Context(), application.ConfigurationFileWrite{Revision: 0, Content: content})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return file
+}

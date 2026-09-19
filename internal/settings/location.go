@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 
@@ -14,11 +13,15 @@ import (
 )
 
 func readSettings(path string, target any) error {
-	data, err := os.ReadFile(path)
+	data, err := Read(path)
 	if err != nil {
-		return fmt.Errorf("read settings %q: %w", path, err)
+		return err
 	}
-	if err := jsonstrict.Decode(data, maxSettingsBytes, target); err != nil {
+	return decodeSettings(path, data, target)
+}
+
+func decodeSettings(path string, data []byte, target any) error {
+	if err := jsonstrict.Decode(data, MaximumBytes, target); err != nil {
 		return fmt.Errorf("parse settings %q: %w", path, err)
 	}
 	return nil
@@ -27,6 +30,15 @@ func readSettings(path string, target any) error {
 // LoadDataDir reads only the instance location. Unrelated runtime fields are
 // ignored, but malformed, ambiguous, or oversized JSON is still rejected.
 func LoadDataDir(path string) (string, error) {
+	configured, err := ConfiguredDataDir(path)
+	if err != nil {
+		return "", err
+	}
+	return ActiveDataDir(path, configured)
+}
+
+// ConfiguredDataDir reads the requested location, including a pending change.
+func ConfiguredDataDir(path string) (string, error) {
 	var fields map[string]json.RawMessage
 	if err := readSettings(path, &fields); err != nil {
 		return "", err
@@ -52,8 +64,8 @@ func resolveDataDir(path, dataDir string) (string, error) {
 	return resolved, nil
 }
 
-// LoadTrafficQuota reads the optional bootstrap quota only when a metrics
-// query needs it and no persisted panel preferences override it.
+// LoadTrafficQuota reads the shared file quota only when a metrics query needs
+// it, without validating unrelated runtime fields.
 func LoadTrafficQuota(path string) (*int64, error) {
 	var fields map[string]json.RawMessage
 	if err := readSettings(path, &fields); err != nil {

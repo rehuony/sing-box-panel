@@ -6,12 +6,14 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
 
 	"github.com/rehuony/sing-box-panel/internal/buildinfo"
+	"github.com/rehuony/sing-box-panel/internal/settings"
 	"github.com/spf13/cobra"
 )
 
@@ -65,11 +67,10 @@ func TestHelpSectionOrder(t *testing.T) {
 		{name: "system group", args: []string{"system", "--help"}, usage: "system [flags] [command]", inherited: true, subcommands: true},
 		{name: "systemd group", args: []string{"systemd", "--help"}, usage: "systemd [flags] [command]", inherited: true, subcommands: true},
 		{name: "config group", args: []string{"config", "--help"}, usage: "config [flags] [command]", inherited: true, subcommands: true},
-		{name: "config validate", args: []string{"config", "validate", "--help"}, usage: "config validate [flags]", inherited: true, examples: true},
+		{name: "config set", args: []string{"config", "set", "--help"}, usage: "config set [flags]", inherited: true, examples: true},
 		{name: "config check", args: []string{"config", "check", "--help"}, usage: "config check [flags]", inherited: true, examples: true},
 		{name: "leaf flag", args: []string{"core", "install", "--help"}, usage: "core install ASSET_ID [flags]", inherited: true},
 		{name: "leaf help command", args: []string{"help", "core", "install"}, usage: "core install ASSET_ID [flags]", inherited: true},
-		{name: "JSON pointer argument", args: []string{"config", "get", "--help"}, usage: "config get JSON_POINTER [flags]", inherited: true},
 		{name: "period argument", args: []string{"metrics", "period", "--help"}, usage: "metrics period PERIOD_ID [flags]", inherited: true},
 		{name: "optional help argument", args: []string{"help", "--help"}, usage: "help [command] [flags]", inherited: true},
 	} {
@@ -151,17 +152,17 @@ func TestHelpFlagsKeepStableOrder(t *testing.T) {
 
 func TestGlobalFlagsCombineWithSubcommands(t *testing.T) {
 	for _, args := range [][]string{
-		{"--output=json", "config", "validate", "--file=-"},
-		{"config", "--output=json", "validate", "--file=-"},
-		{"config", "validate", "--file=-", "--output=json"},
-		{"-o", "json", "config", "validate", "--file=-"},
-		{"config", "-o=json", "validate", "--file=-"},
-		{"config", "validate", "--file=-", "-o", "json"},
+		{"--output=json", "config", "check"},
+		{"config", "--output=json", "check"},
+		{"config", "check", "--output=json"},
+		{"-o", "json", "config", "check"},
+		{"config", "-o=json", "check"},
+		{"config", "check", "-o", "json"},
 	} {
 		t.Run(strings.Join(args, " "), func(t *testing.T) {
 			var stdout, stderr bytes.Buffer
 			root := NewRootCommand(Dependencies{Stdin: strings.NewReader("{}"), Stdout: &stdout, Stderr: &stderr})
-			root.SetArgs(args)
+			root.SetArgs(append(args, "--config", commandSettingsFixture(t)))
 			if err := root.ExecuteContext(t.Context()); err != nil || stderr.Len() != 0 {
 				t.Fatalf("command error=%v stderr=%q", err, stderr.String())
 			}
@@ -258,7 +259,7 @@ func TestVersionOutput(t *testing.T) {
 	}
 }
 
-func TestInitAndVerify(t *testing.T) {
+func TestInitAndConfigCheck(t *testing.T) {
 	root := t.TempDir()
 	t.Setenv("XDG_DATA_HOME", filepath.Join(root, "data-home"))
 	path := filepath.Join(root, "setting.json")
@@ -269,7 +270,7 @@ func TestInitAndVerify(t *testing.T) {
 	if stderr != "" || !strings.Contains(stdout, "initialized") {
 		t.Fatalf("stdout=%q stderr=%q", stdout, stderr)
 	}
-	stdout, stderr, err = execute(t, "verify", "--config", path, "--output=json")
+	stdout, stderr, err = execute(t, "config", "check", "--config", path, "--output=json")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -278,18 +279,44 @@ func TestInitAndVerify(t *testing.T) {
 	}
 }
 
+func TestForcedInitMigratesExistingDataBeforeOpeningStorage(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "setting.json")
+	t.Setenv("XDG_DATA_HOME", filepath.Join(root, "old-home"))
+	if _, _, err := execute(t, "init", "--config", path); err != nil {
+		t.Fatal(err)
+	}
+	old, err := settings.LoadDataDir(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(old, "retained.txt"), []byte("original"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("XDG_DATA_HOME", filepath.Join(root, "new-home"))
+	if _, _, err := execute(t, "init", "--force", "--config", path); err != nil {
+		t.Fatal(err)
+	}
+	next, err := settings.LoadDataDir(path)
+	if err != nil || next == old {
+		t.Fatalf("location did not move: %s %v", next, err)
+	}
+	content, err := os.ReadFile(filepath.Join(next, "retained.txt"))
+	if err != nil || string(content) != "original" {
+		t.Fatalf("original data was not migrated: %s %v", content, err)
+	}
+}
+
 // visibleLeafCapabilities is the complete public command inventory. Every
 // entry is a runnable leaf at most two words deep; hierarchy changes must
-// keep this list's size and either keep or deliberately rename its entries.
+// deliberately update this inventory when changing the public surface.
 var visibleLeafCapabilities = []string{
-	"init", "verify", "version", "update",
+	"init", "version", "update",
 	"server start", "server stop", "server status",
 	"core catalog", "core refresh",
 	"core list", "core show", "core install", "core import", "core remove", "core quarantine", "core revoke",
 	"core enable", "core status", "core start", "core stop", "core restart", "core rollback",
-	"config show", "config export", "config import", "config validate",
-	"config get", "config set", "config unset",
-	"config check", "config apply",
+	"config show", "config set", "config check",
 	"channel list", "channel show", "channel create", "channel update", "channel delete", "channel render",
 	"source list", "source show", "source create", "source update", "source refresh", "source delete",
 	"token list", "token create", "token rotate", "token revoke",
@@ -302,8 +329,8 @@ var visibleLeafCapabilities = []string{
 }
 
 func TestCommandTreeIsAtMostTwoWordsDeepAndKeepsEveryCapability(t *testing.T) {
-	if len(visibleLeafCapabilities) != 72 {
-		t.Fatalf("inventory lists %d capabilities, want 72", len(visibleLeafCapabilities))
+	if len(visibleLeafCapabilities) != 65 {
+		t.Fatalf("inventory lists %d capabilities, want 65", len(visibleLeafCapabilities))
 	}
 	var stdout, stderr bytes.Buffer
 	root := NewRootCommand(Dependencies{Stdin: strings.NewReader(""), Stdout: &stdout, Stderr: &stderr})
@@ -338,7 +365,7 @@ func TestCommandTreeIsAtMostTwoWordsDeepAndKeepsEveryCapability(t *testing.T) {
 	for _, path := range []string{
 		"system clean", "system prn", "system file", "system files",
 		"system install", "system uninstall", "system status", "system start", "system stop", "system restart", "system logs",
-		"server run",
+		"server run", "verify", "config export", "config import", "config validate", "config get", "config unset", "config apply",
 		"config history", "config revision", "config diff", "config restore", "config compile", "config replace", "config revision list", "config revision show", "config revision diff", "config revision restore",
 		"core check", "core activate", "core catalog list", "core catalog refresh",
 		"subscription", "subscription channel", "subscription source", "subscription token",
@@ -390,21 +417,17 @@ func TestServerStartIsForegroundAndGroupDoesNotStart(t *testing.T) {
 	}
 }
 
-func TestConfigCheckAndApplyExposeOnlyCoreSelection(t *testing.T) {
-	var stdout, stderr bytes.Buffer
-	root := NewRootCommand(Dependencies{Stdin: strings.NewReader(""), Stdout: &stdout, Stderr: &stderr})
-	for _, path := range []string{"sing-box-panel config check", "sing-box-panel config apply"} {
-		command, _, err := root.Find(strings.Fields(path)[1:])
+func TestConfigCommandsOnlyExposePanelSettingsFlags(t *testing.T) {
+	root := NewRootCommand(Dependencies{})
+	for _, name := range []string{"show", "set", "check"} {
+		command, _, err := root.Find([]string{"config", name})
 		if err != nil {
 			t.Fatal(err)
 		}
-		for _, removed := range []string{"artifact", "monitoring"} {
+		for _, removed := range []string{"core", "detach", "revision", "base-revision", "artifact", "monitoring"} {
 			if command.Flags().Lookup(removed) != nil {
-				t.Errorf("%s still exposes --%s", path, removed)
+				t.Errorf("config %s still exposes --%s", name, removed)
 			}
-		}
-		if command.Flags().Lookup("core") == nil {
-			t.Errorf("%s does not expose --core", path)
 		}
 	}
 }

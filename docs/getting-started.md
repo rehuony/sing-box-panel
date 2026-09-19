@@ -33,7 +33,7 @@ To prepare and inspect settings before startup, initialize them explicitly:
 
 ```sh
 ./bin/sing-box-panel init --config ./setting.json
-./bin/sing-box-panel verify --config ./setting.json
+./bin/sing-box-panel config check --config ./setting.json
 ```
 
 `init` performs the following operations:
@@ -49,13 +49,11 @@ configuration, or subscription data.
 ### Database compatibility
 
 The current application uses SQLite `application_id = 0x53425034` and storage
-schema version 1, represented by the single consolidated `0001_initial.sql`.
-Opening a new empty database applies that schema; opening an unidentified
-non-empty database, a database with a previous application ID, or a database
-newer than this binary fails closed. There is no in-place migration or
-backfill from previous database identities in the current contract. Use a
-fresh `data_dir` and retain any earlier database separately when testing this
-architecture.
+schema version 7. Opening a new database applies the embedded migrations;
+existing databases with this application identity migrate forward automatically.
+Unidentified non-empty databases, previous application identities, and schemas
+newer than the binary fail closed. Startup also transfers legacy panel settings
+from SQLite to the selected settings file once; subsequent edits use that file.
 
 Configuration revisions contain a sing-box JSON object directly. SQLite's
 storage schema version describes panel tables and is unrelated to sing-box
@@ -75,12 +73,18 @@ user it is `$XDG_DATA_HOME/sing-box-panel`, or
 `~/.local/share/sing-box-panel` when `XDG_DATA_HOME` is unset. A relative
 `data_dir` in an explicit settings file is resolved relative to that file.
 
-The settings file contains process-bootstrap values only: listener, base path,
-external browser origin, authentication, data directory, GitHub catalog access,
-traffic-period and raw-sample retention policy, subscription publication
-metadata, and log retention. Mutable product state belongs in SQLite. New
-settings initialize `traffic.sample_retention_days` to 90. The field is
-required for startup and full verification and must be between 1 and 366;
+The settings file is the single source for all panel settings. The Web UI,
+`config show/set/check`, and manual edits use this same file. Shared fields retain
+their existing sections; `panel` adds the public node host, protocol identity,
+language and appearance. Web saves preserve fields not exposed by its form. Changing `data_dir` moves
+existing storage on the next explicit start, with interruption recovery.
+Sing-box documents, subscriptions, tasks and runtime evidence remain in SQLite.
+See the [complete field mapping](configuration-and-runtime.md#shared-settings-file).
+New settings initialize `subscription.provider` to `"default"`; existing files
+retain their configured value.
+
+`traffic.sample_retention_days` defaults to 90. It is required for startup and
+`config check` and must be between 1 and 366;
 older settings without it are rejected instead of receiving a compatibility
 default. Commands that only locate instance files or data validate `data_dir`
 without validating unrelated runtime fields; see [CLI configuration dependencies](cli.md#global-flags-and-output).
@@ -110,7 +114,9 @@ First-run guidance lists the settings file, data directory, default URL, generat
 `Login token`, and stop shortcut. Open the default URL and use the printed token
 to log in to a new instance; the same value is saved as `auth.token` in settings.
 The summary confirms settings creation, not that the HTTP listener is ready.
-An existing database retains its saved panel preferences and credentials.
+If an existing database contains legacy panel preferences or credentials, startup
+imports them into the file once, retaining the previously effective values. In
+that migration case, the imported management token replaces the generated token.
 
 This runs in the foreground. Stop it with `Ctrl+C`, or run
 `./bin/sing-box-panel server stop --config ./setting.json` in another terminal.
@@ -122,7 +128,7 @@ task executor. Keep it active while commands install cores, refresh the
 catalog or a subscription source, check or apply configuration, enable a
 core, or control the child process.
 
-Core, catalog, configuration, and runtime commands normally wait for their
+Core, catalog, and runtime commands normally wait for their
 task. Add `--detach` where supported to return immediately. Subscription source
 refresh always returns its queued task immediately. Inspect either kind of
 task separately with:
@@ -132,36 +138,23 @@ task separately with:
 ./bin/sing-box-panel task wait TASK_ID --config ./setting.json
 ```
 
-## Save the first configuration
+## Save the first sing-box configuration
 
-The panel keeps one saved sing-box configuration, logically named
-`config.json`, that the Web editor and the CLI share. It is stored as text in
-the `configuration_file` table of `panel.db`, not as a separate file on disk.
-Save this minimal document as `config.json`:
+Log in to the Web UI and open Configuration. The panel keeps one sing-box
+document, logically named `config.json`, as text in the `configuration_file`
+table of `panel.db`. The Web editor manages it; there is no separately editable
+file on disk or CLI for its content. A minimal document is:
 
 ```json
 {}
 ```
 
-Import it with the numeric file revision `0`, which means "no save yet":
-
-```sh
-./bin/sing-box-panel config import \
-  --config ./setting.json \
-  --file ./config.json \
-  --revision 0
-```
-
-Later imports must pass the current file revision shown by
-`config show --output json`; a stale revision is rejected instead of being
-merged implicitly. Text that is not valid JSON is stored as a draft and blocks
-check, apply, start, and restart until it is corrected. After installing a
-core, validate and start with it:
-
-```sh
-./bin/sing-box-panel config check --config ./setting.json --core CORE_ARTIFACT_ID
-./bin/sing-box-panel config apply --config ./setting.json --core CORE_ARTIFACT_ID
-```
+Save in the Web editor, install and select a core, then use Check and Apply.
+Concurrent saves use the current file revision and reject stale edits instead
+of merging implicitly. Invalid JSON remains a draft and blocks Check, Apply,
+Start, and Restart until corrected. Core lifecycle and artifact commands remain
+available through the CLI. The separate `config show/set/check` commands manage
+only the panel's `setting.json`; see [Panel settings](cli.md#panel-settings).
 
 Continue with [Core versions](core-versions.md), then
 [Configuration and runtime](configuration-and-runtime.md).

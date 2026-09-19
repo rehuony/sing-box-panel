@@ -5,9 +5,12 @@
 package server
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -15,6 +18,7 @@ import (
 	"testing/fstest"
 	"time"
 
+	"github.com/rehuony/sing-box-panel/internal/application"
 	"github.com/rehuony/sing-box-panel/internal/buildinfo"
 	"github.com/rehuony/sing-box-panel/internal/panelprocess"
 	"github.com/rehuony/sing-box-panel/internal/settings"
@@ -24,7 +28,7 @@ func TestForegroundPanelCanBeStoppedFromAnotherClient(t *testing.T) {
 	t.Setenv("INVOCATION_ID", "")
 	value, path := processSettings(t)
 	var err error
-	for range 2 {
+	for start := range 2 {
 		ctx, cancel := context.WithCancel(context.Background())
 		result := make(chan error, 1)
 		go func() { result <- Run(ctx, path, buildinfo.Info{Version: "test"}, fstest.MapFS{}) }()
@@ -47,11 +51,38 @@ func TestForegroundPanelCanBeStoppedFromAnotherClient(t *testing.T) {
 			case <-time.After(10 * time.Millisecond):
 			}
 		}
-		if status.SettingsPath != path || status.PID != os.Getpid() {
+		if status.SettingsPath != path || status.DataDir != value.DataDir || status.PID != os.Getpid() {
 			t.Fatalf("live status=%+v", status)
 		}
 		if err := Run(wait, path, buildinfo.Info{}, fstest.MapFS{}); err == nil || !strings.Contains(err.Error(), "owns this data directory") {
 			t.Fatalf("duplicate start error=%v", err)
+		}
+		_, port, err := net.SplitHostPort(status.Listen)
+		if err != nil || port != fmt.Sprint(value.Server.Port) {
+			t.Fatalf("listener did not use selected settings after manual start: %s", status.Listen)
+		}
+		if start == 0 {
+			// The Web endpoint persists the new port without moving the listener.
+			var view application.PanelSettingsView
+			requestPanelSettings(t, wait, status.Listen, value.Auth.Token, nil, &view)
+			reserved, err := net.Listen("tcp", "127.0.0.1:0")
+			if err != nil {
+				t.Fatal(err)
+			}
+			value.Server.Port = reserved.Addr().(*net.TCPAddr).Port
+			reserved.Close()
+			view.Preferences.ListenPort = value.Server.Port
+			input := application.PanelSettingsWrite{Revision: view.Revision, Preferences: view.Preferences}
+			var saved application.PanelSettingsView
+			requestPanelSettings(t, wait, status.Listen, value.Auth.Token, &input, &saved)
+			if !saved.RestartRequired {
+				t.Fatal("listener change did not request manual restart")
+			}
+			requestPanelSettings(t, wait, status.Listen, value.Auth.Token, nil, &saved)
+			current, err := panelprocess.Inspect(wait, value.DataDir)
+			if err != nil || current.Listen != status.Listen || current.State != "ready" {
+				t.Fatalf("Web save changed running listener: %+v %v", current, err)
+			}
 		}
 		status, err = panelprocess.Stop(wait, value.DataDir)
 		if err != nil || status.State != "stopped" {
@@ -88,7 +119,9 @@ func processSettings(t *testing.T) (settings.Settings, string) {
 	}
 	value.Server.Port = listener.Addr().(*net.TCPAddr).Port
 	_ = listener.Close()
-	data, err := json.Marshal(value)
+	stored := value
+	stored.DataDir = "data"
+	data, err := json.Marshal(stored)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -101,6 +134,9 @@ func processSettings(t *testing.T) (settings.Settings, string) {
 
 func TestCanceledStartupReleasesControlAndLease(t *testing.T) {
 	value, path := processSettings(t)
+	if err := prepareDataDirectory(value.DataDir); err != nil {
+		t.Fatal(err)
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	if err := Run(ctx, path, buildinfo.Info{}, fstest.MapFS{}); err != nil {
@@ -115,4 +151,35 @@ func TestCanceledStartupReleasesControlAndLease(t *testing.T) {
 		t.Fatal(err)
 	}
 	_ = lease.Close()
+}
+
+func requestPanelSettings(t *testing.T, ctx context.Context, address, token string, input *application.PanelSettingsWrite, output *application.PanelSettingsView) {
+	t.Helper()
+	method := http.MethodGet
+	var body []byte
+	if input != nil {
+		method = http.MethodPut
+		var err error
+		body, err = json.Marshal(input)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	request, err := http.NewRequestWithContext(ctx, method, "http://"+address+"/api/v1/panel/settings", bytes.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	request.Header.Set("Authorization", "Bearer "+token)
+	request.Header.Set("Content-Type", "application/json")
+	response, err := http.DefaultClient.Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("settings response: %d", response.StatusCode)
+	}
+	if err := json.NewDecoder(response.Body).Decode(output); err != nil {
+		t.Fatal(err)
+	}
 }

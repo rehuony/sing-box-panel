@@ -111,14 +111,10 @@ func (application *Application) Metrics(ctx context.Context) (MetricsSnapshot, e
 }
 
 func (application *Application) trafficQuota(ctx context.Context) (*int64, error) {
-	value, revision, err := application.storedPanelSettings(ctx)
-	if err != nil {
-		return nil, err
-	}
-	if revision == 0 && application.settingsPath != "" {
+	if application.settingsPath != "" {
 		return settings.LoadTrafficQuota(application.settingsPath)
 	}
-	quota := value.Preferences.TrafficQuotaGiB
+	quota := application.settings.Traffic.QuotaGiB
 	return quota, settings.ValidateTrafficQuota(quota)
 }
 

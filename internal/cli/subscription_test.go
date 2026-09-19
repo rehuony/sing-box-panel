@@ -133,12 +133,7 @@ func TestSubscriptionChannelRenderCLIEndToEnd(t *testing.T) {
 	    {"type":"shadowsocks","tag":"public","listen_port":8443,"method":"aes-256-gcm","password":"public-password"}
 	  ]
 	}`)
-	canonicalOutput := runApplicationCommand(t, settingsPath,
-		string(startupBytes),
-		"--output", "json", "config", "import", "--file", "-", "--revision", "0",
-	)
-	var savedFile application.ConfigurationFile
-	decodeSubscriptionCLIOutput(t, canonicalOutput, &savedFile)
+	savedFile := saveConfigurationFixture(t, settingsPath, string(startupBytes))
 
 	channelOutput := runApplicationCommand(t, settingsPath,
 		`{"name":"preview","format":"sing-box","public_host":"preview.example","config":{"exclude_tags":["hidden"]},"enabled":true}`,

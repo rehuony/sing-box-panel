@@ -1,15 +1,15 @@
 # CLI reference
 
-The sing-box-panel CLI manages the one saved sing-box configuration file that
-it shares with the Web UI, exact sing-box artifacts, runtime state,
-subscriptions, and operational evidence. Running the root command or a command
+The sing-box-panel CLI manages the panel settings file, exact sing-box artifacts,
+runtime state, subscriptions, and operational evidence. Sing-box configuration
+content is managed through the Web UI. Running the root command or a command
 group without a leaf prints help.
 
 ## Command hierarchy
 
 ```text
 sing-box-panel
-├─ init | verify | version | update
+├─ init | version | update
 ├─ server start | stop | status
 ├─ system df | prune
 ├─ systemd install | uninstall | status | start | stop | restart | logs
@@ -17,10 +17,7 @@ sing-box-panel
 │  ├─ catalog | refresh
 │  ├─ list | show | install | import | remove | quarantine | revoke
 │  └─ enable | status | start | stop | restart | rollback
-├─ config
-│  ├─ show | export | import | validate
-│  ├─ get | set | unset
-│  └─ check | apply
+├─ config show | set | check
 ├─ channel list | show | create | update | delete | render
 ├─ source list | show | create | update | refresh | delete
 ├─ token list | create | rotate | revoke
@@ -73,15 +70,17 @@ commands that need settings load the default path: root uses
 `$XDG_CONFIG_HOME/sing-box-panel/setting.json`, or
 `~/.config/sing-box-panel/setting.json` when XDG is unset. An explicit path
 overrides that default; commands never silently load another file. `server start`
-creates defaults at the selected path when it is missing. Other commands that
-require settings reject missing files; invalid files remain errors.
+creates defaults at the selected path when it is missing. `config set --file`
+can also create a selected file from validated input. Commands that read settings
+reject missing files; `config show` can display invalid text.
 Repeated flags use the last supplied value.
 
 Selecting a settings path does not load it. Help (including bare command groups),
-`version`, shell completion, `update`, and `config validate --file` do not read
+`version`, shell completion, and `update` do not read
 panel settings or open its database. `systemd uninstall`, `start`, `stop`,
 `restart`, and `logs` operate on the selected service scope without loading the
-CLI settings file. `systemd status` also works with unavailable settings; its
+CLI settings file. Start/restart can read the installed unit's own settings to
+prepare a requested data relocation. `systemd status` also works with unavailable settings; its
 optional location report marks unreadable files or invalid `data_dir` fields as
 unavailable without hiding systemd's status.
 
@@ -89,37 +88,40 @@ unavailable without hiding systemd's status.
 `--now`, and local database operations read only `data_dir` to locate the
 instance. They reject missing, empty, wrongly typed, or ambiguous paths and
 malformed JSON; unrelated runtime fields such as `traffic.sample_retention_days`
-do not block them. Relative data paths resolve against the settings file.
+do not block them. Relative data paths resolve against the settings file. After a directory edit,
+status/stop and database commands keep using the recorded current location until
+the next explicit start completes migration.
 If the settings file itself is missing, `system df` and the `system prune`
 preview still report known paths, with the data directory marked unknown.
 `system prune --yes` continues to require settings that identify the data directory.
 Service ownership, symlink, locking, and cleanup-scope checks still apply.
 Database identity restricts storage operations, but does not prevent confirmed
 full-directory cleanup. Metrics read and validate `traffic.quota_gib` only when needed,
-with persisted panel preferences taking precedence over the bootstrap value.
+directly from the shared settings file.
 
-`verify`, `server start`, and `systemd install --now` require the complete valid
-runtime configuration. `server start` first creates default settings if the
-selected file is absent, including parent directories, the default data directory,
+`config check`, `server start`, and `systemd install --now` require the complete
+valid panel settings. Startup checks the runtime environment and database;
+`config check` reads the settings file alone. `server start` first creates default
+settings if the selected file is absent, including parent directories, the default data directory,
 and a random management token. The settings file uses mode `0600`; new directories
 use `0700`. This also applies to an explicit `--config` path. Concurrent first
 starts cannot replace each other's settings. A damaged, unreadable, or dangling
 symlink file is never replaced. Database initialization remains part of startup.
 Starting an existing unit through `systemd start/restart` delegates to systemd;
 its `server start` command uses the same initialization and validation rules.
-`init` creates settings explicitly and refuses to overwrite an existing file
+`init` explicitly creates settings and initializes storage. It refuses to overwrite an existing file
 unless `--force` is supplied. No command silently repairs a damaged file.
 
 When `server start` creates settings, it prints a compact first-run summary to
 stderr: the selected settings and data paths, default panel URL, the generated
 token next to `Login token`, and how to stop the foreground process. This reports
 initialization, not HTTP readiness. It does not repeat the summary when the
-file already exists. Existing database preferences and credentials continue to
-take precedence over bootstrap defaults. Color is limited to text on a terminal
+file already exists. Legacy database preferences and credentials are imported into the file once at
+startup; if they contain a management token, it replaces the generated token. Color is limited to text on a terminal
 and respects `NO_COLOR` and `TERM`. In JSON/JSONL mode, stderr receives one event
 with `event: "settings_initialized"`, `settings_path`, `data_dir`,
 `default_panel_url`, and `login_token`; stdout remains free of startup guidance.
-First-run output contains the new bootstrap token in both terminal and redirected
+First-run output contains the newly generated token in both terminal and redirected
 output, including JSON/JSONL.
 
 Results are written to stdout. Progress, warnings, and terminal errors are
@@ -138,91 +140,83 @@ Local `make build` uses Go's module and VCS metadata without injecting a build
 timestamp. A pseudo-version's timestamp identifies the source commit, not the
 time the binary was compiled; `+dirty` records uncommitted source changes.
 
-Complete sing-box configuration documents, subscription source definitions, and other bulk
+Complete panel settings documents, subscription source definitions, and other bulk
 or secret-bearing values use `--file PATH` or `--file -` for stdin. Do not
-place secrets in command arguments. Exported configuration and
+place secrets in command arguments. Panel settings output and
 subscription source details may contain credentials and must be handled as
 secret-bearing output.
 
-## The saved configuration file
+## Panel settings
 
-`config show`, `config export`, and `config import` operate on the exact text
-of the one saved configuration, the same file the Web editor saves through
-`GET/PUT /api/v1/config/file`. Its logical name is `config.json`; the bytes are
-stored in the `configuration_file` table of `panel.db` inside `data_dir`, not
-at a separate filesystem path. `show` and `export` return the stored text
-byte-for-byte, including whitespace, large numbers, and unfinished JSON.
-`import` uses the numeric file revision as its compare-and-swap base:
+`config` manages the panel's `setting.json` selected by `-c/--config`.
 
 ```sh
-sing-box-panel config show --output json        # revision, syntax_valid, canonical_revision_id
-sing-box-panel config import --file ./config.json --revision 0   # first save
-sing-box-panel config import --file ./config.json --revision 7   # later save
+sing-box-panel config show --config ./setting.json
+sing-box-panel config check --config ./setting.json
+sing-box-panel config set --config ./setting.json --file ./new-setting.json
+sing-box-panel config set --config ./setting.json --file - < ./new-setting.json
 ```
 
-An import that is not valid JSON is still stored as a draft. It reports
-`syntax_valid: false`, clears `canonical_revision_id`, and blocks `check`,
-`apply`, `start`, and `restart` until the text is corrected; older valid
-content is never substituted silently.
+- `show` returns exact file bytes, even when the JSON or settings are invalid.
+  JSON/JSONL returns `settings_path` and a `content` string. The content includes
+  credentials; the Web UI reads and writes this same file.
+- `check` validates strict JSON and the complete panel settings contract. It
+  returns `valid: true` and `settings_path` on success. It never creates or
+  migrates a database, checks directory availability, or runs sing-box.
+- `set --file FILE|-` replaces the complete document. Validation finishes before
+  the destination is changed; invalid input leaves the existing file intact.
+  Relative `data_dir` paths resolve against the destination settings file.
+  The write is atomic with mode `0600`; new settings directories use `0700`.
+  Symlinks and other non-regular destinations are rejected. The data directory
+  and database are untouched. JSON/JSONL returns `saved: true` and `settings_path`.
 
-`config get` reads one JSON-pointer value of the current **valid** file.
-`config set` and `unset` edit a value and require `--base-revision`, the `canonical_revision_id`
-shown by `config show --output json`. This ID identifies the immutable valid
-snapshot, whereas `--revision` on `import` is the numeric file revision that
-also counts invalid drafts. Field edits refuse
-to run while the saved file is invalid, and their output reports their own
-canonical revision. Read a fresh `config show --output json` result before a
-subsequent whole-file import to obtain its numeric revision and current text.
-These revision values prevent concurrent edits from overwriting each other;
-they do not expose a configuration history workflow. The CLI edits one saved
-file and has no configuration history, historical diff, or restore commands.
-Internal immutable records remain for validation, runtime identity, and
-activation recovery.
+All three commands accept documents up to 1 MiB. `set` and `check` reject
+unknown fields, duplicate keys, trailing JSON, and invalid settings values.
+`set` can replace an invalid existing file or create a missing file; it does not
+merge fields or restart a running panel. Restart to reload startup fields such
+as the listener and data path. Tokens, Web preferences and quota are read from
+this file at operation boundaries. File edits invalidate an older Web form's
+revision, so its next save returns a conflict instead of overwriting the edit.
+See [the field mapping and effect timing](configuration-and-runtime.md#shared-settings-file).
 
-`config validate --file FILE` checks the input as a strict JSON object within
-size, nesting, and value-count limits; `--file -` reads stdin. It does not save
-the input, load panel settings or the database, or run sing-box. It does not
-check sing-box field semantics: passing this check does not mean the core will
-accept the configuration.
+Writers coordinate through a private `setting.json.lock` beside the selected
+file. A temporary `setting.json.pending` journal protects Web saves that also
+update protocol identity in SQLite. While recovery is pending, file commands
+fail closed; start the panel to finish recovery before editing. A private
+`setting.json.location` also records the established data directory and any
+pending move. These sidecars appear in `system df`; cleanup removes idle metadata
+and refuses an unfinished migration.
+Do not remove recovery material to bypass a conflict.
 
-```sh
-sing-box-panel config validate --file ./config.json
-sing-box-panel config validate --file - < ./config.json
-```
+The top-level `verify` command is removed; replace it with `config check`.
+The former sing-box `config` commands and their revision, core, and task flags
+are removed without aliases. In particular, `config check` now validates panel
+settings. Move sing-box editing, validation, and Apply workflows to the Web UI,
+and regenerate shell completions after upgrading. The Web editor continues to
+store exact sing-box text in SQLite with revision conflict detection; this
+change does not create a separately editable sing-box file on disk.
 
 ## Exact core selection
 
-Executable configuration is always the current valid saved file. `config
-check` and `config apply` accept `--core CORE_ARTIFACT_ID`, an immutable
-installed and verified artifact, and default to the currently applied core.
-Before any core has been applied, `--core` is required; no surface guesses
-from a version string, uses the newest catalog release, or falls back to a
-nearby patch. Switching cores never merges, fills, migrates, or rewrites the
-saved JSON: the selected binary must accept an execution snapshot of that
-configuration with `sing-box check`. Snapshot formatting may differ from the
-saved text; field names and values are preserved, and the saved text is untouched.
-
-A missing JSON Schema disables only structured editing. Raw JSON check, apply,
-enable, start, restart, and rollback remain available, with the selected
-binary's `sing-box check` as the final gate:
+Executable sing-box configuration is always the current valid document saved
+through the Web UI. Select an exact installed, verified artifact there for
+Check or Apply. The CLI retains explicit core switching:
 
 ```sh
-sing-box-panel config check                       # applied core
-sing-box-panel config check --core CORE_ARTIFACT_ID
-sing-box-panel config check --core CORE_ARTIFACT_ID --detach  # queue without waiting
-sing-box-panel config apply                       # checked restart with the applied core
-sing-box-panel config apply --core CORE_ARTIFACT_ID
-sing-box-panel core enable CORE_ARTIFACT_ID       # same as apply --core
+sing-box-panel core enable CORE_ARTIFACT_ID
+sing-box-panel core enable CORE_ARTIFACT_ID --detach
 ```
 
-`check` snapshots the current valid saved file and runs the selected binary's
-`sing-box check` as a durable maintenance task. It waits for completion by
-default; `--detach` returns after queuing. The task and execution snapshot are
-persisted, so this is not a read-only operation. It does not replace the saved
-configuration or start/restart the live core. `apply` and `core enable` snapshot
-the file for preflight in the serialized runtime lane and replace the running
-process only after that check succeeds; a failed preflight leaves the live
-core and the saved file unchanged.
+`core enable` carries the saved JSON forward unchanged. It never merges, fills,
+migrates, or rewrites fields for another version. The selected binary must
+accept an execution snapshot with `sing-box check` before the running process
+is replaced. Snapshot formatting may differ, but field names and values are
+preserved. A failed preflight leaves the live core and saved document unchanged.
+
+Missing JSON Schema disables only structured editing in the Web UI. Raw JSON
+check and Apply there, and core enable/start/restart/rollback in the CLI, retain
+the selected binary's native check as the final gate. No surface guesses a core
+from a version string or silently selects a nearby release.
 
 The CLI does not expose the internal startup-artifact and activation-bundle
 steps; the HTTP API still exposes them for the Web UI. The monitoring tier is
@@ -236,7 +230,7 @@ configuration and binary evidence.
 
 Core download and verification, catalog refresh, configuration checks,
 checked restarts, source refresh, and child-process control are durable tasks.
-Core, catalog, configuration, and runtime commands wait by default and expose
+Core, catalog, and runtime commands wait by default and expose
 `--detach` where applicable. `source refresh` instead returns the
 queued task immediately, because that command has no local waiting mode.
 
@@ -281,8 +275,9 @@ to `systemd stop` instead.
 
 Status and stop require readable settings with a valid `data_dir`, so an
 unrelated invalid runtime setting cannot prevent stopping the panel. Startup
-requires the complete valid settings. Keep that bootstrap path unchanged while
-running. The private
+requires the complete valid settings. Keep the selected settings path unchanged while running. A `data_dir` edit is
+persisted immediately but relocates storage only during the next explicit start;
+stop/status still find the original instance. The private
 `panel-control.sock` path inside `data_dir` must fit the platform's Unix socket
 path limit. A stale socket is replaced only after acquiring the runtime lease;
 regular files and symlinks at that path are never replaced.

@@ -4,8 +4,10 @@ package systemd
 
 import (
 	"fmt"
+	"path/filepath"
 	"strings"
 
+	"github.com/rehuony/sing-box-panel/internal/installation"
 	systemdassets "github.com/rehuony/sing-box-panel/systemd"
 )
 
@@ -34,8 +36,47 @@ func renderUnit(scope Scope, executablePath, settingsPath, dataDir string) ([]by
 	if err != nil {
 		return nil, err
 	}
-	if scope == ScopeUser {
-		result, err = replaceDirective(result, "ReadWritePaths=", "ReadWritePaths="+data)
+	settingsDirectory, err := quotePathDirective(filepath.Dir(settingsPath))
+	if err != nil {
+		return nil, err
+	}
+	result, err = replaceDirective(result, "ReadWritePaths=", "ReadWritePaths="+data+" "+settingsDirectory)
+	if err != nil {
+		return nil, err
+	}
+	if scope == ScopeSystem && dataDir != "/var/lib/sing-box-panel" {
+		// Custom roots are created by the installer; do not recreate the former
+		// default directory on each subsequent start.
+		result, err = replaceDirective(result, "StateDirectory=", "StateDirectory=")
+		if err != nil {
+			return nil, err
+		}
+	}
+	// PrivateTmp must not hide explicitly selected state or configuration.
+	// Bind only these dedicated directories, leaving the remaining sandbox intact.
+	var temporaryPaths []string
+	for _, path := range []string{dataDir, filepath.Dir(settingsPath)} {
+		for _, root := range []string{"/tmp", "/var/tmp"} {
+			inside, err := installation.DataDirectoryContainsPath(root, path)
+			if err != nil {
+				return nil, err
+			}
+			if !inside {
+				continue
+			}
+			if strings.Contains(path, ":") {
+				return nil, fmt.Errorf("%w: temporary service paths must not contain colons", ErrInvalid)
+			}
+			quoted, err := quotePathDirective(path)
+			if err != nil {
+				return nil, err
+			}
+			temporaryPaths = append(temporaryPaths, quoted)
+			break
+		}
+	}
+	if len(temporaryPaths) != 0 {
+		result, err = replaceDirective(result, "PrivateTmp=", "PrivateTmp=true\nBindPaths="+strings.Join(temporaryPaths, " "))
 		if err != nil {
 			return nil, err
 		}

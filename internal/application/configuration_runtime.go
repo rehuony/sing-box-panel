@@ -31,29 +31,6 @@ func (application *Application) EnableCore(ctx context.Context, coreID string) (
 	return application.QueueConfigurationRuntime(ctx, coreID, store.RuntimeIntentRestart)
 }
 
-// AppliedCoreArtifactID returns the core artifact bound to the applied
-// activation bundle, or "" before any core has been applied. Callers that
-// omit an explicit core use it so version selection stays explicit and never
-// falls back to the newest catalog release.
-func (application *Application) AppliedCoreArtifactID(ctx context.Context) (string, error) {
-	bootstrap, err := application.database.Bootstrap(ctx)
-	if err != nil {
-		return "", err
-	}
-	if bootstrap.Hub.AppliedBundleID == "" {
-		return "", nil
-	}
-	bundle, err := application.database.GetActivationBundle(ctx, bootstrap.Hub.AppliedBundleID)
-	if err != nil {
-		return "", err
-	}
-	startup, err := application.database.GetStartupArtifact(ctx, bundle.StartupArtifactID)
-	if err != nil {
-		return "", err
-	}
-	return startup.CoreArtifactID, nil
-}
-
 // QueueConfigurationRuntime snapshots the current file for a fresh binary
 // preflight in the serialized runtime lane. Empty coreID retains the applied
 // binary identity; version selection may supply an explicit verified artifact.

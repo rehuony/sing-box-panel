@@ -39,34 +39,22 @@ sing-box concepts (`log`, `dns`, `ntp`, `certificate`, `endpoints`, `inbounds`,
 `network_namespaces`, and `experimental`). The panel does not add
 `_panel`, disabled-item markers, or another storage envelope to these bytes.
 
-The Web editor and the CLI write the same file. The CLI saves it with the
-numeric file revision as the compare-and-swap base, starting at `0`:
+The Web editor manages this document through `GET/PUT /api/v1/config/file`.
+The numeric file revision is a compare-and-swap guard, starting at `0` before
+the first save. Reads return the stored text exactly, including unfinished
+JSON, together with `revision`, `syntax_valid`, and `canonical_revision_id`.
+A stale save fails instead of merging implicitly. The logical name `config.json`
+is not a filesystem path: the text lives in the `configuration_file` table of
+`panel.db` inside `data_dir`. There is no second writable runtime configuration
+on disk and no sing-box configuration CLI.
 
-```sh
-sing-box-panel config import \
-  --file ./config.json \
-  --revision 0
-```
-
-`config show` and `config export` return the stored text exactly, including an
-unfinished draft; `config show --output json` adds `revision`, `syntax_valid`,
-and `canonical_revision_id`. A stale `--revision` fails instead of merging
-implicitly. The logical name `config.json` is not a filesystem path: the text
-lives in the `configuration_file` table of `panel.db` inside `data_dir`, and
-there is no second writable on-disk runtime configuration.
-
-CLI `config get` reads one JSON-pointer value of the current valid file.
-`config set` and `unset` edit a value. These writes take `--base-revision`, the
-`canonical_revision_id` of the current valid snapshot, and report their own
-canonical revision. Read `config show --output json` again before a subsequent
-whole-file import to obtain the current numeric revision and text. These
-operations refuse to run while the saved file is invalid; correct the text
-with `config import` or the Web editor first. Each valid write
-synchronizes the editable file in the same transaction. Revision values are
-concurrency guards for the current file, not a user-facing history workflow.
-Neither the CLI nor the browser offers historical configuration selection,
-comparison, or restoration. Immutable internal evidence remains where native
-checks, runtime identities and activation recovery require it.
+Valid saves synchronize the editable document and immutable revision in one
+transaction. Invalid drafts block check, Apply, Start, and Restart until corrected
+in the Web editor. Revision values protect concurrent edits; neither the CLI nor
+the browser offers historical selection, comparison, or restoration. Internal
+immutable evidence remains for native checks, runtime identities, and recovery.
+The CLI's `config` group instead manages the panel settings file; see
+[Panel settings](cli.md#panel-settings).
 
 ## Switching versions without rewriting JSON
 
@@ -75,16 +63,12 @@ panel does not infer which keys an older release accepts and does not silently
 drop fields. A check snapshots the current valid file and asks that exact,
 digest-verified binary to validate the execution snapshot. Snapshot formatting
 may differ from the saved text, but field names and values are preserved and
-the saved text is untouched:
-
-```sh
-sing-box-panel config check --core CORE_ARTIFACT_ID
-```
+the saved text is untouched. Select the target core and use Check in the Web UI.
 
 If the configuration uses fields unavailable in that version, `sing-box check`
 fails, the startup artifact becomes failed, and the currently applied runtime
 is left untouched. There is no separate editable startup JSON or
-version-specific transformation path. The Web UI performs the same check
+version-specific transformation path. The Web UI requests the check
 through `POST /api/v1/config/compile`.
 
 ## Reviewed configuration schemas
@@ -133,19 +117,12 @@ durable `sing-box check` against the selected binary without touching the live
 core. Apply snapshots the same current file for preflight in the serialized
 runtime lane and restarts the core with it only after that check succeeds:
 
-```sh
-sing-box-panel config check                       # applied core
-sing-box-panel config apply                       # checked restart, applied core kept
-sing-box-panel config apply --core CORE_ARTIFACT_ID
-sing-box-panel core enable CORE_ARTIFACT_ID       # same switch as apply --core
-```
-
-Both commands default to the currently applied core and require `--core` before
-any core has been applied. Both wait for the durable task by default and
-expose `--detach`. The Web UI drives the same internals through
+Check and Apply are Web UI operations. The Web UI drives
 `POST /api/v1/config/compile`, `POST /api/v1/core/artifacts/{artifactId}/enable`,
-and the runtime endpoints; startup artifacts and activation bundles remain
-internal evidence rather than CLI inputs.
+and the runtime endpoints. Startup artifacts and activation bundles remain
+internal evidence. The CLI retains `core enable CORE_ARTIFACT_ID` to switch
+binaries with the current saved document; it waits for the durable task unless
+`--detach` is supplied.
 
 Apply rechecks the current file, canonical head, artifact trust, and startup
 evidence. A concurrent configuration or trust change cannot be combined with
@@ -219,23 +196,105 @@ infer earlier history from tasks or logs.
 
 ## Panel settings and protocol identity
 
-The panel's own settings live at authenticated `GET/PUT /api/v1/panel/settings`
-and are separate from sing-box configuration. The singleton revision is a
-compare-and-swap boundary; stale edits fail without overwriting newer settings.
-The three UI categories are service/security, nodes/subscriptions, and
-statistics/appearance. Listener/origin changes require a panel restart. A
-management-token change invalidates existing sessions. GitHub credentials and
-traffic quota are read at operation boundaries. Credential reads expose only
-configured flags; an omitted credential preserves it, and GitHub removal is
-explicit.
+The panel settings API at authenticated `GET/PUT /api/v1/panel/settings` is a
+projection of the shared settings file selected by `--config`. The Web UI,
+CLI and manual edits have one source; no database preferences override it.
+The API's revision is an opaque JSON-safe fingerprint of the exact file bytes,
+not a sequence number. Manual edits, including formatting changes, invalidate
+older forms; stale writes return a conflict without changing either resource.
+The three UI categories remain service/security, nodes/subscriptions, and
+statistics/appearance. Credential reads expose only configured flags; an
+omitted credential preserves it, and GitHub removal is explicit.
+
+### Shared settings file
+
+Existing file fields retain their paths. Web-only preferences are added under
+`panel`, with matching defaults. The Web form preserves fields it does not edit.
+
+| Settings field | Web field | Generated default |
+| --- | --- | --- |
+| `server.host` / `server.port` | Listener host / port | `127.0.0.1` / `3000` |
+| `server.external_origin` | External origin | Empty |
+| `server.base_path` | File/CLI only | Empty |
+| `data_dir` | File/CLI only | Root or XDG data directory |
+| `auth.token` | Management token | Random token |
+| `auth.secure_cookie` | Derived from Web origin | `false`; must match HTTPS origin |
+| `github.token` | GitHub token | Empty |
+| `github.catalog_ttl_hours` | File/CLI only | `12` |
+| `traffic.quota_gib` | Traffic quota | `null`; `null` and `0` are unlimited |
+| `traffic.period_months` | File/CLI only | `1` |
+| `traffic.sample_retention_days` | File/CLI only | `90` |
+| `subscription.author` | File/CLI only | `reagin` |
+| `subscription.provider` | File/CLI only | `default`; editable, existing values retained |
+| `subscription.private_source_cidrs` | File/CLI only | `[]` |
+| `logs.retention_days` | File/CLI only | `7` |
+| `panel.public_node_host` | Public node host | Empty; automatic detection |
+| `panel.identity_name` / `panel.identity_key` | Protocol identity | Empty / empty |
+| `panel.language` | Language | `zh-CN` |
+| `panel.appearance.theme` | Theme | `light` |
+| `panel.appearance.color` | Color | `#6D4ED1` |
+| `panel.appearance.radius` | Radius | `24` |
+
+`data_dir` remains the common root: ordinary users default to
+`$XDG_DATA_HOME/sing-box-panel` (or `~/.local/share/sing-box-panel`), and root
+defaults to `/var/lib/sing-box-panel`. A relative `data_dir` resolves beside
+`setting.json`, independently of the shell's current directory. Derived paths
+are not duplicated as independent settings:
+
+```text
+data_dir/
+  panel.db                # product state, tasks, metrics and panel logs
+  artifacts/              # installed sing-box cores
+  runtime/configs/        # immutable execution snapshots
+  imports/                # temporary core uploads
+  logs/core/              # managed core log files
+  panel-control.sock      # private process control
+  runtime-executor.lock    # process ownership
+```
+
+The sing-box subprocess working directory is `data_dir/runtime`, so relative
+paths inside its native configuration resolve there. The panel settings file
+and its write/recovery sidecars remain beside the selected `--config` path.
+
+API revision, detected public IP, configured-secret flags and restart status are
+response metadata and are not settings fields. File reads include credentials;
+the Web API continues to redact them. Quota accepts whole GiB from zero through
+8589934591, preserving the existing file range and preventing byte overflow.
+
+Tokens, public-node host, identity defaults and quota are read at operation
+boundaries; language/appearance update when the Web view reloads or saves.
+Listener, base path, origin/cookie policy, data directory, catalog TTL, traffic
+period/retention, private-source allowlist and log retention need a panel restart.
+The API restart flag includes these file-only startup fields. Changing `data_dir` requests a relocation on the next explicit start/restart.
+The current listener and data directory remain active until stopped.
+A token change invalidates existing sessions. File edits of protocol identity
+change defaults for new inbounds; updating existing sing-box credentials remains
+an explicit Web action: enter the key and save, then perform a checked restart.
+CLI file management never rewrites the sing-box document.
+
+On first upgraded startup, legacy SQLite panel preferences are imported into the
+selected file once, preserving previously effective values and credentials. The
+legacy row is removed after the file update commits. Older files without `panel`
+receive the new defaults; explicit custom values and relative `data_dir` are
+retained. Subsequent startups do not overwrite file edits from old database values.
+
+Writers use a private persistent `.lock` sidecar and atomic file replacement.
+Web saves use a temporary private `.pending` recovery journal and a SQLite commit
+marker so a file update and any protocol-identity update recover to the same
+outcome after interruption. The marker contains transaction identity, not a
+second copy of settings. Startup recovers before serving requests. Incomplete
+updates block file commands; a conflicting external edit is never overwritten
+by automatic recovery. Keep the selected file and its directory writable by the
+service account; see [systemd permissions](../systemd/README.md#system-service).
 
 The public-node host accepts a public IP or domain override; otherwise the
 bounded public-IP detector provides the input placeholder and publication host.
 It never rewrites the actual listener, port, TLS server name or imported node
 address. Detection failure must not publish loopback or wildcard addresses.
 
-Saving a changed common protocol name/key updates matching managed credentials
-in the saved configuration in the same transaction. It preserves other existing
+Explicitly saving a changed common protocol name or entering its key updates
+matching managed credentials in the saved configuration, coordinated with the
+settings file through the recoverable transaction above. It preserves other existing
 users, external client nodes and protocol-specific obfuscation secrets. UUID-
 based protocols receive a UUID; Shadowsocks 2022 receives a method-sized key.
 An invalid saved configuration or concurrent edit rejects the whole change.
@@ -250,3 +309,38 @@ status colors and the logo stay independent. Card/dialog radius is R, controls
 R/2, and the shell min(32,7R/6). Saving persists preferences; changing category
 retains edits, leaving the page restores saved appearance. Reset changes only
 theme color/radius and still requires saving. Help is in hover/focus tips.
+
+### Data directory changes
+
+The existing defaults remain unchanged. Edit `data_dir` through the same
+`config set` command or settings file; no separate data-directory command exists.
+A private `setting.json.location` records the established directory so manual
+edits can be distinguished from a new instance. It is migration metadata, not
+another configuration source. Status and stop continue to locate the old
+instance before relocation. Keep this sidecar with the selected settings file.
+
+On the next explicit `server start`, the panel requires exclusive ownership of
+both the old runtime and database and proves that the recorded core has exited.
+It copies files, takes a consistent SQLite snapshot (including committed WAL),
+rebases installed-core and pending-import paths, verifies the copied content,
+and only then removes the source data and commits the new location. This works
+across filesystems. Interrupted copies are rebuilt; interrupted cleanup resumes
+from the verified destination. Migration markers block ordinary database access
+to unfinished locations. Missing established storage, nonempty destinations,
+nested instances, overlapping paths and settings located inside either data
+root fail closed. Native sing-box JSON and historical evidence are unchanged;
+operator-specified absolute paths inside native JSON remain the operator's
+responsibility. Relative native paths still resolve under `data_dir/runtime`.
+
+For generated systemd units, an explicit `systemd restart` stops the service,
+performs the move outside its sandbox, updates directory/ownership declarations,
+and starts the service again. `systemd start` does the same preparation for a
+stopped service; it never stops an already running one implicitly. Customized
+units or drop-ins are not overwritten: stop the service and explicitly reinstall
+its unit with the selected settings. Failed migration leaves the service stopped
+and can be retried after the cause is corrected. A sandbox that prevents removal
+of an empty old root may leave only a private relocation marker there.
+
+Upgrade once with the original settings and data directory before manually
+changing that path. Without an existing location record or the previous file
+seen by `config set`, an arbitrary former custom directory cannot be inferred.

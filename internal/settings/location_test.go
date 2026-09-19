@@ -36,7 +36,7 @@ func TestLoadDataDirRejectsAmbiguousOrMissingLocations(t *testing.T) {
 		`{"data_dir":"one","data_dir":"two"}`,
 		`{"data_dir":"data","traffic":{"quota_gib":1,"quota_gib":2}}`,
 		`{"data_dir":"data"} {}`,
-		`{"data_dir":"` + strings.Repeat("x", maxSettingsBytes) + `"}`,
+		`{"data_dir":"` + strings.Repeat("x", MaximumBytes) + `"}`,
 	} {
 		if err := os.WriteFile(path, []byte(input), 0o600); err != nil {
 			t.Fatal(err)

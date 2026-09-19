@@ -89,7 +89,7 @@ func TestInstanceFilesTextShowsExistingContentsWithoutCleanupLabels(t *testing.T
 			DataDir:          "/srv/panel",
 			Entries: []installation.Entry{
 				{Path: "/opt/bin/panel", Role: "panel executable", State: "file", Cleanup: "retain"},
-				{Path: "/srv/config/custom.json", Role: "panel bootstrap settings", State: "file", Cleanup: "remove"},
+				{Path: "/srv/config/custom.json", Role: "panel settings", State: "file", Cleanup: "remove"},
 				{Path: "/srv/panel", Role: "instance data directory", State: "directory", Cleanup: "remove"},
 				{Path: "/srv/panel/empty", State: "directory", Cleanup: "remove"},
 				{Path: "/srv/panel/panel.db", State: "file", Cleanup: "remove"},
@@ -881,7 +881,7 @@ func TestCleanupProtectsOtherServiceSettingsAndAliases(t *testing.T) {
 
 func TestSystemPruneRemovesAllDataWithInvalidRuntimeSettings(t *testing.T) {
 	path := commandSettingsFixture(t)
-	runApplicationCommand(t, path, "{}", "config", "import", "--file", "-", "--revision", "0")
+	saveConfigurationFixture(t, path, "{}")
 	dataDir, err := settings.LoadDataDir(path)
 	if err != nil {
 		t.Fatal(err)

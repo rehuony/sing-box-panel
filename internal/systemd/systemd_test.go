@@ -67,7 +67,7 @@ func TestUserInstallAndUninstallUseAuditedArguments(t *testing.T) {
 		`ExecStart="` + escapedUnitPath(fixture.executable) + `" server start --config "` + escapedUnitPath(fixture.settings) + `"`,
 		`Environment=SING_BOX_PANEL_SUPERVISOR=systemd`,
 		`WorkingDirectory="` + escapedPathDirective(fixture.data) + `"`,
-		`ReadWritePaths="` + escapedPathDirective(fixture.data) + `"`,
+		`ReadWritePaths="` + escapedPathDirective(fixture.data) + `" "` + escapedPathDirective(filepath.Dir(fixture.settings)) + `"`,
 	} {
 		if !strings.Contains(text, value) {
 			t.Fatalf("unit does not contain %q:\n%s", value, text)
@@ -179,7 +179,8 @@ func TestSystemInstallRequiresRootAndConventionalLayout(t *testing.T) {
 	wantCalls := []recordedCommand{
 		{name: "systemd-sysusers", args: []string{fixture.layout.SystemSysusersPath}},
 		{name: "systemd-tmpfiles", args: []string{"--create", fixture.layout.SystemTmpfilesPath}},
-		{name: "chown", args: []string{"root:" + serviceGroup, fixture.settings}},
+		{name: "chown", args: []string{serviceUser + ":" + serviceGroup, filepath.Dir(fixture.settings)}},
+		{name: "chown", args: []string{serviceUser + ":" + serviceGroup, fixture.settings}},
 		{name: "chown", args: []string{"--recursive", "--no-dereference", serviceUser + ":" + serviceGroup, fixture.data}},
 		{name: "systemctl", args: []string{"--no-ask-password", "daemon-reload"}},
 		{name: "systemctl", args: []string{"--no-ask-password", "enable", UnitName}},
@@ -191,8 +192,8 @@ func TestSystemInstallRequiresRootAndConventionalLayout(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := info.Mode().Perm(); got != 0o640 {
-		t.Fatalf("settings mode = %o, want 640", got)
+	if got := info.Mode().Perm(); got != 0o600 {
+		t.Fatalf("settings mode = %o, want 600", got)
 	}
 
 	request := InstallRequest{Scope: ScopeSystem, SettingsPath: fixture.settings, DataDir: filepath.Join(fixture.data, "other")}

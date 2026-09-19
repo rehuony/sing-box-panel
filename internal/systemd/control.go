@@ -73,6 +73,9 @@ func (manager *Manager) Control(ctx context.Context, requested Scope, action Act
 	default:
 		return ControlResult{}, fmt.Errorf("%w: unsupported control action %q", ErrInvalid, action)
 	}
+	if err := manager.prepareDataMove(ctx, scope, action); err != nil {
+		return ControlResult{}, err
+	}
 	if err := manager.runSystemctl(ctx, scope, string(action), UnitName); err != nil {
 		return ControlResult{}, err
 	}

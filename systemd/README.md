@@ -15,7 +15,7 @@ Manual terminal runs do not set that marker. They remain stoppable through
 environment; the service itself is stopped through `systemd stop`.
 
 ```sh
-# Dedicated system service. These three paths are deliberately fixed.
+# Dedicated system service, initially using the default data directory.
 sudo /usr/local/bin/sing-box-panel init
 sudo /usr/local/bin/sing-box-panel systemd install --scope=system --now
 
@@ -28,8 +28,9 @@ sing-box-panel systemd install --scope=user --now
 The built-in systemd installer writes to `/etc/systemd/system`,
 `/etc/sysusers.d`, and `/etc/tmpfiles.d`; distro packages should continue to
 use the `/usr/lib` destinations below. System scope requires root and the
-release layout `/usr/local/bin/sing-box-panel`,
-`/etc/sing-box-panel/setting.json`, and `/var/lib/sing-box-panel`. It creates
+executable `/usr/local/bin/sing-box-panel` and settings
+`/etc/sing-box-panel/setting.json`. Data defaults to `/var/lib/sing-box-panel`;
+a configured dedicated directory is rendered into the unit and tmpfiles rule. It creates
 the dedicated account/directories, grants that account access only to the
 settings and data paths, reloads systemd, and enables the unit. User scope
 writes only the current user's XDG systemd unit.
@@ -37,7 +38,8 @@ writes only the current user's XDG systemd unit.
 Installation without `--now` reads and validates only the configured data path;
 `--now` also requires valid runtime settings before any installation starts.
 Status uses only location fields for its optional settings report. Other
-service operations do not load the CLI settings file; a starting service
+service operations do not load the CLI settings file. Start/restart inspect the
+installed unit's settings when a data relocation is pending. A starting service
 validates its own runtime configuration.
 
 The ownership marker embedded in installed files remains stable across CLI
@@ -71,11 +73,13 @@ Linux capabilities by default. A packager should install the following files:
 
 After creating the account and directories with the host's normal packaging
 tools, initialize `/etc/sing-box-panel/setting.json`. The runtime user must be
-able to read that file, while no other user should be able to read its token:
+able to atomically replace that file and create private lock/recovery sidecars
+in its directory, while no other user should be able to read its token:
 
 ```sh
-chown root:sing-box-panel /etc/sing-box-panel/setting.json
-chmod 0640 /etc/sing-box-panel/setting.json
+chown sing-box-panel:sing-box-panel /etc/sing-box-panel /etc/sing-box-panel/setting.json
+chmod 0700 /etc/sing-box-panel
+chmod 0600 /etc/sing-box-panel/setting.json
 ```
 
 The default unit is suitable for unprivileged proxy ports. TUN, transparent
@@ -97,4 +101,20 @@ It is intended for ordinary user-owned proxy listeners.
 
 Both services use restart-on-failure and stop the complete process group. Their
 sandbox permits only Unix, IPv4, IPv6, and netlink sockets and keeps the data
-directory as the sole writable persistent location.
+and settings directories writable. The system template explicitly permits
+`/etc/sing-box-panel`; rendered user units permit the selected settings and data
+directories. After upgrading an older installation, rerun `systemd install` to
+refresh the unit and ownership before saving preferences through the Web UI.
+Use `--force` when replacing an older generated template after reviewing changes.
+
+After editing `data_dir`, an explicit `systemd restart` coordinates a stopped
+migration and refreshes generated working-directory, sandbox and tmpfiles paths.
+System services retain `ProtectHome=true`, so data destinations under `/home`,
+`/root` or `/run/user` are rejected before stopping the service. Explicit data
+and configuration directories under private temporary roots receive narrow bind
+mounts; other sandbox restrictions stay enabled. Custom data roots also clear
+the default `StateDirectory` declaration so it does not recreate the old root.
+Automatic rewriting requires exact generated files and no drop-in overrides.
+For customized units, stop the service and explicitly run `systemd install`
+(with `--force` only when replacing those customizations is intended), then start
+it. Installation also performs a pending move, refusing any active owner.

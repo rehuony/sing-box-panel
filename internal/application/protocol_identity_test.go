@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/rehuony/sing-box-panel/internal/configuration"
+	"github.com/rehuony/sing-box-panel/internal/settings"
 	"github.com/rehuony/sing-box-panel/internal/store"
 )
 
@@ -62,7 +63,7 @@ func TestNewInboundUsesSavedIdentityWithoutSavingConfiguration(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer db.Close()
-	app := FromStore(db)
+	app := FromStoreWithSettings(db, settingsFileFixture(t, settings.Defaults()))
 	view, _ := app.PanelSettings(ctx)
 	view.Preferences.IdentityName = "shared"
 	if _, err := app.SavePanelSettings(ctx, PanelSettingsWrite{Revision: view.Revision, Preferences: view.Preferences, IdentityKey: "new-shared-key"}); err != nil {
@@ -104,7 +105,7 @@ func TestIdentityAndSettingsSaveAtomicallyWithoutLaunching(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer db.Close()
-	app := FromStore(db)
+	app := FromStoreWithSettings(db, settingsFileFixture(t, settings.Defaults()))
 	file, err := app.SaveConfigurationFile(ctx, ConfigurationFileWrite{Content: `{"inbounds":[{"type":"anytls","tag":"a","users":[]}]}`})
 	if err != nil {
 		t.Fatal(err)
@@ -145,7 +146,7 @@ func TestIdentityAndSettingsSaveAtomicallyWithoutLaunching(t *testing.T) {
 		t.Fatal(err)
 	}
 	change, _ := app.configurationFileUpdate(ConfigurationFileWrite{Revision: updated.Revision, Content: `{"inbounds":[]}`})
-	_, err = db.SavePanelSettings(ctx, []byte(`{"identity_key":"wrong"}`), saved.Revision, change)
+	err = db.CommitPanelSettingsFile(ctx, app.settingsPath, "rejected", nil, change, func() error { t.Fatal("stale identity update published settings"); return nil })
 	if !errors.Is(err, store.ErrConfigurationFileConflict) {
 		t.Fatal(err)
 	}

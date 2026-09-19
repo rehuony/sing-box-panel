@@ -35,6 +35,16 @@ func Clean(ctx context.Context, expected Report) (result CleanupResult, cleanErr
 	if err := ValidateCleanup(current); err != nil {
 		return result, err
 	}
+	settingsLock, err := settings.TryLock(ctx, current.SettingsPath)
+	if err != nil {
+		return result, err
+	}
+	defer settingsLock.Close()
+	if location, err := settings.ReadDataLocation(current.SettingsPath); err == nil && location.Move != nil {
+		return result, errors.New("finish data directory migration before cleanup")
+	} else if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return result, err
+	}
 	settingsRoot, err := os.OpenRoot(filepath.Dir(current.SettingsPath))
 	if err != nil {
 		return result, err
@@ -51,6 +61,15 @@ func Clean(ctx context.Context, expected Report) (result CleanupResult, cleanErr
 			return result, err
 		}
 		result.Removed = append(result.Removed, current.SettingsPath)
+		if err := settingsRoot.Remove(settingsName + ".lock"); err != nil {
+			return result, err
+		}
+		result.Removed = append(result.Removed, current.SettingsPath+".lock")
+		if err := settingsRoot.Remove(settingsName + ".location"); err == nil {
+			result.Removed = append(result.Removed, current.SettingsPath+".location")
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return result, err
+		}
 		return result, nil
 	}
 	if err != nil {
@@ -138,6 +157,15 @@ func Clean(ctx context.Context, expected Report) (result CleanupResult, cleanErr
 	}
 	if err := settingsRoot.Remove(settingsName); err == nil {
 		result.Removed = append(result.Removed, current.SettingsPath)
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return result, err
+	}
+	if err := settingsRoot.Remove(settingsName + ".lock"); err != nil {
+		return result, err
+	}
+	result.Removed = append(result.Removed, current.SettingsPath+".lock")
+	if err := settingsRoot.Remove(settingsName + ".location"); err == nil {
+		result.Removed = append(result.Removed, current.SettingsPath+".location")
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return result, err
 	}

@@ -12,6 +12,7 @@ import (
 
 	"github.com/rehuony/sing-box-panel/internal/application"
 	"github.com/rehuony/sing-box-panel/internal/buildinfo"
+	"github.com/rehuony/sing-box-panel/internal/installation"
 	"github.com/rehuony/sing-box-panel/internal/selfupdate"
 	"github.com/rehuony/sing-box-panel/internal/settings"
 	"github.com/rehuony/sing-box-panel/internal/store"
@@ -64,12 +65,11 @@ func NewRootCommand(deps Dependencies) *cobra.Command {
 	root.PersistentFlags().VarP(newOutputValue(&state.format), "output", "o", "output format: text, json, or jsonl")
 	root.AddCommand(
 		newInitCommand(state),
-		newVerifyCommand(state),
 		newVersionCommand(state, deps.Build),
 		newUpdateCommand(state, deps.Build, deps.Update),
 		newServerCommand(state, deps.RunServer),
 		newCoreCommand(state, deps.OpenApplication),
-		newConfigCommand(state, deps.OpenApplication),
+		newConfigCommand(state),
 		newSubscriptionChannelCommand(state, deps.OpenApplication),
 		newSubscriptionSourceCommand(state, deps.OpenApplication),
 		newSubscriptionTokenCommand(state, deps.OpenApplication),
@@ -121,6 +121,10 @@ func newInitCommand(state *options) *cobra.Command {
 			if err != nil {
 				return &Error{Kind: ErrorValidation, Code: "initialization_failed", Message: err.Error(), Cause: err}
 			}
+			value, err = installation.PrepareDataLocation(cmd.Context(), state.settingsPath)
+			if err != nil {
+				return &Error{Kind: ErrorDomain, Code: "data_migration_failed", Message: err.Error(), Cause: err}
+			}
 			database, err := store.Open(cmd.Context(), filepath.Join(value.DataDir, "panel.db"))
 			if err != nil {
 				return &Error{Kind: ErrorDomain, Code: "database_initialization_failed", Message: err.Error(), Cause: err}
@@ -133,40 +137,15 @@ func newInitCommand(state *options) *cobra.Command {
 			if closeErr != nil {
 				return &Error{Kind: ErrorDomain, Code: "database_close_failed", Message: closeErr.Error(), Cause: closeErr}
 			}
+			if err := settings.EstablishDataLocation(cmd.Context(), state.settingsPath, value.DataDir); err != nil {
+				return err
+			}
 			result := map[string]any{"settings_path": state.settingsPath, "data_dir": value.DataDir, "schema_version": info.Version}
 			return writeResult(cmd.OutOrStdout(), state.format, result, fmt.Sprintf("initialized %s", state.settingsPath))
 		},
 	}
 	cmd.Flags().BoolVar(&force, "force", false, "replace an existing settings file")
 	return cmd
-}
-
-func newVerifyCommand(state *options) *cobra.Command {
-	return &cobra.Command{
-		Use:   "verify",
-		Short: "Validate settings and local prerequisites",
-		Args:  cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			value, err := settings.Load(state.settingsPath)
-			if err != nil {
-				return &Error{Kind: ErrorValidation, Code: "settings_invalid", Message: err.Error(), Cause: err}
-			}
-			database, err := store.Open(cmd.Context(), filepath.Join(value.DataDir, "panel.db"))
-			if err != nil {
-				return &Error{Kind: ErrorValidation, Code: "database_invalid", Message: err.Error(), Cause: err}
-			}
-			info, err := database.SchemaInfo(cmd.Context())
-			closeErr := database.Close()
-			if err != nil {
-				return &Error{Kind: ErrorValidation, Code: "database_invalid", Message: err.Error(), Cause: err}
-			}
-			if closeErr != nil {
-				return &Error{Kind: ErrorDomain, Code: "database_close_failed", Message: closeErr.Error(), Cause: closeErr}
-			}
-			result := map[string]any{"valid": true, "settings_path": state.settingsPath, "data_dir": value.DataDir, "schema_version": info.Version}
-			return writeResult(cmd.OutOrStdout(), state.format, result, "settings are valid")
-		},
-	}
 }
 
 func newVersionCommand(state *options, info buildinfo.Info) *cobra.Command {

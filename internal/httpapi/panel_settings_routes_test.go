@@ -22,6 +22,7 @@ func TestPanelSettingsAuthenticationPersistenceAndRotation(t *testing.T) {
 	defer db.Close()
 	configuration := settings.Defaults()
 	configuration.Auth.Token = strings.Repeat("original-", 4)
+	configuration = settingsFileFixture(t, configuration)
 	app := application.FromStoreWithSettings(db, configuration)
 	handler := NewHandler(HandlerOptions{Settings: configuration, Commands: app})
 	unauthenticated := httptest.NewRecorder()
@@ -112,6 +113,7 @@ func TestPanelSettingsTokenRotationRemainsUsable(t *testing.T) {
 			t.Cleanup(func() { _ = db.Close() })
 			cfg := settings.Defaults()
 			cfg.Auth.Token = strings.Repeat("original-", 4)
+			cfg = settingsFileFixture(t, cfg)
 			app := application.FromStoreWithSettings(db, cfg)
 			handler := NewHandler(HandlerOptions{Settings: cfg, Commands: app})
 			login := func(token string) *httptest.ResponseRecorder {
@@ -164,5 +166,48 @@ func TestPanelSettingsTokenRotationRemainsUsable(t *testing.T) {
 				t.Fatal("rejected token rotation invalidated the original credentials")
 			}
 		})
+	}
+}
+
+func TestManualSettingsTokenEditChangesAuthentication(t *testing.T) {
+	db, err := store.Open(t.Context(), filepath.Join(t.TempDir(), "panel.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	value := settingsFileFixture(t, settings.Defaults())
+	app := application.FromStoreWithSettings(db, value)
+	handler := NewHandler(HandlerOptions{Settings: value, Commands: app})
+	login := httptest.NewRecorder()
+	handler.ServeHTTP(login, httptest.NewRequest(http.MethodPost, "/api/v1/auth/session", strings.NewReader(`{"token":"`+value.Auth.Token+`"}`)))
+	if login.Code != http.StatusOK {
+		t.Fatalf("login: %d %s", login.Code, login.Body.String())
+	}
+	cookie := login.Result().Cookies()[0]
+	oldToken := value.Auth.Token
+	value.Auth.Token = strings.Repeat("replacement-", 3)
+	raw, _ := json.Marshal(value)
+	if err := settings.Replace(value.Path(), raw); err != nil {
+		t.Fatal(err)
+	}
+	for _, credential := range []string{"cookie", oldToken, value.Auth.Token} {
+		request := httptest.NewRequest(http.MethodGet, "/api/v1/panel/settings", nil)
+		if credential == "cookie" {
+			request.AddCookie(cookie)
+		} else {
+			request.Header.Set("Authorization", "Bearer "+credential)
+		}
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, request)
+		want := http.StatusUnauthorized
+		if credential == value.Auth.Token {
+			want = http.StatusOK
+		}
+		if response.Code != want {
+			t.Fatalf("authentication status = %d, want %d", response.Code, want)
+		}
+		if strings.Contains(response.Body.String(), value.Auth.Token) {
+			t.Fatal("settings API exposed secret")
+		}
 	}
 }

@@ -77,9 +77,9 @@ func TestTaskHTTPUsesPairedKeysetCursor(t *testing.T) {
 		t.Fatal(err)
 	}
 	databaseFailure := authenticatedRequest(handler, http.MethodGet, "/api/v1/tasks", "", "")
-	// Authentication settings also reside in this database. Fail closed before
-	// dispatching a task query when the current credential cannot be read.
-	if databaseFailure.Code != http.StatusServiceUnavailable {
+	// File-backed authentication remains available; the task query reports the
+	// database failure without treating valid credentials as unavailable.
+	if databaseFailure.Code != http.StatusInternalServerError {
 		t.Fatalf("database failure status=%d body=%s", databaseFailure.Code, databaseFailure.Body.String())
 	}
 }

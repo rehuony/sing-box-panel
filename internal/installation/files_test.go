@@ -72,7 +72,7 @@ func TestInspectWithoutSettingsDoesNotGuessDataDirectory(t *testing.T) {
 		var settingsFound, executableFound bool
 		for _, entry := range report.Entries {
 			switch entry.Role {
-			case "panel bootstrap settings":
+			case "panel settings":
 				settingsFound = entry.Path == selected && entry.State == "missing"
 			case "panel executable":
 				executableFound = entry.State != "missing"
@@ -563,5 +563,44 @@ func TestInspectLeavesIncompleteOrLinkedWALUntouched(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestCleanupCoordinatesWithSettingsWriter(t *testing.T) {
+	path, dataDir := fixture(t)
+	lock, err := settings.Lock(t.Context(), path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lock.Close()
+	report, err := Inspect(t.Context(), path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, entry := range report.Entries {
+		if entry.Path == path+".lock" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("settings lock missing from inventory")
+	}
+	if _, err := Clean(t.Context(), report); err == nil {
+		t.Fatal("cleanup ignored settings writer")
+	}
+	for _, retained := range []string{path, filepath.Join(dataDir, "panel.db")} {
+		if _, err := os.Stat(retained); err != nil {
+			t.Fatalf("busy cleanup removed %s: %v", retained, err)
+		}
+	}
+	if err := lock.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Clean(t.Context(), report); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(path + ".lock"); !os.IsNotExist(err) {
+		t.Fatalf("idle lock retained: %v", err)
 	}
 }

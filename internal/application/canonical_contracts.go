@@ -36,12 +36,6 @@ type CanonicalSave struct {
 	NoChange bool              `json:"no_change"`
 }
 
-type CanonicalValue struct {
-	Revision CanonicalSnapshot `json:"revision"`
-	Pointer  string            `json:"pointer"`
-	Value    any               `json:"value"`
-}
-
 type CanonicalRevisionPage struct {
 	Items []CanonicalSnapshot `json:"items"`
 	Next  *int64              `json:"next_before_sequence,omitempty"`

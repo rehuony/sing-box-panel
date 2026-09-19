@@ -101,7 +101,7 @@ func (tree *cleanupTree) remove(parent *os.Root, name, path string) (removeErr e
 	if err := tree.ctx.Err(); err != nil {
 		return err
 	}
-	if path == tree.settings {
+	if tree.settings != "" && (path == tree.settings || path == tree.settings+".lock" || path == tree.settings+".location") {
 		return nil
 	}
 	info, err := parent.Lstat(name)

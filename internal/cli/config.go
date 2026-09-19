@@ -3,176 +3,102 @@
 package cli
 
 import (
-	"context"
-	"crypto/sha256"
-	"encoding/hex"
-	"errors"
 	"fmt"
-	"io"
 
-	"github.com/rehuony/sing-box-panel/internal/application"
-	"github.com/rehuony/sing-box-panel/internal/configuration"
-	"github.com/rehuony/sing-box-panel/internal/store"
+	"github.com/rehuony/sing-box-panel/internal/settings"
 	"github.com/spf13/cobra"
 )
 
-type openApplicationFunc func(context.Context, string) (*application.Application, error)
+func newConfigCommand(state *options) *cobra.Command {
+	root := group("config", "Show, replace, or check the panel settings file")
+	root.Long = `Manage the panel settings file selected by --config.
 
-// ConfigurationFileName is the logical name shown for the one editable
-// configuration. Its bytes live in the panel database, not at a filesystem path.
-const ConfigurationFileName = "config.json"
+The Web UI, CLI, and manual edits share this same file. These commands do not
+open the database. Use the Web UI to manage sing-box configuration.`
+	root.AddCommand(newConfigShowCommand(state), newConfigSetCommand(state), newConfigCheckCommand(state))
+	return root
+}
 
-func newConfigShowCommand(state *options, open openApplicationFunc) *cobra.Command {
+func newConfigShowCommand(state *options) *cobra.Command {
 	return &cobra.Command{
 		Use:   "show",
-		Short: "Print the saved configuration file exactly as stored, even when invalid",
+		Short: "Print the panel settings file exactly as stored, including credentials",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			instance, err := openApplication(cmd.Context(), state.settingsPath, open)
-			if err != nil {
+			if err := cmd.Context().Err(); err != nil {
 				return err
 			}
-			defer instance.Close()
-			file, err := instance.ConfigurationFile(cmd.Context())
+			data, err := settings.Read(state.settingsPath)
 			if err != nil {
-				return classifyConfigurationFileError("configuration_file_read_failed", err)
+				return &Error{Kind: ErrorValidation, Code: "settings_read_failed", Message: err.Error(), Cause: err}
 			}
 			if state.format == outputText {
-				_, err := io.WriteString(cmd.OutOrStdout(), file.Content)
+				_, err := cmd.OutOrStdout().Write(data)
 				return err
 			}
-			return writeResult(cmd.OutOrStdout(), state.format, file, "")
+			return writeResult(cmd.OutOrStdout(), state.format, map[string]any{"settings_path": state.settingsPath, "content": string(data)}, "")
 		},
 	}
 }
 
-func newConfigExportCommand(state *options, open openApplicationFunc) *cobra.Command {
+func newConfigSetCommand(state *options) *cobra.Command {
 	var filePath string
-	var force bool
 	command := &cobra.Command{
-		Use:   "export",
-		Short: "Write the saved configuration file bytes to a file or stdout",
-		Args:  cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			if filePath == "" {
-				return &Error{Kind: ErrorUsage, Code: "file_required", Message: "--file is required; use - for stdout"}
-			}
-			instance, err := openApplication(cmd.Context(), state.settingsPath, open)
-			if err != nil {
-				return err
-			}
-			defer instance.Close()
-			file, err := instance.ConfigurationFile(cmd.Context())
-			if err != nil {
-				return classifyConfigurationFileError("configuration_file_export_failed", err)
-			}
-			if filePath == "-" {
-				_, err := io.WriteString(cmd.OutOrStdout(), file.Content)
-				return err
-			}
-			if err := writePrivateExport(filePath, []byte(file.Content), force); err != nil {
-				return &Error{Kind: ErrorValidation, Code: "configuration_file_export_failed", Message: err.Error(), Cause: err}
-			}
-			digest := sha256.Sum256([]byte(file.Content))
-			return writeResult(cmd.OutOrStdout(), state.format, map[string]any{
-				"file": filePath, "revision": file.Revision, "syntax_valid": file.SyntaxValid,
-				"canonical_revision_id": file.CanonicalRevisionID, "sha256": hex.EncodeToString(digest[:]),
-			}, fmt.Sprintf("exported configuration file revision %d (%s) to %s", file.Revision, syntaxStatusText(file), filePath))
-		},
-	}
-	command.Flags().StringVar(&filePath, "file", "", "destination file, or - for stdout")
-	command.Flags().BoolVar(&force, "force", false, "atomically replace an existing destination")
-	return command
-}
+		Use:   "set",
+		Short: "Validate and atomically replace the complete panel settings file",
+		Long: `Read a complete panel settings document from --file FILE or --file - for
+stdin. Validate it before replacing the selected --config file with private
+permissions. Relative data_dir paths resolve beside the destination settings
+file. Missing settings directories are created; the data directory is untouched.
 
-func newConfigImportCommand(state *options, open openApplicationFunc) *cobra.Command {
-	var filePath string
-	var revision int64
-	command := &cobra.Command{
-		Use:   "import",
-		Short: "Replace the saved configuration file using its numeric revision",
-		Long: `Replace the saved configuration file text using a numeric compare-and-swap
-revision. Use --revision 0 before the first save; afterwards pass the current
-revision reported by "config show --output json". The exact text is stored even
-when it is not valid JSON; an invalid draft blocks check, apply, start and
-restart until it is corrected and never falls back to older valid content.`,
+Restart the panel to reload startup fields such as its listener and data path.
+Credentials and panel preferences use this same file at operation boundaries.`,
+		Example: `  sing-box-panel config set --file ./new-setting.json
+  sing-box-panel --config ./setting.json config set --file - < ./new-setting.json`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			if !cmd.Flags().Changed("revision") {
-				return &Error{Kind: ErrorUsage, Code: "revision_required", Message: "--revision is required; use 0 before the first save"}
-			}
-			if revision < 0 {
-				return &Error{Kind: ErrorUsage, Code: "revision_invalid", Message: "--revision must be a non-negative file revision"}
-			}
 			if filePath == "" {
 				return &Error{Kind: ErrorUsage, Code: "file_required", Message: "--file is required; use - for stdin"}
 			}
-			raw, err := readConfigurationInput(cmd.InOrStdin(), filePath)
-			if err != nil {
-				return &Error{Kind: ErrorValidation, Code: "configuration_input_failed", Message: err.Error(), Cause: err}
-			}
-			instance, err := openApplication(cmd.Context(), state.settingsPath, open)
-			if err != nil {
+			if err := cmd.Context().Err(); err != nil {
 				return err
 			}
-			defer instance.Close()
-			file, err := instance.SaveConfigurationFile(cmd.Context(), application.ConfigurationFileWrite{
-				Revision: revision, Content: string(raw),
-			})
+			data, err := readInputFile(cmd.InOrStdin(), filePath, settings.MaximumBytes, "settings")
 			if err != nil {
-				return classifyConfigurationFileError("configuration_file_save_failed", err)
+				return &Error{Kind: ErrorValidation, Code: "settings_input_failed", Message: err.Error(), Cause: err}
 			}
-			text := fmt.Sprintf("saved configuration file revision %d (%s)", file.Revision, syntaxStatusText(file))
-			if file.Revision == revision {
-				text = fmt.Sprintf("configuration file revision %d is unchanged (%s)", file.Revision, syntaxStatusText(file))
+			if err := cmd.Context().Err(); err != nil {
+				return err
 			}
-			if !file.SyntaxValid {
-				text += "; check, apply, start and restart are blocked until the text is corrected"
+			if err := settings.ReplaceContext(cmd.Context(), state.settingsPath, data); err != nil {
+				return &Error{Kind: ErrorValidation, Code: "settings_save_failed", Message: err.Error(), Cause: err}
 			}
-			return writeResult(cmd.OutOrStdout(), state.format, file, text)
+			return writeResult(cmd.OutOrStdout(), state.format, map[string]any{"settings_path": state.settingsPath, "saved": true},
+				fmt.Sprintf("saved %s; restart the panel to reload startup fields", state.settingsPath))
 		},
 	}
-	command.Flags().StringVar(&filePath, "file", "", "configuration text file, or - for stdin")
-	command.Flags().Int64Var(&revision, "revision", 0, "current file revision used as the compare-and-swap base; 0 before the first save")
+	command.Flags().StringVar(&filePath, "file", "", "complete panel settings document, or - for stdin (required)")
 	return command
 }
 
-func syntaxStatusText(file application.ConfigurationFile) string {
-	if file.SyntaxValid {
-		if file.CanonicalRevisionID != "" {
-			return "valid JSON, canonical revision " + file.CanonicalRevisionID
-		}
-		return "valid JSON"
+func newConfigCheckCommand(state *options) *cobra.Command {
+	return &cobra.Command{
+		Use:   "check",
+		Short: "Validate the panel settings file without opening the database",
+		Long: `Validate JSON structure and panel settings values in the selected --config
+file. This reads only the file; database and environment checks run at server
+startup. It does not check the saved sing-box configuration.`,
+		Example: `  sing-box-panel config check
+  sing-box-panel config check --config ./setting.json --output json`,
+		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			if err := cmd.Context().Err(); err != nil {
+				return err
+			}
+			if _, err := settings.Load(state.settingsPath); err != nil {
+				return &Error{Kind: ErrorValidation, Code: "settings_invalid", Message: err.Error(), Cause: err}
+			}
+			return writeResult(cmd.OutOrStdout(), state.format, map[string]any{"valid": true, "settings_path": state.settingsPath}, "panel settings are valid")
+		},
 	}
-	return "invalid JSON"
-}
-
-func classifyConfigurationFileError(code string, err error) error {
-	switch {
-	case errors.Is(err, store.ErrConfigurationFileConflict):
-		return &Error{Kind: ErrorConflict, Code: "configuration_file_conflict", Message: "configuration file changed; read the current revision with config show and retry", Cause: err}
-	case errors.Is(err, store.ErrConfigurationFileInvalid):
-		return &Error{Kind: ErrorValidation, Code: "configuration_file_invalid", Message: err.Error(), Cause: err}
-	default:
-		return &Error{Kind: ErrorDomain, Code: code, Message: err.Error(), Cause: err}
-	}
-}
-
-func openApplication(
-	ctx context.Context,
-	settingsPath string,
-	open openApplicationFunc,
-) (*application.Application, error) {
-	if open == nil {
-		return nil, &Error{Kind: ErrorUnavailable, Code: "application_unavailable", Message: "application services are unavailable"}
-	}
-	instance, err := open(ctx, settingsPath)
-	if err != nil {
-		return nil, &Error{Kind: ErrorValidation, Code: "application_open_failed", Message: err.Error(), Cause: err}
-	}
-	return instance, nil
-}
-
-func readConfigurationInput(stdin io.Reader, filePath string) ([]byte, error) {
-	return readInputFile(stdin, filePath, int64(configuration.MaximumBytes), "configuration")
 }

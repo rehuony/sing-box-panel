@@ -27,8 +27,9 @@ bundle. It never selects the newest catalog version or a nearby release.
 
 ## Management authentication
 
-The settings file supplies the initial management token; replacements saved
-through panel settings are persisted in the database. API clients may send the
+The shared settings file supplies the management token. Web replacements update
+`auth.token` in that file; CLI or manual token edits are seen at the next
+authentication boundary and invalidate existing sessions. API clients may send the
 current token as a Bearer credential. Browser login exchanges it for an HttpOnly,
 SameSite session cookie and a CSRF token.
 

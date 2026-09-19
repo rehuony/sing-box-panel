@@ -56,7 +56,7 @@ func Inspect(ctx context.Context, settingsPath string) (Report, error) {
 	if err != nil {
 		return Report{}, err
 	}
-	settingsEntry, err := inspectEntry(abs, "panel bootstrap settings", "remove")
+	settingsEntry, err := inspectEntry(abs, "panel settings", "remove")
 	if err != nil {
 		return Report{}, err
 	}
@@ -78,6 +78,16 @@ func Inspect(ctx context.Context, settingsPath string) (Report, error) {
 		return report, err
 	}
 	report.Entries = append(report.Entries, executableEntry, settingsEntry)
+	for _, sidecar := range []struct{ suffix, role string }{{".lock", "settings write lock"}, {".pending", "settings recovery journal"}, {".location", "data location and migration state"}} {
+		entry, err := inspectEntry(abs+sidecar.suffix, sidecar.role, "remove")
+		if err != nil {
+			return report, err
+		}
+		if entry.State != "missing" {
+			report.Entries = append(report.Entries, entry)
+		}
+	}
+
 	if dataDir != "" {
 		entry, err := inspectEntry(dataDir, "instance data directory", "remove")
 		if err != nil {
@@ -265,7 +275,7 @@ func ValidateCleanup(report Report) error {
 	}
 	for _, entry := range report.Entries {
 		switch entry.Role {
-		case "panel bootstrap settings":
+		case "panel settings":
 			if entry.State != "file" {
 				return errors.New("settings path must be a regular file")
 			}

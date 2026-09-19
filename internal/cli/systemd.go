@@ -13,6 +13,9 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// ConfigurationFileName is the logical name of the sing-box document in SQLite.
+const ConfigurationFileName = "config.json"
+
 func newSystemdCommand(state *options, service panelSystemd.Service) *cobra.Command {
 	root := group("systemd", "Install or manage the sing-box-panel systemd service")
 	root.AddCommand(
@@ -52,7 +55,7 @@ func newSystemInstallCommand(state *options, service panelSystemd.Service) *cobr
 				value, err = settings.Load(settingsPath)
 				dataDir = value.DataDir
 			} else {
-				dataDir, err = settings.LoadDataDir(settingsPath)
+				dataDir, err = settings.ConfiguredDataDir(settingsPath)
 			}
 			if err != nil {
 				return &Error{Kind: ErrorValidation, Code: "system_settings_invalid", Message: err.Error(), Cause: err}
@@ -208,7 +211,7 @@ func buildSystemStatusReport(status panelSystemd.Status, cliSettingsPath string)
 	report.SettingsFile.Path = status.UnitFileSettingsPath
 	// Load failures are reported only as a state: the error text could echo
 	// settings content, and an unreadable file must not hide the unit state.
-	dataDir, err := settings.LoadDataDir(status.UnitFileSettingsPath)
+	dataDir, err := settings.ConfiguredDataDir(status.UnitFileSettingsPath)
 	if err != nil {
 		report.SettingsFile.State = settingsStateUnavailable
 		return report

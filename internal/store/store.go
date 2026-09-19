@@ -20,7 +20,7 @@ const (
 	ApplicationID = 0x53425034
 
 	// CurrentSchemaVersion is the newest schema this package can open.
-	CurrentSchemaVersion = 6
+	CurrentSchemaVersion = 7
 
 	defaultBusyTimeoutMillis  = 5_000
 	defaultMaxOpenConnections = 4
@@ -51,11 +51,20 @@ type Store struct {
 // The parent directory must already exist. Directory creation and ownership are
 // responsibilities of the application composition root.
 func Open(ctx context.Context, path string) (*Store, error) {
+	return open(ctx, path, false)
+}
+
+// OpenForMigration excludes every other database owner while storage moves.
+func OpenForMigration(ctx context.Context, path string) (*Store, error) {
+	return open(ctx, path, true)
+}
+
+func open(ctx context.Context, path string, exclusive bool) (*Store, error) {
 	absPath, err := validateDatabasePath(path)
 	if err != nil {
 		return nil, err
 	}
-	dataLock, err := lockDataDirectory(filepath.Dir(absPath), false)
+	dataLock, err := lockDataDirectory(filepath.Dir(absPath), exclusive)
 	if err != nil {
 		return nil, err
 	}
@@ -65,6 +74,13 @@ func Open(ctx context.Context, path string) (*Store, error) {
 			_ = dataLock.Close()
 		}
 	}()
+	if !exclusive {
+		if _, err := os.Lstat(filepath.Join(filepath.Dir(absPath), ".data-migration")); err == nil {
+			return nil, errors.New("data directory migration is incomplete; start the panel to recover it")
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return nil, err
+		}
+	}
 	file, err := os.OpenFile(absPath, os.O_RDWR|os.O_CREATE, 0o600)
 	if err != nil {
 		return nil, fmt.Errorf("create SQLite database file: %w", err)

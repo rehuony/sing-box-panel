@@ -1804,7 +1804,7 @@ components:
         traffic_quota_gib:
           type: [integer, 'null']
           minimum: 0
-          maximum: 1000000000
+          maximum: 8589934591
         language:
           type: string
           enum: [zh-CN, en]
@@ -1854,6 +1854,8 @@ components:
           type: integer
           format: int64
           minimum: 0
+          maximum: 9007199254740991
+          description: Opaque fingerprint of the shared settings file, including manual edits; not a sequence number.
         preferences:
           $ref: '#/components/schemas/PanelPreferences'
         github_token_configured:
@@ -1871,6 +1873,8 @@ components:
           type: integer
           format: int64
           minimum: 0
+          maximum: 9007199254740991
+          description: Opaque fingerprint of the shared settings file, including manual edits; not a sequence number.
         preferences:
           $ref: '#/components/schemas/PanelPreferences'
         github_token:

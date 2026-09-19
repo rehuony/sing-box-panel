@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/rehuony/sing-box-panel/internal/application"
+	"github.com/rehuony/sing-box-panel/internal/configuration"
 	"github.com/rehuony/sing-box-panel/internal/store"
 	"github.com/spf13/cobra"
 )
@@ -27,53 +28,20 @@ is replaced. A failed preflight leaves the running core and the saved file untou
 			if coreID == "" {
 				return &Error{Kind: ErrorUsage, Code: "core_required", Message: "CORE_ARTIFACT_ID must not be blank; see core list"}
 			}
-			return applyConfiguration(cmd, state, open, coreID, detach)
+			return enableCore(cmd, state, open, coreID, detach)
 		},
 	}
 	command.Flags().BoolVar(&detach, "detach", false, "return after the durable runtime task is queued")
 	return command
 }
 
-func newConfigApplyCommand(state *options, open openApplicationFunc) *cobra.Command {
-	var coreID string
-	var detach bool
-	command := &cobra.Command{
-		Use:   "apply",
-		Short: "Check the current saved configuration and restart the core with it",
-		Long: `Snapshot the current valid saved configuration, run the selected core's
-"sing-box check" in the serialized runtime lane, and restart the core with
-those bytes only after the check succeeds. Without --core the currently applied
-core is kept; --core CORE_ARTIFACT_ID switches to another verified installed
-core in the same step. Preflight failure leaves the live core and the saved
-file unchanged.`,
-		Args: cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			if cmd.Flags().Changed("core") && strings.TrimSpace(coreID) == "" {
-				return &Error{Kind: ErrorUsage, Code: "core_required", Message: "--core must name an installed core artifact; see core list"}
-			}
-			return applyConfiguration(cmd, state, open, coreID, detach)
-		},
-	}
-	command.Flags().StringVar(&coreID, "core", "", coreFlagUsage)
-	command.Flags().BoolVar(&detach, "detach", false, "return after the durable runtime task is queued")
-	return command
-}
-
-func applyConfiguration(cmd *cobra.Command, state *options, open openApplicationFunc, coreID string, detach bool) error {
+func enableCore(cmd *cobra.Command, state *options, open openApplicationFunc, coreID string, detach bool) error {
 	instance, err := openApplication(cmd.Context(), state.settingsPath, open)
 	if err != nil {
 		return err
 	}
 	defer instance.Close()
-	var task application.Task
-	if coreID = strings.TrimSpace(coreID); coreID != "" {
-		task, err = instance.EnableCore(cmd.Context(), coreID)
-	} else {
-		task, err = instance.QueueRuntimeRestart(cmd.Context())
-		if application.IsNoAppliedBundle(err) {
-			return coreRequiredError()
-		}
-	}
+	task, err := instance.EnableCore(cmd.Context(), coreID)
 	if err != nil {
 		return classifyConfigurationRuntimeError("runtime_apply_queue_failed", err)
 	}
@@ -160,7 +128,7 @@ func newCoreRollbackCommand(state *options, open openApplicationFunc) *cobra.Com
 func classifyRuntimeError(code string, err error) error {
 	switch {
 	case errors.Is(err, store.ErrConfigurationFileUnparsed):
-		return &Error{Kind: ErrorValidation, Code: "configuration_file_unparsed", Message: "saved configuration is not valid JSON; correct it with config import first", Cause: err}
+		return &Error{Kind: ErrorValidation, Code: "configuration_file_unparsed", Message: "saved sing-box configuration is not valid JSON; correct it in the Web UI first", Cause: err}
 	case application.IsMonitoringTierUnavailable(err):
 		return &Error{Kind: ErrorUnavailable, Code: "monitoring_tier_unavailable", Message: err.Error(), Cause: err}
 	case application.IsActivationBundleNotReady(err):
@@ -181,4 +149,25 @@ func emptyAsDash(value string) string {
 		return "-"
 	}
 	return value
+}
+
+func classifyConfigurationRuntimeError(code string, err error) error {
+	switch {
+	case errors.Is(err, store.ErrConfigurationFileUnparsed):
+		return &Error{Kind: ErrorValidation, Code: "configuration_file_unparsed", Message: "saved sing-box configuration is not valid JSON; correct it in the Web UI first", Cause: err}
+	case errors.Is(err, configuration.ErrInvalidDocument):
+		return &Error{Kind: ErrorValidation, Code: "configuration_invalid", Message: err.Error(), Cause: err}
+	case errors.Is(err, application.ErrConfigurationSchemaValidation):
+		return &Error{Kind: ErrorValidation, Code: "configuration_schema_validation_failed", Message: err.Error(), Cause: err}
+	case application.IsCoreArtifactNotFound(err):
+		return &Error{Kind: ErrorDomain, Code: "core_artifact_not_found", Message: err.Error(), Cause: err}
+	case errors.Is(err, application.ErrCoreArtifactVerificationBlocked):
+		return &Error{Kind: ErrorConflict, Code: "core_verification_blocked", Message: err.Error(), Cause: err}
+	case errors.Is(err, application.ErrCorePlatformMismatch):
+		return &Error{Kind: ErrorConflict, Code: "core_platform_mismatch", Message: err.Error(), Cause: err}
+	case errors.Is(err, store.ErrCompiledStartupEvidenceStale):
+		return &Error{Kind: ErrorConflict, Code: "configuration_changed", Message: "configuration changed while checking; retry", Cause: err}
+	default:
+		return &Error{Kind: ErrorDomain, Code: code, Message: err.Error(), Cause: err}
+	}
 }

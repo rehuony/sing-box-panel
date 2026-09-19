@@ -223,7 +223,7 @@ test_configuration_preservation() {
   installer_prepare_configuration "${mock_binary}" "${existing_settings}" >/dev/null
   existing_after="$(installer_sha256 "${existing_settings}")"
   assert_equal "${existing_before}" "${existing_after}" "existing settings digest"
-  grep -Fqx "verify --config ${existing_settings}" "${log_path}" || fail "existing settings were not verified"
+  grep -Fqx "config check --config ${existing_settings}" "${log_path}" || fail "existing settings were not verified"
 
   installer_prepare_configuration "${mock_binary}" "${new_settings}" >/dev/null
   [[ -f "${new_settings}" ]] || fail "missing settings were not initialized"
