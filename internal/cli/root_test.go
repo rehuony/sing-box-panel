@@ -52,6 +52,7 @@ func TestHelpSectionOrder(t *testing.T) {
 		usage       string
 		inherited   bool
 		subcommands bool
+		examples    bool
 	}{
 		{name: "root", usage: "[flags] [command]", subcommands: true},
 		{name: "root flag", args: []string{"--help"}, usage: "[flags] [command]", subcommands: true},
@@ -63,6 +64,9 @@ func TestHelpSectionOrder(t *testing.T) {
 		{name: "completion group", args: []string{"completion", "--help"}, usage: "completion [flags] [command]", inherited: true, subcommands: true},
 		{name: "system group", args: []string{"system", "--help"}, usage: "system [flags] [command]", inherited: true, subcommands: true},
 		{name: "systemd group", args: []string{"systemd", "--help"}, usage: "systemd [flags] [command]", inherited: true, subcommands: true},
+		{name: "config group", args: []string{"config", "--help"}, usage: "config [flags] [command]", inherited: true, subcommands: true},
+		{name: "config validate", args: []string{"config", "validate", "--help"}, usage: "config validate [flags]", inherited: true, examples: true},
+		{name: "config check", args: []string{"config", "check", "--help"}, usage: "config check [flags]", inherited: true, examples: true},
 		{name: "leaf flag", args: []string{"core", "install", "--help"}, usage: "core install ASSET_ID [flags]", inherited: true},
 		{name: "leaf help command", args: []string{"help", "core", "install"}, usage: "core install ASSET_ID [flags]", inherited: true},
 		{name: "JSON pointer argument", args: []string{"config", "get", "--help"}, usage: "config get JSON_POINTER [flags]", inherited: true},
@@ -92,6 +96,7 @@ func TestHelpSectionOrder(t *testing.T) {
 				present bool
 			}{
 				{"\nUsage:\n", true},
+				{"\nExamples:\n", test.examples},
 				{"\nFlags:\n", true},
 				{"\nGlobal Flags:\n", test.inherited},
 				{"\nAvailable Commands:\n", test.subcommands},
@@ -291,7 +296,7 @@ var visibleLeafCapabilities = []string{
 	"task list", "task show", "task wait", "task cancel",
 	"log list", "log show", "log tail", "log clear", "log delete",
 	"metrics show", "metrics watch", "metrics history", "metrics period",
-	"system files", "system prune",
+	"system df", "system prune",
 	"systemd install", "systemd uninstall", "systemd status", "systemd start", "systemd stop", "systemd restart", "systemd logs",
 	"completion bash", "completion zsh", "completion fish",
 }
@@ -331,7 +336,7 @@ func TestCommandTreeIsAtMostTwoWordsDeepAndKeepsEveryCapability(t *testing.T) {
 		t.Errorf("unexpected leaf %q", path)
 	}
 	for _, path := range []string{
-		"system clean", "system prn", "system file",
+		"system clean", "system prn", "system file", "system files",
 		"system install", "system uninstall", "system status", "system start", "system stop", "system restart", "system logs",
 		"server run",
 		"config history", "config revision", "config diff", "config restore", "config compile", "config replace", "config revision list", "config revision show", "config revision diff", "config revision restore",
@@ -346,6 +351,7 @@ func TestCommandTreeIsAtMostTwoWordsDeepAndKeepsEveryCapability(t *testing.T) {
 }
 
 func TestServerStartIsForegroundAndGroupDoesNotStart(t *testing.T) {
+	settingsPath := commandSettingsFixture(t)
 	var started []string
 	newRoot := func(stdout, stderr *bytes.Buffer) *cobra.Command {
 		return NewRootCommand(Dependencies{
@@ -358,11 +364,11 @@ func TestServerStartIsForegroundAndGroupDoesNotStart(t *testing.T) {
 	}
 	var stdout, stderr bytes.Buffer
 	root := newRoot(&stdout, &stderr)
-	root.SetArgs([]string{"server", "start", "--config", "/tmp/settings.json"})
+	root.SetArgs([]string{"server", "start", "--config", settingsPath})
 	if err := root.ExecuteContext(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if len(started) != 1 || started[0] != "/tmp/settings.json" {
+	if len(started) != 1 || started[0] != settingsPath {
 		t.Fatalf("started %v", started)
 	}
 	for _, args := range [][]string{{"server"}, {"server", "--help"}} {

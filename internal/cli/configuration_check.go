@@ -22,11 +22,16 @@ func newConfigCheckCommand(state *options, open openApplicationFunc) *cobra.Comm
 	var detach bool
 	command := &cobra.Command{
 		Use:   "check",
-		Short: "Validate the saved configuration with one exact installed core binary",
-		Long: `Snapshot the current valid saved configuration and run the selected core's
-"sing-box check" against the execution snapshot as a durable task. The live core and
-the saved file are never changed. --core selects any verified installed
-artifact; without it the currently applied core is used.`,
+		Short: "Run sing-box check on a snapshot of the saved configuration",
+		Long: `Run sing-box check on a snapshot of the current saved configuration using
+an exact installed, verified binary. Uses the currently applied core by default;
+pass --core CORE_ARTIFACT_ID if none has been applied, or to select another.
+
+Waits for completion by default. --detach returns once the check is queued.
+The check persists a task and execution snapshot; it does not replace the
+saved configuration or start/restart the live core.`,
+		Example: `  sing-box-panel config check
+  sing-box-panel config check --core CORE_ARTIFACT_ID --detach`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if cmd.Flags().Changed("core") && strings.TrimSpace(coreID) == "" {
@@ -68,7 +73,7 @@ artifact; without it the currently applied core is used.`,
 		},
 	}
 	command.Flags().StringVar(&coreID, "core", "", coreFlagUsage)
-	command.Flags().BoolVar(&detach, "detach", false, "return after the durable check task is queued")
+	command.Flags().BoolVar(&detach, "detach", false, "return after queuing the check instead of waiting for completion")
 	return command
 }
 

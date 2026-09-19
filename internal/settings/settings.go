@@ -141,6 +141,21 @@ func Load(path string) (Settings, error) {
 	return value, nil
 }
 
+// LoadOrInitialize loads settings, creating defaults only when the selected file
+// is absent. Concurrent callers use the same atomically published settings.
+func LoadOrInitialize(path string) (value Settings, created bool, err error) {
+	value, err = Load(path)
+	if !errors.Is(err, os.ErrNotExist) {
+		return value, false, err
+	}
+	value, err = Initialize(path, false)
+	if errors.Is(err, os.ErrExist) {
+		value, err = Load(path)
+		return value, false, err
+	}
+	return value, err == nil, err
+}
+
 // Validate verifies the complete resolved settings contract.
 func (value Settings) Validate() error {
 	if net.ParseIP(value.Server.Host) == nil && value.Server.Host != "localhost" {
@@ -256,8 +271,8 @@ func NormalizeOrigin(raw string) (string, error) {
 // Initialize writes a new settings file and creates its data directory.
 func Initialize(path string, overwrite bool) (Settings, error) {
 	if !overwrite {
-		if _, err := os.Stat(path); err == nil {
-			return Settings{}, fmt.Errorf("settings file %q already exists", path)
+		if _, err := os.Lstat(path); err == nil {
+			return Settings{}, fmt.Errorf("settings file %q already exists: %w", path, os.ErrExist)
 		} else if !errors.Is(err, os.ErrNotExist) {
 			return Settings{}, fmt.Errorf("inspect settings %q: %w", path, err)
 		}
@@ -282,7 +297,7 @@ func Initialize(path string, overwrite bool) (Settings, error) {
 		return Settings{}, fmt.Errorf("encode settings: %w", err)
 	}
 	data = append(data, '\n')
-	if err := atomicWrite(path, data, 0o600); err != nil {
+	if err := atomicWrite(path, data, 0o600, overwrite); err != nil {
 		return Settings{}, err
 	}
 	return value, nil
@@ -296,7 +311,7 @@ func randomToken(size int) (string, error) {
 	return base64.RawURLEncoding.EncodeToString(raw), nil
 }
 
-func atomicWrite(path string, data []byte, mode os.FileMode) error {
+func atomicWrite(path string, data []byte, mode os.FileMode, overwrite bool) error {
 	directory := filepath.Dir(path)
 	temporary, err := os.CreateTemp(directory, ".setting-*.tmp")
 	if err != nil {
@@ -319,8 +334,14 @@ func atomicWrite(path string, data []byte, mode os.FileMode) error {
 	if err := temporary.Close(); err != nil {
 		return fmt.Errorf("close temporary settings: %w", err)
 	}
-	if err := os.Rename(temporaryPath, path); err != nil {
-		return fmt.Errorf("replace settings: %w", err)
+	if overwrite {
+		if err := os.Rename(temporaryPath, path); err != nil {
+			return fmt.Errorf("replace settings: %w", err)
+		}
+	} else if err := os.Link(temporaryPath, path); err != nil {
+		// Publishing a complete file without replacement prevents concurrent
+		// first starts from overwriting each other's authentication token.
+		return fmt.Errorf("create settings: %w", err)
 	}
 	dir, err := os.Open(directory)
 	if err != nil {

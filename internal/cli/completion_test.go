@@ -147,7 +147,7 @@ func TestSystemAndSystemdCompletionHaveSeparateCommands(t *testing.T) {
 		group string
 		want  string
 	}{
-		{"system", "files prune"},
+		{"system", "df prune"},
 		{"systemd", "install logs restart start status stop uninstall"},
 	} {
 		t.Run(test.group, func(t *testing.T) {

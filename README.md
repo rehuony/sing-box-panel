@@ -149,6 +149,11 @@ Initialize an isolated development instance and start the server:
 ./bin/sing-box-panel server start --config ./setting.json
 ```
 
+`server start` also creates default settings automatically when the selected
+file is missing, so `init` is optional. On creation, it prints a concise summary
+of the paths, default URL, and generated login token. Existing settings are never
+overwritten by startup.
+
 The default listener is `127.0.0.1:3000`. The settings file contains a random
 management token and must not be committed. Keep `server start` active while
 using commands that queue core, configuration, or runtime tasks.

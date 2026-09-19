@@ -11,7 +11,7 @@ group without a leaf prints help.
 sing-box-panel
 ├─ init | verify | version | update
 ├─ server start | stop | status
-├─ system files | prune
+├─ system df | prune
 ├─ systemd install | uninstall | status | start | stop | restart | logs
 ├─ core
 │  ├─ catalog | refresh
@@ -39,9 +39,10 @@ token. `server start` runs the panel in the current terminal. Background
 operation belongs to the `systemd` service commands.
 
 Service commands previously under `system` now use `systemd`. File inspection
-remains `system files`; cleanup is now `system prune` (formerly `system clean`).
-Update scripts and regenerate shell completions; the old service paths and
-`system clean` are not aliases, and there is no `prn` alias.
+uses `system df` (formerly `system files`); cleanup uses `system prune`
+(formerly `system clean`). Update scripts and regenerate shell completions;
+the old service paths, `system files`, and `system clean` are not aliases,
+and there is no `prn` alias.
 
 Use `sing-box-panel COMMAND --help` at any level for current flags and leaf
 commands. Help lists usage, local flags, inherited global flags (when present),
@@ -71,8 +72,10 @@ commands that need settings load the default path: root uses
 `/etc/sing-box-panel/setting.json`; ordinary users use
 `$XDG_CONFIG_HOME/sing-box-panel/setting.json`, or
 `~/.config/sing-box-panel/setting.json` when XDG is unset. An explicit path
-overrides that default; a missing or invalid selected file is an error rather
-than silently loading another file. Repeated flags use the last supplied value.
+overrides that default; commands never silently load another file. `server start`
+creates defaults at the selected path when it is missing. Other commands that
+require settings reject missing files; invalid files remain errors.
+Repeated flags use the last supplied value.
 
 Selecting a settings path does not load it. Help (including bare command groups),
 `version`, shell completion, `update`, and `config validate --file` do not read
@@ -82,20 +85,42 @@ CLI settings file. `systemd status` also works with unavailable settings; its
 optional location report marks unreadable files or invalid `data_dir` fields as
 unavailable without hiding systemd's status.
 
-`system files`, `system prune`, `server status/stop`, `systemd install` without
+`system df`, `system prune`, `server status/stop`, `systemd install` without
 `--now`, and local database operations read only `data_dir` to locate the
 instance. They reject missing, empty, wrongly typed, or ambiguous paths and
 malformed JSON; unrelated runtime fields such as `traffic.sample_retention_days`
 do not block them. Relative data paths resolve against the settings file.
-File ownership, database identity, symlink, locking, and cleanup-scope checks
-still apply. Metrics read and validate `traffic.quota_gib` only when needed,
+If the settings file itself is missing, `system df` and the `system prune`
+preview still report known paths, with the data directory marked unknown.
+`system prune --yes` continues to require settings that identify the data directory.
+Service ownership, symlink, locking, and cleanup-scope checks still apply.
+Database identity restricts storage operations, but does not prevent confirmed
+full-directory cleanup. Metrics read and validate `traffic.quota_gib` only when needed,
 with persisted panel preferences taking precedence over the bootstrap value.
 
 `verify`, `server start`, and `systemd install --now` require the complete valid
-runtime configuration. Starting an existing unit through `systemd start/restart`
-delegates to systemd; the service validates its own configured file on startup.
+runtime configuration. `server start` first creates default settings if the
+selected file is absent, including parent directories, the default data directory,
+and a random management token. The settings file uses mode `0600`; new directories
+use `0700`. This also applies to an explicit `--config` path. Concurrent first
+starts cannot replace each other's settings. A damaged, unreadable, or dangling
+symlink file is never replaced. Database initialization remains part of startup.
+Starting an existing unit through `systemd start/restart` delegates to systemd;
+its `server start` command uses the same initialization and validation rules.
 `init` creates settings explicitly and refuses to overwrite an existing file
 unless `--force` is supplied. No command silently repairs a damaged file.
+
+When `server start` creates settings, it prints a compact first-run summary to
+stderr: the selected settings and data paths, default panel URL, the generated
+token next to `Login token`, and how to stop the foreground process. This reports
+initialization, not HTTP readiness. It does not repeat the summary when the
+file already exists. Existing database preferences and credentials continue to
+take precedence over bootstrap defaults. Color is limited to text on a terminal
+and respects `NO_COLOR` and `TERM`. In JSON/JSONL mode, stderr receives one event
+with `event: "settings_initialized"`, `settings_path`, `data_dir`,
+`default_panel_url`, and `login_token`; stdout remains free of startup guidance.
+First-run output contains the new bootstrap token in both terminal and redirected
+output, including JSON/JSONL.
 
 Results are written to stdout. Progress, warnings, and terminal errors are
 written to stderr, allowing scripts to redirect them independently. JSON and
@@ -154,7 +179,16 @@ file and has no configuration history, historical diff, or restore commands.
 Internal immutable records remain for validation, runtime identity, and
 activation recovery.
 
-`config validate --file` checks a local file without saving anything.
+`config validate --file FILE` checks the input as a strict JSON object within
+size, nesting, and value-count limits; `--file -` reads stdin. It does not save
+the input, load panel settings or the database, or run sing-box. It does not
+check sing-box field semantics: passing this check does not mean the core will
+accept the configuration.
+
+```sh
+sing-box-panel config validate --file ./config.json
+sing-box-panel config validate --file - < ./config.json
+```
 
 ## Exact core selection
 
@@ -175,14 +209,18 @@ binary's `sing-box check` as the final gate:
 ```sh
 sing-box-panel config check                       # applied core
 sing-box-panel config check --core CORE_ARTIFACT_ID
+sing-box-panel config check --core CORE_ARTIFACT_ID --detach  # queue without waiting
 sing-box-panel config apply                       # checked restart with the applied core
 sing-box-panel config apply --core CORE_ARTIFACT_ID
 sing-box-panel core enable CORE_ARTIFACT_ID       # same as apply --core
 ```
 
-`check` snapshots the valid file and runs the check as a durable maintenance
-task without touching the live core. `apply` and `core enable` snapshot the
-file for preflight in the serialized runtime lane and replace the running
+`check` snapshots the current valid saved file and runs the selected binary's
+`sing-box check` as a durable maintenance task. It waits for completion by
+default; `--detach` returns after queuing. The task and execution snapshot are
+persisted, so this is not a read-only operation. It does not replace the saved
+configuration or start/restart the live core. `apply` and `core enable` snapshot
+the file for preflight in the serialized runtime lane and replace the running
 process only after that check succeeds; a failed preflight leaves the live
 core and the saved file unchanged.
 
@@ -267,44 +305,111 @@ one period's details. There is no separate `traffic` command group.
 ## Instance files and cleanup
 
 ```sh
-sing-box-panel system files                       # uses the default settings
-sing-box-panel system files -c ./setting.json --output json
+sing-box-panel system df                          # uses the default settings
+sing-box-panel system df -c ./setting.json --output json
 sing-box-panel system prune -c ./setting.json      # preview only
 sing-box-panel system prune -c ./setting.json --yes
 ```
 
-`files` shows the executable, selected settings, database, core logs, installed
-core files, runtime configuration, uploads, process-control socket and lock.
-It lists actual files beneath the managed directories and labels missing,
-unrecognized, linked, and retained entries. The database contains the saved
-configuration and panel logs; a filename for each of those is not invented.
-No settings or database is initialized or migrated by this inspection.
-An incomplete WAL without its shared-memory file is reported as unverified;
-inspection does not repair database recovery state or create missing sidecars.
-`--scope auto|user|system` selects which systemd installation files to inspect.
+`df` reports the executable, selected settings, service files, and every
+existing entry beneath the selected data directory, including unknown files and
+old-version residue. It does not initialize or migrate settings or databases.
+Database identity is diagnostic in JSON/JSONL; an unknown or older identity does
+not exclude data from confirmed cleanup. Inspection leaves incomplete WAL
+recovery state untouched. `--scope auto|user|system` selects the systemd files.
 
-`prune` without `--yes` is a read-only preview. With `--yes`, it permanently
-removes this instance's settings, database, configuration, logs, installed
-cores, uploads and runtime files. It uninstalls a matching managed systemd
-service, or asks a manually started instance to shut down, then acquires the
-runtime and database-directory locks before deletion. Active CLI database
-owners prevent cleanup. Ambiguous/changed service settings, an unverified
-database, linked managed roots, and unsafe directory selections are refused.
+After cleanup, or before initialization, `df` also works without the selected
+settings file. It reports the executable, settings path and available service
+files without creating anything. Text marks the settings as missing and omits
+the Data summary row. JSON/JSONL use `data_dir: ""`, `database_identity: "unknown"`,
+and a settings entry with `state: "missing"`. A former custom data directory
+cannot be inferred from a deleted settings file, so neither a default directory
+nor a directory beside the settings is substituted. Malformed or unreadable
+existing settings still produce an error. A preview with missing settings
+explains that cleanup is unavailable, and `prune --yes` refuses before stopping
+services or deleting files.
 
-The executable, original archives imported from outside managed directories,
-unrecognized entries alongside managed data, other instances, OS accounts and
-system journal records are retained. Files placed inside the reserved
-`artifacts`, `runtime`, `imports`, or `logs/core` directories belong to the
-cleanup scope. Symlinks inside those directories are removed as links; their
-targets are not followed. Shared parent directories are never recursively
-deleted. The data directory is removed only when empty; the conventional
-`sing-box-panel` settings directory is also removed only when empty.
+Text output starts with aligned `Config` and `Executable` paths:
+the selected settings file (including a custom `-c` path) and the full path of
+the running binary reported by inspection. There is no Data summary row, whether
+the data directory exists, is missing, or cannot be determined. Existing data
+contents still appear in the tree, and JSON/JSONL retain the `data_dir` field.
+`Config` includes the filename and adds `(missing)` when the file is absent;
+there is no separate `Settings` summary line. The `prune` preview uses the same format.
+The tree retains the actual filenames, groups real paths in sorted order, and
+compresses unlabeled parent chains. It shows no expected-but-missing data files
+or cleanup policy labels. Directories end in `/`, empty directories show `empty`, and
+symlinks (including dangling links) show `link`. Link targets are never traversed.
+A missing data directory has no tree entry or separate status message. Parent
+grouping nodes are structural, not separately inspected entries. Only paths
+inside the current user's home may use `~`; similar prefixes remain unchanged.
 
-Cleanup reports completed removals if a filesystem failure interrupts it;
-the service may already be stopped or uninstalled when a later lock or file
-operation fails. It is not a reversible operation. A new instance can be created with `init`
-after successful cleanup. Inspect and prune apply to the selected settings
-and service scope, not every instance that may exist on the host.
+Existing service files appear in the same tree, labeled with their resolved
+`user` or `system` scope. Inspection covers only the installer's exact paths:
+the user unit, or the system unit plus sysusers and tmpfiles configuration.
+Missing service files are hidden; files not both managed and matched to the
+selected settings are labeled `outside scope`. Unsupported platforms say that
+systemd is unsupported, rather than implying no service is installed.
+
+The tree uses color only for terminal text output: blue directories, dim tree
+branches, cyan links or retained results, green completed removals, and red
+interrupted-cleanup headings. Only the `prune` preview ends with a blank line
+and a one-line yellow reminder to pass `--yes` to stop the instance and permanently
+delete its settings and all data, or an explanation when settings are missing.
+Pipes, redirected output, an unset or
+`dumb` `TERM`, and nonempty `NO_COLOR` disable all ANSI styling. JSON/JSONL remain
+uncolored and keep their report field names and absolute paths; `-o` is shorthand
+for `--output`.
+
+`prune` without `--yes` is a read-only preview. **Move everything you want to keep
+outside the selected data directory before confirming.** With `--yes`, cleanup
+stops the selected instance, uninstalls its matching managed service, removes the
+selected settings, and completely removes the data directory and its contents.
+This includes unknown files, unrecognized/old databases, logs, cores, uploads,
+and arbitrary nested directories. Files inside that directory are no longer
+retained based on a known-name list or database identity. The JSON `cleanup`
+values reflect this scope: data entries use `remove` or `remove_link`, and the
+data directory uses `remove`. Missing preset children are no longer synthesized.
+
+Filesystem roots, home/shared directories and their aliases, linked data roots,
+linked settings files, and a data directory containing the panel executable are
+refused. Ambiguous/changed service settings and another service's overlapping
+data directory also prevent cleanup. Cleanup also refuses to remove paths that
+another inspected service uses for its settings or data, including parent aliases.
+Runtime and database-directory locks must
+be acquired before deletion; active panel/CLI owners or unusable lock paths
+prevent it. Settings and directory identities are checked again under those
+locks. Each nested directory stays locked while its contents are removed, and an
+existing runtime lease is checked too; another active panel or CLI owner blocks
+that branch. Symlinks are removed without traversing their targets. New entries
+that appear after enumeration prevent directory removal instead of being deleted
+without ownership checks. Failure to remove all contents is an error, not a
+successful partial wipe.
+
+For a manually started instance, cleanup waits for the panel's shutdown result.
+The panel stops and joins its managed core, closes its database, and releases its
+runtime lease before acknowledging success. A matching systemd installation is
+stopped and disabled before its service files are removed. A failed or timed-out
+stop aborts data cleanup; unrelated instances are never stopped to clear a lock.
+
+The executable and files outside the selected data directory remain outside the
+cleanup scope, except for the selected settings and matching managed service.
+OS accounts and journal records remain managed by the OS. The conventional
+`sing-box-panel` settings directory is removed only if empty; shared parent
+directories are never recursively removed.
+
+Execution results contain only confirmed `removed` and `retained` paths, also
+available as the existing JSON arrays. Deleted paths remain visible in results.
+On interruption, text says `Cleanup interrupted; confirmed results only`, and the
+command returns its error. The service may already be stopped or uninstalled and
+some files removed when a later operation fails. When settings are inside a
+subdirectory, other contents of that branch are removed before the database and
+settings. A failure in those contents preserves the settings and database so the
+operator can fix the cause and retry. This is not a transactional rollback;
+failures during final removal can still leave partial results.
+Cleanup is irreversible; a new
+instance can be created with `init` afterward. Scope is limited to the selected
+settings and data directory, not every instance on the host.
 
 ## System service status
 

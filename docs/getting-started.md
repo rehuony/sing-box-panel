@@ -29,7 +29,7 @@ that generated tree is the only UI source accepted by the Go build.
 
 ## Initialize settings and storage
 
-Use an explicit settings path for an isolated repository-local instance:
+To prepare and inspect settings before startup, initialize them explicitly:
 
 ```sh
 ./bin/sing-box-panel init --config ./setting.json
@@ -99,6 +99,18 @@ empty directory when a test must also isolate the database.
 ```sh
 ./bin/sing-box-panel server start --config ./setting.json
 ```
+
+If the selected file is absent, `server start` creates default settings and a
+random management token automatically, then initializes storage and starts the
+panel. The explicit `init` step is optional. Existing files are validated without
+replacement; broken or unreadable settings still fail. The same behavior applies
+without `--config`, using the default path for the current user.
+
+First-run guidance lists the settings file, data directory, default URL, generated
+`Login token`, and stop shortcut. Open the default URL and use the printed token
+to log in to a new instance; the same value is saved as `auth.token` in settings.
+The summary confirms settings creation, not that the HTTP listener is ready.
+An existing database retains its saved panel preferences and credentials.
 
 This runs in the foreground. Stop it with `Ctrl+C`, or run
 `./bin/sing-box-panel server stop --config ./setting.json` in another terminal.

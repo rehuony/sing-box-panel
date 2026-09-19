@@ -105,8 +105,16 @@ func newConfigValidateCommand(state *options) *cobra.Command {
 	var filePath string
 	command := &cobra.Command{
 		Use:   "validate",
-		Short: "Check that a local file is a strict sing-box JSON object without saving it",
-		Args:  cobra.NoArgs,
+		Short: "Check JSON structure in a file or stdin without saving it",
+		Long: `Read --file FILE (or --file - for stdin) and check for a strict JSON object
+within size, nesting, and value-count limits.
+
+This does not load panel settings or the database, save the input, or run
+sing-box. It does not validate sing-box field semantics; valid JSON alone
+does not mean the core will accept the configuration.`,
+		Example: `  sing-box-panel config validate --file ./config.json
+  sing-box-panel config validate --file - < ./config.json`,
+		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if filePath == "" {
 				return &Error{Kind: ErrorUsage, Code: "file_required", Message: "--file is required; use - for stdin"}
@@ -124,7 +132,7 @@ func newConfigValidateCommand(state *options) *cobra.Command {
 			}, "configuration document is valid JSON")
 		},
 	}
-	command.Flags().StringVar(&filePath, "file", "", "configuration JSON file, or - for stdin")
+	command.Flags().StringVar(&filePath, "file", "", "JSON document to validate without saving; use - for stdin (required)")
 	return command
 }
 

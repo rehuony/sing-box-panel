@@ -95,16 +95,24 @@ func TestCommandsWithoutSettingsDependencies(t *testing.T) {
 func TestCommandsRequiringSettingsRejectUnavailableSettings(t *testing.T) {
 	for name, path := range unavailableSettingsFixtures(t) {
 		t.Run(name, func(t *testing.T) {
-			for _, args := range [][]string{
+			commands := [][]string{
 				{"verify"}, {"config", "show"}, {"core", "list"},
 				{"server", "status"}, {"server", "stop"}, {"systemd", "install"},
-				{"system", "files"}, {"system", "prune"}, {"system", "prune", "--yes"},
-			} {
+				{"system", "prune", "--yes"},
+			}
+			if name != "missing" {
+				commands = append(commands, []string{"system", "df"}, []string{"system", "prune"}, []string{"server", "start"})
+			}
+			for _, args := range commands {
 				t.Run(strings.Join(args, " "), func(t *testing.T) {
 					var stdout, stderr bytes.Buffer
 					service := &fakeSystemdService{}
 					root := NewRootCommand(Dependencies{
 						Stdout: &stdout, Stderr: &stderr, Systemd: service, OpenApplication: application.Open,
+						RunServer: func(context.Context, string) error {
+							t.Fatal("server started with invalid settings")
+							return nil
+						},
 					})
 					root.SetArgs(append([]string{"--config", path}, args...))
 					err := root.ExecuteContext(t.Context())
@@ -140,7 +148,7 @@ func TestInstanceCommandsIgnoreInvalidRuntimeSettings(t *testing.T) {
 		t.Fatalf("fixture did not reproduce the reported validation error: %v", err)
 	}
 	for _, args := range [][]string{
-		{"system", "files"}, {"system", "prune"}, {"systemd", "install"}, {"systemd", "status"},
+		{"system", "df"}, {"system", "prune"}, {"systemd", "install"}, {"systemd", "status"},
 		{"server", "status"}, {"server", "stop"},
 		{"config", "show"}, {"core", "list"},
 		{"channel", "list"}, {"source", "list"}, {"token", "list"},
