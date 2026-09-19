@@ -8,6 +8,12 @@ Those commands are Linux-only and never invoke a shell. Every systemd scope is
 reported in command output; `--scope=auto` resolves to `system` for root and to
 `user` otherwise.
 
+Units invoke `server start` in the foreground and set
+`SING_BOX_PANEL_SUPERVISOR=systemd` to identify the panel's service owner.
+Manual terminal runs do not set that marker. They remain stoppable through
+`server stop` even when the terminal inherited a generic systemd invocation
+environment; the service itself is stopped through `system stop`.
+
 ```sh
 # Dedicated system service. These three paths are deliberately fixed.
 sudo /usr/local/bin/sing-box-panel init
@@ -32,8 +38,16 @@ writes only the current user's XDG systemd unit.
 at the built-in installer's audited destinations. Settings, data, and the
 system account are retained. It refuses unmanaged or changed files unless the
 operator supplies `--force`; even with `--force`, it never deletes settings or
-data. `system status` reports systemd's actual fragment path and state, while
-`system logs --lines N [--since VALUE]` performs one bounded journal query.
+data. `system status` reports systemd's fragment path, state, and
+`NeedDaemonReload`, plus two on-disk facts labeled as such: the `--config`
+path in the single effective `[Service] ExecStart` line of the unit file on
+disk, and the data directory, database, and configuration storage declared by
+that settings file as it exists now. The CLI's own `--config` path is listed
+separately. Drop-in overrides, unreadable units, several effective commands, or
+unresolved specifiers leave the unit-file settings path unknown rather than
+guessed, a unit edited after loading is flagged stale, and the running
+process's settings are never inspected or claimed. `system logs --lines N
+[--since VALUE]` performs one bounded journal query.
 
 ## System service
 

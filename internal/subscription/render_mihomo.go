@@ -35,6 +35,18 @@ func renderMihomo(values []outbound, diagnostics []RenderDiagnostic) (RenderResu
 }
 
 func convertMihomo(value outbound) (mihomoNode, DiagnosticCode) {
+	prepared, extra, code := mihomoMappedOptions(value)
+	if code != "" {
+		return nil, code
+	}
+	node, code := convertMihomoBase(prepared)
+	if code != "" {
+		return nil, code
+	}
+	return append(node, extra...), ""
+}
+
+func convertMihomoBase(value outbound) (mihomoNode, DiagnosticCode) {
 	if value.collection == CollectionEndpoints {
 		return nil, DiagnosticUnsupportedType
 	}
@@ -479,7 +491,7 @@ func yamlScalar(value any) string {
 		return strconv.FormatBool(typed)
 	case int64:
 		return strconv.FormatInt(typed, 10)
-	case []string:
+	case []string, map[string]any:
 		encoded, err := json.Marshal(typed)
 		if err != nil {
 			panic(err)

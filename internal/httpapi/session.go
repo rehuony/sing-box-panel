@@ -14,8 +14,9 @@ import (
 const sessionLifetime = 12 * time.Hour
 
 type session struct {
-	csrf      string
-	expiresAt time.Time
+	csrf       string
+	expiresAt  time.Time
+	credential [32]byte
 }
 
 type sessions struct {
@@ -28,7 +29,7 @@ func newSessions() *sessions {
 	return &sessions{values: make(map[[32]byte]session), now: time.Now}
 }
 
-func (manager *sessions) create() (raw, csrf string, expiresAt time.Time, err error) {
+func (manager *sessions) create(credential ...string) (raw, csrf string, expiresAt time.Time, err error) {
 	raw, err = randomOpaqueToken(32)
 	if err != nil {
 		return "", "", time.Time{}, err
@@ -41,7 +42,11 @@ func (manager *sessions) create() (raw, csrf string, expiresAt time.Time, err er
 	manager.mu.Lock()
 	defer manager.mu.Unlock()
 	manager.removeExpiredLocked()
-	manager.values[sha256.Sum256([]byte(raw))] = session{csrf: csrf, expiresAt: expiresAt}
+	var digest [32]byte
+	if len(credential) > 0 {
+		digest = sha256.Sum256([]byte(credential[0]))
+	}
+	manager.values[sha256.Sum256([]byte(raw))] = session{csrf: csrf, expiresAt: expiresAt, credential: digest}
 	return raw, csrf, expiresAt, nil
 }
 

@@ -1,6 +1,6 @@
 WEB_PNPM := cd web && corepack pnpm
 GO_SOURCE_DIRS := cmd internal systemd web
-RELEASE_SCRIPT := scripts/build-release.sh
+RELEASE_SCRIPT := scripts/build.sh
 SHELL_SOURCE_DIRS := scripts
 
 .PHONY: \

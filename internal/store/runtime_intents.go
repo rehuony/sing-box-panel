@@ -93,7 +93,7 @@ func (s *Store) requestRuntimeIntentNullable(ctx context.Context, input RuntimeI
 			if bundleID != valueOrEmpty(appliedBundleID) {
 				return errors.New("start and restart must use the last applied bundle")
 			}
-			if err := validateRunnableBundle(ctx, tx, bundleID); err != nil {
+			if err := validateApplicableBundle(ctx, tx, bundleID, valueOrEmpty(headID)); err != nil {
 				return err
 			}
 		case RuntimeIntentRollback:
@@ -116,26 +116,35 @@ func (s *Store) requestRuntimeIntentNullable(ctx context.Context, input RuntimeI
 			bundleID = valueOrEmpty(appliedBundleID)
 		}
 
-		generation++
-		createdAt := formatTaskTime(input.CreatedAt)
-		if _, err := tx.ExecContext(
-			ctx,
-			`UPDATE tasks SET status = 'superseded', updated_at = ?
+		var queueErr error
+		queued, queueErr = enqueueRuntimeIntentTx(ctx, tx, input, bundleID, "", "", generation, desiredRunning, true)
+		return queueErr
+	})
+	return queued, err
+}
+
+func enqueueRuntimeIntentTx(ctx context.Context, tx *sql.Tx, input RuntimeIntentInput, bundleID, canonicalID, startupID string, generation int64, desiredRunning, advanceDesired bool) (Task, error) {
+	generation++
+	createdAt := formatTaskTime(input.CreatedAt)
+	if _, err := tx.ExecContext(
+		ctx,
+		`UPDATE tasks SET status = 'superseded', updated_at = ?
                   WHERE lane = 'runtime' AND status = 'queued' AND generation < ?`,
-			createdAt,
-			generation,
-		); err != nil {
-			return fmt.Errorf("supersede queued runtime intents: %w", err)
-		}
-		if _, err := tx.ExecContext(
-			ctx,
-			`UPDATE tasks SET cancel_requested = 1, updated_at = ?
+		createdAt,
+		generation,
+	); err != nil {
+		return Task{}, fmt.Errorf("supersede queued runtime intents: %w", err)
+	}
+	if _, err := tx.ExecContext(
+		ctx,
+		`UPDATE tasks SET cancel_requested = 1, updated_at = ?
                   WHERE lane = 'runtime' AND status = 'running' AND generation < ?`,
-			createdAt,
-			generation,
-		); err != nil {
-			return fmt.Errorf("cancel older running intent: %w", err)
-		}
+		createdAt,
+		generation,
+	); err != nil {
+		return Task{}, fmt.Errorf("cancel older running intent: %w", err)
+	}
+	if advanceDesired {
 		if _, err := tx.ExecContext(
 			ctx,
 			`UPDATE hub_state
@@ -148,31 +157,32 @@ func (s *Store) requestRuntimeIntentNullable(ctx context.Context, input RuntimeI
 			boolInt(desiredRunning),
 			createdAt,
 		); err != nil {
-			return fmt.Errorf("advance runtime intent: %w", err)
+			return Task{}, fmt.Errorf("advance runtime intent: %w", err)
 		}
-		payload, _ := json.Marshal(map[string]any{"intent": input.Kind, "bundle_id": bundleID})
-		if _, err := tx.ExecContext(
-			ctx,
-			`INSERT INTO tasks(
+	} else if _, err := tx.ExecContext(ctx, `UPDATE hub_state SET target_generation=?, updated_at=? WHERE singleton=1`, generation, createdAt); err != nil {
+		return Task{}, fmt.Errorf("reserve runtime generation: %w", err)
+	}
+
+	payload, _ := json.Marshal(map[string]any{"intent": input.Kind, "bundle_id": bundleID})
+	if _, err := tx.ExecContext(
+		ctx,
+		`INSERT INTO tasks(
                     id, idempotency_key, lane, kind, status, generation,
-                    activation_bundle_id, payload_json, created_at, updated_at
-                 ) VALUES (?, ?, 'runtime', ?, 'queued', ?, ?, ?, ?, ?)`,
-			input.TaskID,
-			nullIfEmpty(input.IdempotencyKey),
-			string(input.Kind),
-			generation,
-			nullIfEmpty(bundleID),
-			string(payload),
-			createdAt,
-			createdAt,
-		); err != nil {
-			return fmt.Errorf("enqueue runtime intent: %w", err)
-		}
-		var getErr error
-		queued, getErr = getTask(ctx, tx, input.TaskID)
-		return getErr
-	})
-	return queued, err
+                    activation_bundle_id, canonical_revision_id, startup_artifact_id, payload_json, created_at, updated_at
+                 ) VALUES (?, ?, 'runtime', ?, 'queued', ?, ?, ?, ?, ?, ?, ?)`,
+		input.TaskID,
+		nullIfEmpty(input.IdempotencyKey),
+		string(input.Kind),
+		generation,
+		nullIfEmpty(bundleID),
+		nullIfEmpty(canonicalID), nullIfEmpty(startupID),
+		string(payload),
+		createdAt,
+		createdAt,
+	); err != nil {
+		return Task{}, fmt.Errorf("enqueue runtime intent: %w", err)
+	}
+	return getTask(ctx, tx, input.TaskID)
 }
 
 func prepareRuntimeIntent(input RuntimeIntentInput) (RuntimeIntentInput, error) {
@@ -196,6 +206,9 @@ func prepareRuntimeIntent(input RuntimeIntentInput) (RuntimeIntentInput, error) 
 }
 
 func validateApplicableBundle(ctx context.Context, tx *sql.Tx, bundleID, headID string) error {
+	if err := requireCurrentConfigurationFileTx(ctx, tx, headID); err != nil {
+		return err
+	}
 	if err := validateRunnableBundle(ctx, tx, bundleID); err != nil {
 		return err
 	}

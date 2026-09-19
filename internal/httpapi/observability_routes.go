@@ -16,12 +16,23 @@ import (
 
 func matchObservabilityRoute(path string) (resource string, identifier string, matched bool) {
 	switch path {
+	case "/api/v1/core/logs/files":
+		return "core-log-files", "", true
+	case "/api/v1/core/logs/content":
+		return "core-log-content", "", true
+	case "/api/v1/core/logs/stream":
+		return "core-log-stream", "", true
+	case "/api/v1/logs/panel":
+		return "panel-logs", "", true
+
 	case "/api/v1/logs":
 		return "logs", "", true
 	case "/api/v1/logs/stream":
 		return "log-stream", "", true
 	case "/api/v1/metrics":
 		return "metrics", "", true
+	case "/api/v1/metrics/stream":
+		return "metrics-stream", "", true
 	case "/api/v1/metrics/history":
 		return "metrics-history", "", true
 	case "/api/v1/traffic/status":
@@ -49,6 +60,15 @@ func matchObservabilityRoute(path string) (resource string, identifier string, m
 
 func (handler *Handler) observabilityHandler(method, resource, identifier string) http.HandlerFunc {
 	switch {
+	case resource == "core-log-files" && method == http.MethodGet:
+		return handler.listCoreLogFiles
+	case resource == "core-log-content" && method == http.MethodGet:
+		return func(w http.ResponseWriter, r *http.Request) { handler.readCoreLog(w, r, false) }
+	case resource == "core-log-stream" && method == http.MethodGet:
+		return func(w http.ResponseWriter, r *http.Request) { handler.readCoreLog(w, r, true) }
+	case resource == "panel-logs" && method == http.MethodGet:
+		return handler.listPanelLogs
+
 	case resource == "log-stream" && method == http.MethodGet:
 		return handler.streamDurableLogs
 	case resource == "logs" && identifier == "" && method == http.MethodGet:
@@ -59,6 +79,8 @@ func (handler *Handler) observabilityHandler(method, resource, identifier string
 		return func(w http.ResponseWriter, request *http.Request) { handler.getDurableLog(w, request, identifier) }
 	case resource == "logs" && identifier != "" && method == http.MethodDelete:
 		return func(w http.ResponseWriter, request *http.Request) { handler.deleteDurableLog(w, request, identifier) }
+	case resource == "metrics-stream" && method == http.MethodGet:
+		return handler.streamMetrics
 	case resource == "metrics" && method == http.MethodGet:
 		return handler.currentMetrics
 	case resource == "metrics-history" && method == http.MethodGet:

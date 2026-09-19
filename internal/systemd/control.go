@@ -22,6 +22,7 @@ func (manager *Manager) Status(ctx context.Context, requested Scope) (Status, er
 		"show", UnitName, "--no-pager",
 		"--property=LoadState", "--property=ActiveState", "--property=SubState",
 		"--property=UnitFileState", "--property=MainPID", "--property=FragmentPath",
+		"--property=DropInPaths", "--property=NeedDaemonReload",
 	)
 	result, err := manager.runResult(ctx, "systemctl", args...)
 	if err != nil {
@@ -42,11 +43,18 @@ func (manager *Manager) Status(ctx context.Context, requested Scope) (Status, er
 	if _, err := cleanAbsolute(unitPath, "systemctl FragmentPath"); err != nil {
 		return Status{}, err
 	}
-	return Status{
+	status := Status{
 		Scope: scope, Unit: UnitName, UnitPath: unitPath,
 		LoadState: properties["LoadState"], ActiveState: properties["ActiveState"],
 		SubState: properties["SubState"], UnitFileState: properties["UnitFileState"], MainPID: pid,
-	}, nil
+		NeedDaemonReload: properties["NeedDaemonReload"] == "yes",
+	}
+	// Drop-ins may override ExecStart, so the fragment alone does not state
+	// the unit's command line; leave the path unknown in that case.
+	if strings.TrimSpace(properties["DropInPaths"]) == "" {
+		status.UnitFileSettingsPath, _ = unitFileSettingsPath(unitPath)
+	}
+	return status, nil
 }
 
 func (manager *Manager) Control(ctx context.Context, requested Scope, action Action) (ControlResult, error) {

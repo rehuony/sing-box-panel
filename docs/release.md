@@ -86,7 +86,7 @@ manifest from being reused for a different version.
 ## Isolated build model
 
 Snapshot and release builds share the implementation in
-`scripts/build-release.sh`. It exports committed `HEAD` into a
+`scripts/build.sh`. It exports committed `HEAD` into a
 temporary source tree and builds the Web application inside that complete
 snapshot with locked dependencies. Keeping `web/` beneath the snapshot's
 `go.mod` is required because the Vite Schema plugin invokes the offline Go

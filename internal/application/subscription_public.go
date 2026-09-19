@@ -65,21 +65,30 @@ func (application *Application) PublicSubscription(
 		}
 	}
 
-	return application.renderSubscriptionState(state)
+	return application.renderSubscriptionState(ctx, state)
 }
 
-func (application *Application) renderSubscriptionState(state store.PublicSubscriptionState) (PublicSubscriptionResult, error) {
-	startupJSON, err := application.subscriptionStartupJSONWithCore(state.Startup, state.Core)
-	if err != nil {
-		return PublicSubscriptionResult{}, fmt.Errorf("prepare applied local subscription version: %w", err)
-	}
-	conversion, err := application.convertInboundNodes(
-		state.Startup.ExactCoreVersion, startupJSON, state.Channel.PublicHost,
-	)
+func (application *Application) renderSubscriptionState(ctx context.Context, state store.PublicSubscriptionState) (PublicSubscriptionResult, error) {
+	host, err := application.publicationHost(ctx, state.SubscriptionNodeControls, state.Channel.PublicHost)
 	if err != nil {
 		return PublicSubscriptionResult{}, err
 	}
-	allNodes := append([]subscription.Node(nil), conversion.Nodes...)
+	var conversion subscription.InboundResult
+	if state.AppliedBundleID != "" {
+		startupJSON, err := application.subscriptionStartupJSONWithCore(state.Startup, state.Core)
+		if err != nil {
+			return PublicSubscriptionResult{}, fmt.Errorf("prepare applied local subscription version: %w", err)
+		}
+		conversion, err = application.convertInboundNodes(state.Startup.ExactCoreVersion, startupJSON, host)
+		if err != nil {
+			return PublicSubscriptionResult{}, err
+		}
+	}
+	manual, err := manualPublicationNodes(state.ManualNodes)
+	if err != nil {
+		return PublicSubscriptionResult{}, err
+	}
+	allNodes := append(append([]subscription.Node(nil), conversion.Nodes...), manual...)
 	for _, source := range state.Sources {
 		nodes, decodeErr := subscription.DecodeNodes(source.NormalizedNodes)
 		if decodeErr != nil {
@@ -93,7 +102,7 @@ func (application *Application) renderSubscriptionState(state store.PublicSubscr
 	}
 	selectedNodes := make([]subscription.Node, 0, len(allNodes))
 	for _, node := range allNodes {
-		if _, allowed := granted[node.Key]; allowed {
+		if _, allowed := granted[node.Key]; (allowed || state.UserID == "") && !state.Visibility[subscription.PublicationID(node)].Hidden {
 			selectedNodes = append(selectedNodes, node)
 		}
 	}
@@ -101,13 +110,18 @@ func (application *Application) renderSubscriptionState(state store.PublicSubscr
 	if err != nil {
 		return PublicSubscriptionResult{}, err
 	}
-	rendered, err := subscription.RenderNodes(selectedNodes, subscription.RenderChannel{
+	rendered, err := subscription.RenderPolicyNodes(selectedNodes, subscription.RenderChannel{
 		Format:       subscription.RenderFormat(state.Channel.Format),
 		ExcludeTags:  append([]string(nil), config.ExcludeTags...),
 		ExcludeTypes: append([]string(nil), config.ExcludeTypes...),
-	})
+	}, config.Policy)
 	if err != nil {
 		return PublicSubscriptionResult{}, err
+	}
+	if config.Policy != nil && rendered.Format == subscription.RenderFormatSingBox {
+		if err := validateSubscriptionNativeJSON(rendered.Content, "generated_configuration"); err != nil {
+			return PublicSubscriptionResult{}, err
+		}
 	}
 	diagnostics := make([]subscription.RenderDiagnostic, 0, len(conversion.Diagnostics)+len(rendered.Diagnostics))
 	for _, diagnostic := range conversion.Diagnostics {
@@ -130,7 +144,11 @@ func (application *Application) RecordPublicSubscriptionUse(
 	tokenID string,
 	bodyBytes int64,
 ) error {
-	return application.database.RecordSubscriptionTokenUse(ctx, tokenID, application.now().UTC(), bodyBytes)
+	err := application.database.RecordSubscriptionTokenUse(ctx, tokenID, application.now().UTC(), bodyBytes)
+	if errors.Is(err, store.ErrSubscriptionTokenInactive) {
+		return ErrPublicSubscriptionAccessDenied
+	}
+	return err
 }
 
 func (application *Application) subscriptionStartupJSONWithCore(

@@ -13,8 +13,8 @@ import (
 )
 
 func newMetricsCommand(state *options, open openApplicationFunc) *cobra.Command {
-	root := group("metrics", "Inspect current runtime metrics without fabricating missing counters")
-	root.AddCommand(newMetricsShowCommand(state, open), newMetricsWatchCommand(state, open))
+	root := group("metrics", "Inspect current metrics and current or historical traffic periods")
+	root.AddCommand(newMetricsShowCommand(state, open), newMetricsWatchCommand(state, open), newMetricsHistoryCommand(state, open), newMetricsPeriodCommand(state, open))
 	return root
 }
 
@@ -89,47 +89,23 @@ func metricsText(result application.MetricsSnapshot) string {
 		)
 	}
 	period := result.CurrentTrafficData
+	if !result.TrafficAvailable {
+		return fmt.Sprintf("available\tperiod=%s..%s\ttraffic=unavailable\tcollected=%s",
+			period.PeriodStart.UTC().Format(time.RFC3339), period.PeriodEnd.UTC().Format(time.RFC3339),
+			result.CollectedAt.Format(time.RFC3339Nano))
+	}
 	return fmt.Sprintf(
-		"available\tbundle=%s\tperiod=%s\tin=%d\tout=%d\tcollected=%s",
-		result.AppliedBundleID, period.ID, period.InboundBytes, period.OutboundBytes,
+		"available\tperiod=%s..%s\tin=%d\tout=%d\tcollected=%s",
+		period.PeriodStart.UTC().Format(time.RFC3339), period.PeriodEnd.UTC().Format(time.RFC3339), period.InboundBytes, period.OutboundBytes,
 		result.CollectedAt.Format(time.RFC3339Nano),
 	)
 }
 
-func newTrafficCommand(state *options, open openApplicationFunc) *cobra.Command {
-	root := group("traffic", "Inspect collector-backed traffic accounting")
-	root.AddCommand(newTrafficStatusCommand(state, open))
-	period := group("period", "Inspect immutable traffic periods")
-	period.AddCommand(newTrafficPeriodListCommand(state, open), newTrafficPeriodShowCommand(state, open))
-	root.AddCommand(period)
-	return root
-}
-
-func newTrafficStatusCommand(state *options, open openApplicationFunc) *cobra.Command {
-	return &cobra.Command{
-		Use:   "status",
-		Short: "Show whether current applied-bundle traffic data is available",
-		Args:  cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			instance, err := openApplication(cmd.Context(), state.settingsPath, open)
-			if err != nil {
-				return err
-			}
-			defer instance.Close()
-			result, err := instance.TrafficStatus(cmd.Context())
-			if err != nil {
-				return &Error{Kind: ErrorDomain, Code: "traffic_status_failed", Message: err.Error(), Cause: err}
-			}
-			return writeResult(cmd.OutOrStdout(), state.format, result, metricsText(result))
-		},
-	}
-}
-
-func newTrafficPeriodListCommand(state *options, open openApplicationFunc) *cobra.Command {
+func newMetricsHistoryCommand(state *options, open openApplicationFunc) *cobra.Command {
 	var bundleID, fromRaw, toRaw string
 	var limit int
 	command := &cobra.Command{
-		Use:   "list",
+		Use:   "history",
 		Short: "List persisted traffic periods by overlap and applied bundle",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
@@ -177,9 +153,9 @@ func newTrafficPeriodListCommand(state *options, open openApplicationFunc) *cobr
 	return command
 }
 
-func newTrafficPeriodShowCommand(state *options, open openApplicationFunc) *cobra.Command {
+func newMetricsPeriodCommand(state *options, open openApplicationFunc) *cobra.Command {
 	return &cobra.Command{
-		Use:   "show PERIOD_ID",
+		Use:   "period PERIOD_ID",
 		Short: "Show one persisted traffic period",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {

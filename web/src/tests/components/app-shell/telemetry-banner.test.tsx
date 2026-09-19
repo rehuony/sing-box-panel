@@ -1,5 +1,5 @@
 import userEvent from '@testing-library/user-event';
-import { act, render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { ApiClient, MetricsSnapshot, RuntimeStatus, Task } from '@/api/api-client';
@@ -115,10 +115,10 @@ describe('telemetryBanner', () => {
 
     const { container } = renderBanner(client);
 
-    expect(await screen.findByText('Runtime evidence is stale')).toBeInTheDocument();
+    expect(await screen.findByTitle('Runtime evidence is stale')).toBeInTheDocument();
     expect(screen.queryByText('Stopped')).not.toBeInTheDocument();
     expect(screen.queryByText('6 KB')).not.toBeInTheDocument();
-    expect(screen.getAllByText('—').length).toBeGreaterThanOrEqual(5);
+    expect(screen.getAllByText('—').length).toBeGreaterThanOrEqual(3);
     expect(screen.queryByRole('button', { name: 'Start' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Stop' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Restart' })).not.toBeInTheDocument();
@@ -126,7 +126,7 @@ describe('telemetryBanner', () => {
     expect(screen.queryByRole('button', { name: 'Refresh runtime and traffic status' })).not.toBeInTheDocument();
   });
 
-  it('shows verified identity, uptime, fresh rates and current-period total', async () => {
+  it('shows verified identity, uptime and fresh rates', async () => {
     const first = trafficSnapshot('2026-08-30T11:00:00Z', 1_000, 2_000);
     const second = trafficSnapshot('2026-08-30T11:00:10Z', 3_000, 5_000);
     const client = createMockApiClient({
@@ -139,18 +139,21 @@ describe('telemetryBanner', () => {
     renderBanner(client);
 
     expect(await screen.findByText('Running')).toBeInTheDocument();
-    expect(screen.getByText('1.13.19')).toBeInTheDocument();
-    expect(screen.getByRole('group', { name: /Version: 1\.13\.19/ })).toBeInTheDocument();
+    expect(screen.getByText(/sing-box 1\.13\.19/)).toBeInTheDocument();
     expect(screen.getByRole('group', { name: /Uptime: 1h.*Started/ })).toBeInTheDocument();
     expect(screen.queryByText('Version')).not.toBeInTheDocument();
     expect(screen.queryByText('Uptime')).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Start' })).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Stop' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Restart' })).toBeInTheDocument();
-    expect(screen.getByText('6 KB')).toBeInTheDocument();
+    expect(screen.queryByText('6 KB')).not.toBeInTheDocument();
 
     await act(async () => document.dispatchEvent(new Event('visibilitychange')));
     expect(await screen.findByText('200 B/s')).toBeInTheDocument();
+    expect(screen.getByText('300 B/s')).toBeInTheDocument();
+    // SSE heartbeats may carry the same persisted sample between collector ticks.
+    await act(async () => document.dispatchEvent(new Event('visibilitychange')));
+    expect(screen.getByText('200 B/s')).toBeInTheDocument();
     expect(screen.getByText('300 B/s')).toBeInTheDocument();
   });
 
@@ -178,7 +181,9 @@ describe('telemetryBanner', () => {
     await user.click(await screen.findByRole('button', { name: 'Start' }));
 
     expect(client.startRuntime).toHaveBeenCalledTimes(1);
-    expect(await screen.findByText('task_runtime_start')).toBeInTheDocument();
+    expect(await screen.findByText('Start · running')).toBeInTheDocument();
+    expect(screen.queryByText(queuedTask.id)).not.toBeInTheDocument();
+    expect(screen.queryByTitle(queuedTask.id)).not.toBeInTheDocument();
     expect(await screen.findByText('Start verified', {}, { timeout: 3_500 })).toBeInTheDocument();
     expect(getTask).toHaveBeenCalledTimes(2);
     expect(screen.getByText('Running')).toBeInTheDocument();
@@ -216,7 +221,7 @@ describe('telemetryBanner', () => {
     expect(await screen.findByText('Restart verified')).toBeInTheDocument();
   });
 
-  it('switches the explicit language without exposing account actions in the header', async () => {
+  it('keeps personalization and account actions out of the runtime toolbar', async () => {
     const user = userEvent.setup();
     const client = createMockApiClient({
       getRuntimeStatus: vi.fn().mockResolvedValue(stoppedStatus),
@@ -228,17 +233,12 @@ describe('telemetryBanner', () => {
     expect(screen.getByRole('button', { name: 'Start' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Stop' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Restart' })).not.toBeInTheDocument();
-    await user.click(screen.getByRole('button', { name: 'Open language menu' }));
-    await user.click(await screen.findByRole('menuitemradio', { name: '简体中文' }));
+    expect(screen.queryByRole('button', { name: 'Open language menu' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Sign out' })).not.toBeInTheDocument();
 
-    await waitFor(() => expect(document.documentElement.lang).toBe('zh-CN'));
-    expect(window.localStorage.getItem('sing-box-panel.language')).toBe('zh-CN');
-    expect(screen.queryByRole('button', { name: '打开账户菜单' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: '退出登录' })).not.toBeInTheDocument();
-
-    await user.click(screen.getByRole('button', { name: '更多面板操作' }));
-    expect(await screen.findByRole('menuitem', { name: '启动' })).toBeInTheDocument();
-    expect(screen.queryByRole('menuitem', { name: '刷新运行与流量状态' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('menuitem', { name: '退出登录' })).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'More panel actions' }));
+    expect(await screen.findByRole('menuitem', { name: 'Start' })).toBeInTheDocument();
+    expect(screen.queryByRole('menuitem', { name: 'Refresh runtime and traffic' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('menuitem', { name: 'Sign out' })).not.toBeInTheDocument();
   });
 });

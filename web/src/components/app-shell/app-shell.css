@@ -23,12 +23,12 @@
   transform: translateY(0) scale(0.98);
 }
 
-/* Hallmark workbench shell ------------------------------------------------- */
+/* Floating navigation and the translucent runtime toolbar. */
 
 .panel-shell {
   --sidebar-width: var(--shell-sidebar-width);
   --header-height: var(--shell-header-height);
-  --shell-header-left: calc(var(--shell-sidebar-width) + 2rem);
+  --shell-header-left: var(--shell-sidebar-width);
   background: transparent;
   color: var(--color-text);
   height: 100dvh;
@@ -37,13 +37,13 @@
 }
 
 .panel-shell [data-slot='sidebar-container'] {
-  padding: var(--space-sm);
+  padding: var(--shell-edge);
 }
 
 .panel-shell [data-slot='sidebar-inner'] {
-  -webkit-backdrop-filter: blur(28px) saturate(142%);
-  backdrop-filter: blur(28px) saturate(142%);
-  background: var(--color-glass-strong);
+  -webkit-backdrop-filter: blur(32px) saturate(160%);
+  backdrop-filter: blur(32px) saturate(160%);
+  background: var(--color-glass);
   border: var(--rule-thin) solid var(--color-glass-border);
   border-radius: var(--radius-window);
   box-shadow: var(--shadow-glass);
@@ -83,6 +83,8 @@
   border: var(--rule-thin) solid transparent;
   border-radius: var(--radius-control);
   color: var(--color-text-secondary);
+  position: relative;
+  isolation: isolate;
   font-size: var(--text-sm);
   font-weight: 580;
   gap: var(--space-sm);
@@ -108,14 +110,13 @@
 }
 
 .panel-sidebar [data-slot='sidebar-menu-button'][data-active] {
-  background: var(--color-primary-soft);
-  border-color: var(--color-primary-border);
+  background: transparent;
+  border-color: transparent;
   color: var(--color-primary-hover);
   font-weight: 650;
 }
 
 .panel-sidebar__footer {
-  border-top: var(--rule-thin) solid var(--color-border);
   padding: var(--space-sm);
 }
 
@@ -159,6 +160,7 @@
 }
 
 .panel-sign-out {
+  margin-left: auto;
   flex: 0 0 2.75rem;
   height: 2.75rem;
   width: 2.75rem;
@@ -172,24 +174,25 @@
   height: 100dvh;
   min-width: 0;
   overflow: hidden;
-  padding: 0 var(--shell-edge) var(--shell-edge) 2rem;
+  padding: 0 var(--shell-edge) var(--shell-edge) 0;
 }
 
 .telemetry-banner {
-  --telemetry-icon-size: 0.9375rem;
+  --telemetry-icon-size: 1.25rem;
   --telemetry-icon-stroke: 1.7;
-  -webkit-backdrop-filter: blur(30px) saturate(150%);
+  -webkit-backdrop-filter: blur(28px) saturate(165%);
   align-items: center;
-  backdrop-filter: blur(30px) saturate(150%);
+  backdrop-filter: blur(28px) saturate(165%);
   background: var(--color-glass-header);
   border: var(--rule-thin) solid var(--color-glass-border);
   border-radius: var(--radius-window);
   box-shadow: var(--shadow-glass-soft);
   display: grid;
   gap: var(--space-md);
-  grid-template-columns: minmax(12rem, auto) minmax(0, 1fr) auto;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  height: var(--header-height);
   min-height: var(--header-height);
-  padding: var(--space-sm) var(--space-md);
+  padding: 8px 24px;
   position: fixed;
   inset: var(--shell-edge) var(--shell-edge) auto var(--shell-header-left);
   z-index: var(--z-sticky-nav);
@@ -233,6 +236,11 @@
 .telemetry-runtime {
   gap: var(--space-sm);
   min-width: 0;
+}
+
+.telemetry-version {
+  font-size: var(--text-sm);
+  white-space: nowrap;
 }
 
 .telemetry-runtime [data-slot='badge'] {
@@ -281,11 +289,7 @@
   min-width: 0;
   overflow-x: auto;
   overscroll-behavior-inline: contain;
-  scrollbar-width: none;
-}
-
-.telemetry-banner__metrics::-webkit-scrollbar {
-  display: none;
+  scrollbar-width: thin;
 }
 
 .telemetry-metric {
@@ -352,9 +356,10 @@
 }
 
 .telemetry-action-button {
-  height: 2.75rem;
+  min-height: 40px;
+  height: 40px;
   padding: 0;
-  width: 2.75rem;
+  width: 40px;
 }
 
 .telemetry-action-button--start {
@@ -374,11 +379,11 @@
 }
 
 .telemetry-action-button--restart {
-  color: var(--color-warning-text);
+  color: var(--color-text-muted);
 }
 
 .telemetry-action-button--restart:hover {
-  background: var(--color-warning-soft) !important;
+  background: var(--color-primary-soft) !important;
 }
 
 .telemetry-personalization-actions {
@@ -392,31 +397,22 @@
   min-width: 0;
 }
 
-.runtime-action-progress > span,
-.runtime-action-progress code {
+.runtime-action-progress > span {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.runtime-action-progress code {
-  border-left: var(--rule-thin) solid currentColor;
-  font-family: var(--font-data);
-  font-size: 0.68rem;
-  max-width: 8rem;
-  opacity: 0.72;
-  padding-left: var(--space-2xs);
-}
-
 .panel-content-scroll {
+  display: flex;
+  flex-direction: column;
   container-type: inline-size;
   flex: 1;
   min-height: 0;
   min-width: 0;
   overflow-y: auto;
   overscroll-behavior: contain;
-  padding: calc(var(--shell-edge) + var(--header-height) + var(--space-md))
-    clamp(var(--space-xs), 1.2vw, var(--space-lg)) var(--space-xl);
+  padding: calc(var(--shell-edge) + var(--header-height) + 32px) 0 0;
   scroll-padding-top: calc(var(--shell-edge) + var(--header-height) + var(--space-md));
   scrollbar-gutter: stable;
 }
@@ -424,7 +420,6 @@
 .panel-content-scroll > .notice,
 .panel-content-scroll > #main-content {
   margin-inline: auto;
-  max-width: 92rem;
   width: 100%;
 }
 
@@ -433,6 +428,8 @@
 }
 
 #main-content {
+  flex: 1;
+  min-height: 0;
   min-width: 0;
   scroll-margin-top: calc(var(--shell-edge) + var(--header-height) + var(--space-md));
 }
@@ -480,7 +477,7 @@
 
 @media (max-width: 1180px) {
   .telemetry-banner {
-    grid-template-columns: minmax(12rem, auto) minmax(0, 1fr) auto;
+    grid-template-columns: auto minmax(0, 1fr) auto;
   }
 
   .telemetry-runtime > div {
@@ -566,10 +563,6 @@
     padding-inline: var(--space-xs);
   }
 
-  .runtime-action-progress code {
-    display: none;
-  }
-
   .runtime-action-progress {
     flex: 0 0 auto;
     max-width: 8rem;
@@ -606,4 +599,54 @@
   .panel-sidebar [data-slot='sidebar-menu-button'] {
     transition-duration: 1ms;
   }
+  .panel-sidebar [data-slot='sidebar-menu-button']:active {
+    transform: none;
+  }
+}
+
+.panel-navigation-selection {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  background: var(--color-primary-soft);
+  border: 1px solid color-mix(in srgb, var(--color-primary) 12%, transparent);
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--color-surface) 80%, transparent),
+    0 2px 5px #30215b08;
+  pointer-events: none;
+}
+
+@media (prefers-contrast: more) {
+  .panel-shell [data-slot='sidebar-inner'],
+  .telemetry-banner {
+    background: var(--color-surface);
+    border-color: var(--color-text-secondary);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+}
+
+#main-content
+  > :is(
+    .dashboard-page,
+    .core-page,
+    .subscriptions-page,
+    .configuration-page,
+    .panel-settings-page,
+    .observability-page
+  ) {
+  gap: 20px;
+}
+#main-content h1 {
+  font-family: var(--font-display);
+  font-weight: 650;
+  letter-spacing: -0.03em;
+  font-size: 30px;
+  line-height: 36px;
+  margin: 0;
+}
+.telemetry-runtime .telemetry-demo-badge {
+  color: var(--color-primary);
+  background: var(--color-primary-soft);
 }

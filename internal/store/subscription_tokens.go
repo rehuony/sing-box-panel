@@ -14,6 +14,7 @@ type SubscriptionToken struct {
 	ID                     string
 	UserID                 string
 	Label                  string
+	DownloadLimit          *int64
 	TokenSHA256            string
 	Enabled                bool
 	ExpiresAt              *time.Time
@@ -28,7 +29,7 @@ type SubscriptionToken struct {
 // Active reports whether a token is usable at the supplied instant. Expiry is
 // exclusive: a token is inactive when at is equal to expires_at.
 func (token SubscriptionToken) Active(at time.Time) bool {
-	if !token.Enabled || token.RevokedAt != nil {
+	if !token.Enabled || token.RevokedAt != nil || token.DownloadLimit != nil && token.BodyResponseCount >= *token.DownloadLimit {
 		return false
 	}
 	return token.ExpiresAt == nil || at.UTC().Before(token.ExpiresAt.UTC())
@@ -59,7 +60,7 @@ const subscriptionSourceColumns = `
 const subscriptionTokenColumns = `
     id, user_id, label, token_sha256, enabled, expires_at, revoked_at,
     successful_request_count, body_response_count, bytes_served,
-    last_used_at, created_at`
+    last_used_at, created_at, download_limit`
 
 func (s *Store) CreateSubscriptionToken(
 	ctx context.Context,
@@ -67,12 +68,14 @@ func (s *Store) CreateSubscriptionToken(
 ) (SubscriptionToken, error) {
 	prepared, err := prepareNewSubscriptionToken(token)
 	if err != nil {
-		return SubscriptionToken{}, err
+		return SubscriptionToken{}, fmt.Errorf("%w: %v", ErrInvalidSubscriptionToken, err)
 	}
 	var stored SubscriptionToken
 	err = s.WithTx(ctx, func(tx *sql.Tx) error {
-		if _, err := getSubscriptionUser(ctx, tx, prepared.UserID); err != nil {
-			return err
+		if prepared.UserID != "" {
+			if _, err := getSubscriptionUser(ctx, tx, prepared.UserID); err != nil {
+				return err
+			}
 		}
 		if err := ensureTokenIdentityAvailable(ctx, tx, prepared.ID, prepared.TokenSHA256); err != nil {
 			return err
@@ -172,6 +175,9 @@ func (s *Store) FindActiveSubscriptionToken(
 	if !token.Active(at) {
 		return SubscriptionToken{}, fmt.Errorf("%w: %s", ErrSubscriptionTokenInactive, token.ID)
 	}
+	if token.UserID == "" {
+		return token, nil
+	}
 	user, err := getSubscriptionUser(ctx, s.db, token.UserID)
 	if err != nil || !user.Enabled {
 		return SubscriptionToken{}, fmt.Errorf("%w: %s", ErrSubscriptionTokenInactive, token.ID)
@@ -197,7 +203,7 @@ func (s *Store) RotateSubscriptionToken(
 	replacement.CreatedAt = rotatedAt
 	prepared, err := prepareNewSubscriptionToken(replacement)
 	if err != nil {
-		return SubscriptionTokenRotation{}, err
+		return SubscriptionTokenRotation{}, fmt.Errorf("%w: %v", ErrInvalidSubscriptionToken, err)
 	}
 	var rotation SubscriptionTokenRotation
 	err = s.WithTx(ctx, func(tx *sql.Tx) error {
@@ -227,6 +233,15 @@ func (s *Store) RotateSubscriptionToken(
 		}
 		if err := requireSingleSubscriptionWrite(result, "revoke rotated subscription token"); err != nil {
 			return err
+		}
+		// Rotation replaces the secret, not the key's shared quota or access scope.
+		prepared.DownloadLimit = current.DownloadLimit
+		prepared.SuccessfulRequestCount = current.SuccessfulRequestCount
+		prepared.BodyResponseCount = current.BodyResponseCount
+		prepared.BytesServed = current.BytesServed
+		prepared.LastUsedAt = current.LastUsedAt
+		if prepared.ExpiresAt == nil {
+			prepared.ExpiresAt = current.ExpiresAt
 		}
 		if err := insertSubscriptionToken(ctx, tx, prepared); err != nil {
 			return err
@@ -354,11 +369,22 @@ func (s *Store) RecordSubscriptionTokenUse(
         SET successful_request_count = successful_request_count + 1,
             body_response_count = body_response_count + CASE WHEN ? > 0 THEN 1 ELSE 0 END,
             bytes_served = bytes_served + ?, last_used_at = ?
-        WHERE id = ?`, bodyBytes, bodyBytes, formatTaskTime(at), tokenID)
+        WHERE id = ? AND enabled = 1 AND revoked_at IS NULL
+          AND (expires_at IS NULL OR expires_at > ?)
+          AND (user_id IS NULL OR EXISTS (SELECT 1 FROM subscription_users AS u WHERE u.id = subscription_tokens.user_id AND u.enabled = 1))
+          AND (download_limit IS NULL OR body_response_count < download_limit)`,
+		bodyBytes, bodyBytes, formatTaskTime(at), tokenID, formatTaskTime(at))
 	if err != nil {
 		return fmt.Errorf("record subscription token use: %w", err)
 	}
-	return requireSingleSubscriptionWrite(result, "record subscription token use")
+	count, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if count != 1 {
+		return ErrSubscriptionTokenInactive
+	}
+	return nil
 }
 
 // DecodeSubscriptionChannelConfig validates and returns the normalized channel
@@ -367,8 +393,13 @@ func prepareNewSubscriptionToken(token SubscriptionToken) (SubscriptionToken, er
 	if err := validateSubscriptionID(token.ID, "token"); err != nil {
 		return SubscriptionToken{}, err
 	}
-	if err := validateSubscriptionID(token.UserID, "user"); err != nil {
-		return SubscriptionToken{}, err
+	if token.UserID != "" {
+		if err := validateSubscriptionID(token.UserID, "user"); err != nil {
+			return SubscriptionToken{}, err
+		}
+	}
+	if token.DownloadLimit != nil && (*token.DownloadLimit < 1 || *token.DownloadLimit > 1000000000) {
+		return SubscriptionToken{}, errors.New("download limit must be between 1 and 1000000000")
 	}
 	if err := validateSubscriptionName(token.Label); err != nil {
 		return SubscriptionToken{}, fmt.Errorf("subscription token label: %w", err)
@@ -418,12 +449,12 @@ func getSubscriptionToken(ctx context.Context, q queryRower, id string) (Subscri
 
 func scanSubscriptionToken(row taskScanner) (SubscriptionToken, error) {
 	var token SubscriptionToken
-	var expiresAt, revokedAt, lastUsedAt sql.NullString
+	var expiresAt, revokedAt, lastUsedAt, userID sql.NullString
 	var enabled int
 	var createdAt string
 	if err := row.Scan(
 		&token.ID,
-		&token.UserID,
+		&userID,
 		&token.Label,
 		&token.TokenSHA256,
 		&enabled,
@@ -434,10 +465,12 @@ func scanSubscriptionToken(row taskScanner) (SubscriptionToken, error) {
 		&token.BytesServed,
 		&lastUsedAt,
 		&createdAt,
+		&token.DownloadLimit,
 	); err != nil {
 		return SubscriptionToken{}, err
 	}
 	var err error
+	token.UserID = userID.String
 	token.Enabled = enabled == 1
 	token.CreatedAt, err = parseTaskTime(createdAt)
 	if err != nil {

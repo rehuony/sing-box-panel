@@ -96,7 +96,7 @@
   --text-xs: 0.75rem;
   --text-sm: 0.875rem;
   --text-base: 1rem;
-  --text-display: clamp(2rem, 3vw, 2.75rem);
+  --text-display: clamp(1.5rem, 2.5vw, 1.875rem);
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
   --ease-in: cubic-bezier(0.7, 0, 0.84, 0);
   --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
@@ -109,8 +109,8 @@
   --radius-window: 1.5rem;
   --radius-pill: 999px;
   --rule-thin: 1px;
-  --shadow-card: 0 12px 32px -24px oklch(22% 0.018 274 / 32%);
-  --shadow-panel: 0 24px 64px -36px oklch(22% 0.018 274 / 42%);
+  --shadow-card: 0 2px 5px -2px oklch(22% 0.018 274 / 6%), 0 10px 24px -18px oklch(22% 0.018 274 / 16%);
+  --shadow-panel: inset 0 1px 0 oklch(100% 0 0 / 65%), 0 18px 48px -28px oklch(30% 0.05 286 / 30%);
   --z-sticky: 200;
   --z-sticky-nav: 300;
   --z-popover: 350;
@@ -175,12 +175,12 @@
   --color-primary-hover: var(--color-accent-hover);
   --color-primary-soft: var(--color-accent-soft);
   --color-primary-border: var(--color-rule);
-  --color-glass: oklch(99% 0.008 286 / 76%);
-  --color-glass-header: oklch(99% 0.008 286 / 64%);
-  --color-glass-strong: oklch(99% 0.008 286 / 90%);
+  --color-glass: color-mix(in srgb, var(--card) 82%, transparent);
+  --color-glass-header: color-mix(in srgb, var(--card) 82%, transparent);
+  --color-glass-strong: color-mix(in srgb, var(--card) 94%, transparent);
   --color-glass-border: oklch(100% 0.006 286 / 86%);
-  --shell-sidebar-width: 16rem;
-  --shell-header-height: 4.25rem;
+  --shell-sidebar-width: 17.5rem;
+  --shell-header-height: 4rem;
   --shell-edge: 1rem;
   --color-running: var(--color-success);
   --color-running-soft: var(--color-success-soft);
@@ -331,7 +331,7 @@
   --color-focus-soft: oklch(70% 0.16 293 / 30%);
 }
 
-@media (prefers-reduced-transparency: reduce) {
+@media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
   :root {
     --color-glass: var(--color-surface);
     --color-glass-header: var(--color-surface);
@@ -433,7 +433,9 @@ html {
 }
 
 body {
-  background: linear-gradient(180deg, var(--color-paper) 0%, var(--color-canvas) 46%, var(--color-canvas-deep) 100%);
+  background:
+    radial-gradient(ellipse at 0% 0%, var(--color-primary-soft), transparent 55%),
+    linear-gradient(145deg, var(--color-paper), var(--color-canvas) 50%, var(--color-canvas-deep));
   background-attachment: fixed;
   color: var(--color-text);
   font-size: var(--text-base);
@@ -441,6 +443,11 @@ body {
   line-height: 1.5;
   margin: 0;
   overflow: clip;
+}
+
+input[type='checkbox'],
+input[type='radio'] {
+  accent-color: var(--color-primary);
 }
 
 #root {
@@ -460,12 +467,14 @@ body {
   z-index: calc(var(--z-modal) + 1);
 }
 
-button,
-input,
-select,
-textarea {
-  color: inherit;
-  font: inherit;
+@layer base {
+  button,
+  input,
+  select,
+  textarea {
+    color: inherit;
+    font: inherit;
+  }
 }
 
 button,
@@ -566,7 +575,7 @@ h3 {
 }
 
 .panel-logo__mark {
-  border-radius: calc(var(--radius-control) * 0.7);
+  border-radius: 0.4375rem;
   display: block;
   flex: 0 0 auto;
   height: 2.25rem;
@@ -643,7 +652,7 @@ h3 {
   background: var(--color-primary);
   border-color: var(--color-primary);
   box-shadow: var(--shadow-primary-button);
-  color: var(--color-on-ink);
+  color: var(--primary-foreground);
 }
 
 .button--primary:not(:disabled):hover {
@@ -1191,7 +1200,7 @@ select:disabled {
   }
 }
 
-@media (prefers-reduced-transparency: reduce) {
+@media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
   body {
     background: var(--color-canvas);
   }
@@ -1208,7 +1217,10 @@ select:disabled {
   [data-slot='dropdown-menu-content'],
   [data-slot='popover-content'],
   [data-slot='select-content'],
-  [data-slot='sheet-content'] {
+  [data-slot='sheet-content'],
+  [data-sidebar='sidebar'][data-mobile='true'] {
+    -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
     background: var(--color-surface) !important;
   }
 }
@@ -1231,4 +1243,19 @@ select:disabled {
   html {
     @apply font-sans;
   }
+}
+
+/* Shared shape tokens also cover primitives rendered through portals. */
+[data-slot='button'],
+[data-slot='input'],
+[data-slot='select-trigger'],
+[data-slot='tabs-trigger'],
+[data-slot='toggle-group-item'] {
+  border-radius: var(--radius-control);
+}
+
+[data-slot='card'],
+[data-slot='dialog-content'],
+[data-slot='toast'] {
+  border-radius: var(--radius-card);
 }

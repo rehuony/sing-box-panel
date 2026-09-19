@@ -1,4 +1,5 @@
 export const cores = {
+  library: { version: 'Version', sourceCapabilities: 'Source / capabilities', status: 'Status', actions: 'Actions', enable: 'Enable', disable: 'Disable', enabled: 'Enabled', download: 'Download', platformUnknown: 'Platform unavailable', platformHelp: 'Detected from the deployed panel binary. Downloads match this operating system and architecture; this value cannot be changed.', operationFailed: 'Operation {{status}}. See panel log for task {{id}}.', completed: 'Operation completed', queued: 'Waiting', running: 'Processing', succeeded: 'Completed', failed: 'Failed', canceled: 'Canceled', pageSize: 'Items per page', perPage: '{{count}} per page', previous: 'Previous page', next: 'Next page' },
   action: { quarantine: 'Quarantine', remove: 'Remove', revoke: 'Revoke' },
   artifact: { changed: 'Artifact state updated.' },
   catalog: { short: 'catalog' },
@@ -71,9 +72,9 @@ export const cores = {
   },
   state: { quarantined: 'Quarantined', revoked: 'Revoked', verified: 'Verified' },
   subtitle: 'Verified binaries with version-scoped configuration editing.',
-  tabs: { catalog: 'Catalog', installed: 'Installed' },
+  tabs: { catalog: 'Available', installed: 'Installed' },
   task: { accepted: '{{action}} accepted as task {{id}}.', title: 'Task accepted' },
-  title: 'Core Library',
+  title: 'Versions',
   versions: 'Versions',
   value: { unknownSize: 'Unknown size' },
 } as const;

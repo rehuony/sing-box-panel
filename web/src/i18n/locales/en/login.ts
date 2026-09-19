@@ -1,4 +1,5 @@
 export const login = {
+  title: 'Sign in',
   checking: 'Checking panel session…',
   error: {
     empty: 'Enter the management token to continue.',

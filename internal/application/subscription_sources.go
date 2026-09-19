@@ -27,9 +27,18 @@ func (application *Application) CreateSubscriptionSource(
 		Config:  request.Config,
 		Enabled: request.Enabled, CreatedAt: now, UpdatedAt: now,
 	}
-	refreshTask, err := application.configuredSubscriptionSourceRefreshTask(source)
-	if err != nil {
-		return SubscriptionSource{}, err
+	var refreshTask *store.EnqueueTaskInput
+	if source.SourceKind == store.SubscriptionSourceRemote {
+		if _, err := decodeRemoteSubscriptionSourceConfig(source.Config); err != nil {
+			return SubscriptionSource{}, err
+		}
+		if source.Enabled {
+			firstRefresh, err := application.subscriptionSourceRefreshTask(source, nil)
+			if err != nil {
+				return SubscriptionSource{}, err
+			}
+			refreshTask = &firstRefresh
+		}
 	}
 	stored, err := application.database.CreateSubscriptionSourceAndTask(ctx, source, refreshTask)
 	if err != nil {

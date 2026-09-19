@@ -167,7 +167,7 @@ func renderQueuedTask(cmd *cobra.Command, state *options, instance *application.
 func classifyCoreError(code string, err error) error {
 	switch {
 	case application.IsCatalogNotInitialized(err):
-		return &Error{Kind: ErrorUnavailable, Code: "catalog_not_initialized", Message: "official catalog is not cached; run core catalog refresh", Cause: err}
+		return &Error{Kind: ErrorUnavailable, Code: "catalog_not_initialized", Message: "official catalog is not cached; run core refresh", Cause: err}
 	case application.IsCoreArtifactNotFound(err):
 		return &Error{Kind: ErrorDomain, Code: "core_artifact_not_found", Message: err.Error(), Cause: err}
 	case application.IsCoreArtifactInUse(err):

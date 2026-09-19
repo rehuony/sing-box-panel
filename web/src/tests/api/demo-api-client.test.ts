@@ -13,8 +13,8 @@ describe('createDemoApiClient', () => {
     await expect(client.getSession()).resolves.toEqual({ displayName: 'Demo administrator' });
 
     const cores = await client.listCoreArtifacts();
-    const current = cores.items.find(item => item.exact_version === '1.14.0');
-    const legacy = cores.items.find(item => item.exact_version === '1.13.19');
+    const current = cores.items.find((item) => item.exact_version === '1.14.0');
+    const legacy = cores.items.find((item) => item.exact_version === '1.13.19');
 
     expect(current).toMatchObject({
       arch: 'amd64',
@@ -70,10 +70,13 @@ describe('createDemoApiClient', () => {
     });
     expect(replaced.task_id).toMatch(/^task_demo_/u);
 
-    const patched = await client.patchCanonical([
-      { op: 'set', path: '/log/level', value_json: '"debug"' },
-      { op: 'unset', path: '/dns/strategy' },
-    ], replaced.revision.id);
+    const patched = await client.patchCanonical(
+      [
+        { op: 'set', path: '/log/level', value_json: '"debug"' },
+        { op: 'unset', path: '/dns/strategy' },
+      ],
+      replaced.revision.id,
+    );
     const current = await client.getCanonical();
 
     expect(patched.revision.id).toBe(current.id);
@@ -101,9 +104,14 @@ describe('createDemoApiClient', () => {
     const client = createDemoApiClient();
     const catalog = await client.getSubscriptionNodeCatalog();
     const initial = await client.getSubscriptionUserGrants('user_demo_primary');
-    const selectedKeys = catalog.nodes.slice(0, 2).map(node => node.key);
+    const selectedKeys = catalog.nodes.slice(0, 2).map((node) => node.key);
 
-    expect(initial.grants).toEqual(catalog.nodes.map(node => node.key));
+    expect(initial.grants).toEqual([
+      'source_demo_remote:0',
+      'source_demo_remote:1',
+      'source_demo_local:0',
+    ]);
+    expect(new Set(catalog.nodes.map((node) => node.key)).size).toBe(catalog.nodes.length);
 
     const replaced = await client.replaceSubscriptionUserGrants(
       initial.user.id,
@@ -121,7 +129,7 @@ describe('createDemoApiClient', () => {
     const client = createDemoApiClient();
     const newestPage = await client.listLogs({ limit: 2 });
 
-    expect(newestPage.items.map(item => item.id)).toEqual([
+    expect(newestPage.items.map((item) => item.id)).toEqual([
       'log_demo_runtime',
       'log_demo_config',
     ]);
@@ -136,10 +144,7 @@ describe('createDemoApiClient', () => {
       limit: 2,
     });
 
-    expect(olderPage.items.map(item => item.id)).toEqual([
-      'log_demo_login',
-      'log_demo_catalog',
-    ]);
+    expect(olderPage.items.map((item) => item.id)).toEqual(['log_demo_login', 'log_demo_catalog']);
     expect(olderPage.next).toBeUndefined();
     expect(olderPage.items).not.toEqual(expect.arrayContaining(newestPage.items));
   });
@@ -177,6 +182,8 @@ describe('createDemoApiClient', () => {
       desired_running: true,
       observation_state: 'running',
     });
-    expect(restartedRuntime.running?.process_start_token).not.toBe(startedRuntime.running?.process_start_token);
+    expect(restartedRuntime.running?.process_start_token).not.toBe(
+      startedRuntime.running?.process_start_token,
+    );
   });
 });

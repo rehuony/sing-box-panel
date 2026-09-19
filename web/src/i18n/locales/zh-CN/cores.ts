@@ -1,4 +1,5 @@
 export const cores = {
+  library: { version: '版本', sourceCapabilities: '来源与能力', status: '状态', actions: '操作', enable: '启用', disable: '禁用', enabled: '已启用', download: '下载', platformUnknown: '平台信息不可用', platformHelp: '根据面板二进制所在平台自动识别，仅获取匹配的系统与架构版本，不支持手动切换。', operationFailed: '操作状态：{{status}}。可在面板日志查看任务 {{id}}。', completed: '操作已完成', queued: '等待中', running: '处理中', succeeded: '已完成', failed: '失败', canceled: '已取消', pageSize: '每页条数', perPage: '每页 {{count}} 条', previous: '上一页', next: '下一页' },
   action: { quarantine: '隔离', remove: '移除', revoke: '撤销信任' },
   artifact: { changed: '核心制品状态已更新。' },
   catalog: { short: '目录' },
@@ -32,7 +33,7 @@ export const cores = {
   filter: {
     allArchitectures: '全部架构',
     architecture: '架构',
-    search: '筛选制品',
+    search: '搜索版本',
   },
   import: {
     archive: '压缩包',
@@ -71,9 +72,9 @@ export const cores = {
   },
   state: { quarantined: '已隔离', revoked: '已撤销', verified: '已验证' },
   subtitle: '已验证的二进制与按版本提供的配置编辑能力。',
-  tabs: { catalog: '目录', installed: '已安装' },
+  tabs: { catalog: '可安装', installed: '已安装' },
   task: { accepted: '{{action}}请求已接受，任务 {{id}}。', title: '任务已接受' },
-  title: '核心库',
+  title: '版本管理',
   versions: '版本',
   value: { unknownSize: '未知大小' },
 } as const;

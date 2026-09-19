@@ -99,7 +99,10 @@ func convertMihomoProxy(proxy map[string]any) (map[string]any, error) {
 	}
 	result := map[string]any{"type": outboundType, "tag": tag, "server": server, "server_port": port}
 	copyMihomoFields(result, proxy, outboundType)
-	if tlsEnabled, _ := proxy["tls"].(bool); tlsEnabled || outboundType == "trojan" || outboundType == "hysteria2" || outboundType == "tuic" || outboundType == "anytls" {
+	if err := convertMihomoSourceOptions(result, proxy); err != nil {
+		return nil, err
+	}
+	if tlsEnabled, _ := proxy["tls"].(bool); tlsEnabled || outboundType == "trojan" || outboundType == "hysteria" || outboundType == "hysteria2" || outboundType == "tuic" || outboundType == "anytls" {
 		tls := map[string]any{"enabled": true}
 		if sni := firstString(proxy, "servername", "sni", "peer"); sni != "" {
 			tls["server_name"] = sni
@@ -111,6 +114,29 @@ func convertMihomoProxy(proxy map[string]any) (map[string]any, error) {
 			tls["alpn"] = alpn
 		}
 		result["tls"] = tls
+		if fingerprint := firstString(proxy, "client-fingerprint"); fingerprint != "" {
+			tls["utls"] = map[string]any{"enabled": true, "fingerprint": fingerprint}
+		}
+		if raw, exists := proxy["reality-opts"]; exists {
+			options, ok := raw.(map[string]any)
+			if !ok {
+				return nil, errors.New("invalid YAML TLS options")
+			}
+			reality := map[string]any{"enabled": true}
+			for key, value := range options {
+				name := map[string]string{"public-key": "public_key", "short-id": "short_id"}[key]
+				if name == "" {
+					return nil, errors.New("unsupported YAML TLS option")
+				}
+				reality[name] = value
+			}
+			tls["reality"] = reality
+		}
+	} else if proxy["client-fingerprint"] != nil || proxy["reality-opts"] != nil || proxy["sni"] != nil || proxy["servername"] != nil || proxy["peer"] != nil || proxy["alpn"] != nil || proxy["skip-cert-verify"] != nil {
+		return nil, errors.New("YAML TLS option requires TLS")
+	}
+	if _, _, code := mihomoMappedOptions(outbound{typeID: outboundType, value: result}); code != "" {
+		return nil, errors.New("invalid or unsupported YAML connection options")
 	}
 	return result, nil
 }

@@ -4,19 +4,23 @@ import { useTranslation } from 'react-i18next';
 
 import type { ReviewedSchemaResolution } from '@/schemas/resolve-reviewed-schema';
 
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
 import type { CanonicalDraft } from './use-canonical-configuration';
 
 import { SchemaSectionForm } from './schema-section-form';
-import { panelMetadata, schemaProperties, uiSchemaFromPanel } from './schema-ui';
+import { schemaProperties, uiSchemaFromPanel } from './schema-ui';
+import { ManagedCollectionsEditor } from './managed-collections-editor';
 
 interface DynamicGeneralEditorProps {
   disabled?: boolean;
   draft: CanonicalDraft;
+  linkedInbound?: string;
   resolution: ReviewedSchemaResolution;
   onChange: (change: (draft: CanonicalDraft) => CanonicalDraft) => void;
 }
+
+const sectionOrder = ['log', 'dns', 'inbounds', 'outbounds', 'route', 'endpoints', 'services', 'ntp', 'certificate', 'certificate_providers', 'http_clients', 'network_namespaces', 'experimental'];
 
 function label(schema: RJSFSchema, language: string, fallback: string): string {
   const metadata = schema['x-panel'];
@@ -28,43 +32,45 @@ function label(schema: RJSFSchema, language: string, fallback: string): string {
 }
 
 export function DynamicGeneralEditor({
-  disabled = false, draft, onChange, resolution,
+  disabled = false, draft, linkedInbound, onChange, resolution,
 }: DynamicGeneralEditorProps) {
   const { i18n, t } = useTranslation();
   const sections = Object.entries(schemaProperties(resolution.schema, resolution.schema))
-    .filter(([, schema]) => panelMetadata(schema).section === 'general')
-    .sort(([, left], [, right]) => (panelMetadata(left).order ?? 0) - (panelMetadata(right).order ?? 0));
-
+    .filter(([name]) => name !== '$schema')
+    .sort(([left], [right]) => {
+      const position = (name: string) => {
+        const index = sectionOrder.indexOf(name);
+        return index < 0 ? sectionOrder.length : index;
+      };
+      return position(left) - position(right);
+    });
+  if (sections.length === 0) return null;
   return (
-    <div className='configuration-section-grid'>
+    <Tabs className='configuration-general' defaultValue={linkedInbound ? 'inbounds' : sections[0][0]} orientation='vertical'>
+      <TabsList aria-label={t('configuration.general.modules')} className='configuration-general__nav'>
+        {sections.map(([name, schema]) => (
+          <TabsTrigger key={name} value={name}>{label(schema, i18n.language, t(`configuration.general.labels.${name}`, { defaultValue: name }))}</TabsTrigger>
+        ))}
+      </TabsList>
       {sections.map(([name, schema]) => (
-        <Card className='configuration-form-card' key={name}>
-          <CardHeader>
-            <CardTitle>{label(schema, i18n.language, name)}</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <SchemaSectionForm
-              basePointer={`/${name}`}
-              data={draft[name]}
-              disabled={disabled}
-              onChange={onChange}
-              resolution={resolution}
-              schema={schema}
-              uiSchema={uiSchemaFromPanel(
-                schema,
-                [],
-                resolution.schema,
-                draft[name],
+        <TabsContent className='configuration-section-scroll' key={name} value={name}>
+          {name === 'endpoints' || name === 'inbounds' || name === 'outbounds' || name === 'services'
+            ? (
+                <ManagedCollectionsEditor
+                  disabled={disabled} draft={draft} onChange={onChange}
+                  linkedTag={name === 'inbounds' ? linkedInbound : undefined}
+                  resolution={resolution} selectedCollection={name}
+                />
+              )
+            : (
+                <SchemaSectionForm
+                  basePointer={`/${name}`} data={draft[name]} disabled={disabled} onChange={onChange}
+                  resolution={resolution} schema={schema}
+                  uiSchema={{ ...uiSchemaFromPanel(schema, [], resolution.schema, draft[name]), 'ui:title': '', 'ui:description': '' }}
+                />
               )}
-            />
-          </CardContent>
-        </Card>
+        </TabsContent>
       ))}
-      {sections.length === 0
-        ? (
-            <p className='configuration-empty-copy'>{t('configuration.schema.noGeneralFields')}</p>
-          )
-        : null}
-    </div>
+    </Tabs>
   );
 }

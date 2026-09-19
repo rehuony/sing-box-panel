@@ -4,32 +4,37 @@ Public subscription output combines immutable applied runtime state with live,
 administrator-managed authorization. Metrics are exposed only when a real
 collector sample exists.
 
-## Users, tokens, and default-deny grants
+## Subscription keys and legacy grants
 
-A subscription user is an administrative profile, not a panel login. Each
-token belongs to one user, carries an operator label, and may be disabled,
-revoked, expired, rotated, or deleted. Plaintext is returned only when a token
-is created or rotated.
+The Web UI exposes subscription sources, keys, and channels. New keys do not
+require a subscription user. They authorize the nodes allowed by each channel's
+publication policy. A key has a label, optional exclusive expiry time, and an
+optional download limit (1–1,000,000,000). Plaintext is returned only by creation
+or rotation; only its digest is stored. Disabling, revoking or deleting a key
+invalidates future requests, not credentials already downloaded by a client.
 
-Users receive no nodes by default. Grants store exact node keys. Selecting an
-entire source in the Web permission matrix expands only its current nodes;
-future source nodes remain denied until explicitly granted. All of a user's
-tokens inherit grant changes immediately.
+Migration retains every existing key's user ID, digest, expiry, usage and grants.
+Those keys continue to require an enabled user and exact node grants; an empty
+grant set still renders an empty subscription. Existing user/grant management
+APIs remain available for compatibility, but are no longer a Web management tab.
+A channel-scoped key has no user ID. The authenticated preview accepts an omitted
+user ID to show the channel policy, or a legacy user ID to preview that user's
+restricted output. No migration silently expands an existing key's access.
 
-The public endpoint remains:
+The public endpoint remains `GET /sub/{token}/{channelId}`. A key's body-response
+counter is shared across all channels. After rendering succeeds, an atomic write
+rechecks enablement, revocation, expiry, legacy user status and remaining quota
+before committing a 200 response. Concurrent requests cannot exceed the limit.
+A 304 response increments the request counter but not downloads; failed
+validation, authorization or rendering consumes neither. Accounting describes
+server-committed responses: HTTP cannot prove that a remote client received all
+bytes after a connection failure. Rotation replaces the secret while retaining
+usage, quota and scope; omission of a replacement expiry retains the old expiry.
 
-```text
-GET /sub/{token}/{channelId}
-```
-
-A valid token with no grants receives a format-correct empty subscription.
-Disabled users and disabled, revoked, expired, deleted, or unknown tokens share
-one public access-denied response. Disabling a token cannot remove credentials
-already downloaded or invalidate a client's cache.
-
-Responses have an ETag. Both `200` and `304` increment successful request
-counts; only a response with a body increments body count and served bytes.
-The panel stores last-use time but not client IP, User-Agent, or the full URL.
+Disabled users and disabled, revoked, expired, exhausted, deleted or unknown keys
+share one public not-found response. Management responses contain metadata only.
+No request address, user agent, plaintext key or response content is recorded in
+usage statistics.
 
 ## Applied local nodes and versioned sources
 
@@ -40,11 +45,11 @@ and therefore restores the matching local-node input without re-projecting the
 current revision.
 
 The inbound registry accepts only the exact reviewed releases `1.11.15`,
-`1.12.25`, and `1.13.19`; other versions fail closed. Each converter publishes
+`1.12.25`, `1.13.19`, and `1.14.0`; other versions fail closed. Each converter publishes
 only the client-usable inbound types available in that release and reports
 stable diagnostics for server-only or unsupported types. Multi-user inbounds
-become separate grantable credentials. A channel's required `public_host`
-combines with each inbound `listen_port`; server certificate private keys,
+become separate grantable credentials for legacy access compatibility. The panel public-host override, existing channel `public_host`, or detected
+public IP combines with each inbound `listen_port`; server certificate private keys,
 ACME configuration, and listen-side fields are never copied.
 
 The current exact inbound contracts are:
@@ -54,8 +59,9 @@ The current exact inbound contracts are:
 | `1.11.15` | `mixed`, `socks`, `http`, `shadowsocks`, `vmess`, `trojan`, `hysteria`, `shadowtls`, `vless`, `tuic`, `hysteria2` |
 | `1.12.25` | All 1.11.15 types plus `anytls` |
 | `1.13.19` | All 1.12.25 types plus `naive` |
+| `1.14.0` | All 1.13.19 types plus `snell` |
 
-For all three versions, `direct`, `tun`, `redirect`, `tproxy`, and
+For these versions, `direct`, `tun`, `redirect`, `tproxy`, and
 `cloudflared` are explicitly unpublishable. Any other inbound type currently
 produces an unsupported-type diagnostic; it is not guessed from a nearby
 version.
@@ -79,6 +85,52 @@ Channel policy, user grants, token state, and source current-version pointers
 take effect immediately. The public handler reads these values, the applied
 startup artifact, and enabled source versions in one consistent SQLite read.
 
+## Manual publication and channels
+
+Manual nodes store native client-node JSON with optimistic concurrency. Local
+automatically derived nodes and manual nodes share the “manual nodes” collection;
+source membership and node names are independent. The source list folds legacy
+local-source records into that collection without changing their IDs. Cards use
+actual source names, with no invented local/self-hosted node-name prefix.
+Publication IDs remain stable
+across credential updates. Hiding a node keeps it recoverable at the source but
+omits it from channel selection views and downloads. It does not delete the
+inbound, channel membership, or existing legacy grants.
+
+Channel configuration accepts a typed policy: selected/excluded publication IDs,
+new-node include/exclude policy, organizer options, ordered rule groups and a
+final exit. Existing groups retain their candidate snapshot when new nodes arrive.
+Unavailable, hidden or cyclic node dependencies cannot silently become direct
+traffic: unavailable designated exits become reject actions. Group and native
+node names must not collide with generated reserved names.
+
+Remote rule sets store metadata only. Sing-box uses source JSON or binary SRS;
+Mihomo uses YAML, TEXT or MRS with native behavior (MRS excludes classical).
+The client fetches the final URL; the panel never fetches, counts, uploads or
+converts rule content. GitHub acceleration unwraps known proxies and prefixes
+eligible original URLs with `https://gh-proxy.com/`, without a GitHub credential.
+
+Per-channel templates use native JSON/YAML and cannot replace generated nodes,
+groups, routing rules, providers or fallback. Sing-box templates and final output
+are schema-checked against reviewed 1.14.0, independently of the server's selected
+core; the subscriber still owns runtime validation. Mihomo checks YAML structure
+and reserved fields; it does not execute a Mihomo runtime check. Diagnostics
+report field paths and fixed error codes without reflecting submitted secrets.
+
+Authenticated preview can accept an unsaved draft without persisting it. Preview
+and public delivery share the renderer. JSON preview responses preserve the
+existing byte/Base64 contract; the Web adapter decodes before display/copy.
+
+The native single-node editor uses reviewed 1.14 fields, with basic address and
+credentials first and optional protocol, TLS, transport, multiplexing and dial
+sections. Explicit protocol/mode changes clear incompatible known options;
+unknown extension fields and large numeric lexemes survive unrelated edits.
+HY2 supports a single port, port ranges or Realm, SSH supports password/key/key
+file, and Shadowsocks UDP-over-TCP and multiplexing are mutually exclusive.
+QUIC does not expose uTLS/Reality or TCP fragmentation. Detour references must
+resolve within the manual-node collection and cannot introduce cycles. Server
+validation rejects invalid known fields without echoing credential values.
+
 ## Target renderers
 
 The sing-box renderer preserves validated publishable nodes in sing-box JSON.
@@ -92,6 +144,46 @@ The cross-format renderers convert only their explicit current contracts:
 Unsupported types, transports, TLS shapes, networks, dependencies, or options
 are omitted with stable positional diagnostics. Renderers never infer a field
 mapping that is not implemented and tested.
+
+Mihomo mapping also covers supported WebSocket/gRPC transport options,
+uTLS/Reality and stream multiplexing. External YAML parsing uses the same
+explicit option contract: an unhandled option fails the refresh rather than
+silently dropping transport, security or routing semantics. The previous source
+version remains active. Sing-box native nodes preserve their original supported
+options; unsupported cross-format nodes produce diagnostics.
+
+## Core and panel log views
+
+The Web page has two tabs. **Real-time logs** shows sanitized sing-box output,
+with a muted timestamp and the entire remaining message colored by TRACE,
+DEBUG, INFO, WARN, ERROR, FATAL or PANIC. A file selector and level filter sit on
+the right; search, pause/resume and LIVE state operate on a bounded local buffer.
+**Panel logs** combines each durable task's current state with standalone panel
+and runtime events once. Details show readable operation status and guidance;
+task IDs and raw result/failure metadata stay internal. Failed/canceled
+catalog refresh, official core installation and source refresh can queue a fresh
+validated attempt. Runtime commands and temporary-file imports require a new
+explicit operation, never replay of stale payloads.
+
+`/api/v1/core/logs/files`, `/api/v1/core/logs/content` and
+`/api/v1/core/logs/stream` expose only managed file names and bounded byte
+cursors. The collector captures child stdout/stderr. If native `log.output` is
+set, it follows new bytes from that regular file, handling creation, truncation
+and rotation without reading pre-existing contents or modifying native config.
+Disabled output is not followed; symbolic-link files and capture-directory loops
+are rejected. On child exit, pending output is drained and its final partial
+line is flushed before completion is reported.
+
+Private core-log retention is at most 32 files of 32 MiB, rotated by UTC date and
+size. Rotation switches only the destination file; the process output pipes and
+file follower remain connected. Each day's sequence advances from its newest
+retained file, including after a panel restart, and extends beyond three digits
+when necessary. The active file is never removed by retention. Lines and read
+chunks are bounded; ANSI sequences and known credentials
+are sanitized. The browser resumes from the received cursor, freezes the selected
+file while paused and polls for rotation. Streaming uses write deadlines and
+closes within a minute to reauthenticate on reconnect. `/api/v1/logs/panel`
+provides the combined panel view. The legacy log API below remains available.
 
 ## Durable logs
 
@@ -111,6 +203,18 @@ sing-box-panel log delete LOG_ID
 startup and every 24 hours. Configuration bytes, subscription bodies, token
 plaintext, URL credentials, and known secret fields are not stored as log
 payloads.
+
+## Dashboard delivery and host metrics
+
+`GET /api/v1/metrics/stream` pushes runtime and metric snapshots every two seconds,
+with bounded writes and a one-minute authenticated reconnect. Polling recovers
+stream interruptions. Repeated collector timestamps do not replace the last
+valid transfer rate with zero. Linux host CPU/memory/disk metrics are separate
+from sing-box process samples; unsupported hosts report unavailable values.
+
+The dashboard shows host summaries, transfer history and one-hour active
+connections. Graph gaps remain gaps. The 24-hour runtime strip uses 48 equal
+segments and persisted transitions; unknown intervals are not guessed healthy.
 
 ## Limited monitoring and traffic
 
@@ -171,16 +275,20 @@ justify them is unknown.
 ```sh
 sing-box-panel metrics show
 sing-box-panel metrics watch
-sing-box-panel traffic status
-sing-box-panel traffic period list
-sing-box-panel traffic period show PERIOD_ID
+sing-box-panel metrics history
+sing-box-panel metrics period PERIOD_ID
 ```
+
+`show` and `watch` include the current traffic period and its cumulative
+traffic when evidence is available. Historical periods remain available
+through `history` and `period`; a separate `traffic` CLI group is unnecessary.
 
 ## Management surfaces
 
-The Web interface and OpenAPI expose user profiles, grant matrices, token
-statistics and lifecycle, channel preview as a selected user, source refresh
-and version history, runtime operations, tasks, and traffic evidence. The
+The Web interface exposes sources, manual nodes, keys and channel policy.
+OpenAPI also preserves legacy user profiles/grant matrices and source history
+for existing clients. Runtime operations, tasks and traffic evidence retain
+their authenticated management contracts. The
 browser core import uses bounded multipart upload and a private staging
 directory; it never asks a browser to submit a server-local path.
 

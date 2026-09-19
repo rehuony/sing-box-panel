@@ -10,7 +10,7 @@ import (
 )
 
 func newSubscriptionTokenCommand(state *options, open openApplicationFunc) *cobra.Command {
-	root := group("token", "Manage public subscription tokens")
+	root := group("token", "Manage public subscription access tokens (not panel management login tokens)")
 	root.AddCommand(
 		newSubscriptionTokenListCommand(state, open),
 		newSubscriptionTokenCreateCommand(state, open),

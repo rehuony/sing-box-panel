@@ -102,7 +102,27 @@ func TestRepresentativeHTTPResponsesConformToOpenAPI(t *testing.T) {
 	if err := json.Unmarshal(canonical.Body.Bytes(), &saved); err != nil || saved.TaskID == "" {
 		t.Fatalf("decode canonical save: save=%+v err=%v", saved, err)
 	}
+	fileResponse := serveConformingRequest(t, router, handler, http.MethodGet, "/api/v1/config/file", "", http.StatusOK, true, nil)
+	var file application.ConfigurationFile
+	if err := json.Unmarshal(fileResponse.Body.Bytes(), &file); err != nil {
+		t.Fatal(err)
+	}
+	fileBody, err := json.Marshal(application.ConfigurationFileWrite{Revision: file.Revision, Content: "{"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	serveConformingRequest(t, router, handler, http.MethodPut, "/api/v1/config/file", string(fileBody), http.StatusOK, true, nil)
 	serveConformingRequest(t, router, handler, http.MethodGet, "/api/v1/core/status", "", http.StatusOK, true, nil)
+	panel := serveConformingRequest(t, router, handler, http.MethodGet, "/api/v1/panel/settings", "", http.StatusOK, true, nil)
+	var panelView application.PanelSettingsView
+	if err := json.Unmarshal(panel.Body.Bytes(), &panelView); err != nil {
+		t.Fatal(err)
+	}
+	panelBody, err := json.Marshal(application.PanelSettingsWrite{Preferences: panelView.Preferences, Revision: panelView.Revision})
+	if err != nil {
+		t.Fatal(err)
+	}
+	serveConformingRequest(t, router, handler, http.MethodPut, "/api/v1/panel/settings", string(panelBody), http.StatusOK, true, nil)
 	serveConformingRequest(t, router, handler, http.MethodGet, "/api/v1/tasks/"+saved.TaskID, "", http.StatusOK, true, nil)
 
 	now := time.Date(2026, time.August, 29, 10, 0, 0, 0, time.UTC)

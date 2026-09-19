@@ -1,4 +1,5 @@
 export const telemetry = {
+  demo: '演示环境',
   action: {
     failed: '{{action}}失败',
     queued: '{{action}} · {{status}}',

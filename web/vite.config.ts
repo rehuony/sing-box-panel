@@ -2,7 +2,7 @@ import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
 import { defineConfig } from 'vitest/config';
 
-import { configurationSchemaPlugin } from './vite/configuration-schema-plugin.ts';
+import { configurationSchemaPlugin } from './plugins/configuration-schema.ts';
 
 export default defineConfig({
   base: './',

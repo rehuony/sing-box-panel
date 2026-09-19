@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/rehuony/sing-box-panel/internal/application"
+	"github.com/rehuony/sing-box-panel/internal/corelogs"
 	coreruntime "github.com/rehuony/sing-box-panel/internal/runtime"
 	"github.com/rehuony/sing-box-panel/internal/settings"
 	"github.com/rehuony/sing-box-panel/internal/store"
@@ -45,8 +46,14 @@ func newRuntimeServices(
 	commands *application.Application,
 	configuration settings.Settings,
 ) (*runtimeServices, error) {
+	logs, err := corelogs.New(configuration.DataDir)
+	if err != nil {
+		return nil, err
+	}
 	manager, err := coreruntime.NewManager(coreruntime.Options{
 		RuntimeDir: filepath.Join(configuration.DataDir, "runtime"),
+		Stdout:     logs.Writer(), Stderr: logs.Writer(),
+		ObserveOutput: logs.Follow,
 	})
 	if err != nil {
 		return nil, err
@@ -251,6 +258,16 @@ func runtimeIntentHandler(services *runtimeServices) taskResultHandlerFunc {
 		if store.RuntimeIntentKind(task.Kind) == store.RuntimeIntentStop {
 			return services.stopForTask(ctx, task, control)
 		}
+		if task.StartupArtifactID != "" && task.ActivationBundleID == "" {
+			if store.RuntimeIntentKind(task.Kind) == store.RuntimeIntentStart && services.manager.ObserveLiveIdentity().Running {
+				return taskHandlerResult{}, errors.New("core is already running; restart to load saved configuration")
+			}
+			var err error
+			task, err = services.checkConfigurationForTask(ctx, task, control)
+			if err != nil {
+				return taskHandlerResult{}, err
+			}
+		}
 		material, err := services.commands.LoadRuntimeMaterial(ctx, task.ActivationBundleID)
 		if err != nil {
 			return taskHandlerResult{}, err
@@ -279,6 +296,9 @@ func runtimeIntentHandler(services *runtimeServices) taskResultHandlerFunc {
 			live.ArtifactDigest == material.Bundle.ArtifactDigest
 		startedByTask := false
 		if runtimeIntentNeedsTransition(store.RuntimeIntentKind(task.Kind), alreadyExact) {
+			if err := control.SafePoint(ctx); err != nil {
+				return taskHandlerResult{}, err
+			}
 			if live.Running {
 				err = services.manager.Restart(ctx, material.Bundle)
 			} else {

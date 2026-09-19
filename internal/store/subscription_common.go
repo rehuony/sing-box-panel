@@ -17,11 +17,13 @@ import (
 	"unicode/utf8"
 
 	"github.com/rehuony/sing-box-panel/internal/jsonstrict"
+	"github.com/rehuony/sing-box-panel/internal/subscription"
 )
 
 const (
 	maximumSubscriptionNameBytes   = 128
 	maximumSubscriptionConfigBytes = 64 << 10
+	maximumChannelConfigBytes      = 512 << 10
 	maximumSourceSnapshotBytes     = 4 << 20
 	maximumChannelExclusions       = 10_000
 
@@ -35,6 +37,7 @@ var (
 	ErrSubscriptionChannelExists   = errors.New("subscription channel already exists")
 	ErrSubscriptionSourceNotFound  = errors.New("subscription source not found")
 	ErrSubscriptionSourceExists    = errors.New("subscription source already exists")
+	ErrInvalidSubscriptionToken    = errors.New("invalid subscription token")
 	ErrSubscriptionTokenNotFound   = errors.New("subscription token not found")
 	ErrSubscriptionTokenExists     = errors.New("subscription token already exists")
 	ErrSubscriptionTokenInactive   = errors.New("subscription token is expired or revoked")
@@ -64,9 +67,12 @@ func (err *SubscriptionConflictError) Error() string {
 func (err *SubscriptionConflictError) Unwrap() error { return ErrSubscriptionConflict }
 
 // SubscriptionFormat identifies one renderer contract.
-func canonicalChannelConfig(raw json.RawMessage) (json.RawMessage, error) {
+func canonicalChannelConfig(raw json.RawMessage, format SubscriptionFormat) (json.RawMessage, error) {
 	config, err := DecodeSubscriptionChannelConfig(raw)
 	if err != nil {
+		return nil, err
+	}
+	if err := subscription.ValidateChannelPolicy(config.Policy, subscription.RenderFormat(format)); err != nil {
 		return nil, err
 	}
 	encoded, err := json.Marshal(config)
@@ -248,8 +254,9 @@ func insertSubscriptionToken(ctx context.Context, tx *sql.Tx, token Subscription
 	_, err := tx.ExecContext(
 		ctx,
 		`INSERT INTO subscription_tokens(
-			id, user_id, label, token_sha256, enabled, expires_at, revoked_at, created_at
-		 ) VALUES (?, ?, ?, ?, ?, ?, NULL, ?)`,
+			id, user_id, label, token_sha256, enabled, expires_at, revoked_at, created_at, download_limit,
+            successful_request_count, body_response_count, bytes_served, last_used_at
+		 ) VALUES (?, NULLIF(?, ''), ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?)`,
 		token.ID,
 		token.UserID,
 		token.Label,
@@ -257,6 +264,7 @@ func insertSubscriptionToken(ctx context.Context, tx *sql.Tx, token Subscription
 		boolInt(token.Enabled),
 		nullableSubscriptionTime(token.ExpiresAt),
 		formatTaskTime(token.CreatedAt),
+		token.DownloadLimit, token.SuccessfulRequestCount, token.BodyResponseCount, token.BytesServed, nullableSubscriptionTime(token.LastUsedAt),
 	)
 	if err != nil {
 		return fmt.Errorf("insert subscription token: %w", err)

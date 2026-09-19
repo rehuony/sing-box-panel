@@ -1,15 +1,31 @@
 export const dashboard = {
+  metric: {
+    cpu: '主机 CPU',
+    cpuDetail: '{{count}} 核 · 1 分钟负载 {{load}}',
+    memory: '主机内存',
+    disk: '磁盘使用',
+    transfer: '周期流量',
+    quota: '已用 {{used}} · 额度 {{total}}',
+    noQuota: '未设置流量额度',
+    countUnit: '个',
+    lastHour: '最近 1 小时',
+    lastDay: '最近 24 小时',
+  },
   action: {
     refresh: '刷新',
     refreshing: '正在刷新…',
   },
   bundle: {
+    apply: '应用筛选',
+    filter: '按部署筛选',
     label: '运行包',
     placeholder: '全部运行包',
   },
   chart: {
+    arrows: '使用左右方向键查看采样。',
     interactionHint: 'Ctrl + 滚动缩放 · Shift + 滚动平移 · +/− 缩放 · Shift + ←/→ 平移',
-    keyboardLabel: '历史图表。使用方向键检查时间桶，加减号缩放，Shift 加方向键平移，Home 重置，Enter 打开对应日志。',
+    keyboardLabel:
+      '历史图表。使用方向键检查时间桶，加减号缩放，Shift 加方向键平移，Home 重置，Enter 打开对应日志。',
     noBucket: '未选择时间桶',
     visibleRange: '可见范围：{{from}} 至 {{to}}',
   },

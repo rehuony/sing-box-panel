@@ -1,6 +1,5 @@
 import type { FormEvent } from 'react';
 
-import { ArrowRight } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useEffect, useRef, useState } from 'react';
 import { Navigate, useLocation, useNavigate } from 'react-router-dom';
@@ -8,7 +7,6 @@ import { Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { ApiRequestError } from '@/api/api-client';
-import { PanelLogo } from '@/components/panel-logo';
 import { useAuthSession } from '@/stores/auth-session.store';
 
 import './login-page.css';
@@ -100,21 +98,15 @@ export function LoginPage() {
   return (
     <main className='login-page'>
       <section className='login-card' aria-labelledby='login-title'>
-        <header className='login-card__brand'>
-          <PanelLogo compact />
-          <div>
-            <h1 id='login-title'>{t('app.title', { defaultValue: 'Sing-Box Panel' })}</h1>
-            <p>{t('login.subtitle', { defaultValue: 'Local management console' })}</p>
-          </div>
-        </header>
+        <h1 id='login-title'>{t('login.title')}</h1>
 
         <form noValidate onSubmit={handleSubmit}>
           <div className='field-group'>
-            <label htmlFor='management-token'>
+            <label className='sr-only' htmlFor='management-token'>
               {t('login.token.label', { defaultValue: 'Management token' })}
             </label>
             <Input
-              aria-describedby={error === '' ? 'management-token-hint' : 'management-token-error'}
+              aria-describedby={error === '' ? undefined : 'management-token-error'}
               aria-invalid={error !== ''}
               autoComplete='current-password'
               autoFocus
@@ -128,7 +120,7 @@ export function LoginPage() {
               value={token}
             />
             {error === ''
-              ? <small id='management-token-hint'>{t('login.token.hint', { defaultValue: 'Stored only on this device.' })}</small>
+              ? null
               : (
                   <div id='management-token-error' ref={errorRef} role='alert' tabIndex={-1}>
                     {error}
@@ -139,7 +131,6 @@ export function LoginPage() {
             {isSubmitting
               ? t('login.submit.pending', { defaultValue: 'Opening…' })
               : t('login.submit.label', { defaultValue: 'Open panel' })}
-            <ArrowRight aria-hidden='true' />
           </Button>
         </form>
       </section>

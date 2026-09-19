@@ -26,7 +26,7 @@ func renderUnit(scope Scope, executablePath, settingsPath, dataDir string) ([]by
 	if err != nil {
 		return nil, err
 	}
-	result, err := replaceDirective(template, "ExecStart=", "ExecStart="+executable+" server run --config "+settings)
+	result, err := replaceDirective(template, "ExecStart=", "ExecStart="+executable+" server start --config "+settings)
 	if err != nil {
 		return nil, err
 	}

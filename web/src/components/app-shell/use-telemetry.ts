@@ -110,10 +110,13 @@ export function useTelemetry(): TelemetryState {
 
         if (trafficRequestRef.current === trafficRequest && trafficResult.status === 'fulfilled') {
           const next = trafficResult.value;
-          const acceptedSample = next.available && next.latest_sample?.accepted === true
-            ? next.latest_sample
-            : undefined;
-          setRates(deriveTrafficRates(previousSampleRef.current, acceptedSample));
+          const acceptedSample
+            = next.available && next.latest_sample?.accepted === true
+              ? next.latest_sample
+              : undefined;
+          if (!acceptedSample || acceptedSample.id !== previousSampleRef.current?.id) {
+            setRates(deriveTrafficRates(previousSampleRef.current, acceptedSample));
+          }
           previousSampleRef.current = acceptedSample ?? null;
           setSnapshot(next);
           setTrafficError(null);
@@ -201,6 +204,41 @@ export function useTelemetry(): TelemetryState {
       document.removeEventListener('visibilitychange', refreshWhenVisible);
     };
   }, [refresh]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    let retry: ReturnType<typeof setTimeout> | undefined;
+    async function connect() {
+      try {
+        for await (const event of client.streamMetrics(controller.signal)) {
+          if (controller.signal.aborted) return;
+          // Supersede any polling response already in flight.
+          trafficRequestRef.current += 1;
+          runtimeRequestRef.current += 1;
+          const sample
+            = event.metrics.available && event.metrics.latest_sample?.accepted
+              ? event.metrics.latest_sample
+              : undefined;
+          if (!sample || sample.id !== previousSampleRef.current?.id) {
+            setRates(deriveTrafficRates(previousSampleRef.current, sample));
+          }
+          previousSampleRef.current = sample ?? null;
+          setSnapshot(event.metrics);
+          setRuntimeStatus(event.runtime);
+          setTrafficError(null);
+          setRuntimeError(null);
+        }
+      } catch {
+        // The existing bounded poll refreshes evidence while SSE reconnects.
+      }
+      if (!controller.signal.aborted) retry = setTimeout(() => void connect(), 2000);
+    }
+    void connect();
+    return () => {
+      controller.abort();
+      clearTimeout(retry);
+    };
+  }, [client]);
 
   return {
     acceptRuntimeStatus,

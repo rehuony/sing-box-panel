@@ -1,8 +1,9 @@
 import type { RJSFSchema } from '@rjsf/utils';
 
 import { CSS } from '@dnd-kit/utilities';
-import { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { isLosslessNumber } from 'lossless-json';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Braces,
   CircleAlert,
@@ -13,7 +14,6 @@ import {
   Trash2,
   Wrench,
 } from 'lucide-react';
-import { arrayMove, SortableContext, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import {
   closestCenter,
   DndContext,
@@ -23,6 +23,13 @@ import {
   useSensor,
   useSensors,
 } from '@dnd-kit/core';
+import {
+  arrayMove,
+  SortableContext,
+  sortableKeyboardCoordinates,
+  useSortable,
+  verticalListSortingStrategy,
+} from '@dnd-kit/sortable';
 
 import type { JsonObject } from '@/api/api-client';
 import type { ReviewedSchemaResolution } from '@/schemas/resolve-reviewed-schema';
@@ -30,6 +37,9 @@ import type { ReviewedSchemaResolution } from '@/schemas/resolve-reviewed-schema
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
+import { toast } from '@/components/ui/toast-manager';
+import { useApiClient } from '@/api/api-client-context';
+import { describeRequestError } from '@/components/error-notice';
 import { Field, FieldDescription, FieldLabel } from '@/components/ui/field';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
@@ -81,8 +91,10 @@ type ManagedCollection = 'endpoints' | 'inbounds' | 'outbounds' | 'services';
 
 interface ManagedCollectionsEditorProps {
   disabled?: boolean;
+  linkedTag?: string;
   draft: CanonicalDraft;
   resolution: ReviewedSchemaResolution;
+  selectedCollection?: ManagedCollection;
   onChange: (change: (draft: CanonicalDraft) => CanonicalDraft) => void;
 }
 
@@ -96,19 +108,18 @@ interface EntryView {
 
 function object(value: unknown): JsonObject | null {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
-    ? value as JsonObject
+    ? (value as JsonObject)
     : null;
 }
 
 function entries(value: unknown): JsonObject[] {
-  return Array.isArray(value)
-    ? value.map((item) => object(item) ?? {})
-    : [];
+  return Array.isArray(value) ? value.map((item) => object(item) ?? {}) : [];
 }
 
 function entryView(value: JsonObject, index: number): EntryView {
-  const identity = [value.tag, value.id, value.name]
-    .find((candidate) => typeof candidate === 'string' && candidate !== '');
+  const identity = [value.tag, value.id, value.name].find(
+    (candidate) => typeof candidate === 'string' && candidate !== '',
+  );
   const id = typeof identity === 'string' ? identity : `entry-${index + 1}`;
   const type = typeof value.type === 'string' && value.type !== '' ? value.type : 'untyped';
   const tag = typeof value.tag === 'string' && value.tag !== '' ? value.tag : id;
@@ -131,9 +142,14 @@ function nestedString(value: JsonObject, path: string[]): string {
 
 function summaryBadges(value: JsonObject): string[] {
   const host = [value.server, value.listen].find((candidate) => typeof candidate === 'string');
-  const port = [value.server_port, value.listen_port].find((candidate) => typeof candidate === 'number' || typeof candidate === 'string');
+  const port = [value.server_port, value.listen_port].find(
+    (candidate) =>
+      typeof candidate === 'number' || typeof candidate === 'string' || isLosslessNumber(candidate),
+  );
   const result = [
-    typeof host === 'string' && host !== '' ? `${host}${port === undefined ? '' : `:${String(port)}`}` : '',
+    typeof host === 'string' && host !== ''
+      ? `${host}${port === undefined ? '' : `:${String(port)}`}`
+      : '',
     nestedString(value, ['tls', 'server_name']),
     nestedString(value, ['transport', 'type']),
     nestedString(value, ['obfs', 'type']),
@@ -156,10 +172,14 @@ function protocolTypes(schema: RJSFSchema, root: RJSFSchema): string[] {
 }
 
 function defaultProtocolType(types: string[]): string {
-  return types.includes('mixed') ? 'mixed' : types[0] ?? '';
+  return types.includes('mixed') ? 'mixed' : (types[0] ?? '');
 }
 
-function nextIdentifier(items: JsonObject[], collection: ManagedCollection, unavailableMessage: string): string {
+function nextIdentifier(
+  items: JsonObject[],
+  collection: ManagedCollection,
+  unavailableMessage: string,
+): string {
   const used = new Set(items.map((item, index) => entryView(item, index).id));
   const prefix = collection === 'services' ? 'service' : collection.slice(0, -1);
   for (let suffix = 1; suffix <= 10_000; suffix += 1) {
@@ -178,7 +198,14 @@ interface SortableEntryCardProps {
   onRepair: () => void;
 }
 
-function SortableEntryCard({ disabled, entry, index, onDelete, onEdit, onRepair }: SortableEntryCardProps) {
+function SortableEntryCard({
+  disabled,
+  entry,
+  index,
+  onDelete,
+  onEdit,
+  onRepair,
+}: SortableEntryCardProps) {
   const { t } = useTranslation();
   const sortable = useSortable({ disabled, id: `${entry.id}:${index}` });
   return (
@@ -202,16 +229,38 @@ function SortableEntryCard({ disabled, entry, index, onDelete, onEdit, onRepair 
       >
         <GripVertical aria-hidden='true' />
       </Button>
-      <button className='managed-node-card__identity' disabled={disabled} onClick={onEdit} type='button'>
+      <button
+        className='managed-node-card__identity'
+        disabled={disabled}
+        onClick={onEdit}
+        type='button'
+      >
         <strong>{entry.tag}</strong>
         <span>{entry.type === 'untyped' ? t('configuration.managed.untyped') : entry.type}</span>
       </button>
       <div className='managed-node-card__badges'>
-        {!entry.valid ? <Badge variant='destructive'>{t('configuration.managed.needsRepair')}</Badge> : null}
-        {summaryBadges(entry.value).map((badge) => <Badge key={badge} variant='outline'>{badge}</Badge>)}
+        {!entry.valid
+          ? (
+              <Badge variant='destructive'>{t('configuration.managed.needsRepair')}</Badge>
+            )
+          : null}
+        {summaryBadges(entry.value).map((badge) => (
+          <Badge key={badge} variant='outline'>
+            {badge}
+          </Badge>
+        ))}
       </div>
       <DropdownMenu>
-        <DropdownMenuTrigger render={<Button aria-label={t('configuration.managed.actions', { name: entry.tag })} disabled={disabled} size='icon-sm' variant='ghost' />}>
+        <DropdownMenuTrigger
+          render={(
+            <Button
+              aria-label={t('configuration.managed.actions', { name: entry.tag })}
+              disabled={disabled}
+              size='icon-sm'
+              variant='ghost'
+            />
+          )}
+        >
           <MoreHorizontal aria-hidden='true' />
         </DropdownMenuTrigger>
         <DropdownMenuContent align='end'>
@@ -240,26 +289,45 @@ function SortableEntryCard({ disabled, entry, index, onDelete, onEdit, onRepair 
 }
 
 export function ManagedCollectionsEditor({
-  disabled = false, draft, onChange, resolution,
+  disabled = false,
+  draft,
+  linkedTag,
+  onChange,
+  resolution,
+  selectedCollection,
 }: ManagedCollectionsEditorProps) {
   const { i18n, t } = useTranslation();
+  const client = useApiClient();
+  const createRequestRef = useRef<AbortController | null>(null);
+  const [creating, setCreating] = useState(false);
+  useEffect(() => () => createRequestRef.current?.abort(), []);
   const collectionSchemas = Object.entries(schemaProperties(resolution.schema, resolution.schema))
-    .filter((entry): entry is [ManagedCollection, RJSFSchema] =>
-      panelMetadata(entry[1]).section === 'managed'
-      && ['endpoints', 'inbounds', 'outbounds', 'services'].includes(entry[0]),
+    .filter(
+      (entry): entry is [ManagedCollection, RJSFSchema] =>
+        panelMetadata(entry[1]).section === 'managed'
+        && ['endpoints', 'inbounds', 'outbounds', 'services'].includes(entry[0]),
     )
-    .sort(([, left], [, right]) => (panelMetadata(left).order ?? 0) - (panelMetadata(right).order ?? 0));
-  const [collection, setCollection] = useState<ManagedCollection>(collectionSchemas[0]?.[0] ?? 'inbounds');
-  const activeSchema = collectionSchemas.find(([name]) => name === collection)?.[1] ?? collectionSchemas[0]?.[1];
-  const activeCollection = activeSchema === undefined
-    ? collection
-    : collectionSchemas.find(([, schema]) => schema === activeSchema)?.[0] ?? collection;
-  const itemSchema = activeSchema === undefined
-    ? null
-    : collectionItemSchema(activeSchema, resolution.schema);
+    .sort(
+      ([, left], [, right]) => (panelMetadata(left).order ?? 0) - (panelMetadata(right).order ?? 0),
+    );
+  const [chosenCollection, setChosenCollection] = useState<ManagedCollection>(
+    collectionSchemas[0]?.[0] ?? 'inbounds',
+  );
+  const collection = selectedCollection ?? chosenCollection;
+  const activeSchema
+    = collectionSchemas.find(([name]) => name === collection)?.[1] ?? collectionSchemas[0]?.[1];
+  const activeCollection
+    = activeSchema === undefined
+      ? collection
+      : (collectionSchemas.find(([, schema]) => schema === activeSchema)?.[0] ?? collection);
+  const itemSchema
+    = activeSchema === undefined ? null : collectionItemSchema(activeSchema, resolution.schema);
   const items = entries(draft[activeCollection]);
   const views = items.map(entryView);
-  const [editingIndex, setEditingIndex] = useState<number | null>(null);
+  const [editingIndex, setEditingIndex] = useState<number | null>(() => {
+    const index = linkedTag === undefined ? -1 : items.findIndex((item) => item.tag === linkedTag);
+    return index < 0 ? null : index;
+  });
   const [deletingIndex, setDeletingIndex] = useState<number | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
   const types = activeSchema === undefined ? [] : protocolTypes(activeSchema, resolution.schema);
@@ -290,58 +358,90 @@ export function ManagedCollectionsEditor({
     );
     const current = next[index];
     if ((typeof current.type !== 'string' || current.type === '') && types.length === 0) return;
-    const currentID = typeof current.tag === 'string' && current.tag !== ''
-      && !views.some((entry, itemIndex) => itemIndex !== index && entry.id === current.tag)
-      ? current.tag
-      : fallbackID;
+    const currentID
+      = typeof current.tag === 'string'
+        && current.tag !== ''
+        && !views.some((entry, itemIndex) => itemIndex !== index && entry.id === current.tag)
+        ? current.tag
+        : fallbackID;
     next[index] = {
       ...current,
-      type: typeof current.type === 'string' && current.type !== ''
-        ? current.type
-        : defaultProtocolType(types),
+      type:
+        typeof current.type === 'string' && current.type !== ''
+          ? current.type
+          : defaultProtocolType(types),
       tag: typeof current.tag === 'string' && current.tag !== '' ? current.tag : currentID,
     };
     replace(next);
   }
 
   function openCreate() {
-    setNewID(nextIdentifier(items, activeCollection, t('configuration.managed.noAvailableIdentifier')));
+    setNewID(
+      nextIdentifier(items, activeCollection, t('configuration.managed.noAvailableIdentifier')),
+    );
     setNewType(defaultProtocolType(types));
     setCreateOpen(true);
   }
 
-  function create() {
-    if (!newIDValid || newType === '') return;
-    replace([...items, {
-      type: newType,
-      tag: newID,
-    }]);
-    setCreateOpen(false);
-    setEditingIndex(items.length);
+  async function create() {
+    if (!newIDValid || newType === '' || creating || disabled) return;
+    const controller = new AbortController();
+    createRequestRef.current = controller;
+    setCreating(true);
+    try {
+      const initial
+        = activeCollection === 'inbounds'
+          ? await client.newInboundDefaults(newType, controller.signal)
+          : { type: newType };
+      if (controller.signal.aborted) return;
+      replace([...items, { ...initial, tag: newID }]);
+      setCreateOpen(false);
+      setEditingIndex(items.length);
+    } catch (error) {
+      if (!controller.signal.aborted) toast.add({ title: describeRequestError(error), type: 'error' });
+    } finally {
+      if (!controller.signal.aborted) setCreating(false);
+    }
   }
 
   return (
     <div className='managed-editor'>
       <div className='managed-editor__toolbar'>
-        <div aria-label={t('configuration.managed.collections')} className='managed-editor__collections' role='tablist'>
-          {collectionSchemas.map(([name, schema]) => (
-            <Button
-              aria-selected={name === activeCollection}
-              key={name}
-              onClick={() => setCollection(name)}
-              role='tab'
-              size='sm'
-              type='button'
-              variant={name === activeCollection ? 'secondary' : 'ghost'}
-            >
-              {schemaLabel(schema, i18n.language, t(`configuration.managed.collection.${name}`))}
-              <Badge variant='outline'>{entries(draft[name]).length}</Badge>
-            </Button>
-          ))}
-        </div>
-        <Button disabled={disabled || types.length === 0} onClick={openCreate} size='sm' type='button'>
+        {selectedCollection === undefined
+          ? (
+              <div
+                aria-label={t('configuration.managed.collections')}
+                className='managed-editor__collections'
+                role='tablist'
+              >
+                {collectionSchemas.map(([name, schema]) => (
+                  <Button
+                    aria-selected={name === activeCollection}
+                    key={name}
+                    onClick={() => setChosenCollection(name)}
+                    role='tab'
+                    size='sm'
+                    type='button'
+                    variant={name === activeCollection ? 'secondary' : 'ghost'}
+                  >
+                    {schemaLabel(schema, i18n.language, t(`configuration.managed.collection.${name}`))}
+                    <Badge variant='outline'>{entries(draft[name]).length}</Badge>
+                  </Button>
+                ))}
+              </div>
+            )
+          : (
+              <span />
+            )}
+        <Button
+          aria-label={t('configuration.managed.add')}
+          disabled={disabled || types.length === 0}
+          onClick={openCreate}
+          size='icon'
+          type='button'
+          variant='ghost'
+        >
           <Plus aria-hidden='true' data-icon='inline-start' />
-          {t('configuration.managed.add')}
         </Button>
       </div>
 
@@ -356,7 +456,6 @@ export function ManagedCollectionsEditor({
           ? (
               <div className='configuration-empty-copy'>
                 <strong>{t('configuration.managed.emptyTitle')}</strong>
-                <span>{t('configuration.managed.emptyDescription')}</span>
               </div>
             )
           : (
@@ -417,9 +516,7 @@ export function ManagedCollectionsEditor({
                         data={items[editingIndex]}
                         disabled={disabled || !views[editingIndex].valid}
                         onChange={onChange}
-                        protectedPaths={[
-                          `/${activeCollection}/${editingIndex}/type`,
-                        ]}
+                        protectedPaths={[`/${activeCollection}/${editingIndex}/type`]}
                         resolution={resolution}
                         schema={itemSchema}
                         uiSchema={{
@@ -435,7 +532,9 @@ export function ManagedCollectionsEditor({
                     </div>
                   </TabsContent>
                   <TabsContent value='json'>
-                    <pre className='configuration-entity-json'>{encodeCanonicalValue(items[editingIndex], 2)}</pre>
+                    <pre className='configuration-entity-json'>
+                      {encodeCanonicalValue(items[editingIndex], 2)}
+                    </pre>
                   </TabsContent>
                 </Tabs>
               )
@@ -443,7 +542,16 @@ export function ManagedCollectionsEditor({
         </DialogContent>
       </Dialog>
 
-      <Dialog onOpenChange={setCreateOpen} open={createOpen}>
+      <Dialog
+        onOpenChange={(open) => {
+          if (!open) {
+            createRequestRef.current?.abort();
+            setCreating(false);
+          }
+          setCreateOpen(open);
+        }}
+        open={createOpen}
+      >
         <DialogContent>
           <DialogHeader>
             <DialogTitle>{t('configuration.managed.createTitle')}</DialogTitle>
@@ -451,38 +559,60 @@ export function ManagedCollectionsEditor({
           </DialogHeader>
           <Field data-invalid={newID !== '' && !newIDValid ? true : undefined}>
             <FieldLabel htmlFor='managed-new-id'>{t('configuration.managed.panelID')}</FieldLabel>
-            <Input disabled={disabled} id='managed-new-id' onChange={(event) => setNewID(event.currentTarget.value)} value={newID} />
+            <Input
+              disabled={disabled || creating}
+              id='managed-new-id'
+              onChange={(event) => setNewID(event.currentTarget.value)}
+              value={newID}
+            />
             <FieldDescription>{t('configuration.managed.panelIDHelp')}</FieldDescription>
           </Field>
           <Field>
-            <FieldLabel htmlFor='managed-new-type'>{t('configuration.managed.protocol')}</FieldLabel>
+            <FieldLabel htmlFor='managed-new-type'>
+              {t('configuration.managed.protocol')}
+            </FieldLabel>
             <Select
               items={types.map((type) => ({ label: type, value: type }))}
-              disabled={disabled}
+              disabled={disabled || creating}
               onValueChange={(value) => setNewType(value ?? '')}
               value={newType}
             >
-              <SelectTrigger className='w-full' id='managed-new-type'><SelectValue /></SelectTrigger>
+              <SelectTrigger className='w-full' id='managed-new-type'>
+                <SelectValue />
+              </SelectTrigger>
               <SelectContent>
                 <SelectGroup>
-                  {types.map((type) => <SelectItem key={type} value={type}>{type}</SelectItem>)}
+                  {types.map((type) => (
+                    <SelectItem key={type} value={type}>
+                      {type}
+                    </SelectItem>
+                  ))}
                 </SelectGroup>
               </SelectContent>
             </Select>
           </Field>
-          <Button disabled={disabled || !newIDValid || newType === ''} onClick={create} type='button'>
+          <Button
+            disabled={disabled || creating || !newIDValid || newType === ''}
+            onClick={create}
+            type='button'
+          >
             <Plus aria-hidden='true' data-icon='inline-start' />
             {t('common.create')}
           </Button>
         </DialogContent>
       </Dialog>
 
-      <AlertDialog onOpenChange={(open) => !open && setDeletingIndex(null)} open={deletingIndex !== null}>
+      <AlertDialog
+        onOpenChange={(open) => !open && setDeletingIndex(null)}
+        open={deletingIndex !== null}
+      >
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>{t('configuration.managed.deleteTitle')}</AlertDialogTitle>
             <AlertDialogDescription>
-              {t('configuration.managed.deleteDescription', { name: deletingIndex === null ? '' : views[deletingIndex]?.tag })}
+              {t('configuration.managed.deleteDescription', {
+                name: deletingIndex === null ? '' : views[deletingIndex]?.tag,
+              })}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

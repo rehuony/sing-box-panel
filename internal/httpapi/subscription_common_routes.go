@@ -10,6 +10,7 @@ import (
 
 	"github.com/rehuony/sing-box-panel/internal/application"
 	"github.com/rehuony/sing-box-panel/internal/store"
+	"github.com/rehuony/sing-box-panel/internal/subscription"
 )
 
 func (handler *Handler) subscriptionReadRequest(w http.ResponseWriter, request *http.Request) bool {
@@ -78,8 +79,20 @@ func writeSubscriptionInvalid(w http.ResponseWriter, request *http.Request) {
 }
 
 func writeSubscriptionProblem(w http.ResponseWriter, request *http.Request, code string, err error) {
+	var node *subscription.NodeFieldError
+	if errors.As(err, &node) {
+		writeProblem(w, request, http.StatusUnprocessableEntity, "subscription_node_invalid", "Node configuration invalid", node.Error())
+		return
+	}
+	var policy *subscription.PolicyError
+	if errors.As(err, &policy) {
+		writeProblem(w, request, http.StatusUnprocessableEntity, "subscription_policy_invalid", "Channel configuration invalid", policy.Error())
+		return
+	}
 	switch {
-	case errors.Is(err, store.ErrSubscriptionChannelNotFound), errors.Is(err, store.ErrSubscriptionSourceNotFound),
+	case errors.Is(err, store.ErrInvalidSubscriptionToken), errors.Is(err, store.ErrSubscriptionNodeInvalid):
+		writeSubscriptionInvalid(w, request)
+	case errors.Is(err, store.ErrSubscriptionNodeNotFound), errors.Is(err, store.ErrSubscriptionChannelNotFound), errors.Is(err, store.ErrSubscriptionSourceNotFound),
 		errors.Is(err, store.ErrSubscriptionSourceVersionNotFound),
 		errors.Is(err, store.ErrSubscriptionUserNotFound),
 		errors.Is(err, store.ErrSubscriptionTokenNotFound), application.IsStartupArtifactNotFound(err):

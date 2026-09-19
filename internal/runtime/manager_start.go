@@ -5,6 +5,7 @@ package runtime
 import (
 	"context"
 	"errors"
+	"io"
 )
 
 func (manager *Manager) startLocked(ctx context.Context, bundle AppliedBundle) error {
@@ -136,6 +137,19 @@ func (manager *Manager) startLocked(ctx context.Context, bundle AppliedBundle) e
 		return manager.startFailure("start", "cancelled", err, err)
 	}
 
+	var output io.Closer
+	if manager.options.ObserveOutput != nil {
+		output, err = manager.options.ObserveOutput(bundle.StartupConfig, manager.options.RuntimeDir)
+		if err != nil {
+			return manager.startFailure("observe_output", "unavailable", ErrMaterialization, err)
+		}
+	}
+	outputOwned := false
+	defer func() {
+		if !outputOwned && output != nil {
+			_ = output.Close()
+		}
+	}()
 	child, err := manager.options.Executor.Start(manager.command(bundle.BinaryPath, "run", "-c", configPath))
 	if err != nil {
 		return manager.startFailure("start_process", "execution", ErrProcessExited, err)
@@ -150,6 +164,7 @@ func (manager *Manager) startLocked(ctx context.Context, bundle AppliedBundle) e
 	startedAt := manager.options.Clock.Now().UTC()
 	process := &managedProcess{
 		child:        child,
+		output:       output,
 		generation:   generation,
 		done:         make(chan struct{}),
 		desiredState: StateFailed,
@@ -165,6 +180,7 @@ func (manager *Manager) startLocked(ctx context.Context, bundle AppliedBundle) e
 	manager.status.StartedAt = startedAt
 	manager.mu.Unlock()
 	manager.waitGroup.Add(1)
+	outputOwned = true
 	go manager.reap(process)
 
 	observation, err := manager.options.Probe.AwaitHealthy(operationContext, ProcessInfo{

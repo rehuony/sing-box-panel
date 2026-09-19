@@ -1,4 +1,19 @@
 export const tasks = {
+  kind: {
+    'canonical-saved': 'Save configuration',
+    'catalog-refresh': 'Refresh core catalog',
+    'core-install': 'Install core',
+    'core-import': 'Import core',
+    'startup-check': 'Check configuration',
+    'subscription-source-refresh': 'Refresh subscription source',
+    'runtime-apply': 'Apply configuration',
+    'runtime-start': 'Start service',
+    'runtime-stop': 'Stop service',
+    'runtime-restart': 'Restart service',
+    'runtime-rollback': 'Roll back deployment',
+  },
+  tracking: 'Following this task. Its status updates automatically.',
+
   cancel: {
     alreadyPending: 'Cancellation is already pending with the worker.',
     complete: 'Task is now {{status}}.',

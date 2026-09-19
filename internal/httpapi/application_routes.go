@@ -20,7 +20,29 @@ const (
 
 func (handler *Handler) handleApplicationRoute(w http.ResponseWriter, request *http.Request, path string) bool {
 	var next http.HandlerFunc
-	if path == "/api/v1/config/apply" {
+	if path == "/api/v1/panel/settings" {
+		if request.Method == http.MethodGet {
+			next = handler.getPanelSettings
+		} else if request.Method == http.MethodPut {
+			next = handler.savePanelSettings
+		} else {
+			next = methodNotAllowed
+		}
+	} else if path == "/api/v1/config/file" {
+		if request.Method == http.MethodGet {
+			next = handler.configurationFile
+		} else if request.Method == http.MethodPut {
+			next = handler.saveConfigurationFile
+		} else {
+			next = methodNotAllowed
+		}
+	} else if path == "/api/v1/config/inbound-defaults" {
+		if request.Method == http.MethodPost {
+			next = handler.newInboundDefaults
+		} else {
+			next = methodNotAllowed
+		}
+	} else if path == "/api/v1/config/apply" {
 		if request.Method == http.MethodPost {
 			next = handler.queueCoreActivate
 		} else {
@@ -61,6 +83,10 @@ func (handler *Handler) handleApplicationRoute(w http.ResponseWriter, request *h
 		case resource == "artifacts" && identifier != "" && request.Method == http.MethodDelete:
 			next = func(w http.ResponseWriter, request *http.Request) {
 				handler.deleteCoreArtifact(w, request, identifier)
+			}
+		case resource == "artifact-enable" && request.Method == http.MethodPost:
+			next = func(w http.ResponseWriter, request *http.Request) {
+				handler.enableCoreArtifact(w, request, identifier)
 			}
 		case resource == "artifact-configuration-support" && request.Method == http.MethodGet:
 			next = func(w http.ResponseWriter, request *http.Request) {
@@ -130,6 +156,8 @@ func (handler *Handler) handleApplicationRoute(w http.ResponseWriter, request *h
 			next = handler.listTasks
 		case taskID != "" && operation == "" && request.Method == http.MethodGet:
 			next = func(w http.ResponseWriter, request *http.Request) { handler.getTask(w, request, taskID) }
+		case taskID != "" && operation == "retry" && request.Method == http.MethodPost:
+			next = func(w http.ResponseWriter, request *http.Request) { handler.retryTask(w, request, taskID) }
 		case taskID != "" && operation == "cancel" && request.Method == http.MethodPost:
 			next = func(w http.ResponseWriter, request *http.Request) { handler.cancelTask(w, request, taskID) }
 		default:
@@ -187,6 +215,8 @@ func matchCoreRoute(path string) (string, string, bool) {
 			return "artifact-configuration-support", parts[0], true
 		case "configuration-schema":
 			return "artifact-configuration-schema", parts[0], true
+		case "enable":
+			return "artifact-enable", parts[0], true
 		case "quarantine":
 			return "artifact-quarantine", parts[0], true
 		case "revoke":
@@ -232,8 +262,8 @@ func matchTaskRoute(path string) (string, string, bool) {
 	if len(parts) == 1 && parts[0] != "" {
 		return parts[0], "", true
 	}
-	if len(parts) == 2 && parts[0] != "" && parts[1] == "cancel" {
-		return parts[0], "cancel", true
+	if len(parts) == 2 && parts[0] != "" && (parts[1] == "cancel" || parts[1] == "retry") {
+		return parts[0], parts[1], true
 	}
 	return "", "invalid", true
 }

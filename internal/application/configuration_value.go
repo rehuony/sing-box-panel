@@ -74,6 +74,9 @@ func (application *Application) PatchConfiguration(
 func (application *Application) configurationHeadDocument(
 	ctx context.Context,
 ) (*store.CanonicalRevision, *configuration.Document, error) {
+	if err := application.requireParsedConfigurationFile(ctx); err != nil {
+		return nil, nil, err
+	}
 	head, err := application.database.Head(ctx)
 	if err != nil {
 		return nil, nil, err

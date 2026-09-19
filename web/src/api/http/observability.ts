@@ -1,7 +1,19 @@
 import type { HttpApiContext } from './shared';
-import type { ApiClient, LogClearFilter, LogEntry, LogFilter, LogPage, LogStreamEvent, MetricsHistory, MetricsSnapshot, TrafficPeriod, TrafficPeriodFilter, TrafficPeriodPage } from '../api-client';
+import type { ApiClient, CoreLogChunk, CoreLogFile,
+  LogClearFilter,
+  LogEntry,
+  LogFilter,
+  LogPage,
+  LogStreamEvent,
+  MetricsHistory,
+  MetricsSnapshot,
+  PanelLogPage,
+  TrafficPeriod,
+  TrafficPeriodFilter,
+  TrafficPeriodPage } from '../api-client';
 
 import { ApiRequestError } from '../api-client';
+import { readJSONEvents } from './event-stream';
 
 function invalidLogStream(detail: string): ApiRequestError {
   return new ApiRequestError(detail, { code: 'log_stream_invalid', status: 200 });
@@ -77,10 +89,36 @@ async function* readLogEvents(response: Response): AsyncGenerator<LogStreamEvent
 }
 
 export function createObservabilityHttpApi(context: HttpApiContext) {
-  const {
-    baseUrl, buildQuery, fetcher, openEventStream, request, writeHeaders,
-  } = context;
+  const { baseUrl, buildQuery, fetcher, openEventStream, request, writeHeaders } = context;
   return {
+    listCoreLogFiles(signal) {
+      return request<{ items: CoreLogFile[] }>(fetcher, `${baseUrl}/core/logs/files`, {
+        method: 'GET',
+        signal,
+      });
+    },
+    readCoreLog(file, offset = -1, signal) {
+      return request<CoreLogChunk>(
+        fetcher,
+        `${baseUrl}/core/logs/content${buildQuery({ file, offset })}`,
+        { method: 'GET', signal },
+      );
+    },
+    async* streamCoreLog(file, offset = -1, signal) {
+      const response = await openEventStream(
+        fetcher,
+        `${baseUrl}/core/logs/stream${buildQuery({ file, offset })}`,
+        { method: 'GET', signal },
+      );
+      yield* readJSONEvents<CoreLogChunk>(response, 'output');
+    },
+    listPanelLogs(filter = {}, signal) {
+      return request<PanelLogPage>(
+        fetcher,
+        `${baseUrl}/logs/panel${buildQuery({ before_time: filter.beforeTime, before_id: filter.beforeID, limit: filter.limit ?? 10, search: filter.search, level: filter.level, since: filter.since, until: filter.until })}`,
+        { method: 'GET', signal },
+      );
+    },
     listLogs(filter: LogFilter = {}, signal) {
       const query = buildQuery({
         source: filter.source,
@@ -109,9 +147,8 @@ export function createObservabilityHttpApi(context: HttpApiContext) {
       });
       const response = await openEventStream(fetcher, `${baseUrl}/logs/stream${query}`, {
         method: 'GET',
-        headers: filter.lastEventID === undefined
-          ? undefined
-          : { 'Last-Event-ID': filter.lastEventID },
+        headers:
+          filter.lastEventID === undefined ? undefined : { 'Last-Event-ID': filter.lastEventID },
         signal,
       });
       yield* readLogEvents(response);
@@ -121,6 +158,16 @@ export function createObservabilityHttpApi(context: HttpApiContext) {
         method: 'GET',
         signal,
       });
+    },
+    async* streamMetrics(signal) {
+      const response = await openEventStream(fetcher, `${baseUrl}/metrics/stream`, {
+        method: 'GET',
+        signal,
+      });
+      yield* readJSONEvents<{
+        metrics: MetricsSnapshot;
+        runtime: import('../api-client').RuntimeStatus;
+      }>(response, 'metrics');
     },
     getMetrics(signal) {
       return request<MetricsSnapshot>(fetcher, `${baseUrl}/metrics`, {
@@ -182,6 +229,5 @@ export function createObservabilityHttpApi(context: HttpApiContext) {
         { method: 'DELETE', headers: writeHeaders(), signal },
       );
     },
-
   } satisfies Partial<ApiClient>;
 }

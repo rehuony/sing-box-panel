@@ -4,6 +4,7 @@ import type { ApiClient } from '@/api/api-client';
 
 import { AppRoutes } from '@/routes';
 import { ThemeProvider } from '@/theme';
+import { Toaster } from '@/components/ui/toast';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { ApiClientProvider } from '@/api/api-client-context';
 import { AuthSessionProvider } from '@/stores/auth-session-provider';
@@ -18,11 +19,13 @@ export function App({ apiClient, basePath }: AppProps) {
     <ApiClientProvider client={apiClient}>
       <ThemeProvider>
         <TooltipProvider delay={800}>
-          <AuthSessionProvider>
-            <BrowserRouter basename={basePath || undefined}>
-              <AppRoutes />
-            </BrowserRouter>
-          </AuthSessionProvider>
+          <Toaster>
+            <AuthSessionProvider>
+              <BrowserRouter basename={basePath || undefined}>
+                <AppRoutes />
+              </BrowserRouter>
+            </AuthSessionProvider>
+          </Toaster>
         </TooltipProvider>
       </ThemeProvider>
     </ApiClientProvider>

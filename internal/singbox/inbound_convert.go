@@ -16,6 +16,7 @@ import (
 type inboundOptions struct {
 	anyTLS bool
 	naive  bool
+	snell  bool
 }
 
 type converter struct {
@@ -34,6 +35,9 @@ func newInboundConverter(exactVersion string, options inboundOptions) subscripti
 	}
 	if options.naive {
 		convertible["naive"] = struct{}{}
+	}
+	if options.snell {
+		convertible["snell"] = struct{}{}
 	}
 	return converter{exactVersion: exactVersion, convertible: convertible}
 }
@@ -139,8 +143,11 @@ func inboundCredentials(typeID string, inboundValue map[string]any) ([]inboundCr
 		return []inboundCredential{{identity: "default", label: "default", value: inboundValue}}, nil
 	}
 	users, ok := rawUsers.([]any)
-	if !ok || len(users) == 0 || len(users) > subscription.MaximumNodes {
+	if !ok || len(users) > subscription.MaximumNodes {
 		return nil, subscription.ErrAmbiguousInboundCredential
+	}
+	if len(users) == 0 {
+		return []inboundCredential{{identity: "default", label: "default", value: inboundValue}}, nil
 	}
 	result := make([]inboundCredential, 0, len(users))
 	seen := make(map[string]struct{}, len(users))
@@ -196,8 +203,30 @@ func convertInboundCredential(
 	}
 	copyInboundFields(outbound, inboundValue, inboundFieldNames(typeID)...)
 	copyInboundFields(outbound, credential.value, credentialFieldNames(typeID)...)
-	if tlsValue, ok := sanitizedClientTLS(inboundValue["tls"], publicHost); ok {
+	tlsValue, err := sanitizedClientTLS(inboundValue["tls"], publicHost)
+	if err != nil {
+		return subscription.Node{}, err
+	}
+	if tlsValue != nil {
 		outbound["tls"] = tlsValue
+	}
+	if typeID == "snell" {
+		version, ok := subscription.DocumentInteger(inboundValue["version"], 5, 6)
+		if !ok {
+			return subscription.Node{}, errors.New("invalid Snell server version")
+		}
+		if version == 5 {
+			version = 4
+		}
+		outbound["version"] = json.Number(fmt.Sprint(version))
+	}
+	if typeID == "shadowsocks" && strings.HasPrefix(firstNonEmptyString(inboundValue, "method"), "2022-") && lenValueArray(inboundValue["users"]) > 0 {
+		serverKey := firstNonEmptyString(inboundValue, "password")
+		userKey := firstNonEmptyString(credential.value, "password")
+		if serverKey == "" || userKey == "" {
+			return subscription.Node{}, errors.New("missing Shadowsocks server or user key")
+		}
+		outbound["password"] = serverKey + ":" + userKey
 	}
 	if transport, ok := sanitizedClientTransport(inboundValue["transport"]); ok {
 		outbound["transport"] = transport
@@ -211,7 +240,7 @@ func convertInboundCredential(
 	}
 	return subscription.Node{
 		Key: "local:" + identityHex[:24], SourceID: "local", Type: outboundType,
-		Tag: nodeTag, Credential: credential.label, Outbound: encoded,
+		OriginTag: tag, Tag: nodeTag, Credential: credential.label, Outbound: encoded,
 	}, nil
 }
 
@@ -237,6 +266,8 @@ func inboundFieldNames(typeID string) []string {
 		return []string{"uuid", "password", "congestion_control", "udp_relay_mode", "zero_rtt_handshake", "heartbeat"}
 	case "hysteria2":
 		return []string{"password", "up_mbps", "down_mbps", "obfs", "network"}
+	case "snell":
+		return []string{"psk", "obfs_mode", "mode"}
 	case "anytls":
 		return []string{"password"}
 	case "http":
@@ -262,6 +293,8 @@ func credentialFieldNames(typeID string) []string {
 		return []string{"uuid", "flow"}
 	case "tuic":
 		return []string{"uuid", "password"}
+	case "snell":
+		return []string{"userkey"}
 	default:
 		return nil
 	}
@@ -280,6 +313,8 @@ func validateConvertedCredential(typeID string, outbound map[string]any) error {
 	switch typeID {
 	case "shadowsocks", "trojan", "shadowtls", "hysteria2", "anytls":
 		required = [][]string{{"password"}}
+	case "snell":
+		required = [][]string{{"psk"}}
 	case "vmess", "vless":
 		required = [][]string{{"uuid"}}
 	case "naive":
@@ -312,33 +347,6 @@ func firstNonEmptyString(value map[string]any, names ...string) string {
 	return ""
 }
 
-func sanitizedClientTLS(raw any, publicHost string) (map[string]any, bool) {
-	value, ok := raw.(map[string]any)
-	if !ok {
-		return nil, false
-	}
-	enabled, _ := value["enabled"].(bool)
-	if !enabled {
-		return nil, false
-	}
-	result := map[string]any{"enabled": true, "insecure": false}
-	if !isIPAddress(publicHost) {
-		result["server_name"] = publicHost
-	}
-	if alpn, ok := value["alpn"].([]any); ok && len(alpn) <= 16 {
-		clean := make([]any, 0, len(alpn))
-		for _, item := range alpn {
-			text, ok := item.(string)
-			if !ok || text == "" || len(text) > 256 {
-				return nil, false
-			}
-			clean = append(clean, text)
-		}
-		result["alpn"] = clean
-	}
-	return result, true
-}
-
 func sanitizedClientTransport(raw any) (map[string]any, bool) {
 	value, ok := raw.(map[string]any)
 	if !ok {
@@ -367,12 +375,7 @@ func normalizedPublicHost(value string) (string, error) {
 	return value, nil
 }
 
-func isIPAddress(value string) bool {
-	for _, character := range value {
-		if (character < '0' || character > '9') && character != '.' && character != ':' &&
-			(character < 'a' || character > 'f') && (character < 'A' || character > 'F') {
-			return false
-		}
-	}
-	return strings.ContainsAny(value, ".:")
+func lenValueArray(value any) int {
+	items, _ := value.([]any)
+	return len(items)
 }

@@ -11,11 +11,14 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/rehuony/sing-box-panel/internal/hostmetrics"
+	"github.com/rehuony/sing-box-panel/internal/publicip"
 	"github.com/rehuony/sing-box-panel/internal/settings"
 	"github.com/rehuony/sing-box-panel/internal/store"
 )
 
 type Application struct {
+	hostSampler  hostmetrics.Sampler
 	database     *store.Store
 	ownsDatabase bool
 	now          func() time.Time
@@ -23,6 +26,7 @@ type Application struct {
 	removeFile   func(string) error
 	runtime      RuntimeResolver
 	settings     settings.Settings
+	publicIP     func(context.Context) string
 }
 
 type RuntimeResolver interface {
@@ -49,7 +53,13 @@ func Open(ctx context.Context, settingsPath string) (*Application, error) {
 	application := newApplication(database)
 	application.ownsDatabase = true
 	application.settings = configuration
+	application.publicIP = publicip.New().Resolve
 	return application, nil
+}
+
+// SetPublicIPResolver injects server-owned detection before requests are served.
+func (application *Application) SetPublicIPResolver(resolve func(context.Context) string) {
+	application.publicIP = resolve
 }
 
 func newApplication(database *store.Store) *Application {

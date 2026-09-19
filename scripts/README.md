@@ -1,7 +1,7 @@
 # Project scripts
 
 This directory owns executable project scripts. `installer.sh` installs a
-published release on a Linux host. `build-release.sh` builds and verifies an
+published release on a Linux host. `build.sh` builds and verifies an
 isolated source snapshot. `test/` contains local script tests and the
 GitHub Actions release smoke orchestration plus the native Linux sing-box core
 contract. GitHub workflow YAML and the release signing trust root remain under
@@ -37,7 +37,7 @@ make installer-test
 
 ## Release automation
 
-`build-release.sh` is used by local Make targets, CI, and the signed-release
+`build.sh` is used by local Make targets, CI, and the signed-release
 workflow. It never publishes, uploads, signs, installs, or retains artifacts.
 `test/smoke-release.sh` is GitHub Actions-only orchestration for native release
 smoke tests. The `Release Build` workflow adds the signature, runs those
@@ -59,9 +59,9 @@ make core-contract # exact binaries plus raw configuration checks; native Linux 
 Their underlying script interface is:
 
 ```sh
-scripts/build-release.sh snapshot --output /absolute/path/to/new-output
-scripts/build-release.sh release --version v0.1.0 --output /absolute/path/to/new-output
-scripts/build-release.sh verify
+scripts/build.sh snapshot --output /absolute/path/to/new-output
+scripts/build.sh release --version v0.1.0 --output /absolute/path/to/new-output
+scripts/build.sh verify
 ```
 
 The destination of `snapshot` and `release` must not exist, and its parent

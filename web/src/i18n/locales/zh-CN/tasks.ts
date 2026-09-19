@@ -1,4 +1,19 @@
 export const tasks = {
+  kind: {
+    'canonical-saved': '保存配置',
+    'catalog-refresh': '刷新内核目录',
+    'core-install': '安装内核',
+    'core-import': '导入内核',
+    'startup-check': '检查配置',
+    'subscription-source-refresh': '刷新订阅来源',
+    'runtime-apply': '应用配置',
+    'runtime-start': '启动服务',
+    'runtime-stop': '停止服务',
+    'runtime-restart': '重启服务',
+    'runtime-rollback': '回滚部署',
+  },
+  tracking: '正在跟踪此任务，状态会自动更新。',
+
   cancel: {
     alreadyPending: '工作进程已收到取消请求。',
     complete: '任务当前状态为 {{status}}。',

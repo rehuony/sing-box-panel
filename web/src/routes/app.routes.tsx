@@ -8,7 +8,12 @@ import { AppShell } from '@/components/app-shell';
 import { NotFoundPage } from '@/pages/not-found-page';
 import { useAuthSession } from '@/stores/auth-session.store';
 import { ControlPlaneProvider } from '@/stores/control-plane-provider';
+import { PanelSettingsProvider } from '@/stores/panel-settings-provider';
 
+const PanelSettingsPage = lazy(async () => {
+  const page = await import('@/pages/panel-settings-page/panel-settings-page');
+  return { default: page.PanelSettingsPage };
+});
 const ConfigurationPage = lazy(async () => {
   const page = await import('@/pages/configuration-page/configuration-page');
   return { default: page.ConfigurationPage };
@@ -82,7 +87,7 @@ function ProtectedRoute() {
 
   return (
     <ControlPlaneProvider>
-      <Outlet />
+      <PanelSettingsProvider><Outlet /></PanelSettingsProvider>
     </ControlPlaneProvider>
   );
 }
@@ -96,6 +101,7 @@ export function AppRoutes() {
             <Route element={<DashboardPage />} index />
             <Route element={<ConfigurationPage />} path='configuration' />
             <Route element={<CoresPage />} path='cores' />
+            <Route element={<PanelSettingsPage />} path='panel' />
             <Route element={<SubscriptionsPage />} path='subscriptions' />
             <Route element={<ObservabilityPage />} path='observability' />
             <Route element={<TasksPage />} path='tasks' />

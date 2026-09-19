@@ -104,6 +104,9 @@ func (application *Application) PreviewConfiguration(
 
 	var revision store.CanonicalRevision
 	if strings.TrimSpace(request.CanonicalRevisionID) == "" {
+		if err := application.requireParsedConfigurationFile(ctx); err != nil {
+			return ConfigurationPreview{}, err
+		}
 		head, headErr := application.database.Head(ctx)
 		if headErr != nil {
 			return ConfigurationPreview{}, headErr

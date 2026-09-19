@@ -56,6 +56,9 @@ func (s *Store) CreateStartupArtifactAndCheckTask(
 		if !head.Valid || head.String != evidence.ExpectedCanonicalHeadID {
 			return fmt.Errorf("%w: canonical head changed", ErrCompiledStartupEvidenceStale)
 		}
+		if err := requireCurrentConfigurationFileTx(ctx, tx, evidence.ExpectedCanonicalHeadID); err != nil {
+			return err
+		}
 		storedArtifact, err := insertStartupArtifactTx(ctx, tx, preparedArtifact)
 		if err != nil {
 			return err

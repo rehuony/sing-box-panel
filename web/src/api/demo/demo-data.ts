@@ -20,6 +20,8 @@ import type {
   TrafficPeriod,
 } from '../api-client';
 
+import { demoSourceNodeDetails, nodeSummary } from './demo-subscription-nodes';
+
 export interface DemoData {
   tasks: Task[];
   logs: LogEntry[];
@@ -204,7 +206,7 @@ export function createDemoData(now = new Date()): DemoData {
     id: 'source_demo_remote',
     name: 'Remote provider',
     source_kind: 'remote',
-    config: { url: 'https://subscription.example/demo', interval: '1h' },
+    config: { url: 'https://subscription.example/demo', refresh_interval_minutes: 60 },
     current_version_id: 'source_version_demo_2',
     enabled: true,
     created_at: ago(now, 5_760),
@@ -361,6 +363,7 @@ export function createDemoData(now = new Date()): DemoData {
 
 export function demoSystemStatus(data: DemoData): SystemStatus {
   return {
+    platform: { os: 'linux', arch: 'amd64' },
     panel_version: 'demo',
     canonical_revision: data.canonical.sequence,
     applied_bundle_id: data.runtime.applied_bundle_id ?? null,
@@ -410,6 +413,10 @@ export function demoMetrics(data: DemoData, now = new Date()): MetricsSnapshot {
   const running = data.runtime.observation_state === 'running';
   const period = data.trafficPeriods[0];
   return {
+    host: {
+      sampled_at: now.toISOString(), cpu_count: 4, cpu_percent: 12.8, load_one: 0.64,
+      memory_total: 965004492, memory_used: 639797978, disk_total: 26306674688, disk_used: 8207682503,
+    },
     available: running,
     reason_code: running ? undefined : 'no_collector_sample',
     applied_bundle_id: data.runtime.applied_bundle_id,
@@ -466,13 +473,7 @@ export function demoMetricsHistory(from: string, to: string, bucketSeconds: numb
 export function demoNodeCatalog(data: DemoData): SubscriptionNodeCatalog {
   return {
     applied_bundle_id: data.runtime.applied_bundle_id ?? '',
-    nodes: [...data.sourceVersions.values()].flatMap(versions =>
-      (versions[0]?.normalized_nodes ?? []).map((node, index) => ({
-        key: `${versions[0]?.source_id ?? 'source'}:${index}`,
-        source_id: versions[0]?.source_id ?? '',
-        type: typeof node.type === 'string' ? node.type : 'unknown',
-        tag: typeof node.tag === 'string' ? node.tag : `Node ${index + 1}`,
-      }))),
+    nodes: demoSourceNodeDetails(data).map(nodeSummary),
     diagnostics: [],
   };
 }

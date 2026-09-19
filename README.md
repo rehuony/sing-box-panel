@@ -142,11 +142,11 @@ Initialize an isolated development instance and start the server:
 ```sh
 ./bin/sing-box-panel init --config ./setting.json
 ./bin/sing-box-panel verify --config ./setting.json
-./bin/sing-box-panel server run --config ./setting.json
+./bin/sing-box-panel server start --config ./setting.json
 ```
 
 The default listener is `127.0.0.1:3000`. The settings file contains a random
-management token and must not be committed. Keep `server run` active while
+management token and must not be committed. Keep `server start` active while
 using commands that queue core, configuration, or runtime tasks.
 
 See [Getting started](docs/getting-started.md) for the first configuration,
@@ -173,8 +173,7 @@ builds, and the web application.
 ```text
 .github/             Workflows, community templates, code ownership, and signing keys
 api/                 OpenAPI source contract
-cmd/                 Published sing-box-panel entry point
-internal/cmd/        Repository-only Go tools
+cmd/                 Panel entry point and repository development tools
 internal/            Go implementation packages
 scripts/             End-user installation, release, and local test scripts
 systemd/             Embedded systemd templates and packaging guidance

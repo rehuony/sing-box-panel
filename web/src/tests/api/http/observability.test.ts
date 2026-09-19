@@ -42,17 +42,19 @@ describe('createHttpApiClient observability domain', () => {
     const encoder = new TextEncoder();
     const body = new ReadableStream<Uint8Array>({
       start(controller) {
-        controller.enqueue(encoder.encode(
-          ': keepalive\n\nid: 2026-08-26T07:00:00Z|log_1\nevent: log\nda',
-        ));
+        controller.enqueue(
+          encoder.encode(': keepalive\n\nid: 2026-08-26T07:00:00Z|log_1\nevent: log\nda'),
+        );
         controller.enqueue(encoder.encode(`ta: ${JSON.stringify(entry)}\n\n`));
         controller.close();
       },
     });
-    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(new Response(body, {
-      status: 200,
-      headers: { 'Content-Type': 'text/event-stream' },
-    }));
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response(body, {
+        status: 200,
+        headers: { 'Content-Type': 'text/event-stream' },
+      }),
+    );
     const client = createHttpApiClient({ baseUrl: '/panel/api/v1', fetcher });
     const events = [];
 
@@ -65,10 +67,12 @@ describe('createHttpApiClient observability domain', () => {
       events.push(event);
     }
 
-    expect(events).toEqual([{
-      id: '2026-08-26T07:00:00Z|log_1',
-      entry,
-    }]);
+    expect(events).toEqual([
+      {
+        id: '2026-08-26T07:00:00Z|log_1',
+        entry,
+      },
+    ]);
     expect(fetcher).toHaveBeenCalledWith(
       '/panel/api/v1/logs/stream?source=core&code=runtime.ready&limit=10',
       expect.objectContaining({
@@ -83,12 +87,18 @@ describe('createHttpApiClient observability domain', () => {
   });
 
   it('invalidates the local session when an SSE connection is unauthorized', async () => {
-    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(new Response(JSON.stringify({
-      code: 'unauthorized', detail: 'Session expired.',
-    }), {
-      status: 401,
-      headers: { 'Content-Type': 'application/problem+json' },
-    }));
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          code: 'unauthorized',
+          detail: 'Session expired.',
+        }),
+        {
+          status: 401,
+          headers: { 'Content-Type': 'application/problem+json' },
+        },
+      ),
+    );
     const client = createHttpApiClient({ fetcher });
     const invalidated = vi.fn();
     client.subscribeSessionInvalidated(invalidated);
@@ -99,11 +109,12 @@ describe('createHttpApiClient observability domain', () => {
   });
 
   it('uses stable explicit durable-log deletion endpoints', async () => {
-    const fetcher = vi.fn<typeof fetch>().mockImplementation(async () =>
-      new Response(JSON.stringify({ deleted: 1 }), {
-        status: 200,
-        headers: { 'Content-Type': 'application/json' },
-      }),
+    const fetcher = vi.fn<typeof fetch>().mockImplementation(
+      async () =>
+        new Response(JSON.stringify({ deleted: 1 }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        }),
     );
     const client = createHttpApiClient({ baseUrl: '/panel/api/v1', fetcher });
 
@@ -123,23 +134,35 @@ describe('createHttpApiClient observability domain', () => {
   });
 
   it('preserves nullable metric-history evidence and paired traffic cursors', async () => {
-    const fetcher = vi.fn<typeof fetch>().mockImplementation(async () =>
-      new Response(JSON.stringify({
-        from: '2026-08-26T00:00:00Z',
-        to: '2026-08-26T01:00:00Z',
-        bucket_seconds: 300,
-        buckets: [{
-          from: '2026-08-26T00:00:00Z', to: '2026-08-26T00:05:00Z',
-          upload_bytes: null, download_bytes: null,
-          memory_bytes_avg: null, memory_bytes_peak: null,
-          active_connections_avg: null, active_connections_peak: null,
-          sample_count: 0, coverage: 'missing',
-        }],
-        items: [],
-      }), {
-        status: 200,
-        headers: { 'Content-Type': 'application/json' },
-      }));
+    const fetcher = vi.fn<typeof fetch>().mockImplementation(
+      async () =>
+        new Response(
+          JSON.stringify({
+            from: '2026-08-26T00:00:00Z',
+            to: '2026-08-26T01:00:00Z',
+            bucket_seconds: 300,
+            buckets: [
+              {
+                from: '2026-08-26T00:00:00Z',
+                to: '2026-08-26T00:05:00Z',
+                upload_bytes: null,
+                download_bytes: null,
+                memory_bytes_avg: null,
+                memory_bytes_peak: null,
+                active_connections_avg: null,
+                active_connections_peak: null,
+                sample_count: 0,
+                coverage: 'missing',
+              },
+            ],
+            items: [],
+          }),
+          {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          },
+        ),
+    );
     const client = createHttpApiClient({ baseUrl: '/panel/api/v1', fetcher });
 
     const history = await client.getMetricsHistory({
@@ -158,7 +181,9 @@ describe('createHttpApiClient observability domain', () => {
     });
 
     expect(history.buckets[0]).toMatchObject({
-      upload_bytes: null, download_bytes: null, coverage: 'missing',
+      upload_bytes: null,
+      download_bytes: null,
+      coverage: 'missing',
     });
     expect(fetcher).toHaveBeenNthCalledWith(
       1,
@@ -170,5 +195,41 @@ describe('createHttpApiClient observability domain', () => {
       '/panel/api/v1/traffic/periods?activation_bundle_id=bundle_18&from=2026-08-26T00%3A00%3A00Z&to=2026-08-27T00%3A00%3A00Z&before_time=2026-08-26T12%3A00%3A00Z&before_id=period_42&limit=20',
       expect.objectContaining({ method: 'GET' }),
     );
+  });
+});
+
+describe('native output and panel activity', () => {
+  it('passes selected file and resume offset and decodes native SSE', async () => {
+    const chunk = { file: '2026-09-19-000.log', text: 'INFO 节点\n', next_offset: 13, size: 13 };
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(
+        new Response(`event: output\ndata: ${JSON.stringify(chunk)}\n\n`, {
+          headers: { 'Content-Type': 'text/event-stream' },
+        }),
+      );
+    const client = createHttpApiClient({ fetcher });
+    const events = [];
+    for await (const event of client.streamCoreLog(chunk.file, 5)) events.push(event);
+    expect(events).toEqual([chunk]);
+    expect(fetcher.mock.calls[0][0]).toContain('file=2026-09-19-000.log&offset=5');
+  });
+  it('encodes combined panel filters and leaves retry bodies empty', async () => {
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockImplementation(
+        async () => new Response('{}', { headers: { 'Content-Type': 'application/json' } }),
+      );
+    const client = createHttpApiClient({ fetcher });
+    await client.listPanelLogs({
+      search: 'a&b',
+      beforeID: 'task:x',
+      beforeTime: '2026-09-19T00:00:00Z',
+      limit: 5,
+    });
+    expect(fetcher.mock.calls[0][0]).toContain('search=a%26b');
+    await client.retryTask('task/x');
+    expect(fetcher.mock.calls[1][0]).toContain('/tasks/task%2Fx/retry');
+    expect(fetcher.mock.calls[1][1]?.body).toBeUndefined();
   });
 });

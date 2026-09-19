@@ -11,6 +11,7 @@ import (
 	"unicode"
 
 	"github.com/rehuony/sing-box-panel/internal/application"
+	"github.com/rehuony/sing-box-panel/internal/configuration"
 	"github.com/rehuony/sing-box-panel/internal/store"
 )
 
@@ -171,6 +172,27 @@ func (handler *Handler) queueStartupCheck(w http.ResponseWriter, request *http.R
 	writeJSON(w, http.StatusAccepted, task)
 }
 
+func (handler *Handler) enableCoreArtifact(w http.ResponseWriter, request *http.Request, id string) {
+	if !handler.requireCommands(w, request) {
+		return
+	}
+	if _, ok := strictCoreQuery(w, request); !ok || !requireEmptyCoreBody(w, request) {
+		return
+	}
+	task, err := handler.commands.EnableCore(request.Context(), id)
+	if err != nil {
+		if errors.Is(err, application.ErrCorePlatformMismatch) || errors.Is(err, application.ErrCoreArtifactVerificationBlocked) {
+			writeProblem(w, request, http.StatusConflict, "core_enable_blocked", "Core cannot be enabled", "The artifact must be verified and match the deployed panel operating system and architecture.")
+		} else if errors.Is(err, store.ErrCoreArtifactNotFound) {
+			writeProblem(w, request, http.StatusNotFound, "core_artifact_not_found", "Core artifact not found", "The requested artifact does not exist.")
+		} else {
+			writeRuntimeProblem(w, request, "core_enable_failed", err)
+		}
+		return
+	}
+	writeJSON(w, http.StatusAccepted, task)
+}
+
 func (handler *Handler) queueCoreActivate(w http.ResponseWriter, request *http.Request) {
 	if !handler.requireCommands(w, request) {
 		return
@@ -268,6 +290,8 @@ func validMonitoringTier(value store.MonitoringTier, allowDefault bool) bool {
 
 func writeRuntimeProblem(w http.ResponseWriter, request *http.Request, code string, err error) {
 	switch {
+	case errors.Is(err, store.ErrConfigurationFileUnparsed), errors.Is(err, configuration.ErrInvalidDocument), errors.Is(err, application.ErrConfigurationSchemaValidation), errors.Is(err, store.ErrCompiledStartupEvidenceStale):
+		writeConfigurationProblem(w, request, code, err)
 	case application.IsStartupArtifactNotFound(err):
 		writeProblem(w, request, http.StatusNotFound, "startup_artifact_not_found", "Startup artifact not found", "The requested startup artifact does not exist.")
 	case errors.Is(err, store.ErrStartupArtifactState):

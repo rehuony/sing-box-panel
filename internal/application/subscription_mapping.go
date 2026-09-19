@@ -85,7 +85,8 @@ func applicationSubscriptionSourceVersion(value store.SubscriptionSourceVersion,
 
 func applicationSubscriptionToken(value store.SubscriptionToken, at time.Time) SubscriptionToken {
 	return SubscriptionToken{
-		ID: value.ID, UserID: value.UserID, Label: value.Label, Enabled: value.Enabled,
+		DownloadLimit: value.DownloadLimit,
+		ID:            value.ID, UserID: value.UserID, Label: value.Label, Enabled: value.Enabled,
 		ExpiresAt: cloneTime(value.ExpiresAt), RevokedAt: cloneTime(value.RevokedAt),
 		SuccessfulRequestCount: value.SuccessfulRequestCount, BodyResponseCount: value.BodyResponseCount,
 		BytesServed: value.BytesServed, LastUsedAt: cloneTime(value.LastUsedAt),

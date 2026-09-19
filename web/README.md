@@ -42,16 +42,17 @@ exist before any Go package that embeds the Web application is loaded.
 logo, release bundles, and the repository README.
 
 At runtime the browser client uses same-origin `/api/v1` endpoints for the
-session, dashboard context, the global JSON configuration and revisions,
-durable tasks, and exact core-artifact operations. Cookie-backed writes retain
-the session CSRF token, and configuration writes include the current
-revision in `If-Match`.
+session, live dashboard context, the single saved configuration, panel settings,
+subscription publication, durable logs/tasks and exact core-artifact operations. Cookie-backed writes retain
+the session CSRF token, and saved-file writes include the numeric revision in the request; legacy
+canonical endpoints retain `If-Match`.
 
-Except for Start, Stop, and Restart—which the shared telemetry banner follows
-to a terminal runtime result—an asynchronous action reports only that its
-durable task was accepted, shows the task ID, and links to the Tasks page.
-Feature pages do not duplicate task polling or infer completion from the
-initial queued response.
+Asynchronous operations use shared task tracking and report completion only after
+a terminal API result. Version/source actions update in place; failures retain
+previous usable state. The panel-log detail view follows pending tasks, stops
+polling at a terminal state and aborts tracking when closed. `/tasks` redirects
+to that view for old links. Core logs and telemetry use authenticated streams
+with bounded buffering, reconnect and polling recovery.
 
 Tests inject an `ApiClient`, keeping pages independent from `fetch` while the
 HTTP client has focused tests for base-path routing, CSRF, problem details, and
@@ -62,6 +63,31 @@ is persisted and takes precedence on later visits.
 The configuration UI combines version-scoped RJSF controls with a lossless
 sing-box JSON editor. It preserves unknown fields and unmodified large-number
 lexemes, and never adds panel metadata to executable configuration. Versions
-before native Schema support use the Advanced editor only. Compile, binary
-check, Apply, evidence-bound rollback, and startup artifact history all stay on
-the Deploy surface; the selected exact binary remains the final authority.
+before native Schema support use the Advanced editor only. The Web UI offers Save and Validate, with validation feedback in a Toast.
+Start/Restart validate saved bytes using the selected exact binary before
+replacing the process; immutable history and rollback remain internal/legacy
+API and CLI contracts rather than a second deployment UI.
+
+Configuration modules are edited individually, with optional object settings
+added on demand. Drafts, including incomplete JSON, survive route changes in
+memory for the current authenticated session. Reloading or closing the page
+prompts when there are unsaved changes; signing out clears the draft. No draft
+or embedded configuration secrets are written to browser storage. The saved file revision remains the concurrency base after navigating away
+and returning. An uninitialized file opens an empty editor and creates its first
+file version. The file API uses its own numeric compare-and-swap revision;
+immutable canonical revisions remain internal runtime evidence.
+
+The interface retains its violet identity with floating frosted navigation and
+runtime controls. Larger material surfaces use blur and translucent fills;
+content stays on readable surfaces. Navigation selection uses a non-bouncing
+spring, and controls respond on press. Reduced motion, reduced transparency,
+and increased contrast preferences are respected.
+
+
+The six navigation entries host 15 review views using local tabs/dialogs instead
+of feedback-page copies. Sources, manual nodes, subscription keys and native
+channel rules share node provenance and independent visibility. Channel preview
+and delivery have one server renderer; remote rule references are fetched only
+by subscribing clients. Native editors preserve unknown fields and scalar/list
+representations. Appearance is a saveable preview transaction shared by controls,
+charts and overlays, with semantic status colors kept independent.

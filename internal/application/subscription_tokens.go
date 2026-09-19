@@ -27,7 +27,7 @@ func (application *Application) CreateSubscriptionToken(
 	now := application.now().UTC()
 	stored, err := application.database.CreateSubscriptionToken(ctx, store.SubscriptionToken{
 		ID: id, UserID: strings.TrimSpace(request.UserID), Label: strings.TrimSpace(request.Label),
-		TokenSHA256: digest, Enabled: true, ExpiresAt: cloneTime(request.ExpiresAt), CreatedAt: now,
+		TokenSHA256: digest, Enabled: true, ExpiresAt: cloneTime(request.ExpiresAt), CreatedAt: now, DownloadLimit: request.DownloadLimit,
 	})
 	if err != nil {
 		return CreatedSubscriptionToken{}, err

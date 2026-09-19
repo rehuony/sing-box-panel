@@ -22,7 +22,7 @@ func TestSubscriptionChannelAndSourceCLIEndToEnd(t *testing.T) {
 
 	createdChannelOutput := runApplicationCommand(t, settingsPath,
 		`{"name":"public","format":"mihomo","public_host":"public.example","config":{"exclude_tags":["private"]},"enabled":true}`,
-		"--output", "json", "subscription", "channel", "create", "--file", "-",
+		"--output", "json", "channel", "create", "--file", "-",
 	)
 	var channel application.SubscriptionChannel
 	decodeSubscriptionCLIOutput(t, createdChannelOutput, &channel)
@@ -31,7 +31,7 @@ func TestSubscriptionChannelAndSourceCLIEndToEnd(t *testing.T) {
 	}
 
 	listedChannelOutput := runApplicationCommand(t, settingsPath, "",
-		"--output", "jsonl", "subscription", "channel", "list",
+		"--output", "jsonl", "channel", "list",
 	)
 	var listedChannel application.SubscriptionChannelSummary
 	decodeSubscriptionCLIOutput(t, listedChannelOutput, &listedChannel)
@@ -40,7 +40,7 @@ func TestSubscriptionChannelAndSourceCLIEndToEnd(t *testing.T) {
 	}
 
 	shownChannelOutput := runApplicationCommand(t, settingsPath, "",
-		"--output", "json", "subscription", "channel", "show", channel.ID,
+		"--output", "json", "channel", "show", channel.ID,
 	)
 	var shownChannel application.SubscriptionChannel
 	decodeSubscriptionCLIOutput(t, shownChannelOutput, &shownChannel)
@@ -50,7 +50,7 @@ func TestSubscriptionChannelAndSourceCLIEndToEnd(t *testing.T) {
 
 	updatedChannelOutput := runApplicationCommand(t, settingsPath,
 		`{"name":"public-loon","format":"loon","public_host":"loon.example","config":{},"enabled":false}`,
-		"--output", "json", "subscription", "channel", "update", channel.ID,
+		"--output", "json", "channel", "update", channel.ID,
 		"--file", "-", "--updated-at", formatSubscriptionTime(channel.UpdatedAt),
 	)
 	var updatedChannel application.SubscriptionChannel
@@ -63,14 +63,14 @@ func TestSubscriptionChannelAndSourceCLIEndToEnd(t *testing.T) {
 	_, _, staleErr := executeSubscriptionCLI(
 		t, settingsPath,
 		`{"name":"stale","format":"loon","public_host":"stale.example","config":{},"enabled":false}`,
-		"--output", "json", "subscription", "channel", "update", channel.ID,
+		"--output", "json", "channel", "update", channel.ID,
 		"--file", "-", "--updated-at", formatSubscriptionTime(channel.UpdatedAt),
 	)
 	assertSubscriptionCLIError(t, staleErr, ErrorConflict, "subscription_conflict")
 
 	createdSourceOutput := runApplicationCommand(t, settingsPath,
 		`{"name":"upstream","source_kind":"remote","config":{"url":"https://example.test/sub"},"enabled":true}`,
-		"--output", "json", "subscription", "source", "create", "--file", "-",
+		"--output", "json", "source", "create", "--file", "-",
 	)
 	var source application.SubscriptionSource
 	decodeSubscriptionCLIOutput(t, createdSourceOutput, &source)
@@ -79,7 +79,7 @@ func TestSubscriptionChannelAndSourceCLIEndToEnd(t *testing.T) {
 	}
 
 	refreshedSourceOutput := runApplicationCommand(t, settingsPath, "",
-		"--output", "json", "subscription", "source", "refresh", source.ID,
+		"--output", "json", "source", "refresh", source.ID,
 	)
 	var refreshTask application.Task
 	decodeSubscriptionCLIOutput(t, refreshedSourceOutput, &refreshTask)
@@ -87,7 +87,7 @@ func TestSubscriptionChannelAndSourceCLIEndToEnd(t *testing.T) {
 		t.Fatalf("refresh task = %+v", refreshTask)
 	}
 	shownSourceOutput := runApplicationCommand(t, settingsPath, "",
-		"--output", "json", "subscription", "source", "show", source.ID,
+		"--output", "json", "source", "show", source.ID,
 	)
 	var shownSource application.SubscriptionSource
 	decodeSubscriptionCLIOutput(t, shownSourceOutput, &shownSource)
@@ -97,7 +97,7 @@ func TestSubscriptionChannelAndSourceCLIEndToEnd(t *testing.T) {
 
 	updatedSourceOutput := runApplicationCommand(t, settingsPath,
 		`{"name":"local-copy","source_kind":"local","config":{},"enabled":false}`,
-		"--output", "json", "subscription", "source", "update", source.ID,
+		"--output", "json", "source", "update", source.ID,
 		"--file", "-", "--updated-at", formatSubscriptionTime(source.UpdatedAt),
 	)
 	var updatedSource application.SubscriptionSource
@@ -107,7 +107,7 @@ func TestSubscriptionChannelAndSourceCLIEndToEnd(t *testing.T) {
 	}
 
 	listedSourcesOutput := runApplicationCommand(t, settingsPath, "",
-		"--output", "json", "subscription", "source", "list",
+		"--output", "json", "source", "list",
 	)
 	var listedSources application.SubscriptionSourcePage
 	decodeSubscriptionCLIOutput(t, listedSourcesOutput, &listedSources)
@@ -116,11 +116,11 @@ func TestSubscriptionChannelAndSourceCLIEndToEnd(t *testing.T) {
 	}
 
 	runApplicationCommand(t, settingsPath, "",
-		"--output", "json", "subscription", "source", "delete", source.ID,
+		"--output", "json", "source", "delete", source.ID,
 		"--updated-at", formatSubscriptionTime(updatedSource.UpdatedAt),
 	)
 	runApplicationCommand(t, settingsPath, "",
-		"--output", "json", "subscription", "channel", "delete", channel.ID,
+		"--output", "json", "channel", "delete", channel.ID,
 		"--updated-at", formatSubscriptionTime(updatedChannel.UpdatedAt),
 	)
 }
@@ -135,14 +135,14 @@ func TestSubscriptionChannelRenderCLIEndToEnd(t *testing.T) {
 	}`)
 	canonicalOutput := runApplicationCommand(t, settingsPath,
 		string(startupBytes),
-		"--output", "json", "config", "replace", "--file", "-", "--base-revision", "none",
+		"--output", "json", "config", "import", "--file", "-", "--revision", "0",
 	)
-	var canonicalSave application.CanonicalSave
-	decodeSubscriptionCLIOutput(t, canonicalOutput, &canonicalSave)
+	var savedFile application.ConfigurationFile
+	decodeSubscriptionCLIOutput(t, canonicalOutput, &savedFile)
 
 	channelOutput := runApplicationCommand(t, settingsPath,
 		`{"name":"preview","format":"sing-box","public_host":"preview.example","config":{"exclude_tags":["hidden"]},"enabled":true}`,
-		"--output", "json", "subscription", "channel", "create", "--file", "-",
+		"--output", "json", "channel", "create", "--file", "-",
 	)
 	var channel application.SubscriptionChannel
 	decodeSubscriptionCLIOutput(t, channelOutput, &channel)
@@ -172,7 +172,7 @@ func TestSubscriptionChannelRenderCLIEndToEnd(t *testing.T) {
 	}
 	startup, err := database.CreateStartupArtifact(context.Background(), store.StartupArtifact{
 		ID:                  "startup-subscription-cli",
-		CanonicalRevisionID: canonicalSave.Revision.ID, ExactCoreVersion: core.ExactVersion,
+		CanonicalRevisionID: savedFile.CanonicalRevisionID, ExactCoreVersion: core.ExactVersion,
 		CoreArtifactID: core.ID, ConfigBytes: startupBytes,
 		CreatedAt: now.Add(time.Second),
 	})
@@ -235,7 +235,7 @@ func TestSubscriptionChannelRenderCLIEndToEnd(t *testing.T) {
 	}
 
 	previewOutput := runApplicationCommand(t, settingsPath, "",
-		"--output", "json", "subscription", "channel", "render", channel.ID, "--user", user.ID,
+		"--output", "json", "channel", "render", channel.ID, "--user", user.ID,
 	)
 	var preview application.SubscriptionPreview
 	decodeSubscriptionCLIOutput(t, previewOutput, &preview)
@@ -246,7 +246,7 @@ func TestSubscriptionChannelRenderCLIEndToEnd(t *testing.T) {
 	}
 
 	textOutput := runApplicationCommand(t, settingsPath, "",
-		"--output", "text", "subscription", "channel", "render", channel.ID, "--user", user.ID,
+		"--output", "text", "channel", "render", channel.ID, "--user", user.ID,
 	)
 	if !bytes.Contains(textOutput, []byte(`"tag":"public"`)) || bytes.Contains(textOutput, []byte(`"tag":"hidden"`)) {
 		t.Fatalf("text preview = %s", textOutput)
@@ -270,7 +270,7 @@ func TestSubscriptionTokenCLIPlaintextLifecycle(t *testing.T) {
 	}
 	expiresAt := time.Now().UTC().Add(24 * time.Hour).Format(time.RFC3339Nano)
 	createdOutput := runApplicationCommand(t, settingsPath, "",
-		"--output", "json", "subscription", "token", "create",
+		"--output", "json", "token", "create",
 		"--user-id", user.ID, "--label", "primary", "--expires-at", expiresAt,
 	)
 	var created application.CreatedSubscriptionToken
@@ -280,7 +280,7 @@ func TestSubscriptionTokenCLIPlaintextLifecycle(t *testing.T) {
 	}
 
 	listedOutput := runApplicationCommand(t, settingsPath, "",
-		"--output", "json", "subscription", "token", "list",
+		"--output", "json", "token", "list",
 	)
 	assertSubscriptionTokensDoNotLeak(t, listedOutput, created.Token)
 	var listed application.SubscriptionTokenPage
@@ -290,7 +290,7 @@ func TestSubscriptionTokenCLIPlaintextLifecycle(t *testing.T) {
 	}
 
 	rotationOutput := runApplicationCommand(t, settingsPath, "",
-		"--output", "json", "subscription", "token", "rotate", created.Metadata.ID,
+		"--output", "json", "token", "rotate", created.Metadata.ID,
 	)
 	var rotation application.SubscriptionTokenRotation
 	decodeSubscriptionCLIOutput(t, rotationOutput, &rotation)
@@ -300,7 +300,7 @@ func TestSubscriptionTokenCLIPlaintextLifecycle(t *testing.T) {
 	}
 
 	listedJSONL := runApplicationCommand(t, settingsPath, "",
-		"--output", "jsonl", "subscription", "token", "list",
+		"--output", "jsonl", "token", "list",
 	)
 	assertSubscriptionTokensDoNotLeak(t, listedJSONL, created.Token, rotation.Token)
 	if bytes.Count(listedJSONL, []byte{'\n'}) != 2 {
@@ -308,7 +308,7 @@ func TestSubscriptionTokenCLIPlaintextLifecycle(t *testing.T) {
 	}
 
 	revokedOutput := runApplicationCommand(t, settingsPath, "",
-		"--output", "json", "subscription", "token", "revoke", rotation.Created.ID,
+		"--output", "json", "token", "revoke", rotation.Created.ID,
 	)
 	var revoked application.SubscriptionToken
 	decodeSubscriptionCLIOutput(t, revokedOutput, &revoked)
@@ -323,7 +323,7 @@ func TestSubscriptionCLIRequiresFileCASAndDoesNotEchoSensitiveInput(t *testing.T
 
 	stdout, stderr, err := executeSubscriptionCLI(
 		t, settingsPath, secret,
-		"subscription", "channel", "create",
+		"channel", "create",
 	)
 	assertSubscriptionCLIError(t, err, ErrorUsage, "subscription_file_required")
 	if strings.Contains(stdout+stderr+err.Error(), secret) {
@@ -333,7 +333,7 @@ func TestSubscriptionCLIRequiresFileCASAndDoesNotEchoSensitiveInput(t *testing.T
 	stdout, stderr, err = executeSubscriptionCLI(
 		t, settingsPath,
 		`{"name":"safe","format":"sing-box","public_host":"safe.example","config":{},"enabled":true,"unexpected":"`+secret+`"}`,
-		"subscription", "channel", "create", "--file", "-",
+		"channel", "create", "--file", "-",
 	)
 	assertSubscriptionCLIError(t, err, ErrorValidation, "subscription_input_invalid")
 	if strings.Contains(stdout+stderr+err.Error(), secret) {
@@ -342,7 +342,7 @@ func TestSubscriptionCLIRequiresFileCASAndDoesNotEchoSensitiveInput(t *testing.T
 
 	stdout, stderr, err = executeSubscriptionCLI(
 		t, settingsPath, secret,
-		"subscription", "source", "refresh", "source_missing",
+		"source", "refresh", "source_missing",
 	)
 	assertSubscriptionCLIError(t, err, ErrorDomain, "subscription_source_not_found")
 	if strings.Contains(stdout+stderr+err.Error(), secret) {
@@ -350,7 +350,7 @@ func TestSubscriptionCLIRequiresFileCASAndDoesNotEchoSensitiveInput(t *testing.T
 	}
 
 	root := NewRootCommand(Dependencies{OpenApplication: application.Open})
-	channelCreate, _, findErr := root.Find([]string{"subscription", "channel", "create"})
+	channelCreate, _, findErr := root.Find([]string{"channel", "create"})
 	if findErr != nil {
 		t.Fatal(findErr)
 	}
@@ -362,7 +362,7 @@ func TestSubscriptionCLIRequiresFileCASAndDoesNotEchoSensitiveInput(t *testing.T
 			t.Errorf("channel create unexpectedly accepts --%s in argv", forbidden)
 		}
 	}
-	tokenCreate, _, findErr := root.Find([]string{"subscription", "token", "create"})
+	tokenCreate, _, findErr := root.Find([]string{"token", "create"})
 	if findErr != nil {
 		t.Fatal(findErr)
 	}

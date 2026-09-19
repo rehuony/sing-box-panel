@@ -36,6 +36,7 @@ type Manager struct {
 
 type managedProcess struct {
 	child          ChildProcess
+	output         io.Closer
 	generation     uint64
 	done           chan struct{}
 	desiredState   State

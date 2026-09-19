@@ -10,7 +10,9 @@ import type { ReviewedSchemaResolution } from '@/schemas/resolve-reviewed-schema
 import type { CanonicalDraft } from '@/pages/configuration-page/use-canonical-configuration';
 
 import '@/i18n';
+import { ApiClientProvider } from '@/api/api-client-context';
 import { reviewedSchemaManifest } from '@/schemas/generated';
+import { createMockApiClient } from '@/tests/api/mock-api-client';
 import { ManagedCollectionsEditor } from '@/pages/configuration-page/managed-collections-editor';
 
 const reviewedEntry = reviewedSchemaManifest['1.14.0'];
@@ -28,20 +30,42 @@ beforeAll(async () => {
 
 function Harness({ initial }: { initial: CanonicalDraft }) {
   const [draft, setDraft] = useState(initial);
+  const [client] = useState(() =>
+    createMockApiClient({
+      newInboundDefaults: vi
+        .fn()
+        .mockImplementation(async (type) =>
+          type === 'anytls'
+            ? { type, users: [{ name: 'shared', password: 'fixture-identity' }] }
+            : { type },
+        ),
+    }),
+  );
   if (resolution === null) throw new Error('The exact reviewed schema fixture is unavailable.');
   return (
-    <>
+    <ApiClientProvider client={client}>
       <ManagedCollectionsEditor
         draft={draft}
         onChange={(change) => setDraft((current) => change(current))}
         resolution={resolution}
       />
       <output aria-label='Canonical draft'>{JSON.stringify(draft)}</output>
-    </>
+    </ApiClientProvider>
   );
 }
 
 describe.skipIf(reviewedEntry === undefined)('managedCollectionsEditor', () => {
+  it('adds the prepared identity to the editable entry without saving the file', async () => {
+    const user = userEvent.setup();
+    render(<Harness initial={{ inbounds: [] }} />);
+    await user.click(screen.getByRole('tab', { name: /Inbounds/ }));
+    await user.click(screen.getByRole('button', { name: 'Add node' }));
+    await user.click(screen.getByLabelText('Protocol'));
+    await user.click(await screen.findByRole('option', { name: 'anytls' }));
+    await user.click(screen.getByRole('button', { name: 'Create' }));
+    expect(screen.getByLabelText('Canonical draft')).toHaveTextContent('fixture-identity');
+    expect(screen.getByLabelText('Canonical draft')).toHaveTextContent('"tag":"inbound-1"');
+  });
   it('uses only protocol types from the exact reviewed schema', async () => {
     const user = userEvent.setup();
     render(<Harness initial={{ inbounds: [] }} />);
@@ -71,9 +95,11 @@ describe.skipIf(reviewedEntry === undefined)('managedCollectionsEditor', () => {
   it('surfaces malformed legacy nodes as repairable instead of crashing', async () => {
     const user = userEvent.setup();
     render(
-      <Harness initial={{
-        inbounds: [{ tag: 'broken', listen: '::1' }],
-      }} />,
+      <Harness
+        initial={{
+          inbounds: [{ tag: 'broken', listen: '::1' }],
+        }}
+      />,
     );
 
     await user.click(screen.getByRole('tab', { name: /Inbounds/ }));
@@ -90,12 +116,14 @@ describe.skipIf(reviewedEntry === undefined)('managedCollectionsEditor', () => {
   it('reorders a collection with the keyboard drag handle', async () => {
     const user = userEvent.setup();
     render(
-      <Harness initial={{
-        inbounds: [
-          { type: 'mixed', tag: 'first' },
-          { type: 'socks', tag: 'second' },
-        ],
-      }} />,
+      <Harness
+        initial={{
+          inbounds: [
+            { type: 'mixed', tag: 'first' },
+            { type: 'socks', tag: 'second' },
+          ],
+        }}
+      />,
     );
 
     await user.click(screen.getByRole('tab', { name: /Inbounds/ }));

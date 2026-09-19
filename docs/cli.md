@@ -1,34 +1,41 @@
 # CLI reference
 
-The sing-box-panel CLI manages one global sing-box JSON configuration, exact
-sing-box artifacts, runtime state, subscriptions, and operational evidence.
-Running the root command or a command group without a leaf prints help.
+The sing-box-panel CLI manages the one saved sing-box configuration file that
+it shares with the Web UI, exact sing-box artifacts, runtime state,
+subscriptions, and operational evidence. Running the root command or a command
+group without a leaf prints help.
 
 ## Command hierarchy
 
 ```text
 sing-box-panel
 ├─ init | verify | version | update
-├─ server run
+├─ server start | stop | status
 ├─ core
-│  ├─ catalog list | refresh
+│  ├─ catalog | refresh
 │  ├─ list | show | install | import | remove | quarantine | revoke
-│  └─ check | activate | rollback | status | start | stop | restart
+│  └─ enable | status | start | stop | restart | rollback
 ├─ config
-│  ├─ show | get | set | unset | replace | export | import | validate
-│  ├─ compile | apply | diff
-│  └─ revision list | show | diff | restore
-├─ subscription
-│  ├─ channel list | show | create | update | delete | render
-│  ├─ source list | show | create | update | refresh | delete
-│  └─ token list | create | rotate | revoke
+│  ├─ show | export | import | validate
+│  ├─ get | set | unset
+│  └─ check | apply
+├─ channel list | show | create | update | delete | render
+├─ source list | show | create | update | refresh | delete
+├─ token list | create | rotate | revoke
 ├─ task list | show | wait | cancel
 ├─ log list | show | tail | clear | delete
-├─ metrics show | watch
-├─ traffic status | period list | show
-├─ system install | uninstall | status | start | stop | restart | logs
+├─ metrics show | watch | history | period PERIOD_ID
+├─ system files | clean | install | uninstall | status | start | stop | restart | logs
 └─ completion bash | zsh | fish
 ```
+
+Every command is at most two words deep; each group adds one verb, and each
+verb maps to one application operation. `channel` and `source` manage
+subscription resources: channels rendered for public subscription clients and
+upstream sources attached from third parties. `token` manages public
+subscription access tokens; it never manages the panel management login
+token. `server start` runs the panel in the current terminal. Background
+operation belongs to the `system` service commands.
 
 Use `sing-box-panel COMMAND --help` at any level for current flags and leaf
 commands. The HTTP/Web management surface additionally exposes subscription
@@ -38,6 +45,14 @@ user profiles, grant matrices, and source-version history.
 
 - `-c, --config PATH` selects one settings file.
 - `--output=text|json|jsonl` selects human or machine-readable output.
+
+`-c` and `--config` are short and long forms of the same flag. When omitted,
+commands that need settings load the default path: root uses
+`/etc/sing-box-panel/setting.json`; ordinary users use
+`$XDG_CONFIG_HOME/sing-box-panel/setting.json`, or
+`~/.config/sing-box-panel/setting.json` when XDG is unset. An explicit path
+overrides that default; a missing or invalid selected file is an error rather
+than silently loading another file. Repeated flags use the last supplied value.
 
 Results are written to stdout. Progress, warnings, and terminal errors are
 written to stderr, allowing scripts to redirect them independently. JSON and
@@ -50,28 +65,87 @@ place secrets in command arguments. Exported configuration and
 subscription source details may contain credentials and must be handled as
 secret-bearing output.
 
-## Exact artifact selection
+## The saved configuration file
 
-Executable configuration is always the selected global JSON revision.
-`config compile` requires an immutable installed artifact ID and snapshots the
-same bytes for that exact, verified binary. No surface guesses from a version
-string, uses the newest catalog release, or falls back to a nearby patch.
+`config show`, `config export`, and `config import` operate on the exact text
+of the one saved configuration, the same file the Web editor saves through
+`GET/PUT /api/v1/config/file`. Its logical name is `config.json`; the bytes are
+stored in the `configuration_file` table of `panel.db` inside `data_dir`, not
+at a separate filesystem path. `show` and `export` return the stored text
+byte-for-byte, including whitespace, large numbers, and unfinished JSON.
+`import` uses the numeric file revision as its compare-and-swap base:
 
-A missing JSON Schema disables only structured editing. Raw JSON compilation,
-check, Apply, Start, Restart, and Rollback remain available, with the selected
+```sh
+sing-box-panel config show --output json        # revision, syntax_valid, canonical_revision_id
+sing-box-panel config import --file ./config.json --revision 0   # first save
+sing-box-panel config import --file ./config.json --revision 7   # later save
+```
+
+An import that is not valid JSON is still stored as a draft. It reports
+`syntax_valid: false`, clears `canonical_revision_id`, and blocks `check`,
+`apply`, `start`, and `restart` until the text is corrected; older valid
+content is never substituted silently.
+
+`config get` reads one JSON-pointer value of the current **valid** file.
+`config set` and `unset` edit a value and require `--base-revision`, the `canonical_revision_id`
+shown by `config show --output json`. This ID identifies the immutable valid
+snapshot, whereas `--revision` on `import` is the numeric file revision that
+also counts invalid drafts. Field edits refuse
+to run while the saved file is invalid, and their output reports their own
+canonical revision. Read a fresh `config show --output json` result before a
+subsequent whole-file import to obtain its numeric revision and current text.
+These revision values prevent concurrent edits from overwriting each other;
+they do not expose a configuration history workflow. The CLI edits one saved
+file and has no configuration history, historical diff, or restore commands.
+Internal immutable records remain for validation, runtime identity, and
+activation recovery.
+
+`config validate --file` checks a local file without saving anything.
+
+## Exact core selection
+
+Executable configuration is always the current valid saved file. `config
+check` and `config apply` accept `--core CORE_ARTIFACT_ID`, an immutable
+installed and verified artifact, and default to the currently applied core.
+Before any core has been applied, `--core` is required; no surface guesses
+from a version string, uses the newest catalog release, or falls back to a
+nearby patch. Switching cores never merges, fills, migrates, or rewrites the
+saved JSON: the selected binary must accept an execution snapshot of that
+configuration with `sing-box check`. Snapshot formatting may differ from the
+saved text; field names and values are preserved, and the saved text is untouched.
+
+A missing JSON Schema disables only structured editing. Raw JSON check, apply,
+enable, start, restart, and rollback remain available, with the selected
 binary's `sing-box check` as the final gate:
 
 ```sh
-sing-box-panel config compile \
-  --artifact CORE_ARTIFACT_ID
+sing-box-panel config check                       # applied core
+sing-box-panel config check --core CORE_ARTIFACT_ID
+sing-box-panel config apply                       # checked restart with the applied core
+sing-box-panel config apply --core CORE_ARTIFACT_ID
+sing-box-panel core enable CORE_ARTIFACT_ID       # same as apply --core
 ```
+
+`check` snapshots the valid file and runs the check as a durable maintenance
+task without touching the live core. `apply` and `core enable` snapshot the
+file for preflight in the serialized runtime lane and replace the running
+process only after that check succeeds; a failed preflight leaves the live
+core and the saved file unchanged.
+
+The CLI does not expose the internal startup-artifact and activation-bundle
+steps; the HTTP API still exposes them for the Web UI. The monitoring tier is
+not a CLI input either: a checked restart derives the evidence tier from the
+saved configuration itself, `limited` when the file already exposes a usable
+Clash API and otherwise `process_only`; nothing is injected into the file to
+create that endpoint. Rollback uses the previous immutable bundle and its own
+configuration and binary evidence.
 
 ## Durable tasks and cancellation
 
-Core download and verification, catalog refresh, configuration checks and
-activation, source refresh, and child-process control are durable tasks. Core,
-catalog, configuration, and runtime commands wait by default and expose
-`--detach` where applicable. `subscription source refresh` instead returns the
+Core download and verification, catalog refresh, configuration checks,
+checked restarts, source refresh, and child-process control are durable tasks.
+Core, catalog, configuration, and runtime commands wait by default and expose
+`--detach` where applicable. `source refresh` instead returns the
 queued task immediately, because that command has no local waiting mode.
 
 ```sh
@@ -84,6 +158,134 @@ sing-box-panel task cancel TASK_ID
 Canceling queued work is immediate. Canceling a running task requests
 cancellation at its next safe boundary. Interrupting a local wait also attempts
 to record a cancellation request for that durable task before exiting.
+
+## Foreground panel control
+
+```sh
+sing-box-panel server start --config ./setting.json
+# In another terminal, using the same settings/data directory:
+sing-box-panel server status --config ./setting.json
+sing-box-panel server stop --config ./setting.json --timeout 30s
+```
+
+`start` occupies the current terminal until `Ctrl+C`, `SIGTERM`, or a separate
+`server stop` request shuts it down. It never detaches or creates a background
+child. A second panel cannot run against the same data directory. The bare
+`server` group prints help; there is no `server run` alias.
+
+`status` reports the live process state (`starting`, `ready`, or `stopping`),
+settings path, data directory, listener, and whether it belongs to a terminal
+or systemd. JSON also includes the process ID, start time, and version. An
+absent or stale control endpoint reports `stopped`; permission, timeout, and
+protocol failures remain errors rather than implying the process stopped.
+
+`stop` requests graceful shutdown through a private Unix socket. Success means
+HTTP requests, workers, the managed core, and database cleanup have completed
+and the data-directory lease has been released. It does not signal a stored
+process ID. A timeout ends the caller's wait without force-killing the panel;
+check `server status` or wait again with `server stop`. Stopping an already
+stopped panel succeeds. A systemd-managed panel directs manual stop callers
+to `system stop` instead.
+
+These controls require readable, valid settings pointing to the running data
+directory. Keep that bootstrap path unchanged while running. The private
+`panel-control.sock` path inside `data_dir` must fit the platform's Unix socket
+path limit. A stale socket is replaced only after acquiring the runtime lease;
+regular files and symlinks at that path are never replaced.
+
+For unattended/background operation, use `system install` and `system start`.
+The installed unit invokes the same foreground `server start` entry point;
+systemd owns its background lifecycle and restart policy.
+The unit sets a panel-specific supervisor marker; an invocation environment
+inherited from a terminal service does not make a manual panel systemd-managed.
+
+## Metrics and traffic periods
+
+`metrics show` displays one metrics snapshot; `metrics watch` refreshes it
+until interrupted. Both include current traffic-period start/end times and
+the period's cumulative traffic when reliable evidence is available. Missing
+traffic evidence is shown as unavailable rather than zero usage.
+`metrics history` lists saved periods and `metrics period PERIOD_ID` shows
+one period's details. There is no separate `traffic` command group.
+
+## Instance files and cleanup
+
+```sh
+sing-box-panel system files                       # uses the default settings
+sing-box-panel system files -c ./setting.json --output json
+sing-box-panel system clean -c ./setting.json      # preview only
+sing-box-panel system clean -c ./setting.json --yes
+```
+
+`files` shows the executable, selected settings, database, core logs, installed
+core files, runtime configuration, uploads, process-control socket and lock.
+It lists actual files beneath the managed directories and labels missing,
+unrecognized, linked, and retained entries. The database contains the saved
+configuration and panel logs; a filename for each of those is not invented.
+No settings or database is initialized or migrated by this inspection.
+An incomplete WAL without its shared-memory file is reported as unverified;
+inspection does not repair database recovery state or create missing sidecars.
+`--scope auto|user|system` selects which systemd installation files to inspect.
+
+`clean` without `--yes` is a read-only preview. With `--yes`, it permanently
+removes this instance's settings, database, configuration, logs, installed
+cores, uploads and runtime files. It uninstalls a matching managed systemd
+service, or asks a manually started instance to shut down, then acquires the
+runtime and database-directory locks before deletion. Active CLI database
+owners prevent cleanup. Ambiguous/changed service settings, an unverified
+database, linked managed roots, and unsafe directory selections are refused.
+
+The executable, original archives imported from outside managed directories,
+unrecognized entries alongside managed data, other instances, OS accounts and
+system journal records are retained. Files placed inside the reserved
+`artifacts`, `runtime`, `imports`, or `logs/core` directories belong to the
+cleanup scope. Symlinks inside those directories are removed as links; their
+targets are not followed. Shared parent directories are never recursively
+deleted. The data directory is removed only when empty; the conventional
+`sing-box-panel` settings directory is also removed only when empty.
+
+Cleanup reports completed removals if a filesystem failure interrupts it;
+the service may already be stopped or uninstalled when a later lock or file
+operation fails. It is not a reversible operation. A new instance can be created with `init`
+after successful cleanup. Inspect and clean apply to the selected settings
+and service scope, not every instance that may exist on the host.
+
+## System service status
+
+`system status` combines systemd's view of the unit with two facts read from
+disk, each labeled with its source. It does not inspect the running process,
+so it never claims which settings that process started with:
+
+```sh
+sing-box-panel system status --scope=user
+sing-box-panel system status --scope=system --output json
+```
+
+The `service` object carries systemd's own answers: load, active, sub, and
+enablement state, `main_pid`, `unit_path` (the fragment path), and
+`need_daemon_reload`. `unit_file` (`source: "unit file on disk"`) describes
+the file currently at that path. `unit_file.settings_path` is the `--config`
+argument of its single effective `[Service] ExecStart` line, honoring empty
+resets, systemd quoting, the literal `%%`/`$$` escapes the installer writes,
+and the server's last-value semantics for a repeated flag. It is omitted and
+`unit_file.settings_state` is `unknown` when the unit is unreadable, uses
+drop-in overrides, has no or several effective commands, or references
+specifiers or variables that only systemd can resolve. `unit_file.stale` is
+true when systemd reports the file changed since it was loaded; the path then
+describes the file on disk, not the command line systemd will run until
+`daemon-reload` and a restart. `cli_settings_path` is the `--config` value of
+the current command, reported separately; `unit_file.matches_cli_settings`
+compares the two when both are known. `live_settings_state` is always
+`unknown`.
+
+`settings_file` (`source: "settings file on disk"`) reads the file at
+`unit_file.settings_path` as it exists now. `state: loaded` supplies
+`data_dir`, `database_path`, and `configuration.database_path`; `unavailable`
+means the file could not be read or parsed; `unknown` means no path was
+determined. Neither case hides the unit state, and the command never prints
+settings content or parse details. `configuration` always names the logical
+`config.json` and its storage: the `configuration_file` table of the service
+database.
 
 ## Exit codes and signals
 

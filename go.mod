@@ -3,14 +3,15 @@ module github.com/rehuony/sing-box-panel
 go 1.26
 
 tool (
-	github.com/rehuony/sing-box-panel/internal/cmd/sign-release
-	github.com/rehuony/sing-box-panel/internal/cmd/singbox-support
-	github.com/rehuony/sing-box-panel/internal/cmd/third-party-notices
-	github.com/rehuony/sing-box-panel/internal/cmd/verify-openapi
+	github.com/rehuony/sing-box-panel/cmd/sign-release
+	github.com/rehuony/sing-box-panel/cmd/singbox-support
+	github.com/rehuony/sing-box-panel/cmd/third-party-notices
+	github.com/rehuony/sing-box-panel/cmd/verify-openapi
 )
 
 require (
 	github.com/getkin/kin-openapi v0.148.0
+	github.com/google/uuid v1.6.0
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.3
 	github.com/spf13/cobra v1.10.2
 	github.com/tailscale/hujson v0.0.0-20260727124030-b80ff77dac4f
@@ -24,7 +25,6 @@ require (
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/go-openapi/jsonpointer v0.22.5 // indirect
 	github.com/go-openapi/swag/jsonname v0.25.5 // indirect
-	github.com/google/uuid v1.6.0 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/kr/pretty v0.3.1 // indirect
 	github.com/mattn/go-isatty v0.0.24 // indirect

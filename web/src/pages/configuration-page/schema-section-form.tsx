@@ -2,15 +2,15 @@ import type { IChangeEvent } from '@rjsf/core';
 import type { RJSFSchema, UiSchema, ValidationData, ValidatorType } from '@rjsf/utils';
 
 import Form from '@rjsf/core';
-import { useMemo } from 'react';
+import { useId, useMemo } from 'react';
 
 import type { ReviewedSchemaResolution } from '@/schemas/resolve-reviewed-schema';
 
 import type { CanonicalDraft } from './use-canonical-configuration';
 
 import { encodeCanonicalValue } from './use-canonical-configuration';
-import { panelRJSFTemplates, panelRJSFWidgets } from './rjsf-shadcn-theme';
 import { documentWithoutValue, documentWithValue } from './canonical-document';
+import { panelRJSFFields, panelRJSFTemplates, panelRJSFWidgets } from './rjsf-shadcn-theme';
 import {
   mergeSchemaKnownData,
   projectSchemaKnownData,
@@ -174,6 +174,7 @@ export function SchemaSectionForm({
   schema,
   uiSchema,
 }: SchemaSectionFormProps) {
+  const formId = useId();
   const formSchema = useMemo(
     () => selfContainedSchema(schema, resolution.schema, data),
     [data, resolution.schema, schema],
@@ -219,14 +220,20 @@ export function SchemaSectionForm({
   return (
     <Form
       disabled={disabled}
+      experimental_defaultFormStateBehavior={{ emptyObjectFields: 'populateRequiredDefaults' }}
+      fields={panelRJSFFields}
       formData={external}
+      idPrefix={`schema-${formId}`}
       liveValidate
       noHtml5Validate
       onChange={handleChange}
       schema={formSchema}
       showErrorList={false}
       templates={panelRJSFTemplates}
-      uiSchema={{ ...uiSchema, 'ui:submitButtonOptions': { norender: true } }}
+      uiSchema={{
+        ...uiSchema,
+        'ui:submitButtonOptions': { norender: true },
+      }}
       validator={validator}
       widgets={panelRJSFWidgets}
     />

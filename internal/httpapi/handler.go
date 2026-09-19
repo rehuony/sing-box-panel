@@ -16,7 +16,8 @@ import (
 )
 
 const (
-	maxLoginBody          = 8 << 10
+	// An accepted 8 KiB token may expand sixfold when JSON-escaped.
+	maxLoginBody          = 64 << 10
 	maxCanonicalPatchBody = 5 << 20
 	sessionCookie         = "sbp_session"
 )
@@ -27,13 +28,20 @@ type StatusProvider interface {
 }
 
 type SystemStatus struct {
-	PanelVersion       string  `json:"panel_version"`
-	CanonicalRevision  int64   `json:"canonical_revision"`
-	AppliedBundleID    *string `json:"applied_bundle_id"`
-	Running            bool    `json:"running"`
-	RunningVersion     *string `json:"running_version"`
-	RunningArtifact    *string `json:"running_artifact"`
-	ConfigurationState string  `json:"configuration_state"`
+	Platform           SystemPlatform `json:"platform"`
+	PanelVersion       string         `json:"panel_version"`
+	CanonicalRevision  int64          `json:"canonical_revision"`
+	AppliedBundleID    *string        `json:"applied_bundle_id"`
+	Running            bool           `json:"running"`
+	RunningVersion     *string        `json:"running_version"`
+	RunningArtifact    *string        `json:"running_artifact"`
+	ConfigurationState string         `json:"configuration_state"`
+}
+
+// Platform describes the deployed panel binary, never the browser's machine.
+type SystemPlatform struct {
+	OS   string `json:"os"`
+	Arch string `json:"arch"`
 }
 
 type DashboardContext struct {

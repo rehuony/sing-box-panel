@@ -10,6 +10,7 @@ import (
 	"github.com/rehuony/sing-box-panel/internal/application"
 	"github.com/rehuony/sing-box-panel/internal/configuration"
 	"github.com/rehuony/sing-box-panel/internal/jsonstrict"
+	"github.com/rehuony/sing-box-panel/internal/store"
 )
 
 func (handler *Handler) canonicalDocument(w http.ResponseWriter, request *http.Request) {
@@ -48,6 +49,8 @@ func (handler *Handler) replaceCanonicalDocument(w http.ResponseWriter, request 
 	result, err := handler.commands.ReplaceCanonical(request.Context(), expectedHead, raw)
 	if err != nil {
 		switch {
+		case errors.Is(err, store.ErrConfigurationFileUnparsed):
+			writeConfigurationProblem(w, request, "configuration_file_unparsed", err)
 		case application.IsRevisionConflict(err):
 			writeProblem(w, request, http.StatusPreconditionFailed, "canonical_revision_conflict", "Revision conflict", err.Error())
 		case errors.Is(err, configuration.ErrInvalidDocument):
@@ -86,6 +89,8 @@ func (handler *Handler) patchCanonicalDocument(w http.ResponseWriter, request *h
 	result, err := handler.commands.PatchCanonical(request.Context(), expectedHead, input.Changes)
 	if err != nil {
 		switch {
+		case errors.Is(err, store.ErrConfigurationFileUnparsed):
+			writeConfigurationProblem(w, request, "configuration_file_unparsed", err)
 		case application.IsRevisionConflict(err):
 			writeProblem(w, request, http.StatusPreconditionFailed, "canonical_revision_conflict", "Revision conflict", err.Error())
 		case errors.Is(err, application.ErrCanonicalPatchInvalid):

@@ -175,12 +175,15 @@ type HealthProbe interface {
 }
 
 type Options struct {
-	RuntimeDir           string
-	Executor             CommandExecutor
-	Clock                Clock
-	Probe                HealthProbe
-	Stdout               io.Writer
-	Stderr               io.Writer
+	RuntimeDir string
+	Executor   CommandExecutor
+	Clock      Clock
+	Probe      HealthProbe
+	Stdout     io.Writer
+	Stderr     io.Writer
+	// ObserveOutput follows an explicitly configured log file without changing
+	// the immutable startup configuration. The handle lives with the child.
+	ObserveOutput        func(config []byte, workingDir string) (io.Closer, error)
 	ShutdownGrace        time.Duration
 	ProcessHealthWindow  time.Duration
 	MaximumBinaryBytes   int64

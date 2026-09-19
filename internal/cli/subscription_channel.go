@@ -11,7 +11,7 @@ import (
 )
 
 func newSubscriptionChannelCommand(state *options, open openApplicationFunc) *cobra.Command {
-	root := group("channel", "Manage public subscription channels")
+	root := group("channel", "Manage subscription channels served to public subscription clients")
 	root.AddCommand(
 		newSubscriptionChannelListCommand(state, open),
 		newSubscriptionChannelShowCommand(state, open),

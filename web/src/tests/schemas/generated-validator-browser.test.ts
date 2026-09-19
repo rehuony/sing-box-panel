@@ -12,7 +12,7 @@ import {
   compileConfigurationSchemaValidator,
   generateConfigurationSchemaArtifacts,
   parseConfigurationSchemaManifest,
-} from '../../../vite/configuration-schema-plugin';
+} from '../../../plugins/configuration-schema';
 
 const temporaryDirectories: string[] = [];
 

@@ -1,8 +1,11 @@
 /* eslint-disable react-refresh/only-export-components */
 // RJSF requires one registry module that exports component maps.
+import type { TFunction } from 'i18next';
 import type { ComponentType } from 'react';
 import type {
+  ArrayFieldTitleProps,
   BaseInputTemplateProps,
+  FieldProps,
   FieldTemplateProps,
   IconButtonProps,
   ObjectFieldTemplateProps,
@@ -12,6 +15,7 @@ import type {
 } from '@rjsf/utils';
 
 import { useTranslation } from 'react-i18next';
+import { getDefaultRegistry } from '@rjsf/core';
 import {
   ArrowDown,
   ArrowUp,
@@ -63,54 +67,61 @@ function metadata(schema: RJSFSchema): PanelMetadata {
     : {};
 }
 
-function localizedLabel(schema: RJSFSchema, fallback: string, language: string): string {
+function localizedLabel(schema: RJSFSchema, fallback: string, language: string, t: TFunction): string {
+  if (fallback.startsWith('configuration.valueTypes.')) return t(fallback);
   const labels = metadata(schema).label;
-  return labels?.[language] ?? labels?.en ?? schema.title ?? fallback;
+  return labels?.[language] ?? labels?.en ?? t(`configuration.fields.${fallback}`, { defaultValue: schema.title ?? fallback });
 }
 
 function PanelFieldTemplate(props: FieldTemplateProps) {
-  const { i18n } = useTranslation();
+  const { i18n, t } = useTranslation();
   const {
     children, description, disabled, displayLabel, errors, fieldPathId, hidden, id,
-    label, rawErrors, required, schema,
+    label, rawDescription, rawErrors, required, schema,
   } = props;
   if (hidden) return children;
   if (fieldPathId.path.length === 0 || schema.type === 'object' || schema.type === 'array') {
     return children;
   }
-  const resolvedLabel = localizedLabel(schema, label, i18n.language);
+  const resolvedLabel = localizedLabel(schema, label, i18n.language, t);
+  const booleanField = schema.type === 'boolean';
+  const labelTarget = schema.oneOf || schema.anyOf
+    ? `${id}__${schema.oneOf ? 'oneof' : 'anyof'}_select-variant`
+    : id;
   return (
     <Field
       className='schema-form__field'
+      orientation={booleanField ? 'horizontal' : 'vertical'}
       data-disabled={disabled || undefined}
       data-invalid={rawErrors !== undefined && rawErrors.length > 0 ? true : undefined}
     >
-      {displayLabel === false
+      {displayLabel === false && !booleanField
         ? null
         : (
-            <FieldLabel htmlFor={id}>
+            <FieldLabel htmlFor={labelTarget}>
               {resolvedLabel}
               {required ? <span aria-hidden='true'>*</span> : null}
             </FieldLabel>
           )}
       {children}
-      {description ? <FieldDescription>{description}</FieldDescription> : null}
-      {errors ? <FieldError>{errors}</FieldError> : null}
+      {rawDescription ? <FieldDescription>{description}</FieldDescription> : null}
+      {rawErrors !== undefined && rawErrors.length > 0 ? <FieldError>{errors}</FieldError> : null}
     </Field>
   );
 }
 
 function PanelObjectFieldTemplate(props: ObjectFieldTemplateProps) {
-  const { i18n } = useTranslation();
+  const { i18n, t } = useTranslation();
   const {
-    description, fieldPathId, properties, schema, title,
+    description, fieldPathId, optionalDataControl, properties, schema, title,
   } = props;
   const visible = properties.filter((property) => !property.hidden);
-  const resolvedTitle = localizedLabel(schema, title, i18n.language);
+  const resolvedTitle = localizedLabel(schema, title, i18n.language, t);
   const root = fieldPathId.path.length === 0;
   return (
-    <fieldset className={root ? 'schema-form__root' : 'schema-form__object'} id={fieldPathId.$id}>
+    <fieldset className={root ? 'schema-form__root' : 'schema-form__object'} id={`${fieldPathId.$id}-group`}>
       {!root && resolvedTitle !== '' ? <FieldLegend>{resolvedTitle}</FieldLegend> : null}
+      {optionalDataControl}
       {description ? <FieldDescription>{description}</FieldDescription> : null}
       <FieldGroup className='schema-form__grid'>
         {visible.map((property) => <div key={property.name}>{property.content}</div>)}
@@ -118,6 +129,51 @@ function PanelObjectFieldTemplate(props: ObjectFieldTemplateProps) {
     </fieldset>
   );
 }
+
+function PanelArrayTitleTemplate(props: ArrayFieldTitleProps) {
+  const { i18n, t } = useTranslation();
+  const { title, schema, optionalDataControl } = props;
+  return (
+    <>
+      {title && !title.startsWith('configuration.valueTypes.')
+        ? <FieldLegend>{localizedLabel(schema, title, i18n.language, t)}</FieldLegend>
+        : null}
+      {optionalDataControl}
+    </>
+  );
+}
+
+const DefaultObjectField = getDefaultRegistry().fields.ObjectField;
+
+/** Explicitly configured empty objects must remain open, even before their first field is filled. */
+function PanelObjectField(props: FieldProps) {
+  const { i18n, t } = useTranslation();
+  const { disabled, fieldPathId, formData, name, onChange, readonly, required, schema } = props;
+  if (fieldPathId.path.length === 0 || required) return <DefaultObjectField {...props} />;
+  const present = formData !== undefined && formData !== null;
+  if (!present) {
+    return (
+      <fieldset className='schema-form__object'>
+        <FieldLegend>{localizedLabel(schema, name, i18n.language, t)}</FieldLegend>
+        <Button disabled={disabled || readonly} onClick={() => onChange({}, fieldPathId.path)} size='sm' type='button' variant='outline'>
+          <Plus aria-hidden data-icon='inline-start' />
+          {t('configuration.general.configure')}
+        </Button>
+      </fieldset>
+    );
+  }
+  return (
+    <div className='schema-form__optional'>
+      <DefaultObjectField {...props} />
+      <Button disabled={disabled || readonly} onClick={() => onChange(undefined, fieldPathId.path)} size='sm' type='button' variant='ghost'>
+        <X aria-hidden data-icon='inline-start' />
+        {t('configuration.general.remove')}
+      </Button>
+    </div>
+  );
+}
+
+export const panelRJSFFields = { ObjectField: PanelObjectField };
 
 function PanelBaseInputTemplate(props: BaseInputTemplateProps) {
   const {
@@ -145,11 +201,11 @@ function PanelBaseInputTemplate(props: BaseInputTemplateProps) {
 }
 
 function PanelCheckboxWidget(props: WidgetProps) {
-  const { i18n } = useTranslation();
+  const { i18n, t } = useTranslation();
   const checked = props.value === true;
   return (
     <Switch
-      aria-label={localizedLabel(props.schema, props.label, i18n.language)}
+      aria-label={localizedLabel(props.schema, props.label, i18n.language, t)}
       checked={checked}
       disabled={props.disabled || props.readonly}
       id={props.id}
@@ -159,11 +215,12 @@ function PanelCheckboxWidget(props: WidgetProps) {
 }
 
 function PanelSelectWidget(props: WidgetProps) {
-  const { i18n } = useTranslation();
+  const { i18n, t } = useTranslation();
   const enumOptions = props.options.enumOptions ?? [];
+  const variantSelector = props.name?.endsWith('__oneof_select') || props.name?.endsWith('__anyof_select');
   const optionValueFormat = getOptionValueFormat(props.options);
   const encodedItems = enumOptions.map((option, index) => ({
-    label: option.label,
+    label: option.label.startsWith('configuration.valueTypes.') ? t(option.label) : option.label,
     value: String(enumOptionValueEncoder(option.value, index, optionValueFormat)),
   }));
   const selected = enumOptionSelectedValue(
@@ -183,9 +240,9 @@ function PanelSelectWidget(props: WidgetProps) {
       value={String(selected ?? '')}
     >
       <SelectTrigger
-        aria-label={localizedLabel(props.schema, props.label, i18n.language)}
+        aria-label={localizedLabel(props.schema, props.label, i18n.language, t)}
         className='w-full'
-        id={props.id}
+        id={variantSelector ? `${props.id}-variant` : props.id}
       >
         <SelectValue />
       </SelectTrigger>
@@ -201,10 +258,10 @@ function PanelSelectWidget(props: WidgetProps) {
 }
 
 function PanelTextareaWidget(props: WidgetProps) {
-  const { i18n } = useTranslation();
+  const { i18n, t } = useTranslation();
   return (
     <Textarea
-      aria-label={localizedLabel(props.schema, props.label, i18n.language)}
+      aria-label={localizedLabel(props.schema, props.label, i18n.language, t)}
       disabled={props.disabled}
       id={props.id}
       onBlur={(event) => props.onBlur(props.id, event.currentTarget.value)}
@@ -244,6 +301,7 @@ function iconButton(
 }
 
 export const panelRJSFTemplates: Partial<TemplatesType> = {
+  ArrayFieldTitleTemplate: PanelArrayTitleTemplate,
   BaseInputTemplate: PanelBaseInputTemplate,
   FieldTemplate: PanelFieldTemplate,
   ObjectFieldTemplate: PanelObjectFieldTemplate,

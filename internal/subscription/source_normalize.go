@@ -20,9 +20,7 @@ func normalizedSourceNodes(values []map[string]any, sourceID string) ([]Node, er
 	for _, value := range values {
 		typeID, _ := value["type"].(string)
 		tag, _ := value["tag"].(string)
-		server, _ := value["server"].(string)
-		_, portOK := sourceInteger(value["server_port"], 1, 65535)
-		if !ValidType(typeID) || !ValidTag(tag) || server == "" || !portOK {
+		if !ValidType(typeID) || !ValidTag(tag) || !validNodeCoordinate(value) {
 			return nil, ErrInvalidSource
 		}
 		if err := validateSourceRequiredFields(typeID, value); err != nil {

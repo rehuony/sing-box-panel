@@ -4,12 +4,53 @@ package systemd
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 )
+
+// Files inspects the installer's exact destinations without contacting systemd.
+func (manager *Manager) Files(ctx context.Context, requested Scope) (FilesResult, error) {
+	if err := manager.requireLinux(); err != nil {
+		return FilesResult{}, err
+	}
+	scope, err := manager.resolveScope(requested)
+	if err != nil {
+		return FilesResult{}, err
+	}
+	result := FilesResult{Scope: scope, Files: []FileStatus{}}
+	for _, path := range manager.managedPaths(scope) {
+		if err := ctx.Err(); err != nil {
+			return result, err
+		}
+		item := FileStatus{Path: path, State: "missing"}
+		info, err := os.Lstat(path)
+		if err != nil && !errors.Is(err, os.ErrNotExist) {
+			return result, err
+		}
+		if err == nil {
+			item.State = "unmanaged"
+			if info.Mode().IsRegular() {
+				data, err := os.ReadFile(path)
+				if err != nil {
+					return result, err
+				}
+				item.Managed = bytes.Contains(data, []byte(managedMark))
+				if item.Managed {
+					item.State = "managed"
+				}
+				if path == manager.unitPath(scope) {
+					result.SettingsPath, _ = parseUnitFileSettingsPath(data)
+				}
+			}
+		}
+		result.Files = append(result.Files, item)
+	}
+	return result, nil
+}
 
 type managedFile struct {
 	path string

@@ -1,15 +1,31 @@
 export const dashboard = {
+  metric: {
+    cpu: 'Host CPU',
+    cpuDetail: '{{count}} cores · 1m load {{load}}',
+    memory: 'Host memory',
+    disk: 'Disk usage',
+    transfer: 'Period traffic',
+    quota: 'Used {{used}} · quota {{total}}',
+    noQuota: 'No traffic quota',
+    countUnit: 'count',
+    lastHour: 'Last hour',
+    lastDay: 'Last 24 hours',
+  },
   action: {
     refresh: 'Refresh',
     refreshing: 'Refreshing…',
   },
   bundle: {
+    apply: 'Apply filter',
+    filter: 'Filter by deployment',
     label: 'Bundle',
     placeholder: 'All bundles',
   },
   chart: {
+    arrows: 'Use arrow keys to inspect samples.',
     interactionHint: 'Ctrl + scroll to zoom · Shift + scroll to pan · +/− zoom · Shift + ←/→ pan',
-    keyboardLabel: 'History chart. Use arrow keys to inspect buckets, plus and minus to zoom, Shift plus arrows to pan, Home to reset, and Enter to open logs.',
+    keyboardLabel:
+      'History chart. Use arrow keys to inspect buckets, plus and minus to zoom, Shift plus arrows to pan, Home to reset, and Enter to open logs.',
     noBucket: 'No bucket selected',
     visibleRange: 'Visible range {{from}} to {{to}}',
   },
@@ -120,7 +136,7 @@ export const dashboard = {
     unavailable: 'Availability unavailable',
     unknownNote: 'Unknown intervals are excluded from availability.',
   },
-  title: 'Runtime overview',
+  title: 'Dashboard',
   trend: {
     connections: 'Connections',
     description: 'Persisted samples; gaps remain gaps.',

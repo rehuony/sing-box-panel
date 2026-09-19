@@ -15,6 +15,7 @@ import (
 	"github.com/rehuony/sing-box-panel/internal/application"
 	"github.com/rehuony/sing-box-panel/internal/buildinfo"
 	"github.com/rehuony/sing-box-panel/internal/configuration"
+	"github.com/rehuony/sing-box-panel/internal/panelprocess"
 	"github.com/rehuony/sing-box-panel/internal/store"
 )
 
@@ -48,20 +49,20 @@ func TestRuntimeRestartAlwaysRequiresTransition(t *testing.T) {
 
 func TestRuntimeExecutorLeaseExcludesSecondOwner(t *testing.T) {
 	dataDirectory := t.TempDir()
-	first, err := acquireRuntimeExecutorLease(dataDirectory)
+	first, err := panelprocess.AcquireLease(dataDirectory)
 	if err != nil {
 		t.Fatalf("acquire first runtime executor lease: %v", err)
 	}
 	t.Cleanup(func() { _ = first.Close() })
 
-	if _, err := acquireRuntimeExecutorLease(dataDirectory); !errors.Is(err, errRuntimeExecutorLeaseHeld) {
+	if _, err := panelprocess.AcquireLease(dataDirectory); !errors.Is(err, panelprocess.ErrLeaseHeld) {
 		t.Fatalf("acquire second runtime executor lease error = %v, want ErrRuntimeExecutorLeaseHeld", err)
 	}
 
 	if err := first.Close(); err != nil {
 		t.Fatalf("release first runtime executor lease: %v", err)
 	}
-	third, err := acquireRuntimeExecutorLease(dataDirectory)
+	third, err := panelprocess.AcquireLease(dataDirectory)
 	if err != nil {
 		t.Fatalf("acquire runtime executor lease after release: %v", err)
 	}
@@ -69,7 +70,7 @@ func TestRuntimeExecutorLeaseExcludesSecondOwner(t *testing.T) {
 		t.Fatalf("release third runtime executor lease: %v", err)
 	}
 
-	info, err := os.Stat(filepath.Join(dataDirectory, runtimeExecutorLeaseName))
+	info, err := os.Stat(filepath.Join(dataDirectory, panelprocess.LeaseFileName))
 	if err != nil {
 		t.Fatalf("stat runtime executor lease: %v", err)
 	}

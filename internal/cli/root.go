@@ -67,11 +67,12 @@ func NewRootCommand(deps Dependencies) *cobra.Command {
 		newServerCommand(state, deps.RunServer),
 		newCoreCommand(state, deps.OpenApplication),
 		newConfigCommand(state, deps.OpenApplication),
-		newSubscriptionCommand(state, deps.OpenApplication),
+		newSubscriptionChannelCommand(state, deps.OpenApplication),
+		newSubscriptionSourceCommand(state, deps.OpenApplication),
+		newSubscriptionTokenCommand(state, deps.OpenApplication),
 		newTaskCommand(state, deps.OpenApplication),
 		newDurableLogCommand(state, deps.OpenApplication),
 		newMetricsCommand(state, deps.OpenApplication),
-		newTrafficCommand(state, deps.OpenApplication),
 		newSystemCommand(state, systemdService),
 		newCompletionCommand(root),
 	)
@@ -174,20 +175,4 @@ func newVersionCommand(state *options, info buildinfo.Info) *cobra.Command {
 			return writeResult(cmd.OutOrStdout(), state.format, info, text)
 		},
 	}
-}
-
-func newServerCommand(state *options, run func(context.Context, string) error) *cobra.Command {
-	server := &cobra.Command{Use: "server", Short: "Run the panel server", Args: cobra.NoArgs}
-	server.AddCommand(&cobra.Command{
-		Use:   "run",
-		Short: "Run the HTTP server and runtime task executor",
-		Args:  cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			if run == nil {
-				return &Error{Kind: ErrorUnavailable, Code: "server_unavailable", Message: "server runner is unavailable"}
-			}
-			return run(cmd.Context(), state.settingsPath)
-		},
-	})
-	return server
 }

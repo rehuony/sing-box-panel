@@ -3,14 +3,16 @@ import type { RJSFSchema } from '@rjsf/utils';
 import { useState } from 'react';
 import { describe, expect, it } from 'vitest';
 import userEvent from '@testing-library/user-event';
-import { render, screen } from '@testing-library/react';
 import { customizeValidator } from '@rjsf/validator-ajv8';
+import { fireEvent, render, screen } from '@testing-library/react';
 
 import type { ReviewedSchemaResolution } from '@/schemas/resolve-reviewed-schema';
 import type { CanonicalDraft } from '@/pages/configuration-page/use-canonical-configuration';
 
 import '@/i18n';
+import { uiSchemaFromPanel } from '@/pages/configuration-page/schema-ui';
 import { SchemaSectionForm } from '@/pages/configuration-page/schema-section-form';
+import { encodeCanonicalDraft, parseCanonicalDraft } from '@/pages/configuration-page/use-canonical-configuration';
 
 const sectionSchema: RJSFSchema = {
   type: 'object',
@@ -74,7 +76,113 @@ function Harness() {
   );
 }
 
+const numericSchema: RJSFSchema = {
+  type: 'object',
+  properties: {
+    enabled: { type: 'boolean' },
+    listen_port: { type: 'integer' },
+    counter: { type: 'integer' },
+    timeout: { anyOf: [{ type: 'integer' }, { type: 'string' }] },
+    tuning: { type: 'object', properties: { value: { type: 'string' } } },
+  },
+};
+
+function NumericHarness() {
+  const [draft, setDraft] = useState(() => parseCanonicalDraft(
+    '{"section":{"enabled":true,"listen_port":2080,"counter":900719925474099312345,"future":4.2000e+99}}',
+  ));
+  return (
+    <>
+      <SchemaSectionForm
+        basePointer='/section'
+        data={draft.section}
+        onChange={(change) => setDraft(change)}
+        resolution={{ ...resolution, schema: { type: 'object', properties: { section: numericSchema } } }}
+        schema={numericSchema}
+        uiSchema={uiSchemaFromPanel(numericSchema)}
+      />
+      <output aria-label='Canonical draft'>{encodeCanonicalDraft(draft)}</output>
+    </>
+  );
+}
+
 describe('schemaSectionForm', () => {
+  it('edits array and object union representations without erasing hidden extensions', () => {
+    const properties: RJSFSchema = {
+      type: 'object',
+      properties: {
+        ranges: { anyOf: [{ type: 'string' }, { type: 'array', items: { type: 'string' } }] },
+        resolver: { anyOf: [{ type: 'string' }, {
+          type: 'object', properties: { server: { type: 'string' } },
+        }] },
+      },
+    };
+    function UnionHarness() {
+      const [data, setData] = useState<CanonicalDraft>({
+        section: { ranges: ['443:8443'], resolver: { server: 'dns-one', future: { preserve: true } } },
+      });
+      return (
+        <>
+          <SchemaSectionForm basePointer='/section' data={data.section} onChange={setData}
+            resolution={{ ...resolution, schema: { type: 'object', properties: { section: properties } } }}
+            schema={properties} uiSchema={uiSchemaFromPanel(properties, [], properties, data.section)} />
+          <output aria-label='Saved union'>{JSON.stringify(data)}</output>
+        </>
+      );
+    }
+    render(<UnionHarness />);
+    fireEvent.change(screen.getByDisplayValue('443:8443'), { target: { value: '2053:2096' } });
+    fireEvent.change(screen.getByDisplayValue('dns-one'), { target: { value: 'dns-two' } });
+    expect(JSON.parse(screen.getByLabelText('Saved union').textContent ?? '{}')).toEqual({
+      section: { ranges: ['2053:2096'], resolver: { server: 'dns-two', future: { preserve: true } } },
+    });
+  });
+
+  it('displays numeric fields and preserves untouched numeric lexemes while editing', async () => {
+    const user = userEvent.setup();
+    render(<NumericHarness />);
+    expect(screen.getByLabelText('Listen port')).toHaveValue(2080);
+    expect(screen.getByText('Enabled')).toBeVisible();
+    await user.click(screen.getByRole('switch', { name: 'Enabled' }));
+    const encoded = screen.getByLabelText('Canonical draft').textContent;
+    expect(encoded).toContain('"enabled":false');
+    expect(encoded).toContain('"counter":900719925474099312345');
+    expect(encoded).toContain('"future":4.2000e+99');
+    fireEvent.change(screen.getByLabelText('Listen port'), { target: { value: '2081' } });
+    expect(screen.getByLabelText('Canonical draft')).toHaveTextContent('"listen_port":2081');
+  });
+
+  it('keeps optional object fields compact until explicitly configured', async () => {
+    const user = userEvent.setup();
+    render(<NumericHarness />);
+    expect(screen.queryByLabelText('value')).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Configure' }));
+    expect(screen.getByLabelText('value')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Remove settings' }));
+    expect(screen.queryByLabelText('value')).not.toBeInTheDocument();
+    expect(screen.getByLabelText('Canonical draft')).not.toHaveTextContent('tuning');
+  });
+
+  it('names alternative input formats and writes the selected representation', async () => {
+    const user = userEvent.setup();
+    render(<NumericHarness />);
+    await user.click(screen.getByRole('combobox', { name: 'Timeout' }));
+    await user.click(await screen.findByRole('option', { name: 'Text' }));
+    fireEvent.change(screen.getByRole('textbox', { name: 'Text' }), { target: { value: '5s' } });
+    expect(screen.getByLabelText('Canonical draft')).toHaveTextContent('"timeout":"5s"');
+  });
+
+  it('assigns unique field IDs when forms are mounted together', () => {
+    const { container } = render(
+      <>
+        <NumericHarness />
+        <NumericHarness />
+      </>,
+    );
+    const ids = [...container.querySelectorAll('[id]')].map((element) => element.id);
+    expect(new Set(ids).size).toBe(ids.length);
+  });
+
   it('keeps nested unknown fields attached when same-length array members are reordered', async () => {
     const user = userEvent.setup();
     render(<Harness />);

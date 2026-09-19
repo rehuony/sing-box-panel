@@ -14,6 +14,9 @@ func (application *Application) CreateSubscriptionChannel(
 	ctx context.Context,
 	request CreateSubscriptionChannelRequest,
 ) (SubscriptionChannel, error) {
+	if _, err := validateSubscriptionChannelConfig(request.Format, request.Config); err != nil {
+		return SubscriptionChannel{}, err
+	}
 	id, err := application.newID("channel")
 	if err != nil {
 		return SubscriptionChannel{}, err
@@ -62,6 +65,9 @@ func (application *Application) UpdateSubscriptionChannel(
 	channelID string,
 	request UpdateSubscriptionChannelRequest,
 ) (SubscriptionChannel, error) {
+	if _, err := validateSubscriptionChannelConfig(request.Format, request.Config); err != nil {
+		return SubscriptionChannel{}, err
+	}
 	updatedAt := application.nextSubscriptionUpdateTime(request.ExpectedUpdatedAt)
 	stored, err := application.database.UpdateSubscriptionChannel(ctx, store.UpdateSubscriptionChannelInput{
 		ID: strings.TrimSpace(channelID), Name: request.Name, Format: request.Format, PublicHost: request.PublicHost,

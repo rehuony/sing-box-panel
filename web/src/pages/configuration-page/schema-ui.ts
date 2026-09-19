@@ -1,5 +1,7 @@
 import type { RJSFSchema, UiSchema } from '@rjsf/utils';
 
+import { isLosslessNumber } from 'lossless-json';
+
 interface PanelMetadata {
   order?: number;
   widget?: string;
@@ -285,18 +287,40 @@ export function schemaDataIdentity(value: unknown): string | undefined {
   return undefined;
 }
 
+/** Select a representation for data projection without removing the form's union selector. */
+function projectionSchema(schema: RJSFSchema, root: RJSFSchema, value: unknown, depth = 0): RJSFSchema {
+  const resolved = resolvedSchema(schema, root, value);
+  const union = resolved.oneOf ?? resolved.anyOf;
+  if (!Array.isArray(union) || depth > 8) return resolved;
+  const kind = value === null
+    ? 'null'
+    : Array.isArray(value)
+      ? 'array'
+      : isLosslessNumber(value) ? 'number' : typeof value;
+  const candidates = union.flatMap((branch) => {
+    const object = objectSchema(branch);
+    if (!object) return [];
+    const candidate = resolvedSchema(object, root, value);
+    const types: readonly string[] = candidate.type === undefined
+      ? []
+      : Array.isArray(candidate.type) ? candidate.type : [candidate.type];
+    return types.includes(kind) ? [candidate] : [];
+  });
+  return candidates.length === 1 ? projectionSchema(candidates[0], root, value, depth + 1) : resolved;
+}
+
 export function projectSchemaKnownData(
   schema: RJSFSchema,
   root: RJSFSchema,
   value: unknown,
 ): unknown {
-  const resolved = resolvedSchema(schema, root, value);
+  const resolved = projectionSchema(schema, root, value);
   if (Array.isArray(value)) {
     const itemSchema = collectionItemSchema(resolved, root);
-    if (itemSchema === null) return [];
+    if (itemSchema === null) return value;
     return value.map((item) => projectSchemaKnownData(itemSchema, root, item));
   }
-  if (value === null || typeof value !== 'object') return value;
+  if (value === null || typeof value !== 'object' || isLosslessNumber(value)) return value;
   const properties = schemaProperties(resolved, root, value);
   const record = value as Record<string, unknown>;
   return Object.fromEntries(Object.entries(record).flatMap(([key, child]) => {
@@ -327,7 +351,7 @@ export function mergeSchemaKnownData(
   after: unknown,
 ): unknown {
   if (sameJSON(before, after)) return original;
-  const resolved = resolvedSchema(schema, root, after);
+  const resolved = projectionSchema(schema, root, after);
   if (Array.isArray(before) && Array.isArray(after)) {
     const itemSchema = collectionItemSchema(resolved, root);
     if (itemSchema === null || !Array.isArray(original)) return after;
@@ -404,6 +428,21 @@ export function uiSchemaFromPanel(
     ).filter((path) => path !== key), root, record[key]);
     if (readonlyPaths.includes(key)) child['ui:readonly'] = true;
     result[key] = child;
+  }
+  // Native schemas often omit union titles. Describe the actual representation
+  // without modifying the reviewed schema or its validation semantics.
+  for (const keyword of ['anyOf', 'oneOf'] as const) {
+    const branches = resolved[keyword];
+    if (!Array.isArray(branches)) continue;
+    const branchUI = { ...result };
+    result[keyword] = branches.map((branch) => {
+      if (typeof branch === 'boolean') return branchUI;
+      const option = resolvedSchema(branch, root, data);
+      const discriminator = discriminatorKeys.flatMap((key) => schemaDiscriminatorValues(option, root, key));
+      const title = option.title ?? (discriminator.length === 1 ? discriminator[0] : undefined)
+        ?? (typeof option.type === 'string' ? `configuration.valueTypes.${option.type}` : undefined);
+      return title === undefined ? branchUI : { ...branchUI, 'ui:title': title };
+    });
   }
   return result;
 }

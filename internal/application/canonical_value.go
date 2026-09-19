@@ -110,6 +110,9 @@ func (application *Application) saveCanonicalBytes(
 	schemaVersion int,
 	canonicalBytes []byte,
 ) (CanonicalSave, error) {
+	if err := application.requireParsedConfigurationFile(ctx); err != nil {
+		return CanonicalSave{}, err
+	}
 	head, err := application.database.Head(ctx)
 	if err != nil {
 		return CanonicalSave{}, err

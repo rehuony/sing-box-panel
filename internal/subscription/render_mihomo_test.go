@@ -34,6 +34,16 @@ func TestRenderMihomoConvertsProvenSubsetAndDiagnosesRemainder(t *testing.T) {
     udp: true
     cipher: "2022-blake3-aes-128-gcm"
     password: "ss-secret"
+  - name: "transport"
+    type: "vmess"
+    server: "vm.example"
+    port: 443
+    udp: true
+    uuid: "uuid-vm"
+    alterId: 0
+    cipher: "auto"
+    network: "ws"
+    ws-opts: {"path":"/ws"}
   - name: "trojan"
     type: "trojan"
     server: "tr.example"
@@ -44,11 +54,10 @@ func TestRenderMihomoConvertsProvenSubsetAndDiagnosesRemainder(t *testing.T) {
     alpn: ["h2","http/1.1"]
     skip-cert-verify: false
 `
-	if string(result.Content) != want || result.NodeCount != 3 {
+	if string(result.Content) != want || result.NodeCount != 4 {
 		t.Fatalf("result = %#v, content %s", result, result.Content)
 	}
 	wantDiagnostics := []RenderDiagnostic{
-		diagnostic(RenderFormatMihomo, CollectionOutbounds, 2, DiagnosticUnsupportedTransport),
 		diagnostic(RenderFormatMihomo, CollectionOutbounds, 3, DiagnosticUnsupportedType),
 	}
 	if !reflect.DeepEqual(result.Diagnostics, wantDiagnostics) {

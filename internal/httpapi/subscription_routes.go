@@ -21,6 +21,8 @@ func matchSubscriptionRoute(path string) (resource string, identifier string, op
 	}
 	if len(parts) == 3 && parts[1] != "" {
 		switch {
+		case parts[0] == "nodes" && parts[2] == "visibility":
+			return parts[0], parts[1], parts[2], true
 		case parts[0] == "users" && parts[2] == "grants":
 			return parts[0], parts[1], parts[2], true
 		case parts[0] == "channels" && parts[2] == "preview":
@@ -58,6 +60,26 @@ func (handler *Handler) subscriptionManagementHandler(
 	switch {
 	case resource == "nodes" && identifier == "" && operation == "" && method == http.MethodGet:
 		return handler.subscriptionNodeCatalog
+	case resource == "nodes" && identifier == "" && operation == "" && method == http.MethodPost:
+		return handler.createSubscriptionNode
+	case resource == "nodes" && identifier == "parse" && operation == "" && method == http.MethodPost:
+		return handler.parseSubscriptionNode
+	case resource == "nodes" && identifier != "" && operation == "" && method == http.MethodGet:
+		return func(w http.ResponseWriter, request *http.Request) {
+			handler.getSubscriptionNode(w, request, identifier)
+		}
+	case resource == "nodes" && identifier != "" && operation == "" && method == http.MethodPut:
+		return func(w http.ResponseWriter, request *http.Request) {
+			handler.updateSubscriptionNode(w, request, identifier)
+		}
+	case resource == "nodes" && identifier != "" && operation == "" && method == http.MethodDelete:
+		return func(w http.ResponseWriter, request *http.Request) {
+			handler.deleteSubscriptionNode(w, request, identifier)
+		}
+	case resource == "nodes" && identifier != "" && operation == "visibility" && method == http.MethodPut:
+		return func(w http.ResponseWriter, request *http.Request) {
+			handler.setSubscriptionNodeVisibility(w, request, identifier)
+		}
 	case resource == "users" && identifier == "" && operation == "" && method == http.MethodGet:
 		return handler.listSubscriptionUsers
 	case resource == "users" && identifier == "" && operation == "" && method == http.MethodPost:

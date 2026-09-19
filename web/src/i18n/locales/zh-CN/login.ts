@@ -1,4 +1,5 @@
 export const login = {
+  title: '登录认证',
   checking: '正在检查面板会话…',
   error: {
     empty: '请输入管理令牌以继续。',

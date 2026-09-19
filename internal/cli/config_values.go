@@ -3,7 +3,7 @@
 package cli
 
 import (
-	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -13,13 +13,16 @@ import (
 
 	"github.com/rehuony/sing-box-panel/internal/application"
 	"github.com/rehuony/sing-box-panel/internal/configuration"
+	"github.com/rehuony/sing-box-panel/internal/store"
 	"github.com/spf13/cobra"
 )
+
+const baseRevisionUsage = "canonical revision ID of the current valid saved file (config show --output json) used as the compare-and-swap base"
 
 func newConfigGetCommand(state *options, open openApplicationFunc) *cobra.Command {
 	return &cobra.Command{
 		Use:   "get JSON_POINTER",
-		Short: "Read one canonical value using an RFC 6901 JSON pointer",
+		Short: "Read one value from the valid saved file using an RFC 6901 JSON pointer",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			instance, err := openApplication(cmd.Context(), state.settingsPath, open)
@@ -44,7 +47,7 @@ func newConfigSetCommand(state *options, open openApplicationFunc) *cobra.Comman
 	var filePath, baseRevision string
 	command := &cobra.Command{
 		Use:   "set JSON_POINTER",
-		Short: "Set one canonical value from a JSON file or stdin",
+		Short: "Set one value in the valid saved file from a JSON file or stdin",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			expectedHead, err := requiredConfigBaseRevision(cmd, baseRevision)
@@ -54,7 +57,7 @@ func newConfigSetCommand(state *options, open openApplicationFunc) *cobra.Comman
 			if filePath == "" {
 				return &Error{Kind: ErrorUsage, Code: "file_required", Message: "--file is required; use - for stdin"}
 			}
-			raw, err := readCanonicalInput(cmd.InOrStdin(), filePath)
+			raw, err := readConfigurationInput(cmd.InOrStdin(), filePath)
 			if err != nil {
 				return &Error{Kind: ErrorValidation, Code: "canonical_value_input_failed", Message: err.Error(), Cause: err}
 			}
@@ -63,15 +66,13 @@ func newConfigSetCommand(state *options, open openApplicationFunc) *cobra.Comman
 				return err
 			}
 			defer instance.Close()
-			result, err := instance.SetCanonicalValue(cmd.Context(), expectedHead, args[0], raw)
-			if err != nil {
-				return classifyCanonicalValueError("canonical_set_failed", err)
-			}
-			return writeResult(cmd.OutOrStdout(), state.format, result, canonicalSaveText(result))
+			return renderConfigurationEdit(cmd, state, "canonical_set_failed", func(ctx context.Context) (application.CanonicalSave, error) {
+				return instance.SetCanonicalValue(ctx, expectedHead, args[0], raw)
+			})
 		},
 	}
 	command.Flags().StringVar(&filePath, "file", "", "JSON value file, or - for stdin")
-	command.Flags().StringVar(&baseRevision, "base-revision", "", "revision ID used as the compare-and-swap base")
+	command.Flags().StringVar(&baseRevision, "base-revision", "", baseRevisionUsage)
 	return command
 }
 
@@ -79,7 +80,7 @@ func newConfigUnsetCommand(state *options, open openApplicationFunc) *cobra.Comm
 	var baseRevision string
 	command := &cobra.Command{
 		Use:   "unset JSON_POINTER",
-		Short: "Remove one canonical value using an RFC 6901 JSON pointer",
+		Short: "Remove one value from the valid saved file using an RFC 6901 JSON pointer",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			expectedHead, err := requiredConfigBaseRevision(cmd, baseRevision)
@@ -91,94 +92,12 @@ func newConfigUnsetCommand(state *options, open openApplicationFunc) *cobra.Comm
 				return err
 			}
 			defer instance.Close()
-			result, err := instance.UnsetCanonicalValue(cmd.Context(), expectedHead, args[0])
-			if err != nil {
-				return classifyCanonicalValueError("canonical_unset_failed", err)
-			}
-			return writeResult(cmd.OutOrStdout(), state.format, result, canonicalSaveText(result))
+			return renderConfigurationEdit(cmd, state, "canonical_unset_failed", func(ctx context.Context) (application.CanonicalSave, error) {
+				return instance.UnsetCanonicalValue(ctx, expectedHead, args[0])
+			})
 		},
 	}
-	command.Flags().StringVar(&baseRevision, "base-revision", "", "revision ID used as the compare-and-swap base")
-	return command
-}
-
-func newConfigExportCommand(state *options, open openApplicationFunc) *cobra.Command {
-	var filePath string
-	var force bool
-	command := &cobra.Command{
-		Use:   "export",
-		Short: "Export the canonical document to a file or stdout",
-		Args:  cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			if filePath == "" {
-				return &Error{Kind: ErrorUsage, Code: "file_required", Message: "--file is required; use - for stdout"}
-			}
-			instance, err := openApplication(cmd.Context(), state.settingsPath, open)
-			if err != nil {
-				return err
-			}
-			defer instance.Close()
-			head, err := instance.CanonicalHead(cmd.Context())
-			if err != nil {
-				return classifyCanonicalValueError("canonical_export_failed", err)
-			}
-			if head == nil {
-				return &Error{Kind: ErrorDomain, Code: "canonical_not_initialized", Message: "no canonical revision has been saved"}
-			}
-			var pretty bytes.Buffer
-			if err := json.Indent(&pretty, head.Document, "", "  "); err != nil {
-				return &Error{Kind: ErrorDomain, Code: "canonical_encode_failed", Message: err.Error(), Cause: err}
-			}
-			pretty.WriteByte('\n')
-			if filePath == "-" {
-				_, err := cmd.OutOrStdout().Write(pretty.Bytes())
-				return err
-			}
-			if err := writePrivateExport(filePath, pretty.Bytes(), force); err != nil {
-				return &Error{Kind: ErrorValidation, Code: "canonical_export_failed", Message: err.Error(), Cause: err}
-			}
-			return writeResult(cmd.OutOrStdout(), state.format, map[string]any{
-				"file": filePath, "revision": head.ID, "sha256": head.SHA256,
-			}, "exported canonical revision "+head.ID+" to "+filePath)
-		},
-	}
-	command.Flags().StringVar(&filePath, "file", "", "destination file, or - for stdout")
-	command.Flags().BoolVar(&force, "force", false, "atomically replace an existing destination")
-	return command
-}
-
-func newConfigImportCommand(state *options, open openApplicationFunc) *cobra.Command {
-	var filePath, baseRevision string
-	command := &cobra.Command{
-		Use:   "import",
-		Short: "Import a complete canonical document using revision CAS",
-		Args:  cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			expectedHead, err := requiredConfigBaseRevision(cmd, baseRevision)
-			if err != nil {
-				return err
-			}
-			if filePath == "" {
-				return &Error{Kind: ErrorUsage, Code: "file_required", Message: "--file is required; use - for stdin"}
-			}
-			raw, err := readCanonicalInput(cmd.InOrStdin(), filePath)
-			if err != nil {
-				return &Error{Kind: ErrorValidation, Code: "canonical_import_failed", Message: err.Error(), Cause: err}
-			}
-			instance, err := openApplication(cmd.Context(), state.settingsPath, open)
-			if err != nil {
-				return err
-			}
-			defer instance.Close()
-			result, err := instance.ReplaceCanonical(cmd.Context(), expectedHead, raw)
-			if err != nil {
-				return classifyCanonicalValueError("canonical_import_failed", err)
-			}
-			return writeResult(cmd.OutOrStdout(), state.format, result, canonicalSaveText(result))
-		},
-	}
-	command.Flags().StringVar(&filePath, "file", "", "canonical JSON file, or - for stdin")
-	command.Flags().StringVar(&baseRevision, "base-revision", "", "revision ID used as the compare-and-swap base, or none")
+	command.Flags().StringVar(&baseRevision, "base-revision", "", baseRevisionUsage)
 	return command
 }
 
@@ -186,71 +105,56 @@ func newConfigValidateCommand(state *options) *cobra.Command {
 	var filePath string
 	command := &cobra.Command{
 		Use:   "validate",
-		Short: "Validate a complete canonical document without saving it",
+		Short: "Check that a local file is a strict sing-box JSON object without saving it",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if filePath == "" {
 				return &Error{Kind: ErrorUsage, Code: "file_required", Message: "--file is required; use - for stdin"}
 			}
-			raw, err := readCanonicalInput(cmd.InOrStdin(), filePath)
+			raw, err := readConfigurationInput(cmd.InOrStdin(), filePath)
 			if err != nil {
-				return &Error{Kind: ErrorValidation, Code: "canonical_input_failed", Message: err.Error(), Cause: err}
+				return &Error{Kind: ErrorValidation, Code: "configuration_input_failed", Message: err.Error(), Cause: err}
 			}
 			document, err := configuration.Parse(raw)
 			if err != nil {
-				return &Error{Kind: ErrorValidation, Code: "canonical_invalid", Message: err.Error(), Cause: err}
+				return &Error{Kind: ErrorValidation, Code: "configuration_invalid", Message: err.Error(), Cause: err}
 			}
 			return writeResult(cmd.OutOrStdout(), state.format, map[string]any{
 				"valid": true, "canonical_bytes": len(document.CanonicalJSON()),
-			}, "canonical document is valid")
+			}, "configuration document is valid JSON")
 		},
 	}
-	command.Flags().StringVar(&filePath, "file", "", "canonical JSON file, or - for stdin")
+	command.Flags().StringVar(&filePath, "file", "", "configuration JSON file, or - for stdin")
 	return command
 }
 
-func newConfigDiffCommand(state *options, open openApplicationFunc) *cobra.Command {
-	var from, to string
-	command := &cobra.Command{
-		Use:   "diff",
-		Short: "Diff two immutable canonical revisions",
-		Args:  cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			if strings.TrimSpace(from) == "" || strings.TrimSpace(to) == "" {
-				return &Error{Kind: ErrorUsage, Code: "revision_references_required", Message: "--from and --to are required"}
-			}
-			instance, err := openApplication(cmd.Context(), state.settingsPath, open)
-			if err != nil {
-				return err
-			}
-			defer instance.Close()
-			result, err := instance.DiffCanonicalRevisions(cmd.Context(), from, to)
-			if err != nil {
-				return classifyCanonicalValueError("canonical_diff_failed", err)
-			}
-			return writeResult(cmd.OutOrStdout(), state.format, result, fmt.Sprintf("%d canonical changes", len(result.Changes)))
-		},
+// renderConfigurationEdit reports only the result of this write. A later read
+// of the saved file could already belong to another writer.
+func renderConfigurationEdit(
+	cmd *cobra.Command,
+	state *options,
+	code string,
+	edit func(context.Context) (application.CanonicalSave, error),
+) error {
+	save, err := edit(cmd.Context())
+	if err != nil {
+		return classifyCanonicalValueError(code, err)
 	}
-	command.Flags().StringVar(&from, "from", "", "source revision ID or #sequence")
-	command.Flags().StringVar(&to, "to", "", "target revision ID or #sequence")
-	return command
+	return writeResult(cmd.OutOrStdout(), state.format, save, configurationEditText(save))
 }
 
 func requiredConfigBaseRevision(cmd *cobra.Command, raw string) (string, error) {
 	if !cmd.Flags().Changed("base-revision") {
-		return "", &Error{Kind: ErrorUsage, Code: "base_revision_required", Message: "--base-revision is required"}
+		return "", &Error{Kind: ErrorUsage, Code: "base_revision_required", Message: "--base-revision is required; read canonical_revision_id from config show --output json"}
 	}
 	value := strings.TrimSpace(raw)
-	if value == "none" {
-		return "", nil
-	}
 	if value == "" {
-		return "", &Error{Kind: ErrorUsage, Code: "base_revision_invalid", Message: "--base-revision must be a revision ID or none"}
+		return "", &Error{Kind: ErrorUsage, Code: "base_revision_invalid", Message: "--base-revision must be the current canonical revision ID"}
 	}
 	return value, nil
 }
 
-func canonicalSaveText(result application.CanonicalSave) string {
+func configurationEditText(result application.CanonicalSave) string {
 	if result.NoChange {
 		return fmt.Sprintf("canonical revision #%d %s is unchanged", result.Revision.Sequence, result.Revision.ID)
 	}
@@ -261,6 +165,8 @@ func classifyCanonicalValueError(code string, err error) error {
 	switch {
 	case application.IsRevisionConflict(err):
 		return &Error{Kind: ErrorConflict, Code: "canonical_revision_conflict", Message: err.Error(), Cause: err}
+	case errors.Is(err, store.ErrConfigurationFileUnparsed):
+		return &Error{Kind: ErrorValidation, Code: "configuration_file_unparsed", Message: "saved configuration is not valid JSON; correct it with config import before editing fields", Cause: err}
 	case errors.Is(err, configuration.ErrInvalidDocument), errors.Is(err, configuration.ErrPointerNotFound):
 		return &Error{Kind: ErrorValidation, Code: "canonical_invalid", Message: err.Error(), Cause: err}
 	case application.IsRevisionNotFound(err):

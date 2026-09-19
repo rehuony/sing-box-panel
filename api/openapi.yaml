@@ -15,6 +15,100 @@ security:
   - bearerAuth: []
   - sessionCookie: []
 paths:
+  /config/inbound-defaults:
+    post:
+      operationId: newInboundDefaults
+      parameters:
+        - $ref: "#/components/parameters/CSRFToken"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [type]
+              additionalProperties: false
+              properties:
+                type:
+                  type: string
+                  minLength: 1
+                  maxLength: 64
+      responses:
+        "200":
+          description: New editor entry with protocol identity. Contains credentials; no-store. Does not persist or launch.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [type]
+                properties:
+                  type:
+                    type: string
+                additionalProperties: true
+        "422":
+          $ref: "#/components/responses/Problem"
+  /panel/settings:
+    get:
+      operationId: getPanelSettings
+      responses:
+        "200":
+          description: Persisted settings with credentials redacted.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PanelSettingsView"
+    put:
+      operationId: savePanelSettings
+      parameters:
+        - $ref: "#/components/parameters/CSRFToken"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PanelSettingsWrite"
+      responses:
+        "200":
+          description: Saved settings. Network changes require a panel restart; credential changes invalidate prior sessions.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PanelSettingsView"
+        "412":
+          $ref: "#/components/responses/Problem"
+        "422":
+          $ref: "#/components/responses/Problem"
+  /config/file:
+    get:
+      operationId: getConfigurationFile
+      responses:
+        "200":
+          description: The one editable configuration file, including incomplete JSON.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConfigurationFile"
+    put:
+      operationId: saveConfigurationFile
+      parameters:
+        - $ref: "#/components/parameters/CSRFToken"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ConfigurationFileWrite"
+      responses:
+        "200":
+          description: Exact saved text. Saving does not validate or change the running process.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConfigurationFile"
+        "412":
+          $ref: "#/components/responses/Problem"
+        "422":
+          $ref: "#/components/responses/Problem"
   /health:
     get:
       operationId: getHealth
@@ -290,6 +384,17 @@ paths:
       responses:
         "204":
           $ref: "#/components/responses/NoContent"
+  /core/artifacts/{artifactId}/enable:
+    parameters:
+      - $ref: "#/components/parameters/ArtifactID"
+    post:
+      operationId: enableCoreArtifact
+      description: Validate the saved configuration with this verified platform-matching binary before replacing the running core.
+      parameters:
+        - $ref: "#/components/parameters/CSRFToken"
+      responses:
+        "202":
+          $ref: "#/components/responses/Task"
   /core/artifacts/{artifactId}/configuration-support:
     parameters:
       - $ref: "#/components/parameters/ArtifactID"
@@ -498,6 +603,17 @@ paths:
       responses:
         "200":
           $ref: "#/components/responses/Task"
+  /tasks/{taskId}/retry:
+    parameters:
+      - $ref: '#/components/parameters/TaskID'
+    post:
+      operationId: retryTask
+      description: Retry failed or canceled catalog, core download or remote-source refresh with current validated inputs. Idempotent for the original task ID.
+      parameters:
+        - $ref: '#/components/parameters/CSRFToken'
+      responses:
+        '202': {$ref: '#/components/responses/Task'}
+        default: {$ref: '#/components/responses/Problem'}
   /tasks/{taskId}/cancel:
     parameters:
       - $ref: "#/components/parameters/TaskID"
@@ -514,6 +630,102 @@ paths:
       responses:
         "200":
           $ref: "#/components/responses/SubscriptionNodeCatalog"
+    post:
+      operationId: createSubscriptionNode
+      parameters: [{$ref: "#/components/parameters/CSRFToken"}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [outbound]
+              properties:
+                outbound: {type: object, additionalProperties: true}
+      responses:
+        "201":
+          description: Created manual node
+          content: {application/json: {schema: {$ref: "#/components/schemas/SubscriptionNodeDetail"}}}
+  /subscription/nodes/parse:
+    post:
+      operationId: parseSubscriptionNode
+      parameters: [{$ref: "#/components/parameters/CSRFToken"}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [text]
+              properties:
+                text: {type: string, maxLength: 262144}
+      responses:
+        "200":
+          description: One normalized outbound; no data is saved
+          content: {application/json: {schema: {type: object, required: [outbound_json], properties: {outbound_json: {type: string}}}}}
+  /subscription/nodes/{nodeId}:
+    parameters: [{$ref: "#/components/parameters/NodeID"}]
+    get:
+      operationId: getSubscriptionNode
+      responses:
+        "200":
+          description: Authenticated node detail, including credentials; never cache
+          content: {application/json: {schema: {$ref: "#/components/schemas/SubscriptionNodeDetail"}}}
+    put:
+      operationId: updateSubscriptionNode
+      parameters: [{$ref: "#/components/parameters/CSRFToken"}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [outbound, revision]
+              properties:
+                outbound: {type: object, additionalProperties: true}
+                revision: {type: integer, format: int64, minimum: 1}
+      responses:
+        "200":
+          description: Updated manual node
+          content: {application/json: {schema: {$ref: "#/components/schemas/SubscriptionNodeDetail"}}}
+    delete:
+      operationId: deleteSubscriptionNode
+      parameters: [{$ref: "#/components/parameters/CSRFToken"}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [revision]
+              properties:
+                revision: {type: integer, format: int64, minimum: 1}
+      responses:
+        "204": {description: Manual node deleted; core inbounds cannot be deleted here}
+  /subscription/nodes/{nodeId}/visibility:
+    parameters: [{$ref: "#/components/parameters/NodeID"}]
+    put:
+      operationId: setSubscriptionNodeVisibility
+      parameters: [{$ref: "#/components/parameters/CSRFToken"}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [hidden, revision]
+              properties:
+                hidden: {type: boolean}
+                revision: {type: integer, format: int64, minimum: 0}
+      responses:
+        "200":
+          description: Publication visibility updated; core execution is unchanged
+          content: {application/json: {schema: {$ref: "#/components/schemas/SubscriptionNodeSummary"}}}
   /subscription/users:
     get:
       operationId: listSubscriptionUsers
@@ -647,10 +859,11 @@ paths:
             schema:
               type: object
               additionalProperties: false
-              required: [user_id]
               properties:
                 user_id:
                   type: string
+                draft:
+                  $ref: "#/components/schemas/SubscriptionDraftPreview"
       responses:
         "200":
           $ref: "#/components/responses/SubscriptionPreview"
@@ -869,9 +1082,86 @@ paths:
       security: []
       responses:
         "200":
-          description: Rendered subscription for the token user's live grants.
+          description: Rendered subscription for the key's channel scope and policy, retaining live grants for legacy user-scoped keys.
         "304":
           description: The current live publication matches If-None-Match.
+  /core/logs/files:
+    get:
+      operationId: listCoreLogFiles
+      summary: List bounded captured core output files
+      responses:
+        '200':
+          description: Most recent files first.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [items]
+                properties:
+                  items: {type: array, items: {$ref: '#/components/schemas/CoreLogFile'}}
+        default: {$ref: '#/components/responses/Problem'}
+  /core/logs/content:
+    get:
+      operationId: readCoreLog
+      parameters:
+        - name: file
+          in: query
+          required: true
+          schema: {type: string, pattern: '^\d{4}-\d{2}-\d{2}-\d{3,20}\.log$'}
+        - name: offset
+          in: query
+          schema: {type: integer, format: int64, minimum: -1, default: -1}
+      responses:
+        '200':
+          description: Sanitized native process output. Offset -1 starts at the last 64 KiB; reconnect using next_offset.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/CoreLogChunk'}
+        default: {$ref: '#/components/responses/Problem'}
+  /core/logs/stream:
+    get:
+      operationId: streamCoreLog
+      parameters:
+        - name: file
+          in: query
+          required: true
+          schema: {type: string, pattern: '^\d{4}-\d{2}-\d{2}-\d{3,20}\.log$'}
+        - name: offset
+          in: query
+          schema: {type: integer, format: int64, minimum: -1, default: -1}
+      responses:
+        '200':
+          description: Sanitized native process output. Offset -1 starts at the last 64 KiB; reconnect using next_offset.
+          content:
+            text/event-stream:
+              schema: {type: string}
+        default: {$ref: '#/components/responses/Problem'}
+  /logs/panel:
+    get:
+      operationId: listPanelLogs
+      summary: Panel events and current task lifecycle records, newest first
+      parameters:
+        - $ref: '#/components/parameters/LogLevel'
+        - $ref: '#/components/parameters/Since'
+        - $ref: '#/components/parameters/Until'
+        - $ref: '#/components/parameters/Limit'
+        - name: before_time
+          in: query
+          schema: {type: string, format: date-time}
+        - name: before_id
+          in: query
+          schema: {type: string}
+        - name: search
+          in: query
+          schema: {type: string, maxLength: 256}
+      responses:
+        '200':
+          description: Combined panel activity without repeated worker messages for the same task.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/PanelLogPage'}
+        default: {$ref: '#/components/responses/Problem'}
   /logs:
     get:
       operationId: listLogs
@@ -936,6 +1226,17 @@ paths:
       responses:
         "200":
           $ref: "#/components/responses/MetricsSnapshot"
+  /metrics/stream:
+    get:
+      operationId: streamMetrics
+      summary: Stream current metrics and runtime evidence every two seconds
+      responses:
+        '200':
+          description: Server-sent metrics events, each containing metrics and runtime objects. Reconnect after stream closure.
+          content:
+            text/event-stream:
+              schema: {type: string}
+        default: {$ref: '#/components/responses/Problem'}
   /metrics/history:
     get:
       operationId: getMetricsHistory
@@ -1244,6 +1545,11 @@ components:
       required: true
       schema:
         type: string
+    NodeID:
+      name: nodeId
+      in: path
+      required: true
+      schema: {type: string}
     ChannelID:
       name: channelId
       in: path
@@ -1459,6 +1765,129 @@ components:
           schema:
             $ref: "#/components/schemas/Problem"
   schemas:
+    AppearanceSettings:
+      type: object
+      additionalProperties: false
+      required: [theme, color, radius]
+      properties:
+        theme:
+          type: string
+          enum: [light, dark, system]
+        color:
+          type: string
+          pattern: '^#[0-9a-fA-F]{6}$'
+        radius:
+          type: integer
+          minimum: 0
+          maximum: 32
+    PanelPreferences:
+      type: object
+      additionalProperties: false
+      required: [listen_host, listen_port, external_origin, public_node_host, identity_name, traffic_quota_gib, language, appearance]
+      properties:
+        listen_host:
+          type: string
+          maxLength: 64
+        listen_port:
+          type: integer
+          minimum: 1
+          maximum: 65535
+        external_origin:
+          type: string
+          maxLength: 2048
+        public_node_host:
+          type: string
+          maxLength: 253
+        identity_name:
+          type: string
+          maxLength: 128
+        traffic_quota_gib:
+          type: [integer, 'null']
+          minimum: 0
+          maximum: 1000000000
+        language:
+          type: string
+          enum: [zh-CN, en]
+        appearance:
+          $ref: '#/components/schemas/AppearanceSettings'
+    ConfigurationFile:
+      type: object
+      additionalProperties: false
+      required: [revision, content, syntax_valid]
+      properties:
+        revision:
+          type: integer
+          format: int64
+          minimum: 0
+        content:
+          type: string
+          maxLength: 2097152
+        canonical_revision_id:
+          type: string
+        syntax_valid:
+          type: boolean
+          description: Strict JSON object syntax only; does not imply sing-box check succeeded.
+        updated_at:
+          type: string
+          format: date-time
+    ConfigurationFileWrite:
+      type: object
+      additionalProperties: false
+      required: [revision, content]
+      properties:
+        revision:
+          type: integer
+          format: int64
+          minimum: 0
+        content:
+          type: string
+          maxLength: 2097152
+    PanelSettingsView:
+      type: object
+      additionalProperties: false
+      required: [revision, preferences, github_token_configured, identity_key_configured, restart_required]
+      properties:
+        detected_public_ip:
+          type: string
+          description: Cached best-effort public address hint; never an operator override.
+        revision:
+          type: integer
+          format: int64
+          minimum: 0
+        preferences:
+          $ref: '#/components/schemas/PanelPreferences'
+        github_token_configured:
+          type: boolean
+        identity_key_configured:
+          type: boolean
+        restart_required:
+          type: boolean
+    PanelSettingsWrite:
+      type: object
+      additionalProperties: false
+      required: [revision, preferences]
+      properties:
+        revision:
+          type: integer
+          format: int64
+          minimum: 0
+        preferences:
+          $ref: '#/components/schemas/PanelPreferences'
+        github_token:
+          type: string
+          maxLength: 8192
+          description: Write-only. Empty or omitted retains the existing credential.
+        clear_github_token:
+          type: boolean
+          description: Explicitly removes the persisted GitHub credential.
+        identity_key:
+          type: string
+          maxLength: 8192
+          description: Write-only. Empty or omitted retains the existing key.
+        management_token:
+          type: string
+          maxLength: 8192
+          description: Write-only. Empty or omitted retains the current token. A nonempty replacement must be 32–8192 UTF-8 bytes, without leading or trailing Unicode whitespace or BOM, NUL, CR, or LF. A valid replacement invalidates existing sessions; rejected writes retain the current token and sessions.
     DynamicObject:
       type: object
       additionalProperties: true
@@ -1483,6 +1912,13 @@ components:
       additionalProperties: false
       required: [panel_version, canonical_revision, applied_bundle_id, running, running_version, running_artifact, configuration_state]
       properties:
+        platform:
+          type: object
+          additionalProperties: false
+          required: [os, arch]
+          properties:
+            os: {type: string}
+            arch: {type: string}
         panel_version: {type: string}
         canonical_revision: {type: integer, format: int64}
         applied_bundle_id: {type: [string, "null"]}
@@ -1603,6 +2039,9 @@ components:
         rollback_bundle_id: {type: string}
         target_generation: {type: integer, format: int64, minimum: 0}
         observation_state: {type: string, enum: [stopped, running, stale, inspection_unavailable]}
+        loaded_canonical_revision_id:
+          type: string
+          description: The immutable configuration proven to belong to the observed live process; omitted for stopped or uncertain state.
         running: {$ref: "#/components/schemas/RuntimeIdentity"}
     RuntimeRollbackRequest:
       type: object
@@ -1968,6 +2407,89 @@ components:
       properties:
         exclude_tags: {type: array, items: {type: string}, uniqueItems: true}
         exclude_types: {type: array, items: {type: string}, uniqueItems: true}
+        policy: {$ref: "#/components/schemas/ChannelPolicy"}
+    SubscriptionDraftPreview:
+      type: object
+      additionalProperties: false
+      required: [format, config]
+      properties:
+        format: {type: string, enum: [sing-box, mihomo, loon]}
+        config: {$ref: "#/components/schemas/SubscriptionChannelConfig"}
+    ChannelPolicy:
+      type: object
+      additionalProperties: false
+      required: [selection, organizer, groups, default_exit]
+      properties:
+        selection: {$ref: "#/components/schemas/ChannelNodeSelection"}
+        organizer: {$ref: "#/components/schemas/ChannelNodeOrganizer"}
+        groups: {type: array, maxItems: 256, items: {$ref: "#/components/schemas/ChannelRuleGroup"}}
+        default_exit: {$ref: "#/components/schemas/ChannelRouteExit"}
+        template: {$ref: "#/components/schemas/ChannelNativeTemplate"}
+    ChannelNodeSelection:
+      type: object
+      additionalProperties: false
+      required: [ids, excluded_ids, new_node_policy]
+      properties:
+        ids: {type: array, maxItems: 10000, uniqueItems: true, items: {type: string}}
+        excluded_ids: {type: array, maxItems: 10000, uniqueItems: true, items: {type: string}}
+        new_node_policy: {type: string, enum: [include, exclude]}
+    ChannelNodeOrganizer:
+      type: object
+      additionalProperties: false
+      required: [prefix, exclude_names, sort, deduplicate, incompatible]
+      properties:
+        prefix: {type: string, maxLength: 128}
+        exclude_names: {type: array, maxItems: 100, items: {type: string}}
+        sort: {type: string, enum: [none, name]}
+        deduplicate: {type: boolean}
+        incompatible: {type: string, enum: [skip, error]}
+    ChannelRouteExit:
+      type: object
+      additionalProperties: false
+      required: [kind]
+      properties:
+        kind: {type: string, enum: [direct, reject, node, group, group-default]}
+        id: {type: string}
+    ChannelRuleGroup:
+      type: object
+      additionalProperties: false
+      required: [id, name, enabled, node_ids, default_exit, rules]
+      properties:
+        id: {type: string, maxLength: 128}
+        name: {type: string, maxLength: 128}
+        enabled: {type: boolean}
+        node_ids: {type: array, maxItems: 10000, uniqueItems: true, items: {type: string}}
+        default_exit: {$ref: "#/components/schemas/ChannelRouteExit"}
+        rules: {type: array, maxItems: 5000, items: {$ref: "#/components/schemas/ChannelRule"}}
+    ChannelRule:
+      type: object
+      additionalProperties: false
+      required: [id, enabled, kind, exit]
+      properties:
+        id: {type: string, maxLength: 128}
+        enabled: {type: boolean}
+        kind: {type: string, enum: [domain, domain_suffix, domain_keyword, ip_cidr, remote]}
+        value: {type: string}
+        remote: {$ref: "#/components/schemas/ChannelRemoteRuleSet"}
+        exit: {$ref: "#/components/schemas/ChannelRouteExit"}
+    ChannelRemoteRuleSet:
+      type: object
+      additionalProperties: false
+      required: [name, url, format, accelerated, update_interval]
+      properties:
+        name: {type: string, maxLength: 128}
+        url: {type: string, maxLength: 4096}
+        format: {type: string, enum: [source, binary, yaml, text, mrs]}
+        behavior: {type: string, enum: [domain, ipcidr, classical]}
+        accelerated: {type: boolean}
+        update_interval: {type: integer, minimum: 60, maximum: 2592000}
+    ChannelNativeTemplate:
+      type: object
+      additionalProperties: false
+      required: [format, content]
+      properties:
+        format: {type: string, enum: [sing-box, mihomo]}
+        content: {type: string, maxLength: 262144}
     SubscriptionChannelPage:
       type: object
       additionalProperties: false
@@ -2044,16 +2566,38 @@ components:
       properties:
         source: {$ref: "#/components/schemas/SubscriptionSource"}
         version: {$ref: "#/components/schemas/SubscriptionSourceVersion"}
+    SubscriptionNodeDetail:
+      allOf:
+        - $ref: "#/components/schemas/SubscriptionNodeSummary"
+        - type: object
+          required: [outbound_json]
+          properties:
+            outbound_json: {type: string}
     SubscriptionNodeSummary:
       type: object
-      additionalProperties: false
-      required: [key, source_id, type, tag]
+      required: [id, key, source_id, source_name, name, origin, type, tag, hidden, visibility_revision, available, server, port, tls, reality]
       properties:
+        id: {type: string, description: Stable publication identity; separate from legacy grant key}
         key: {type: string}
         source_id: {type: string}
+        source_name: {type: string}
+        name: {type: string}
+        origin: {type: string, enum: [local, manual, source]}
         type: {type: string}
         tag: {type: string}
         credential: {type: string}
+        hidden: {type: boolean}
+        available: {type: boolean}
+        visibility_revision: {type: integer, format: int64}
+        revision: {type: integer, format: int64}
+        server: {type: string}
+        port: {type: integer}
+        server_ports: {type: array, items: {type: string}}
+        realm_url: {type: string}
+        listener: {type: string}
+        tls: {type: boolean}
+        reality: {type: boolean}
+        sni: {type: string}
     SubscriptionNodeCatalog:
       type: object
       additionalProperties: false
@@ -2065,10 +2609,11 @@ components:
     SubscriptionToken:
       type: object
       additionalProperties: false
-      required: [id, user_id, label, enabled, successful_request_count, body_response_count, bytes_served, created_at, active]
+      required: [id, label, enabled, successful_request_count, body_response_count, bytes_served, created_at, active]
       properties:
         id: {type: string}
-        user_id: {type: string}
+        user_id: {type: string, description: Legacy user scope; omitted for channel-scoped keys.}
+        download_limit: {type: integer, format: int64, minimum: 1, maximum: 1000000000}
         label: {type: string}
         enabled: {type: boolean}
         expires_at: {type: string, format: date-time}
@@ -2132,6 +2677,44 @@ components:
             content: {type: string, format: byte}
             node_count: {type: integer, minimum: 0}
             diagnostics: {type: array, items: {$ref: "#/components/schemas/SubscriptionRenderDiagnostic"}}
+    CoreLogFile:
+      type: object
+      additionalProperties: false
+      required: [name, size, updated_at]
+      properties:
+        name: {type: string}
+        size: {type: integer, format: int64, minimum: 0}
+        updated_at: {type: string, format: date-time}
+    CoreLogChunk:
+      type: object
+      additionalProperties: false
+      required: [file, text, next_offset, size]
+      properties:
+        file: {type: string}
+        text: {type: string}
+        next_offset: {type: integer, format: int64, minimum: 0}
+        size: {type: integer, format: int64, minimum: 0}
+    PanelLog:
+      type: object
+      additionalProperties: false
+      required: [id, time, source, level, code, message, status, metadata]
+      properties:
+        id: {type: string}
+        time: {type: string, format: date-time}
+        source: {type: string, enum: [task, runtime, panel, core, security]}
+        level: {type: string, enum: [trace, debug, info, warn, error, fatal]}
+        code: {type: string}
+        message: {type: string}
+        status: {type: string}
+        task_id: {type: string}
+        metadata: {$ref: '#/components/schemas/DynamicObject'}
+    PanelLogPage:
+      type: object
+      additionalProperties: false
+      required: [items]
+      properties:
+        items: {type: array, items: {$ref: '#/components/schemas/PanelLog'}}
+        next: {$ref: '#/components/schemas/LogCursor'}
     LogEntry:
       type: object
       additionalProperties: false
@@ -2214,6 +2797,19 @@ components:
       additionalProperties: false
       required: [available, collected_at, traffic_available, quota_exceeded]
       properties:
+        host:
+          type: object
+          additionalProperties: false
+          required: [sampled_at, cpu_count, cpu_percent, load_one, memory_total, memory_used, disk_total, disk_used]
+          properties:
+            sampled_at: {type: string, format: date-time}
+            cpu_count: {type: integer, minimum: 1}
+            cpu_percent: {type: number, nullable: true, minimum: 0, maximum: 100}
+            load_one: {type: number, nullable: true, minimum: 0}
+            memory_total: {type: integer, format: int64, nullable: true, minimum: 0}
+            memory_used: {type: integer, format: int64, nullable: true, minimum: 0}
+            disk_total: {type: integer, format: int64, nullable: true, minimum: 0}
+            disk_used: {type: integer, format: int64, nullable: true, minimum: 0}
         available: {type: boolean}
         reason_code: {type: string, enum: [not_applied, process_only, no_collector_sample, stale_collector_sample]}
         applied_bundle_id: {type: string}
@@ -2329,8 +2925,9 @@ components:
     SubscriptionTokenCreate:
       type: object
       additionalProperties: false
-      required: [user_id, label]
+      required: [label]
       properties:
+        download_limit: {type: [integer, "null"], format: int64, minimum: 1, maximum: 1000000000}
         user_id:
           type: string
         label:

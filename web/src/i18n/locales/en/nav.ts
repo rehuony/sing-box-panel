@@ -1,8 +1,9 @@
 export const nav = {
+  panel: 'Panel settings',
   configuration: 'Configuration',
-  cores: 'Core Library',
-  dashboard: 'Overview',
-  observability: 'Observability',
+  cores: 'Versions',
+  dashboard: 'Dashboard',
+  observability: 'Runtime logs',
   subscriptions: 'Subscriptions',
   tasks: 'Task History',
 } as const;

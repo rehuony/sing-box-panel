@@ -3,6 +3,7 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 
@@ -11,95 +12,72 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func newCoreCheckCommand(state *options, open openApplicationFunc) *cobra.Command {
+func newCoreEnableCommand(state *options, open openApplicationFunc) *cobra.Command {
 	var detach bool
 	command := &cobra.Command{
-		Use:   "check STARTUP_ARTIFACT",
-		Short: "Queue an exact binary/config check for a pending startup artifact",
-		Args:  cobra.ExactArgs(1),
+		Use:   "enable CORE_ARTIFACT_ID",
+		Short: "Switch the runtime to one verified installed core using the current saved configuration",
+		Long: `Queue a checked replacement of the running core. The saved configuration is
+carried forward unchanged: the selected binary must accept an execution
+snapshot of that configuration with "sing-box check" before the live process
+is replaced. A failed preflight leaves the running core and the saved file untouched.`,
+		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			instance, err := openApplication(cmd.Context(), state.settingsPath, open)
-			if err != nil {
-				return err
+			coreID := strings.TrimSpace(args[0])
+			if coreID == "" {
+				return &Error{Kind: ErrorUsage, Code: "core_required", Message: "CORE_ARTIFACT_ID must not be blank; see core list"}
 			}
-			defer instance.Close()
-			task, err := instance.QueueStartupCheck(cmd.Context(), args[0])
-			if err != nil {
-				return classifyRuntimeError("startup_check_queue_failed", err)
-			}
-			return renderQueuedTask(cmd, state, instance, task, detach)
+			return applyConfiguration(cmd, state, open, coreID, detach)
 		},
 	}
-	command.Flags().BoolVar(&detach, "detach", false, "return after the durable check task is queued")
-	return command
-}
-
-func newCoreActivateCommand(state *options, open openApplicationFunc) *cobra.Command {
-	var monitoring string
-	var detach bool
-	command := &cobra.Command{
-		Use:   "activate STARTUP_ARTIFACT",
-		Short: "Freeze and apply one checked startup artifact",
-		Args:  cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return applyStartupArtifact(cmd, state, open, args[0], monitoring, detach)
-		},
-	}
-	command.Flags().StringVar(&monitoring, "monitoring", string(store.MonitoringProcessOnly), "health evidence tier (process_only or limited)")
 	command.Flags().BoolVar(&detach, "detach", false, "return after the durable runtime task is queued")
 	return command
 }
 
 func newConfigApplyCommand(state *options, open openApplicationFunc) *cobra.Command {
-	var artifactID, monitoring string
+	var coreID string
 	var detach bool
 	command := &cobra.Command{
 		Use:   "apply",
-		Short: "Apply one checked startup artifact",
-		Args:  cobra.NoArgs,
+		Short: "Check the current saved configuration and restart the core with it",
+		Long: `Snapshot the current valid saved configuration, run the selected core's
+"sing-box check" in the serialized runtime lane, and restart the core with
+those bytes only after the check succeeds. Without --core the currently applied
+core is kept; --core CORE_ARTIFACT_ID switches to another verified installed
+core in the same step. Preflight failure leaves the live core and the saved
+file unchanged.`,
+		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			if strings.TrimSpace(artifactID) == "" {
-				return &Error{Kind: ErrorUsage, Code: "startup_artifact_required", Message: "--artifact is required"}
+			if cmd.Flags().Changed("core") && strings.TrimSpace(coreID) == "" {
+				return &Error{Kind: ErrorUsage, Code: "core_required", Message: "--core must name an installed core artifact; see core list"}
 			}
-			return applyStartupArtifact(cmd, state, open, artifactID, monitoring, detach)
+			return applyConfiguration(cmd, state, open, coreID, detach)
 		},
 	}
-	command.Flags().StringVar(&artifactID, "artifact", "", "ready startup artifact ID")
-	command.Flags().StringVar(&monitoring, "monitoring", string(store.MonitoringProcessOnly), "health evidence tier (process_only or limited)")
+	command.Flags().StringVar(&coreID, "core", "", coreFlagUsage)
 	command.Flags().BoolVar(&detach, "detach", false, "return after the durable runtime task is queued")
 	return command
 }
 
-func applyStartupArtifact(
-	cmd *cobra.Command,
-	state *options,
-	open openApplicationFunc,
-	startupArtifactID string,
-	monitoring string,
-	detach bool,
-) error {
+func applyConfiguration(cmd *cobra.Command, state *options, open openApplicationFunc, coreID string, detach bool) error {
 	instance, err := openApplication(cmd.Context(), state.settingsPath, open)
 	if err != nil {
 		return err
 	}
 	defer instance.Close()
-	prepared, task, err := instance.PrepareAndQueueRuntimeApply(
-		cmd.Context(), startupArtifactID, store.MonitoringTier(monitoring),
-	)
+	var task application.Task
+	if coreID = strings.TrimSpace(coreID); coreID != "" {
+		task, err = instance.EnableCore(cmd.Context(), coreID)
+	} else {
+		task, err = instance.QueueRuntimeRestart(cmd.Context())
+		if application.IsNoAppliedBundle(err) {
+			return coreRequiredError()
+		}
+	}
 	if err != nil {
-		return classifyRuntimeError("runtime_apply_queue_failed", err)
+		return classifyConfigurationRuntimeError("runtime_apply_queue_failed", err)
 	}
-	if detach {
-		result := struct {
-			Activation application.ActivationSummary `json:"activation"`
-			Task       application.Task              `json:"task"`
-		}{Activation: prepared.Summary(), Task: task}
-		return writeResult(
-			cmd.OutOrStdout(), state.format, result,
-			"prepared bundle "+prepared.Bundle.ID+"; queued task "+task.ID,
-		)
-	}
-	return renderQueuedTask(cmd, state, instance, task, false)
+	return renderQueuedTask(cmd, state, instance, task, detach)
 }
 
 func newCoreStatusCommand(state *options, open openApplicationFunc) *cobra.Command {
@@ -181,6 +159,8 @@ func newCoreRollbackCommand(state *options, open openApplicationFunc) *cobra.Com
 
 func classifyRuntimeError(code string, err error) error {
 	switch {
+	case errors.Is(err, store.ErrConfigurationFileUnparsed):
+		return &Error{Kind: ErrorValidation, Code: "configuration_file_unparsed", Message: "saved configuration is not valid JSON; correct it with config import first", Cause: err}
 	case application.IsMonitoringTierUnavailable(err):
 		return &Error{Kind: ErrorUnavailable, Code: "monitoring_tier_unavailable", Message: err.Error(), Cause: err}
 	case application.IsActivationBundleNotReady(err):

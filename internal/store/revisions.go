@@ -121,6 +121,9 @@ func (s *Store) SaveCanonicalRevisionAndTask(
 			return err
 		}
 		preparedRevision = storedRevision
+		if err := syncCanonicalFileTx(ctx, tx, storedRevision); err != nil {
+			return err
+		}
 		return insertCanonicalTaskTx(ctx, tx, preparedTask, preparedRevision.ID, "")
 	})
 	if err != nil {

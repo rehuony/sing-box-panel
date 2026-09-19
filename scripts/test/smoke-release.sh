@@ -351,7 +351,7 @@ start_panel() {
   env \
     XDG_CONFIG_HOME="${smoke_config_home}" \
     XDG_DATA_HOME="${smoke_data_home}" \
-    "${installed_binary}" --config "${settings_path}" server run \
+    "${installed_binary}" --config "${settings_path}" server start \
     >"${smoke_root}/panel-${expected_version}.log" 2>&1 &
   panel_pid=$!
   wait_for_url "${panel_origin}/api/v1/health"

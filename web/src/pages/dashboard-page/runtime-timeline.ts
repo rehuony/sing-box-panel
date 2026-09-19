@@ -18,7 +18,9 @@ interface PreparedTransition {
   transition: RuntimeTransition;
 }
 
-function prepareTransitions(transitions: Array<RuntimeTransition | undefined>): PreparedTransition[] {
+function prepareTransitions(
+  transitions: Array<RuntimeTransition | undefined>,
+): PreparedTransition[] {
   return transitions
     .flatMap((transition) => {
       if (transition === undefined) return [];
@@ -44,7 +46,10 @@ function uncertaintyAwareBoundaries(prepared: PreparedTransition[]): PreparedTra
   const boundaries: PreparedTransition[] = [];
   for (const item of prepared) {
     if (item.transition.state === 'unknown') {
-      while (boundaries.length > 0 && boundaries[boundaries.length - 1].effectiveAt >= item.effectiveAt) {
+      while (
+        boundaries.length > 0
+        && boundaries[boundaries.length - 1].effectiveAt >= item.effectiveAt
+      ) {
         boundaries.pop();
       }
     }
@@ -76,9 +81,7 @@ export function buildRuntimeTimeline(
 
   const truncated = history.next !== undefined;
   const loaded = prepareTransitions(history.items);
-  const prepared = truncated
-    ? loaded
-    : prepareTransitions([history.preceding, ...history.items]);
+  const prepared = truncated ? loaded : prepareTransitions([history.preceding, ...history.items]);
   const boundaries = uncertaintyAwareBoundaries(prepared);
   const segments: TimelineSegment[] = [];
   let cursor = from;
@@ -112,4 +115,32 @@ export function buildRuntimeTimeline(
 
   if (cursor < to) segments.push(segmentFor(current, cursor, to));
   return segments.filter((segment) => segment.end > segment.start);
+}
+
+/**
+ * Half-hour slots summarize the most consequential observed state. Unknown
+ * coverage cannot be presented as healthy, even when part of a slot ran.
+ */
+export function buildRuntimeSlots(
+  history: RuntimeHistoryPage | null,
+  from: number,
+  to: number,
+): TimelineSegment[] {
+  const segments = buildRuntimeTimeline(history, from, to);
+  const priority: RuntimeTransitionState[] = ['failed', 'unknown', 'stopped', 'running'];
+  return Array.from({ length: 48 }, (_, index) => {
+    const start = from + ((to - from) * index) / 48;
+    const end = from + ((to - from) * (index + 1)) / 48;
+    const overlaps = segments.filter((segment) => segment.end > start && segment.start < end);
+    const state
+      = priority.find((candidate) => overlaps.some((segment) => segment.state === candidate))
+        ?? 'unknown';
+    return {
+      id: `slot-${index}`,
+      start,
+      end,
+      state,
+      reason: overlaps.find((segment) => segment.state === state)?.reason ?? 'history_unavailable',
+    };
+  });
 }

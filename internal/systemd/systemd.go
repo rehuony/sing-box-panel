@@ -73,11 +73,24 @@ type Runner interface {
 }
 
 type Service interface {
+	Files(context.Context, Scope) (FilesResult, error)
 	Install(context.Context, InstallRequest) (InstallResult, error)
 	Uninstall(context.Context, UninstallRequest) (UninstallResult, error)
 	Status(context.Context, Scope) (Status, error)
 	Control(context.Context, Scope, Action) (ControlResult, error)
 	Logs(context.Context, LogsRequest) (LogsResult, error)
+}
+
+type FileStatus struct {
+	Path    string `json:"path"`
+	State   string `json:"state"`
+	Managed bool   `json:"managed"`
+}
+
+type FilesResult struct {
+	Scope        Scope        `json:"scope"`
+	SettingsPath string       `json:"settings_path,omitempty"`
+	Files        []FileStatus `json:"files"`
 }
 
 type Options struct {
@@ -156,15 +169,22 @@ type UninstallResult struct {
 	AccountRetained bool     `json:"account_retained"`
 }
 
+// Status is systemd's own view of the unit plus one fact read from disk.
+// UnitFileSettingsPath is the --config argument written in the unit file at
+// UnitPath as it exists now; it says nothing about the command line systemd
+// loaded (see NeedDaemonReload) or the settings the running process started
+// with. It is empty when the file does not state one unambiguous path.
 type Status struct {
-	Scope         Scope  `json:"scope"`
-	Unit          string `json:"unit"`
-	UnitPath      string `json:"unit_path"`
-	LoadState     string `json:"load_state"`
-	ActiveState   string `json:"active_state"`
-	SubState      string `json:"sub_state"`
-	UnitFileState string `json:"unit_file_state"`
-	MainPID       int    `json:"main_pid"`
+	Scope                Scope  `json:"scope"`
+	Unit                 string `json:"unit"`
+	UnitPath             string `json:"unit_path"`
+	LoadState            string `json:"load_state"`
+	ActiveState          string `json:"active_state"`
+	SubState             string `json:"sub_state"`
+	UnitFileState        string `json:"unit_file_state"`
+	MainPID              int    `json:"main_pid"`
+	NeedDaemonReload     bool   `json:"need_daemon_reload"`
+	UnitFileSettingsPath string `json:"unit_file_settings_path,omitempty"`
 }
 
 type ControlResult struct {

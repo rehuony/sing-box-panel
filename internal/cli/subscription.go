@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 
 	"github.com/rehuony/sing-box-panel/internal/store"
-	"github.com/spf13/cobra"
 )
 
 const (
@@ -34,14 +33,4 @@ type subscriptionSourceWriteInput struct {
 	SourceKind *store.SubscriptionSourceKind `json:"source_kind"`
 	Config     json.RawMessage               `json:"config,omitempty"`
 	Enabled    *bool                         `json:"enabled"`
-}
-
-func newSubscriptionCommand(state *options, open openApplicationFunc) *cobra.Command {
-	root := group("subscription", "Manage subscription channels, sources, and tokens")
-	root.AddCommand(
-		newSubscriptionChannelCommand(state, open),
-		newSubscriptionSourceCommand(state, open),
-		newSubscriptionTokenCommand(state, open),
-	)
-	return root
 }

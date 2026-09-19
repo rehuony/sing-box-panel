@@ -5,6 +5,8 @@ package subscription
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -30,6 +32,7 @@ const (
 	DiagnosticInvalidOutbound      DiagnosticCode = "invalid_outbound"
 	DiagnosticInvalidMetadata      DiagnosticCode = "invalid_metadata"
 	DiagnosticDuplicateTag         DiagnosticCode = "duplicate_tag"
+	DiagnosticUnsupportedVersion   DiagnosticCode = "unsupported_core_version"
 	DiagnosticUnsupportedType      DiagnosticCode = "unsupported_type"
 	DiagnosticUnsupportedOption    DiagnosticCode = "unsupported_option"
 	DiagnosticUnsupportedTransport DiagnosticCode = "unsupported_transport"
@@ -48,6 +51,7 @@ type ConversionDiagnostic struct {
 }
 
 type Node struct {
+	OriginTag  string          `json:"origin_tag,omitempty"`
 	Key        string          `json:"key"`
 	SourceID   string          `json:"source_id"`
 	Type       string          `json:"type"`
@@ -165,3 +169,15 @@ func (err *validationError) Error() string { return fmt.Sprintf("%v: %s", ErrInv
 func (err *validationError) Unwrap() error { return ErrInvalidNodes }
 
 func invalid(code string) error { return &validationError{code: code} }
+
+// PublicationID keeps visibility and modern channel selection stable across a
+// source refresh. Legacy Key remains content-addressed for existing user grants.
+// Local keys retain credential identity; manual keys retain their persistent ID.
+func PublicationID(node Node) string {
+	identity := node.Key
+	if node.SourceID != "local" && node.SourceID != "manual" {
+		identity = node.SourceID + "\x00" + node.Tag
+	}
+	digest := sha256.Sum256([]byte(identity))
+	return "node_" + hex.EncodeToString(digest[:16])
+}

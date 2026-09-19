@@ -18,6 +18,8 @@ import (
 	"github.com/rehuony/sing-box-panel/internal/artifactstore"
 	"github.com/rehuony/sing-box-panel/internal/buildinfo"
 	"github.com/rehuony/sing-box-panel/internal/httpapi"
+	"github.com/rehuony/sing-box-panel/internal/panelprocess"
+	"github.com/rehuony/sing-box-panel/internal/publicip"
 	"github.com/rehuony/sing-box-panel/internal/settings"
 	"github.com/rehuony/sing-box-panel/internal/store"
 )
@@ -33,6 +35,8 @@ const (
 // Run loads process settings and serves until ctx is canceled. It owns every
 // resource it opens and does not return until the HTTP server has stopped.
 func Run(ctx context.Context, settingsPath string, build buildinfo.Info, assets fs.FS) (runErr error) {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
 	configuration, err := settings.Load(settingsPath)
 	if err != nil {
 		return fmt.Errorf("load server settings: %w", err)
@@ -40,21 +44,43 @@ func Run(ctx context.Context, settingsPath string, build buildinfo.Info, assets 
 	if err := prepareDataDirectory(configuration.DataDir); err != nil {
 		return err
 	}
-	runtimeLease, err := acquireRuntimeExecutorLease(configuration.DataDir)
+	runtimeLease, err := panelprocess.AcquireLease(configuration.DataDir)
 	if err != nil {
 		return err
 	}
+	settingsPath, err = filepath.Abs(settingsPath)
+	if err != nil {
+		return errors.Join(err, runtimeLease.Close())
+	}
+	control, err := panelprocess.Listen(panelprocess.Status{
+		Version: build.Version, SettingsPath: settingsPath, DataDir: configuration.DataDir,
+	}, cancel)
+	if err != nil {
+		return errors.Join(err, runtimeLease.Close())
+	}
 	defer func() {
+		control.StopAccepting()
 		runErr = errors.Join(runErr, runtimeLease.Close())
+		control.Finish(runErr)
 	}()
+	stopMarking := context.AfterFunc(ctx, control.Stopping)
+	defer stopMarking()
 
 	database, err := store.Open(ctx, filepath.Join(configuration.DataDir, "panel.db"))
 	if err != nil {
-		return fmt.Errorf("open panel database: %w", err)
+		return startupError(ctx, "open panel database", err)
 	}
-	defer database.Close()
+	defer func() {
+		runErr = errors.Join(runErr, database.Close())
+	}()
 
 	commands := application.FromStoreWithSettings(database, configuration)
+	configuration, err = commands.EffectiveSettings(ctx)
+	if err != nil {
+		return startupError(ctx, "load persisted panel settings", err)
+	}
+	commands = application.FromStoreWithSettings(database, configuration)
+	commands.SetPublicIPResolver(publicip.New().Resolve)
 	defer func() {
 		level, code, message := store.LogLevelInfo, "panel.stopped", "Panel server stopped"
 		if runErr != nil {
@@ -67,7 +93,7 @@ func Run(ctx context.Context, settingsPath string, build buildinfo.Info, assets 
 	}()
 	retention, err := commands.EnforceLogRetention(ctx)
 	if err != nil {
-		return fmt.Errorf("enforce operational log retention: %w", err)
+		return startupError(ctx, "enforce operational log retention", err)
 	}
 	if retention.Deleted > 0 {
 		recordOperationalLog(commands, application.LogRecordRequest{
@@ -78,7 +104,7 @@ func Run(ctx context.Context, settingsPath string, build buildinfo.Info, assets 
 	}
 	trafficRetention, err := commands.EnforceTrafficSampleRetention(ctx)
 	if err != nil {
-		return fmt.Errorf("enforce traffic sample retention: %w", err)
+		return startupError(ctx, "enforce traffic sample retention", err)
 	}
 	if trafficRetention.Deleted > 0 {
 		recordOperationalLog(commands, application.LogRecordRequest{
@@ -133,7 +159,7 @@ func Run(ctx context.Context, settingsPath string, build buildinfo.Info, assets 
 		<-trafficDone
 	}()
 	if err := runtimeControl.ReconcileStartup(ctx); err != nil {
-		return fmt.Errorf("reconcile sing-box runtime: %w", err)
+		return startupError(ctx, "reconcile sing-box runtime", err)
 	}
 	recordOperationalLog(commands, application.LogRecordRequest{
 		Source: store.LogSourcePanel, Level: store.LogLevelInfo, Code: "runtime.reconciled",
@@ -171,7 +197,7 @@ func Run(ctx context.Context, settingsPath string, build buildinfo.Info, assets 
 	}
 	if err := runner.Start(ctx); err != nil {
 		_ = listener.Close()
-		return fmt.Errorf("start durable task runner: %w", err)
+		return startupError(ctx, "start durable task runner", err)
 	}
 	recoveryContext, stopRecovery := context.WithCancel(ctx)
 	recoveryDone := startRuntimeReconciler(recoveryContext, runtimeControl)
@@ -193,6 +219,7 @@ func Run(ctx context.Context, settingsPath string, build buildinfo.Info, assets 
 	go func() {
 		serveResult <- httpServer.Serve(listener)
 	}()
+	control.Ready(listener.Addr().String())
 
 	select {
 	case err := <-serveResult:
@@ -226,6 +253,15 @@ func Run(ctx context.Context, settingsPath string, build buildinfo.Info, assets 
 		}
 		return nil
 	}
+}
+
+// Cancellation during startup is a requested stop. Normalize it before the
+// resource defers run so failures in cleanup are still reported to the caller.
+func startupError(ctx context.Context, operation string, err error) error {
+	if ctx.Err() != nil && errors.Is(err, context.Canceled) {
+		return nil
+	}
+	return fmt.Errorf("%s: %w", operation, err)
 }
 
 func builtInTaskHandlers(

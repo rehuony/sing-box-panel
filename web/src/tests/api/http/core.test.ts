@@ -3,6 +3,13 @@ import { describe, expect, it, vi } from 'vitest';
 import { createHttpApiClient } from '@/api/http-api-client';
 
 describe('createHttpApiClient core and configuration domain', () => {
+  it('enables the selected artifact with an empty body and encoded identity', async () => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(new Response(JSON.stringify({ id: 'switch', status: 'queued' }), { status: 202 }));
+    const client = createHttpApiClient({ baseUrl: '/api/v1', fetcher });
+    await client.enableCore('core/one');
+    expect(fetcher).toHaveBeenCalledWith('/api/v1/core/artifacts/core%2Fone/enable', expect.objectContaining({ method: 'POST' }));
+    expect(fetcher.mock.calls[0][1]?.body).toBeUndefined();
+  });
   it('resolves Schema support by immutable core artifact and compiles raw configuration', async () => {
     const fetcher = vi.fn<typeof fetch>().mockImplementation(async () =>
       new Response(JSON.stringify({ supported: true, items: [] }), {

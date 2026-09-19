@@ -2,7 +2,12 @@
 
 package runtime
 
-import "github.com/rehuony/sing-box-panel/internal/coreartifact"
+import (
+	"errors"
+	"io"
+
+	"github.com/rehuony/sing-box-panel/internal/coreartifact"
+)
 
 func (manager *Manager) startFailure(operation, code string, kind, cause error) error {
 	now := manager.options.Clock.Now().UTC()
@@ -44,6 +49,16 @@ func (manager *Manager) recordActualVersion(generation uint64, version coreartif
 func (manager *Manager) reap(process *managedProcess) {
 	defer manager.waitGroup.Done()
 	waitError := process.child.Wait()
+	if process.output != nil {
+		waitError = errors.Join(waitError, process.output.Close())
+	}
+	// Wait drains the child's pipes. Complete buffered lines before a new
+	// incarnation can reuse the output streams.
+	for _, output := range []io.Writer{manager.options.Stdout, manager.options.Stderr} {
+		if buffered, ok := output.(interface{ Flush() error }); ok {
+			waitError = errors.Join(waitError, buffered.Flush())
+		}
+	}
 	manager.mu.Lock()
 	process.waitError = waitError
 	if manager.process == process {

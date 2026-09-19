@@ -217,3 +217,13 @@ func looksLikeConfigOrSubscriptionText(value string) bool {
 	}
 	return strings.HasPrefix(trimmed, "proxies:") || strings.Contains(trimmed, "\nproxies:") || strings.Contains(trimmed, "\nproxy-groups:")
 }
+
+// SanitizeCoreLogLine applies the same credential/configuration boundary to
+// captured process output while preserving ordinary native log text.
+func SanitizeCoreLogLine(value string) string {
+	clean, err := sanitizeLogMessage(value)
+	if err != nil {
+		return "[core output omitted: unsupported or sensitive line]"
+	}
+	return clean
+}

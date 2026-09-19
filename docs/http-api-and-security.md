@@ -27,9 +27,15 @@ bundle. It never selects the newest catalog version or a nearby release.
 
 ## Management authentication
 
-The settings file contains one management token. API clients may send it as a
-Bearer credential. Browser login exchanges it for an HttpOnly, SameSite
-session cookie and a CSRF token.
+The settings file supplies the initial management token; replacements saved
+through panel settings are persisted in the database. API clients may send the
+current token as a Bearer credential. Browser login exchanges it for an HttpOnly,
+SameSite session cookie and a CSRF token.
+
+Replacement tokens must contain 32–8192 UTF-8 bytes, without leading or trailing
+Unicode whitespace or BOM, NUL, CR, or LF. Invalid replacements leave the current
+credential and sessions intact. The login JSON body is bounded to 64 KiB so every
+accepted token fits even when JSON encoding escapes its characters.
 
 Cookie-authenticated state changes require both the session CSRF token and a
 same-origin request. Login failures are rate-limited by the direct peer

@@ -18,6 +18,9 @@ func NewInboundRegistry() *subscription.InboundRegistry {
 		case "1.11":
 		case "1.12":
 			options.anyTLS = true
+		case "1.14":
+			options.snell = true
+			fallthrough
 		case "1.13":
 			options.anyTLS = true
 			options.naive = true
@@ -36,7 +39,7 @@ func ValidateFamilies() error {
 func validateCompiledFamilies(versions []Version) error {
 	for _, version := range versions {
 		switch version.InboundFamily {
-		case "", "1.11", "1.12", "1.13":
+		case "", "1.11", "1.12", "1.13", "1.14":
 		default:
 			return fmt.Errorf("version %s references unknown inbound family %s", version.ExactVersion, version.InboundFamily)
 		}

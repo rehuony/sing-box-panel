@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/rehuony/sing-box-panel/internal/hostmetrics"
 	coreruntime "github.com/rehuony/sing-box-panel/internal/runtime"
 	"github.com/rehuony/sing-box-panel/internal/store"
 )
@@ -21,16 +22,17 @@ const gibibyte = int64(1 << 30)
 // proves that at least one process-local counter delta contributes to the
 // current period, so an unproven first lifetime counter is not exposed as zero.
 type MetricsSnapshot struct {
-	Available          bool                 `json:"available"`
-	ReasonCode         string               `json:"reason_code,omitempty"`
-	AppliedBundleID    string               `json:"applied_bundle_id,omitempty"`
-	MonitoringTier     store.MonitoringTier `json:"monitoring_tier,omitempty"`
-	CollectedAt        time.Time            `json:"collected_at"`
-	CurrentTrafficData *store.TrafficPeriod `json:"current_traffic_period,omitempty"`
-	LatestSample       *store.TrafficSample `json:"latest_sample,omitempty"`
-	TrafficAvailable   bool                 `json:"traffic_available"`
-	QuotaBytes         *int64               `json:"quota_bytes,omitempty"`
-	QuotaExceeded      bool                 `json:"quota_exceeded"`
+	Host               *hostmetrics.Snapshot `json:"host,omitempty"`
+	Available          bool                  `json:"available"`
+	ReasonCode         string                `json:"reason_code,omitempty"`
+	AppliedBundleID    string                `json:"applied_bundle_id,omitempty"`
+	MonitoringTier     store.MonitoringTier  `json:"monitoring_tier,omitempty"`
+	CollectedAt        time.Time             `json:"collected_at"`
+	CurrentTrafficData *store.TrafficPeriod  `json:"current_traffic_period,omitempty"`
+	LatestSample       *store.TrafficSample  `json:"latest_sample,omitempty"`
+	TrafficAvailable   bool                  `json:"traffic_available"`
+	QuotaBytes         *int64                `json:"quota_bytes,omitempty"`
+	QuotaExceeded      bool                  `json:"quota_exceeded"`
 }
 
 type TrafficSampleRetentionResult struct {
@@ -40,7 +42,7 @@ type TrafficSampleRetentionResult struct {
 
 func (application *Application) Metrics(ctx context.Context) (MetricsSnapshot, error) {
 	now := application.now().UTC()
-	result := MetricsSnapshot{CollectedAt: now}
+	result := MetricsSnapshot{CollectedAt: now, Host: application.hostSampler.Sample(application.settings.DataDir)}
 	bootstrap, err := application.database.Bootstrap(ctx)
 	if err != nil {
 		return MetricsSnapshot{}, err
@@ -92,7 +94,11 @@ func (application *Application) Metrics(ctx context.Context) (MetricsSnapshot, e
 		return MetricsSnapshot{}, fmt.Errorf("decode traffic period evidence: %w", err)
 	}
 	result.TrafficAvailable = counters.TrafficEvidenceAvailable
-	if configured := application.settings.Traffic.QuotaGiB; result.TrafficAvailable && configured != nil && *configured > 0 {
+	currentSettings, err := application.EffectiveSettings(ctx)
+	if err != nil {
+		return MetricsSnapshot{}, err
+	}
+	if configured := currentSettings.Traffic.QuotaGiB; result.TrafficAvailable && configured != nil && *configured > 0 {
 		quota := *configured * gibibyte
 		result.QuotaBytes = &quota
 		result.QuotaExceeded = period.InboundBytes+period.OutboundBytes >= quota

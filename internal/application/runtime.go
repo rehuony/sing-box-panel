@@ -18,13 +18,14 @@ import (
 var ErrMonitoringTierUnavailable = errors.New("requested monitoring tier is unavailable")
 
 type RuntimeStatus struct {
-	DesiredRunning   bool             `json:"desired_running"`
-	DesiredBundleID  string           `json:"desired_bundle_id,omitempty"`
-	AppliedBundleID  string           `json:"applied_bundle_id,omitempty"`
-	RollbackBundleID string           `json:"rollback_bundle_id,omitempty"`
-	TargetGeneration int64            `json:"target_generation"`
-	ObservationState string           `json:"observation_state"`
-	Running          *RuntimeIdentity `json:"running,omitempty"`
+	LoadedCanonicalRevisionID string           `json:"loaded_canonical_revision_id,omitempty"`
+	DesiredRunning            bool             `json:"desired_running"`
+	DesiredBundleID           string           `json:"desired_bundle_id,omitempty"`
+	AppliedBundleID           string           `json:"applied_bundle_id,omitempty"`
+	RollbackBundleID          string           `json:"rollback_bundle_id,omitempty"`
+	TargetGeneration          int64            `json:"target_generation"`
+	ObservationState          string           `json:"observation_state"`
+	Running                   *RuntimeIdentity `json:"running,omitempty"`
 }
 
 type RuntimeRecoveryRequest struct {
@@ -139,6 +140,9 @@ func (application *Application) verifyActivationCandidate(
 	ctx context.Context,
 	startup store.StartupArtifact,
 ) error {
+	if err := application.requireParsedConfigurationFile(ctx); err != nil {
+		return err
+	}
 	head, err := application.database.Head(ctx)
 	if err != nil {
 		return err
@@ -185,7 +189,7 @@ func (application *Application) PrepareAndQueueRuntimeApply(
 }
 
 func (application *Application) QueueRuntimeStart(ctx context.Context) (Task, error) {
-	return application.queueRuntimeIntent(ctx, store.RuntimeIntentStart, "")
+	return application.QueueConfigurationRuntime(ctx, "", store.RuntimeIntentStart)
 }
 
 func (application *Application) QueueRuntimeStop(ctx context.Context) (Task, error) {
@@ -193,7 +197,7 @@ func (application *Application) QueueRuntimeStop(ctx context.Context) (Task, err
 }
 
 func (application *Application) QueueRuntimeRestart(ctx context.Context) (Task, error) {
-	return application.queueRuntimeIntent(ctx, store.RuntimeIntentRestart, "")
+	return application.QueueConfigurationRuntime(ctx, "", store.RuntimeIntentRestart)
 }
 
 func (application *Application) QueueRuntimeRollback(ctx context.Context, expectedBundleID string) (Task, error) {
@@ -274,6 +278,15 @@ func (application *Application) RuntimeStatus(ctx context.Context) (RuntimeStatu
 	case err == nil:
 		result.ObservationState = "running"
 		result.Running = &identity
+		bundle, err := application.database.GetActivationBundle(ctx, identity.ActivationBundleID)
+		if err != nil {
+			return RuntimeStatus{}, err
+		}
+		startup, err := application.database.GetStartupArtifact(ctx, bundle.StartupArtifactID)
+		if err != nil {
+			return RuntimeStatus{}, err
+		}
+		result.LoadedCanonicalRevisionID = startup.CanonicalRevisionID
 	case errors.Is(err, ErrNoRunningCore):
 	case errors.Is(err, ErrStaleObservation):
 		result.ObservationState = "stale"

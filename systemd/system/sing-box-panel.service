@@ -8,10 +8,11 @@ Wants=network-online.target
 After=network-online.target
 
 [Service]
+Environment=SING_BOX_PANEL_SUPERVISOR=systemd
 Type=simple
 User=sing-box-panel
 Group=sing-box-panel
-ExecStart=/usr/local/bin/sing-box-panel server run --config /etc/sing-box-panel/setting.json
+ExecStart=/usr/local/bin/sing-box-panel server start --config /etc/sing-box-panel/setting.json
 WorkingDirectory=/var/lib/sing-box-panel
 Restart=on-failure
 RestartSec=5s

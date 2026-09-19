@@ -19,3 +19,16 @@ if (typeof window.matchMedia !== 'function') {
 }
 
 afterEach(cleanup);
+
+// Layout observers are supplied by the browser, but not by jsdom.
+if (typeof ResizeObserver === 'undefined') {
+  Object.defineProperty(globalThis, 'ResizeObserver', {
+    configurable: true,
+    writable: true,
+    value: class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    },
+  });
+}

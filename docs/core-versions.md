@@ -18,8 +18,8 @@ reported version must match the requested exact version. Missing build tags
 are recorded as `not_reported`; they are never treated as an empty feature set.
 
 ```sh
-sing-box-panel core catalog refresh
-sing-box-panel core catalog list --installable
+sing-box-panel core refresh
+sing-box-panel core catalog --installable
 sing-box-panel core install ASSET_ID
 sing-box-panel core list
 sing-box-panel core show ARTIFACT_ID
@@ -52,11 +52,26 @@ replacing it. A timeout, rate limit, invalid response, or size failure returns
 an error and leaves the last successful catalog and validator intact.
 
 ```sh
-sing-box-panel core catalog refresh --force
+sing-box-panel core refresh --force
 ```
 
 `--installable` means that an asset has usable digest evidence. Structured
 editing and inbound conversion are reported as separate optional capabilities.
+
+## Browser version management
+
+Installed and available lists share 5/10/50 pagination, independent scrolling
+and inline enable/disable/download actions. The read-only platform indicator
+comes from the deployed panel binary's GOOS/GOARCH, not browser/device detection.
+Only matching assets appear. Hover/focus explains the platform; it is not an
+architecture selector. Enabling rejects untrusted or incompatible artifacts
+before queueing work, then validates the saved configuration before replacement.
+
+An optional GitHub Token in panel service/security settings is used server-side
+for version discovery. An omitted token retains the configured value; explicit
+removal returns to anonymous requests. Authentication can raise GitHub's normal
+API allowance, but a token does not bypass rate limits or replace cache/error
+handling.
 
 ## Runtime and Schema boundaries
 

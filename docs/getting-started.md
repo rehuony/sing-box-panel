@@ -93,13 +93,18 @@ empty directory when a test must also isolate the database.
 ## Start the server
 
 ```sh
-./bin/sing-box-panel server run --config ./setting.json
+./bin/sing-box-panel server start --config ./setting.json
 ```
 
+This runs in the foreground. Stop it with `Ctrl+C`, or run
+`./bin/sing-box-panel server stop --config ./setting.json` in another terminal.
+Use `server status` with the same settings to inspect the process. For
+background operation, install and start the systemd service instead.
+
 The server exposes the embedded UI and management API and is the only durable
-task executor. Keep it active while commands install or check cores, refresh
-the catalog or a subscription source, prepare or apply configuration, or
-control the child process.
+task executor. Keep it active while commands install cores, refresh the
+catalog or a subscription source, check or apply configuration, enable a
+core, or control the child process.
 
 Core, catalog, configuration, and runtime commands normally wait for their
 task. Add `--detach` where supported to return immediately. Subscription source
@@ -111,26 +116,38 @@ task separately with:
 ./bin/sing-box-panel task wait TASK_ID --config ./setting.json
 ```
 
-## Create the first configuration revision
+## Save the first configuration
 
-Save this minimal document as `configuration.json`:
+The panel keeps one saved sing-box configuration, logically named
+`config.json`, that the Web editor and the CLI share. It is stored as text in
+the `configuration_file` table of `panel.db`, not as a separate file on disk.
+Save this minimal document as `config.json`:
 
 ```json
 {}
 ```
 
-Import it with an explicit empty compare-and-swap base:
+Import it with the numeric file revision `0`, which means "no save yet":
 
 ```sh
 ./bin/sing-box-panel config import \
   --config ./setting.json \
-  --file ./configuration.json \
-  --base-revision none
+  --file ./config.json \
+  --revision 0
 ```
 
-Later writes must provide the current revision ID as `--base-revision`. A
-stale base is rejected instead of being merged implicitly. Continue with
-[Core versions](core-versions.md), then
+Later imports must pass the current file revision shown by
+`config show --output json`; a stale revision is rejected instead of being
+merged implicitly. Text that is not valid JSON is stored as a draft and blocks
+check, apply, start, and restart until it is corrected. After installing a
+core, validate and start with it:
+
+```sh
+./bin/sing-box-panel config check --config ./setting.json --core CORE_ARTIFACT_ID
+./bin/sing-box-panel config apply --config ./setting.json --core CORE_ARTIFACT_ID
+```
+
+Continue with [Core versions](core-versions.md), then
 [Configuration and runtime](configuration-and-runtime.md).
 
 ## Install a systemd service
@@ -145,6 +162,12 @@ sing-box-panel system install --scope=user --now
 sing-box-panel system status --scope=user
 ```
 
+`system status` reports systemd's unit state together with the settings path
+written in the unit file on disk, the CLI's own `--config` path, and the data
+directory, database, and configuration storage declared by that settings file
+as it exists now. Each value names its on-disk source; the settings of the
+running process are not inspected and are reported as unknown, and a unit file
+edited since systemd loaded it is flagged as stale.
 `--scope=auto` selects `system` for root and `user` otherwise. The default unit
 grants no Linux capabilities; TUN, transparent proxying, raw sockets, and
 privileged ports require a reviewed local override. See the authoritative

@@ -9,11 +9,11 @@
 }
 
 .login-card {
-  -webkit-backdrop-filter: blur(28px) saturate(145%);
-  backdrop-filter: blur(28px) saturate(145%);
+  -webkit-backdrop-filter: blur(28px) saturate(150%);
+  backdrop-filter: blur(28px) saturate(150%);
   background: var(--color-glass-strong);
   border: 1px solid var(--color-glass-border);
-  border-radius: 24px;
+  border-radius: var(--radius-panel);
   box-shadow: var(--shadow-glass);
   display: grid;
   gap: 24px;
@@ -29,7 +29,7 @@
 
 .login-card__brand h1 {
   font-family: var(--font-display);
-  font-size: clamp(1.9rem, 5vw, 2.5rem);
+  font-size: 1.75rem;
   letter-spacing: -0.045em;
   margin: 0;
 }
@@ -71,4 +71,11 @@
     -webkit-backdrop-filter: none;
     backdrop-filter: none;
   }
+}
+
+.login-card > h1 {
+  margin: 0;
+  font-size: 24px;
+  font-weight: 650;
+  letter-spacing: -0.03em;
 }

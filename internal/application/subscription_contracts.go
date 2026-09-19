@@ -151,12 +151,33 @@ type SubscriptionUserGrants struct {
 	Grants []string         `json:"grants"`
 }
 
+type SubscriptionNodeDetail struct {
+	SubscriptionNodeSummary
+	OutboundJSON string `json:"outbound_json"`
+}
+
 type SubscriptionNodeSummary struct {
-	Key        string `json:"key"`
-	SourceID   string `json:"source_id"`
-	Type       string `json:"type"`
-	Tag        string `json:"tag"`
-	Credential string `json:"credential,omitempty"`
+	ID                 string   `json:"id"`
+	Name               string   `json:"name"`
+	SourceName         string   `json:"source_name"`
+	Origin             string   `json:"origin"`
+	Hidden             bool     `json:"hidden"`
+	VisibilityRevision int64    `json:"visibility_revision"`
+	Revision           int64    `json:"revision,omitempty"`
+	Available          bool     `json:"available"`
+	Server             string   `json:"server"`
+	Port               int      `json:"port"`
+	ServerPorts        []string `json:"server_ports,omitempty"`
+	RealmURL           string   `json:"realm_url,omitempty"`
+	Listener           string   `json:"listener,omitempty"`
+	TLS                bool     `json:"tls"`
+	Reality            bool     `json:"reality"`
+	SNI                string   `json:"sni,omitempty"`
+	Key                string   `json:"key"`
+	SourceID           string   `json:"source_id"`
+	Type               string   `json:"type"`
+	Tag                string   `json:"tag"`
+	Credential         string   `json:"credential,omitempty"`
 }
 
 type SubscriptionNodeCatalog struct {
@@ -168,8 +189,9 @@ type SubscriptionNodeCatalog struct {
 // SubscriptionToken deliberately omits both plaintext and token_sha256. The
 // public plaintext is returned only by create/rotate result types.
 type SubscriptionToken struct {
+	DownloadLimit          *int64     `json:"download_limit,omitempty"`
 	ID                     string     `json:"id"`
-	UserID                 string     `json:"user_id"`
+	UserID                 string     `json:"user_id,omitempty"`
 	Label                  string     `json:"label"`
 	Enabled                bool       `json:"enabled"`
 	ExpiresAt              *time.Time `json:"expires_at,omitempty"`
@@ -183,9 +205,10 @@ type SubscriptionToken struct {
 }
 
 type CreateSubscriptionTokenRequest struct {
-	UserID    string     `json:"user_id"`
-	Label     string     `json:"label"`
-	ExpiresAt *time.Time `json:"expires_at,omitempty"`
+	DownloadLimit *int64     `json:"download_limit,omitempty"`
+	UserID        string     `json:"user_id,omitempty"`
+	Label         string     `json:"label"`
+	ExpiresAt     *time.Time `json:"expires_at,omitempty"`
 }
 
 type SubscriptionCursor struct {

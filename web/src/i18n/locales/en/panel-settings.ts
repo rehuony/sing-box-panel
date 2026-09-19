@@ -1,0 +1,18 @@
+export const panelSettings = {
+  title: 'Panel settings', security: 'Service & security', nodes: 'Nodes & subscriptions', appearance: 'Usage & appearance',
+  access: 'Panel access', authentication: 'Authentication', updates: 'Version updates', publication: 'Node publication', identity: 'Protocol identity',
+  traffic: 'Traffic usage', interface: 'Interface', languageGroup: 'Language',
+  listenHost: 'Listen address', listenPort: 'Listen port', origin: 'Access origin', originHelp: 'Enter the full origin, such as https://panel.example.com. Listener and origin changes take effect after the panel restarts.',
+  managementToken: 'Management token', change: 'Change', newToken: 'New token', confirmToken: 'Confirm token', tokenHelp: '32–8192 UTF-8 bytes, without leading or trailing whitespace. Saving invalidates the old token and existing sessions; sign in using the new token.',
+  tokenInvalid: 'Use 32–8192 UTF-8 bytes without leading or trailing whitespace, line breaks, or null characters.',
+  github: 'GitHub Token', githubHelp: 'Optional credential for official GitHub release requests. Authenticated requests can have higher rate limits; the response headers are authoritative. Leave blank to retain the current credential.',
+  configured: 'Configured; leave blank to retain', optional: 'Not configured', remove: 'Remove', removed: 'Removed when saved', undo: 'Undo',
+  publicHost: 'Published node address', publicHostHelp: 'Domain or public IP, without scheme or port. Only replaces the connection address of local published nodes; never changes listeners, SNI or certificates.',
+  autoHost: 'Automatically detect public IP', identityName: 'Identity name', identityKey: 'Identity key', identityHelp: 'Saving a changed identity updates the named default user in config.json; restart sing-box to load it. Blank name uses panel. Existing other users and unauthenticated listeners are preserved. Configure protocol obfuscation keys separately.',
+  identitySaved: 'Identity saved; restart sing-box to load updated node credentials',
+  quota: 'Total traffic quota', unlimited: 'Unlimited', theme: 'Theme', light: 'Light', dark: 'Dark', system: 'System',
+  color: 'Accent color', customColor: 'Custom color', hex: 'HEX color', colors: ['Purple', 'Blue', 'Cyan', 'Green', 'Orange', 'Rose'],
+  radius: 'Corner radius', radiusHelp: 'Cards and dialogs use this value; controls use half. Status dots, pills and the brand mark retain their shape.',
+  reset: 'Reset appearance', language: 'Display language', save: 'Save settings', saving: 'Saving…', saved: 'Settings saved',
+  restart: 'Settings saved; listener and origin changes take effect after the panel restarts', failed: 'Could not save. Check the settings and retry.', retry: 'Reload', cancel: 'Cancel', tokenChanged: 'Token changed; sign in again',
+} as const;

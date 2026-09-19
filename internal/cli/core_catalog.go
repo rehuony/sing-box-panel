@@ -10,17 +10,11 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func newCoreCatalogCommand(state *options, open openApplicationFunc) *cobra.Command {
-	root := group("catalog", "Inspect the official release catalog")
-	root.AddCommand(newCoreCatalogListCommand(state, open), newCoreCatalogRefreshCommand(state, open))
-	return root
-}
-
 func newCoreCatalogListCommand(state *options, open openApplicationFunc) *cobra.Command {
 	var version, architecture, variant string
 	var installable bool
 	command := &cobra.Command{
-		Use:   "list",
+		Use:   "catalog",
 		Short: "List cached official stable release assets",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
@@ -34,7 +28,7 @@ func newCoreCatalogListCommand(state *options, open openApplicationFunc) *cobra.
 			})
 			if err != nil {
 				if application.IsCatalogNotInitialized(err) {
-					return &Error{Kind: ErrorUnavailable, Code: "catalog_not_initialized", Message: "official catalog is not cached; run core catalog refresh", Cause: err}
+					return &Error{Kind: ErrorUnavailable, Code: "catalog_not_initialized", Message: "official catalog is not cached; run core refresh", Cause: err}
 				}
 				return &Error{Kind: ErrorValidation, Code: "catalog_filter_invalid", Message: err.Error(), Cause: err}
 			}

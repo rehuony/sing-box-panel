@@ -196,3 +196,24 @@ func writeTaskProblem(w http.ResponseWriter, request *http.Request, code string,
 	}
 	writeProblem(w, request, http.StatusInternalServerError, code, "Task operation failed", "The task operation could not be completed.")
 }
+
+func (handler *Handler) retryTask(w http.ResponseWriter, request *http.Request, taskID string) {
+	if !handler.requireCommands(w, request) {
+		return
+	}
+	body, err := readBoundedBody(request, 1)
+	if err != nil || len(body) != 0 {
+		writeProblem(w, request, http.StatusBadRequest, "unexpected_body", "Request invalid", "Retry accepts an empty body.")
+		return
+	}
+	task, err := handler.commands.RetryTask(request.Context(), taskID)
+	if err != nil {
+		if application.IsTaskNotFound(err) {
+			writeTaskProblem(w, request, "task_not_found", err)
+			return
+		}
+		writeProblem(w, request, http.StatusConflict, "task_retry_unavailable", "Retry unavailable", "The task or its current inputs no longer permit retry. Start a new operation from its page.")
+		return
+	}
+	writeJSON(w, http.StatusAccepted, task)
+}

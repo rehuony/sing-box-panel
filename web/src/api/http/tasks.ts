@@ -2,9 +2,7 @@ import type { HttpApiContext } from './shared';
 import type { ApiClient, Task, TaskFilter, TaskPage } from '../api-client';
 
 export function createTasksHttpApi(context: HttpApiContext) {
-  const {
-    baseUrl, buildQuery, fetcher, request, writeHeaders,
-  } = context;
+  const { baseUrl, buildQuery, fetcher, request, writeHeaders } = context;
   return {
     listTasks(filter: TaskFilter = {}, signal) {
       const query = buildQuery({
@@ -22,16 +20,23 @@ export function createTasksHttpApi(context: HttpApiContext) {
     },
     getTask(taskID, signal) {
       return request<Task>(fetcher, `${baseUrl}/tasks/${encodeURIComponent(taskID)}`, {
-        method: 'GET', signal,
+        method: 'GET',
+        signal,
+      });
+    },
+    retryTask(taskID, signal) {
+      return request<Task>(fetcher, `${baseUrl}/tasks/${encodeURIComponent(taskID)}/retry`, {
+        method: 'POST',
+        headers: writeHeaders(),
+        signal,
       });
     },
     cancelTask(taskID, signal) {
-      return request<Task>(
-        fetcher,
-        `${baseUrl}/tasks/${encodeURIComponent(taskID)}/cancel`,
-        { method: 'POST', headers: writeHeaders(), signal },
-      );
+      return request<Task>(fetcher, `${baseUrl}/tasks/${encodeURIComponent(taskID)}/cancel`, {
+        method: 'POST',
+        headers: writeHeaders(),
+        signal,
+      });
     },
-
   } satisfies Partial<ApiClient>;
 }

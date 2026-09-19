@@ -3,6 +3,7 @@
 package httpapi
 
 import (
+	"crypto/sha256"
 	"net/http"
 	"strconv"
 	"strings"
@@ -34,13 +35,17 @@ func (handler *Handler) login(w http.ResponseWriter, request *http.Request) {
 		writeProblem(w, request, http.StatusBadRequest, "invalid_login", "Invalid login", "The login payload is invalid.")
 		return
 	}
-	if !constantTimeTokenEqual(input.Token, handler.settings.Auth.Token) {
+	managementToken, ok := handler.currentManagementToken(w, request)
+	if !ok {
+		return
+	}
+	if !constantTimeTokenEqual(input.Token, managementToken) {
 		handler.logins.failed(client)
 		writeProblem(w, request, http.StatusUnauthorized, "invalid_credentials", "Authentication failed", "The supplied management token is invalid.")
 		return
 	}
 	handler.logins.succeeded(client)
-	raw, csrf, expiresAt, err := handler.sessions.create()
+	raw, csrf, expiresAt, err := handler.sessions.create(managementToken)
 	if err != nil {
 		writeProblem(w, request, http.StatusInternalServerError, "session_failed", "Session creation failed", "A secure session could not be created.")
 		return
@@ -91,10 +96,14 @@ func (handler *Handler) logout(w http.ResponseWriter, request *http.Request) {
 
 func (handler *Handler) authenticated(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, request *http.Request) {
+		managementToken, available := handler.currentManagementToken(w, request)
+		if !available {
+			return
+		}
 		authorization := request.Header.Get("Authorization")
 		if strings.HasPrefix(authorization, "Bearer ") {
 			bearer := strings.TrimSpace(strings.TrimPrefix(authorization, "Bearer "))
-			if constantTimeTokenEqual(bearer, handler.settings.Auth.Token) {
+			if constantTimeTokenEqual(bearer, managementToken) {
 				next(w, request)
 				return
 			}
@@ -105,7 +114,7 @@ func (handler *Handler) authenticated(next http.HandlerFunc) http.HandlerFunc {
 			return
 		}
 		session, ok := handler.sessions.find(cookie.Value)
-		if !ok {
+		if !ok || session.credential != sha256.Sum256([]byte(managementToken)) {
 			writeProblem(w, request, http.StatusUnauthorized, "session_expired", "Session expired", "The management session is missing or expired.")
 			return
 		}

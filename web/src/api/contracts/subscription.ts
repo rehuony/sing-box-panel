@@ -6,6 +6,14 @@ import type {
 } from '../generated';
 
 export type {
+  ChannelNativeTemplate,
+  ChannelNodeOrganizer,
+  ChannelNodeSelection,
+  ChannelPolicy,
+  ChannelRemoteRuleSet,
+  ChannelRouteExit,
+  ChannelRule,
+  ChannelRuleGroup,
   CreatedSubscriptionToken,
   SubscriptionChannel,
   SubscriptionChannelConfig,
@@ -13,7 +21,9 @@ export type {
   SubscriptionChannelSummary,
   SubscriptionChannelInput as SubscriptionChannelWrite,
   SubscriptionCursor,
+  SubscriptionDraftPreview,
   SubscriptionNodeCatalog,
+  SubscriptionNodeDetail,
   SubscriptionNodeSummary,
   SubscriptionPreview,
   SubscriptionSource,

@@ -5,11 +5,9 @@ import { useTranslation } from 'react-i18next';
 import {
   ArrowDown,
   ArrowUp,
-  ChartNoAxesCombined,
   CircleCheck,
   Clock3,
   Ellipsis,
-  PackageCheck,
   PanelLeft,
   Play,
   RotateCw,
@@ -49,11 +47,9 @@ import {
 
 import type { RuntimeAction } from './use-runtime-control';
 
-import { LanguageMenu } from './language-menu';
-import { ThemeCycleButton } from './theme-cycle-button';
 import { useSharedTelemetry } from './telemetry-context';
 import { useRuntimeControl } from './use-runtime-control';
-import { EM_DASH, formatBytes, formatRate, formatUptime } from './telemetry-format';
+import { EM_DASH, formatRate, formatUptime } from './telemetry-format';
 
 interface TelemetryMetricProps {
   label: string;
@@ -296,10 +292,6 @@ export function TelemetryBanner() {
           : t('telemetry.runtime.evidenceUnavailable');
   const runningIdentity = verifiedRunning ? runtimeStatus.running : undefined;
   const trafficAvailable = telemetry.snapshot?.available === true;
-  const currentPeriod = trafficAvailable ? telemetry.snapshot?.current_traffic_period : undefined;
-  const currentPeriodTotal = currentPeriod === undefined
-    ? null
-    : currentPeriod.inbound_bytes + currentPeriod.outbound_bytes;
   const durationLabels = {
     day: t('telemetry.unit.day'),
     hour: t('telemetry.unit.hour'),
@@ -367,26 +359,18 @@ export function TelemetryBanner() {
           <PanelLeft aria-hidden='true' />
         </Button>
         <div className='telemetry-runtime'>
-          <Badge variant={verifiedRunning ? 'success' : verifiedStopped ? 'secondary' : 'warning'}>
+          <Badge className={import.meta.env.MODE === 'demo' ? 'telemetry-demo-badge' : undefined} title={runtimeDetail} variant={import.meta.env.MODE === 'demo' ? 'secondary' : verifiedRunning ? 'success' : runtimeControl.state.phase === 'failed' ? 'destructive' : 'secondary'}>
             <span aria-hidden='true' className='telemetry-runtime__dot' />
-            {runtimeLabel}
+            {import.meta.env.MODE === 'demo' ? t('telemetry.demo') : runtimeLabel}
           </Badge>
-          <div>
-            <span>sing-box</span>
-            <strong>{runtimeDetail}</strong>
-          </div>
+          <strong className='telemetry-version'>
+            {'sing-box '}
+            {runningIdentity?.exact_core_version ?? EM_DASH}
+          </strong>
         </div>
       </div>
 
       <div className='telemetry-banner__metrics'>
-        <Separator className='telemetry-banner__metric-lead' orientation='vertical' />
-        <TelemetryMetric
-          icon={PackageCheck}
-          id='version'
-          label={t('telemetry.metric.version')}
-          value={runningIdentity?.exact_core_version ?? EM_DASH}
-        />
-        <Separator orientation='vertical' />
         <TelemetryMetric
           icon={Clock3}
           id='uptime'
@@ -408,13 +392,6 @@ export function TelemetryBanner() {
           label={t('telemetry.metric.download')}
           value={trafficAvailable ? formatRate(telemetry.rates.downloadBytesPerSecond, locale, t('telemetry.unit.perSecond')) : EM_DASH}
         />
-        <Separator orientation='vertical' />
-        <TelemetryMetric
-          icon={ChartNoAxesCombined}
-          id='total'
-          label={t('telemetry.metric.total')}
-          value={formatBytes(currentPeriodTotal, locale)}
-        />
       </div>
 
       <div className='telemetry-banner__actions'>
@@ -424,9 +401,7 @@ export function TelemetryBanner() {
               <Badge
                 className='runtime-action-progress'
                 role='status'
-                title={runtimeControl.state.error instanceof Error
-                  ? runtimeControl.state.error.message
-                  : runtimeControl.state.task?.id}
+                title={actionMessage}
                 variant={actionVariant}
               >
                 {runtimeControl.busy
@@ -439,9 +414,6 @@ export function TelemetryBanner() {
                       ? <TriangleAlert aria-hidden='true' data-icon='inline-start' />
                       : null}
                 <span>{actionMessage}</span>
-                {runtimeControl.state.task === null
-                  ? null
-                  : <code>{runtimeControl.state.task.id}</code>}
               </Badge>
             )}
         <div className='telemetry-runtime-controls telemetry-runtime-controls--desktop' aria-label={t('telemetry.control.label')}>
@@ -502,10 +474,6 @@ export function TelemetryBanner() {
           canStop={!runtimeControl.busy && verifiedRunning}
           onAction={runRuntimeAction}
         />
-        <div className='telemetry-personalization-actions'>
-          <ThemeCycleButton />
-          <LanguageMenu />
-        </div>
       </div>
     </header>
   );

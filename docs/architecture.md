@@ -42,6 +42,11 @@ visible. File length alone is not a reason to create another package.
 - `internal/application` owns use cases and runtime identity resolution backed
   by persistent state.
 - `internal/server` owns server composition and its private task runner.
+- `internal/panelprocess` owns private local process control; it reuses the
+  server's lifetime and lease and does not launch background processes.
+- `internal/installation` inventories and cleans one selected instance's
+  persistent paths. Database-directory locks in `internal/store` exclude
+  cleanup while the panel or another CLI command owns a database connection.
 - `internal/release` owns release-version validation and signatures;
   `internal/selfupdate` remains the download and atomic-replacement boundary.
 

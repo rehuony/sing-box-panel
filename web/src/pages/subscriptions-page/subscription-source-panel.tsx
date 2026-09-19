@@ -1,20 +1,18 @@
-import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { ChevronLeft, ChevronRight, Plus, RefreshCw, Search } from 'lucide-react';
 
-import type { JsonObject, SubscriptionCursor, SubscriptionSource, SubscriptionSourceFormat, SubscriptionSourceKind, SubscriptionSourceSummary, SubscriptionSourceVersion } from '@/api/api-client';
+import type {
+  SubscriptionNodeSummary,
+  SubscriptionSource,
+  SubscriptionSourceSummary,
+} from '@/api/api-client';
 
+import { Button } from '@/components/ui/button';
+import { waitForTask } from '@/lib/wait-for-task';
+import { toast } from '@/components/ui/toast-manager';
 import { useApiClient } from '@/api/api-client-context';
-import { ActionError } from '@/components/action-error';
 import { describeRequestError, ErrorNotice } from '@/components/error-notice';
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetFooter,
-  SheetHeader,
-  SheetTitle,
-} from '@/components/ui/sheet';
 import {
   Dialog,
   DialogContent,
@@ -23,740 +21,602 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from '@/components/ui/alert-dialog';
 
-interface SourceRestoreEvidence {
-  sourceID: string;
-  versionID: string;
-  sourceName: string;
-  versionSHA256: string;
-  sourceUpdatedAt: string;
-}
+import { SubscriptionNodeGrid } from './subscription-node-grid';
+import { SubscriptionNodeEditor } from './subscription-node-editor';
 
-interface SourceDraft {
+interface SourceForm {
+  url: string;
   name: string;
-  config: string;
+  format: string;
   enabled: boolean;
-  sourceDocument: string;
-  editing?: SubscriptionSource;
-  kind: SubscriptionSourceKind;
-  format: SubscriptionSourceFormat;
+  interval: string;
+  source?: SubscriptionSource;
 }
-
-function parseObject(value: string, invalidJSONMessage: string, invalidObjectMessage: string): JsonObject {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(value);
-  } catch {
-    throw new Error(invalidJSONMessage);
-  }
-  if (parsed === null || Array.isArray(parsed) || typeof parsed !== 'object') {
-    throw new Error(invalidObjectMessage);
-  }
-  return parsed as JsonObject;
+function newSource(): SourceForm {
+  return {
+    name: '',
+    url: '',
+    format: 'auto',
+    interval: '360',
+    enabled: true,
+  };
 }
 
 export function SubscriptionSourcePanel() {
-  const { i18n, t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const client = useApiClient();
-  const [sources, setSources] = useState<SubscriptionSourceSummary[] | null>(null);
-  const [next, setNext] = useState<SubscriptionCursor>();
-  const [loadError, setLoadError] = useState<unknown>(null);
-  const [draft, setDraft] = useState<SourceDraft | null>(null);
-  const [actionError, setActionError] = useState('');
-  const [deleteCandidateID, setDeleteCandidateID] = useState<string | null>(null);
-  const [message, setMessage] = useState('');
-  const [acceptedTaskID, setAcceptedTaskID] = useState<string | null>(null);
+  const [sources, setSources] = useState<SubscriptionSourceSummary[]>([]);
+  const [nodes, setNodes] = useState<SubscriptionNodeSummary[]>([]);
+  const [selected, setSelected] = useState<string | null>(null);
+  const [tab, setTab] = useState<'nodes' | 'settings'>('nodes');
+  const [search, setSearch] = useState('');
+  const [size, setSize] = useState(10);
+  const [page, setPage] = useState(1);
+  const [error, setError] = useState<unknown>(null);
   const [busy, setBusy] = useState(false);
-  const [versions, setVersions] = useState<SubscriptionSourceVersion[]>([]);
-  const [versionSource, setVersionSource] = useState<SubscriptionSourceSummary | null>(null);
-  const [versionNext, setVersionNext] = useState<SubscriptionCursor>();
-  const [selectedVersion, setSelectedVersion] = useState<SubscriptionSourceVersion | null>(null);
-  const [restoreEvidence, setRestoreEvidence] = useState<SourceRestoreEvidence | null>(null);
-  const [loadingVersionID, setLoadingVersionID] = useState<string | null>(null);
-  const [loadingMore, setLoadingMore] = useState(false);
-  const [loadingOlderVersions, setLoadingOlderVersions] = useState(false);
-  const loadGenerationRef = useRef(0);
-  const loadingMoreRef = useRef(false);
-  const loadingOlderVersionsRef = useRef(false);
-  const dateTimeFormatter = useMemo(
-    () => new Intl.DateTimeFormat(i18n.resolvedLanguage ?? i18n.language ?? 'en', {
-      dateStyle: 'medium',
-      timeStyle: 'short',
-    }),
-    [i18n.language, i18n.resolvedLanguage],
-  );
-  const numberFormatter = useMemo(
-    () => new Intl.NumberFormat(i18n.resolvedLanguage ?? i18n.language ?? 'en'),
-    [i18n.language, i18n.resolvedLanguage],
-  );
-
-  const load = useCallback(async (signal?: AbortSignal, cursor?: SubscriptionCursor, append = false) => {
-    const generation = ++loadGenerationRef.current;
-    if (!append) {
-      setSources(null);
-      setNext(undefined);
-    }
-    try {
-      setLoadError(null);
-      const result = await client.listSubscriptionSources({
-        limit: 50,
-        beforeTime: cursor?.created_at,
-        beforeID: cursor?.id,
-      }, signal);
-      if (!signal?.aborted && generation === loadGenerationRef.current) {
-        setSources((current) => append ? [...(current ?? []), ...result.items] : result.items);
-        setNext(result.next);
+  const [editor, setEditor] = useState<{ node: SubscriptionNodeSummary | null } | null>(null);
+  const [form, setForm] = useState<SourceForm | null>(null);
+  const [creating, setCreating] = useState(false);
+  const [deleteConfirm, setDeleteConfirm] = useState(false);
+  const [formError, setFormError] = useState('');
+  const lifetimeRef = useRef<AbortController | null>(null);
+  const requestRef = useRef(0);
+  const load = useCallback(
+    async (signal?: AbortSignal) => {
+      const generation = ++requestRef.current;
+      try {
+        const all: SubscriptionSourceSummary[] = [];
+        let cursor: { created_at: string; id: string } | undefined;
+        do {
+          const result = await client.listSubscriptionSources(
+            {
+              limit: 100,
+              beforeID: cursor?.id,
+              beforeTime: cursor?.created_at,
+            },
+            signal,
+          );
+          all.push(...result.items);
+          cursor = result.next;
+        } while (cursor && all.length < 10_000 && !signal?.aborted);
+        const catalog = await client.getSubscriptionNodeCatalog(signal);
+        if (!signal?.aborted && generation === requestRef.current) {
+          setSources(all);
+          setNodes(catalog.nodes);
+          setError(null);
+        }
+      } catch (reason) {
+        if (!signal?.aborted && generation === requestRef.current) setError(reason);
       }
-    } catch (error) {
-      if (!signal?.aborted && generation === loadGenerationRef.current) {
-        if (!append) setSources(null);
-        setLoadError(error);
-      }
-    }
-  }, [client]);
-
+    },
+    [client],
+  );
   useEffect(() => {
     const controller = new AbortController();
-    void load(controller.signal);
-    return () => controller.abort();
+    lifetimeRef.current = controller;
+    let timer: ReturnType<typeof setTimeout>;
+    const poll = async () => {
+      await load(controller.signal);
+      if (!controller.signal.aborted) timer = setTimeout(() => void poll(), 15000);
+    };
+    void poll();
+    return () => {
+      clearTimeout(timer);
+      controller.abort();
+      requestRef.current += 1;
+    };
   }, [load]);
+  const signal = () => lifetimeRef.current?.signal;
+  const reload = () => void load(signal());
 
-  function startCreate() {
-    setDraft({ enabled: true, format: 'auto', kind: 'local', name: '', config: '{}', sourceDocument: '' });
-    setActionError('');
-    setMessage('');
-    setAcceptedTaskID(null);
+  function openSource(id: string) {
+    setSelected(id);
+    setTab('nodes');
+    setSearch('');
+    setForm(null);
+    setFormError('');
   }
-
-  async function startEdit(summary: SubscriptionSourceSummary) {
+  async function openSettings() {
+    if (!selected || selected === 'manual') return;
     setBusy(true);
-    setActionError('');
-    setMessage('');
-    setAcceptedTaskID(null);
+    setFormError('');
     try {
-      const source = await client.getSubscriptionSource(summary.id);
-      setDraft({
-        editing: source,
-        enabled: source.enabled,
-        kind: source.source_kind,
+      const source = await client.getSubscriptionSource(selected, signal());
+      if (signal()?.aborted) return;
+      setForm({
+        source,
         name: source.name,
-        config: JSON.stringify(source.config, null, 2),
-        format: 'auto',
-        sourceDocument: '',
+        enabled: source.enabled,
+        url: typeof source.config.url === 'string' ? source.config.url : '',
+        format: typeof source.config.format === 'string' ? source.config.format : 'auto',
+        interval: String(source.config.refresh_interval_minutes ?? 0),
       });
-    } catch (error) {
-      setActionError(describeRequestError(error));
+      setTab('settings');
+    } catch (reason) {
+      if (!signal()?.aborted) toast.add({ title: describeRequestError(reason), type: 'error' });
     } finally {
-      setBusy(false);
+      if (!signal()?.aborted) setBusy(false);
     }
   }
-
-  async function saveMetadata() {
-    if (draft === null) return;
-    try {
-      if (draft.name.trim() === '') throw new Error(t('subscriptions.source.validation.name'));
-      const config = parseObject(
-        draft.config,
-        t('subscriptions.source.validation.configJSON'),
-        t('subscriptions.source.validation.configObject'),
-      );
-      setBusy(true);
-      setActionError('');
-      setAcceptedTaskID(null);
-      if (draft.editing) {
-        await client.updateSubscriptionSource(draft.editing.id, {
-          name: draft.name.trim(), source_kind: draft.kind, config, enabled: draft.enabled,
-        }, draft.editing.updated_at);
-        setMessage(t('subscriptions.source.message.updated', { name: draft.name.trim() }));
-      } else {
-        const created = await client.createSubscriptionSource({
-          name: draft.name.trim(), source_kind: draft.kind, config,
-          enabled: draft.enabled,
-        });
-        if (draft.sourceDocument.trim() !== '') {
-          try {
-            await client.createSubscriptionSourceVersion(
-              created.id, draft.format, draft.sourceDocument, created.updated_at,
-            );
-          } catch (error) {
-            setDraft({ ...draft, editing: created });
-            setMessage(t('subscriptions.source.message.createdWithoutVersion', { name: created.name }));
-            setActionError(describeRequestError(error));
-            await load();
-            return;
-          }
-        }
-        setMessage(t('subscriptions.source.message.created', { name: draft.name.trim() }));
-      }
-      setDraft(null);
-      await load();
-    } catch (error) {
-      setActionError(describeRequestError(error));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function saveSourceVersion() {
-    if (!draft?.editing) return;
-    try {
-      if (draft.sourceDocument.trim() === '') throw new Error(t('subscriptions.source.validation.document'));
-      setBusy(true);
-      setActionError('');
-      setAcceptedTaskID(null);
-      const saved = await client.createSubscriptionSourceVersion(
-        draft.editing.id,
-        draft.format,
-        draft.sourceDocument,
-        draft.editing.updated_at,
-      );
-      setDraft({ ...draft, editing: saved.source, sourceDocument: '' });
-      setMessage(t('subscriptions.source.message.activated', {
-        format: saved.version.format,
-        name: saved.source.name,
-      }));
-      await load();
-    } catch (error) {
-      setActionError(describeRequestError(error));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function refresh(source: SubscriptionSourceSummary) {
-    try {
-      setBusy(true);
-      setActionError('');
-      setMessage('');
-      setAcceptedTaskID(null);
-      const task = await client.refreshSubscriptionSource(source.id);
-      setAcceptedTaskID(task.id);
-      setMessage(t('subscriptions.source.message.refreshAccepted', { id: task.id }));
-    } catch (error) {
-      setActionError(describeRequestError(error));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function showVersions(source: SubscriptionSourceSummary) {
-    try {
-      setBusy(true);
-      setRestoreEvidence(null);
-      const page = await client.listSubscriptionSourceVersions(source.id, { limit: 100 });
-      setVersionSource(source);
-      setVersions(page.items);
-      setVersionNext(page.next);
-      setSelectedVersion(null);
-    } catch (error) {
-      setActionError(describeRequestError(error));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function inspectVersion(version: SubscriptionSourceVersion) {
-    try {
-      setLoadingVersionID(version.id);
-      setActionError('');
-      setSelectedVersion(await client.getSubscriptionSourceVersion(version.source_id, version.id));
-    } catch (error) {
-      setActionError(describeRequestError(error));
-    } finally {
-      setLoadingVersionID(null);
-    }
-  }
-
-  async function prepareRestore(version: SubscriptionSourceVersion) {
-    if (versionSource === null) return;
-    const requestedSourceID = versionSource.id;
-    try {
-      setBusy(true);
-      setActionError('');
-      setMessage('');
-      setAcceptedTaskID(null);
-      const [source, exactVersion] = await Promise.all([
-        client.getSubscriptionSource(requestedSourceID),
-        client.getSubscriptionSourceVersion(requestedSourceID, version.id),
-      ]);
-      if (
-        source.id !== requestedSourceID
-        || exactVersion.source_id !== requestedSourceID
-        || exactVersion.id !== version.id
-      ) {
-        throw new Error(t('subscriptions.source.version.restoreIdentityMismatch'));
-      }
-      setRestoreEvidence({
-        sourceID: source.id,
-        sourceName: source.name,
-        sourceUpdatedAt: source.updated_at,
-        versionID: exactVersion.id,
-        versionSHA256: exactVersion.sha256,
-      });
-    } catch (error) {
-      setActionError(describeRequestError(error));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function restore(evidence: SourceRestoreEvidence) {
-    try {
-      setBusy(true);
-      setActionError('');
-      const source = await client.restoreSubscriptionSourceVersion(
-        evidence.sourceID,
-        evidence.versionID,
-        evidence.sourceUpdatedAt,
-      );
-      setMessage(t('subscriptions.source.message.restored', {
-        name: evidence.sourceName,
-        version: evidence.versionID,
-      }));
-      await Promise.all([load(), showVersions({ ...source, has_version: true })]);
-    } catch (error) {
-      setActionError(describeRequestError(error));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function remove(source: SubscriptionSourceSummary) {
+  async function refresh(sourceIDs: string[]) {
+    if (busy) return;
     setBusy(true);
-    setActionError('');
-    setAcceptedTaskID(null);
     try {
-      await client.deleteSubscriptionSource(source.id, source.updated_at);
-      setMessage(t('subscriptions.source.message.deleted', { name: source.name }));
-      setDeleteCandidateID(null);
-      await load();
-    } catch (error) {
-      setActionError(describeRequestError(error));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function loadMore() {
-    if (next === undefined || loadingMoreRef.current) return;
-    loadingMoreRef.current = true;
-    setLoadingMore(true);
-    try {
-      await load(undefined, next, true);
-    } finally {
-      loadingMoreRef.current = false;
-      setLoadingMore(false);
-    }
-  }
-
-  async function loadOlderVersions() {
-    if (versionSource === null || versionNext === undefined || loadingOlderVersionsRef.current) return;
-    loadingOlderVersionsRef.current = true;
-    setLoadingOlderVersions(true);
-    try {
-      const page = await client.listSubscriptionSourceVersions(versionSource.id, {
-        beforeID: versionNext.id,
-        beforeTime: versionNext.created_at,
-        limit: 100,
+      const results = await Promise.allSettled(
+        sourceIDs.map(async (id) => {
+          const currentSignal = signal();
+          if (!currentSignal) return;
+          const task = await client.refreshSubscriptionSource(id, currentSignal);
+          const completed = await waitForTask(client, task, currentSignal);
+          if (completed.status !== 'succeeded') throw new Error(t('subscriptions.sources.refreshFailed'));
+        }),
+      );
+      if (signal()?.aborted) return;
+      const failed = results.filter((value) => value.status === 'rejected').length;
+      toast.add({
+        title: failed
+          ? t('subscriptions.sources.refreshFailed')
+          : t('subscriptions.sources.refreshed'),
+        type: failed ? 'error' : 'success',
       });
-      setVersions((current) => [...current, ...page.items]);
-      setVersionNext(page.next);
-    } catch (error) {
-      setActionError(describeRequestError(error));
+      await load(signal());
     } finally {
-      loadingOlderVersionsRef.current = false;
-      setLoadingOlderVersions(false);
+      if (!signal()?.aborted) setBusy(false);
     }
   }
-
+  async function saveSource() {
+    if (!form || busy) return;
+    setBusy(true);
+    setFormError('');
+    try {
+      if (!form.name.trim()) throw new Error(t('subscriptions.source.validation.name'));
+      const remote = !form.source || form.source.source_kind === 'remote';
+      if (remote && !/^https?:\/\//i.test(form.url)) throw new Error(t('subscriptions.sources.urlRequired'));
+      const config = remote
+        ? {
+            ...form.source?.config,
+            url: form.url,
+            format: form.format,
+            refresh_interval_minutes: Number(form.interval),
+          }
+        : form.source!.config;
+      const input = {
+        name: form.name.trim(),
+        source_kind: remote ? ('remote' as const) : ('local' as const),
+        config,
+        enabled: form.enabled,
+      };
+      if (form.source) {
+        const result = await client.updateSubscriptionSource(
+          form.source.id,
+          input,
+          form.source.updated_at,
+          signal(),
+        );
+        if (!signal()?.aborted) setForm({ ...form, source: result });
+      } else {
+        await client.createSubscriptionSource(input, signal());
+        if (!signal()?.aborted) {
+          setCreating(false);
+          setForm(null);
+        }
+      }
+      if (!signal()?.aborted) {
+        toast.add({ title: t('subscriptions.sources.saved'), type: 'success' });
+        await load(signal());
+      }
+    } catch (reason) {
+      if (!signal()?.aborted) setFormError(describeRequestError(reason));
+    } finally {
+      if (!signal()?.aborted) setBusy(false);
+    }
+  }
+  async function deleteSource() {
+    if (!form?.source || busy) return;
+    setBusy(true);
+    try {
+      await client.deleteSubscriptionSource(form.source.id, form.source.updated_at, signal());
+      if (signal()?.aborted) return;
+      setDeleteConfirm(false);
+      setSelected(null);
+      setForm(null);
+      setTab('nodes');
+      toast.add({ title: t('subscriptions.sources.deleted'), type: 'success' });
+      await load(signal());
+    } catch (reason) {
+      if (!signal()?.aborted) toast.add({ title: describeRequestError(reason), type: 'error' });
+    } finally {
+      if (!signal()?.aborted) setBusy(false);
+    }
+  }
+  async function toggle(node: SubscriptionNodeSummary) {
+    if (busy) return;
+    setBusy(true);
+    try {
+      const updated = await client.setSubscriptionNodeVisibility(
+        node.id,
+        !node.hidden,
+        node.visibility_revision,
+        signal(),
+      );
+      if (!signal()?.aborted) setNodes((values) => values.map((value) => (value.id === node.id ? updated : value)));
+    } catch (reason) {
+      if (!signal()?.aborted) toast.add({ title: describeRequestError(reason), type: 'error' });
+    } finally {
+      if (!signal()?.aborted) setBusy(false);
+    }
+  }
+  const fields = form && (
+    <div className='subscription-settings-fields'>
+      <label htmlFor='source-name'>{t('subscriptions.common.name')}</label>
+      <input
+        disabled={busy}
+        id='source-name'
+        onChange={(event) => setForm({ ...form, name: event.target.value })}
+        value={form.name}
+      />
+      {(!form.source || form.source.source_kind === 'remote') && (
+        <>
+          <label htmlFor='source-url'>{t('subscriptions.sources.url')}</label>
+          <input
+            autoComplete='off'
+            disabled={busy}
+            id='source-url'
+            onChange={(event) => setForm({ ...form, url: event.target.value })}
+            placeholder='https://'
+            type='url'
+            value={form.url}
+          />
+          <label htmlFor='source-format'>{t('subscriptions.channel.field.format')}</label>
+          <select
+            disabled={busy}
+            id='source-format'
+            onChange={(event) => setForm({ ...form, format: event.target.value })}
+            value={form.format}
+          >
+            <option value='auto'>{t('subscriptions.sources.auto')}</option>
+            <option value='sing-box-json'>sing-box JSON</option>
+            <option value='mihomo-yaml'>Mihomo YAML</option>
+            <option value='uri-list'>URI</option>
+          </select>
+          <label htmlFor='source-interval'>{t('subscriptions.sources.interval')}</label>
+          <select
+            disabled={busy}
+            id='source-interval'
+            onChange={(event) => setForm({ ...form, interval: event.target.value })}
+            value={form.interval}
+          >
+            {[...new Set(['0', '60', '360', '720', '1440', form.interval])].map((value) => (
+              <option key={value} value={value}>
+                {value === '0' ? t('subscriptions.sources.onDemand') : `${value} min`}
+              </option>
+            ))}
+          </select>
+        </>
+      )}
+      <label htmlFor='source-enabled'>{t('subscriptions.common.enable')}</label>
+      <input
+        checked={form.enabled}
+        disabled={busy}
+        id='source-enabled'
+        onChange={(event) => setForm({ ...form, enabled: event.target.checked })}
+        type='checkbox'
+      />
+    </div>
+  );
+  const localSourceIDs = new Set(
+    sources.filter((source) => source.source_kind === 'local').map((source) => source.id),
+  );
+  const inManualCollection = (node: SubscriptionNodeSummary) =>
+    node.origin !== 'source' || localSourceIDs.has(node.source_id);
+  const displayedSources = [
+    {
+      id: 'manual',
+      name: t('subscriptions.nodes.manual'),
+      source_kind: 'local',
+      updated_at: '',
+      enabled: true,
+    },
+    ...sources.filter((source) => source.source_kind === 'remote'),
+  ].filter((source) => source.name.toLowerCase().includes(search.toLowerCase()));
+  const pages = Math.max(1, Math.ceil(displayedSources.length / size));
+  const current = Math.min(page, pages);
   return (
-    <section className='subscription-panel' id='subscription-sources' aria-labelledby='subscription-sources-title'>
-      <div className='subscription-panel__heading'>
-        <div>
-          <h2 id='subscription-sources-title'>{t('subscriptions.source.title')}</h2>
-          <p>{t('subscriptions.source.description')}</p>
-        </div>
-        <span className='count-label'>
-          {t('subscriptions.source.loadedCount', {
-            count: numberFormatter.format(sources?.length ?? 0),
-          })}
-        </span>
-        <button className='button button--primary' onClick={startCreate} type='button'>{t('subscriptions.source.attach')}</button>
-      </div>
-      {draft === null && versionSource === null
-        ? <ActionError message={actionError} title={t('subscriptions.source.actionFailed')} />
-        : null}
-      {loadError === null ? null : <ErrorNotice error={loadError} title={t('subscriptions.source.loadFailed')} />}
-      {message === '' || draft !== null
-        ? null
-        : (
-            <div className='notice notice--success' role='status'>
-              <strong>{t('subscriptions.source.updated')}</strong>
-              <p>{message}</p>
-              {acceptedTaskID === null
-                ? null
-                : <Link className='text-button' to='/tasks'>{t('subscriptions.source.message.viewTask')}</Link>}
-            </div>
-          )}
-      {sources === null ? <div className='inline-loading' aria-busy='true'>{t('subscriptions.source.loading')}</div> : null}
-      {sources?.length === 0
-        ? (
-            <div className='empty-state'>
-              <strong>{t('subscriptions.source.empty.title')}</strong>
-              <p>{t('subscriptions.source.empty.description')}</p>
-            </div>
-          )
-        : null}
-      {sources && sources.length > 0
-        ? (
-            <div className='entity-table-wrap'>
-              <table className='data-table'>
-                <thead>
-                  <tr>
-                    <th>{t('subscriptions.common.name')}</th>
-                    <th>{t('subscriptions.source.field.kind')}</th>
-                    <th>{t('subscriptions.source.column.currentVersion')}</th>
-                    <th>{t('subscriptions.common.actions')}</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {sources.map((source) => (
-                    <tr key={source.id}>
-                      <td data-label={t('subscriptions.common.name')}>
-                        <strong>{source.name}</strong>
-                        <small className='table-subline'>{source.enabled ? t('common.enabled') : t('common.disabled')}</small>
-                      </td>
-                      <td data-label={t('subscriptions.source.field.kind')}><code>{t(`subscriptions.source.kind.${source.source_kind}`)}</code></td>
-                      <td data-label={t('subscriptions.source.column.currentVersion')}>
-                        {source.current_version_id ? <code>{source.current_version_id}</code> : t('subscriptions.common.none')}
-                      </td>
-                      <td data-label={t('subscriptions.common.actions')}>
-                        {deleteCandidateID === source.id
-                          ? (
-                              <div
-                                aria-label={t('subscriptions.source.delete.confirmationAria', { name: source.name })}
-                                className='inline-confirmation'
-                                role='group'
-                              >
-                                <span className='inline-confirmation__prompt'>{t('subscriptions.source.delete.prompt')}</span>
-                                <button
-                                  aria-label={t('subscriptions.source.delete.confirmAria', { name: source.name })}
-                                  className='button button--danger button--small'
-                                  disabled={busy}
-                                  onClick={() => void remove(source)}
-                                  type='button'
-                                >
-                                  {busy ? t('subscriptions.common.deleting') : t('subscriptions.common.confirmDelete')}
-                                </button>
-                                <button
-                                  aria-label={t('subscriptions.source.delete.keepAria', { name: source.name })}
-                                  autoFocus
-                                  className='text-button'
-                                  disabled={busy}
-                                  onClick={() => setDeleteCandidateID(null)}
-                                  type='button'
-                                >
-                                  {t('subscriptions.source.delete.keep')}
-                                </button>
-                              </div>
-                            )
-                          : (
-                              <div className='table-actions'>
-                                <button className='text-button' disabled={busy} onClick={() => void startEdit(source)} type='button'>{t('common.edit')}</button>
-                                <button className='text-button' disabled={busy || source.source_kind !== 'remote'} onClick={() => void refresh(source)} type='button'>{t('subscriptions.source.refresh')}</button>
-                                <button className='text-button' disabled={busy} onClick={() => void showVersions(source)} type='button'>{t('subscriptions.source.versions')}</button>
-                                <button
-                                  aria-label={t('subscriptions.source.delete.actionAria', { name: source.name })}
-                                  className='text-button text-button--danger'
-                                  disabled={busy}
-                                  onClick={() => setDeleteCandidateID(source.id)}
-                                  type='button'
-                                >
-                                  {t('common.delete')}
-                                </button>
-                              </div>
-                            )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )
-        : null}
-      {next
-        ? (
-            <button
-              aria-busy={loadingMore}
-              className='button button--secondary'
-              disabled={busy || loadingMore}
-              onClick={() => void loadMore()}
-              type='button'
+    <section className='subscription-source-workspace'>
+      {error != null && <ErrorNotice error={error} title={t('subscriptions.source.loadFailed')} />}
+      <div className='subscription-source-toolbar'>
+        {selected && (
+          <div className='subscription-detail-tabs'>
+            <Button
+              disabled={busy}
+              onClick={() => {
+                setSelected(null);
+                setSearch('');
+                setForm(null);
+                setFormError('');
+              }}
+              variant='ghost'
             >
-              {loadingMore ? t('subscriptions.source.loadingMore') : t('subscriptions.source.loadMore')}
-            </button>
-          )
-        : null}
-      <Dialog open={draft !== null} onOpenChange={(open) => {
-        if (!open && !busy) setDraft(null);
-      }}>
-        <DialogContent className='subscription-editor-dialog subscription-source-dialog'>
-          <form className='subscription-dialog-form' onSubmit={(event) => {
-            event.preventDefault();
-            void saveMetadata();
-          }}>
-            <DialogHeader>
-              <DialogTitle>
-                {draft?.editing
-                  ? t('subscriptions.source.edit', { name: draft.editing.name })
-                  : t('subscriptions.source.attach')}
-              </DialogTitle>
-              <DialogDescription>
-                {t('subscriptions.source.editorDescription')}
-              </DialogDescription>
-            </DialogHeader>
-            <ActionError message={actionError} title={t('subscriptions.source.actionFailed')} />
-            {message === '' ? null : <div className='notice notice--success' role='status'>{message}</div>}
-            {draft === null
-              ? null
-              : (
-                  <div className='subscription-dialog-form__body'>
-                    <div className='form-grid'>
-                      <div className='field-group'>
-                        <label htmlFor='source-name'>{t('subscriptions.common.name')}</label>
-                        <input id='source-name' maxLength={128} onChange={(event) => setDraft({ ...draft, name: event.target.value })} value={draft.name} />
-                      </div>
-                      <div className='field-group'>
-                        <label htmlFor='source-kind'>{t('subscriptions.source.field.kind')}</label>
-                        <select id='source-kind' onChange={(event) => setDraft({ ...draft, kind: event.target.value as SubscriptionSourceKind })} value={draft.kind}>
-                          <option value='local'>{t('subscriptions.source.kind.local')}</option>
-                          <option value='remote'>{t('subscriptions.source.kind.remote')}</option>
-                        </select>
-                      </div>
-                    </div>
-                    <div className='field-group'>
-                      <label htmlFor='source-config'>{t('subscriptions.source.field.config')}</label>
-                      <textarea className='data-editor' id='source-config' onChange={(event) => setDraft({ ...draft, config: event.target.value })} rows={5} spellCheck={false} value={draft.config} />
-                      <span>
-                        {t('subscriptions.source.field.configHelp')}
-                      </span>
-                    </div>
-                    <div className='field-group'>
-                      <label htmlFor='source-format'>{t('subscriptions.source.field.format')}</label>
-                      <select id='source-format' onChange={(event) => setDraft({ ...draft, format: event.target.value as SubscriptionSourceFormat })} value={draft.format}>
-                        <option value='auto'>{t('subscriptions.source.format.auto')}</option>
-                        <option value='sing-box-json'>{t('subscriptions.source.format.singBoxJSON')}</option>
-                        <option value='mihomo-yaml'>{t('subscriptions.source.format.mihomoYAML')}</option>
-                        <option value='uri-list'>{t('subscriptions.source.format.links')}</option>
-                      </select>
-                    </div>
-                    <div className='field-group'>
-                      <label htmlFor='source-document'>{t('subscriptions.source.field.document')}</label>
-                      <textarea className='data-editor' id='source-document' onChange={(event) => setDraft({ ...draft, sourceDocument: event.target.value })} rows={7} spellCheck={false} value={draft.sourceDocument} />
-                      <span>
-                        {draft.editing
-                          ? t('subscriptions.source.field.documentEditHelp')
-                          : t('subscriptions.source.field.documentCreateHelp')}
-                      </span>
-                    </div>
-                    <label className='check-field'>
-                      <input checked={draft.enabled} onChange={(event) => setDraft({ ...draft, enabled: event.target.checked })} type='checkbox' />
-                      <span>
-                        <strong>{t('subscriptions.source.field.enabled')}</strong>
-                        <small>{t('subscriptions.source.field.enabledHelp')}</small>
-                      </span>
-                    </label>
+              {t('subscriptions.sources.back')}
+            </Button>
+            {selected !== 'manual' && (
+              <>
+                <Button
+                  aria-selected={tab === 'nodes'}
+                  onClick={() => setTab('nodes')}
+                  role='tab'
+                  variant={tab === 'nodes' ? 'secondary' : 'ghost'}
+                >
+                  {t('subscriptions.sources.nodes')}
+                </Button>
+                <Button
+                  aria-selected={tab === 'settings'}
+                  disabled={busy}
+                  onClick={() => void openSettings()}
+                  role='tab'
+                  variant={tab === 'settings' ? 'secondary' : 'ghost'}
+                >
+                  {t('subscriptions.sources.settings')}
+                </Button>
+              </>
+            )}
+          </div>
+        )}
+        {tab === 'nodes' || !selected
+          ? (
+              <>
+                <div className='subscription-search'>
+                  <Search aria-hidden='true' />
+                  <input
+                    aria-label={t('subscriptions.sources.search')}
+                    onChange={(event) => {
+                      setSearch(event.target.value);
+                      setPage(1);
+                    }}
+                    placeholder={t('subscriptions.sources.search')}
+                    value={search}
+                  />
+                </div>
+                <div className='subscription-toolbar-actions'>
+                  <Button
+                    aria-label={t('subscriptions.sources.refresh')}
+                    disabled={busy}
+                    onClick={() =>
+                      selected === 'manual'
+                        ? reload()
+                        : void refresh(
+                          selected
+                            ? [selected]
+                            : sources
+                                .filter((source) => source.enabled && source.source_kind === 'remote')
+                                .map((source) => source.id),
+                        )
+                    }
+                    size='icon'
+                    variant='ghost'
+                  >
+                    <RefreshCw aria-hidden='true' className={busy ? 'animate-spin' : ''} />
+                  </Button>
+                  {(!selected || selected === 'manual') && (
+                    <Button
+                      aria-label={t(
+                        selected ? 'subscriptions.nodes.add' : 'subscriptions.source.attach',
+                      )}
+                      disabled={busy}
+                      onClick={() =>
+                        selected
+                          ? setEditor({ node: null })
+                          : (setForm(newSource()), setCreating(true), setFormError(''))
+                      }
+                      size='icon'
+                      variant='ghost'
+                    >
+                      <Plus aria-hidden='true' />
+                    </Button>
+                  )}
+                </div>
+              </>
+            )
+          : null}
+      </div>
+      {selected
+        ? (
+            tab === 'settings' && form
+              ? (
+                  <div className='subscription-source-settings'>
+                    {formError && (
+                      <p role='alert' className='subscription-form-error'>
+                        {formError}
+                      </p>
+                    )}
+                    {fields}
+                    <footer>
+                      <Button disabled={busy} onClick={() => setDeleteConfirm(true)} variant='secondary'>
+                        {t('subscriptions.sources.delete')}
+                      </Button>
+                      <Button disabled={busy} onClick={() => void saveSource()} variant='secondary'>
+                        {t('subscriptions.sources.save')}
+                      </Button>
+                    </footer>
                   </div>
-                )}
-            <DialogFooter className='subscription-dialog-actions'>
-              <button className='button button--secondary' disabled={busy} onClick={() => setDraft(null)} type='button'>{t('common.cancel')}</button>
-              {draft?.editing
-                ? <button className='button button--secondary' disabled={busy} onClick={() => void saveSourceVersion()} type='button'>{t('subscriptions.source.validateVersion')}</button>
-                : null}
-              <button className='button button--primary' disabled={busy || draft === null} type='submit'>
-                {busy
-                  ? t('subscriptions.common.saving')
-                  : draft?.editing ? t('subscriptions.source.saveMetadata') : t('subscriptions.source.attach')}
-              </button>
-            </DialogFooter>
-          </form>
+                )
+              : (
+                  <SubscriptionNodeGrid
+                    busy={busy}
+                    nodes={nodes.filter((node) =>
+                      selected === 'manual' ? inManualCollection(node) : node.source_id === selected,
+                    )}
+                    onOpen={(node) => setEditor({ node })}
+                    onVisibility={(node) => void toggle(node)}
+                    search={search}
+                  />
+                )
+          )
+        : (
+            <>
+              <div className='subscription-source-table-scroll'>
+                <table className='subscription-source-table'>
+                  <thead>
+                    <tr>
+                      <th>{t('subscriptions.tabs.sources')}</th>
+                      <th>{t('subscriptions.sources.nodes')}</th>
+                      <th>{t('subscriptions.sources.updated')}</th>
+                      <th>{t('subscriptions.common.actions')}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {displayedSources.slice((current - 1) * size, current * size).map((source) => (
+                      <tr key={source.id}>
+                        <td>
+                          <button
+                            onClick={() => openSource(source.id)}
+                            title={source.name}
+                            type='button'
+                          >
+                            {source.name}
+                          </button>
+                        </td>
+                        <td>
+                          {
+                            nodes.filter((node) =>
+                              source.id === 'manual'
+                                ? inManualCollection(node)
+                                : node.source_id === source.id,
+                            ).length
+                          }
+                        </td>
+                        <td>
+                          {source.updated_at
+                            ? new Intl.DateTimeFormat(i18n.language, {
+                                dateStyle: 'short',
+                                timeStyle: 'short',
+                              }).format(new Date(source.updated_at))
+                            : '—'}
+                        </td>
+                        <td>
+                          <Button disabled={busy} onClick={() => openSource(source.id)} variant='ghost'>
+                            {t('subscriptions.sources.edit')}
+                          </Button>
+                          <Button
+                            disabled={
+                              busy || (source.id !== 'manual' && source.source_kind !== 'remote')
+                            }
+                            onClick={() =>
+                              source.id === 'manual' ? reload() : void refresh([source.id])
+                            }
+                            variant='ghost'
+                          >
+                            {t('subscriptions.sources.refresh')}
+                          </Button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <footer className='subscription-pagination'>
+                <select
+                  aria-label={t('subscriptions.keys.pageSize')}
+                  onChange={(event) => {
+                    setSize(Number(event.target.value));
+                    setPage(1);
+                  }}
+                  value={size}
+                >
+                  {[5, 10, 50].map((value) => (
+                    <option key={value} value={value}>
+                      {t('subscriptions.keys.perPage', { count: value })}
+                    </option>
+                  ))}
+                </select>
+                <div>
+                  <Button
+                    aria-label={t('subscriptions.keys.previous')}
+                    disabled={current === 1}
+                    onClick={() => setPage(current - 1)}
+                    size='icon'
+                    variant='ghost'
+                  >
+                    <ChevronLeft />
+                  </Button>
+                  <span aria-current='page'>{current}</span>
+                  <Button
+                    aria-label={t('subscriptions.keys.next')}
+                    disabled={current === pages}
+                    onClick={() => setPage(current + 1)}
+                    size='icon'
+                    variant='ghost'
+                  >
+                    <ChevronRight />
+                  </Button>
+                </div>
+              </footer>
+            </>
+          )}
+      {editor && (
+        <SubscriptionNodeEditor
+          candidates={nodes}
+          node={editor.node}
+          onClose={() => setEditor(null)}
+          onSaved={reload}
+        />
+      )}
+      <Dialog
+        onOpenChange={(open) => {
+          if (!open && !busy) {
+            setCreating(false);
+            setForm(null);
+          }
+        }}
+        open={creating}
+      >
+        <DialogContent className='subscription-source-dialog'>
+          <DialogHeader>
+            <DialogTitle>{t('subscriptions.source.attach')}</DialogTitle>
+            <DialogDescription className='sr-only'>
+              {t('subscriptions.sources.url')}
+            </DialogDescription>
+          </DialogHeader>
+          {formError && (
+            <p role='alert' className='subscription-form-error'>
+              {formError}
+            </p>
+          )}
+          {fields}
+          <DialogFooter>
+            <Button
+              disabled={busy}
+              onClick={() => {
+                setCreating(false);
+                setForm(null);
+              }}
+              variant='secondary'
+            >
+              {t('common.cancel')}
+            </Button>
+            <Button disabled={busy} onClick={() => void saveSource()} variant='secondary'>
+              {t('subscriptions.sources.save')}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
-
-      <Sheet open={versionSource !== null} onOpenChange={(open) => {
-        if (!open && !loadingOlderVersions) {
-          setRestoreEvidence(null);
-          setVersionSource(null);
-          setVersionNext(undefined);
-          setSelectedVersion(null);
-        }
-      }}>
-        <SheetContent className='subscription-detail-sheet subscription-version-sheet' side='right'>
-          <SheetHeader>
-            <SheetTitle>{versionSource?.name ?? t('subscriptions.source.version.history')}</SheetTitle>
-            <SheetDescription>
-              {versionSource === null
-                ? t('subscriptions.source.version.historyDescription')
-                : t('subscriptions.source.version.historySummary', {
-                    count: numberFormatter.format(versions.length),
-                    id: versionSource.id,
-                  })}
-            </SheetDescription>
-          </SheetHeader>
-          <ActionError message={actionError} title={t('subscriptions.source.version.actionFailed')} />
-          <div className='subscription-detail-sheet__body subscription-version-list'>
-            {versions.length === 0
-              ? <div className='empty-state'>{t('subscriptions.source.version.empty')}</div>
-              : null}
-            {versions.map((version) => (
-              <article className='subscription-version-row' key={version.id}>
-                <div>
-                  <code>{version.id}</code>
-                  <span>
-                    {version.format}
-                    {' · '}
-                    {dateTimeFormatter.format(new Date(version.fetched_at))}
-                  </span>
-                </div>
-                <div className='inline-actions'>
-                  <button
-                    className='text-button'
-                    disabled={busy || loadingOlderVersions || loadingVersionID !== null}
-                    onClick={() => void inspectVersion(version)}
-                    type='button'
-                  >
-                    {loadingVersionID === version.id ? t('subscriptions.common.loading') : t('subscriptions.common.inspect')}
-                  </button>
-                  <button className='text-button' disabled={busy || loadingOlderVersions || version.id === versionSource?.current_version_id} onClick={() => void prepareRestore(version)} type='button'>
-                    {version.id === versionSource?.current_version_id
-                      ? t('subscriptions.source.version.current')
-                      : t('subscriptions.source.version.restore')}
-                  </button>
-                </div>
-              </article>
-            ))}
-          </div>
-          <SheetFooter>
-            {versionNext === undefined
-              ? null
-              : (
-                  <button
-                    aria-busy={loadingOlderVersions}
-                    className='button button--secondary'
-                    disabled={busy || loadingOlderVersions}
-                    onClick={() => void loadOlderVersions()}
-                    type='button'
-                  >
-                    {loadingOlderVersions
-                      ? t('subscriptions.source.version.loadingOlder')
-                      : t('subscriptions.source.version.loadOlder')}
-                  </button>
-                )}
-            <button className='button button--secondary' disabled={loadingOlderVersions} onClick={() => {
-              setVersionSource(null);
-              setVersionNext(undefined);
-              setSelectedVersion(null);
-            }} type='button'>
-              {t('subscriptions.detail.close')}
-            </button>
-          </SheetFooter>
-        </SheetContent>
-      </Sheet>
-
-      <AlertDialog
-        onOpenChange={(open) => {
-          if (!open) setRestoreEvidence(null);
-        }}
-        open={restoreEvidence !== null}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>{t('subscriptions.source.version.confirmRestoreTitle')}</AlertDialogTitle>
-            <AlertDialogDescription>
-              {t('subscriptions.source.version.confirmRestoreDescription', {
-                name: restoreEvidence?.sourceName ?? '',
-                sha256: restoreEvidence?.versionSHA256 ?? '',
-                source: restoreEvidence?.sourceID ?? '',
-                updatedAt: restoreEvidence?.sourceUpdatedAt ?? '',
-                version: restoreEvidence?.versionID ?? '',
-              })}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
-            <AlertDialogAction
-              disabled={busy || restoreEvidence === null
-                || versionSource?.id !== restoreEvidence.sourceID}
-              onClick={() => {
-                if (restoreEvidence === null) return;
-                const evidence = restoreEvidence;
-                setRestoreEvidence(null);
-                void restore(evidence);
-              }}
-            >
-              {t('subscriptions.source.version.confirmRestoreAction')}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-
-      <Dialog open={selectedVersion !== null} onOpenChange={(open) => {
-        if (!open) setSelectedVersion(null);
-      }}>
-        <DialogContent className='subscription-version-dialog'>
+      <Dialog onOpenChange={(open) => !busy && setDeleteConfirm(open)} open={deleteConfirm}>
+        <DialogContent>
           <DialogHeader>
-            <DialogTitle>{selectedVersion?.id ?? t('subscriptions.source.version.detail')}</DialogTitle>
-            <DialogDescription>{t('subscriptions.source.version.description')}</DialogDescription>
+            <DialogTitle>{t('subscriptions.sources.delete')}</DialogTitle>
+            <DialogDescription>
+              {t('subscriptions.sources.deletePrompt', { name: form?.name })}
+            </DialogDescription>
           </DialogHeader>
-          {selectedVersion === null
-            ? null
-            : (
-                <div className='subscription-version-dialog__body'>
-                  <dl className='subscription-detail__grid'>
-                    <div>
-                      <dt>{t('subscriptions.source.version.format')}</dt>
-                      <dd>{selectedVersion.format}</dd>
-                    </div>
-                    <div>
-                      <dt>{t('subscriptions.source.version.sha256')}</dt>
-                      <dd><code>{selectedVersion.sha256}</code></dd>
-                    </div>
-                    <div>
-                      <dt>{t('subscriptions.source.version.nodes')}</dt>
-                      <dd>{numberFormatter.format(selectedVersion.normalized_nodes.length)}</dd>
-                    </div>
-                    <div>
-                      <dt>{t('subscriptions.source.version.diagnosticCount')}</dt>
-                      <dd>{numberFormatter.format(selectedVersion.diagnostics.length)}</dd>
-                    </div>
-                  </dl>
-                  <div className='subscription-version-detail__body'>
-                    <section>
-                      <h3>{t('subscriptions.source.version.sourceDocument')}</h3>
-                      <pre>{selectedVersion.raw_body ?? t('subscriptions.source.version.missingBody')}</pre>
-                    </section>
-                    <section>
-                      <h3>{t('subscriptions.source.version.diagnostics')}</h3>
-                      <pre>
-                        {JSON.stringify({
-                          diagnostics: selectedVersion.diagnostics,
-                          normalized_nodes: selectedVersion.normalized_nodes,
-                        }, null, 2)}
-                      </pre>
-                    </section>
-                  </div>
-                </div>
-              )}
+          <DialogFooter>
+            <Button disabled={busy} onClick={() => setDeleteConfirm(false)} variant='secondary'>
+              {t('common.cancel')}
+            </Button>
+            <Button disabled={busy} onClick={() => void deleteSource()} variant='secondary'>
+              {t('subscriptions.sources.delete')}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </section>

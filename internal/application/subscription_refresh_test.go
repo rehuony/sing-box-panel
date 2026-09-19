@@ -11,7 +11,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/rehuony/sing-box-panel/internal/settings"
 	"github.com/rehuony/sing-box-panel/internal/store"
@@ -93,8 +92,7 @@ func TestRemoteSubscriptionSourceConfigRequiresExplicitScheduleMinimum(t *testin
 		t.Fatal(err)
 	}
 	tasks, err := database.ListTasks(ctx, store.TaskListFilter{Kind: store.TaskKindSubscriptionSourceRefresh})
-	if err != nil || len(tasks.Items) != 1 || tasks.Items[0].NotBefore == nil ||
-		!tasks.Items[0].NotBefore.Equal(app.now().UTC().Add(15*time.Minute)) ||
+	if err != nil || len(tasks.Items) != 1 || tasks.Items[0].NotBefore != nil ||
 		!strings.Contains(string(tasks.Items[0].Payload), scheduled.ID) {
 		t.Fatalf("scheduled refresh tasks=%+v err=%v", tasks, err)
 	}

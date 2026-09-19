@@ -1,5 +1,5 @@
 import type { HttpApiContext } from './shared';
-import type { ApiClient, CreatedSubscriptionToken, SubscriptionChannel, SubscriptionChannelPage, SubscriptionNodeCatalog, SubscriptionPreview, SubscriptionSource, SubscriptionSourcePage, SubscriptionSourceVersion, SubscriptionSourceVersionPage, SubscriptionSourceVersionSave, SubscriptionToken, SubscriptionTokenPage, SubscriptionTokenRotation, SubscriptionUser, SubscriptionUserGrants, SubscriptionUserPage, Task } from '../api-client';
+import type { ApiClient, CreatedSubscriptionToken, SubscriptionChannel, SubscriptionChannelPage, SubscriptionNodeCatalog, SubscriptionNodeDetail, SubscriptionNodeSummary, SubscriptionPreview, SubscriptionSource, SubscriptionSourcePage, SubscriptionSourceVersion, SubscriptionSourceVersionPage, SubscriptionSourceVersionSave, SubscriptionToken, SubscriptionTokenPage, SubscriptionTokenRotation, SubscriptionUser, SubscriptionUserGrants, SubscriptionUserPage, Task } from '../api-client';
 
 function utf8Base64(value: string): string {
   const bytes = new TextEncoder().encode(value);
@@ -66,17 +66,20 @@ export function createSubscriptionHttpApi(context: HttpApiContext) {
         },
       );
     },
-    previewSubscriptionChannel(channelID, userID, signal) {
-      return request<SubscriptionPreview>(
+    async previewSubscriptionChannel(channelID, userID, signal, draft) {
+      const preview = await request<SubscriptionPreview>(
         fetcher,
         `${baseUrl}/subscription/channels/${encodeURIComponent(channelID)}/preview`,
         {
           method: 'POST',
-          body: JSON.stringify({ user_id: userID }),
+          body: JSON.stringify({ user_id: userID, draft }),
           headers: writeJSONHeaders(),
           signal,
         },
       );
+      // OpenAPI format: byte is Base64 on the wire; UI/demo contracts expose UTF-8 text.
+      const bytes = Uint8Array.from(atob(preview.result.content), value => value.charCodeAt(0));
+      return { ...preview, result: { ...preview.result, content: new TextDecoder('utf-8', { fatal: true }).decode(bytes) } };
     },
     listSubscriptionUsers(filter = {}, signal) {
       const query = buildQuery({
@@ -116,6 +119,35 @@ export function createSubscriptionHttpApi(context: HttpApiContext) {
         method: 'DELETE',
         headers: writeHeaders({ 'If-Match': quoteETag(updatedAt) }),
         signal,
+      });
+    },
+    getSubscriptionNode(id, signal) {
+      return request<SubscriptionNodeDetail>(fetcher, `${baseUrl}/subscription/nodes/${encodeURIComponent(id)}`, { signal });
+    },
+    createSubscriptionNode(outboundJSON, signal) {
+      return request<SubscriptionNodeDetail>(fetcher, `${baseUrl}/subscription/nodes`, {
+        method: 'POST', body: `{ "outbound": ${outboundJSON} }`, headers: writeJSONHeaders(), signal,
+      });
+    },
+    updateSubscriptionNode(id, outboundJSON, revision, signal) {
+      return request<SubscriptionNodeDetail>(fetcher, `${baseUrl}/subscription/nodes/${encodeURIComponent(id)}`, {
+        method: 'PUT', body: `{ "outbound": ${outboundJSON}, "revision": ${JSON.stringify(revision)} }`,
+        headers: writeJSONHeaders(), signal,
+      });
+    },
+    deleteSubscriptionNode(id, revision, signal) {
+      return request<void>(fetcher, `${baseUrl}/subscription/nodes/${encodeURIComponent(id)}`, {
+        method: 'DELETE', body: JSON.stringify({ revision }), headers: writeJSONHeaders(), signal,
+      });
+    },
+    setSubscriptionNodeVisibility(id, hidden, revision, signal) {
+      return request<SubscriptionNodeSummary>(fetcher, `${baseUrl}/subscription/nodes/${encodeURIComponent(id)}/visibility`, {
+        method: 'PUT', body: JSON.stringify({ hidden, revision }), headers: writeJSONHeaders(), signal,
+      });
+    },
+    parseSubscriptionNode(text, signal) {
+      return request<{ outbound_json: string }>(fetcher, `${baseUrl}/subscription/nodes/parse`, {
+        method: 'POST', body: JSON.stringify({ text }), headers: writeJSONHeaders(), signal,
       });
     },
     getSubscriptionNodeCatalog(signal) {
@@ -265,6 +297,7 @@ export function createSubscriptionHttpApi(context: HttpApiContext) {
             user_id: input.userID,
             label: input.label,
             expires_at: input.expiresAt,
+            download_limit: input.downloadLimit,
           }),
           headers: writeJSONHeaders(),
           signal,

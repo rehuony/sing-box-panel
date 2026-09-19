@@ -33,17 +33,38 @@ func renderSingBox(nodes startupNodes, diagnostics []RenderDiagnostic) (RenderRe
 			}
 		}
 	}
-	for changed := true; changed; {
-		changed = false
-		for _, value := range values {
-			if !eligible[value.tag] {
-				continue
+	// Resolve each dependency chain once; cycles and chains reaching an invalid
+	// node are ineligible. Iteration avoids recursion on untrusted long chains.
+	resolved := make(map[string]bool, len(values))
+	for _, value := range values {
+		if resolved[value.tag] {
+			continue
+		}
+		path := []string{}
+		visiting := map[string]bool{}
+		tag, valid := value.tag, true
+		for {
+			if resolved[tag] || !eligible[tag] {
+				valid = eligible[tag]
+				break
 			}
-			detour, exists := value.value["detour"].(string)
-			if exists && !eligible[detour] {
-				eligible[value.tag] = false
-				diagnosticCodes[value.tag] = DiagnosticUnresolvedDependency
-				changed = true
+			if visiting[tag] {
+				valid = false
+				break
+			}
+			visiting[tag] = true
+			path = append(path, tag)
+			detour, exists := byTag[tag].value["detour"].(string)
+			if !exists {
+				break
+			}
+			tag = detour
+		}
+		for _, tag := range path {
+			resolved[tag] = true
+			eligible[tag] = valid
+			if !valid {
+				diagnosticCodes[tag] = DiagnosticUnresolvedDependency
 			}
 		}
 	}

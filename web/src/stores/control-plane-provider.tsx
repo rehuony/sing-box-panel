@@ -8,6 +8,7 @@ import { useApiClient } from '@/api/api-client-context';
 import type { ControlPlaneState, ControlPlaneValue } from './control-plane.store';
 
 import { ControlPlaneContext } from './control-plane.store';
+import { CanonicalDraftProvider } from './canonical-draft-provider';
 
 export interface ControlPlaneProviderProps {
   children: ReactNode;
@@ -78,5 +79,9 @@ export function ControlPlaneProvider({ children }: ControlPlaneProviderProps) {
     [refresh, selectedViewVersion, setViewVersion, state],
   );
 
-  return <ControlPlaneContext value={value}>{children}</ControlPlaneContext>;
+  return (
+    <ControlPlaneContext value={value}>
+      <CanonicalDraftProvider>{children}</CanonicalDraftProvider>
+    </ControlPlaneContext>
+  );
 }

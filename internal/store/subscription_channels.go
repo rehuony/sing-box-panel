@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/rehuony/sing-box-panel/internal/jsonstrict"
+	"github.com/rehuony/sing-box-panel/internal/subscription"
 )
 
 type SubscriptionFormat string
@@ -26,8 +27,9 @@ const (
 
 // SubscriptionChannelConfig is the strict, renderer-owned channel policy.
 type SubscriptionChannelConfig struct {
-	ExcludeTags  []string `json:"exclude_tags,omitempty"`
-	ExcludeTypes []string `json:"exclude_types,omitempty"`
+	Policy       *subscription.ChannelPolicy `json:"policy,omitempty"`
+	ExcludeTags  []string                    `json:"exclude_tags,omitempty"`
+	ExcludeTypes []string                    `json:"exclude_types,omitempty"`
 }
 
 type SubscriptionChannel struct {
@@ -260,11 +262,11 @@ func DecodeSubscriptionChannelConfig(raw json.RawMessage) (SubscriptionChannelCo
 		return SubscriptionChannelConfig{}, errors.New("subscription channel config must be a non-null JSON object")
 	}
 	var config SubscriptionChannelConfig
-	if err := jsonstrict.Decode(raw, maximumSubscriptionConfigBytes, &config); err != nil {
+	if err := jsonstrict.Decode(raw, maximumChannelConfigBytes, &config); err != nil {
 		return SubscriptionChannelConfig{}, fmt.Errorf("subscription channel config: %w", err)
 	}
 	var fields map[string]json.RawMessage
-	if err := jsonstrict.Decode(raw, maximumSubscriptionConfigBytes, &fields); err != nil || fields == nil {
+	if err := jsonstrict.Decode(raw, maximumChannelConfigBytes, &fields); err != nil || fields == nil {
 		return SubscriptionChannelConfig{}, errors.New("subscription channel config must be a non-null JSON object")
 	}
 	for name, value := range fields {
@@ -287,6 +289,16 @@ func DecodeSubscriptionChannelConfig(raw json.RawMessage) (SubscriptionChannelCo
 	if err := validateUniqueSubscriptionStrings(config.ExcludeTypes, validSubscriptionType, "type"); err != nil {
 		return SubscriptionChannelConfig{}, err
 	}
+	if p := config.Policy; p != nil {
+		p.Selection.IDs = append([]string{}, p.Selection.IDs...)
+		p.Selection.ExcludedIDs = append([]string{}, p.Selection.ExcludedIDs...)
+		p.Organizer.ExcludeNames = append([]string{}, p.Organizer.ExcludeNames...)
+		p.Groups = append([]subscription.RuleGroup{}, p.Groups...)
+		for i := range p.Groups {
+			p.Groups[i].NodeIDs = append([]string{}, p.Groups[i].NodeIDs...)
+			p.Groups[i].Rules = append([]subscription.ChannelRule{}, p.Groups[i].Rules...)
+		}
+	}
 	return config, nil
 }
 
@@ -304,7 +316,7 @@ func prepareNewSubscriptionChannel(channel SubscriptionChannel) (SubscriptionCha
 	if err != nil {
 		return SubscriptionChannel{}, err
 	}
-	config, err := canonicalChannelConfig(channel.Config)
+	config, err := canonicalChannelConfig(channel.Config, channel.Format)
 	if err != nil {
 		return SubscriptionChannel{}, err
 	}
@@ -337,7 +349,7 @@ func prepareSubscriptionChannelUpdate(
 	if err != nil {
 		return UpdateSubscriptionChannelInput{}, err
 	}
-	config, err := canonicalChannelConfig(input.Config)
+	config, err := canonicalChannelConfig(input.Config, input.Format)
 	if err != nil {
 		return UpdateSubscriptionChannelInput{}, err
 	}
@@ -355,7 +367,10 @@ func prepareSubscriptionChannelUpdate(
 }
 
 func normalizeSubscriptionPublicHost(value string) (string, error) {
-	if value == "" || value != strings.TrimSpace(value) || len(value) > 253 ||
+	if value == "" {
+		return "", nil
+	}
+	if value != strings.TrimSpace(value) || len(value) > 253 ||
 		strings.ContainsAny(value, "/@?#[]") {
 		return "", errors.New("subscription channel public_host must be a normalized host without scheme or port")
 	}

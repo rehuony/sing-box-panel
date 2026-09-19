@@ -140,7 +140,11 @@ func (application *Application) RefreshCatalog(ctx context.Context, options Cata
 			return CatalogSnapshot{}, stateErr
 		}
 	}
-	client, err := catalog.NewGitHubClient(catalog.ClientOptions{Token: application.settings.GitHub.Token})
+	currentSettings, err := application.EffectiveSettings(ctx)
+	if err != nil {
+		return CatalogSnapshot{}, err
+	}
+	client, err := catalog.NewGitHubClient(catalog.ClientOptions{Token: currentSettings.GitHub.Token})
 	if err != nil {
 		return CatalogSnapshot{}, err
 	}

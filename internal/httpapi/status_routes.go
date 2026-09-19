@@ -2,11 +2,14 @@
 
 package httpapi
 
-import "net/http"
+import (
+	"net/http"
+	"runtime"
+)
 
 func (handler *Handler) systemStatus(w http.ResponseWriter, request *http.Request) {
 	if handler.status == nil {
-		writeJSON(w, http.StatusOK, SystemStatus{PanelVersion: handler.build.Version, ConfigurationState: "unavailable"})
+		writeJSON(w, http.StatusOK, SystemStatus{Platform: SystemPlatform{OS: runtime.GOOS, Arch: runtime.GOARCH}, PanelVersion: handler.build.Version, ConfigurationState: "unavailable"})
 		return
 	}
 	status, err := handler.status.SystemStatus(request.Context())
@@ -14,6 +17,7 @@ func (handler *Handler) systemStatus(w http.ResponseWriter, request *http.Reques
 		writeProblem(w, request, http.StatusServiceUnavailable, "status_unavailable", "Status unavailable", "The current system status could not be loaded.")
 		return
 	}
+	status.Platform = SystemPlatform{OS: runtime.GOOS, Arch: runtime.GOARCH}
 	writeJSON(w, http.StatusOK, status)
 }
 

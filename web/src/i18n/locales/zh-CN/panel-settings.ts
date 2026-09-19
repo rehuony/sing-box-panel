@@ -1,0 +1,18 @@
+export const panelSettings = {
+  title: '面板配置', security: '服务与安全', nodes: '节点与订阅', appearance: '统计与外观',
+  access: '面板访问', authentication: '管理认证', updates: '版本更新', publication: '节点发布', identity: '协议身份',
+  traffic: '流量统计', interface: '界面外观', languageGroup: '显示语言',
+  listenHost: '监听地址', listenPort: '监听端口', origin: '访问域名', originHelp: '填写完整访问来源，如 https://panel.example.com。监听与访问来源变更在重启面板后生效。',
+  managementToken: '管理令牌', change: '更换', newToken: '新令牌', confirmToken: '确认令牌', tokenHelp: '32–8192 个 UTF-8 字节，首尾不能有空白。保存后旧令牌和登录会话失效，请使用新令牌重新登录。',
+  tokenInvalid: '请输入 32–8192 个 UTF-8 字节，不能包含首尾空白、换行或空字符。',
+  github: 'GitHub Token', githubHelp: '可选，用于获取官方 GitHub 版本列表。认证请求可提高速率限制，具体额度以 GitHub 响应为准。留空保留已有凭据。',
+  configured: '已配置，留空保留', optional: '未配置', remove: '移除', removed: '保存后移除', undo: '撤销',
+  publicHost: '节点对外地址', publicHostHelp: '填写域名或公网 IP，不包含协议和端口。仅替换本机发布节点的连接地址，不改变监听、SNI 或证书。',
+  autoHost: '自动获取公网 IP', identityName: '身份名称', identityKey: '身份密钥', identityHelp: '更改身份后保存会更新 config.json 中的同名默认用户，重启 sing-box 后生效。名称留空使用 panel；保留已有其他用户和无需认证的监听器。协议混淆密钥仍在对应协议中设置。',
+  identitySaved: '身份已保存，重启 sing-box 后加载新的节点凭据',
+  quota: '总流量额度', unlimited: '不限制', theme: '主题样式', light: '浅色', dark: '深色', system: '跟随系统',
+  color: '主题色', customColor: '自定义颜色', hex: 'HEX 颜色值', colors: ['紫色', '蓝色', '青色', '绿色', '橙色', '玫红'],
+  radius: '界面圆角', radiusHelp: '卡片和弹窗使用设定值，控件使用一半。状态点、胶囊标签和品牌图标保持原形状。',
+  reset: '恢复默认外观', language: '显示语言', save: '保存设置', saving: '保存中…', saved: '设置已保存',
+  restart: '设置已保存，监听与访问变更将在重启面板后生效', failed: '保存失败，请检查设置后重试', retry: '重新加载', cancel: '取消', tokenChanged: '令牌已更换，请重新登录',
+} as const;

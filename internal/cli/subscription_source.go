@@ -10,7 +10,7 @@ import (
 )
 
 func newSubscriptionSourceCommand(state *options, open openApplicationFunc) *cobra.Command {
-	root := group("source", "Manage attached third-party subscription sources")
+	root := group("source", "Manage upstream subscription sources attached from third parties")
 	root.AddCommand(
 		newSubscriptionSourceListCommand(state, open),
 		newSubscriptionSourceShowCommand(state, open),

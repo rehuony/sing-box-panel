@@ -56,3 +56,14 @@ export interface MetricsHistoryFilter {
   bucketSeconds: number;
   activationBundleID?: string;
 }
+
+export type { CoreLogChunk, CoreLogFile, PanelLog, PanelLogPage } from '../generated';
+export interface PanelLogFilter {
+  limit?: number;
+  since?: string;
+  until?: string;
+  search?: string;
+  level?: LogLevel;
+  beforeID?: string;
+  beforeTime?: string;
+}

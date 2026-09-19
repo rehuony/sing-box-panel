@@ -118,16 +118,13 @@ func (handler *Handler) previewSubscriptionChannel(w http.ResponseWriter, reques
 		return
 	}
 	var input struct {
-		UserID string `json:"user_id"`
+		UserID string                                `json:"user_id"`
+		Draft  *application.SubscriptionDraftPreview `json:"draft,omitempty"`
 	}
 	if !decodeStrictRequest(w, request, maximumSubscriptionRequestBytes, &input) {
 		return
 	}
-	if input.UserID == "" {
-		writeSubscriptionInvalid(w, request)
-		return
-	}
-	preview, err := handler.commands.RenderSubscriptionPreview(request.Context(), input.UserID, identifier)
+	preview, err := handler.commands.RenderSubscriptionDraft(request.Context(), input.UserID, identifier, input.Draft)
 	if err != nil {
 		writeSubscriptionProblem(w, request, "subscription_preview_failed", err)
 		return
