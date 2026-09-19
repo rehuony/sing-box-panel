@@ -4,19 +4,78 @@ package cli
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/rehuony/sing-box-panel/internal/settings"
 	"github.com/spf13/cobra"
 )
 
 func newConfigCommand(state *options) *cobra.Command {
-	root := group("config", "Show, replace, or check the panel settings file")
+	root := group("config", "Initialize, show, replace, reset, or verify panel settings")
 	root.Long = `Manage the panel settings file selected by --config.
 
 The Web UI, CLI, and manual edits share this same file. These commands do not
 open the database. Use the Web UI to manage sing-box configuration.`
-	root.AddCommand(newConfigShowCommand(state), newConfigSetCommand(state), newConfigCheckCommand(state))
+	root.AddCommand(newConfigInitCommand(state), newConfigShowCommand(state), newConfigSetCommand(state),
+		newConfigValidationCommand(state, "check"), newConfigValidationCommand(state, "verify"), newConfigUnsetCommand(state))
 	return root
+}
+
+func newConfigInitCommand(state *options) *cobra.Command {
+	var force bool
+	command := &cobra.Command{
+		Use:   "init",
+		Short: "Generate a default panel settings file with a random login token",
+		Long: `Create the settings file selected by --config using the current defaults
+and a new random login token. Create missing settings directories with private
+permissions. The data directory and database are untouched and no service starts.
+
+An existing file is preserved unless --force is specified. Forced initialization
+replaces the settings and rotates the login token; migration recovery records
+are preserved. Directories, symlinks, and pending recovery cannot be overwritten.`,
+		Example: `  sing-box-panel config init
+  sing-box-panel config init --config ./setting.json`,
+		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			value, err := settings.InitializeFile(cmd.Context(), state.settingsPath, force)
+			if err != nil {
+				return &Error{Kind: ErrorValidation, Code: "settings_initialization_failed", Message: err.Error(), Cause: err}
+			}
+			text := fmt.Sprintf("Default settings created\n  Settings     %s\n  Login token  %s", value.Path(), value.Auth.Token)
+			return writeResult(cmd.OutOrStdout(), state.format, map[string]any{
+				"initialized": true, "settings_path": value.Path(), "login_token": value.Auth.Token,
+			}, text)
+		},
+	}
+	command.Flags().BoolVar(&force, "force", false, "replace an existing settings file and generate a new login token")
+	return command
+}
+
+func newConfigUnsetCommand(state *options) *cobra.Command {
+	return &cobra.Command{
+		Use:   "unset FIELD [FIELD...]",
+		Short: "Restore selected panel settings fields to their defaults",
+		Long: `Restore one or more fields or sections to the defaults used by init.
+Use dotted names such as server.port or paths such as /server/port. Multiple
+fields are reset atomically and the complete result must remain valid. Required
+values without a default, such as auth.token, cannot be reset.
+
+Only the shared settings file changes. Startup settings take effect after a
+manual restart; resetting data_dir follows the existing data migration workflow.`,
+		Example: `  sing-box-panel config unset server.port
+  sing-box-panel config unset /subscription/provider
+  sing-box-panel config unset server.external_origin auth.secure_cookie`,
+		Args:              cobra.MinimumNArgs(1),
+		ValidArgsFunction: cobra.NoFileCompletions,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := settings.ResetFields(cmd.Context(), state.settingsPath, args); err != nil {
+				return &Error{Kind: ErrorValidation, Code: "settings_reset_failed", Message: err.Error(), Cause: err}
+			}
+			return writeResult(cmd.OutOrStdout(), state.format, map[string]any{
+				"settings_path": state.settingsPath, "saved": true, "reset_fields": args,
+			}, fmt.Sprintf("restored defaults for %s", strings.Join(args, ", ")))
+		},
+	}
 }
 
 func newConfigShowCommand(state *options) *cobra.Command {
@@ -81,16 +140,15 @@ Credentials and panel preferences use this same file at operation boundaries.`,
 	return command
 }
 
-func newConfigCheckCommand(state *options) *cobra.Command {
+func newConfigValidationCommand(state *options, name string) *cobra.Command {
 	return &cobra.Command{
-		Use:   "check",
+		Use:   name,
 		Short: "Validate the panel settings file without opening the database",
 		Long: `Validate JSON structure and panel settings values in the selected --config
 file. This reads only the file; database and environment checks run at server
 startup. It does not check the saved sing-box configuration.`,
-		Example: `  sing-box-panel config check
-  sing-box-panel config check --config ./setting.json --output json`,
-		Args: cobra.NoArgs,
+		Example: fmt.Sprintf("  sing-box-panel config %s\n  sing-box-panel config %s --config ./setting.json --output json", name, name),
+		Args:    cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if err := cmd.Context().Err(); err != nil {
 				return err

@@ -17,7 +17,7 @@ sing-box-panel
 │  ├─ catalog | refresh
 │  ├─ list | show | install | import | remove | quarantine | revoke
 │  └─ enable | status | start | stop | restart | rollback
-├─ config show | set | check
+├─ config init | show | set | unset | check | verify
 ├─ channel list | show | create | update | delete | render
 ├─ source list | show | create | update | refresh | delete
 ├─ token list | create | rotate | revoke
@@ -70,7 +70,8 @@ commands that need settings load the default path: root uses
 `$XDG_CONFIG_HOME/sing-box-panel/setting.json`, or
 `~/.config/sing-box-panel/setting.json` when XDG is unset. An explicit path
 overrides that default; commands never silently load another file. `server start`
-creates defaults at the selected path when it is missing. `config set --file`
+creates defaults at the selected path when it is missing. `config init` creates
+only default settings explicitly. `config set --file`
 can also create a selected file from validated input. Commands that read settings
 reject missing files; `config show` can display invalid text.
 Repeated flags use the last supplied value.
@@ -99,9 +100,9 @@ Database identity restricts storage operations, but does not prevent confirmed
 full-directory cleanup. Metrics read and validate `traffic.quota_gib` only when needed,
 directly from the shared settings file.
 
-`config check`, `server start`, and `systemd install --now` require the complete
+`config check/verify`, `server start`, and `systemd install --now` require the complete
 valid panel settings. Startup checks the runtime environment and database;
-`config check` reads the settings file alone. `server start` first creates default
+`config check/verify` read the settings file alone. `server start` first creates default
 settings if the selected file is absent, including parent directories, the default data directory,
 and a random management token. The settings file uses mode `0600`; new directories
 use `0700`. This also applies to an explicit `--config` path. Concurrent first
@@ -151,17 +152,30 @@ secret-bearing output.
 `config` manages the panel's `setting.json` selected by `-c/--config`.
 
 ```sh
+sing-box-panel config init --config ./setting.json
 sing-box-panel config show --config ./setting.json
 sing-box-panel config check --config ./setting.json
+sing-box-panel config verify --config ./setting.json
+sing-box-panel config unset server.port /subscription/provider --config ./setting.json
 sing-box-panel config set --config ./setting.json --file ./new-setting.json
 sing-box-panel config set --config ./setting.json --file - < ./new-setting.json
 ```
 
+- `init` generates a default settings file with a random login token, without
+  creating the data directory, opening SQLite, or starting a service. New settings
+  directories use `0700` and the file uses `0600`. Existing files are preserved;
+  `--force` explicitly replaces a regular file and generates a new token.
+  Symlinks and pending settings/data migration recovery are rejected even with
+  `--force`. Location metadata is retained for the next startup migration.
+  Text output displays the file path and login token; JSON/JSONL returns
+  `initialized: true`, `settings_path`, and `login_token`. Top-level `init` retains
+  its broader responsibility of also initializing storage.
 - `show` returns exact file bytes, even when the JSON or settings are invalid.
   JSON/JSONL returns `settings_path` and a `content` string. The content includes
   credentials; the Web UI reads and writes this same file.
-- `check` validates strict JSON and the complete panel settings contract. It
-  returns `valid: true` and `settings_path` on success. It never creates or
+- `check` and `verify` share the same implementation and validate strict JSON
+  and the complete panel settings contract.
+  They return `valid: true` and `settings_path` on success. Neither creates or
   migrates a database, checks directory availability, or runs sing-box.
 - `set --file FILE|-` replaces the complete document. Validation finishes before
   the destination is changed; invalid input leaves the existing file intact.
@@ -169,9 +183,22 @@ sing-box-panel config set --config ./setting.json --file - < ./new-setting.json
   The write is atomic with mode `0600`; new settings directories use `0700`.
   Symlinks and other non-regular destinations are rejected. The data directory
   and database are untouched. JSON/JSONL returns `saved: true` and `settings_path`.
+- `unset FIELD [FIELD...]` restores selected fields or entire sections from the
+  same defaults as `init`. Dotted names (`server.port`) and slash paths
+  (`/server/port`) select the same field. Arrays reset as a whole. Multiple
+  fields are reset in one atomic write, so related values such as
+  `server.external_origin` and `auth.secure_cookie` can be reset together.
+  The complete result must validate: unknown fields and required values without
+  defaults, including `auth.token` or the whole `auth` section, are rejected
+  without changing the file. Unselected values, including relative paths and
+  credentials, are preserved. Missing files are not initialized. JSON/JSONL
+  returns `saved: true`, `settings_path`, and `reset_fields` without their values.
+  Resetting `data_dir` selects the current effective user's default directory;
+  the old directory remains active until the existing startup migration runs.
 
-All three commands accept documents up to 1 MiB. `set` and `check` reject
-unknown fields, duplicate keys, trailing JSON, and invalid settings values.
+Settings documents are limited to 1 MiB. `set`, `unset`, `check`, and
+`verify` reject unknown fields, duplicate keys, trailing JSON, and invalid
+settings values.
 `set` can replace an invalid existing file or create a missing file; it does not
 merge fields or restart a running panel. Restart to reload startup fields such
 as the listener and data path. Tokens, Web preferences and quota are read from
@@ -188,11 +215,12 @@ pending move. These sidecars appear in `system df`; cleanup removes idle metadat
 and refuses an unfinished migration.
 Do not remove recovery material to bypass a conflict.
 
-The top-level `verify` command is removed; replace it with `config check`.
-The former sing-box `config` commands and their revision, core, and task flags
-are removed without aliases. In particular, `config check` now validates panel
-settings. Move sing-box editing, validation, and Apply workflows to the Web UI,
-and regenerate shell completions after upgrading. The Web editor continues to
+The top-level `verify` command is removed; use `config verify` or `config check`.
+The former sing-box configuration interfaces and their revision, core, and task
+flags remain removed. The current `config check`, `verify`, `set`, and `unset`
+operate only on panel settings. Move sing-box editing, validation, and Apply
+workflows to the Web UI, and regenerate shell completions after upgrading.
+The Web editor continues to
 store exact sing-box text in SQLite with revision conflict detection; this
 change does not create a separately editable sing-box file on disk.
 

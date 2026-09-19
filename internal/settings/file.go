@@ -66,6 +66,13 @@ func ReplaceContext(ctx context.Context, path string, data []byte) error {
 	if err := CheckPending(path); err != nil {
 		return err
 	}
+	if err := rememberDataLocationBeforeReplace(path); err != nil {
+		return err
+	}
+	return ReplaceLocked(path, data)
+}
+
+func rememberDataLocationBeforeReplace(path string) error {
 	// Remember the old location before publishing a new data_dir. This does not
 	// open or mutate either data directory.
 	if old, err := ConfiguredDataDir(path); err == nil {
@@ -79,7 +86,7 @@ func ReplaceContext(ctx context.Context, path string, data []byte) error {
 			return stateErr
 		}
 	}
-	return ReplaceLocked(path, data)
+	return nil
 }
 
 // ReplaceLocked requires the caller to hold Lock and coordinate any pending journal.

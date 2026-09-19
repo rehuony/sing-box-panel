@@ -289,10 +289,23 @@ func NormalizeOrigin(raw string) (string, error) {
 
 // Initialize writes a new settings file and creates its data directory.
 func Initialize(path string, overwrite bool) (Settings, error) {
+	return initialize(context.Background(), path, overwrite, true)
+}
+
+// InitializeFile creates default settings without creating the data directory
+// or opening its database. Existing files require an explicit overwrite.
+func InitializeFile(ctx context.Context, path string, overwrite bool) (Settings, error) {
+	return initialize(ctx, path, overwrite, false)
+}
+
+func initialize(ctx context.Context, path string, overwrite, createDataDirectory bool) (Settings, error) {
+	if err := ctx.Err(); err != nil {
+		return Settings{}, err
+	}
 	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
 		return Settings{}, err
 	}
-	lock, err := Lock(context.Background(), path)
+	lock, err := Lock(ctx, path)
 	if err != nil {
 		return Settings{}, err
 	}
@@ -300,12 +313,20 @@ func Initialize(path string, overwrite bool) (Settings, error) {
 	if err := CheckPending(path); err != nil {
 		return Settings{}, err
 	}
-	if !overwrite {
-		if _, err := os.Lstat(path); err == nil {
+	if location, err := ReadDataLocation(path); err == nil && location.Move != nil {
+		return Settings{}, errors.New("finish the data directory migration before initializing settings")
+	} else if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return Settings{}, err
+	}
+	if info, err := os.Lstat(path); err == nil {
+		if !overwrite {
 			return Settings{}, fmt.Errorf("settings file %q already exists: %w", path, os.ErrExist)
-		} else if !errors.Is(err, os.ErrNotExist) {
-			return Settings{}, fmt.Errorf("inspect settings %q: %w", path, err)
 		}
+		if !info.Mode().IsRegular() {
+			return Settings{}, fmt.Errorf("settings destination %q must be a regular file", path)
+		}
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return Settings{}, fmt.Errorf("inspect settings %q: %w", path, err)
 	}
 	value := Defaults()
 	value.sourcePath, err = filepath.Abs(path)
@@ -323,14 +344,19 @@ func Initialize(path string, overwrite bool) (Settings, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return Settings{}, fmt.Errorf("create settings directory: %w", err)
 	}
-	if err := os.MkdirAll(value.DataDir, 0o700); err != nil {
-		return Settings{}, fmt.Errorf("create data directory: %w", err)
+	if createDataDirectory {
+		if err := os.MkdirAll(value.DataDir, 0o700); err != nil {
+			return Settings{}, fmt.Errorf("create data directory: %w", err)
+		}
 	}
 	data, err := json.MarshalIndent(value, "", "  ")
 	if err != nil {
 		return Settings{}, fmt.Errorf("encode settings: %w", err)
 	}
 	data = append(data, '\n')
+	if err := ctx.Err(); err != nil {
+		return Settings{}, err
+	}
 	if old, err := ConfiguredDataDir(path); err == nil {
 		if err := RememberDataLocation(path, old); err != nil {
 			return Settings{}, err

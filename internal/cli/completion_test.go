@@ -118,6 +118,18 @@ func TestCompletionCandidatesIncludeDescriptions(t *testing.T) {
 	}
 }
 
+func TestConfigCompletionIncludesVerifyAndUnset(t *testing.T) {
+	stdout, _, err := execute(t, cobra.ShellCompRequestCmd, "config", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"init", "show", "set", "unset", "check", "verify"} {
+		if !strings.Contains(stdout, name+"\t") {
+			t.Fatalf("missing config completion %s: %s", name, stdout)
+		}
+	}
+}
+
 func TestBashCompletionScriptSyntax(t *testing.T) {
 	bash, err := exec.LookPath("bash")
 	if err != nil {

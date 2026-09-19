@@ -215,6 +215,132 @@ func TestPanelConfigCancellationDoesNotWrite(t *testing.T) {
 	}
 }
 
+func TestPanelConfigVerifyMatchesCheck(t *testing.T) {
+	paths := unavailableSettingsFixtures(t)
+	paths["valid"] = commandSettingsFixture(t)
+	for name, path := range paths {
+		for _, format := range []string{"text", "json", "jsonl"} {
+			check, checkErr := runPanelConfig(t, t.Context(), path, nil, "check", "-o", format)
+			verify, verifyErr := runPanelConfig(t, t.Context(), path, nil, "verify", "-o", format)
+			if check != verify || ExitCode(checkErr) != ExitCode(verifyErr) {
+				t.Fatalf("%s/%s: check and verify differ", name, format)
+			}
+		}
+	}
+}
+
+func TestPanelConfigInitOnlyGeneratesSettings(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("requires isolated user-scoped XDG defaults")
+	}
+	for _, format := range []string{"text", "json", "jsonl"} {
+		t.Run(format, func(t *testing.T) {
+			root := t.TempDir()
+			t.Setenv("XDG_DATA_HOME", filepath.Join(root, "data-home"))
+			path := filepath.Join(root, "config", "setting.json")
+			out, err := runPanelConfig(t, t.Context(), path, nil, "init", "-o", format)
+			if err != nil {
+				t.Fatal(err)
+			}
+			value, err := settings.Load(path)
+			if err != nil || value.Subscription.Provider != "default" || value.Auth.Token == "" {
+				t.Fatal("init did not generate valid defaults", err)
+			}
+			if !strings.Contains(out, value.Auth.Token) || !strings.Contains(out, path) {
+				t.Fatal("initialization summary omitted the path or token")
+			}
+			if format != "text" {
+				var result struct {
+					Initialized  bool   `json:"initialized"`
+					SettingsPath string `json:"settings_path"`
+					LoginToken   string `json:"login_token"`
+				}
+				if err := json.Unmarshal([]byte(out), &result); err != nil || !result.Initialized || result.SettingsPath != path || result.LoginToken != value.Auth.Token {
+					t.Fatal("invalid initialization result", err)
+				}
+			}
+			if _, err := os.Stat(value.DataDir); !errors.Is(err, os.ErrNotExist) {
+				t.Fatal("config init created storage", err)
+			}
+			before, _ := os.ReadFile(path)
+			if out, err := runPanelConfig(t, t.Context(), path, nil, "init"); ExitCode(err) != 3 || out != "" {
+				t.Fatal("init did not preserve the existing file", err)
+			}
+			after, _ := os.ReadFile(path)
+			if !bytes.Equal(before, after) {
+				t.Fatal("existing settings changed")
+			}
+			if _, err := runPanelConfig(t, t.Context(), path, nil, "init", "--force"); err != nil {
+				t.Fatal(err)
+			}
+			replacement, err := settings.Load(path)
+			if err != nil || replacement.Auth.Token == value.Auth.Token {
+				t.Fatal("forced initialization did not generate a new token", err)
+			}
+			for target, mode := range map[string]os.FileMode{path: 0600, filepath.Dir(path): 0700} {
+				info, err := os.Stat(target)
+				if err != nil || info.Mode().Perm() != mode {
+					t.Fatal("initialization permissions are not private", err)
+				}
+			}
+		})
+	}
+}
+
+func TestPanelConfigInitCancellationDoesNotCreateFiles(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config", "setting.json")
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	if out, err := runPanelConfig(t, ctx, path, nil, "init"); !errors.Is(err, context.Canceled) || out != "" {
+		t.Fatal("init ignored cancellation", err)
+	}
+	if _, err := os.Stat(filepath.Dir(path)); !errors.Is(err, os.ErrNotExist) {
+		t.Fatal("cancelled initialization created files", err)
+	}
+}
+
+func TestPanelConfigUnsetRestoresDefaultsWithoutOpeningStorage(t *testing.T) {
+	for _, format := range []string{"text", "json", "jsonl"} {
+		path := filepath.Join(t.TempDir(), "setting.json")
+		value := settings.Defaults()
+		value.Auth.Token = "keep-token"
+		value.DataDir = "./absent-data"
+		value.Server.Port = 8181
+		value.Subscription.Provider = "custom"
+		raw, _ := json.Marshal(value)
+		if err := os.WriteFile(path, raw, 0600); err != nil {
+			t.Fatal(err)
+		}
+		out, err := runPanelConfig(t, t.Context(), path, nil, "unset", "server.port", "/subscription/provider", "-o", format)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if format != "text" && (!strings.Contains(out, `"saved":true`) || !strings.Contains(out, `"reset_fields":["server.port","/subscription/provider"]`)) {
+			t.Fatal("invalid structured reset result", out)
+		}
+		if strings.Contains(out, value.Auth.Token) {
+			t.Fatal("reset result exposed a credential")
+		}
+		loaded, err := settings.Load(path)
+		if err != nil || loaded.Server.Port != 3000 || loaded.Subscription.Provider != "default" || loaded.Auth.Token != value.Auth.Token {
+			t.Fatal("unset did not restore selected defaults", err)
+		}
+		if _, err := os.Stat(loaded.DataDir); !errors.Is(err, os.ErrNotExist) {
+			t.Fatal("unset opened or created storage", err)
+		}
+		for _, args := range [][]string{{"unset"}, {"unset", "auth.token"}, {"unset", "unknown"}} {
+			out, err := runPanelConfig(t, t.Context(), path, nil, args...)
+			want := 3
+			if len(args) == 1 {
+				want = 2
+			}
+			if ExitCode(err) != want || out != "" {
+				t.Fatalf("invalid reset %v: %q %v", args, out, err)
+			}
+		}
+	}
+}
+
 type cancelSettingsReader struct {
 	io.Reader
 	cancel context.CancelFunc

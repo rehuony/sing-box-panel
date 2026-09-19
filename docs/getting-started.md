@@ -36,6 +36,11 @@ To prepare and inspect settings before startup, initialize them explicitly:
 ./bin/sing-box-panel config check --config ./setting.json
 ```
 
+To generate only the default configuration file, use
+`./bin/sing-box-panel config init --config ./setting.json`. It prints the generated
+login token and leaves the data directory and database untouched. Existing files
+are preserved unless `--force` is explicitly requested.
+
 `init` performs the following operations:
 
 - creates a random management token;
@@ -74,7 +79,7 @@ user it is `$XDG_DATA_HOME/sing-box-panel`, or
 `data_dir` in an explicit settings file is resolved relative to that file.
 
 The settings file is the single source for all panel settings. The Web UI,
-`config show/set/check`, and manual edits use this same file. Shared fields retain
+`config init/show/set/unset/check/verify`, and manual edits use this same file. Shared fields retain
 their existing sections; `panel` adds the public node host, protocol identity,
 language and appearance. Web saves preserve fields not exposed by its form. Changing `data_dir` moves
 existing storage on the next explicit start, with interruption recovery.
@@ -153,7 +158,7 @@ Save in the Web editor, install and select a core, then use Check and Apply.
 Concurrent saves use the current file revision and reject stale edits instead
 of merging implicitly. Invalid JSON remains a draft and blocks Check, Apply,
 Start, and Restart until corrected. Core lifecycle and artifact commands remain
-available through the CLI. The separate `config show/set/check` commands manage
+available through the CLI. The separate `config init/show/set/unset/check/verify` commands manage
 only the panel's `setting.json`; see [Panel settings](cli.md#panel-settings).
 
 Continue with [Core versions](core-versions.md), then

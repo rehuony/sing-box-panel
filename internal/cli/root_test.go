@@ -69,6 +69,9 @@ func TestHelpSectionOrder(t *testing.T) {
 		{name: "config group", args: []string{"config", "--help"}, usage: "config [flags] [command]", inherited: true, subcommands: true},
 		{name: "config set", args: []string{"config", "set", "--help"}, usage: "config set [flags]", inherited: true, examples: true},
 		{name: "config check", args: []string{"config", "check", "--help"}, usage: "config check [flags]", inherited: true, examples: true},
+		{name: "config verify", args: []string{"config", "verify", "--help"}, usage: "config verify [flags]", inherited: true, examples: true},
+		{name: "config init", args: []string{"config", "init", "--help"}, usage: "config init [flags]", inherited: true, examples: true},
+		{name: "config unset", args: []string{"config", "unset", "--help"}, usage: "config unset FIELD [FIELD...] [flags]", inherited: true, examples: true},
 		{name: "leaf flag", args: []string{"core", "install", "--help"}, usage: "core install ASSET_ID [flags]", inherited: true},
 		{name: "leaf help command", args: []string{"help", "core", "install"}, usage: "core install ASSET_ID [flags]", inherited: true},
 		{name: "period argument", args: []string{"metrics", "period", "--help"}, usage: "metrics period PERIOD_ID [flags]", inherited: true},
@@ -316,7 +319,7 @@ var visibleLeafCapabilities = []string{
 	"core catalog", "core refresh",
 	"core list", "core show", "core install", "core import", "core remove", "core quarantine", "core revoke",
 	"core enable", "core status", "core start", "core stop", "core restart", "core rollback",
-	"config show", "config set", "config check",
+	"config init", "config show", "config set", "config check", "config verify", "config unset",
 	"channel list", "channel show", "channel create", "channel update", "channel delete", "channel render",
 	"source list", "source show", "source create", "source update", "source refresh", "source delete",
 	"token list", "token create", "token rotate", "token revoke",
@@ -329,8 +332,8 @@ var visibleLeafCapabilities = []string{
 }
 
 func TestCommandTreeIsAtMostTwoWordsDeepAndKeepsEveryCapability(t *testing.T) {
-	if len(visibleLeafCapabilities) != 65 {
-		t.Fatalf("inventory lists %d capabilities, want 65", len(visibleLeafCapabilities))
+	if len(visibleLeafCapabilities) != 68 {
+		t.Fatalf("inventory lists %d capabilities, want 68", len(visibleLeafCapabilities))
 	}
 	var stdout, stderr bytes.Buffer
 	root := NewRootCommand(Dependencies{Stdin: strings.NewReader(""), Stdout: &stdout, Stderr: &stderr})
@@ -365,7 +368,7 @@ func TestCommandTreeIsAtMostTwoWordsDeepAndKeepsEveryCapability(t *testing.T) {
 	for _, path := range []string{
 		"system clean", "system prn", "system file", "system files",
 		"system install", "system uninstall", "system status", "system start", "system stop", "system restart", "system logs",
-		"server run", "verify", "config export", "config import", "config validate", "config get", "config unset", "config apply",
+		"server run", "verify", "config export", "config import", "config validate", "config get", "config apply",
 		"config history", "config revision", "config diff", "config restore", "config compile", "config replace", "config revision list", "config revision show", "config revision diff", "config revision restore",
 		"core check", "core activate", "core catalog list", "core catalog refresh",
 		"subscription", "subscription channel", "subscription source", "subscription token",
@@ -419,7 +422,7 @@ func TestServerStartIsForegroundAndGroupDoesNotStart(t *testing.T) {
 
 func TestConfigCommandsOnlyExposePanelSettingsFlags(t *testing.T) {
 	root := NewRootCommand(Dependencies{})
-	for _, name := range []string{"show", "set", "check"} {
+	for _, name := range []string{"init", "show", "set", "unset", "check", "verify"} {
 		command, _, err := root.Find([]string{"config", name})
 		if err != nil {
 			t.Fatal(err)

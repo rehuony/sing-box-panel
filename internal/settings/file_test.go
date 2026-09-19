@@ -4,6 +4,7 @@ package settings
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"os"
@@ -59,6 +60,72 @@ func TestReplacePreservesNonRegularDestinations(t *testing.T) {
 				}
 			} else if _, err := os.Stat(target); !errors.Is(err, os.ErrNotExist) {
 				t.Fatal("link target created")
+			}
+		})
+	}
+}
+
+func TestInitializeFilePreservesStorageAndRecovery(t *testing.T) {
+	for _, scenario := range []string{"storage file", "symlink", "pending settings", "pending migration"} {
+		t.Run(scenario, func(t *testing.T) {
+			if scenario == "storage file" && os.Geteuid() == 0 {
+				t.Skip("requires user-scoped XDG defaults; do not write to root's real data path")
+			}
+			root := t.TempDir()
+			t.Setenv("XDG_DATA_HOME", filepath.Join(root, "data-home"))
+			path := filepath.Join(root, "setting.json")
+			value := Defaults()
+			value.DataDir = filepath.Join(root, "original-data")
+			value.Auth.Token = "keep-token"
+			before, _ := json.Marshal(value)
+			if err := os.WriteFile(path, before, 0600); err != nil {
+				t.Fatal(err)
+			}
+			switch scenario {
+			case "storage file":
+				if err := os.MkdirAll(filepath.Dir(Defaults().DataDir), 0700); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(Defaults().DataDir, []byte("sentinel"), 0600); err != nil {
+					t.Fatal(err)
+				}
+			case "symlink":
+				if err := os.Rename(path, path+".target"); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Symlink(path+".target", path); err != nil {
+					t.Fatal(err)
+				}
+			case "pending settings":
+				if err := os.WriteFile(path+".pending", []byte("pending"), 0600); err != nil {
+					t.Fatal(err)
+				}
+			case "pending migration":
+				if err := WriteDataLocation(path, DataLocation{DataDir: value.DataDir, Established: true, Move: &DataMove{ID: "pending", Target: Defaults().DataDir}}); err != nil {
+					t.Fatal(err)
+				}
+			}
+			_, err := InitializeFile(context.Background(), path, true)
+			if scenario == "storage file" {
+				if err != nil {
+					t.Fatal("file initialization accessed storage", err)
+				}
+				raw, err := os.ReadFile(Defaults().DataDir)
+				if err != nil || string(raw) != "sentinel" {
+					t.Fatal("storage was changed", err)
+				}
+				active, err := LoadDataDir(path)
+				if err != nil || active != value.DataDir {
+					t.Fatal("forced initialization lost the previous data directory", err)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatal("unsafe initialization accepted")
+			}
+			after, _ := os.ReadFile(path)
+			if !bytes.Equal(before, after) {
+				t.Fatal("unsafe initialization changed settings")
 			}
 		})
 	}
