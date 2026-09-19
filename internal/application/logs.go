@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/rehuony/sing-box-panel/internal/corelogs"
 	"github.com/rehuony/sing-box-panel/internal/store"
 )
 
@@ -145,4 +146,23 @@ func (application *Application) DeleteLog(ctx context.Context, entryID string) (
 
 func IsLogNotFound(err error) bool {
 	return errors.Is(err, store.ErrLogEntryNotFound)
+}
+
+func (application *Application) CoreLogFiles() ([]corelogs.File, error) {
+	files, err := corelogs.New(application.settings.DataDir)
+	if err != nil {
+		return nil, err
+	}
+	return files.List()
+}
+func (application *Application) CoreLogContent(name string, offset int64) (corelogs.Chunk, error) {
+	files, err := corelogs.New(application.settings.DataDir)
+	if err != nil {
+		return corelogs.Chunk{}, err
+	}
+	return files.Read(name, offset)
+}
+
+func (application *Application) PanelLogs(ctx context.Context, filter store.PanelLogFilter) (store.PanelLogPage, error) {
+	return application.database.ListPanelLogs(ctx, filter)
 }

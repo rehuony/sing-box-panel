@@ -2,6 +2,30 @@
 
 package cli
 
+import (
+	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
+)
+
+func init() {
+	cobra.AddTemplateFunc("helpFirstFlagUsages", helpFirstFlagUsages)
+}
+
+// Keep pflag's formatting and alignment while ordering only the display copy.
+func helpFirstFlagUsages(flags *pflag.FlagSet) string {
+	ordered := pflag.NewFlagSet("help", pflag.ContinueOnError)
+	ordered.SortFlags = false
+	if help := flags.Lookup("help"); help != nil {
+		ordered.AddFlag(help)
+	}
+	flags.VisitAll(func(flag *pflag.Flag) {
+		if flag.Name != "help" {
+			ordered.AddFlag(flag)
+		}
+	})
+	return ordered.FlagUsages()
+}
+
 // usageTemplate combines flags and subcommands in one usage line and lists
 // flag sections before subcommands, retaining Cobra's command usage details.
 // Setting it on the root command also applies it to descendants.
@@ -15,7 +39,7 @@ Examples:
 {{.Example}}{{end}}{{if .HasAvailableLocalFlags}}
 
 Flags:
-{{.LocalFlags.FlagUsages | trimTrailingWhitespaces}}{{end}}{{if .HasAvailableInheritedFlags}}
+{{.LocalFlags | helpFirstFlagUsages | trimTrailingWhitespaces}}{{end}}{{if .HasAvailableInheritedFlags}}
 
 Global Flags:
 {{.InheritedFlags.FlagUsages | trimTrailingWhitespaces}}{{end}}{{if .HasAvailableSubCommands}}{{$cmds := .Commands}}{{if eq (len .Groups) 0}}

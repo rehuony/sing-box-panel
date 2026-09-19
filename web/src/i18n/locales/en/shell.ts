@@ -20,3 +20,44 @@ export const shell = {
   skip: 'Skip to main content',
   version: 'v{{version}}',
 } as const;
+
+export const app = {
+  title: 'Sing-Box Panel',
+} as const;
+
+export const nav = {
+  panel: 'Panel settings',
+  configuration: 'Configuration',
+  cores: 'Versions',
+  dashboard: 'Dashboard',
+  observability: 'Runtime logs',
+  subscriptions: 'Subscriptions',
+  tasks: 'Task History',
+} as const;
+
+export const account = {
+  signOut: 'Sign out',
+  signingOut: 'Signing out…',
+} as const;
+
+export const sidebar = {
+  mobileDescription: 'Displays the mobile navigation.',
+  title: 'Navigation',
+  toggle: 'Toggle navigation',
+} as const;
+
+export const theme = {
+  cycle: 'Theme: {{current}}. Switch to {{next}}',
+  preference: {
+    dark: 'Dark',
+    light: 'Light',
+    system: 'System',
+  },
+} as const;
+
+export const language = {
+  english: 'English',
+  label: 'Language',
+  menu: 'Open language menu',
+  simplifiedChinese: '简体中文',
+} as const;

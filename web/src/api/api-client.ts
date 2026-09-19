@@ -1,8 +1,4 @@
-import type { JsonObject } from './contracts/common';
 import type { Task, TaskFilter, TaskPage } from './contracts/tasks';
-import type { DashboardContext, Session, SystemStatus } from './contracts/session';
-import type { PanelSettingsView, PanelSettingsWrite } from './contracts/panel-settings';
-import type { ConfigurationFile, ConfigurationFileWrite } from './contracts/configuration-file';
 import type {
   CanonicalChange,
   CanonicalRevisionDiff,
@@ -11,6 +7,16 @@ import type {
   CanonicalSave,
   CanonicalSnapshot,
 } from './contracts/canonical';
+import type {
+  ConfigurationFile,
+  ConfigurationFileWrite,
+  DashboardContext,
+  DynamicObject as JsonObject,
+  PanelSettingsView,
+  PanelSettingsWrite,
+  Session,
+  SystemStatus,
+} from './generated';
 import type {
   CoreLogChunk,
   CoreLogFile,
@@ -75,15 +81,26 @@ import type {
   SubscriptionUserWrite,
 } from './contracts/subscription';
 
-export * from './contracts/configuration-file';
-export * from './contracts/panel-settings';
+export type {
+  AppearanceSettings,
+  ConfigurationFile,
+  ConfigurationFileWrite,
+  DashboardContext,
+  DynamicObject as JsonObject,
+  PanelPreferences,
+  PanelSettingsView,
+  PanelSettingsWrite,
+  Session,
+  SystemStatus,
+} from './generated';
 export * from './contracts/observability';
 export * from './contracts/subscription';
 export * from './contracts/canonical';
-export * from './contracts/session';
-export * from './contracts/common';
 export * from './contracts/tasks';
+
 export * from './contracts/core';
+
+export type DashboardConfiguration = DashboardContext['configuration'];
 
 export interface ApiClient {
   logout: (signal?: AbortSignal) => Promise<void>;

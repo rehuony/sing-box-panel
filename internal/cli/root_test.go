@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -78,6 +79,13 @@ func TestHelpSectionOrder(t *testing.T) {
 			if want := "sing-box-panel " + test.usage; !found || usage != want {
 				t.Fatalf("usage = %q, want one line %q", usage, want)
 			}
+			_, flags, _ := strings.Cut(stdout, "\nFlags:\n")
+			if !strings.HasPrefix(flags, "  -h, --help ") {
+				t.Fatalf("help must be the first local flag:\n%s", flags)
+			}
+			if !strings.Contains(stdout, "-o, --output format") {
+				t.Fatalf("help is missing the lowercase output shorthand:\n%s", stdout)
+			}
 			previous := -1
 			for _, section := range []struct {
 				heading string
@@ -105,11 +113,45 @@ func TestHelpSectionOrder(t *testing.T) {
 	}
 }
 
+func TestHelpFlagsKeepStableOrder(t *testing.T) {
+	commands := [][]string{{"--help"}}
+	for _, path := range visibleLeafCapabilities {
+		commands = append(commands, append(strings.Fields(path), "--help"))
+	}
+	for _, args := range commands {
+		t.Run(strings.Join(args, " "), func(t *testing.T) {
+			stdout, stderr, err := execute(t, args...)
+			if err != nil || stderr != "" {
+				t.Fatalf("help error=%v stderr=%q", err, stderr)
+			}
+			_, after, found := strings.Cut(stdout, "\nFlags:\n")
+			flags, _, _ := strings.Cut(after, "\n\n")
+			if !found || !strings.HasPrefix(flags, "  -h, --help ") {
+				t.Fatalf("help is not first:\n%s", flags)
+			}
+			var names []string
+			for _, line := range strings.Split(flags, "\n")[1:] {
+				_, name, found := strings.Cut(line, "--")
+				if !found {
+					t.Fatalf("invalid flag usage: %q", line)
+				}
+				names = append(names, strings.Fields(name)[0])
+			}
+			if !slices.IsSorted(names) || slices.Contains(names, "help") {
+				t.Fatalf("remaining flags are unordered or help is repeated: %v", names)
+			}
+		})
+	}
+}
+
 func TestGlobalFlagsCombineWithSubcommands(t *testing.T) {
 	for _, args := range [][]string{
 		{"--output=json", "config", "validate", "--file=-"},
 		{"config", "--output=json", "validate", "--file=-"},
 		{"config", "validate", "--file=-", "--output=json"},
+		{"-o", "json", "config", "validate", "--file=-"},
+		{"config", "-o=json", "validate", "--file=-"},
+		{"config", "validate", "--file=-", "-o", "json"},
 	} {
 		t.Run(strings.Join(args, " "), func(t *testing.T) {
 			var stdout, stderr bytes.Buffer
@@ -128,6 +170,43 @@ func TestGlobalFlagsCombineWithSubcommands(t *testing.T) {
 	}
 }
 
+func TestOutputShorthand(t *testing.T) {
+	for _, format := range []string{"text", "json", "jsonl"} {
+		want, stderr, err := execute(t, "version", "--output="+format)
+		if err != nil || stderr != "" {
+			t.Fatalf("long flag error=%v stderr=%q", err, stderr)
+		}
+		for _, args := range [][]string{{"-o", format, "version"}, {"version", "-o=" + format}} {
+			t.Run(strings.Join(args, " "), func(t *testing.T) {
+				stdout, stderr, err := execute(t, args...)
+				if err != nil || stderr != "" || stdout != want {
+					t.Fatalf("shorthand stdout=%q stderr=%q error=%v, want %q", stdout, stderr, err, want)
+				}
+			})
+		}
+	}
+}
+
+func TestOutputShorthandRejectsInvalidFormat(t *testing.T) {
+	for _, args := range [][]string{
+		{"-o", "yaml", "version"}, {"version", "-o=yaml"}, {"--output=yaml", "version"},
+	} {
+		t.Run(strings.Join(args, " "), func(t *testing.T) {
+			stdout, _, err := execute(t, args...)
+			if ExitCode(err) != 2 || stdout != "" || !strings.Contains(err.Error(), "output must be text, json, or jsonl") {
+				t.Fatalf("invalid output stdout=%q error=%v", stdout, err)
+			}
+		})
+	}
+}
+
+func TestOutputShorthandRejectsUppercaseAlias(t *testing.T) {
+	stdout, _, err := execute(t, "version", "-O=json")
+	if err == nil || stdout != "" || !strings.Contains(err.Error(), "unknown shorthand flag: 'O'") {
+		t.Fatalf("uppercase shorthand stdout=%q error=%v", stdout, err)
+	}
+}
+
 func TestVersionOutput(t *testing.T) {
 	for _, test := range []struct {
 		version string
@@ -135,9 +214,12 @@ func TestVersionOutput(t *testing.T) {
 	}{
 		{"v1.2.3", "sing-box-panel v1.2.3\n"},
 		{"v1.2.3-rc.1+build.5", "sing-box-panel v1.2.3-rc.1+build.5\n"},
-		{"dev", "sing-box-panel dev\n"},
-		{"v0.0.2-0.20260919073707-361e5be561c1", "sing-box-panel dev\n"},
-		{"v0.0.2-0.20260919073707-361e5be561c1+dirty", "sing-box-panel dev\n"},
+		{"", "sing-box-panel unknown\n"},
+		{"dev", "sing-box-panel unknown\n"},
+		{"(devel)", "sing-box-panel unknown\n"},
+		{"unknown", "sing-box-panel unknown\n"},
+		{"v0.0.2-0.20260919073707-361e5be561c1", "sing-box-panel v0.0.2-0.20260919073707-361e5be561c1\n"},
+		{"v0.0.2-0.20260919073707-361e5be561c1+dirty", "sing-box-panel v0.0.2-0.20260919073707-361e5be561c1+dirty\n"},
 	} {
 		for _, format := range []string{"", "text", "json", "jsonl"} {
 			t.Run(test.version+"/"+format, func(t *testing.T) {

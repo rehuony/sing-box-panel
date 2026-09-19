@@ -4,8 +4,8 @@ import { MemoryRouter, useLocation } from 'react-router-dom';
 import { act, render, screen, waitFor } from '@testing-library/react';
 
 import '@/i18n';
-import { AppRoutes } from '@/routes';
 import { ThemeProvider } from '@/theme';
+import { AppRoutes } from '@/routes/app.routes';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { ApiClientProvider } from '@/api/api-client-context';
 import { AuthSessionProvider } from '@/stores/auth-session-provider';

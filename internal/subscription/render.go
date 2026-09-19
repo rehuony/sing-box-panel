@@ -29,3 +29,12 @@ func Render(finalStartupJSON []byte, channel RenderChannel) (RenderResult, error
 	result.Diagnostics = diagnostics
 	return result, nil
 }
+
+// RenderNodes renders only the explicitly supplied normalized nodes.
+func RenderNodes(nodes []Node, channel RenderChannel) (RenderResult, error) {
+	document, err := PublicationDocument(nodes)
+	if err != nil {
+		return RenderResult{}, invalidStartup("invalid_normalized_nodes")
+	}
+	return Render(document, channel)
+}

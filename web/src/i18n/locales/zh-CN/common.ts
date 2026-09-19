@@ -18,3 +18,7 @@ export const common = {
   retry: '重试',
   viewLoadFailed: '无法加载此视图',
 } as const;
+
+export const bootstrap = {
+  rootMissing: '未找到应用根节点',
+} as const;

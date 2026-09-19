@@ -17,7 +17,6 @@ import (
 	"github.com/rehuony/sing-box-panel/internal/store"
 	panelSystemd "github.com/rehuony/sing-box-panel/internal/systemd"
 	"github.com/spf13/cobra"
-	"golang.org/x/mod/module"
 )
 
 type Dependencies struct {
@@ -62,7 +61,7 @@ func NewRootCommand(deps Dependencies) *cobra.Command {
 	root.SetErr(deps.Stderr)
 	root.SetUsageTemplate(usageTemplate)
 	root.PersistentFlags().StringVarP(&state.settingsPath, "config", "c", settings.DefaultPath(), "settings file path")
-	root.PersistentFlags().Var(newOutputValue(&state.format), "output", "output format: text, json, or jsonl")
+	root.PersistentFlags().VarP(newOutputValue(&state.format), "output", "o", "output format: text, json, or jsonl")
 	root.AddCommand(
 		newInitCommand(state),
 		newVerifyCommand(state),
@@ -177,8 +176,9 @@ func newVersionCommand(state *options, info buildinfo.Info) *cobra.Command {
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			version := info.Version
-			if module.IsPseudoVersion(version) {
-				version = "dev"
+			switch version {
+			case "", "dev", "(devel)":
+				version = "unknown"
 			}
 			text := "sing-box-panel " + version
 			return writeResult(cmd.OutOrStdout(), state.format, info, text)

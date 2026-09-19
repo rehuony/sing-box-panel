@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Package buildinfo exposes linker-injected release metadata with VCS
-// fallbacks for local development builds.
+// Package buildinfo exposes linker-injected build metadata with VCS
+// fallbacks when metadata is not injected.
 package buildinfo
 
 import "runtime/debug"

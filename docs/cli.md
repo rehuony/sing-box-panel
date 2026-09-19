@@ -53,10 +53,18 @@ command-specific arguments. The HTTP/Web management surface
 additionally exposes subscription user profiles, grant matrices, and
 source-version history.
 
+Within Flags, `-h/--help` appears first, followed by the other flags in
+alphabetical order. Global flags and available commands retain alphabetical
+ordering.
+
 ## Global flags and output
 
 - `-c, --config PATH` selects one settings file.
-- `--output=text|json|jsonl` selects human or machine-readable output.
+- `-o, --output=text|json|jsonl` selects human or machine-readable output.
+
+Both `-o json` and `-o=json` select JSON.
+It is the same persistent flag as `--output`, so either form may appear before
+or after subcommands; `text` and `jsonl` work the same way.
 
 `-c` and `--config` are short and long forms of the same flag. When omitted,
 commands that need settings load the default path: root uses
@@ -95,9 +103,15 @@ JSONL errors contain `code`, `message`, and `exit_code`; underlying causes are
 not serialized because they may expose filesystem or upstream details.
 
 `version` prints only the program name and version, such as `sing-box-panel
-v1.2.3`. Development builds, including Go module pseudo-versions, display
-`sing-box-panel dev`. Use `version --output=json` or `--output=jsonl` for the
-full, unchanged `version`, `commit`, and `date` metadata.
+v1.2.3`. Release, prerelease, and Go module pseudo-versions are shown unchanged,
+including a `+dirty` suffix when present. A build without a usable version
+number displays `sing-box-panel unknown`. Use `version --output=json` or
+`--output=jsonl` for the full, unchanged `version`, `commit`, and `date` metadata,
+including any original placeholder values.
+
+Local `make build` uses Go's module and VCS metadata without injecting a build
+timestamp. A pseudo-version's timestamp identifies the source commit, not the
+time the binary was compiled; `+dirty` records uncommitted source changes.
 
 Complete sing-box configuration documents, subscription source definitions, and other bulk
 or secret-bearing values use `--file PATH` or `--file -` for stdin. Do not

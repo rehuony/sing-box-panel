@@ -50,6 +50,24 @@ func TestResolve(t *testing.T) {
 			want:    Info{Version: "v1.2.3", Commit: "unknown", Date: "unknown"},
 		},
 		{
+			name:    "module pseudo-version preserves source metadata",
+			initial: Info{Version: "dev", Commit: "unknown", Date: "unknown"},
+			details: &debug.BuildInfo{
+				Main: debug.Module{Version: "v0.0.2-0.20260919083243-8ebadc9a831e"},
+				Settings: []debug.BuildSetting{
+					{Key: "vcs.revision", Value: "8ebadc9a831e48a384b47eff2ae75f794c6e8238"},
+					{Key: "vcs.time", Value: "2026-09-19T08:32:43Z"},
+				},
+			},
+			want: Info{Version: "v0.0.2-0.20260919083243-8ebadc9a831e", Commit: "8ebadc9a831e48a384b47eff2ae75f794c6e8238", Date: "2026-09-19T08:32:43Z"},
+		},
+		{
+			name:    "missing metadata stays unknown",
+			initial: Info{Version: "dev", Commit: "unknown", Date: "unknown"},
+			details: &debug.BuildInfo{},
+			want:    Info{Version: "dev", Commit: "unknown", Date: "unknown"},
+		},
+		{
 			name:    "linker metadata wins",
 			initial: Info{Version: "v2.0.0", Commit: "release-commit", Date: "release-date"},
 			details: &debug.BuildInfo{

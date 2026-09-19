@@ -26,6 +26,13 @@ them automatically; they are not committed or edited by hand. The custom HTTP
 client remains hand-written. `pnpm run api:generate` performs only this OpenAPI
 generation; configuration Schema export belongs to the Vite plugin.
 
+`src/api/api-client.ts` exposes the client interface and simple generated
+transport types directly. Modules in `src/api/contracts/` own additional
+domain-specific query filters and derived types. Routes are assembled in
+`src/routes/app.routes.tsx`; complex component entries remain narrow boundaries
+around their companion files. Each locale groups navigation, account, language,
+and theme labels in `shell.ts`, with shared and startup messages in `common.ts`.
+
 Configuration contracts under `src/schemas/generated/` are exported offline
 from the committed backend Schema assets by the Vite plugin. Its manifest binds
 each exact sing-box version to one file and SHA-256 digest, and the plugin

@@ -18,3 +18,7 @@ export const common = {
   retry: 'Retry',
   viewLoadFailed: 'This view could not be loaded',
 } as const;
+
+export const bootstrap = {
+  rootMissing: 'Root element was not found',
+} as const;

@@ -2,9 +2,9 @@ import { BrowserRouter } from 'react-router-dom';
 
 import type { ApiClient } from '@/api/api-client';
 
-import { AppRoutes } from '@/routes';
 import { ThemeProvider } from '@/theme';
 import { Toaster } from '@/components/ui/toast';
+import { AppRoutes } from '@/routes/app.routes';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { ApiClientProvider } from '@/api/api-client-context';
 import { AuthSessionProvider } from '@/stores/auth-session-provider';
