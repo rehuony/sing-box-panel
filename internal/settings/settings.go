@@ -18,8 +18,6 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
-
-	"github.com/rehuony/sing-box-panel/internal/jsonstrict"
 )
 
 const maxSettingsBytes = 1 << 20
@@ -121,18 +119,15 @@ func defaultDataDir() string {
 
 // Load parses and validates one settings file.
 func Load(path string) (Settings, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return Settings{}, fmt.Errorf("read settings %q: %w", path, err)
-	}
 	var value Settings
-	if err := jsonstrict.Decode(data, maxSettingsBytes, &value); err != nil {
-		return Settings{}, fmt.Errorf("parse settings %q: %w", path, err)
+	if err := readSettings(path, &value); err != nil {
+		return Settings{}, err
 	}
-	if !filepath.IsAbs(value.DataDir) {
-		value.DataDir = filepath.Join(filepath.Dir(path), value.DataDir)
+	var err error
+	value.DataDir, err = resolveDataDir(path, value.DataDir)
+	if err != nil {
+		return Settings{}, err
 	}
-	value.DataDir = filepath.Clean(value.DataDir)
 	if value.Server.ExternalOrigin != "" {
 		origin, err := NormalizeOrigin(value.Server.ExternalOrigin)
 		if err != nil {
@@ -186,8 +181,8 @@ func (value Settings) Validate() error {
 	if value.GitHub.CatalogTTLHours < 1 || value.GitHub.CatalogTTLHours > 24*30 {
 		return errors.New("github.catalog_ttl_hours must be between 1 and 720")
 	}
-	if value.Traffic.QuotaGiB != nil && (*value.Traffic.QuotaGiB < 0 || *value.Traffic.QuotaGiB > (1<<63-1)/(1<<30)) {
-		return errors.New("traffic.quota_gib must be null or a non-negative value representable in bytes")
+	if err := ValidateTrafficQuota(value.Traffic.QuotaGiB); err != nil {
+		return err
 	}
 	if value.Traffic.PeriodMonths < 1 || value.Traffic.PeriodMonths > 120 {
 		return errors.New("traffic.period_months must be between 1 and 120")

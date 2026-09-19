@@ -62,7 +62,7 @@ func (service *fakeSystemdService) Logs(_ context.Context, request panelSystemd.
 	return service.logsResult, service.err
 }
 
-func TestSystemInstallLoadsSettingsAndReportsResolvedPaths(t *testing.T) {
+func TestSystemdInstallLoadsSettingsAndReportsResolvedPaths(t *testing.T) {
 	settingsPath := commandSettingsFixture(t)
 	service := &fakeSystemdService{installResult: panelSystemd.InstallResult{
 		Scope: panelSystemd.ScopeUser, Unit: panelSystemd.UnitName,
@@ -70,7 +70,7 @@ func TestSystemInstallLoadsSettingsAndReportsResolvedPaths(t *testing.T) {
 		ExecutablePath: "/home/test/.local/bin/sing-box-panel", Enabled: true, Started: true,
 	}}
 	stdout, stderr, err := executeSystemCommand(t, service,
-		"--config", settingsPath, "--output=json", "system", "install", "--scope=user", "--force", "--now",
+		"--config", settingsPath, "--output=json", "systemd", "install", "--scope=user", "--force", "--now",
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -94,7 +94,7 @@ func TestSystemInstallLoadsSettingsAndReportsResolvedPaths(t *testing.T) {
 	}
 }
 
-func TestSystemStatusLabelsOnDiskSourcesAndNeverClaimsLiveSettings(t *testing.T) {
+func TestSystemdStatusLabelsOnDiskSourcesAndNeverClaimsLiveSettings(t *testing.T) {
 	settingsPath := commandSettingsFixture(t)
 	absoluteSettings, _ := filepath.Abs(settingsPath)
 	unit := panelSystemd.Status{
@@ -119,7 +119,7 @@ func TestSystemStatusLabelsOnDiskSourcesAndNeverClaimsLiveSettings(t *testing.T)
 	// Unit file does not state one unambiguous path: unit state stays,
 	// storage locations are unknown.
 	service := &fakeSystemdService{statusResult: unit}
-	stdout, stderr, err := executeSystemCommand(t, service, "--config", settingsPath, "--output=json", "system", "status", "--scope=user")
+	stdout, stderr, err := executeSystemCommand(t, service, "--config", settingsPath, "--output=json", "systemd", "status", "--scope=user")
 	if err != nil || stderr != "" {
 		t.Fatalf("status error=%v stderr=%q", err, stderr)
 	}
@@ -136,7 +136,7 @@ func TestSystemStatusLabelsOnDiskSourcesAndNeverClaimsLiveSettings(t *testing.T)
 	if report.Configuration.Name != "config.json" || report.Configuration.Table != "configuration_file" || report.Configuration.DatabasePath != "" {
 		t.Fatalf("configuration location=%+v", report.Configuration)
 	}
-	text, _, err := executeSystemCommand(t, service, "--config", settingsPath, "system", "status", "--scope=user")
+	text, _, err := executeSystemCommand(t, service, "--config", settingsPath, "systemd", "status", "--scope=user")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -149,7 +149,7 @@ func TestSystemStatusLabelsOnDiskSourcesAndNeverClaimsLiveSettings(t *testing.T)
 	// Unit file names the same file the CLI selected and it loads.
 	unit.UnitFileSettingsPath = absoluteSettings
 	service = &fakeSystemdService{statusResult: unit}
-	stdout, _, err = executeSystemCommand(t, service, "--config", settingsPath, "--output=json", "system", "status", "--scope=user")
+	stdout, _, err = executeSystemCommand(t, service, "--config", settingsPath, "--output=json", "systemd", "status", "--scope=user")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -161,7 +161,7 @@ func TestSystemStatusLabelsOnDiskSourcesAndNeverClaimsLiveSettings(t *testing.T)
 		report.SettingsFile.DatabasePath != filepath.Join(loaded.DataDir, "panel.db") || report.Configuration.DatabasePath != report.SettingsFile.DatabasePath {
 		t.Fatalf("loaded report=%+v", report)
 	}
-	text, _, err = executeSystemCommand(t, service, "--config", settingsPath, "system", "status", "--scope=user")
+	text, _, err = executeSystemCommand(t, service, "--config", settingsPath, "systemd", "status", "--scope=user")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -183,7 +183,7 @@ func TestSystemStatusLabelsOnDiskSourcesAndNeverClaimsLiveSettings(t *testing.T)
 	// daemon-reload requirement is surfaced instead of calling it loaded.
 	unit.NeedDaemonReload = true
 	service = &fakeSystemdService{statusResult: unit}
-	stdout, _, err = executeSystemCommand(t, service, "--config", settingsPath, "--output=json", "system", "status", "--scope=user")
+	stdout, _, err = executeSystemCommand(t, service, "--config", settingsPath, "--output=json", "systemd", "status", "--scope=user")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -191,7 +191,7 @@ func TestSystemStatusLabelsOnDiskSourcesAndNeverClaimsLiveSettings(t *testing.T)
 	if !report.UnitFile.Stale || !report.Service.NeedDaemonReload || report.UnitFile.SettingsPath != absoluteSettings {
 		t.Fatalf("stale report=%+v", report)
 	}
-	text, _, err = executeSystemCommand(t, service, "--config", settingsPath, "system", "status", "--scope=user")
+	text, _, err = executeSystemCommand(t, service, "--config", settingsPath, "systemd", "status", "--scope=user")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -204,7 +204,7 @@ func TestSystemStatusLabelsOnDiskSourcesAndNeverClaimsLiveSettings(t *testing.T)
 	// both paths are kept, storage stays unknown, no parse detail is shown.
 	unit.UnitFileSettingsPath = filepath.Join(t.TempDir(), "missing.json")
 	service = &fakeSystemdService{statusResult: unit}
-	stdout, _, err = executeSystemCommand(t, service, "--config", settingsPath, "--output=json", "system", "status", "--scope=user")
+	stdout, _, err = executeSystemCommand(t, service, "--config", settingsPath, "--output=json", "systemd", "status", "--scope=user")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -216,11 +216,11 @@ func TestSystemStatusLabelsOnDiskSourcesAndNeverClaimsLiveSettings(t *testing.T)
 	}
 }
 
-func TestSystemControlAndLogsPreserveOutputContracts(t *testing.T) {
+func TestSystemdControlAndLogsPreserveOutputContracts(t *testing.T) {
 	service := &fakeSystemdService{controlResult: panelSystemd.ControlResult{
 		Scope: panelSystemd.ScopeSystem, Unit: panelSystemd.UnitName, Action: panelSystemd.ActionRestart,
 	}}
-	stdout, stderr, err := executeSystemCommand(t, service, "system", "restart", "--scope=system")
+	stdout, stderr, err := executeSystemCommand(t, service, "systemd", "restart", "--scope=system")
 	if err != nil || stderr != "" || !strings.Contains(stdout, "restart system") {
 		t.Fatalf("restart stdout=%q stderr=%q error=%v", stdout, stderr, err)
 	}
@@ -229,7 +229,7 @@ func TestSystemControlAndLogsPreserveOutputContracts(t *testing.T) {
 	}
 
 	service.logsResult = panelSystemd.LogsResult{Scope: panelSystemd.ScopeUser, Unit: panelSystemd.UnitName, Lines: 7, Since: "today", Text: "entry one\nentry two"}
-	stdout, stderr, err = executeSystemCommand(t, service, "system", "logs", "--scope=user", "--lines=7", "--since=today")
+	stdout, stderr, err = executeSystemCommand(t, service, "systemd", "logs", "--scope=user", "--lines=7", "--since=today")
 	if err != nil || stderr != "" || stdout != "entry one\nentry two\n" {
 		t.Fatalf("logs stdout=%q stderr=%q error=%v", stdout, stderr, err)
 	}
@@ -238,28 +238,28 @@ func TestSystemControlAndLogsPreserveOutputContracts(t *testing.T) {
 	}
 }
 
-func TestSystemErrorsHaveStableExitClasses(t *testing.T) {
+func TestSystemdErrorsHaveStableExitClasses(t *testing.T) {
 	service := &fakeSystemdService{err: panelSystemd.ErrNotInstalled}
-	_, _, err := executeSystemCommand(t, service, "system", "status", "--scope=user")
+	_, _, err := executeSystemCommand(t, service, "systemd", "status", "--scope=user")
 	if ExitCode(err) != 6 {
 		t.Fatalf("not installed exit=%d error=%v", ExitCode(err), err)
 	}
 
 	settingsPath := commandSettingsFixture(t)
 	service.err = panelSystemd.ErrPermission
-	_, _, err = executeSystemCommand(t, service, "--config", settingsPath, "system", "install", "--scope=system")
+	_, _, err = executeSystemCommand(t, service, "--config", settingsPath, "systemd", "install", "--scope=system")
 	if ExitCode(err) != 5 {
 		t.Fatalf("permission exit=%d error=%v", ExitCode(err), err)
 	}
 
 	service.err = errors.New("system bus unavailable")
-	_, _, err = executeSystemCommand(t, service, "system", "start", "--scope=system")
+	_, _, err = executeSystemCommand(t, service, "systemd", "start", "--scope=system")
 	if ExitCode(err) != 6 {
 		t.Fatalf("systemctl failure exit=%d error=%v", ExitCode(err), err)
 	}
 
 	service.err = nil
-	_, _, err = executeSystemCommand(t, service, "system", "logs", "--scope=container")
+	_, _, err = executeSystemCommand(t, service, "systemd", "logs", "--scope=container")
 	if ExitCode(err) != 2 {
 		t.Fatalf("invalid scope exit=%d error=%v", ExitCode(err), err)
 	}

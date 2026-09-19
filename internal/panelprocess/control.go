@@ -116,7 +116,7 @@ func (control *Control) serveStop(writer http.ResponseWriter, request *http.Requ
 	status := control.status
 	if status.ManagedBy == "systemd" {
 		control.mu.Unlock()
-		writeResponse(writer, response{Status: status, Error: "panel is managed by systemd; use system stop"})
+		writeResponse(writer, response{Status: status, Error: "panel is managed by systemd; use systemd stop"})
 		return
 	}
 	if control.status.State != "stopped" {

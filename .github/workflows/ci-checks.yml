@@ -47,7 +47,7 @@ jobs:
           pnpm --version
 
       - name: Build the committed Web distribution
-        run: make web-install web-build
+        run: make bootstrap web-build
 
       - name: Regenerate native schemas
         run: go tool singbox-support generate
@@ -92,11 +92,11 @@ jobs:
           corepack enable pnpm
           pnpm --version
 
-      - name: Install locked web dependencies
-        run: make web-install
+      - name: Install locked dependencies
+        run: make bootstrap
 
       - name: Run Go and contract checks
-        run: make check-go openapi-check shell-check installer-test support-check
+        run: make check-go check-contracts
 
   go-race-fuzz:
     name: Go race and fuzz smoke tests
@@ -128,8 +128,8 @@ jobs:
           corepack enable pnpm
           pnpm --version
 
-      - name: Install locked web dependencies
-        run: make web-install
+      - name: Install locked dependencies
+        run: make bootstrap
 
       - name: Run race and fuzz smoke tests
         run: make test-race fuzz-smoke
@@ -178,11 +178,11 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-${{ runner.arch }}-pnpm-
 
-      - name: Install locked web dependencies
-        run: make web-install
+      - name: Install locked dependencies
+        run: make bootstrap
 
       - name: Run Web and notice checks
-        run: make check-web notices-check
+        run: make check-web
 
   package-verify:
     name: Verify isolated Linux packaging

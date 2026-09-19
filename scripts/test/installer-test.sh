@@ -228,7 +228,7 @@ test_configuration_preservation() {
   installer_prepare_configuration "${mock_binary}" "${new_settings}" >/dev/null
   [[ -f "${new_settings}" ]] || fail "missing settings were not initialized"
   grep -Fqx "init --config ${new_settings}" "${log_path}" || fail "new settings were not initialized through the CLI"
-  if grep -Eq 'system (install|start|stop|restart)' "${log_path}"; then
+  if grep -Eq 'systemd? (install|start|stop|restart)' "${log_path}"; then
     fail "configuration preparation invoked a service command"
   fi
   pass

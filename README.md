@@ -97,10 +97,10 @@ is not already present. To install and start the audited service explicitly:
 
 ```sh
 # Regular user
-~/.local/bin/sing-box-panel system install --scope=user --now
+~/.local/bin/sing-box-panel systemd install --scope=user --now
 
-# Root/system installation
-/usr/local/bin/sing-box-panel system install --scope=system --now
+# Root/systemd installation
+/usr/local/bin/sing-box-panel systemd install --scope=system --now
 ```
 
 A user service requires administrator-enabled lingering if it must continue
@@ -136,6 +136,10 @@ the web-enabled binary:
 make bootstrap
 make check build
 ```
+
+For daily work, `make` builds `bin/sing-box-panel`, `make check` runs the ordinary
+checks, and `make fmt` formats Go sources. See [Contributing](CONTRIBUTING.md#validation)
+for focused checks and generated-file maintenance.
 
 Initialize an isolated development instance and start the server:
 

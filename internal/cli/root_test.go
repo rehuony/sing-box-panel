@@ -44,20 +44,130 @@ func TestRootShowsHelp(t *testing.T) {
 	}
 }
 
-func TestVersionJSON(t *testing.T) {
-	stdout, stderr, err := execute(t, "version", "--output=json")
-	if err != nil {
-		t.Fatal(err)
+func TestHelpSectionOrder(t *testing.T) {
+	for _, test := range []struct {
+		name        string
+		args        []string
+		usage       string
+		inherited   bool
+		subcommands bool
+	}{
+		{name: "root", usage: "[flags] [command]", subcommands: true},
+		{name: "root flag", args: []string{"--help"}, usage: "[flags] [command]", subcommands: true},
+		{name: "root short flag", args: []string{"-h"}, usage: "[flags] [command]", subcommands: true},
+		{name: "root help command", args: []string{"help"}, usage: "[flags] [command]", subcommands: true},
+		{name: "group", args: []string{"core"}, usage: "core [flags] [command]", inherited: true, subcommands: true},
+		{name: "group flag", args: []string{"core", "--help"}, usage: "core [flags] [command]", inherited: true, subcommands: true},
+		{name: "group help command", args: []string{"help", "core"}, usage: "core [flags] [command]", inherited: true, subcommands: true},
+		{name: "completion group", args: []string{"completion", "--help"}, usage: "completion [flags] [command]", inherited: true, subcommands: true},
+		{name: "system group", args: []string{"system", "--help"}, usage: "system [flags] [command]", inherited: true, subcommands: true},
+		{name: "systemd group", args: []string{"systemd", "--help"}, usage: "systemd [flags] [command]", inherited: true, subcommands: true},
+		{name: "leaf flag", args: []string{"core", "install", "--help"}, usage: "core install ASSET_ID [flags]", inherited: true},
+		{name: "leaf help command", args: []string{"help", "core", "install"}, usage: "core install ASSET_ID [flags]", inherited: true},
+		{name: "JSON pointer argument", args: []string{"config", "get", "--help"}, usage: "config get JSON_POINTER [flags]", inherited: true},
+		{name: "period argument", args: []string{"metrics", "period", "--help"}, usage: "metrics period PERIOD_ID [flags]", inherited: true},
+		{name: "optional help argument", args: []string{"help", "--help"}, usage: "help [command] [flags]", inherited: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			stdout, stderr, err := execute(t, test.args...)
+			if err != nil || stderr != "" {
+				t.Fatalf("help error=%v stderr=%q", err, stderr)
+			}
+			_, after, found := strings.Cut(stdout, "\nUsage:\n  ")
+			usage, _, _ := strings.Cut(after, "\n\n")
+			if want := "sing-box-panel " + test.usage; !found || usage != want {
+				t.Fatalf("usage = %q, want one line %q", usage, want)
+			}
+			previous := -1
+			for _, section := range []struct {
+				heading string
+				present bool
+			}{
+				{"\nUsage:\n", true},
+				{"\nFlags:\n", true},
+				{"\nGlobal Flags:\n", test.inherited},
+				{"\nAvailable Commands:\n", test.subcommands},
+				{"\nUse \"", test.subcommands},
+			} {
+				index := strings.Index(stdout, section.heading)
+				if !section.present {
+					if index != -1 {
+						t.Errorf("unexpected section %q in help:\n%s", section.heading, stdout)
+					}
+					continue
+				}
+				if index <= previous || strings.Count(stdout, section.heading) != 1 {
+					t.Fatalf("section %q is missing, duplicated, or out of order:\n%s", section.heading, stdout)
+				}
+				previous = index
+			}
+		})
 	}
-	if stderr != "" {
-		t.Fatalf("stderr = %q", stderr)
+}
+
+func TestGlobalFlagsCombineWithSubcommands(t *testing.T) {
+	for _, args := range [][]string{
+		{"--output=json", "config", "validate", "--file=-"},
+		{"config", "--output=json", "validate", "--file=-"},
+		{"config", "validate", "--file=-", "--output=json"},
+	} {
+		t.Run(strings.Join(args, " "), func(t *testing.T) {
+			var stdout, stderr bytes.Buffer
+			root := NewRootCommand(Dependencies{Stdin: strings.NewReader("{}"), Stdout: &stdout, Stderr: &stderr})
+			root.SetArgs(args)
+			if err := root.ExecuteContext(t.Context()); err != nil || stderr.Len() != 0 {
+				t.Fatalf("command error=%v stderr=%q", err, stderr.String())
+			}
+			var result struct {
+				Valid bool `json:"valid"`
+			}
+			if err := json.Unmarshal(stdout.Bytes(), &result); err != nil || !result.Valid {
+				t.Fatalf("global output flag was not applied: stdout=%q error=%v", stdout.String(), err)
+			}
+		})
 	}
-	var value buildinfo.Info
-	if err := json.Unmarshal([]byte(stdout), &value); err != nil {
-		t.Fatalf("stdout is not JSON: %v; %q", err, stdout)
-	}
-	if value.Version != "v1.2.3" || value.Commit != "abc" {
-		t.Fatalf("version = %#v", value)
+}
+
+func TestVersionOutput(t *testing.T) {
+	for _, test := range []struct {
+		version string
+		text    string
+	}{
+		{"v1.2.3", "sing-box-panel v1.2.3\n"},
+		{"v1.2.3-rc.1+build.5", "sing-box-panel v1.2.3-rc.1+build.5\n"},
+		{"dev", "sing-box-panel dev\n"},
+		{"v0.0.2-0.20260919073707-361e5be561c1", "sing-box-panel dev\n"},
+		{"v0.0.2-0.20260919073707-361e5be561c1+dirty", "sing-box-panel dev\n"},
+	} {
+		for _, format := range []string{"", "text", "json", "jsonl"} {
+			t.Run(test.version+"/"+format, func(t *testing.T) {
+				var stdout, stderr bytes.Buffer
+				info := buildinfo.Info{Version: test.version, Commit: "abc", Date: "2026-08-26"}
+				root := NewRootCommand(Dependencies{Stdout: &stdout, Stderr: &stderr, Build: info})
+				args := []string{"version"}
+				if format != "" {
+					args = append(args, "--output="+format)
+				}
+				root.SetArgs(args)
+				if err := root.ExecuteContext(t.Context()); err != nil {
+					t.Fatal(err)
+				}
+				if stderr.Len() != 0 {
+					t.Fatalf("stderr = %q", stderr.String())
+				}
+				want := test.text
+				if format == "json" || format == "jsonl" {
+					encoded, err := json.Marshal(info)
+					if err != nil {
+						t.Fatal(err)
+					}
+					want = string(encoded) + "\n"
+				}
+				if stdout.String() != want {
+					t.Fatalf("stdout = %q, want %q", stdout.String(), want)
+				}
+			})
+		}
 	}
 }
 
@@ -99,7 +209,8 @@ var visibleLeafCapabilities = []string{
 	"task list", "task show", "task wait", "task cancel",
 	"log list", "log show", "log tail", "log clear", "log delete",
 	"metrics show", "metrics watch", "metrics history", "metrics period",
-	"system files", "system clean", "system install", "system uninstall", "system status", "system start", "system stop", "system restart", "system logs",
+	"system files", "system prune",
+	"systemd install", "systemd uninstall", "systemd status", "systemd start", "systemd stop", "systemd restart", "systemd logs",
 	"completion bash", "completion zsh", "completion fish",
 }
 
@@ -138,6 +249,8 @@ func TestCommandTreeIsAtMostTwoWordsDeepAndKeepsEveryCapability(t *testing.T) {
 		t.Errorf("unexpected leaf %q", path)
 	}
 	for _, path := range []string{
+		"system clean", "system prn", "system file",
+		"system install", "system uninstall", "system status", "system start", "system stop", "system restart", "system logs",
 		"server run",
 		"config history", "config revision", "config diff", "config restore", "config compile", "config replace", "config revision list", "config revision show", "config revision diff", "config revision restore",
 		"core check", "core activate", "core catalog list", "core catalog refresh",

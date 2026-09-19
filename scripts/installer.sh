@@ -529,9 +529,9 @@ installer_print_next_steps() {
   printf '  Settings: %s\n' "${installer_settings_path}"
   printf '  Default data directory: %s\n' "${installer_default_data_dir}"
   printf '\nThe installer did not configure or start systemd. To install and start the service:\n  '
-  printf '%q system install --scope=%s --now\n' "${installer_binary_path}" "${installer_service_scope}"
+  printf '%q systemd install --scope=%s --now\n' "${installer_binary_path}" "${installer_service_scope}"
   printf 'After a later binary upgrade, restart an existing service explicitly:\n  '
-  printf '%q system restart --scope=%s\n' "${installer_binary_path}" "${installer_service_scope}"
+  printf '%q systemd restart --scope=%s\n' "${installer_binary_path}" "${installer_service_scope}"
 
   if [[ "${installer_service_scope}" == "user" ]]; then
     case ":${PATH:-}:" in

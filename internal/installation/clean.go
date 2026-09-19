@@ -75,8 +75,8 @@ func Clean(ctx context.Context, expected Report) (result CleanupResult, cleanErr
 	if identity != current.DatabaseIdentity {
 		return result, errors.New("database changed during cleanup; inspect again")
 	}
-	loaded, err := settings.Load(current.SettingsPath)
-	if err != nil || loaded.DataDir != current.DataDir {
+	dataDir, err := settings.LoadDataDir(current.SettingsPath)
+	if err != nil || dataDir != current.DataDir {
 		return result, errors.New("settings changed during cleanup; inspect again")
 	}
 	latest, err := settingsRoot.Lstat(settingsName)

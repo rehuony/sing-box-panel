@@ -55,11 +55,11 @@ func Inspect(ctx context.Context, settingsPath string) (Report, error) {
 	if err != nil {
 		return Report{}, err
 	}
-	configuration, err := settings.Load(abs)
+	dataDir, err := settings.LoadDataDir(abs)
 	if err != nil {
 		return Report{}, err
 	}
-	report := Report{SettingsPath: abs, DataDir: configuration.DataDir, Entries: []Entry{}, DatabaseIdentity: "missing"}
+	report := Report{SettingsPath: abs, DataDir: dataDir, Entries: []Entry{}, DatabaseIdentity: "missing"}
 	executable, err := os.Executable()
 	if err != nil {
 		return report, err
@@ -67,7 +67,7 @@ func Inspect(ctx context.Context, settingsPath string) (Report, error) {
 	for _, item := range []struct{ path, role, cleanup string }{
 		{executable, "panel executable", "retain"},
 		{abs, "panel bootstrap settings", "remove"},
-		{configuration.DataDir, "instance data directory", "remove_if_empty"},
+		{dataDir, "instance data directory", "remove_if_empty"},
 	} {
 		entry, err := inspectEntry(item.path, item.role, item.cleanup)
 		if err != nil {
@@ -76,7 +76,7 @@ func Inspect(ctx context.Context, settingsPath string) (Report, error) {
 		report.Entries = append(report.Entries, entry)
 	}
 	settingsDir := filepath.Dir(abs)
-	if filepath.Base(settingsDir) == "sing-box-panel" && settingsDir != configuration.DataDir {
+	if filepath.Base(settingsDir) == "sing-box-panel" && settingsDir != dataDir {
 		entry, err := inspectEntry(settingsDir, "settings directory", "remove_if_empty")
 		if err != nil {
 			return report, err
@@ -86,7 +86,7 @@ func Inspect(ctx context.Context, settingsPath string) (Report, error) {
 		}
 		report.Entries = append(report.Entries, entry)
 	}
-	dataInfo, err := os.Lstat(configuration.DataDir)
+	dataInfo, err := os.Lstat(dataDir)
 	if errors.Is(err, os.ErrNotExist) {
 		return report, nil
 	}
@@ -96,12 +96,12 @@ func Inspect(ctx context.Context, settingsPath string) (Report, error) {
 	if !dataInfo.IsDir() || dataInfo.Mode()&os.ModeSymlink != 0 {
 		return report, errors.New("data directory must be a physical directory")
 	}
-	root, err := os.OpenRoot(configuration.DataDir)
+	root, err := os.OpenRoot(dataDir)
 	if err != nil {
 		return report, err
 	}
 	defer root.Close()
-	logs, err := inspectEntry(filepath.Join(configuration.DataDir, "logs"), "log directory", "remove_if_empty")
+	logs, err := inspectEntry(filepath.Join(dataDir, "logs"), "log directory", "remove_if_empty")
 	if err != nil {
 		return report, err
 	}
@@ -114,7 +114,7 @@ func Inspect(ctx context.Context, settingsPath string) (Report, error) {
 		if item.name == "logs/core" && logs.State == "symlink" {
 			continue
 		}
-		path := filepath.Join(configuration.DataDir, item.name)
+		path := filepath.Join(dataDir, item.name)
 		entry, err := inspectEntry(path, item.role, "remove")
 		if err != nil {
 			return report, err
@@ -155,7 +155,7 @@ func Inspect(ctx context.Context, settingsPath string) (Report, error) {
 			if state == "symlink" {
 				cleanup = "remove_link"
 			}
-			report.Entries = append(report.Entries, Entry{Path: filepath.Join(configuration.DataDir, name), Role: item.role, State: state, Bytes: info.Size(), Cleanup: cleanup})
+			report.Entries = append(report.Entries, Entry{Path: filepath.Join(dataDir, name), Role: item.role, State: state, Bytes: info.Size(), Cleanup: cleanup})
 			return nil
 		}); err != nil {
 			return report, err
@@ -167,14 +167,14 @@ func Inspect(ctx context.Context, settingsPath string) (Report, error) {
 	}
 	for _, child := range children {
 		name := child.Name()
-		known := name == "logs" || filepath.Join(configuration.DataDir, name) == abs
+		known := name == "logs" || filepath.Join(dataDir, name) == abs
 		for _, item := range managed {
 			known = known || item.name == name
 		}
 		if known {
 			continue
 		}
-		entry, err := inspectEntry(filepath.Join(configuration.DataDir, name), "unrecognized data-directory entry", "retain")
+		entry, err := inspectEntry(filepath.Join(dataDir, name), "unrecognized data-directory entry", "retain")
 		if err != nil {
 			return report, err
 		}
@@ -189,7 +189,7 @@ func Inspect(ctx context.Context, settingsPath string) (Report, error) {
 			if child.Name() == "core" {
 				continue
 			}
-			entry, err := inspectEntry(filepath.Join(configuration.DataDir, "logs", child.Name()), "unrecognized log-directory entry", "retain")
+			entry, err := inspectEntry(filepath.Join(dataDir, "logs", child.Name()), "unrecognized log-directory entry", "retain")
 			if err != nil {
 				return report, err
 			}

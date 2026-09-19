@@ -106,7 +106,8 @@ underlying core inbound.
 - Final repository validation covers Go formatting, module tidy diff, vet, all Go
   tests, Web lint/typecheck/tests/build, OpenAPI coverage, generated core support,
   notices, shell syntax and installer tests. `go test -race ./...` also passed.
-  Commands: `make check-go web-typecheck check-contracts`, and in `web`,
+  Current equivalent: `make check`. The original validation used the former
+  standalone Web typecheck target with `make check-go check-contracts`, and in `web`,
   `corepack pnpm run lint` plus `corepack pnpm run test` (34 files, 155 tests).
   Installer verification passed all six groups; `git diff --check` passed.
 - Linux amd64 and arm64 binaries cross-compiled successfully. Cross-compilation

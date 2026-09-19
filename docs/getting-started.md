@@ -17,12 +17,14 @@ make bootstrap
 make check build
 ```
 
-`make check` validates the offline configuration-schema artifacts,
-third-party notices, and OpenAPI; runs Web linting, type-checking, tests, and a
-production Web build; then verifies Go sources and modules and runs `go vet`,
-Go tests, Shell syntax checks, and the network-independent installer contract
-tests. `make build` uses the same Web-first boundary and writes
-`bin/sing-box-panel`. Go compilation requires the generated `web/dist` tree;
+`make check` builds the Web assets (including TypeScript checking), verifies Go
+formatting and modules, and runs `go vet`, Go tests, Web linting and tests,
+third-party notice checks, offline configuration-schema validation, OpenAPI
+checks, shell syntax checks, and network-independent installer contract tests.
+`make check-go`, `make check-web`, and `make check-contracts` run the individual
+groups described in [Contributing](../CONTRIBUTING.md#validation).
+`make build` (also the default for plain `make`) uses the same Web-first boundary
+and writes `bin/sing-box-panel`. Go compilation requires the generated `web/dist` tree;
 that generated tree is the only UI source accepted by the Go build.
 
 ## Initialize settings and storage
@@ -78,8 +80,10 @@ external browser origin, authentication, data directory, GitHub catalog access,
 traffic-period and raw-sample retention policy, subscription publication
 metadata, and log retention. Mutable product state belongs in SQLite. New
 settings initialize `traffic.sample_retention_days` to 90. The field is
-required in every settings file and must be between 1 and 366; older settings
-without it are rejected instead of receiving a compatibility default.
+required for startup and full verification and must be between 1 and 366;
+older settings without it are rejected instead of receiving a compatibility
+default. Commands that only locate instance files or data validate `data_dir`
+without validating unrelated runtime fields; see [CLI configuration dependencies](cli.md#global-flags-and-output).
 
 When the panel is served through a reverse proxy, set `server.external_origin`
 to the single public HTTP origin, for example `https://panel.example.com`.
@@ -158,11 +162,11 @@ requires root and the fixed release layout under `/usr/local`, `/etc`, and
 `/var/lib`.
 
 ```sh
-sing-box-panel system install --scope=user --now
-sing-box-panel system status --scope=user
+sing-box-panel systemd install --scope=user --now
+sing-box-panel systemd status --scope=user
 ```
 
-`system status` reports systemd's unit state together with the settings path
+`systemd status` reports systemd's unit state together with the settings path
 written in the unit file on disk, the CLI's own `--config` path, and the data
 directory, database, and configuration storage declared by that settings file
 as it exists now. Each value names its on-disk source; the settings of the

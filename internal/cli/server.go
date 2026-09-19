@@ -46,7 +46,7 @@ func newServerControlCommand(state *options, action string) *cobra.Command {
 			if timeout <= 0 {
 				return &Error{Kind: ErrorUsage, Code: "invalid_timeout", Message: "timeout must be positive"}
 			}
-			configuration, err := settings.Load(state.settingsPath)
+			dataDir, err := settings.LoadDataDir(state.settingsPath)
 			if err != nil {
 				return &Error{Kind: ErrorValidation, Code: "settings_invalid", Message: err.Error(), Cause: err}
 			}
@@ -54,9 +54,9 @@ func newServerControlCommand(state *options, action string) *cobra.Command {
 			defer cancel()
 			var result panelprocess.Status
 			if action == "stop" {
-				result, err = panelprocess.Stop(ctx, configuration.DataDir)
+				result, err = panelprocess.Stop(ctx, dataDir)
 			} else {
-				result, err = panelprocess.Inspect(ctx, configuration.DataDir)
+				result, err = panelprocess.Inspect(ctx, dataDir)
 			}
 			if err != nil {
 				kind := ErrorUnavailable

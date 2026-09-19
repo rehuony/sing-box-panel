@@ -13,11 +13,9 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func newSystemCommand(state *options, service panelSystemd.Service) *cobra.Command {
-	root := group("system", "Install or manage the sing-box-panel systemd service")
+func newSystemdCommand(state *options, service panelSystemd.Service) *cobra.Command {
+	root := group("systemd", "Install or manage the sing-box-panel systemd service")
 	root.AddCommand(
-		newSystemFilesCommand(state, service),
-		newSystemCleanCommand(state, service),
 		newSystemInstallCommand(state, service),
 		newSystemUninstallCommand(state, service),
 		newSystemStatusCommand(state, service),
@@ -48,12 +46,19 @@ func newSystemInstallCommand(state *options, service panelSystemd.Service) *cobr
 			if err != nil {
 				return &Error{Kind: ErrorValidation, Code: "system_settings_path_invalid", Message: err.Error(), Cause: err}
 			}
-			value, err := settings.Load(settingsPath)
+			var dataDir string
+			if now {
+				var value settings.Settings
+				value, err = settings.Load(settingsPath)
+				dataDir = value.DataDir
+			} else {
+				dataDir, err = settings.LoadDataDir(settingsPath)
+			}
 			if err != nil {
 				return &Error{Kind: ErrorValidation, Code: "system_settings_invalid", Message: err.Error(), Cause: err}
 			}
 			result, err := service.Install(cmd.Context(), panelSystemd.InstallRequest{
-				Scope: scope, SettingsPath: settingsPath, DataDir: value.DataDir, Force: force, Now: now,
+				Scope: scope, SettingsPath: settingsPath, DataDir: dataDir, Force: force, Now: now,
 			})
 			if err != nil {
 				return classifySystemError("system_install_failed", err)
@@ -203,14 +208,14 @@ func buildSystemStatusReport(status panelSystemd.Status, cliSettingsPath string)
 	report.SettingsFile.Path = status.UnitFileSettingsPath
 	// Load failures are reported only as a state: the error text could echo
 	// settings content, and an unreadable file must not hide the unit state.
-	value, err := settings.Load(status.UnitFileSettingsPath)
+	dataDir, err := settings.LoadDataDir(status.UnitFileSettingsPath)
 	if err != nil {
 		report.SettingsFile.State = settingsStateUnavailable
 		return report
 	}
 	report.SettingsFile.State = settingsStateLoaded
-	report.SettingsFile.DataDir = value.DataDir
-	report.SettingsFile.DatabasePath = filepath.Join(value.DataDir, "panel.db")
+	report.SettingsFile.DataDir = dataDir
+	report.SettingsFile.DatabasePath = filepath.Join(dataDir, "panel.db")
 	report.Configuration.DatabasePath = report.SettingsFile.DatabasePath
 	return report
 }

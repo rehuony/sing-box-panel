@@ -60,6 +60,17 @@ Run the repository's ordinary checks before opening a pull request:
 make check
 ```
 
+The daily root targets are `bootstrap` (locked dependencies), `build` (local
+binary), `check` (ordinary validation), and `fmt` (Go formatting). Plain `make`
+also builds the local binary. To narrow validation, use `make check-go` for Go
+formatting, modules, vet, and tests; `make check-web` for Web build, types, lint,
+tests, and notices; or `make check-contracts` for shell, installer, OpenAPI, and
+offline core-support checks. Shared Web assets are built once per Make invocation.
+
+For an individual Go test, build Web assets once with `make web-build`, then use
+`go test ./path/to/package`. For individual frontend checks or formatting, use
+the existing `pnpm` scripts from `web/`, such as `corepack pnpm run lint:fix`.
+
 For changes to concurrency-sensitive Go behavior or parser boundaries, also
 run:
 

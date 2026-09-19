@@ -140,3 +140,32 @@ func TestBashCompletionScriptSyntax(t *testing.T) {
 		t.Fatalf("bash -n: %v; output = %q", err, output.String())
 	}
 }
+
+func TestSystemAndSystemdCompletionHaveSeparateCommands(t *testing.T) {
+	t.Setenv("SING_BOX_PANEL_COMPLETION_DESCRIPTIONS", "true")
+	for _, test := range []struct {
+		group string
+		want  string
+	}{
+		{"system", "files prune"},
+		{"systemd", "install logs restart start status stop uninstall"},
+	} {
+		t.Run(test.group, func(t *testing.T) {
+			stdout, _, err := execute(t, cobra.ShellCompRequestCmd, test.group, "")
+			if err != nil {
+				t.Fatal(err)
+			}
+			var names []string
+			for line := range strings.SplitSeq(strings.TrimSpace(stdout), "\n") {
+				if strings.HasPrefix(line, ":") {
+					continue
+				}
+				name, _, _ := strings.Cut(line, "\t")
+				names = append(names, name)
+			}
+			if got := strings.Join(names, " "); got != test.want {
+				t.Fatalf("completion names = %q, want %q", got, test.want)
+			}
+		})
+	}
+}

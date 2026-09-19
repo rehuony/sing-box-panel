@@ -28,11 +28,11 @@ The installer chooses the existing application layout from the effective user:
 Existing settings and data are retained and verified. Missing settings are
 initialized through the verified release binary. The installer does not
 modify shell profiles or configure, start, stop, or restart systemd; it prints
-the appropriate explicit `system install` and `system restart` commands after
+the appropriate explicit `systemd install` and `systemd restart` commands after
 installation. Run its network-independent contract tests locally with:
 
 ```sh
-make installer-test
+bash scripts/test/installer-test.sh
 ```
 
 ## Release automation

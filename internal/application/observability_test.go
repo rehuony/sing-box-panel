@@ -4,6 +4,7 @@ package application
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -55,5 +56,44 @@ func TestTrafficSampleRetentionUsesConfiguredDays(t *testing.T) {
 	app.settings.Traffic.SampleRetentionDays = 0
 	if _, err := app.EnforceTrafficSampleRetention(ctx); err == nil {
 		t.Fatal("invalid retention setting succeeded")
+	}
+}
+
+func TestLocalMetricsQuotaUsesBootstrapThenPersistedPreferences(t *testing.T) {
+	directory := t.TempDir()
+	path := filepath.Join(directory, "setting.json")
+	if err := os.WriteFile(path, []byte(`{"data_dir":".","traffic":{"quota_gib":7,"sample_retention_days":0}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	app, err := Open(t.Context(), path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = app.Close() })
+	quota, err := app.trafficQuota(t.Context())
+	if err != nil || quota == nil || *quota != 7 {
+		t.Fatalf("bootstrap quota = %v, %v", quota, err)
+	}
+	if err := os.WriteFile(path, []byte(`{"data_dir":".","traffic":{"quota_gib":-1}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := app.trafficQuota(t.Context()); err == nil {
+		t.Fatal("invalid bootstrap quota accepted")
+	}
+	for _, document := range []string{
+		`{"preferences":{"traffic_quota_gib":3}}`,
+		`{"preferences":{"traffic_quota_gib":null}}`,
+	} {
+		_, revision, err := app.database.PanelSettings(t.Context())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := app.database.SavePanelSettings(t.Context(), []byte(document), revision, nil); err != nil {
+			t.Fatal(err)
+		}
+		quota, err = app.trafficQuota(t.Context())
+		if err != nil || revision == 0 && (quota == nil || *quota != 3) || revision == 1 && quota != nil {
+			t.Fatalf("persisted quota = %v, %v", quota, err)
+		}
 	}
 }

@@ -17,6 +17,7 @@ import (
 	"github.com/rehuony/sing-box-panel/internal/store"
 	panelSystemd "github.com/rehuony/sing-box-panel/internal/systemd"
 	"github.com/spf13/cobra"
+	"golang.org/x/mod/module"
 )
 
 type Dependencies struct {
@@ -36,6 +37,8 @@ type options struct {
 }
 
 func NewRootCommand(deps Dependencies) *cobra.Command {
+	// Building the command tree must not load settings or open storage. Only
+	// handlers that need instance data resolve these dependencies when executed.
 	state := &options{}
 	systemdService := deps.Systemd
 	if systemdService == nil {
@@ -57,6 +60,7 @@ func NewRootCommand(deps Dependencies) *cobra.Command {
 	root.SetIn(deps.Stdin)
 	root.SetOut(deps.Stdout)
 	root.SetErr(deps.Stderr)
+	root.SetUsageTemplate(usageTemplate)
 	root.PersistentFlags().StringVarP(&state.settingsPath, "config", "c", settings.DefaultPath(), "settings file path")
 	root.PersistentFlags().Var(newOutputValue(&state.format), "output", "output format: text, json, or jsonl")
 	root.AddCommand(
@@ -74,6 +78,7 @@ func NewRootCommand(deps Dependencies) *cobra.Command {
 		newDurableLogCommand(state, deps.OpenApplication),
 		newMetricsCommand(state, deps.OpenApplication),
 		newSystemCommand(state, systemdService),
+		newSystemdCommand(state, systemdService),
 		newCompletionCommand(root),
 	)
 	return root
@@ -171,7 +176,11 @@ func newVersionCommand(state *options, info buildinfo.Info) *cobra.Command {
 		Short: "Print sing-box-panel build information",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			text := fmt.Sprintf("sing-box-panel %s (%s, %s)", info.Version, info.Commit, info.Date)
+			version := info.Version
+			if module.IsPseudoVersion(version) {
+				version = "dev"
+			}
+			text := "sing-box-panel " + version
 			return writeResult(cmd.OutOrStdout(), state.format, info, text)
 		},
 	}

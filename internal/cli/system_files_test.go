@@ -72,7 +72,7 @@ func TestSystemFilesUsesDefaultAndExplicitConfigPaths(t *testing.T) {
 	}
 }
 
-func TestSystemCleanDefaultsToPreviewAndRejectsEmptyConfig(t *testing.T) {
+func TestSystemPruneDefaultsToPreviewAndRejectsEmptyConfig(t *testing.T) {
 	path := commandSettingsFixture(t)
 	before, err := os.ReadFile(path)
 	if err != nil {
@@ -80,7 +80,7 @@ func TestSystemCleanDefaultsToPreviewAndRejectsEmptyConfig(t *testing.T) {
 	}
 	var stdout, stderr bytes.Buffer
 	root := NewRootCommand(Dependencies{Stdout: &stdout, Stderr: &stderr, Systemd: &fakeSystemdService{}})
-	root.SetArgs([]string{"system", "clean", "--config", path})
+	root.SetArgs([]string{"system", "prune", "--config", path})
 	if err := root.ExecuteContext(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -138,5 +138,40 @@ func TestCleanupDistinguishesMatchingSharedAndUnrelatedServices(t *testing.T) {
 				t.Fatal("unrelated service was changed")
 			}
 		})
+	}
+}
+
+func TestSystemPruneRemovesOnlyManagedDataWithInvalidRuntimeSettings(t *testing.T) {
+	path := commandSettingsFixture(t)
+	runApplicationCommand(t, path, "{}", "config", "import", "--file", "-", "--revision", "0")
+	dataDir, err := settings.LoadDataDir(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	unrelated := filepath.Join(dataDir, "keep.txt")
+	if err := os.WriteFile(unrelated, []byte("retain"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	before, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	invalid := strings.Replace(string(before), `"sample_retention_days":90`, `"sample_retention_days":0`, 1)
+	if err := os.WriteFile(path, []byte(invalid), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// The injected service cannot invoke the host's systemd manager.
+	service := &fakeSystemdService{err: panelSystemd.ErrUnsupportedOS}
+	_, _, err = executeSystemCommand(t, service, "--config", path, "system", "prune", "--yes")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, removed := range []string{path, filepath.Join(dataDir, "panel.db")} {
+		if _, err := os.Stat(removed); !os.IsNotExist(err) {
+			t.Fatalf("managed file remains: %s: %v", removed, err)
+		}
+	}
+	if data, err := os.ReadFile(unrelated); err != nil || string(data) != "retain" {
+		t.Fatal("prune removed unrelated data")
 	}
 }

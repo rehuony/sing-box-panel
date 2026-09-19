@@ -98,7 +98,7 @@ func TestControlRejectsSystemdStop(t *testing.T) {
 	defer func() { control.StopAccepting(); control.Finish(nil) }()
 	control.Ready("127.0.0.1:3000")
 	status, err := Stop(context.Background(), dir)
-	if err == nil || !strings.Contains(err.Error(), "system stop") || status.ManagedBy != "systemd" {
+	if err == nil || !strings.Contains(err.Error(), "systemd stop") || status.ManagedBy != "systemd" {
 		t.Fatalf("status=%+v err=%v", status, err)
 	}
 	if ctx.Err() != nil {

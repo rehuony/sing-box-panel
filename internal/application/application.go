@@ -26,6 +26,7 @@ type Application struct {
 	removeFile   func(string) error
 	runtime      RuntimeResolver
 	settings     settings.Settings
+	settingsPath string
 	publicIP     func(context.Context) string
 }
 
@@ -33,26 +34,28 @@ type RuntimeResolver interface {
 	Resolve(context.Context) (RuntimeIdentity, error)
 }
 
-// Open resolves bootstrap settings and opens the SQLite source of truth.
+// Open resolves only the data directory and opens SQLite for local commands.
+// Runtime policy is validated by the server, which uses FromStoreWithSettings.
 func Open(ctx context.Context, settingsPath string) (*Application, error) {
-	configuration, err := settings.Load(settingsPath)
+	dataDir, err := settings.LoadDataDir(settingsPath)
 	if err != nil {
 		return nil, err
 	}
-	info, err := os.Stat(configuration.DataDir)
+	info, err := os.Stat(dataDir)
 	if err != nil {
 		return nil, fmt.Errorf("inspect data directory: %w", err)
 	}
 	if !info.IsDir() {
-		return nil, fmt.Errorf("data path is not a directory: %s", configuration.DataDir)
+		return nil, fmt.Errorf("data path is not a directory: %s", dataDir)
 	}
-	database, err := store.Open(ctx, filepath.Join(configuration.DataDir, "panel.db"))
+	database, err := store.Open(ctx, filepath.Join(dataDir, "panel.db"))
 	if err != nil {
 		return nil, err
 	}
 	application := newApplication(database)
 	application.ownsDatabase = true
-	application.settings = configuration
+	application.settings.DataDir = dataDir
+	application.settingsPath = settingsPath
 	application.publicIP = publicip.New().Resolve
 	return application, nil
 }

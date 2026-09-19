@@ -11,6 +11,8 @@ group without a leaf prints help.
 sing-box-panel
 ├─ init | verify | version | update
 ├─ server start | stop | status
+├─ system files | prune
+├─ systemd install | uninstall | status | start | stop | restart | logs
 ├─ core
 │  ├─ catalog | refresh
 │  ├─ list | show | install | import | remove | quarantine | revoke
@@ -25,7 +27,6 @@ sing-box-panel
 ├─ task list | show | wait | cancel
 ├─ log list | show | tail | clear | delete
 ├─ metrics show | watch | history | period PERIOD_ID
-├─ system files | clean | install | uninstall | status | start | stop | restart | logs
 └─ completion bash | zsh | fish
 ```
 
@@ -35,11 +36,22 @@ subscription resources: channels rendered for public subscription clients and
 upstream sources attached from third parties. `token` manages public
 subscription access tokens; it never manages the panel management login
 token. `server start` runs the panel in the current terminal. Background
-operation belongs to the `system` service commands.
+operation belongs to the `systemd` service commands.
+
+Service commands previously under `system` now use `systemd`. File inspection
+remains `system files`; cleanup is now `system prune` (formerly `system clean`).
+Update scripts and regenerate shell completions; the old service paths and
+`system clean` are not aliases, and there is no `prn` alias.
 
 Use `sing-box-panel COMMAND --help` at any level for current flags and leaf
-commands. The HTTP/Web management surface additionally exposes subscription
-user profiles, grant matrices, and source-version history.
+commands. Help lists usage, local flags, inherited global flags (when present),
+and available commands, in that order. Root usage is shown on one line as
+`sing-box-panel [flags] [command]`; command groups similarly combine flags and
+subcommands. Global flags may appear before or after subcommands, and invoking
+a group without a subcommand still displays help. Leaf usage retains its
+command-specific arguments. The HTTP/Web management surface
+additionally exposes subscription user profiles, grant matrices, and
+source-version history.
 
 ## Global flags and output
 
@@ -54,10 +66,38 @@ commands that need settings load the default path: root uses
 overrides that default; a missing or invalid selected file is an error rather
 than silently loading another file. Repeated flags use the last supplied value.
 
+Selecting a settings path does not load it. Help (including bare command groups),
+`version`, shell completion, `update`, and `config validate --file` do not read
+panel settings or open its database. `systemd uninstall`, `start`, `stop`,
+`restart`, and `logs` operate on the selected service scope without loading the
+CLI settings file. `systemd status` also works with unavailable settings; its
+optional location report marks unreadable files or invalid `data_dir` fields as
+unavailable without hiding systemd's status.
+
+`system files`, `system prune`, `server status/stop`, `systemd install` without
+`--now`, and local database operations read only `data_dir` to locate the
+instance. They reject missing, empty, wrongly typed, or ambiguous paths and
+malformed JSON; unrelated runtime fields such as `traffic.sample_retention_days`
+do not block them. Relative data paths resolve against the settings file.
+File ownership, database identity, symlink, locking, and cleanup-scope checks
+still apply. Metrics read and validate `traffic.quota_gib` only when needed,
+with persisted panel preferences taking precedence over the bootstrap value.
+
+`verify`, `server start`, and `systemd install --now` require the complete valid
+runtime configuration. Starting an existing unit through `systemd start/restart`
+delegates to systemd; the service validates its own configured file on startup.
+`init` creates settings explicitly and refuses to overwrite an existing file
+unless `--force` is supplied. No command silently repairs a damaged file.
+
 Results are written to stdout. Progress, warnings, and terminal errors are
 written to stderr, allowing scripts to redirect them independently. JSON and
 JSONL errors contain `code`, `message`, and `exit_code`; underlying causes are
 not serialized because they may expose filesystem or upstream details.
+
+`version` prints only the program name and version, such as `sing-box-panel
+v1.2.3`. Development builds, including Go module pseudo-versions, display
+`sing-box-panel dev`. Use `version --output=json` or `--output=jsonl` for the
+full, unchanged `version`, `commit`, and `date` metadata.
 
 Complete sing-box configuration documents, subscription source definitions, and other bulk
 or secret-bearing values use `--file PATH` or `--file -` for stdin. Do not
@@ -185,15 +225,17 @@ and the data-directory lease has been released. It does not signal a stored
 process ID. A timeout ends the caller's wait without force-killing the panel;
 check `server status` or wait again with `server stop`. Stopping an already
 stopped panel succeeds. A systemd-managed panel directs manual stop callers
-to `system stop` instead.
+to `systemd stop` instead.
 
-These controls require readable, valid settings pointing to the running data
-directory. Keep that bootstrap path unchanged while running. The private
+Status and stop require readable settings with a valid `data_dir`, so an
+unrelated invalid runtime setting cannot prevent stopping the panel. Startup
+requires the complete valid settings. Keep that bootstrap path unchanged while
+running. The private
 `panel-control.sock` path inside `data_dir` must fit the platform's Unix socket
 path limit. A stale socket is replaced only after acquiring the runtime lease;
 regular files and symlinks at that path are never replaced.
 
-For unattended/background operation, use `system install` and `system start`.
+For unattended/background operation, use `systemd install` and `systemd start`.
 The installed unit invokes the same foreground `server start` entry point;
 systemd owns its background lifecycle and restart policy.
 The unit sets a panel-specific supervisor marker; an invocation environment
@@ -213,8 +255,8 @@ one period's details. There is no separate `traffic` command group.
 ```sh
 sing-box-panel system files                       # uses the default settings
 sing-box-panel system files -c ./setting.json --output json
-sing-box-panel system clean -c ./setting.json      # preview only
-sing-box-panel system clean -c ./setting.json --yes
+sing-box-panel system prune -c ./setting.json      # preview only
+sing-box-panel system prune -c ./setting.json --yes
 ```
 
 `files` shows the executable, selected settings, database, core logs, installed
@@ -227,7 +269,7 @@ An incomplete WAL without its shared-memory file is reported as unverified;
 inspection does not repair database recovery state or create missing sidecars.
 `--scope auto|user|system` selects which systemd installation files to inspect.
 
-`clean` without `--yes` is a read-only preview. With `--yes`, it permanently
+`prune` without `--yes` is a read-only preview. With `--yes`, it permanently
 removes this instance's settings, database, configuration, logs, installed
 cores, uploads and runtime files. It uninstalls a matching managed systemd
 service, or asks a manually started instance to shut down, then acquires the
@@ -247,18 +289,18 @@ deleted. The data directory is removed only when empty; the conventional
 Cleanup reports completed removals if a filesystem failure interrupts it;
 the service may already be stopped or uninstalled when a later lock or file
 operation fails. It is not a reversible operation. A new instance can be created with `init`
-after successful cleanup. Inspect and clean apply to the selected settings
+after successful cleanup. Inspect and prune apply to the selected settings
 and service scope, not every instance that may exist on the host.
 
 ## System service status
 
-`system status` combines systemd's view of the unit with two facts read from
+`systemd status` combines systemd's view of the unit with two facts read from
 disk, each labeled with its source. It does not inspect the running process,
 so it never claims which settings that process started with:
 
 ```sh
-sing-box-panel system status --scope=user
-sing-box-panel system status --scope=system --output json
+sing-box-panel systemd status --scope=user
+sing-box-panel systemd status --scope=system --output json
 ```
 
 The `service` object carries systemd's own answers: load, active, sub, and
@@ -279,10 +321,12 @@ compares the two when both are known. `live_settings_state` is always
 `unknown`.
 
 `settings_file` (`source: "settings file on disk"`) reads the file at
-`unit_file.settings_path` as it exists now. `state: loaded` supplies
-`data_dir`, `database_path`, and `configuration.database_path`; `unavailable`
-means the file could not be read or parsed; `unknown` means no path was
-determined. Neither case hides the unit state, and the command never prints
+`unit_file.settings_path` as it exists now. `state: loaded` means its location
+was read successfully, and supplies `data_dir`, `database_path`, and
+`configuration.database_path`; it does not certify the full runtime settings.
+`unavailable` means the file or its location could not be read or validated;
+`unknown` means no path was determined. Neither case hides the unit state,
+and the command never prints
 settings content or parse details. `configuration` always names the logical
 `config.json` and its storage: the `configuration_file` table of the service
 database.

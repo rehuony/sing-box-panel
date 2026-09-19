@@ -73,7 +73,7 @@ jobs:
           pnpm --version
 
       - name: Build the required Web distribution
-        run: make web-install web-build
+        run: make bootstrap web-build
 
       - name: Check generated support catalog
         run: go tool singbox-support check

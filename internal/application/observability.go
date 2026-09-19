@@ -12,6 +12,7 @@ import (
 
 	"github.com/rehuony/sing-box-panel/internal/hostmetrics"
 	coreruntime "github.com/rehuony/sing-box-panel/internal/runtime"
+	"github.com/rehuony/sing-box-panel/internal/settings"
 	"github.com/rehuony/sing-box-panel/internal/store"
 )
 
@@ -94,16 +95,31 @@ func (application *Application) Metrics(ctx context.Context) (MetricsSnapshot, e
 		return MetricsSnapshot{}, fmt.Errorf("decode traffic period evidence: %w", err)
 	}
 	result.TrafficAvailable = counters.TrafficEvidenceAvailable
-	currentSettings, err := application.EffectiveSettings(ctx)
+	if !result.TrafficAvailable {
+		return result, nil
+	}
+	quotaGiB, err := application.trafficQuota(ctx)
 	if err != nil {
 		return MetricsSnapshot{}, err
 	}
-	if configured := currentSettings.Traffic.QuotaGiB; result.TrafficAvailable && configured != nil && *configured > 0 {
+	if configured := quotaGiB; configured != nil && *configured > 0 {
 		quota := *configured * gibibyte
 		result.QuotaBytes = &quota
 		result.QuotaExceeded = period.InboundBytes+period.OutboundBytes >= quota
 	}
 	return result, nil
+}
+
+func (application *Application) trafficQuota(ctx context.Context) (*int64, error) {
+	value, revision, err := application.storedPanelSettings(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if revision == 0 && application.settingsPath != "" {
+		return settings.LoadTrafficQuota(application.settingsPath)
+	}
+	quota := value.Preferences.TrafficQuotaGiB
+	return quota, settings.ValidateTrafficQuota(quota)
 }
 
 // CollectLimitedTrafficSample reads the configured loopback API for the exact

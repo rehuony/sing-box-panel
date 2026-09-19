@@ -13,7 +13,9 @@ import (
 )
 
 const (
-	UnitName     = "sing-box-panel.service"
+	UnitName = "sing-box-panel.service"
+	// Persisted ownership marker; keep stable across CLI renames so existing
+	// installations remain recognized without weakening ownership checks.
 	managedMark  = "# Managed by sing-box-panel system install."
 	serviceUser  = "sing-box-panel"
 	serviceGroup = "sing-box-panel"

@@ -1,91 +1,20 @@
+.DEFAULT_GOAL := build
+
 WEB_PNPM := cd web && corepack pnpm
 GO_SOURCE_DIRS := cmd internal systemd web
 RELEASE_SCRIPT := scripts/build.sh
-SHELL_SOURCE_DIRS := scripts
 
 .PHONY: \
-	bootstrap go-download web-install \
-	fmt notices web-lint-fix \
-	fmt-check mod-check vet test test-race fuzz-smoke \
-	web-lint web-test web-typecheck \
-	notices-check openapi-check shell-check installer-test support-generate support-check core-contract \
-	check-go check-web check-contracts check \
-	web-build build \
-	require-out require-version release release-verify snapshot \
-	ci
+	bootstrap build web-build fmt \
+	check check-go check-web check-contracts test-race fuzz-smoke core-contract ci \
+	notices support-generate support-check \
+	snapshot release release-verify
 
-# Bootstrap
+# Development and builds
 
-go-download:
+bootstrap:
 	go mod download
-
-web-install:
 	$(WEB_PNPM) install --frozen-lockfile --ignore-scripts --verify-store-integrity
-
-bootstrap: go-download web-install
-
-# Writable maintenance
-
-fmt:
-	gofmt -w $$(find $(GO_SOURCE_DIRS) -type f -name '*.go')
-
-notices: web-build
-	go tool third-party-notices
-
-web-lint-fix:
-	$(WEB_PNPM) run lint:fix
-
-support-generate:
-	go tool singbox-support generate
-
-# Read-only checks
-
-vet: web-build
-	go vet ./...
-
-test: web-build
-	go test ./...
-
-test-race: web-build
-	go test -race ./...
-
-fmt-check:
-	@files="$$(gofmt -l $$(find $(GO_SOURCE_DIRS) -type f -name '*.go'))"; if [ -n "$$files" ]; then printf '%s\n' "$$files"; exit 1; fi
-
-mod-check: web-build
-	go mod tidy -diff
-
-fuzz-smoke: web-build
-	go test ./internal/coreartifact -run '^$$' -fuzz '^FuzzParseExactVersionCanonicalRoundTrip$$' -fuzztime=5s
-	go test ./internal/subscription -run '^$$' -fuzz '^FuzzRenderIsPureAndDeterministic$$' -fuzztime=5s
-
-web-lint web-test web-typecheck:
-	$(WEB_PNPM) run $(patsubst web-%,%,$@)
-
-shell-check:
-	bash -n $$(find $(SHELL_SOURCE_DIRS) -type f -name '*.sh')
-
-installer-test:
-	bash scripts/test/installer-test.sh
-
-notices-check: web-build
-	go tool third-party-notices --check
-
-openapi-check: web-build
-	go tool verify-openapi api/openapi.yaml
-
-support-check: web-build
-	go tool singbox-support check
-
-check-go: fmt-check mod-check vet test
-
-check-web: web-lint web-typecheck web-test
-
-check-contracts: shell-check installer-test openapi-check notices-check support-check
-
-check: check-go check-web check-contracts
-
-# Local build
 
 build: web-build
 	mkdir -p bin
@@ -94,28 +23,62 @@ build: web-build
 web-build:
 	$(WEB_PNPM) run build
 
-# Release
+fmt:
+	gofmt -w $$(find $(GO_SOURCE_DIRS) -type f -name '*.go')
 
-require-out:
-	@test -n "$(OUT)" || { printf '%s\n' 'OUT is required' >&2; exit 2; }
+# Checks and tests
 
-require-version:
-	@test -n "$(VERSION)" || { printf '%s\n' 'VERSION is required' >&2; exit 2; }
+check: check-go check-web check-contracts
 
-release: require-out require-version
-	$(RELEASE_SCRIPT) release --version "$(VERSION)" --output "$(OUT)"
+check-go: web-build
+	@files="$$(gofmt -l $$(find $(GO_SOURCE_DIRS) -type f -name '*.go'))"; if [ -n "$$files" ]; then printf '%s\n' "$$files"; exit 1; fi
+	go mod tidy -diff
+	go vet ./...
+	go test ./...
 
-release-verify:
-	$(RELEASE_SCRIPT) verify
+check-web: web-build
+	$(WEB_PNPM) run lint
+	$(WEB_PNPM) run test
+	go tool third-party-notices --check
 
-snapshot: require-out
-	$(RELEASE_SCRIPT) snapshot --output "$(OUT)"
+check-contracts: web-build support-check
+	@for script in $$(find scripts -type f -name '*.sh'); do bash -n "$$script" || exit; done
+	bash scripts/test/installer-test.sh
+	go tool verify-openapi api/openapi.yaml
 
-# Core compatibility
+test-race: web-build
+	go test -race ./...
+
+fuzz-smoke: web-build
+	go test ./internal/coreartifact -run '^$$' -fuzz '^FuzzParseExactVersionCanonicalRoundTrip$$' -fuzztime=5s
+	go test ./internal/subscription -run '^$$' -fuzz '^FuzzRenderIsPureAndDeterministic$$' -fuzztime=5s
 
 core-contract: web-build
 	bash scripts/test/core-contract.sh
 
-# Continuous integration
-
 ci: check test-race fuzz-smoke release-verify
+
+# Generation and maintenance
+
+notices: web-build
+	go tool third-party-notices
+
+support-generate:
+	go tool singbox-support generate
+
+support-check:
+	go tool singbox-support check
+
+# Release
+
+snapshot:
+	@test -n "$(OUT)" || { printf '%s\n' 'OUT is required' >&2; exit 2; }
+	$(RELEASE_SCRIPT) snapshot --output "$(OUT)"
+
+release:
+	@test -n "$(OUT)" || { printf '%s\n' 'OUT is required' >&2; exit 2; }
+	@test -n "$(VERSION)" || { printf '%s\n' 'VERSION is required' >&2; exit 2; }
+	$(RELEASE_SCRIPT) release --version "$(VERSION)" --output "$(OUT)"
+
+release-verify:
+	$(RELEASE_SCRIPT) verify

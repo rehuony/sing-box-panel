@@ -17,6 +17,12 @@ import (
 	"github.com/spf13/cobra"
 )
 
+func newSystemCommand(state *options, service panelSystemd.Service) *cobra.Command {
+	root := group("system", "Inspect or prune the selected instance's files and data")
+	root.AddCommand(newSystemFilesCommand(state, service), newSystemPruneCommand(state, service))
+	return root
+}
+
 type instanceFilesReport struct {
 	installation.Report
 	Service          panelSystemd.FilesResult `json:"service"`
@@ -47,9 +53,9 @@ func inspectInstanceFiles(ctx context.Context, path string, scope panelSystemd.S
 	result.ServiceState = "inspected"
 	result.ServiceMatches = result.Service.SettingsPath != "" && filepath.Clean(result.Service.SettingsPath) == files.SettingsPath
 	if result.Service.SettingsPath != "" {
-		configuration, err := settings.Load(result.Service.SettingsPath)
+		dataDir, err := settings.LoadDataDir(result.Service.SettingsPath)
 		if err == nil {
-			result.ServiceDataDir = configuration.DataDir
+			result.ServiceDataDir = dataDir
 			result.ServiceDataKnown = true
 		}
 	}
@@ -75,10 +81,10 @@ func newSystemFilesCommand(state *options, service panelSystemd.Service) *cobra.
 	return command
 }
 
-func newSystemCleanCommand(state *options, service panelSystemd.Service) *cobra.Command {
+func newSystemPruneCommand(state *options, service panelSystemd.Service) *cobra.Command {
 	var rawScope string
 	var yes bool
-	command := &cobra.Command{Use: "clean", Short: "Preview cleanup; --yes stops the instance and removes its settings and managed data", Args: cobra.NoArgs,
+	command := &cobra.Command{Use: "prune", Short: "Preview cleanup; --yes stops the instance and removes its settings and managed data", Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			scope, err := parseSystemScope(rawScope)
 			if err != nil {
