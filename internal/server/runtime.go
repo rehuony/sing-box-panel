@@ -285,6 +285,9 @@ func runtimeIntentHandler(services *runtimeServices) taskResultHandlerFunc {
 		if err := services.revalidateRuntimeMaterial(ctx, material); err != nil {
 			return taskHandlerResult{}, err
 		}
+		if store.CoreSelectionOnly(task) {
+			return services.selectStoppedCore(ctx, task, control)
+		}
 		capturedObservation, err := services.captureRuntimeObservation(ctx)
 		if err != nil {
 			return taskHandlerResult{}, err

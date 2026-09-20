@@ -113,7 +113,7 @@ func (application *Application) RotateSubscriptionToken(
 		current.ID,
 		store.SubscriptionToken{
 			ID: replacementID, UserID: current.UserID, Label: current.Label,
-			TokenSHA256: digest, Enabled: true, ExpiresAt: cloneTime(expiresAt),
+			TokenSHA256: digest, ExpiresAt: cloneTime(expiresAt),
 		},
 		now,
 	)

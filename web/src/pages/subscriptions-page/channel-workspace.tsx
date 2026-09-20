@@ -1,6 +1,6 @@
 import { useTranslation } from 'react-i18next';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowDown, ArrowUp, Pencil, Plus, RefreshCw, Search, Trash2 } from 'lucide-react';
+import { ArrowDown, ArrowUp, Layers3, Plus, RefreshCw, Save, Search, Trash2 } from 'lucide-react';
 
 import type {
   ChannelNativeTemplate,
@@ -13,11 +13,16 @@ import type {
   SubscriptionPreview,
 } from '@/api/api-client';
 
+import { Badge } from '@/components/ui/badge';
+import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { toast } from '@/components/ui/toast-manager';
 import { useApiClient } from '@/api/api-client-context';
+import { Field, FieldLabel } from '@/components/ui/field';
 import { ToolbarActions } from '@/components/workspace-toolbar';
 import { describeRequestError } from '@/components/error-notice';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty';
 import {
   Dialog,
   DialogContent,
@@ -58,13 +63,12 @@ export function ChannelWorkspace({ active = true, toolbarTarget, channel, nodes,
   const [config, setConfig] = useState(channel.config);
   const [format, setFormat] = useState<SubscriptionFormat>(channel.format);
   const [name, setName] = useState(channel.name);
-  const [enabled, setEnabled] = useState(channel.enabled);
-  const [tab, setTab] = useState<'nodes' | 'rules'>('nodes');
+  const [tab, setTab] = useState<'nodes' | 'rules'>(channel.format === 'loon' ? 'nodes' : 'rules');
   const [search, setSearch] = useState('');
   const [busy, setBusy] = useState(false);
   const [options, setOptions] = useState<'organizer' | 'distribution' | null>(null);
   const [templateOpen, setTemplateOpen] = useState(false);
-  const [group, setGroup] = useState<ChannelRuleGroup | null>(null);
+  const [groupID, setGroupID] = useState<string | null>(channel.config.policy?.groups[0]?.id ?? null);
   const [removeGroup, setRemoveGroup] = useState<string | null>(null);
   const [node, setNode] = useState<SubscriptionNodeSummary | null>(null);
   const [preview, setPreview] = useState<SubscriptionPreview | null>(null);
@@ -75,12 +79,11 @@ export function ChannelWorkspace({ active = true, toolbarTarget, channel, nodes,
     f: SubscriptionFormat,
     c: SubscriptionChannelConfig,
     n: string,
-    e: boolean,
-  ) => JSON.stringify({ p, f, c: { ...c, policy: undefined }, n, e });
+  ) => JSON.stringify({ p, f, c: { ...c, policy: undefined }, n });
   const [savedSignature, setSavedSignature] = useState(() =>
-    signature(policy, format, config, name, enabled),
+    signature(policy, format, config, name),
   );
-  const dirty = signature(policy, format, config, name, enabled) !== savedSignature;
+  const dirty = signature(policy, format, config, name) !== savedSignature;
   useEffect(() => {
     const controller = new AbortController();
     lifeRef.current = controller;
@@ -97,6 +100,8 @@ export function ChannelWorkspace({ active = true, toolbarTarget, channel, nodes,
   const selected = useMemo(() => selectedNodeIDs(policy, nodes), [policy, nodes]);
   const candidates = nodes.filter((value) => selected.has(value.id));
   const visibleCandidates = candidates.filter((value) => !value.hidden && value.available);
+  const group = policy.groups.find((value) => value.id === groupID) ?? policy.groups[0];
+  const groupIndex = group ? policy.groups.indexOf(group) : -1;
   const conflict = format !== 'loon' && incompatiblePolicy(policy, format);
   function policyConfig(p: ChannelPolicy) {
     return { ...config, ...(format === 'loon' ? {} : { policy: p }) };
@@ -108,12 +113,13 @@ export function ChannelWorkspace({ active = true, toolbarTarget, channel, nodes,
     });
   }
   async function persist(p: ChannelPolicy = policy) {
-    if (!name.trim()) throw new Error(t('channels.nameRequired'));
+    if (!name.trim() || (format !== 'loon' && p.groups.some((value) => !value.name.trim()))) throw new Error(t('channels.nameRequired'));
+    p = { ...p, groups: p.groups.map((value) => ({ ...value, name: value.name.trim() })) };
     const result = await client.updateSubscriptionChannel(
       channel.id,
       {
         name: name.trim(),
-        enabled,
+        enabled: channel.enabled,
         format,
         public_host: channel.public_host,
         config: policyConfig(p),
@@ -125,7 +131,7 @@ export function ChannelWorkspace({ active = true, toolbarTarget, channel, nodes,
     setPolicy(p);
     setConfig(result.config);
     onSaved(result);
-    setSavedSignature(signature(p, format, result.config, name.trim(), enabled));
+    setSavedSignature(signature(p, format, result.config, name.trim()));
     setName(name.trim());
     toast.add({ title: t('channels.saved'), type: 'success' });
   }
@@ -167,52 +173,51 @@ export function ChannelWorkspace({ active = true, toolbarTarget, channel, nodes,
     [groups[index], groups[index + delta]] = [groups[index + delta], groups[index]];
     setPolicy({ ...policy, groups });
   }
+  function updateGroup(value: ChannelRuleGroup) {
+    if (!value.enabled && policy.default_exit.kind === 'group' && policy.default_exit.id === value.id) {
+      toast.add({ title: t('channels.groupExitInUse'), type: 'error' });
+      return;
+    }
+    setPolicy((current) => ({
+      ...current,
+      selection: {
+        ...current.selection,
+        ids: [...new Set([...current.selection.ids, ...value.node_ids])],
+        excluded_ids: current.selection.excluded_ids.filter((id) => !value.node_ids.includes(id)),
+      },
+      groups: current.groups.map((item) => item.id === value.id ? value : item),
+    }));
+  }
   function addGroup() {
     // Fixed snapshot: subsequent catalog changes never modify an existing group.
     const ids = visibleCandidates.map((value) => value.id);
+    let number = policy.groups.length + 1;
+    let name = t('channels.newGroupName', { number });
+    while (policy.groups.some((value) => value.name === name)) name = t('channels.newGroupName', { number: ++number });
+    const value = { ...newRuleGroup(ids), name };
     setPolicy((current) => ({
       ...current,
       selection: { ...current.selection, ids: [...new Set([...current.selection.ids, ...ids])] },
+      groups: [...current.groups, value],
     }));
-    setGroup(newRuleGroup(ids));
+    setGroupID(value.id);
   }
   return (
-    <>
+    <Tabs className='channel-workspace' value={tab} onValueChange={(value) => setTab(value as 'nodes' | 'rules')}>
       <ToolbarActions active={active} target={toolbarTarget}>
         <div className='subscription-source-toolbar channel-detail-toolbar workspace-toolbar-content'>
           <div className='subscription-detail-tabs'>
-            <Button
-              disabled={busy}
-              variant='ghost'
-              onClick={() => (dirty ? setLeaving(true) : onBack())}
-            >
+            <Button disabled={busy} variant='outline' onClick={() => (dirty ? setLeaving(true) : onBack())}>
               {t('channels.back')}
             </Button>
-            <div role='tablist' aria-label={t('channels.title')}>
-              <Button
-                role='tab'
-                aria-selected={tab === 'nodes'}
-                variant={tab === 'nodes' ? 'secondary' : 'ghost'}
-                onClick={() => setTab('nodes')}
-              >
-                {t('channels.nodes')}
-              </Button>
-              <Button
-                role='tab'
-                aria-selected={tab === 'rules'}
-                variant={tab === 'rules' ? 'secondary' : 'ghost'}
-                onClick={() => setTab('rules')}
-              >
-                {t('channels.rules')}
-              </Button>
-            </div>
+            <TabsList className='subscriptions-tabs' aria-label={t('channels.title')}>
+              <TabsTrigger value='nodes' disabled={busy}>{t('channels.nodes')}</TabsTrigger>
+              <TabsTrigger value='rules' disabled={busy}>{t('channels.rules')}</TabsTrigger>
+            </TabsList>
           </div>
           <div className='channel-save'>
-            <Button
-              disabled={busy || conflict || !dirty}
-              variant='secondary'
-              onClick={() => void save()}
-            >
+            <Button disabled={busy || conflict || !dirty} variant='default' onClick={() => void save()}>
+              <Save data-icon='inline-start' />
               {t('channels.save')}
               {dirty && <span aria-label={t('channels.unsaved')}> ·</span>}
             </Button>
@@ -220,262 +225,140 @@ export function ChannelWorkspace({ active = true, toolbarTarget, channel, nodes,
           {tab === 'nodes' && (
             <div className='subscription-search'>
               <Search />
-              <input
-                aria-label={t('subscriptions.sources.search')}
-                placeholder={t('subscriptions.sources.search')}
-                value={search}
-                onChange={(event) => setSearch(event.target.value)}
-              />
+              <input aria-label={t('subscriptions.sources.search')} placeholder={t('subscriptions.sources.search')} value={search} onChange={(event) => setSearch(event.target.value)} />
             </div>
           )}
         </div>
       </ToolbarActions>
-      {tab === 'nodes'
-        ? (
-            <>
-              <div className='channel-node-tools'>
-                <Button
-                  variant='ghost'
-                  disabled={format === 'loon'}
-                  onClick={() => setOptions('organizer')}
-                >
-                  {t('channels.organizer')}
-                </Button>
-                <div className='subscription-toolbar-actions'>
-                  <Button
-                    size='icon'
-                    variant='ghost'
-                    aria-label={t('channels.refresh')}
-                    disabled={busy}
-                    onClick={() => void onRefresh()}
-                  >
-                    <RefreshCw />
-                  </Button>
-                </div>
-              </div>
-              <SubscriptionNodeGrid
-                nodes={nodes}
-                readOnly={format === 'loon'}
-                search={search}
-                selected={selected}
-                onSelect={toggle}
-                onOpen={setNode}
-                busy={busy}
-              />
-            </>
-          )
-        : (
-            <div className='channel-rules-workspace'>
-              <div className='channel-rules-toolbar'>
-                <label htmlFor='channel-output'>{t('channels.client')}</label>
-                <select
-                  id='channel-output'
-                  value={format}
-                  onChange={(event) => setFormat(event.target.value as SubscriptionFormat)}
-                >
-                  <option value='sing-box'>sing-box JSON</option>
-                  <option value='mihomo'>Mihomo YAML</option>
-                  {channel.format === 'loon' && <option value='loon'>Loon</option>}
-                </select>
-                <div />
-                <Button
-                  variant='ghost'
-                  disabled={format === 'loon'}
-                  onClick={() => setOptions('distribution')}
-                >
-                  {t('channels.distribution')}
-                </Button>
-                <Button variant='secondary' disabled={busy} onClick={() => void showPreview()}>
-                  {t('channels.preview')}
-                </Button>
-              </div>
-              {conflict && (
-                <p className='subscription-form-error' role='status'>
-                  {t('channels.formatConflict')}
-                </p>
-              )}
-              {format === 'loon'
-                ? (
-                    <p>{t('channels.legacy')}</p>
-                  )
-                : (
-                    <>
-                      <div className='channel-group-title'>
-                        <span>{t('channels.groups')}</span>
-                        <div className='subscription-toolbar-actions'>
-                          <Button
-                            variant='ghost'
-                            size='icon'
-                            aria-label={t('channels.addGroup')}
-                            onClick={addGroup}
-                          >
-                            <Plus />
-                          </Button>
-                        </div>
-                      </div>
-                      <div className='channel-groups-scroll'>
-                        <table className='workspace-table channel-groups-table'>
-                          <thead>
-                            <tr>
-                              <th>{t('channels.groupName')}</th>
-                              <th>{t('channels.matches')}</th>
-                              <th>{t('channels.state')}</th>
-                              <th>{t('channels.actions')}</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {policy.groups.map((value, index) => (
-                              <tr key={value.id}>
-                                <td>
-                                  <button title={value.name} onClick={() => setGroup(value)}>
-                                    {value.name}
-                                  </button>
-                                </td>
-                                <td>
-                                  <div className='channel-counts'>
-                                    <span
-                                      className={
-                                        value.rules.some((rule) => rule.kind !== 'remote') ? '' : 'is-zero'
-                                      }
-                                    >
-                                      {t('channels.manualCount', {
-                                        count: value.rules.filter((rule) => rule.kind !== 'remote').length,
-                                      })}
-                                    </span>
-                                    <span
-                                      className={
-                                        value.rules.some((rule) => rule.kind === 'remote') ? '' : 'is-zero'
-                                      }
-                                    >
-                                      {t('channels.remoteCount', {
-                                        count: value.rules.filter((rule) => rule.kind === 'remote').length,
-                                      })}
-                                    </span>
-                                  </div>
-                                </td>
-                                <td>
-                                  <input
-                                    type='checkbox'
-                                    aria-label={`${t('channels.enabled')} ${value.name}`}
-                                    checked={value.enabled}
-                                    onChange={(event) =>
-                                      setPolicy({
-                                        ...policy,
-                                        groups: policy.groups.map((item) =>
-                                          item.id === value.id
-                                            ? { ...item, enabled: event.target.checked }
-                                            : item,
-                                        ),
-                                      })
-                                    }
-                                  />
-                                </td>
-                                <td>
-                                  <div className='subscription-toolbar-actions'>
-                                    <Button
-                                      size='icon'
-                                      variant='ghost'
-                                      aria-label={t('channels.moveUp')}
-                                      disabled={index === 0}
-                                      onClick={() => reorder(index, -1)}
-                                    >
-                                      <ArrowUp />
-                                    </Button>
-                                    <Button
-                                      size='icon'
-                                      variant='ghost'
-                                      aria-label={t('channels.moveDown')}
-                                      disabled={index === policy.groups.length - 1}
-                                      onClick={() => reorder(index, 1)}
-                                    >
-                                      <ArrowDown />
-                                    </Button>
-                                    <Button
-                                      size='icon'
-                                      variant='ghost'
-                                      aria-label={t('channels.editGroup')}
-                                      onClick={() => setGroup(value)}
-                                    >
-                                      <Pencil />
-                                    </Button>
-                                    <Button
-                                      size='icon'
-                                      variant='ghost'
-                                      aria-label={t('channels.deleteGroup')}
-                                      onClick={() => setRemoveGroup(value.id)}
-                                    >
-                                      <Trash2 />
-                                    </Button>
-                                  </div>
-                                </td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                      <div className='subscription-settings-fields channel-fallback'>
-                        <label htmlFor='channel-fallback'>{t('channels.fallback')}</label>
-                        <ChannelRouteExitSelect
-                          id='channel-fallback'
-                          value={policy.default_exit}
-                          nodes={candidates}
-                          groups={policy.groups}
-                          onChange={(default_exit) =>
-                            setPolicy({
-                              ...policy,
-                              default_exit,
-                              selection: {
-                                ...policy.selection,
-                                ids:
-                          default_exit.kind === 'node'
-                            ? [...new Set([...policy.selection.ids, default_exit.id!])]
-                            : policy.selection.ids,
-                              },
-                            })
+      <TabsContent value='nodes' className='subscription-node-list'>
+        <div className='channel-node-tools'>
+          <Button variant='outline' disabled={busy || format === 'loon'} onClick={() => setOptions('organizer')}>{t('channels.organizer')}</Button>
+          <Button size='icon' variant='outline' aria-label={t('channels.refresh')} disabled={busy} onClick={() => void onRefresh()}><RefreshCw /></Button>
+        </div>
+        <SubscriptionNodeGrid nodes={nodes} readOnly={format === 'loon'} search={search} selected={selected} onSelect={toggle} onOpen={setNode} busy={busy} />
+      </TabsContent>
+      <TabsContent value='rules' className='channel-rules-workspace'>
+        <fieldset className='channel-rules-toolbar' disabled={busy}>
+          <Field orientation='horizontal' className='channel-name-field'>
+            <FieldLabel htmlFor='channel-edit-name'>{t('channels.name')}</FieldLabel>
+            <Input id='channel-edit-name' value={name} onChange={(event) => setName(event.target.value)} />
+          </Field>
+          <label htmlFor='channel-output'>{t('channels.client')}</label>
+          <select id='channel-output' value={format} onChange={(event) => setFormat(event.target.value as SubscriptionFormat)}>
+            <option value='sing-box'>sing-box JSON</option>
+            <option value='mihomo'>Mihomo YAML</option>
+            {channel.format === 'loon' && <option value='loon'>Loon</option>}
+          </select>
+          <Button variant='outline' onClick={() => setOptions('distribution')}>{t('channels.distribution')}</Button>
+          <Button variant='outline' onClick={() => void showPreview()}>{t('channels.preview')}</Button>
+        </fieldset>
+        {conflict && <p className='subscription-form-error' role='status'>{t('channels.formatConflict')}</p>}
+        {format === 'loon'
+          ? <p>{t('channels.legacy')}</p>
+          : (
+              <>
+                <div className='channel-policy-layout'>
+                  <aside className='channel-group-sidebar' aria-label={t('channels.groups')}>
+                    <div className='channel-group-sidebar-heading'>
+                      <h2>{t('channels.groups')}</h2>
+                      <Badge variant='secondary'>{policy.groups.length}</Badge>
+                      <Button size='sm' variant='outline' disabled={busy} onClick={addGroup}>
+                        <Plus data-icon='inline-start' />
+                        {t('channels.addGroup')}
+                      </Button>
+                    </div>
+                    <div className='channel-group-list'>
+                      {policy.groups.map((value) => (
+                        <Button
+                          key={value.id}
+                          variant='outline'
+                          className='channel-group-item'
+                          size='content'
+                          aria-pressed={group?.id === value.id}
+                          disabled={busy}
+                          onClick={() => setGroupID(value.id)}
+                        >
+                          <span className='channel-group-item-name' title={value.name}>
+                            <Layers3 aria-hidden='true' />
+                            {value.name || t('channels.groupName')}
+                          </span>
+                          <span className='channel-group-badges'>
+                            <Badge variant='info'>{t('channels.membersCount', { count: value.node_ids.length })}</Badge>
+                            <Badge variant='outline'>{t('channels.manualCount', { count: value.rules.length })}</Badge>
+                            {!value.enabled && <Badge variant='secondary'>{t('channels.disabled')}</Badge>}
+                            {policy.default_exit.kind === 'group' && policy.default_exit.id === value.id && <Badge variant='success'>{t('channels.finalExit')}</Badge>}
+                          </span>
+                        </Button>
+                      ))}
+                    </div>
+                    {group && (
+                      <div className='channel-group-actions'>
+                        <Button size='icon-sm' variant='outline' aria-label={t('channels.moveGroupUp')} disabled={busy || groupIndex === 0} onClick={() => reorder(groupIndex, -1)}><ArrowUp /></Button>
+                        <Button size='icon-sm' variant='outline' aria-label={t('channels.moveGroupDown')} disabled={busy || groupIndex === policy.groups.length - 1} onClick={() => reorder(groupIndex, 1)}><ArrowDown /></Button>
+                        <Button variant='destructive' size='sm' disabled={busy} onClick={() => {
+                          if (policy.default_exit.kind === 'group' && policy.default_exit.id === group.id) {
+                            toast.add({ title: t('channels.groupExitInUse'), type: 'error' });
+                            return;
                           }
-                        />
+                          setRemoveGroup(group.id);
+                        }}>
+                          <Trash2 data-icon='inline-start' />
+                          {t('channels.deleteGroup')}
+                        </Button>
                       </div>
-                    </>
-                  )}
-              <details className='channel-metadata'>
-                <summary>{t('channels.name')}</summary>
-                <div className='subscription-settings-fields'>
-                  <label htmlFor='channel-edit-name'>{t('channels.name')}</label>
-                  <input
-                    id='channel-edit-name'
-                    value={name}
-                    onChange={(event) => setName(event.target.value)}
-                  />
-                  <label htmlFor='channel-enabled'>{t('channels.enabledLabel')}</label>
-                  <input
-                    id='channel-enabled'
-                    checked={enabled}
-                    type='checkbox'
-                    onChange={(event) => setEnabled(event.target.checked)}
-                  />
+                    )}
+                    <fieldset disabled={busy} className='channel-fallback'>
+                      <label htmlFor='channel-fallback'>{t('channels.fallback')}</label>
+                      <ChannelRouteExitSelect
+                        id='channel-fallback'
+                        value={policy.default_exit}
+                        nodes={candidates}
+                        groups={policy.groups}
+                        onChange={(default_exit) => setPolicy({
+                          ...policy,
+                          default_exit,
+                          selection: {
+                            ...policy.selection,
+                            ids: default_exit.kind === 'node' ? [...new Set([...policy.selection.ids, default_exit.id!])] : policy.selection.ids,
+                          },
+                        })}
+                      />
+                    </fieldset>
+                  </aside>
+                  {group
+                    ? (
+                        <ChannelGroupEditor
+                          key={group.id} group={group} nodes={nodes}
+                          format={format} busy={busy} onChange={updateGroup}
+                        />
+                      )
+                    : (
+                        <Empty className='channel-group-empty'>
+                          <EmptyHeader>
+                            <EmptyMedia variant='icon'><Layers3 /></EmptyMedia>
+                            <EmptyTitle>{t('channels.noGroups')}</EmptyTitle>
+                            <EmptyDescription>{t('channels.noGroupsHint')}</EmptyDescription>
+                          </EmptyHeader>
+                          <EmptyContent>
+                            <Button disabled={busy} onClick={addGroup}>
+                              <Plus data-icon='inline-start' />
+                              {t('channels.createFirstGroup')}
+                            </Button>
+                          </EmptyContent>
+                        </Empty>
+                      )}
                 </div>
-              </details>
-            </div>
-          )}
-      {group && (
-        <ChannelGroupEditor
-          group={group}
-          nodes={candidates}
-          format={format}
-          onClose={() => setGroup(null)}
-          onSave={async (value) => {
-            setPolicy((current) => ({
-              ...current,
-              groups: current.groups.some((item) => item.id === value.id)
-                ? current.groups.map((item) => (item.id === value.id ? value : item))
-                : [...current.groups, value],
-            }));
-          }}
-        />
-      )}
+
+              </>
+            )}
+      </TabsContent>
       {options && (
         <ChannelOptions
           kind={options}
+          channelID={channel.id}
+          needsSave={dirty}
+          enabled={channel.enabled}
+          legacy={format === 'loon'}
           policy={policy}
           config={config}
           onClose={() => setOptions(null)}
@@ -524,10 +407,10 @@ export function ChannelWorkspace({ active = true, toolbarTarget, channel, nodes,
             <DialogDescription className='sr-only'>{t('channels.unsaved')}</DialogDescription>
           </DialogHeader>
           <DialogFooter>
-            <Button variant='secondary' onClick={() => setLeaving(false)}>
+            <Button variant='outline' onClick={() => setLeaving(false)}>
               {t('common.cancel')}
             </Button>
-            <Button variant='secondary' onClick={onBack}>
+            <Button variant='outline' onClick={onBack}>
               {t('channels.discard')}
             </Button>
           </DialogFooter>
@@ -542,7 +425,7 @@ export function ChannelWorkspace({ active = true, toolbarTarget, channel, nodes,
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
-            <Button variant='secondary' onClick={() => setRemoveGroup(null)}>
+            <Button variant='outline' onClick={() => setRemoveGroup(null)}>
               {t('common.cancel')}
             </Button>
             <Button
@@ -560,6 +443,6 @@ export function ChannelWorkspace({ active = true, toolbarTarget, channel, nodes,
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </>
+    </Tabs>
   );
 }

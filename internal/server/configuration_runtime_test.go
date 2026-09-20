@@ -4,12 +4,17 @@ package server
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/rehuony/sing-box-panel/internal/application"
+	"github.com/rehuony/sing-box-panel/internal/artifactstore"
 	coreruntime "github.com/rehuony/sing-box-panel/internal/runtime"
 	"github.com/rehuony/sing-box-panel/internal/store"
 )
@@ -182,7 +187,7 @@ func TestSavedConfigurationRestartCommitsCheckedBytesAndLoadedIdentity(t *testin
 	}
 	resolver.identity = application.RuntimeIdentity{PID: observation.PID, ProcessStartToken: observation.ProcessStartToken, ActivationBundleID: observation.ActivationBundleID}
 	status, err := application.FromStoreWithRuntimeResolver(db, resolver).RuntimeStatus(ctx)
-	if err != nil || status.LoadedCanonicalRevisionID != saved.CanonicalRevisionID {
+	if err != nil || status.LoadedCanonicalRevisionID != saved.CanonicalRevisionID || status.EnabledCore == nil || status.EnabledCore.CoreArtifactID != observation.CoreArtifactID {
 		t.Fatalf("loaded identity: %+v %v", status, err)
 	}
 	file, err = commands.SaveConfigurationFile(ctx, application.ConfigurationFileWrite{Revision: saved.Revision, Content: `{"log":{"level":"trace"}}`})
@@ -224,5 +229,125 @@ func TestStartDoesNotReloadAnAlreadyRunningProcess(t *testing.T) {
 	}
 	if manager.launches != 0 || manager.stopCalls != 0 {
 		t.Fatal("start changed running process")
+	}
+}
+
+func TestStoppedCoreSelectionCommitsWithoutLaunchingAndRetainsVersion(t *testing.T) {
+	for _, scenario := range []string{"success", "binary-rejected", "canceled", "superseded"} {
+		t.Run(scenario, func(t *testing.T) {
+			ctx := context.Background()
+			db, commands, previous := seedRuntimeObservation(t, ctx)
+			if _, err := db.ClearRuntimeObservation(ctx, previous.PID, previous.ProcessStartToken); err != nil {
+				t.Fatal(err)
+			}
+			root, err := filepath.EvalSymlinks(t.TempDir())
+			if err != nil {
+				t.Fatal(err)
+			}
+			artifacts, err := artifactstore.New(artifactstore.Options{Root: filepath.Join(root, "artifacts")})
+			if err != nil {
+				t.Fatal(err)
+			}
+			core, err := db.GetCoreArtifact(ctx, previous.CoreArtifactID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			core.ID = "selected-core"
+			core.ArchiveSHA256 = strings.Repeat("c", 64)
+			core.BinarySHA256 = fmt.Sprintf("%x", sha256.Sum256([]byte("selected binary")))
+			core.BinaryPath = filepath.Join(root, "artifacts", "sha256", "cc", core.ArchiveSHA256, "sing-box")
+			if err := os.MkdirAll(filepath.Dir(core.BinaryPath), 0700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(core.BinaryPath, []byte("selected binary"), 0700); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := db.UpsertCoreArtifact(ctx, core); err != nil {
+				t.Fatal(err)
+			}
+			file, err := commands.ConfigurationFile(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			saved, err := commands.SaveConfigurationFile(ctx, application.ConfigurationFileWrite{Revision: file.Revision, Content: `{"log":{"level":"debug"}}`})
+			if err != nil {
+				t.Fatal(err)
+			}
+			queued, err := db.RequestConfigurationRuntimeIntent(ctx, store.RuntimeIntentInput{TaskID: "select-stopped", Kind: store.RuntimeIntentRestart, SelectOnly: true, CreatedAt: time.Now().UTC()}, store.StartupArtifact{
+				ID: "selected-startup", CanonicalRevisionID: saved.CanonicalRevisionID, ExactCoreVersion: previous.ExactCoreVersion,
+				CoreArtifactID: core.ID, ConfigBytes: []byte(saved.Content), CreatedAt: time.Now().UTC(),
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			task, err := db.ClaimTask(ctx, store.ClaimTaskInput{Lane: store.TaskLaneRuntime, LeaseOwner: "selection", Now: time.Now().UTC(), LeaseDuration: time.Minute})
+			if err != nil || task == nil || task.ID != queued.ID {
+				t.Fatalf("claim: %+v %v", task, err)
+			}
+			manager := &configurationLaunchManager{}
+			if scenario == "binary-rejected" {
+				manager.checkError = errors.New("invalid configuration")
+			}
+			resolver := &fakeRuntimeIdentityResolver{err: application.ErrNoRunningCore}
+			services := &runtimeServices{database: db, commands: commands, manager: manager, identity: resolver}
+			result, handleErr := runtimeIntentHandler(services)(ctx, *task, successfulTaskControl{})
+			if scenario == "binary-rejected" && handleErr == nil {
+				t.Fatal("accepted invalid configuration")
+			}
+			if scenario != "binary-rejected" && handleErr != nil {
+				t.Fatal(handleErr)
+			}
+			if scenario == "canceled" {
+				if _, _, err := db.RequestTaskCancellation(ctx, task.ID, time.Now().UTC()); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if scenario == "superseded" {
+				if _, err := commands.QueueRuntimeStop(ctx); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if _, err := db.CompleteTask(ctx, task.ID, task.LeaseOwner, time.Now().UTC(), store.TaskCompletion{Succeeded: handleErr == nil, Runtime: result.Runtime}); err != nil {
+				t.Fatal(err)
+			}
+			if manager.launches != 0 || manager.stopCalls != 0 {
+				t.Fatal("selection changed process state")
+			}
+			bootstrap, err := db.Bootstrap(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if scenario == "success" {
+				if bootstrap.Hub.DesiredRunning || bootstrap.Hub.AppliedBundleID == previous.ActivationBundleID {
+					t.Fatalf("selection not committed: %+v", bootstrap.Hub)
+				}
+				status, err := application.FromStoreWithRuntimeResolver(db, resolver).RuntimeStatus(ctx)
+				if err != nil || status.EnabledCore == nil || status.EnabledCore.CoreArtifactID != core.ID || status.Running != nil || status.LoadedCanonicalRevisionID != "" {
+					t.Fatalf("stopped selection: %+v %v", status, err)
+				}
+				if err := commands.SyncEnabledCoreLink(ctx, artifacts); err != nil {
+					t.Fatal(err)
+				}
+				link := filepath.Join(root, "artifacts", "current")
+				if target, err := filepath.EvalSymlinks(link); err != nil || target != core.BinaryPath {
+					t.Fatalf("selection link: %q %v", target, err)
+				}
+				if err := os.Remove(link); err != nil {
+					t.Fatal(err)
+				}
+				if err := application.FromStore(db).SyncEnabledCoreLink(ctx, artifacts); err != nil {
+					t.Fatal(err)
+				}
+				if target, err := filepath.EvalSymlinks(link); err != nil || target != core.BinaryPath {
+					t.Fatalf("recovered link: %q %v", target, err)
+				}
+				start, err := commands.QueueRuntimeStart(ctx)
+				if err != nil || start.ActivationBundleID != bootstrap.Hub.AppliedBundleID {
+					t.Fatalf("start lost selection: %+v %v", start, err)
+				}
+			} else if bootstrap.Hub.AppliedBundleID != previous.ActivationBundleID {
+				t.Fatal("unsuccessful task changed selection")
+			}
+		})
 	}
 }

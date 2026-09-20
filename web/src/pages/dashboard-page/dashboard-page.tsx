@@ -151,8 +151,8 @@ export function DashboardPage() {
     },
   ];
   return (
-    <div className='dashboard-page'>
-      <h1>{t('nav.dashboard')}</h1>
+    <div className='dashboard-page panel-page'>
+      <h1 className='sr-only'>{t('nav.dashboard')}</h1>
       {current?.errors.length
         ? (
             <ErrorNotice error={current.errors[0]} title={t('dashboard.error.history')} />

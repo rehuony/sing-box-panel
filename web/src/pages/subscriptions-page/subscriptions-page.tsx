@@ -44,9 +44,7 @@ export function SubscriptionsPage() {
 
   return (
     <div className='subscriptions-page panel-page'>
-      <header className='subscriptions-page__heading panel-page-heading'>
-        <h1>{t('subscriptions.title')}</h1>
-      </header>
+      <h1 className='sr-only'>{t('subscriptions.title')}</h1>
       <Tabs onValueChange={selectArea} value={area}>
         <WorkspaceToolbar>
           <TabsList aria-label={t('subscriptions.tabs.label')} className='subscriptions-tabs'>

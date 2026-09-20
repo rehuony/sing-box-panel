@@ -235,6 +235,9 @@ sing-box-panel core enable CORE_ARTIFACT_ID
 sing-box-panel core enable CORE_ARTIFACT_ID --detach
 ```
 
+`core enable` preserves the stopped/running state: a stopped core is selected
+without launching it, while a running core is restarted after validation.
+`core status` retains `enabled_core` when stopped.
 `core enable` carries the saved JSON forward unchanged. It never merges, fills,
 migrates, or rewrites fields for another version. The selected binary must
 accept an execution snapshot with `sing-box check` before the running process

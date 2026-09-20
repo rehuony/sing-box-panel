@@ -16,7 +16,7 @@ export function ObservabilityPage() {
   const tab = params.get('tab') === 'panel' || params.has('task') ? 'panel' : 'core';
   return (
     <section className='observability-page panel-page'>
-      <h1 className='panel-page-heading'>{t('productLogs.title')}</h1>
+      <h1 className='sr-only'>{t('productLogs.title')}</h1>
       <Tabs
         className='product-logs'
         value={tab}

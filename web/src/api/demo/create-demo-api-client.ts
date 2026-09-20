@@ -50,7 +50,6 @@ interface PendingTask {
 
 interface DemoState extends ReturnType<typeof createDemoData> {
   nextID: number;
-  selectedCoreID?: string;
   revisions: CanonicalSnapshot[];
   pendingTasks: Map<string, PendingTask>;
   session: { displayName: string } | null;
@@ -258,13 +257,14 @@ function stoppedRuntime(state: DemoState, task: Task): void {
 
 function runningRuntime(state: DemoState, task: Task, bundleID?: string): void {
   const core
-    = state.cores.find((item) => item.id === state.selectedCoreID)
+    = state.cores.find((item) => item.id === state.runtime.enabled_core?.core_artifact_id)
       ?? state.cores.find((item) => item.id === state.runtime.running?.core_artifact_id)
       ?? state.cores[0];
   if (core === undefined) return;
   const processToken = `demo-process-${state.nextID}-${Date.now()}`;
   state.runtime = {
     ...state.runtime,
+    enabled_core: { core_artifact_id: core.id, exact_core_version: core.exact_version },
     desired_running: true,
     desired_bundle_id: bundleID ?? state.runtime.desired_bundle_id,
     applied_bundle_id: bundleID ?? state.runtime.applied_bundle_id,
@@ -780,6 +780,8 @@ export function createDemoApiClient(): ApiClient {
     },
     startRuntime(signal) {
       assertActive(signal);
+      settleTasks(state);
+      if (!state.runtime.enabled_core) throw new Error('No core version is enabled.');
       requireParsedFile();
       const task = queueTask(state, 'runtime-start', {
         complete: () => {
@@ -790,6 +792,7 @@ export function createDemoApiClient(): ApiClient {
     },
     enableCore(artifactID, signal) {
       assertActive(signal);
+      settleTasks(state);
       requireParsedFile();
       const artifact = requireItem(state.cores, artifactID, 'Core artifact');
       const platform = demoSystemStatus(state).platform;
@@ -801,8 +804,32 @@ export function createDemoApiClient(): ApiClient {
       }
       const task = queueTask(state, 'runtime-restart', {
         complete: () => {
-          state.selectedCoreID = artifact.id;
-          runningRuntime(state, task);
+          const wasRunning = state.runtime.observation_state === 'running';
+          if (wasRunning) stoppedRuntime(state, task);
+          state.runtime.rollback_bundle_id = state.runtime.applied_bundle_id;
+          state.runtime.applied_bundle_id = `bundle_${task.id}`;
+          state.runtime.desired_bundle_id = state.runtime.applied_bundle_id;
+          state.runtime.enabled_core = { core_artifact_id: artifact.id, exact_core_version: artifact.exact_version };
+          if (wasRunning) runningRuntime(state, task);
+          else state.runtime.target_generation = task.generation;
+        },
+      });
+      return respond(task, signal);
+    },
+    disableCore(artifactID, signal) {
+      assertActive(signal);
+      settleTasks(state);
+      requireItem(state.cores, artifactID, 'Core artifact');
+      if (state.runtime.enabled_core?.core_artifact_id !== artifactID) {
+        throw new Error('The requested core is no longer enabled.');
+      }
+      const task = queueTask(state, 'runtime-stop', {
+        complete: () => {
+          stoppedRuntime(state, task);
+          state.runtime.enabled_core = undefined;
+          state.runtime.applied_bundle_id = undefined;
+          state.runtime.desired_bundle_id = undefined;
+          state.runtime.rollback_bundle_id = undefined;
         },
       });
       return respond(task, signal);
@@ -816,6 +843,8 @@ export function createDemoApiClient(): ApiClient {
     },
     restartRuntime(signal) {
       assertActive(signal);
+      settleTasks(state);
+      if (!state.runtime.enabled_core) throw new Error('No core version is enabled.');
       requireParsedFile();
       const task = queueTask(state, 'runtime-restart', {
         complete: () => runningRuntime(state, task),
@@ -1105,8 +1134,8 @@ export function createDemoApiClient(): ApiClient {
     },
     rotateSubscriptionToken(tokenID, expiresAt, signal) {
       const revoked = requireItem(state.tokens, tokenID, 'Subscription token');
-      if (!subscriptionKeyActive(revoked)) {
-        throw new ApiRequestError('Subscription key is inactive.', {
+      if (revoked.revoked_at) {
+        throw new ApiRequestError('Subscription key is revoked.', {
           status: 409,
           code: 'subscription_token_inactive',
         });
@@ -1119,8 +1148,9 @@ export function createDemoApiClient(): ApiClient {
         expires_at: expiresAt ?? revoked.expires_at,
         revoked_at: undefined,
         created_at: updatedAt(),
-        active: true,
+        active: false,
       };
+      created.active = subscriptionKeyActive(created);
       state.tokens.unshift(created);
       return respond(
         { revoked, created, token: `sbp_demo_${state.nextID}_rotated_secret` },

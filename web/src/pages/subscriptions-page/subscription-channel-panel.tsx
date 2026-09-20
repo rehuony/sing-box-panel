@@ -187,7 +187,7 @@ export function SubscriptionChannelPanel({ active = true, toolbarTarget }: {
                       aria-label={t('channels.add')}
                       disabled={busy}
                       size='icon'
-                      variant='ghost'
+                      variant='outline'
                       onClick={() => {
                         setCreating(true);
                         setName('');
@@ -214,9 +214,9 @@ export function SubscriptionChannelPanel({ active = true, toolbarTarget }: {
                     {filtered.slice((current - 1) * size, current * size).map((value) => (
                       <tr key={value.id}>
                         <td>
-                          <button onClick={() => void open(value.id)} title={value.name}>
+                          <Button variant='ghost' size='content' onClick={() => void open(value.id)} title={value.name}>
                             {value.name}
-                          </button>
+                          </Button>
                         </td>
                         <td>
                           {value.format === 'sing-box'
@@ -227,10 +227,10 @@ export function SubscriptionChannelPanel({ active = true, toolbarTarget }: {
                         </td>
                         <td>{t(value.enabled ? 'channels.enabled' : 'channels.disabled')}</td>
                         <td>
-                          <Button disabled={busy} variant='ghost' onClick={() => void open(value.id)}>
+                          <Button size='sm' disabled={busy} variant='outline' onClick={() => void open(value.id)}>
                             {t('channels.edit')}
                           </Button>
-                          <Button disabled={busy} variant='ghost' onClick={() => setDeleting(value)}>
+                          <Button size='sm' disabled={busy} variant='destructive' onClick={() => setDeleting(value)}>
                             {t('channels.remove')}
                           </Button>
                         </td>
@@ -253,7 +253,7 @@ export function SubscriptionChannelPanel({ active = true, toolbarTarget }: {
                 <div>
                   <Button
                     aria-label={t('subscriptions.keys.previous')}
-                    variant='ghost'
+                    variant='outline'
                     size='icon'
                     disabled={current === 1}
                     onClick={() => setPage(current - 1)}
@@ -263,7 +263,7 @@ export function SubscriptionChannelPanel({ active = true, toolbarTarget }: {
                   <span aria-current='page'>{current}</span>
                   <Button
                     aria-label={t('subscriptions.keys.next')}
-                    variant='ghost'
+                    variant='outline'
                     size='icon'
                     disabled={current === pages}
                     onClick={() => setPage(current + 1)}
@@ -303,10 +303,10 @@ export function SubscriptionChannelPanel({ active = true, toolbarTarget }: {
             </p>
           )}
           <DialogFooter>
-            <Button disabled={busy} variant='secondary' onClick={() => setCreating(false)}>
+            <Button disabled={busy} variant='outline' onClick={() => setCreating(false)}>
               {t('common.cancel')}
             </Button>
-            <Button disabled={busy} variant='secondary' onClick={() => void create()}>
+            <Button disabled={busy} variant='default' onClick={() => void create()}>
               {t('channels.add')}
             </Button>
           </DialogFooter>
@@ -321,7 +321,7 @@ export function SubscriptionChannelPanel({ active = true, toolbarTarget }: {
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
-            <Button disabled={busy} variant='secondary' onClick={() => setDeleting(null)}>
+            <Button disabled={busy} variant='outline' onClick={() => setDeleting(null)}>
               {t('common.cancel')}
             </Button>
             <Button disabled={busy} variant='destructive' onClick={() => void remove()}>

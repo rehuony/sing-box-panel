@@ -193,6 +193,27 @@ func (handler *Handler) enableCoreArtifact(w http.ResponseWriter, request *http.
 	writeJSON(w, http.StatusAccepted, task)
 }
 
+func (handler *Handler) disableCoreArtifact(w http.ResponseWriter, request *http.Request, id string) {
+	if !handler.requireCommands(w, request) {
+		return
+	}
+	if _, ok := strictCoreQuery(w, request); !ok || !requireEmptyCoreBody(w, request) {
+		return
+	}
+	task, err := handler.commands.DisableCore(request.Context(), id)
+	if err != nil {
+		if errors.Is(err, store.ErrCoreArtifactNotFound) {
+			writeProblem(w, request, http.StatusNotFound, "core_artifact_not_found", "Core artifact not found", "The requested artifact does not exist.")
+		} else if errors.Is(err, store.ErrCoreNotEnabled) {
+			writeProblem(w, request, http.StatusConflict, "core_not_enabled", "Core is not enabled", "The enabled version changed; reload the current runtime status before retrying.")
+		} else {
+			writeRuntimeProblem(w, request, "core_disable_failed", err)
+		}
+		return
+	}
+	writeJSON(w, http.StatusAccepted, task)
+}
+
 func (handler *Handler) queueCoreActivate(w http.ResponseWriter, request *http.Request) {
 	if !handler.requireCommands(w, request) {
 		return

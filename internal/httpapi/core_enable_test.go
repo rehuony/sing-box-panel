@@ -45,3 +45,21 @@ func TestEnableCoreRejectsWrongPlatformBeforeQueueing(t *testing.T) {
 		t.Fatal("rejected enable changed runtime intent", err, bootstrap.Hub)
 	}
 }
+
+func TestDisableCoreRejectsMissingOrUnselectedArtifacts(t *testing.T) {
+	handler, db := newCoreHTTPFixture(t)
+	artifact := seedCoreHTTPArtifact(t, db)
+	for _, test := range []struct {
+		id     string
+		status int
+	}{{"missing", http.StatusNotFound}, {artifact.ID, http.StatusConflict}} {
+		response := authenticatedRequest(handler, http.MethodPost, "/api/v1/core/artifacts/"+test.id+"/disable", "", "")
+		if response.Code != test.status {
+			t.Fatalf("disable %s: %d %s", test.id, response.Code, response.Body.String())
+		}
+	}
+	bootstrap, err := db.Bootstrap(context.Background())
+	if err != nil || bootstrap.Hub.TargetGeneration != 0 {
+		t.Fatalf("rejected disable changed runtime intent: %+v %v", bootstrap.Hub, err)
+	}
+}

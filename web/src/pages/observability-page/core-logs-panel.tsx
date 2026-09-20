@@ -76,7 +76,8 @@ export function CoreLogsPanel({ active = true, toolbarTarget }: {
           {log.current && (
             <Button
               aria-label={t(log.paused ? 'productLogs.resume' : 'productLogs.pause')}
-              size='icon'
+              className='native-log__toggle'
+              size='icon-sm'
               variant='ghost'
               onClick={() => log.setPaused(!log.paused)}
             >

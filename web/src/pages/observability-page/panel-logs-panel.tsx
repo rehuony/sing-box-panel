@@ -3,7 +3,7 @@ import { useSearchParams } from 'react-router-dom';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { useDeferredValue, useEffect, useState } from 'react';
 
-import type { LogLevel, PanelLog, PanelLogPage } from '@/api/api-client';
+import type { LogLevel, PanelLogPage } from '@/api/api-client';
 
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -29,7 +29,6 @@ export function PanelLogsPanel({ active = true, toolbarTarget }: {
   const [result, setResult] = useState<PanelLogPage>({ items: [] });
   const [error, setError] = useState<unknown>(null);
   const [loading, setLoading] = useState(true);
-  const [entry, setEntry] = useState<PanelLog | null>(null);
   const taskID = params.get('task');
   const cursor = cursors.at(-1);
   useEffect(() => {
@@ -109,7 +108,7 @@ export function PanelLogsPanel({ active = true, toolbarTarget }: {
         <table className='workspace-table panel-log-table'>
           <thead>
             <tr>
-              {['time', 'message', 'status', 'source', 'actions'].map((key) => (
+              {['time', 'message', 'level', 'source'].map((key) => (
                 <th key={key}>{t(`productLogs.${key}`)}</th>
               ))}
             </tr>
@@ -126,24 +125,11 @@ export function PanelLogsPanel({ active = true, toolbarTarget }: {
                     : item.message}
                 </td>
                 <td>
-                  <span className={`panel-log-state panel-log-state--${item.status || item.level}`}>
-                    {item.status
-                      ? t(`telemetry.taskStatus.${item.status}`, { defaultValue: item.status })
-                      : item.level.toUpperCase()}
+                  <span className={`panel-log-state panel-log-state--${item.level}`}>
+                    {item.level.toUpperCase()}
                   </span>
                 </td>
                 <td>{t(`productLogs.sources.${item.source}`)}</td>
-                <td>
-                  <Button
-                    variant='ghost'
-                    onClick={() => {
-                      setEntry(item);
-                      selectTask(item.task_id ?? null);
-                    }}
-                  >
-                    {t('productLogs.details')}
-                  </Button>
-                </td>
               </tr>
             ))}
           </tbody>
@@ -187,13 +173,9 @@ export function PanelLogsPanel({ active = true, toolbarTarget }: {
         </div>
       </div>
       <PanelLogDetail
-        key={taskID ?? entry?.id ?? 'closed'}
-        entry={entry}
+        key={taskID ?? 'closed'}
         taskID={taskID}
-        onClose={() => {
-          setEntry(null);
-          selectTask(null);
-        }}
+        onClose={() => selectTask(null)}
         onTaskChange={selectTask}
       />
     </div>

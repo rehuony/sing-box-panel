@@ -98,7 +98,7 @@ export function ConfigurationPage() {
   );
   return (
     <div className='configuration-page panel-page'>
-      <h1 className='panel-page-heading'>{t('configuration.title')}</h1>
+      <h1 className='sr-only'>{t('configuration.title')}</h1>
       <section className='configuration-workspace' aria-label={t('configuration.title')} aria-busy={loading}>
         <Tabs className='configuration-tabs' value={editor} onValueChange={setSelectedEditor}>
           <div className='configuration-tabs__rail'>
@@ -141,7 +141,7 @@ export function ConfigurationPage() {
         </Tabs>
         <footer className='configuration-footer'>
           <span className='configuration-file-state' role='status' title={fileStatus}>{fileStatus}</span>
-          <Button disabled={locked || canonical.dirty || invalid || file?.revision === 0} onClick={() => void check()} title={canonical.dirty ? t('configuration.file.saveFirst') : undefined} type='button'>{checking ? t('configuration.file.checking') : t('configuration.file.check')}</Button>
+          <Button variant='outline' disabled={locked || canonical.dirty || invalid || file?.revision === 0} onClick={() => void check()} title={canonical.dirty ? t('configuration.file.saveFirst') : undefined} type='button'>{checking ? t('configuration.file.checking') : t('configuration.file.check')}</Button>
           <Button disabled={locked || (!canonical.dirty && (file?.revision ?? 0) > 0)} onClick={() => void canonical.save()} type='button'>{canonical.saving ? t('configuration.saving') : t('configuration.file.save')}</Button>
         </footer>
       </section>

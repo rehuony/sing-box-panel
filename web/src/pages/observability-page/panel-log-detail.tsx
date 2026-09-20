@@ -1,7 +1,7 @@
 import { useTranslation } from 'react-i18next';
 import { useEffect, useRef, useState } from 'react';
 
-import type { PanelLog, Task } from '@/api/api-client';
+import type { Task } from '@/api/api-client';
 
 import { Button } from '@/components/ui/button';
 import { toast } from '@/components/ui/toast-manager';
@@ -10,12 +10,10 @@ import { ErrorNotice } from '@/components/error-notice';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 
 export function PanelLogDetail({
-  entry,
   taskID,
   onClose,
   onTaskChange,
 }: {
-  entry: PanelLog | null;
   taskID: string | null;
   onClose: () => void;
   onTaskChange: (id: string) => void;
@@ -87,7 +85,7 @@ export function PanelLogDetail({
   }
   return (
     <Dialog
-      open={!!entry || !!taskID}
+      open={!!taskID}
       onOpenChange={(open) => {
         if (!open) onClose();
       }}
@@ -127,7 +125,7 @@ export function PanelLogDetail({
               {canCancel && (
                 <Button
                   disabled={busy}
-                  variant='secondary'
+                  variant='outline'
                   onClick={() => {
                     void act(false);
                   }}
@@ -138,7 +136,7 @@ export function PanelLogDetail({
               {canRetry && (
                 <Button
                   disabled={busy}
-                  variant='secondary'
+                  variant='outline'
                   onClick={() => {
                     void act(true);
                   }}
@@ -149,7 +147,6 @@ export function PanelLogDetail({
             </div>
           </>
         )}
-        {entry && !taskID && <p>{entry.message}</p>}
       </DialogContent>
     </Dialog>
   );

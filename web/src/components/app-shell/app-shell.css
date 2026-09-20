@@ -28,8 +28,6 @@
 .panel-shell {
   --sidebar-width: var(--shell-sidebar-width);
   --header-height: var(--shell-header-height);
-  --page-heading-height: 2.25rem;
-  --page-heading-gap: max(20px, calc((var(--header-height) - var(--page-heading-height)) / 2 + var(--space-xs)));
   --shell-header-left: var(--shell-sidebar-width);
   --shell-content-edge: var(--shell-edge);
   background: transparent;
@@ -202,7 +200,7 @@
   z-index: var(--z-sticky-nav);
 }
 
-.telemetry-banner :is(.telemetry-metric, button, .runtime-action-progress) svg {
+.telemetry-banner :is(.telemetry-metric, .runtime-action-progress) svg {
   height: var(--telemetry-icon-size);
   stroke-width: var(--telemetry-icon-stroke);
   width: var(--telemetry-icon-size);
@@ -340,51 +338,10 @@
   display: none;
 }
 
-.telemetry-banner__actions [data-slot='button'],
-.telemetry-banner__navigation-trigger {
-  border: var(--rule-thin) solid transparent;
-}
-
-.telemetry-banner__actions [data-slot='button']:hover,
-.telemetry-banner__navigation-trigger:hover {
-  background: var(--color-glass);
-}
-
 .telemetry-runtime-controls {
   align-items: center;
   display: flex;
   gap: var(--space-2xs);
-}
-
-.telemetry-action-button {
-  min-height: 40px;
-  height: 40px;
-  padding: 0;
-  width: 40px;
-}
-
-.telemetry-action-button--start {
-  color: var(--color-success-text);
-}
-
-.telemetry-action-button--start:hover {
-  background: var(--color-success-soft) !important;
-}
-
-.telemetry-action-button--stop {
-  color: var(--color-danger);
-}
-
-.telemetry-action-button--stop:hover {
-  background: var(--color-danger-soft) !important;
-}
-
-.telemetry-action-button--restart {
-  color: var(--color-text-muted);
-}
-
-.telemetry-action-button--restart:hover {
-  background: var(--color-primary-soft) !important;
 }
 
 .telemetry-personalization-actions {
@@ -413,7 +370,7 @@
   min-width: 0;
   overflow-y: auto;
   overscroll-behavior: contain;
-  padding: calc(var(--shell-edge) + var(--header-height) + 32px)
+  padding: calc(var(--shell-edge) + var(--header-height) + var(--space-md))
     max(0px, calc(var(--shell-content-edge) - var(--shell-scrollbar-width, 0px))) var(--shell-edge) 0;
   scroll-padding-top: calc(var(--shell-edge) + var(--header-height) + var(--space-md));
   scrollbar-gutter: stable;
@@ -431,7 +388,7 @@
 
 #main-content {
   display: flex;
-  flex: 1 0 auto;
+  flex: 1;
   flex-direction: column;
   min-height: 0;
   min-width: 0;
@@ -439,15 +396,9 @@
 }
 
 #main-content > .panel-page {
-  flex: none;
-  /* At the scroll end, the title and fixed toolbar share a vertical center. */
-  height: calc(100dvh - 2 * var(--shell-edge) - (var(--header-height) - var(--page-heading-height)) / 2);
+  flex: 1;
   min-height: 0;
   min-width: 0;
-}
-
-.panel-page-heading {
-  flex: none;
 }
 
 #main-content:focus {
@@ -625,13 +576,6 @@
   .telemetry-metric__compact {
     display: inline;
   }
-  .telemetry-banner__actions button,
-  .telemetry-banner__navigation-trigger {
-    width: 26px;
-    min-width: 26px;
-    height: 44px;
-    padding: 0;
-  }
   .telemetry-banner :is(.telemetry-banner__actions, .telemetry-banner__identity) button svg {
     width: 16px;
     height: 16px;
@@ -711,25 +655,6 @@
   }
 }
 
-#main-content
-  > :is(
-    .dashboard-page,
-    .core-page,
-    .subscriptions-page,
-    .configuration-page,
-    .panel-settings-page,
-    .observability-page
-  ) {
-  gap: var(--page-heading-gap);
-}
-#main-content h1 {
-  font-family: var(--font-display);
-  font-weight: 650;
-  letter-spacing: -0.03em;
-  font-size: 30px;
-  line-height: var(--page-heading-height);
-  margin: 0;
-}
 .telemetry-runtime .telemetry-demo-badge {
   color: var(--color-primary);
   background: var(--color-primary-soft);

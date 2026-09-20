@@ -86,6 +86,10 @@ func (handler *Handler) handleApplicationRoute(w http.ResponseWriter, request *h
 			next = func(w http.ResponseWriter, request *http.Request) {
 				handler.enableCoreArtifact(w, request, identifier)
 			}
+		case resource == "artifact-disable" && request.Method == http.MethodPost:
+			next = func(w http.ResponseWriter, request *http.Request) {
+				handler.disableCoreArtifact(w, request, identifier)
+			}
 		case resource == "artifact-configuration-support" && request.Method == http.MethodGet:
 			next = func(w http.ResponseWriter, request *http.Request) {
 				handler.coreConfigurationSupport(w, request, identifier)
@@ -207,6 +211,8 @@ func matchCoreRoute(path string) (string, string, bool) {
 			return "artifact-configuration-schema", parts[0], true
 		case "enable":
 			return "artifact-enable", parts[0], true
+		case "disable":
+			return "artifact-disable", parts[0], true
 		}
 	}
 	if remainder == "" || strings.Contains(remainder, "/") {

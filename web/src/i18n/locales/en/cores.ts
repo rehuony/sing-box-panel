@@ -1,5 +1,5 @@
 export const cores = {
-  library: { version: 'Version', source: 'Source', status: 'Status', actions: 'Actions', enable: 'Enable', disable: 'Disable', enabled: 'Enabled', disabled: 'Disabled', unknown: 'Status unknown', notInstalled: 'Not installed', download: 'Download', operationFailed: 'Operation {{status}}. See panel log for task {{id}}.', completed: 'Operation completed', queued: 'Waiting', running: 'Processing', succeeded: 'Completed', failed: 'Failed', canceled: 'Canceled', pageSize: 'Items per page', perPage: '{{count}} per page', previous: 'Previous page', next: 'Next page' },
+  library: { officialLink: 'Official link', version: 'Version', source: 'Source', status: 'Status', actions: 'Actions', enable: 'Enable', disable: 'Disable', enabled: 'Enabled', disabled: 'Disabled', unknown: 'Status unknown', installed: 'Installed', notInstalled: 'Not installed', download: 'Download', operationFailed: 'Operation {{status}}. See panel log for task {{id}}.', completed: 'Operation completed', queued: 'Waiting', running: 'Processing', succeeded: 'Completed', failed: 'Failed', canceled: 'Canceled', pageSize: 'Items per page', perPage: '{{count}} per page', previous: 'Previous page', next: 'Next page' },
   action: { remove: 'Remove' },
   artifact: { changed: 'Version removed.' },
   catalog: { short: 'catalog' },

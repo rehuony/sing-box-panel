@@ -183,7 +183,7 @@ function SettingsEditor({ initial }: { initial: PanelSettingsView }) {
                     <Input id='radius' type='number' min={0} max={32} step={1} required value={preferences.appearance.radius} onChange={e => appearance({ radius: Math.max(0, Math.min(32, Math.round(Number(e.target.value)))) })} />
                     <span aria-hidden='true'>px</span>
                   </div>
-                  <Button className='settings-reset' type='button' variant='secondary' onClick={() => appearance({ color: DEFAULT_APPEARANCE.color, radius: DEFAULT_APPEARANCE.radius })}>{t('panelSettings.reset')}</Button>
+                  <Button className='settings-reset' type='button' variant='outline' onClick={() => appearance({ color: DEFAULT_APPEARANCE.color, radius: DEFAULT_APPEARANCE.radius })}>{t('panelSettings.reset')}</Button>
                 </div>
               </SettingsField>
             </SettingsGroup>
@@ -223,7 +223,7 @@ function SettingsEditor({ initial }: { initial: PanelSettingsView }) {
             <SettingsField id='confirm-token' label={t('panelSettings.confirmToken')}><Input id='confirm-token' type='password' autoComplete='new-password' value={tokenConfirm} aria-invalid={tokenConfirm !== '' && token !== tokenConfirm} onChange={e => setTokenConfirm(e.target.value)} /></SettingsField>
           </FieldGroup>
           <DialogFooter>
-            <Button type='button' variant='secondary' onClick={() => {
+            <Button type='button' variant='outline' onClick={() => {
               setTokenOpen(false);
               setToken('');
               setTokenConfirm('');
@@ -243,7 +243,7 @@ export function PanelSettingsPage() {
   const { view, error, reload } = usePanelSettings();
   return (
     <section className='panel-settings-page panel-page'>
-      <h1 className='panel-page-heading'>{t('panelSettings.title')}</h1>
+      <h1 className='sr-only'>{t('panelSettings.title')}</h1>
       {error
         ? (
             <>

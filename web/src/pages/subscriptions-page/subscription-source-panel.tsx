@@ -15,6 +15,7 @@ import { useApiClient } from '@/api/api-client-context';
 import { SelectField } from '@/components/select-field';
 import { ToolbarActions } from '@/components/workspace-toolbar';
 import { describeRequestError, ErrorNotice } from '@/components/error-notice';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useOptionalSharedTelemetry } from '@/components/app-shell/telemetry-context';
 import {
   Dialog,
@@ -32,7 +33,6 @@ interface SourceForm {
   url: string;
   name: string;
   format: string;
-  enabled: boolean;
   interval: string;
   source?: SubscriptionSource;
 }
@@ -42,7 +42,6 @@ function newSource(): SourceForm {
     url: '',
     format: 'auto',
     interval: '360',
-    enabled: true,
   };
 }
 
@@ -75,7 +74,7 @@ export function SubscriptionSourcePanel({ active = true, toolbarTarget }: {
   const [editor, setEditor] = useState<{ node: SubscriptionNodeSummary | null } | null>(null);
   const [form, setForm] = useState<SourceForm | null>(null);
   const [creating, setCreating] = useState(false);
-  const [deleteConfirm, setDeleteConfirm] = useState(false);
+  const [deleting, setDeleting] = useState<SubscriptionSource | null>(null);
   const [formError, setFormError] = useState('');
   const lifetimeRef = useRef<AbortController | null>(null);
   const requestRef = useRef(0);
@@ -151,7 +150,6 @@ export function SubscriptionSourcePanel({ active = true, toolbarTarget }: {
       setForm({
         source,
         name: source.name,
-        enabled: source.enabled,
         url: typeof source.config.url === 'string' ? source.config.url : '',
         format: typeof source.config.format === 'string' ? source.config.format : 'auto',
         interval: String(source.config.refresh_interval_minutes ?? 0),
@@ -209,7 +207,7 @@ export function SubscriptionSourcePanel({ active = true, toolbarTarget }: {
         name: form.name.trim(),
         source_kind: remote ? ('remote' as const) : ('local' as const),
         config,
-        enabled: form.enabled,
+        enabled: form.source?.enabled ?? true,
       };
       if (form.source) {
         const result = await client.updateSubscriptionSource(
@@ -235,13 +233,25 @@ export function SubscriptionSourcePanel({ active = true, toolbarTarget }: {
       if (!signal()?.aborted) setBusy(false);
     }
   }
-  async function deleteSource() {
-    if (!form?.source || busy) return;
+  async function confirmSourceDeletion(id: string) {
+    if (busy) return;
     setBusy(true);
     try {
-      await client.deleteSubscriptionSource(form.source.id, form.source.updated_at, signal());
+      const source = await client.getSubscriptionSource(id, signal());
+      if (!signal()?.aborted) setDeleting(source);
+    } catch (reason) {
+      if (!signal()?.aborted) toast.add({ title: describeRequestError(reason), type: 'error' });
+    } finally {
+      if (!signal()?.aborted) setBusy(false);
+    }
+  }
+  async function deleteSource() {
+    if (!deleting || busy) return;
+    setBusy(true);
+    try {
+      await client.deleteSubscriptionSource(deleting.id, deleting.updated_at, signal());
       if (signal()?.aborted) return;
-      setDeleteConfirm(false);
+      setDeleting(null);
       setSelected(null);
       setForm(null);
       setTab('nodes');
@@ -318,14 +328,6 @@ export function SubscriptionSourcePanel({ active = true, toolbarTarget }: {
           </select>
         </>
       )}
-      <label htmlFor='source-enabled'>{t('subscriptions.common.enable')}</label>
-      <input
-        checked={form.enabled}
-        disabled={busy}
-        id='source-enabled'
-        onChange={(event) => setForm({ ...form, enabled: event.target.checked })}
-        type='checkbox'
-      />
     </div>
   );
   const localSourceIDs = new Set(
@@ -346,7 +348,11 @@ export function SubscriptionSourcePanel({ active = true, toolbarTarget }: {
   const pages = Math.max(1, Math.ceil(displayedSources.length / size));
   const current = Math.min(page, pages);
   return (
-    <section className='subscription-source-workspace'>
+    <Tabs
+      className='subscription-source-workspace'
+      value={tab}
+      onValueChange={(value) => value === 'settings' ? void openSettings() : setTab('nodes')}
+    >
       {error != null && <ErrorNotice error={error} title={t('subscriptions.source.loadFailed')} />}
       <ToolbarActions active={active} target={toolbarTarget}>
         <div className='subscription-source-toolbar workspace-toolbar-content'>
@@ -360,30 +366,19 @@ export function SubscriptionSourcePanel({ active = true, toolbarTarget }: {
                   setForm(null);
                   setFormError('');
                 }}
-                variant='ghost'
+                variant='outline'
               >
                 {t('subscriptions.sources.back')}
               </Button>
               {selected !== 'manual' && (
-                <>
-                  <Button
-                    aria-selected={tab === 'nodes'}
-                    onClick={() => setTab('nodes')}
-                    role='tab'
-                    variant={tab === 'nodes' ? 'secondary' : 'ghost'}
-                  >
+                <TabsList className='subscriptions-tabs' aria-label={t('subscriptions.sources.settings')}>
+                  <TabsTrigger value='nodes' disabled={busy}>
                     {t('subscriptions.sources.nodes')}
-                  </Button>
-                  <Button
-                    aria-selected={tab === 'settings'}
-                    disabled={busy}
-                    onClick={() => void openSettings()}
-                    role='tab'
-                    variant={tab === 'settings' ? 'secondary' : 'ghost'}
-                  >
+                  </TabsTrigger>
+                  <TabsTrigger value='settings' disabled={busy}>
                     {t('subscriptions.sources.settings')}
-                  </Button>
-                </>
+                  </TabsTrigger>
+                </TabsList>
               )}
             </div>
           )}
@@ -418,7 +413,7 @@ export function SubscriptionSourcePanel({ active = true, toolbarTarget }: {
                           )
                       }
                       size='icon'
-                      variant='ghost'
+                      variant='outline'
                     >
                       <RefreshCw aria-hidden='true' className={busy ? 'animate-spin' : ''} />
                     </Button>
@@ -435,7 +430,7 @@ export function SubscriptionSourcePanel({ active = true, toolbarTarget }: {
                             : (setForm(newSource()), setCreating(true), setFormError(''))
                         }
                         size='icon'
-                        variant='ghost'
+                        variant='outline'
                       >
                         <Plus aria-hidden='true' />
                       </Button>
@@ -450,7 +445,7 @@ export function SubscriptionSourcePanel({ active = true, toolbarTarget }: {
         ? (
             tab === 'settings' && form
               ? (
-                  <div className='subscription-source-settings'>
+                  <TabsContent value='settings' className='subscription-source-settings'>
                     {formError && (
                       <p role='alert' className='subscription-form-error'>
                         {formError}
@@ -458,25 +453,27 @@ export function SubscriptionSourcePanel({ active = true, toolbarTarget }: {
                     )}
                     {fields}
                     <footer>
-                      <Button disabled={busy} onClick={() => setDeleteConfirm(true)} variant='secondary'>
+                      <Button disabled={busy} onClick={() => setDeleting(form.source!)} variant='destructive'>
                         {t('subscriptions.sources.delete')}
                       </Button>
-                      <Button disabled={busy} onClick={() => void saveSource()} variant='secondary'>
+                      <Button disabled={busy} onClick={() => void saveSource()} variant='default'>
                         {t('subscriptions.sources.save')}
                       </Button>
                     </footer>
-                  </div>
+                  </TabsContent>
                 )
               : (
-                  <SubscriptionNodeGrid
-                    busy={busy}
-                    nodes={nodes.filter((node) =>
-                      selected === 'manual' ? inManualCollection(node) : node.source_id === selected,
-                    )}
-                    onOpen={(node) => setEditor({ node })}
-                    onVisibility={(node) => void toggle(node)}
-                    search={search}
-                  />
+                  <TabsContent value='nodes' className='subscription-node-list'>
+                    <SubscriptionNodeGrid
+                      busy={busy}
+                      nodes={nodes.filter((node) =>
+                        selected === 'manual' ? inManualCollection(node) : node.source_id === selected,
+                      )}
+                      onOpen={(node) => setEditor({ node })}
+                      onVisibility={(node) => void toggle(node)}
+                      search={search}
+                    />
+                  </TabsContent>
                 )
           )
         : (
@@ -495,13 +492,9 @@ export function SubscriptionSourcePanel({ active = true, toolbarTarget }: {
                     {displayedSources.slice((current - 1) * size, current * size).map((source) => (
                       <tr key={source.id}>
                         <td>
-                          <button
-                            onClick={() => openSource(source.id)}
-                            title={source.name}
-                            type='button'
-                          >
+                          <span className='block truncate font-medium' title={source.name}>
                             {source.name}
-                          </button>
+                          </span>
                         </td>
                         <td>
                           {
@@ -521,20 +514,26 @@ export function SubscriptionSourcePanel({ active = true, toolbarTarget }: {
                             : '—'}
                         </td>
                         <td>
-                          <Button disabled={busy} onClick={() => openSource(source.id)} variant='ghost'>
+                          <Button size='sm' disabled={busy} onClick={() => openSource(source.id)} variant='outline'>
                             {t('subscriptions.sources.edit')}
                           </Button>
                           <Button
+                            size='sm'
                             disabled={
                               busy || (source.id !== 'manual' && source.source_kind !== 'remote')
                             }
                             onClick={() =>
                               source.id === 'manual' ? reload() : void refresh([source.id])
                             }
-                            variant='ghost'
+                            variant='outline'
                           >
                             {t('subscriptions.sources.refresh')}
                           </Button>
+                          {source.id !== 'manual' && (
+                            <Button size='sm' disabled={busy} onClick={() => void confirmSourceDeletion(source.id)} variant='destructive'>
+                              {t('subscriptions.sources.delete')}
+                            </Button>
+                          )}
                         </td>
                       </tr>
                     ))}
@@ -557,7 +556,7 @@ export function SubscriptionSourcePanel({ active = true, toolbarTarget }: {
                     disabled={current === 1}
                     onClick={() => setPage(current - 1)}
                     size='icon'
-                    variant='ghost'
+                    variant='outline'
                   >
                     <ChevronLeft />
                   </Button>
@@ -567,7 +566,7 @@ export function SubscriptionSourcePanel({ active = true, toolbarTarget }: {
                     disabled={current === pages}
                     onClick={() => setPage(current + 1)}
                     size='icon'
-                    variant='ghost'
+                    variant='outline'
                   >
                     <ChevronRight />
                   </Button>
@@ -613,34 +612,34 @@ export function SubscriptionSourcePanel({ active = true, toolbarTarget }: {
               onClick={() => {
                 setCreating(false);
               }}
-              variant='secondary'
+              variant='outline'
             >
               {t('common.cancel')}
             </Button>
-            <Button disabled={busy} onClick={() => void saveSource()} variant='secondary'>
+            <Button disabled={busy} onClick={() => void saveSource()} variant='default'>
               {t('subscriptions.sources.save')}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
-      <Dialog onOpenChange={(open) => !busy && setDeleteConfirm(open)} open={deleteConfirm}>
+      <Dialog onOpenChange={(open) => !open && !busy && setDeleting(null)} open={deleting !== null}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>{t('subscriptions.sources.delete')}</DialogTitle>
             <DialogDescription>
-              {t('subscriptions.sources.deletePrompt', { name: form?.name })}
+              {t('subscriptions.sources.deletePrompt', { name: deleting?.name })}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
-            <Button disabled={busy} onClick={() => setDeleteConfirm(false)} variant='secondary'>
+            <Button disabled={busy} onClick={() => setDeleting(null)} variant='outline'>
               {t('common.cancel')}
             </Button>
-            <Button disabled={busy} onClick={() => void deleteSource()} variant='secondary'>
+            <Button disabled={busy} onClick={() => void deleteSource()} variant='destructive'>
               {t('subscriptions.sources.delete')}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </section>
+    </Tabs>
   );
 }

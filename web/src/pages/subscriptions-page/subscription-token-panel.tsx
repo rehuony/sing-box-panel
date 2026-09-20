@@ -2,7 +2,7 @@ import { Plus } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
-import type { CreatedSubscriptionToken, SubscriptionChannelSummary, SubscriptionCursor, SubscriptionToken } from '@/api/api-client';
+import type { CreatedSubscriptionToken, SubscriptionCursor, SubscriptionToken } from '@/api/api-client';
 
 import { Button } from '@/components/ui/button';
 import { toast } from '@/components/ui/toast-manager';
@@ -12,9 +12,7 @@ import { ToolbarActions } from '@/components/workspace-toolbar';
 import { describeRequestError, ErrorNotice } from '@/components/error-notice';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 
-import { buildPublicSubscriptionURL } from './public-subscription-url';
-
-type KeyAction = 'rotate' | 'revoke' | 'delete';
+type KeyAction = 'rotate' | 'delete';
 
 export function SubscriptionTokenPanel({ active = true, toolbarTarget }: {
   active?: boolean;
@@ -34,10 +32,7 @@ export function SubscriptionTokenPanel({ active = true, toolbarTarget }: {
   const [expiry, setExpiry] = useState('');
   const [limit, setLimit] = useState('');
   const [issued, setIssued] = useState<CreatedSubscriptionToken | null>(null);
-  const [channels, setChannels] = useState<SubscriptionChannelSummary[]>([]);
-  const [channelID, setChannelID] = useState('');
-  const [detail, setDetail] = useState<SubscriptionToken | null>(null);
-  const [confirmation, setConfirmation] = useState<KeyAction | null>(null);
+  const [confirmation, setConfirmation] = useState<{ action: KeyAction; key: SubscriptionToken } | null>(null);
   const [busy, setBusy] = useState(false);
   const cursor = cursors[page];
   const requestKey = `${pageSize}:${cursor?.id ?? ''}:${cursor?.created_at ?? ''}:${reload}`;
@@ -68,30 +63,6 @@ export function SubscriptionTokenPanel({ active = true, toolbarTarget }: {
   const report = useCallback((reason: unknown) => {
     toast.add({ title: describeRequestError(reason), type: 'error' });
   }, []);
-
-  useEffect(() => {
-    if (!issued) return;
-    const controller = new AbortController();
-    async function loadChannels() {
-      const all: SubscriptionChannelSummary[] = [];
-      let nextCursor: SubscriptionCursor | undefined;
-      do {
-        const result = await client.listSubscriptionChannels({
-          limit: 100, beforeID: nextCursor?.id, beforeTime: nextCursor?.created_at,
-        }, controller.signal);
-        all.push(...result.items.filter(item => item.enabled));
-        nextCursor = result.next;
-      } while (nextCursor && !controller.signal.aborted);
-      if (!controller.signal.aborted) {
-        setChannels(all);
-        setChannelID(all[0]?.id ?? '');
-      }
-    }
-    void loadChannels().catch(reason => {
-      if (!controller.signal.aborted) report(reason);
-    });
-    return () => controller.abort();
-  }, [client, issued, report]);
 
   function refresh() {
     setCursors([undefined]);
@@ -130,8 +101,6 @@ export function SubscriptionTokenPanel({ active = true, toolbarTarget }: {
       });
       setCreating(false);
       setIssued(result);
-      setChannels([]);
-      setChannelID('');
       refresh();
       setLabel('');
       setExpiry('');
@@ -142,23 +111,18 @@ export function SubscriptionTokenPanel({ active = true, toolbarTarget }: {
       setBusy(false);
     }
   }
-  async function run(action: KeyAction | 'toggle') {
-    if (!detail || busy) return;
+  async function run(action: KeyAction | 'toggle', key: SubscriptionToken) {
+    if (busy) return;
     setBusy(true);
     try {
       if (action === 'rotate') {
-        const result = await client.rotateSubscriptionToken(detail.id);
+        const result = await client.rotateSubscriptionToken(key.id);
         setIssued({ metadata: result.created, token: result.token });
-        setChannels([]);
-        setChannelID('');
-        setDetail(null);
       } else if (action === 'delete') {
-        await client.deleteSubscriptionToken(detail.id);
-        setDetail(null);
-      } else if (action === 'revoke') {
-        setDetail(await client.revokeSubscriptionToken(detail.id));
+        await client.deleteSubscriptionToken(key.id);
       } else {
-        setDetail(await client.setSubscriptionTokenEnabled(detail.id, !detail.enabled));
+        const updated = await client.setSubscriptionTokenEnabled(key.id, !key.enabled);
+        setItems(current => current.map(item => item.id === updated.id ? updated : item));
       }
       setConfirmation(null);
       refresh();
@@ -178,22 +142,12 @@ export function SubscriptionTokenPanel({ active = true, toolbarTarget }: {
       if (generation === operationRef.current) report(reason);
     }
   }
-  async function inspect(key: SubscriptionToken) {
-    setBusy(true);
-    try {
-      setDetail(await client.getSubscriptionToken(key.id));
-    } catch (reason) {
-      report(reason);
-    } finally {
-      setBusy(false);
-    }
-  }
 
   return (
     <section className='subscription-panel subscription-keys' aria-label={t('subscriptions.tabs.tokens')}>
       <ToolbarActions active={active} target={toolbarTarget}>
         <div className='subscription-keys__toolbar workspace-toolbar-content'>
-          <Button aria-label={t('subscriptions.keys.create')} size='icon' variant='ghost' disabled={busy} onClick={() => setCreating(true)}><Plus className='size-5' /></Button>
+          <Button aria-label={t('subscriptions.keys.create')} size='icon' variant='outline' disabled={busy} onClick={() => setCreating(true)}><Plus /></Button>
         </div>
       </ToolbarActions>
       {error ? <ErrorNotice error={error} title={t('subscriptions.token.loadFailed')} /> : null}
@@ -211,11 +165,20 @@ export function SubscriptionTokenPanel({ active = true, toolbarTarget }: {
           <tbody>
             {items.map(key => (
               <tr key={key.id}>
-                <td><strong>{key.label}</strong></td>
+                <td>
+                  <strong>{key.label}</strong>
+                </td>
                 <td>{formatDate(key.expires_at)}</td>
                 <td>{usage(key)}</td>
                 <td><span className={`state-label ${key.active ? 'state-label--success' : ''}`}>{keyState(key)}</span></td>
-                <td><Button variant='ghost' disabled={busy} onClick={() => void inspect(key)}>{t('subscriptions.common.inspect')}</Button></td>
+                <td>
+                  <div className='subscription-keys__actions'>
+                    <Button variant='outline' size='sm' disabled={busy || loading || !!key.revoked_at} onClick={() => void run('toggle', key)}>{t(key.enabled ? 'subscriptions.common.disable' : 'subscriptions.common.enable')}</Button>
+                    {(['rotate', 'delete'] as const).map(action => (
+                      <Button key={action} variant={action === 'delete' ? 'destructive' : 'outline'} size='sm' disabled={busy || loading || (action === 'rotate' && !!key.revoked_at)} onClick={() => setConfirmation({ action, key })}>{t(`subscriptions.token.action.${action}.name`)}</Button>
+                    ))}
+                  </div>
+                </td>
               </tr>
             ))}
           </tbody>
@@ -234,9 +197,9 @@ export function SubscriptionTokenPanel({ active = true, toolbarTarget }: {
           items={[5, 10, 50].map((value) => ({ value, label: t('subscriptions.keys.perPage', { count: value }) }))}
         />
         <div>
-          <Button variant='ghost' disabled={page === 0 || loading} onClick={() => setPage(value => value - 1)} aria-label={t('subscriptions.keys.previous')}>‹</Button>
+          <Button size='icon' variant='outline' disabled={page === 0 || loading} onClick={() => setPage(value => value - 1)} aria-label={t('subscriptions.keys.previous')}>‹</Button>
           <span aria-current='page'>{page + 1}</span>
-          <Button variant='ghost' disabled={!next || loading} onClick={() => {
+          <Button size='icon' variant='outline' disabled={!next || loading} onClick={() => {
             setCursors([...cursors.slice(0, page + 1), next]);
             setPage(value => value + 1);
           }} aria-label={t('subscriptions.keys.next')}>
@@ -264,7 +227,7 @@ export function SubscriptionTokenPanel({ active = true, toolbarTarget }: {
             <label htmlFor='key-quota' title={t('subscriptions.keys.shared')}>{t('subscriptions.keys.quota')}</label>
             <input id='key-quota' type='number' min={1} max={1_000_000_000} step={1} placeholder={t('subscriptions.keys.unlimited')} value={limit} onChange={event => setLimit(event.target.value)} disabled={busy} />
             <DialogFooter>
-              <Button type='button' variant='secondary' disabled={busy} onClick={() => setCreating(false)}>{t('subscriptions.keys.cancel')}</Button>
+              <Button type='button' variant='outline' disabled={busy} onClick={() => setCreating(false)}>{t('subscriptions.keys.cancel')}</Button>
               <Button type='submit' disabled={busy}>{t('subscriptions.keys.create')}</Button>
             </DialogFooter>
           </form>
@@ -293,17 +256,8 @@ export function SubscriptionTokenPanel({ active = true, toolbarTarget }: {
                     <dt>{t('subscriptions.keys.quota')}</dt>
                     <dd>{issued.metadata.download_limit ?? t('subscriptions.keys.unlimited')}</dd>
                   </dl>
-                  {channels.length
-                    ? (
-                        <div className='subscription-key-form'>
-                          <label htmlFor='key-channel'>{t('subscriptions.token.secret.deliveryChannel')}</label>
-                          <select id='key-channel' value={channelID} onChange={event => setChannelID(event.target.value)}>{channels.map(channel => <option key={channel.id} value={channel.id}>{channel.name}</option>)}</select>
-                        </div>
-                      )
-                    : null}
                   <DialogFooter>
-                    <Button variant='secondary' onClick={() => void copy(issued.token)}>{t('subscriptions.token.secret.copy')}</Button>
-                    {channelID ? <Button variant='secondary' onClick={() => void copy(buildPublicSubscriptionURL(issued.token, channelID))}>{t('subscriptions.token.secret.copyURL')}</Button> : null}
+                    <Button variant='outline' onClick={() => void copy(issued.token)}>{t('subscriptions.token.secret.copy')}</Button>
                     <Button onClick={() => {
                       setIssued(null);
                       operationRef.current++;
@@ -317,50 +271,21 @@ export function SubscriptionTokenPanel({ active = true, toolbarTarget }: {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={detail !== null} onOpenChange={open => {
-        if (!open && !busy) {
-          setDetail(null);
-          setConfirmation(null);
-        }
+      <Dialog open={confirmation !== null} onOpenChange={open => {
+        if (!open && !busy) setConfirmation(null);
       }}>
         <DialogContent className='sm:max-w-[640px]'>
           <DialogHeader>
-            <DialogTitle>{confirmation ? t(`subscriptions.token.action.${confirmation}.name`) : detail?.label}</DialogTitle>
-            <DialogDescription className='sr-only'>{t('subscriptions.keys.shared')}</DialogDescription>
+            <DialogTitle>{confirmation ? t(`subscriptions.token.action.${confirmation.action}.name`) : ''}</DialogTitle>
+            <DialogDescription>{confirmation?.key.label}</DialogDescription>
           </DialogHeader>
-          {detail && !confirmation
-            ? (
-                <>
-                  <dl className='subscription-key-details'>
-                    <dt>{t('subscriptions.common.state')}</dt>
-                    <dd>{keyState(detail)}</dd>
-                    <dt>{t('subscriptions.keys.expiry')}</dt>
-                    <dd>{formatDate(detail.expires_at)}</dd>
-                    <dt>{t('subscriptions.keys.downloads')}</dt>
-                    <dd>{usage(detail)}</dd>
-                    {detail.user_id
-                      ? (
-                          <>
-                            <dt>{t('subscriptions.keys.scope')}</dt>
-                            <dd>{t('subscriptions.keys.legacy')}</dd>
-                          </>
-                        )
-                      : null}
-                  </dl>
-                  <DialogFooter>
-                    <Button variant='secondary' disabled={busy || !!detail.revoked_at} onClick={() => void run('toggle')}>{t(detail.enabled ? 'subscriptions.common.disable' : 'subscriptions.common.enable')}</Button>
-                    {(['rotate', 'revoke', 'delete'] as const).map(action => <Button key={action} variant='secondary' disabled={busy || (action !== 'delete' && !detail.active)} onClick={() => setConfirmation(action)}>{t(`subscriptions.token.action.${action}.name`)}</Button>)}
-                  </DialogFooter>
-                </>
-              )
-            : null}
           {confirmation
             ? (
                 <>
-                  <p>{t(`subscriptions.token.action.${confirmation}.prompt`)}</p>
+                  <p>{t(`subscriptions.token.action.${confirmation.action}.prompt`)}</p>
                   <DialogFooter>
-                    <Button variant='secondary' disabled={busy} onClick={() => setConfirmation(null)}>{t('subscriptions.keys.cancel')}</Button>
-                    <Button disabled={busy} onClick={() => void run(confirmation)}>{t(`subscriptions.token.action.${confirmation}.name`)}</Button>
+                    <Button variant='outline' disabled={busy} onClick={() => setConfirmation(null)}>{t('subscriptions.keys.cancel')}</Button>
+                    <Button variant={confirmation.action === 'delete' ? 'destructive' : 'default'} disabled={busy} onClick={() => void run(confirmation.action, confirmation.key)}>{t(`subscriptions.token.action.${confirmation.action}.name`)}</Button>
                   </DialogFooter>
                 </>
               )

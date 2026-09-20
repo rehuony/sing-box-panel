@@ -21,7 +21,6 @@ export const productLogs = {
   message: '内容',
   status: '状态',
   source: '来源',
-  actions: '操作',
   details: '详情',
   retry: '重试',
   retried: '任务已重新提交',

@@ -96,6 +96,16 @@ content stays on readable surfaces. Navigation selection uses a non-bouncing
 spring, and controls respond on press. Reduced motion, reduced transparency,
 and increased contrast preferences are respected.
 
+The six main pages omit the visible page-title band while retaining a screen
+reader heading. Their content fills the space below the runtime toolbar and
+ends at the same bottom inset as the sidebar. Tables, forms, and the dashboard
+scroll within that space when needed, keeping panel actions reachable.
+
+Workspace tables share a 16px toolbar-to-header gap, 44px headers, and a 65px
+minimum row height including the divider. Headers have no bottom divider;
+dividers appear only below data rows. Rows expand when wrapped content
+needs more space. These dimensions cover versions, sources, keys, channels,
+and panel logs.
 
 The six navigation entries host 15 review views using local tabs/dialogs instead
 of feedback-page copies. Sources, manual nodes, subscription keys and native

@@ -17,8 +17,9 @@ func newCoreEnableCommand(state *options, open openApplicationFunc) *cobra.Comma
 	var detach bool
 	command := &cobra.Command{
 		Use:   "enable CORE_ARTIFACT_ID",
-		Short: "Switch the runtime to one verified installed core using the current saved configuration",
-		Long: `Queue a checked replacement of the running core. The saved configuration is
+		Short: "Select an installed core while preserving its running or stopped state",
+		Long: `Queue a checked version selection. A stopped core stays stopped; a running
+core is restarted with the selected version. The saved configuration is
 carried forward unchanged: the selected binary must accept an execution
 snapshot of that configuration with "sing-box check" before the live process
 is replaced. A failed preflight leaves the running core and the saved file untouched.`,

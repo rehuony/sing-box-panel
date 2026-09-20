@@ -1,5 +1,5 @@
 export const cores = {
-  library: { version: '版本', source: '来源', status: '状态', actions: '操作', enable: '启用', disable: '禁用', enabled: '已启用', disabled: '未启用', unknown: '状态未知', notInstalled: '未安装', download: '下载', operationFailed: '操作状态：{{status}}。可在面板日志查看任务 {{id}}。', completed: '操作已完成', queued: '等待中', running: '处理中', succeeded: '已完成', failed: '失败', canceled: '已取消', pageSize: '每页条数', perPage: '每页 {{count}} 条', previous: '上一页', next: '下一页' },
+  library: { officialLink: '官网链接', version: '版本', source: '来源', status: '状态', actions: '操作', enable: '启用', disable: '禁用', enabled: '已启用', disabled: '未启用', unknown: '状态未知', installed: '已安装', notInstalled: '未安装', download: '下载', operationFailed: '操作状态：{{status}}。可在面板日志查看任务 {{id}}。', completed: '操作已完成', queued: '等待中', running: '处理中', succeeded: '已完成', failed: '失败', canceled: '已取消', pageSize: '每页条数', perPage: '每页 {{count}} 条', previous: '上一页', next: '下一页' },
   action: { remove: '移除' },
   artifact: { changed: '版本已移除。' },
   catalog: { short: '目录' },

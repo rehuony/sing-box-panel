@@ -114,12 +114,11 @@ function RuntimeConfirmation({ action, disabled, onConfirm }: RuntimeConfirmatio
           render={(
             <Button
               aria-label={label}
-              className={`telemetry-action-button telemetry-action-button--${action}`}
               disabled={disabled}
               onClick={() => setOpen(true)}
               size='icon-sm'
               title={label}
-              variant='ghost'
+              variant={action === 'stop' ? 'destructive' : 'outline'}
             />
           )}
         >
@@ -278,28 +277,35 @@ export function TelemetryBanner() {
           ? t('telemetry.runtime.inspectionUnavailable')
           : t('telemetry.runtime.evidenceUnavailable');
   const runningIdentity = verifiedRunning ? runtimeStatus.running : undefined;
+  const enabledVersion = runtimeStatus?.enabled_core?.exact_core_version;
   const trafficAvailable = telemetry.snapshot?.available === true;
+  const uploadRate = verifiedStopped ? 0 : trafficAvailable ? telemetry.rates.uploadBytesPerSecond : null;
+  const downloadRate = verifiedStopped ? 0 : trafficAvailable ? telemetry.rates.downloadBytesPerSecond : null;
   const durationLabels = {
     day: t('telemetry.unit.day'),
     hour: t('telemetry.unit.hour'),
     minute: t('telemetry.unit.minute'),
     second: t('telemetry.unit.second'),
   };
-  const uptime = formatUptime(runningIdentity?.started_at, now, durationLabels);
-  const compactUptime = formatUptime(runningIdentity?.started_at, now, {
-    day: 'd', hour: 'h', minute: 'm', second: 's',
-  }).split(' ')[0];
+  const uptime = verifiedStopped ? `0${durationLabels.second}` : formatUptime(runningIdentity?.started_at, now, durationLabels);
+  const compactUptime = verifiedStopped
+    ? '0s'
+    : formatUptime(runningIdentity?.started_at, now, {
+      day: 'd', hour: 'h', minute: 'm', second: 's',
+    }).split(' ')[0];
   const parsedStartedAt = runningIdentity?.started_at === undefined
     ? Number.NaN
     : new Date(runningIdentity.started_at).getTime();
-  const startedAtTitle = Number.isFinite(parsedStartedAt)
-    ? t('telemetry.startedAt', {
-        value: new Intl.DateTimeFormat(locale, {
-          dateStyle: 'medium',
-          timeStyle: 'medium',
-        }).format(new Date(parsedStartedAt)),
-      })
-    : EM_DASH;
+  const startedAtTitle = verifiedStopped
+    ? runtimeDetail
+    : Number.isFinite(parsedStartedAt)
+      ? t('telemetry.startedAt', {
+          value: new Intl.DateTimeFormat(locale, {
+            dateStyle: 'medium',
+            timeStyle: 'medium',
+          }).format(new Date(parsedStartedAt)),
+        })
+      : EM_DASH;
   const action = runtimeControl.state.action;
   const actionLabel = action === null ? '' : t(`telemetry.control.${action}`);
   const taskStatus = runtimeControl.state.task?.status;
@@ -353,9 +359,9 @@ export function TelemetryBanner() {
             <span aria-hidden='true' className='telemetry-runtime__dot' />
             {import.meta.env.MODE === 'demo' ? t('telemetry.demo') : runtimeLabel}
           </Badge>
-          <Badge className='telemetry-version' title={`${t('telemetry.metric.version')}: ${runningIdentity?.exact_core_version ?? EM_DASH}`} variant='secondary'>
+          <Badge className='telemetry-version' title={`${t('telemetry.metric.version')}: ${enabledVersion ?? EM_DASH}`} variant='secondary'>
             <span className='telemetry-version__label'>
-              {runningIdentity?.exact_core_version ? `v${runningIdentity.exact_core_version.replace(/^v/i, '')}` : EM_DASH}
+              {enabledVersion ? `v${enabledVersion.replace(/^v/i, '')}` : EM_DASH}
             </span>
           </Badge>
         </div>
@@ -375,16 +381,16 @@ export function TelemetryBanner() {
           icon={ArrowUp}
           id='upload'
           label={t('telemetry.metric.upload')}
-          value={trafficAvailable ? formatRate(telemetry.rates.uploadBytesPerSecond, locale, t('telemetry.unit.perSecond')) : EM_DASH}
-          compactValue={trafficAvailable ? formatRate(telemetry.rates.uploadBytesPerSecond, locale).replace(/\s/g, '') : EM_DASH}
+          value={formatRate(uploadRate, locale)}
+          compactValue={formatRate(uploadRate, locale).replace(/\s/g, '')}
         />
         <Separator orientation='vertical' />
         <TelemetryMetric
           icon={ArrowDown}
           id='download'
           label={t('telemetry.metric.download')}
-          value={trafficAvailable ? formatRate(telemetry.rates.downloadBytesPerSecond, locale, t('telemetry.unit.perSecond')) : EM_DASH}
-          compactValue={trafficAvailable ? formatRate(telemetry.rates.downloadBytesPerSecond, locale).replace(/\s/g, '') : EM_DASH}
+          value={formatRate(downloadRate, locale)}
+          compactValue={formatRate(downloadRate, locale).replace(/\s/g, '')}
         />
       </div>
 
@@ -419,11 +425,11 @@ export function TelemetryBanner() {
                             render={(
                               <Button
                                 aria-label={t('telemetry.control.start')}
-                                className='telemetry-action-button telemetry-action-button--start'
+                                disabled={!enabledVersion}
                                 onClick={() => runRuntimeAction('start')}
                                 size='icon-sm'
                                 title={t('telemetry.control.start')}
-                                variant='ghost'
+                                variant='default'
                               />
                             )}
                           >
@@ -451,7 +457,7 @@ export function TelemetryBanner() {
                 </div>
                 <MobileTelemetryMenu
                   canRestart={verifiedRunning}
-                  canStart={verifiedStopped}
+                  canStart={verifiedStopped && Boolean(enabledVersion)}
                   canStop={verifiedRunning}
                   onAction={runRuntimeAction}
                 />

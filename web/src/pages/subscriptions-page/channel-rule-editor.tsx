@@ -134,7 +134,7 @@ export function ChannelRuleEditor({ rule, format, nodes, onClose, onSave }: Prop
                         }}
                       />
                       <Button
-                        variant='ghost'
+                        variant='outline'
                         size='icon'
                         aria-label={t('channels.acceleration')}
                         title={t('channels.acceleration')}
@@ -258,10 +258,10 @@ export function ChannelRuleEditor({ rule, format, nodes, onClose, onSave }: Prop
           )}
         </div>
         <DialogFooter>
-          <Button variant='secondary' disabled={busy} onClick={onClose}>
+          <Button variant='outline' disabled={busy} onClick={onClose}>
             {t('common.cancel')}
           </Button>
-          <Button disabled={busy} variant='secondary' onClick={() => void save()}>
+          <Button disabled={busy} variant='default' onClick={() => void save()}>
             {t('channels.done')}
           </Button>
         </DialogFooter>

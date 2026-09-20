@@ -80,6 +80,7 @@ type taskRunnerOptions struct {
 	HeartbeatInterval time.Duration
 	PollInterval      time.Duration
 	FinalizeTask      func(context.Context, store.Task)
+	SyncRuntime       func(context.Context) error
 	taskClock         taskClock
 }
 
@@ -356,6 +357,11 @@ func (r *taskRunner) runTask(ctx context.Context, task store.Task) error {
 	}
 	if err != nil {
 		return err
+	}
+	if completed.Lane == store.TaskLaneRuntime && r.options.SyncRuntime != nil {
+		if err := r.options.SyncRuntime(ctx); err != nil {
+			return fmt.Errorf("sync enabled core link: %w", err)
+		}
 	}
 	r.finalizeTask(ctx, completed)
 	return nil

@@ -1,9 +1,10 @@
 import { useTranslation } from 'react-i18next';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ChevronLeft, ChevronRight, RefreshCw, Search, Upload } from 'lucide-react';
+import { ChevronLeft, ChevronRight, ExternalLink, RefreshCw, Search, Upload } from 'lucide-react';
 
 import type { CatalogAsset, CoreArtifact, Task } from '@/api/api-client';
 
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { waitForTask } from '@/lib/wait-for-task';
 import { toast } from '@/components/ui/toast-manager';
@@ -129,9 +130,7 @@ export function CoresPage() {
       || ['stale', 'inspection_unavailable'].includes(library.runtime.observation_state);
   return (
     <div className='core-page panel-page'>
-      <header className='core-page__heading panel-page-heading'>
-        <h1>{t('cores.title')}</h1>
-      </header>
+      <h1 className='sr-only'>{t('cores.title')}</h1>
       <Tabs
         className='core-library'
         render={<section aria-label={t('cores.title')} />}
@@ -193,7 +192,8 @@ export function CoresPage() {
               <tr>
                 <th>{t('cores.library.version')}</th>
                 <th>{t('cores.library.source')}</th>
-                <th>{t('cores.library.status')}</th>
+                {tab === 'catalog' && <th>{t('cores.library.officialLink')}</th>}
+                {tab === 'installed' && <th>{t('cores.library.status')}</th>}
                 <th>{t('cores.library.actions')}</th>
               </tr>
             </thead>
@@ -201,8 +201,7 @@ export function CoresPage() {
               {tab === 'installed'
                 ? installed.slice(start, start + size).map((artifact) => {
                     const enabled
-                      = library.runtime?.observation_state === 'running'
-                        && library.runtime.running?.core_artifact_id === artifact.id;
+                      = library.runtime?.enabled_core?.core_artifact_id === artifact.id;
                     return (
                       <tr key={artifact.id}>
                         <td>
@@ -225,6 +224,7 @@ export function CoresPage() {
                         <td>
                           <div className='core-row-actions'>
                             <Button
+                              size='sm'
                               variant={enabled ? 'destructive' : 'default'}
                               title={runtimeUncertain ? t('cores.library.unknown') : undefined}
                               disabled={
@@ -234,7 +234,7 @@ export function CoresPage() {
                               onClick={() =>
                                 void run(artifact.id, (signal) =>
                                   enabled
-                                    ? client.stopRuntime(signal)
+                                    ? client.disableCore(artifact.id, signal)
                                     : client.enableCore(artifact.id, signal),
                                 )
                               }
@@ -242,6 +242,7 @@ export function CoresPage() {
                               {t(enabled ? 'cores.library.disable' : 'cores.library.enable')}
                             </Button>
                             <Button
+                              size='sm'
                               variant='destructive'
                               disabled={Boolean(pending) || enabled || runtimeUncertain}
                               onClick={() => setConfirmation(artifact)}
@@ -254,10 +255,7 @@ export function CoresPage() {
                     );
                   })
                 : available.slice(start, start + size).map((asset) => {
-                    const downloaded = library.artifacts.find((artifact) => artifact.asset_id === asset.asset_id);
-                    const exists = Boolean(downloaded);
-                    const enabled = library.runtime?.observation_state === 'running'
-                      && downloaded?.id === library.runtime.running?.core_artifact_id;
+                    const exists = library.artifacts.some((artifact) => artifact.asset_id === asset.asset_id);
                     return (
                       <tr key={asset.asset_id}>
                         <td>
@@ -265,31 +263,38 @@ export function CoresPage() {
                         </td>
                         <td>
                           {t('cores.source.official')}
-
                         </td>
                         <td>
-                          {pending?.key === `install:${asset.asset_id}`
-                            ? t(`cores.library.${pending.status}`)
-                            : !downloaded
-                                ? t('cores.library.notInstalled')
-                                : enabled
-                                  ? t('cores.library.enabled')
-                                  : runtimeUncertain
-                                    ? t('cores.library.unknown')
-                                    : t('cores.library.disabled')}
+                          <Badge
+                            className='max-w-full'
+                            title={asset.name}
+                            render={(
+                              <a
+                                href={`https://github.com/SagerNet/sing-box/releases/tag/v${encodeURIComponent(asset.version)}`}
+                                target='_blank'
+                                rel='noopener noreferrer'
+                              />
+                            )}
+                          >
+                            <span className='truncate'>{asset.name}</span>
+                            <ExternalLink aria-hidden='true' data-icon='inline-end' />
+                          </Badge>
                         </td>
                         <td>
                           <Button
+                            size='sm'
                             variant='default'
-                            title={!hasDownloadChecksum(asset) ? t('cores.installUnavailable') : undefined}
-                            disabled={Boolean(pending) || !hasDownloadChecksum(asset) || exists}
+                            title={!exists && !hasDownloadChecksum(asset) ? t('cores.installUnavailable') : undefined}
+                            disabled={exists || Boolean(pending) || !hasDownloadChecksum(asset)}
                             onClick={() =>
                               void run(`install:${asset.asset_id}`, (signal) =>
                                 client.installCore(asset.asset_id, signal),
                               )
                             }
                           >
-                            {t('cores.library.download')}
+                            {pending?.key === `install:${asset.asset_id}`
+                              ? t(`cores.library.${pending.status}`)
+                              : t(exists ? 'cores.library.installed' : 'cores.library.download')}
                           </Button>
                         </td>
                       </tr>
@@ -349,7 +354,7 @@ export function CoresPage() {
             <DialogDescription>{t('cores.confirm.description')}</DialogDescription>
           </DialogHeader>
           <DialogFooter>
-            <Button variant='secondary' onClick={() => setConfirmation(null)}>
+            <Button variant='outline' onClick={() => setConfirmation(null)}>
               {t('cores.confirm.cancel')}
             </Button>
             <Button variant='destructive' onClick={() => void removeArtifact()}>

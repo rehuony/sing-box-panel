@@ -20,6 +20,9 @@ func (s *Store) RequestConfigurationRuntimeIntent(ctx context.Context, input Run
 	if prepared.Kind != RuntimeIntentStart && prepared.Kind != RuntimeIntentRestart {
 		return Task{}, errors.New("configuration runtime intent must start or restart")
 	}
+	if prepared.SelectOnly && prepared.Kind != RuntimeIntentRestart {
+		return Task{}, errors.New("selection-only intent must be a checked version switch")
+	}
 	startup, err := prepareNewStartupArtifact(artifact)
 	if err != nil {
 		return Task{}, err
@@ -83,7 +86,7 @@ func (s *Store) BindCheckedRuntimeTask(ctx context.Context, task Task, bundleID 
 		if _, err := tx.ExecContext(ctx, `UPDATE tasks SET activation_bundle_id=?,updated_at=? WHERE id=?`, bundleID, formatTaskTime(now), task.ID); err != nil {
 			return err
 		}
-		if _, err := tx.ExecContext(ctx, `UPDATE hub_state SET desired_bundle_id=?,desired_running=1,updated_at=? WHERE singleton=1`, bundleID, formatTaskTime(now)); err != nil {
+		if _, err := tx.ExecContext(ctx, `UPDATE hub_state SET desired_bundle_id=?,desired_running=?,updated_at=? WHERE singleton=1`, bundleID, boolInt(!CoreSelectionOnly(current)), formatTaskTime(now)); err != nil {
 			return err
 		}
 		result, err = getTask(ctx, tx, task.ID)

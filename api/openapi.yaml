@@ -388,7 +388,18 @@ paths:
       - $ref: "#/components/parameters/ArtifactID"
     post:
       operationId: enableCoreArtifact
-      description: Validate the saved configuration with this verified platform-matching binary before replacing the running core.
+      description: Validate and select this platform-matching binary. Preserve stopped state; replace a running core only after validation. The enabled version persists independently of process state.
+      parameters:
+        - $ref: "#/components/parameters/CSRFToken"
+      responses:
+        "202":
+          $ref: "#/components/responses/Task"
+  /core/artifacts/{artifactId}/disable:
+    parameters:
+      - $ref: "#/components/parameters/ArtifactID"
+    post:
+      operationId: disableCoreArtifact
+      description: Stop the enabled core and clear its selected version and current symlink after the stop succeeds. Reject requests for a different or no-longer-enabled artifact. Ordinary runtime stop retains the selected version.
       parameters:
         - $ref: "#/components/parameters/CSRFToken"
       responses:
@@ -1000,6 +1011,10 @@ paths:
       - $ref: "#/components/parameters/TokenID"
     post:
       operationId: rotateSubscriptionToken
+      description: >-
+        Replaces an unrevoked key regardless of its enabled or active state.
+        Atomically revokes the old key and preserves enablement, access scope,
+        download quota and usage. Expiry is retained unless expires_at is supplied.
       parameters:
         - $ref: "#/components/parameters/CSRFToken"
       requestBody:
@@ -2005,11 +2020,21 @@ components:
         binary_sha256: {$ref: "#/components/schemas/SHA256"}
         activation_bundle_id: {type: string}
         started_at: {type: string, format: date-time}
+    EnabledCore:
+      type: object
+      additionalProperties: false
+      required: [core_artifact_id, exact_core_version]
+      properties:
+        core_artifact_id: {type: string}
+        exact_core_version: {$ref: "#/components/schemas/ExactCoreVersion"}
     RuntimeStatus:
       type: object
       additionalProperties: false
       required: [desired_running, target_generation, observation_state]
       properties:
+        enabled_core:
+          $ref: "#/components/schemas/EnabledCore"
+          description: Last successfully selected binary, retained while stopped; omitted before the first successful selection.
         desired_running: {type: boolean}
         desired_bundle_id: {type: string}
         applied_bundle_id: {type: string}

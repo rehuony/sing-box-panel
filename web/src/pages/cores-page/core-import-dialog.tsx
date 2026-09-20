@@ -148,7 +148,7 @@ export function CoreImportDialog({
             </Field>
           </FieldGroup>
           <DialogFooter>
-            <Button type='button' variant='secondary' disabled={busy} onClick={onClose}>
+            <Button type='button' variant='outline' disabled={busy} onClick={onClose}>
               {t('cores.confirm.cancel')}
             </Button>
             <Button type='submit' disabled={busy || !valid}>

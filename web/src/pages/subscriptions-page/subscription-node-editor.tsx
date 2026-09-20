@@ -1,7 +1,7 @@
 import type { RJSFSchema } from '@rjsf/utils';
 
-import { Copy } from 'lucide-react';
 import { Link } from 'react-router-dom';
+import { Braces, Copy } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPrecompiledValidator } from '@rjsf/validator-ajv8';
@@ -32,7 +32,16 @@ import {
 } from '../configuration-page/use-canonical-configuration';
 import '../configuration-page/configuration-page.css';
 
-const blank = '{"type":"socks","tag":"","server":"","server_port":1080}';
+const blank = encodeCanonicalValue({ type: 'socks', tag: '', server: '', server_port: 1080 }, 2);
+
+function formatJSON(raw: string): string {
+  try {
+    return encodeCanonicalValue(parseCanonicalDraft(raw), 2);
+  } catch {
+    // Keep incomplete input intact until it can be parsed without losing data.
+    return raw;
+  }
+}
 
 function maskedJSON(raw: string): string {
   const value = parseCanonicalDraft(raw);
@@ -93,7 +102,7 @@ export function SubscriptionNodeEditor({
         .then((value) => {
           if (controller.signal.aborted) return;
           setDetail(value);
-          setRaw(value.outbound_json);
+          setRaw(formatJSON(value.outbound_json));
           setLoading(false);
         })
         .catch((reason) => {
@@ -138,8 +147,10 @@ export function SubscriptionNodeEditor({
     setBusy(true);
     setError('');
     try {
-      if (node) await client.updateSubscriptionNode(node.id, raw, detail?.revision ?? 0);
-      else await client.createSubscriptionNode(raw);
+      const formatted = encodeCanonicalValue(parsed, 2);
+      setRaw(formatted);
+      if (node) await client.updateSubscriptionNode(node.id, formatted, detail?.revision ?? 0);
+      else await client.createSubscriptionNode(formatted);
       if (!activeRef.current) return;
       toast.add({ title: t('subscriptions.nodes.saved'), type: 'success' });
       onSaved();
@@ -156,7 +167,7 @@ export function SubscriptionNodeEditor({
     try {
       const result = await client.parseSubscriptionNode(importText);
       if (!activeRef.current) return;
-      setRaw(result.outbound_json);
+      setRaw(formatJSON(result.outbound_json));
       setMode('form');
     } catch (reason) {
       if (activeRef.current) setError(describeRequestError(reason));
@@ -251,7 +262,10 @@ export function SubscriptionNodeEditor({
                                   aria-selected={mode === value}
                                   disabled={busy}
                                   key={value}
-                                  onClick={() => setMode(value as typeof mode)}
+                                  onClick={() => {
+                                    if (value === 'json') setRaw(formatJSON(raw));
+                                    setMode(value as typeof mode);
+                                  }}
                                   role='tab'
                                   variant={mode === value ? 'secondary' : 'ghost'}
                                 >
@@ -261,19 +275,33 @@ export function SubscriptionNodeEditor({
                             </div>
                           )
                         : (
-                            <Button onClick={() => setReveal((value) => !value)} variant='ghost'>
+                            <Button onClick={() => setReveal((value) => !value)} variant='outline'>
                               {t(reveal ? 'subscriptions.nodes.mask' : 'subscriptions.nodes.reveal')}
                             </Button>
                           )}
                       {mode === 'json' && (
-                        <Button
-                          aria-label={t('subscriptions.nodes.copy')}
-                          onClick={() => void copyJSON()}
-                          size='icon'
-                          variant='ghost'
-                        >
-                          <Copy aria-hidden='true' />
-                        </Button>
+                        <div className='subscription-toolbar-actions'>
+                          {editable && (
+                            <Button
+                              aria-label={t('configuration.advanced.format')}
+                              title={t('configuration.advanced.format')}
+                              disabled={busy || !parsed}
+                              onClick={() => setRaw(formatJSON(raw))}
+                              size='icon'
+                              variant='outline'
+                            >
+                              <Braces aria-hidden='true' />
+                            </Button>
+                          )}
+                          <Button
+                            aria-label={t('subscriptions.nodes.copy')}
+                            onClick={() => void copyJSON()}
+                            size='icon'
+                            variant='outline'
+                          >
+                            <Copy aria-hidden='true' />
+                          </Button>
+                        </div>
                       )}
                     </div>
                     <div className='subscription-node-editor__scroll'>
@@ -304,6 +332,8 @@ export function SubscriptionNodeEditor({
                                 <textarea
                                   aria-label={t('subscriptions.nodes.json')}
                                   className='subscription-code-input'
+                                  disabled={busy}
+                                  onBlur={() => setRaw(formatJSON(raw))}
                                   onChange={(event) => setRaw(event.target.value)}
                                   spellCheck={false}
                                   value={raw}
@@ -319,10 +349,10 @@ export function SubscriptionNodeEditor({
           {confirmDelete
             ? (
                 <>
-                  <Button disabled={busy} onClick={() => setConfirmDelete(false)} variant='secondary'>
+                  <Button disabled={busy} onClick={() => setConfirmDelete(false)} variant='outline'>
                     {t('common.cancel')}
                   </Button>
-                  <Button disabled={busy} onClick={() => void remove()} variant='secondary'>
+                  <Button disabled={busy} onClick={() => void remove()} variant='destructive'>
                     {t('subscriptions.nodes.delete')}
                   </Button>
                 </>
@@ -333,7 +363,7 @@ export function SubscriptionNodeEditor({
                     <Button
                       disabled={busy || !detail}
                       onClick={() => setConfirmDelete(true)}
-                      variant='secondary'
+                      variant='destructive'
                     >
                       {t('subscriptions.nodes.delete')}
                     </Button>
@@ -341,19 +371,19 @@ export function SubscriptionNodeEditor({
                   {node?.origin === 'local' && (
                     <Button
                       render={<Link to={`/configuration?inbound=${encodeURIComponent(node.name)}`} />}
-                      variant='secondary'
+                      variant='outline'
                     >
                       {t('nav.configuration')}
                     </Button>
                   )}
-                  <Button disabled={busy} onClick={onClose} variant='secondary'>
+                  <Button disabled={busy} onClick={onClose} variant='outline'>
                     {t(editable ? 'common.cancel' : 'common.close')}
                   </Button>
                   {editable && (
                     <Button
                       disabled={busy || loading || (mode === 'import' ? !importText.trim() : !parsed)}
                       onClick={() => void (mode === 'import' ? parseImport() : save())}
-                      variant='secondary'
+                      variant='default'
                     >
                       {t(mode === 'import' ? 'subscriptions.nodes.parse' : 'subscriptions.nodes.save')}
                     </Button>

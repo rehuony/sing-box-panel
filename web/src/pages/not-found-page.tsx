@@ -1,6 +1,8 @@
 import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 
+import { buttonVariants } from '@/components/ui/button-variants';
+
 export function NotFoundPage() {
   const { t } = useTranslation();
 
@@ -9,7 +11,7 @@ export function NotFoundPage() {
       <p className='eyebrow'>{t('notFound.eyebrow')}</p>
       <h1>{t('notFound.title')}</h1>
       <p>{t('notFound.description')}</p>
-      <Link className='button button--primary' to='/'>
+      <Link className={buttonVariants()} data-slot='button' data-size='default' data-variant='default' to='/'>
         {t('notFound.return')}
       </Link>
     </div>

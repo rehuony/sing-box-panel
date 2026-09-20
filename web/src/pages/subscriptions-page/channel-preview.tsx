@@ -53,10 +53,10 @@ export function ChannelPreview({ preview, onClose }: { preview: SubscriptionPrev
           )}
         </div>
         <DialogFooter>
-          <Button variant='secondary' onClick={() => void copy()}>
+          <Button variant='outline' onClick={() => void copy()}>
             {t('channels.copy')}
           </Button>
-          <Button variant='secondary' onClick={onClose}>
+          <Button variant='outline' onClick={onClose}>
             {t('common.close')}
           </Button>
         </DialogFooter>

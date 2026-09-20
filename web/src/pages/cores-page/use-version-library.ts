@@ -3,9 +3,12 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { CatalogAssetList, CoreArtifact, RuntimeStatus, SystemStatus } from '@/api/api-client';
 
 import { useApiClient } from '@/api/api-client-context';
+import { useOptionalSharedTelemetry } from '@/components/app-shell/telemetry-context';
 
 export function useVersionLibrary() {
   const client = useApiClient();
+  const telemetry = useOptionalSharedTelemetry();
+  const acceptRuntimeStatus = telemetry?.acceptRuntimeStatus;
   const [platform, setPlatform] = useState<SystemStatus['platform']>();
   const [artifacts, setArtifacts] = useState<CoreArtifact[]>([]);
   const [catalog, setCatalog] = useState<CatalogAssetList | null>(null);
@@ -30,6 +33,7 @@ export function useVersionLibrary() {
       if (signal.aborted) return;
       setPlatform(system.platform);
       setRuntime(current);
+      acceptRuntimeStatus?.(current);
       if (!system.platform) {
         setArtifacts([]);
         setCatalog(null);
@@ -74,10 +78,13 @@ export function useVersionLibrary() {
     } finally {
       if (!signal.aborted) setLoading(false);
     }
-  }, [client]);
+  }, [client, acceptRuntimeStatus]);
   useEffect(() => {
     void load();
     return () => requestRef.current?.abort();
   }, [load]);
-  return { platform, artifacts, catalog, runtime, loading, error, catalogError, load };
+  return {
+    platform, artifacts, catalog, runtime: telemetry?.runtimeStatus ?? runtime,
+    loading, error, catalogError, load,
+  };
 }

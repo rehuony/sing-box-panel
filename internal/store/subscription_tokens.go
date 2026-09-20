@@ -185,8 +185,8 @@ func (s *Store) FindActiveSubscriptionToken(
 	return token, nil
 }
 
-// RotateSubscriptionToken atomically revokes the old active token and inserts
-// its replacement.
+// RotateSubscriptionToken atomically revokes an unrevoked token and inserts
+// its replacement, preserving enablement and usage restrictions.
 func (s *Store) RotateSubscriptionToken(
 	ctx context.Context,
 	oldTokenID string,
@@ -211,7 +211,7 @@ func (s *Store) RotateSubscriptionToken(
 		if err != nil {
 			return err
 		}
-		if !current.Active(rotatedAt) {
+		if current.RevokedAt != nil {
 			return fmt.Errorf("%w: %s", ErrSubscriptionTokenInactive, current.ID)
 		}
 		if prepared.UserID != current.UserID {
@@ -235,6 +235,7 @@ func (s *Store) RotateSubscriptionToken(
 			return err
 		}
 		// Rotation replaces the secret, not the key's shared quota or access scope.
+		prepared.Enabled = current.Enabled
 		prepared.DownloadLimit = current.DownloadLimit
 		prepared.SuccessfulRequestCount = current.SuccessfulRequestCount
 		prepared.BodyResponseCount = current.BodyResponseCount

@@ -76,20 +76,20 @@ export function ChannelTemplateEditor({ template, format, onClose, onPreview, on
           </p>
         )}
         <DialogFooter>
-          <Button variant='secondary' disabled={busy} onClick={onClose}>
+          <Button variant='outline' disabled={busy} onClick={onClose}>
             {t('common.cancel')}
           </Button>
           <Button
-            variant='secondary'
+            variant='outline'
             disabled={busy || validated === content}
             onClick={() => void act('validate')}
           >
             {t('channels.validate')}
           </Button>
-          <Button variant='secondary' disabled={busy} onClick={() => void act('preview')}>
+          <Button variant='outline' disabled={busy} onClick={() => void act('preview')}>
             {t('channels.preview')}
           </Button>
-          <Button variant='secondary' disabled={busy} onClick={() => void act('save')}>
+          <Button variant='default' disabled={busy} onClick={() => void act('save')}>
             {t('channels.saveTemplate')}
           </Button>
         </DialogFooter>

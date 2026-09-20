@@ -4,6 +4,8 @@ import { ChevronLeft, ChevronRight, Eye, EyeOff, MoreHorizontal } from 'lucide-r
 
 import type { SubscriptionNodeSummary } from '@/api/api-client';
 
+import { cn } from '@/lib/utils';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { SelectField } from '@/components/select-field';
 
@@ -53,7 +55,7 @@ export function SubscriptionNodeGrid({
               <div className='subscription-node-grid'>
                 {filtered.slice((current - 1) * size, current * size).map((node) => (
                   <article
-                    className={`subscription-node-card${node.hidden ? ' is-hidden' : ''}`}
+                    className={cn('subscription-node-card', node.hidden && 'is-hidden')}
                     key={node.id}
                   >
                     <header>
@@ -61,14 +63,14 @@ export function SubscriptionNodeGrid({
                         aria-hidden='true'
                         className={`subscription-node-dot${node.available ? '' : ' is-unavailable'}`}
                       />
-                      <button
+                      <Button variant='ghost' size='content'
                         className='subscription-node-name'
                         onClick={() => onOpen(node)}
                         title={node.name}
                         type='button'
                       >
-                        {node.name}
-                      </button>
+                        <span className='truncate'>{node.name}</span>
+                      </Button>
                       {onSelect
                         ? (
                             <input
@@ -87,8 +89,8 @@ export function SubscriptionNodeGrid({
                               )}
                               disabled={busy}
                               onClick={() => onVisibility?.(node)}
-                              size='icon'
-                              variant='ghost'
+                              size='icon-xs'
+                              variant='outline'
                             >
                               {node.hidden ? <EyeOff aria-hidden='true' /> : <Eye aria-hidden='true' />}
                             </Button>
@@ -96,47 +98,53 @@ export function SubscriptionNodeGrid({
                       <Button
                         aria-label={t('subscriptions.nodes.details', { name: node.name })}
                         onClick={() => onOpen(node)}
-                        size='icon'
-                        variant='ghost'
+                        size='icon-xs'
+                        variant='outline'
                       >
                         <MoreHorizontal aria-hidden='true' />
                       </Button>
                     </header>
-                    {node.hidden
-                      ? (
-                          <div className='subscription-node-hidden'>
-                            <EyeOff aria-hidden='true' />
-                            <span>{t('subscriptions.nodes.hidden')}</span>
-                          </div>
-                        )
-                      : (
-                          <button
-                            className='subscription-node-card__body'
-                            onClick={() => onOpen(node)}
-                            type='button'
-                          >
-                            <span className='subscription-node-badge is-source' title={node.source_name}>
-                              {node.origin === 'source'
-                                ? node.source_name
-                                : t('subscriptions.nodes.manual')}
-                            </span>
-                            <span className='subscription-node-badge is-protocol'>{node.type}</span>
-                            <span className='subscription-node-badge is-address' title={node.server}>
-                              {subscriptionNodeAddress(node) || t('subscriptions.nodes.hostMissing')}
-                            </span>
-                            {node.tls && (
-                              <span className='subscription-node-badge is-security'>
-                                {node.reality ? 'Reality' : 'TLS'}
-                              </span>
-                            )}
-                            {node.sni && (
-                              <span className='subscription-node-badge is-security' title={node.sni}>
-                                SNI ·
-                                {node.sni}
-                              </span>
-                            )}
-                          </button>
-                        )}
+                    <Button
+                      aria-hidden={node.hidden || undefined}
+                      className='subscription-node-card__body'
+                      disabled={node.hidden}
+                      onClick={() => onOpen(node)}
+                      size='content'
+                      tabIndex={node.hidden ? -1 : undefined}
+                      type='button'
+                      variant='ghost'
+                    >
+                      <Badge className='subscription-node-card__badge' variant='secondary' title={node.source_name}>
+                        <span className='truncate'>
+                          {node.origin === 'source' ? node.source_name : t('subscriptions.nodes.manual')}
+                        </span>
+                      </Badge>
+                      <Badge className='subscription-node-card__badge' variant='success'>{node.type}</Badge>
+                      <Badge className='subscription-node-card__badge' variant='info' title={subscriptionNodeAddress(node)}>
+                        <span className='truncate'>
+                          {subscriptionNodeAddress(node) || t('subscriptions.nodes.hostMissing')}
+                        </span>
+                      </Badge>
+                      {node.tls && (
+                        <Badge className='subscription-node-card__badge' variant='success'>
+                          {node.reality ? 'Reality' : 'TLS'}
+                        </Badge>
+                      )}
+                      {node.sni && (
+                        <Badge className='subscription-node-card__badge' variant='success' title={node.sni}>
+                          <span className='truncate'>
+                            SNI ·
+                            {node.sni}
+                          </span>
+                        </Badge>
+                      )}
+                    </Button>
+                    {node.hidden && (
+                      <div className='subscription-node-hidden'>
+                        <EyeOff aria-hidden='true' />
+                        <span>{t('subscriptions.nodes.hidden')}</span>
+                      </div>
+                    )}
                   </article>
                 ))}
               </div>
@@ -157,7 +165,7 @@ export function SubscriptionNodeGrid({
             disabled={current === 1}
             onClick={() => setPage(current - 1)}
             size='icon'
-            variant='ghost'
+            variant='outline'
           >
             <ChevronLeft />
           </Button>
@@ -167,7 +175,7 @@ export function SubscriptionNodeGrid({
             disabled={current === pages}
             onClick={() => setPage(current + 1)}
             size='icon'
-            variant='ghost'
+            variant='outline'
           >
             <ChevronRight />
           </Button>

@@ -317,6 +317,7 @@ export function createDemoData(now = new Date()): DemoData {
     ]),
     logs,
     runtime: {
+      enabled_core: { core_artifact_id: cores[0].id, exact_core_version: cores[0].exact_version },
       desired_running: true,
       desired_bundle_id: 'bundle_demo_current',
       applied_bundle_id: 'bundle_demo_current',

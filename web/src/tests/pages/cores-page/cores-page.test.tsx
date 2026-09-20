@@ -13,6 +13,7 @@ import { ControlPlaneContext } from '@/stores/control-plane.store';
 import {
   createMockApiClient,
   testArtifacts,
+  testCatalog,
   testDashboardContext,
   testSystemStatus,
   testTask,
@@ -105,29 +106,57 @@ describe('inline version library', () => {
     await waitFor(() => expect(screen.getByRole('button', { name: 'Enable' })).toBeEnabled());
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
-  it('stops the running core and leaves imported versions available', async () => {
+  it.each(['running', 'stopped'])('offers disable for the selected version while %s', async (observationState) => {
     const user = userEvent.setup();
     const client = createMockApiClient({
       getRuntimeStatus: vi.fn().mockResolvedValue({
-        desired_running: true,
-        target_generation: 1,
-        observation_state: 'running',
-        running: { core_artifact_id: 'core_1' },
+        desired_running: observationState === 'running', target_generation: 1,
+        observation_state: observationState,
+        enabled_core: { core_artifact_id: 'core_1', exact_core_version: testArtifacts.items[0].exact_version },
       }),
-      listCoreArtifacts: vi.fn().mockResolvedValue({
-        items: [
-          testArtifacts.items[0],
-          { ...testArtifacts.items[0], id: 'imported', source_kind: 'user_verified' },
-        ],
-      }),
-      stopRuntime: vi.fn().mockResolvedValue({ ...testTask, status: 'succeeded' }),
+      listCoreArtifacts: vi.fn().mockResolvedValue({ items: [
+        testArtifacts.items[0],
+        { ...testArtifacts.items[0], id: 'imported', source_kind: 'user_verified' },
+      ] }),
+      enableCore: vi.fn().mockResolvedValue({ ...testTask, status: 'succeeded' }),
+      disableCore: vi.fn().mockResolvedValue({ ...testTask, status: 'succeeded' }),
     });
     renderCores(client);
-    await user.click(await screen.findByRole('button', { name: 'Disable' }));
-    expect(client.stopRuntime).toHaveBeenCalledWith(expect.any(AbortSignal));
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Enable' })).toBeEnabled());
-    expect(client.enableCore).not.toHaveBeenCalled();
-    expect(screen.queryByRole('button', { name: 'More actions' })).not.toBeInTheDocument();
+    const enabled = await screen.findByRole('button', { name: 'Disable' });
+    expect(enabled).toBeEnabled();
+    expect(within(enabled.closest('tr')!).getByRole('button', { name: 'Remove' })).toBeDisabled();
+    await user.click(screen.getByRole('button', { name: 'Enable' }));
+    expect(client.enableCore).toHaveBeenCalledWith('imported', expect.any(AbortSignal));
+    expect(client.stopRuntime).not.toHaveBeenCalled();
+    await waitFor(() => expect(enabled).toBeEnabled());
+    await user.click(enabled);
+    expect(client.disableCore).toHaveBeenCalledWith('core_1', expect.any(AbortSignal));
+    expect(client.stopRuntime).not.toHaveBeenCalled();
+  });
+
+  it('shows installed catalog assets as installed and offers downloads only for missing assets', async () => {
+    const user = userEvent.setup();
+    const client = createMockApiClient({
+      listCatalogAssets: vi.fn().mockResolvedValue({ ...testCatalog, assets: [
+        testCatalog.assets[0],
+        { ...testCatalog.assets[0], asset_id: 202, version: '1.14.0' },
+      ] }),
+    });
+    renderCores(client);
+    await screen.findByText(testArtifacts.items[0].exact_version);
+    await user.click(screen.getByRole('tab', { name: 'Available' }));
+    const installed = screen.getByText(testCatalog.assets[0].version).closest('tr')!;
+    expect(screen.getAllByRole('columnheader').map((header) => header.textContent)).toEqual(['Version', 'Source', 'Official link', 'Actions']);
+    expect(within(installed).getAllByRole('cell')).toHaveLength(4);
+    const releaseLink = within(installed).getByRole('link', { name: testCatalog.assets[0].name });
+    expect(releaseLink).toHaveAttribute('href', 'https://github.com/SagerNet/sing-box/releases/tag/v1.13.19');
+    expect(releaseLink).toHaveAttribute('target', '_blank');
+    expect(releaseLink).toHaveAttribute('rel', 'noopener noreferrer');
+    expect(within(installed).getByRole('button', { name: 'Installed' })).toBeDisabled();
+    expect(within(installed).queryByRole('button', { name: 'Download' })).not.toBeInTheDocument();
+    const missing = screen.getByText('1.14.0').closest('tr')!;
+    expect(within(missing).getByRole('link')).toHaveAttribute('href', 'https://github.com/SagerNet/sing-box/releases/tag/v1.14.0');
+    expect(within(missing).getByRole('button', { name: 'Download' })).toBeEnabled();
   });
   it('paginates versions with concise source and runtime columns', async () => {
     const user = userEvent.setup();

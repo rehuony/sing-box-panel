@@ -124,7 +124,11 @@ func validateRuntimeTaskCommit(
 
 func validateSuccessfulRuntimeTaskCommit(task Task, commit *preparedRuntimeTaskCommit) error {
 	wantState := RuntimeTransitionRunning
-	switch RuntimeIntentKind(task.Kind) {
+	kind := RuntimeIntentKind(task.Kind)
+	if CoreSelectionOnly(task) {
+		kind = RuntimeIntentStop
+	}
+	switch kind {
 	case RuntimeIntentApply, RuntimeIntentStart, RuntimeIntentRestart, RuntimeIntentRollback:
 		if commit.clearObservation || commit.observation == nil {
 			return errors.New("successful running intent must record a runtime observation")

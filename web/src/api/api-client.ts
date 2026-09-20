@@ -124,6 +124,7 @@ export interface ApiClient {
   installCore: (assetID: number, signal?: AbortSignal) => Promise<Task>;
   getPanelSettings: (signal?: AbortSignal) => Promise<PanelSettingsView>;
   enableCore: (artifactID: string, signal?: AbortSignal) => Promise<Task>;
+  disableCore: (artifactID: string, signal?: AbortSignal) => Promise<Task>;
   getDashboardContext: (signal?: AbortSignal) => Promise<DashboardContext>;
   listLogs: (filter?: LogFilter, signal?: AbortSignal) => Promise<LogPage>;
   refreshCatalog: (force?: boolean, signal?: AbortSignal) => Promise<Task>;

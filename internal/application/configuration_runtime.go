@@ -15,8 +15,8 @@ import (
 
 var ErrCorePlatformMismatch = errors.New("core platform does not match the deployed panel")
 
-// EnableCore queues a checked replacement, preserving the running core until
-// the candidate's saved configuration passes binary validation.
+// EnableCore selects a checked binary while preserving whether the core is running.
+// A running core is replaced only after the candidate passes binary validation.
 func (application *Application) EnableCore(ctx context.Context, coreID string) (Task, error) {
 	core, err := application.database.GetCoreArtifact(ctx, coreID)
 	if err != nil {
@@ -25,13 +25,41 @@ func (application *Application) EnableCore(ctx context.Context, coreID string) (
 	if core.OperatingSystem != runtime.GOOS || core.Architecture != runtime.GOARCH {
 		return Task{}, ErrCorePlatformMismatch
 	}
-	return application.QueueConfigurationRuntime(ctx, coreID, store.RuntimeIntentRestart)
+	_, err = application.runtime.Resolve(ctx)
+	selectOnly := errors.Is(err, ErrNoRunningCore)
+	if err != nil && !selectOnly {
+		return Task{}, err
+	}
+	return application.queueConfigurationRuntime(ctx, coreID, store.RuntimeIntentRestart, selectOnly)
+}
+
+// DisableCore stops the process and clears the selected version. A normal
+// runtime stop retains the selection so that it can be started again.
+func (application *Application) DisableCore(ctx context.Context, coreID string) (Task, error) {
+	if _, err := application.database.GetCoreArtifact(ctx, coreID); err != nil {
+		return Task{}, err
+	}
+	taskID, err := application.newID("task")
+	if err != nil {
+		return Task{}, err
+	}
+	task, err := application.database.RequestRuntimeIntent(ctx, store.RuntimeIntentInput{
+		TaskID: taskID, Kind: store.RuntimeIntentStop, DisableCoreID: coreID, CreatedAt: application.now().UTC(),
+	})
+	if err != nil {
+		return Task{}, err
+	}
+	return applicationTask(task), nil
 }
 
 // QueueConfigurationRuntime snapshots the current file for a fresh binary
 // preflight in the serialized runtime lane. Empty coreID retains the applied
 // binary identity; version selection may supply an explicit verified artifact.
 func (application *Application) QueueConfigurationRuntime(ctx context.Context, coreID string, kind store.RuntimeIntentKind) (Task, error) {
+	return application.queueConfigurationRuntime(ctx, coreID, kind, false)
+}
+
+func (application *Application) queueConfigurationRuntime(ctx context.Context, coreID string, kind store.RuntimeIntentKind, selectOnly bool) (Task, error) {
 	coreID = strings.TrimSpace(coreID)
 	var appliedCanonical string
 	if coreID == "" {
@@ -70,7 +98,7 @@ func (application *Application) QueueConfigurationRuntime(ctx context.Context, c
 		return Task{}, err
 	}
 	now := application.now().UTC()
-	task, err := application.database.RequestConfigurationRuntimeIntent(ctx, store.RuntimeIntentInput{TaskID: taskID, Kind: kind, CreatedAt: now}, store.StartupArtifact{
+	task, err := application.database.RequestConfigurationRuntimeIntent(ctx, store.RuntimeIntentInput{TaskID: taskID, Kind: kind, CreatedAt: now, SelectOnly: selectOnly}, store.StartupArtifact{
 		ID: startupID, CanonicalRevisionID: preview.CanonicalRevision.ID, ExactCoreVersion: preview.CoreArtifact.ExactVersion,
 		CoreArtifactID: coreID, ConfigBytes: preview.Config, CreatedAt: now,
 	})

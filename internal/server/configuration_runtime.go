@@ -7,6 +7,7 @@ import (
 	"errors"
 	"time"
 
+	"github.com/rehuony/sing-box-panel/internal/application"
 	coreruntime "github.com/rehuony/sing-box-panel/internal/runtime"
 	"github.com/rehuony/sing-box-panel/internal/store"
 )
@@ -48,4 +49,26 @@ func (services *runtimeServices) checkConfigurationForTask(ctx context.Context, 
 		return store.Task{}, err
 	}
 	return services.database.BindCheckedRuntimeTask(ctx, task, prepared.Bundle.ID, time.Now().UTC())
+}
+
+// Selecting a stopped core commits checked startup evidence without fabricating
+// a running identity or launching a process. Completion still fences generation,
+// task ownership and the absence of a live observation in the same transaction.
+func (services *runtimeServices) selectStoppedCore(ctx context.Context, task store.Task, control taskExecutionControl) (taskHandlerResult, error) {
+	if err := control.SafePoint(ctx); err != nil {
+		return taskHandlerResult{}, err
+	}
+	if services.manager.ObserveLiveIdentity().Running {
+		return taskHandlerResult{}, errors.New("core started during version selection")
+	}
+	if _, err := services.identity.Resolve(ctx); !errors.Is(err, application.ErrNoRunningCore) {
+		return taskHandlerResult{}, errors.Join(errors.New("cannot prove the core is stopped"), err)
+	}
+	transition := runtimeTransitionWithoutObservation(
+		runtimeTaskTransitionKey(task, "selected"), store.RuntimeTransitionStopped,
+		"core_selected", task.ActivationBundleID, time.Now().UTC(), nil, task,
+	)
+	return taskHandlerResult{Runtime: &store.RuntimeTaskCommit{
+		ClearObservation: true, Transitions: []store.RuntimeTransitionInput{transition},
+	}}, nil
 }

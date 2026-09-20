@@ -17,7 +17,13 @@ import (
 
 var ErrMonitoringTierUnavailable = errors.New("requested monitoring tier is unavailable")
 
+type EnabledCore struct {
+	CoreArtifactID   string `json:"core_artifact_id"`
+	ExactCoreVersion string `json:"exact_core_version"`
+}
+
 type RuntimeStatus struct {
+	EnabledCore               *EnabledCore     `json:"enabled_core,omitempty"`
 	LoadedCanonicalRevisionID string           `json:"loaded_canonical_revision_id,omitempty"`
 	DesiredRunning            bool             `json:"desired_running"`
 	DesiredBundleID           string           `json:"desired_bundle_id,omitempty"`
@@ -271,6 +277,17 @@ func (application *Application) RuntimeStatus(ctx context.Context) (RuntimeStatu
 		DesiredRunning: bootstrap.Hub.DesiredRunning, DesiredBundleID: bootstrap.Hub.DesiredBundleID,
 		AppliedBundleID: bootstrap.Hub.AppliedBundleID, RollbackBundleID: bootstrap.Hub.RollbackBundleID,
 		TargetGeneration: bootstrap.Hub.TargetGeneration, ObservationState: "stopped",
+	}
+	if bootstrap.Hub.AppliedBundleID != "" {
+		bundle, err := application.database.GetActivationBundle(ctx, bootstrap.Hub.AppliedBundleID)
+		if err != nil {
+			return RuntimeStatus{}, err
+		}
+		startup, err := application.database.GetStartupArtifact(ctx, bundle.StartupArtifactID)
+		if err != nil {
+			return RuntimeStatus{}, err
+		}
+		result.EnabledCore = &EnabledCore{CoreArtifactID: startup.CoreArtifactID, ExactCoreVersion: startup.ExactCoreVersion}
 	}
 	identity, err := application.runtime.Resolve(ctx)
 	switch {

@@ -323,6 +323,7 @@ export function createMockApiClient(overrides: Partial<ApiClient> = {}): Mocked<
   const client: ApiClient = {
     newInboundDefaults: vi.fn().mockImplementation(async (type) => ({ type })),
     enableCore: vi.fn().mockResolvedValue(testTask),
+    disableCore: vi.fn().mockResolvedValue(testTask),
     getConfigurationFile: vi.fn().mockResolvedValue({
       revision: 1,
       content: testRevision.document_json,

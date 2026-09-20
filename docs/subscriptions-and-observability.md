@@ -10,14 +10,34 @@ The Web UI exposes subscription sources, keys, and channels. New keys do not
 require a subscription user. They authorize the nodes allowed by each channel's
 publication policy. A key has a label, optional exclusive expiry time, and an
 optional download limit (1–1,000,000,000). Plaintext is returned only by creation
-or rotation; only its digest is stored. Disabling, revoking or deleting a key
-invalidates future requests, not credentials already downloaded by a client.
+or rotation; only its digest is stored. Key creation does not choose a channel
+or generate a subscription URL. Channel distribution settings accept an existing
+plaintext key to copy that channel's subscription URL; the key is held only while
+the dialog is open and is never included in saved channel configuration.
+The key list shows labels without a legacy-access description and exposes enable/disable,
+rotation and deletion directly, without a detail dialog or a revoke action.
+Any unrevoked key can be rotated, whether enabled, disabled, expired or exhausted.
+Rotation replaces its secret while preserving enablement, scope, quota and usage;
+expiry is retained unless explicitly replaced through the API. Disabled keys
+remain disabled after rotation, and revoked keys cannot be rotated again.
+Column proportions and action-button widths stay fixed when key status changes;
+narrow viewports scroll the table within its panel.
+Disabling or deleting a key invalidates future requests, not credentials already
+downloaded by a client. Existing API revocation and rotation invalidation remain
+supported; revoked keys cannot be re-enabled.
+
+Source and channel forms omit enablement controls. New records are enabled;
+editing existing records preserves their stored enablement state.
+Source names, including the manual collection, are display-only; use the row's
+Edit button to open the source workspace.
+Sources can be removed directly from the list after confirmation. The creation
+dialog sizes to its fields, and subscription actions use visible button surfaces.
 
 Migration retains every existing key's user ID, digest, expiry, usage and grants.
 Those keys continue to require an enabled user and exact node grants; an empty
 grant set still renders an empty subscription. Existing user/grant management
 APIs remain available for compatibility, but are no longer a Web management tab.
-A channel-scoped key has no user ID. The authenticated preview accepts an omitted
+A key governed by channel publication policies has no user ID. The authenticated preview accepts an omitted
 user ID to show the channel policy, or a legacy user ID to preview that user's
 restricted output. No migration silently expands an existing key's access.
 
@@ -92,6 +112,10 @@ automatically derived nodes and manual nodes share the “manual nodes” collec
 source membership and node names are independent. The source list folds legacy
 local-source records into that collection without changing their IDs. Cards use
 actual source names, with no invented local/self-hosted node-name prefix.
+Node cards use a compact, wrapping grid with badges aligned directly below the
+header. Hidden cards retain their content beneath a frosted overlay, while the
+name, visibility and detail controls remain accessible. The masked body is not
+interactive; reduced transparency and increased contrast use an opaque overlay.
 Publication IDs remain stable
 across credential updates. Hiding a node keeps it recoverable at the source but
 omits it from channel selection views and downloads. It does not delete the
@@ -99,7 +123,12 @@ inbound, channel membership, or existing legacy grants.
 
 Channel configuration accepts a typed policy: selected/excluded publication IDs,
 new-node include/exclude policy, organizer options, ordered rule groups and a
-final exit. Existing groups retain their candidate snapshot when new nodes arrive.
+final exit. The channel editor lists strategy groups in a left sidebar and edits
+the selected group's nodes and exit rules on the right. Group drafts survive
+switching groups and are persisted together by Save changes. Adding a node to a
+group also selects it for the channel. Referenced exits must be changed before
+removing their nodes or deleting/disabling the fallback group.
+Existing groups retain their candidate snapshot when new nodes arrive.
 Unavailable, hidden or cyclic node dependencies cannot silently become direct
 traffic: unavailable designated exits become reject actions. Group and native
 node names must not collide with generated reserved names.
@@ -125,6 +154,9 @@ The native single-node editor uses reviewed 1.14 fields, with basic address and
 credentials first and optional protocol, TLS, transport, multiplexing and dial
 sections. Explicit protocol/mode changes clear incompatible known options;
 unknown extension fields and large numeric lexemes survive unrelated edits.
+The advanced node JSON editor formats valid content on load, on entry and on
+blur and save, and provides a format button. Invalid or incomplete text is left intact;
+formatting preserves large numeric lexemes and unknown fields.
 HY2 supports a single port, port ranges or Realm, SSH supports password/key/key
 file, and Shadowsocks UDP-over-TCP and multiplexing are mutually exclusive.
 QUIC does not expose uTLS/Reality or TCP fragmentation. Detour references must
@@ -159,7 +191,10 @@ with a muted timestamp and the entire remaining message colored by TRACE,
 DEBUG, INFO, WARN, ERROR, FATAL or PANIC. A file selector and level filter sit on
 the right; search, pause/resume and LIVE state operate on a bounded local buffer.
 **Panel logs** combines each durable task's current state with standalone panel
-and runtime events once. Details show readable operation status and guidance;
+and runtime events once. The table shows time, message, log level and source,
+without an actions column. Every row uses the API log level for both presentation
+and filtering, including task rows; task lifecycle states do not replace levels.
+Task links still open readable operation status and guidance;
 task IDs and raw result/failure metadata stay internal. Failed/canceled
 catalog refresh, official core installation and source refresh can queue a fresh
 validated attempt. Runtime commands and temporary-file imports require a new

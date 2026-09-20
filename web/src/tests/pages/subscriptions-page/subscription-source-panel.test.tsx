@@ -12,6 +12,7 @@ import { toast } from '@/components/ui/toast-manager';
 import { ApiClientProvider } from '@/api/api-client-context';
 import { TelemetryContext } from '@/components/app-shell/telemetry-context';
 import { SubscriptionNodeGrid } from '@/pages/subscriptions-page/subscription-node-grid';
+import { SubscriptionNodeEditor } from '@/pages/subscriptions-page/subscription-node-editor';
 import { SubscriptionSourcePanel } from '@/pages/subscriptions-page/subscription-source-panel';
 import {
   createMockApiClient,
@@ -57,9 +58,60 @@ function mount(client = createMockApiClient()) {
 }
 
 describe('subscription sources and nodes', () => {
+  it('formats new and edited node JSON without changing numeric lexemes or incomplete input', async () => {
+    const user = userEvent.setup();
+    const client = createMockApiClient();
+    render(
+      <MemoryRouter>
+        <ApiClientProvider client={client}>
+          <SubscriptionNodeEditor node={null} onClose={vi.fn()} onSaved={vi.fn()} />
+        </ApiClientProvider>
+      </MemoryRouter>,
+    );
+    await user.click(screen.getByRole('tab', { name: 'Advanced JSON' }));
+    const editor = screen.getByRole('textbox', { name: 'Advanced JSON' });
+    expect(editor).toHaveValue('{\n  "type": "socks",\n  "tag": "",\n  "server": "",\n  "server_port": 1080\n}');
+    const raw = '{"type":"socks","future":{"counter":900719925474099312345,"threshold":4.2000e+99}}';
+    const formatted = '{\n  "type": "socks",\n  "future": {\n    "counter": 900719925474099312345,\n    "threshold": 4.2000e+99\n  }\n}';
+    fireEvent.change(editor, { target: { value: raw } });
+    expect(editor).toHaveValue(raw);
+    fireEvent.blur(editor);
+    expect(editor).toHaveValue(formatted);
+    fireEvent.change(editor, { target: { value: raw } });
+    fireEvent.click(screen.getByRole('button', { name: 'Format' }));
+    expect(editor).toHaveValue(formatted);
+    await user.click(screen.getByRole('button', { name: 'Copy displayed JSON' }));
+    expect(await navigator.clipboard.readText()).toBe(formatted);
+    fireEvent.change(editor, { target: { value: '{"future":' } });
+    fireEvent.blur(editor);
+    expect(editor).toHaveValue('{"future":');
+    expect(screen.getByRole('button', { name: 'Format' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Save node' })).toBeDisabled();
+    fireEvent.change(editor, { target: { value: raw } });
+    await user.click(screen.getByRole('button', { name: 'Save node' }));
+    await waitFor(() => expect(client.createSubscriptionNode).toHaveBeenCalledWith(formatted));
+  });
+
+  it('formats loaded node JSON before editing', async () => {
+    const user = userEvent.setup();
+    const client = createMockApiClient({
+      getSubscriptionNode: vi.fn().mockResolvedValue({ ...node, outbound_json: '{"type":"socks","future":9007199254740993}' }),
+    });
+    render(
+      <MemoryRouter>
+        <ApiClientProvider client={client}>
+          <SubscriptionNodeEditor node={node} onClose={vi.fn()} onSaved={vi.fn()} />
+        </ApiClientProvider>
+      </MemoryRouter>,
+    );
+    await user.click(await screen.findByRole('tab', { name: 'Advanced JSON' }));
+    expect(screen.getByRole('textbox', { name: 'Advanced JSON' })).toHaveValue('{\n  "type": "socks",\n  "future": 9007199254740993\n}');
+    expect(client.updateSubscriptionNode).not.toHaveBeenCalled();
+  });
+
   it('uses the last recorded core start for manual nodes, independently of source updates', async () => {
     const client = mount();
-    const row = screen.getByRole('button', { name: 'Manual nodes' }).closest('tr')!;
+    const row = screen.getByRole('cell', { name: 'Manual nodes' }).closest('tr')!;
     const started = new Intl.DateTimeFormat('en', { dateStyle: 'short', timeStyle: 'short' }).format(new Date(testRuntimeHistory.items[0]!.process_started_at!));
     await waitFor(() => expect(row).toHaveTextContent(started));
     expect(client.getRuntimeHistory).toHaveBeenCalledWith({ state: 'running', limit: 1 }, expect.any(AbortSignal));
@@ -78,7 +130,7 @@ describe('subscription sources and nodes', () => {
       </ApiClientProvider>
     );
     const { rerender } = render(renderPanel('2026-09-20T00:00:00Z'));
-    const row = screen.getByRole('button', { name: 'Manual nodes' }).closest('tr')!;
+    const row = screen.getByRole('cell', { name: 'Manual nodes' }).closest('tr')!;
     const format = (date: string) => new Intl.DateTimeFormat('en', {
       dateStyle: 'short', timeStyle: 'short',
     }).format(new Date(date));
@@ -94,7 +146,7 @@ describe('subscription sources and nodes', () => {
         getRuntimeHistory: vi.fn().mockResolvedValue({ ...testRuntimeHistory, items }),
       }));
       await waitFor(() => expect(client.getSubscriptionNodeCatalog).toHaveBeenCalled());
-      const row = screen.getByRole('button', { name: 'Manual nodes' }).closest('tr')!;
+      const row = screen.getByRole('cell', { name: 'Manual nodes' }).closest('tr')!;
       expect(within(row).getAllByRole('cell')[2]).toHaveTextContent('—');
     });
 
@@ -111,6 +163,27 @@ describe('subscription sources and nodes', () => {
     expect(within(screen.getByRole('dialog')).getByLabelText('Name')).toHaveValue('');
   });
 
+  it('deletes a source directly from its row using freshly loaded metadata', async () => {
+    const user = userEvent.setup();
+    const fresh = { ...remote, updated_at: '2026-09-20T00:00:00Z' };
+    const client = mount(createMockApiClient({
+      listSubscriptionSources: vi.fn().mockResolvedValue({ items: [remote] }),
+      getSubscriptionSource: vi.fn().mockResolvedValue(fresh),
+    }));
+    const row = (await screen.findByRole('cell', { name: 'Global Edge' })).closest('tr')!;
+    const manual = screen.getByRole('cell', { name: 'Manual nodes' }).closest('tr')!;
+    expect(within(manual).queryByRole('button', { name: 'Delete source' })).not.toBeInTheDocument();
+    await user.click(within(row).getByRole('button', { name: 'Delete source' }));
+    const confirmation = await screen.findByRole('dialog', { name: 'Delete source' });
+    expect(confirmation).toHaveTextContent('Global Edge');
+    expect(client.deleteSubscriptionSource).not.toHaveBeenCalled();
+    await user.click(within(confirmation).getByRole('button', { name: 'Delete source' }));
+    await waitFor(() => expect(client.deleteSubscriptionSource).toHaveBeenCalledWith(
+      fresh.id, fresh.updated_at, expect.any(AbortSignal),
+    ));
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+  });
+
   it('switches protocol-dependent endpoint and SSH authentication controls without losing extensions', async () => {
     const user = userEvent.setup();
     const initial
@@ -121,7 +194,8 @@ describe('subscription sources and nodes', () => {
         getSubscriptionNode: vi.fn().mockResolvedValue({ ...node, outbound_json: initial }),
       }),
     );
-    await user.click(await screen.findByRole('button', { name: 'Manual nodes' }));
+    const sourceRow = (await screen.findByRole('cell', { name: 'Manual nodes' })).closest('tr')!;
+    await user.click(within(sourceRow).getByRole('button', { name: 'Edit' }));
     await user.click(screen.getByRole('button', { name: 'View 香港' }));
     const dialog = await screen.findByRole('dialog', { name: '香港' });
     const protocol = await within(dialog).findByRole('combobox', { name: 'Protocol' });
@@ -174,9 +248,10 @@ describe('subscription sources and nodes', () => {
           .mockResolvedValue({ nodes: [node, imported], diagnostics: [] }),
       }),
     );
-    await screen.findByRole('button', { name: 'Global Edge' });
-    expect(screen.queryByRole('button', { name: 'Old imports' })).not.toBeInTheDocument();
-    await user.click(screen.getByRole('button', { name: 'Manual nodes' }));
+    await screen.findByRole('cell', { name: 'Global Edge' });
+    expect(screen.queryByRole('cell', { name: 'Old imports' })).not.toBeInTheDocument();
+    const sourceRow = (screen.getByRole('cell', { name: 'Manual nodes' })).closest('tr')!;
+    await user.click(within(sourceRow).getByRole('button', { name: 'Edit' }));
     expect(screen.getByRole('button', { name: 'Existing node' })).toBeInTheDocument();
     expect(screen.getAllByRole('article')).toHaveLength(2);
   });
@@ -199,7 +274,8 @@ describe('subscription sources and nodes', () => {
           }),
       }),
     );
-    await user.click(await screen.findByRole('button', { name: 'Global Edge' }));
+    const sourceRow = (await screen.findByRole('cell', { name: 'Global Edge' })).closest('tr')!;
+    await user.click(within(sourceRow).getByRole('button', { name: 'Edit' }));
     await user.click(screen.getByRole('button', { name: 'View 香港' }));
     const dialog = await screen.findByRole('dialog', { name: '香港' });
     await within(dialog).findByRole('button', { name: 'Show credentials' });
@@ -215,6 +291,7 @@ describe('subscription sources and nodes', () => {
     await user.click(screen.getByRole('button', { name: 'Attach source' }));
     const dialog = screen.getByRole('dialog');
     expect(within(dialog).queryByRole('tab')).not.toBeInTheDocument();
+    expect(within(dialog).queryByRole('checkbox', { name: 'Enable' })).not.toBeInTheDocument();
     await user.type(within(dialog).getByLabelText('Name'), 'Global Edge');
     await user.type(within(dialog).getByLabelText('Subscription URL'), 'socks://node.example:1080');
     await user.click(within(dialog).getByRole('button', { name: 'Save source' }));
@@ -244,9 +321,9 @@ describe('subscription sources and nodes', () => {
     );
   });
 
-  it('shows source detail inline and uses freshly loaded metadata for a CAS save', async () => {
+  it.each([true, false])('preserves source enablement %s without a form toggle and uses fresh metadata for a CAS save', async (enabled) => {
     const user = userEvent.setup();
-    const fresh = { ...remote, updated_at: '2026-09-19T00:00:01Z' };
+    const fresh = { ...remote, enabled, updated_at: '2026-09-19T00:00:01Z' };
     const client = mount(
       createMockApiClient({
         listSubscriptionSources: vi.fn().mockResolvedValue({ items: [remote] }),
@@ -254,16 +331,24 @@ describe('subscription sources and nodes', () => {
         updateSubscriptionSource: vi.fn().mockResolvedValue(fresh),
       }),
     );
-    await user.click(await screen.findByRole('button', { name: 'Global Edge' }));
+    const sourceRow = (await screen.findByRole('cell', { name: 'Global Edge' })).closest('tr')!;
+    await user.click(within(sourceRow).getByRole('button', { name: 'Edit' }));
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
-    await user.click(screen.getByRole('tab', { name: 'Source settings' }));
+    const navigation = screen.getByRole('tablist', { name: 'Source settings' });
+    expect(within(navigation).getAllByRole('tab')).toHaveLength(2);
+    await user.click(within(navigation).getByRole('tab', { name: 'Nodes' }));
+    await user.keyboard('{ArrowRight}');
+    expect(within(navigation).getByRole('tab', { name: 'Source settings' })).toHaveFocus();
+    await user.keyboard('{Enter}');
+    await screen.findByRole('tabpanel', { name: 'Source settings' });
     await user.clear(await screen.findByLabelText('Name'));
+    expect(screen.queryByRole('checkbox', { name: 'Enable' })).not.toBeInTheDocument();
     await user.type(screen.getByLabelText('Name'), 'Renamed source');
     await user.click(screen.getByRole('button', { name: 'Save source' }));
     await waitFor(() =>
       expect(client.updateSubscriptionSource).toHaveBeenCalledWith(
         remote.id,
-        { name: 'Renamed source', source_kind: 'remote', config: remote.config, enabled: true },
+        { name: 'Renamed source', source_kind: 'remote', config: remote.config, enabled },
         fresh.updated_at,
         expect.any(AbortSignal),
       ),
@@ -279,11 +364,13 @@ describe('subscription sources and nodes', () => {
         getSubscriptionNodeCatalog: vi.fn().mockResolvedValue({ nodes: [node], diagnostics: [] }),
         setSubscriptionNodeVisibility: vi
           .fn()
-          .mockResolvedValue({ ...node, hidden: true, visibility_revision: 1 }),
+          .mockResolvedValueOnce({ ...node, hidden: true, visibility_revision: 1 })
+          .mockResolvedValueOnce({ ...node, hidden: false, visibility_revision: 2 }),
         refreshSubscriptionSource: vi.fn().mockResolvedValue({ ...testTask, status: 'failed' }),
       }),
     );
-    await user.click(await screen.findByRole('button', { name: 'Manual nodes' }));
+    const sourceRow = (await screen.findByRole('cell', { name: 'Manual nodes' })).closest('tr')!;
+    await user.click(within(sourceRow).getByRole('button', { name: 'Edit' }));
     await user.click(screen.getByRole('button', { name: 'Hide 香港' }));
     expect(await screen.findByText('Hidden')).toBeInTheDocument();
     expect(client.setSubscriptionNodeVisibility).toHaveBeenCalledWith(
@@ -292,8 +379,23 @@ describe('subscription sources and nodes', () => {
       0,
       expect.any(AbortSignal),
     );
+    const maskedBody = screen.getByText('proxy.example:1080').closest('button');
+    expect(maskedBody).toBeDisabled();
+    expect(maskedBody).toHaveAttribute('aria-hidden', 'true');
+    expect(maskedBody).toHaveAttribute('tabindex', '-1');
+    expect(screen.queryByRole('button', { name: /Manual nodes.*socks/ })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'View 香港' })).toBeEnabled();
+    await user.click(screen.getByRole('button', { name: 'Show 香港' }));
+    await waitFor(() => expect(screen.queryByText('Hidden')).not.toBeInTheDocument());
+    expect(client.setSubscriptionNodeVisibility).toHaveBeenLastCalledWith(
+      node.id,
+      false,
+      1,
+      expect.any(AbortSignal),
+    );
+    expect(screen.getByRole('button', { name: /Manual nodes.*socks/ })).toBeEnabled();
     await user.click(screen.getByRole('button', { name: 'Back' }));
-    const row = screen.getByRole('button', { name: 'Global Edge' }).closest('tr')!;
+    const row = screen.getByRole('cell', { name: 'Global Edge' }).closest('tr')!;
     await user.click(within(row).getByRole('button', { name: 'Refresh' }));
     await waitFor(() =>
       expect(notified).toHaveBeenCalledWith(expect.objectContaining({ type: 'error' })),
@@ -317,7 +419,8 @@ describe('subscription sources and nodes', () => {
           .mockResolvedValue({ ...node, revision: 2, outbound_json: original }),
       }),
     );
-    await user.click(await screen.findByRole('button', { name: 'Manual nodes' }));
+    const sourceRow = (await screen.findByRole('cell', { name: 'Manual nodes' })).closest('tr')!;
+    await user.click(within(sourceRow).getByRole('button', { name: 'Edit' }));
     await user.click(screen.getByRole('button', { name: 'View 香港' }));
     const dialog = await screen.findByRole('dialog', { name: '香港' });
     await user.click(await within(dialog).findByRole('tab', { name: 'Advanced JSON' }));
@@ -328,7 +431,16 @@ describe('subscription sources and nodes', () => {
     });
     await user.click(within(dialog).getByRole('button', { name: 'Save node' }));
     await waitFor(() =>
-      expect(client.updateSubscriptionNode).toHaveBeenCalledWith(node.id, changed, 1),
+      expect(client.updateSubscriptionNode).toHaveBeenCalledWith(node.id, `{
+  "type": "socks",
+  "tag": "香港",
+  "server": "new.example",
+  "server_port": 1080,
+  "udp_fragment": false,
+  "future": {
+    "large": 9007199254740993
+  }
+}`, 1),
     );
   });
 

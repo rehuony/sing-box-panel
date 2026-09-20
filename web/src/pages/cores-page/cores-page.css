@@ -4,14 +4,6 @@
   flex-direction: column;
   gap: 16px;
 }
-.core-page__heading {
-  flex: none;
-}
-.core-page__heading h1 {
-  margin: 0;
-  font-size: var(--text-display);
-  letter-spacing: -0.04em;
-}
 .core-import-dropzone {
   position: relative;
   display: flex;
@@ -87,7 +79,7 @@
   min-height: 0;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--workspace-content-gap);
   padding: 24px 24px 8px;
   border: 1px solid var(--color-border);
   border-radius: var(--radius-card);
@@ -137,16 +129,6 @@
   outline: 1px solid var(--input-focus);
   outline-offset: 2px;
 }
-.core-library__toolbar > button {
-  width: 40px;
-  height: 40px;
-  min-width: 40px;
-  padding: 10px;
-}
-.core-library__toolbar > button svg {
-  width: 20px;
-  height: 20px;
-}
 .core-list-scroll {
   flex: 1;
   min-height: 0;
@@ -177,18 +159,22 @@
 .core-table th:nth-child(2) {
   width: 24%;
 }
-.core-table th:nth-child(3) {
-  width: 18%;
+.core-table th:nth-child(3):not(:last-child) {
+  width: 38%;
 }
-.core-table tr {
+.core-table tbody tr {
   border-bottom: 1px solid var(--color-border);
 }
 .core-table :is(th, td):last-child {
   text-align: center;
 }
 .core-table td {
-  padding-block: 16px;
   overflow-wrap: anywhere;
+}
+.core-table td:first-child strong {
+  color: var(--color-text-muted);
+  font-family: var(--font-mono);
+  font-weight: 400;
 }
 .core-row-actions {
   display: flex;

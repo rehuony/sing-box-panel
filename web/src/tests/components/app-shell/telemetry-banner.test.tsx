@@ -32,6 +32,7 @@ function runtimeIdentity(processStartToken = 'process-8124') {
 
 function runningStatus(processStartToken = 'process-8124'): RuntimeStatus {
   return {
+    enabled_core: { core_artifact_id: 'core_1', exact_core_version: '1.13.19' },
     desired_running: true,
     applied_bundle_id: 'bundle_18',
     target_generation: 3,
@@ -41,6 +42,7 @@ function runningStatus(processStartToken = 'process-8124'): RuntimeStatus {
 }
 
 const stoppedStatus: RuntimeStatus = {
+  enabled_core: { core_artifact_id: 'core_1', exact_core_version: '1.13.19' },
   desired_running: false,
   applied_bundle_id: 'bundle_18',
   target_generation: 4,
@@ -157,6 +159,19 @@ describe('telemetryBanner', () => {
     await act(async () => document.dispatchEvent(new Event('visibilitychange')));
     expect(screen.getByText('200 B/s')).toBeInTheDocument();
     expect(screen.getByText('300 B/s')).toBeInTheDocument();
+  });
+
+  it.each(['en', 'zh-CN'] as const)('retains the enabled version and shows zero stopped metrics in %s', async (language) => {
+    await setAppLanguage(language);
+    renderBanner(createMockApiClient({
+      getRuntimeStatus: vi.fn().mockResolvedValue(stoppedStatus),
+      getTrafficStatus: vi.fn().mockResolvedValue({ ...testMetrics, available: false }),
+    }));
+    expect(await screen.findByText('v1.13.19')).toBeInTheDocument();
+    expect(screen.getByRole('group', { name: language === 'en' ? /^Uptime: 0s/ : /^运行时长: 0秒/ })).toBeInTheDocument();
+    expect(screen.getByRole('group', { name: language === 'en' ? 'Upload: 0 B/s' : '上行: 0 B/s' })).toBeInTheDocument();
+    expect(screen.getByRole('group', { name: language === 'en' ? 'Download: 0 B/s' : '下行: 0 B/s' })).toBeInTheDocument();
+    expect(screen.queryByText(/B\/秒/)).not.toBeInTheDocument();
   });
 
   it('does not request architecture for the status bar', async () => {

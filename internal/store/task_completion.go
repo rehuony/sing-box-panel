@@ -153,7 +153,7 @@ func (s *Store) CompleteTask(
 			}
 		}
 		commitRuntimeIntent := status == TaskStatusSucceeded ||
-			(status == TaskStatusCanceled && completion.Succeeded && runtimeCommit != nil)
+			(status == TaskStatusCanceled && completion.Succeeded && runtimeCommit != nil && !CoreSelectionOnly(current))
 		if commitRuntimeIntent && current.Lane == TaskLaneRuntime {
 			if err := commitSuccessfulRuntimeIntent(ctx, tx, current, now); err != nil {
 				return err

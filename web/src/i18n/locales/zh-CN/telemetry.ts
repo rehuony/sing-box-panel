@@ -68,7 +68,7 @@ export const telemetry = {
     day: '天',
     hour: '小时',
     minute: '分钟',
-    perSecond: '/秒',
+    perSecond: '/s',
     second: '秒',
   },
 } as const;

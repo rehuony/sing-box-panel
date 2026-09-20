@@ -44,6 +44,7 @@ var managementOperations = []managementOperation{
 	{Method: http.MethodGet, Path: "/core/artifacts", OperationID: "listCoreArtifacts"},
 	{Method: http.MethodGet, Path: "/core/artifacts/{artifactId}", OperationID: "getCoreArtifact"},
 	{Method: http.MethodPost, Path: "/core/artifacts/{artifactId}/enable", OperationID: "enableCoreArtifact"},
+	{Method: http.MethodPost, Path: "/core/artifacts/{artifactId}/disable", OperationID: "disableCoreArtifact"},
 	{Method: http.MethodDelete, Path: "/core/artifacts/{artifactId}", OperationID: "deleteCoreArtifact"},
 	{Method: http.MethodGet, Path: "/core/artifacts/{artifactId}/configuration-support", OperationID: "getCoreArtifactConfigurationSupport"},
 	{Method: http.MethodGet, Path: "/core/artifacts/{artifactId}/configuration-schema", OperationID: "getCoreArtifactConfigurationSchema"},

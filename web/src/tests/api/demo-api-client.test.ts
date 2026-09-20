@@ -51,6 +51,39 @@ describe('createDemoApiClient', () => {
     await expect(request).rejects.toMatchObject({ name: 'AbortError' });
   });
 
+  it.each([true, false])('rotates an enabled=%s key without changing its state or usage', async (enabled) => {
+    const client = createDemoApiClient();
+    const { items: [key] } = await client.listSubscriptionTokens();
+    const original = await client.setSubscriptionTokenEnabled(key.id, enabled);
+    const rotation = await client.rotateSubscriptionToken(key.id);
+
+    expect(rotation.created).toEqual({
+      ...original,
+      id: expect.any(String),
+      created_at: expect.any(String),
+      expires_at: original.expires_at,
+      revoked_at: undefined,
+    });
+    expect(rotation.created.id).not.toBe(original.id);
+    expect(rotation.revoked).toMatchObject({ id: original.id, active: false, revoked_at: expect.any(String) });
+    expect(rotation.token).toBeTruthy();
+    expect(() => client.rotateSubscriptionToken(original.id)).toThrow('revoked');
+    await expect(client.setSubscriptionTokenEnabled(rotation.created.id, true))
+      .resolves
+      .toMatchObject({ active: true });
+  });
+
+  it('rotates expired keys while retaining their expiry and inactive state', async () => {
+    vi.useFakeTimers();
+    const client = createDemoApiClient();
+    const expiresAt = new Date(Date.now() + 60_000).toISOString();
+    const { metadata } = await client.createSubscriptionToken({ label: 'Expiring', expiresAt, downloadLimit: 3 });
+    await vi.advanceTimersByTimeAsync(60_000);
+
+    const rotation = await client.rotateSubscriptionToken(metadata.id);
+    expect(rotation.created).toMatchObject({ enabled: true, active: false, expires_at: expiresAt, download_limit: 3 });
+  });
+
   it('enables manual imports on the reported platform without a trust lifecycle', async () => {
     vi.useFakeTimers();
     const client = createDemoApiClient();
@@ -178,6 +211,48 @@ describe('createDemoApiClient', () => {
     expect(olderPage.items.map((item) => item.id)).toEqual(['log_demo_login', 'log_demo_catalog']);
     expect(olderPage.next).toBeUndefined();
     expect(olderPage.items).not.toEqual(expect.arrayContaining(newestPage.items));
+  });
+
+  it('selects a version while stopped and starts that version later', async () => {
+    vi.useFakeTimers();
+    const client = createDemoApiClient();
+    await client.stopRuntime();
+    await vi.advanceTimersByTimeAsync(700);
+    const stopped = await client.getRuntimeStatus();
+    expect(stopped.enabled_core?.core_artifact_id).toBe('core_demo_114');
+    await client.enableCore('core_demo_113');
+    await vi.advanceTimersByTimeAsync(700);
+    expect(await client.getRuntimeStatus()).toMatchObject({
+      observation_state: 'stopped', desired_running: false, running: undefined,
+      enabled_core: { core_artifact_id: 'core_demo_113', exact_core_version: '1.13.19' },
+    });
+    await client.startRuntime();
+    await vi.advanceTimersByTimeAsync(700);
+    expect((await client.getRuntimeStatus()).running?.core_artifact_id).toBe('core_demo_113');
+  });
+
+  it.each(['running', 'stopped'])('disables the selected version while %s and requires selection before starting again', async (state) => {
+    vi.useFakeTimers();
+    const client = createDemoApiClient();
+    if (state === 'stopped') {
+      await client.stopRuntime();
+      await vi.advanceTimersByTimeAsync(700);
+    }
+    expect(() => client.disableCore('core_demo_113')).toThrow('no longer enabled');
+    await client.disableCore('core_demo_114');
+    await vi.advanceTimersByTimeAsync(700);
+    expect(await client.getRuntimeStatus()).toMatchObject({
+      observation_state: 'stopped', enabled_core: undefined, running: undefined,
+      desired_running: false, applied_bundle_id: undefined, rollback_bundle_id: undefined,
+    });
+    expect(() => client.startRuntime()).toThrow('No core version');
+    expect(() => client.restartRuntime()).toThrow('No core version');
+    await client.enableCore('core_demo_113');
+    await vi.advanceTimersByTimeAsync(700);
+    expect((await client.getRuntimeStatus()).enabled_core?.core_artifact_id).toBe('core_demo_113');
+    await client.startRuntime();
+    await vi.advanceTimersByTimeAsync(700);
+    expect((await client.getRuntimeStatus()).running?.core_artifact_id).toBe('core_demo_113');
   });
 
   it('settles stop, start, and restart tasks and rotates the running process identity', async () => {

@@ -193,6 +193,83 @@ func TestApplicationSubscriptionTokenPlaintextLifecycleDoesNotLeakFromReads(t *t
 	}
 }
 
+func TestApplicationSubscriptionTokenRotationPreservesState(t *testing.T) {
+	for _, test := range []struct {
+		name      string
+		enabled   bool
+		expired   bool
+		exhausted bool
+	}{
+		{name: "enabled", enabled: true},
+		{name: "disabled"},
+		{name: "expired", enabled: true, expired: true},
+		{name: "exhausted", enabled: true, exhausted: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			ctx := t.Context()
+			database, err := store.Open(ctx, filepath.Join(t.TempDir(), "panel.db"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = database.Close() })
+			app := newSubscriptionTestApplication(database)
+			expires := app.now().Add(time.Hour)
+			limit := int64(3)
+			if test.exhausted {
+				limit = 1
+			}
+			created, err := app.CreateSubscriptionToken(ctx, CreateSubscriptionTokenRequest{
+				Label: "Rotatable", ExpiresAt: &expires, DownloadLimit: &limit,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := database.RecordSubscriptionTokenUse(ctx, created.Metadata.ID, app.now(), 42); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := app.SetSubscriptionTokenEnabled(ctx, created.Metadata.ID, test.enabled); err != nil {
+				t.Fatal(err)
+			}
+			if test.expired {
+				app.now = func() time.Time { return expires }
+			}
+			original, err := app.SubscriptionToken(ctx, created.Metadata.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			rotation, err := app.RotateSubscriptionToken(ctx, original.ID, nil)
+			if err != nil {
+				t.Fatalf("rotate %s key: %v", test.name, err)
+			}
+			replacement := rotation.Created
+			if replacement.Enabled != original.Enabled || replacement.Active != original.Active ||
+				replacement.Label != original.Label || replacement.UserID != original.UserID ||
+				replacement.ExpiresAt == nil || !replacement.ExpiresAt.Equal(expires) ||
+				replacement.DownloadLimit == nil || *replacement.DownloadLimit != limit ||
+				replacement.BodyResponseCount != 1 || replacement.SuccessfulRequestCount != 1 ||
+				replacement.BytesServed != 42 || replacement.LastUsedAt == nil || !replacement.LastUsedAt.Equal(*original.LastUsedAt) {
+				t.Fatalf("rotation changed key state: original=%+v replacement=%+v", original, replacement)
+			}
+			if rotation.Token == "" || rotation.Token == created.Token || replacement.ID == original.ID || rotation.Revoked.RevokedAt == nil {
+				t.Fatalf("rotation did not replace and revoke the old key: %+v", rotation)
+			}
+			if _, err := app.AuthenticateSubscriptionToken(ctx, created.Token); !errors.Is(err, store.ErrSubscriptionTokenInactive) {
+				t.Fatalf("old secret authentication error = %v", err)
+			}
+			var wantAuthError error
+			if !original.Active {
+				wantAuthError = store.ErrSubscriptionTokenInactive
+			}
+			if _, err := app.AuthenticateSubscriptionToken(ctx, rotation.Token); !errors.Is(err, wantAuthError) {
+				t.Fatalf("replacement authentication error = %v, want %v", err, wantAuthError)
+			}
+			if _, err := app.RotateSubscriptionToken(ctx, original.ID, nil); !errors.Is(err, store.ErrSubscriptionTokenInactive) {
+				t.Fatalf("revoked key rotation error = %v", err)
+			}
+		})
+	}
+}
+
 func TestApplicationSubscriptionTokenRandomFailuresDoNotPersist(t *testing.T) {
 	ctx := context.Background()
 	for _, test := range []struct {

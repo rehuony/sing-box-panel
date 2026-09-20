@@ -85,7 +85,6 @@ export const subscriptions = {
     cancel: '取消',
     done: '完成',
     scope: '访问范围',
-    legacy: '保留原有用户授权范围',
     pageSize: '每页条数',
     perPage: '每页 {{count}} 条',
     previous: '上一页',
@@ -278,15 +277,7 @@ export const subscriptions = {
       delete: {
         aria: '删除令牌 {{label}}',
         name: '删除',
-        prompt: '删除令牌元数据？',
-      },
-      inspectAria: '查看令牌 {{label}}',
-      revoke: {
-        aria: '吊销令牌 {{label}}',
-        label: '吊销',
-        name: '吊销',
-        pending: '正在吊销…',
-        prompt: '永久吊销此令牌？',
+        prompt: '删除此密钥？删除后会立即失效。',
       },
       rotate: {
         aria: '轮换令牌 {{label}}',
@@ -346,8 +337,6 @@ export const subscriptions = {
       copied: '已复制',
       copy: '复制令牌',
       copyFailed: '无法复制到剪贴板：{{error}}',
-      copyURL: '复制订阅 URL',
-      deliveryChannel: '交付渠道',
       loadingChannels: '正在载入已启用渠道…',
       noChannels: '复制客户端 URL 前，请先创建或启用渠道。',
       oneTime: '关闭此提示或重新载入页面后，将无法再次显示。',

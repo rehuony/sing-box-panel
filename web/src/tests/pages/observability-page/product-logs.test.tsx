@@ -78,7 +78,7 @@ describe('unified product logs', () => {
     });
     render(
       <ApiClientProvider client={client}>
-        <PanelLogDetail entry={null} taskID={testTask.id} onClose={() => {}} onTaskChange={() => {}} />
+        <PanelLogDetail taskID={testTask.id} onClose={() => {}} onTaskChange={() => {}} />
       </ApiClientProvider>,
     );
     await act(async () => {});
@@ -149,7 +149,7 @@ describe('unified product logs', () => {
     expect(screen.queryByText('INFO connected')).not.toBeInTheDocument();
     expect(screen.getByText('ERROR resumed')).toBeVisible();
   });
-  it('lists panel activity without a related task column, paginates and opens centered details', async () => {
+  it('lists panel activity in four columns without detail actions and paginates', async () => {
     const item: PanelLog = {
       id: `task:${testTask.id}`,
       task_id: testTask.id,
@@ -170,15 +170,12 @@ describe('unified product logs', () => {
       }),
       '/observability?tab=panel',
     );
-    const details = await screen.findByRole('button', { name: 'Details' });
-    expect(screen.queryByRole('columnheader', { name: 'Related task' })).not.toBeInTheDocument();
-    await userEvent.click(details);
-    expect(await screen.findByRole('dialog')).toBeVisible();
-    expect(await within(screen.getByRole('dialog')).findByText('The operation completed successfully.')).toBeVisible();
-    expect(within(screen.getByRole('dialog')).queryByText(testTask.id)).not.toBeInTheDocument();
-    await userEvent.click(
-      within(screen.getByRole('dialog')).getByRole('button', { name: 'Close' }),
-    );
+    expect(await screen.findByRole('cell', { name: 'INFO' })).toBeVisible();
+    expect(screen.getAllByRole('columnheader').map((header) => header.textContent))
+      .toEqual(['Time', 'Message', 'Log level', 'Source']);
+    expect(screen.queryByRole('button', { name: 'Details' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(client.getTask).not.toHaveBeenCalled();
     await userEvent.click(screen.getByRole('button', { name: 'Next' }));
     await waitFor(() =>
       expect(client.listPanelLogs).toHaveBeenCalledWith(
@@ -207,7 +204,7 @@ describe('unified product logs', () => {
     });
     render(
       <ApiClientProvider client={client}>
-        <PanelLogDetail entry={null} taskID={testTask.id} onClose={() => {}} onTaskChange={() => {}} />
+        <PanelLogDetail taskID={testTask.id} onClose={() => {}} onTaskChange={() => {}} />
       </ApiClientProvider>,
     );
     const guidance = status === 'succeeded'
@@ -220,16 +217,35 @@ describe('unified product logs', () => {
     }
     expect(dialog.querySelector('pre')).toBeNull();
   });
-  it('shows an event message without internal metadata', async () => {
-    render(
-      <ApiClientProvider client={createMockApiClient()}>
-        <PanelLogDetail
-          entry={{ id: 'internal-event-id', time: testTask.updated_at, source: 'panel', level: 'info', status: '', code: 'saved', message: 'Panel settings saved', metadata: { task_id: 'internal-task-id' } }}
-          taskID={null} onClose={() => {}} onTaskChange={() => {}}
-        />
-      </ApiClientProvider>,
+  it('uses the filtered log level for task and event rows instead of lifecycle status', async () => {
+    const items: PanelLog[] = [
+      { id: 'task:done', time: testTask.updated_at, source: 'task', level: 'info', status: 'succeeded', code: 'configuration-apply', message: 'Configuration applied', metadata: {} },
+      { id: 'task:failed', time: testTask.updated_at, source: 'task', level: 'error', status: 'failed', code: 'catalog-refresh', message: 'Catalog refresh failed', metadata: {} },
+      { id: 'security:session', time: testTask.updated_at, source: 'security', level: 'warn', status: '', code: 'session-renewed', message: 'Administrator session renewed', metadata: {} },
+      { id: 'internal-event-id', time: testTask.updated_at, source: 'panel', level: 'debug', status: '', code: 'saved', message: 'Panel settings saved', metadata: { task_id: 'internal-task-id' } },
+    ];
+    const client = show(
+      createMockApiClient({ listPanelLogs: vi.fn(async (filter) => ({
+        items: items.filter((item) => !filter?.level || item.level === filter.level),
+      })) }),
+      '/observability?tab=panel',
     );
     expect(await screen.findByText('Panel settings saved')).toBeVisible();
-    expect(screen.getByRole('dialog')).not.toHaveTextContent('internal-task-id');
+    const table = screen.getByRole('table');
+    for (const level of ['INFO', 'ERROR', 'WARN', 'DEBUG']) {
+      expect(within(table).getByRole('cell', { name: level })).toBeVisible();
+    }
+    for (const value of ['succeeded', 'failed', 'canceled', 'internal-task-id']) {
+      expect(within(table).queryByRole('cell', { name: value })).not.toBeInTheDocument();
+    }
+    expect(table).not.toHaveTextContent('internal-task-id');
+    await userEvent.click(screen.getByRole('combobox', { name: 'Log level' }));
+    await userEvent.click(await screen.findByRole('option', { name: 'ERROR' }));
+    await waitFor(() => expect(within(table).getAllByRole('row')).toHaveLength(2));
+    expect(within(table).getByRole('cell', { name: 'ERROR' })).toBeVisible();
+    expect(client.listPanelLogs).toHaveBeenLastCalledWith(
+      expect.objectContaining({ level: 'error' }),
+      expect.any(AbortSignal),
+    );
   });
 });

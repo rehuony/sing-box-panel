@@ -41,7 +41,7 @@ export function AppearanceColorPicker({ id, value, onChange }: {
         pendingColorRef.current = null;
       }
     }}>
-      <DialogTrigger aria-label={t('panelSettings.customColor')} render={<Button id={id} type='button' variant='secondary' className='settings-custom-color' />}>
+      <DialogTrigger aria-label={t('panelSettings.customColor')} render={<Button id={id} type='button' variant='outline' className='settings-custom-color' />}>
         <span className='settings-color-swatch' style={{ backgroundColor: value }} aria-hidden='true' />
         {t('panelSettings.customColor')}
       </DialogTrigger>
@@ -64,8 +64,8 @@ export function AppearanceColorPicker({ id, value, onChange }: {
           {!valid && <FieldError id={`${hexId}-error`}>{t('panelSettings.invalidColor')}</FieldError>}
         </Field>
         <DialogFooter>
-          <DialogClose render={<Button type='button' variant='secondary' />}>{t('panelSettings.cancel')}</DialogClose>
-          <Button type='button' variant='secondary' className='appearance-color-apply' disabled={!valid} onClick={() => {
+          <DialogClose render={<Button type='button' variant='outline' />}>{t('panelSettings.cancel')}</DialogClose>
+          <Button type='button' variant='outline' className='appearance-color-apply' disabled={!valid} onClick={() => {
             pendingColorRef.current = draft;
             setOpen(false);
           }}>

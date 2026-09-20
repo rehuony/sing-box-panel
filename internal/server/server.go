@@ -163,6 +163,10 @@ func Run(ctx context.Context, settingsPath string, build buildinfo.Info, assets 
 	if err != nil {
 		return fmt.Errorf("open core artifact store: %w", err)
 	}
+	syncEnabledCore := func(ctx context.Context) error { return commands.SyncEnabledCoreLink(ctx, artifacts) }
+	if err := syncEnabledCore(ctx); err != nil {
+		return fmt.Errorf("restore enabled core link: %w", err)
+	}
 	runtimeControl, err := newRuntimeServices(database, commands, configuration)
 	if err != nil {
 		return fmt.Errorf("construct sing-box runtime: %w", err)
@@ -207,7 +211,7 @@ func Run(ctx context.Context, settingsPath string, build buildinfo.Info, assets 
 		handlers[kind] = withTaskLogging(commands, taskHandler)
 	}
 	runner, err := newTaskRunner(database, handlers, taskRunnerOptions{
-		WorkerID: workerID(), FinalizeTask: commands.FinalizeTaskResources,
+		WorkerID: workerID(), FinalizeTask: commands.FinalizeTaskResources, SyncRuntime: syncEnabledCore,
 	})
 	if err != nil {
 		_ = listener.Close()

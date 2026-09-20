@@ -124,7 +124,8 @@ Check and Apply are Web UI operations. The Web UI drives
 `POST /api/v1/config/compile`, `POST /api/v1/core/artifacts/{artifactId}/enable`,
 and the runtime endpoints. Startup artifacts and activation bundles remain
 internal evidence. The CLI retains `core enable CORE_ARTIFACT_ID` to switch
-binaries with the current saved document; it waits for the durable task unless
+binaries with the current saved document while preserving stopped/running state;
+it waits for the durable task unless
 `--detach` is supplied.
 
 Apply rechecks the current file, canonical head, artifact identity, and startup
@@ -137,6 +138,18 @@ configuration exposes a secret-protected Clash API on a loopback address and
 completes the `/version` handshake, otherwise `process_only`, which checks
 process health only. Nothing is injected into the file to create that endpoint.
 
+`core status` and `/api/v1/core/runtime` report `enabled_core` separately from
+`running`. The former persists while stopped; the latter remains evidence of a
+verified live process. A checked selection while stopped does not claim a loaded
+configuration or create a running process identity.
+
+`POST /api/v1/core/artifacts/{artifactId}/disable` queues a fenced stop for the
+currently selected artifact. Successful completion clears desired, applied and
+rollback pointers and removes the current symlink; it keeps immutable artifacts
+and lifecycle history. Requests for an artifact that is no longer selected are
+rejected. Ordinary `core stop` retains selection. Enable another version before
+starting again after disable.
+
 ## Lifecycle and rollback
 
 ```sh
@@ -147,7 +160,7 @@ sing-box-panel core rollback
 sing-box-panel core stop
 ```
 
-Start and Restart use the last applied binary identity and the current saved
+Start and Restart use the last successfully selected binary identity and the current saved
 file. A changed file is snapshotted for binary preflight in the serialized runtime
 lane. The desired process and current observation remain unchanged until that
 check passes. The worker rechecks the current file, canonical head, artifact identity,

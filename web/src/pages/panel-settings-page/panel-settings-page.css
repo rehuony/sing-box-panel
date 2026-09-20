@@ -4,10 +4,6 @@
   gap: 16px;
   min-height: 0;
 }
-.panel-settings-page h1 {
-  font: 650 var(--text-display)/1.2 var(--font-display);
-  margin: 0;
-}
 .panel-settings-card {
   display: flex;
   flex: 1;
@@ -36,8 +32,8 @@
 }
 .panel-settings-tabs > [data-slot='tabs-list'] [data-slot='tabs-trigger'] {
   flex: 0 0 auto;
-  min-height: 44px;
-  padding: 10px 16px;
+  min-height: var(--control-height);
+  padding: 8px 16px;
   white-space: normal;
   text-align: left;
 }

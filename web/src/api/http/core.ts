@@ -156,6 +156,11 @@ export function createCoreHttpApi(context: HttpApiContext) {
         method: 'POST', headers: writeHeaders(), signal,
       });
     },
+    disableCore(artifactID, signal) {
+      return request<Task>(fetcher, `${baseUrl}/core/artifacts/${encodeURIComponent(artifactID)}/disable`, {
+        method: 'POST', headers: writeHeaders(), signal,
+      });
+    },
     stopRuntime(signal) {
       return runtimeAction('stop', signal);
     },

@@ -2,15 +2,14 @@
   display: flex;
   flex-direction: column;
   gap: 16px;
-  min-height: calc(100dvh - 128px);
+  min-height: 0;
   min-width: 0;
   container-type: inline-size;
+  overflow: auto;
 }
-.dashboard-page > h1 {
-  font-size: 28px;
-  line-height: 40px;
-  margin: 0;
-  letter-spacing: -0.03em;
+.dashboard-metrics,
+.dashboard-bottom {
+  flex: none;
 }
 .dashboard-metrics {
   display: grid;
@@ -55,7 +54,7 @@
 }
 .dashboard-charts {
   flex: 1;
-  min-height: 300px;
+  min-height: min-content;
 }
 .dashboard-card {
   padding: 20px;
@@ -84,7 +83,7 @@
   gap: 4px;
 }
 .trend-chart {
-  min-height: 220px;
+  min-height: 160px;
   flex: 1;
   position: relative;
   outline: none;
@@ -223,6 +222,10 @@
   .dashboard-charts,
   .dashboard-bottom {
     grid-template-columns: minmax(0, 1fr);
+  }
+  .dashboard-charts {
+    flex: none;
+    min-height: 0;
   }
   .trend-chart {
     min-height: 260px;

@@ -17,6 +17,7 @@ var (
 	ErrNoRollbackBundle    = errors.New("no rollback activation bundle is available")
 	ErrRuntimeIntentStale  = errors.New("runtime intent evidence is stale")
 	ErrIdempotencyConflict = errors.New("idempotency key belongs to a different runtime intent")
+	ErrCoreNotEnabled      = errors.New("the requested core is no longer enabled")
 )
 
 type RuntimeIntentKind = TaskKind
@@ -30,6 +31,8 @@ const (
 )
 
 type RuntimeIntentInput struct {
+	SelectOnly     bool   // Checked version selection without starting a stopped process.
+	DisableCoreID  string // Stop and clear this selection, fenced against a different enabled core.
 	TaskID         string
 	IdempotencyKey string
 	Kind           RuntimeIntentKind
@@ -46,6 +49,9 @@ func (s *Store) RequestRuntimeIntent(ctx context.Context, input RuntimeIntentInp
 	if err != nil {
 		return Task{}, err
 	}
+	if prepared.SelectOnly {
+		return Task{}, errors.New("version selection requires a checked configuration candidate")
+	}
 	return s.requestRuntimeIntentNullable(ctx, prepared)
 }
 
@@ -56,6 +62,7 @@ func (s *Store) requestRuntimeIntentNullable(ctx context.Context, input RuntimeI
 			existing, err := getTaskByLaneIdempotency(ctx, tx, TaskLaneRuntime, input.IdempotencyKey)
 			if err == nil {
 				if existing.Kind != input.Kind ||
+					disabledCoreID(existing) != input.DisableCoreID ||
 					(input.BundleID != "" && existing.ActivationBundleID != input.BundleID) {
 					return ErrIdempotencyConflict
 				}
@@ -114,6 +121,19 @@ func (s *Store) requestRuntimeIntentNullable(ctx context.Context, input RuntimeI
 				return errors.New("stop intent does not accept a bundle")
 			}
 			bundleID = valueOrEmpty(appliedBundleID)
+			if input.DisableCoreID != "" {
+				var enabledCoreID string
+				err := tx.QueryRowContext(ctx, `SELECT startup.core_artifact_id
+					FROM activation_bundles AS bundle
+					JOIN startup_artifacts AS startup ON startup.id = bundle.startup_artifact_id
+					WHERE bundle.id = ?`, bundleID).Scan(&enabledCoreID)
+				if errors.Is(err, sql.ErrNoRows) || (err == nil && enabledCoreID != input.DisableCoreID) {
+					return ErrCoreNotEnabled
+				}
+				if err != nil {
+					return fmt.Errorf("read enabled core for disable: %w", err)
+				}
+			}
 		}
 
 		var queueErr error
@@ -163,7 +183,12 @@ func enqueueRuntimeIntentTx(ctx context.Context, tx *sql.Tx, input RuntimeIntent
 		return Task{}, fmt.Errorf("reserve runtime generation: %w", err)
 	}
 
-	payload, _ := json.Marshal(map[string]any{"intent": input.Kind, "bundle_id": bundleID})
+	payload, _ := json.Marshal(struct {
+		Intent        RuntimeIntentKind `json:"intent"`
+		BundleID      string            `json:"bundle_id"`
+		SelectOnly    bool              `json:"select_only,omitempty"`
+		DisableCoreID string            `json:"disable_core_id,omitempty"`
+	}{input.Kind, bundleID, input.SelectOnly, input.DisableCoreID})
 	if _, err := tx.ExecContext(
 		ctx,
 		`INSERT INTO tasks(
@@ -196,6 +221,9 @@ func prepareRuntimeIntent(input RuntimeIntentInput) (RuntimeIntentInput, error) 
 	}
 	if input.Kind == RuntimeIntentApply && strings.TrimSpace(input.BundleID) == "" {
 		return RuntimeIntentInput{}, errors.New("apply intent requires an activation bundle")
+	}
+	if input.DisableCoreID != "" && (input.Kind != RuntimeIntentStop || input.SelectOnly) {
+		return RuntimeIntentInput{}, errors.New("disabling a core requires a stop intent")
 	}
 	if input.CreatedAt.IsZero() {
 		input.CreatedAt = time.Now().UTC()
@@ -307,7 +335,7 @@ func commitSuccessfulRuntimeIntent(
 			ctx,
 			`UPDATE hub_state
                     SET desired_bundle_id = ?, applied_bundle_id = ?,
-                        rollback_bundle_id = ?, desired_running = 1,
+                        rollback_bundle_id = ?, desired_running = ?,
                         applied_at = CASE
                             WHEN applied_bundle_id IS NULL OR applied_bundle_id <> ? THEN ?
                             ELSE applied_at
@@ -317,6 +345,7 @@ func commitSuccessfulRuntimeIntent(
 			task.ActivationBundleID,
 			task.ActivationBundleID,
 			nullIfEmpty(rollback),
+			boolInt(!CoreSelectionOnly(task)),
 			task.ActivationBundleID,
 			formatTaskTime(completedAt),
 			formatTaskTime(completedAt),
@@ -365,10 +394,17 @@ func commitSuccessfulRuntimeIntent(
 			return errors.Join(ErrTaskGenerationConflict, err)
 		}
 	case RuntimeIntentStop:
+		clearSelection := disabledCoreID(task) != ""
 		result, err := tx.ExecContext(
 			ctx,
-			`UPDATE hub_state SET desired_running = 0, updated_at = ?
+			`UPDATE hub_state SET desired_running = 0,
+			      desired_bundle_id = CASE WHEN ? THEN NULL ELSE desired_bundle_id END,
+			      applied_bundle_id = CASE WHEN ? THEN NULL ELSE applied_bundle_id END,
+			      rollback_bundle_id = CASE WHEN ? THEN NULL ELSE rollback_bundle_id END,
+			      applied_at = CASE WHEN ? THEN NULL ELSE applied_at END,
+			      updated_at = ?
                   WHERE singleton = 1 AND target_generation = ?`,
+			clearSelection, clearSelection, clearSelection, clearSelection,
 			formatTaskTime(completedAt),
 			task.Generation,
 		)
@@ -380,4 +416,29 @@ func commitSuccessfulRuntimeIntent(
 		}
 	}
 	return nil
+}
+
+func disabledCoreID(task Task) string {
+	if task.Kind != TaskKindRuntimeStop {
+		return ""
+	}
+	var payload struct {
+		DisableCoreID string `json:"disable_core_id"`
+	}
+	if json.Unmarshal(task.Payload, &payload) != nil {
+		return ""
+	}
+	return payload.DisableCoreID
+}
+
+// CoreSelectionOnly identifies the stopped variant of a checked version switch.
+// Existing restart tasks without this explicit option retain their start behavior.
+func CoreSelectionOnly(task Task) bool {
+	if task.Kind != TaskKindRuntimeRestart || task.StartupArtifactID == "" {
+		return false
+	}
+	var payload struct {
+		SelectOnly bool `json:"select_only"`
+	}
+	return json.Unmarshal(task.Payload, &payload) == nil && payload.SelectOnly
 }

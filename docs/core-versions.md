@@ -60,11 +60,36 @@ editing and inbound conversion are reported as separate optional capabilities.
 ## Browser version management
 
 Installed and available lists share 5/10/50 pagination, independent scrolling
-and inline enable/disable/remove/download buttons. Version and source cells
-contain plain text; state reflects the running binary. The top status bar shows
-the numeric core version as a badge. Available assets are filtered using the
+and inline enable/disable/remove/download buttons. Available rows contain
+version, source, official link, and actions. The official link displays the
+archive name as a badge and opens the matching upstream GitHub Release in a new
+tab. Installed assets show a disabled **Installed** button and missing assets
+offer **Download**. Installed rows mark the selected
+version **Enabled**, independently of whether the process is running. The top
+status bar shows that selected version even while stopped. Confirmed stopped
+state displays zero uptime and `0 B/s` upload/download rates; unavailable or
+uncertain observations still remain unknown. Available assets are filtered using the
 deployed panel binary's GOOS/GOARCH, not browser/device detection. Enabling rejects incompatible artifacts
 before queueing work, then validates the saved configuration before replacement.
+Selecting while stopped does not launch sing-box. Selecting while running
+restarts it only after preflight succeeds. Start, stop and restart are available
+in the top status bar; stop retains the selected version. The selected row offers
+**Disable**, which stops the process and clears selection only after successful
+completion. A disable request is bound to that artifact and cannot disable a
+different selection. After disabling, select a version before starting again.
+
+Enabling another version is a single serialized operation: the running old
+process is stopped before the new process starts, and the committed selection
+and current symlink are replaced atomically. A failed preflight preserves the
+old selection and process; the browser does not chain separate disable/enable
+requests that could leave a valid version disabled when validation fails.
+
+The committed activation bundle records the selected artifact. After completion,
+`<data_dir>/artifacts/current` is atomically updated as a relative symlink to its
+immutable `sha256/.../sing-box` binary. The panel reconciles the link from persisted
+selection at startup, including after a crash between database commit and link
+publication. Runtime execution continues to open and verify the immutable path,
+so changing the convenience symlink cannot bypass digest or configuration checks.
 
 The compact import dialog accepts a single `.tar.gz`/`.tgz` archive by drag-and-drop
 or file selection, and asks for its exact version. Standard sing-box filenames
@@ -126,8 +151,8 @@ from a nearby patch version.
 ## Installed version lifecycle
 
 Installed versions have no separate trust, quarantine, or revocation state.
-Import adds a version to the installed list; enable and disable control runtime
-use. Removal unregisters an unused version and keeps existing reference checks.
+Import adds a version to the installed list; enable selects the binary while
+preserving the running/stopped state. Removal unregisters an unused version and keeps existing reference checks.
 Archive format, size, platform, checksum and exact-version checks still detect
 invalid files, incompatible binaries and changed bytes.
 

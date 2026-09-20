@@ -21,7 +21,6 @@ export const productLogs = {
   message: 'Message',
   status: 'Status',
   source: 'Source',
-  actions: 'Actions',
   details: 'Details',
   retry: 'Retry',
   retried: 'Task resubmitted',
