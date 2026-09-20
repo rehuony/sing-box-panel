@@ -11,8 +11,8 @@ export const panelSettings = {
   autoHost: 'Automatically detect public IP', identityName: 'Identity name', identityKey: 'Identity key', identityHelp: 'Saving a changed identity updates the named default user in config.json; restart sing-box to load it. Blank name uses panel. Existing other users and unauthenticated listeners are preserved. Configure protocol obfuscation keys separately.',
   identitySaved: 'Identity saved; restart sing-box to load updated node credentials',
   quota: 'Total traffic quota', unlimited: 'Unlimited', theme: 'Theme', light: 'Light', dark: 'Dark', system: 'System',
-  color: 'Accent color', customColor: 'Custom color', hex: 'HEX color', colors: ['Purple', 'Blue', 'Cyan', 'Green', 'Orange', 'Rose'],
+  color: 'Accent color', customColor: 'Custom color', customColorTitle: 'Custom theme color', applyColor: 'Apply color', invalidColor: 'Enter a six-digit HEX color, such as #6D4ED1.', hex: 'HEX color', colors: ['Purple', 'Blue', 'Cyan', 'Green', 'Orange', 'Rose'],
   radius: 'Corner radius', radiusHelp: 'Cards and dialogs use this value; controls use half. Status dots, pills and the brand mark retain their shape.',
-  reset: 'Reset appearance', language: 'Display language', save: 'Save settings', saving: 'Saving…', saved: 'Settings saved',
+  reset: 'Reset defaults', language: 'Display language', save: 'Save settings', saving: 'Saving…', saved: 'Settings saved',
   restart: 'Settings saved; listener and origin changes take effect after the panel restarts', failed: 'Could not save. Check the settings and retry.', retry: 'Reload', cancel: 'Cancel', tokenChanged: 'Token changed; sign in again',
 } as const;

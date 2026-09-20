@@ -102,7 +102,7 @@ func TestCoreHTTPRoutesUseApplicationServices(t *testing.T) {
 	listResponse := authenticatedRequest(
 		handler,
 		http.MethodGet,
-		"/api/v1/core/artifacts?exact_version=1.13.19&architecture=amd64&variant=plain&source_kind=official&verification_state=verified&limit=1",
+		"/api/v1/core/artifacts?exact_version=1.13.19&architecture=amd64&variant=plain&source_kind=official&limit=1",
 		"",
 		"",
 	)
@@ -136,25 +136,14 @@ func TestCoreHTTPRoutesUseApplicationServices(t *testing.T) {
 		t.Fatalf("next artifact page = %+v", nextPage)
 	}
 
-	quarantineResponse := authenticatedRequest(
-		handler,
-		http.MethodPost,
-		"/api/v1/core/artifacts/"+olderArtifact.ID+"/quarantine",
-		"",
-		"",
-	)
-	if quarantineResponse.Code != http.StatusOK || !strings.Contains(quarantineResponse.Body.String(), `"verification_state":"quarantined"`) {
-		t.Fatalf("quarantine artifact status=%d body=%s", quarantineResponse.Code, quarantineResponse.Body.String())
+	for _, operation := range []string{"quarantine", "revoke"} {
+		response := authenticatedRequest(handler, http.MethodPost, "/api/v1/core/artifacts/"+olderArtifact.ID+"/"+operation, "", "")
+		if response.Code != http.StatusNotFound {
+			t.Fatalf("removed %s endpoint status=%d", operation, response.Code)
+		}
 	}
-	revokeResponse := authenticatedRequest(
-		handler,
-		http.MethodPost,
-		"/api/v1/core/artifacts/"+olderArtifact.ID+"/revoke",
-		"",
-		"",
-	)
-	if revokeResponse.Code != http.StatusOK || !strings.Contains(revokeResponse.Body.String(), `"verification_state":"revoked"`) {
-		t.Fatalf("revoke artifact status=%d body=%s", revokeResponse.Code, revokeResponse.Body.String())
+	if strings.Contains(listResponse.Body.String(), `"verification_state"`) {
+		t.Fatal("artifact response still exposes trust state")
 	}
 
 	getResponse := authenticatedRequest(handler, http.MethodGet, "/api/v1/core/artifacts/"+artifact.ID, "", "")
@@ -177,8 +166,8 @@ func TestCoreConfigurationSchemaUsesExactVersionContractAndETag(t *testing.T) {
 		SourceKind: store.CoreArtifactSourceUserVerified, UserSource: "schema HTTP fixture",
 		ArchiveSHA256: strings.Repeat("a1", 32), BinarySHA256: strings.Repeat("b1", 32),
 		BinaryPath: "/var/lib/sing-box-panel/artifacts/core_schema_http/sing-box", ReportedVersion: "1.14.0",
-		FeatureFingerprint: json.RawMessage(`{"status":"not_reported"}`), VerificationState: store.CoreArtifactVerified,
-		CreatedAt: time.Date(2026, time.August, 31, 12, 0, 0, 0, time.UTC),
+		FeatureFingerprint: json.RawMessage(`{"status":"not_reported"}`),
+		CreatedAt:          time.Date(2026, time.August, 31, 12, 0, 0, 0, time.UTC),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -525,8 +514,8 @@ func seedCoreHTTPArtifact(t *testing.T, database *store.Store) store.CoreArtifac
 		BinaryPath:         "/var/lib/sing-box-panel/artifacts/core_http_fixture/sing-box",
 		ReportedVersion:    "1.13.19",
 		FeatureFingerprint: json.RawMessage(`{"features":[]}`),
-		VerificationState:  store.CoreArtifactVerified,
-		CreatedAt:          time.Date(2026, time.August, 26, 12, 0, 0, 0, time.UTC),
+
+		CreatedAt: time.Date(2026, time.August, 26, 12, 0, 0, 0, time.UTC),
 	})
 	if err != nil {
 		t.Fatal(err)

@@ -101,7 +101,6 @@ export function createDemoData(now = new Date()): DemoData {
     binary_path: '/var/lib/sing-box-panel/artifacts/core_demo_114/sing-box',
     reported_version: '1.14.0',
     feature_fingerprint: { features: ['with_quic', 'with_wireguard'], source: 'demo' },
-    verification_state: 'verified',
     created_at: ago(now, 180),
   }, {
     id: 'core_demo_113',
@@ -118,7 +117,6 @@ export function createDemoData(now = new Date()): DemoData {
     binary_path: '/var/lib/sing-box-panel/artifacts/core_demo_113/sing-box',
     reported_version: '1.13.19',
     feature_fingerprint: { features: ['with_quic'], source: 'demo' },
-    verification_state: 'verified',
     created_at: ago(now, 2_880),
   }];
   const startupArtifacts: StartupArtifactSummary[] = [{

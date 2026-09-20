@@ -2,9 +2,9 @@ import type { CSSProperties } from 'react';
 
 import { LogOut } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import { useEffect, useRef, useState } from 'react';
 import { motion, useReducedMotion } from 'motion/react';
 import { NavLink, Outlet, useLocation } from 'react-router-dom';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 
 import '@/i18n';
 import { Badge } from '@/components/ui/badge';
@@ -54,7 +54,7 @@ const navigationItems = [
   { icon: 'cores', labelKey: 'nav.cores', to: '/cores' },
   { icon: 'subscriptions', labelKey: 'nav.subscriptions', to: '/subscriptions' },
   { icon: 'configuration', labelKey: 'nav.configuration', to: '/configuration' },
-  { icon: 'configuration', labelKey: 'nav.panel', to: '/panel' },
+  { icon: 'panel', labelKey: 'nav.panel', to: '/panel' },
   { icon: 'observability', labelKey: 'nav.observability', to: '/observability' },
 ] as const;
 
@@ -160,12 +160,22 @@ export function AppShell() {
   const controlPlane = useControlPlane();
   const location = useLocation();
   const mainRef = useRef<HTMLDivElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
   const [logoutError, setLogoutError] = useState<unknown | null>(null);
   const [loggingOut, setLoggingOut] = useState(false);
   useEffect(() => {
-    mainRef.current?.scrollIntoView?.({ behavior: 'auto', block: 'start' });
+    if (scrollRef.current) scrollRef.current.scrollTop = 0;
     mainRef.current?.focus({ preventScroll: true });
   }, [location.pathname]);
+  useLayoutEffect(() => {
+    const scroll = scrollRef.current;
+    if (!scroll) return;
+    const measure = () => scroll.style.setProperty('--shell-scrollbar-width', `${scroll.offsetWidth - scroll.clientWidth}px`);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(scroll);
+    return () => observer.disconnect();
+  }, [controlPlane.status]);
 
   async function signOut() {
     setLoggingOut(true);
@@ -236,7 +246,7 @@ export function AppShell() {
 
         <div className='panel-workspace'>
           <TelemetryBanner />
-          <div className='panel-content-scroll'>
+          <div className='panel-content-scroll' ref={scrollRef}>
             {logoutError === null
               ? null
               : (

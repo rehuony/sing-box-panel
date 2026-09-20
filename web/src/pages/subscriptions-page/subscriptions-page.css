@@ -257,7 +257,7 @@
 .subscriptions-page .form-grid {
   align-items: start;
   display: grid;
-  gap: var(--space-4);
+  gap: var(--form-field-gap);
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
@@ -279,8 +279,8 @@
 }
 
 .data-editor:focus {
-  border-color: var(--color-info);
-  box-shadow: var(--shadow-code-editor-focus);
+  border-color: var(--input-focus);
+  box-shadow: none;
   outline: none;
 }
 
@@ -616,7 +616,7 @@
 .subscription-dialog-form__body {
   display: grid;
   flex: 1 1 auto;
-  gap: 16px;
+  gap: var(--form-field-gap);
   min-height: 0;
   overflow: auto;
   overscroll-behavior: contain;
@@ -626,7 +626,7 @@
 .subscription-dialog-form .form-grid {
   align-items: start;
   display: grid;
-  gap: 16px;
+  gap: var(--form-field-gap);
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
@@ -832,16 +832,8 @@
 }
 
 @container (max-width: 34rem) {
-  .subscriptions-tabs {
-    display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-  }
   .subscriptions-tabs [data-slot='tabs-trigger'] {
-    flex-direction: column;
-    gap: var(--space-2xs);
     padding: var(--space-xs) var(--space-2xs);
-    white-space: normal;
-    text-align: center;
   }
   .subscription-panel {
     padding: var(--space-md);
@@ -901,14 +893,14 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding-top: 16px;
+  padding-top: 8px;
 }
 .subscription-keys__pagination > div {
   display: flex;
   align-items: center;
   gap: 8px;
 }
-.subscription-keys__pagination select {
+.subscription-keys__pagination [data-slot='select-trigger'] {
   background: transparent;
   border: 0;
   color: var(--color-text-muted);
@@ -917,7 +909,7 @@
 .subscription-key-details {
   display: grid;
   grid-template-columns: minmax(100px, 1fr) minmax(0, 2fr);
-  gap: 16px;
+  gap: var(--form-field-gap);
   align-items: center;
 }
 .subscription-key-form input,
@@ -950,15 +942,14 @@
 
 /* One workspace surface, with fixed tabs and an independently scrolling list. */
 .subscriptions-page {
-  height: 100%;
   display: flex;
   flex-direction: column;
-  gap: 24px;
+  gap: 16px;
 }
 .subscriptions-page > [data-slot='tabs'] {
   flex: 1;
   min-height: 0;
-  padding: 24px;
+  padding: 24px 24px 8px;
   background: var(--color-surface);
   border: 1px solid var(--color-rule-2);
   border-radius: var(--radius-card);
@@ -1004,7 +995,7 @@
 }
 @media (max-width: 720px) {
   .subscriptions-page > [data-slot='tabs'] {
-    padding: 16px;
+    padding: 16px 16px 8px;
   }
 }
 
@@ -1032,8 +1023,15 @@
   gap: 16px;
   padding-bottom: 16px;
 }
+.subscription-source-toolbar:has(.subscription-detail-tabs) {
+  flex-wrap: wrap;
+}
 .subscription-detail-tabs {
   flex: none;
+  margin-inline-end: auto;
+}
+.subscription-source-toolbar > .subscription-detail-tabs {
+  min-height: 52px;
 }
 .subscription-toolbar-actions > button {
   width: 40px;
@@ -1069,22 +1067,24 @@
   flex: none;
   color: var(--color-text-muted);
 }
-.subscription-search input {
+.subscription-search input,
+.subscription-search input:focus-visible {
   width: 100%;
   min-width: 0;
   background: transparent;
   border: 0;
   outline: none;
+  box-shadow: none;
+}
+.subscription-search:has(input:focus-visible) {
+  outline: 1px solid var(--input-focus);
+  outline-offset: 2px;
+}
+.subscription-source-toolbar > .subscription-search {
+  margin-left: auto;
 }
 .subscription-source-toolbar > .subscription-toolbar-actions {
-  margin-left: auto;
-}
-.subscription-source-toolbar:has(.subscription-detail-tabs) > .subscription-search {
-  margin-left: 0;
-  order: 3;
-}
-.subscription-source-toolbar:has(.subscription-detail-tabs) > .subscription-toolbar-actions {
-  margin-left: auto;
+  flex: none;
 }
 .subscription-source-table-scroll,
 .subscription-node-list__scroll {
@@ -1138,14 +1138,14 @@
   justify-content: space-between;
   flex: none;
   gap: 16px;
-  padding-top: 16px;
+  padding-top: 8px;
 }
 .subscription-pagination > div {
   display: flex;
   align-items: center;
   gap: 12px;
 }
-.subscription-pagination select {
+.subscription-pagination [data-slot='select-trigger'] {
   border: none;
   background: transparent;
   color: var(--color-text-muted);
@@ -1285,8 +1285,8 @@
   display: grid;
   grid-template-columns: minmax(120px, 1fr) minmax(200px, 2fr);
   align-items: center;
-  gap: 16px 24px;
-  padding: 8px 0 24px;
+  gap: var(--form-field-gap) 24px;
+  padding: 8px 0 var(--form-field-gap);
 }
 .subscription-settings-fields :is(input:not([type='checkbox']), select) {
   min-width: 0;
@@ -1409,13 +1409,13 @@
 
 .subscription-node-form .schema-form__grid {
   grid-template-columns: minmax(0, 1fr);
-  gap: 16px;
+  gap: var(--form-field-gap);
 }
 .subscription-node-form .schema-form__field {
   display: grid;
   grid-template-columns: minmax(120px, 1fr) minmax(240px, 1fr);
   align-items: center;
-  gap: 12px 16px;
+  gap: var(--form-label-gap) 16px;
 }
 .subscription-node-form .schema-form__field > :not([data-slot='field-label']) {
   grid-column: 2;
@@ -1437,7 +1437,7 @@
   .subscription-node-form .schema-form__field,
   .subscription-node-protocol {
     grid-template-columns: minmax(0, 1fr);
-    gap: 8px;
+    gap: var(--form-label-gap);
   }
   .subscription-node-form .schema-form__field > :not([data-slot='field-label']) {
     grid-column: 1;

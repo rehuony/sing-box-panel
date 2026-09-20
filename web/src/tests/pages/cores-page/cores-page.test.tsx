@@ -42,7 +42,6 @@ describe('inline version library', () => {
   it('reads the deployed platform and does not allow changing architecture', async () => {
     const client = createMockApiClient();
     renderCores(client);
-    expect(await screen.findByText('linux / ARM64')).toBeInTheDocument();
     expect(screen.queryByRole('combobox', { name: 'Architecture' })).not.toBeInTheDocument();
     await waitFor(() =>
       expect(client.listCatalogAssets).toHaveBeenCalledWith(
@@ -50,6 +49,7 @@ describe('inline version library', () => {
         expect.any(AbortSignal),
       ),
     );
+    expect(screen.getByRole('button', { name: 'Import archive' })).toBeEnabled();
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
   it('queues inline enable and keeps it pending until the real task settles', async () => {
@@ -78,7 +78,7 @@ describe('inline version library', () => {
     await waitFor(() => expect(screen.getByRole('button', { name: 'Enable' })).toBeEnabled());
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
-  it('stops the running core with the inline disable action and preserves restricted artifacts', async () => {
+  it('stops the running core and leaves imported versions available', async () => {
     const user = userEvent.setup();
     const client = createMockApiClient({
       getRuntimeStatus: vi.fn().mockResolvedValue({
@@ -90,7 +90,7 @@ describe('inline version library', () => {
       listCoreArtifacts: vi.fn().mockResolvedValue({
         items: [
           testArtifacts.items[0],
-          { ...testArtifacts.items[0], id: 'quarantined', verification_state: 'quarantined' },
+          { ...testArtifacts.items[0], id: 'imported', source_kind: 'user_verified' },
         ],
       }),
       stopRuntime: vi.fn().mockResolvedValue({ ...testTask, status: 'succeeded' }),
@@ -98,10 +98,11 @@ describe('inline version library', () => {
     renderCores(client);
     await user.click(await screen.findByRole('button', { name: 'Disable' }));
     expect(client.stopRuntime).toHaveBeenCalledWith(expect.any(AbortSignal));
-    expect(screen.getByRole('button', { name: 'Enable' })).toBeDisabled();
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Enable' })).toBeEnabled());
     expect(client.enableCore).not.toHaveBeenCalled();
+    expect(screen.queryByRole('button', { name: 'More actions' })).not.toBeInTheDocument();
   });
-  it('paginates all installed versions and keeps evidence inline', async () => {
+  it('paginates versions with concise source and runtime columns', async () => {
     const user = userEvent.setup();
     const items = Array.from({ length: 12 }, (_, index) => ({
       ...testArtifacts.items[0],
@@ -110,12 +111,17 @@ describe('inline version library', () => {
     }));
     renderCores(createMockApiClient({ listCoreArtifacts: vi.fn().mockResolvedValue({ items }) }));
     await screen.findByText('1.13.0');
-    await user.selectOptions(screen.getByRole('combobox', { name: 'Items per page' }), '5');
+    await user.click(screen.getByRole('combobox', { name: 'Items per page' }));
+    await user.keyboard('[ArrowDown]');
+    await user.click(await screen.findByRole('option', { name: '5 per page' }));
     expect(screen.queryByText('1.13.5')).not.toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Next page' }));
     const row = screen.getByText('1.13.5').closest('tr')!;
-    await user.click(within(row).getByText('Details'));
-    expect(within(row).getByText(testArtifacts.items[0].binary_sha256)).toBeVisible();
+    expect(within(row).getByText('Official download')).toBeVisible();
+    expect(within(row).getByText('Disabled')).toBeVisible();
+    expect(within(row).queryByText('Details')).not.toBeInTheDocument();
+    expect(within(row).queryByText(testArtifacts.items[0].variant)).not.toBeInTheDocument();
+    expect(within(row).queryByText(testArtifacts.items[0].binary_sha256)).not.toBeInTheDocument();
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
   it('never defaults an unknown platform to ARM64', async () => {
@@ -123,8 +129,31 @@ describe('inline version library', () => {
       getSystemStatus: vi.fn().mockResolvedValue({ ...testSystemStatus, platform: undefined }),
     });
     renderCores(client);
-    expect(await screen.findByText('Platform unavailable')).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole('tabpanel')).toHaveAttribute('aria-busy', 'false'));
     expect(screen.getByRole('button', { name: 'Import archive' })).toBeDisabled();
     expect(client.listCatalogAssets).not.toHaveBeenCalled();
+  });
+
+  it('does not label stale runtime evidence as disabled', async () => {
+    renderCores(createMockApiClient({
+      getRuntimeStatus: vi.fn().mockResolvedValue({ observation_state: 'stale' }),
+      listCoreArtifacts: vi.fn().mockResolvedValue({ items: [{ ...testArtifacts.items[0], source_kind: 'user_verified' }] }),
+    }));
+    expect(await screen.findByText('Manual import')).toBeVisible();
+    expect(screen.getByText('Status unknown')).toBeVisible();
+    expect(screen.queryByText('Disabled')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Enable' })).toBeDisabled();
+  });
+
+  it('removes a version through a direct button with confirmation', async () => {
+    const user = userEvent.setup();
+    const client = createMockApiClient();
+    renderCores(client);
+    await screen.findByText(testArtifacts.items[0].exact_version);
+    await user.click(screen.getByRole('button', { name: 'Remove' }));
+    const dialog = await screen.findByRole('dialog');
+    expect(client.removeCoreArtifact).not.toHaveBeenCalled();
+    await user.click(within(dialog).getByRole('button', { name: 'Confirm' }));
+    expect(client.removeCoreArtifact).toHaveBeenCalledWith(testArtifacts.items[0].id, expect.any(AbortSignal));
   });
 });

@@ -33,6 +33,19 @@ const file = '2026-09-19-000.log';
 
 describe('unified product logs', () => {
   afterEach(() => vi.useRealTimers());
+  it('replaces toolbar controls when switching between live and panel logs', async () => {
+    const user = userEvent.setup();
+    show();
+    expect(screen.getByRole('textbox', { name: 'Search displayed output' })).toBeVisible();
+    await user.click(screen.getByRole('tab', { name: 'Panel logs' }));
+    expect(screen.getByRole('textbox', { name: 'Search panel messages' })).toBeVisible();
+    expect(screen.getAllByRole('textbox')).toHaveLength(1);
+    expect(screen.queryByRole('combobox', { name: 'Log file' })).not.toBeInTheDocument();
+    await user.click(screen.getByRole('tab', { name: 'Live logs' }));
+    expect(screen.getByRole('textbox', { name: 'Search displayed output' })).toBeVisible();
+    expect(screen.queryByRole('textbox', { name: 'Search panel messages' })).not.toBeInTheDocument();
+    expect(screen.getByRole('combobox', { name: 'Log file' })).toBeVisible();
+  });
   it('does not change the displayed file on rotation while paused', async () => {
     vi.useFakeTimers();
     let latest = file;
@@ -126,12 +139,13 @@ describe('unified product logs', () => {
     expect(screen.getAllByRole('tab')).toHaveLength(2);
     await screen.findByText('INFO connected');
     await userEvent.click(screen.getByRole('button', { name: 'Pause live output' }));
-    expect(screen.getByText('PAUSED')).toBeVisible();
+    expect(screen.getByText('Paused')).toBeVisible();
     await userEvent.click(screen.getByRole('button', { name: 'Resume live output' }));
     await screen.findByText('ERROR resumed');
     expect(stream.mock.calls.at(-1)?.[1]).toBe(32);
     expect(screen.getAllByText('INFO connected')).toHaveLength(1);
-    await userEvent.selectOptions(screen.getByLabelText('Log level'), 'error');
+    await userEvent.click(screen.getByRole('combobox', { name: 'Log level' }));
+    await userEvent.click(await screen.findByRole('option', { name: 'ERROR' }));
     expect(screen.queryByText('INFO connected')).not.toBeInTheDocument();
     expect(screen.getByText('ERROR resumed')).toBeVisible();
   });
@@ -172,7 +186,9 @@ describe('unified product logs', () => {
         expect.any(AbortSignal),
       ),
     );
-    await userEvent.selectOptions(screen.getByLabelText('Page size'), '50');
+    await userEvent.click(screen.getByRole('combobox', { name: 'Page size' }));
+    await userEvent.keyboard('[ArrowDown]');
+    await userEvent.click(await screen.findByRole('option', { name: '50 per page' }));
     await waitFor(() =>
       expect(client.listPanelLogs).toHaveBeenLastCalledWith(
         expect.objectContaining({ limit: 50, beforeID: undefined }),

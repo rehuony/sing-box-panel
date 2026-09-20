@@ -1,0 +1,73 @@
+.settings-custom-color {
+  flex-shrink: 0;
+  gap: 8px;
+  padding-inline: 12px;
+  border-radius: var(--radius-control);
+}
+
+.settings-custom-color .settings-color-swatch {
+  width: 16px;
+  height: 16px;
+  flex: none;
+  box-shadow: inset 0 0 0 1px var(--color-rule-2);
+}
+
+.appearance-color-dialog[data-slot='dialog-content'] {
+  width: min(420px, calc(100vw - 32px));
+  gap: 20px;
+}
+
+.appearance-color-dialog .appearance-color-picker {
+  width: 100%;
+  height: auto;
+  gap: 20px;
+}
+
+.appearance-color-picker .react-colorful__saturation {
+  flex: none;
+  aspect-ratio: 2.15;
+  border: 0;
+  border-radius: var(--radius-control);
+}
+
+.appearance-color-picker .react-colorful__hue {
+  height: 12px;
+  border-radius: var(--radius-pill);
+}
+
+.appearance-color-picker .react-colorful__pointer {
+  width: 18px;
+  height: 18px;
+  border-width: 3px;
+}
+
+.appearance-color-picker .react-colorful__hue-pointer {
+  width: 16px;
+  height: 16px;
+  border-width: 2px;
+}
+
+.appearance-color-hex {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 8px 16px;
+}
+
+.appearance-color-hex [data-slot='input'] {
+  background: var(--color-paper-2);
+  border-color: transparent;
+  font-family: var(--font-data);
+}
+
+.appearance-color-hex [data-slot='field-error'] {
+  grid-column: 2;
+}
+
+.appearance-color-apply {
+  color: var(--color-accent);
+}
+
+.appearance-color-dialog [data-slot='dialog-footer'] > button {
+  border-radius: var(--radius-control);
+}

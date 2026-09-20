@@ -233,23 +233,22 @@ func validateApplicableBundle(ctx context.Context, tx *sql.Tx, bundleID, headID 
 func validateRunnableBundle(ctx context.Context, tx *sql.Tx, bundleID string) error {
 	var state StartupArtifactState
 	var canonicalRevisionID string
-	var verification CoreArtifactVerificationState
 	err := tx.QueryRowContext(
 		ctx,
-		`SELECT startup.state, startup.canonical_revision_id, core.verification_state
+		`SELECT startup.state, startup.canonical_revision_id
            FROM activation_bundles AS bundle
            JOIN startup_artifacts AS startup ON startup.id = bundle.startup_artifact_id
            JOIN core_artifacts AS core ON core.id = startup.core_artifact_id
           WHERE bundle.id = ?`,
 		bundleID,
-	).Scan(&state, &canonicalRevisionID, &verification)
+	).Scan(&state, &canonicalRevisionID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return ErrActivationBundleNotFound
 	}
 	if err != nil {
 		return fmt.Errorf("read activation bundle eligibility: %w", err)
 	}
-	if state != StartupArtifactReady || verification != CoreArtifactVerified {
+	if state != StartupArtifactReady {
 		return ErrActivationBundleNotReady
 	}
 	return nil

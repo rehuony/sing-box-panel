@@ -9,6 +9,30 @@ import { SubscriptionsPage } from '@/pages/subscriptions-page/subscriptions-page
 import { buildPublicSubscriptionURL } from '@/pages/subscriptions-page/public-subscription-url';
 
 describe('subscriptionsPage', () => {
+  it('shows only the active section actions and preserves each search when switching sections', async () => {
+    const user = userEvent.setup();
+    const originalURL = window.location.href;
+    try {
+      window.history.replaceState(window.history.state, '', '/subscriptions');
+      render(<ApiClientProvider client={createMockApiClient()}><SubscriptionsPage /></ApiClientProvider>);
+      await user.type(screen.getByRole('textbox', { name: 'Search sources or nodes' }), 'source filter');
+      await user.click(screen.getByRole('tab', { name: 'Channels' }));
+      expect(screen.queryByRole('textbox', { name: 'Search sources or nodes' })).not.toBeInTheDocument();
+      await user.type(screen.getByRole('textbox', { name: 'Search channels' }), 'channel filter');
+      await user.click(screen.getByRole('tab', { name: 'Key management' }));
+      expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Create key' })).toBeVisible();
+      expect(screen.queryByRole('button', { name: 'Add channel' })).not.toBeInTheDocument();
+      await user.click(screen.getByRole('tab', { name: 'Sources' }));
+      expect(screen.getByRole('textbox', { name: 'Search sources or nodes' })).toHaveValue('source filter');
+      expect(screen.queryByRole('button', { name: 'Create key' })).not.toBeInTheDocument();
+      await user.click(screen.getByRole('tab', { name: 'Channels' }));
+      expect(screen.getByRole('textbox', { name: 'Search channels' })).toHaveValue('channel filter');
+    } finally {
+      window.history.replaceState(window.history.state, '', originalURL);
+    }
+  });
+
   it('builds the public subscription path under the configured document base', () => {
     expect(buildPublicSubscriptionURL(
       'secret/token',

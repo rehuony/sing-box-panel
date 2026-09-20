@@ -22,9 +22,6 @@ func (application *Application) EnableCore(ctx context.Context, coreID string) (
 	if err != nil {
 		return Task{}, err
 	}
-	if core.VerificationState != store.CoreArtifactVerified {
-		return Task{}, ErrCoreArtifactVerificationBlocked
-	}
 	if core.OperatingSystem != runtime.GOOS || core.Architecture != runtime.GOARCH {
 		return Task{}, ErrCorePlatformMismatch
 	}

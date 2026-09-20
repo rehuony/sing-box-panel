@@ -4,7 +4,6 @@ package application
 
 import (
 	"context"
-	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -192,17 +191,6 @@ func TestPersistInstalledCorePreservesFullSourceIdentity(t *testing.T) {
 	}
 	if string(first.FeatureFingerprint) != `{"status":"reported","features":["with_quic","with_utls"]}` {
 		t.Fatalf("persisted feature fingerprint = %s", first.FeatureFingerprint)
-	}
-	revoked, err := database.GetCoreArtifact(ctx, first.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	revoked.VerificationState = store.CoreArtifactRevoked
-	if _, err := database.UpsertCoreArtifact(ctx, revoked); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := application.PersistInstalledCore(ctx, result); !errors.Is(err, ErrCoreArtifactVerificationBlocked) {
-		t.Fatalf("reinstall revoked artifact error = %v, want ErrCoreArtifactVerificationBlocked", err)
 	}
 	if _, err := application.QueueCoreImport(ctx, CoreImportRequest{
 		SourcePath: "relative.tar.gz", SourceDescription: "admin", SHA256: digest.String(),

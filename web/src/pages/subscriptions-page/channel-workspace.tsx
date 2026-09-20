@@ -16,6 +16,7 @@ import type {
 import { Button } from '@/components/ui/button';
 import { toast } from '@/components/ui/toast-manager';
 import { useApiClient } from '@/api/api-client-context';
+import { ToolbarActions } from '@/components/workspace-toolbar';
 import { describeRequestError } from '@/components/error-notice';
 import {
   Dialog,
@@ -42,13 +43,15 @@ import {
 } from './channel-policy';
 
 interface Props {
+  active?: boolean;
   onBack: () => void;
   channel: SubscriptionChannel;
   onRefresh: () => Promise<void>;
   nodes: SubscriptionNodeSummary[];
+  toolbarTarget?: HTMLElement | null;
   onSaved: (channel: SubscriptionChannel) => void;
 }
-export function ChannelWorkspace({ channel, nodes, onBack, onSaved, onRefresh }: Props) {
+export function ChannelWorkspace({ active = true, toolbarTarget, channel, nodes, onBack, onSaved, onRefresh }: Props) {
   const { t } = useTranslation();
   const client = useApiClient();
   const [policy, setPolicy] = useState(() => initialChannelPolicy(channel, nodes));
@@ -175,56 +178,58 @@ export function ChannelWorkspace({ channel, nodes, onBack, onSaved, onRefresh }:
   }
   return (
     <>
-      <div className='subscription-source-toolbar channel-detail-toolbar'>
-        <div className='subscription-detail-tabs'>
-          <Button
-            disabled={busy}
-            variant='ghost'
-            onClick={() => (dirty ? setLeaving(true) : onBack())}
-          >
-            {t('channels.back')}
-          </Button>
-          <div role='tablist' aria-label={t('channels.title')}>
+      <ToolbarActions active={active} target={toolbarTarget}>
+        <div className='subscription-source-toolbar channel-detail-toolbar workspace-toolbar-content'>
+          <div className='subscription-detail-tabs'>
             <Button
-              role='tab'
-              aria-selected={tab === 'nodes'}
-              variant={tab === 'nodes' ? 'secondary' : 'ghost'}
-              onClick={() => setTab('nodes')}
+              disabled={busy}
+              variant='ghost'
+              onClick={() => (dirty ? setLeaving(true) : onBack())}
             >
-              {t('channels.nodes')}
+              {t('channels.back')}
             </Button>
+            <div role='tablist' aria-label={t('channels.title')}>
+              <Button
+                role='tab'
+                aria-selected={tab === 'nodes'}
+                variant={tab === 'nodes' ? 'secondary' : 'ghost'}
+                onClick={() => setTab('nodes')}
+              >
+                {t('channels.nodes')}
+              </Button>
+              <Button
+                role='tab'
+                aria-selected={tab === 'rules'}
+                variant={tab === 'rules' ? 'secondary' : 'ghost'}
+                onClick={() => setTab('rules')}
+              >
+                {t('channels.rules')}
+              </Button>
+            </div>
+          </div>
+          <div className='channel-save'>
             <Button
-              role='tab'
-              aria-selected={tab === 'rules'}
-              variant={tab === 'rules' ? 'secondary' : 'ghost'}
-              onClick={() => setTab('rules')}
+              disabled={busy || conflict || !dirty}
+              variant='secondary'
+              onClick={() => void save()}
             >
-              {t('channels.rules')}
+              {t('channels.save')}
+              {dirty && <span aria-label={t('channels.unsaved')}> ·</span>}
             </Button>
           </div>
+          {tab === 'nodes' && (
+            <div className='subscription-search'>
+              <Search />
+              <input
+                aria-label={t('subscriptions.sources.search')}
+                placeholder={t('subscriptions.sources.search')}
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+              />
+            </div>
+          )}
         </div>
-        <div className='channel-save'>
-          <Button
-            disabled={busy || conflict || !dirty}
-            variant='secondary'
-            onClick={() => void save()}
-          >
-            {t('channels.save')}
-            {dirty && <span aria-label={t('channels.unsaved')}> ·</span>}
-          </Button>
-        </div>
-        {tab === 'nodes' && (
-          <div className='subscription-search'>
-            <Search />
-            <input
-              aria-label={t('subscriptions.sources.search')}
-              placeholder={t('subscriptions.sources.search')}
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-            />
-          </div>
-        )}
-      </div>
+      </ToolbarActions>
       {tab === 'nodes'
         ? (
             <>

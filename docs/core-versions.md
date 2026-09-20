@@ -1,7 +1,7 @@
 # Core versions
 
-sing-box-panel keeps release discovery, installed binary trust, structured
-editing, and inbound subscription conversion as separate decisions. A verified
+sing-box-panel keeps release discovery, installed versions, structured
+editing, and inbound subscription conversion as separate decisions. An installed
 artifact can run raw JSON even when this panel has no Schema or converter for
 its exact version.
 
@@ -25,8 +25,7 @@ sing-box-panel core list
 sing-box-panel core show ARTIFACT_ID
 ```
 
-An administrator-verified archive can be imported with independent digest
-evidence:
+A local archive can be imported with its expected checksum:
 
 ```sh
 sing-box-panel core import \
@@ -61,11 +60,17 @@ editing and inbound conversion are reported as separate optional capabilities.
 ## Browser version management
 
 Installed and available lists share 5/10/50 pagination, independent scrolling
-and inline enable/disable/download actions. The read-only platform indicator
-comes from the deployed panel binary's GOOS/GOARCH, not browser/device detection.
-Only matching assets appear. Hover/focus explains the platform; it is not an
-architecture selector. Enabling rejects untrusted or incompatible artifacts
+and inline enable/disable/remove/download buttons. Version and source cells
+contain plain text; state reflects the running binary. The top status bar shows
+the numeric core version as a badge. Available assets are filtered using the
+deployed panel binary's GOOS/GOARCH, not browser/device detection. Enabling rejects incompatible artifacts
 before queueing work, then validates the saved configuration before replacement.
+
+The compact import dialog accepts a single `.tar.gz`/`.tgz` archive by drag-and-drop
+or file selection, and asks for its exact version. Standard sing-box filenames
+fill the version automatically; custom
+filenames require manual entry, and the suggested version remains editable.
+Source metadata records the filename and the variant defaults to `plain`.
 
 An optional GitHub Token in panel service/security settings is used server-side
 for version discovery. An omitted token retains the configured value; explicit
@@ -75,8 +80,8 @@ handling.
 
 ## Runtime and Schema boundaries
 
-Runtime eligibility comes from immutable artifact verification, not from
-Schema or subscription-conversion availability. Compile snapshots the current
+Runtime eligibility depends on platform compatibility and a successful
+configuration check, independently of Schema or subscription-conversion availability. Compile snapshots the current
 strict JSON object, and the selected artifact must accept those exact bytes
 with `sing-box check` before it can be activated. Start and Restart repeat the
 identity, digest, and binary check gates.
@@ -118,19 +123,21 @@ JSON editor and runtime evidence chain. A missing inbound converter disables
 only subscription extraction for that version. Neither capability is inferred
 from a nearby patch version.
 
-## Trust reduction
+## Installed version lifecycle
 
-These commands permanently reduce trust in immutable bytes:
+Installed versions have no separate trust, quarantine, or revocation state.
+Import adds a version to the installed list; enable and disable control runtime
+use. Removal unregisters an unused version and keeps existing reference checks.
+Archive format, size, platform, checksum and exact-version checks still detect
+invalid files, incompatible binaries and changed bytes.
 
-```sh
-sing-box-panel core quarantine ARTIFACT_ID
-sing-box-panel core revoke ARTIFACT_ID
-```
-
-Revocation is terminal. Reinstalling identical bytes does not clear a prior
-restriction. A restriction blocks new checks and runtime work, requests
-cancellation where safe, and fences desired runtime state; it does not
-silently kill an already-running child.
+Migration 0008 removes the former verification state while preserving artifact
+IDs, creation times, digests, and startup/runtime references. Previously restricted
+artifacts are selectable after migration; migration does not start a process or
+change desired runtime state. The quarantine/revoke HTTP and CLI operations and
+the verification-state filter are removed. The persisted source code
+`user_verified` continues to mean manual import, preserving artifact identities;
+it is not an approval state.
 
 ## Adding a stable version
 
@@ -164,7 +171,9 @@ continue to fail rather than falling back.
 ## Artifact trust boundary
 
 The official path relies on GitHub HTTPS, immutable repository identity,
-release digest evidence, and local SHA-256 verification. Administrator import
-relies on the operator to obtain the expected digest through a trusted channel.
+release digest evidence, and local SHA-256 verification. Manual import accepts
+operator-supplied archives. Browser upload computes a transfer checksum locally;
+this detects changed bytes, not publisher authenticity. CLI imports compare the
+provided expected checksum.
 The project does not claim TUF, project-owned core signatures, or an
 independent transparency log.

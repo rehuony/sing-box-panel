@@ -7,6 +7,8 @@ import { useApiClient } from '@/api/api-client-context';
 export const RUNTIME_VERIFICATION_TIMEOUT_MS = 20_000;
 const TASK_TRACKING_TIMEOUT_MS = 60_000;
 const POLL_INTERVAL_MS = 750;
+const SUCCESS_FEEDBACK_DURATION_MS = 2_000;
+const ERROR_FEEDBACK_DURATION_MS = 5_000;
 
 export type RuntimeAction = 'restart' | 'start' | 'stop';
 export type RuntimeActionPhase
@@ -83,8 +85,21 @@ export function useRuntimeControl({ onRuntimeStatus }: RuntimeControlOptions) {
   const client = useApiClient();
   const controllerRef = useRef<AbortController | null>(null);
   const [state, setState] = useState<RuntimeControlState>(initialState);
+  const busy = state.phase === 'queueing' || state.phase === 'tracking' || state.phase === 'verifying';
 
   useEffect(() => () => controllerRef.current?.abort(), []);
+
+  useEffect(() => {
+    if (busy || state.phase === 'idle') return;
+
+    const duration = state.phase === 'verified'
+      ? SUCCESS_FEEDBACK_DURATION_MS
+      : ERROR_FEEDBACK_DURATION_MS;
+    const timer = window.setTimeout(() => {
+      setState((current) => current === state ? initialState : current);
+    }, duration);
+    return () => window.clearTimeout(timer);
+  }, [busy, state]);
 
   const run = useCallback(async (
     action: RuntimeAction,
@@ -147,7 +162,7 @@ export function useRuntimeControl({ onRuntimeStatus }: RuntimeControlOptions) {
   }, [client, onRuntimeStatus]);
 
   return {
-    busy: state.phase === 'queueing' || state.phase === 'tracking' || state.phase === 'verifying',
+    busy,
     run,
     state,
   };

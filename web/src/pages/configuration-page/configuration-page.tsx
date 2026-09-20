@@ -1,5 +1,5 @@
 import { useTranslation } from 'react-i18next';
-import { useEffect, useRef, useState } from 'react';
+import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 
 import { Button } from '@/components/ui/button';
 import { toast } from '@/components/ui/toast-manager';
@@ -12,8 +12,9 @@ import { useOptionalSharedTelemetry } from '@/components/app-shell/telemetry-con
 import { DynamicGeneralEditor } from './dynamic-general-editor';
 import { useConfigurationSchema } from './use-configuration-schema';
 import { useCanonicalConfiguration } from './use-canonical-configuration';
-import { AdvancedConfigurationEditor } from './advanced-configuration-editor';
 import './configuration-page.css';
+
+const AdvancedConfigurationEditor = lazy(() => import('./advanced-configuration-editor').then(module => ({ default: module.AdvancedConfigurationEditor })));
 
 export function ConfigurationPage() {
   const { t } = useTranslation();
@@ -34,7 +35,9 @@ export function ConfigurationPage() {
     checkControllerRef.current = controller;
     setChecking(true);
     try {
-      const cores = await client.listCoreArtifacts({ exactVersion: controlPlane.viewVersion, verificationState: 'verified', limit: 200 }, controller.signal);
+      const cores = await client.listCoreArtifacts(
+        { exactVersion: controlPlane.viewVersion, limit: 200 }, controller.signal,
+      );
       const runtime = await client.getRuntimeStatus(controller.signal);
       const core = cores.items.find(item => item.id === runtime.running?.core_artifact_id) ?? cores.items[0];
       if (core === undefined) throw new Error(t('configuration.file.noCore'));
@@ -85,8 +88,8 @@ export function ConfigurationPage() {
           ? t('configuration.file.nextStart')
           : t('configuration.file.saved');
   return (
-    <div className='configuration-page'>
-      <h1>{t('configuration.title')}</h1>
+    <div className='configuration-page panel-page'>
+      <h1 className='panel-page-heading'>{t('configuration.title')}</h1>
       {canonical.state.status === 'error' ? <ErrorNotice error={canonical.state.error} title={t('configuration.error.unavailable')} /> : null}
       {canonical.state.status === 'loading' ? <div className='inline-loading' aria-busy='true'>{t('configuration.loading')}</div> : null}
       {canonical.state.status === 'ready'
@@ -98,7 +101,6 @@ export function ConfigurationPage() {
                     <TabsTrigger disabled={schema.status !== 'ready' || invalid} value='visual'>{t('configuration.file.visual')}</TabsTrigger>
                     <TabsTrigger value='advanced'>{t('configuration.tab.advanced')}</TabsTrigger>
                   </TabsList>
-                  <span className='configuration-filename'>config.json</span>
                 </div>
                 <TabsContent className='configuration-tabs__content' value='visual'>
                   {schema.status === 'ready' && canonical.draft !== null
@@ -112,10 +114,14 @@ export function ConfigurationPage() {
                     : null}
                 </TabsContent>
                 <TabsContent className='configuration-tabs__content' value='advanced'>
-                  <AdvancedConfigurationEditor
-                    disabled={locked} text={canonical.state.content}
-                    error={canonical.editorError} onChange={canonical.updateText}
-                  />
+                  {editor === 'advanced' && (
+                    <Suspense fallback={<div className='inline-loading' aria-busy='true'>{t('configuration.loading')}</div>}>
+                      <AdvancedConfigurationEditor
+                        disabled={locked} text={canonical.state.content}
+                        error={canonical.editorError} onChange={canonical.updateText}
+                      />
+                    </Suspense>
+                  )}
                 </TabsContent>
               </Tabs>
               <footer className='configuration-footer'>

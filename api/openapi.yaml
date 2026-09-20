@@ -362,7 +362,6 @@ paths:
         - $ref: "#/components/parameters/Architecture"
         - $ref: "#/components/parameters/Variant"
         - $ref: "#/components/parameters/CoreSourceKind"
-        - $ref: "#/components/parameters/VerificationState"
         - $ref: "#/components/parameters/BeforeTime"
         - $ref: "#/components/parameters/BeforeID"
         - $ref: "#/components/parameters/Limit"
@@ -433,26 +432,6 @@ paths:
               description: Validator bound to the exact version and Schema digest.
               schema:
                 type: string
-  /core/artifacts/{artifactId}/quarantine:
-    parameters:
-      - $ref: "#/components/parameters/ArtifactID"
-    post:
-      operationId: quarantineCoreArtifact
-      parameters:
-        - $ref: "#/components/parameters/CSRFToken"
-      responses:
-        "200":
-          $ref: "#/components/responses/CoreArtifact"
-  /core/artifacts/{artifactId}/revoke:
-    parameters:
-      - $ref: "#/components/parameters/ArtifactID"
-    post:
-      operationId: revokeCoreArtifact
-      parameters:
-        - $ref: "#/components/parameters/CSRFToken"
-      responses:
-        "200":
-          $ref: "#/components/responses/CoreArtifact"
   /core/install:
     post:
       operationId: installCoreArtifact
@@ -1369,12 +1348,6 @@ components:
       schema:
         type: string
         enum: [official, user_verified]
-    VerificationState:
-      name: verification_state
-      in: query
-      schema:
-        type: string
-        enum: [verified, quarantined, revoked]
     CanonicalRevisionFilter:
       name: canonical_revision_id
       in: query
@@ -2100,7 +2073,7 @@ components:
     CoreArtifact:
       type: object
       additionalProperties: false
-      required: [id, exact_version, os, arch, variant, source_kind, archive_sha256, binary_sha256, binary_path, reported_version, feature_fingerprint, verification_state, created_at]
+      required: [id, exact_version, os, arch, variant, source_kind, archive_sha256, binary_sha256, binary_path, reported_version, feature_fingerprint, created_at]
       properties:
         id: {type: string}
         exact_version: {$ref: "#/components/schemas/ExactCoreVersion"}
@@ -2117,7 +2090,6 @@ components:
         binary_path: {type: string}
         reported_version: {$ref: "#/components/schemas/ExactCoreVersion"}
         feature_fingerprint: {$ref: "#/components/schemas/DynamicObject"}
-        verification_state: {type: string, enum: [verified, quarantined, revoked]}
         created_at: {type: string, format: date-time}
     CoreArtifactPage:
       type: object

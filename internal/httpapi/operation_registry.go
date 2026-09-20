@@ -47,8 +47,6 @@ var managementOperations = []managementOperation{
 	{Method: http.MethodDelete, Path: "/core/artifacts/{artifactId}", OperationID: "deleteCoreArtifact"},
 	{Method: http.MethodGet, Path: "/core/artifacts/{artifactId}/configuration-support", OperationID: "getCoreArtifactConfigurationSupport"},
 	{Method: http.MethodGet, Path: "/core/artifacts/{artifactId}/configuration-schema", OperationID: "getCoreArtifactConfigurationSchema"},
-	{Method: http.MethodPost, Path: "/core/artifacts/{artifactId}/quarantine", OperationID: "quarantineCoreArtifact"},
-	{Method: http.MethodPost, Path: "/core/artifacts/{artifactId}/revoke", OperationID: "revokeCoreArtifact"},
 	{Method: http.MethodPost, Path: "/core/install", OperationID: "installCoreArtifact"},
 	{Method: http.MethodPost, Path: "/core/import", OperationID: "importCoreArtifact"},
 	{Method: http.MethodGet, Path: "/core/status", OperationID: "getCoreRuntimeStatus"},

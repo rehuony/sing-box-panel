@@ -122,8 +122,8 @@ func (application *Application) ListCoreArtifacts(ctx context.Context, filter Co
 	}
 	page, err := application.database.ListCoreArtifacts(ctx, store.CoreArtifactListFilter{
 		ExactVersion: filter.ExactVersion, Architecture: filter.Architecture, Variant: filter.Variant,
-		SourceKind: filter.SourceKind, VerificationState: filter.VerificationState,
-		Cursor: cursor, Limit: filter.Limit,
+		SourceKind: filter.SourceKind,
+		Cursor:     cursor, Limit: filter.Limit,
 	})
 	if err != nil {
 		return CoreArtifactPage{}, err
@@ -140,14 +140,6 @@ func (application *Application) ListCoreArtifacts(ctx context.Context, filter Co
 
 func (application *Application) CoreArtifact(ctx context.Context, artifactID string) (CoreArtifact, error) {
 	artifact, err := application.database.GetCoreArtifact(ctx, artifactID)
-	if err != nil {
-		return CoreArtifact{}, err
-	}
-	return coreArtifact(artifact), nil
-}
-
-func (application *Application) RestrictCoreArtifactVerification(ctx context.Context, artifactID string, verificationState store.CoreArtifactVerificationState) (CoreArtifact, error) {
-	artifact, err := application.database.RestrictCoreArtifactVerification(ctx, artifactID, verificationState, application.now().UTC())
 	if err != nil {
 		return CoreArtifact{}, err
 	}
@@ -175,7 +167,7 @@ func (application *Application) PersistInstalledCore(ctx context.Context, result
 		Variant: string(result.Identity.Variant()), ArchiveSHA256: result.Identity.Digest().String(),
 		BinarySHA256: result.BinarySHA256.String(), BinaryPath: result.BinaryPath,
 		ReportedVersion: result.Identity.ReportedVersion().String(), FeatureFingerprint: featureFingerprint,
-		VerificationState: store.CoreArtifactVerified, CreatedAt: application.now().UTC(),
+		CreatedAt: application.now().UTC(),
 	}
 	switch source.Kind() {
 	case coreartifact.SourceOfficial:
@@ -192,9 +184,6 @@ func (application *Application) PersistInstalledCore(ctx context.Context, result
 	stored, err := application.database.UpsertCoreArtifact(ctx, persisted)
 	if err != nil {
 		return CoreArtifact{}, err
-	}
-	if stored.VerificationState != store.CoreArtifactVerified {
-		return CoreArtifact{}, fmt.Errorf("%w: %s remains %s", ErrCoreArtifactVerificationBlocked, stored.ID, stored.VerificationState)
 	}
 	return coreArtifact(stored), nil
 }

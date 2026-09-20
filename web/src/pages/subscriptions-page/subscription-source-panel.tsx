@@ -12,7 +12,10 @@ import { Button } from '@/components/ui/button';
 import { waitForTask } from '@/lib/wait-for-task';
 import { toast } from '@/components/ui/toast-manager';
 import { useApiClient } from '@/api/api-client-context';
+import { SelectField } from '@/components/select-field';
+import { ToolbarActions } from '@/components/workspace-toolbar';
 import { describeRequestError, ErrorNotice } from '@/components/error-notice';
+import { useOptionalSharedTelemetry } from '@/components/app-shell/telemetry-context';
 import {
   Dialog,
   DialogContent,
@@ -43,9 +46,23 @@ function newSource(): SourceForm {
   };
 }
 
-export function SubscriptionSourcePanel() {
+function latestStart(...values: (string | undefined)[]): string | undefined {
+  return values.filter((value): value is string => value !== undefined && Number.isFinite(Date.parse(value)))
+    .sort((a, b) => Date.parse(b) - Date.parse(a))[0];
+}
+
+export function SubscriptionSourcePanel({ active = true, toolbarTarget }: {
+  active?: boolean;
+  toolbarTarget?: HTMLElement | null;
+} = {}) {
   const { t, i18n } = useTranslation();
   const client = useApiClient();
+  const telemetry = useOptionalSharedTelemetry();
+  const [lastStartedAt, setLastStartedAt] = useState<string>();
+  const runningStartedAt = telemetry?.runtimeStatus?.running?.started_at;
+  const latestStartedAt = latestStart(runningStartedAt, lastStartedAt);
+  if (latestStartedAt !== lastStartedAt) setLastStartedAt(latestStartedAt);
+  const addSourceRef = useRef<HTMLButtonElement>(null);
   const [sources, setSources] = useState<SubscriptionSourceSummary[]>([]);
   const [nodes, setNodes] = useState<SubscriptionNodeSummary[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
@@ -65,6 +82,13 @@ export function SubscriptionSourcePanel() {
   const load = useCallback(
     async (signal?: AbortSignal) => {
       const generation = ++requestRef.current;
+      void client.getRuntimeHistory({ state: 'running', limit: 1 }, signal).then((history) => {
+        if (!signal?.aborted && generation === requestRef.current) {
+          setLastStartedAt(current => latestStart(current, history.items[0]?.process_started_at));
+        }
+      }).catch(() => {
+        // Keep the last confirmed start time when history is temporarily unavailable.
+      });
       try {
         const all: SubscriptionSourceSummary[] = [];
         let cursor: { created_at: string; id: string } | undefined;
@@ -199,7 +223,6 @@ export function SubscriptionSourcePanel() {
         await client.createSubscriptionSource(input, signal());
         if (!signal()?.aborted) {
           setCreating(false);
-          setForm(null);
         }
       }
       if (!signal()?.aborted) {
@@ -315,7 +338,7 @@ export function SubscriptionSourcePanel() {
       id: 'manual',
       name: t('subscriptions.nodes.manual'),
       source_kind: 'local',
-      updated_at: '',
+      updated_at: latestStartedAt ?? '',
       enabled: true,
     },
     ...sources.filter((source) => source.source_kind === 'remote'),
@@ -325,101 +348,104 @@ export function SubscriptionSourcePanel() {
   return (
     <section className='subscription-source-workspace'>
       {error != null && <ErrorNotice error={error} title={t('subscriptions.source.loadFailed')} />}
-      <div className='subscription-source-toolbar'>
-        {selected && (
-          <div className='subscription-detail-tabs'>
-            <Button
-              disabled={busy}
-              onClick={() => {
-                setSelected(null);
-                setSearch('');
-                setForm(null);
-                setFormError('');
-              }}
-              variant='ghost'
-            >
-              {t('subscriptions.sources.back')}
-            </Button>
-            {selected !== 'manual' && (
-              <>
-                <Button
-                  aria-selected={tab === 'nodes'}
-                  onClick={() => setTab('nodes')}
-                  role='tab'
-                  variant={tab === 'nodes' ? 'secondary' : 'ghost'}
-                >
-                  {t('subscriptions.sources.nodes')}
-                </Button>
-                <Button
-                  aria-selected={tab === 'settings'}
-                  disabled={busy}
-                  onClick={() => void openSettings()}
-                  role='tab'
-                  variant={tab === 'settings' ? 'secondary' : 'ghost'}
-                >
-                  {t('subscriptions.sources.settings')}
-                </Button>
-              </>
-            )}
-          </div>
-        )}
-        {tab === 'nodes' || !selected
-          ? (
-              <>
-                <div className='subscription-search'>
-                  <Search aria-hidden='true' />
-                  <input
-                    aria-label={t('subscriptions.sources.search')}
-                    onChange={(event) => {
-                      setSearch(event.target.value);
-                      setPage(1);
-                    }}
-                    placeholder={t('subscriptions.sources.search')}
-                    value={search}
-                  />
-                </div>
-                <div className='subscription-toolbar-actions'>
+      <ToolbarActions active={active} target={toolbarTarget}>
+        <div className='subscription-source-toolbar workspace-toolbar-content'>
+          {selected && (
+            <div className='subscription-detail-tabs'>
+              <Button
+                disabled={busy}
+                onClick={() => {
+                  setSelected(null);
+                  setSearch('');
+                  setForm(null);
+                  setFormError('');
+                }}
+                variant='ghost'
+              >
+                {t('subscriptions.sources.back')}
+              </Button>
+              {selected !== 'manual' && (
+                <>
                   <Button
-                    aria-label={t('subscriptions.sources.refresh')}
-                    disabled={busy}
-                    onClick={() =>
-                      selected === 'manual'
-                        ? reload()
-                        : void refresh(
-                          selected
-                            ? [selected]
-                            : sources
-                                .filter((source) => source.enabled && source.source_kind === 'remote')
-                                .map((source) => source.id),
-                        )
-                    }
-                    size='icon'
-                    variant='ghost'
+                    aria-selected={tab === 'nodes'}
+                    onClick={() => setTab('nodes')}
+                    role='tab'
+                    variant={tab === 'nodes' ? 'secondary' : 'ghost'}
                   >
-                    <RefreshCw aria-hidden='true' className={busy ? 'animate-spin' : ''} />
+                    {t('subscriptions.sources.nodes')}
                   </Button>
-                  {(!selected || selected === 'manual') && (
+                  <Button
+                    aria-selected={tab === 'settings'}
+                    disabled={busy}
+                    onClick={() => void openSettings()}
+                    role='tab'
+                    variant={tab === 'settings' ? 'secondary' : 'ghost'}
+                  >
+                    {t('subscriptions.sources.settings')}
+                  </Button>
+                </>
+              )}
+            </div>
+          )}
+          {tab === 'nodes' || !selected
+            ? (
+                <>
+                  <div className='subscription-search'>
+                    <Search aria-hidden='true' />
+                    <input
+                      aria-label={t('subscriptions.sources.search')}
+                      onChange={(event) => {
+                        setSearch(event.target.value);
+                        setPage(1);
+                      }}
+                      placeholder={t('subscriptions.sources.search')}
+                      value={search}
+                    />
+                  </div>
+                  <div className='subscription-toolbar-actions'>
                     <Button
-                      aria-label={t(
-                        selected ? 'subscriptions.nodes.add' : 'subscriptions.source.attach',
-                      )}
+                      aria-label={t('subscriptions.sources.refresh')}
                       disabled={busy}
                       onClick={() =>
-                        selected
-                          ? setEditor({ node: null })
-                          : (setForm(newSource()), setCreating(true), setFormError(''))
+                        selected === 'manual'
+                          ? reload()
+                          : void refresh(
+                            selected
+                              ? [selected]
+                              : sources
+                                  .filter((source) => source.enabled && source.source_kind === 'remote')
+                                  .map((source) => source.id),
+                          )
                       }
                       size='icon'
                       variant='ghost'
                     >
-                      <Plus aria-hidden='true' />
+                      <RefreshCw aria-hidden='true' className={busy ? 'animate-spin' : ''} />
                     </Button>
-                  )}
-                </div>
-              </>
-            )
-          : null}
-      </div>
+                    {(!selected || selected === 'manual') && (
+                      <Button
+                        ref={addSourceRef}
+                        aria-label={t(
+                          selected ? 'subscriptions.nodes.add' : 'subscriptions.source.attach',
+                        )}
+                        disabled={busy}
+                        onClick={() =>
+                          selected
+                            ? setEditor({ node: null })
+                            : (setForm(newSource()), setCreating(true), setFormError(''))
+                        }
+                        size='icon'
+                        variant='ghost'
+                      >
+                        <Plus aria-hidden='true' />
+                      </Button>
+                    )}
+                  </div>
+                </>
+              )
+            : null}
+        </div>
+      </ToolbarActions>
       {selected
         ? (
             tab === 'settings' && form
@@ -516,20 +542,15 @@ export function SubscriptionSourcePanel() {
                 </table>
               </div>
               <footer className='subscription-pagination'>
-                <select
+                <SelectField
                   aria-label={t('subscriptions.keys.pageSize')}
-                  onChange={(event) => {
-                    setSize(Number(event.target.value));
+                  value={size}
+                  onValueChange={(value) => {
+                    setSize(value);
                     setPage(1);
                   }}
-                  value={size}
-                >
-                  {[5, 10, 50].map((value) => (
-                    <option key={value} value={value}>
-                      {t('subscriptions.keys.perPage', { count: value })}
-                    </option>
-                  ))}
-                </select>
+                  items={[5, 10, 50].map((value) => ({ value, label: t('subscriptions.keys.perPage', { count: value }) }))}
+                />
                 <div>
                   <Button
                     aria-label={t('subscriptions.keys.previous')}
@@ -566,12 +587,14 @@ export function SubscriptionSourcePanel() {
         onOpenChange={(open) => {
           if (!open && !busy) {
             setCreating(false);
-            setForm(null);
           }
+        }}
+        onOpenChangeComplete={(open) => {
+          if (!open) setForm(current => current?.source ? current : null);
         }}
         open={creating}
       >
-        <DialogContent className='subscription-source-dialog'>
+        <DialogContent className='subscription-source-dialog' finalFocus={addSourceRef}>
           <DialogHeader>
             <DialogTitle>{t('subscriptions.source.attach')}</DialogTitle>
             <DialogDescription className='sr-only'>
@@ -589,7 +612,6 @@ export function SubscriptionSourcePanel() {
               disabled={busy}
               onClick={() => {
                 setCreating(false);
-                setForm(null);
               }}
               variant='secondary'
             >

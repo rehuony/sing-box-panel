@@ -158,8 +158,8 @@ func TestSubscriptionChannelRenderCLIEndToEnd(t *testing.T) {
 		ArchiveSHA256: strings.Repeat("a", 64), BinarySHA256: strings.Repeat("b", 64),
 		BinaryPath: filepath.Join(configuration.DataDir, "sing-box"), ReportedVersion: "1.13.19",
 		FeatureFingerprint: json.RawMessage(`{"status":"reported","features":["badlinkname","tfogo_checklinkname0","with_acme","with_ccm","with_clash_api","with_dhcp","with_gvisor","with_naive_outbound","with_ocm","with_purego","with_quic","with_tailscale","with_utls","with_wireguard"]}`),
-		VerificationState:  store.CoreArtifactVerified,
-		CreatedAt:          now,
+
+		CreatedAt: now,
 	})
 	if err != nil {
 		_ = database.Close()

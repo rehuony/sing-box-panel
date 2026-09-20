@@ -65,40 +65,23 @@ describe('application routes', () => {
 
   it('navigates primary management pages through the shared shell', async () => {
     const user = userEvent.setup();
-    const originalScrollIntoView = Object.getOwnPropertyDescriptor(
-      HTMLElement.prototype,
-      'scrollIntoView',
+    renderRoutes('/');
+    const coreVersions = await screen.findByRole(
+      'link',
+      { name: 'Versions' },
+      { timeout: 10_000 },
     );
-    const scrollIntoView = vi.fn();
-    Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {
-      configurable: true,
-      value: scrollIntoView,
-    });
-
-    try {
-      renderRoutes('/');
-      const coreVersions = await screen.findByRole(
-        'link',
-        { name: 'Versions' },
-        { timeout: 10_000 },
-      );
-      scrollIntoView.mockClear();
-      await user.click(coreVersions);
-      expect(await screen.findByRole('heading', { name: 'Versions' })).toBeInTheDocument();
-      expect(await screen.findByRole('tab', { name: 'Installed' })).toBeInTheDocument();
-      expect(screen.queryByText('Panel online')).not.toBeInTheDocument();
-      expect(screen.getByRole('link', { name: 'Panel settings' })).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: 'Sign out' })).toBeInTheDocument();
-      expect(screen.queryByRole('button', { name: 'Open account menu' })).not.toBeInTheDocument();
-      expect(document.getElementById('main-content')).toHaveFocus();
-      expect(scrollIntoView).toHaveBeenCalledWith({ behavior: 'auto', block: 'start' });
-    } finally {
-      if (originalScrollIntoView === undefined) {
-        Reflect.deleteProperty(HTMLElement.prototype, 'scrollIntoView');
-      } else {
-        Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', originalScrollIntoView);
-      }
-    }
+    const scroller = document.querySelector<HTMLDivElement>('.panel-content-scroll')!;
+    scroller.scrollTop = 400;
+    await user.click(coreVersions);
+    expect(await screen.findByRole('heading', { name: 'Versions' })).toBeInTheDocument();
+    expect(await screen.findByRole('tab', { name: 'Installed' })).toBeInTheDocument();
+    expect(screen.queryByText('Panel online')).not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Panel settings' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Sign out' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Open account menu' })).not.toBeInTheDocument();
+    expect(document.getElementById('main-content')).toHaveFocus();
+    expect(scroller.scrollTop).toBe(0);
   });
 
   it('keeps appearance controls and icon-only sign out in the mobile navigation sheet', async () => {

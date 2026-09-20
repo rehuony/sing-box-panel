@@ -7,6 +7,8 @@ import type { CreatedSubscriptionToken, SubscriptionChannelSummary, Subscription
 import { Button } from '@/components/ui/button';
 import { toast } from '@/components/ui/toast-manager';
 import { useApiClient } from '@/api/api-client-context';
+import { SelectField } from '@/components/select-field';
+import { ToolbarActions } from '@/components/workspace-toolbar';
 import { describeRequestError, ErrorNotice } from '@/components/error-notice';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 
@@ -14,7 +16,10 @@ import { buildPublicSubscriptionURL } from './public-subscription-url';
 
 type KeyAction = 'rotate' | 'revoke' | 'delete';
 
-export function SubscriptionTokenPanel() {
+export function SubscriptionTokenPanel({ active = true, toolbarTarget }: {
+  active?: boolean;
+  toolbarTarget?: HTMLElement | null;
+} = {}) {
   const { t, i18n } = useTranslation();
   const client = useApiClient();
   const [items, setItems] = useState<SubscriptionToken[]>([]);
@@ -186,9 +191,11 @@ export function SubscriptionTokenPanel() {
 
   return (
     <section className='subscription-panel subscription-keys' aria-label={t('subscriptions.tabs.tokens')}>
-      <div className='subscription-keys__toolbar'>
-        <Button aria-label={t('subscriptions.keys.create')} size='icon' variant='ghost' disabled={busy} onClick={() => setCreating(true)}><Plus className='size-5' /></Button>
-      </div>
+      <ToolbarActions active={active} target={toolbarTarget}>
+        <div className='subscription-keys__toolbar workspace-toolbar-content'>
+          <Button aria-label={t('subscriptions.keys.create')} size='icon' variant='ghost' disabled={busy} onClick={() => setCreating(true)}><Plus className='size-5' /></Button>
+        </div>
+      </ToolbarActions>
       {error ? <ErrorNotice error={error} title={t('subscriptions.token.loadFailed')} /> : null}
       <div className='subscription-keys__scroll' aria-busy={loading}>
         <table className='subscription-table'>
@@ -217,12 +224,15 @@ export function SubscriptionTokenPanel() {
         {loading ? <p role='status'>{t('subscriptions.common.loading')}</p> : null}
       </div>
       <footer className='subscription-keys__pagination'>
-        <select aria-label={t('subscriptions.keys.pageSize')} value={pageSize} onChange={event => {
-          setPageSize(Number(event.target.value));
-          refresh();
-        }}>
-          {[5, 10, 50].map(size => <option key={size} value={size}>{t('subscriptions.keys.perPage', { count: size })}</option>)}
-        </select>
+        <SelectField
+          aria-label={t('subscriptions.keys.pageSize')}
+          value={pageSize}
+          onValueChange={(value) => {
+            setPageSize(value);
+            refresh();
+          }}
+          items={[5, 10, 50].map((value) => ({ value, label: t('subscriptions.keys.perPage', { count: value }) }))}
+        />
         <div>
           <Button variant='ghost' disabled={page === 0 || loading} onClick={() => setPage(value => value - 1)} aria-label={t('subscriptions.keys.previous')}>‹</Button>
           <span aria-current='page'>{page + 1}</span>

@@ -31,7 +31,7 @@ func TestPreviewAndCompileUseRawRevisionWithoutSchema(t *testing.T) {
 		ID: "core_11319", ExactVersion: "1.13.19", OperatingSystem: "linux", Architecture: "arm64", Variant: "plain",
 		SourceKind: store.CoreArtifactSourceUserVerified, UserSource: "test", ArchiveSHA256: strings.Repeat("a", 64),
 		BinarySHA256: strings.Repeat("b", 64), BinaryPath: "/tmp/sing-box", ReportedVersion: "1.13.19",
-		FeatureFingerprint: json.RawMessage(`{"status":"not_reported"}`), VerificationState: store.CoreArtifactVerified, CreatedAt: now,
+		FeatureFingerprint: json.RawMessage(`{"status":"not_reported"}`), CreatedAt: now,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -78,29 +78,6 @@ func TestPreviewAndCompileUseRawRevisionWithoutSchema(t *testing.T) {
 	}
 }
 
-func TestPreviewRejectsUnverifiedCoreBeforeRawUse(t *testing.T) {
-	ctx := context.Background()
-	database, err := store.Open(ctx, filepath.Join(t.TempDir(), "panel.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = database.Close() })
-	application := FromStore(database)
-	now := time.Now().UTC()
-	_, err = database.UpsertCoreArtifact(ctx, store.CoreArtifact{
-		ID: "core_revoked", ExactVersion: "1.13.19", OperatingSystem: "linux", Architecture: "arm64", Variant: "plain",
-		SourceKind: store.CoreArtifactSourceUserVerified, UserSource: "test", ArchiveSHA256: strings.Repeat("a", 64),
-		BinarySHA256: strings.Repeat("b", 64), BinaryPath: "/tmp/sing-box", ReportedVersion: "1.13.19",
-		FeatureFingerprint: json.RawMessage(`{"status":"not_reported"}`), VerificationState: store.CoreArtifactRevoked, CreatedAt: now,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := application.PreviewConfiguration(ctx, ConfigurationPreviewRequest{CoreArtifactID: "core_revoked"}); !errors.Is(err, ErrCoreArtifactVerificationBlocked) {
-		t.Fatalf("PreviewConfiguration() error = %v, want verification block", err)
-	}
-}
-
 func TestCompileUsesNativeSchemaByExactVersionBeforeEnqueue(t *testing.T) {
 	ctx := context.Background()
 	database, err := store.Open(ctx, filepath.Join(t.TempDir(), "panel.db"))
@@ -115,7 +92,7 @@ func TestCompileUsesNativeSchemaByExactVersionBeforeEnqueue(t *testing.T) {
 		ID: "core_1140", ExactVersion: "1.14.0", OperatingSystem: "linux", Architecture: "arm64", Variant: "plain",
 		SourceKind: store.CoreArtifactSourceUserVerified, UserSource: "test", ArchiveSHA256: strings.Repeat("c", 64),
 		BinarySHA256: strings.Repeat("d", 64), BinaryPath: "/tmp/sing-box", ReportedVersion: "1.14.0",
-		FeatureFingerprint: json.RawMessage(`{"status":"not_reported"}`), VerificationState: store.CoreArtifactVerified, CreatedAt: now,
+		FeatureFingerprint: json.RawMessage(`{"status":"not_reported"}`), CreatedAt: now,
 	})
 	if err != nil {
 		t.Fatal(err)

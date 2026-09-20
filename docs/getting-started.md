@@ -54,7 +54,7 @@ configuration, or subscription data.
 ### Database compatibility
 
 The current application uses SQLite `application_id = 0x53425034` and storage
-schema version 7. Opening a new database applies the embedded migrations;
+schema version 8. Opening a new database applies the embedded migrations;
 existing databases with this application identity migrate forward automatically.
 Unidentified non-empty databases, previous application identities, and schemas
 newer than the binary fail closed. Startup also transfers legacy panel settings

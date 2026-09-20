@@ -6,7 +6,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"strings"
 
 	"github.com/rehuony/sing-box-panel/internal/configuration"
@@ -98,10 +97,6 @@ func (application *Application) PreviewConfiguration(
 	if err != nil {
 		return ConfigurationPreview{}, err
 	}
-	if core.VerificationState != store.CoreArtifactVerified {
-		return ConfigurationPreview{}, fmt.Errorf("%w: %s is %s", ErrCoreArtifactVerificationBlocked, core.ID, core.VerificationState)
-	}
-
 	var revision store.CanonicalRevision
 	if strings.TrimSpace(request.CanonicalRevisionID) == "" {
 		if err := application.requireParsedConfigurationFile(ctx); err != nil {

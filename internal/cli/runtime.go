@@ -161,8 +161,6 @@ func classifyConfigurationRuntimeError(code string, err error) error {
 		return &Error{Kind: ErrorValidation, Code: "configuration_schema_validation_failed", Message: err.Error(), Cause: err}
 	case application.IsCoreArtifactNotFound(err):
 		return &Error{Kind: ErrorDomain, Code: "core_artifact_not_found", Message: err.Error(), Cause: err}
-	case errors.Is(err, application.ErrCoreArtifactVerificationBlocked):
-		return &Error{Kind: ErrorConflict, Code: "core_verification_blocked", Message: err.Error(), Cause: err}
 	case errors.Is(err, application.ErrCorePlatformMismatch):
 		return &Error{Kind: ErrorConflict, Code: "core_platform_mismatch", Message: err.Error(), Cause: err}
 	case errors.Is(err, store.ErrCompiledStartupEvidenceStale):

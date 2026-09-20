@@ -73,7 +73,7 @@ describe('animatedIcon', () => {
     installMotionPreference(true);
     const view = render(<AnimatedIcon active name='configuration' />);
 
-    expect(view.container.querySelector('.lucide-settings')).not.toBeNull();
+    expect(view.container.querySelector('.lucide-sliders-horizontal')).not.toBeNull();
     expect(view.container.querySelector('[data-motion-animate="animate"]')).toBeNull();
   });
 });

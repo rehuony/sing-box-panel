@@ -264,8 +264,8 @@ func seedSupportedRuntimeHTTPCore(t *testing.T, database *store.Store) store.Cor
 		ArchiveSHA256: strings.Repeat("ca", 32), BinarySHA256: strings.Repeat("cb", 32),
 		BinaryPath: "/var/lib/sing-box-panel/artifacts/core_runtime_http/sing-box", ReportedVersion: "1.13.19",
 		FeatureFingerprint: json.RawMessage(`{"status":"reported","features":["badlinkname","tfogo_checklinkname0","with_acme","with_ccm","with_clash_api","with_dhcp","with_gvisor","with_naive_outbound","with_ocm","with_purego","with_quic","with_tailscale","with_utls","with_wireguard"]}`),
-		VerificationState:  store.CoreArtifactVerified,
-		CreatedAt:          time.Date(2026, time.August, 26, 13, 0, 0, 0, time.UTC),
+
+		CreatedAt: time.Date(2026, time.August, 26, 13, 0, 0, 0, time.UTC),
 	})
 	if err != nil {
 		t.Fatal(err)

@@ -48,6 +48,70 @@ License: MIT
 License documents:
   - LICENSE (SHA-256: 07fc1b39d69d14bc7d40482a628f47226258eb01265db68ae684944b916beb2a)
 
+Component: @codemirror/autocomplete
+Ecosystem: web-package
+Version: 6.20.3
+Source: https://code.haverbeke.berlin/codemirror/autocomplete.git
+License: MIT
+License documents:
+  - LICENSE (SHA-256: 05c6130cda97e7600ca91427a41e8a065efcf82365fc0293e7de80faec494c07)
+
+Component: @codemirror/commands
+Ecosystem: web-package
+Version: 6.11.1
+Source: https://code.haverbeke.berlin/codemirror/commands.git
+License: MIT
+License documents:
+  - LICENSE (SHA-256: 05c6130cda97e7600ca91427a41e8a065efcf82365fc0293e7de80faec494c07)
+
+Component: @codemirror/lang-json
+Ecosystem: web-package
+Version: 6.0.2
+Source: https://github.com/codemirror/lang-json#readme
+License: MIT
+License documents:
+  - LICENSE (SHA-256: 05c6130cda97e7600ca91427a41e8a065efcf82365fc0293e7de80faec494c07)
+
+Component: @codemirror/language
+Ecosystem: web-package
+Version: 6.12.4
+Source: https://code.haverbeke.berlin/codemirror/language.git
+License: MIT
+License documents:
+  - LICENSE (SHA-256: 05c6130cda97e7600ca91427a41e8a065efcf82365fc0293e7de80faec494c07)
+
+Component: @codemirror/lint
+Ecosystem: web-package
+Version: 6.9.7
+Source: https://code.haverbeke.berlin/codemirror/lint.git
+License: MIT
+License documents:
+  - LICENSE (SHA-256: 05c6130cda97e7600ca91427a41e8a065efcf82365fc0293e7de80faec494c07)
+
+Component: @codemirror/search
+Ecosystem: web-package
+Version: 6.7.2
+Source: https://code.haverbeke.berlin/codemirror/search.git
+License: MIT
+License documents:
+  - LICENSE (SHA-256: 05c6130cda97e7600ca91427a41e8a065efcf82365fc0293e7de80faec494c07)
+
+Component: @codemirror/state
+Ecosystem: web-package
+Version: 6.7.5
+Source: https://code.haverbeke.berlin/codemirror/state.git
+License: MIT
+License documents:
+  - LICENSE (SHA-256: 05c6130cda97e7600ca91427a41e8a065efcf82365fc0293e7de80faec494c07)
+
+Component: @codemirror/view
+Ecosystem: web-package
+Version: 6.43.12
+Source: https://code.haverbeke.berlin/codemirror/view.git
+License: MIT
+License documents:
+  - LICENSE (SHA-256: 05c6130cda97e7600ca91427a41e8a065efcf82365fc0293e7de80faec494c07)
+
 Component: @dnd-kit/accessibility
 Ecosystem: web-package
 Version: 3.1.1
@@ -111,6 +175,46 @@ Source: https://floating-ui.com
 License: MIT
 License documents:
   - LICENSE (SHA-256: 0e4c9a9b6c71019cbbea3bdc20b01223110a9035700f9c960c8fcbf78c2325ce)
+
+Component: @lezer/common
+Ecosystem: web-package
+Version: 1.5.2
+Source: https://github.com/lezer-parser/common#readme
+License: MIT
+License documents:
+  - LICENSE (SHA-256: 568902fb66eaf1f11750e966b33fd7b5d7c618e65af09f35ef843635bcf5f1ba)
+
+Component: @lezer/highlight
+Ecosystem: web-package
+Version: 1.2.3
+Source: https://github.com/lezer-parser/highlight#readme
+License: MIT
+License documents:
+  - LICENSE (SHA-256: 568902fb66eaf1f11750e966b33fd7b5d7c618e65af09f35ef843635bcf5f1ba)
+
+Component: @lezer/json
+Ecosystem: web-package
+Version: 1.0.3
+Source: https://github.com/lezer-parser/json#readme
+License: MIT
+License documents:
+  - LICENSE (SHA-256: 7e744ae18ef84389d576469a5781172b0d50b7981111109f6da7cbc6b4188288)
+
+Component: @lezer/lr
+Ecosystem: web-package
+Version: 1.4.10
+Source: https://code.haverbeke.berlin/lezer/lr.git
+License: MIT
+License documents:
+  - LICENSE (SHA-256: 568902fb66eaf1f11750e966b33fd7b5d7c618e65af09f35ef843635bcf5f1ba)
+
+Component: @marijn/find-cluster-break
+Ecosystem: web-package
+Version: 1.0.4
+Source: https://code.haverbeke.berlin/marijn/find-cluster-break
+License: MIT
+License documents:
+  - LICENSE (SHA-256: 9360b00fdd091f05c783b568bdd46c679c41b72415599252de98949462ea1acb)
 
 Component: @rjsf/core
 Ecosystem: web-package
@@ -201,6 +305,14 @@ License: MIT
 License documents:
   - license (SHA-256: 9a9edad7baae52622bddf3c15b2ef8a33d2c89f2d25408ad13e8a7481c6b0c97)
 
+Component: codemirror
+Ecosystem: web-package
+Version: 6.0.2
+Source: https://github.com/codemirror/basic-setup#readme
+License: MIT
+License documents:
+  - LICENSE (SHA-256: 05c6130cda97e7600ca91427a41e8a065efcf82365fc0293e7de80faec494c07)
+
 Component: cookie
 Ecosystem: web-package
 Version: 1.1.1
@@ -208,6 +320,14 @@ Source: https://github.com/jshttp/cookie#readme
 License: MIT
 License documents:
   - LICENSE (SHA-256: c02110eedc16c7114f1a9bdc026c65626ce1d9c7e27fd51a8e0feee8a48a6858)
+
+Component: crelt
+Ecosystem: web-package
+Version: 1.0.7
+Source: https://code.haverbeke.berlin/marijn/crelt
+License: MIT
+License documents:
+  - LICENSE (SHA-256: 23852ebf6aef7fadffc92514b3c5df163a8651f2c3ed0dbb494cb49d93bd5de5)
 
 Component: csstype
 Ecosystem: web-package
@@ -533,6 +653,14 @@ License: MIT
 License documents:
   - LICENSE (SHA-256: da6d3703ed11cbe42bd212c725957c98da23cbff1998c05fa4b3d976d1a58e93)
 
+Component: react-colorful
+Ecosystem: web-package
+Version: 5.8.1
+Source: https://omgovich.github.io/react-colorful
+License: MIT
+License documents:
+  - LICENSE (SHA-256: c779efe5dfb04b7b7cac35c4898725e4d22e98b86bc81c9556311d067bf97af5)
+
 Component: react-dom
 Ecosystem: web-package
 Version: 19.2.8
@@ -613,6 +741,14 @@ License: MIT
 License documents:
   - LICENSE (SHA-256: c5c6c5183a789d122f267c405f685037efb87e27fcde28ab1dd7378a2d2f5962)
 
+Component: style-mod
+Ecosystem: web-package
+Version: 4.1.4
+Source: https://code.haverbeke.berlin/marijn/style-mod
+License: MIT
+License documents:
+  - LICENSE (SHA-256: cb4474e26547397169061d3586c00022cda5330a1b64fa13e872319f3b63aff1)
+
 Component: tailwind-merge
 Ecosystem: web-package
 Version: 3.6.0
@@ -661,6 +797,14 @@ License: MIT
 License documents:
   - LICENSE (SHA-256: da6d3703ed11cbe42bd212c725957c98da23cbff1998c05fa4b3d976d1a58e93)
 
+Component: w3c-keyname
+Ecosystem: web-package
+Version: 2.2.8
+Source: https://github.com/marijnh/w3c-keyname#readme
+License: MIT
+License documents:
+  - LICENSE (SHA-256: 869c30f368eb08735e779027b9f4bc9fea2f39624351856aebe42741f0bc0884)
+
 LICENSE TEXTS
 
 ================================================================================
@@ -689,6 +833,41 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+================================================================================
+SHA-256: 05c6130cda97e7600ca91427a41e8a065efcf82365fc0293e7de80faec494c07
+Applies to:
+  - web-package:@codemirror/autocomplete@6.20.3 — LICENSE
+  - web-package:@codemirror/commands@6.11.1 — LICENSE
+  - web-package:@codemirror/lang-json@6.0.2 — LICENSE
+  - web-package:@codemirror/language@6.12.4 — LICENSE
+  - web-package:@codemirror/lint@6.9.7 — LICENSE
+  - web-package:@codemirror/search@6.7.2 — LICENSE
+  - web-package:@codemirror/state@6.7.5 — LICENSE
+  - web-package:@codemirror/view@6.43.12 — LICENSE
+  - web-package:codemirror@6.0.2 — LICENSE
+--------------------------------------------------------------------------------
+MIT License
+
+Copyright (C) 2018-2021 by Marijn Haverbeke <marijn@haverbeke.berlin> and others
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+THE SOFTWARE.
 
 ================================================================================
 SHA-256: 07fc1b39d69d14bc7d40482a628f47226258eb01265db68ae684944b916beb2a
@@ -1167,6 +1346,31 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 
 ================================================================================
+SHA-256: 23852ebf6aef7fadffc92514b3c5df163a8651f2c3ed0dbb494cb49d93bd5de5
+Applies to:
+  - web-package:crelt@1.0.7 — LICENSE
+--------------------------------------------------------------------------------
+Copyright (C) 2020 by Marijn Haverbeke <marijn@haverbeke.berlin>
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+THE SOFTWARE.
+
+================================================================================
 SHA-256: 2590ed517c3e27c426127a85b4559cf8c7a287f1dd3a12892e8a10cb7d49c8ca
 Applies to:
   - web-package:@rjsf/core@6.8.0 — LICENSE.md
@@ -1612,6 +1816,35 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ================================================================================
+SHA-256: 568902fb66eaf1f11750e966b33fd7b5d7c618e65af09f35ef843635bcf5f1ba
+Applies to:
+  - web-package:@lezer/common@1.5.2 — LICENSE
+  - web-package:@lezer/highlight@1.2.3 — LICENSE
+  - web-package:@lezer/lr@1.4.10 — LICENSE
+--------------------------------------------------------------------------------
+MIT License
+
+Copyright (C) 2018 by Marijn Haverbeke <marijn@haverbeke.berlin> and others
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+THE SOFTWARE.
+
+================================================================================
 SHA-256: 59895e669f48f168b6b858358f6005779cdf40a265f7828813061b56af67b496
 Applies to:
   - go-module:modernc.org/memory@v1.12.1 — LICENSE
@@ -1998,6 +2231,33 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ================================================================================
+SHA-256: 7e744ae18ef84389d576469a5781172b0d50b7981111109f6da7cbc6b4188288
+Applies to:
+  - web-package:@lezer/json@1.0.3 — LICENSE
+--------------------------------------------------------------------------------
+MIT License
+
+Copyright (C) 2020 by Marijn Haverbeke <marijn@haverbeke.berlin>, Arun Srinivasan <rulfzid@gmail.com>, and others
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+THE SOFTWARE.
+
+================================================================================
 SHA-256: 8438c9c89b849131ead81d5435cb97fcf052df5b0b286dda8a2d4c29e6cb3fd0
 Applies to:
   - go-module:modernc.org/sqlite@v1.57.0 — LICENSE-SQLITE
@@ -2027,6 +2287,31 @@ has been taken from other projects or from the open internet. Every line of
 code can be traced back to its original author, and all of those authors have
 public domain dedications on file. So the SQLite code base is clean and is
 uncontaminated with licensed code from other projects.
+
+================================================================================
+SHA-256: 869c30f368eb08735e779027b9f4bc9fea2f39624351856aebe42741f0bc0884
+Applies to:
+  - web-package:w3c-keyname@2.2.8 — LICENSE
+--------------------------------------------------------------------------------
+Copyright (C) 2016 by Marijn Haverbeke <marijn@haverbeke.berlin> and others
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+THE SOFTWARE.
 
 ================================================================================
 SHA-256: 8f989229699b4fe2f1a0432d0e9edc338a8a911e250e2d1b01ecd770a5f5b1bd
@@ -2089,6 +2374,33 @@ DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
 THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+================================================================================
+SHA-256: 9360b00fdd091f05c783b568bdd46c679c41b72415599252de98949462ea1acb
+Applies to:
+  - web-package:@marijn/find-cluster-break@1.0.4 — LICENSE
+--------------------------------------------------------------------------------
+MIT License
+
+Copyright (C) 2024 by Marijn Haverbeke <marijn@haverbeke.berlin>
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+THE SOFTWARE.
 
 ================================================================================
 SHA-256: 95ff867eb55a56935fa7492406cfa953fb7c13ca73f4c0a86ae05756b4605600
@@ -2612,6 +2924,33 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ================================================================================
+SHA-256: c779efe5dfb04b7b7cac35c4898725e4d22e98b86bc81c9556311d067bf97af5
+Applies to:
+  - web-package:react-colorful@5.8.1 — LICENSE
+--------------------------------------------------------------------------------
+MIT License
+
+Copyright (c) 2020-present Vlad Shilov <omgovich@ya.ru>
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+================================================================================
 SHA-256: c8858a5a76440bbca484e134cf7df46385d090dd18b2c58e650f939258802e5b
 Applies to:
   - go-module:github.com/santhosh-tekuri/jsonschema/v6@v6.0.3 — LICENSE
@@ -2791,6 +3130,31 @@ Applies to:
       defend, and hold each Contributor harmless for any liability
       incurred by, or claims asserted against, such Contributor by reason
       of your accepting any such warranty or additional liability.
+
+================================================================================
+SHA-256: cb4474e26547397169061d3586c00022cda5330a1b64fa13e872319f3b63aff1
+Applies to:
+  - web-package:style-mod@4.1.4 — LICENSE
+--------------------------------------------------------------------------------
+Copyright (C) 2018 by Marijn Haverbeke <marijn@haverbeke.berlin> and others
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+THE SOFTWARE.
 
 ================================================================================
 SHA-256: d18f6323b71b0b768bb5e9616e36da390fbd39369a81807cca352de4e4e6aa0b

@@ -19,8 +19,6 @@ import (
 
 const maximumCatalogBytes = 64 << 20
 
-var ErrCoreArtifactVerificationBlocked = errors.New("core artifact verification state blocks installation")
-
 type catalogRefresher interface {
 	Refresh(context.Context, string) (catalog.RefreshResult, error)
 }
@@ -52,33 +50,31 @@ type CatalogAssetList struct {
 }
 
 type CoreArtifact struct {
-	ID                 string                              `json:"id"`
-	ExactVersion       string                              `json:"exact_version"`
-	OperatingSystem    string                              `json:"os"`
-	Architecture       string                              `json:"arch"`
-	Variant            string                              `json:"variant"`
-	SourceKind         store.CoreArtifactSourceKind        `json:"source_kind"`
-	UserSource         string                              `json:"user_source,omitempty"`
-	RepositoryID       int64                               `json:"repository_id,omitempty"`
-	ReleaseID          int64                               `json:"release_id,omitempty"`
-	AssetID            int64                               `json:"asset_id,omitempty"`
-	ArchiveSHA256      string                              `json:"archive_sha256"`
-	BinarySHA256       string                              `json:"binary_sha256"`
-	BinaryPath         string                              `json:"binary_path"`
-	ReportedVersion    string                              `json:"reported_version"`
-	FeatureFingerprint json.RawMessage                     `json:"feature_fingerprint"`
-	VerificationState  store.CoreArtifactVerificationState `json:"verification_state"`
-	CreatedAt          time.Time                           `json:"created_at"`
+	ID                 string                       `json:"id"`
+	ExactVersion       string                       `json:"exact_version"`
+	OperatingSystem    string                       `json:"os"`
+	Architecture       string                       `json:"arch"`
+	Variant            string                       `json:"variant"`
+	SourceKind         store.CoreArtifactSourceKind `json:"source_kind"`
+	UserSource         string                       `json:"user_source,omitempty"`
+	RepositoryID       int64                        `json:"repository_id,omitempty"`
+	ReleaseID          int64                        `json:"release_id,omitempty"`
+	AssetID            int64                        `json:"asset_id,omitempty"`
+	ArchiveSHA256      string                       `json:"archive_sha256"`
+	BinarySHA256       string                       `json:"binary_sha256"`
+	BinaryPath         string                       `json:"binary_path"`
+	ReportedVersion    string                       `json:"reported_version"`
+	FeatureFingerprint json.RawMessage              `json:"feature_fingerprint"`
+	CreatedAt          time.Time                    `json:"created_at"`
 }
 
 type CoreArtifactListFilter struct {
-	ExactVersion      string
-	Architecture      string
-	Variant           string
-	SourceKind        store.CoreArtifactSourceKind
-	VerificationState store.CoreArtifactVerificationState
-	Cursor            *CoreArtifactCursor
-	Limit             int
+	ExactVersion string
+	Architecture string
+	Variant      string
+	SourceKind   store.CoreArtifactSourceKind
+	Cursor       *CoreArtifactCursor
+	Limit        int
 }
 
 type CoreArtifactCursor struct {
@@ -320,7 +316,7 @@ func coreArtifact(value store.CoreArtifact) CoreArtifact {
 		AssetID: value.AssetID, ArchiveSHA256: value.ArchiveSHA256, BinarySHA256: value.BinarySHA256,
 		BinaryPath:      value.BinaryPath,
 		ReportedVersion: value.ReportedVersion, FeatureFingerprint: append(json.RawMessage(nil), value.FeatureFingerprint...),
-		VerificationState: value.VerificationState, CreatedAt: value.CreatedAt,
+		CreatedAt: value.CreatedAt,
 	}
 }
 

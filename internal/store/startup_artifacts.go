@@ -302,9 +302,6 @@ func validateStartupArtifactReferences(ctx context.Context, tx *sql.Tx, artifact
 	if core.ExactVersion != artifact.ExactCoreVersion || core.ReportedVersion != artifact.ExactCoreVersion {
 		return errors.New("startup artifact version does not match core artifact")
 	}
-	if core.VerificationState != CoreArtifactVerified {
-		return errors.New("core artifact is not eligible for new startup work")
-	}
 	return nil
 }
 

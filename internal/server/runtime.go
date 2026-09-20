@@ -457,7 +457,6 @@ func (services *runtimeServices) revalidateRuntimeMaterial(
 	}
 	if current.Startup.ID != material.Startup.ID ||
 		current.Core.ID != material.Core.ID ||
-		current.Core.VerificationState != store.CoreArtifactVerified ||
 		current.Bundle.ExactVersion != material.Bundle.ExactVersion ||
 		current.Bundle.ArtifactDigest != material.Bundle.ArtifactDigest ||
 		current.Bundle.StartupConfigDigest != material.Bundle.StartupConfigDigest {

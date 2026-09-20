@@ -43,7 +43,6 @@ export function createCoreHttpApi(context: HttpApiContext) {
         limit: filter.limit ?? 50,
         source_kind: filter.sourceKind,
         variant: filter.variant,
-        verification_state: filter.verificationState,
       });
       return request<CoreArtifactPage>(fetcher, `${baseUrl}/core/artifacts${query}`, {
         method: 'GET', signal,
@@ -74,16 +73,6 @@ export function createCoreHttpApi(context: HttpApiContext) {
     removeCoreArtifact(artifactID, signal) {
       return request<void>(fetcher, `${baseUrl}/core/artifacts/${encodeURIComponent(artifactID)}`, {
         method: 'DELETE', headers: writeHeaders(), signal,
-      });
-    },
-    quarantineCoreArtifact(artifactID, signal) {
-      return request<CoreArtifact>(fetcher, `${baseUrl}/core/artifacts/${encodeURIComponent(artifactID)}/quarantine`, {
-        method: 'POST', headers: writeHeaders(), signal,
-      });
-    },
-    revokeCoreArtifact(artifactID, signal) {
-      return request<CoreArtifact>(fetcher, `${baseUrl}/core/artifacts/${encodeURIComponent(artifactID)}/revoke`, {
-        method: 'POST', headers: writeHeaders(), signal,
       });
     },
     getConfigurationSupport(artifactID, signal) {

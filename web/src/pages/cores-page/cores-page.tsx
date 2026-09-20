@@ -8,9 +8,10 @@ import { Button } from '@/components/ui/button';
 import { waitForTask } from '@/lib/wait-for-task';
 import { toast } from '@/components/ui/toast-manager';
 import { useApiClient } from '@/api/api-client-context';
+import { SelectField } from '@/components/select-field';
 import { useControlPlane } from '@/stores/control-plane.store';
+import { WorkspaceToolbar } from '@/components/workspace-toolbar';
 import { describeRequestError, ErrorNotice } from '@/components/error-notice';
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import {
   Dialog,
   DialogContent,
@@ -24,20 +25,11 @@ import { CoreImportDialog } from './core-import-dialog';
 import { useVersionLibrary } from './use-version-library';
 import './cores-page.css';
 
-function trusted(asset: CatalogAsset) {
+function hasDownloadChecksum(asset: CatalogAsset) {
   return asset.has_api_digest && asset.has_catalog_digest
     ? asset.api_digest === asset.catalog_digest
     : asset.has_api_digest || asset.has_catalog_digest;
 }
-function capabilities(artifact: CoreArtifact): string[] {
-  const fingerprint = artifact.feature_fingerprint;
-  if (!fingerprint || typeof fingerprint !== 'object' || Array.isArray(fingerprint)) return [];
-  const values = (fingerprint as { features?: unknown }).features;
-  return Array.isArray(values)
-    ? values.filter((value): value is string => typeof value === 'string')
-    : [];
-}
-type TrustAction = 'quarantined' | 'revoked' | 'remove';
 export function CoresPage() {
   const { t } = useTranslation();
   const client = useApiClient();
@@ -49,10 +41,7 @@ export function CoresPage() {
   const [pagination, setPagination] = useState({ tab, search, size, page: 1 });
   const [pending, setPending] = useState<{ key: string; status: string } | null>(null);
   const [importOpen, setImportOpen] = useState(false);
-  const [confirmation, setConfirmation] = useState<{
-    action: TrustAction;
-    artifact: CoreArtifact;
-  } | null>(null);
+  const [confirmation, setConfirmation] = useState<CoreArtifact | null>(null);
   const lifecycleRef = useRef<AbortController | null>(null);
   useEffect(() => {
     const controller = new AbortController();
@@ -116,16 +105,14 @@ export function CoresPage() {
       if (!signal.aborted) setPending(null);
     }
   }
-  async function changeTrust() {
+  async function removeArtifact() {
     if (!confirmation || !lifecycleRef.current) return;
-    const { action, artifact } = confirmation;
+    const artifact = confirmation;
     const { signal } = lifecycleRef.current;
     setConfirmation(null);
     setPending({ key: artifact.id, status: 'running' });
     try {
-      if (action === 'remove') await client.removeCoreArtifact(artifact.id, signal);
-      else if (action === 'revoked') await client.revokeCoreArtifact(artifact.id, signal);
-      else await client.quarantineCoreArtifact(artifact.id, signal);
+      await client.removeCoreArtifact(artifact.id, signal);
       if (!signal.aborted) {
         await library.load();
         toast.add({ title: t('cores.artifact.changed'), type: 'success' });
@@ -140,68 +127,60 @@ export function CoresPage() {
     = !library.runtime
       || ['stale', 'inspection_unavailable'].includes(library.runtime.observation_state);
   return (
-    <div className='core-page'>
-      <header className='core-page__heading'>
+    <div className='core-page panel-page'>
+      <header className='core-page__heading panel-page-heading'>
         <h1>{t('cores.title')}</h1>
       </header>
       <section className='core-library' aria-label={t('cores.title')}>
-        <div className='core-tabs' role='tablist' aria-label={t('cores.title')}>
-          <Button
-            role='tab'
-            aria-selected={tab === 'installed'}
-            variant={tab === 'installed' ? 'secondary' : 'ghost'}
-            onClick={() => setTab('installed')}
-          >
-            {t('cores.tabs.installed')}
-          </Button>
-          <Button
-            role='tab'
-            aria-selected={tab === 'catalog'}
-            variant={tab === 'catalog' ? 'secondary' : 'ghost'}
-            onClick={() => setTab('catalog')}
-          >
-            {t('cores.tabs.catalog')}
-          </Button>
-        </div>
-        <div className='core-library__toolbar'>
-          <label className='core-search'>
-            <Search aria-hidden='true' />
-            <input
-              aria-label={t('cores.filter.search')}
-              placeholder={t('cores.filter.search')}
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-            />
-          </label>
-          <Tooltip>
-            <TooltipTrigger className='core-platform' render={<span tabIndex={0} role='note' />}>
-              <span>
-                {library.platform
-                  ? `${library.platform.os} / ${library.platform.arch.toUpperCase()}`
-                  : t('cores.library.platformUnknown')}
-              </span>
-            </TooltipTrigger>
-            <TooltipContent>{t('cores.library.platformHelp')}</TooltipContent>
-          </Tooltip>
-          <Button
-            variant='ghost'
-            size='icon'
-            aria-label={t('cores.refresh')}
-            disabled={Boolean(pending)}
-            onClick={() => void run('refresh', (signal) => client.refreshCatalog(true, signal))}
-          >
-            <RefreshCw />
-          </Button>
-          <Button
-            variant='ghost'
-            size='icon'
-            aria-label={t('cores.import.title')}
-            disabled={Boolean(pending) || !canImport}
-            onClick={() => setImportOpen(true)}
-          >
-            <Upload />
-          </Button>
-        </div>
+        <WorkspaceToolbar>
+          <div className='core-tabs' role='tablist' aria-label={t('cores.title')}>
+            <Button
+              role='tab'
+              aria-selected={tab === 'installed'}
+              variant={tab === 'installed' ? 'secondary' : 'ghost'}
+              onClick={() => setTab('installed')}
+            >
+              {t('cores.tabs.installed')}
+            </Button>
+            <Button
+              role='tab'
+              aria-selected={tab === 'catalog'}
+              variant={tab === 'catalog' ? 'secondary' : 'ghost'}
+              onClick={() => setTab('catalog')}
+            >
+              {t('cores.tabs.catalog')}
+            </Button>
+          </div>
+          <div className='core-library__toolbar workspace-toolbar__actions'>
+            <label className='core-search'>
+              <Search aria-hidden='true' />
+              <input
+                aria-label={t('cores.filter.search')}
+                placeholder={t('cores.filter.search')}
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+              />
+            </label>
+            <Button
+              variant='ghost'
+              size='icon'
+              aria-label={t('cores.refresh')}
+              disabled={Boolean(pending)}
+              onClick={() => void run('refresh', (signal) => client.refreshCatalog(true, signal))}
+            >
+              <RefreshCw />
+            </Button>
+            <Button
+              variant='ghost'
+              size='icon'
+              aria-label={t('cores.import.title')}
+              disabled={Boolean(pending) || !canImport}
+              onClick={() => setImportOpen(true)}
+            >
+              <Upload />
+            </Button>
+          </div>
+        </WorkspaceToolbar>
         {library.error != null && (
           <ErrorNotice error={library.error} title={t('cores.error.installed')} />
         )}
@@ -218,7 +197,7 @@ export function CoresPage() {
             <thead>
               <tr>
                 <th>{t('cores.library.version')}</th>
-                <th>{t('cores.library.sourceCapabilities')}</th>
+                <th>{t('cores.library.source')}</th>
                 <th>{t('cores.library.status')}</th>
                 <th>{t('cores.library.actions')}</th>
               </tr>
@@ -233,44 +212,9 @@ export function CoresPage() {
                       <tr key={artifact.id}>
                         <td>
                           <strong>{artifact.exact_version}</strong>
-                          <span className='core-variant'>{artifact.variant}</span>
                         </td>
                         <td>
-                          <span>
-                            {artifact.source_kind === 'official'
-                              ? t('cores.source.official')
-                              : artifact.user_source || t('cores.source.user_verified')}
-                          </span>
-                          <div className='core-capabilities'>
-                            {capabilities(artifact).map((value) => (
-                              <span key={value}>{value.replace(/^with_/, '')}</span>
-                            ))}
-                          </div>
-                          <details className='core-evidence'>
-                            <summary>{t('cores.details')}</summary>
-                            <dl>
-                              <dt>{t('cores.detail.installed')}</dt>
-                              <dd>{new Date(artifact.created_at).toLocaleString()}</dd>
-                              <dt>{t('cores.detail.archiveSha')}</dt>
-                              <dd>{artifact.archive_sha256}</dd>
-                              <dt>{t('cores.detail.binarySha')}</dt>
-                              <dd>{artifact.binary_sha256}</dd>
-                            </dl>
-                            <div className='core-trust-actions'>
-                              {(['quarantined', 'revoked', 'remove'] as const).map((action) => (
-                                <Button
-                                  key={action}
-                                  variant='ghost'
-                                  disabled={Boolean(pending) || enabled}
-                                  onClick={() => setConfirmation({ action, artifact })}
-                                >
-                                  {t(
-                                    `cores.action.${action === 'quarantined' ? 'quarantine' : action === 'revoked' ? 'revoke' : 'remove'}`,
-                                  )}
-                                </Button>
-                              ))}
-                            </div>
-                          </details>
+                          {t(artifact.source_kind === 'official' ? 'cores.source.official' : 'cores.source.user_verified')}
                         </td>
                         <td>
                           <span className={`core-status ${enabled ? 'is-running' : ''}`}>
@@ -278,64 +222,72 @@ export function CoresPage() {
                               ? t(`cores.library.${pending.status}`)
                               : enabled
                                 ? t('cores.library.enabled')
-                                : t(`cores.state.${artifact.verification_state}`)}
+                                : runtimeUncertain
+                                  ? t('cores.library.unknown')
+                                  : t('cores.library.disabled')}
                           </span>
                         </td>
                         <td>
-                          <Button
-                            variant='ghost'
-                            disabled={
-                              Boolean(pending)
-                              || runtimeUncertain
-                              || artifact.verification_state !== 'verified'
-                            }
-                            onClick={() =>
-                              void run(artifact.id, (signal) =>
-                                enabled
-                                  ? client.stopRuntime(signal)
-                                  : client.enableCore(artifact.id, signal),
-                              )
-                            }
-                          >
-                            {t(enabled ? 'cores.library.disable' : 'cores.library.enable')}
-                          </Button>
+                          <div className='core-row-actions'>
+                            <Button
+                              variant={enabled ? 'destructive' : 'default'}
+                              title={runtimeUncertain ? t('cores.library.unknown') : undefined}
+                              disabled={
+                                Boolean(pending)
+                                || runtimeUncertain
+                              }
+                              onClick={() =>
+                                void run(artifact.id, (signal) =>
+                                  enabled
+                                    ? client.stopRuntime(signal)
+                                    : client.enableCore(artifact.id, signal),
+                                )
+                              }
+                            >
+                              {t(enabled ? 'cores.library.disable' : 'cores.library.enable')}
+                            </Button>
+                            <Button
+                              variant='destructive'
+                              disabled={Boolean(pending) || enabled || runtimeUncertain}
+                              onClick={() => setConfirmation(artifact)}
+                            >
+                              {t('cores.action.remove')}
+                            </Button>
+                          </div>
                         </td>
                       </tr>
                     );
                   })
                 : available.slice(start, start + size).map((asset) => {
-                    const exists = library.artifacts.some(
-                      (artifact) =>
-                        artifact.asset_id === asset.asset_id
-                        && artifact.verification_state === 'verified',
-                    );
+                    const downloaded = library.artifacts.find((artifact) => artifact.asset_id === asset.asset_id);
+                    const exists = Boolean(downloaded);
+                    const enabled = library.runtime?.observation_state === 'running'
+                      && downloaded?.id === library.runtime.running?.core_artifact_id;
                     return (
                       <tr key={asset.asset_id}>
                         <td>
                           <strong>{asset.version}</strong>
-                          <span className='core-variant'>{asset.variant}</span>
                         </td>
                         <td>
                           {t('cores.source.official')}
-                          <span className='core-asset-size'>
-                            {(asset.size / (1024 * 1024)).toFixed(1)}
-                            {' '}
-                            MB
-                          </span>
+
                         </td>
                         <td>
                           {pending?.key === `install:${asset.asset_id}`
                             ? t(`cores.library.${pending.status}`)
-                            : exists
-                              ? t('cores.tabs.installed')
-                              : trusted(asset)
-                                ? t('cores.state.verified')
-                                : t('cores.startup.blocked')}
+                            : !downloaded
+                                ? t('cores.library.notInstalled')
+                                : enabled
+                                  ? t('cores.library.enabled')
+                                  : runtimeUncertain
+                                    ? t('cores.library.unknown')
+                                    : t('cores.library.disabled')}
                         </td>
                         <td>
                           <Button
-                            variant='ghost'
-                            disabled={Boolean(pending) || !trusted(asset) || exists}
+                            variant='default'
+                            title={!hasDownloadChecksum(asset) ? t('cores.installUnavailable') : undefined}
+                            disabled={Boolean(pending) || !hasDownloadChecksum(asset) || exists}
                             onClick={() =>
                               void run(`install:${asset.asset_id}`, (signal) =>
                                 client.installCore(asset.asset_id, signal),
@@ -357,17 +309,14 @@ export function CoresPage() {
           )}
         </div>
         <footer className='core-pagination'>
-          <select
+          <SelectField
             aria-label={t('cores.library.pageSize')}
             value={size}
-            onChange={(event) => setSize(Number(event.target.value))}
-          >
-            {[5, 10, 50].map((value) => (
-              <option key={value} value={value}>
-                {t('cores.library.perPage', { count: value })}
-              </option>
-            ))}
-          </select>
+            onValueChange={(value) => {
+              setSize(value);
+            }}
+            items={[5, 10, 50].map((value) => ({ value, label: t('cores.library.perPage', { count: value }) }))}
+          />
           <div>
             <Button
               variant='ghost'
@@ -408,7 +357,7 @@ export function CoresPage() {
             <Button variant='secondary' onClick={() => setConfirmation(null)}>
               {t('cores.confirm.cancel')}
             </Button>
-            <Button variant='secondary' onClick={() => void changeTrust()}>
+            <Button variant='destructive' onClick={() => void removeArtifact()}>
               {t('cores.confirm.action')}
             </Button>
           </DialogFooter>

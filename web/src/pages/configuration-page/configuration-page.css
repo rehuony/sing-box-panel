@@ -183,7 +183,7 @@
 
 .schema-form__grid {
   display: grid;
-  gap: var(--space-sm);
+  gap: var(--form-field-gap);
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
@@ -192,7 +192,7 @@
 }
 
 .schema-form__field {
-  gap: var(--space-2xs);
+  gap: var(--form-label-gap);
 }
 
 .schema-form__field [data-slot='field-description'],
@@ -204,14 +204,6 @@
 .schema-form__field textarea,
 .schema-form__field [data-slot='select-trigger'] {
   min-height: 2.75rem;
-  outline: 2px solid transparent;
-  outline-offset: 1px;
-}
-
-.schema-form__field input:focus-visible,
-.schema-form__field textarea:focus-visible,
-.schema-form__field [data-slot='select-trigger']:focus-visible {
-  outline-color: var(--color-focus);
 }
 
 .managed-editor {
@@ -239,10 +231,7 @@
 .managed-node-list {
   display: grid;
   gap: var(--space-xs);
-  max-height: min(55dvh, 36rem);
   min-height: 8rem;
-  overflow-y: auto;
-  overscroll-behavior: contain;
   padding: var(--space-2xs);
 }
 
@@ -268,7 +257,7 @@
 }
 
 .managed-node-card:focus-within {
-  border-color: var(--color-focus);
+  border-color: var(--input-focus);
 }
 
 .managed-node-card__handle {
@@ -369,7 +358,6 @@
   white-space: pre;
 }
 
-.advanced-configuration-editor,
 .revision-section,
 .startup-workflow {
   background: var(--color-surface);
@@ -380,108 +368,19 @@
   padding: var(--space-md);
 }
 
-.advanced-configuration-editor__summary,
-.advanced-configuration-editor__heading,
 .section-heading {
   align-items: center;
   display: flex;
   gap: var(--space-sm);
-}
-
-.advanced-configuration-editor__summary,
-.section-heading {
   justify-content: space-between;
 }
 
-.advanced-configuration-editor__summary {
-  cursor: pointer;
-  list-style: none;
-  min-height: 2.75rem;
-}
-
-.advanced-configuration-editor__summary::-webkit-details-marker {
-  display: none;
-}
-
-.advanced-configuration-editor__icon {
-  align-items: center;
-  background: var(--color-primary-soft);
-  border-radius: var(--radius-control);
-  color: var(--color-primary);
-  display: inline-flex;
-  height: 2.75rem;
-  justify-content: center;
-  width: 2.75rem;
-}
-
-.advanced-configuration-editor__icon svg {
-  height: 1rem;
-  width: 1rem;
-}
-
-.advanced-configuration-editor__title,
 .section-heading h2,
 .section-heading h3 {
   font-family: var(--font-display);
   font-size: var(--text-base);
   font-weight: 680;
   margin: 0;
-}
-
-.advanced-configuration-editor__state {
-  align-items: center;
-  color: var(--color-success-text);
-  display: flex;
-  font-size: var(--text-xs);
-  gap: var(--space-xs);
-  white-space: nowrap;
-}
-
-.advanced-configuration-editor__state--error,
-.advanced-configuration-editor__validation--error {
-  color: var(--color-danger-text);
-}
-
-.advanced-configuration-editor__chevron {
-  transition: transform var(--dur-short) var(--ease-out);
-}
-
-.advanced-configuration-editor details[open] .advanced-configuration-editor__chevron {
-  transform: rotate(180deg);
-}
-
-.advanced-configuration-editor__body {
-  display: grid;
-  gap: var(--space-sm);
-  padding-top: var(--space-md);
-}
-
-.advanced-configuration-editor__textarea {
-  background: var(--color-surface-raised);
-  border: 1px solid transparent;
-  border-radius: var(--radius-control);
-  color: var(--color-text);
-  font-family: var(--font-data);
-  font-size: var(--text-sm);
-  line-height: 1.6;
-  outline: 2px solid transparent;
-  outline-offset: 1px;
-  padding: 16px;
-  resize: none;
-  width: 100%;
-}
-
-.advanced-configuration-editor__textarea:focus-visible {
-  outline-color: var(--color-focus);
-}
-
-.advanced-configuration-editor__validation {
-  align-items: center;
-  color: var(--color-success-text);
-  display: flex;
-  font-size: var(--text-xs);
-  gap: var(--space-xs);
-  min-height: 1lh;
 }
 
 .source-note,
@@ -654,13 +553,12 @@
 
 .startup-workflow .form-grid {
   display: grid;
-  gap: var(--space-sm);
+  gap: var(--form-field-gap);
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .startup-workflow .field-group,
-.revision-diff-controls .field-group,
-.advanced-configuration-editor .field-group {
+.revision-diff-controls .field-group {
   display: grid;
   gap: var(--space-2xs);
   min-width: 0;
@@ -673,15 +571,7 @@
   border: var(--rule-thin) solid var(--color-border-strong);
   border-radius: var(--radius-control);
   min-height: 2.75rem;
-  outline: 2px solid transparent;
-  outline-offset: 1px;
   padding-inline: var(--space-sm);
-}
-
-.startup-workflow input:focus-visible,
-.startup-workflow select:focus-visible,
-.revision-section select:focus-visible {
-  outline-color: var(--color-focus);
 }
 
 .projection-preview {
@@ -776,10 +666,6 @@
     gap: var(--space-xs);
     grid-template-columns: auto auto minmax(0, 1fr) auto auto;
   }
-
-  .advanced-configuration-editor__textarea {
-    min-height: 18rem;
-  }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -827,9 +713,8 @@
 .configuration-page {
   display: flex;
   flex-direction: column;
-  height: 100%;
   min-height: 0;
-  gap: 24px;
+  gap: 16px;
 }
 .configuration-page > h1 {
   margin: 0;
@@ -840,7 +725,7 @@
   display: flex;
   flex-direction: column;
   min-height: 0;
-  padding: 24px;
+  padding: 24px 24px 8px;
   border: 1px solid var(--color-rule-2);
   border-radius: var(--radius-card);
   background: var(--color-surface);
@@ -857,21 +742,19 @@
   flex: 0 0 auto;
   padding-bottom: 16px;
 }
-.configuration-filename {
-  color: var(--color-text-muted);
-  font-size: var(--text-sm);
-}
+
 .configuration-tabs__content {
   flex: 1;
   min-height: 0;
   overflow: hidden;
-  padding-top: 24px;
+  padding-top: 8px;
 }
 .configuration-footer {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding-top: 16px;
+  gap: 8px 12px;
+  padding-top: 8px;
+  flex: none;
   border-top: 1px solid var(--color-rule-2);
 }
 .configuration-file-state {
@@ -913,6 +796,7 @@
   padding-right: 8px;
 }
 .advanced-configuration-editor {
+  min-width: 0;
   display: flex;
   flex-direction: column;
   height: 100%;
@@ -922,15 +806,7 @@
   box-shadow: none;
   background: transparent;
 }
-.advanced-configuration-editor__textarea {
-  resize: none;
-  flex: 1;
-  min-height: 0;
-  height: 100%;
-  background: var(--color-surface-raised);
-  border-color: transparent;
-  border-radius: var(--radius-control);
-}
+
 .configuration-json-error {
   color: var(--color-danger);
   font-size: var(--text-xs);
@@ -941,7 +817,7 @@
 }
 @media (max-width: 720px) {
   .configuration-workspace {
-    padding: 16px;
+    padding: 16px 16px 8px;
   }
   .configuration-general {
     grid-template-columns: 1fr;
@@ -950,6 +826,7 @@
     gap: 16px;
   }
   .configuration-general__nav {
+    display: flex;
     height: auto;
     flex-direction: row;
     width: 100%;
@@ -957,14 +834,15 @@
     flex-shrink: 0;
   }
   .configuration-general__nav [data-slot='tabs-trigger'] {
+    flex: 0 0 auto;
     width: auto;
   }
   .configuration-section-scroll {
+    flex: 1;
+    height: auto;
     width: 100%;
   }
-  .configuration-filename {
-    display: none;
-  }
+
   .configuration-footer {
     flex-wrap: wrap;
   }
@@ -976,13 +854,13 @@
 /* Native settings keep labels and controls on consistent single rows. */
 .configuration-section-scroll .schema-form__grid {
   grid-template-columns: minmax(0, 1fr);
-  gap: 16px;
+  gap: var(--form-field-gap);
 }
 .configuration-section-scroll .schema-form__field {
   display: grid;
   grid-template-columns: minmax(120px, 1fr) minmax(180px, 360px);
   align-items: center;
-  gap: 8px 24px;
+  gap: var(--form-label-gap) 24px;
   min-height: 44px;
 }
 .configuration-section-scroll .schema-form__field > [data-slot='field-label'] {
@@ -1004,7 +882,7 @@
 @media (max-width: 900px) {
   .configuration-section-scroll .schema-form__field {
     grid-template-columns: minmax(0, 1fr);
-    gap: 8px;
+    gap: var(--form-label-gap);
   }
   .configuration-section-scroll .schema-form__field > :not([data-slot='field-label']) {
     grid-column: 1;

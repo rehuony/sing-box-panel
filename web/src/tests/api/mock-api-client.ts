@@ -143,7 +143,6 @@ export const testArtifacts: CoreArtifactPage = {
       binary_path: '/var/lib/sing-box-panel/artifacts/core_1/sing-box',
       reported_version: '1.13.19',
       feature_fingerprint: { status: 'reported', features: ['with_quic'] },
-      verification_state: 'verified',
       created_at: '2026-08-26T07:22:00Z',
     },
   ],
@@ -400,14 +399,6 @@ export function createMockApiClient(overrides: Partial<ApiClient> = {}): Mocked<
       kind: 'core-import',
     }),
     removeCoreArtifact: vi.fn().mockResolvedValue(undefined),
-    quarantineCoreArtifact: vi.fn().mockResolvedValue({
-      ...testArtifacts.items[0],
-      verification_state: 'quarantined',
-    }),
-    revokeCoreArtifact: vi.fn().mockResolvedValue({
-      ...testArtifacts.items[0],
-      verification_state: 'revoked',
-    }),
     getConfigurationSupport: vi.fn().mockResolvedValue(support),
     getConfigurationSchema: vi.fn(async () => {
       const reviewed = await reviewedSchemaManifest[testSchemaVersion]?.load();

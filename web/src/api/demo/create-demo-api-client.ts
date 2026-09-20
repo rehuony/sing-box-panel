@@ -259,7 +259,6 @@ function runningRuntime(state: DemoState, task: Task, bundleID?: string): void {
   const core
     = state.cores.find((item) => item.id === state.selectedCoreID)
       ?? state.cores.find((item) => item.id === state.runtime.running?.core_artifact_id)
-      ?? state.cores.find((item) => item.verification_state === 'verified')
       ?? state.cores[0];
   if (core === undefined) return;
   const processToken = `demo-process-${state.nextID}-${Date.now()}`;
@@ -566,9 +565,7 @@ export function createDemoApiClient(): ApiClient {
           (filter.exactVersion === undefined || artifact.exact_version === filter.exactVersion)
           && (filter.architecture === undefined || artifact.arch === filter.architecture)
           && (filter.variant === undefined || artifact.variant === filter.variant)
-          && (filter.sourceKind === undefined || artifact.source_kind === filter.sourceKind)
-          && (filter.verificationState === undefined
-            || artifact.verification_state === filter.verificationState),
+          && (filter.sourceKind === undefined || artifact.source_kind === filter.sourceKind),
       );
       return respond(pageByCreatedAt(filtered, filter), signal);
     },
@@ -607,7 +604,6 @@ export function createDemoApiClient(): ApiClient {
             binary_path: `/var/lib/sing-box-panel/artifacts/${id}/sing-box`,
             reported_version: input.exactVersion,
             feature_fingerprint: { source: 'demo-import' },
-            verification_state: 'verified',
             created_at: updatedAt(),
           });
         },
@@ -619,16 +615,6 @@ export function createDemoApiClient(): ApiClient {
       requireItem(state.cores, artifactID, 'Core artifact');
       state.cores = state.cores.filter((item) => item.id !== artifactID);
       await respond(undefined, signal);
-    },
-    quarantineCoreArtifact(artifactID, signal) {
-      const artifact = requireItem(state.cores, artifactID, 'Core artifact');
-      artifact.verification_state = 'quarantined';
-      return respond(artifact, signal);
-    },
-    revokeCoreArtifact(artifactID, signal) {
-      const artifact = requireItem(state.cores, artifactID, 'Core artifact');
-      artifact.verification_state = 'revoked';
-      return respond(artifact, signal);
     },
     getConfigurationSupport(artifactID, signal) {
       const artifact = requireItem(state.cores, artifactID, 'Core artifact');
@@ -805,12 +791,12 @@ export function createDemoApiClient(): ApiClient {
       assertActive(signal);
       requireParsedFile();
       const artifact = requireItem(state.cores, artifactID, 'Core artifact');
+      const platform = demoSystemStatus(state).platform;
       if (
-        artifact.verification_state !== 'verified'
-        || artifact.os !== 'linux'
-        || artifact.arch !== 'arm64'
+        artifact.os !== platform?.os
+        || artifact.arch !== platform?.arch
       ) {
-        throw new Error('The core must be verified and match the demo platform.');
+        throw new Error('The core must match the demo platform.');
       }
       const task = queueTask(state, 'runtime-restart', {
         complete: () => {
@@ -1352,7 +1338,6 @@ function coreFromCatalog(state: DemoState, asset: CatalogAsset): CoreArtifact {
     binary_path: `/var/lib/sing-box-panel/artifacts/${id}/sing-box`,
     reported_version: asset.version,
     feature_fingerprint: { source: 'demo-install' },
-    verification_state: 'verified',
     created_at: updatedAt(),
   };
 }

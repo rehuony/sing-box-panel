@@ -1,7 +1,8 @@
+import { EditorView } from '@codemirror/view';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { Link, MemoryRouter, Route, Routes } from 'react-router-dom';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 
 import type { ApiClient, ConfigurationFile } from '@/api/api-client';
 
@@ -27,6 +28,14 @@ const toastAdd = vi.spyOn(toast, 'add');
 const savedFile: ConfigurationFile = {
   revision: 1, content: testRevision.document_json, syntax_valid: true, canonical_revision_id: testRevision.id,
 };
+
+function editorView(element: HTMLElement) {
+  return EditorView.findFromDOM(element)!;
+}
+function changeEditor(element: HTMLElement, text: string) {
+  const view = editorView(element);
+  act(() => view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: text } }));
+}
 
 function renderPage(client: ApiClient) {
   return render(
@@ -76,13 +85,13 @@ describe('configurationPage', () => {
         </ApiClientProvider>
       </MemoryRouter>,
     );
-    fireEvent.change(await screen.findByLabelText('sing-box configuration JSON'), { target: { value: content } });
+    changeEditor(await screen.findByLabelText('sing-box configuration JSON'), content);
     await user.click(screen.getByRole('link', { name: 'Other page' }));
     const unload = new Event('beforeunload', { cancelable: true });
     window.dispatchEvent(unload);
     expect(unload.defaultPrevented).toBe(true);
     await user.click(screen.getByRole('link', { name: 'Configuration page' }));
-    expect(await screen.findByLabelText('sing-box configuration JSON')).toHaveValue(content);
+    expect(editorView(await screen.findByLabelText('sing-box configuration JSON')).state.doc.toString()).toBe(content);
     expect(client.getConfigurationFile).toHaveBeenCalledTimes(1);
     await user.click(screen.getByRole('button', { name: 'Save configuration' }));
     await waitFor(() => expect(client.saveConfigurationFile).toHaveBeenCalledWith({ revision: 1, content }));
@@ -103,7 +112,7 @@ describe('configurationPage', () => {
     });
     const user = userEvent.setup();
     renderPage(client);
-    expect(await screen.findByLabelText('sing-box configuration JSON')).toHaveValue('{}');
+    expect(editorView(await screen.findByLabelText('sing-box configuration JSON')).state.doc.toString()).toBe('{}');
     expect(screen.getByRole('button', { name: 'Validate configuration' })).toBeDisabled();
     await user.click(screen.getByRole('button', { name: 'Save configuration' }));
     await waitFor(() => expect(client.saveConfigurationFile).toHaveBeenCalledWith({ revision: 0, content: '{}' }));
@@ -118,9 +127,9 @@ describe('configurationPage', () => {
       getConfigurationFile: vi.fn().mockResolvedValue({ revision: 8, content: '{"log":', syntax_valid: false }),
     }));
     const editor = await screen.findByLabelText('sing-box configuration JSON');
-    expect(editor).toHaveValue('{"log":');
+    expect(editorView(editor).state.doc.toString()).toBe('{"log":');
     expect(screen.getByRole('tab', { name: 'Visual editor' })).toHaveAttribute('aria-disabled', 'true');
-    fireEvent.change(editor, { target: { value: '{"log":{}}' } });
+    changeEditor(editor, '{"log":{}}');
     expect(screen.getByRole('button', { name: 'Save configuration' })).toBeEnabled();
     expect(screen.getByRole('button', { name: 'Validate configuration' })).toBeDisabled();
   });
@@ -135,13 +144,13 @@ describe('configurationPage', () => {
     renderPage(client);
     const editor = await screen.findByLabelText('sing-box configuration JSON');
     const content = '{\n  "future": { "large": 900719925474099312345678901234567890, "threshold": 4.2000e+99 }\n}';
-    fireEvent.change(editor, { target: { value: content } });
+    changeEditor(editor, content);
     await user.click(screen.getByRole('button', { name: 'Save configuration' }));
-    expect(editor).toBeDisabled();
+    expect(editor).toHaveAttribute('contenteditable', 'false');
     expect(client.saveConfigurationFile).toHaveBeenCalledWith({ revision: 1, content });
     finishSave({ ...savedFile, revision: 2, content });
-    await waitFor(() => expect(editor).toBeEnabled());
-    expect(editor).toHaveValue(content);
+    await waitFor(() => expect(editor).toHaveAttribute('contenteditable', 'true'));
+    expect(editorView(editor).state.doc.toString()).toBe(content);
   });
 
   it.skipIf(reviewedSchema === undefined)('defaults to native visual fields and preserves unknown values', async () => {
@@ -172,7 +181,7 @@ describe('configurationPage', () => {
       getConfigurationSchema: vi.fn().mockResolvedValue({ ...contract, schema_sha256: 'f'.repeat(64) }),
     });
     renderPage(client);
-    expect(await screen.findByLabelText('sing-box configuration JSON')).toBeEnabled();
+    expect(await screen.findByLabelText('sing-box configuration JSON')).toHaveAttribute('contenteditable', 'true');
     await waitFor(() => expect(client.getConfigurationSchema).toHaveBeenCalled());
     expect(screen.getByRole('tab', { name: 'Visual editor' })).toHaveAttribute('aria-disabled', 'true');
     expect(screen.getByRole('button', { name: 'Validate configuration' })).toBeEnabled();
@@ -186,11 +195,11 @@ describe('configurationPage', () => {
     renderPage(client);
     const editor = await screen.findByLabelText('sing-box configuration JSON');
     const content = '{"future_feature":{"enabled":true}}';
-    fireEvent.change(editor, { target: { value: content } });
+    changeEditor(editor, content);
     await user.click(screen.getByRole('button', { name: 'Save configuration' }));
     await waitFor(() => expect(toastAdd).toHaveBeenCalledWith(expect.objectContaining({ type: 'error' })));
-    expect(editor).toBeEnabled();
-    expect(editor).toHaveValue(content);
+    expect(editor).toHaveAttribute('contenteditable', 'true');
+    expect(editorView(editor).state.doc.toString()).toBe(content);
     expect(screen.getByRole('button', { name: 'Save configuration' })).toBeEnabled();
   });
 
@@ -203,12 +212,12 @@ describe('configurationPage', () => {
     renderPage(client);
     await screen.findByLabelText('sing-box configuration JSON');
     await user.click(screen.getByRole('button', { name: 'Validate configuration' }));
-    expect(screen.getByLabelText('sing-box configuration JSON')).toBeDisabled();
+    expect(screen.getByLabelText('sing-box configuration JSON')).toHaveAttribute('contenteditable', 'false');
     expect(toastAdd).not.toHaveBeenCalled();
     await waitFor(() => expect(toastAdd).toHaveBeenCalledWith(expect.objectContaining({
       type: status === 'succeeded' ? 'success' : 'error',
     })), { timeout: 3000 });
-    expect(screen.getByLabelText('sing-box configuration JSON')).toBeEnabled();
+    expect(screen.getByLabelText('sing-box configuration JSON')).toHaveAttribute('contenteditable', 'true');
     expect(client.startRuntime).not.toHaveBeenCalled();
     expect(client.restartRuntime).not.toHaveBeenCalled();
   });

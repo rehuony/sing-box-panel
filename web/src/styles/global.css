@@ -74,7 +74,6 @@
   --color-subscription-nav-hover: #ffffffe0;
   --color-code-editor-border: #6f8bb161;
   --color-code-editor-text: #e4eefc;
-  --shadow-code-editor-focus: 0 0 0 4px #3478f633;
   --background-one-time-secret: linear-gradient(135deg, var(--color-warning-surface), #fffbf4eb);
   --background-login-page: linear-gradient(150deg, #f9fbff, var(--color-canvas));
   --background-login-identity: linear-gradient(145deg, #ffffffc7, #eef1ff9e);
@@ -93,6 +92,9 @@
   --space-lg: 1.5rem;
   --space-xl: 2.5rem;
   --space-2xl: 4rem;
+  --form-field-gap: 12px;
+  --form-label-gap: 6px;
+  --form-section-gap: 20px;
   --text-xs: 0.75rem;
   --text-sm: 0.875rem;
   --text-base: 1rem;
@@ -113,7 +115,7 @@
   --shadow-panel: inset 0 1px 0 oklch(100% 0 0 / 65%), 0 18px 48px -28px oklch(30% 0.05 286 / 30%);
   --z-sticky: 200;
   --z-sticky-nav: 300;
-  --z-popover: 350;
+  --z-popover: 450;
   --z-modal: 400;
   --background: var(--color-paper);
   --foreground: var(--color-ink);
@@ -133,6 +135,7 @@
   --destructive-foreground: var(--color-accent-ink);
   --border: oklch(86% 0.02 286);
   --input: oklch(86% 0.02 286);
+  --input-focus: color-mix(in oklch, var(--foreground) 25%, var(--background));
   --ring: var(--color-focus);
   --radius: var(--radius-control);
   --sidebar: oklch(97% 0.014 286);
@@ -176,7 +179,7 @@
   --color-primary-soft: var(--color-accent-soft);
   --color-primary-border: var(--color-rule);
   --color-glass: color-mix(in srgb, var(--card) 82%, transparent);
-  --color-glass-header: color-mix(in srgb, var(--card) 82%, transparent);
+  --color-glass-header: oklch(100% 0 0 / 58%);
   --color-glass-strong: color-mix(in srgb, var(--card) 94%, transparent);
   --color-glass-border: oklch(100% 0.006 286 / 86%);
   --shell-sidebar-width: 17.5rem;
@@ -265,7 +268,6 @@
   --color-subscription-nav-hover: oklch(29% 0.024 274 / 92%);
   --color-code-editor-border: oklch(58% 0.08 248 / 52%);
   --color-code-editor-text: oklch(92% 0.03 248);
-  --shadow-code-editor-focus: 0 0 0 4px oklch(72% 0.13 248 / 24%);
   --background-one-time-secret: linear-gradient(135deg, var(--color-warning-surface), oklch(22% 0.025 72 / 94%));
   --background-login-page: linear-gradient(150deg, oklch(18% 0.02 274), var(--color-canvas));
   --background-login-identity: linear-gradient(145deg, oklch(24% 0.025 274 / 90%), oklch(20% 0.04 293 / 80%));
@@ -317,7 +319,7 @@
   --color-primary-soft: var(--color-accent-soft);
   --color-primary-border: oklch(45% 0.08 293);
   --color-glass: oklch(20% 0.018 274 / 72%);
-  --color-glass-header: oklch(20% 0.018 274 / 66%);
+  --color-glass-header: oklch(20% 0 0 / 58%);
   --color-glass-strong: oklch(24% 0.02 274 / 92%);
   --color-glass-border: oklch(48% 0.025 286 / 34%);
   --color-running-border: oklch(46% 0.08 165);
@@ -350,6 +352,7 @@
 
 @media (prefers-contrast: more) {
   :root {
+    --input-focus: color-mix(in oklch, var(--foreground) 55%, var(--background));
     --color-border: #2a374c47;
     --color-border-strong: #2a374c7a;
     --color-focus-ring: #3536a8;
@@ -377,6 +380,7 @@
   --color-destructive-foreground: var(--destructive-foreground);
   --color-border: var(--border);
   --color-input: var(--input);
+  --color-input-focus: var(--input-focus);
   --color-ring: var(--ring);
   --color-sidebar: var(--sidebar);
   --color-sidebar-foreground: var(--sidebar-foreground);
@@ -531,6 +535,15 @@ h3 {
   box-shadow: 0 0 0 3px var(--color-focus-soft);
   outline: 2px solid var(--color-focus-ring);
   outline-offset: 1px;
+}
+
+:where(input:not([type='checkbox'], [type='radio'], [type='range'], [type='color']), textarea, select):not(
+    [data-slot]
+  ):focus-visible {
+  border-color: var(--input-focus);
+  box-shadow: none;
+  outline: 1px solid var(--input-focus);
+  outline-offset: -1px;
 }
 
 ::selection {
@@ -752,7 +765,7 @@ h3 {
 
 .field-group {
   display: grid;
-  gap: var(--space-2);
+  gap: var(--form-label-gap);
   min-width: 0;
 }
 
@@ -798,16 +811,9 @@ select:hover:not(:disabled) {
 .field-group textarea:focus,
 select:focus {
   background: var(--color-surface);
-  border-color: var(--color-primary);
-  box-shadow: 0 0 0 4px var(--color-focus-soft);
+  border-color: var(--input-focus);
+  box-shadow: none;
   outline: none;
-}
-
-.field-group input:focus-visible,
-.field-group textarea:focus-visible,
-select:focus-visible {
-  outline: 2px solid var(--color-focus-ring);
-  outline-offset: 1px;
 }
 
 .field-group input:disabled,

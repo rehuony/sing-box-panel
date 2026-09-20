@@ -5,13 +5,9 @@ package httpapi
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"net/http"
 	"runtime"
 	"testing"
-
-	"github.com/rehuony/sing-box-panel/internal/application"
-	"github.com/rehuony/sing-box-panel/internal/store"
 )
 
 func TestSystemPlatformDescribesDeployedBinary(t *testing.T) {
@@ -22,11 +18,10 @@ func TestSystemPlatformDescribesDeployedBinary(t *testing.T) {
 		t.Fatal(response.Code, response.Body.String())
 	}
 }
-func TestEnableCoreRejectsPlatformOrTrustBeforeQueueing(t *testing.T) {
+func TestEnableCoreRejectsWrongPlatformBeforeQueueing(t *testing.T) {
 	handler, db := newCoreHTTPFixture(t)
 	artifact := seedCoreHTTPArtifact(t, db)
-	// Both artifacts are rejected on every test host: one has a different CPU,
-	// the other is quarantined. No runtime intention may be queued.
+	// An incompatible CPU must be rejected before any runtime intent is queued.
 	if runtime.GOARCH == "amd64" {
 		artifact.Architecture = "arm64"
 	} else {
@@ -38,20 +33,6 @@ func TestEnableCoreRejectsPlatformOrTrustBeforeQueueing(t *testing.T) {
 		t.Fatal(err)
 	}
 	response := authenticatedRequest(handler, http.MethodPost, "/api/v1/core/artifacts/"+artifact.ID+"/enable", "", "")
-	if response.Code != http.StatusConflict {
-		t.Fatal(response.Code, response.Body.String())
-	}
-	artifact.ID = "quarantined"
-	artifact.Architecture = runtime.GOARCH
-	artifact.AssetID = 5002
-	artifact.VerificationState = store.CoreArtifactQuarantined
-	if _, err := db.UpsertCoreArtifact(context.Background(), artifact); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := handler.commands.EnableCore(context.Background(), artifact.ID); !errors.Is(err, application.ErrCoreArtifactVerificationBlocked) {
-		t.Fatalf("quarantined artifact must fail trust verification: %v", err)
-	}
-	response = authenticatedRequest(handler, http.MethodPost, "/api/v1/core/artifacts/"+artifact.ID+"/enable", "", "")
 	if response.Code != http.StatusConflict {
 		t.Fatal(response.Code, response.Body.String())
 	}

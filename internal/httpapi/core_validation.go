@@ -79,10 +79,6 @@ func validOptionalArchitecture(value string) bool {
 func validOptionalCoreArtifactSource(value string) bool {
 	return value == "" || value == string(store.CoreArtifactSourceOfficial) || value == string(store.CoreArtifactSourceUserVerified)
 }
-func validOptionalCoreArtifactVerification(value string) bool {
-	return value == "" || value == string(store.CoreArtifactVerified) || value == string(store.CoreArtifactRevoked) || value == string(store.CoreArtifactQuarantined)
-}
-
 func validOptionalVariant(value string) bool {
 	if value == "" {
 		return true

@@ -135,7 +135,7 @@ func (application *Application) PrepareActivationBundle(
 
 // verifyActivationCandidate rechecks every mutable eligibility decision at
 // bundle-preparation time. Old bundles remain immutable, while a stale head or
-// revoked binary cannot produce a new bundle.
+// changed binary identity cannot produce a new bundle.
 func (application *Application) verifyActivationCandidate(
 	ctx context.Context,
 	startup store.StartupArtifact,
@@ -157,8 +157,7 @@ func (application *Application) verifyActivationCandidate(
 	if err != nil {
 		return err
 	}
-	if core.VerificationState != store.CoreArtifactVerified ||
-		core.ExactVersion != startup.ExactCoreVersion ||
+	if core.ExactVersion != startup.ExactCoreVersion ||
 		core.ReportedVersion != startup.ExactCoreVersion {
 		return fmt.Errorf(
 			"%w: exact core artifact is no longer eligible",
@@ -344,7 +343,7 @@ func (application *Application) runtimeMaterial(
 	if err != nil {
 		return RuntimeMaterial{}, err
 	}
-	if core.VerificationState != store.CoreArtifactVerified || core.ExactVersion != startup.ExactCoreVersion ||
+	if core.ExactVersion != startup.ExactCoreVersion ||
 		core.ReportedVersion != startup.ExactCoreVersion {
 		return RuntimeMaterial{}, store.ErrActivationBundleNotReady
 	}

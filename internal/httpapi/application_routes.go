@@ -5,8 +5,6 @@ package httpapi
 import (
 	"net/http"
 	"strings"
-
-	"github.com/rehuony/sing-box-panel/internal/store"
 )
 
 const (
@@ -95,14 +93,6 @@ func (handler *Handler) handleApplicationRoute(w http.ResponseWriter, request *h
 		case resource == "artifact-configuration-schema" && request.Method == http.MethodGet:
 			next = func(w http.ResponseWriter, request *http.Request) {
 				handler.coreConfigurationSchema(w, request, identifier)
-			}
-		case resource == "artifact-quarantine" && request.Method == http.MethodPost:
-			next = func(w http.ResponseWriter, request *http.Request) {
-				handler.restrictCoreArtifact(w, request, identifier, store.CoreArtifactQuarantined)
-			}
-		case resource == "artifact-revoke" && request.Method == http.MethodPost:
-			next = func(w http.ResponseWriter, request *http.Request) {
-				handler.restrictCoreArtifact(w, request, identifier, store.CoreArtifactRevoked)
 			}
 		case resource == "install" && request.Method == http.MethodPost:
 			next = handler.queueCoreInstall
@@ -217,10 +207,6 @@ func matchCoreRoute(path string) (string, string, bool) {
 			return "artifact-configuration-schema", parts[0], true
 		case "enable":
 			return "artifact-enable", parts[0], true
-		case "quarantine":
-			return "artifact-quarantine", parts[0], true
-		case "revoke":
-			return "artifact-revoke", parts[0], true
 		}
 	}
 	if remainder == "" || strings.Contains(remainder, "/") {

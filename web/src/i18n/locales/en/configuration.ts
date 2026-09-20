@@ -14,6 +14,15 @@ export const configuration = {
   discardDescription: 'Return to the last saved revision. This also clears unfinished JSON edits.',
 
   advanced: {
+    find: 'Find', replace: 'Replace', replaceAll: 'Replace all', toggleReplace: 'Toggle replace',
+    matchCase: 'Match case', wholeWord: 'Whole word', regexp: 'Regular expression',
+    previous: 'Previous match', next: 'Next match', selectAll: 'Select all matches',
+    noResults: 'No results', invalidRegex: 'Invalid regex', matches_one: '{{count}} match', matches_other: '{{count}} matches',
+    format: 'Format',
+    search: 'Find / replace',
+    fold: 'Fold all',
+    unfold: 'Unfold all',
+
     attention: 'Needs attention',
     description: 'Edit the exact sing-box configuration. Unknown fields and numeric lexemes remain lossless.',
     document: 'sing-box configuration JSON',

@@ -32,3 +32,9 @@ if (typeof ResizeObserver === 'undefined') {
     },
   });
 }
+
+// CodeMirror measures text ranges; jsdom has no text layout engine.
+if (typeof Range.prototype.getClientRects !== 'function') {
+  Range.prototype.getClientRects = () => [] as unknown as DOMRectList;
+  Range.prototype.getBoundingClientRect = () => new DOMRect();
+}

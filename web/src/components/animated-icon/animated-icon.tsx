@@ -8,11 +8,13 @@ import {
   Gauge as StaticGaugeIcon,
   Radio as StaticRadioIcon,
   Settings as StaticSettingsIcon,
+  SlidersHorizontal as StaticSlidersIcon,
 } from 'lucide-react';
 
 import { BoxesIcon } from './icons/boxes-icon';
 import { GaugeIcon } from './icons/gauge-icon';
 import { RadioIcon } from './icons/radio-icon';
+import { SlidersIcon } from './icons/sliders-icon';
 import { ActivityIcon } from './icons/activity-icon';
 import { SettingsIcon } from './icons/settings-icon';
 import { ClipboardCheckIcon } from './icons/clipboard-check-icon';
@@ -21,6 +23,10 @@ const REDUCED_MOTION_QUERY = '(prefers-reduced-motion: reduce)';
 
 const ICONS = {
   configuration: {
+    animated: SlidersIcon,
+    fallback: StaticSlidersIcon,
+  },
+  panel: {
     animated: SettingsIcon,
     fallback: StaticSettingsIcon,
   },

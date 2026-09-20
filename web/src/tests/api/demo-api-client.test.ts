@@ -19,7 +19,6 @@ describe('createDemoApiClient', () => {
     expect(current).toMatchObject({
       arch: 'amd64',
       id: 'core_demo_114',
-      verification_state: 'verified',
     });
     expect(legacy).toBeDefined();
     await expect(client.getConfigurationSupport(current!.id)).resolves.toEqual({
@@ -50,6 +49,38 @@ describe('createDemoApiClient', () => {
     controller.abort();
 
     await expect(request).rejects.toMatchObject({ name: 'AbortError' });
+  });
+
+  it('enables manual imports on the reported platform without a trust lifecycle', async () => {
+    vi.useFakeTimers();
+    const client = createDemoApiClient();
+    const platform = (await client.getSystemStatus()).platform!;
+    const matchingTask = await client.enableCore('core_demo_113');
+    await vi.advanceTimersByTimeAsync(700);
+    await expect(client.getTask(matchingTask.id)).resolves.toMatchObject({ status: 'succeeded' });
+
+    for (const architecture of ['amd64', 'arm64'] as const) {
+      const task = await client.importCoreArchive({
+        archive: new File(['archive'], 'sing-box.tar.gz'),
+        exactVersion: '1.14.0', sourceDescription: 'Local build', variant: 'plain', architecture,
+      });
+      await vi.advanceTimersByTimeAsync(700);
+      await expect(client.getTask(task.id)).resolves.toMatchObject({ status: 'succeeded' });
+      const imported = (await client.listCoreArtifacts()).items.find(
+        (core) => core.source_kind === 'user_verified' && core.arch === architecture,
+      )!;
+      expect(imported).not.toHaveProperty('verification_state');
+      if (architecture !== platform.arch) {
+        expect(() => client.enableCore(imported.id)).toThrow('match the demo platform');
+        continue;
+      }
+      const enabled = await client.enableCore(imported.id);
+      await vi.advanceTimersByTimeAsync(700);
+      await expect(client.getTask(enabled.id)).resolves.toMatchObject({ status: 'succeeded' });
+      await expect(client.getRuntimeStatus()).resolves.toMatchObject({
+        observation_state: 'running', running: { core_artifact_id: imported.id },
+      });
+    }
   });
 
   it('persists replacement and JSON Pointer patch mutations as new canonical revisions', async () => {

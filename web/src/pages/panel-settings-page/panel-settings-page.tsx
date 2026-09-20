@@ -16,11 +16,11 @@ import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { describeRequestError, ErrorNotice } from '@/components/error-notice';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { FieldError, FieldGroup, FieldLegend, FieldSet } from '@/components/ui/field';
-import { Popover, PopoverContent, PopoverTitle, PopoverTrigger } from '@/components/ui/popover';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 
 import { SettingsField } from './settings-field';
+import { AppearanceColorPicker } from './appearance-color-picker';
 import './panel-settings-page.css';
 
 function SettingsGroup({ title, children }: { title: string; children: ReactNode }) {
@@ -168,29 +168,24 @@ function SettingsEditor({ initial }: { initial: PanelSettingsView }) {
               </SettingsField>
               <SettingsField id='accent-color' label={t('panelSettings.color')} invalid={!colorValid}>
                 <div className='settings-colors'>
-                  <ToggleGroup aria-label={t('panelSettings.color')} value={[preferences.appearance.color]} onValueChange={values => {
+                  <ToggleGroup spacing={0} aria-label={t('panelSettings.color')} value={[preferences.appearance.color]} onValueChange={values => {
                     if (values[0]) appearance({ color: values[0] });
                   }}>
-                    {THEME_PRESETS.map((color, index) => <ToggleGroupItem key={color} value={color} aria-label={t(`panelSettings.colors.${index}`)}><span className='settings-color-swatch' style={{ background: color }} /></ToggleGroupItem>)}
+                    {THEME_PRESETS.slice(0, 5).map((color, index) => <ToggleGroupItem key={color} value={color} aria-label={t(`panelSettings.colors.${index}`)}><span className='settings-color-swatch' style={{ background: color }} /></ToggleGroupItem>)}
                   </ToggleGroup>
-                  <Popover>
-                    <PopoverTrigger render={<Button id='accent-color' type='button' variant='secondary' />}>{t('panelSettings.customColor')}</PopoverTrigger>
-                    <PopoverContent align='end'>
-                      <PopoverTitle>{t('panelSettings.customColor')}</PopoverTitle>
-                      <Input aria-label={t('panelSettings.customColor')} type='color' value={colorValid ? preferences.appearance.color : DEFAULT_APPEARANCE.color} onChange={e => appearance({ color: e.target.value.toUpperCase() })} />
-                      <Input aria-label={t('panelSettings.hex')} maxLength={7} aria-invalid={!colorValid} value={preferences.appearance.color} onChange={e => appearance({ color: e.target.value.toUpperCase() })} />
-                    </PopoverContent>
-                  </Popover>
+                  <AppearanceColorPicker id='accent-color' value={preferences.appearance.color} onChange={color => appearance({ color })} />
                 </div>
               </SettingsField>
               <SettingsField id='radius' label={t('panelSettings.radius')} help={t('panelSettings.radiusHelp')}>
                 <div className='settings-radius'>
                   <Slider aria-label={t('panelSettings.radius')} min={0} max={32} step={1} value={[preferences.appearance.radius]} onValueChange={value => appearance({ radius: Array.isArray(value) ? value[0]! : value })} />
-                  <Input id='radius' type='number' min={0} max={32} step={1} required value={preferences.appearance.radius} onChange={e => appearance({ radius: Math.max(0, Math.min(32, Math.round(Number(e.target.value)))) })} />
-                  <span>px</span>
+                  <div className='settings-radius-value'>
+                    <Input id='radius' type='number' min={0} max={32} step={1} required value={preferences.appearance.radius} onChange={e => appearance({ radius: Math.max(0, Math.min(32, Math.round(Number(e.target.value)))) })} />
+                    <span aria-hidden='true'>px</span>
+                  </div>
+                  <Button className='settings-reset' type='button' variant='secondary' onClick={() => appearance({ color: DEFAULT_APPEARANCE.color, radius: DEFAULT_APPEARANCE.radius })}>{t('panelSettings.reset')}</Button>
                 </div>
               </SettingsField>
-              <div className='settings-reset'><Button type='button' variant='ghost' onClick={() => appearance({ color: DEFAULT_APPEARANCE.color, radius: DEFAULT_APPEARANCE.radius })}>{t('panelSettings.reset')}</Button></div>
             </SettingsGroup>
             <SettingsGroup title={t('panelSettings.languageGroup')}>
               <SettingsField id='language' label={t('panelSettings.language')}>
@@ -247,8 +242,8 @@ export function PanelSettingsPage() {
   const { t } = useTranslation();
   const { view, error, reload } = usePanelSettings();
   return (
-    <section className='panel-settings-page'>
-      <h1>{t('panelSettings.title')}</h1>
+    <section className='panel-settings-page panel-page'>
+      <h1 className='panel-page-heading'>{t('panelSettings.title')}</h1>
       {error
         ? (
             <>

@@ -12,6 +12,8 @@ import type {
 import { Button } from '@/components/ui/button';
 import { toast } from '@/components/ui/toast-manager';
 import { useApiClient } from '@/api/api-client-context';
+import { SelectField } from '@/components/select-field';
+import { ToolbarActions } from '@/components/workspace-toolbar';
 import { describeRequestError, ErrorNotice } from '@/components/error-notice';
 import {
   Dialog,
@@ -25,7 +27,10 @@ import {
 import { ChannelWorkspace } from './channel-workspace';
 import { initialChannelPolicy } from './channel-policy';
 
-export function SubscriptionChannelPanel({ active = true }: { active?: boolean }) {
+export function SubscriptionChannelPanel({ active = true, toolbarTarget }: {
+  active?: boolean;
+  toolbarTarget?: HTMLElement | null;
+} = {}) {
   const { t } = useTranslation();
   const client = useApiClient();
   const [channels, setChannels] = useState<SubscriptionChannelSummary[]>([]);
@@ -149,6 +154,8 @@ export function SubscriptionChannelPanel({ active = true }: { active?: boolean }
         ? (
             <ChannelWorkspace
               key={channel.id}
+              active={active}
+              toolbarTarget={toolbarTarget}
               channel={channel}
               nodes={nodes}
               onBack={() => {
@@ -161,36 +168,38 @@ export function SubscriptionChannelPanel({ active = true }: { active?: boolean }
           )
         : (
             <>
-              <div className='subscription-source-toolbar'>
-                <div className='subscription-search'>
-                  <Search />
-                  <input
-                    aria-label={t('channels.search')}
-                    placeholder={t('channels.search')}
-                    value={search}
-                    onChange={(event) => {
-                      setSearch(event.target.value);
-                      setPage(1);
-                    }}
-                  />
+              <ToolbarActions active={active} target={toolbarTarget}>
+                <div className='subscription-source-toolbar workspace-toolbar-content'>
+                  <div className='subscription-search'>
+                    <Search />
+                    <input
+                      aria-label={t('channels.search')}
+                      placeholder={t('channels.search')}
+                      value={search}
+                      onChange={(event) => {
+                        setSearch(event.target.value);
+                        setPage(1);
+                      }}
+                    />
+                  </div>
+                  <div className='subscription-toolbar-actions'>
+                    <Button
+                      aria-label={t('channels.add')}
+                      disabled={busy}
+                      size='icon'
+                      variant='ghost'
+                      onClick={() => {
+                        setCreating(true);
+                        setName('');
+                        setFormat('sing-box');
+                        setFormError('');
+                      }}
+                    >
+                      <Plus />
+                    </Button>
+                  </div>
                 </div>
-                <div className='subscription-toolbar-actions'>
-                  <Button
-                    aria-label={t('channels.add')}
-                    disabled={busy}
-                    size='icon'
-                    variant='ghost'
-                    onClick={() => {
-                      setCreating(true);
-                      setName('');
-                      setFormat('sing-box');
-                      setFormError('');
-                    }}
-                  >
-                    <Plus />
-                  </Button>
-                </div>
-              </div>
+              </ToolbarActions>
               <div className='subscription-source-table-scroll'>
                 <table className='subscription-source-table channel-list-table'>
                   <thead>
@@ -232,20 +241,15 @@ export function SubscriptionChannelPanel({ active = true }: { active?: boolean }
                 {!filtered.length && <p className='subscription-empty'>{t('channels.empty')}</p>}
               </div>
               <footer className='subscription-pagination'>
-                <select
+                <SelectField
                   aria-label={t('subscriptions.keys.pageSize')}
                   value={size}
-                  onChange={(event) => {
-                    setSize(Number(event.target.value));
+                  onValueChange={(value) => {
+                    setSize(value);
                     setPage(1);
                   }}
-                >
-                  {[5, 10, 50].map((value) => (
-                    <option value={value} key={value}>
-                      {t('subscriptions.keys.perPage', { count: value })}
-                    </option>
-                  ))}
-                </select>
+                  items={[5, 10, 50].map((value) => ({ value, label: t('subscriptions.keys.perPage', { count: value }) }))}
+                />
                 <div>
                   <Button
                     aria-label={t('subscriptions.keys.previous')}

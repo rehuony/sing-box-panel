@@ -1,5 +1,5 @@
 import userEvent from '@testing-library/user-event';
-import { act, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { ApiClient, MetricsSnapshot, RuntimeStatus, Task } from '@/api/api-client';
@@ -95,6 +95,7 @@ describe('telemetryBanner', () => {
   });
 
   afterEach(async () => {
+    vi.useRealTimers();
     await setAppLanguage('en');
     window.localStorage.removeItem('sing-box-panel.language');
   });
@@ -139,7 +140,8 @@ describe('telemetryBanner', () => {
     renderBanner(client);
 
     expect(await screen.findByText('Running')).toBeInTheDocument();
-    expect(screen.getByText(/sing-box 1\.13\.19/)).toBeInTheDocument();
+    expect(screen.getByText('v1.13.19')).toBeInTheDocument();
+    expect(screen.queryByText('arm64')).not.toBeInTheDocument();
     expect(screen.getByRole('group', { name: /Uptime: 1h.*Started/ })).toBeInTheDocument();
     expect(screen.queryByText('Version')).not.toBeInTheDocument();
     expect(screen.queryByText('Uptime')).not.toBeInTheDocument();
@@ -155,6 +157,17 @@ describe('telemetryBanner', () => {
     await act(async () => document.dispatchEvent(new Event('visibilitychange')));
     expect(screen.getByText('200 B/s')).toBeInTheDocument();
     expect(screen.getByText('300 B/s')).toBeInTheDocument();
+  });
+
+  it('does not request architecture for the status bar', async () => {
+    const client = createMockApiClient({
+      getSystemStatus: vi.fn().mockRejectedValue(new Error('Unavailable')),
+      getRuntimeStatus: vi.fn().mockResolvedValue(runningStatus()),
+    });
+    renderBanner(client);
+    expect(await screen.findByText('v1.13.19')).toBeInTheDocument();
+    expect(client.getSystemStatus).not.toHaveBeenCalled();
+    expect(screen.getByRole('button', { name: 'Stop' })).toBeEnabled();
   });
 
   it('tracks the durable start task and verifies the observed runtime', async () => {
@@ -212,6 +225,10 @@ describe('telemetryBanner', () => {
     expect(client.stopRuntime).not.toHaveBeenCalled();
     await user.click(screen.getByRole('button', { name: 'Cancel' }));
 
+    await user.click(screen.getByRole('button', { name: 'Stop' }));
+    await user.click(await screen.findByRole('button', { name: 'Close' }));
+    expect(client.stopRuntime).not.toHaveBeenCalled();
+
     await user.click(screen.getByRole('button', { name: 'Restart' }));
     expect(await screen.findByRole('heading', { name: 'Restart the sing-box runtime?' })).toBeInTheDocument();
     expect(client.restartRuntime).not.toHaveBeenCalled();
@@ -240,5 +257,83 @@ describe('telemetryBanner', () => {
     expect(await screen.findByRole('menuitem', { name: 'Start' })).toBeInTheDocument();
     expect(screen.queryByRole('menuitem', { name: 'Refresh runtime and traffic' })).not.toBeInTheDocument();
     expect(screen.queryByRole('menuitem', { name: 'Sign out' })).not.toBeInTheDocument();
+  });
+
+  it.each(['start', 'stop', 'restart'] as const)('replaces controls with %s feedback until it expires', async (action) => {
+    vi.useFakeTimers();
+    const label = action[0]!.toUpperCase() + action.slice(1);
+    const queuedTask = { ...testTask, status: 'queued' as const };
+    let resolveTask!: (task: Task) => void;
+    const taskRequest = new Promise<Task>((resolve) => {
+      resolveTask = resolve;
+    });
+    const initialRuntime = action === 'start' ? stoppedStatus : runningStatus('previous-process');
+    const nextRuntime = action === 'stop' ? stoppedStatus : runningStatus('next-process');
+    const runtimeAction = vi.fn().mockReturnValue(taskRequest);
+    const getRuntimeStatus = vi.fn().mockResolvedValue(initialRuntime);
+    const client = createMockApiClient({
+      [`${action}Runtime`]: runtimeAction,
+      getRuntimeStatus,
+      getTask: vi.fn().mockResolvedValue({ ...queuedTask, status: 'succeeded' }),
+      getTrafficStatus: vi.fn().mockResolvedValue({ ...testMetrics, available: false }),
+    });
+    const { container } = renderBanner(client);
+    await act(async () => Promise.resolve());
+
+    if (action === 'restart') {
+      fireEvent.click(screen.getByRole('button', { name: 'More panel actions' }));
+      fireEvent.click(screen.getByRole('menuitem', { name: label }));
+    } else {
+      fireEvent.click(screen.getByRole('button', { name: label }));
+    }
+    if (action !== 'start') fireEvent.click(screen.getByRole('button', { name: `${label} sing-box` }));
+
+    const actions = container.querySelector('.telemetry-banner__actions')!;
+    expect(screen.getByText(`Queueing ${label}…`)).toBeInTheDocument();
+    expect(actions.querySelector('button')).toBeNull();
+    expect(actions.querySelectorAll('[data-slot="spinner"]')).toHaveLength(1);
+
+    await act(async () => resolveTask(queuedTask));
+    expect(screen.getByText(`${label} · queued`)).toBeInTheDocument();
+    expect(actions.querySelector('button')).toBeNull();
+
+    await act(async () => vi.advanceTimersByTimeAsync(750));
+    expect(screen.getByText(`Verifying ${label}…`)).toBeInTheDocument();
+    expect(actions.querySelector('button')).toBeNull();
+
+    getRuntimeStatus.mockResolvedValue(nextRuntime);
+    await act(async () => vi.advanceTimersByTimeAsync(750));
+    expect(screen.getByText(`${label} verified`)).toBeInTheDocument();
+    expect(actions.querySelector('button')).toBeNull();
+    expect(actions.querySelector('[data-slot="spinner"]')).toBeNull();
+
+    await act(async () => vi.advanceTimersByTimeAsync(1_999));
+    expect(screen.getByText(`${label} verified`)).toBeInTheDocument();
+    await act(async () => vi.advanceTimersByTimeAsync(1));
+    expect(screen.queryByText(`${label} verified`)).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: action === 'stop' ? 'Start' : 'Stop' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'More panel actions' })).toBeInTheDocument();
+    expect(runtimeAction).toHaveBeenCalledTimes(1);
+  });
+
+  it('clears failure feedback and restores controls for retry', async () => {
+    vi.useFakeTimers();
+    const client = createMockApiClient({
+      getRuntimeStatus: vi.fn().mockResolvedValue(stoppedStatus),
+      getTrafficStatus: vi.fn().mockResolvedValue({ ...testMetrics, available: false }),
+      startRuntime: vi.fn().mockRejectedValue(new Error('Unable to start')),
+    });
+    renderBanner(client);
+    await act(async () => Promise.resolve());
+    await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Start' })));
+
+    expect(screen.getByText('Start failed')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Start' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'More panel actions' })).not.toBeInTheDocument();
+    await act(async () => vi.advanceTimersByTimeAsync(4_999));
+    expect(screen.getByText('Start failed')).toBeInTheDocument();
+    await act(async () => vi.advanceTimersByTimeAsync(1));
+    expect(screen.queryByText('Start failed')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Start' })).toBeInTheDocument();
   });
 });

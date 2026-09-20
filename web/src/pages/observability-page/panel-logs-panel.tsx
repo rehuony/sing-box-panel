@@ -9,10 +9,15 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { useApiClient } from '@/api/api-client-context';
 import { ErrorNotice } from '@/components/error-notice';
+import { SelectField } from '@/components/select-field';
+import { ToolbarActions } from '@/components/workspace-toolbar';
 
 import { PanelLogDetail } from './panel-log-detail';
 
-export function PanelLogsPanel() {
+export function PanelLogsPanel({ active = true, toolbarTarget }: {
+  active?: boolean;
+  toolbarTarget?: HTMLElement | null;
+} = {}) {
   const { t } = useTranslation();
   const client = useApiClient();
   const [params, setParams] = useSearchParams();
@@ -75,34 +80,30 @@ export function PanelLogsPanel() {
   }
   return (
     <div className='log-workspace'>
-      <div className='log-toolbar'>
-        <Input
-          aria-label={t('productLogs.searchPanel')}
-          placeholder={t('productLogs.searchPanel')}
-          value={search}
-          onChange={(event) => {
-            setSearch(event.target.value);
-            setCursors([]);
-          }}
-        />
-        <div className='log-toolbar__filters'>
-          <select
-            aria-label={t('productLogs.level')}
-            value={level}
+      <ToolbarActions active={active} target={toolbarTarget}>
+        <div className='log-toolbar workspace-toolbar-content'>
+          <Input
+            aria-label={t('productLogs.searchPanel')}
+            placeholder={t('productLogs.searchPanel')}
+            value={search}
             onChange={(event) => {
-              setLevel(event.target.value);
+              setSearch(event.target.value);
               setCursors([]);
             }}
-          >
-            <option value=''>ALL</option>
-            {['trace', 'debug', 'info', 'warn', 'error', 'fatal'].map((value) => (
-              <option key={value} value={value}>
-                {value.toUpperCase()}
-              </option>
-            ))}
-          </select>
+          />
+          <div className='log-toolbar__filters'>
+            <SelectField
+              aria-label={t('productLogs.level')}
+              value={level}
+              onValueChange={(value) => {
+                setLevel(value);
+                setCursors([]);
+              }}
+              items={[{ value: '', label: 'ALL' }, ...['trace', 'debug', 'info', 'warn', 'error', 'fatal'].map((value) => ({ value, label: value.toUpperCase() }))]}
+            />
+          </div>
         </div>
-      </div>
+      </ToolbarActions>
       {error != null && <ErrorNotice error={error} title={t('productLogs.unavailable')} />}
       <div className='panel-log-scroll' aria-busy={loading}>
         <table className='panel-log-table'>
@@ -152,20 +153,15 @@ export function PanelLogsPanel() {
         )}
       </div>
       <div className='log-pagination'>
-        <select
+        <SelectField
           aria-label={t('productLogs.pageSize')}
           value={limit}
-          onChange={(event) => {
-            setLimit(Number(event.target.value));
+          onValueChange={(value) => {
+            setLimit(value);
             setCursors([]);
           }}
-        >
-          {[5, 10, 50].map((size) => (
-            <option key={size} value={size}>
-              {t('productLogs.perPage', { count: size })}
-            </option>
-          ))}
-        </select>
+          items={[5, 10, 50].map((value) => ({ value, label: t('productLogs.perPage', { count: value }) }))}
+        />
         <div>
           <Button
             aria-label={t('pagination.previous')}

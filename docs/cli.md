@@ -15,7 +15,7 @@ sing-box-panel
 ├─ systemd install | uninstall | status | start | stop | restart | logs
 ├─ core
 │  ├─ catalog | refresh
-│  ├─ list | show | install | import | remove | quarantine | revoke
+│  ├─ list | show | install | import | remove
 │  └─ enable | status | start | stop | restart | rollback
 ├─ config init | show | set | unset | check | verify
 ├─ channel list | show | create | update | delete | render
@@ -227,7 +227,7 @@ change does not create a separately editable sing-box file on disk.
 ## Exact core selection
 
 Executable sing-box configuration is always the current valid document saved
-through the Web UI. Select an exact installed, verified artifact there for
+through the Web UI. Select an exact installed artifact there for
 Check or Apply. The CLI retains explicit core switching:
 
 ```sh

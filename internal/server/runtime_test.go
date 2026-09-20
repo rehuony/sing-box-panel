@@ -875,7 +875,7 @@ func seedRuntimeObservation(
 		SourceKind: store.CoreArtifactSourceUserVerified, UserSource: "runtime state test",
 		ArchiveSHA256: strings.Repeat("a", 64), BinarySHA256: strings.Repeat("b", 64),
 		BinaryPath: "/opt/sing-box-panel/core-runtime-test/sing-box", ReportedVersion: "1.13.19",
-		FeatureFingerprint: json.RawMessage(`{}`), VerificationState: store.CoreArtifactVerified, CreatedAt: now,
+		FeatureFingerprint: json.RawMessage(`{}`), CreatedAt: now,
 	}
 	if _, err := database.UpsertCoreArtifact(ctx, core); err != nil {
 		t.Fatal(err)
@@ -953,7 +953,7 @@ func TestStartupCheckUsesRawRevisionWithExactBinaryWithoutSchema(t *testing.T) {
 		SourceKind: store.CoreArtifactSourceUserVerified, UserSource: "raw startup check",
 		ArchiveSHA256: strings.Repeat("a", 64), BinarySHA256: strings.Repeat("b", 64),
 		BinaryPath: "/opt/sing-box-panel/core-raw-startup-check/sing-box", ReportedVersion: "1.13.19",
-		FeatureFingerprint: json.RawMessage(`{"status":"not_reported"}`), VerificationState: store.CoreArtifactVerified, CreatedAt: now,
+		FeatureFingerprint: json.RawMessage(`{"status":"not_reported"}`), CreatedAt: now,
 	}
 	if _, err := database.UpsertCoreArtifact(ctx, core); err != nil {
 		t.Fatal(err)

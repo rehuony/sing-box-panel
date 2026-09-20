@@ -5,6 +5,7 @@ import { ChevronLeft, ChevronRight, Eye, EyeOff, MoreHorizontal } from 'lucide-r
 import type { SubscriptionNodeSummary } from '@/api/api-client';
 
 import { Button } from '@/components/ui/button';
+import { SelectField } from '@/components/select-field';
 
 import { subscriptionNodeAddress } from './subscription-node-address';
 
@@ -142,17 +143,14 @@ export function SubscriptionNodeGrid({
             )}
       </div>
       <footer className='subscription-pagination'>
-        <select
+        <SelectField
           aria-label={t('subscriptions.keys.pageSize')}
-          onChange={(event) => setSize(Number(event.target.value))}
           value={size}
-        >
-          {[5, 10, 50].map((value) => (
-            <option key={value} value={value}>
-              {t('subscriptions.keys.perPage', { count: value })}
-            </option>
-          ))}
-        </select>
+          onValueChange={(value) => {
+            setSize(value);
+          }}
+          items={[5, 10, 50].map((value) => ({ value, label: t('subscriptions.keys.perPage', { count: value }) }))}
+        />
         <div>
           <Button
             aria-label={t('subscriptions.keys.previous')}

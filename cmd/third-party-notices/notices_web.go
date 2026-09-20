@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"slices"
+	"strings"
 )
 
 func collectWebPackages(ctx context.Context, root string) ([]component, error) {
@@ -34,14 +35,11 @@ func collectWebPackages(ctx context.Context, root string) ([]component, error) {
 			return nil, fmt.Errorf("web production dependency uses an unreviewed license identifier %q", licenseID)
 		}
 		for _, entry := range entries {
-			if entry.Name == "" || entry.License == "" || entry.Homepage == "" || len(entry.Versions) == 0 || len(entry.Paths) == 0 {
+			if entry.Name == "" || entry.License == "" || len(entry.Versions) == 0 || len(entry.Paths) == 0 {
 				return nil, fmt.Errorf("pnpm license entry is incomplete: name=%q license=%q homepage=%q", entry.Name, entry.License, entry.Homepage)
 			}
 			if entry.License != licenseID {
 				return nil, fmt.Errorf("pnpm grouped %s under %s but declared %s", entry.Name, licenseID, entry.License)
-			}
-			if err := validateHTTPURL(entry.Homepage); err != nil {
-				return nil, fmt.Errorf("pnpm package %s homepage: %w", entry.Name, err)
 			}
 			for _, packagePath := range entry.Paths {
 				packagePath, err = filepath.Abs(packagePath)
@@ -58,6 +56,10 @@ func collectWebPackages(ctx context.Context, root string) ([]component, error) {
 				if metadata.Name != entry.Name || metadata.License != licenseID || !slices.Contains(entry.Versions, metadata.Version) {
 					return nil, fmt.Errorf("pnpm package metadata disagrees with license report for %s@%s", metadata.Name, metadata.Version)
 				}
+				source, err := webPackageSource(entry.Homepage, metadata)
+				if err != nil {
+					return nil, fmt.Errorf("pnpm package %s source: %w", entry.Name, err)
+				}
 				files, err := findLicenseFiles(packagePath)
 				if err != nil {
 					return nil, fmt.Errorf("collect licenses for web package %s@%s: %w", metadata.Name, metadata.Version, err)
@@ -66,7 +68,7 @@ func collectWebPackages(ctx context.Context, root string) ([]component, error) {
 					Ecosystem: "web-package",
 					Name:      metadata.Name,
 					Version:   metadata.Version,
-					Source:    entry.Homepage,
+					Source:    source,
 					LicenseID: licenseID,
 					Files:     files,
 				}
@@ -88,4 +90,30 @@ func collectWebPackages(ctx context.Context, root string) ([]component, error) {
 		components = append(components, value)
 	}
 	return components, nil
+}
+
+// npm packages may declare only a repository instead of a homepage. Use the
+// installed package's source metadata, retaining the HTTP(S) URL requirement.
+func webPackageSource(homepage string, metadata packageMetadata) (string, error) {
+	source := homepage
+	if source == "" {
+		source = metadata.Homepage
+	}
+	if source == "" && len(metadata.Repository) > 0 {
+		var repositoryURL string
+		if err := json.Unmarshal(metadata.Repository, &repositoryURL); err != nil {
+			var repository struct {
+				URL string `json:"url"`
+			}
+			if err := json.Unmarshal(metadata.Repository, &repository); err != nil {
+				return "", fmt.Errorf("decode repository: %w", err)
+			}
+			repositoryURL = repository.URL
+		}
+		source = strings.TrimPrefix(repositoryURL, "git+")
+	}
+	if err := validateHTTPURL(source); err != nil {
+		return "", err
+	}
+	return source, nil
 }

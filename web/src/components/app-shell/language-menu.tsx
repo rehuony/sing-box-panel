@@ -1,6 +1,6 @@
+import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Globe2, Languages } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
 import { motion, useReducedMotion } from 'motion/react';
 
 import { setAppLanguage } from '@/i18n';
@@ -9,7 +9,6 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuGroup,
-  DropdownMenuLabel,
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
   DropdownMenuTrigger,
@@ -23,7 +22,9 @@ function LanguageGlyph({ active }: { active: boolean }) {
   if (shouldReduceMotion === true) {
     return (
       <span className='relative flex size-[0.9375rem] items-center justify-center' data-motion='reduced'>
-        <Languages aria-hidden='true' data-language-icon='languages' />
+        {active
+          ? <Languages aria-hidden='true' data-language-icon='languages' />
+          : <Globe2 aria-hidden='true' data-language-icon='globe' />}
       </span>
     );
   }
@@ -69,29 +70,12 @@ function LanguageGlyph({ active }: { active: boolean }) {
 
 export function LanguageMenu() {
   const { i18n, t } = useTranslation();
-  const [focused, setFocused] = useState(false);
-  const [hovered, setHovered] = useState(false);
   const [open, setOpen] = useState(false);
-  const [settling, setSettling] = useState(false);
-  const settleTimerRef = useRef<number | null>(null);
-
-  useEffect(() => () => {
-    if (settleTimerRef.current !== null) window.clearTimeout(settleTimerRef.current);
-  }, []);
-
-  const active = !settling && (focused || hovered || open);
 
   function selectLanguage(language: string) {
     if (language !== 'en' && language !== 'zh-CN') return;
 
-    void setAppLanguage(language).finally(() => {
-      setSettling(true);
-      if (settleTimerRef.current !== null) window.clearTimeout(settleTimerRef.current);
-      settleTimerRef.current = window.setTimeout(() => {
-        setSettling(false);
-        settleTimerRef.current = null;
-      }, LANGUAGE_MOTION_DURATION_SECONDS * 1_000);
-    });
+    void setAppLanguage(language);
   }
 
   return (
@@ -101,26 +85,22 @@ export function LanguageMenu() {
           <Button
             aria-label={t('language.menu')}
             className='telemetry-language-button'
-            onBlur={() => setFocused(false)}
-            onFocus={() => setFocused(true)}
-            onMouseEnter={() => setHovered(true)}
-            onMouseLeave={() => setHovered(false)}
             size='icon-sm'
             variant='ghost'
           />
         )}
       >
-        <LanguageGlyph active={active} />
+        <LanguageGlyph active={open} />
       </DropdownMenuTrigger>
       <DropdownMenuContent align='end' sideOffset={8}>
         <DropdownMenuGroup>
-          <DropdownMenuLabel>{t('language.label')}</DropdownMenuLabel>
           <DropdownMenuRadioGroup
+            aria-label={t('language.label')}
             onValueChange={selectLanguage}
             value={i18n.resolvedLanguage ?? 'en'}
           >
-            <DropdownMenuRadioItem value='en'>{t('language.english')}</DropdownMenuRadioItem>
-            <DropdownMenuRadioItem value='zh-CN'>
+            <DropdownMenuRadioItem closeOnClick value='en'>{t('language.english')}</DropdownMenuRadioItem>
+            <DropdownMenuRadioItem closeOnClick value='zh-CN'>
               {t('language.simplifiedChinese')}
             </DropdownMenuRadioItem>
           </DropdownMenuRadioGroup>

@@ -23,16 +23,7 @@ const (
 	CoreArtifactSourceUserVerified CoreArtifactSourceKind = "user_verified"
 )
 
-type CoreArtifactVerificationState string
-
-const (
-	CoreArtifactVerified    CoreArtifactVerificationState = "verified"
-	CoreArtifactRevoked     CoreArtifactVerificationState = "revoked"
-	CoreArtifactQuarantined CoreArtifactVerificationState = "quarantined"
-)
-
-// CoreArtifact is the persisted identity and verification state of immutable
-// sing-box binary bytes.
+// CoreArtifact is the persisted identity of immutable sing-box binary bytes.
 type CoreArtifact struct {
 	ID                 string
 	ExactVersion       string
@@ -49,19 +40,17 @@ type CoreArtifact struct {
 	BinaryPath         string
 	ReportedVersion    string
 	FeatureFingerprint json.RawMessage
-	VerificationState  CoreArtifactVerificationState
 	CreatedAt          time.Time
 }
 
 type CoreArtifactListFilter struct {
-	ExactVersion      string
-	OperatingSystem   string
-	Architecture      string
-	Variant           string
-	SourceKind        CoreArtifactSourceKind
-	VerificationState CoreArtifactVerificationState
-	Cursor            *CreatedAtCursor
-	Limit             int
+	ExactVersion    string
+	OperatingSystem string
+	Architecture    string
+	Variant         string
+	SourceKind      CoreArtifactSourceKind
+	Cursor          *CreatedAtCursor
+	Limit           int
 }
 
 type CoreArtifactPage struct {
@@ -81,11 +70,9 @@ type CoreArtifactRemovalEligibility struct {
 const coreArtifactColumns = `
     id, exact_version, operating_system, architecture, variant, source_kind,
     user_source, repository_id, release_id, asset_id, archive_sha256, binary_sha256, binary_path,
-    reported_version, feature_fingerprint_json, verification_state, created_at`
+    reported_version, feature_fingerprint_json, created_at`
 
-// UpsertCoreArtifact inserts a new immutable identity or only tightens the
-// verification state of an identical identity. Installation/import retries
-// must never turn quarantined or revoked bytes back into verified bytes.
+// UpsertCoreArtifact inserts an immutable identity or returns the existing one.
 func (s *Store) UpsertCoreArtifact(
 	ctx context.Context,
 	artifact CoreArtifact,
@@ -102,20 +89,8 @@ func (s *Store) UpsertCoreArtifact(
 			if !sameCoreArtifactIdentity(existing, prepared) {
 				return fmt.Errorf("%w: %s", ErrCoreArtifactIdentityConflict, prepared.ID)
 			}
-			verificationState := stricterCoreArtifactVerification(
-				existing.VerificationState,
-				prepared.VerificationState,
-			)
-			if _, err := tx.ExecContext(
-				ctx,
-				`UPDATE core_artifacts SET verification_state = ? WHERE id = ?`,
-				string(verificationState),
-				prepared.ID,
-			); err != nil {
-				return fmt.Errorf("update core artifact verification: %w", err)
-			}
-			stored, err = getCoreArtifact(ctx, tx, prepared.ID)
-			return err
+			stored = existing
+			return nil
 		}
 		if !errors.Is(err, ErrCoreArtifactNotFound) {
 			return err
@@ -127,8 +102,8 @@ func (s *Store) UpsertCoreArtifact(
                 id, exact_version, operating_system, architecture, variant,
                 source_kind, user_source, repository_id, release_id, asset_id,
                 archive_sha256, binary_sha256, binary_path, reported_version,
-                feature_fingerprint_json, verification_state, created_at
-             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                feature_fingerprint_json, created_at
+             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			prepared.ID,
 			prepared.ExactVersion,
 			prepared.OperatingSystem,
@@ -144,7 +119,6 @@ func (s *Store) UpsertCoreArtifact(
 			prepared.BinaryPath,
 			prepared.ReportedVersion,
 			string(prepared.FeatureFingerprint),
-			string(prepared.VerificationState),
 			formatTaskTime(prepared.CreatedAt),
 		); err != nil {
 			return fmt.Errorf("insert core artifact: %w", err)
@@ -155,147 +129,12 @@ func (s *Store) UpsertCoreArtifact(
 	return stored, err
 }
 
-func stricterCoreArtifactVerification(
-	current CoreArtifactVerificationState,
-	requested CoreArtifactVerificationState,
-) CoreArtifactVerificationState {
-	if current == CoreArtifactRevoked || requested == CoreArtifactRevoked {
-		return CoreArtifactRevoked
-	}
-	if current == CoreArtifactQuarantined || requested == CoreArtifactQuarantined {
-		return CoreArtifactQuarantined
-	}
-	return CoreArtifactVerified
-}
-
 // GetCoreArtifact returns one artifact by its stable ID.
 func (s *Store) GetCoreArtifact(ctx context.Context, artifactID string) (CoreArtifact, error) {
 	if strings.TrimSpace(artifactID) == "" {
 		return CoreArtifact{}, errors.New("core artifact id is empty")
 	}
 	return getCoreArtifact(ctx, s.db, artifactID)
-}
-
-// RestrictCoreArtifactVerification explicitly lowers trust in immutable bytes.
-// Revocation is terminal and quarantine cannot be lifted through install or
-// import retries; restoring trust requires a separately reviewed workflow.
-func (s *Store) RestrictCoreArtifactVerification(
-	ctx context.Context,
-	artifactID string,
-	verificationState CoreArtifactVerificationState,
-	restrictedAt time.Time,
-) (CoreArtifact, error) {
-	if strings.TrimSpace(artifactID) == "" {
-		return CoreArtifact{}, errors.New("core artifact id is empty")
-	}
-	if verificationState != CoreArtifactQuarantined && verificationState != CoreArtifactRevoked {
-		return CoreArtifact{}, errors.New("core artifact verification restriction must be quarantined or revoked")
-	}
-	if restrictedAt.IsZero() {
-		return CoreArtifact{}, errors.New("core artifact verification restriction time is zero")
-	}
-	restrictedAt = restrictedAt.UTC()
-
-	var stored CoreArtifact
-	err := s.WithTx(ctx, func(tx *sql.Tx) error {
-		existing, err := getCoreArtifact(ctx, tx, artifactID)
-		if err != nil {
-			return err
-		}
-		next := stricterCoreArtifactVerification(existing.VerificationState, verificationState)
-		if _, err := tx.ExecContext(
-			ctx,
-			`UPDATE core_artifacts SET verification_state = ? WHERE id = ?`,
-			string(next),
-			artifactID,
-		); err != nil {
-			return fmt.Errorf("restrict core artifact verification: %w", err)
-		}
-		updatedAt := formatTaskTime(restrictedAt)
-		if _, err := tx.ExecContext(
-			ctx,
-			`UPDATE tasks
-			    SET status = 'canceled', cancel_requested = 1, updated_at = ?
-			  WHERE lane = 'maintenance' AND kind = 'startup-check' AND status = 'queued'
-			    AND startup_artifact_id IN (
-			        SELECT id FROM startup_artifacts WHERE core_artifact_id = ?
-			    )`,
-			updatedAt,
-			artifactID,
-		); err != nil {
-			return fmt.Errorf("cancel queued checks for restricted core artifact: %w", err)
-		}
-		if _, err := tx.ExecContext(
-			ctx,
-			`UPDATE tasks
-			    SET cancel_requested = 1, updated_at = ?
-			  WHERE lane = 'maintenance' AND kind = 'startup-check' AND status = 'running'
-			    AND startup_artifact_id IN (
-			        SELECT id FROM startup_artifacts WHERE core_artifact_id = ?
-			    )`,
-			updatedAt,
-			artifactID,
-		); err != nil {
-			return fmt.Errorf("cancel running checks for restricted core artifact: %w", err)
-		}
-
-		var desiredUsesArtifact int
-		if err := tx.QueryRowContext(
-			ctx,
-			`SELECT EXISTS(
-			    SELECT 1
-			      FROM hub_state AS hub
-			      JOIN activation_bundles AS bundle ON bundle.id = hub.desired_bundle_id
-			      JOIN startup_artifacts AS startup ON startup.id = bundle.startup_artifact_id
-			     WHERE hub.singleton = 1 AND hub.desired_running = 1
-			       AND startup.core_artifact_id = ?
-			)`,
-			artifactID,
-		).Scan(&desiredUsesArtifact); err != nil {
-			return fmt.Errorf("inspect desired restricted core artifact: %w", err)
-		}
-		if desiredUsesArtifact != 0 {
-			var generation int64
-			if err := tx.QueryRowContext(
-				ctx,
-				`SELECT target_generation FROM hub_state WHERE singleton = 1`,
-			).Scan(&generation); err != nil {
-				return fmt.Errorf("read runtime generation for core restriction: %w", err)
-			}
-			generation++
-			if _, err := tx.ExecContext(
-				ctx,
-				`UPDATE tasks SET status = 'superseded', updated_at = ?
-				  WHERE lane = 'runtime' AND status = 'queued' AND generation < ?`,
-				updatedAt,
-				generation,
-			); err != nil {
-				return fmt.Errorf("supersede queued runtime work for core restriction: %w", err)
-			}
-			if _, err := tx.ExecContext(
-				ctx,
-				`UPDATE tasks SET cancel_requested = 1, updated_at = ?
-				  WHERE lane = 'runtime' AND status = 'running' AND generation < ?`,
-				updatedAt,
-				generation,
-			); err != nil {
-				return fmt.Errorf("cancel running runtime work for core restriction: %w", err)
-			}
-			if _, err := tx.ExecContext(
-				ctx,
-				`UPDATE hub_state
-				    SET desired_running = 0, target_generation = ?, updated_at = ?
-				  WHERE singleton = 1`,
-				generation,
-				updatedAt,
-			); err != nil {
-				return fmt.Errorf("fence desired runtime for core restriction: %w", err)
-			}
-		}
-		stored, err = getCoreArtifact(ctx, tx, artifactID)
-		return err
-	})
-	return stored, err
 }
 
 // ListCoreArtifacts returns a newest-first keyset page.
@@ -309,9 +148,6 @@ func (s *Store) ListCoreArtifacts(
 	}
 	if filter.SourceKind != "" && !validCoreArtifactSource(filter.SourceKind) {
 		return CoreArtifactPage{}, fmt.Errorf("invalid core artifact source %q", filter.SourceKind)
-	}
-	if filter.VerificationState != "" && !validCoreArtifactVerification(filter.VerificationState) {
-		return CoreArtifactPage{}, fmt.Errorf("invalid core artifact verification %q", filter.VerificationState)
 	}
 	if err := validateCreatedAtCursor(filter.Cursor); err != nil {
 		return CoreArtifactPage{}, err
@@ -338,10 +174,6 @@ func (s *Store) ListCoreArtifacts(
 	if filter.SourceKind != "" {
 		clauses = append(clauses, "source_kind = ?")
 		args = append(args, string(filter.SourceKind))
-	}
-	if filter.VerificationState != "" {
-		clauses = append(clauses, "verification_state = ?")
-		args = append(args, string(filter.VerificationState))
 	}
 	if filter.Cursor != nil {
 		cursorTime := formatTaskTime(filter.Cursor.CreatedAt)
@@ -423,7 +255,6 @@ func scanCoreArtifact(row taskScanner) (CoreArtifact, error) {
 		&artifact.BinaryPath,
 		&artifact.ReportedVersion,
 		&featureFingerprint,
-		&artifact.VerificationState,
 		&createdAt,
 	); err != nil {
 		return CoreArtifact{}, err

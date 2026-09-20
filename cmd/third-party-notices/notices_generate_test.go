@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -168,4 +169,30 @@ func TestRequirePathWithin(t *testing.T) {
 func digestForTest(content []byte) string {
 	digest := sha256.Sum256(content)
 	return hex.EncodeToString(digest[:])
+}
+
+func TestWebPackageSource(t *testing.T) {
+	for _, test := range []struct {
+		name      string
+		homepage  string
+		metadata  packageMetadata
+		want      string
+		wantError bool
+	}{
+		{name: "report homepage", homepage: "https://example.com", want: "https://example.com"},
+		{name: "package homepage", metadata: packageMetadata{Homepage: "https://example.com/docs"}, want: "https://example.com/docs"},
+		{name: "repository object", metadata: packageMetadata{Repository: json.RawMessage(`{"type":"git","url":"git+https://example.com/editor.git"}`)}, want: "https://example.com/editor.git"},
+		{name: "repository string", metadata: packageMetadata{Repository: json.RawMessage(`"https://example.com/editor"`)}, want: "https://example.com/editor"},
+		{name: "invalid homepage does not fall back", homepage: "javascript:invalid", metadata: packageMetadata{Homepage: "https://example.com"}, wantError: true},
+		{name: "non HTTP repository", metadata: packageMetadata{Repository: json.RawMessage(`{"url":"file:///tmp/repository"}`)}, wantError: true},
+		{name: "malformed repository", metadata: packageMetadata{Repository: json.RawMessage(`[]`)}, wantError: true},
+		{name: "missing source", wantError: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			got, err := webPackageSource(test.homepage, test.metadata)
+			if (err != nil) != test.wantError || got != test.want {
+				t.Fatalf("webPackageSource() = %q, %v; want %q, error=%v", got, err, test.want, test.wantError)
+			}
+		})
+	}
 }

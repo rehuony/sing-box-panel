@@ -65,5 +65,4 @@ export interface CoreArtifactFilter {
   architecture?: string;
   exactVersion?: string;
   sourceKind?: CoreArtifact['source_kind'];
-  verificationState?: CoreArtifact['verification_state'];
 }

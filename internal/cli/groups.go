@@ -3,7 +3,6 @@
 package cli
 
 import (
-	"github.com/rehuony/sing-box-panel/internal/store"
 	"github.com/spf13/cobra"
 )
 
@@ -13,8 +12,6 @@ func newCoreCommand(state *options, open openApplicationFunc) *cobra.Command {
 		newCoreCatalogListCommand(state, open), newCoreCatalogRefreshCommand(state, open),
 		newCoreListCommand(state, open), newCoreShowCommand(state, open),
 		newCoreInstallCommand(state, open), newCoreImportCommand(state, open), newCoreRemoveCommand(state, open),
-		newCoreRestrictCommand("quarantine", store.CoreArtifactQuarantined, state, open),
-		newCoreRestrictCommand("revoke", store.CoreArtifactRevoked, state, open),
 		newCoreEnableCommand(state, open), newCoreStatusCommand(state, open),
 		newCoreStartCommand(state, open), newCoreStopCommand(state, open), newCoreRestartCommand(state, open),
 		newCoreRollbackCommand(state, open),

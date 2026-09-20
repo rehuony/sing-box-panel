@@ -1,6 +1,8 @@
+import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useSearchParams } from 'react-router-dom';
 
+import { WorkspaceToolbar } from '@/components/workspace-toolbar';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
 import { CoreLogsPanel } from './core-logs-panel';
@@ -10,10 +12,11 @@ import './observability-page.css';
 export function ObservabilityPage() {
   const { t } = useTranslation();
   const [params, setParams] = useSearchParams();
+  const [toolbarTarget, setToolbarTarget] = useState<HTMLDivElement | null>(null);
   const tab = params.get('tab') === 'panel' || params.has('task') ? 'panel' : 'core';
   return (
-    <section className='observability-page'>
-      <h1>{t('productLogs.title')}</h1>
+    <section className='observability-page panel-page'>
+      <h1 className='panel-page-heading'>{t('productLogs.title')}</h1>
       <Tabs
         className='product-logs'
         value={tab}
@@ -25,15 +28,18 @@ export function ObservabilityPage() {
           });
         }}
       >
-        <TabsList aria-label={t('productLogs.title')}>
-          <TabsTrigger value='core'>{t('productLogs.core')}</TabsTrigger>
-          <TabsTrigger value='panel'>{t('productLogs.panel')}</TabsTrigger>
-        </TabsList>
+        <WorkspaceToolbar>
+          <TabsList aria-label={t('productLogs.title')}>
+            <TabsTrigger value='core'>{t('productLogs.core')}</TabsTrigger>
+            <TabsTrigger value='panel'>{t('productLogs.panel')}</TabsTrigger>
+          </TabsList>
+          <div className='workspace-toolbar__actions' ref={setToolbarTarget} />
+        </WorkspaceToolbar>
         <TabsContent value='core'>
-          <CoreLogsPanel />
+          <CoreLogsPanel active={tab === 'core'} toolbarTarget={toolbarTarget} />
         </TabsContent>
         <TabsContent value='panel'>
-          <PanelLogsPanel />
+          <PanelLogsPanel active={tab === 'panel'} toolbarTarget={toolbarTarget} />
         </TabsContent>
       </Tabs>
     </section>

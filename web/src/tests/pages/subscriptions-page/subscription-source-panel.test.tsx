@@ -6,13 +6,16 @@ import { fireEvent, render, screen, waitFor, within } from '@testing-library/rea
 import '@/i18n';
 
 import type { SubscriptionNodeSummary } from '@/api/api-client';
+import type { TelemetryState } from '@/components/app-shell/use-telemetry';
 
 import { toast } from '@/components/ui/toast-manager';
 import { ApiClientProvider } from '@/api/api-client-context';
+import { TelemetryContext } from '@/components/app-shell/telemetry-context';
 import { SubscriptionNodeGrid } from '@/pages/subscriptions-page/subscription-node-grid';
 import { SubscriptionSourcePanel } from '@/pages/subscriptions-page/subscription-source-panel';
 import {
   createMockApiClient,
+  testRuntimeHistory,
   testSubscriptionSources,
   testTask,
 } from '@/tests/api/mock-api-client';
@@ -54,6 +57,60 @@ function mount(client = createMockApiClient()) {
 }
 
 describe('subscription sources and nodes', () => {
+  it('uses the last recorded core start for manual nodes, independently of source updates', async () => {
+    const client = mount();
+    const row = screen.getByRole('button', { name: 'Manual nodes' }).closest('tr')!;
+    const started = new Intl.DateTimeFormat('en', { dateStyle: 'short', timeStyle: 'short' }).format(new Date(testRuntimeHistory.items[0]!.process_started_at!));
+    await waitFor(() => expect(row).toHaveTextContent(started));
+    expect(client.getRuntimeHistory).toHaveBeenCalledWith({ state: 'running', limit: 1 }, expect.any(AbortSignal));
+    expect(client.getRuntimeStatus).not.toHaveBeenCalled();
+  });
+
+  it('prefers a newer live start and retains the recorded start after stopping', async () => {
+    const client = createMockApiClient();
+    const renderPanel = (startedAt?: string) => (
+      <ApiClientProvider client={client}>
+        <TelemetryContext value={{
+          runtimeStatus: startedAt ? { running: { started_at: startedAt } } : null,
+        } as TelemetryState}>
+          <SubscriptionSourcePanel />
+        </TelemetryContext>
+      </ApiClientProvider>
+    );
+    const { rerender } = render(renderPanel('2026-09-20T00:00:00Z'));
+    const row = screen.getByRole('button', { name: 'Manual nodes' }).closest('tr')!;
+    const format = (date: string) => new Intl.DateTimeFormat('en', {
+      dateStyle: 'short', timeStyle: 'short',
+    }).format(new Date(date));
+    expect(row).toHaveTextContent(format('2026-09-20T00:00:00Z'));
+    await waitFor(() => expect(client.getSubscriptionNodeCatalog).toHaveBeenCalled());
+    rerender(renderPanel());
+    expect(row).toHaveTextContent(format('2026-09-20T00:00:00Z'));
+  });
+
+  it.each([{ items: [] }, { items: [{ ...testRuntimeHistory.items[0], process_started_at: 'invalid' }] }])(
+    'leaves an unknown manual update time empty', async ({ items }) => {
+      const client = mount(createMockApiClient({
+        getRuntimeHistory: vi.fn().mockResolvedValue({ ...testRuntimeHistory, items }),
+      }));
+      await waitFor(() => expect(client.getSubscriptionNodeCatalog).toHaveBeenCalled());
+      const row = screen.getByRole('button', { name: 'Manual nodes' }).closest('tr')!;
+      expect(within(row).getAllByRole('cell')[2]).toHaveTextContent('—');
+    });
+
+  it('returns focus after cancel and starts a fresh source form when reopened', async () => {
+    const user = userEvent.setup();
+    mount();
+    const add = screen.getByRole('button', { name: 'Attach source' });
+    await user.click(add);
+    await user.type(within(screen.getByRole('dialog')).getByLabelText('Name'), 'Unsaved');
+    await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Cancel' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    await waitFor(() => expect(add).toHaveFocus());
+    await user.click(add);
+    expect(within(screen.getByRole('dialog')).getByLabelText('Name')).toHaveValue('');
+  });
+
   it('switches protocol-dependent endpoint and SSH authentication controls without losing extensions', async () => {
     const user = userEvent.setup();
     const initial
@@ -297,11 +354,15 @@ describe('subscription sources and nodes', () => {
     expect(screen.queryByRole('button', { name: 'Node 1' })).not.toBeInTheDocument();
     expect(screen.getByRole('checkbox', { name: 'Select Node 2' })).toBeChecked();
     expect(screen.getAllByRole('article')).toHaveLength(10);
-    await user.selectOptions(screen.getByRole('combobox', { name: 'Rows per page' }), '5');
+    await user.click(screen.getByRole('combobox', { name: 'Rows per page' }));
+    await user.keyboard('[ArrowDown]');
+    await user.click(screen.getByRole('option', { name: '5 per page' }));
     expect(screen.getAllByRole('article')).toHaveLength(5);
     await user.click(screen.getByRole('button', { name: 'Next page' }));
     expect(screen.getByRole('button', { name: 'Node 7' })).toBeInTheDocument();
-    await user.selectOptions(screen.getByRole('combobox', { name: 'Rows per page' }), '50');
+    await user.click(screen.getByRole('combobox', { name: 'Rows per page' }));
+    await user.keyboard('[ArrowDown]');
+    await user.click(await screen.findByRole('option', { name: '50 per page' }));
     expect(screen.getAllByRole('article')).toHaveLength(13);
   });
 });

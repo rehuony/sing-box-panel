@@ -56,8 +56,7 @@ func (s *Store) SaveActivationBundle(ctx context.Context, bundle ActivationBundl
 		if err := validateActivationCanonicalHead(ctx, tx, startup); err != nil {
 			return err
 		}
-		core, err := getCoreArtifact(ctx, tx, startup.CoreArtifactID)
-		if err != nil || core.VerificationState != CoreArtifactVerified {
+		if _, err := getCoreArtifact(ctx, tx, startup.CoreArtifactID); err != nil {
 			return ErrActivationBundleNotReady
 		}
 		existing, getErr := getActivationBundle(ctx, tx, prepared.ID)

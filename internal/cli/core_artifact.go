@@ -15,7 +15,7 @@ import (
 )
 
 func newCoreListCommand(state *options, open openApplicationFunc) *cobra.Command {
-	var version, architecture, variant, source, verification string
+	var version, architecture, variant, source string
 	var limit int
 	command := &cobra.Command{Use: "list", Short: "List installed exact core artifacts", Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
@@ -26,7 +26,7 @@ func newCoreListCommand(state *options, open openApplicationFunc) *cobra.Command
 			defer instance.Close()
 			result, err := instance.ListCoreArtifacts(cmd.Context(), application.CoreArtifactListFilter{
 				ExactVersion: version, Architecture: architecture, Variant: variant,
-				SourceKind: store.CoreArtifactSourceKind(source), VerificationState: store.CoreArtifactVerificationState(verification), Limit: limit,
+				SourceKind: store.CoreArtifactSourceKind(source), Limit: limit,
 			})
 			if err != nil {
 				return &Error{Kind: ErrorValidation, Code: "core_filter_invalid", Message: err.Error(), Cause: err}
@@ -37,7 +37,6 @@ func newCoreListCommand(state *options, open openApplicationFunc) *cobra.Command
 	command.Flags().StringVar(&architecture, "arch", "", "filter by amd64 or arm64")
 	command.Flags().StringVar(&variant, "variant", "", "filter by exact artifact variant")
 	command.Flags().StringVar(&source, "source", "", "filter by official or user_verified")
-	command.Flags().StringVar(&verification, "verification", "", "filter by verified, revoked, or quarantined")
 	command.Flags().IntVar(&limit, "limit", 50, "maximum artifacts to return (1-200)")
 	return command
 }
@@ -84,7 +83,7 @@ func newCoreInstallCommand(state *options, open openApplicationFunc) *cobra.Comm
 func newCoreImportCommand(state *options, open openApplicationFunc) *cobra.Command {
 	var filePath, digest, version, architecture, variant, sourceDescription string
 	var detach bool
-	command := &cobra.Command{Use: "import", Short: "Import an administrator-verified local tar.gz as a durable task", Args: cobra.NoArgs,
+	command := &cobra.Command{Use: "import", Short: "Import a local tar.gz as a durable task", Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			for flag, value := range map[string]string{"file": filePath, "sha256": digest, "version": version, "arch": architecture} {
 				if strings.TrimSpace(value) == "" {
@@ -110,11 +109,11 @@ func newCoreImportCommand(state *options, open openApplicationFunc) *cobra.Comma
 			return renderQueuedTask(cmd, state, instance, task, detach)
 		}}
 	command.Flags().StringVar(&filePath, "file", "", "absolute or working-directory-relative local tar.gz path")
-	command.Flags().StringVar(&digest, "sha256", "", "administrator-verified archive SHA-256")
+	command.Flags().StringVar(&digest, "sha256", "", "expected archive SHA-256")
 	command.Flags().StringVar(&version, "version", "", "expected exact sing-box version")
 	command.Flags().StringVar(&architecture, "arch", "", "expected architecture: amd64 or arm64")
 	command.Flags().StringVar(&variant, "variant", "plain", "artifact variant")
-	command.Flags().StringVar(&sourceDescription, "source", "administrator verified local archive", "non-secret source description")
+	command.Flags().StringVar(&sourceDescription, "source", "local archive", "non-secret source description")
 	command.Flags().BoolVar(&detach, "detach", false, "return the durable task immediately")
 	return command
 }
@@ -131,22 +130,6 @@ func newCoreRemoveCommand(state *options, open openApplicationFunc) *cobra.Comma
 				return classifyCoreError("core_remove_failed", err)
 			}
 			return writeResult(cmd.OutOrStdout(), state.format, map[string]any{"artifact_id": args[0], "unregistered": true}, "unregistered core artifact "+args[0])
-		}}
-}
-
-func newCoreRestrictCommand(name string, verification store.CoreArtifactVerificationState, state *options, open openApplicationFunc) *cobra.Command {
-	return &cobra.Command{Use: name + " ARTIFACT", Short: "Prevent new work from using immutable core bytes", Args: cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			instance, err := openApplication(cmd.Context(), state.settingsPath, open)
-			if err != nil {
-				return err
-			}
-			defer instance.Close()
-			artifact, err := instance.RestrictCoreArtifactVerification(cmd.Context(), args[0], verification)
-			if err != nil {
-				return classifyCoreError("core_verification_restriction_failed", err)
-			}
-			return writeResult(cmd.OutOrStdout(), state.format, artifact, "core artifact "+artifact.ID+" is "+string(artifact.VerificationState))
 		}}
 }
 
@@ -183,11 +166,11 @@ func coreArtifactPageText(result application.CoreArtifactPage) string {
 	}
 	var output strings.Builder
 	for _, artifact := range result.Items {
-		fmt.Fprintf(&output, "%s\t%s\t%s\t%s\t%s\t%s\n", artifact.ID, artifact.ExactVersion, artifact.Architecture, artifact.Variant, artifact.SourceKind, artifact.VerificationState)
+		fmt.Fprintf(&output, "%s\t%s\t%s\t%s\t%s\n", artifact.ID, artifact.ExactVersion, artifact.Architecture, artifact.Variant, artifact.SourceKind)
 	}
 	return strings.TrimSuffix(output.String(), "\n")
 }
 
 func coreArtifactText(artifact application.CoreArtifact) string {
-	return fmt.Sprintf("%s\t%s\t%s\t%s\t%s", artifact.ID, artifact.ExactVersion, artifact.Architecture, artifact.Variant, artifact.VerificationState)
+	return fmt.Sprintf("%s\t%s\t%s\t%s\t%s", artifact.ID, artifact.ExactVersion, artifact.Architecture, artifact.Variant, artifact.SourceKind)
 }

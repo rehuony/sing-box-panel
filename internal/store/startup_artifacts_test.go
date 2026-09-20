@@ -28,7 +28,7 @@ func TestStartupArtifactBindsRawConfigurationToRevisionAndExactBinary(t *testing
 		ID: "core-raw", ExactVersion: "1.13.19", OperatingSystem: "linux", Architecture: "amd64", Variant: "plain",
 		SourceKind: CoreArtifactSourceUserVerified, UserSource: "test", ArchiveSHA256: strings.Repeat("a", 64),
 		BinarySHA256: strings.Repeat("b", 64), BinaryPath: "/tmp/sing-box", ReportedVersion: "1.13.19",
-		FeatureFingerprint: json.RawMessage(`{"status":"not_reported"}`), VerificationState: CoreArtifactVerified, CreatedAt: now,
+		FeatureFingerprint: json.RawMessage(`{"status":"not_reported"}`), CreatedAt: now,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -81,7 +81,7 @@ func TestCompiledRawStartupRechecksHeadBeforeInsert(t *testing.T) {
 		ID: "core-stale", ExactVersion: "1.13.19", OperatingSystem: "linux", Architecture: "amd64", Variant: "plain",
 		SourceKind: CoreArtifactSourceUserVerified, UserSource: "test", ArchiveSHA256: strings.Repeat("c", 64),
 		BinarySHA256: strings.Repeat("d", 64), BinaryPath: "/tmp/sing-box", ReportedVersion: "1.13.19",
-		FeatureFingerprint: json.RawMessage(`{"status":"not_reported"}`), VerificationState: CoreArtifactVerified, CreatedAt: now,
+		FeatureFingerprint: json.RawMessage(`{"status":"not_reported"}`), CreatedAt: now,
 	})
 	if err != nil {
 		t.Fatal(err)

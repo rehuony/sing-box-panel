@@ -32,7 +32,7 @@ export function useConfigurationSchema(exactVersion: string) {
     setState({ status: 'loading', resolution: null, error: null });
     try {
       const page = await client.listCoreArtifacts({
-        exactVersion, limit: 50, verificationState: 'verified',
+        exactVersion, limit: 50,
       }, signal);
       const artifacts = page.items.filter((artifact) => artifact.exact_version === exactVersion);
       const selected = artifacts[0];

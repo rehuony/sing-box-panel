@@ -199,36 +199,22 @@ func TestCoreArtifactRepositoryAndRemovalEligibility(t *testing.T) {
 	}
 	assertArtifactIDs(t, filtered.Items, "artifact-3", "artifact-1")
 
-	quarantined, err := store.RestrictCoreArtifactVerification(ctx, artifacts[1].ID, CoreArtifactQuarantined, now.Add(time.Minute))
-	if err != nil || quarantined.VerificationState != CoreArtifactQuarantined {
-		t.Fatalf("quarantined artifact = %+v, error = %v", quarantined, err)
-	}
-	revokedFromQuarantine, err := store.RestrictCoreArtifactVerification(ctx, artifacts[1].ID, CoreArtifactRevoked, now.Add(2*time.Minute))
-	if err != nil || revokedFromQuarantine.VerificationState != CoreArtifactRevoked {
-		t.Fatalf("revoked artifact = %+v, error = %v", revokedFromQuarantine, err)
-	}
-	stillRevoked, err := store.RestrictCoreArtifactVerification(ctx, artifacts[1].ID, CoreArtifactQuarantined, now.Add(3*time.Minute))
-	if err != nil || stillRevoked.VerificationState != CoreArtifactRevoked {
-		t.Fatalf("post-revocation quarantine = %+v, error = %v", stillRevoked, err)
-	}
-
 	updated := artifacts[0]
-	updated.VerificationState = CoreArtifactRevoked
 	updated.CreatedAt = now.Add(time.Hour)
 	stored, err := store.UpsertCoreArtifact(ctx, updated)
 	if err != nil {
-		t.Fatalf("UpsertCoreArtifact(update state) error = %v", err)
+		t.Fatalf("UpsertCoreArtifact(retry) error = %v", err)
 	}
-	if stored.VerificationState != CoreArtifactRevoked || !stored.CreatedAt.Equal(now) {
-		t.Fatalf("updated artifact = %+v, want revoked with original creation time", stored)
+	if !stored.CreatedAt.Equal(now) {
+		t.Fatalf("updated artifact = %+v, want original creation time", stored)
 	}
 	reinstall := artifacts[0]
 	reinstalled, err := store.UpsertCoreArtifact(ctx, reinstall)
 	if err != nil {
-		t.Fatalf("UpsertCoreArtifact(reinstall revoked bytes) error = %v", err)
+		t.Fatalf("UpsertCoreArtifact(reinstall) error = %v", err)
 	}
-	if reinstalled.VerificationState != CoreArtifactRevoked {
-		t.Fatalf("reinstalled artifact verification = %q, want terminal revoked", reinstalled.VerificationState)
+	if reinstalled.ID != artifacts[0].ID || !reinstalled.CreatedAt.Equal(now) {
+		t.Fatalf("reinstalled artifact identity or creation time changed: %+v", reinstalled)
 	}
 	mismatch := updated
 	mismatch.BinaryPath += ".changed"
@@ -379,8 +365,8 @@ func testCoreArtifact(
 		BinaryPath:         "/var/lib/sing-box-panel/core/" + id,
 		ReportedVersion:    "1.13.19",
 		FeatureFingerprint: json.RawMessage(`{"features":["with_clash_api"]}`),
-		VerificationState:  CoreArtifactVerified,
-		CreatedAt:          createdAt,
+
+		CreatedAt: createdAt,
 	}
 }
 

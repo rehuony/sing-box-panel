@@ -11,8 +11,8 @@ export const panelSettings = {
   autoHost: '自动获取公网 IP', identityName: '身份名称', identityKey: '身份密钥', identityHelp: '更改身份后保存会更新 config.json 中的同名默认用户，重启 sing-box 后生效。名称留空使用 panel；保留已有其他用户和无需认证的监听器。协议混淆密钥仍在对应协议中设置。',
   identitySaved: '身份已保存，重启 sing-box 后加载新的节点凭据',
   quota: '总流量额度', unlimited: '不限制', theme: '主题样式', light: '浅色', dark: '深色', system: '跟随系统',
-  color: '主题色', customColor: '自定义颜色', hex: 'HEX 颜色值', colors: ['紫色', '蓝色', '青色', '绿色', '橙色', '玫红'],
+  color: '主题色', customColor: '自定义颜色', customColorTitle: '自定义主题色', applyColor: '应用颜色', invalidColor: '请输入六位 HEX 颜色值，例如 #6D4ED1。', hex: 'HEX 颜色值', colors: ['紫色', '蓝色', '青色', '绿色', '橙色', '玫红'],
   radius: '界面圆角', radiusHelp: '卡片和弹窗使用设定值，控件使用一半。状态点、胶囊标签和品牌图标保持原形状。',
-  reset: '恢复默认外观', language: '显示语言', save: '保存设置', saving: '保存中…', saved: '设置已保存',
+  reset: '恢复默认', language: '显示语言', save: '保存设置', saving: '保存中…', saved: '设置已保存',
   restart: '设置已保存，监听与访问变更将在重启面板后生效', failed: '保存失败，请检查设置后重试', retry: '重新加载', cancel: '取消', tokenChanged: '令牌已更换，请重新登录',
 } as const;

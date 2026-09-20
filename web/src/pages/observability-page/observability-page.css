@@ -1,9 +1,8 @@
 .observability-page {
-  height: 100%;
   min-height: 0;
   display: flex;
   flex-direction: column;
-  gap: 24px;
+  gap: 16px;
 }
 .observability-page > h1 {
   margin: 0;
@@ -14,16 +13,13 @@
 .product-logs {
   flex: 1;
   min-height: 0;
-  padding: 24px;
+  padding: 24px 24px 8px;
   border: 1px solid var(--color-border);
   border-radius: var(--radius-card);
   background: var(--color-surface);
   box-shadow: var(--shadow-card);
-  gap: 20px;
+  gap: 12px;
   overflow: hidden;
-}
-.product-logs > [data-slot='tabs-list'] {
-  flex: none;
 }
 .product-logs > [data-slot='tabs-content'] {
   flex: 1;
@@ -40,7 +36,7 @@
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 8px;
 }
 .log-toolbar {
   display: flex;
@@ -49,29 +45,38 @@
   flex: none;
 }
 .log-toolbar > input {
-  width: min(330px, 40%);
+  width: 280px;
+  flex: 0 1 280px;
   height: 40px;
   border-radius: var(--radius-control);
+}
+.log-toolbar > input:focus-visible {
+  border-color: var(--input-focus);
+  box-shadow: none;
 }
 .log-toolbar__filters {
   display: flex;
   align-items: center;
-  margin-left: auto;
   gap: 12px;
   min-width: 0;
 }
-.log-toolbar select {
+.log-toolbar__filters [data-slot='select-trigger']:first-child {
+  min-width: 0;
+}
+.log-toolbar [data-slot='select-trigger'] {
   height: 40px;
   min-height: 40px;
-  padding: 0 36px 0 14px;
-  border: 1px solid var(--color-border);
+  padding: 0 12px;
+  border: 1px solid var(--color-border-strong);
   border-radius: var(--radius-control);
-  background-color: var(--color-surface);
-  color: var(--color-text-muted);
+  color: var(--color-text);
+  background: var(--color-surface-raised);
+  font-weight: 500;
   min-width: 110px;
   max-width: 100%;
 }
 .native-log {
+  position: relative;
   flex: 1;
   min-height: 0;
   display: flex;
@@ -81,40 +86,42 @@
   overflow: hidden;
 }
 .native-log__status {
+  position: absolute;
+  inset: 8px 12px auto auto;
+  z-index: 1;
   display: flex;
-  justify-content: flex-end;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 14px;
-  flex: none;
-  min-height: 52px;
-}
-.native-log__badge {
-  display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 6px 10px;
-  border-radius: 999px;
-  font-size: 12px;
-  color: var(--color-text-muted);
-  background: var(--color-surface);
+  padding: 0 6px 0 0;
+  border: 1px solid var(--color-rule-2);
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--color-surface) 85%, transparent);
+  backdrop-filter: blur(16px);
+}
+.native-log__status > button {
+  border-radius: var(--radius-pill);
+}
+.native-log__badge {
+  min-width: 84px;
+  justify-content: center;
+  height: 28px;
+  gap: 6px;
+  padding: 4px 8px;
+}
+.native-log__badge:only-child {
+  margin: 6px 0 6px 6px;
 }
 .native-log__badge i {
-  width: 8px;
-  height: 8px;
+  width: 6px;
+  height: 6px;
   border-radius: 50%;
   background: currentColor;
-}
-.native-log__badge--live {
-  color: #177757;
-  background: #e7f6ef;
 }
 .native-log__output {
   flex: 1;
   min-height: 0;
   overflow: auto;
-  padding: 0 18px 18px;
-  overscroll-behavior: contain;
+  padding: 12px 18px 18px;
 }
 .native-log__output pre {
   font-family: var(--font-mono);
@@ -158,7 +165,6 @@
   flex: 1;
   min-height: 0;
   overflow: auto;
-  overscroll-behavior: contain;
 }
 .panel-log-table {
   border-collapse: collapse;
@@ -215,7 +221,7 @@
   justify-content: space-between;
   flex: none;
 }
-.log-pagination select {
+.log-pagination [data-slot='select-trigger'] {
   background: transparent;
   border: 0;
   color: var(--color-text-muted);
@@ -263,18 +269,19 @@
 }
 @media (max-width: 720px) {
   .product-logs {
-    padding: 16px;
+    padding: 16px 16px 8px;
   }
   .log-toolbar {
     flex-wrap: wrap;
   }
   .log-toolbar > input {
     width: 100%;
+    flex-basis: 100%;
   }
   .log-toolbar__filters {
     width: 100%;
   }
-  .log-toolbar__filters select:first-child {
+  .log-toolbar__filters [data-slot='select-trigger']:first-child {
     flex: 1;
     min-width: 0;
   }

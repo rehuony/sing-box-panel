@@ -2,9 +2,8 @@ import type { ReactNode } from 'react';
 
 import { CircleHelp } from 'lucide-react';
 
-import { Button } from '@/components/ui/button';
 import { Field, FieldLabel } from '@/components/ui/field';
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { Popover, PopoverContent, PopoverDescription, PopoverTrigger } from '@/components/ui/popover';
 
 export function SettingsField({ id, label, help, invalid, children }: {
   id: string;
@@ -18,12 +17,14 @@ export function SettingsField({ id, label, help, invalid, children }: {
       <div className='settings-field__label'>
         <FieldLabel htmlFor={id}>{label}</FieldLabel>
         {help && (
-          <Tooltip>
-            <TooltipTrigger render={<Button type='button' variant='ghost' size='icon-sm' aria-label={label} />}>
-              <CircleHelp />
-            </TooltipTrigger>
-            <TooltipContent>{help}</TooltipContent>
-          </Tooltip>
+          <Popover>
+            <PopoverTrigger openOnHover delay={150} className='settings-help' aria-label={label}>
+              <CircleHelp aria-hidden='true' size={16} />
+            </PopoverTrigger>
+            <PopoverContent className='settings-help-content' side='top' initialFocus={false} aria-label={label}>
+              <PopoverDescription>{help}</PopoverDescription>
+            </PopoverContent>
+          </Popover>
         )}
       </div>
       <div className='settings-field__control'>{children}</div>

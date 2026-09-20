@@ -104,7 +104,10 @@ with `unsafe-eval`.
 
 Structured controls edit and validate only fields known to the reviewed form
 contract while preserving unshown JSON properties. The Advanced editor owns
-the complete effective configuration. The browser can save invalid JSON; it disables visual editing and binary
+the complete effective configuration, with JSON syntax highlighting, line numbers,
+folding, search/replace, and lossless formatting (also available with Ctrl/Cmd+Shift+F).
+Formatting preserves numeric literals and remains undoable; incomplete input is left intact.
+The editor loads on demand. The browser can save invalid JSON; it disables visual editing and binary
 validation until the text is a valid object. Saving and checking lock editing
 until the result arrives, so feedback describes the submitted file. Validation
 success is a Toast shown only after the check task succeeds. Unknown fields and
@@ -124,8 +127,8 @@ internal evidence. The CLI retains `core enable CORE_ARTIFACT_ID` to switch
 binaries with the current saved document; it waits for the durable task unless
 `--detach` is supplied.
 
-Apply rechecks the current file, canonical head, artifact trust, and startup
-evidence. A concurrent configuration or trust change cannot be combined with
+Apply rechecks the current file, canonical head, artifact identity, and startup
+evidence. A concurrent configuration or artifact change cannot be combined with
 stale bytes, and a failed preflight leaves the running core and the saved file
 unchanged.
 
@@ -147,7 +150,7 @@ sing-box-panel core stop
 Start and Restart use the last applied binary identity and the current saved
 file. A changed file is snapshotted for binary preflight in the serialized runtime
 lane. The desired process and current observation remain unchanged until that
-check passes. The worker rechecks the current file, canonical head, artifact trust,
+check passes. The worker rechecks the current file, canonical head, artifact identity,
 generation and lease before binding the checked candidate. Invalid text, failed
 checks, superseded intents and concurrent edits cannot replace the live process.
 

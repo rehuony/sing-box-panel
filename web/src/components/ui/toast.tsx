@@ -1,6 +1,7 @@
 'use client';
 
 import * as React from 'react';
+import { useTranslation } from 'react-i18next';
 import { Toast as ToastPrimitive } from '@base-ui/react/toast';
 import { CircleCheckIcon, InfoIcon, Loader2Icon, OctagonXIcon, TriangleAlertIcon, XIcon } from 'lucide-react';
 
@@ -30,10 +31,20 @@ function ToastViewport({ className, ...props }: ToastPrimitive.Viewport.Props) {
   );
 }
 
-function Toast({ className, ...props }: ToastPrimitive.Root.Props) {
+const toastTones: Record<string, string> = {
+  success: 'border-status-success-border bg-status-success-soft text-status-success-foreground',
+  info: 'border-status-info-border bg-status-info-soft text-status-info-foreground',
+  loading: 'border-status-info-border bg-status-info-soft text-status-info-foreground',
+  warning: 'border-status-warning-border bg-status-warning-soft text-status-warning-foreground',
+  error: 'border-(--color-danger-border) bg-(--color-danger-surface) text-(--color-danger-text)',
+};
+
+function Toast({ className, toast: toastItem, ...props }: ToastPrimitive.Root.Props) {
   return (
     <ToastPrimitive.Root
       data-slot='toast'
+      data-type={toastItem.type}
+      toast={toastItem}
       className={cn(
         'group/toast pointer-events-auto absolute right-0 bottom-0 z-[calc(1000-var(--toast-index))] w-full origin-bottom rounded-2xl border bg-popover text-popover-foreground shadow-lg will-change-transform outline-none select-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50',
         '[--gap:0.75rem] [--height:var(--toast-frontmost-height,var(--toast-height))] [--offset-y:calc(var(--toast-offset-y)*-1+calc(var(--toast-index)*var(--gap)*-1)+var(--toast-swipe-movement-y))] [--peek:0.75rem] [--scale:calc(max(0,1-(var(--toast-index)*0.1)))] [--shrink:calc(1-var(--scale))]',
@@ -50,6 +61,7 @@ function Toast({ className, ...props }: ToastPrimitive.Root.Props) {
         'data-expanded:data-ending-style:data-[swipe-direction=left]:[transform:translateX(calc(var(--toast-swipe-movement-x)-150%))_translateY(var(--offset-y))]',
         'data-expanded:data-ending-style:data-[swipe-direction=right]:[transform:translateX(calc(var(--toast-swipe-movement-x)+150%))_translateY(var(--offset-y))]',
         'data-expanded:data-ending-style:data-[swipe-direction=up]:[transform:translateY(calc(var(--toast-swipe-movement-y)-150%))]',
+        toastTones[toastItem.type ?? ''],
         className,
       )}
       {...props}
@@ -62,7 +74,7 @@ function ToastContent({ className, ...props }: ToastPrimitive.Content.Props) {
     <ToastPrimitive.Content
       data-slot='toast-content'
       className={cn(
-        'flex h-full items-center gap-3 overflow-hidden p-4 transition-opacity duration-250 ease-[cubic-bezier(0.22,1,0.36,1)] data-behind:opacity-0 data-expanded:opacity-100',
+        'flex h-full items-center gap-3 overflow-hidden px-3 py-2 transition-opacity duration-250 ease-[cubic-bezier(0.22,1,0.36,1)] data-behind:opacity-0 data-expanded:opacity-100',
         className,
       )}
       {...props}
@@ -74,7 +86,7 @@ function ToastTitle({ className, ...props }: ToastPrimitive.Title.Props) {
   return (
     <ToastPrimitive.Title
       data-slot='toast-title'
-      className={cn('text-sm font-medium', className)}
+      className={cn('text-sm leading-5 font-semibold', className)}
       {...props}
     />
   );
@@ -87,7 +99,7 @@ function ToastDescription({
   return (
     <ToastPrimitive.Description
       data-slot='toast-description'
-      className={cn('text-sm text-muted-foreground', className)}
+      className={cn('text-sm leading-5 text-current opacity-85', className)}
       {...props}
     />
   );
@@ -114,13 +126,14 @@ function ToastClose({
   render = <Button variant='ghost' size='icon-sm' />,
   ...props
 }: ToastPrimitive.Close.Props) {
+  const { t } = useTranslation();
   return (
     <ToastPrimitive.Close
       data-slot='toast-close'
-      aria-label='Close toast'
+      aria-label={t('common.close')}
       render={render}
       className={cn(
-        'relative shrink-0 text-muted-foreground after:absolute after:-inset-2 after:content-[\'\'] hover:text-foreground',
+        'relative size-8 min-h-8 min-w-8 [min-block-size:2rem] shrink-0 text-current opacity-70 after:absolute after:-inset-1.5 after:content-[\'\'] hover:bg-foreground/5 hover:text-current hover:opacity-100',
         className,
       )}
       {...props}
@@ -155,7 +168,7 @@ function ToastIcon({ type }: { type: string | undefined }) {
 
   if (type === 'error') {
     icon = (
-      <OctagonXIcon className='text-destructive' aria-hidden='true' />
+      <OctagonXIcon aria-hidden='true' />
     );
   }
 
@@ -172,7 +185,7 @@ function ToastIcon({ type }: { type: string | undefined }) {
   return (
     <span
       data-slot='toast-icon'
-      className="shrink-0 [&_svg]:pointer-events-none [&_svg:not([class*='size-'])]:size-4"
+      className="shrink-0 [&_svg]:pointer-events-none [&_svg:not([class*='size-'])]:size-5"
     >
       {icon}
     </span>
@@ -186,7 +199,7 @@ function ToastList() {
     <Toast key={toastItem.id} toast={toastItem}>
       <ToastContent>
         <ToastIcon type={toastItem.type} />
-        <div className='flex min-w-0 flex-1 flex-col gap-1'>
+        <div className='flex min-w-0 flex-1 flex-col gap-0.5'>
           <ToastTitle />
           <ToastDescription />
         </div>

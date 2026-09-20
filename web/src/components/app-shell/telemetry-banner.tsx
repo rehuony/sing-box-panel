@@ -41,7 +41,6 @@ import {
   AlertDialogDescription,
   AlertDialogFooter,
   AlertDialogHeader,
-  AlertDialogMedia,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 
@@ -126,7 +125,6 @@ function RuntimeConfirmation({ action, disabled, onConfirm }: RuntimeConfirmatio
       </Tooltip>
       <AlertDialogContent>
         <AlertDialogHeader>
-          <AlertDialogMedia><Icon aria-hidden='true' /></AlertDialogMedia>
           <AlertDialogTitle>{t(`telemetry.confirm.${action}.title`)}</AlertDialogTitle>
           <AlertDialogDescription>
             {t(`telemetry.confirm.${action}.description`)}
@@ -150,17 +148,13 @@ function RuntimeConfirmation({ action, disabled, onConfirm }: RuntimeConfirmatio
 }
 
 interface MobileTelemetryMenuProps {
-  busy: boolean;
   canStop: boolean;
   canStart: boolean;
   canRestart: boolean;
-  actionMessage: string;
   onAction: (action: RuntimeAction) => void;
 }
 
 function MobileTelemetryMenu({
-  actionMessage,
-  busy,
   canRestart,
   canStart,
   canStop,
@@ -168,10 +162,9 @@ function MobileTelemetryMenu({
 }: MobileTelemetryMenuProps) {
   const { t } = useTranslation();
   const [confirmation, setConfirmation] = useState<Extract<RuntimeAction, 'restart' | 'stop'> | null>(null);
-  const ConfirmationIcon = confirmation === 'restart' ? RotateCw : Square;
   const hasControls = canStart || canStop || canRestart;
 
-  if (!busy && !hasControls) return null;
+  if (!hasControls) return null;
 
   return (
     <div className='telemetry-mobile-actions'>
@@ -181,20 +174,12 @@ function MobileTelemetryMenu({
             <Button aria-label={t('telemetry.moreActions')} size='icon-sm' variant='ghost' />
           )}
         >
-          {busy ? <Spinner aria-label={actionMessage} /> : <Ellipsis aria-hidden='true' />}
+          <Ellipsis aria-hidden='true' />
         </DropdownMenuTrigger>
         <DropdownMenuContent align='end' sideOffset={8}>
           <DropdownMenuGroup>
             <DropdownMenuLabel>{t('telemetry.control.label')}</DropdownMenuLabel>
-            {busy
-              ? (
-                  <DropdownMenuItem disabled>
-                    <Spinner />
-                    {actionMessage}
-                  </DropdownMenuItem>
-                )
-              : null}
-            {!busy && canStart
+            {canStart
               ? (
                   <DropdownMenuItem onClick={() => onAction('start')}>
                     <Play aria-hidden='true' />
@@ -202,7 +187,7 @@ function MobileTelemetryMenu({
                   </DropdownMenuItem>
                 )
               : null}
-            {!busy && canStop
+            {canStop
               ? (
                   <DropdownMenuItem
                     onClick={() => setConfirmation('stop')}
@@ -213,7 +198,7 @@ function MobileTelemetryMenu({
                   </DropdownMenuItem>
                 )
               : null}
-            {!busy && canRestart
+            {canRestart
               ? (
                   <DropdownMenuItem onClick={() => setConfirmation('restart')}>
                     <RotateCw aria-hidden='true' />
@@ -233,7 +218,6 @@ function MobileTelemetryMenu({
       >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogMedia><ConfirmationIcon aria-hidden='true' /></AlertDialogMedia>
             <AlertDialogTitle>
               {confirmation === null ? '' : t(`telemetry.confirm.${confirmation}.title`)}
             </AlertDialogTitle>
@@ -363,10 +347,11 @@ export function TelemetryBanner() {
             <span aria-hidden='true' className='telemetry-runtime__dot' />
             {import.meta.env.MODE === 'demo' ? t('telemetry.demo') : runtimeLabel}
           </Badge>
-          <strong className='telemetry-version'>
-            {'sing-box '}
-            {runningIdentity?.exact_core_version ?? EM_DASH}
-          </strong>
+          <Badge className='telemetry-version' title={`${t('telemetry.metric.version')}: ${runningIdentity?.exact_core_version ?? EM_DASH}`} variant='secondary'>
+            <span className='telemetry-version__label'>
+              {runningIdentity?.exact_core_version ? `v${runningIdentity.exact_core_version.replace(/^v/i, '')}` : EM_DASH}
+            </span>
+          </Badge>
         </div>
       </div>
 
@@ -395,9 +380,8 @@ export function TelemetryBanner() {
       </div>
 
       <div className='telemetry-banner__actions'>
-        {actionMessage === ''
-          ? null
-          : (
+        {actionMessage !== ''
+          ? (
               <Badge
                 className='runtime-action-progress'
                 role='status'
@@ -415,65 +399,55 @@ export function TelemetryBanner() {
                       : null}
                 <span>{actionMessage}</span>
               </Badge>
+            )
+          : (
+              <>
+                <div className='telemetry-runtime-controls telemetry-runtime-controls--desktop' aria-label={t('telemetry.control.label')}>
+                  {verifiedStopped
+                    ? (
+                        <Tooltip>
+                          <TooltipTrigger
+                            render={(
+                              <Button
+                                aria-label={t('telemetry.control.start')}
+                                className='telemetry-action-button telemetry-action-button--start'
+                                onClick={() => runRuntimeAction('start')}
+                                size='icon-sm'
+                                title={t('telemetry.control.start')}
+                                variant='ghost'
+                              />
+                            )}
+                          >
+                            <Play aria-hidden='true' />
+                          </TooltipTrigger>
+                          <TooltipContent>{t('telemetry.control.start')}</TooltipContent>
+                        </Tooltip>
+                      )
+                    : verifiedRunning
+                      ? (
+                          <>
+                            <RuntimeConfirmation
+                              action='stop'
+                              disabled={false}
+                              onConfirm={() => runRuntimeAction('stop')}
+                            />
+                            <RuntimeConfirmation
+                              action='restart'
+                              disabled={false}
+                              onConfirm={() => runRuntimeAction('restart')}
+                            />
+                          </>
+                        )
+                      : null}
+                </div>
+                <MobileTelemetryMenu
+                  canRestart={verifiedRunning}
+                  canStart={verifiedStopped}
+                  canStop={verifiedRunning}
+                  onAction={runRuntimeAction}
+                />
+              </>
             )}
-        <div className='telemetry-runtime-controls telemetry-runtime-controls--desktop' aria-label={t('telemetry.control.label')}>
-          {runtimeControl.busy && action !== null
-            ? (
-                <Button
-                  aria-label={actionMessage}
-                  className={`telemetry-action-button telemetry-action-button--${action}`}
-                  disabled
-                  size='icon-sm'
-                  variant='ghost'
-                >
-                  <Spinner />
-                </Button>
-              )
-            : verifiedStopped
-              ? (
-                  <Tooltip>
-                    <TooltipTrigger
-                      render={(
-                        <Button
-                          aria-label={t('telemetry.control.start')}
-                          className='telemetry-action-button telemetry-action-button--start'
-                          onClick={() => runRuntimeAction('start')}
-                          size='icon-sm'
-                          title={t('telemetry.control.start')}
-                          variant='ghost'
-                        />
-                      )}
-                    >
-                      <Play aria-hidden='true' />
-                    </TooltipTrigger>
-                    <TooltipContent>{t('telemetry.control.start')}</TooltipContent>
-                  </Tooltip>
-                )
-              : verifiedRunning
-                ? (
-                    <>
-                      <RuntimeConfirmation
-                        action='stop'
-                        disabled={false}
-                        onConfirm={() => runRuntimeAction('stop')}
-                      />
-                      <RuntimeConfirmation
-                        action='restart'
-                        disabled={false}
-                        onConfirm={() => runRuntimeAction('restart')}
-                      />
-                    </>
-                  )
-                : null}
-        </div>
-        <MobileTelemetryMenu
-          actionMessage={actionMessage}
-          busy={runtimeControl.busy}
-          canRestart={!runtimeControl.busy && verifiedRunning}
-          canStart={!runtimeControl.busy && verifiedStopped}
-          canStop={!runtimeControl.busy && verifiedRunning}
-          onAction={runRuntimeAction}
-        />
       </div>
     </header>
   );

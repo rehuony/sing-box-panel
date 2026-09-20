@@ -2,14 +2,20 @@ import { Pause, Play } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useEffect, useMemo, useRef, useState } from 'react';
 
+import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { ErrorNotice } from '@/components/error-notice';
+import { SelectField } from '@/components/select-field';
+import { ToolbarActions } from '@/components/workspace-toolbar';
 
 import { useCoreLogs } from './use-core-logs';
 import { coreLevels, parseCoreLines } from './core-log-lines';
 
-export function CoreLogsPanel() {
+export function CoreLogsPanel({ active = true, toolbarTarget }: {
+  active?: boolean;
+  toolbarTarget?: HTMLElement | null;
+} = {}) {
   const { t } = useTranslation();
   const log = useCoreLogs();
   const [level, setLevel] = useState('');
@@ -38,45 +44,32 @@ export function CoreLogsPanel() {
         : 'archive';
   return (
     <div className='log-workspace'>
-      <div className='log-toolbar'>
-        <Input
-          aria-label={t('productLogs.search')}
-          placeholder={t('productLogs.search')}
-          value={search}
-          onChange={(event) => setSearch(event.target.value)}
-        />
-        <div className='log-toolbar__filters'>
-          <select
-            aria-label={t('productLogs.file')}
-            value={log.file}
-            onChange={(event) => log.selectFile(event.target.value)}
-          >
-            {!log.files.length && <option value=''>{t('productLogs.noFiles')}</option>}
-            {log.files.map((file) => (
-              <option key={file.name} value={file.name}>
-                {file.name.replace('.log', '')}
-                {' '}
-                ·
-                {(file.size / 1048576).toFixed(1)}
-                {' '}
-                MB
-              </option>
-            ))}
-          </select>
-          <select
-            aria-label={t('productLogs.level')}
-            value={level}
-            onChange={(event) => setLevel(event.target.value)}
-          >
-            <option value=''>ALL</option>
-            {coreLevels.map((value) => (
-              <option key={value} value={value}>
-                {value.toUpperCase()}
-              </option>
-            ))}
-          </select>
+      <ToolbarActions active={active} target={toolbarTarget}>
+        <div className='log-toolbar workspace-toolbar-content'>
+          <Input
+            aria-label={t('productLogs.search')}
+            placeholder={t('productLogs.search')}
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+          />
+          <div className='log-toolbar__filters'>
+            <SelectField
+              aria-label={t('productLogs.file')}
+              value={log.file}
+              onValueChange={log.selectFile}
+              items={log.files.length ? log.files.map((file) => ({ value: file.name, label: `${file.name.replace('.log', '')} · ${(file.size / 1048576).toFixed(1)} MB` })) : [{ value: '', label: t('productLogs.noFiles') }]}
+            />
+            <SelectField
+              aria-label={t('productLogs.level')}
+              value={level}
+              onValueChange={(value) => {
+                setLevel(value);
+              }}
+              items={[{ value: '', label: 'ALL' }, ...coreLevels.map((value) => ({ value, label: value.toUpperCase() }))]}
+            />
+          </div>
         </div>
-      </div>
+      </ToolbarActions>
       {log.error != null && <ErrorNotice error={log.error} title={t('productLogs.unavailable')} />}
       <div className='native-log'>
         <div className='native-log__status'>
@@ -90,10 +83,10 @@ export function CoreLogsPanel() {
               {log.paused ? <Play /> : <Pause />}
             </Button>
           )}
-          <span className={`native-log__badge native-log__badge--${state}`}>
-            <i />
+          <Badge className='native-log__badge' variant={state === 'live' ? 'success' : state === 'paused' ? 'warning' : state === 'connecting' ? 'info' : 'secondary'}>
+            <i aria-hidden='true' />
             {t(`productLogs.${state}`)}
-          </span>
+          </Badge>
         </div>
         <div
           ref={viewportRef}

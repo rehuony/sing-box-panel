@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { WorkspaceToolbar } from '@/components/workspace-toolbar';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
 import { SubscriptionTokenPanel } from './subscription-token-panel';
@@ -21,6 +22,7 @@ function initialArea(): SubscriptionArea {
 export function SubscriptionsPage() {
   const { t } = useTranslation();
   const [area, setArea] = useState<SubscriptionArea>(initialArea);
+  const [toolbarTarget, setToolbarTarget] = useState<HTMLDivElement | null>(null);
 
   useEffect(() => {
     const syncAreaFromURL = () => setArea(initialArea());
@@ -41,20 +43,22 @@ export function SubscriptionsPage() {
   }
 
   return (
-    <div className='subscriptions-page'>
-      <header className='subscriptions-page__heading'>
+    <div className='subscriptions-page panel-page'>
+      <header className='subscriptions-page__heading panel-page-heading'>
         <h1>{t('subscriptions.title')}</h1>
       </header>
-
       <Tabs onValueChange={selectArea} value={area}>
-        <TabsList aria-label={t('subscriptions.tabs.label')} className='subscriptions-tabs'>
-          <TabsTrigger value='sources'>{t('subscriptions.tabs.sources')}</TabsTrigger>
-          <TabsTrigger value='tokens'>{t('subscriptions.tabs.tokens')}</TabsTrigger>
-          <TabsTrigger value='channels'>{t('subscriptions.tabs.channels')}</TabsTrigger>
-        </TabsList>
-        <TabsContent className='subscriptions-tab-panel' keepMounted value='channels'><SubscriptionChannelPanel active={area === 'channels'} /></TabsContent>
-        <TabsContent className='subscriptions-tab-panel' keepMounted value='sources'><SubscriptionSourcePanel /></TabsContent>
-        <TabsContent className='subscriptions-tab-panel' keepMounted value='tokens'><SubscriptionTokenPanel /></TabsContent>
+        <WorkspaceToolbar>
+          <TabsList aria-label={t('subscriptions.tabs.label')} className='subscriptions-tabs'>
+            <TabsTrigger value='sources'>{t('subscriptions.tabs.sources')}</TabsTrigger>
+            <TabsTrigger value='tokens'>{t('subscriptions.tabs.tokens')}</TabsTrigger>
+            <TabsTrigger value='channels'>{t('subscriptions.tabs.channels')}</TabsTrigger>
+          </TabsList>
+          <div className='workspace-toolbar__actions' ref={setToolbarTarget} />
+        </WorkspaceToolbar>
+        <TabsContent className='subscriptions-tab-panel' keepMounted value='channels'><SubscriptionChannelPanel active={area === 'channels'} toolbarTarget={toolbarTarget} /></TabsContent>
+        <TabsContent className='subscriptions-tab-panel' keepMounted value='sources'><SubscriptionSourcePanel active={area === 'sources'} toolbarTarget={toolbarTarget} /></TabsContent>
+        <TabsContent className='subscriptions-tab-panel' keepMounted value='tokens'><SubscriptionTokenPanel active={area === 'tokens'} toolbarTarget={toolbarTarget} /></TabsContent>
       </Tabs>
     </div>
   );

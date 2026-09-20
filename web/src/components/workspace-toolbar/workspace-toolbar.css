@@ -1,0 +1,54 @@
+.workspace-toolbar {
+  display: flex;
+  align-items: center;
+  flex: none;
+  gap: var(--space-md);
+  min-width: 0;
+}
+
+.workspace-toolbar > [data-slot='tabs-list'] {
+  flex: none;
+  align-self: center;
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+}
+
+.workspace-toolbar > [data-slot='tabs-list']::-webkit-scrollbar {
+  display: none;
+}
+
+.workspace-toolbar__actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex: 1;
+  gap: var(--space-xs);
+  min-width: 0;
+}
+
+.workspace-toolbar__actions > .workspace-toolbar-content {
+  width: 100%;
+  min-width: 0;
+  justify-content: flex-end;
+  padding: 0;
+  margin: 0;
+}
+
+@container (max-width: 44rem) {
+  .workspace-toolbar {
+    flex-direction: column;
+    align-items: stretch;
+    gap: var(--space-sm);
+  }
+
+  .workspace-toolbar > [data-slot='tabs-list'] {
+    align-self: flex-start;
+  }
+
+  .workspace-toolbar__actions {
+    flex: none;
+    width: 100%;
+  }
+}

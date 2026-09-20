@@ -85,7 +85,7 @@ func (handler *Handler) listCoreArtifacts(w http.ResponseWriter, request *http.R
 	}
 	query, ok := strictCoreQuery(
 		w, request,
-		"exact_version", "architecture", "variant", "source_kind", "verification_state",
+		"exact_version", "architecture", "variant", "source_kind",
 		"before_time", "before_id", "limit",
 	)
 	if !ok {
@@ -94,8 +94,7 @@ func (handler *Handler) listCoreArtifacts(w http.ResponseWriter, request *http.R
 	if !validOptionalExactVersion(query.Get("exact_version"), true) ||
 		!validOptionalArchitecture(query.Get("architecture")) ||
 		!validOptionalVariant(query.Get("variant")) ||
-		!validOptionalCoreArtifactSource(query.Get("source_kind")) ||
-		!validOptionalCoreArtifactVerification(query.Get("verification_state")) {
+		!validOptionalCoreArtifactSource(query.Get("source_kind")) {
 		writeProblem(w, request, http.StatusBadRequest, "core_artifact_filter_invalid", "Core artifact filter invalid", "The core artifact filter contains an unsupported value.")
 		return
 	}
@@ -108,13 +107,12 @@ func (handler *Handler) listCoreArtifacts(w http.ResponseWriter, request *http.R
 		return
 	}
 	page, err := handler.commands.ListCoreArtifacts(request.Context(), application.CoreArtifactListFilter{
-		ExactVersion:      query.Get("exact_version"),
-		Architecture:      query.Get("architecture"),
-		Variant:           query.Get("variant"),
-		SourceKind:        store.CoreArtifactSourceKind(query.Get("source_kind")),
-		VerificationState: store.CoreArtifactVerificationState(query.Get("verification_state")),
-		Cursor:            cursor,
-		Limit:             limit,
+		ExactVersion: query.Get("exact_version"),
+		Architecture: query.Get("architecture"),
+		Variant:      query.Get("variant"),
+		SourceKind:   store.CoreArtifactSourceKind(query.Get("source_kind")),
+		Cursor:       cursor,
+		Limit:        limit,
 	})
 	if err != nil {
 		writeProblem(w, request, http.StatusInternalServerError, "core_artifact_list_failed", "Core artifact operation failed", "The core artifacts could not be listed.")
@@ -191,38 +189,6 @@ func (handler *Handler) deleteCoreArtifact(w http.ResponseWriter, request *http.
 	}
 	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(http.StatusNoContent)
-}
-
-func (handler *Handler) restrictCoreArtifact(
-	w http.ResponseWriter,
-	request *http.Request,
-	identifier string,
-	verificationState store.CoreArtifactVerificationState,
-) {
-	if !handler.requireCommands(w, request) {
-		return
-	}
-	if !validCoreArtifactID(identifier) {
-		writeProblem(w, request, http.StatusBadRequest, "core_artifact_id_invalid", "Core artifact ID invalid", "The core artifact ID is invalid.")
-		return
-	}
-	if _, ok := strictCoreQuery(w, request); !ok || !requireEmptyCoreBody(w, request) {
-		return
-	}
-	artifact, err := handler.commands.RestrictCoreArtifactVerification(
-		request.Context(),
-		identifier,
-		verificationState,
-	)
-	if err != nil {
-		if application.IsCoreArtifactNotFound(err) {
-			writeProblem(w, request, http.StatusNotFound, "core_artifact_not_found", "Core artifact not found", "The requested core artifact does not exist.")
-			return
-		}
-		writeProblem(w, request, http.StatusInternalServerError, "core_artifact_verification_update_failed", "Core artifact operation failed", "The core artifact verification state could not be restricted.")
-		return
-	}
-	writeJSON(w, http.StatusOK, artifact)
 }
 
 func (handler *Handler) queueCoreInstall(w http.ResponseWriter, request *http.Request) {

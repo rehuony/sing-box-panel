@@ -181,7 +181,7 @@ func (handler *Handler) enableCoreArtifact(w http.ResponseWriter, request *http.
 	}
 	task, err := handler.commands.EnableCore(request.Context(), id)
 	if err != nil {
-		if errors.Is(err, application.ErrCorePlatformMismatch) || errors.Is(err, application.ErrCoreArtifactVerificationBlocked) {
+		if errors.Is(err, application.ErrCorePlatformMismatch) {
 			writeProblem(w, request, http.StatusConflict, "core_enable_blocked", "Core cannot be enabled", "The artifact must be verified and match the deployed panel operating system and architecture.")
 		} else if errors.Is(err, store.ErrCoreArtifactNotFound) {
 			writeProblem(w, request, http.StatusNotFound, "core_artifact_not_found", "Core artifact not found", "The requested artifact does not exist.")

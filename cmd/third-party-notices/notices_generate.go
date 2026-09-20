@@ -4,6 +4,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"path/filepath"
 	"regexp"
@@ -93,10 +94,11 @@ type pnpmLicenseEntry struct {
 }
 
 type packageMetadata struct {
-	Name     string `json:"name"`
-	Version  string `json:"version"`
-	License  string `json:"license"`
-	Homepage string `json:"homepage"`
+	Repository json.RawMessage `json:"repository"`
+	Name       string          `json:"name"`
+	Version    string          `json:"version"`
+	License    string          `json:"license"`
+	Homepage   string          `json:"homepage"`
 }
 
 // Generate inspects the dependencies used by the two supported Linux release

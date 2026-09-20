@@ -71,9 +71,6 @@ func prepareCoreArtifact(artifact CoreArtifact) (CoreArtifact, error) {
 		return CoreArtifact{}, fmt.Errorf("core artifact feature fingerprint: %w", err)
 	}
 	artifact.FeatureFingerprint = featureFingerprint
-	if !validCoreArtifactVerification(artifact.VerificationState) {
-		return CoreArtifact{}, fmt.Errorf("invalid core artifact verification %q", artifact.VerificationState)
-	}
 	if artifact.CreatedAt.IsZero() {
 		artifact.CreatedAt = time.Now().UTC()
 	} else {
@@ -131,15 +128,6 @@ func validArtifactVariant(value string) bool {
 
 func validCoreArtifactSource(value CoreArtifactSourceKind) bool {
 	return value == CoreArtifactSourceOfficial || value == CoreArtifactSourceUserVerified
-}
-
-func validCoreArtifactVerification(value CoreArtifactVerificationState) bool {
-	switch value {
-	case CoreArtifactVerified, CoreArtifactRevoked, CoreArtifactQuarantined:
-		return true
-	default:
-		return false
-	}
 }
 
 func nullablePositiveID(value int64) any {
