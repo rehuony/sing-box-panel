@@ -205,3 +205,74 @@ describe('schemaSectionForm', () => {
     });
   });
 });
+
+const serverSchema: RJSFSchema = {
+  type: 'array',
+  items: {
+    oneOf: ['h3', 'https', 'local'].map((type) => ({
+      type: 'object',
+      required: ['type'],
+      properties: {
+        type: { type: 'string', enum: [type] },
+        tag: { type: 'string' },
+        ...(type === 'local' ? {} : { server: { type: 'string' } }),
+      },
+    })),
+  },
+};
+
+function ServerHarness() {
+  const [draft, setDraft] = useState<CanonicalDraft>({
+    servers: [{ type: 'https', tag: 'dns-remote', server: '1.1.1.1', future: { keep: true } }],
+  });
+  return (
+    <>
+      <SchemaSectionForm basePointer='/servers' data={draft.servers} onChange={setDraft}
+        resolution={{ ...resolution, schema: { type: 'object', properties: { servers: serverSchema } } }} schema={serverSchema} />
+      <output aria-label='Server draft'>{JSON.stringify(draft)}</output>
+    </>
+  );
+}
+
+it('edits the matching protocol inline and retains unknown fields across navigation and type changes', async () => {
+  const user = userEvent.setup();
+  render(<ServerHarness />);
+  expect(screen.queryByRole('textbox', { name: 'Server' })).not.toBeInTheDocument();
+  await user.click(screen.getByRole('button', { name: 'dns-remote' }));
+  expect(screen.getByRole('combobox', { name: 'Type' })).toHaveTextContent('https');
+  expect(screen.queryByText(/Option \d/)).not.toBeInTheDocument();
+  fireEvent.change(screen.getByRole('textbox', { name: 'Server' }), { target: { value: '9.9.9.9' } });
+  await user.click(screen.getByRole('button', { name: 'Done editing' }));
+  expect(screen.getByText('9.9.9.9')).toBeInTheDocument();
+  await user.click(screen.getByRole('button', { name: 'dns-remote' }));
+  await user.click(screen.getByRole('combobox', { name: 'Type' }));
+  await user.click(await screen.findByRole('option', { name: 'local' }));
+  expect(screen.queryByRole('textbox', { name: 'Server' })).not.toBeInTheDocument();
+  expect(JSON.parse(screen.getByLabelText('Server draft').textContent ?? '{}')).toEqual({
+    servers: [{ type: 'local', tag: 'dns-remote', future: { keep: true } }],
+  });
+});
+
+it('adds, renames and removes custom map entries through the same field layout', async () => {
+  const user = userEvent.setup();
+  const mapSchema: RJSFSchema = { type: 'object', additionalProperties: { type: 'string' } };
+  function MapHarness() {
+    const [draft, setDraft] = useState<CanonicalDraft>({ section: { 'X-Existing': 'keep' } });
+    return (
+      <>
+        <SchemaSectionForm basePointer='/section' data={draft.section} onChange={setDraft}
+          resolution={{ ...resolution, schema: { type: 'object', properties: { section: mapSchema } } }} schema={mapSchema} />
+        <output aria-label='Map draft'>{JSON.stringify(draft)}</output>
+      </>
+    );
+  }
+  render(<MapHarness />);
+  await user.click(screen.getByRole('button', { name: 'Add field' }));
+  const key = screen.getAllByRole('textbox', { name: 'Field name' })[1];
+  fireEvent.change(key, { target: { value: 'X-New' } });
+  fireEvent.blur(key);
+  fireEvent.change(screen.getByRole('textbox', { name: 'X-New' }), { target: { value: 'value' } });
+  expect(screen.getByLabelText('Map draft')).toHaveTextContent('"X-New":"value"');
+  await user.click(screen.getAllByRole('button', { name: 'Remove' })[1]);
+  expect(screen.getByLabelText('Map draft')).toHaveTextContent('{"section":{"X-Existing":"keep"}}');
+});

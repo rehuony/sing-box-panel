@@ -1,4 +1,6 @@
 export const common = {
+  back: '返回',
+  actions: '操作',
   add: '添加',
   cancel: '取消',
   clear: '清空',

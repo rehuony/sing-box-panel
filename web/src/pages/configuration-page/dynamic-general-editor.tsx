@@ -8,9 +8,9 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
 import type { CanonicalDraft } from './use-canonical-configuration';
 
-import { SchemaSectionForm } from './schema-section-form';
-import { schemaProperties, uiSchemaFromPanel } from './schema-ui';
+import { schemaProperties } from './schema-ui';
 import { ManagedCollectionsEditor } from './managed-collections-editor';
+import { ConfigurationSectionEditor } from './configuration-section-editor';
 
 interface DynamicGeneralEditorProps {
   disabled?: boolean;
@@ -49,7 +49,7 @@ export function DynamicGeneralEditor({
     <Tabs className='configuration-general' defaultValue={linkedInbound ? 'inbounds' : sections[0][0]} orientation='vertical'>
       <TabsList aria-label={t('configuration.general.modules')} className='configuration-general__nav'>
         {sections.map(([name, schema]) => (
-          <TabsTrigger key={name} value={name}>{label(schema, i18n.language, t(`configuration.general.labels.${name}`, { defaultValue: name }))}</TabsTrigger>
+          <TabsTrigger data-section-start={name === 'ntp' || name === 'experimental' || undefined} key={name} value={name}>{label(schema, i18n.language, t(`configuration.general.labels.${name}`, { defaultValue: name }))}</TabsTrigger>
         ))}
       </TabsList>
       {sections.map(([name, schema]) => (
@@ -63,10 +63,9 @@ export function DynamicGeneralEditor({
                 />
               )
             : (
-                <SchemaSectionForm
-                  basePointer={`/${name}`} data={draft[name]} disabled={disabled} onChange={onChange}
+                <ConfigurationSectionEditor
+                  name={name} draft={draft} disabled={disabled} onChange={onChange}
                   resolution={resolution} schema={schema}
-                  uiSchema={{ ...uiSchemaFromPanel(schema, [], resolution.schema, draft[name]), 'ui:title': '', 'ui:description': '' }}
                 />
               )}
         </TabsContent>

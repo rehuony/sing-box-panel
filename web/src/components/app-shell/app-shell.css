@@ -309,6 +309,9 @@
   align-items: center;
   display: flex;
 }
+.telemetry-metric__compact {
+  display: none;
+}
 
 .telemetry-metric:focus-visible {
   border-radius: var(--radius-control);
@@ -496,43 +499,60 @@
 
 @media (max-width: 900px) {
   .panel-shell {
-    --header-height: 7.625rem;
+    --header-height: 3.25rem;
   }
-
   .telemetry-banner {
-    gap: var(--space-xs) var(--space-md);
-    grid-template-columns: minmax(0, 1fr) auto;
-    min-height: 6.5rem;
+    --telemetry-icon-size: 0.8125rem;
+    gap: 8px;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    min-height: var(--header-height);
+    padding: 3px 12px;
   }
-
   .telemetry-banner__metrics {
-    grid-column: 1 / -1;
-    grid-row: 2;
-    justify-content: flex-start;
+    gap: 6px;
+    overflow: hidden;
+    scrollbar-width: none;
   }
-
+  .telemetry-banner__metrics > [data-slot='separator'] {
+    display: none;
+  }
+  .telemetry-metric {
+    flex: 0 1 auto;
+    min-width: 0;
+    min-height: 28px;
+    height: 28px;
+    gap: 4px;
+    padding: 4px 8px;
+    border: 1px solid var(--color-rule-2);
+    border-radius: var(--radius-pill);
+    background: var(--color-surface-raised);
+  }
+  .telemetry-metric svg {
+    flex-shrink: 0;
+  }
+  .telemetry-metric strong {
+    min-width: 0;
+    display: block;
+    font-size: 11px;
+    line-height: 1.4;
+  }
+  .telemetry-metric:focus-visible {
+    border-radius: var(--radius-pill);
+  }
   .telemetry-banner__actions {
-    grid-column: 2;
-    grid-row: 1;
     justify-content: flex-end;
   }
-
   .telemetry-runtime-controls--desktop {
     display: none;
   }
-
   .telemetry-mobile-actions {
     display: block;
-  }
-
-  .telemetry-banner__metric-lead {
-    display: none;
   }
 }
 
 @media (max-width: 767px) {
   .panel-shell {
-    --header-height: 7.125rem;
+    --header-height: 3.25rem;
     --shell-edge: var(--space-xs);
     --shell-content-edge: var(--space-md);
   }
@@ -540,7 +560,7 @@
   .telemetry-banner {
     border-radius: var(--radius-panel);
     inset: var(--space-xs) var(--shell-content-edge) auto;
-    padding: var(--space-xs) var(--space-sm);
+    padding: 3px 8px;
   }
 
   .telemetry-banner__navigation-trigger {
@@ -568,38 +588,83 @@
 }
 
 @media (max-width: 520px) {
-  .telemetry-runtime [data-slot='badge'] {
-    padding-inline: var(--space-xs);
+  .telemetry-banner {
+    gap: 4px;
+    padding-inline: 6px;
   }
-
+  .telemetry-banner__identity,
+  .telemetry-runtime {
+    gap: 4px;
+  }
+  .telemetry-runtime [data-slot='badge'] {
+    gap: 3px;
+    height: 26px;
+    padding-inline: 5px;
+    font-size: 10px;
+  }
+  .telemetry-runtime__dot {
+    width: 4px;
+    height: 4px;
+  }
+  .telemetry-banner__metrics {
+    gap: 4px;
+  }
+  .telemetry-metric {
+    flex: 0 1 auto;
+    gap: 3px;
+    height: 26px;
+    min-height: 26px;
+    padding: 3px;
+  }
+  .telemetry-metric strong {
+    font-size: 10px;
+  }
+  .telemetry-metric__full {
+    display: none;
+  }
+  .telemetry-metric__compact {
+    display: inline;
+  }
+  .telemetry-banner__actions button,
+  .telemetry-banner__navigation-trigger {
+    width: 26px;
+    min-width: 26px;
+    height: 44px;
+    padding: 0;
+  }
+  .telemetry-banner :is(.telemetry-banner__actions, .telemetry-banner__identity) button svg {
+    width: 16px;
+    height: 16px;
+  }
   .runtime-action-progress {
-    flex: 0 0 auto;
-    max-width: 8rem;
+    flex: 0 1 auto;
+    max-width: 4rem;
   }
 }
 
 @media (max-width: 360px) {
-  .telemetry-banner,
+  .telemetry-banner {
+    --telemetry-icon-size: 0.6875rem;
+    gap: 3px;
+    padding-inline: 2px;
+  }
   .telemetry-banner__identity,
   .telemetry-runtime {
-    column-gap: var(--space-2xs);
+    gap: 2px;
   }
-
   .telemetry-runtime [data-slot='badge'] {
-    padding-inline: var(--space-2xs);
+    padding-inline: 1px;
+    font-size: 9px;
   }
-
   .telemetry-banner__metrics {
-    gap: var(--space-xs);
-    justify-content: flex-start;
+    gap: 2px;
   }
-
-  .telemetry-banner__metrics > [data-slot='separator'] {
-    display: none;
-  }
-
   .telemetry-metric {
-    flex: 0 0 auto;
+    padding-inline: 3px;
+    gap: 2px;
+  }
+  .telemetry-metric strong {
+    font-size: 9px;
   }
 }
 

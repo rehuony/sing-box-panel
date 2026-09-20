@@ -132,7 +132,9 @@ describe('schemaUi', () => {
     const section = selfContainedSchema(item, schema, { type: 'mixed' });
 
     expect(section.oneOf).toBeUndefined();
-    expect(section.$defs).toBe(schema.$defs);
+    expect(section.$defs).toMatchObject(schema.$defs!);
+    expect(section.$defs).toHaveProperty('Inbound.discriminator.propertyName', 'type');
+    expect(schema.$defs?.Inbound).not.toHaveProperty('discriminator');
     expect(section.properties).toHaveProperty('tls.$ref', '#/$defs/TLS');
   });
 

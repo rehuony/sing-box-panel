@@ -232,6 +232,8 @@ export const configuration = {
   save: '保存修订',
   saving: '正在保存…',
   fields: {
+    action: '执行动作', client_subnet: '客户端子网', domain: '域名', domain_suffix: '域名后缀', ip_cidr: 'IP 网段', ip_is_private: '私有目标地址', inbound: '入站', protocol: '协议', port: '端口', invert: '反向匹配', outbound: '出站',
+    headers: '请求头', method: '请求方法', neighbor_domain: '邻居域名', prefer_go: '优先使用 Go 解析器', optimistic: '乐观缓存', connect_timeout: '连接超时', fallback_delay: '回退延迟', fallback_network_type: '回退网络类型', inet4_bind_address: 'IPv4 绑定地址', inet6_bind_address: 'IPv6 绑定地址', bind_address_no_port: '绑定时不分配端口', network_strategy: '网络策略', network_type: '网络类型', protect_path: '套接字保护路径',
     bind_interface: '绑定网卡',
     disable_tcp_keep_alive: '禁用 TCP 保活',
     netns: '网络命名空间',
@@ -309,6 +311,10 @@ export const configuration = {
     null: '空值',
   },
   general: {
+    moreConditions: '更多匹配条件',
+    propertyName: '字段名称', addProperty: '添加字段',
+    connection: '连接选项',
+    done: '完成编辑', items_one: '{{count}} 项', items_other: '{{count}} 项', summary: '内容', empty: '暂无条目', dnsSettings: '解析与缓存', routeSettings: '默认行为', dnsRules: 'DNS 规则',
     labels: { certificate_providers: '证书提供者', http_clients: 'HTTP 客户端', network_namespaces: '网络命名空间' },
     modules: '配置模块', configured: '已配置', configure: '添加配置', remove: '移除此项配置',
     description: {

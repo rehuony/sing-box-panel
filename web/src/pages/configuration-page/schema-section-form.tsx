@@ -17,6 +17,7 @@ import {
   resolvedSchema,
   schemaDataIdentity,
   selfContainedSchema,
+  uiSchemaFromPanel,
 } from './schema-ui';
 
 interface SchemaSectionFormProps {
@@ -180,7 +181,8 @@ export function SchemaSectionForm({
     [data, resolution.schema, schema],
   );
   const external = useMemo(
-    () => displayCopy(projectSchemaKnownData(schema, resolution.schema, data)),
+    () => displayCopy(projectSchemaKnownData(schema, resolution.schema, data)
+      ?? (resolvedSchema(schema, resolution.schema).type === 'array' ? [] : {})),
     [data, resolution.schema, schema],
   );
   const validator = useMemo(
@@ -219,6 +221,7 @@ export function SchemaSectionForm({
 
   return (
     <Form
+      className='schema-form'
       disabled={disabled}
       experimental_defaultFormStateBehavior={{ emptyObjectFields: 'populateRequiredDefaults' }}
       fields={panelRJSFFields}
@@ -231,6 +234,7 @@ export function SchemaSectionForm({
       showErrorList={false}
       templates={panelRJSFTemplates}
       uiSchema={{
+        ...uiSchemaFromPanel(schema, [], resolution.schema, data),
         ...uiSchema,
         'ui:submitButtonOptions': { norender: true },
       }}

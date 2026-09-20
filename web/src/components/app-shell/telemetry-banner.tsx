@@ -30,7 +30,6 @@ import {
   DropdownMenuContent,
   DropdownMenuGroup,
   DropdownMenuItem,
-  DropdownMenuLabel,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import {
@@ -54,6 +53,7 @@ interface TelemetryMetricProps {
   label: string;
   value: string;
   title?: string;
+  compactValue?: string;
   icon: ComponentType<{ 'aria-hidden'?: boolean }>;
   id: 'download' | 'total' | 'upload' | 'uptime' | 'version';
 }
@@ -63,6 +63,7 @@ function TelemetryMetric({
   icon: Icon,
   label,
   value,
+  compactValue = value,
   title = value,
 }: TelemetryMetricProps) {
   const accessibleLabel = title === value
@@ -83,7 +84,10 @@ function TelemetryMetric({
         )}
       >
         <Icon aria-hidden={true} />
-        <strong>{value}</strong>
+        <strong aria-hidden='true'>
+          <span className='telemetry-metric__full'>{value}</span>
+          <span className='telemetry-metric__compact'>{compactValue}</span>
+        </strong>
       </TooltipTrigger>
       <TooltipContent>{accessibleLabel}</TooltipContent>
     </Tooltip>
@@ -177,8 +181,7 @@ function MobileTelemetryMenu({
           <Ellipsis aria-hidden='true' />
         </DropdownMenuTrigger>
         <DropdownMenuContent align='end' sideOffset={8}>
-          <DropdownMenuGroup>
-            <DropdownMenuLabel>{t('telemetry.control.label')}</DropdownMenuLabel>
+          <DropdownMenuGroup aria-label={t('telemetry.control.label')}>
             {canStart
               ? (
                   <DropdownMenuItem onClick={() => onAction('start')}>
@@ -283,6 +286,9 @@ export function TelemetryBanner() {
     second: t('telemetry.unit.second'),
   };
   const uptime = formatUptime(runningIdentity?.started_at, now, durationLabels);
+  const compactUptime = formatUptime(runningIdentity?.started_at, now, {
+    day: 'd', hour: 'h', minute: 'm', second: 's',
+  }).split(' ')[0];
   const parsedStartedAt = runningIdentity?.started_at === undefined
     ? Number.NaN
     : new Date(runningIdentity.started_at).getTime();
@@ -362,6 +368,7 @@ export function TelemetryBanner() {
           label={t('telemetry.metric.uptime')}
           title={startedAtTitle}
           value={uptime}
+          compactValue={compactUptime}
         />
         <Separator orientation='vertical' />
         <TelemetryMetric
@@ -369,6 +376,7 @@ export function TelemetryBanner() {
           id='upload'
           label={t('telemetry.metric.upload')}
           value={trafficAvailable ? formatRate(telemetry.rates.uploadBytesPerSecond, locale, t('telemetry.unit.perSecond')) : EM_DASH}
+          compactValue={trafficAvailable ? formatRate(telemetry.rates.uploadBytesPerSecond, locale).replace(/\s/g, '') : EM_DASH}
         />
         <Separator orientation='vertical' />
         <TelemetryMetric
@@ -376,6 +384,7 @@ export function TelemetryBanner() {
           id='download'
           label={t('telemetry.metric.download')}
           value={trafficAvailable ? formatRate(telemetry.rates.downloadBytesPerSecond, locale, t('telemetry.unit.perSecond')) : EM_DASH}
+          compactValue={trafficAvailable ? formatRate(telemetry.rates.downloadBytesPerSecond, locale).replace(/\s/g, '') : EM_DASH}
         />
       </div>
 

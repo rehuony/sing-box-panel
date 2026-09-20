@@ -5,6 +5,16 @@ import { useTranslation } from 'react-i18next';
 import { isLosslessNumber } from 'lossless-json';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
+  closestCenter,
+  DndContext,
+  KeyboardSensor,
+  PointerSensor,
+  TouchSensor,
+  useSensor,
+  useSensors,
+} from '@dnd-kit/core';
+import {
+  ArrowLeft,
   Braces,
   CircleAlert,
   GripVertical,
@@ -14,15 +24,6 @@ import {
   Trash2,
   Wrench,
 } from 'lucide-react';
-import {
-  closestCenter,
-  DndContext,
-  KeyboardSensor,
-  PointerSensor,
-  TouchSensor,
-  useSensor,
-  useSensors,
-} from '@dnd-kit/core';
 import {
   arrayMove,
   SortableContext,
@@ -245,11 +246,10 @@ function SortableEntryCard({
             )
           : null}
         {summaryBadges(entry.value).map((badge) => (
-          <Badge key={badge} variant='outline'>
-            {badge}
-          </Badge>
+          <span key={badge}>{badge}</span>
         ))}
       </div>
+      <Button disabled={disabled} onClick={onEdit} size='sm' type='button' variant='ghost'>{t('common.edit')}</Button>
       <DropdownMenu>
         <DropdownMenuTrigger
           render={(
@@ -406,7 +406,7 @@ export function ManagedCollectionsEditor({
 
   return (
     <div className='managed-editor'>
-      <div className='managed-editor__toolbar'>
+      <div className='managed-editor__toolbar' hidden={editingIndex !== null}>
         {selectedCollection === undefined
           ? (
               <div
@@ -431,116 +431,125 @@ export function ManagedCollectionsEditor({
               </div>
             )
           : (
-              <span />
+              <span className='schema-form__count'>{t('configuration.general.items', { count: items.length })}</span>
             )}
         <Button
           aria-label={t('configuration.managed.add')}
           disabled={disabled || types.length === 0}
           onClick={openCreate}
-          size='icon'
+          size='sm'
           type='button'
-          variant='ghost'
+          variant='outline'
         >
           <Plus aria-hidden='true' data-icon='inline-start' />
+          {t('common.add')}
         </Button>
       </div>
 
-      {activeSchema === undefined || itemSchema === null
-        ? (
-            <div className='configuration-empty-copy' role='status'>
-              <CircleAlert aria-hidden='true' />
-              {t('configuration.schema.noManagedFields')}
-            </div>
-          )
-        : items.length === 0
+      {editingIndex !== null
+        ? null
+        : activeSchema === undefined || itemSchema === null
           ? (
-              <div className='configuration-empty-copy'>
-                <strong>{t('configuration.managed.emptyTitle')}</strong>
+              <div className='configuration-empty-copy' role='status'>
+                <CircleAlert aria-hidden='true' />
+                {t('configuration.schema.noManagedFields')}
               </div>
             )
-          : (
-              <DndContext
-                collisionDetection={closestCenter}
-                onDragEnd={({ active, over }) => {
-                  if (disabled || over === null || active.id === over.id) return;
-                  const from = views.findIndex((entry, index) => `${entry.id}:${index}` === active.id);
-                  const to = views.findIndex((entry, index) => `${entry.id}:${index}` === over.id);
-                  if (from >= 0 && to >= 0) replace(arrayMove(items, from, to));
-                }}
-                sensors={sensors}
-              >
-                <SortableContext
-                  items={views.map((entry, index) => `${entry.id}:${index}`)}
-                  strategy={verticalListSortingStrategy}
-                >
-                  <div className='managed-node-list'>
-                    {views.map((entry, index) => (
-                      <SortableEntryCard
-                        disabled={disabled}
-                        entry={entry}
-                        index={index}
-                        key={`${entry.id}:${encodeCanonicalValue(entry.value)}`}
-                        onDelete={() => setDeletingIndex(index)}
-                        onEdit={() => setEditingIndex(index)}
-                        onRepair={() => repair(index)}
-                      />
-                    ))}
-                  </div>
-                </SortableContext>
-              </DndContext>
-            )}
-
-      <Dialog onOpenChange={(open) => !open && setEditingIndex(null)} open={editingIndex !== null}>
-        <DialogContent className='configuration-entity-dialog'>
-          <DialogHeader>
-            <DialogTitle>{editingIndex === null ? '' : views[editingIndex]?.tag}</DialogTitle>
-            <DialogDescription>{t('configuration.managed.dialogDescription')}</DialogDescription>
-          </DialogHeader>
-          {editingIndex !== null && itemSchema !== null && views[editingIndex] !== undefined
+          : items.length === 0
             ? (
-                <Tabs defaultValue='form'>
-                  <TabsList>
-                    <TabsTrigger value='form'>
-                      <Pencil aria-hidden='true' />
-                      {t('configuration.managed.form')}
-                    </TabsTrigger>
-                    <TabsTrigger value='json'>
-                      <Braces aria-hidden='true' />
-                      {t('configuration.managed.json')}
-                    </TabsTrigger>
-                  </TabsList>
-                  <TabsContent value='form'>
-                    <div className='configuration-entity-form-scroll'>
-                      <SchemaSectionForm
-                        basePointer={`/${activeCollection}/${editingIndex}`}
-                        data={items[editingIndex]}
-                        disabled={disabled || !views[editingIndex].valid}
-                        onChange={onChange}
-                        protectedPaths={[`/${activeCollection}/${editingIndex}/type`]}
-                        resolution={resolution}
-                        schema={itemSchema}
-                        uiSchema={{
-                          ...uiSchemaFromPanel(
-                            itemSchema,
-                            ['type'],
-                            resolution.schema,
-                            items[editingIndex],
-                          ),
-                          type: { 'ui:readonly': true },
-                        }}
-                      />
-                    </div>
-                  </TabsContent>
-                  <TabsContent value='json'>
-                    <pre className='configuration-entity-json'>
-                      {encodeCanonicalValue(items[editingIndex], 2)}
-                    </pre>
-                  </TabsContent>
-                </Tabs>
+                <div className='configuration-empty-copy'>
+                  <strong>{t('configuration.managed.emptyTitle')}</strong>
+                </div>
               )
-            : null}
-        </DialogContent>
-      </Dialog>
+            : (
+                <DndContext
+                  collisionDetection={closestCenter}
+                  onDragEnd={({ active, over }) => {
+                    if (disabled || over === null || active.id === over.id) return;
+                    const from = views.findIndex((entry, index) => `${entry.id}:${index}` === active.id);
+                    const to = views.findIndex((entry, index) => `${entry.id}:${index}` === over.id);
+                    if (from >= 0 && to >= 0) replace(arrayMove(items, from, to));
+                  }}
+                  sensors={sensors}
+                >
+                  <SortableContext
+                    items={views.map((entry, index) => `${entry.id}:${index}`)}
+                    strategy={verticalListSortingStrategy}
+                  >
+                    <div className='managed-node-list'>
+                      {views.map((entry, index) => (
+                        <SortableEntryCard
+                          disabled={disabled}
+                          entry={entry}
+                          index={index}
+                          key={`${entry.id}:${encodeCanonicalValue(entry.value)}`}
+                          onDelete={() => setDeletingIndex(index)}
+                          onEdit={() => setEditingIndex(index)}
+                          onRepair={() => repair(index)}
+                        />
+                      ))}
+                    </div>
+                  </SortableContext>
+                </DndContext>
+              )}
+
+      {editingIndex !== null
+        ? (
+            <section className='configuration-entity-editor'>
+              <div className='schema-form__array-toolbar'>
+                <Button onClick={() => setEditingIndex(null)} size='sm' type='button' variant='ghost'>
+                  <ArrowLeft aria-hidden />
+                  {t('common.back')}
+                </Button>
+                <span className='schema-form__editing-name'>{views[editingIndex]?.tag}</span>
+                <Button onClick={() => setEditingIndex(null)} size='sm' type='button' variant='secondary'>{t('configuration.general.done')}</Button>
+              </div>
+              {editingIndex !== null && itemSchema !== null && views[editingIndex] !== undefined
+                ? (
+                    <Tabs defaultValue='form'>
+                      <TabsList>
+                        <TabsTrigger value='form'>
+                          <Pencil aria-hidden='true' />
+                          {t('configuration.managed.form')}
+                        </TabsTrigger>
+                        <TabsTrigger value='json'>
+                          <Braces aria-hidden='true' />
+                          {t('configuration.managed.json')}
+                        </TabsTrigger>
+                      </TabsList>
+                      <TabsContent value='form'>
+                        <div className='configuration-entity-form-scroll'>
+                          <SchemaSectionForm
+                            basePointer={`/${activeCollection}/${editingIndex}`}
+                            data={items[editingIndex]}
+                            disabled={disabled || !views[editingIndex].valid}
+                            onChange={onChange}
+                            protectedPaths={[`/${activeCollection}/${editingIndex}/type`]}
+                            resolution={resolution}
+                            schema={itemSchema}
+                            uiSchema={{
+                              ...uiSchemaFromPanel(
+                                itemSchema,
+                                ['type'],
+                                resolution.schema,
+                                items[editingIndex],
+                              ),
+                              type: { 'ui:readonly': true },
+                            }}
+                          />
+                        </div>
+                      </TabsContent>
+                      <TabsContent value='json'>
+                        <pre className='configuration-entity-json'>
+                          {encodeCanonicalValue(items[editingIndex], 2)}
+                        </pre>
+                      </TabsContent>
+                    </Tabs>
+                  )
+                : null}
+            </section>
+          )
+        : null}
 
       <Dialog
         onOpenChange={(open) => {

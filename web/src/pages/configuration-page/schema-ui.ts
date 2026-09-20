@@ -240,16 +240,58 @@ export function collectionItemSchema(
     : null;
 }
 
+function unionDiscriminator(schema: RJSFSchema, root: RJSFSchema): string | undefined {
+  const branches = schema.oneOf ?? schema.anyOf;
+  if (!Array.isArray(branches)) return undefined;
+  return discriminatorKeys.find((key) => {
+    const values = branches.map((branch) => typeof branch === 'boolean' ? [] : schemaDiscriminatorValues(branch, root, key));
+    return values.every((value) => value.length > 0)
+      && new Set(values.flat()).size === values.flat().length;
+  });
+}
+
+// RJSF needs a discriminator hint for native unions whose branches differ by
+// single-value enums. These presentation annotations never alter the reviewed
+// schema used by the precompiled validator or the canonical configuration.
+const annotatedSchemas = new WeakMap<RJSFSchema, RJSFSchema>();
+function withDiscriminators(schema: RJSFSchema, root: RJSFSchema): RJSFSchema {
+  const result = { ...schema };
+  const discriminator = unionDiscriminator(schema, root);
+  if (discriminator !== undefined) result.discriminator = { propertyName: discriminator };
+  for (const key of ['properties', 'definitions', '$defs', 'patternProperties'] as const) {
+    const values = schema[key];
+    if (values) {
+      result[key] = Object.fromEntries(Object.entries(values).map(([name, child]) =>
+        [name, typeof child === 'boolean' ? child : withDiscriminators(child, root)]));
+    }
+  }
+  for (const key of ['allOf', 'anyOf', 'oneOf'] as const) {
+    if (schema[key]) {
+      result[key] = schema[key].map((child) =>
+        typeof child === 'boolean' ? child : withDiscriminators(child, root));
+    }
+  }
+  if (schema.items && typeof schema.items === 'object' && !Array.isArray(schema.items)) {
+    result.items = withDiscriminators(schema.items, root);
+  }
+  return result;
+}
+
 export function selfContainedSchema(
   schema: RJSFSchema,
   root: RJSFSchema,
   data?: unknown,
 ): RJSFSchema {
   const resolved = resolvedSchema(schema, root, data);
+  let annotated = annotatedSchemas.get(root);
+  if (annotated === undefined) {
+    annotated = withDiscriminators(root, root);
+    annotatedSchemas.set(root, annotated);
+  }
   return {
-    ...resolved,
-    ...(root.$defs === undefined ? {} : { $defs: root.$defs }),
-    ...(root.definitions === undefined ? {} : { definitions: root.definitions }),
+    ...withDiscriminators(resolved, root),
+    ...(annotated.$defs === undefined ? {} : { $defs: annotated.$defs }),
+    ...(annotated.definitions === undefined ? {} : { definitions: annotated.definitions }),
   };
 }
 
@@ -429,19 +471,38 @@ export function uiSchemaFromPanel(
     if (readonlyPaths.includes(key)) child['ui:readonly'] = true;
     result[key] = child;
   }
-  // Native schemas often omit union titles. Describe the actual representation
-  // without modifying the reviewed schema or its validation semantics.
+  const itemSchema = collectionItemSchema(resolved, root);
+  if (resolved.type === 'array' && itemSchema !== null) {
+    // Build item UI lazily: recursive rule schemas must not recurse before an item exists.
+    result.items = (itemData: unknown) => uiSchemaFromPanel(itemSchema, [], root, itemData);
+  }
+  const properties = schemaProperties(resolved, root, data);
+  const fieldOrder = ['type', 'tag', 'name', 'enabled', 'disabled', 'level', 'output', 'timestamp', 'listen', 'listen_port', 'server', 'server_port', 'path', 'final', 'strategy', 'timeout'];
+  const order = Object.keys(properties).sort((left, right) => {
+    const rank = (key: string) => panelMetadata(properties[key]).order
+      ?? (fieldOrder.includes(key) ? fieldOrder.indexOf(key) : fieldOrder.length);
+    return rank(left) - rank(right);
+  });
+  if (order.length > 0) result['ui:order'] = [...order, '*'];
+  // RJSF resolves nested union choices itself. Retain labels for every branch,
+  // including when the canonical data already selects a discriminator.
+  const unionSchema = resolvedSchema(schema, root);
   for (const keyword of ['anyOf', 'oneOf'] as const) {
-    const branches = resolved[keyword];
+    const branches = unionSchema[keyword];
     if (!Array.isArray(branches)) continue;
-    const branchUI = { ...result };
     result[keyword] = branches.map((branch) => {
-      if (typeof branch === 'boolean') return branchUI;
+      if (typeof branch === 'boolean') return {};
       const option = resolvedSchema(branch, root, data);
       const discriminator = discriminatorKeys.flatMap((key) => schemaDiscriminatorValues(option, root, key));
-      const title = option.title ?? (discriminator.length === 1 ? discriminator[0] : undefined)
+      const discriminatorKey = unionDiscriminator(unionSchema, root);
+      const discriminatorTitle = discriminatorKey === undefined
+        ? undefined
+        : schemaDiscriminatorValues(option, root, discriminatorKey).find((value) => value !== '');
+      const title = option.title ?? discriminatorTitle ?? (discriminator.length === 1 ? discriminator[0] : undefined)
         ?? (typeof option.type === 'string' ? `configuration.valueTypes.${option.type}` : undefined);
-      return title === undefined ? branchUI : { ...branchUI, 'ui:title': title };
+      const branchUI = uiSchemaFromPanel(branch, readonlyPaths, root, data);
+      if (discriminatorKey !== undefined) branchUI[discriminatorKey] = { 'ui:widget': 'hidden' };
+      return { ...branchUI, 'ui:title': title ?? '', 'ui:options': { label: false } };
     });
   }
   return result;

@@ -232,6 +232,8 @@ export const configuration = {
   save: 'Save revision',
   saving: 'Saving…',
   fields: {
+    action: 'Action', client_subnet: 'Client subnet', domain: 'Domain', domain_suffix: 'Domain suffix', ip_cidr: 'IP CIDR', ip_is_private: 'Private destination IP', inbound: 'Inbound', protocol: 'Protocol', port: 'Port', invert: 'Invert match', outbound: 'Outbound',
+    headers: 'Request headers', method: 'Request method', neighbor_domain: 'Neighbor domains', prefer_go: 'Prefer Go resolver', optimistic: 'Optimistic cache', connect_timeout: 'Connection timeout', fallback_delay: 'Fallback delay', fallback_network_type: 'Fallback networks', inet4_bind_address: 'IPv4 bind address', inet6_bind_address: 'IPv6 bind address', bind_address_no_port: 'Bind without port', network_strategy: 'Network strategy', network_type: 'Network types', protect_path: 'Socket protection path',
     bind_interface: 'Network interface',
     disable_tcp_keep_alive: 'Disable TCP keepalive',
     netns: 'Network namespace',
@@ -309,6 +311,10 @@ export const configuration = {
     null: 'None',
   },
   general: {
+    moreConditions: 'More match conditions',
+    propertyName: 'Field name', addProperty: 'Add field',
+    connection: 'Connection options',
+    done: 'Done editing', items_one: '{{count}} item', items_other: '{{count}} items', summary: 'Details', empty: 'No entries yet', dnsSettings: 'Resolution & cache', routeSettings: 'Default behavior', dnsRules: 'DNS rules',
     labels: { certificate_providers: 'Certificate providers', http_clients: 'HTTP clients', network_namespaces: 'Network namespaces' },
     modules: 'Configuration modules', configured: 'Configured', configure: 'Configure', remove: 'Remove settings',
     description: {

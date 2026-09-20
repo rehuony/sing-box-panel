@@ -8,6 +8,7 @@ import type {
   FieldProps,
   FieldTemplateProps,
   IconButtonProps,
+  MultiSchemaFieldTemplateProps,
   ObjectFieldTemplateProps,
   RJSFSchema,
   TemplatesType,
@@ -16,6 +17,7 @@ import type {
 
 import { useTranslation } from 'react-i18next';
 import { getDefaultRegistry } from '@rjsf/core';
+import { createContext, isValidElement, use, useId } from 'react';
 import {
   ArrowDown,
   ArrowUp,
@@ -25,6 +27,8 @@ import {
   X,
 } from 'lucide-react';
 import {
+  ADDITIONAL_PROPERTY_FLAG,
+  canExpand,
   enumOptionSelectedValue,
   enumOptionValueDecoder,
   enumOptionValueEncoder,
@@ -53,6 +57,11 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 
+import { PanelArrayFieldItemTemplate, PanelArrayFieldTemplate } from './array-field-templates';
+import './rjsf-shadcn-theme.css';
+
+const SchemaChoiceContext = createContext<{ id: string; label?: string } | null>(null);
+
 interface PanelMetadata {
   order?: number;
   widget?: string;
@@ -80,22 +89,36 @@ function PanelFieldTemplate(props: FieldTemplateProps) {
     label, rawDescription, rawErrors, required, schema,
   } = props;
   if (hidden) return children;
+  if (ADDITIONAL_PROPERTY_FLAG in schema) {
+    return (
+      <div className='schema-form__map-entry'>
+        <Input aria-label={t('configuration.general.propertyName')} defaultValue={label} disabled={disabled || props.readonly}
+          key={label} onBlur={props.onKeyRenameBlur} />
+        <div className='schema-form__map-value'>{children}</div>
+        <Button aria-label={t('common.remove')} disabled={disabled || props.readonly} onClick={props.onRemoveProperty}
+          size='icon-sm' type='button' variant='ghost'>
+          <Trash2 aria-hidden />
+        </Button>
+      </div>
+    );
+  }
   if (fieldPathId.path.length === 0 || schema.type === 'object' || schema.type === 'array') {
     return children;
   }
+  const discriminator = (schema.discriminator as { propertyName?: string } | undefined)?.propertyName;
+  if (discriminator && (schema.oneOf || schema.anyOf)) return children;
   const resolvedLabel = localizedLabel(schema, label, i18n.language, t);
   const booleanField = schema.type === 'boolean';
-  const labelTarget = schema.oneOf || schema.anyOf
-    ? `${id}__${schema.oneOf ? 'oneof' : 'anyof'}_select-variant`
-    : id;
+  const labelTarget = id;
   return (
     <Field
-      className='schema-form__field'
+      className={`schema-form__field${schema.oneOf || schema.anyOf ? ' schema-form__field--union' : ''}`}
+      data-unlabelled={(displayLabel === false && !booleanField) || undefined}
       orientation={booleanField ? 'horizontal' : 'vertical'}
       data-disabled={disabled || undefined}
       data-invalid={rawErrors !== undefined && rawErrors.length > 0 ? true : undefined}
     >
-      {displayLabel === false && !booleanField
+      {displayLabel === false && !booleanField && !discriminator
         ? null
         : (
             <FieldLabel htmlFor={labelTarget}>
@@ -103,7 +126,7 @@ function PanelFieldTemplate(props: FieldTemplateProps) {
               {required ? <span aria-hidden='true'>*</span> : null}
             </FieldLabel>
           )}
-      {children}
+      <div className='schema-form__control'>{children}</div>
       {rawDescription ? <FieldDescription>{description}</FieldDescription> : null}
       {rawErrors !== undefined && rawErrors.length > 0 ? <FieldError>{errors}</FieldError> : null}
     </Field>
@@ -112,20 +135,63 @@ function PanelFieldTemplate(props: FieldTemplateProps) {
 
 function PanelObjectFieldTemplate(props: ObjectFieldTemplateProps) {
   const { i18n, t } = useTranslation();
+  const groupId = useId();
   const {
     description, fieldPathId, optionalDataControl, properties, schema, title,
   } = props;
   const visible = properties.filter((property) => !property.hidden);
   const resolvedTitle = localizedLabel(schema, title, i18n.language, t);
-  const root = fieldPathId.path.length === 0;
+  const connectionFields = new Set([
+    'bind_address_no_port', 'bind_interface', 'connect_timeout', 'disable_tcp_keep_alive',
+    'fallback_delay', 'fallback_network_type', 'inet4_bind_address', 'inet6_bind_address',
+    'netns', 'network_strategy', 'network_type', 'protect_path', 'reuse_addr', 'routing_mark',
+    'tcp_fast_open', 'tcp_keep_alive', 'tcp_keep_alive_interval', 'tcp_multi_path', 'udp_fragment',
+  ]);
+  const connection = visible.filter((property) => connectionFields.has(property.name));
+  const commonRuleFields = new Set(['type', 'inbound', 'domain', 'domain_suffix', 'ip_cidr', 'ip_is_private', 'network', 'protocol', 'port', 'rule_set', 'invert']);
+  const rule = visible.some((property) => property.name === 'domain') && visible.some((property) => property.name === 'ip_cidr');
+  const matching = rule
+    ? visible.filter((property) => !commonRuleFields.has(property.name) && !connectionFields.has(property.name))
+    : [];
+  const main = visible.filter((property) => !connectionFields.has(property.name) && !matching.includes(property));
+  const root = fieldPathId.path.length === 0 || typeof fieldPathId.path.at(-1) === 'number';
   return (
-    <fieldset className={root ? 'schema-form__root' : 'schema-form__object'} id={`${fieldPathId.$id}-group`}>
+    <fieldset className={root ? 'schema-form__root' : 'schema-form__object'} id={`${fieldPathId.$id}-group-${groupId}`}>
       {!root && resolvedTitle !== '' ? <FieldLegend>{resolvedTitle}</FieldLegend> : null}
       {optionalDataControl}
       {description ? <FieldDescription>{description}</FieldDescription> : null}
       <FieldGroup className='schema-form__grid'>
-        {visible.map((property) => <div key={property.name}>{property.content}</div>)}
+        {main.map((property) => <div key={property.name}>{property.content}</div>)}
       </FieldGroup>
+      {canExpand(schema, props.uiSchema, props.formData)
+        ? (
+            <Button className='schema-form__add-property' disabled={props.disabled || props.readonly} onClick={props.onAddProperty}
+              size='sm' type='button' variant='outline'>
+              <Plus aria-hidden />
+              {t('configuration.general.addProperty')}
+            </Button>
+          )
+        : null}
+      {matching.length > 0
+        ? (
+            <details className='schema-form__details'>
+              <summary>{t('configuration.general.moreConditions')}</summary>
+              <FieldGroup className='schema-form__grid'>
+                {matching.map((property) => <div key={property.name}>{property.content}</div>)}
+              </FieldGroup>
+            </details>
+          )
+        : null}
+      {connection.length > 0
+        ? (
+            <details className='schema-form__details'>
+              <summary>{t('configuration.general.connection')}</summary>
+              <FieldGroup className='schema-form__grid'>
+                {connection.map((property) => <div key={property.name}>{property.content}</div>)}
+              </FieldGroup>
+            </details>
+          )
+        : null}
     </fieldset>
   );
 }
@@ -149,11 +215,11 @@ const DefaultObjectField = getDefaultRegistry().fields.ObjectField;
 function PanelObjectField(props: FieldProps) {
   const { i18n, t } = useTranslation();
   const { disabled, fieldPathId, formData, name, onChange, readonly, required, schema } = props;
-  if (fieldPathId.path.length === 0 || required) return <DefaultObjectField {...props} />;
+  if (fieldPathId.path.length === 0 || typeof fieldPathId.path.at(-1) === 'number' || required) return <DefaultObjectField {...props} />;
   const present = formData !== undefined && formData !== null;
   if (!present) {
     return (
-      <fieldset className='schema-form__object'>
+      <fieldset className='schema-form__object schema-form__object--empty'>
         <FieldLegend>{localizedLabel(schema, name, i18n.language, t)}</FieldLegend>
         <Button disabled={disabled || readonly} onClick={() => onChange({}, fieldPathId.path)} size='sm' type='button' variant='outline'>
           <Plus aria-hidden data-icon='inline-start' />
@@ -176,6 +242,7 @@ function PanelObjectField(props: FieldProps) {
 export const panelRJSFFields = { ObjectField: PanelObjectField };
 
 function PanelBaseInputTemplate(props: BaseInputTemplateProps) {
+  const { i18n, t } = useTranslation();
   const {
     autofocus, disabled, htmlName, id, onBlur, onChange, onChangeOverride, onFocus,
     options, readonly, schema, type, value,
@@ -185,6 +252,7 @@ function PanelBaseInputTemplate(props: BaseInputTemplateProps) {
   return (
     <Input
       {...inputProps}
+      aria-label={localizedLabel(schema, props.label, i18n.language, t)}
       aria-invalid={props.rawErrors !== undefined && props.rawErrors.length > 0 ? true : undefined}
       autoFocus={autofocus}
       disabled={disabled}
@@ -216,6 +284,7 @@ function PanelCheckboxWidget(props: WidgetProps) {
 
 function PanelSelectWidget(props: WidgetProps) {
   const { i18n, t } = useTranslation();
+  const choice = use(SchemaChoiceContext);
   const enumOptions = props.options.enumOptions ?? [];
   const variantSelector = props.name?.endsWith('__oneof_select') || props.name?.endsWith('__anyof_select');
   const optionValueFormat = getOptionValueFormat(props.options);
@@ -240,9 +309,9 @@ function PanelSelectWidget(props: WidgetProps) {
       value={String(selected ?? '')}
     >
       <SelectTrigger
-        aria-label={localizedLabel(props.schema, props.label, i18n.language, t)}
-        className='w-full'
-        id={variantSelector ? `${props.id}-variant` : props.id}
+        aria-label={localizedLabel(props.schema, choice?.label ?? props.label, i18n.language, t)}
+        className={variantSelector ? 'schema-form__variant-select w-full' : 'w-full'}
+        id={variantSelector ? `${choice?.id ?? props.id}-variant` : props.id}
       >
         <SelectValue />
       </SelectTrigger>
@@ -292,7 +361,8 @@ function iconButton(
         aria-label={props['aria-label'] ?? t(labelKey)}
         size='icon-sm'
         type='button'
-        variant={destructive ? 'destructive' : 'ghost'}
+        className={destructive ? 'schema-form__remove' : undefined}
+        variant='ghost'
       >
         <Icon aria-hidden data-icon='inline-start' />
       </Button>
@@ -300,7 +370,38 @@ function iconButton(
   };
 }
 
+function PanelMultiSchemaFieldTemplate({ selector, optionSchemaField, schema }: MultiSchemaFieldTemplateProps) {
+  const { t } = useTranslation();
+  const choiceId = `schema-choice-${useId()}`;
+  const discriminator = (schema.discriminator as { propertyName?: string } | undefined)?.propertyName;
+  const choice = <SchemaChoiceContext value={{ id: choiceId, label: discriminator }}>{selector}</SchemaChoiceContext>;
+  if (discriminator) {
+    return (
+      <div className='schema-form__discriminated'>
+        <Field className='schema-form__field'>
+          <FieldLabel htmlFor={`${choiceId}-variant`}>{t(`configuration.fields.${discriminator}`, { defaultValue: discriminator })}</FieldLabel>
+          <div className='schema-form__control'>{choice}</div>
+        </Field>
+        {optionSchemaField}
+      </div>
+    );
+  }
+  const option = isValidElement<{ schema: RJSFSchema }>(optionSchemaField) ? optionSchemaField.props.schema : undefined;
+  const compact = typeof option?.type === 'string' && ['string', 'number', 'integer', 'boolean', 'null', 'array'].includes(option.type);
+  return (
+    <div className={`schema-form__union${compact ? ' schema-form__union--compact' : ''}`}>
+      <div className='schema-form__union-selector'>
+        {choice}
+      </div>
+      <div className='schema-form__union-value'>{optionSchemaField}</div>
+    </div>
+  );
+}
+
 export const panelRJSFTemplates: Partial<TemplatesType> = {
+  ArrayFieldTemplate: PanelArrayFieldTemplate,
+  ArrayFieldItemTemplate: PanelArrayFieldItemTemplate,
+  MultiSchemaFieldTemplate: PanelMultiSchemaFieldTemplate,
   ArrayFieldTitleTemplate: PanelArrayTitleTemplate,
   BaseInputTemplate: PanelBaseInputTemplate,
   FieldTemplate: PanelFieldTemplate,

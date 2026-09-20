@@ -125,7 +125,7 @@ export function ConfigurationPage() {
                 </TabsContent>
               </Tabs>
               <footer className='configuration-footer'>
-                <span className='configuration-file-state' role='status'>{fileStatus}</span>
+                <span className='configuration-file-state' role='status' title={fileStatus}>{fileStatus}</span>
                 <Button disabled={locked || canonical.dirty || invalid || canonical.state.file.revision === 0} onClick={() => void check()} title={canonical.dirty ? t('configuration.file.saveFirst') : undefined} type='button' variant='ghost'>{checking ? t('configuration.file.checking') : t('configuration.file.check')}</Button>
                 <Button disabled={locked || (!canonical.dirty && canonical.state.file.revision > 0)} onClick={() => void canonical.save()} type='button'>{canonical.saving ? t('configuration.saving') : t('configuration.file.save')}</Button>
               </footer>
