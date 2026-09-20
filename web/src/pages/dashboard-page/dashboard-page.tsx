@@ -10,9 +10,9 @@ import type {
   TaskPage,
 } from '@/api/api-client';
 
-import { Button } from '@/components/ui/button';
 import { useApiClient } from '@/api/api-client-context';
 import { ErrorNotice } from '@/components/error-notice';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useOptionalSharedTelemetry } from '@/components/app-shell/telemetry-context';
 
 import { TrendChart } from './trend-chart';
@@ -40,7 +40,7 @@ export function DashboardPage() {
   const [range, setRange] = useState<'1h' | '24h'>('1h');
   const [tick, setTick] = useState(() => Math.floor(Date.now() / 30_000));
   const [data, setData] = useState<{
-    key: string;
+    range: '1h' | '24h';
     traffic: MetricsHistory | null;
     connections: MetricsHistory | null;
     runtime: RuntimeHistoryPage | null;
@@ -56,7 +56,6 @@ export function DashboardPage() {
     ? Math.floor(Date.parse(telemetry.snapshot.collected_at) / 30_000)
     : 0;
   const end = Math.max(tick, streamTick) * 30_000;
-  const key = `${range}:${end}`;
   const shared = telemetry !== null;
   useEffect(() => {
     const controller = new AbortController();
@@ -94,7 +93,7 @@ export function DashboardPage() {
     ]).then(([traffic, connections, runtime, tasks, metrics]) => {
       if (controller.signal.aborted) return;
       setData({
-        key,
+        range,
         traffic: traffic.status === 'fulfilled' ? traffic.value : null,
         connections: connections.status === 'fulfilled' ? connections.value : null,
         runtime: runtime.status === 'fulfilled' ? runtime.value : null,
@@ -106,8 +105,8 @@ export function DashboardPage() {
       });
     });
     return () => controller.abort();
-  }, [client, end, key, range, shared]);
-  const current = data?.key === key ? data : null;
+  }, [client, end, range, shared]);
+  const current = data?.range === range ? data : null;
   const snapshot = telemetry?.snapshot ?? current?.metrics;
   const host = snapshot?.host;
   const traffic = snapshot?.traffic_available ? snapshot.current_traffic_period : undefined;
@@ -171,28 +170,31 @@ export function DashboardPage() {
         ))}
       </div>
       <div className='dashboard-charts'>
-        <section className='dashboard-card dashboard-traffic'>
+        <Tabs
+          className='dashboard-card dashboard-traffic'
+          render={<section />}
+          value={range}
+          onValueChange={(value) => setRange(value as typeof range)}
+        >
           <header>
             <h2>
               {t('dashboard.trend.traffic')}
               （KB/s）
             </h2>
-            <div className='dashboard-range' role='group' aria-label={t('dashboard.range.label')}>
+            <TabsList className='dashboard-range' aria-label={t('dashboard.range.label')}>
               {(['1h', '24h'] as const).map((value) => (
-                <Button
-                  key={value}
-                  size='sm'
-                  variant={range === value ? 'secondary' : 'ghost'}
-                  aria-pressed={range === value}
-                  onClick={() => setRange(value)}
-                >
+                <TabsTrigger key={value} value={value}>
                   {t(`dashboard.range.option.${value}`)}
-                </Button>
+                </TabsTrigger>
               ))}
-            </div>
+            </TabsList>
           </header>
-          <TrendChart history={current?.traffic ?? null} kind='traffic' />
-        </section>
+          {(['1h', '24h'] as const).map((value) => (
+            <TabsContent key={value} value={value} className='dashboard-traffic__chart'>
+              <TrendChart history={current?.traffic ?? null} kind='traffic' />
+            </TabsContent>
+          ))}
+        </Tabs>
         <section className='dashboard-card'>
           <header>
             <h2>

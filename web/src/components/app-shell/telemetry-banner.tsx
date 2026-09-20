@@ -118,7 +118,7 @@ function RuntimeConfirmation({ action, disabled, onConfirm }: RuntimeConfirmatio
               onClick={() => setOpen(true)}
               size='icon-sm'
               title={label}
-              variant={action === 'stop' ? 'destructive' : 'outline'}
+              variant='ghost'
             />
           )}
         >
@@ -429,7 +429,7 @@ export function TelemetryBanner() {
                                 onClick={() => runRuntimeAction('start')}
                                 size='icon-sm'
                                 title={t('telemetry.control.start')}
-                                variant='default'
+                                variant='ghost'
                               />
                             )}
                           >

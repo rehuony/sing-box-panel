@@ -69,6 +69,14 @@
   gap: 8px;
   min-height: 32px;
 }
+.dashboard-charts > .dashboard-card {
+  padding: 16px 8px 4px;
+  gap: 8px;
+}
+.dashboard-charts > .dashboard-card > header {
+  margin-inline: 12px;
+  min-height: var(--control-height);
+}
 .dashboard-card h2 {
   font-size: 15px;
   font-weight: 600;
@@ -79,8 +87,16 @@
   font-size: 12px;
 }
 .dashboard-range {
+  --tabs-inset: 4px;
+  flex: none;
+  background: var(--color-surface-raised);
+}
+.dashboard-range [data-active] {
+  color: var(--color-primary);
+}
+.dashboard-traffic__chart:not([hidden]) {
   display: flex;
-  gap: 4px;
+  min-width: 0;
 }
 .trend-chart {
   min-height: 160px;

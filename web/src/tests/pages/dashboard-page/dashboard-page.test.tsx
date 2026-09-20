@@ -1,16 +1,17 @@
 import { MemoryRouter } from 'react-router-dom';
 import userEvent from '@testing-library/user-event';
-import { render, screen, waitFor } from '@testing-library/react';
-import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 
 import '@/i18n';
 import { ApiClientProvider } from '@/api/api-client-context';
 import { DashboardPage } from '@/pages/dashboard-page/dashboard-page';
-import { createMockApiClient, testMetrics } from '@/tests/api/mock-api-client';
+import { createMockApiClient, testMetrics, testMetricsHistory } from '@/tests/api/mock-api-client';
 
 beforeAll(() => vi.stubGlobal('ResizeObserver', class {
   observe() {} disconnect() {}
 }));
+afterEach(() => vi.useRealTimers());
 afterAll(() => vi.unstubAllGlobals());
 
 function show(client = createMockApiClient()) {
@@ -34,7 +35,10 @@ describe('dashboard evidence', () => {
         expect.any(AbortSignal),
       ),
     );
-    await userEvent.click(screen.getByRole('button', { name: '24h' }));
+    expect(screen.getByRole('tab', { name: '1h', selected: true })).toBeVisible();
+    await userEvent.click(screen.getByRole('tab', { name: '24h' }));
+    expect(screen.getByRole('tab', { name: '24h', selected: true })).toBeVisible();
+    expect(screen.getByRole('tabpanel', { name: '24h' })).toBeVisible();
     await waitFor(() =>
       expect(client.getMetricsHistory).toHaveBeenCalledWith(
         expect.objectContaining({ bucketSeconds: 300 }),
@@ -49,12 +53,51 @@ describe('dashboard evidence', () => {
           && filter.bucketSeconds === 60,
       ),
     ).toBe(true);
+    expect(
+      calls.some(
+        ([filter]) =>
+          Date.parse(filter.to) - Date.parse(filter.from) === 86_400_000
+          && filter.bucketSeconds === 300,
+      ),
+    ).toBe(true);
+    await userEvent.keyboard('{ArrowLeft}{Enter}');
+    expect(screen.getByRole('tab', { name: '1h', selected: true })).toHaveFocus();
+    expect(screen.getByRole('tabpanel', { name: '1h' })).toBeVisible();
+    expect(screen.getAllByRole('figure')).toHaveLength(2);
   });
   it('never replaces missing host readings with sample values or core process memory', async () => {
     show();
     await waitFor(() => expect(screen.getByText('Host memory')).toBeVisible());
     const card = screen.getByText('Host memory').closest('section')!;
     expect(card.querySelector('strong')).toHaveTextContent('—');
+  });
+  it('advances the window without clearing the last chart while new samples load', async () => {
+    vi.useFakeTimers({ now: new Date('2026-08-26T07:40:00Z') });
+    const client = createMockApiClient();
+    await act(async () => {
+      show(client);
+    });
+    const chart = screen.getByRole('figure', { name: 'Traffic' });
+    fireEvent.keyDown(chart, { key: 'ArrowLeft' });
+    const previousTooltip = within(chart).getByRole('status').textContent;
+    let resolveHistory!: (history: typeof testMetricsHistory) => void;
+    client.getMetricsHistory.mockImplementationOnce(() => new Promise((resolve) => {
+      resolveHistory = resolve;
+    }));
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(30_000);
+    });
+
+    expect(client.getMetricsHistory).toHaveBeenLastCalledWith({
+      from: '2026-08-26T06:40:30.000Z',
+      to: '2026-08-26T07:40:30.000Z',
+      bucketSeconds: 60,
+    }, expect.any(AbortSignal));
+    expect(within(chart).getByRole('status')).toHaveTextContent(previousTooltip!);
+    await act(async () => {
+      resolveHistory(testMetricsHistory);
+    });
   });
   it('uses actual host memory and not the core memory sample', async () => {
     show(

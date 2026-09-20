@@ -450,20 +450,22 @@ export function demoMetricsHistory(from: string, to: string, bucketSeconds: numb
   const end = new Date(to).getTime();
   const step = Math.max(1, bucketSeconds) * 1_000;
   const buckets: MetricsHistory['buckets'] = [];
-  for (let cursor = start, index = 0; cursor < end && index < 240; cursor += step, index += 1) {
+  for (let cursor = start, index = 0; cursor < end && index < 512; cursor += step, index += 1) {
     const next = Math.min(end, cursor + step);
-    const wave = (Math.sin(index / 2.4) + 1.4) / 2.4;
+    const sample = next / 60_000;
+    const wave = (Math.sin(sample / 2.4) + 1.4) / 2.4;
+    const durationSeconds = (next - cursor) / 1_000;
     buckets.push({
       from: new Date(cursor).toISOString(),
       to: new Date(next).toISOString(),
-      upload_bytes: Math.round(1_800_000 + wave * 4_200_000),
-      download_bytes: Math.round(5_200_000 + wave * 12_000_000),
+      upload_bytes: Math.round((30_000 + wave * 70_000) * durationSeconds),
+      download_bytes: Math.round((86_667 + wave * 200_000) * durationSeconds),
       memory_bytes_avg: Math.round(61_000_000 + wave * 8_000_000),
       memory_bytes_peak: Math.round(68_000_000 + wave * 9_000_000),
       active_connections_avg: Math.round(8 + wave * 14),
       active_connections_peak: Math.round(14 + wave * 20),
       sample_count: Math.max(1, Math.round((next - cursor) / 10_000)),
-      coverage: index % 11 === 10 ? 'partial' : 'complete',
+      coverage: Math.floor(sample) % 11 === 10 ? 'partial' : 'complete',
     });
   }
   return { from, to, bucket_seconds: bucketSeconds, activation_bundle_id: 'bundle_demo_current', buckets };

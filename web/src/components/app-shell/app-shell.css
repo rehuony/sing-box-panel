@@ -163,9 +163,12 @@
 
 .panel-sign-out {
   margin-left: auto;
-  flex: 0 0 2.75rem;
-  height: 2.75rem;
-  width: 2.75rem;
+}
+
+.panel-sidebar__footer [data-slot='button'],
+.telemetry-runtime-controls [data-slot='button'] {
+  background: transparent;
+  border-color: transparent;
 }
 
 .panel-workspace {
@@ -341,7 +344,7 @@
 .telemetry-runtime-controls {
   align-items: center;
   display: flex;
-  gap: var(--space-2xs);
+  gap: var(--space-sm);
 }
 
 .telemetry-personalization-actions {

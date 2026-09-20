@@ -21,7 +21,7 @@ function LanguageGlyph({ active }: { active: boolean }) {
 
   if (shouldReduceMotion === true) {
     return (
-      <span className='relative flex size-[0.9375rem] items-center justify-center' data-motion='reduced'>
+      <span className='relative flex size-4 items-center justify-center' data-motion='reduced'>
         {active
           ? <Languages aria-hidden='true' data-language-icon='languages' />
           : <Globe2 aria-hidden='true' data-language-icon='globe' />}
@@ -36,7 +36,7 @@ function LanguageGlyph({ active }: { active: boolean }) {
 
   return (
     <span
-      className='relative flex size-[0.9375rem] items-center justify-center'
+      className='relative flex size-4 items-center justify-center'
       data-active={active ? 'true' : 'false'}
       data-motion='full'
     >

@@ -51,6 +51,26 @@ describe('createDemoApiClient', () => {
     await expect(request).rejects.toMatchObject({ name: 'AbortError' });
   });
 
+  it('fills the full 24-hour chart and keeps overlapping samples stable as the window advances', async () => {
+    const client = createDemoApiClient();
+    const filter = {
+      from: '2026-09-19T08:00:00Z',
+      to: '2026-09-20T08:00:00Z',
+      bucketSeconds: 300,
+    };
+    const history = await client.getMetricsHistory(filter);
+    const advanced = await client.getMetricsHistory({
+      ...filter,
+      from: '2026-09-19T08:05:00Z',
+      to: '2026-09-20T08:05:00Z',
+    });
+
+    expect(history.buckets).toHaveLength(288);
+    expect(Date.parse(history.buckets.at(-1)!.to)).toBe(Date.parse(filter.to));
+    expect(advanced.buckets.slice(0, -1)).toEqual(history.buckets.slice(1));
+    expect(Date.parse(advanced.buckets.at(-1)!.to)).toBe(Date.parse(advanced.to));
+  });
+
   it.each([true, false])('rotates an enabled=%s key without changing its state or usage', async (enabled) => {
     const client = createDemoApiClient();
     const { items: [key] } = await client.listSubscriptionTokens();
