@@ -482,7 +482,7 @@ export function SubscriptionSourcePanel({ active = true, toolbarTarget }: {
         : (
             <>
               <div className='subscription-source-table-scroll'>
-                <table className='subscription-source-table'>
+                <table className='workspace-table subscription-source-table'>
                   <thead>
                     <tr>
                       <th>{t('subscriptions.tabs.sources')}</th>

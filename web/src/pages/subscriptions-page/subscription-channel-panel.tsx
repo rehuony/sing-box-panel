@@ -201,7 +201,7 @@ export function SubscriptionChannelPanel({ active = true, toolbarTarget }: {
                 </div>
               </ToolbarActions>
               <div className='subscription-source-table-scroll'>
-                <table className='subscription-source-table channel-list-table'>
+                <table className='workspace-table subscription-source-table channel-list-table'>
                   <thead>
                     <tr>
                       <th>{t('channels.name')}</th>

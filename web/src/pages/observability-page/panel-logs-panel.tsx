@@ -106,7 +106,7 @@ export function PanelLogsPanel({ active = true, toolbarTarget }: {
       </ToolbarActions>
       {error != null && <ErrorNotice error={error} title={t('productLogs.unavailable')} />}
       <div className='panel-log-scroll' aria-busy={loading}>
-        <table className='panel-log-table'>
+        <table className='workspace-table panel-log-table'>
           <thead>
             <tr>
               {['time', 'message', 'status', 'source', 'actions'].map((key) => (

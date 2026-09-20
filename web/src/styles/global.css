@@ -104,11 +104,11 @@
   --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
   --dur-micro: 0.11s;
   --dur-short: 0.22s;
-  --radius-sm: 0.625rem;
-  --radius-control: 0.625rem;
-  --radius-card: 1rem;
-  --radius-panel: 1rem;
-  --radius-window: 1.5rem;
+  --radius-sm: 6px;
+  --radius-control: 6px;
+  --radius-card: 12px;
+  --radius-panel: 12px;
+  --radius-window: 14px;
   --radius-pill: 999px;
   --rule-thin: 1px;
   --shadow-card: 0 2px 5px -2px oklch(22% 0.018 274 / 6%), 0 10px 24px -18px oklch(22% 0.018 274 / 16%);
@@ -1039,6 +1039,13 @@ select:disabled {
   min-width: 44rem;
 }
 
+.workspace-table > thead > tr > th {
+  height: 44px;
+  padding-block: 0;
+  line-height: 20px;
+  vertical-align: middle;
+}
+
 .data-table {
   border-collapse: collapse;
   margin-top: var(--space-4);
@@ -1255,9 +1262,17 @@ select:disabled {
 [data-slot='button'],
 [data-slot='input'],
 [data-slot='select-trigger'],
-[data-slot='tabs-trigger'],
 [data-slot='toggle-group-item'] {
   border-radius: var(--radius-control);
+}
+
+/* Inset tab surfaces share a corner center with their surrounding track. */
+[data-slot='tabs-list'][data-variant='default'][data-orientation='horizontal'] {
+  --tabs-item-radius: max(0px, calc(var(--radius-card) - var(--tabs-inset, 3px)));
+}
+
+[data-slot='tabs-trigger'] {
+  border-radius: var(--tabs-item-radius, var(--radius-control));
 }
 
 [data-slot='card'],

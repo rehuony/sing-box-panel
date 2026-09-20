@@ -34,7 +34,11 @@
   grid-column: 1;
   margin: 0;
   font-weight: 400;
+  color: var(--color-text-secondary);
   overflow-wrap: anywhere;
+}
+.schema-form__field[data-invalid='true'] > [data-slot='field-label'] {
+  color: var(--color-danger);
 }
 .schema-form__control {
   grid-column: 2;
@@ -71,6 +75,7 @@
   padding: 16px 0 4px;
   font-size: var(--text-sm);
   font-weight: 550;
+  color: var(--color-text);
 }
 .schema-form__object > .schema-form__grid {
   clear: both;
@@ -82,12 +87,15 @@
   justify-content: space-between;
   gap: 16px;
 }
-.schema-form__object--empty > [data-slot='field-legend'] {
-  float: none;
-  width: auto;
-  padding: 0;
-  margin: 0;
+.schema-form__object-label {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: var(--text-sm);
   font-weight: 400;
+  color: var(--color-text-secondary);
+}
+.schema-form__object--empty > button {
+  flex-shrink: 0;
 }
 .schema-form__optional {
   position: relative;
@@ -144,24 +152,17 @@
   font-size: var(--text-sm);
   font-weight: 500;
 }
-.schema-form__count,
 .schema-form__item-summary,
 .schema-form__item-type {
   color: var(--color-text-muted);
   font-size: var(--text-sm);
-}
-.schema-form__editing-name {
-  flex: 1;
-  font-size: var(--text-sm);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 .schema-form__list-row,
 .schema-form__list-header {
   display: grid;
   grid-template-columns: minmax(100px, 1fr) minmax(80px, 0.65fr) minmax(80px, 1.2fr) 200px;
   align-items: center;
+  text-align: center;
   gap: 16px;
   min-height: 60px;
   padding: 8px 12px;
@@ -181,20 +182,13 @@
   white-space: nowrap;
 }
 .schema-form__item-name {
-  border: 0;
-  background: none;
   padding: 8px 0;
-  text-align: left;
   font-size: var(--text-sm);
   font-weight: 500;
   overflow-wrap: anywhere;
-  cursor: pointer;
-}
-.schema-form__item-name:hover {
-  color: var(--color-accent);
 }
 .schema-form__item-actions {
-  justify-content: flex-end;
+  justify-content: center;
   gap: 2px;
 }
 .schema-form__item-actions button {
@@ -269,22 +263,53 @@
 .schema-form__details[open] > summary {
   padding-bottom: 6px;
 }
+.schema-form__map-header,
 .schema-form__map-entry {
   display: grid;
-  grid-template-columns: minmax(120px, 1fr) minmax(180px, 320px) auto;
+  grid-template-columns: minmax(120px, 0.8fr) minmax(0, 1.2fr) 44px;
   align-items: start;
   gap: 12px;
+}
+.schema-form__map-header {
+  clear: both;
+  padding-top: 12px;
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+}
+.schema-form__map-entry {
   padding-block: 12px;
+}
+.schema-form__map-entry > [data-slot='field-error'] {
+  grid-column: 1 / -1;
 }
 .schema-form__map-value {
   min-width: 0;
+}
+.schema-form__map-value > .schema-form__field {
+  display: block;
+  min-height: 0;
+  padding: 0;
+}
+.schema-form__map-entry:has(> .schema-form__map-value > .schema-form__object) > .schema-form__map-value {
+  grid-row: 2;
+  grid-column: 1 / -1;
+}
+.schema-form__map-entry > button {
+  grid-column: 3;
+  grid-row: 1;
 }
 .schema-form__add-property {
   margin-block: 12px;
 }
 @container schema-form (max-width: 560px) {
+  .schema-form__map-header {
+    display: none;
+  }
   .schema-form__map-entry {
     grid-template-columns: minmax(0, 1fr) auto;
+  }
+  .schema-form__map-entry > button {
+    grid-column: 2;
   }
   .schema-form__map-value {
     grid-row: 2;
@@ -362,4 +387,35 @@
 }
 .schema-form__discriminated > .schema-form__object > [data-slot='field-legend'] {
   display: none;
+}
+
+.schema-form__array-toolbar[hidden] {
+  display: none;
+}
+.configuration-entry-dialog {
+  width: 48rem;
+  max-width: calc(100vw - 2rem);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 0;
+}
+.configuration-entry-dialog__body {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-inline: 24px;
+}
+.configuration-entry-dialog > [data-slot='dialog-header'],
+.configuration-entry-dialog > [data-slot='dialog-footer'] {
+  flex-shrink: 0;
+}
+.configuration-entry-dialog > [data-slot='dialog-header'] {
+  padding: 24px 24px 0;
+}
+.configuration-entry-dialog > [data-slot='dialog-footer'] {
+  padding: 0 24px 24px;
+}
+.configuration-entry-dialog > [data-slot='dialog-footer'] > button {
+  border-radius: var(--radius-control);
 }

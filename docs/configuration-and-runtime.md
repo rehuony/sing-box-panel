@@ -236,7 +236,7 @@ Existing file fields retain their paths. Web-only preferences are added under
 | `panel.language` | Language | `zh-CN` |
 | `panel.appearance.theme` | Theme | `light` |
 | `panel.appearance.color` | Color | `#6D4ED1` |
-| `panel.appearance.radius` | Radius | `24` |
+| `panel.appearance.radius` | Radius | `12` |
 
 `data_dir` remains the common root: ordinary users default to
 `$XDG_DATA_HOME/sing-box-panel` (or `~/.local/share/sing-box-panel`), and root
@@ -306,7 +306,7 @@ The running core keeps its existing bytes until a checked restart.
 entry using that identity. It does not save or launch anything; the user reviews
 and saves the new inbound through the normal configuration flow.
 
-Appearance offers six presets/custom HEX and radius 0–32px (default 24).
+Appearance offers six presets/custom HEX and radius 0–32px (default 12).
 Preview changes page, controls, charts and dialogs immediately while semantic
 status colors and the logo stay independent. Card/dialog radius is R, controls
 R/2, and the shell min(32,7R/6). Saving persists preferences; changing category

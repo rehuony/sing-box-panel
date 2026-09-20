@@ -2,9 +2,9 @@ import { EditorView } from '@codemirror/view';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { Link, MemoryRouter, Route, Routes } from 'react-router-dom';
-import { act, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 
-import type { ApiClient, ConfigurationFile } from '@/api/api-client';
+import type { ApiClient, ConfigurationFile, ConfigurationSchemaContract } from '@/api/api-client';
 
 import '@/i18n';
 import { ApiRequestError } from '@/api/api-client';
@@ -68,6 +68,93 @@ beforeEach(() => {
 });
 
 describe('configurationPage', () => {
+  it.skipIf(reviewedSchema === undefined).each(['file', 'schema'])(
+    'keeps the workspace mounted without a JSON flash when %s loads first',
+    async first => {
+      const client = await createStructuredClient();
+      const contract = await client.getConfigurationSchema('core_114');
+      let finishFile!: (file: ConfigurationFile) => void;
+      let finishSchema!: (schema: ConfigurationSchemaContract) => void;
+      client.getConfigurationFile = vi.fn().mockReturnValue(new Promise<ConfigurationFile>(resolve => {
+        finishFile = resolve;
+      }));
+      client.getConfigurationSchema = vi.fn().mockReturnValue(new Promise<ConfigurationSchemaContract>(resolve => {
+        finishSchema = resolve;
+      }));
+      renderPage(client);
+      await waitFor(() => expect(client.getConfigurationSchema).toHaveBeenCalled());
+      const workspace = screen.getByRole('region', { name: 'Configuration' });
+      const tabs = screen.getByRole('tablist', { name: 'Configuration sections' });
+      const save = screen.getByRole('button', { name: 'Save configuration' });
+      expect(workspace).toHaveAttribute('aria-busy', 'true');
+      expect(save).toBeDisabled();
+      expect(screen.getByRole('button', { name: 'Validate configuration' })).toBeDisabled();
+
+      await act(async () => first === 'file' ? finishFile(savedFile) : finishSchema(contract));
+      expect(screen.getByRole('region', { name: 'Configuration' })).toBe(workspace);
+      expect(screen.getByRole('tab', { name: 'Visual editor' })).toHaveAttribute('aria-selected', 'true');
+      expect(screen.queryByLabelText('sing-box configuration JSON')).not.toBeInTheDocument();
+
+      await act(async () => first === 'file' ? finishSchema(contract) : finishFile(savedFile));
+      await screen.findByRole('combobox', { name: 'Log level' });
+      expect(screen.getByRole('region', { name: 'Configuration' })).toBe(workspace);
+      expect(screen.getByRole('tablist', { name: 'Configuration sections' })).toBe(tabs);
+      expect(screen.getByRole('button', { name: 'Save configuration' })).toBe(save);
+      expect(workspace).toHaveAttribute('aria-busy', 'false');
+      expect(screen.getByRole('tab', { name: 'Visual editor' })).toHaveAttribute('aria-selected', 'true');
+      expect(screen.queryByLabelText('sing-box configuration JSON')).not.toBeInTheDocument();
+    },
+  );
+
+  it.skipIf(reviewedSchema === undefined)('preserves an explicit JSON choice while the schema is loading', async () => {
+    const user = userEvent.setup();
+    const client = await createStructuredClient();
+    const contract = await client.getConfigurationSchema('core_114');
+    let finishSchema!: (schema: ConfigurationSchemaContract) => void;
+    client.getConfigurationSchema = vi.fn().mockReturnValue(new Promise<ConfigurationSchemaContract>(resolve => {
+      finishSchema = resolve;
+    }));
+    renderPage(client);
+    await waitFor(() => expect(screen.getByRole('tab', { name: 'Advanced JSON' })).toBeEnabled());
+    await user.click(screen.getByRole('tab', { name: 'Advanced JSON' }));
+    const editor = await screen.findByLabelText('sing-box configuration JSON');
+    await act(async () => finishSchema(contract));
+    await waitFor(() => expect(screen.getByRole('tab', { name: 'Visual editor' })).toBeEnabled());
+    expect(screen.getByRole('tab', { name: 'Advanced JSON' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByLabelText('sing-box configuration JSON')).toBe(editor);
+  });
+
+  it.skipIf(reviewedSchema === undefined)('adds from the active section toolbar without navigating away', async () => {
+    const user = userEvent.setup();
+    const client = await createStructuredClient({
+      getConfigurationFile: vi.fn().mockResolvedValue({ ...savedFile, content: '{"dns":{"servers":[],"rules":[]}}' }),
+    });
+    renderPage(client);
+    await user.click(await screen.findByRole('tab', { name: 'DNS' }));
+    const toolbar = screen.getByRole('tablist', { name: 'dns' }).parentElement!;
+    expect(within(toolbar).getByRole('button', { name: 'Add' })).toBeInTheDocument();
+    expect(screen.queryByText('0 items')).not.toBeInTheDocument();
+    await user.click(screen.getByRole('tab', { name: 'Resolution & cache' }));
+    expect(within(toolbar).queryByRole('button', { name: 'Add' })).not.toBeInTheDocument();
+    await user.click(screen.getByRole('tab', { name: 'DNS rules' }));
+    await user.click(within(toolbar).getByRole('button', { name: 'Add' }));
+    await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Cancel' }));
+    expect(screen.getByRole('button', { name: 'Save configuration' })).toBeDisabled();
+    await user.click(screen.getByRole('tab', { name: 'Servers' }));
+    await user.click(within(toolbar).getByRole('button', { name: 'Add' }));
+    const dialog = screen.getByRole('dialog');
+    fireEvent.change(within(dialog).getByRole('textbox', { name: 'Tag' }), { target: { value: 'dns-new' } });
+    await user.click(within(dialog).getByRole('button', { name: 'Add' }));
+    expect(screen.getByText('dns-new')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Back' })).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Save configuration' }));
+    await waitFor(() => expect(client.saveConfigurationFile).toHaveBeenCalledWith({
+      revision: 1, content: expect.any(String),
+    }));
+    const saved = vi.mocked(client.saveConfigurationFile).mock.calls[0][0];
+    expect(JSON.parse(saved.content)).toEqual({ dns: { servers: [{ type: 'dhcp', tag: 'dns-new' }], rules: [] } });
+  });
+
   it.each(['{"log":{"level":"debug"}}', '{"log":'])('preserves unsaved %s across navigation and saves exact text', async content => {
     const user = userEvent.setup();
     const client = createMockApiClient();

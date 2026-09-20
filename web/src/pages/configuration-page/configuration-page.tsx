@@ -70,68 +70,81 @@ export function ConfigurationPage() {
     }
   }
 
-  const invalid = canonical.editorError !== null;
-  const visualAvailable = schema.status === 'ready' && !invalid;
-  const editor = visualAvailable ? selectedEditor ?? 'visual' : 'advanced';
-  const locked = canonical.saving || checking;
+  const fileReady = canonical.state.status === 'ready';
+  const invalid = fileReady && canonical.editorError !== null;
+  const visualUnavailable = invalid || schema.status === 'unavailable' || schema.status === 'error';
+  const editor = visualUnavailable ? 'advanced' : selectedEditor ?? 'visual';
+  const loading = canonical.state.status === 'loading' || (fileReady && editor === 'visual' && schema.status === 'loading');
+  const locked = !fileReady || canonical.saving || checking;
   const runtime = telemetry?.runtimeStatus;
   const file = canonical.state.file;
-  const fileStatus = canonical.dirty
-    ? t('configuration.unsaved')
-    : invalid
-      ? t('configuration.file.savedInvalid')
-      : runtime?.observation_state === 'running' && runtime.loaded_canonical_revision_id !== undefined
-        ? t(runtime.loaded_canonical_revision_id === file?.canonical_revision_id
-            ? 'configuration.file.loaded'
-            : 'configuration.file.restartRequired')
-        : runtime?.observation_state === 'stopped'
-          ? t('configuration.file.nextStart')
-          : t('configuration.file.saved');
+  const fileStatus = !fileReady
+    ? ''
+    : canonical.dirty
+      ? t('configuration.unsaved')
+      : invalid
+        ? t('configuration.file.savedInvalid')
+        : runtime?.observation_state === 'running' && runtime.loaded_canonical_revision_id !== undefined
+          ? t(runtime.loaded_canonical_revision_id === file?.canonical_revision_id
+              ? 'configuration.file.loaded'
+              : 'configuration.file.restartRequired')
+          : runtime?.observation_state === 'stopped'
+            ? t('configuration.file.nextStart')
+            : t('configuration.file.saved');
+  const loadingEditor = (
+    <div className='configuration-editor-loading' role='status'>
+      {t('configuration.loading')}
+    </div>
+  );
   return (
     <div className='configuration-page panel-page'>
       <h1 className='panel-page-heading'>{t('configuration.title')}</h1>
-      {canonical.state.status === 'error' ? <ErrorNotice error={canonical.state.error} title={t('configuration.error.unavailable')} /> : null}
-      {canonical.state.status === 'loading' ? <div className='inline-loading' aria-busy='true'>{t('configuration.loading')}</div> : null}
-      {canonical.state.status === 'ready'
-        ? (
-            <section className='configuration-workspace'>
-              <Tabs className='configuration-tabs' value={editor} onValueChange={setSelectedEditor}>
-                <div className='configuration-tabs__rail'>
-                  <TabsList aria-label={t('configuration.sections')}>
-                    <TabsTrigger disabled={schema.status !== 'ready' || invalid} value='visual'>{t('configuration.file.visual')}</TabsTrigger>
-                    <TabsTrigger value='advanced'>{t('configuration.tab.advanced')}</TabsTrigger>
-                  </TabsList>
-                </div>
-                <TabsContent className='configuration-tabs__content' value='visual'>
-                  {schema.status === 'ready' && canonical.draft !== null
-                    ? (
-                        <DynamicGeneralEditor
-                          disabled={locked} draft={canonical.draft}
-                          linkedInbound={linkedInbound ?? undefined}
-                          onChange={canonical.update} resolution={schema.resolution}
-                        />
-                      )
-                    : null}
-                </TabsContent>
-                <TabsContent className='configuration-tabs__content' value='advanced'>
-                  {editor === 'advanced' && (
-                    <Suspense fallback={<div className='inline-loading' aria-busy='true'>{t('configuration.loading')}</div>}>
-                      <AdvancedConfigurationEditor
-                        disabled={locked} text={canonical.state.content}
-                        error={canonical.editorError} onChange={canonical.updateText}
-                      />
-                    </Suspense>
-                  )}
-                </TabsContent>
-              </Tabs>
-              <footer className='configuration-footer'>
-                <span className='configuration-file-state' role='status' title={fileStatus}>{fileStatus}</span>
-                <Button disabled={locked || canonical.dirty || invalid || canonical.state.file.revision === 0} onClick={() => void check()} title={canonical.dirty ? t('configuration.file.saveFirst') : undefined} type='button' variant='ghost'>{checking ? t('configuration.file.checking') : t('configuration.file.check')}</Button>
-                <Button disabled={locked || (!canonical.dirty && canonical.state.file.revision > 0)} onClick={() => void canonical.save()} type='button'>{canonical.saving ? t('configuration.saving') : t('configuration.file.save')}</Button>
-              </footer>
-            </section>
-          )
-        : null}
+      <section className='configuration-workspace' aria-label={t('configuration.title')} aria-busy={loading}>
+        <Tabs className='configuration-tabs' value={editor} onValueChange={setSelectedEditor}>
+          <div className='configuration-tabs__rail'>
+            <TabsList aria-label={t('configuration.sections')}>
+              <TabsTrigger disabled={!fileReady || schema.status !== 'ready' || invalid} value='visual'>{t('configuration.file.visual')}</TabsTrigger>
+              <TabsTrigger disabled={!fileReady} value='advanced'>{t('configuration.tab.advanced')}</TabsTrigger>
+            </TabsList>
+          </div>
+          {canonical.state.status === 'error'
+            ? <div className='configuration-tabs__content'><ErrorNotice error={canonical.state.error} title={t('configuration.error.unavailable')} /></div>
+            : (
+                <>
+                  <TabsContent className='configuration-tabs__content' value='visual'>
+                    {loading
+                      ? loadingEditor
+                      : schema.status === 'ready' && canonical.draft !== null
+                        ? (
+                            <DynamicGeneralEditor
+                              disabled={locked} draft={canonical.draft}
+                              linkedInbound={linkedInbound ?? undefined}
+                              onChange={canonical.update} resolution={schema.resolution}
+                            />
+                          )
+                        : null}
+                  </TabsContent>
+                  <TabsContent className='configuration-tabs__content' value='advanced'>
+                    {editor === 'advanced' && (fileReady
+                      ? (
+                          <Suspense fallback={loadingEditor}>
+                            <AdvancedConfigurationEditor
+                              disabled={locked} text={canonical.state.content}
+                              error={canonical.editorError} onChange={canonical.updateText}
+                            />
+                          </Suspense>
+                        )
+                      : loadingEditor)}
+                  </TabsContent>
+                </>
+              )}
+        </Tabs>
+        <footer className='configuration-footer'>
+          <span className='configuration-file-state' role='status' title={fileStatus}>{fileStatus}</span>
+          <Button disabled={locked || canonical.dirty || invalid || file?.revision === 0} onClick={() => void check()} title={canonical.dirty ? t('configuration.file.saveFirst') : undefined} type='button'>{checking ? t('configuration.file.checking') : t('configuration.file.check')}</Button>
+          <Button disabled={locked || (!canonical.dirty && (file?.revision ?? 0) > 0)} onClick={() => void canonical.save()} type='button'>{canonical.saving ? t('configuration.saving') : t('configuration.file.save')}</Button>
+        </footer>
+      </section>
     </div>
   );
 }

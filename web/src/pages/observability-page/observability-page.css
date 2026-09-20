@@ -181,10 +181,13 @@
   color: var(--color-text-muted);
 }
 .panel-log-table :is(td, th) {
-  padding: 16px 12px;
+  padding-inline: 12px;
   vertical-align: middle;
   text-align: left;
   overflow-wrap: anywhere;
+}
+.panel-log-table td {
+  padding-block: 16px;
 }
 .panel-log-table tr {
   border-bottom: 1px solid var(--color-border);

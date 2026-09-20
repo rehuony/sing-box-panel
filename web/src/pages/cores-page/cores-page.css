@@ -96,16 +96,11 @@
   overflow: hidden;
 }
 .core-tabs {
-  display: flex;
-  gap: 4px;
+  --tabs-inset: 4px;
   flex: none;
-  padding: 4px;
-  border-radius: var(--radius-control);
   background: var(--color-surface-raised);
-  width: fit-content;
 }
-.core-tabs [aria-selected='true'] {
-  background: var(--color-surface);
+.core-tabs [data-active] {
   color: var(--color-primary);
 }
 .core-library__toolbar {
@@ -171,7 +166,7 @@
   color: var(--color-text-muted);
 }
 .core-table :is(th, td) {
-  padding: 16px;
+  padding-inline: 16px;
   text-align: left;
   vertical-align: middle;
   font-size: var(--text-sm);
@@ -192,6 +187,7 @@
   text-align: center;
 }
 .core-table td {
+  padding-block: 16px;
   overflow-wrap: anywhere;
 }
 .core-row-actions {

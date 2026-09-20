@@ -57,8 +57,8 @@ canonical endpoints retain `If-Match`.
 Asynchronous operations use shared task tracking and report completion only after
 a terminal API result. Version/source actions update in place; failures retain
 previous usable state. The panel-log detail view follows pending tasks, stops
-polling at a terminal state and aborts tracking when closed. `/tasks` redirects
-to that view for old links. Core logs and telemetry use authenticated streams
+polling at a terminal state and aborts tracking when closed. Task detail links use
+`/observability?tab=panel&task=<id>`. Core logs and telemetry use authenticated streams
 with bounded buffering, reconnect and polling recovery.
 
 Tests inject an `ApiClient`, keeping pages independent from `fetch` while the
@@ -76,7 +76,13 @@ replacing the process; immutable history and rollback remain internal/legacy
 API and CLI contracts rather than a second deployment UI.
 
 Configuration modules are edited individually, with optional object settings
-added on demand. Drafts, including incomplete JSON, survive route changes in
+added on demand. Collection actions stay in a consistent, vertically centered
+toolbar beside the section tabs where present, without item counts. List cells
+are centered and entry names are display-only. Adding a record or choosing its
+Edit action opens a dialog; confirming updates the draft and cancelling discards
+the pending changes. Map fields keep keys separate from typed text, list or object
+values, and referenced scalar lists are edited inline. Dialog content remains
+mounted through the synchronized closing transition. Drafts, including incomplete JSON, survive route changes in
 memory for the current authenticated session. Reloading or closing the page
 prompts when there are unsaved changes; signing out clears the draft. No draft
 or embedded configuration secrets are written to browser storage. The saved file revision remains the concurrency base after navigating away

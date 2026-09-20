@@ -32,7 +32,7 @@ function DialogOverlay({
     <DialogPrimitive.Backdrop
       data-slot='dialog-overlay'
       className={cn(
-        'fixed inset-0 isolate z-[var(--z-modal)] bg-[var(--color-scrim)] duration-100 supports-backdrop-filter:backdrop-blur-xs data-open:animate-in data-open:fade-in-0 data-closed:animate-out data-closed:fade-out-0',
+        'fixed inset-0 isolate z-[var(--z-modal)] bg-[var(--color-scrim)] opacity-100 transition-opacity duration-150 ease-out supports-backdrop-filter:backdrop-blur-xs data-starting-style:opacity-0 data-ending-style:opacity-0',
         className,
       )}
       {...props}
@@ -56,7 +56,7 @@ function DialogContent({
       <DialogPrimitive.Popup
         data-slot='dialog-content'
         className={cn(
-          'fixed top-1/2 left-1/2 z-[calc(var(--z-modal)+1)] grid w-full max-h-[calc(100dvh-2rem)] overflow-y-auto max-w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 gap-4 rounded-[var(--radius-window)] bg-popover p-6 text-sm text-popover-foreground shadow-[var(--shadow-panel)] ring-1 ring-border/60 duration-200 outline-none sm:max-w-[30rem] data-open:animate-in data-open:fade-in-0 data-open:zoom-in-[0.98] data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-[0.98]',
+          'fixed top-1/2 left-1/2 z-[calc(var(--z-modal)+1)] grid w-full max-h-[calc(100dvh-2rem)] overflow-y-auto max-w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 gap-4 rounded-[var(--radius-window)] bg-popover p-6 text-sm text-popover-foreground shadow-[var(--shadow-panel)] ring-1 ring-border/60 opacity-100 transition-[opacity,scale] duration-150 ease-out outline-none sm:max-w-[30rem] data-starting-style:opacity-0 data-starting-style:scale-98 data-ending-style:opacity-0 data-ending-style:scale-98',
           className,
         )}
         {...props}

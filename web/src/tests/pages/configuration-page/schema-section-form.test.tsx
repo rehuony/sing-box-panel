@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { describe, expect, it } from 'vitest';
 import userEvent from '@testing-library/user-event';
 import { customizeValidator } from '@rjsf/validator-ajv8';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 
 import type { ReviewedSchemaResolution } from '@/schemas/resolve-reviewed-schema';
 import type { CanonicalDraft } from '@/pages/configuration-page/use-canonical-configuration';
@@ -234,22 +234,130 @@ function ServerHarness() {
   );
 }
 
-it('edits the matching protocol inline and retains unknown fields across navigation and type changes', async () => {
+it('only edits through the dialog and retains unknown fields across confirmed type changes', async () => {
   const user = userEvent.setup();
   render(<ServerHarness />);
   expect(screen.queryByRole('textbox', { name: 'Server' })).not.toBeInTheDocument();
-  await user.click(screen.getByRole('button', { name: 'dns-remote' }));
+  await user.click(screen.getByText('dns-remote'));
+  expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: 'dns-remote' })).not.toBeInTheDocument();
+  const original = screen.getByLabelText('Server draft').textContent;
+  const edit = screen.getByRole('button', { name: 'Edit' });
+  await user.click(edit);
   expect(screen.getByRole('combobox', { name: 'Type' })).toHaveTextContent('https');
   expect(screen.queryByText(/Option \d/)).not.toBeInTheDocument();
   fireEvent.change(screen.getByRole('textbox', { name: 'Server' }), { target: { value: '9.9.9.9' } });
-  await user.click(screen.getByRole('button', { name: 'Done editing' }));
+  expect(screen.getByLabelText('Server draft').textContent).toBe(original);
+  await user.click(screen.getByRole('button', { name: 'Cancel' }));
+  expect(screen.getByLabelText('Server draft').textContent).toBe(original);
+  expect(edit).toHaveFocus();
+  await user.click(edit);
+  expect(screen.getByRole('textbox', { name: 'Server' })).toHaveValue('1.1.1.1');
+  fireEvent.change(screen.getByRole('textbox', { name: 'Server' }), { target: { value: '9.9.9.9' } });
+  await user.click(screen.getByRole('button', { name: 'Save changes' }));
+  expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   expect(screen.getByText('9.9.9.9')).toBeInTheDocument();
-  await user.click(screen.getByRole('button', { name: 'dns-remote' }));
+  await user.click(edit);
   await user.click(screen.getByRole('combobox', { name: 'Type' }));
   await user.click(await screen.findByRole('option', { name: 'local' }));
   expect(screen.queryByRole('textbox', { name: 'Server' })).not.toBeInTheDocument();
+  await user.click(screen.getByRole('button', { name: 'Save changes' }));
   expect(JSON.parse(screen.getByLabelText('Server draft').textContent ?? '{}')).toEqual({
     servers: [{ type: 'local', tag: 'dns-remote', future: { keep: true } }],
+  });
+});
+
+it('keeps the edit form and title mounted until the closing animation finishes', async () => {
+  const user = userEvent.setup();
+  render(<ServerHarness />);
+  await user.click(screen.getByRole('button', { name: 'Edit' }));
+  const dialog = screen.getByRole('dialog', { name: 'Edit entry' });
+  let finish!: () => void;
+  const finished = new Promise<void>((resolve) => {
+    finish = resolve;
+  });
+  Object.defineProperty(dialog, 'getAnimations', { value: () => [{ finished }] });
+  await user.click(within(dialog).getByRole('button', { name: 'Cancel' }));
+  expect(dialog).toHaveAttribute('data-closed');
+  expect(within(dialog).getByRole('heading', { name: 'Edit entry' })).toBeInTheDocument();
+  expect(within(dialog).getByRole('textbox', { name: 'Server' })).toHaveValue('1.1.1.1');
+  await act(async () => {
+    finish();
+  });
+  await waitFor(() => expect(dialog).not.toBeInTheDocument());
+});
+
+it('stages new collection entries in a dialog and leaves the list unchanged on cancel or Escape', async () => {
+  const user = userEvent.setup();
+  render(<ServerHarness />);
+  const original = screen.getByLabelText('Server draft').textContent;
+  const add = screen.getByRole('button', { name: 'Add' });
+  await user.click(add);
+  let dialog = screen.getByRole('dialog', { name: 'Add entry' });
+  fireEvent.change(within(dialog).getByRole('textbox', { name: 'Tag' }), { target: { value: 'cancelled' } });
+  expect(screen.getByLabelText('Server draft').textContent).toBe(original);
+  await user.click(within(dialog).getByRole('button', { name: 'Cancel' }));
+  expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  expect(screen.getByLabelText('Server draft').textContent).toBe(original);
+  expect(add).toHaveFocus();
+
+  await user.click(add);
+  await user.keyboard('{Escape}');
+  expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  expect(screen.getByLabelText('Server draft').textContent).toBe(original);
+
+  await user.click(add);
+  dialog = screen.getByRole('dialog');
+  fireEvent.change(within(dialog).getByRole('textbox', { name: 'Tag' }), { target: { value: 'dns-new' } });
+  await user.click(within(dialog).getByRole('combobox', { name: 'Type' }));
+  await user.click(await screen.findByRole('option', { name: 'https' }));
+  fireEvent.change(within(dialog).getByRole('textbox', { name: 'Server' }), { target: { value: '9.9.9.9' } });
+  await user.click(within(dialog).getByRole('button', { name: 'Add' }));
+  expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: 'Back' })).not.toBeInTheDocument();
+  expect(JSON.parse(screen.getByLabelText('Server draft').textContent ?? '{}')).toEqual({
+    servers: [
+      { type: 'https', tag: 'dns-remote', server: '1.1.1.1', future: { keep: true } },
+      { type: 'https', tag: 'dns-new', server: '9.9.9.9' },
+    ],
+  });
+  expect(screen.getByText('dns-new')).toBeInTheDocument();
+});
+
+it('keeps nested additions inside the parent dialog until the parent is confirmed', async () => {
+  const user = userEvent.setup();
+  const nestedSchema: RJSFSchema = {
+    type: 'array', items: { type: 'object', properties: {
+      name: { type: 'string' },
+      users: { type: 'array', items: { type: 'object', properties: { name: { type: 'string' } } } },
+    } },
+  };
+  function NestedHarness() {
+    const [draft, setDraft] = useState<CanonicalDraft>({ section: [] });
+    return (
+      <>
+        <SchemaSectionForm basePointer='/section' data={draft.section} onChange={setDraft}
+          schema={nestedSchema} resolution={{ ...resolution, schema: { type: 'object', properties: { section: nestedSchema } } }} />
+        <output aria-label='Nested draft'>{JSON.stringify(draft)}</output>
+      </>
+    );
+  }
+  render(<NestedHarness />);
+  await user.click(screen.getByRole('button', { name: 'Add' }));
+  let parent = screen.getByRole('dialog');
+  fireEvent.change(within(parent).getByRole('textbox', { name: 'Name' }), { target: { value: 'parent' } });
+  await user.click(within(parent).getAllByRole('button', { name: 'Add' })[0]);
+  const child = screen.getByRole('dialog');
+  fireEvent.change(within(child).getByRole('textbox', { name: 'Name' }), { target: { value: 'child' } });
+  const ids = [...document.querySelectorAll('[id]')].map((element) => element.id);
+  expect(new Set(ids).size).toBe(ids.length);
+  await user.click(within(child).getByRole('button', { name: 'Add' }));
+  expect(screen.getByLabelText('Nested draft')).toHaveTextContent('{"section":[]}');
+  parent = screen.getByRole('dialog');
+  expect(within(parent).getByText('child')).toBeInTheDocument();
+  await user.click(within(parent).getAllByRole('button', { name: 'Add' }).at(-1)!);
+  expect(JSON.parse(screen.getByLabelText('Nested draft').textContent ?? '{}')).toEqual({
+    section: [{ name: 'parent', users: [{ name: 'child' }] }],
   });
 });
 

@@ -869,9 +869,12 @@
 }
 .subscription-keys .subscription-table th,
 .subscription-keys .subscription-table td {
-  padding: 16px;
+  padding-inline: 16px;
   text-align: center;
   white-space: nowrap;
+}
+.subscription-keys .subscription-table td {
+  padding-block: 16px;
 }
 .subscription-keys .subscription-table th:first-child,
 .subscription-keys .subscription-table td:first-child {
@@ -957,12 +960,13 @@
   gap: 16px;
 }
 .subscriptions-tabs {
+  --tabs-inset: 4px;
   align-self: flex-start;
   flex: 0 0 auto;
   width: max-content;
   max-width: 100%;
   border: 0;
-  padding: 4px;
+  padding: var(--tabs-inset);
   background: var(--color-surface-raised);
 }
 .subscriptions-tabs [data-slot='tabs-trigger'] {
@@ -1101,10 +1105,9 @@
   font-weight: 400;
   color: var(--color-text-muted);
   background: var(--color-surface-raised);
-  height: 44px;
 }
 .subscription-source-table :is(th, td) {
-  padding: 12px 16px;
+  padding-inline: 16px;
   text-align: center;
 }
 .subscription-source-table tr > :first-child {
@@ -1118,6 +1121,7 @@
   width: 26%;
 }
 .subscription-source-table td {
+  padding-block: 12px;
   height: 76px;
   border-bottom: 1px solid var(--color-border);
 }
@@ -1366,7 +1370,10 @@
     width: 200px;
   }
   .subscription-source-table :is(th, td) {
-    padding: 10px 8px;
+    padding-inline: 8px;
+  }
+  .subscription-source-table td {
+    padding-block: 10px;
   }
 }
 
@@ -1504,9 +1511,12 @@
   border-collapse: collapse;
 }
 .channel-groups-table :is(th, td) {
-  padding: 12px 8px;
+  padding-inline: 8px;
   text-align: center;
   border-bottom: 1px solid var(--color-border);
+}
+.channel-groups-table td {
+  padding-block: 12px;
 }
 .channel-groups-table th {
   background: var(--color-surface-raised);

@@ -26,6 +26,7 @@ import type {
 
 import { ApiRequestError } from '../api-client';
 import { createDemoCoreLogs } from './demo-core-logs';
+import { DEFAULT_APPEARANCE } from '../../theme/appearance';
 import { reviewedSchemaManifest } from '../../schemas/generated';
 import {
   createDemoNodeApi,
@@ -398,7 +399,7 @@ export function createDemoApiClient(): ApiClient {
       identity_name: '',
       traffic_quota_gib: 500,
       language: 'zh-CN',
-      appearance: { theme: 'light', color: '#6D4ED1', radius: 24 },
+      appearance: { ...DEFAULT_APPEARANCE },
     },
   };
   let configurationFile: ConfigurationFile = {

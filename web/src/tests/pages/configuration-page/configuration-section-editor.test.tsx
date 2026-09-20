@@ -38,12 +38,12 @@ function Harness() {
 it('separates lists from settings without erasing fields in the other tabs', async () => {
   const user = userEvent.setup();
   render(<Harness />);
-  expect(screen.getByRole('button', { name: 'remote' })).toBeInTheDocument();
+  expect(screen.getByText('remote')).toBeInTheDocument();
   expect(screen.queryByRole('textbox', { name: 'Default destination' })).not.toBeInTheDocument();
   await user.click(screen.getByRole('tab', { name: 'Resolution & cache' }));
   fireEvent.change(screen.getByRole('textbox', { name: 'Default destination' }), { target: { value: 'local' } });
   await user.click(screen.getByRole('tab', { name: 'Servers' }));
-  expect(screen.getByRole('button', { name: 'remote' })).toBeInTheDocument();
+  expect(screen.getByText('remote')).toBeInTheDocument();
   expect(JSON.parse(screen.getByLabelText('Draft').textContent ?? '{}')).toEqual({
     dns: { servers: [{ tag: 'remote', future: 42 }], rules: [{ action: 'route' }], final: 'local', unknown: true },
   });

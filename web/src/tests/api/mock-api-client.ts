@@ -25,6 +25,7 @@ import type {
   TrafficPeriod,
 } from '@/api/api-client';
 
+import { DEFAULT_APPEARANCE } from '@/theme/appearance';
 import { reviewedSchemaManifest } from '@/schemas/generated';
 
 const testSchemaVersion = '1.14.0';
@@ -356,7 +357,7 @@ export function createMockApiClient(overrides: Partial<ApiClient> = {}): Mocked<
         identity_name: '',
         traffic_quota_gib: null,
         language: 'en',
-        appearance: { theme: 'light', color: '#6D4ED1', radius: 24 },
+        appearance: { ...DEFAULT_APPEARANCE },
       },
     }),
     savePanelSettings: vi.fn().mockImplementation(async (input) => ({

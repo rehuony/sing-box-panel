@@ -12,6 +12,7 @@ import { SelectField } from '@/components/select-field';
 import { useControlPlane } from '@/stores/control-plane.store';
 import { WorkspaceToolbar } from '@/components/workspace-toolbar';
 import { describeRequestError, ErrorNotice } from '@/components/error-notice';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   Dialog,
   DialogContent,
@@ -131,26 +132,21 @@ export function CoresPage() {
       <header className='core-page__heading panel-page-heading'>
         <h1>{t('cores.title')}</h1>
       </header>
-      <section className='core-library' aria-label={t('cores.title')}>
+      <Tabs
+        className='core-library'
+        render={<section aria-label={t('cores.title')} />}
+        value={tab}
+        onValueChange={(value) => setTab(value as typeof tab)}
+      >
         <WorkspaceToolbar>
-          <div className='core-tabs' role='tablist' aria-label={t('cores.title')}>
-            <Button
-              role='tab'
-              aria-selected={tab === 'installed'}
-              variant={tab === 'installed' ? 'secondary' : 'ghost'}
-              onClick={() => setTab('installed')}
-            >
+          <TabsList className='core-tabs' aria-label={t('cores.title')}>
+            <TabsTrigger value='installed'>
               {t('cores.tabs.installed')}
-            </Button>
-            <Button
-              role='tab'
-              aria-selected={tab === 'catalog'}
-              variant={tab === 'catalog' ? 'secondary' : 'ghost'}
-              onClick={() => setTab('catalog')}
-            >
+            </TabsTrigger>
+            <TabsTrigger value='catalog'>
               {t('cores.tabs.catalog')}
-            </Button>
-          </div>
+            </TabsTrigger>
+          </TabsList>
           <div className='core-library__toolbar workspace-toolbar__actions'>
             <label className='core-search'>
               <Search aria-hidden='true' />
@@ -187,13 +183,12 @@ export function CoresPage() {
         {tab === 'catalog' && library.catalogError != null && (
           <ErrorNotice error={library.catalogError} title={t('cores.error.catalog')} />
         )}
-        <div
+        <TabsContent
           className='core-list-scroll'
-          role='tabpanel'
-          aria-label={t(`cores.tabs.${tab}`)}
+          value={tab}
           aria-busy={library.loading}
         >
-          <table className='core-table'>
+          <table className='workspace-table core-table'>
             <thead>
               <tr>
                 <th>{t('cores.library.version')}</th>
@@ -307,7 +302,7 @@ export function CoresPage() {
               {library.loading ? t('cores.loading') : t(`cores.empty.${tab}`)}
             </p>
           )}
-        </div>
+        </TabsContent>
         <footer className='core-pagination'>
           <SelectField
             aria-label={t('cores.library.pageSize')}
@@ -339,7 +334,7 @@ export function CoresPage() {
             </Button>
           </div>
         </footer>
-      </section>
+      </Tabs>
       {importOpen && canImport && (
         <CoreImportDialog
           architecture={arch}

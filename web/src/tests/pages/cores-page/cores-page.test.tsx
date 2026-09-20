@@ -39,6 +39,33 @@ function renderCores(client: ApiClient) {
   );
 }
 describe('inline version library', () => {
+  it('switches library tabs by keyboard and associates the visible panel with its tab', async () => {
+    const user = userEvent.setup();
+    renderCores(createMockApiClient());
+    await screen.findByText(testArtifacts.items[0].exact_version);
+    const installed = screen.getByRole('tab', { name: 'Installed' });
+    const available = screen.getByRole('tab', { name: 'Available' });
+
+    await user.click(installed);
+    await user.keyboard('[ArrowRight]');
+    expect(available).toHaveFocus();
+    await user.keyboard('[Enter]');
+    expect(available).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('tabpanel', { name: 'Available' })).toHaveAttribute(
+      'id', available.getAttribute('aria-controls'),
+    );
+    expect(screen.queryByRole('button', { name: 'Enable' })).not.toBeInTheDocument();
+
+    await user.keyboard('[ArrowLeft]');
+    expect(installed).toHaveFocus();
+    await user.keyboard('[Space]');
+    expect(installed).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('tabpanel', { name: 'Installed' })).toHaveAttribute(
+      'id', installed.getAttribute('aria-controls'),
+    );
+    expect(screen.getByRole('button', { name: 'Enable' })).toBeVisible();
+  });
+
   it('reads the deployed platform and does not allow changing architecture', async () => {
     const client = createMockApiClient();
     renderCores(client);

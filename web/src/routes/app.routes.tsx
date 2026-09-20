@@ -34,10 +34,6 @@ const SubscriptionsPage = lazy(async () => {
   const page = await import('@/pages/subscriptions-page/subscriptions-page');
   return { default: page.SubscriptionsPage };
 });
-const TasksPage = lazy(async () => {
-  const page = await import('@/pages/tasks-page/tasks-page');
-  return { default: page.TasksPage };
-});
 
 function RouteLoadingState() {
   const { t } = useTranslation();
@@ -104,7 +100,6 @@ export function AppRoutes() {
             <Route element={<PanelSettingsPage />} path='panel' />
             <Route element={<SubscriptionsPage />} path='subscriptions' />
             <Route element={<ObservabilityPage />} path='observability' />
-            <Route element={<TasksPage />} path='tasks' />
             <Route element={<NotFoundPage />} path='*' />
           </Route>
         </Route>

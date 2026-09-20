@@ -274,6 +274,9 @@ function withDiscriminators(schema: RJSFSchema, root: RJSFSchema): RJSFSchema {
   if (schema.items && typeof schema.items === 'object' && !Array.isArray(schema.items)) {
     result.items = withDiscriminators(schema.items, root);
   }
+  if (schema.additionalProperties && typeof schema.additionalProperties === 'object') {
+    result.additionalProperties = withDiscriminators(schema.additionalProperties, root);
+  }
   return result;
 }
 
@@ -476,6 +479,12 @@ export function uiSchemaFromPanel(
     // Build item UI lazily: recursive rule schemas must not recurse before an item exists.
     result.items = (itemData: unknown) => uiSchemaFromPanel(itemSchema, [], root, itemData);
   }
+  if (resolved.additionalProperties && typeof resolved.additionalProperties === 'object') {
+    result.additionalProperties = {
+      ...uiSchemaFromPanel(resolved.additionalProperties, [], root),
+      'ui:options': { label: false },
+    };
+  }
   const properties = schemaProperties(resolved, root, data);
   const fieldOrder = ['type', 'tag', 'name', 'enabled', 'disabled', 'level', 'output', 'timestamp', 'listen', 'listen_port', 'server', 'server_port', 'path', 'final', 'strategy', 'timeout'];
   const order = Object.keys(properties).sort((left, right) => {
@@ -499,11 +508,21 @@ export function uiSchemaFromPanel(
         ? undefined
         : schemaDiscriminatorValues(option, root, discriminatorKey).find((value) => value !== '');
       const title = option.title ?? discriminatorTitle ?? (discriminator.length === 1 ? discriminator[0] : undefined)
-        ?? (typeof option.type === 'string' ? `configuration.valueTypes.${option.type}` : undefined);
+        ?? schemaValueTypeTitle(option, root);
       const branchUI = uiSchemaFromPanel(branch, readonlyPaths, root, data);
       if (discriminatorKey !== undefined) branchUI[discriminatorKey] = { 'ui:widget': 'hidden' };
       return { ...branchUI, 'ui:title': title ?? '', 'ui:options': { label: false } };
     });
   }
   return result;
+}
+
+function schemaValueTypeTitle(schema: RJSFSchema, root: RJSFSchema): string {
+  if (typeof schema.type === 'string') return `configuration.valueTypes.${schema.type}`;
+  const branches = schema.anyOf ?? schema.oneOf;
+  const titles = branches?.flatMap((branch) => typeof branch === 'boolean'
+    ? []
+    : [schemaValueTypeTitle(resolvedSchema(branch, root), root)]) ?? [];
+  if (titles.length > 0 && titles.every((title) => title === titles[0])) return titles[0];
+  return 'configuration.valueTypes.value';
 }

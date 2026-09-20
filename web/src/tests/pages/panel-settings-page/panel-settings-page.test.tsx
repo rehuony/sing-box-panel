@@ -128,6 +128,7 @@ describe('panel settings', () => {
     await user.click(await screen.findByRole('tab', { name: 'Usage & appearance' }));
     await user.click(screen.getByRole('button', { name: 'Blue' }));
     const radius = screen.getByRole('spinbutton', { name: 'Corner radius' });
+    expect(radius).toHaveValue(12);
     fireEvent.change(radius, { target: { value: '8' } });
     await waitFor(() => expect(document.documentElement.style.getPropertyValue('--appearance-color')).toBe('#2563EB'));
     expect(document.documentElement.style.getPropertyValue('--radius-control')).toBe('4px');
@@ -153,8 +154,10 @@ describe('panel settings', () => {
     const client = setup(createMockApiClient({ savePanelSettings: vi.fn().mockRejectedValue(new Error('Conflict')) }));
     await user.click(await screen.findByRole('tab', { name: 'Usage & appearance' }));
     fireEvent.change(screen.getByRole('spinbutton', { name: 'Total traffic quota' }), { target: { value: '800' } });
+    fireEvent.change(screen.getByRole('spinbutton', { name: 'Corner radius' }), { target: { value: '24' } });
     await user.click(screen.getByRole('button', { name: 'Blue' }));
     await user.click(screen.getByRole('button', { name: 'Reset defaults' }));
+    expect(screen.getByRole('spinbutton', { name: 'Corner radius' })).toHaveValue(12);
     expect(screen.getByRole('spinbutton', { name: 'Total traffic quota' })).toHaveValue(800);
     await user.click(screen.getByRole('button', { name: 'Blue' }));
     await user.click(screen.getByRole('button', { name: 'Save settings' }));

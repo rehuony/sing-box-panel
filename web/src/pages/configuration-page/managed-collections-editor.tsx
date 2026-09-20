@@ -5,16 +5,6 @@ import { useTranslation } from 'react-i18next';
 import { isLosslessNumber } from 'lossless-json';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  closestCenter,
-  DndContext,
-  KeyboardSensor,
-  PointerSensor,
-  TouchSensor,
-  useSensor,
-  useSensors,
-} from '@dnd-kit/core';
-import {
-  ArrowLeft,
   Braces,
   CircleAlert,
   GripVertical,
@@ -24,6 +14,15 @@ import {
   Trash2,
   Wrench,
 } from 'lucide-react';
+import {
+  closestCenter,
+  DndContext,
+  KeyboardSensor,
+  PointerSensor,
+  TouchSensor,
+  useSensor,
+  useSensors,
+} from '@dnd-kit/core';
 import {
   arrayMove,
   SortableContext,
@@ -41,15 +40,8 @@ import { Button } from '@/components/ui/button';
 import { toast } from '@/components/ui/toast-manager';
 import { useApiClient } from '@/api/api-client-context';
 import { describeRequestError } from '@/components/error-notice';
-import { Field, FieldDescription, FieldLabel } from '@/components/ui/field';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
+import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field';
 import {
   Select,
   SelectContent,
@@ -58,6 +50,15 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -230,15 +231,10 @@ function SortableEntryCard({
       >
         <GripVertical aria-hidden='true' />
       </Button>
-      <button
-        className='managed-node-card__identity'
-        disabled={disabled}
-        onClick={onEdit}
-        type='button'
-      >
+      <div className='managed-node-card__identity'>
         <strong>{entry.tag}</strong>
         <span>{entry.type === 'untyped' ? t('configuration.managed.untyped') : entry.type}</span>
-      </button>
+      </div>
       <div className='managed-node-card__badges'>
         {!entry.valid
           ? (
@@ -324,12 +320,14 @@ export function ManagedCollectionsEditor({
     = activeSchema === undefined ? null : collectionItemSchema(activeSchema, resolution.schema);
   const items = entries(draft[activeCollection]);
   const views = items.map(entryView);
-  const [editingIndex, setEditingIndex] = useState<number | null>(() => {
+  const [editing, setEditing] = useState<{ index: number; draft: CanonicalDraft } | null>(() => {
     const index = linkedTag === undefined ? -1 : items.findIndex((item) => item.tag === linkedTag);
-    return index < 0 ? null : index;
+    return index < 0 ? null : { index, draft: { [activeCollection]: [items[index]] } };
   });
+  const [editOpen, setEditOpen] = useState(editing !== null);
   const [deletingIndex, setDeletingIndex] = useState<number | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
+  const [pendingEntry, setPendingEntry] = useState<CanonicalDraft | null>(null);
   const types = activeSchema === undefined ? [] : protocolTypes(activeSchema, resolution.schema);
   const [newID, setNewID] = useState('');
   const [newType, setNewType] = useState(() => defaultProtocolType(types));
@@ -380,6 +378,8 @@ export function ManagedCollectionsEditor({
       nextIdentifier(items, activeCollection, t('configuration.managed.noAvailableIdentifier')),
     );
     setNewType(defaultProtocolType(types));
+    setCreating(false);
+    setPendingEntry(null);
     setCreateOpen(true);
   }
 
@@ -394,9 +394,7 @@ export function ManagedCollectionsEditor({
           ? await client.newInboundDefaults(newType, controller.signal)
           : { type: newType };
       if (controller.signal.aborted) return;
-      replace([...items, { ...initial, tag: newID }]);
-      setCreateOpen(false);
-      setEditingIndex(items.length);
+      setPendingEntry({ [activeCollection]: [{ ...initial, tag: newID }] });
     } catch (error) {
       if (!controller.signal.aborted) toast.add({ title: describeRequestError(error), type: 'error' });
     } finally {
@@ -406,7 +404,7 @@ export function ManagedCollectionsEditor({
 
   return (
     <div className='managed-editor'>
-      <div className='managed-editor__toolbar' hidden={editingIndex !== null}>
+      <div className='managed-editor__toolbar configuration-section-toolbar'>
         {selectedCollection === undefined
           ? (
               <div
@@ -425,14 +423,11 @@ export function ManagedCollectionsEditor({
                     variant={name === activeCollection ? 'secondary' : 'ghost'}
                   >
                     {schemaLabel(schema, i18n.language, t(`configuration.managed.collection.${name}`))}
-                    <Badge variant='outline'>{entries(draft[name]).length}</Badge>
                   </Button>
                 ))}
               </div>
             )
-          : (
-              <span className='schema-form__count'>{t('configuration.general.items', { count: items.length })}</span>
-            )}
+          : null}
         <Button
           aria-label={t('configuration.managed.add')}
           disabled={disabled || types.length === 0}
@@ -446,168 +441,213 @@ export function ManagedCollectionsEditor({
         </Button>
       </div>
 
-      {editingIndex !== null
-        ? null
-        : activeSchema === undefined || itemSchema === null
+      {activeSchema === undefined || itemSchema === null
+        ? (
+            <div className='configuration-empty-copy' role='status'>
+              <CircleAlert aria-hidden='true' />
+              {t('configuration.schema.noManagedFields')}
+            </div>
+          )
+        : items.length === 0
           ? (
-              <div className='configuration-empty-copy' role='status'>
-                <CircleAlert aria-hidden='true' />
-                {t('configuration.schema.noManagedFields')}
+              <div className='configuration-empty-copy'>
+                <strong>{t('configuration.managed.emptyTitle')}</strong>
               </div>
             )
-          : items.length === 0
+          : (
+              <DndContext
+                collisionDetection={closestCenter}
+                onDragEnd={({ active, over }) => {
+                  if (disabled || over === null || active.id === over.id) return;
+                  const from = views.findIndex((entry, index) => `${entry.id}:${index}` === active.id);
+                  const to = views.findIndex((entry, index) => `${entry.id}:${index}` === over.id);
+                  if (from >= 0 && to >= 0) replace(arrayMove(items, from, to));
+                }}
+                sensors={sensors}
+              >
+                <SortableContext
+                  items={views.map((entry, index) => `${entry.id}:${index}`)}
+                  strategy={verticalListSortingStrategy}
+                >
+                  <div className='managed-node-list'>
+                    {views.map((entry, index) => (
+                      <SortableEntryCard
+                        disabled={disabled}
+                        entry={entry}
+                        index={index}
+                        key={`${entry.id}:${encodeCanonicalValue(entry.value)}`}
+                        onDelete={() => setDeletingIndex(index)}
+                        onEdit={() => {
+                          setEditing({ index, draft: { [activeCollection]: [items[index]] } });
+                          setEditOpen(true);
+                        }}
+                        onRepair={() => repair(index)}
+                      />
+                    ))}
+                  </div>
+                </SortableContext>
+              </DndContext>
+            )}
+
+      <Dialog open={editOpen} onOpenChange={setEditOpen} onOpenChangeComplete={(open) => {
+        if (!open) setEditing(null);
+      }}>
+        <DialogContent className='configuration-entry-dialog'>
+          <DialogHeader>
+            <DialogTitle>{t('configuration.general.editEntry')}</DialogTitle>
+            <DialogDescription>{t('configuration.general.editDescription')}</DialogDescription>
+          </DialogHeader>
+          {editing !== null && itemSchema !== null && views[editing.index] !== undefined
             ? (
-                <div className='configuration-empty-copy'>
-                  <strong>{t('configuration.managed.emptyTitle')}</strong>
+                <div className='configuration-entry-dialog__body'>
+                  <Tabs defaultValue='form'>
+                    <TabsList>
+                      <TabsTrigger value='form'>
+                        <Pencil aria-hidden='true' />
+                        {t('configuration.managed.form')}
+                      </TabsTrigger>
+                      <TabsTrigger value='json'>
+                        <Braces aria-hidden='true' />
+                        {t('configuration.managed.json')}
+                      </TabsTrigger>
+                    </TabsList>
+                    <TabsContent value='form'>
+                      <SchemaSectionForm
+                        basePointer={`/${activeCollection}/0`}
+                        data={entries(editing.draft[activeCollection])[0]}
+                        disabled={disabled || !views[editing.index].valid}
+                        onChange={(change) => setEditing((current) => current === null
+                          ? null
+                          : { ...current, draft: change(current.draft) })}
+                        protectedPaths={[`/${activeCollection}/0/type`]}
+                        resolution={resolution}
+                        schema={itemSchema}
+                        uiSchema={{
+                          ...uiSchemaFromPanel(itemSchema, ['type'], resolution.schema, entries(editing.draft[activeCollection])[0]),
+                          type: { 'ui:readonly': true },
+                        }}
+                      />
+                    </TabsContent>
+                    <TabsContent value='json'>
+                      <pre className='configuration-entity-json'>{encodeCanonicalValue(entries(editing.draft[activeCollection])[0], 2)}</pre>
+                    </TabsContent>
+                  </Tabs>
                 </div>
               )
-            : (
-                <DndContext
-                  collisionDetection={closestCenter}
-                  onDragEnd={({ active, over }) => {
-                    if (disabled || over === null || active.id === over.id) return;
-                    const from = views.findIndex((entry, index) => `${entry.id}:${index}` === active.id);
-                    const to = views.findIndex((entry, index) => `${entry.id}:${index}` === over.id);
-                    if (from >= 0 && to >= 0) replace(arrayMove(items, from, to));
-                  }}
-                  sensors={sensors}
-                >
-                  <SortableContext
-                    items={views.map((entry, index) => `${entry.id}:${index}`)}
-                    strategy={verticalListSortingStrategy}
-                  >
-                    <div className='managed-node-list'>
-                      {views.map((entry, index) => (
-                        <SortableEntryCard
-                          disabled={disabled}
-                          entry={entry}
-                          index={index}
-                          key={`${entry.id}:${encodeCanonicalValue(entry.value)}`}
-                          onDelete={() => setDeletingIndex(index)}
-                          onEdit={() => setEditingIndex(index)}
-                          onRepair={() => repair(index)}
-                        />
-                      ))}
-                    </div>
-                  </SortableContext>
-                </DndContext>
-              )}
-
-      {editingIndex !== null
-        ? (
-            <section className='configuration-entity-editor'>
-              <div className='schema-form__array-toolbar'>
-                <Button onClick={() => setEditingIndex(null)} size='sm' type='button' variant='ghost'>
-                  <ArrowLeft aria-hidden />
-                  {t('common.back')}
-                </Button>
-                <span className='schema-form__editing-name'>{views[editingIndex]?.tag}</span>
-                <Button onClick={() => setEditingIndex(null)} size='sm' type='button' variant='secondary'>{t('configuration.general.done')}</Button>
-              </div>
-              {editingIndex !== null && itemSchema !== null && views[editingIndex] !== undefined
-                ? (
-                    <Tabs defaultValue='form'>
-                      <TabsList>
-                        <TabsTrigger value='form'>
-                          <Pencil aria-hidden='true' />
-                          {t('configuration.managed.form')}
-                        </TabsTrigger>
-                        <TabsTrigger value='json'>
-                          <Braces aria-hidden='true' />
-                          {t('configuration.managed.json')}
-                        </TabsTrigger>
-                      </TabsList>
-                      <TabsContent value='form'>
-                        <div className='configuration-entity-form-scroll'>
-                          <SchemaSectionForm
-                            basePointer={`/${activeCollection}/${editingIndex}`}
-                            data={items[editingIndex]}
-                            disabled={disabled || !views[editingIndex].valid}
-                            onChange={onChange}
-                            protectedPaths={[`/${activeCollection}/${editingIndex}/type`]}
-                            resolution={resolution}
-                            schema={itemSchema}
-                            uiSchema={{
-                              ...uiSchemaFromPanel(
-                                itemSchema,
-                                ['type'],
-                                resolution.schema,
-                                items[editingIndex],
-                              ),
-                              type: { 'ui:readonly': true },
-                            }}
-                          />
-                        </div>
-                      </TabsContent>
-                      <TabsContent value='json'>
-                        <pre className='configuration-entity-json'>
-                          {encodeCanonicalValue(items[editingIndex], 2)}
-                        </pre>
-                      </TabsContent>
-                    </Tabs>
-                  )
-                : null}
-            </section>
-          )
-        : null}
+            : null}
+          <DialogFooter>
+            <DialogClose render={<Button type='button' />}>{t('common.cancel')}</DialogClose>
+            <Button disabled={disabled || editing === null || !views[editing.index]?.valid} type='button' onClick={() => {
+              if (editing === null) return;
+              const updated = entries(editing.draft[activeCollection])[0];
+              replace(items.map((item, index) => index === editing.index ? updated : item));
+              setEditOpen(false);
+            }}>
+              {t('configuration.general.saveChanges')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog
         onOpenChange={(open) => {
           if (!open) {
             createRequestRef.current?.abort();
-            setCreating(false);
           }
           setCreateOpen(open);
         }}
+        onOpenChangeComplete={(open) => {
+          if (!open) {
+            setCreating(false);
+            setPendingEntry(null);
+          }
+        }}
         open={createOpen}
       >
-        <DialogContent>
+        <DialogContent className='configuration-entry-dialog'>
           <DialogHeader>
             <DialogTitle>{t('configuration.managed.createTitle')}</DialogTitle>
             <DialogDescription>{t('configuration.managed.createDescription')}</DialogDescription>
           </DialogHeader>
-          <Field data-invalid={newID !== '' && !newIDValid ? true : undefined}>
-            <FieldLabel htmlFor='managed-new-id'>{t('configuration.managed.panelID')}</FieldLabel>
-            <Input
-              disabled={disabled || creating}
-              id='managed-new-id'
-              onChange={(event) => setNewID(event.currentTarget.value)}
-              value={newID}
-            />
-            <FieldDescription>{t('configuration.managed.panelIDHelp')}</FieldDescription>
-          </Field>
-          <Field>
-            <FieldLabel htmlFor='managed-new-type'>
-              {t('configuration.managed.protocol')}
-            </FieldLabel>
-            <Select
-              items={types.map((type) => ({ label: type, value: type }))}
-              disabled={disabled || creating}
-              onValueChange={(value) => setNewType(value ?? '')}
-              value={newType}
+          <div className='configuration-entry-dialog__body'>
+            <FieldGroup>
+              <Field data-invalid={createOpen && newID !== '' && !newIDValid ? true : undefined}>
+                <FieldLabel htmlFor='managed-new-id'>{t('configuration.managed.panelID')}</FieldLabel>
+                <Input
+                  disabled={disabled || creating}
+                  id='managed-new-id'
+                  onChange={(event) => setNewID(event.currentTarget.value)}
+                  value={newID}
+                />
+                <FieldDescription>{t('configuration.managed.panelIDHelp')}</FieldDescription>
+              </Field>
+              {pendingEntry === null
+                ? (
+                    <Field>
+                      <FieldLabel htmlFor='managed-new-type'>
+                        {t('configuration.managed.protocol')}
+                      </FieldLabel>
+                      <Select
+                        items={types.map((type) => ({ label: type, value: type }))}
+                        disabled={disabled || creating}
+                        onValueChange={(value) => setNewType(value ?? '')}
+                        value={newType}
+                      >
+                        <SelectTrigger className='w-full' id='managed-new-type'>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectGroup>
+                            {types.map((type) => (
+                              <SelectItem key={type} value={type}>
+                                {type}
+                              </SelectItem>
+                            ))}
+                          </SelectGroup>
+                        </SelectContent>
+                      </Select>
+                    </Field>
+                  )
+                : itemSchema !== null
+                  ? (
+                      <SchemaSectionForm
+                        basePointer={`/${activeCollection}/0`}
+                        data={entries(pendingEntry[activeCollection])[0]}
+                        disabled={disabled}
+                        onChange={(change) => setPendingEntry((current) => current === null ? null : change(current))}
+                        protectedPaths={[`/${activeCollection}/0/type`, `/${activeCollection}/0/tag`]}
+                        resolution={resolution}
+                        schema={itemSchema}
+                        uiSchema={{
+                          ...uiSchemaFromPanel(
+                            itemSchema, [], resolution.schema, entries(pendingEntry[activeCollection])[0],
+                          ),
+                          tag: { 'ui:widget': 'hidden' },
+                          type: { 'ui:readonly': true },
+                        }}
+                      />
+                    )
+                  : null}
+            </FieldGroup>
+          </div>
+          <DialogFooter>
+            <DialogClose render={<Button type='button' />}>{t('common.cancel')}</DialogClose>
+            <Button
+              disabled={disabled || creating || (createOpen && !newIDValid) || newType === ''}
+              onClick={() => {
+                if (pendingEntry === null) {
+                  void create();
+                  return;
+                }
+                replace([...items, { ...entries(pendingEntry[activeCollection])[0], tag: newID }]);
+                setCreateOpen(false);
+              }}
+              type='button'
             >
-              <SelectTrigger className='w-full' id='managed-new-type'>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectGroup>
-                  {types.map((type) => (
-                    <SelectItem key={type} value={type}>
-                      {type}
-                    </SelectItem>
-                  ))}
-                </SelectGroup>
-              </SelectContent>
-            </Select>
-          </Field>
-          <Button
-            disabled={disabled || creating || !newIDValid || newType === ''}
-            onClick={create}
-            type='button'
-          >
-            <Plus aria-hidden='true' data-icon='inline-start' />
-            {t('common.create')}
-          </Button>
+              <Plus aria-hidden='true' data-icon='inline-start' />
+              {t(pendingEntry === null ? 'configuration.general.continue' : 'common.create')}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 

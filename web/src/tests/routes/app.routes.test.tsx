@@ -103,8 +103,8 @@ describe('application routes', () => {
     }
   });
 
-  it('renders the authenticated not-found page for an unknown route', async () => {
-    renderRoutes('/missing');
+  it.each(['/missing', '/tasks', '/tasks?task=task_1'])('renders the authenticated not-found page for %s', async path => {
+    renderRoutes(path);
     expect(
       await screen.findByRole('heading', { name: 'This console area does not exist.' }),
     ).toBeInTheDocument();
@@ -157,17 +157,14 @@ describe('application routes', () => {
     expect(screen.getByRole('button', { name: 'Sign out' })).toBeInTheDocument();
   });
 
-  it('redirects legacy task links into panel logs without losing the selected ID', async () => {
-    renderRoutes('/tasks?task=task_1');
-    await waitFor(() =>
-      expect(screen.getByLabelText('Current route')).toHaveTextContent(
-        '/observability?tab=panel&task=task_1',
-      ),
-    );
+  it('opens task details directly from panel-log links', async () => {
+    const client = createMockApiClient();
+    renderRoutes('/observability?tab=panel&task=task_1', client);
     expect(await screen.findByRole('tab', { name: 'Panel logs', hidden: true })).toHaveAttribute(
       'aria-selected',
       'true',
     );
     expect(await screen.findByRole('dialog')).toBeVisible();
+    await waitFor(() => expect(client.getTask).toHaveBeenCalledWith('task_1', expect.any(AbortSignal)));
   });
 });

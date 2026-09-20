@@ -198,7 +198,7 @@ export function SubscriptionTokenPanel({ active = true, toolbarTarget }: {
       </ToolbarActions>
       {error ? <ErrorNotice error={error} title={t('subscriptions.token.loadFailed')} /> : null}
       <div className='subscription-keys__scroll' aria-busy={loading}>
-        <table className='subscription-table'>
+        <table className='workspace-table subscription-table'>
           <thead>
             <tr>
               <th>{t('subscriptions.common.name')}</th>

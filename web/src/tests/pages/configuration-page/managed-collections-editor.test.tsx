@@ -2,9 +2,9 @@ import type { RJSFSchema } from '@rjsf/utils';
 
 import { useState } from 'react';
 import userEvent from '@testing-library/user-event';
-import { render, screen } from '@testing-library/react';
 import { beforeAll, describe, expect, it, vi } from 'vitest';
 import { createPrecompiledValidator } from '@rjsf/validator-ajv8';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 
 import type { ReviewedSchemaResolution } from '@/schemas/resolve-reviewed-schema';
 import type { CanonicalDraft } from '@/pages/configuration-page/use-canonical-configuration';
@@ -28,7 +28,7 @@ beforeAll(async () => {
   };
 });
 
-function Harness({ initial }: { initial: CanonicalDraft }) {
+function Harness({ initial, linkedTag }: { initial: CanonicalDraft; linkedTag?: string }) {
   const [draft, setDraft] = useState(initial);
   const [client] = useState(() =>
     createMockApiClient({
@@ -46,6 +46,8 @@ function Harness({ initial }: { initial: CanonicalDraft }) {
     <ApiClientProvider client={client}>
       <ManagedCollectionsEditor
         draft={draft}
+        linkedTag={linkedTag}
+        selectedCollection={linkedTag === undefined ? undefined : 'inbounds'}
         onChange={(change) => setDraft((current) => change(current))}
         resolution={resolution}
       />
@@ -55,6 +57,85 @@ function Harness({ initial }: { initial: CanonicalDraft }) {
 }
 
 describe.skipIf(reviewedEntry === undefined)('managedCollectionsEditor', () => {
+  it.each(['create', 'edit'])('retains the %s form until its closing animation finishes', async (mode) => {
+    const user = userEvent.setup();
+    render(<Harness initial={{ inbounds: [{ type: 'mixed', tag: 'existing' }] }} />);
+    await user.click(screen.getByRole('tab', { name: 'Inbounds' }));
+    await user.click(screen.getByRole('button', { name: mode === 'create' ? 'Add node' : 'Edit' }));
+    if (mode === 'create') await user.click(screen.getByRole('button', { name: 'Continue' }));
+    const dialog = screen.getByRole('dialog');
+    fireEvent.change(within(dialog).getByLabelText('Listen port'), { target: { value: '2080' } });
+    let finish!: () => void;
+    const finished = new Promise<void>((resolve) => {
+      finish = resolve;
+    });
+    Object.defineProperty(dialog, 'getAnimations', { value: () => [{ finished }] });
+    await user.click(within(dialog).getByRole('button', { name: 'Cancel' }));
+    expect(dialog).toHaveAttribute('data-closed');
+    expect(within(dialog).getByLabelText('Listen port')).toHaveValue(2080);
+    await act(async () => {
+      finish();
+    });
+    await waitFor(() => expect(dialog).not.toBeInTheDocument());
+  });
+
+  it('opens existing entries only through Edit and commits dialog changes only on confirmation', async () => {
+    const user = userEvent.setup();
+    const initial = { inbounds: [{ type: 'mixed', tag: 'local', listen_port: 2080, future: { keep: true } }] };
+    render(<Harness initial={initial} />);
+    await user.click(screen.getByRole('tab', { name: 'Inbounds' }));
+    await user.click(screen.getByText('local'));
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Edit' }));
+    let dialog = screen.getByRole('dialog', { name: 'Edit entry' });
+    fireEvent.change(within(dialog).getByLabelText('Listen port'), { target: { value: '3080' } });
+    expect(JSON.parse(screen.getByLabelText('Canonical draft').textContent ?? '{}')).toEqual(initial);
+    await user.click(within(dialog).getByRole('button', { name: 'Cancel' }));
+    expect(JSON.parse(screen.getByLabelText('Canonical draft').textContent ?? '{}')).toEqual(initial);
+    await user.click(screen.getByRole('button', { name: 'Edit' }));
+    dialog = screen.getByRole('dialog');
+    expect(within(dialog).getByLabelText('Listen port')).toHaveValue(2080);
+    fireEvent.change(within(dialog).getByLabelText('Listen port'), { target: { value: '4080' } });
+    await user.click(within(dialog).getByRole('button', { name: 'Save changes' }));
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(JSON.parse(screen.getByLabelText('Canonical draft').textContent ?? '{}')).toEqual({
+      inbounds: [{ ...initial.inbounds[0], listen_port: 4080 }],
+    });
+  });
+
+  it('opens a linked entry in the edit dialog and discards changes on Escape', async () => {
+    const user = userEvent.setup();
+    const initial = { inbounds: [{ type: 'mixed', tag: 'linked', listen_port: 2080 }] };
+    render(<Harness initial={initial} linkedTag='linked' />);
+    const dialog = screen.getByRole('dialog', { name: 'Edit entry' });
+    fireEvent.change(within(dialog).getByLabelText('Listen port'), { target: { value: '3080' } });
+    await user.keyboard('{Escape}');
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(JSON.parse(screen.getByLabelText('Canonical draft').textContent ?? '{}')).toEqual(initial);
+  });
+
+  it('edits prepared fields inside the dialog and discards them when cancelled', async () => {
+    const user = userEvent.setup();
+    render(<Harness initial={{ inbounds: [] }} />);
+    await user.click(screen.getByRole('tab', { name: /Inbounds/ }));
+    await user.click(screen.getByRole('button', { name: 'Add node' }));
+    await user.click(screen.getByRole('button', { name: 'Continue' }));
+    const dialog = screen.getByRole('dialog');
+    fireEvent.change(within(dialog).getByLabelText('Listen port'), { target: { value: '2080' } });
+    expect(screen.getByLabelText('Canonical draft')).toHaveTextContent('{"inbounds":[]}');
+    await user.click(within(dialog).getByRole('button', { name: 'Cancel' }));
+    expect(screen.getByLabelText('Canonical draft')).toHaveTextContent('{"inbounds":[]}');
+    await user.click(screen.getByRole('button', { name: 'Add node' }));
+    await user.click(screen.getByRole('button', { name: 'Continue' }));
+    const reopened = screen.getByRole('dialog');
+    expect(within(reopened).getByLabelText('Listen port')).not.toHaveValue(2080);
+    fireEvent.change(within(reopened).getByLabelText('Listen port'), { target: { value: '2081' } });
+    await user.click(within(reopened).getByRole('button', { name: 'Create' }));
+    expect(screen.getByLabelText('Canonical draft')).toHaveTextContent('"listen_port":2081');
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Back' })).not.toBeInTheDocument();
+  });
+
   it('adds the prepared identity to the editable entry without saving the file', async () => {
     const user = userEvent.setup();
     render(<Harness initial={{ inbounds: [] }} />);
@@ -62,7 +143,9 @@ describe.skipIf(reviewedEntry === undefined)('managedCollectionsEditor', () => {
     await user.click(screen.getByRole('button', { name: 'Add node' }));
     await user.click(screen.getByLabelText('Protocol'));
     await user.click(await screen.findByRole('option', { name: 'anytls' }));
-    await user.click(screen.getByRole('button', { name: 'Create' }));
+    await user.click(screen.getByRole('button', { name: 'Continue' }));
+    expect(screen.getByLabelText('Canonical draft')).not.toHaveTextContent('inbound-1');
+    await user.click(await screen.findByRole('button', { name: 'Create' }));
     expect(screen.getByLabelText('Canonical draft')).toHaveTextContent('fixture-identity');
     expect(screen.getByLabelText('Canonical draft')).toHaveTextContent('"tag":"inbound-1"');
   });
@@ -84,12 +167,16 @@ describe.skipIf(reviewedEntry === undefined)('managedCollectionsEditor', () => {
 
     await user.click(screen.getByRole('tab', { name: /Inbounds/ }));
     await user.click(screen.getByRole('button', { name: 'Add node' }));
-    await user.click(screen.getByRole('button', { name: 'Create' }));
+    await user.click(screen.getByRole('button', { name: 'Continue' }));
+    expect(screen.getByLabelText('Canonical draft')).not.toHaveTextContent('inbound-1');
+    await user.click(await screen.findByRole('button', { name: 'Create' }));
 
     const encoded = screen.getByLabelText('Canonical draft').textContent ?? '';
     expect(encoded).toContain('"tag":"inbound-1"');
     expect(encoded).toContain('"type":"mixed"');
     expect(encoded).not.toContain('_panel');
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Back' })).not.toBeInTheDocument();
   });
 
   it('surfaces malformed legacy nodes as repairable instead of crashing', async () => {

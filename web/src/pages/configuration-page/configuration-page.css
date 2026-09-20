@@ -212,10 +212,10 @@
   background: transparent;
   border: 0;
   display: grid;
-  justify-items: start;
+  justify-items: center;
   min-width: 0;
   padding: var(--space-xs);
-  text-align: left;
+  text-align: center;
 }
 
 .managed-node-card__identity strong,
@@ -240,7 +240,7 @@
   align-items: center;
   display: flex;
   gap: var(--space-2xs);
-  justify-content: flex-end;
+  justify-content: center;
   min-width: 0;
   overflow: hidden;
 }
@@ -264,15 +264,8 @@
   text-align: center;
 }
 
-.configuration-entity-editor,
-.configuration-entity-form-scroll {
-  min-width: 0;
-}
 .configuration-entity-json {
   overflow: auto;
-}
-.managed-editor__toolbar[hidden] {
-  display: none;
 }
 .managed-node-card__badges {
   color: var(--color-text-muted);
@@ -576,7 +569,6 @@
     grid-template-columns: minmax(0, 1fr);
   }
 
-  .managed-editor__toolbar,
   .revision-card,
   .revision-inspector-card header,
   .revision-history__footer,
@@ -661,6 +653,17 @@
   overflow: hidden;
   padding-top: 8px;
 }
+.configuration-tabs__content:has(> .configuration-general) {
+  padding-top: 0;
+}
+.configuration-editor-loading {
+  display: flex;
+  height: 100%;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+}
 .configuration-footer {
   display: flex;
   align-items: center;
@@ -695,7 +698,7 @@
   justify-content: flex-start;
   background: transparent;
   border-right: 1px solid var(--color-rule-2);
-  padding: 0 16px 0 0;
+  padding: 8px 16px 0 0;
   border-radius: 0;
 }
 .configuration-general__nav [data-slot='tabs-trigger'] {
@@ -734,7 +737,10 @@
   margin: 8px 0;
 }
 .managed-editor__toolbar {
-  justify-content: space-between;
+  justify-content: flex-end;
+}
+.managed-editor__collections {
+  margin-right: auto;
 }
 @container (max-width: 40rem) {
   .configuration-workspace {
@@ -788,14 +794,31 @@
   border-top: 1px solid var(--color-rule-2);
 }
 .configuration-section-tabs {
+  display: flex;
+  flex-direction: column;
   min-width: 0;
   gap: 8px;
 }
-.configuration-section-tabs__nav {
-  width: 100%;
-  justify-content: flex-start;
-  border-bottom: 1px solid var(--color-rule-2);
+.configuration-section-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  height: 65px;
   flex-shrink: 0;
+  min-width: 0;
+  border-bottom: 1px solid var(--color-rule-2);
+}
+.configuration-section-tabs__actions {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  margin-left: auto;
+}
+.configuration-section-tabs__nav {
+  flex: 1;
+  min-width: 0;
+  justify-content: flex-start;
 }
 .configuration-section-tabs__nav [data-slot='tabs-trigger'] {
   flex: 0 0 auto;
@@ -803,6 +826,7 @@
 .configuration-section-scroll {
   container: configuration-content / inline-size;
   padding-right: 0;
+  scrollbar-gutter: stable;
 }
 
 @container (max-width: 40rem) {

@@ -10,6 +10,7 @@ import type {
   IconButtonProps,
   MultiSchemaFieldTemplateProps,
   ObjectFieldTemplateProps,
+  Registry,
   RJSFSchema,
   TemplatesType,
   WidgetProps,
@@ -57,7 +58,8 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 
-import { PanelArrayFieldItemTemplate, PanelArrayFieldTemplate } from './array-field-templates';
+import { resolvedSchema } from '../schema-ui';
+import { PanelArrayField, PanelArrayFieldItemTemplate, PanelArrayFieldTemplate } from './array-field-templates';
 import './rjsf-shadcn-theme.css';
 
 const SchemaChoiceContext = createContext<{ id: string; label?: string } | null>(null);
@@ -92,13 +94,15 @@ function PanelFieldTemplate(props: FieldTemplateProps) {
   if (ADDITIONAL_PROPERTY_FLAG in schema) {
     return (
       <div className='schema-form__map-entry'>
-        <Input aria-label={t('configuration.general.propertyName')} defaultValue={label} disabled={disabled || props.readonly}
+        <Input aria-label={t('configuration.general.propertyName')} className='schema-form__map-key'
+          defaultValue={label} disabled={disabled || props.readonly}
           key={label} onBlur={props.onKeyRenameBlur} />
         <div className='schema-form__map-value'>{children}</div>
         <Button aria-label={t('common.remove')} disabled={disabled || props.readonly} onClick={props.onRemoveProperty}
           size='icon-sm' type='button' variant='ghost'>
           <Trash2 aria-hidden />
         </Button>
+        {rawErrors !== undefined && rawErrors.length > 0 ? <FieldError>{errors}</FieldError> : null}
       </div>
     );
   }
@@ -155,11 +159,28 @@ function PanelObjectFieldTemplate(props: ObjectFieldTemplateProps) {
     : [];
   const main = visible.filter((property) => !connectionFields.has(property.name) && !matching.includes(property));
   const root = fieldPathId.path.length === 0 || typeof fieldPathId.path.at(-1) === 'number';
+  const map = visible.length > 0 && visible.every((property) => {
+    const child = schema.properties?.[property.name];
+    return typeof child === 'object' && ADDITIONAL_PROPERTY_FLAG in child;
+  });
+  const objectValues = typeof schema.additionalProperties === 'object'
+    && resolvedSchema(schema.additionalProperties, props.registry.rootSchema).type === 'object';
   return (
     <fieldset className={root ? 'schema-form__root' : 'schema-form__object'} id={`${fieldPathId.$id}-group-${groupId}`}>
-      {!root && resolvedTitle !== '' ? <FieldLegend>{resolvedTitle}</FieldLegend> : null}
+      {!root && resolvedTitle !== '' && props.uiSchema?.['ui:options']?.label !== false
+        ? <FieldLegend>{resolvedTitle}</FieldLegend>
+        : null}
       {optionalDataControl}
       {description ? <FieldDescription>{description}</FieldDescription> : null}
+      {map && !objectValues
+        ? (
+            <div aria-hidden className='schema-form__map-header'>
+              <span>{t('configuration.general.propertyName')}</span>
+              <span>{t('configuration.general.propertyValue')}</span>
+              <span className='sr-only'>{t('common.actions')}</span>
+            </div>
+          )
+        : null}
       <FieldGroup className='schema-form__grid'>
         {main.map((property) => <div key={property.name}>{property.content}</div>)}
       </FieldGroup>
@@ -211,26 +232,67 @@ function PanelArrayTitleTemplate(props: ArrayFieldTitleProps) {
 
 const DefaultObjectField = getDefaultRegistry().fields.ObjectField;
 
+function newMapValue(schema: RJSFSchema, registry: Registry): RJSFSchema['default'] {
+  const resolved = resolvedSchema(schema, registry.rootSchema);
+  if (resolved.default !== undefined) return resolved.default;
+  if (resolved.const !== undefined) return resolved.const;
+  const first = (resolved.anyOf ?? resolved.oneOf)?.[0];
+  if (resolved.type === undefined && first && typeof first === 'object') return newMapValue(first, registry);
+  const generated = registry.schemaUtils.getDefaultFormState(resolved);
+  if (generated !== undefined) return generated;
+  switch (resolved.type) {
+    case 'object': return {};
+    case 'array': return [];
+    case 'boolean': return false;
+    case 'number':
+    case 'integer': return 0;
+    case 'null': return null;
+    default: return '';
+  }
+}
+
+function objectSchemaForForm(schema: RJSFSchema, registry: Registry): RJSFSchema {
+  if (!schema.additionalProperties || typeof schema.additionalProperties !== 'object') return schema;
+  const valueSchema = resolvedSchema(schema.additionalProperties, registry.rootSchema);
+  return {
+    ...schema,
+    additionalProperties: { ...schema.additionalProperties, default: newMapValue(valueSchema, registry) },
+    // RJSF infers `object` for untyped map unions. Restore the declared value schema.
+    properties: Object.fromEntries(Object.entries(schema.properties ?? {}).map(([key, value]) => [
+      key,
+      typeof value === 'object' && ADDITIONAL_PROPERTY_FLAG in value
+      && valueSchema.type === undefined && (valueSchema.anyOf || valueSchema.oneOf)
+        ? { ...valueSchema, [ADDITIONAL_PROPERTY_FLAG]: true }
+        : value,
+    ])),
+  };
+}
+
 /** Explicitly configured empty objects must remain open, even before their first field is filled. */
 function PanelObjectField(props: FieldProps) {
   const { i18n, t } = useTranslation();
+  const labelId = useId();
   const { disabled, fieldPathId, formData, name, onChange, readonly, required, schema } = props;
-  if (fieldPathId.path.length === 0 || typeof fieldPathId.path.at(-1) === 'number' || required) return <DefaultObjectField {...props} />;
+  const content = <DefaultObjectField {...props} schema={objectSchemaForForm(schema, props.registry)} />;
+  if (fieldPathId.path.length === 0 || typeof fieldPathId.path.at(-1) === 'number' || required
+    || props.uiSchema?.['ui:options']?.label === false) {
+    return content;
+  }
   const present = formData !== undefined && formData !== null;
   if (!present) {
     return (
-      <fieldset className='schema-form__object schema-form__object--empty'>
-        <FieldLegend>{localizedLabel(schema, name, i18n.language, t)}</FieldLegend>
+      <div aria-labelledby={labelId} className='schema-form__object schema-form__object--empty' role='group'>
+        <span className='schema-form__object-label' id={labelId}>{localizedLabel(schema, name, i18n.language, t)}</span>
         <Button disabled={disabled || readonly} onClick={() => onChange({}, fieldPathId.path)} size='sm' type='button' variant='outline'>
           <Plus aria-hidden data-icon='inline-start' />
           {t('configuration.general.configure')}
         </Button>
-      </fieldset>
+      </div>
     );
   }
   return (
     <div className='schema-form__optional'>
-      <DefaultObjectField {...props} />
+      {content}
       <Button disabled={disabled || readonly} onClick={() => onChange(undefined, fieldPathId.path)} size='sm' type='button' variant='ghost'>
         <X aria-hidden data-icon='inline-start' />
         {t('configuration.general.remove')}
@@ -239,7 +301,7 @@ function PanelObjectField(props: FieldProps) {
   );
 }
 
-export const panelRJSFFields = { ObjectField: PanelObjectField };
+export const panelRJSFFields = { ArrayField: PanelArrayField, ObjectField: PanelObjectField };
 
 function PanelBaseInputTemplate(props: BaseInputTemplateProps) {
   const { i18n, t } = useTranslation();

@@ -26,7 +26,7 @@ func TestPanelSettingsPersistCASAndRedact(t *testing.T) {
 	bootstrap = settingsFileFixture(t, bootstrap)
 	app := FromStoreWithSettings(db, bootstrap)
 	view, err := app.PanelSettings(ctx)
-	if err != nil || view.Revision == 0 || view.Preferences.Appearance.Radius != 24 {
+	if err != nil || view.Revision == 0 || view.Preferences.Appearance.Radius != 12 {
 		t.Fatalf("defaults: %+v %v", view, err)
 	}
 	p := view.Preferences

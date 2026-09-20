@@ -1,6 +1,6 @@
 import type { AppearanceSettings } from '@/api/api-client';
 
-export const DEFAULT_APPEARANCE: AppearanceSettings = { theme: 'light', color: '#6D4ED1', radius: 24 };
+export const DEFAULT_APPEARANCE: AppearanceSettings = { theme: 'light', color: '#6D4ED1', radius: 12 };
 export const THEME_PRESETS = ['#6D4ED1', '#2563EB', '#0891B2', '#15803D', '#C65B13', '#BE185D'] as const;
 
 type RGB = [number, number, number];
@@ -37,7 +37,9 @@ export function appearanceTokens(appearance: AppearanceSettings, dark = false): 
     if (contrastRatio(hex(foreground), soft) >= 4.6 && contrastRatio(hex(foreground), hex(surface)) >= 4.6) break;
   }
   const accent = hex(foreground);
-  const radius = Number.isFinite(appearance.radius) ? Math.max(0, Math.min(32, Math.round(appearance.radius))) : 24;
+  const radius = Number.isFinite(appearance.radius)
+    ? Math.max(0, Math.min(32, Math.round(appearance.radius)))
+    : DEFAULT_APPEARANCE.radius;
   return {
     '--appearance-color': color,
     '--color-accent': accent,

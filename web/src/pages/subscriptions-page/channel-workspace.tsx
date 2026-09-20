@@ -314,7 +314,7 @@ export function ChannelWorkspace({ active = true, toolbarTarget, channel, nodes,
                         </div>
                       </div>
                       <div className='channel-groups-scroll'>
-                        <table className='channel-groups-table'>
+                        <table className='workspace-table channel-groups-table'>
                           <thead>
                             <tr>
                               <th>{t('channels.groupName')}</th>
