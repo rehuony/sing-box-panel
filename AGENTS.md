@@ -36,7 +36,9 @@
 
 - Preserve unrelated working-tree changes.
 - Rely on Git for repository source recovery and history; do not create ad hoc backup copies, rollback scripts, archives, or duplicated source snapshots unless explicitly requested. This does not prohibit product-level data migration, backup, or rollback mechanisms.
-- Do not stage, commit, amend, reset, rebase, switch branches, or otherwise change Git state or history unless the user explicitly requests that exact action.
+- Before editing tracked files for a new user-requested change, create and switch to a task branch named `feature/<short-kebab-case-description>` from the current default branch. This is standing authorization for that branch creation and switch. Continue on the existing feature branch for follow-up work on the same change.
+- Submit every remote change through a pull request from its feature branch. Never push directly to the remote default branch.
+- Do not stage, commit, amend, reset, rebase, push, open a pull request, or otherwise change Git state or history unless the user explicitly requests that exact action. Creating and switching to the required feature branch is the exception described above.
 - Leave completed changes in the working tree for review.
 
 ## Verification
