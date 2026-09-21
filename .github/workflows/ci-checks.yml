@@ -184,6 +184,52 @@ jobs:
       - name: Run Web and notice checks
         run: make check-web
 
+  release-smoke:
+    name: Release smoke linux/${{ matrix.architecture }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - architecture: amd64
+            runner: ubuntu-24.04
+          - architecture: arm64
+            runner: ubuntu-24.04-arm
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+          cache-dependency-path: go.sum
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+          package-manager-cache: false
+
+      - name: Enable pinned pnpm
+        working-directory: web
+        run: |
+          corepack enable pnpm
+          pnpm --version
+
+      - name: Install locked dependencies
+        run: make bootstrap
+
+      - name: Exercise startup, persistence and signed self-update
+        env:
+          RELEASE_ARCHITECTURE: ${{ matrix.architecture }}
+        run: make release-smoke
+
   package-verify:
     name: Verify isolated Linux packaging
     runs-on: ubuntu-24.04

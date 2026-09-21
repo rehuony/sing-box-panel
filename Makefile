@@ -8,7 +8,7 @@ RELEASE_SCRIPT := scripts/build.sh
 	bootstrap build web-build fmt \
 	check check-go check-web check-contracts test-race fuzz-smoke core-contract ci \
 	notices support-generate support-check \
-	snapshot release release-verify
+	snapshot release release-verify release-smoke
 
 # Development and builds
 
@@ -79,6 +79,9 @@ release:
 	@test -n "$(OUT)" || { printf '%s\n' 'OUT is required' >&2; exit 2; }
 	@test -n "$(VERSION)" || { printf '%s\n' 'VERSION is required' >&2; exit 2; }
 	$(RELEASE_SCRIPT) release --version "$(VERSION)" --output "$(OUT)"
+
+release-smoke: web-build
+	bash scripts/test/release-contract.sh
 
 release-verify:
 	$(RELEASE_SCRIPT) verify

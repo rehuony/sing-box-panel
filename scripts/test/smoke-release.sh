@@ -1,7 +1,31 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: GPL-3.0-or-later
+# assert_json receives literal jq programs whose $variables are bound by jq.
+# shellcheck disable=SC2016
 
-set -euo pipefail
+set -Eeuo pipefail
+
+smoke_phase="validate inputs"
+trap 'printf "release smoke failed: phase=%s line=%s status=%s\n" "${smoke_phase}" "${LINENO}" "$?" >&2' ERR
+
+phase() {
+  smoke_phase="$1"
+  printf '[release smoke] %s\n' "${smoke_phase}"
+}
+
+assert_json() {
+  local description="$1"
+  local payload
+  shift
+  payload="$(cat)"
+  if ! jq -e "$@" <<<"${payload}" >/dev/null; then
+    printf 'assertion failed: %s\n' "${description}" >&2
+    # Report only metadata; configuration text and settings can contain secrets.
+    jq -c '{version, commit, panel_version, status, sequence, schema_version, revision, syntax_valid, canonical_revision_id, updated, previous_version, code}' \
+      <<<"${payload}" >&2 || true
+    return 1
+  fi
+}
 
 usage() {
   cat >&2 <<'EOF'
@@ -74,6 +98,11 @@ for required_command in curl go jq python3 sha256sum; do
   }
 done
 
+if [[ "$(uname -s)" != Linux || "${EUID}" -eq 0 ]]; then
+  printf 'release smoke tests require native Linux and a non-root user (isolated XDG data)\n' >&2
+  exit 1
+fi
+
 script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 workspace_root="$(cd -- "${script_dir}/../.." && pwd -P)"
 git_root="$(git -C "${workspace_root}" rev-parse --show-toplevel)"
@@ -125,6 +154,7 @@ if [[ ! "${public_key}" =~ ^[A-Za-z0-9+/]{43}=$ ]] ||
   exit 1
 fi
 
+phase 'verify signed artifacts and build identity'
 go tool sign-release validate-version --version "${release_version}"
 
 expected_assets=(
@@ -173,12 +203,12 @@ release_binary="${release_dir}/sing-box-panel-linux-${architecture}"
 chmod 0755 "${release_binary}"
 release_metadata="$(${release_binary} --output json version)"
 source_date="$(git -C "${workspace_root}" show -s --format=%cI "${source_commit}")"
-jq -e \
+assert_json 'release version, commit and date match the frozen source' \
   --arg version "${release_version}" \
   --arg commit "${source_commit}" \
   --arg date "${source_date}" \
   '.version == $version and .commit == $commit and .date == $date' \
-  <<<"${release_metadata}" >/dev/null
+  <<<"${release_metadata}"
 binary_metadata="$(go version -m "${release_binary}")"
 for expected_line in \
   $'\tpath\tgithub.com/rehuony/sing-box-panel/cmd/sing-box-panel' \
@@ -264,6 +294,7 @@ wait_for_url() {
 }
 
 mock_root="${smoke_root}/release-server"
+phase 'start the isolated release endpoint'
 mkdir -p -- "${mock_root}/assets"
 for asset_name in "${expected_assets[@]}"; do
   cp -- "${release_dir}/${asset_name}" "${mock_root}/assets/${asset_name}"
@@ -296,6 +327,7 @@ mock_pid=$!
 wait_for_url "${mock_origin}/latest"
 
 probe_version="v0.0.0-smoke"
+phase 'build and initialize the lower-version probe'
 install_dir="${smoke_root}/install"
 settings_path="${smoke_root}/config/setting.json"
 smoke_config_home="${smoke_root}/xdg-config"
@@ -312,6 +344,7 @@ fi
     CGO_ENABLED=0 \
     GOARCH="${architecture}" \
     GOOS=linux \
+    GOAMD64=v1 GOARM64=v8.0 GOENV=off GOEXPERIMENT= GOFIPS140=off GOWORK=off \
     GOFLAGS='-mod=readonly' \
     GOTOOLCHAIN=local \
     go build \
@@ -323,7 +356,7 @@ fi
 )
 chmod 0755 "${installed_binary}"
 probe_metadata="$(${installed_binary} --output json version)"
-jq -e --arg version "${probe_version}" '.version == $version' <<<"${probe_metadata}" >/dev/null
+assert_json 'probe version' --arg version "${probe_version}" '.version == $version' <<<"${probe_metadata}"
 
 run_installed() {
   env \
@@ -356,8 +389,8 @@ start_panel() {
   panel_pid=$!
   wait_for_url "${panel_origin}/api/v1/health"
   health_payload="$(curl --fail-with-body --silent --show-error --max-time 2 "${panel_origin}/api/v1/health")"
-  jq -e --arg version "${expected_version}" \
-    '.status == "ok" and .version == $version' <<<"${health_payload}" >/dev/null
+  assert_json 'healthy panel reports the expected running version' --arg version "${expected_version}" \
+    '.status == "ok" and .version == $version' <<<"${health_payload}"
 }
 
 stop_panel() {
@@ -369,10 +402,11 @@ stop_panel() {
   kill -TERM "${process_id}"
   for ((count = 0; count < 80; count++)); do
     if ! kill -0 "${process_id}" 2>/dev/null; then
-      set +e
-      wait "${process_id}"
-      process_status=$?
-      set -e
+      if wait "${process_id}"; then
+        process_status=0
+      else
+        process_status=$?
+      fi
       panel_pid=""
       if [[ ${process_status} -ne 0 && ${process_status} -ne 143 ]]; then
         printf 'panel exited with status %d after SIGTERM\n' "${process_status}" >&2
@@ -397,60 +431,124 @@ authenticated_get() {
     "${panel_origin}${path}"
 }
 
-start_panel "${probe_version}"
-status_payload="$(authenticated_get '/api/v1/system/status')"
-jq -e --arg version "${probe_version}" \
-  '.panel_version == $version and .canonical_revision == 0' <<<"${status_payload}" >/dev/null
-
-canonical_fixture="${workspace_root}/scripts/testdata/release-canonical.json"
-canonical_save="$(
-  curl \
-    --fail-with-body \
-    --silent \
-    --show-error \
-    --max-time 10 \
+authenticated_put() {
+  local path="$1"
+  local expected_status="${2:-200}"
+  local response_status
+  response_status="$(curl --silent --show-error --max-time 10 \
     --request PUT \
     --header "Authorization: Bearer ${management_token}" \
     --header 'Content-Type: application/json' \
-    --header 'If-Match: "none"' \
-    --data-binary "@${canonical_fixture}" \
-    "${panel_origin}/api/v1/config/canonical"
-)"
-canonical_id="$(jq -er '.revision.id' <<<"${canonical_save}")"
-canonical_sha="$(jq -er '.revision.sha256' <<<"${canonical_save}")"
-jq -e '.revision.sequence == 1 and .no_change == false' <<<"${canonical_save}" >/dev/null
+    --data-binary @- \
+    --output "${smoke_root}/response.json" \
+    --write-out '%{http_code}' \
+    "${panel_origin}${path}")"
+  if [[ "${response_status}" != "${expected_status}" ]]; then
+    printf 'PUT %s returned %s, expected %s\n' "${path}" "${response_status}" "${expected_status}" >&2
+    return 1
+  fi
+  cat "${smoke_root}/response.json"
+}
 
+phase 'exercise the current editable configuration and settings APIs'
+start_panel "${probe_version}"
+status_payload="$(authenticated_get '/api/v1/system/status')"
+assert_json 'fresh instance has no configuration history or running core' --arg version "${probe_version}" \
+  '.panel_version == $version and .canonical_revision == 0 and .running == false' <<<"${status_payload}"
+curl --fail-with-body --silent --show-error --max-time 5 "${panel_origin}/" >"${smoke_root}/index.html"
+grep -qi '<html' "${smoke_root}/index.html"
+
+configuration_fixture="${workspace_root}/scripts/testdata/release-configuration.json"
+initial_file="$(authenticated_get '/api/v1/config/file')"
+assert_json 'fresh editable file' \
+  '.revision == 0 and .content == "{}" and .syntax_valid == true' <<<"${initial_file}"
+file_write="$(jq -n --rawfile content "${configuration_fixture}" '{revision: 0, content: $content}')"
+saved_file="$(authenticated_put '/api/v1/config/file' <<<"${file_write}")"
+assert_json 'valid file preserves exact text and links immutable history' \
+  --rawfile content "${configuration_fixture}" \
+  '.revision == 1 and .content == $content and .syntax_valid == true and (.canonical_revision_id | length > 0)' \
+  <<<"${saved_file}"
+stale_save="$(authenticated_put '/api/v1/config/file' 412 <<<"${file_write}")"
+assert_json 'stale editable-file writes are rejected' '.code == "configuration_file_conflict"' <<<"${stale_save}"
+
+# The history is evidence of the file save, not a second writable configuration.
+canonical_before="$(authenticated_get '/api/v1/config/canonical')"
+assert_json 'file and immutable history share an identity and preserve large numbers' \
+  --arg id "$(jq -r '.canonical_revision_id' <<<"${saved_file}")" \
+  '.id == $id and .sequence == 1 and .document.log.level == "debug" and (.document_json | contains("9007199254740993"))' \
+  <<<"${canonical_before}"
+# Compare the lossless JSON string, not the decoded numeric values in jq.
+canonical_before="$(jq 'del(.document)' <<<"${canonical_before}")"
+
+panel_settings="$(authenticated_get '/api/v1/panel/settings')"
+settings_write="$(jq '{revision, preferences: (.preferences | .language = "en" | .appearance.theme = "dark")}' <<<"${panel_settings}")"
+saved_settings="$(authenticated_put '/api/v1/panel/settings' <<<"${settings_write}")"
+assert_json 'panel settings are saved through the current settings API' \
+  '.preferences.language == "en" and .preferences.appearance.theme == "dark"' <<<"${saved_settings}"
+saved_settings="$(jq '{revision, preferences, github_token_configured, identity_key_configured}' <<<"${saved_settings}")"
+settings_digest="$(sha256sum "${settings_path}" | cut -d ' ' -f 1)"
+
+# Unfinished text must survive an update without falling back to the valid head.
+draft_write="$(jq -n --arg content $'{\n  "log": ' '{revision: 1, content: $content}')"
+saved_draft="$(authenticated_put '/api/v1/config/file' <<<"${draft_write}")"
+assert_json 'unfinished JSON remains editable without a usable canonical revision' \
+  --argjson input "${draft_write}" \
+  '.revision == 2 and .content == $input.content and .syntax_valid == false and (.canonical_revision_id // "") == ""' \
+  <<<"${saved_draft}"
+
+phase 'authenticate and install the update while the probe keeps running'
 update_result="$(run_installed --output json update)"
-jq -e \
+assert_json 'self-update installs the expected release at the existing executable path' \
   --arg previous "${probe_version}" \
   --arg version "${release_version}" \
   --arg path "${installed_binary}" \
   '.updated == true and .previous_version == $previous and .version == $version and .executable_path == $path' \
-  <<<"${update_result}" >/dev/null
+  <<<"${update_result}"
 cmp "${installed_binary}" "${release_binary}"
 
 health_after_update="$(curl --fail-with-body --silent --show-error --max-time 2 "${panel_origin}/api/v1/health")"
-jq -e --arg version "${probe_version}" \
-  '.status == "ok" and .version == $version' <<<"${health_after_update}" >/dev/null
+assert_json 'running process stays on the probe until restart' --arg version "${probe_version}" \
+  '.status == "ok" and .version == $version' <<<"${health_after_update}"
 
+phase 'restart the release and verify persistent state'
 stop_panel
 updated_metadata="$(${installed_binary} --output json version)"
-jq -e \
+assert_json 'installed binary reports the release version and frozen commit' \
   --arg version "${release_version}" \
   --arg commit "${source_commit}" \
-  '.version == $version and .commit == $commit' <<<"${updated_metadata}" >/dev/null
+  '.version == $version and .commit == $commit' <<<"${updated_metadata}"
 run_installed config check >/dev/null
 
 start_panel "${release_version}"
 updated_status="$(authenticated_get '/api/v1/system/status')"
-jq -e --arg version "${release_version}" \
-  '.panel_version == $version and .canonical_revision == 1' <<<"${updated_status}" >/dev/null
+assert_json 'release retains history and does not start a core implicitly' --arg version "${release_version}" \
+  '.panel_version == $version and .canonical_revision == 1 and .running == false' <<<"${updated_status}"
+persisted_file="$(authenticated_get '/api/v1/config/file')"
+assert_json 'unfinished configuration text and revision survive restart unchanged' \
+  --argjson saved "${saved_draft}" '. == $saved' <<<"${persisted_file}"
 persisted_canonical="$(authenticated_get '/api/v1/config/canonical')"
-jq -e \
-  --arg id "${canonical_id}" \
-  --arg sha "${canonical_sha}" \
-  '.id == $id and .sha256 == $sha and .sequence == 1 and .document.schema_version == 2 and .document.configuration.log.level == "debug"' \
-  <<<"${persisted_canonical}" >/dev/null
+assert_json 'immutable identity, digest, schema and lossless JSON survive restart unchanged' \
+  --argjson saved "${canonical_before}" 'del(.document) == $saved' <<<"${persisted_canonical}"
+persisted_settings="$(authenticated_get '/api/v1/panel/settings')"
+assert_json 'panel preferences and credential-presence flags survive restart unchanged' \
+  --argjson saved "${saved_settings}" \
+  '{revision, preferences, github_token_configured, identity_key_configured} == $saved' <<<"${persisted_settings}"
+[[ "$(sha256sum "${settings_path}" | cut -d ' ' -f 1)" == "${settings_digest}" ]]
+
+phase 'correct the draft through the new binary and verify another restart'
+file_write="$(jq -n --rawfile content "${configuration_fixture}" '{revision: 2, content: $content}')"
+corrected_file="$(authenticated_put '/api/v1/config/file' <<<"${file_write}")"
+assert_json 'corrected text reconnects to the existing valid history' \
+  --argjson saved "${saved_file}" \
+  '.revision == 3 and .syntax_valid == true and .content == $saved.content and .canonical_revision_id == $saved.canonical_revision_id' \
+  <<<"${corrected_file}"
+stale_save="$(authenticated_put '/api/v1/config/file' 412 <<<"${draft_write}")"
+assert_json 'CAS remains enforced after self-update' '.code == "configuration_file_conflict"' <<<"${stale_save}"
+stop_panel
+start_panel "${release_version}"
+persisted_file="$(authenticated_get '/api/v1/config/file')"
+assert_json 'corrected configuration persists across the second restart' \
+  --argjson saved "${corrected_file}" '. == $saved' <<<"${persisted_file}"
 stop_panel
 
 printf 'release smoke test passed for linux/%s at %s\n' "${architecture}" "${source_commit}"

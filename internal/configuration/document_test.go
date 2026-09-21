@@ -57,14 +57,14 @@ func TestEmptyIsCompleteAndStable(t *testing.T) {
 	}
 }
 
-func TestReleaseCanonicalFixture(t *testing.T) {
+func TestReleaseConfigurationFixture(t *testing.T) {
 	t.Parallel()
 
 	_, filename, _, ok := runtime.Caller(0)
 	if !ok {
 		t.Fatal("locate configuration test source")
 	}
-	fixturePath := filepath.Join(filepath.Dir(filename), "..", "..", "scripts", "testdata", "release-canonical.json")
+	fixturePath := filepath.Join(filepath.Dir(filename), "..", "..", "scripts", "testdata", "release-configuration.json")
 	fixture, err := os.ReadFile(fixturePath)
 	if err != nil {
 		t.Fatal(err)
