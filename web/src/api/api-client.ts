@@ -156,6 +156,7 @@ export interface ApiClient {
   revokeSubscriptionToken: (tokenID: string, signal?: AbortSignal) => Promise<SubscriptionToken>;
   diffRevisions: (from: string, to: string, signal?: AbortSignal) => Promise<CanonicalRevisionDiff>;
   getSubscriptionChannel: (channelID: string, signal?: AbortSignal) => Promise<SubscriptionChannel>;
+  getSubscriptionTokenSecret: (tokenID: string, signal?: AbortSignal) => Promise<{ token: string }>;
   parseSubscriptionNode: (text: string, signal?: AbortSignal) => Promise<{ outbound_json: string }>;
 
   getMetricsHistory: (

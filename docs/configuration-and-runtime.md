@@ -49,7 +49,7 @@ is not a filesystem path: the text lives in the `configuration_file` table of
 on disk and no sing-box configuration CLI.
 
 Valid saves synchronize the editable document and immutable revision in one
-transaction. Invalid drafts block check, Apply, Start, and Restart until corrected
+transaction. Saved invalid text blocks validation, Enable, Start, and Restart until corrected
 in the Web editor. Revision values protect concurrent edits; neither the CLI nor
 the browser offers historical selection, comparison, or restoration. Internal
 immutable evidence remains for native checks, runtime identities, and recovery.
@@ -113,17 +113,19 @@ until the result arrives, so feedback describes the submitted file. Validation
 success is a Toast shown only after the check task succeeds. Unknown fields and
 numeric lexemes are retained through visual edits.
 
-## Check and apply
+## Validate and load configuration
 
 A check atomically snapshots the immutable configuration bytes and queues a
 durable `sing-box check` against the selected binary without touching the live
-core. Apply snapshots the same current file for preflight in the serialized
-runtime lane and restarts the core with it only after that check succeeds:
-
-Check and Apply are Web UI operations. The Web UI drives
-`POST /api/v1/config/compile`, `POST /api/v1/core/artifacts/{artifactId}/enable`,
-and the runtime endpoints. Startup artifacts and activation bundles remain
-internal evidence. The CLI retains `core enable CORE_ARTIFACT_ID` to switch
+core. The configuration page offers Save configuration and Validate configuration;
+validation uses `POST /api/v1/config/compile` and reports the completed task result.
+There is no separate Apply action on that page. Use Enable in version management
+to select a binary, then Start or Restart to load the current saved configuration.
+Those operations perform preflight in the serialized runtime lane before changing
+the running process. The Web UI uses
+`POST /api/v1/core/artifacts/{artifactId}/enable` and the runtime endpoints.
+Startup artifacts and activation bundles remain internal evidence.
+The CLI retains `core enable CORE_ARTIFACT_ID` to switch
 binaries with the current saved document while preserving stopped/running state;
 it waits for the durable task unless
 `--detach` is supplied.
@@ -319,12 +321,14 @@ The running core keeps its existing bytes until a checked restart.
 entry using that identity. It does not save or launch anything; the user reviews
 and saves the new inbound through the normal configuration flow.
 
-Appearance offers six presets/custom HEX and radius 0–32px (default 12).
+Appearance offers five presets and a custom HEX picker, with radius 0–32px (default 12).
 Preview changes page, controls, charts and dialogs immediately while semantic
 status colors and the logo stay independent. Card/dialog radius is R, controls
-R/2, and the shell min(32,7R/6). Saving persists preferences; changing category
-retains edits, leaving the page restores saved appearance. Reset changes only
-theme color/radius and still requires saving. Help is in hover/focus tips.
+R/2, and the shell min(32,7R/6). Saving persists preferences. Changing category
+or leaving the page with unsaved edits requires confirmation: Keep editing
+retains the current view and preview; Discard changes restores saved settings
+before navigating. Reset changes only theme color/radius and still requires
+saving. Help is in hover/focus tips.
 
 ### Data directory changes
 

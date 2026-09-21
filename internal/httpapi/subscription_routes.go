@@ -32,7 +32,7 @@ func matchSubscriptionRoute(path string) (resource string, identifier string, op
 		case parts[0] == "sources" && parts[2] == "refresh":
 			return parts[0], parts[1], parts[2], true
 		case parts[0] == "tokens" && (parts[2] == "rotate" || parts[2] == "revoke" ||
-			parts[2] == "enable" || parts[2] == "disable"):
+			parts[2] == "enable" || parts[2] == "disable" || parts[2] == "secret"):
 			return parts[0], parts[1], parts[2], true
 		}
 	}
@@ -167,6 +167,10 @@ func (handler *Handler) subscriptionManagementHandler(
 	case resource == "tokens" && identifier != "" && operation == "" && method == http.MethodGet:
 		return func(w http.ResponseWriter, request *http.Request) {
 			handler.getSubscriptionToken(w, request, identifier)
+		}
+	case resource == "tokens" && identifier != "" && operation == "secret" && method == http.MethodGet:
+		return func(w http.ResponseWriter, request *http.Request) {
+			handler.getSubscriptionTokenSecret(w, request, identifier)
 		}
 	case resource == "tokens" && identifier != "" && operation == "rotate" && method == http.MethodPost:
 		return func(w http.ResponseWriter, request *http.Request) {

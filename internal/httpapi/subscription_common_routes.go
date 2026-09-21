@@ -90,6 +90,8 @@ func writeSubscriptionProblem(w http.ResponseWriter, request *http.Request, code
 		return
 	}
 	switch {
+	case errors.Is(err, store.ErrSubscriptionTokenSecretUnavailable):
+		writeProblem(w, request, http.StatusConflict, "subscription_token_secret_unavailable", "Key cannot be revealed", "This key predates recoverable storage. Rotate it and update channel bindings to export links.")
 	case errors.Is(err, store.ErrInvalidSubscriptionToken), errors.Is(err, store.ErrSubscriptionNodeInvalid):
 		writeSubscriptionInvalid(w, request)
 	case errors.Is(err, store.ErrSubscriptionNodeNotFound), errors.Is(err, store.ErrSubscriptionChannelNotFound), errors.Is(err, store.ErrSubscriptionSourceNotFound),

@@ -4,6 +4,8 @@ import { useTranslation } from 'react-i18next';
 
 import type { ReviewedSchemaResolution } from '@/schemas/resolve-reviewed-schema';
 
+import { SelectField } from '@/components/select-field';
+
 import { SchemaSectionForm } from '../configuration-page/schema-section-form';
 import { encodeCanonicalValue } from '../configuration-page/use-canonical-configuration';
 import {
@@ -175,10 +177,10 @@ export function SubscriptionNodeForm({
     <div className='subscription-node-form'>
       <label className='subscription-node-protocol'>
         <span>{t('subscriptions.nodes.protocol')}</span>
-        <select
+        <SelectField
+          aria-label={t('subscriptions.nodes.protocol')}
           disabled={disabled}
-          onChange={(event) => {
-            const type = event.target.value;
+          onValueChange={(type) => {
             const updated: Record<string, unknown> = { ...data, type };
             const nextProperties = schemaProperties(schema, resolution.schema, updated);
             for (const key of Object.keys(properties)) {
@@ -200,59 +202,57 @@ export function SubscriptionNodeForm({
             onChange(encodeCanonicalValue(updated, 2));
           }}
           value={String(data.type ?? '')}
-        >
-          {!types.includes(String(data.type)) && (
-            <option value={String(data.type ?? '')}>{String(data.type ?? '')}</option>
-          )}
-          {types.map((type) => (
-            <option key={type} value={type}>
-              {type}
-            </option>
-          ))}
-        </select>
+          items={[
+            ...(!types.includes(String(data.type)) ? [String(data.type ?? '')] : []),
+            ...types,
+          ].map((value) => ({ value, label: value }))}
+        />
       </label>
       {protocol === 'hysteria2' && (
         <label className='subscription-node-protocol'>
           <span>{t('subscriptions.nodes.endpointMode')}</span>
-          <select
+          <SelectField
+            aria-label={t('subscriptions.nodes.endpointMode')}
             disabled={disabled}
             value={endpointMode}
-            onChange={(event) => {
+            onValueChange={(mode) => {
               const value = { ...data };
               delete value.server_port;
               delete value.server_ports;
               delete value.realm;
-              if (event.target.value === 'realm') {
+              if (mode === 'realm') {
                 delete value.server;
                 value.realm = {};
-              } else if (event.target.value === 'range') {
+              } else if (mode === 'range') {
                 value.server_ports = ['443:8443'];
               } else {
                 value.server_port = 443;
               }
               update(value);
             }}
-          >
-            <option value='single'>{t('subscriptions.nodes.singlePort')}</option>
-            <option value='range'>{t('subscriptions.nodes.portHopping')}</option>
-            <option value='realm'>Realm</option>
-          </select>
+            items={[
+              { value: 'single', label: t('subscriptions.nodes.singlePort') },
+              { value: 'range', label: t('subscriptions.nodes.portHopping') },
+              { value: 'realm', label: 'Realm' },
+            ]}
+          />
         </label>
       )}
       {protocol === 'ssh' && (
         <label className='subscription-node-protocol'>
           <span>{t('subscriptions.nodes.authentication')}</span>
-          <select
+          <SelectField
+            aria-label={t('subscriptions.nodes.authentication')}
             disabled={disabled}
             value={sshMode}
-            onChange={(event) => {
+            onValueChange={(mode) => {
               const value = { ...data };
               delete value.password;
               delete value.private_key;
               delete value.private_key_path;
-              if (event.target.value === 'key') {
+              if (mode === 'key') {
                 value.private_key = [''];
-              } else if (event.target.value === 'file') {
+              } else if (mode === 'file') {
                 value.private_key_path = '';
               } else {
                 value.password = '';
@@ -260,11 +260,12 @@ export function SubscriptionNodeForm({
               }
               update(value);
             }}
-          >
-            <option value='password'>{t('subscriptions.nodes.passwordAuth')}</option>
-            <option value='key'>{t('subscriptions.nodes.privateKeyAuth')}</option>
-            <option value='file'>{t('subscriptions.nodes.privateKeyFile')}</option>
-          </select>
+            items={[
+              { value: 'password', label: t('subscriptions.nodes.passwordAuth') },
+              { value: 'key', label: t('subscriptions.nodes.privateKeyAuth') },
+              { value: 'file', label: t('subscriptions.nodes.privateKeyFile') },
+            ]}
+          />
         </label>
       )}
       {fields(ordered)}
@@ -293,28 +294,24 @@ export function SubscriptionNodeForm({
             <span title={t('subscriptions.nodes.detourHelp')}>
               {t('subscriptions.nodes.detour')}
             </span>
-            <select
+            <SelectField
+              aria-label={t('subscriptions.nodes.detour')}
               disabled={disabled}
               value={String(data.detour ?? '')}
-              onChange={(event) => {
+              onValueChange={(value) => {
                 const updated = { ...data };
-                if (event.target.value) updated.detour = event.target.value;
+                if (value) updated.detour = value;
                 else delete updated.detour;
                 onChange(encodeCanonicalValue(updated, 2));
               }}
-            >
-              <option value=''>{t('subscriptions.nodes.noDetour')}</option>
-              {Boolean(data.detour) && !candidates.includes(String(data.detour)) && (
-                <option value={String(data.detour)}>{String(data.detour)}</option>
-              )}
-              {candidates
-                .filter((value) => value !== data.tag)
-                .map((value) => (
-                  <option key={value} value={value}>
-                    {value}
-                  </option>
-                ))}
-            </select>
+              items={[
+                { value: '', label: t('subscriptions.nodes.noDetour') },
+                ...(data.detour && !candidates.includes(String(data.detour))
+                  ? [{ value: String(data.detour), label: String(data.detour) }]
+                  : []),
+                ...candidates.filter((value) => value !== data.tag).map((value) => ({ value, label: value })),
+              ]}
+            />
           </label>
           <fieldset
             disabled={disabled || Boolean(data.detour)}

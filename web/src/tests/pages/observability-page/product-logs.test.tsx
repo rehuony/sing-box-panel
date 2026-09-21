@@ -1,13 +1,13 @@
 import { MemoryRouter } from 'react-router-dom';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { act, render, renderHook, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 
 import '@/i18n';
 import type { CoreLogChunk, PanelLog } from '@/api/api-client';
 
+import { toast } from '@/components/ui/toast-manager';
 import { ApiClientProvider } from '@/api/api-client-context';
-import { useCoreLogs } from '@/pages/observability-page/use-core-logs';
 import { createMockApiClient, testTask } from '@/tests/api/mock-api-client';
 import { PanelLogDetail } from '@/pages/observability-page/panel-log-detail';
 import { ObservabilityPage } from '@/pages/observability-page/observability-page';
@@ -46,7 +46,7 @@ describe('unified product logs', () => {
     expect(screen.queryByRole('textbox', { name: 'Search panel messages' })).not.toBeInTheDocument();
     expect(screen.getByRole('combobox', { name: 'Log file' })).toBeVisible();
   });
-  it('does not change the displayed file on rotation while paused', async () => {
+  it('keeps paused output on file rotation and lets the status pill resume the latest file', async () => {
     vi.useFakeTimers();
     let latest = file;
     const client = createMockApiClient({
@@ -58,20 +58,23 @@ describe('unified product logs', () => {
         await waitForAbort(signal);
       }),
     });
-    const { result } = renderHook(() => useCoreLogs(), {
-      wrapper: ({ children }) => <ApiClientProvider client={client}>{children}</ApiClientProvider>,
-    });
+    show(client);
     await act(async () => {});
-    act(() => result.current.setPaused(true));
+    fireEvent.click(screen.getByRole('button', { name: 'Live', pressed: true }));
     latest = '2026-09-19-001.log';
     await act(() => vi.advanceTimersByTimeAsync(10_000));
-    expect(result.current.file).toBe(file);
-    expect(result.current.text).toContain(file);
-    await act(async () => result.current.setPaused(false));
-    expect(result.current.file).toBe(latest);
-    expect(result.current.text).toBe(`INFO ${latest}\n`);
+    expect(screen.getByText(`INFO ${file}`)).toBeVisible();
+    expect(client.streamCoreLog).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Paused', pressed: false }));
+    });
+    expect(screen.getByText(`INFO ${latest}`)).toBeVisible();
+    expect(screen.queryByText(`INFO ${file}`)).not.toBeInTheDocument();
+    expect(client.streamCoreLog).toHaveBeenLastCalledWith(latest, -1, expect.any(AbortSignal));
   });
   it('recovers polling errors and stops polling terminal tasks', async () => {
+    const addToast = vi.spyOn(toast, 'add');
+    const closeToast = vi.spyOn(toast, 'close');
     vi.useFakeTimers();
     const client = createMockApiClient({
       getTask: vi.fn().mockRejectedValueOnce(new Error('offline')).mockResolvedValue({ ...testTask, status: 'succeeded' }),
@@ -82,9 +85,13 @@ describe('unified product logs', () => {
       </ApiClientProvider>,
     );
     await act(async () => {});
-    expect(screen.getByRole('alert')).toBeVisible();
+    expect(addToast).toHaveBeenCalledWith(expect.objectContaining({ type: 'error', description: 'offline' }));
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
     await act(() => vi.advanceTimersByTimeAsync(2000));
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(closeToast).toHaveBeenCalled();
+    addToast.mockRestore();
+    closeToast.mockRestore();
     expect(screen.getByText('succeeded')).toBeVisible();
     await act(() => vi.advanceTimersByTimeAsync(10_000));
     expect(client.getTask).toHaveBeenCalledTimes(2);
@@ -115,7 +122,7 @@ describe('unified product logs', () => {
     expect(lines[2].level).toBe('info');
     expect(appendCoreText('old\n'.repeat(2500), 'INFO newest\n').split('\n')).toHaveLength(2001);
   });
-  it('shows only two tabs and resumes at the last received byte after pause', async () => {
+  it('toggles live output with the status pill and resumes at the last received byte', async () => {
     const stream = vi.fn(async function* (_file: string, offset = -1, signal?: AbortSignal) {
       const chunk: CoreLogChunk = {
         file,
@@ -138,10 +145,14 @@ describe('unified product logs', () => {
     );
     expect(screen.getAllByRole('tab')).toHaveLength(2);
     await screen.findByText('INFO connected');
-    await userEvent.click(screen.getByRole('button', { name: 'Pause live output' }));
-    expect(screen.getByText('Paused')).toBeVisible();
-    await userEvent.click(screen.getByRole('button', { name: 'Resume live output' }));
+    const live = screen.getByRole('button', { name: 'Live', pressed: true });
+    await userEvent.click(live);
+    const paused = screen.getByRole('button', { name: 'Paused', pressed: false });
+    expect(paused).toHaveFocus();
+    expect(stream.mock.calls[0]?.[2]?.aborted).toBe(true);
+    await userEvent.keyboard('{Enter}');
     await screen.findByText('ERROR resumed');
+    expect(screen.getByRole('button', { name: 'Live', pressed: true })).toHaveFocus();
     expect(stream.mock.calls.at(-1)?.[1]).toBe(32);
     expect(screen.getAllByText('INFO connected')).toHaveLength(1);
     await userEvent.click(screen.getByRole('combobox', { name: 'Log level' }));

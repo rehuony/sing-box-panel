@@ -41,10 +41,10 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
+import { ErrorNotice } from '@/components/error-notice';
 import {
   Field,
   FieldDescription,
-  FieldError,
   FieldGroup,
   FieldLabel,
   FieldLegend,
@@ -87,7 +87,7 @@ function localizedLabel(schema: RJSFSchema, fallback: string, language: string, 
 function PanelFieldTemplate(props: FieldTemplateProps) {
   const { i18n, t } = useTranslation();
   const {
-    children, description, disabled, displayLabel, errors, fieldPathId, hidden, id,
+    children, description, disabled, displayLabel, fieldPathId, hidden, id,
     label, rawDescription, rawErrors, required, schema,
   } = props;
   if (hidden) return children;
@@ -102,7 +102,7 @@ function PanelFieldTemplate(props: FieldTemplateProps) {
           size='icon-sm' type='button' variant='ghost'>
           <Trash2 aria-hidden />
         </Button>
-        {rawErrors !== undefined && rawErrors.length > 0 ? <FieldError>{errors}</FieldError> : null}
+        {rawErrors !== undefined && rawErrors.length > 0 ? <ErrorNotice error={rawErrors.join('; ')} title={label} /> : null}
       </div>
     );
   }
@@ -132,7 +132,7 @@ function PanelFieldTemplate(props: FieldTemplateProps) {
           )}
       <div className='schema-form__control'>{children}</div>
       {rawDescription ? <FieldDescription>{description}</FieldDescription> : null}
-      {rawErrors !== undefined && rawErrors.length > 0 ? <FieldError>{errors}</FieldError> : null}
+      {rawErrors !== undefined && rawErrors.length > 0 ? <ErrorNotice error={rawErrors.join('; ')} title={label} /> : null}
     </Field>
   );
 }

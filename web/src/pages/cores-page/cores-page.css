@@ -96,22 +96,26 @@
   color: var(--color-primary);
 }
 .core-library__toolbar {
-  gap: 12px;
+  gap: 8px;
+}
+.core-library__toolbar [data-slot='button'] {
+  background: transparent;
+  border-color: transparent;
 }
 .core-search {
   display: flex;
   align-items: center;
   gap: 8px;
-  width: min(280px, 100%);
-  flex: 0 1 280px;
+  width: min(240px, 100%);
+  flex: 0 1 240px;
   min-width: 0;
-  margin-left: auto;
   background: var(--color-surface-raised);
-  padding: 0 12px;
+  padding: 0 10px;
   border-radius: var(--radius-control);
 }
 .core-search svg {
-  width: 20px;
+  width: 16px;
+  height: 16px;
   flex: none;
   color: var(--color-text-muted);
 }
@@ -119,7 +123,8 @@
 .core-search input:focus-visible {
   width: 100%;
   min-width: 0;
-  height: 40px;
+  height: var(--control-height-sm);
+  font-size: var(--text-sm);
   outline: none;
   box-shadow: none;
   background: transparent;
@@ -144,14 +149,12 @@
   top: 0;
   background: var(--color-surface-raised);
   z-index: 1;
-  font-weight: 500;
   color: var(--color-text-muted);
 }
 .core-table :is(th, td) {
   padding-inline: 16px;
   text-align: left;
   vertical-align: middle;
-  font-size: var(--text-sm);
 }
 .core-table th:first-child {
   width: 20%;
@@ -174,7 +177,6 @@
 .core-table td:first-child strong {
   color: var(--color-text-muted);
   font-family: var(--font-mono);
-  font-weight: 400;
 }
 .core-row-actions {
   display: flex;

@@ -2,6 +2,7 @@ import { useTranslation } from 'react-i18next';
 import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 
 import { Button } from '@/components/ui/button';
+import { useHashTab } from '@/hooks/use-hash-tab';
 import { toast } from '@/components/ui/toast-manager';
 import { useApiClient } from '@/api/api-client-context';
 import { ErrorNotice } from '@/components/error-notice';
@@ -25,7 +26,7 @@ export function ConfigurationPage() {
   const schema = useConfigurationSchema(controlPlane.viewVersion);
   const [checking, setChecking] = useState(false);
   const [linkedInbound] = useState(() => new URLSearchParams(window.location.search).get('inbound'));
-  const [selectedEditor, setSelectedEditor] = useState<string | null>(null);
+  const [selectedEditor, setSelectedEditor] = useHashTab('configuration-', ['visual', 'advanced'] as const, 'visual');
   const checkControllerRef = useRef<AbortController | null>(null);
   useEffect(() => () => checkControllerRef.current?.abort(), []);
 
@@ -73,7 +74,7 @@ export function ConfigurationPage() {
   const fileReady = canonical.state.status === 'ready';
   const invalid = fileReady && canonical.editorError !== null;
   const visualUnavailable = invalid || schema.status === 'unavailable' || schema.status === 'error';
-  const editor = visualUnavailable ? 'advanced' : selectedEditor ?? 'visual';
+  const editor = visualUnavailable ? 'advanced' : selectedEditor;
   const loading = canonical.state.status === 'loading' || (fileReady && editor === 'visual' && schema.status === 'loading');
   const locked = !fileReady || canonical.saving || checking;
   const runtime = telemetry?.runtimeStatus;

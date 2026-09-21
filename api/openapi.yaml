@@ -1006,6 +1006,19 @@ paths:
       responses:
         "204":
           $ref: "#/components/responses/NoContent"
+  /subscription/tokens/{tokenId}/secret:
+    parameters:
+      - $ref: '#/components/parameters/TokenID'
+    get:
+      operationId: getSubscriptionTokenSecret
+      summary: Reveal a stored subscription key for authenticated administration
+      responses:
+        '200':
+          description: Secret key. Response is never cached.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/SubscriptionTokenSecret'}
+        default: {$ref: '#/components/responses/Problem'}
   /subscription/tokens/{tokenId}/rotate:
     parameters:
       - $ref: "#/components/parameters/TokenID"
@@ -1712,13 +1725,13 @@ components:
       description: Page of subscription token metadata.
       content: {application/json: {schema: {$ref: "#/components/schemas/SubscriptionTokenPage"}}}
     CreatedSubscriptionToken:
-      description: Token metadata and one-time plaintext token.
+      description: Token metadata and plaintext token.
       content: {application/json: {schema: {$ref: "#/components/schemas/CreatedSubscriptionToken"}}}
     SubscriptionToken:
       description: Subscription token metadata.
       content: {application/json: {schema: {$ref: "#/components/schemas/SubscriptionToken"}}}
     SubscriptionTokenRotation:
-      description: Revoked token, replacement metadata, and one-time plaintext token.
+      description: Revoked token, replacement metadata, and plaintext token.
       content: {application/json: {schema: {$ref: "#/components/schemas/SubscriptionTokenRotation"}}}
     LogPage:
       description: Page of sanitized durable logs.
@@ -2406,6 +2419,7 @@ components:
       type: object
       additionalProperties: false
       properties:
+        export_token_ids: {type: array, maxItems: 100, uniqueItems: true, items: {type: string}, description: "Keys selected for sharing this channel. Does not change key authorization."}
         exclude_tags: {type: array, items: {type: string}, uniqueItems: true}
         exclude_types: {type: array, items: {type: string}, uniqueItems: true}
         policy: {$ref: "#/components/schemas/ChannelPolicy"}
@@ -2454,14 +2468,37 @@ components:
     ChannelRuleGroup:
       type: object
       additionalProperties: false
-      required: [id, name, enabled, node_ids, default_exit, rules]
+      required: [id, name, enabled, type, builtin_nodes, node_ids, default_exit, rules]
       properties:
         id: {type: string, maxLength: 128}
         name: {type: string, maxLength: 128}
         enabled: {type: boolean}
+        type: {type: string, enum: [select, url-test, fallback], description: "Fallback is supported only by Mihomo."}
+        builtin_nodes:
+          type: array
+          maxItems: 2
+          uniqueItems: true
+          description: "Explicit built-in candidates; an empty array selects none. Reject candidates require Mihomo."
+          items: {type: string, enum: [direct, reject]}
+        health_check: {$ref: "#/components/schemas/ChannelGroupHealthCheck"}
         node_ids: {type: array, maxItems: 10000, uniqueItems: true, items: {type: string}}
+        candidate_order:
+          type: array
+          maxItems: 10002
+          uniqueItems: true
+          description: "Display and output order. When provided, must contain each node:<id> and builtin:<kind> candidate exactly once. When omitted, node_ids precede builtin_nodes. Manual client defaults retain their existing priority."
+          items: {type: string, maxLength: 136}
         default_exit: {$ref: "#/components/schemas/ChannelRouteExit"}
         rules: {type: array, maxItems: 5000, items: {$ref: "#/components/schemas/ChannelRule"}}
+    ChannelGroupHealthCheck:
+      type: object
+      additionalProperties: false
+      required: [url, interval, tolerance]
+      description: "Client-side checks for url-test/fallback. If omitted: gstatic generate_204, 300 seconds, 50 ms. Tolerance applies only to url-test."
+      properties:
+        url: {type: string, maxLength: 4096}
+        interval: {type: integer, minimum: 60, maximum: 86400}
+        tolerance: {type: integer, minimum: 0, maximum: 65535}
     ChannelRule:
       type: object
       additionalProperties: false
@@ -2632,6 +2669,12 @@ components:
       properties:
         items: {type: array, items: {$ref: "#/components/schemas/SubscriptionToken"}}
         next: {$ref: "#/components/schemas/SubscriptionCursor"}
+    SubscriptionTokenSecret:
+      type: object
+      additionalProperties: false
+      required: [token]
+      properties:
+        token: {type: string}
     CreatedSubscriptionToken:
       type: object
       additionalProperties: false

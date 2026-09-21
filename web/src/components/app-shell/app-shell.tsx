@@ -7,7 +7,6 @@ import { NavLink, Outlet, useLocation } from 'react-router-dom';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 
 import '@/i18n';
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Spinner } from '@/components/ui/spinner';
 import { PanelLogo } from '@/components/panel-logo';
@@ -17,6 +16,7 @@ import { AnimatedIcon } from '@/components/animated-icon';
 import { useSidebar } from '@/components/ui/sidebar-context';
 import { useAuthSession } from '@/stores/auth-session.store';
 import { useControlPlane } from '@/stores/control-plane.store';
+import { useUnsavedChangesContext } from '@/stores/unsaved-changes.store';
 import {
   Tooltip,
   TooltipContent,
@@ -140,11 +140,10 @@ function ShellErrorState({ message, onRetry }: { message: string; onRetry: () =>
 
   return (
     <main className='shell-state'>
-      <Card className='shell-state__card' role='alert'>
+      <Card className='shell-state__card'>
         <CardHeader>
-          <Badge variant='warning'>{t('shell.error.badge')}</Badge>
-          <CardTitle>{t('shell.error.description')}</CardTitle>
-          <CardDescription>{message}</CardDescription>
+          <CardTitle>Sing-Box Panel</CardTitle>
+          <ErrorNotice error={message} title={t('shell.error.description')} />
         </CardHeader>
         <CardFooter>
           <Button onClick={onRetry}>{t('shell.error.retry')}</Button>
@@ -157,6 +156,7 @@ function ShellErrorState({ message, onRetry }: { message: string; onRetry: () =>
 export function AppShell() {
   const { t } = useTranslation();
   const { logout, session } = useAuthSession();
+  const { confirmNavigation } = useUnsavedChangesContext();
   const controlPlane = useControlPlane();
   const location = useLocation();
   const mainRef = useRef<HTMLDivElement>(null);
@@ -207,7 +207,12 @@ export function AppShell() {
         open
         style={{ '--sidebar-width': 'var(--shell-sidebar-width)' } as CSSProperties}
       >
-        <a className='skip-link' href='#main-content'>{t('shell.skip')}</a>
+        <a className='skip-link' href='#main-content' onClick={event => {
+          event.preventDefault();
+          mainRef.current?.focus();
+        }}>
+          {t('shell.skip')}
+        </a>
         <Sidebar className='panel-sidebar' collapsible='offcanvas' variant='floating'>
           <SidebarHeader className='panel-sidebar__header'>
             <PanelLogo />
@@ -230,7 +235,7 @@ export function AppShell() {
                       aria-label={loggingOut ? t('account.signingOut') : t('account.signOut')}
                       className='panel-sign-out'
                       disabled={loggingOut}
-                      onClick={() => void signOut()}
+                      onClick={() => confirmNavigation(() => void signOut())}
                       size='icon-sm'
                       variant='ghost'
                     />

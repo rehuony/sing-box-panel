@@ -4,6 +4,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 
 import '@/i18n';
+import { toast } from '@/components/ui/toast-manager';
 import { ApiClientProvider } from '@/api/api-client-context';
 import { DashboardPage } from '@/pages/dashboard-page/dashboard-page';
 import { createMockApiClient, testMetrics, testMetricsHistory } from '@/tests/api/mock-api-client';
@@ -123,12 +124,15 @@ describe('dashboard evidence', () => {
     expect(screen.getByText('12.8%')).toBeVisible();
   });
   it('renders exactly 48 unknown segments when runtime history is unavailable', async () => {
+    const addToast = vi.spyOn(toast, 'add');
     show(
       createMockApiClient({
         getRuntimeHistory: vi.fn().mockRejectedValue(new Error('unavailable')),
       }),
     );
-    await waitFor(() => expect(screen.getByRole('alert')).toBeInTheDocument());
+    await waitFor(() => expect(addToast).toHaveBeenCalledWith(expect.objectContaining({ type: 'error', description: 'unavailable' })));
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    addToast.mockRestore();
     const segments = document.querySelectorAll('.runtime-timeline > span');
     expect(segments).toHaveLength(48);
     expect([...segments].every((segment) => segment.getAttribute('data-state') === 'unknown')).toBe(

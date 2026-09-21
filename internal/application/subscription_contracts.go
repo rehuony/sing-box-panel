@@ -187,7 +187,7 @@ type SubscriptionNodeCatalog struct {
 }
 
 // SubscriptionToken deliberately omits both plaintext and token_sha256. The
-// public plaintext is returned only by create/rotate result types.
+// plaintext is available only through explicit secret reads and create/rotate.
 type SubscriptionToken struct {
 	DownloadLimit          *int64     `json:"download_limit,omitempty"`
 	ID                     string     `json:"id"`
@@ -209,6 +209,10 @@ type CreateSubscriptionTokenRequest struct {
 	UserID        string     `json:"user_id,omitempty"`
 	Label         string     `json:"label"`
 	ExpiresAt     *time.Time `json:"expires_at,omitempty"`
+}
+
+type SubscriptionTokenSecret struct {
+	Token string `json:"token"`
 }
 
 type SubscriptionCursor struct {

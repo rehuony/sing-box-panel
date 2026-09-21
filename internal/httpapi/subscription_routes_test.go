@@ -173,6 +173,26 @@ func TestSubscriptionManagementHTTPCRUDStrictnessAndCAS(t *testing.T) {
 	if token.Token == "" {
 		t.Fatal("token plaintext missing from one-time create response")
 	}
+	secretPath := "/api/v1/subscription/tokens/" + token.Metadata.ID + "/secret"
+	secret := authenticatedRequest(handler, http.MethodGet, secretPath, "", "")
+	var revealed application.SubscriptionTokenSecret
+	if secret.Code != http.StatusOK || secret.Header().Get("Cache-Control") != "no-store" {
+		t.Fatalf("secret response status=%d cache=%q", secret.Code, secret.Header().Get("Cache-Control"))
+	}
+	if err := json.Unmarshal(secret.Body.Bytes(), &revealed); err != nil || revealed.Token != token.Token {
+		t.Fatal("secret did not match issued token")
+	}
+	unauthorizedSecret := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, secretPath, nil)
+	request.Header.Set("Authorization", "Bearer "+token.Token)
+	handler.ServeHTTP(unauthorizedSecret, request)
+	if unauthorizedSecret.Code != http.StatusUnauthorized || bytes.Contains(unauthorizedSecret.Body.Bytes(), []byte(token.Token)) {
+		t.Fatal("subscription token must not authorize secret reads")
+	}
+	metadata := authenticatedRequest(handler, http.MethodGet, "/api/v1/subscription/tokens/"+token.Metadata.ID, "", "")
+	if metadata.Code != http.StatusOK || bytes.Contains(metadata.Body.Bytes(), []byte(token.Token)) {
+		t.Fatal("ordinary token read leaked its secret")
+	}
 	tokens := authenticatedRequest(handler, http.MethodGet, "/api/v1/subscription/tokens", "", "")
 	if tokens.Code != http.StatusOK || bytes.Contains(tokens.Body.Bytes(), []byte(token.Token)) {
 		t.Fatalf("token list status=%d body=%s", tokens.Code, tokens.Body.String())

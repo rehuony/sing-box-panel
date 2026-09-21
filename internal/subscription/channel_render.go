@@ -73,41 +73,20 @@ func RenderPolicyNodes(nodes []Node, channel RenderChannel, policy *ChannelPolic
 			available[id] = name
 		}
 	}
-	builder := channelRuleBuilder{format: channel.Format, names: available, groups: map[string]RuleGroup{}, rules: []any{}, providers: map[string]any{}, sets: []any{}}
+	builder := channelRuleBuilder{format: channel.Format, names: available, groups: map[string]RuleGroup{}, candidates: map[string][]string{}, rules: []any{}, providers: map[string]any{}, sets: []any{}}
 	groupNodes := []map[string]any{}
 	for _, group := range policy.Groups {
 		if group.Enabled {
 			builder.groups[group.ID] = group
+			builder.candidates[group.ID] = builder.groupCandidates(group)
 		}
 	}
 	for _, group := range policy.Groups {
 		if !group.Enabled {
 			continue
 		}
-		candidates := []string{}
-		seen := map[string]bool{}
-		for _, id := range group.NodeIDs {
-			if name := available[id]; name != "" && !seen[name] {
-				candidates = append(candidates, name)
-				seen[name] = true
-			}
-		}
-		defaultName := builder.exitName(group.DefaultExit, nil)
-		if channel.Format == RenderFormatSingBox {
-			candidates = append(candidates, "direct")
-			if defaultName == "REJECT" {
-				defaultName = "direct"
-			}
-			groupNodes = append(groupNodes, map[string]any{"type": "selector", "tag": group.Name, "outbounds": candidates, "default": defaultName})
-		} else {
-			candidates = append(candidates, "DIRECT", "REJECT")
-			ordered := []string{defaultName}
-			for _, name := range candidates {
-				if name != defaultName {
-					ordered = append(ordered, name)
-				}
-			}
-			groupNodes = append(groupNodes, map[string]any{"name": group.Name, "type": "select", "proxies": ordered})
+		if nativeGroup := builder.renderGroup(group); nativeGroup != nil {
+			groupNodes = append(groupNodes, nativeGroup)
 		}
 		for _, rule := range group.Rules {
 			if rule.Enabled {
@@ -254,12 +233,13 @@ func prepareChannelNodes(nodes []Node, channel RenderChannel, p *ChannelPolicy) 
 }
 
 type channelRuleBuilder struct {
-	format    RenderFormat
-	names     map[string]string
-	groups    map[string]RuleGroup
-	rules     []any
-	providers map[string]any
-	sets      []any
+	format     RenderFormat
+	names      map[string]string
+	groups     map[string]RuleGroup
+	candidates map[string][]string
+	rules      []any
+	providers  map[string]any
+	sets       []any
 }
 
 func (b *channelRuleBuilder) exitName(exit RouteExit, group *RuleGroup) string {
@@ -284,9 +264,86 @@ func (b *channelRuleBuilder) exitName(exit RouteExit, group *RuleGroup) string {
 	}
 	return "REJECT"
 }
+func (b *channelRuleBuilder) groupCandidates(group RuleGroup) []string {
+	candidates := []string{}
+	seen := map[string]bool{}
+	for _, key := range group.candidateOrder() {
+		var name string
+		if id, ok := strings.CutPrefix(key, "node:"); ok {
+			name = b.names[id]
+		} else if kind, ok := strings.CutPrefix(key, "builtin:"); ok {
+			name = b.exitName(RouteExit{Kind: kind}, nil)
+		}
+		if name != "" && !seen[name] {
+			candidates = append(candidates, name)
+			seen[name] = true
+		}
+	}
+	return candidates
+}
+
+func (b *channelRuleBuilder) renderGroup(group RuleGroup) map[string]any {
+	candidates := b.candidates[group.ID]
+	if len(candidates) == 0 {
+		// Native empty groups can imply DIRECT or be invalid. Their references
+		// are rendered as rejection instead, without an unusable group.
+		return nil
+	}
+	kind := group.Type
+	var result map[string]any
+	if b.format == RenderFormatSingBox {
+		result = map[string]any{"tag": group.Name, "outbounds": candidates}
+		if kind == "select" {
+			result["type"] = "selector"
+			defaultName := b.exitName(group.DefaultExit, nil)
+			if defaultName == "REJECT" {
+				// Rejection is a route action in current sing-box. groupExit
+				// rejects references to this group until its fixed exit returns.
+				defaultName = candidates[0]
+			}
+			result["default"] = defaultName
+		} else {
+			result["type"] = "urltest"
+		}
+	} else {
+		if kind == "select" {
+			defaultName := b.exitName(group.DefaultExit, nil)
+			ordered := []string{defaultName}
+			for _, name := range candidates {
+				if name != defaultName {
+					ordered = append(ordered, name)
+				}
+			}
+			candidates = ordered
+		}
+		result = map[string]any{"name": group.Name, "type": kind, "proxies": candidates}
+	}
+	if kind != "select" {
+		check := group.healthCheck()
+		result["url"] = check.URL
+		if b.format == RenderFormatSingBox {
+			result["interval"] = fmt.Sprintf("%ds", check.Interval)
+			// sing-box requires its idle timeout to be at least the interval.
+			if check.Interval > 1800 {
+				result["idle_timeout"] = fmt.Sprintf("%ds", check.Interval)
+			}
+		} else {
+			result["interval"] = check.Interval
+		}
+		if kind == "url-test" {
+			result["tolerance"] = check.Tolerance
+		}
+	}
+	return result
+}
+
 func (b *channelRuleBuilder) groupExit(group RuleGroup) string {
-	// An unavailable fixed default cannot accidentally escape through DIRECT.
-	if b.format == RenderFormatSingBox && (group.DefaultExit.Kind == "reject" || (group.DefaultExit.Kind == "node" && b.names[group.DefaultExit.ID] == "")) {
+	if len(b.candidates[group.ID]) == 0 {
+		return "REJECT"
+	}
+	// Auto groups may use remaining candidates. An unavailable manual fixed
+	// default must retain the existing fail-closed routing behavior.
+	if group.Type == "select" && b.format == RenderFormatSingBox && (group.DefaultExit.Kind == "reject" || (group.DefaultExit.Kind == "node" && b.names[group.DefaultExit.ID] == "")) {
 		return "REJECT"
 	}
 	return group.Name

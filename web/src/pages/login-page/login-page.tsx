@@ -7,6 +7,7 @@ import { Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { ApiRequestError } from '@/api/api-client';
+import { ErrorNotice } from '@/components/error-notice';
 import { useAuthSession } from '@/stores/auth-session.store';
 
 import './login-page.css';
@@ -35,15 +36,11 @@ export function LoginPage() {
   const [token, setToken] = useState('');
   const [error, setError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const errorRef = useRef<HTMLDivElement>(null);
   const controllerRef = useRef<AbortController | null>(null);
   const locationState = location.state as LoginLocationState | null;
   const returnTarget = safeReturnTarget(locationState?.from);
 
   useEffect(() => () => controllerRef.current?.abort(), []);
-  useEffect(() => {
-    if (error !== '') errorRef.current?.focus();
-  }, [error]);
 
   if (status === 'authenticated') return <Navigate replace to={returnTarget} />;
 
@@ -59,9 +56,8 @@ export function LoginPage() {
   if (status === 'unavailable') {
     return (
       <main className='loading-screen'>
-        <div className='load-error' role='alert'>
-          <h1>{t('login.unavailable.title', { defaultValue: 'The panel service could not be reached.' })}</h1>
-          <p>{t('login.unavailable.description', { defaultValue: 'Your session has not changed. Check the server and try again.' })}</p>
+        <div className='load-error'>
+          <ErrorNotice title={t('login.unavailable.title', { defaultValue: 'The panel service could not be reached.' })} error={t('login.unavailable.description', { defaultValue: 'Your session has not changed. Check the server and try again.' })} />
           <Button onClick={retrySession} type='button'>
             {t('login.unavailable.retry', { defaultValue: 'Try again' })}
           </Button>
@@ -122,9 +118,7 @@ export function LoginPage() {
             {error === ''
               ? null
               : (
-                  <div id='management-token-error' ref={errorRef} role='alert' tabIndex={-1}>
-                    {error}
-                  </div>
+                  <ErrorNotice id='management-token-error' error={error} />
                 )}
           </div>
           <Button className='login-card__submit' disabled={isSubmitting} size='lg' type='submit'>

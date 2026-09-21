@@ -12,6 +12,7 @@ import type {
 import { Button } from '@/components/ui/button';
 import { useApiClient } from '@/api/api-client-context';
 import { ErrorNotice } from '@/components/error-notice';
+import { SelectField } from '@/components/select-field';
 import {
   Dialog,
   DialogContent,
@@ -249,15 +250,21 @@ export function RevisionHistory({
         <div className='revision-compare-controls'>
           <label>
             <span>{t('configuration.history.from')}</span>
-            <select onChange={(event) => changeDiffReference('from', event.target.value)} value={fromReference}>
-              {items.map((revision) => <option key={revision.id} value={revision.id}>{`#${formatNumber(revision.sequence, i18n.language)}`}</option>)}
-            </select>
+            <SelectField
+              aria-label={t('configuration.history.from')}
+              onValueChange={(value) => changeDiffReference('from', value)}
+              value={fromReference}
+              items={items.map((revision) => ({ value: revision.id, label: `#${formatNumber(revision.sequence, i18n.language)}` }))}
+            />
           </label>
           <label>
             <span>{t('configuration.history.to')}</span>
-            <select onChange={(event) => changeDiffReference('to', event.target.value)} value={toReference}>
-              {items.map((revision) => <option key={revision.id} value={revision.id}>{`#${formatNumber(revision.sequence, i18n.language)}`}</option>)}
-            </select>
+            <SelectField
+              aria-label={t('configuration.history.to')}
+              onValueChange={(value) => changeDiffReference('to', value)}
+              value={toReference}
+              items={items.map((revision) => ({ value: revision.id, label: `#${formatNumber(revision.sequence, i18n.language)}` }))}
+            />
           </label>
           <Button
             disabled={diffState.loading || fromReference === '' || fromReference === toReference}

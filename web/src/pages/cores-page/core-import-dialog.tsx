@@ -7,7 +7,8 @@ import type { CoreImportUpload } from '@/api/api-client';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Spinner } from '@/components/ui/spinner';
-import { Field, FieldError, FieldGroup, FieldLabel } from '@/components/ui/field';
+import { ErrorNotice } from '@/components/error-notice';
+import { Field, FieldGroup, FieldLabel } from '@/components/ui/field';
 import {
   Dialog,
   DialogContent,
@@ -131,7 +132,7 @@ export function CoreImportDialog({
                   }}
                 />
               </div>
-              {fileError && <FieldError id={`${id}-archive-error`}>{t(`cores.import.${fileError}`)}</FieldError>}
+              {fileError && <ErrorNotice id={`${id}-archive-error`} error={t(`cores.import.${fileError}`)} />}
             </Field>
             <Field orientation='horizontal' data-disabled={busy}>
               <FieldLabel htmlFor={`${id}-version`}>{t('cores.import.version')}</FieldLabel>

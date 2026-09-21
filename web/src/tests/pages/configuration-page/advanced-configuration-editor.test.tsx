@@ -6,6 +6,7 @@ import userEvent from '@testing-library/user-event';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 
 import '@/i18n';
+import { toast } from '@/components/ui/toast-manager';
 import { AdvancedConfigurationEditor } from '@/pages/configuration-page/advanced-configuration-editor';
 
 const original = '{"large":90071992547409931234567890,"threshold":4.2000e+99,"future":{"enabled":true}}';
@@ -93,10 +94,13 @@ describe('advanced JSON editor', () => {
   });
 
   it('retains invalid text and prevents formatting or edits while locked', async () => {
+    const addToast = vi.spyOn(toast, 'add');
     const onChange = vi.fn();
     const { rerender } = render(<AdvancedConfigurationEditor text='{"log":' error={new Error('Incomplete JSON')} disabled={false} onChange={onChange} />);
     expect(screen.getByRole('button', { name: 'Format' })).toBeDisabled();
-    expect(screen.getByRole('alert')).toHaveTextContent('Incomplete JSON');
+    await waitFor(() => expect(addToast).toHaveBeenCalledWith(expect.objectContaining({ type: 'error', title: 'Incomplete JSON' })));
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    addToast.mockRestore();
     const editor = screen.getByRole('textbox', { name: 'sing-box configuration JSON' });
     const view = EditorView.findFromDOM(editor)!;
     expect(view.state.doc.toString()).toBe('{"log":');

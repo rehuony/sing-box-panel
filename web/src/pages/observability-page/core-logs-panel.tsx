@@ -1,10 +1,8 @@
-import { Pause, Play } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useEffect, useMemo, useRef, useState } from 'react';
 
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
-import { Button } from '@/components/ui/button';
 import { ErrorNotice } from '@/components/error-notice';
 import { SelectField } from '@/components/select-field';
 import { ToolbarActions } from '@/components/workspace-toolbar';
@@ -42,6 +40,7 @@ export function CoreLogsPanel({ active = true, toolbarTarget }: {
       : log.current
         ? 'connecting'
         : 'archive';
+  const canToggle = log.current || log.paused;
   return (
     <div className='log-workspace'>
       <ToolbarActions active={active} target={toolbarTarget}>
@@ -72,23 +71,23 @@ export function CoreLogsPanel({ active = true, toolbarTarget }: {
       </ToolbarActions>
       {log.error != null && <ErrorNotice error={log.error} title={t('productLogs.unavailable')} />}
       <div className='native-log'>
-        <div className='native-log__status'>
-          {log.current && (
-            <Button
-              aria-label={t(log.paused ? 'productLogs.resume' : 'productLogs.pause')}
-              className='native-log__toggle'
-              size='icon-sm'
-              variant='ghost'
-              onClick={() => log.setPaused(!log.paused)}
-            >
-              {log.paused ? <Play /> : <Pause />}
-            </Button>
-          )}
-          <Badge className='native-log__badge' variant={state === 'live' ? 'success' : state === 'paused' ? 'warning' : state === 'connecting' ? 'info' : 'secondary'}>
-            <i aria-hidden='true' />
-            {t(`productLogs.${state}`)}
-          </Badge>
-        </div>
+        <Badge
+          className='native-log__status native-log__badge'
+          variant={state === 'live' ? 'success' : state === 'paused' ? 'warning' : state === 'connecting' ? 'info' : 'secondary'}
+          render={canToggle
+            ? (
+                <button
+                  type='button'
+                  aria-pressed={!log.paused}
+                  title={t(log.paused ? 'productLogs.resume' : 'productLogs.pause')}
+                  onClick={() => log.setPaused(!log.paused)}
+                />
+              )
+            : undefined}
+        >
+          <i aria-hidden='true' />
+          {t(`productLogs.${state}`)}
+        </Badge>
         <div
           ref={viewportRef}
           className='native-log__output'

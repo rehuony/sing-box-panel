@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 
@@ -19,7 +20,7 @@ func policyFixture(t *testing.T, format RenderFormat) ([]Node, *ChannelPolicy) {
 		t.Fatal(err)
 	}
 	a, b := PublicationID(nodes[0]), PublicationID(nodes[1])
-	p := &ChannelPolicy{Selection: NodeSelection{IDs: []string{a, b}, NewNodePolicy: "exclude"}, Organizer: NodeOrganizer{Sort: "none", Incompatible: "error"}, DefaultExit: RouteExit{Kind: "group", ID: "main"}, Groups: []RuleGroup{{ID: "main", Name: "Selected", Enabled: true, NodeIDs: []string{a, b}, DefaultExit: RouteExit{Kind: "node", ID: a}, Rules: []ChannelRule{
+	p := &ChannelPolicy{Selection: NodeSelection{IDs: []string{a, b}, NewNodePolicy: "exclude"}, Organizer: NodeOrganizer{Sort: "none", Incompatible: "error"}, DefaultExit: RouteExit{Kind: "group", ID: "main"}, Groups: []RuleGroup{{Type: "select", BuiltinNodes: []string{}, ID: "main", Name: "Selected", Enabled: true, NodeIDs: []string{a, b}, DefaultExit: RouteExit{Kind: "node", ID: a}, Rules: []ChannelRule{
 		{ID: "domain", Enabled: true, Kind: "domain_suffix", Value: "example.org", Exit: RouteExit{Kind: "group-default"}},
 		{ID: "ipv6", Enabled: true, Kind: "ip_cidr", Value: "2001:db8::/32", Exit: RouteExit{Kind: "direct"}},
 		{ID: "disabled", Enabled: false, Kind: "domain", Value: "disabled.example", Exit: RouteExit{Kind: "reject"}},
@@ -229,5 +230,222 @@ func TestChannelNamesAndDedupKeepSourceDependencies(t *testing.T) {
 	first, second := out[0].(map[string]any), out[2].(map[string]any)
 	if first["tag"] != "Real name" || first["detour"] == second["detour"] {
 		t.Fatal(string(result.Content))
+	}
+}
+
+func TestStrategyGroupTypesAndExplicitBuiltinCandidates(t *testing.T) {
+	for _, test := range []struct {
+		name       string
+		format     RenderFormat
+		kind       string
+		builtins   []string
+		nativeKind string
+	}{
+		{"sing-box select", RenderFormatSingBox, "select", []string{}, "selector"},
+		{"sing-box urltest direct", RenderFormatSingBox, "url-test", []string{"direct"}, "urltest"},
+		{"mihomo select builtins", RenderFormatMihomo, "select", []string{"direct", "reject"}, "select"},
+		{"mihomo urltest", RenderFormatMihomo, "url-test", []string{}, "url-test"},
+		{"mihomo fallback", RenderFormatMihomo, "fallback", []string{"direct"}, "fallback"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			nodes, policy := policyFixture(t, test.format)
+			group := &policy.Groups[0]
+			group.Type = test.kind
+			group.BuiltinNodes = test.builtins
+			group.HealthCheck = &GroupHealthCheck{URL: "https://probe.example/check", Interval: 3600, Tolerance: 0}
+			// Auto groups must keep candidate order rather than promoting a manual default.
+			group.DefaultExit = RouteExit{Kind: "node", ID: group.NodeIDs[1]}
+			before, _ := json.Marshal(policy)
+			result, err := RenderPolicyNodes(nodes, RenderChannel{Format: test.format}, policy)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var root map[string]any
+			if err := yaml.Unmarshal(result.Content, &root); err != nil {
+				t.Fatal(err)
+			}
+			key, candidateKey := "proxy-groups", "proxies"
+			if test.format == RenderFormatSingBox {
+				key, candidateKey = "outbounds", "outbounds"
+			}
+			items := root[key].([]any)
+			rendered := items[len(items)-1].(map[string]any)
+			if rendered["type"] != test.nativeKind {
+				t.Fatalf("wrong group type: %v", rendered)
+			}
+			candidates := rendered[candidateKey].([]any)
+			if len(candidates) != 2+len(test.builtins) {
+				t.Fatalf("unexpected implicit candidates: %v", candidates)
+			}
+			if test.kind != "select" {
+				if candidates[0] != "Tokyo" || rendered["url"] != "https://probe.example/check" {
+					t.Fatal(rendered)
+				}
+				interval := any(3600)
+				if test.format == RenderFormatSingBox {
+					interval = "3600s"
+					if rendered["idle_timeout"] != interval {
+						t.Fatal(rendered)
+					}
+				}
+				if rendered["interval"] != interval {
+					t.Fatal(rendered)
+				}
+				if test.kind == "url-test" && rendered["tolerance"] != 0 {
+					t.Fatal(rendered)
+				}
+				if test.kind == "fallback" && rendered["tolerance"] != nil {
+					t.Fatal(rendered)
+				}
+			} else if rendered["url"] != nil {
+				t.Fatal("manual group emitted health check", rendered)
+			}
+			after, _ := json.Marshal(policy)
+			if !bytes.Equal(before, after) {
+				t.Fatal("render mutated policy")
+			}
+		})
+	}
+}
+
+func TestStrategyGroupCompatibilityAndHealthValidation(t *testing.T) {
+	for name, change := range map[string]func(*RuleGroup){
+		"missing type":       func(g *RuleGroup) { g.Type = "" },
+		"missing builtins":   func(g *RuleGroup) { g.BuiltinNodes = nil },
+		"unselected direct":  func(g *RuleGroup) { g.DefaultExit = RouteExit{Kind: "direct"} },
+		"unknown type":       func(g *RuleGroup) { g.Type = "invalid" },
+		"sing-box fallback":  func(g *RuleGroup) { g.Type = "fallback" },
+		"sing-box reject":    func(g *RuleGroup) { g.BuiltinNodes = []string{"reject"} },
+		"unknown builtin":    func(g *RuleGroup) { g.BuiltinNodes = []string{"unknown"} },
+		"duplicate builtin":  func(g *RuleGroup) { g.BuiltinNodes = []string{"direct", "direct"} },
+		"credential URL":     func(g *RuleGroup) { g.HealthCheck.URL = "https://secret:password@example.com/test" },
+		"invalid URL":        func(g *RuleGroup) { g.HealthCheck.URL = "file:///etc/passwd" },
+		"short interval":     func(g *RuleGroup) { g.HealthCheck.Interval = 0 },
+		"long interval":      func(g *RuleGroup) { g.HealthCheck.Interval = 86401 },
+		"negative tolerance": func(g *RuleGroup) { g.HealthCheck.Tolerance = -1 },
+		"overflow tolerance": func(g *RuleGroup) { g.HealthCheck.Tolerance = 65536 },
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, policy := policyFixture(t, RenderFormatSingBox)
+			policy.Groups[0].HealthCheck = new(policy.Groups[0].healthCheck())
+			change(&policy.Groups[0])
+			var problem *PolicyError
+			if err := ValidateChannelPolicy(policy, RenderFormatSingBox); !errors.As(err, &problem) || !strings.HasPrefix(problem.Path, "policy.groups[0].") || strings.Contains(err.Error(), "secret") {
+				t.Fatalf("expected safe field error, got %v", err)
+			}
+		})
+	}
+}
+
+func TestBuiltinOnlyStrategyGroups(t *testing.T) {
+	for _, format := range []RenderFormat{RenderFormatSingBox, RenderFormatMihomo} {
+		for _, kind := range []string{"direct", "reject"} {
+			if format == RenderFormatSingBox && kind == "reject" {
+				continue
+			}
+			_, policy := policyFixture(t, format)
+			group := &policy.Groups[0]
+			group.NodeIDs = []string{}
+			group.Rules = []ChannelRule{}
+			group.BuiltinNodes = []string{kind}
+			group.DefaultExit = RouteExit{Kind: kind}
+			result, err := RenderPolicyNodes(nil, RenderChannel{Format: format}, policy)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var root map[string]any
+			if err := yaml.Unmarshal(result.Content, &root); err != nil {
+				t.Fatal(err)
+			}
+			key, candidateKey, target := "proxy-groups", "proxies", strings.ToUpper(kind)
+			if format == RenderFormatSingBox {
+				key, candidateKey, target = "outbounds", "outbounds", "direct"
+			}
+			items := root[key].([]any)
+			candidates := items[len(items)-1].(map[string]any)[candidateKey].([]any)
+			if len(candidates) != 1 || candidates[0] != target || result.NodeCount != 0 {
+				t.Fatalf("builtin-only group was not preserved: %s", result.Content)
+			}
+		}
+	}
+}
+
+func TestAutomaticGroupsUseRemainingCandidatesAndEmptyGroupsReject(t *testing.T) {
+	for _, format := range []RenderFormat{RenderFormatSingBox, RenderFormatMihomo} {
+		for _, kind := range []string{"select", "url-test", "fallback"} {
+			if format == RenderFormatSingBox && kind == "fallback" {
+				continue
+			}
+			nodes, policy := policyFixture(t, format)
+			policy.Groups[0].Type = kind
+			policy.Groups[0].BuiltinNodes = []string{}
+			if kind != "select" {
+				result, err := RenderPolicyNodes(nodes[1:], RenderChannel{Format: format}, policy)
+				if err != nil || !bytes.Contains(result.Content, []byte("Selected")) {
+					t.Fatal("remaining automatic candidate lost", err)
+				}
+				if format == RenderFormatSingBox && bytes.Contains(result.Content, []byte(`"action": "reject"`)) {
+					t.Fatal("automatic group followed unavailable fixed default")
+				}
+			}
+			result, err := RenderPolicyNodes(nil, RenderChannel{Format: format}, policy)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if bytes.Contains(result.Content, []byte("Selected")) {
+				t.Fatal("empty group emitted", string(result.Content))
+			}
+			if format == RenderFormatMihomo && !bytes.Contains(result.Content, []byte("MATCH,REJECT")) {
+				t.Fatal(string(result.Content))
+			}
+			if format == RenderFormatSingBox && !bytes.Contains(result.Content, []byte(`"action": "reject"`)) {
+				t.Fatal(string(result.Content))
+			}
+		}
+	}
+}
+
+func TestChannelCandidateOrder(t *testing.T) {
+	for _, format := range []RenderFormat{RenderFormatSingBox, RenderFormatMihomo} {
+		t.Run(string(format), func(t *testing.T) {
+			nodes, policy := policyFixture(t, format)
+			group := &policy.Groups[0]
+			group.Type = "url-test"
+			group.BuiltinNodes = []string{"direct"}
+			group.CandidateOrder = []string{"node:" + group.NodeIDs[1], "builtin:direct", "node:" + group.NodeIDs[0]}
+			if err := ValidateChannelPolicy(policy, format); err != nil {
+				t.Fatal(err)
+			}
+			result, err := RenderPolicyNodes(nodes, RenderChannel{Format: format}, policy)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var root map[string]any
+			if err := yaml.Unmarshal(result.Content, &root); err != nil {
+				t.Fatal(err)
+			}
+			key, candidateKey, direct := "proxy-groups", "proxies", "DIRECT"
+			if format == RenderFormatSingBox {
+				key, candidateKey, direct = "outbounds", "outbounds", "direct"
+			}
+			items := root[key].([]any)
+			actual := items[len(items)-1].(map[string]any)[candidateKey].([]any)
+			want := []any{"Hong Kong", direct, "Tokyo"}
+			if !slices.Equal(actual, want) {
+				t.Fatalf("candidate order = %v, want %v", actual, want)
+			}
+			for _, order := range [][]string{
+				{}, {"node:" + group.NodeIDs[0]},
+				{"node:" + group.NodeIDs[0], "node:" + group.NodeIDs[0], "builtin:direct"},
+				{"node:" + group.NodeIDs[0], "node:" + group.NodeIDs[1], "builtin:reject"},
+				{"node:" + group.NodeIDs[0], "node:unknown", "builtin:direct"},
+			} {
+				group.CandidateOrder = order
+				var problem *PolicyError
+				if err := ValidateChannelPolicy(policy, format); !errors.As(err, &problem) || problem.Path != "policy.groups[0].candidate_order" {
+					t.Fatalf("invalid candidate order %v: %v", order, err)
+				}
+			}
+		})
 	}
 }

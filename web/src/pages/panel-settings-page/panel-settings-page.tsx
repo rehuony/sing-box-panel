@@ -8,14 +8,16 @@ import type { AppearanceSettings, PanelPreferences, PanelSettingsView } from '@/
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Slider } from '@/components/ui/slider';
+import { useHashTab } from '@/hooks/use-hash-tab';
 import { Skeleton } from '@/components/ui/skeleton';
 import { toast } from '@/components/ui/toast-manager';
+import { useUnsavedChanges } from '@/hooks/use-unsaved-changes';
 import { usePanelSettings } from '@/stores/panel-settings.store';
 import { DEFAULT_APPEARANCE, THEME_PRESETS } from '@/theme/appearance';
+import { FieldGroup, FieldLegend, FieldSet } from '@/components/ui/field';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { describeRequestError, ErrorNotice } from '@/components/error-notice';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { FieldError, FieldGroup, FieldLegend, FieldSet } from '@/components/ui/field';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 
@@ -39,7 +41,7 @@ function SettingsEditor({ initial }: { initial: PanelSettingsView }) {
   const [github, setGithub] = useState('');
   const [clearGithub, setClearGithub] = useState(false);
   const [identityKey, setIdentityKey] = useState('');
-  const [category, setCategory] = useState('security');
+  const [category, setCategory] = useHashTab('panel-', ['security', 'nodes', 'appearance'] as const, 'security');
   const [saving, setSaving] = useState(false);
   const [tokenOpen, setTokenOpen] = useState(false);
   const [token, setToken] = useState('');
@@ -50,6 +52,16 @@ function SettingsEditor({ initial }: { initial: PanelSettingsView }) {
     && !token.includes('\0') && !token.includes('\r') && !token.includes('\n');
   const colorValid = /^#[\dA-F]{6}$/i.test(preferences.appearance.color);
   const dirty = JSON.stringify(preferences) !== JSON.stringify(initial.preferences) || github !== '' || identityKey !== '' || clearGithub;
+  useUnsavedChanges(dirty || token !== '' || tokenConfirm !== '', () => {
+    setPreferences(initial.preferences);
+    setGithub('');
+    setIdentityKey('');
+    setClearGithub(false);
+    setToken('');
+    setTokenConfirm('');
+    setTokenOpen(false);
+    preview(null);
+  }, saving);
 
   useEffect(() => {
     if (colorValid) preview(preferences.appearance);
@@ -218,7 +230,7 @@ function SettingsEditor({ initial }: { initial: PanelSettingsView }) {
           <FieldGroup>
             <SettingsField id='new-token' label={t('panelSettings.newToken')} help={t('panelSettings.tokenHelp')} invalid={token !== '' && !tokenValid}>
               <Input id='new-token' type='password' autoComplete='new-password' value={token} aria-invalid={token !== '' && !tokenValid} aria-describedby={token !== '' && !tokenValid ? 'token-error' : undefined} onChange={e => setToken(e.target.value)} />
-              {token !== '' && !tokenValid && <FieldError id='token-error'>{t('panelSettings.tokenInvalid')}</FieldError>}
+              {token !== '' && !tokenValid && <ErrorNotice id='token-error' error={t('panelSettings.tokenInvalid')} />}
             </SettingsField>
             <SettingsField id='confirm-token' label={t('panelSettings.confirmToken')}><Input id='confirm-token' type='password' autoComplete='new-password' value={tokenConfirm} aria-invalid={tokenConfirm !== '' && token !== tokenConfirm} onChange={e => setTokenConfirm(e.target.value)} /></SettingsField>
           </FieldGroup>

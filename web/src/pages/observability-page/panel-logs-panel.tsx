@@ -1,7 +1,7 @@
 import { useTranslation } from 'react-i18next';
-import { useSearchParams } from 'react-router-dom';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { useDeferredValue, useEffect, useState } from 'react';
+import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 
 import type { LogLevel, PanelLogPage } from '@/api/api-client';
 
@@ -20,7 +20,9 @@ export function PanelLogsPanel({ active = true, toolbarTarget }: {
 } = {}) {
   const { t } = useTranslation();
   const client = useApiClient();
-  const [params, setParams] = useSearchParams();
+  const [params] = useSearchParams();
+  const location = useLocation();
+  const navigate = useNavigate();
   const [search, setSearch] = useState('');
   const query = useDeferredValue(search);
   const [level, setLevel] = useState('');
@@ -70,12 +72,11 @@ export function PanelLogsPanel({ active = true, toolbarTarget }: {
     };
   }, [client, limit, level, query, cursor]);
   function selectTask(id: string | null) {
-    setParams((next) => {
-      next.set('tab', 'panel');
-      if (id) next.set('task', id);
-      else next.delete('task');
-      return next;
-    });
+    const next = new URLSearchParams(params);
+    next.delete('tab');
+    if (id) next.set('task', id);
+    else next.delete('task');
+    void navigate({ pathname: location.pathname, search: next.size ? `?${next}` : '', hash: '#logs-panel' }, { state: location.state });
   }
   return (
     <div className='log-workspace'>

@@ -9,13 +9,23 @@ collector sample exists.
 The Web UI exposes subscription sources, keys, and channels. New keys do not
 require a subscription user. They authorize the nodes allowed by each channel's
 publication policy. A key has a label, optional exclusive expiry time, and an
-optional download limit (1–1,000,000,000). Plaintext is returned only by creation
-or rotation; only its digest is stored. Key creation does not choose a channel
-or generate a subscription URL. Channel distribution settings accept an existing
-plaintext key to copy that channel's subscription URL; the key is held only while
-the dialog is open and is never included in saved channel configuration.
-The key list shows labels without a legacy-access description and exposes enable/disable,
-rotation and deletion directly, without a detail dialog or a revoke action.
+optional download limit (1–1,000,000,000). Authentication uses its SHA-256 digest.
+New keys also retain their plaintext in a separate secret table in the protected
+SQLite database so an authenticated administrator can explicitly reveal them
+through `GET /subscription/tokens/{tokenId}/secret`. This response is `no-store`;
+ordinary token metadata, lists, channel configuration and logs never include it.
+The database and its backups therefore contain recoverable subscription credentials.
+The migration preserves existing digest-only keys; their plaintext cannot be
+recovered, so exporting those keys requires an explicit rotation and rebinding.
+Creation does not choose a channel or generate a subscription URL.
+Channel settings bind key IDs through `config.export_token_ids`. These bindings
+are export conveniences, not access restrictions: existing global key scope,
+user grants, expiry, quota and revocation checks still govern delivery. Link export
+selects an active bound key, rechecks channel/key availability, reads its secret
+and copies the channel URL without requesting a subscription body or spending quota.
+The key list provides View, enable/disable, rotation and deletion. Secret dialog
+contents are cleared on close. The channel list provides Edit, Copy, Link and Delete;
+Copy creates an independent channel with the same configuration and bindings.
 Any unrevoked key can be rotated, whether enabled, disabled, expired or exhausted.
 Rotation replaces its secret while preserving enablement, scope, quota and usage;
 expiry is retained unless explicitly replaced through the API. Disabled keys
@@ -28,10 +38,19 @@ supported; revoked keys cannot be re-enabled.
 
 Source and channel forms omit enablement controls. New records are enabled;
 editing existing records preserves their stored enablement state.
-Source names, including the manual collection, are display-only; use the row's
-Edit button to open the source workspace.
-Sources can be removed directly from the list after confirmation. The creation
-dialog sizes to its fields, and subscription actions use visible button surfaces.
+Source names, including the manual collection, and channel names are display-only;
+use the row's Edit button to open their workspace. Source deletion is not exposed
+in the list or source settings. The creation dialog sizes to its fields, and
+subscription actions use visible button surfaces.
+
+Node cards within each source (including the manual collection) support whole-card
+DND-KIT sorting with the same mouse, touch and keyboard sensors as channel cards.
+Source display order is a browser-local preference keyed by source ID; refreshes
+and revisits retain it, new nodes append, and absent nodes are not rendered.
+Sorting a filtered or paginated view changes only its visible positions. This
+presentation order does not rewrite source data or channel policies. Header actions
+do not initiate dragging; dragging a hidden card does not restore its visibility.
+Storage failures use an error toast while keeping the current in-memory order.
 
 Migration retains every existing key's user ID, digest, expiry, usage and grants.
 Those keys continue to require an enabled user and exact node grants; an empty
@@ -52,7 +71,8 @@ bytes after a connection failure. Rotation replaces the secret while retaining
 usage, quota and scope; omission of a replacement expiry retains the old expiry.
 
 Disabled users and disabled, revoked, expired, exhausted, deleted or unknown keys
-share one public not-found response. Management responses contain metadata only.
+share one public not-found response. Ordinary management reads contain metadata
+only; create, rotate and the explicit authenticated secret endpoint return plaintext.
 No request address, user agent, plaintext key or response content is recorded in
 usage statistics.
 
@@ -123,21 +143,101 @@ inbound, channel membership, or existing legacy grants.
 
 Channel configuration accepts a typed policy: selected/excluded publication IDs,
 new-node include/exclude policy, organizer options, ordered rule groups and a
-final exit. The channel editor lists strategy groups in a left sidebar and edits
-the selected group's nodes and exit rules on the right. Group drafts survive
-switching groups and are persisted together by Save changes. Adding a node to a
-group also selects it for the channel. Referenced exits must be changed before
-removing their nodes or deleting/disabling the fallback group.
+final exit. Creating or opening a channel goes directly to the strategy-group
+workspace, without a separate channel-level node-selection screen. The editor
+lists strategy groups in a left sidebar and edits
+the selected group's nodes and exit rules on the right. Each sidebar card has a
+settings action, shown on hover or keyboard focus, opening a compact dialog for
+name, strategy type and client-side health checks without selecting that group.
+Touch devices keep the action visible. Group icons distinguish manual selection,
+automatic latency tests and fallback. Done applies the draft; Cancel or closing
+it discards those edits. Groups created, configured or selected as the final exit are enabled; there is no separate
+group enablement control. Opening the page or cancelling the dialog preserves
+previously stored disabled groups. The top-level toolbar
+contains back, channel settings, preview and save; node organization is available
+inside channel settings. Candidate cards show
+the node name and a compact source/protocol summary; addresses remain available
+on hover. A flag beside the sidebar's delete action toggles the selected group's
+optional final-exit status; its badge shares the counts row without wrapping or
+changing card height. Selecting another group replaces the previous
+choice, and clearing it restores direct fallback. New groups are not automatically
+selected as the final exit. The channel's existing node/reject/group fallback is
+preserved until explicitly changed. Group drafts survive
+switching groups and are persisted together by Save changes. Leaving an edited
+channel through Back, a subscription tab or another panel route prompts to keep
+editing or discard the changes. Confirmed departure clears the detail workspace;
+returning to Channels opens the channel list. Source settings and node edits use
+the same navigation protection. Adding a node to a
+group also selects it for the channel. Changing group membership maintains the current group
+exit while that node remains a member, otherwise selecting the first remaining
+candidate; an empty group rejects traffic. Removing a node also redirects any
+rules explicitly referencing that node to their group. The final group must be
+cleared before deletion. Existing exits remain unchanged until explicitly edited.
+Rule and rule-set actions sit beside the node/rule tabs. Their dialogs omit exit
+and enablement fields: confirmed rules are enabled and route through their group.
 Existing groups retain their candidate snapshot when new nodes arrive.
 Unavailable, hidden or cyclic node dependencies cannot silently become direct
 traffic: unavailable designated exits become reject actions. Group and native
 node names must not collide with generated reserved names.
+
+Groups explicitly store `type` (`select`, `url-test`, or `fallback`) and
+`builtin_nodes` (an array containing `direct` and/or `reject`, or empty).
+These fields are required; this development-stage schema deliberately provides
+no migration or implicit defaults for older group records. New groups have no
+candidates. Candidate cards start unselected. The toolbar orders Select all and
+Add nodes; selecting cards reveals one compact container with the selected count,
+a vertical dashed divider, Clear selection and the red Remove selected nodes
+button, in that order, before those actions.
+Card clicks, Select all and Clear selection only change local card selection;
+they do not change group membership, exits, rules or the saved draft. Select all
+selects visible candidates, preserving selections hidden by search; Clear selection
+clears all selections. Only Remove selected nodes removes the selected candidates
+from the group, including selections hidden by search, and clears the selection.
+Switching groups resets card selection without changing either group's members.
+Add opens
+a selection dialog containing available catalog nodes and both built-in cards;
+unsupported client options are disabled. Only confirmed additions appear in the
+group; cancelling the dialog discards its selection and sorting. Its title, compact
+selection actions and search share a header; there is no corner close button.
+Clicking a card toggles its selection outline, and selecting any new cards reveals
+the same count, dashed divider and clear action before Select all. Already-added
+cards remain checked and disabled and are excluded from the new-selection count.
+Card presentation is shared with subscription sources.
+DND-KIT sorts whole cards in both the picker and the candidate list; a short mouse
+movement threshold distinguishes dragging from selection, and touch uses a long
+press. Space/Enter toggle selection; F2 starts/finishes keyboard sorting, arrow
+keys move, and Escape cancels the drag without closing the picker. Filtering only
+reorders visible slots. Confirmed additions retain their mixed node/builtin order,
+and Save changes persists it. Built-ins remain separate
+from publication IDs, and Clear selection removes both kinds of candidates. Built-in candidates are never automatically
+injected into a nonempty group. An unavailable fixed manual exit still rejects
+traffic; the renderer may add a rejection target to enforce that behavior.
+Mihomo supports all three types and both built-ins. Current sing-box supports
+select/url-test and direct; fallback and reject candidates are rejected during
+validation and disabled in the editor. Sing-box rejection remains a route action,
+not an obsolete block outbound.
+
+Automatic groups may configure `health_check` with an HTTP(S) URL, an interval
+of 60–86400 seconds and URL-test tolerance of 0–65535 milliseconds. Defaults are
+`https://www.gstatic.com/generate_204`, 300 seconds and 50 ms. These checks run on
+the subscribing client, never on the panel. Auto groups retain candidate order
+using optional `candidate_order`, an exact permutation of `node:<publication ID>`
+and `builtin:<kind>` references. Missing, duplicate or unknown entries are rejected.
+When omitted, publication IDs precede built-ins. Manual initial-exit behavior is
+preserved (Mihomo promotes that exit to the first position). Fallback picks the
+first available candidate, whereas URL-test chooses by latency. An unavailable
+manual initial candidate does not suppress remaining auto-group candidates.
+An empty group is omitted and its routes reject traffic instead of becoming
+implicit direct connections. Preview and delivery use the same rendering path.
 
 Remote rule sets store metadata only. Sing-box uses source JSON or binary SRS;
 Mihomo uses YAML, TEXT or MRS with native behavior (MRS excludes classical).
 The client fetches the final URL; the panel never fetches, counts, uploads or
 converts rule content. GitHub acceleration unwraps known proxies and prefixes
 eligible original URLs with `https://gh-proxy.com/`, without a GitHub credential.
+The Link field contains a borderless acceleration icon. Clicking it toggles
+supported links; empty or unsupported links receive a Toast explanation instead
+of leaving the action disabled without feedback.
 
 Per-channel templates use native JSON/YAML and cannot replace generated nodes,
 groups, routing rules, providers or fallback. Sing-box templates and final output

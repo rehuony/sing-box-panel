@@ -1,12 +1,15 @@
+import { useState } from 'react';
+import { ArrowLeft } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import { useEffect, useRef, useState } from 'react';
 
-import type { ChannelPolicy, SubscriptionChannelConfig } from '@/api/api-client';
+import type { ChannelPolicy, SubscriptionChannelConfig, SubscriptionFormat } from '@/api/api-client';
 
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
-import { toast } from '@/components/ui/toast-manager';
-import { describeRequestError } from '@/components/error-notice';
+import { Switch } from '@/components/ui/switch';
+import { Textarea } from '@/components/ui/textarea';
+import { SelectField } from '@/components/select-field';
+import { useUnsavedChanges } from '@/hooks/use-unsaved-changes';
 import { Field, FieldDescription, FieldLabel } from '@/components/ui/field';
 import {
   Dialog,
@@ -17,9 +20,10 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 
-import { buildPublicSubscriptionURL } from './public-subscription-url';
+import { ChannelLinkDialog, ChannelTokenBinding } from './channel-token-links';
 
 interface Props {
+  name: string;
   legacy: boolean;
   enabled: boolean;
   channelID: string;
@@ -27,34 +31,23 @@ interface Props {
   onClose: () => void;
   policy: ChannelPolicy;
   onTemplate: () => void;
+  format: SubscriptionFormat;
   config: SubscriptionChannelConfig;
-  kind: 'organizer' | 'distribution';
-  onSave: (policy: ChannelPolicy, config: SubscriptionChannelConfig) => void;
+  onSave: (
+    policy: ChannelPolicy,
+    config: SubscriptionChannelConfig,
+    identity: { name: string; format: SubscriptionFormat },
+  ) => void;
 }
 export function ChannelOptions({
-  kind, policy, config, channelID, needsSave, enabled, legacy, onClose, onSave, onTemplate,
+  policy, config, channelID, needsSave, enabled, legacy, name, format, onClose, onSave, onTemplate,
 }: Props) {
   const { t } = useTranslation();
-  const [secret, setSecret] = useState('');
-  const [copying, setCopying] = useState(false);
-  const mountedRef = useRef(false);
-  useEffect(() => {
-    mountedRef.current = true;
-    return () => {
-      mountedRef.current = false;
-    };
-  }, []);
-  async function copyURL() {
-    setCopying(true);
-    try {
-      await navigator.clipboard.writeText(buildPublicSubscriptionURL(secret.trim(), channelID));
-      if (mountedRef.current) toast.add({ title: t('channels.copied'), type: 'success' });
-    } catch (reason) {
-      if (mountedRef.current) toast.add({ title: describeRequestError(reason), type: 'error' });
-    } finally {
-      if (mountedRef.current) setCopying(false);
-    }
-  }
+  const [kind, setKind] = useState<'organizer' | 'distribution'>('distribution');
+  const [draftName, setDraftName] = useState(name);
+  const [draftFormat, setDraftFormat] = useState(format);
+  const [tokenIDs, setTokenIDs] = useState(config.export_token_ids ?? []);
+  const [linkOpen, setLinkOpen] = useState(false);
   const [draft, setDraft] = useState(() => structuredClone(policy));
   const [exclusions, setExclusions] = useState(policy.organizer.exclude_names.join('\n'));
   const [tags, setTags] = useState(config.exclude_tags?.join('\n') ?? '');
@@ -69,133 +62,190 @@ export function ChannelOptions({
         .filter(Boolean),
     ),
   ];
+  const organizerChanged = JSON.stringify(draft.organizer) !== JSON.stringify(policy.organizer)
+    || exclusions !== policy.organizer.exclude_names.join('\n');
+  const tagsChanged = tags !== (config.exclude_tags?.join('\n') ?? '');
+  const typesChanged = types !== (config.exclude_types?.join('\n') ?? '');
+  const dirty = draftName !== name || draftFormat !== format
+    || draft.selection.new_node_policy !== policy.selection.new_node_policy
+    || organizerChanged || tagsChanged || typesChanged
+    || JSON.stringify(tokenIDs) !== JSON.stringify(config.export_token_ids ?? []);
+  const deliveryChanged = needsSave || dirty;
+  useUnsavedChanges(dirty, onClose);
   return (
-    <Dialog open onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className='channel-rule-dialog'>
-        <DialogHeader>
-          <DialogTitle>{t(`channels.${kind}`)}</DialogTitle>
-          <DialogDescription className='sr-only'>{t('channels.title')}</DialogDescription>
-        </DialogHeader>
-        <div className='channel-dialog-scroll'>
-          <div className='subscription-settings-fields'>
-            {kind === 'organizer'
-              ? (
-                  <>
-                    <label htmlFor='channel-prefix'>{t('channels.prefix')}</label>
-                    <input
-                      id='channel-prefix'
-                      maxLength={128}
-                      value={draft.organizer.prefix}
-                      onChange={(event) => update({ prefix: event.target.value })}
-                    />
-                    <label htmlFor='channel-exclusions'>{t('channels.exclusions')}</label>
-                    <textarea
-                      id='channel-exclusions'
-                      placeholder={t('channels.exclusionsHint')}
-                      value={exclusions}
-                      onChange={(event) => setExclusions(event.target.value)}
-                    />
-                    <label htmlFor='channel-sort'>{t('channels.sort')}</label>
-                    <select
-                      id='channel-sort'
-                      value={draft.organizer.sort}
-                      onChange={(event) => update({ sort: event.target.value as 'none' | 'name' })}
-                    >
-                      <option value='none'>{t('channels.original')}</option>
-                      <option value='name'>{t('channels.byName')}</option>
-                    </select>
-                    <label htmlFor='channel-dedup'>{t('channels.deduplicate')}</label>
-                    <input
-                      id='channel-dedup'
-                      type='checkbox'
-                      checked={draft.organizer.deduplicate}
-                      onChange={(event) => update({ deduplicate: event.target.checked })}
-                    />
-                    <label htmlFor='channel-incompatible'>{t('channels.incompatible')}</label>
-                    <select
-                      id='channel-incompatible'
-                      value={draft.organizer.incompatible}
-                      onChange={(event) => update({ incompatible: event.target.value as 'skip' | 'error' })}
-                    >
-                      <option value='skip'>{t('channels.skip')}</option>
-                      <option value='error'>{t('channels.stop')}</option>
-                    </select>
-                    {config.exclude_tags?.length || config.exclude_types?.length
-                      ? (
-                          <>
-                            <label htmlFor='legacy-tags'>{t('channels.legacyTags')}</label>
-                            <textarea
-                              id='legacy-tags'
-                              value={tags}
-                              onChange={(event) => setTags(event.target.value)}
-                            />
-                            <label htmlFor='legacy-types'>{t('channels.legacyTypes')}</label>
-                            <textarea
-                              id='legacy-types'
-                              value={types}
-                              onChange={(event) => setTypes(event.target.value)}
-                            />
-                          </>
-                        )
-                      : null}
-                  </>
-                )
-              : (
-                  <>
-                    <span>{t('channels.template')}</span>
-                    <Button variant='outline' disabled={legacy} onClick={onTemplate}>
-                      {t(draft.template ? 'channels.customTemplate' : 'channels.defaultTemplate')}
-                    </Button>
-                    <label htmlFor='channel-new-nodes'>{t('channels.newNodes')}</label>
-                    <select
-                      id='channel-new-nodes'
-                      disabled={legacy}
-                      value={draft.selection.new_node_policy}
-                      onChange={(event) =>
-                        setDraft({
-                          ...draft,
-                          selection: {
-                            ...draft.selection,
-                            new_node_policy: event.target.value as 'include' | 'exclude',
-                          },
-                        })
-                      }
-                    >
-                      <option value='include'>{t('channels.include')}</option>
-                      <option value='exclude'>{t('channels.exclude')}</option>
-                    </select>
-                  </>
-                )}
+    <>
+      {linkOpen && <ChannelLinkDialog channelID={channelID} tokenIDs={tokenIDs} onClose={() => setLinkOpen(false)} />}
+      <Dialog open onOpenChange={(open) => !open && onClose()}>
+        <DialogContent className={`channel-rule-dialog${kind === 'organizer' ? ' channel-organizer-dialog' : ''}`}>
+          <DialogHeader>
+            <div className='channel-options-heading'>
+              {kind === 'organizer' && (
+                <Button size='icon-sm' variant='ghost' aria-label={t('channels.back')} title={t('channels.back')} onClick={() => setKind('distribution')}><ArrowLeft /></Button>
+              )}
+              <DialogTitle>{t(`channels.${kind}`)}</DialogTitle>
+            </div>
+            <DialogDescription className='sr-only'>{t('channels.title')}</DialogDescription>
+          </DialogHeader>
+          <div className='channel-dialog-scroll'>
+            <div className={kind === 'organizer' ? 'channel-organizer-fields' : 'subscription-settings-fields'}>
+              {kind === 'organizer'
+                ? (
+                    <>
+                      <Field orientation='horizontal' className='channel-organizer-row'>
+                        <FieldLabel htmlFor='channel-prefix'>{t('channels.prefix')}</FieldLabel>
+                        <Input
+                          id='channel-prefix'
+                          maxLength={128}
+                          value={draft.organizer.prefix}
+                          onChange={(event) => update({ prefix: event.target.value })}
+                        />
+                      </Field>
+                      <Field orientation='horizontal' className='channel-organizer-row'>
+                        <FieldLabel htmlFor='channel-sort'>{t('channels.sort')}</FieldLabel>
+                        <SelectField<'none' | 'name'>
+                          id='channel-sort'
+                          value={draft.organizer.sort}
+                          onValueChange={(value) => update({ sort: value })}
+                          items={[
+                            { value: 'none', label: t('channels.original') },
+                            { value: 'name', label: t('channels.byName') },
+                          ]}
+                        />
+                      </Field>
+                      <Field orientation='horizontal' className='channel-organizer-row'>
+                        <FieldLabel htmlFor='channel-incompatible'>{t('channels.incompatible')}</FieldLabel>
+                        <SelectField<'skip' | 'error'>
+                          id='channel-incompatible'
+                          value={draft.organizer.incompatible}
+                          onValueChange={(value) => update({ incompatible: value })}
+                          items={[
+                            { value: 'skip', label: t('channels.skip') },
+                            { value: 'error', label: t('channels.stop') },
+                          ]}
+                        />
+                      </Field>
+                      <Field orientation='horizontal' className='channel-organizer-row'>
+                        <FieldLabel htmlFor='channel-dedup'>{t('channels.deduplicate')}</FieldLabel>
+                        <Switch
+                          id='channel-dedup'
+                          size='sm'
+                          checked={draft.organizer.deduplicate}
+                          onCheckedChange={(deduplicate) => update({ deduplicate })}
+                        />
+                      </Field>
+                      <Field>
+                        <div className='channel-organizer-label'>
+                          <FieldLabel htmlFor='channel-exclusions'>{t('channels.exclusions')}</FieldLabel>
+                          <FieldDescription id='channel-exclusions-hint'>{t('channels.exclusionsHint')}</FieldDescription>
+                        </div>
+                        <Textarea
+                          id='channel-exclusions'
+                          aria-describedby='channel-exclusions-hint'
+                          rows={3}
+                          value={exclusions}
+                          onChange={(event) => setExclusions(event.target.value)}
+                        />
+                      </Field>
+                      {config.exclude_tags?.length || config.exclude_types?.length
+                        ? (
+                            <>
+                              <Field>
+                                <FieldLabel htmlFor='legacy-tags'>{t('channels.legacyTags')}</FieldLabel>
+                                <Textarea id='legacy-tags' rows={2} value={tags} onChange={(event) => setTags(event.target.value)} />
+                              </Field>
+                              <Field>
+                                <FieldLabel htmlFor='legacy-types'>{t('channels.legacyTypes')}</FieldLabel>
+                                <Textarea id='legacy-types' rows={2} value={types} onChange={(event) => setTypes(event.target.value)} />
+                              </Field>
+                            </>
+                          )
+                        : null}
+                    </>
+                  )
+                : (
+                    <>
+                      <label htmlFor='channel-edit-name'>{t('channels.name')}</label>
+                      <input id='channel-edit-name' value={draftName} onChange={(event) => setDraftName(event.target.value)} />
+                      <label htmlFor='channel-output'>{t('channels.client')}</label>
+                      <SelectField<SubscriptionFormat>
+                        id='channel-output'
+                        value={draftFormat}
+                        onValueChange={setDraftFormat}
+                        items={[
+                          { value: 'sing-box', label: t('subscriptions.channel.format.singBox') },
+                          { value: 'mihomo', label: t('subscriptions.channel.format.mihomo') },
+                          ...(format === 'loon' ? [{ value: 'loon' as const, label: t('subscriptions.channel.format.loon') }] : []),
+                        ]}
+                      />
+                      <span>{t('channels.organizer')}</span>
+                      <Button variant='outline' disabled={legacy} onClick={() => setKind('organizer')}>{t('channels.organizer')}</Button>
+                      <span>{t('channels.template')}</span>
+                      <Button variant='outline' disabled={legacy || draftFormat !== format} onClick={onTemplate}>
+                        {t(draft.template ? 'channels.customTemplate' : 'channels.defaultTemplate')}
+                      </Button>
+                      <label htmlFor='channel-new-nodes'>{t('channels.newNodes')}</label>
+                      <SelectField<'include' | 'exclude'>
+                        id='channel-new-nodes'
+                        disabled={legacy}
+                        value={draft.selection.new_node_policy}
+                        onValueChange={(value) =>
+                          setDraft({
+                            ...draft,
+                            selection: {
+                              ...draft.selection,
+                              new_node_policy: value,
+                            },
+                          })
+                        }
+                        items={[
+                          { value: 'include', label: t('channels.include') },
+                          { value: 'exclude', label: t('channels.exclude') },
+                        ]}
+                      />
+                    </>
+                  )}
+            </div>
+            {kind === 'distribution' && draftFormat !== format && (
+              <p role='status' className='channel-delivery-hint'>{t('channels.applyClientFirst')}</p>
+            )}
+            {kind === 'distribution' && (
+              <Field className='channel-delivery'>
+                <FieldLabel htmlFor='channel-bound-keys'>{t('channels.boundKeys')}</FieldLabel>
+                <ChannelTokenBinding value={tokenIDs} onChange={setTokenIDs} />
+                <Button variant='outline' disabled={!tokenIDs.length || !enabled || deliveryChanged}
+                  title={deliveryChanged ? t('channels.saveBeforeCopy') : undefined}
+                  onClick={() => setLinkOpen(true)}>
+                  {t('channels.copyURL')}
+                </Button>
+              </Field>
+            )}
           </div>
-          {kind === 'distribution' && (
-            <Field className='channel-delivery'>
-              <FieldLabel htmlFor='channel-secret'>{t('channels.subscriptionKey')}</FieldLabel>
-              <Input id='channel-secret' type='password' autoComplete='off' value={secret} onChange={(event) => setSecret(event.target.value)} placeholder={t('channels.keyPlaceholder')} />
-              <FieldDescription>{t('channels.keyHint')}</FieldDescription>
-              {(needsSave || draft.selection.new_node_policy !== policy.selection.new_node_policy) && <p className='channel-delivery-hint'>{t('channels.saveBeforeCopy')}</p>}
-              {!enabled && <p className='channel-delivery-hint'>{t('channels.channelUnavailable')}</p>}
-              <Button variant='outline' disabled={copying || !secret.trim() || !enabled || needsSave || draft.selection.new_node_policy !== policy.selection.new_node_policy} onClick={() => void copyURL()}>{t('channels.copyURL')}</Button>
-            </Field>
-          )}
-        </div>
-        <DialogFooter>
-          <Button variant='outline' onClick={onClose}>
-            {t('common.cancel')}
-          </Button>
-          <Button
-            variant='default'
-            onClick={() => {
-              onSave(
-                { ...draft, organizer: { ...draft.organizer, exclude_names: split(exclusions) } },
-                kind === 'organizer' ? { ...config, exclude_tags: split(tags), exclude_types: split(types) } : config,
-              );
-              onClose();
-            }}
-          >
-            {t('channels.done')}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+          <DialogFooter>
+            <Button variant='outline' onClick={onClose}>
+              {t('common.cancel')}
+            </Button>
+            <Button
+              variant='default'
+              disabled={!draftName.trim()}
+              onClick={() => {
+                onSave(
+                  { ...draft, organizer: { ...draft.organizer, exclude_names: split(exclusions) } },
+                  {
+                    ...config,
+                    export_token_ids: tokenIDs,
+                    ...(tagsChanged ? { exclude_tags: split(tags) } : {}),
+                    ...(typesChanged ? { exclude_types: split(types) } : {}),
+                  },
+                  { name: draftName.trim(), format: draftFormat },
+                );
+                onClose();
+              }}
+            >
+              {t('channels.done')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }

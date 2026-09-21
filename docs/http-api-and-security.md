@@ -80,8 +80,9 @@ Use file or stdin inputs for secrets instead of command arguments.
 
 ## Concurrency and immutable evidence
 
-Configuration writes use revision preconditions. HTTP clients send the current
-revision through `If-Match`; a stale value receives `412 Precondition Failed`
+Configuration writes use revision preconditions. The editable file API accepts
+`{ revision, content }` in the `PUT /api/v1/config/file` JSON body; the legacy
+canonical API uses `If-Match`. A stale revision receives `412 Precondition Failed`
 and must be reviewed rather than overwritten automatically. Channel, source,
 user-grant, and token mutations use their documented compare-and-swap or
 lifecycle preconditions.
@@ -92,15 +93,17 @@ lifecycle operations revalidate that evidence; a candidate that fails the
 selected binary's `sing-box check` never becomes ready.
 
 Public subscription responses are rendered from one consistency read of the
-applied local startup artifact, current enabled source versions, channel,
-token user, and that user's exact grants. Response bodies are not frozen into
-activation bundles.
+applied local startup artifact, current enabled source versions, channel and key.
+Legacy user-bound keys additionally require an enabled user and exact grants;
+independent keys use channel publication policies. Response bodies are not frozen
+into activation bundles.
 
 An accepted asynchronous management request identifies a durable task; its
-initial task state is not proof that the operation completed. Browser surfaces
-other than the shared Start/Stop/Restart control show the accepted task ID and
-link to the Tasks page instead of starting another polling loop. API clients
-that require completion must inspect or wait for that task explicitly.
+initial task state is not proof that the operation completed. Core operations,
+source refresh and configuration validation wait for terminal task results;
+the shared runtime controls also track lifecycle completion. Task details are
+available from the panel log, not a separate Tasks page. API clients that require
+completion must inspect or wait for that task explicitly.
 
 ## Web presentation boundary
 
@@ -109,11 +112,11 @@ not load Schema-provided scripts, components, templates, or remote resources.
 Changing the selected artifact clears the previous Schema state before
 resolving the new exact version.
 
-The configuration response includes authoritative `document_json`. The Web
-editor uses a lossless codec, preserves unshown fields, and replaces the whole
-JSON object with the current `If-Match` revision. Exact versions without a
-native Schema use that Advanced editor exclusively. A `412` response preserves
-the local draft for review.
+The editable configuration response includes authoritative `content` text,
+`revision` and `syntax_valid`. The Web editor uses a lossless codec, preserves
+unshown fields, and saves the complete text with the current body revision.
+Exact versions without a native Schema use the Advanced editor exclusively.
+A `412` response preserves the local draft for review.
 
 See the [Web application reference](../web/README.md) for frontend ownership
 and build behavior.

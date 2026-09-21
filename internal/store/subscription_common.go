@@ -33,16 +33,17 @@ const (
 )
 
 var (
-	ErrSubscriptionChannelNotFound = errors.New("subscription channel not found")
-	ErrSubscriptionChannelExists   = errors.New("subscription channel already exists")
-	ErrSubscriptionSourceNotFound  = errors.New("subscription source not found")
-	ErrSubscriptionSourceExists    = errors.New("subscription source already exists")
-	ErrInvalidSubscriptionToken    = errors.New("invalid subscription token")
-	ErrSubscriptionTokenNotFound   = errors.New("subscription token not found")
-	ErrSubscriptionTokenExists     = errors.New("subscription token already exists")
-	ErrSubscriptionTokenInactive   = errors.New("subscription token is expired or revoked")
-	ErrSubscriptionConflict        = errors.New("subscription resource changed")
-	ErrSubscriptionLimitExceeded   = errors.New("subscription resource limit exceeded")
+	ErrSubscriptionChannelNotFound        = errors.New("subscription channel not found")
+	ErrSubscriptionChannelExists          = errors.New("subscription channel already exists")
+	ErrSubscriptionSourceNotFound         = errors.New("subscription source not found")
+	ErrSubscriptionSourceExists           = errors.New("subscription source already exists")
+	ErrInvalidSubscriptionToken           = errors.New("invalid subscription token")
+	ErrSubscriptionTokenSecretUnavailable = errors.New("subscription token secret unavailable")
+	ErrSubscriptionTokenNotFound          = errors.New("subscription token not found")
+	ErrSubscriptionTokenExists            = errors.New("subscription token already exists")
+	ErrSubscriptionTokenInactive          = errors.New("subscription token is expired or revoked")
+	ErrSubscriptionConflict               = errors.New("subscription resource changed")
+	ErrSubscriptionLimitExceeded          = errors.New("subscription resource limit exceeded")
 )
 
 // SubscriptionConflictError reports a failed updated_at compare-and-swap.
@@ -268,6 +269,11 @@ func insertSubscriptionToken(ctx context.Context, tx *sql.Tx, token Subscription
 	)
 	if err != nil {
 		return fmt.Errorf("insert subscription token: %w", err)
+	}
+	if token.Secret != "" {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO subscription_token_secrets(token_id, secret) VALUES (?, ?)`, token.ID, token.Secret); err != nil {
+			return fmt.Errorf("store subscription token secret: %w", err)
+		}
 	}
 	return nil
 }

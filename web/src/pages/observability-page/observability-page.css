@@ -65,7 +65,7 @@
   border-radius: var(--radius-control);
   color: var(--color-text);
   background: var(--color-surface-raised);
-  font-weight: 500;
+  font-weight: 400;
   min-width: 110px;
   max-width: 100%;
 }
@@ -83,17 +83,12 @@
   position: absolute;
   inset: 8px 12px auto auto;
   z-index: 1;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 4px 6px;
-  border: 1px solid var(--color-rule-2);
-  border-radius: var(--radius-pill);
-  background: color-mix(in srgb, var(--color-surface) 85%, transparent);
-  backdrop-filter: blur(16px);
 }
-.native-log__toggle[data-slot='button'] {
-  border-radius: var(--radius-pill);
+button.native-log__badge {
+  cursor: pointer;
+}
+button.native-log__badge:hover {
+  border-color: currentColor;
 }
 .native-log__badge {
   min-width: 84px;
@@ -101,9 +96,6 @@
   height: 28px;
   gap: 6px;
   padding: 4px 8px;
-}
-.native-log__badge:only-child {
-  margin-block: 2px;
 }
 .native-log__badge i {
   width: 6px;
@@ -164,14 +156,12 @@
   border-collapse: collapse;
   width: 100%;
   table-layout: fixed;
-  font-size: var(--text-sm);
 }
 .panel-log-table th {
   position: sticky;
   top: 0;
   z-index: 1;
   background: var(--color-surface-raised);
-  font-weight: 500;
   color: var(--color-text-muted);
 }
 .panel-log-table :is(td, th) {

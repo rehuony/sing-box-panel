@@ -42,30 +42,19 @@ export function selectedNodeIDs(policy: ChannelPolicy, nodes: SubscriptionNodeSu
       .map((node) => node.id),
   ]);
 }
-export function toggleChannelNode(policy: ChannelPolicy, id: string, selected: boolean): ChannelPolicy {
-  return {
-    ...policy,
-    selection: {
-      ...policy.selection,
-      ids: selected
-        ? [...new Set([...policy.selection.ids, id])]
-        : policy.selection.ids.filter((value) => value !== id),
-      excluded_ids: selected
-        ? policy.selection.excluded_ids.filter((value) => value !== id)
-        : [...new Set([...policy.selection.excluded_ids, id])],
-    },
-  };
-}
 export function newRuleGroup(nodeIDs: string[]): ChannelRuleGroup {
   return {
     id: crypto.randomUUID(),
     name: '',
     enabled: true,
+    type: 'select',
+    builtin_nodes: [],
     node_ids: [...nodeIDs],
-    default_exit: nodeIDs.length ? { kind: 'node', id: nodeIDs[0] } : { kind: 'direct' },
+    default_exit: nodeIDs.length ? { kind: 'node', id: nodeIDs[0] } : { kind: 'reject' },
     rules: [],
   };
 }
+export const defaultGroupHealthCheck = { url: 'https://www.gstatic.com/generate_204', interval: 300, tolerance: 50 };
 export function ruleFormats(format: SubscriptionFormat): readonly ChannelRemoteRuleSet['format'][] {
   return format === 'sing-box' ? (['source', 'binary'] as const) : (['yaml', 'text', 'mrs'] as const);
 }
@@ -73,7 +62,8 @@ export function incompatiblePolicy(policy: ChannelPolicy, format: SubscriptionFo
   return (
     (Boolean(policy.template) && policy.template!.format !== format)
     || policy.groups.some((group) =>
-      group.rules.some(
+      (format === 'sing-box' && (group.type === 'fallback' || group.builtin_nodes.includes('reject')))
+      || group.rules.some(
         (rule) =>
           rule.remote
           && (!ruleFormats(format).includes(rule.remote!.format)

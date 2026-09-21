@@ -40,12 +40,43 @@ type RouteExit struct {
 }
 
 type RuleGroup struct {
-	ID          string        `json:"id"`
-	Name        string        `json:"name"`
-	Enabled     bool          `json:"enabled"`
-	NodeIDs     []string      `json:"node_ids"`
-	DefaultExit RouteExit     `json:"default_exit"`
-	Rules       []ChannelRule `json:"rules"`
+	ID             string            `json:"id"`
+	Name           string            `json:"name"`
+	Enabled        bool              `json:"enabled"`
+	NodeIDs        []string          `json:"node_ids"`
+	DefaultExit    RouteExit         `json:"default_exit"`
+	Rules          []ChannelRule     `json:"rules"`
+	Type           string            `json:"type"`
+	BuiltinNodes   []string          `json:"builtin_nodes"`
+	CandidateOrder []string          `json:"candidate_order,omitempty"`
+	HealthCheck    *GroupHealthCheck `json:"health_check,omitempty"`
+}
+
+type GroupHealthCheck struct {
+	URL       string `json:"url"`
+	Interval  int    `json:"interval"`
+	Tolerance int    `json:"tolerance"`
+}
+
+func (g RuleGroup) healthCheck() GroupHealthCheck {
+	if g.HealthCheck != nil {
+		return *g.HealthCheck
+	}
+	return GroupHealthCheck{URL: "https://www.gstatic.com/generate_204", Interval: 300, Tolerance: 50}
+}
+
+func (g RuleGroup) candidateOrder() []string {
+	if g.CandidateOrder != nil {
+		return g.CandidateOrder
+	}
+	order := make([]string, 0, len(g.NodeIDs)+len(g.BuiltinNodes))
+	for _, id := range g.NodeIDs {
+		order = append(order, "node:"+id)
+	}
+	for _, kind := range g.BuiltinNodes {
+		order = append(order, "builtin:"+kind)
+	}
+	return order
 }
 
 // Rules and remote references share one ordered list. A disabled entry retains
@@ -131,6 +162,9 @@ func ValidateChannelPolicy(p *ChannelPolicy, format RenderFormat) error {
 			return policyError(path+".name", "invalid_or_duplicate_name")
 		}
 		names[group.Name] = true
+		if err := validateGroupOptions(group, format, path); err != nil {
+			return err
+		}
 		if err := policyIDs(group.NodeIDs, path+".node_ids"); err != nil {
 			return err
 		}
@@ -193,6 +227,60 @@ func ValidateChannelPolicy(p *ChannelPolicy, format RenderFormat) error {
 	}
 	_, err := parseChannelTemplate(p.Template, format)
 	return err
+}
+
+func validateGroupOptions(group RuleGroup, format RenderFormat, path string) error {
+	if group.CandidateOrder != nil {
+		members := make(map[string]bool, len(group.NodeIDs)+len(group.BuiltinNodes))
+		for _, id := range group.NodeIDs {
+			members["node:"+id] = true
+		}
+		for _, kind := range group.BuiltinNodes {
+			members["builtin:"+kind] = true
+		}
+		for _, key := range group.CandidateOrder {
+			if !members[key] {
+				return policyError(path+".candidate_order", "invalid_or_duplicate_value")
+			}
+			delete(members, key)
+		}
+		if len(members) != 0 {
+			return policyError(path+".candidate_order", "missing_candidates")
+		}
+	}
+	if group.BuiltinNodes == nil {
+		return policyError(path+".builtin_nodes", "required")
+	}
+	if !oneOf(group.Type, "select", "url-test", "fallback") {
+		return policyError(path+".type", "invalid_value")
+	}
+	if format == RenderFormatSingBox && group.Type == "fallback" {
+		return policyError(path+".type", "unsupported_client")
+	}
+	seen := map[string]bool{}
+	for _, kind := range group.BuiltinNodes {
+		if !oneOf(kind, "direct", "reject") || seen[kind] {
+			return policyError(path+".builtin_nodes", "invalid_or_duplicate_value")
+		}
+		if format == RenderFormatSingBox && kind == "reject" {
+			return policyError(path+".builtin_nodes", "unsupported_client")
+		}
+		seen[kind] = true
+	}
+	if group.Type == "select" && group.DefaultExit.Kind == "direct" && !seen["direct"] {
+		return policyError(path+".default_exit", "builtin_not_selected")
+	}
+	if group.HealthCheck != nil {
+		h := group.HealthCheck
+		u, err := url.Parse(h.URL)
+		if err != nil || len(h.URL) > 4096 || u.Hostname() == "" || !oneOf(u.Scheme, "http", "https") || u.User != nil || u.Fragment != "" || strings.ContainsAny(h.URL, "\r\n\t ") {
+			return policyError(path+".health_check.url", "invalid_url")
+		}
+		if h.Interval < 60 || h.Interval > 86400 || h.Tolerance < 0 || h.Tolerance > 65535 {
+			return policyError(path+".health_check", "invalid_value")
+		}
+	}
+	return nil
 }
 
 func policyID(s string) bool {

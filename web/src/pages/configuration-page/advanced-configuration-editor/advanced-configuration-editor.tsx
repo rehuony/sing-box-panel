@@ -11,6 +11,7 @@ import { Compartment, EditorState, Transaction } from '@codemirror/state';
 import { Braces, FoldVertical, Search, UnfoldVertical } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
+import { ErrorNotice } from '@/components/error-notice';
 
 import { SearchPanelHost } from './search-panel-host';
 import { EditorSearchPanel } from './editor-search-panel';
@@ -128,7 +129,7 @@ export function AdvancedConfigurationEditor({ disabled, text, error, onChange }:
       </div>
       <div className='advanced-configuration-editor__code' ref={hostRef} />
       {searchPanel && createPortal(<EditorSearchPanel host={searchPanel} />, searchPanel.dom)}
-      {error === null ? null : <p className='configuration-json-error' id='configuration-json-error' role='alert'>{error instanceof Error ? error.message : t('configuration.advanced.invalidJSON')}</p>}
+      {error === null ? null : <ErrorNotice id='configuration-json-error' error={error instanceof Error ? error.message : t('configuration.advanced.invalidJSON')} />}
     </div>
   );
 }

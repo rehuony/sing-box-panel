@@ -1,13 +1,15 @@
+import { useLocation } from 'react-router-dom';
 import { describe, expect, it, vi } from 'vitest';
 import userEvent from '@testing-library/user-event';
-import { MemoryRouter, useLocation } from 'react-router-dom';
 import { act, render, screen, waitFor } from '@testing-library/react';
 
-import '@/i18n';
 import { ThemeProvider } from '@/theme';
+import '@/i18n';
+import { Toaster } from '@/components/ui/toast';
 import { AppRoutes } from '@/routes/app.routes';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { ApiClientProvider } from '@/api/api-client-context';
+import { TestRouter as MemoryRouter } from '@/tests/test-router';
 import { AuthSessionProvider } from '@/stores/auth-session-provider';
 import { createMockApiClient, testSession } from '@/tests/api/mock-api-client';
 
@@ -20,18 +22,20 @@ function LocationProbe() {
 
 function renderRoutes(initialEntry: string, client = createMockApiClient()) {
   return render(
-    <ApiClientProvider client={client}>
-      <ThemeProvider>
-        <TooltipProvider delay={0}>
-          <AuthSessionProvider>
-            <MemoryRouter initialEntries={[initialEntry]}>
-              <AppRoutes />
-              <LocationProbe />
-            </MemoryRouter>
-          </AuthSessionProvider>
-        </TooltipProvider>
-      </ThemeProvider>
-    </ApiClientProvider>,
+    <Toaster>
+      <ApiClientProvider client={client}>
+        <ThemeProvider>
+          <TooltipProvider delay={0}>
+            <AuthSessionProvider>
+              <MemoryRouter initialEntries={[initialEntry]}>
+                <AppRoutes />
+                <LocationProbe />
+              </MemoryRouter>
+            </AuthSessionProvider>
+          </TooltipProvider>
+        </ThemeProvider>
+      </ApiClientProvider>
+    </Toaster>,
   );
 }
 
@@ -120,7 +124,7 @@ describe('application routes', () => {
     renderRoutes('/configuration', client);
 
     expect(
-      await screen.findByRole('heading', { name: 'The panel service could not be reached.' }),
+      await screen.findByText('The panel service could not be reached.', { selector: '[data-slot="toast-title"]' }),
     ).toBeInTheDocument();
     expect(screen.queryByLabelText('Management token')).not.toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Try again' }));
@@ -152,7 +156,7 @@ describe('application routes', () => {
     await openSignOut(user);
 
     expect(
-      await screen.findByText('Sign out failed; your current session is still active'),
+      await screen.findByText('Sign out failed; your current session is still active', { selector: '[data-slot="toast-title"]' }),
     ).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Sign out' })).toBeInTheDocument();
   });

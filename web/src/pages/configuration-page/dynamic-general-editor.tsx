@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 
 import type { ReviewedSchemaResolution } from '@/schemas/resolve-reviewed-schema';
 
+import { useHashTab } from '@/hooks/use-hash-tab';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
 import type { CanonicalDraft } from './use-canonical-configuration';
@@ -44,9 +45,10 @@ export function DynamicGeneralEditor({
       };
       return position(left) - position(right);
     });
+  const [section, setSection] = useHashTab('configuration-visual/', sections.map(([name]) => name), linkedInbound ? 'inbounds' : sections[0]?.[0] ?? 'log');
   if (sections.length === 0) return null;
   return (
-    <Tabs className='configuration-general' defaultValue={linkedInbound ? 'inbounds' : sections[0][0]} orientation='vertical'>
+    <Tabs className='configuration-general' value={section} onValueChange={setSection} orientation='vertical'>
       <TabsList aria-label={t('configuration.general.modules')} className='configuration-general__nav'>
         {sections.map(([name, schema]) => (
           <TabsTrigger data-section-start={name === 'ntp' || name === 'experimental' || undefined} key={name} value={name}>{label(schema, i18n.language, t(`configuration.general.labels.${name}`, { defaultValue: name }))}</TabsTrigger>

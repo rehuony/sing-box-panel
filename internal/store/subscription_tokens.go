@@ -4,18 +4,22 @@ package store
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"time"
 )
 
 type SubscriptionToken struct {
-	ID                     string
-	UserID                 string
-	Label                  string
-	DownloadLimit          *int64
-	TokenSHA256            string
+	ID            string
+	UserID        string
+	Label         string
+	DownloadLimit *int64
+	TokenSHA256   string
+	// Secret is accepted at creation only; ordinary token reads return metadata.
+	Secret                 string `json:"-"`
 	Enabled                bool
 	ExpiresAt              *time.Time
 	RevokedAt              *time.Time
@@ -24,6 +28,21 @@ type SubscriptionToken struct {
 	BytesServed            int64
 	LastUsedAt             *time.Time
 	CreatedAt              time.Time
+}
+
+func (s *Store) SubscriptionTokenSecret(ctx context.Context, tokenID string) (string, error) {
+	var secret string
+	err := s.db.QueryRowContext(ctx, `SELECT secret FROM subscription_token_secrets WHERE token_id = ?`, tokenID).Scan(&secret)
+	if errors.Is(err, sql.ErrNoRows) {
+		if _, lookupErr := s.GetSubscriptionToken(ctx, tokenID); lookupErr != nil {
+			return "", lookupErr
+		}
+		return "", ErrSubscriptionTokenSecretUnavailable
+	}
+	if err != nil {
+		return "", fmt.Errorf("read subscription token secret: %w", err)
+	}
+	return secret, nil
 }
 
 // Active reports whether a token is usable at the supplied instant. Expiry is
@@ -408,6 +427,12 @@ func prepareNewSubscriptionToken(token SubscriptionToken) (SubscriptionToken, er
 	digest, err := normalizeTokenDigest(token.TokenSHA256)
 	if err != nil {
 		return SubscriptionToken{}, err
+	}
+	if token.Secret != "" {
+		sum := sha256.Sum256([]byte(token.Secret))
+		if len(token.Secret) > 512 || hex.EncodeToString(sum[:]) != digest {
+			return SubscriptionToken{}, errors.New("subscription token secret does not match its digest")
+		}
 	}
 	createdAt := token.CreatedAt
 	if createdAt.IsZero() {

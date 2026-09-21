@@ -1,4 +1,4 @@
-import { Plus } from 'lucide-react';
+import { CirclePlus } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
@@ -9,6 +9,7 @@ import { toast } from '@/components/ui/toast-manager';
 import { useApiClient } from '@/api/api-client-context';
 import { SelectField } from '@/components/select-field';
 import { ToolbarActions } from '@/components/workspace-toolbar';
+import { useUnsavedChanges } from '@/hooks/use-unsaved-changes';
 import { describeRequestError, ErrorNotice } from '@/components/error-notice';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 
@@ -34,6 +35,12 @@ export function SubscriptionTokenPanel({ active = true, toolbarTarget }: {
   const [issued, setIssued] = useState<CreatedSubscriptionToken | null>(null);
   const [confirmation, setConfirmation] = useState<{ action: KeyAction; key: SubscriptionToken } | null>(null);
   const [busy, setBusy] = useState(false);
+  useUnsavedChanges(creating && (label !== '' || expiry !== '' || limit !== ''), () => {
+    setCreating(false);
+    setLabel('');
+    setExpiry('');
+    setLimit('');
+  }, busy);
   const cursor = cursors[page];
   const requestKey = `${pageSize}:${cursor?.id ?? ''}:${cursor?.created_at ?? ''}:${reload}`;
   const loading = completedRequest?.key !== requestKey;
@@ -133,6 +140,19 @@ export function SubscriptionTokenPanel({ active = true, toolbarTarget }: {
       setBusy(false);
     }
   }
+  async function reveal(key: SubscriptionToken) {
+    if (busy) return;
+    const generation = operationRef.current;
+    setBusy(true);
+    try {
+      const secret = await client.getSubscriptionTokenSecret(key.id);
+      if (generation === operationRef.current) setIssued({ metadata: key, token: secret.token });
+    } catch (reason) {
+      if (generation === operationRef.current) report(reason);
+    } finally {
+      if (generation === operationRef.current) setBusy(false);
+    }
+  }
   async function copy(value: string) {
     const generation = operationRef.current;
     try {
@@ -147,7 +167,7 @@ export function SubscriptionTokenPanel({ active = true, toolbarTarget }: {
     <section className='subscription-panel subscription-keys' aria-label={t('subscriptions.tabs.tokens')}>
       <ToolbarActions active={active} target={toolbarTarget}>
         <div className='subscription-keys__toolbar workspace-toolbar-content'>
-          <Button aria-label={t('subscriptions.keys.create')} size='icon' variant='outline' disabled={busy} onClick={() => setCreating(true)}><Plus /></Button>
+          <Button aria-label={t('subscriptions.keys.create')} title={t('subscriptions.keys.create')} size='icon-sm' variant='ghost' disabled={busy} onClick={() => setCreating(true)}><CirclePlus aria-hidden='true' /></Button>
         </div>
       </ToolbarActions>
       {error ? <ErrorNotice error={error} title={t('subscriptions.token.loadFailed')} /> : null}
@@ -173,6 +193,7 @@ export function SubscriptionTokenPanel({ active = true, toolbarTarget }: {
                 <td><span className={`state-label ${key.active ? 'state-label--success' : ''}`}>{keyState(key)}</span></td>
                 <td>
                   <div className='subscription-keys__actions'>
+                    <Button variant='outline' size='sm' disabled={busy || loading} onClick={() => void reveal(key)}>{t('subscriptions.keys.view')}</Button>
                     <Button variant='outline' size='sm' disabled={busy || loading || !!key.revoked_at} onClick={() => void run('toggle', key)}>{t(key.enabled ? 'subscriptions.common.disable' : 'subscriptions.common.enable')}</Button>
                     {(['rotate', 'delete'] as const).map(action => (
                       <Button key={action} variant={action === 'delete' ? 'destructive' : 'outline'} size='sm' disabled={busy || loading || (action === 'rotate' && !!key.revoked_at)} onClick={() => setConfirmation({ action, key })}>{t(`subscriptions.token.action.${action}.name`)}</Button>
@@ -242,8 +263,8 @@ export function SubscriptionTokenPanel({ active = true, toolbarTarget }: {
       }}>
         <DialogContent className='sm:max-w-[640px]'>
           <DialogHeader>
-            <DialogTitle>{t('subscriptions.keys.created')}</DialogTitle>
-            <DialogDescription className='sr-only'>{t('subscriptions.token.secret.oneTime')}</DialogDescription>
+            <DialogTitle>{t('subscriptions.keys.details')}</DialogTitle>
+            <DialogDescription className='sr-only'>{t('subscriptions.keys.key')}</DialogDescription>
           </DialogHeader>
           {issued
             ? (

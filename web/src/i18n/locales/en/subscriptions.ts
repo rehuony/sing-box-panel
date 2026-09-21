@@ -1,5 +1,8 @@
 export const subscriptions = {
   nodes: {
+    sortableCard: 'Sortable node card',
+    dragInstructions: 'Press F2 to start reordering, arrow keys to move, F2 to finish, or Escape to cancel.',
+    orderSaveFailed: 'The order could not be saved in this browser.',
     detour: 'Detour',
     tlsRequired: 'TLS is required by this protocol.',
     endpointMode: 'Server connection',
@@ -26,6 +29,8 @@ export const subscriptions = {
       dial: 'Connection options',
     },
     manual: 'Manual nodes',
+    system: 'System node',
+    imported: 'Imported node',
     empty: 'No nodes',
     select: 'Select {{name}}',
     show: 'Show {{name}}',
@@ -71,6 +76,8 @@ export const subscriptions = {
     deletePrompt: 'Delete “{{name}}” and its subscription nodes?',
   },
   keys: {
+    secretUnavailable: 'This older key has no stored secret. Rotate it and bind the replacement key to the channel.',
+    view: 'View', details: 'Key details',
     create: 'Create key',
     created: 'Key created',
     key: 'Key',
@@ -348,7 +355,7 @@ export const subscriptions = {
       copyFailed: 'Could not copy to the clipboard: {{error}}',
       loadingChannels: 'Loading enabled channels…',
       noChannels: 'Create or enable a channel before copying a client URL.',
-      oneTime: 'It cannot be shown again after this notice is dismissed or the page reloads.',
+      oneTime: 'You can reveal this key again from key management.',
       saveCreated: 'Save this token now',
       saved: 'I saved it',
       saveRotated: 'Save the replacement now',

@@ -4,7 +4,8 @@ import { HexColorPicker } from 'react-colorful';
 
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
-import { Field, FieldError, FieldLabel } from '@/components/ui/field';
+import { ErrorNotice } from '@/components/error-notice';
+import { Field, FieldLabel } from '@/components/ui/field';
 import { Dialog, DialogClose, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 
 import './appearance-color-picker.css';
@@ -61,7 +62,7 @@ export function AppearanceColorPicker({ id, value, onChange }: {
             value={draft}
             onChange={event => updateColor(event.target.value)}
           />
-          {!valid && <FieldError id={`${hexId}-error`}>{t('panelSettings.invalidColor')}</FieldError>}
+          {!valid && <ErrorNotice id={`${hexId}-error`} error={t('panelSettings.invalidColor')} />}
         </Field>
         <DialogFooter>
           <DialogClose render={<Button type='button' variant='outline' />}>{t('panelSettings.cancel')}</DialogClose>

@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"slices"
 	"strings"
 	"testing"
 
@@ -115,5 +116,79 @@ func TestChannelPolicyPreviewDeliveryAndVisibility(t *testing.T) {
 	unchanged, err = app.SubscriptionChannel(ctx, channel.ID)
 	if err != nil || unchanged.UpdatedAt != channel.UpdatedAt || !strings.Contains(string(unchanged.Config), `warn`) {
 		t.Fatal("invalid save modified channel", err)
+	}
+}
+
+func TestChannelStrategyTypesPersistPreviewAndDeliver(t *testing.T) {
+	ctx := context.Background()
+	_, app, handler := newSubscriptionHTTPServices(t, "")
+	node, err := app.CreateSubscriptionNode(ctx, []byte(`{"type":"socks","tag":"Example","server":"node.example.com","server_port":1080}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	key, err := app.CreateSubscriptionToken(ctx, application.CreateSubscriptionTokenRequest{Label: "Strategy checks"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		format   string
+		kind     string
+		builtins []string
+	}{
+		{"sing-box", "select", []string{"direct"}},
+		{"sing-box", "url-test", []string{"direct"}},
+		{"mihomo", "select", []string{"direct", "reject"}},
+		{"mihomo", "url-test", []string{}},
+		{"mihomo", "fallback", []string{"direct"}},
+	} {
+		t.Run(test.format+" "+test.kind, func(t *testing.T) {
+			policy := &subscription.ChannelPolicy{
+				Selection:   subscription.NodeSelection{IDs: []string{node.ID}, ExcludedIDs: []string{}, NewNodePolicy: "exclude"},
+				Organizer:   subscription.NodeOrganizer{ExcludeNames: []string{}, Sort: "none", Incompatible: "error"},
+				DefaultExit: subscription.RouteExit{Kind: "group", ID: "group"},
+				Groups:      []subscription.RuleGroup{{ID: "group", Name: "Main", Enabled: true, Type: test.kind, BuiltinNodes: test.builtins, NodeIDs: []string{node.ID}, DefaultExit: subscription.RouteExit{Kind: "node", ID: node.ID}, Rules: []subscription.ChannelRule{}, HealthCheck: &subscription.GroupHealthCheck{URL: "https://probe.example/check", Interval: 3600, Tolerance: 0}}},
+			}
+			for _, kind := range test.builtins {
+				policy.Groups[0].CandidateOrder = append(policy.Groups[0].CandidateOrder, "builtin:"+kind)
+			}
+			policy.Groups[0].CandidateOrder = append(policy.Groups[0].CandidateOrder, "node:"+node.ID)
+			config, _ := json.Marshal(store.SubscriptionChannelConfig{Policy: policy})
+			raw, _ := json.Marshal(map[string]any{"name": test.format + " " + test.kind, "format": test.format, "config": json.RawMessage(config), "enabled": true})
+			created := authenticatedRequest(handler, http.MethodPost, "/api/v1/subscription/channels", string(raw), "")
+			if created.Code != http.StatusCreated {
+				t.Fatal(created.Code, created.Body.String())
+			}
+			var channel application.SubscriptionChannel
+			if err := json.Unmarshal(created.Body.Bytes(), &channel); err != nil {
+				t.Fatal(err)
+			}
+			stored, err := app.SubscriptionChannel(ctx, channel.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var restored store.SubscriptionChannelConfig
+			if err := json.Unmarshal(stored.Config, &restored); err != nil {
+				t.Fatal(err)
+			}
+			actual := restored.Policy.Groups[0]
+			if !slices.Equal(actual.CandidateOrder, policy.Groups[0].CandidateOrder) {
+				t.Fatalf("lost candidate order: %v", actual.CandidateOrder)
+			}
+			if actual.Type != test.kind || actual.BuiltinNodes == nil || len(actual.BuiltinNodes) != len(test.builtins) || actual.HealthCheck.Tolerance != 0 {
+				t.Fatalf("lost group settings: %+v", actual)
+			}
+			preview := authenticatedRequest(handler, http.MethodPost, "/api/v1/subscription/channels/"+channel.ID+"/preview", "{}", "")
+			if preview.Code != http.StatusOK {
+				t.Fatal(preview.Code, preview.Body.String())
+			}
+			var rendered application.SubscriptionPreview
+			if err := json.Unmarshal(preview.Body.Bytes(), &rendered); err != nil {
+				t.Fatal(err)
+			}
+			public := publicSubscriptionRequest(handler, "/sub/"+key.Token+"/"+channel.ID)
+			if public.Code != http.StatusOK || public.Body.String() != string(rendered.Result.Content) {
+				t.Fatal("preview/delivery mismatch", public.Code, public.Body.String())
+			}
+		})
 	}
 }

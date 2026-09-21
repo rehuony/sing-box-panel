@@ -27,7 +27,7 @@ func (application *Application) CreateSubscriptionToken(
 	now := application.now().UTC()
 	stored, err := application.database.CreateSubscriptionToken(ctx, store.SubscriptionToken{
 		ID: id, UserID: strings.TrimSpace(request.UserID), Label: strings.TrimSpace(request.Label),
-		TokenSHA256: digest, Enabled: true, ExpiresAt: cloneTime(request.ExpiresAt), CreatedAt: now, DownloadLimit: request.DownloadLimit,
+		TokenSHA256: digest, Secret: plaintext, Enabled: true, ExpiresAt: cloneTime(request.ExpiresAt), CreatedAt: now, DownloadLimit: request.DownloadLimit,
 	})
 	if err != nil {
 		return CreatedSubscriptionToken{}, err
@@ -36,6 +36,15 @@ func (application *Application) CreateSubscriptionToken(
 		Metadata: applicationSubscriptionToken(stored, now),
 		Token:    plaintext,
 	}, nil
+}
+
+// SubscriptionTokenSecret is exposed only through authenticated administration.
+func (application *Application) SubscriptionTokenSecret(ctx context.Context, tokenID string) (SubscriptionTokenSecret, error) {
+	secret, err := application.database.SubscriptionTokenSecret(ctx, strings.TrimSpace(tokenID))
+	if err != nil {
+		return SubscriptionTokenSecret{}, err
+	}
+	return SubscriptionTokenSecret{Token: secret}, nil
 }
 
 func (application *Application) SubscriptionToken(
@@ -113,7 +122,7 @@ func (application *Application) RotateSubscriptionToken(
 		current.ID,
 		store.SubscriptionToken{
 			ID: replacementID, UserID: current.UserID, Label: current.Label,
-			TokenSHA256: digest, ExpiresAt: cloneTime(expiresAt),
+			TokenSHA256: digest, Secret: plaintext, ExpiresAt: cloneTime(expiresAt),
 		},
 		now,
 	)

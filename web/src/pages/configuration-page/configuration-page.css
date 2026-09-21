@@ -207,6 +207,11 @@
   font-size: var(--text-sm);
 }
 
+.managed-node-card :is(strong, [data-slot='badge'], [data-slot='button']),
+.revision-card :is(strong, .state-label, [data-slot='button']) {
+  font-weight: 400;
+}
+
 .managed-node-card__identity span {
   color: var(--color-text-muted);
   font-family: var(--font-data);
@@ -438,12 +443,12 @@
   padding-top: var(--space-sm);
 }
 
-.revision-compare-controls label span {
+.revision-compare-controls label > span {
   color: var(--color-text-muted);
   font-size: var(--text-xs);
 }
 
-.revision-compare-controls select {
+.revision-compare-controls [data-slot='select-trigger'] {
   min-width: 5rem;
 }
 
@@ -469,9 +474,7 @@
   min-width: 0;
 }
 
-.startup-workflow input,
-.startup-workflow select,
-.revision-section select {
+.startup-workflow input {
   background: var(--color-form-control-surface);
   border: var(--rule-thin) solid var(--color-border-strong);
   border-radius: var(--radius-control);
@@ -704,11 +707,6 @@
   background: transparent;
 }
 
-.configuration-json-error {
-  color: var(--color-danger);
-  font-size: var(--text-xs);
-  margin: 8px 0;
-}
 .managed-editor__toolbar {
   justify-content: flex-end;
 }

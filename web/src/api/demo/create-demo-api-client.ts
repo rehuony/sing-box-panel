@@ -385,6 +385,7 @@ function matchesLog(entry: LogEntry, filter: Parameters<ApiClient['listLogs']>[0
  */
 export function createDemoApiClient(): ApiClient {
   const state = createState();
+  const tokenSecrets = new Map(state.tokens.map((token) => [token.id, `sbp_demo_${token.id}_secret`]));
   const nodeApi = createDemoNodeApi([...demoManualNodes(), ...demoSourceNodeDetails(state)]);
   let panelSettings: PanelSettingsView = {
     revision: 0,
@@ -1092,6 +1093,10 @@ export function createDemoApiClient(): ApiClient {
       const keys = state.tokens.map((key) => ({ ...key, active: subscriptionKeyActive(key) }));
       return respond(pageByCreatedAt(keys, filter), signal);
     },
+    getSubscriptionTokenSecret(tokenID, signal) {
+      requireItem(state.tokens, tokenID, 'Subscription token');
+      return respond({ token: tokenSecrets.get(tokenID)! }, signal);
+    },
     getSubscriptionToken(tokenID, signal) {
       const key = requireItem(state.tokens, tokenID, 'Subscription token');
       return respond({ ...key, active: subscriptionKeyActive(key) }, signal);
@@ -1127,6 +1132,7 @@ export function createDemoApiClient(): ApiClient {
         active: true,
       };
       state.tokens.unshift(token);
+      tokenSecrets.set(token.id, `sbp_demo_${state.nextID}_one_time_secret`);
       return respond(
         { metadata: token, token: `sbp_demo_${state.nextID}_one_time_secret` },
         signal,
@@ -1152,6 +1158,7 @@ export function createDemoApiClient(): ApiClient {
       };
       created.active = subscriptionKeyActive(created);
       state.tokens.unshift(created);
+      tokenSecrets.set(created.id, `sbp_demo_${state.nextID}_rotated_secret`);
       return respond(
         { revoked, created, token: `sbp_demo_${state.nextID}_rotated_secret` },
         signal,
@@ -1173,6 +1180,7 @@ export function createDemoApiClient(): ApiClient {
       assertActive(signal);
       requireItem(state.tokens, tokenID, 'Subscription token');
       state.tokens = state.tokens.filter((item) => item.id !== tokenID);
+      tokenSecrets.delete(tokenID);
       await respond(undefined, signal);
     },
     ...createDemoCoreLogs(),

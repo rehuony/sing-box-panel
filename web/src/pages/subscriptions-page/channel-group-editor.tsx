@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { ArrowDown, ArrowRight, ArrowUp, Network, Pencil, Plus, Route, Search, Trash2 } from 'lucide-react';
+import { ArrowDown, ArrowRight, ArrowUp, CirclePlus, Pencil, Route, Search, Trash2 } from 'lucide-react';
 
 import type {
   ChannelRouteExit,
@@ -11,16 +11,20 @@ import type {
 } from '@/api/api-client';
 
 import { Badge } from '@/components/ui/badge';
-import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
-import { Field, FieldGroup, FieldLabel } from '@/components/ui/field';
+import { ErrorNotice } from '@/components/error-notice';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty';
 
+import type { ChannelNodeCard } from './channel-node-cards';
+
 import { ruleFormats } from './channel-policy';
+import { candidateOrder } from './channel-node-order';
+import { ChannelNodeCards } from './channel-node-cards';
+import { ChannelNodePicker } from './channel-node-picker';
 import { ChannelRuleEditor } from './channel-rule-editor';
-import { ChannelRouteExitSelect } from './channel-route-exit';
-import { subscriptionNodeAddress } from './subscription-node-address';
+import { ChannelNodeActions } from './channel-node-actions';
+import { reorderVisibleNodes } from './subscription-node-order';
 
 interface Props {
   busy: boolean;
@@ -31,23 +35,47 @@ interface Props {
 }
 export function ChannelGroupEditor({ group, nodes, format, busy, onChange }: Props) {
   const { t } = useTranslation();
+  const [addingNodes, setAddingNodes] = useState(false);
   const [rule, setRule] = useState<ChannelRule | null>(null);
-  const [error, setError] = useState('');
   const [search, setSearch] = useState('');
-  const candidates = nodes.filter((node) => group.node_ids.includes(node.id));
-  const visible = nodes.filter((node) => (!node.hidden && node.available) || group.node_ids.includes(node.id));
+  const [tab, setTab] = useState('nodes');
+  const [selected, setSelected] = useState<string[]>([]);
   const matches = (value: string) => value.toLowerCase().includes(search.trim().toLowerCase());
-  const filtered = visible.filter((node) => matches(`${node.name} ${node.source_name} ${node.type}`));
-  const missing = group.node_ids.filter((id) => !nodes.some((node) => node.id === id));
-  function select(node_ids: string[]) {
-    const exits = [group.default_exit, ...group.rules.map((item) => item.exit)];
-    if (exits.some((exit) => exit.kind === 'node' && !node_ids.includes(exit.id!))) {
-      setError(t('channels.nodeExitInUse'));
-      return;
-    }
-    setError('');
-    onChange({ ...group, node_ids });
+  const builtins = group.builtin_nodes;
+  const order = candidateOrder(group);
+  const selectedIDs = new Set(order.filter((id) => selected.includes(id)));
+  const catalog = new Map(nodes.map((node) => [node.id, node]));
+  const cards: ChannelNodeCard[] = order.flatMap((id) => {
+    const builtin = id === 'builtin:direct' ? 'direct' : id === 'builtin:reject' ? 'reject' : undefined;
+    const node = builtin ? undefined : catalog.get(id.slice(5));
+    const label = builtin ? builtin.toUpperCase() : node ? `${node.name} ${node.source_name}` : t('channels.missingNode');
+    if (!matches(builtin ? `${label} ${t(`channels.${builtin}`)}` : `${label} ${node?.type ?? id}`)) return [];
+    return [{
+      id, label, node, builtin, selected: selectedIDs.has(id), disabled: busy,
+      unavailable: !builtin && (!node || node.hidden || !node.available),
+    }];
+  });
+  function updateCandidates(node_ids: string[], builtin_nodes = builtins, candidate_order = order) {
+    // Keep the current candidate when possible; an empty group must not leak to direct.
+    const default_exit: ChannelRouteExit = group.default_exit.kind === 'node' && node_ids.includes(group.default_exit.id!)
+      ? group.default_exit
+      : group.default_exit.kind === 'direct' && builtin_nodes.includes('direct')
+        ? group.default_exit
+        : node_ids.length
+          ? { kind: 'node', id: node_ids[0] }
+          : { kind: builtin_nodes[0] ?? 'reject' };
+    onChange({
+      ...group,
+      node_ids,
+      builtin_nodes,
+      candidate_order: candidateOrder({ node_ids, builtin_nodes, candidate_order }),
+      default_exit,
+      rules: group.rules.map((item) => item.exit.kind === 'node' && !node_ids.includes(item.exit.id!)
+        ? { ...item, exit: { kind: 'group-default' } }
+        : item),
+    });
   }
+
   function exitLabel(exit: ChannelRouteExit) {
     if (exit.kind === 'node') return nodes.find((node) => node.id === exit.id)?.name ?? t('channels.missingNode');
     return t(exit.kind === 'group-default' ? 'channels.follow' : exit.kind === 'reject' ? 'channels.reject' : 'channels.direct');
@@ -79,103 +107,85 @@ export function ChannelGroupEditor({ group, nodes, format, busy, onChange }: Pro
   }
   return (
     <section className='channel-group-editor' aria-label={t('channels.editGroup')}>
+      {addingNodes && (
+        <ChannelNodePicker
+          nodes={nodes}
+          group={group}
+          format={format}
+          onClose={() => setAddingNodes(false)}
+          onAdd={(ids, builtinNodes, addedOrder) => {
+            updateCandidates(
+              [...new Set([...group.node_ids, ...ids])],
+              [...new Set([...builtins, ...builtinNodes])],
+              [...order, ...addedOrder],
+            );
+            setAddingNodes(false);
+          }} />
+      )}
       <fieldset className='channel-group-fields' disabled={busy}>
-        <FieldGroup className='channel-group-header'>
-          <Field>
-            <FieldLabel htmlFor='group-name'>{t('channels.groupName')}</FieldLabel>
-            <Input
-              id='group-name'
-              maxLength={128}
-              value={group.name}
-              onChange={(event) => onChange({ ...group, name: event.target.value })}
-            />
-          </Field>
-          <label className='channel-group-enabled'>
-            <input type='checkbox' checked={group.enabled} onChange={(event) => onChange({ ...group, enabled: event.target.checked })} />
-            {t('channels.enabled')}
-          </label>
-        </FieldGroup>
-        <Tabs defaultValue='nodes' className='channel-group-tabs'>
-          <TabsList className='subscriptions-tabs' aria-label={t('channels.editGroup')}>
-            <TabsTrigger value='nodes'>{t('channels.candidates')}</TabsTrigger>
-            <TabsTrigger value='rules' onClick={() => setError('')}>{t('channels.matches')}</TabsTrigger>
-          </TabsList>
-          <TabsContent value='nodes' className='channel-group-content'>
-            <div className='channel-members-toolbar'>
-              <div className='channel-members-title'>
-                <Network aria-hidden='true' />
-                <h3>{t('channels.members')}</h3>
-                <Badge variant='secondary'>{group.node_ids.length}</Badge>
-              </div>
-              <div className='channel-selection-actions'>
-                <Button size='sm' variant='outline' onClick={() => select([...new Set([
-                  ...group.node_ids,
-                  ...filtered.filter((node) => !node.hidden && node.available).map((node) => node.id),
-                ])])}>
-                  {t('channels.selectAll')}
+        <Tabs value={tab} onValueChange={setTab} className='channel-group-tabs'>
+          <div className='channel-group-toolbar'>
+            <TabsList className='subscriptions-tabs' aria-label={t('channels.editGroup')}>
+              <TabsTrigger value='nodes'>{t('channels.candidates')}</TabsTrigger>
+              <TabsTrigger value='rules'>{t('channels.matches')}</TabsTrigger>
+            </TabsList>
+            {tab === 'rules' && (
+              <div className='channel-selection-actions channel-group-rule-tools'>
+                <Button size='sm' variant='ghost' onClick={() => newRule(false)}>
+                  <CirclePlus data-icon='inline-start' />
+                  {t('channels.addRule')}
                 </Button>
-                <Button size='sm' variant='outline' onClick={() => select([])}>{t('channels.selectNone')}</Button>
+                <Button size='sm' variant='ghost' onClick={() => newRule(true)}>
+                  <CirclePlus data-icon='inline-start' />
+                  {t('channels.addRemote')}
+                </Button>
               </div>
-            </div>
-            <div className='channel-node-search'>
-              <Search aria-hidden='true' />
-              <Input aria-label={t('channels.searchNodes')} placeholder={t('channels.searchNodes')} value={search} onChange={(event) => setSearch(event.target.value)} />
-            </div>
-            {error && <p role='alert' className='subscription-form-error'>{error}</p>}
-            <div className='channel-candidates'>
-              {filtered.map((node) => (
-                <label className='channel-node-option' key={node.id} data-selected={group.node_ids.includes(node.id)}>
-                  <input
-                    type='checkbox'
-                    aria-label={`${node.name} ${node.source_name}`}
-                    checked={group.node_ids.includes(node.id)}
-                    onChange={(event) => select(event.target.checked
-                      ? [...group.node_ids, node.id]
-                      : group.node_ids.filter((id) => id !== node.id))}
-                  />
-                  <span className='channel-node-option-name' title={node.name}>{node.name}</span>
-                  <span className='channel-node-badges'>
-                    <Badge variant='info'>{node.type}</Badge>
-                    <Badge variant='outline' title={node.source_name}>{node.source_name}</Badge>
-                    {node.tls && <Badge variant='success'>{node.reality ? 'Reality' : 'TLS'}</Badge>}
-                    {(node.hidden || !node.available) && <Badge variant='warning'>{t('channels.unavailable')}</Badge>}
-                  </span>
-                  <span className='channel-node-address' title={subscriptionNodeAddress(node)}>{subscriptionNodeAddress(node) || t('subscriptions.nodes.hostMissing')}</span>
-                </label>
-              ))}
-              {missing.filter(matches).map((id) => (
-                <label className='channel-node-option' data-selected key={id}>
-                  <input type='checkbox' checked onChange={() => select(group.node_ids.filter((value) => value !== id))} />
-                  <span className='channel-node-option-name' title={id}>{t('channels.missingNode')}</span>
-                  <Badge variant='warning'>{t('channels.unavailable')}</Badge>
-                </label>
-              ))}
-            </div>
-            {!filtered.length && !missing.some(matches) && (
-              <Empty>
+            )}
+            {tab === 'nodes' && (
+              <div className='channel-group-node-tools'>
+                <ChannelNodeActions
+                  count={selectedIDs.size}
+                  disabled={busy}
+                  canSelectAll={cards.some((card) => !card.selected)}
+                  onClear={() => setSelected([])}
+                  onSelectAll={() => setSelected((current) => [...new Set([
+                    ...current, ...cards.map((card) => card.id),
+                  ])])}
+                  onRemove={() => {
+                    updateCandidates(
+                      group.node_ids.filter((id) => !selectedIDs.has(`node:${id}`)),
+                      builtins.filter((kind) => !selectedIDs.has(`builtin:${kind}`)),
+                    );
+                    setSelected([]);
+                  }}
+                  onAdd={() => setAddingNodes(true)}
+                />
+                <div className='subscription-search'>
+                  <Search aria-hidden='true' />
+                  <input aria-label={t('channels.searchNodes')} placeholder={t('channels.searchNodes')} value={search} onChange={(event) => setSearch(event.target.value)} />
+                </div>
+              </div>
+            )}
+          </div>
+          <TabsContent value='nodes' className='channel-group-content'>
+            <ChannelNodeCards
+              items={cards}
+              onToggle={(id) => setSelected((current) =>
+                current.includes(id) ? current.filter((value) => value !== id) : [...current, id])}
+              onMove={(active, over) => onChange({
+                ...group, candidate_order: reorderVisibleNodes(order, cards.map((card) => card.id), active, over),
+              })}
+            />
+            {!cards.length && (
+              <Empty className='channel-candidates-empty'>
                 <EmptyHeader>
-                  <EmptyMedia variant='icon'><Search /></EmptyMedia>
-                  <EmptyTitle>{t(search ? 'channels.noMatchingNodes' : 'channels.noNodes')}</EmptyTitle>
-                  {search && <EmptyDescription>{t('channels.searchNodesHint')}</EmptyDescription>}
+                  <EmptyTitle>{t(search ? 'channels.noMatchingNodes' : 'channels.emptyCandidates')}</EmptyTitle>
+                  <EmptyDescription>{t(search ? 'channels.searchNodesHint' : 'channels.emptyCandidatesHint')}</EmptyDescription>
                 </EmptyHeader>
               </Empty>
             )}
           </TabsContent>
           <TabsContent value='rules' className='channel-group-content'>
-            <div className='subscription-settings-fields channel-group-exit'>
-              <label htmlFor='group-default'>{t('channels.defaultExit')}</label>
-              <ChannelRouteExitSelect id='group-default' value={group.default_exit} nodes={candidates} onChange={(default_exit) => onChange({ ...group, default_exit })} />
-            </div>
-            <div className='channel-selection-actions'>
-              <Button size='sm' variant='outline' onClick={() => newRule(false)}>
-                <Plus data-icon='inline-start' />
-                {t('channels.addRule')}
-              </Button>
-              <Button size='sm' variant='outline' onClick={() => newRule(true)}>
-                <Plus data-icon='inline-start' />
-                {t('channels.addRemote')}
-              </Button>
-            </div>
             <div className='channel-rule-rows'>
               {group.rules.map((item, index) => (
                 <div className='channel-rule-row' key={item.id}>
@@ -197,14 +207,14 @@ export function ChannelGroupEditor({ group, nodes, format, busy, onChange }: Pro
                       <Badge variant='info'>{exitLabel(item.exit)}</Badge>
                     </span>
                     {item.remote && !ruleFormats(format).includes(item.remote.format) && (
-                      <small className='subscription-form-error'>{t('channels.formatPending')}</small>
+                      <ErrorNotice error={t('channels.formatPending')} />
                     )}
                   </div>
                   <div className='subscription-toolbar-actions'>
-                    <Button variant='outline' size='icon-sm' aria-label={t('channels.moveUp')} disabled={index === 0} onClick={() => move(index, -1)}><ArrowUp /></Button>
-                    <Button variant='outline' size='icon-sm' aria-label={t('channels.moveDown')} disabled={index === group.rules.length - 1} onClick={() => move(index, 1)}><ArrowDown /></Button>
-                    <Button variant='outline' size='icon-sm' aria-label={t('channels.editRule')} onClick={() => setRule(item)}><Pencil /></Button>
-                    <Button variant='destructive' size='icon-sm' aria-label={t('channels.deleteRule')} onClick={() => onChange({ ...group, rules: group.rules.filter((value) => value.id !== item.id) })}><Trash2 /></Button>
+                    <Button variant='ghost' size='icon-sm' aria-label={t('channels.moveUp')} title={t('channels.moveUp')} disabled={index === 0} onClick={() => move(index, -1)}><ArrowUp /></Button>
+                    <Button variant='ghost' size='icon-sm' aria-label={t('channels.moveDown')} title={t('channels.moveDown')} disabled={index === group.rules.length - 1} onClick={() => move(index, 1)}><ArrowDown /></Button>
+                    <Button variant='ghost' size='icon-sm' aria-label={t('channels.editRule')} title={t('channels.editRule')} onClick={() => setRule(item)}><Pencil /></Button>
+                    <Button variant='ghost' size='icon-sm' className='channel-delete-action' aria-label={t('channels.deleteRule')} title={t('channels.deleteRule')} onClick={() => onChange({ ...group, rules: group.rules.filter((value) => value.id !== item.id) })}><Trash2 /></Button>
                   </div>
                 </div>
               ))}
@@ -225,7 +235,6 @@ export function ChannelGroupEditor({ group, nodes, format, busy, onChange }: Pro
         <ChannelRuleEditor
           rule={rule}
           format={format}
-          nodes={candidates}
           onClose={() => setRule(null)}
           onSave={async (value) => onChange({
             ...group,

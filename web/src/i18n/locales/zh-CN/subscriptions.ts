@@ -1,5 +1,8 @@
 export const subscriptions = {
   nodes: {
+    sortableCard: '可排序节点卡片',
+    dragInstructions: '按 F2 开始排序，方向键移动，再按 F2 完成，Escape 取消。',
+    orderSaveFailed: '无法在当前浏览器保存节点顺序。',
     detour: '前置节点',
     tlsRequired: '该协议必须启用 TLS。',
     endpointMode: '连接方式',
@@ -25,6 +28,8 @@ export const subscriptions = {
       dial: '连接选项',
     },
     manual: '手动节点',
+    system: '系统节点',
+    imported: '导入节点',
     empty: '暂无节点',
     select: '选择 {{name}}',
     show: '显示 {{name}}',
@@ -70,6 +75,8 @@ export const subscriptions = {
     deletePrompt: '删除“{{name}}”及其订阅节点？',
   },
   keys: {
+    secretUnavailable: '此旧密钥未保存原文，请轮换后重新绑定渠道。',
+    view: '查看', details: '密钥详情',
     create: '新增密钥',
     created: '密钥已创建',
     key: '密钥',
@@ -339,7 +346,7 @@ export const subscriptions = {
       copyFailed: '无法复制到剪贴板：{{error}}',
       loadingChannels: '正在载入已启用渠道…',
       noChannels: '复制客户端 URL 前，请先创建或启用渠道。',
-      oneTime: '关闭此提示或重新载入页面后，将无法再次显示。',
+      oneTime: '可在密钥管理中点击“查看”再次显示。',
       saveCreated: '立即保存此令牌',
       saved: '我已保存',
       saveRotated: '立即保存替换令牌',

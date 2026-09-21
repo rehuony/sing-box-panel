@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useSearchParams } from 'react-router-dom';
 
+import { useHashTab } from '@/hooks/use-hash-tab';
 import { WorkspaceToolbar } from '@/components/workspace-toolbar';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
@@ -11,22 +12,16 @@ import './observability-page.css';
 
 export function ObservabilityPage() {
   const { t } = useTranslation();
-  const [params, setParams] = useSearchParams();
+  const [params] = useSearchParams();
   const [toolbarTarget, setToolbarTarget] = useState<HTMLDivElement | null>(null);
-  const tab = params.get('tab') === 'panel' || params.has('task') ? 'panel' : 'core';
+  const [tab, setTab] = useHashTab('logs-', ['core', 'panel'] as const, params.get('tab') === 'panel' || params.has('task') ? 'panel' : 'core', ['tab', 'task']);
   return (
     <section className='observability-page panel-page'>
       <h1 className='sr-only'>{t('productLogs.title')}</h1>
       <Tabs
         className='product-logs'
         value={tab}
-        onValueChange={(value) => {
-          setParams((next) => {
-            next.set('tab', value);
-            next.delete('task');
-            return next;
-          });
-        }}
+        onValueChange={setTab}
       >
         <WorkspaceToolbar>
           <TabsList aria-label={t('productLogs.title')}>

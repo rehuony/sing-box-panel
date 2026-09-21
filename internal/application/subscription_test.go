@@ -408,3 +408,49 @@ func newSubscriptionTestApplication(database *store.Store) *Application {
 	}
 	return app
 }
+
+func TestSubscriptionSecretPersistsAcrossRestartAndRotation(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "panel.db")
+	database, err := store.Open(ctx, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	app := newSubscriptionTestApplication(database)
+	created, err := app.CreateSubscriptionToken(ctx, CreateSubscriptionTokenRequest{Label: "share"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := database.Close(); err != nil {
+		t.Fatal(err)
+	}
+	database, err = store.Open(ctx, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	random := app.random
+	app = newSubscriptionTestApplication(database)
+	app.random = random
+	revealed, err := app.SubscriptionTokenSecret(ctx, created.Metadata.ID)
+	if err != nil || revealed.Token != created.Token {
+		t.Fatal("stored secret did not survive restart")
+	}
+	rotation, err := app.RotateSubscriptionToken(ctx, created.Metadata.ID, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	replacement, err := app.SubscriptionTokenSecret(ctx, rotation.Created.ID)
+	if err != nil || replacement.Token != rotation.Token || replacement.Token == created.Token {
+		t.Fatal("rotation secret mismatch")
+	}
+	if _, err := app.AuthenticateSubscriptionToken(ctx, created.Token); !errors.Is(err, store.ErrSubscriptionTokenInactive) {
+		t.Fatal("old token remains active")
+	}
+	if err := app.DeleteSubscriptionToken(ctx, rotation.Created.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := app.SubscriptionTokenSecret(ctx, rotation.Created.ID); !errors.Is(err, store.ErrSubscriptionTokenNotFound) {
+		t.Fatalf("deleted secret read: %v", err)
+	}
+}

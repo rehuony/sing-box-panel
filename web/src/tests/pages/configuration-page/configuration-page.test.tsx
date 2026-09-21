@@ -1,16 +1,17 @@
 import { EditorView } from '@codemirror/view';
 import userEvent from '@testing-library/user-event';
+import { Link, Route, Routes } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { Link, MemoryRouter, Route, Routes } from 'react-router-dom';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 
 import type { ApiClient, ConfigurationFile, ConfigurationSchemaContract } from '@/api/api-client';
 
-import '@/i18n';
 import { ApiRequestError } from '@/api/api-client';
+import '@/i18n';
 import { toast } from '@/components/ui/toast-manager';
 import { ApiClientProvider } from '@/api/api-client-context';
 import { reviewedSchemaManifest } from '@/schemas/generated';
+import { TestRouter as MemoryRouter } from '@/tests/test-router';
 import { ControlPlaneProvider } from '@/stores/control-plane-provider';
 import { ConfigurationPage } from '@/pages/configuration-page/configuration-page';
 import { visibleStructuredConfiguration } from '@/pages/configuration-page/structured-validation';
@@ -155,7 +156,7 @@ describe('configurationPage', () => {
     expect(JSON.parse(saved.content)).toEqual({ dns: { servers: [{ type: 'dhcp', tag: 'dns-new' }], rules: [] } });
   });
 
-  it.each(['{"log":{"level":"debug"}}', '{"log":'])('preserves unsaved %s across navigation and saves exact text', async content => {
+  it.each(['{"log":{"level":"debug"}}', '{"log":'])('cancels navigation with unsaved %s and saves exact text', async content => {
     const user = userEvent.setup();
     const client = createMockApiClient();
     render(
@@ -177,7 +178,7 @@ describe('configurationPage', () => {
     const unload = new Event('beforeunload', { cancelable: true });
     window.dispatchEvent(unload);
     expect(unload.defaultPrevented).toBe(true);
-    await user.click(screen.getByRole('link', { name: 'Configuration page' }));
+    await user.click(screen.getByRole('button', { name: 'Keep editing' }));
     expect(editorView(await screen.findByLabelText('sing-box configuration JSON')).state.doc.toString()).toBe(content);
     expect(client.getConfigurationFile).toHaveBeenCalledTimes(1);
     await user.click(screen.getByRole('button', { name: 'Save configuration' }));
@@ -207,6 +208,34 @@ describe('configurationPage', () => {
     expect(client.getCanonical).not.toHaveBeenCalled();
     expect(screen.queryByRole('tab', { name: 'History' })).not.toBeInTheDocument();
     expect(screen.queryByRole('tab', { name: 'Deploy' })).not.toBeInTheDocument();
+  });
+
+  it('does not restore a discarded configuration draft on returning to the page', async () => {
+    const user = userEvent.setup();
+    const client = createMockApiClient();
+    render(
+      <MemoryRouter initialEntries={['/configuration']}>
+        <ApiClientProvider client={client}>
+          <ControlPlaneProvider>
+            <Link to='/other'>Other page</Link>
+            <Link to='/configuration'>Configuration page</Link>
+            <Routes>
+              <Route path='/configuration' element={<ConfigurationPage />} />
+              <Route path='/other' element={<p>Another page</p>} />
+            </Routes>
+          </ControlPlaneProvider>
+        </ApiClientProvider>
+      </MemoryRouter>,
+    );
+    const editor = await screen.findByLabelText('sing-box configuration JSON');
+    const saved = editorView(editor).state.doc.toString();
+    changeEditor(editor, '{"unsaved":');
+    await user.click(screen.getByRole('link', { name: 'Other page' }));
+    await user.click(screen.getByRole('button', { name: 'Discard changes' }));
+    expect(screen.getByText('Another page')).toBeVisible();
+    await user.click(screen.getByRole('link', { name: 'Configuration page' }));
+    expect(editorView(await screen.findByLabelText('sing-box configuration JSON')).state.doc.toString()).toBe(saved);
+    expect(client.saveConfigurationFile).not.toHaveBeenCalled();
   });
 
   it('loads previously saved incomplete JSON and permits correcting it', async () => {

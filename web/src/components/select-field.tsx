@@ -11,10 +11,10 @@ import {
 
 type SelectFieldProps<Value extends string | number> = Pick<
   ComponentProps<typeof SelectTrigger>,
-  'id' | 'className' | 'disabled' | 'aria-label' | 'aria-labelledby' | 'aria-describedby'
+  'id' | 'className' | 'disabled' | 'aria-label' | 'aria-labelledby' | 'aria-describedby' | 'aria-invalid'
 > & {
   value: Value;
-  items: { value: Value; label: string }[];
+  items: { value: Value; label: string; disabled?: boolean }[];
   onValueChange: (value: Value) => void;
 };
 
@@ -38,7 +38,7 @@ export function SelectField<Value extends string | number>({
       <SelectContent>
         <SelectGroup>
           {items.map((item) => (
-            <SelectItem key={item.value} value={item.value}>{item.label}</SelectItem>
+            <SelectItem key={item.value} value={item.value} disabled={item.disabled}>{item.label}</SelectItem>
           ))}
         </SelectGroup>
       </SelectContent>

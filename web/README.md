@@ -82,11 +82,14 @@ are centered and entry names are display-only. Adding a record or choosing its
 Edit action opens a dialog; confirming updates the draft and cancelling discards
 the pending changes. Map fields keep keys separate from typed text, list or object
 values, and referenced scalar lists are edited inline. Dialog content remains
-mounted through the synchronized closing transition. Drafts, including incomplete JSON, survive route changes in
-memory for the current authenticated session. Reloading or closing the page
-prompts when there are unsaved changes; signing out clears the draft. No draft
-or embedded configuration secrets are written to browser storage. The saved file revision remains the concurrency base after navigating away
-and returning. An uninitialized file opens an empty editor and creates its first
+mounted through the synchronized closing transition. Navigation to another route,
+query or hash tab prompts before discarding unsaved edits, including incomplete
+JSON. Keep editing preserves the current URL, draft and concurrency revision;
+Discard changes resets the draft and continues to the requested destination.
+Subscription areas return to their initial lists after leaving. Reloading or
+closing the page uses the browser's native unsaved-changes prompt, and signing
+out requires confirmation while edits are pending. No draft or embedded
+configuration secrets are written to browser storage. An uninitialized file opens an empty editor and creates its first
 file version. The file API uses its own numeric compare-and-swap revision;
 immutable canonical revisions remain internal runtime evidence.
 
@@ -114,3 +117,22 @@ and delivery have one server renderer; remote rule references are fetched only
 by subscribing clients. Native editors preserve unknown fields and scalar/list
 representations. Appearance is a saveable preview transaction shared by controls,
 charts and overlays, with semantic status colors kept independent.
+
+## Error feedback
+
+Request failures and validation errors use the shared Toaster instead of in-flow
+banners or field-error labels. Use `toast.add` for an action failure and
+`ErrorNotice` for an error represented by component state. Repeated state errors
+reuse one notification; recovery or unmount closes it. Keep invalid controls
+marked with `aria-invalid`, and retain visually hidden descriptions where
+`aria-describedby` needs them. Error feedback must not take focus away from the
+current control or shift the surrounding layout. Service-unavailable screens
+keep their retry action available after the notification is dismissed.
+
+Management tabs use URL fragments: `#cores-installed` / `#cores-catalog`,
+`#configuration-visual` / `#configuration-advanced` (visual sections append `/route`,
+`/inbounds`, etc.), `#panel-security` / `#panel-nodes` / `#panel-appearance`, and
+`#logs-core` / `#logs-panel`. Direct links, reloads and browser history restore the
+selected tab; legacy log query links still open their requested view. Tab switches
+preserve unrelated query parameters and route state. Subscription tabs retain
+`#subscription-sources`, `#subscription-tokens`, and `#subscription-channels`.

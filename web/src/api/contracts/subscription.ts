@@ -36,6 +36,7 @@ export type {
   SubscriptionToken,
   SubscriptionTokenPage,
   SubscriptionTokenRotation,
+  SubscriptionTokenSecret,
   SubscriptionUser,
   SubscriptionUserGrants,
   SubscriptionUserPage,

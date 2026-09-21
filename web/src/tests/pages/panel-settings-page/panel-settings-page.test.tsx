@@ -1,12 +1,13 @@
 import { describe, expect, it, vi } from 'vitest';
 import userEvent from '@testing-library/user-event';
-import { Link, MemoryRouter, Route, Routes } from 'react-router-dom';
+import { Link, Route, Routes } from 'react-router-dom';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 
-import '@/i18n';
 import { ThemeProvider } from '@/theme';
+import '@/i18n';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { ApiClientProvider } from '@/api/api-client-context';
+import { TestRouter as MemoryRouter } from '@/tests/test-router';
 import { createMockApiClient } from '@/tests/api/mock-api-client';
 import { PanelSettingsProvider } from '@/stores/panel-settings-provider';
 import { PanelSettingsPage } from '@/pages/panel-settings-page/panel-settings-page';
@@ -122,7 +123,7 @@ describe('panel settings', () => {
     ));
   });
 
-  it('previews across categories, discards on navigation and retains a saved appearance', async () => {
+  it('confirms leaving unsaved settings and retains a saved appearance', async () => {
     const user = userEvent.setup();
     const client = setup();
     await user.click(await screen.findByRole('tab', { name: 'Usage & appearance' }));
@@ -133,9 +134,10 @@ describe('panel settings', () => {
     await waitFor(() => expect(document.documentElement.style.getPropertyValue('--appearance-color')).toBe('#2563EB'));
     expect(document.documentElement.style.getPropertyValue('--radius-control')).toBe('4px');
     await user.click(screen.getByRole('tab', { name: 'Service & security' }));
-    await user.click(screen.getByRole('tab', { name: 'Usage & appearance' }));
+    await user.click(screen.getByRole('button', { name: 'Keep editing' }));
     expect(screen.getByRole('spinbutton', { name: 'Corner radius' })).toHaveValue(8);
     await user.click(screen.getByRole('link', { name: 'Leave settings' }));
+    await user.click(screen.getByRole('button', { name: 'Discard changes' }));
     await waitFor(() => expect(document.documentElement.style.getPropertyValue('--appearance-color')).toBe('#6D4ED1'));
     expect(client.savePanelSettings).not.toHaveBeenCalled();
     await user.click(screen.getByRole('link', { name: 'Open settings' }));
@@ -163,6 +165,7 @@ describe('panel settings', () => {
     await user.click(screen.getByRole('button', { name: 'Save settings' }));
     await waitFor(() => expect(client.savePanelSettings).toHaveBeenCalledOnce());
     await user.click(screen.getByRole('link', { name: 'Leave settings' }));
+    await user.click(screen.getByRole('button', { name: 'Discard changes' }));
     await waitFor(() => expect(document.documentElement.style.getPropertyValue('--appearance-color')).toBe('#6D4ED1'));
   });
 });

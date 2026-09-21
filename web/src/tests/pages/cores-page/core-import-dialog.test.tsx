@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 
 import '@/i18n';
+import { toast } from '@/components/ui/toast-manager';
 import { CoreImportDialog } from '@/pages/cores-page/core-import-dialog';
 
 function renderImport(onImport = vi.fn().mockResolvedValue(true)) {
@@ -91,15 +92,18 @@ describe('compact core import', () => {
     renderImport();
     const input = screen.getByLabelText('Archive');
     const archive = new File(['archive'], 'sing-box-1.14.0.tgz');
+    const addToast = vi.spyOn(toast, 'add');
     await user.upload(input, archive);
     fireEvent.drop(input, { dataTransfer: { files: [new File(['invalid'], 'core.zip')] } });
-    expect(screen.getByRole('alert')).toHaveTextContent('Choose a .tar.gz or .tgz archive.');
+    await waitFor(() => expect(addToast).toHaveBeenLastCalledWith(expect.objectContaining({ type: 'error', title: 'Choose a .tar.gz or .tgz archive.' })));
+    expect(input).toHaveAccessibleDescription(expect.stringContaining('Choose a .tar.gz or .tgz archive.'));
     expect(screen.getByRole('button', { name: 'Import' })).toBeDisabled();
     fireEvent.drop(input, { dataTransfer: { files: [archive, archive] } });
-    expect(screen.getByRole('alert')).toHaveTextContent('Choose one archive at a time.');
+    await waitFor(() => expect(addToast).toHaveBeenLastCalledWith(expect.objectContaining({ type: 'error', title: 'Choose one archive at a time.' })));
     await user.upload(input, archive);
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Import' })).toBeEnabled();
+    addToast.mockRestore();
   });
 
   it('locks submission while pending and preserves the selection after failure for retry', async () => {

@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { useHashTab } from '@/hooks/use-hash-tab';
 import { WorkspaceToolbar } from '@/components/workspace-toolbar';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
@@ -9,38 +10,10 @@ import { SubscriptionSourcePanel } from './subscription-source-panel';
 import { SubscriptionChannelPanel } from './subscription-channel-panel';
 import './subscriptions-page.css';
 
-type SubscriptionArea = 'channels' | 'sources' | 'tokens';
-
-function initialArea(): SubscriptionArea {
-  const hash = typeof window === 'undefined' ? '' : window.location.hash;
-  const area = hash.replace('#subscription-', '');
-  return ['channels', 'sources', 'tokens'].includes(area)
-    ? area as SubscriptionArea
-    : 'sources';
-}
-
 export function SubscriptionsPage() {
   const { t } = useTranslation();
-  const [area, setArea] = useState<SubscriptionArea>(initialArea);
+  const [area, selectArea] = useHashTab('subscription-', ['sources', 'tokens', 'channels'], 'sources');
   const [toolbarTarget, setToolbarTarget] = useState<HTMLDivElement | null>(null);
-
-  useEffect(() => {
-    const syncAreaFromURL = () => setArea(initialArea());
-    window.addEventListener('hashchange', syncAreaFromURL);
-    window.addEventListener('popstate', syncAreaFromURL);
-    return () => {
-      window.removeEventListener('hashchange', syncAreaFromURL);
-      window.removeEventListener('popstate', syncAreaFromURL);
-    };
-  }, []);
-
-  function selectArea(next: string) {
-    const selected = next as SubscriptionArea;
-    setArea(selected);
-    const target = new URL(window.location.href);
-    target.hash = `subscription-${selected}`;
-    window.history.replaceState(window.history.state, '', target);
-  }
 
   return (
     <div className='subscriptions-page panel-page'>
@@ -54,9 +27,9 @@ export function SubscriptionsPage() {
           </TabsList>
           <div className='workspace-toolbar__actions' ref={setToolbarTarget} />
         </WorkspaceToolbar>
-        <TabsContent className='subscriptions-tab-panel' keepMounted value='channels'><SubscriptionChannelPanel active={area === 'channels'} toolbarTarget={toolbarTarget} /></TabsContent>
-        <TabsContent className='subscriptions-tab-panel' keepMounted value='sources'><SubscriptionSourcePanel active={area === 'sources'} toolbarTarget={toolbarTarget} /></TabsContent>
-        <TabsContent className='subscriptions-tab-panel' keepMounted value='tokens'><SubscriptionTokenPanel active={area === 'tokens'} toolbarTarget={toolbarTarget} /></TabsContent>
+        <TabsContent className='subscriptions-tab-panel' value='channels'><SubscriptionChannelPanel active={area === 'channels'} toolbarTarget={toolbarTarget} /></TabsContent>
+        <TabsContent className='subscriptions-tab-panel' value='sources'><SubscriptionSourcePanel active={area === 'sources'} toolbarTarget={toolbarTarget} /></TabsContent>
+        <TabsContent className='subscriptions-tab-panel' value='tokens'><SubscriptionTokenPanel active={area === 'tokens'} toolbarTarget={toolbarTarget} /></TabsContent>
       </Tabs>
     </div>
   );

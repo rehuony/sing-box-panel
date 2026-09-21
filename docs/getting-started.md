@@ -54,7 +54,7 @@ configuration, or subscription data.
 ### Database compatibility
 
 The current application uses SQLite `application_id = 0x53425034` and storage
-schema version 8. Opening a new database applies the embedded migrations;
+schema version 9. Opening a new database applies the embedded migrations;
 existing databases with this application identity migrate forward automatically.
 Unidentified non-empty databases, previous application identities, and schemas
 newer than the binary fail closed. Startup also transfers legacy panel settings
@@ -154,10 +154,11 @@ file on disk or CLI for its content. A minimal document is:
 {}
 ```
 
-Save in the Web editor, install and select a core, then use Check and Apply.
+Save in the Web editor, install and enable a core, then use Validate configuration
+to check the saved text and Start or Restart to load it.
 Concurrent saves use the current file revision and reject stale edits instead
-of merging implicitly. Invalid JSON remains a draft and blocks Check, Apply,
-Start, and Restart until corrected. Core lifecycle and artifact commands remain
+of merging implicitly. Invalid JSON can be saved as text but blocks validation,
+Enable, Start, and Restart until corrected. Core lifecycle and artifact commands remain
 available through the CLI. The separate `config init/show/set/unset/check/verify` commands manage
 only the panel's `setting.json`; see [Panel settings](cli.md#panel-settings).
 

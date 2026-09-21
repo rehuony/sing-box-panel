@@ -6,6 +6,7 @@ import type { CatalogAsset, CoreArtifact, Task } from '@/api/api-client';
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { useHashTab } from '@/hooks/use-hash-tab';
 import { waitForTask } from '@/lib/wait-for-task';
 import { toast } from '@/components/ui/toast-manager';
 import { useApiClient } from '@/api/api-client-context';
@@ -37,7 +38,7 @@ export function CoresPage() {
   const client = useApiClient();
   const control = useControlPlane();
   const library = useVersionLibrary();
-  const [tab, setTab] = useState<'installed' | 'catalog'>('installed');
+  const [tab, setTab] = useHashTab('cores-', ['installed', 'catalog'] as const, 'installed');
   const [search, setSearch] = useState('');
   const [size, setSize] = useState(10);
   const [pagination, setPagination] = useState({ tab, search, size, page: 1 });
@@ -147,6 +148,26 @@ export function CoresPage() {
             </TabsTrigger>
           </TabsList>
           <div className='core-library__toolbar workspace-toolbar__actions'>
+            <Button
+              variant='ghost'
+              size='icon-sm'
+              aria-label={t('cores.refresh')}
+              title={t('cores.refresh')}
+              disabled={Boolean(pending)}
+              onClick={() => void run('refresh', (signal) => client.refreshCatalog(true, signal))}
+            >
+              <RefreshCw />
+            </Button>
+            <Button
+              variant='ghost'
+              size='icon-sm'
+              aria-label={t('cores.import.title')}
+              title={t('cores.import.title')}
+              disabled={Boolean(pending) || !canImport}
+              onClick={() => setImportOpen(true)}
+            >
+              <Upload />
+            </Button>
             <label className='core-search'>
               <Search aria-hidden='true' />
               <input
@@ -156,24 +177,6 @@ export function CoresPage() {
                 onChange={(event) => setSearch(event.target.value)}
               />
             </label>
-            <Button
-              variant='ghost'
-              size='icon'
-              aria-label={t('cores.refresh')}
-              disabled={Boolean(pending)}
-              onClick={() => void run('refresh', (signal) => client.refreshCatalog(true, signal))}
-            >
-              <RefreshCw />
-            </Button>
-            <Button
-              variant='ghost'
-              size='icon'
-              aria-label={t('cores.import.title')}
-              disabled={Boolean(pending) || !canImport}
-              onClick={() => setImportOpen(true)}
-            >
-              <Upload />
-            </Button>
           </div>
         </WorkspaceToolbar>
         {library.error != null && (

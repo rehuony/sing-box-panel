@@ -6,6 +6,7 @@ import { LoginPage } from '@/pages/login-page';
 import { Button } from '@/components/ui/button';
 import { AppShell } from '@/components/app-shell';
 import { NotFoundPage } from '@/pages/not-found-page';
+import { ErrorNotice } from '@/components/error-notice';
 import { useAuthSession } from '@/stores/auth-session.store';
 import { ControlPlaneProvider } from '@/stores/control-plane-provider';
 import { PanelSettingsProvider } from '@/stores/panel-settings-provider';
@@ -72,9 +73,8 @@ function ProtectedRoute() {
   if (status === 'unavailable') {
     return (
       <main className='loading-screen'>
-        <div className='load-error' role='alert'>
-          <h1>{t('login.unavailable.title')}</h1>
-          <p>{t('login.unavailable.description')}</p>
+        <div className='load-error'>
+          <ErrorNotice title={t('login.unavailable.title')} error={t('login.unavailable.description')} />
           <Button onClick={retrySession} type='button'>{t('login.unavailable.retry')}</Button>
         </div>
       </main>

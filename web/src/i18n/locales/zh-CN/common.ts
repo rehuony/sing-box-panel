@@ -18,6 +18,12 @@ export const common = {
   remove: '移除',
   requestFailed: '面板返回响应前，请求已失败。',
   retry: '重试',
+  unsaved: {
+    title: '放弃未保存的更改？',
+    description: '离开后，当前的更改将不会保存。',
+    keepEditing: '继续编辑',
+    discard: '放弃更改',
+  },
   viewLoadFailed: '无法加载此视图',
 } as const;
 

@@ -6,10 +6,12 @@ import type {
   ChannelRemoteRuleSet,
   ChannelRule,
   SubscriptionFormat,
-  SubscriptionNodeSummary,
 } from '@/api/api-client';
 
 import { Button } from '@/components/ui/button';
+import { toast } from '@/components/ui/toast-manager';
+import { SelectField } from '@/components/select-field';
+import { useUnsavedChanges } from '@/hooks/use-unsaved-changes';
 import {
   Dialog,
   DialogContent,
@@ -19,7 +21,6 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 
-import { ChannelRouteExitSelect } from './channel-route-exit';
 import {
   canAccelerateRuleURL,
   directRuleURL,
@@ -31,18 +32,18 @@ interface Props {
   rule: ChannelRule;
   onClose: () => void;
   format: SubscriptionFormat;
-  nodes: SubscriptionNodeSummary[];
   onSave: (value: ChannelRule) => Promise<void>;
 }
-export function ChannelRuleEditor({ rule, format, nodes, onClose, onSave }: Props) {
+export function ChannelRuleEditor({ rule, format, onClose, onSave }: Props) {
   const { t } = useTranslation();
   const [draft, setDraft] = useState(() => structuredClone(rule));
   const [sourceFormat, setSourceFormat] = useState<string>(() =>
     rule.remote?.url && ruleFormats(format).includes(rule.remote!.format) ? rule.remote.format : '',
   );
-  const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [attempted, setAttempted] = useState(false);
+  const originalFormat = rule.remote?.url && ruleFormats(format).includes(rule.remote.format) ? rule.remote.format : '';
+  useUnsavedChanges(JSON.stringify(draft) !== JSON.stringify(rule) || sourceFormat !== originalFormat, onClose, busy);
   const remote = draft.remote;
   function updateRemote(value: Partial<ChannelRemoteRuleSet>) {
     setDraft((current) => ({ ...current, remote: { ...current.remote!, ...value } }));
@@ -66,21 +67,21 @@ export function ChannelRuleEditor({ rule, format, nodes, onClose, onSave }: Prop
           throw new Error(t('channels.invalidRule'));
         }
       } catch {
-        setError(t('channels.invalidRule'));
+        toast.add({ title: t('channels.invalidRule'), type: 'error' });
         return;
       }
       if (sourceFormat === 'mrs' && remote.behavior === 'classical') return;
     } else if (!draft.value?.trim()) {
-      setError(t('channels.invalidRule'));
+      toast.add({ title: t('channels.invalidRule'), type: 'error' });
       return;
     }
     setBusy(true);
-    setError('');
     try {
+      const value: ChannelRule = { ...draft, enabled: true, exit: { kind: 'group-default' } };
       await onSave(
         remote
           ? {
-              ...draft,
+              ...value,
               remote: {
                 ...remote,
                 name: remote.name.trim(),
@@ -89,11 +90,11 @@ export function ChannelRuleEditor({ rule, format, nodes, onClose, onSave }: Prop
                 behavior: format === 'sing-box' ? undefined : (remote.behavior ?? 'domain'),
               },
             }
-          : { ...draft, value: draft.value!.trim() },
+          : { ...value, value: draft.value!.trim() },
       );
       onClose();
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : String(reason));
+      toast.add({ title: reason instanceof Error ? reason.message : String(reason), type: 'error' });
     } finally {
       setBusy(false);
     }
@@ -134,65 +135,67 @@ export function ChannelRuleEditor({ rule, format, nodes, onClose, onSave }: Prop
                         }}
                       />
                       <Button
-                        variant='outline'
-                        size='icon'
+                        variant='ghost'
+                        size='icon-sm'
+                        type='button'
                         aria-label={t('channels.acceleration')}
                         title={t('channels.acceleration')}
                         aria-pressed={remote.accelerated}
-                        disabled={!canAccelerateRuleURL(remote.url)}
-                        onClick={() =>
+                        disabled={busy}
+                        onClick={() => {
+                          if (!remote.accelerated && !canAccelerateRuleURL(remote.url)) {
+                            toast.add({ title: t('channels.accelerationUnavailable'), type: 'info' });
+                            return;
+                          }
                           updateRemote({
                             url: directRuleURL(remote.url),
                             accelerated: !remote.accelerated,
-                          })
-                        }
+                          });
+                        }}
                       >
                         <Zap />
                       </Button>
                     </div>
                     <label htmlFor='rule-format'>{t('channels.sourceFormat')}</label>
-                    <select
+                    <SelectField
                       id='rule-format'
                       aria-invalid={attempted && !sourceFormat}
                       value={sourceFormat}
-                      onChange={(event) => setSourceFormat(event.target.value)}
-                    >
-                      <option value=''>{t('channels.chooseFormat')}</option>
-                      {ruleFormats(format).map((value) => (
-                        <option key={value} value={value}>
-                          {
-                            {
-                              source: 'JSON (source)',
-                              binary: 'SRS (binary)',
-                              yaml: 'YAML / YML',
-                              text: 'TEXT',
-                              mrs: 'MRS',
-                            }[value]
-                          }
-                        </option>
-                      ))}
-                    </select>
+                      onValueChange={setSourceFormat}
+                      items={[
+                        { value: '', label: t('channels.chooseFormat') },
+                        ...ruleFormats(format).map((value) => ({
+                          value,
+                          label: {
+                            source: 'JSON (source)',
+                            binary: 'SRS (binary)',
+                            yaml: 'YAML / YML',
+                            text: 'TEXT',
+                            mrs: 'MRS',
+                          }[value],
+                        })),
+                      ]}
+                    />
                     {format === 'mihomo' && (
                       <>
                         <label htmlFor='rule-behavior'>{t('channels.behavior')}</label>
-                        <select
+                        <SelectField<NonNullable<ChannelRemoteRuleSet['behavior']>>
                           id='rule-behavior'
                           aria-invalid={
                             attempted && sourceFormat === 'mrs' && remote.behavior === 'classical'
                           }
                           value={remote.behavior ?? 'domain'}
-                          onChange={(event) =>
+                          onValueChange={(value) =>
                             updateRemote({
-                              behavior: event.target.value as ChannelRemoteRuleSet['behavior'],
+                              behavior: value,
                             })
                           }
-                        >
-                          <option value='domain'>Domain</option>
-                          <option value='ipcidr'>IP CIDR</option>
-                          <option disabled={sourceFormat === 'mrs'} value='classical'>
-                            Classical
-                          </option>
-                        </select>
+                          items={[
+                            { value: 'domain', label: 'Domain' },
+                            { value: 'ipcidr', label: 'IP CIDR' },
+                            { value: 'classical', label: 'Classical', disabled: sourceFormat === 'mrs' },
+                          ]}
+                        />
                       </>
                     )}
                     <label htmlFor='rule-interval'>{t('channels.interval')}</label>
@@ -212,21 +215,16 @@ export function ChannelRuleEditor({ rule, format, nodes, onClose, onSave }: Prop
               : (
                   <>
                     <label htmlFor='rule-kind'>{t('channels.ruleKind')}</label>
-                    <select
+                    <SelectField<ChannelRule['kind']>
                       id='rule-kind'
                       value={draft.kind}
-                      onChange={(event) =>
-                        setDraft({ ...draft, kind: event.target.value as ChannelRule['kind'] })
+                      onValueChange={(value) =>
+                        setDraft({ ...draft, kind: value })
                       }
-                    >
-                      {(['domain', 'domain_suffix', 'domain_keyword', 'ip_cidr'] as const).map(
-                        (kind) => (
-                          <option key={kind} value={kind}>
-                            {t(`channels.${kind}`)}
-                          </option>
-                        ),
+                      items={(['domain', 'domain_suffix', 'domain_keyword', 'ip_cidr'] as const).map(
+                        (value) => ({ value, label: t(`channels.${value}`) }),
                       )}
-                    </select>
+                    />
                     <label htmlFor='rule-value'>{t('channels.matchValue')}</label>
                     <input
                       id='rule-value'
@@ -235,27 +233,8 @@ export function ChannelRuleEditor({ rule, format, nodes, onClose, onSave }: Prop
                     />
                   </>
                 )}
-            <label htmlFor='rule-exit'>{t('channels.exit')}</label>
-            <ChannelRouteExitSelect
-              id='rule-exit'
-              value={draft.exit}
-              nodes={nodes}
-              follow
-              onChange={(exit) => setDraft({ ...draft, exit })}
-            />
-            <label htmlFor='rule-enabled'>{t('channels.enabled')}</label>
-            <input
-              id='rule-enabled'
-              type='checkbox'
-              checked={draft.enabled}
-              onChange={(event) => setDraft({ ...draft, enabled: event.target.checked })}
-            />
+
           </div>
-          {error && (
-            <p role='alert' className='subscription-form-error'>
-              {error}
-            </p>
-          )}
         </div>
         <DialogFooter>
           <Button variant='outline' disabled={busy} onClick={onClose}>

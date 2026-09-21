@@ -1,8 +1,8 @@
 import type { RJSFSchema } from '@rjsf/utils';
 
 import { Link } from 'react-router-dom';
-import { Braces, Copy } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import { Braces, Copy, Eye, EyeOff } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPrecompiledValidator } from '@rjsf/validator-ajv8';
 
@@ -10,9 +10,12 @@ import type { ReviewedSchemaResolution } from '@/schemas/resolve-reviewed-schema
 import type { SubscriptionNodeDetail, SubscriptionNodeSummary } from '@/api/api-client';
 
 import { Button } from '@/components/ui/button';
+import { Skeleton } from '@/components/ui/skeleton';
 import { toast } from '@/components/ui/toast-manager';
 import { useApiClient } from '@/api/api-client-context';
-import { describeRequestError } from '@/components/error-notice';
+import { useUnsavedChanges } from '@/hooks/use-unsaved-changes';
+import { describeRequestError, ErrorNotice } from '@/components/error-notice';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { loadReviewedSchema, reviewedSchemaManifest } from '@/schemas/generated';
 import {
   Dialog,
@@ -24,7 +27,6 @@ import {
 } from '@/components/ui/dialog';
 
 import { SubscriptionNodeForm } from './subscription-node-form';
-import { subscriptionNodeAddress } from './subscription-node-address';
 import { collectionItemSchema, schemaProperties } from '../configuration-page/schema-ui';
 import {
   encodeCanonicalValue,
@@ -87,12 +89,20 @@ export function SubscriptionNodeEditor({
   const [resolution, setResolution] = useState<ReviewedSchemaResolution | null>(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(node !== null);
+  const [schemaLoading, setSchemaLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [reveal, setReveal] = useState(false);
   const [importText, setImportText] = useState('');
   const [confirmDelete, setConfirmDelete] = useState(false);
   const activeRef = useRef(true);
   const editable = !node || node.origin === 'manual';
+  const editorLoading = loading || (mode === 'form' && schemaLoading);
+  const baseline = detail ? formatJSON(detail.outbound_json) : blank;
+  useUnsavedChanges(editable && !loading && (raw !== baseline || importText !== ''), () => {
+    setRaw(baseline);
+    setImportText('');
+    onClose();
+  }, busy);
   useEffect(() => {
     activeRef.current = true;
     const controller = new AbortController();
@@ -125,6 +135,9 @@ export function SubscriptionNodeEditor({
       })
       .catch((reason) => {
         if (!controller.signal.aborted) setError(describeRequestError(reason));
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setSchemaLoading(false);
       });
     return () => {
       activeRef.current = false;
@@ -206,7 +219,7 @@ export function SubscriptionNodeEditor({
       }}
       open
     >
-      <DialogContent className='subscription-node-dialog'>
+      <DialogContent className='subscription-node-dialog' data-read-only={!editable || undefined}>
         <DialogHeader>
           <DialogTitle>
             {confirmDelete
@@ -220,13 +233,19 @@ export function SubscriptionNodeEditor({
           </DialogDescription>
         </DialogHeader>
         {error && (
-          <p className='subscription-form-error' role='alert'>
-            {error}
-          </p>
+          <ErrorNotice error={error} />
         )}
-        {loading
+        {editorLoading
           ? (
-              <p>{t('subscriptions.common.loading')}</p>
+              <div
+                aria-label={t('subscriptions.common.loading')}
+                className='subscription-node-editor__loading'
+                role='status'
+              >
+                <Skeleton aria-hidden='true' className='h-8 w-40' />
+                <Skeleton aria-hidden='true' className='h-10 w-full' />
+                <Skeleton aria-hidden='true' className='min-h-0 w-full flex-1' />
+              </div>
             )
           : node && !detail
             ? null
@@ -235,76 +254,29 @@ export function SubscriptionNodeEditor({
                   <p>{t('subscriptions.nodes.deletePrompt', { name: node?.name })}</p>
                 )
               : (
-                  <>
-                    {detail && (
-                      <div className='subscription-node-addresses'>
-                        {detail.listener && (
-                          <span className='subscription-node-badge is-address' title={detail.listener}>
-                            {t('subscriptions.nodes.listener')}
-                            :
-                            {detail.listener}
-                          </span>
-                        )}
-                        <span className='subscription-node-badge is-address' title={detail.server}>
-                          {t('subscriptions.nodes.publicAddress')}
-                          :
-                          {' '}
-                          {subscriptionNodeAddress(detail) || t('subscriptions.nodes.hostMissing')}
-                        </span>
-                      </div>
+                  <Tabs
+                    className='subscription-node-editor__modes'
+                    value={mode}
+                    onValueChange={(value) => {
+                      if (value === 'json') setRaw(formatJSON(raw));
+                      setMode(value as typeof mode);
+                    }}
+                  >
+                    {editable && (
+                      <TabsList className='subscription-node-editor__tabs' aria-label={t('subscriptions.nodes.editor')}>
+                        {(['form', 'json', ...(!node ? ['import'] : [])] as const).map((value) => (
+                          <TabsTrigger disabled={busy} key={value} value={value}>
+                            {t(`subscriptions.nodes.${value}`)}
+                          </TabsTrigger>
+                        ))}
+                      </TabsList>
                     )}
-                    <div className='subscription-node-editor__toolbar'>
-                      {editable
-                        ? (
-                            <div role='tablist' aria-label={t('subscriptions.nodes.editor')}>
-                              {(['form', 'json', ...(!node ? ['import'] : [])] as const).map((value) => (
-                                <Button
-                                  aria-selected={mode === value}
-                                  disabled={busy}
-                                  key={value}
-                                  onClick={() => {
-                                    if (value === 'json') setRaw(formatJSON(raw));
-                                    setMode(value as typeof mode);
-                                  }}
-                                  role='tab'
-                                  variant={mode === value ? 'secondary' : 'ghost'}
-                                >
-                                  {t(`subscriptions.nodes.${value}`)}
-                                </Button>
-                              ))}
-                            </div>
-                          )
-                        : (
-                            <Button onClick={() => setReveal((value) => !value)} variant='outline'>
-                              {t(reveal ? 'subscriptions.nodes.mask' : 'subscriptions.nodes.reveal')}
-                            </Button>
-                          )}
-                      {mode === 'json' && (
-                        <div className='subscription-toolbar-actions'>
-                          {editable && (
-                            <Button
-                              aria-label={t('configuration.advanced.format')}
-                              title={t('configuration.advanced.format')}
-                              disabled={busy || !parsed}
-                              onClick={() => setRaw(formatJSON(raw))}
-                              size='icon'
-                              variant='outline'
-                            >
-                              <Braces aria-hidden='true' />
-                            </Button>
-                          )}
-                          <Button
-                            aria-label={t('subscriptions.nodes.copy')}
-                            onClick={() => void copyJSON()}
-                            size='icon'
-                            variant='outline'
-                          >
-                            <Copy aria-hidden='true' />
-                          </Button>
-                        </div>
-                      )}
-                    </div>
-                    <div className='subscription-node-editor__scroll'>
+                    <TabsContent
+                      className='subscription-node-editor__scroll'
+                      key={mode}
+                      value={mode}
+                      role={editable ? 'tabpanel' : 'presentation'}
+                    >
                       {mode === 'import'
                         ? (
                             <textarea
@@ -327,23 +299,68 @@ export function SubscriptionNodeEditor({
                                 schema={itemSchema as RJSFSchema}
                               />
                             )
-                          : editable
-                            ? (
-                                <textarea
-                                  aria-label={t('subscriptions.nodes.json')}
-                                  className='subscription-code-input'
-                                  disabled={busy}
-                                  onBlur={() => setRaw(formatJSON(raw))}
-                                  onChange={(event) => setRaw(event.target.value)}
-                                  spellCheck={false}
-                                  value={raw}
-                                />
-                              )
-                            : (
-                                <pre className='subscription-code-input'>{reveal ? raw : maskedJSON(raw)}</pre>
-                              )}
-                    </div>
-                  </>
+                          : (
+                              <div className='subscription-node-code'>
+                                <div className='subscription-node-code__toolbar'>
+                                  <span className='subscription-node-code__label'>JSON</span>
+                                  <div className='subscription-node-code__actions'>
+                                    {editable
+                                      ? (
+                                          <Button
+                                            aria-label={t('configuration.advanced.format')}
+                                            title={t('configuration.advanced.format')}
+                                            disabled={busy || !parsed}
+                                            onClick={() => setRaw(formatJSON(raw))}
+                                            size='icon-sm'
+                                            variant='ghost'
+                                          >
+                                            <Braces aria-hidden='true' />
+                                          </Button>
+                                        )
+                                      : (
+                                          <Button
+                                            aria-label={t(reveal ? 'subscriptions.nodes.mask' : 'subscriptions.nodes.reveal')}
+                                            aria-pressed={reveal}
+                                            title={t(reveal ? 'subscriptions.nodes.mask' : 'subscriptions.nodes.reveal')}
+                                            onClick={() => setReveal((value) => !value)}
+                                            size='icon-sm'
+                                            variant='ghost'
+                                          >
+                                            {reveal ? <EyeOff aria-hidden='true' /> : <Eye aria-hidden='true' />}
+                                          </Button>
+                                        )}
+                                    <Button
+                                      aria-label={t('subscriptions.nodes.copy')}
+                                      title={t('subscriptions.nodes.copy')}
+                                      onClick={() => void copyJSON()}
+                                      size='icon-sm'
+                                      variant='ghost'
+                                    >
+                                      <Copy aria-hidden='true' />
+                                    </Button>
+                                  </div>
+                                </div>
+                                {editable
+                                  ? (
+                                      <textarea
+                                        aria-label={t('subscriptions.nodes.json')}
+                                        className='subscription-code-input'
+                                        disabled={busy}
+                                        onBlur={() => setRaw(formatJSON(raw))}
+                                        onChange={(event) => setRaw(event.target.value)}
+                                        spellCheck={false}
+                                        value={raw}
+                                      />
+                                    )
+                                  : (
+                                      <pre aria-label={t('subscriptions.nodes.json')} className='subscription-code-input' role='region' tabIndex={0}>
+                                        {reveal ? raw : maskedJSON(raw)}
+                                      </pre>
+                                    )}
+                              </div>
+                            )}
+                    </TabsContent>
+                  </Tabs>
                 )}
         <DialogFooter>
           {confirmDelete
@@ -359,15 +376,6 @@ export function SubscriptionNodeEditor({
               )
             : (
                 <>
-                  {node?.origin === 'manual' && (
-                    <Button
-                      disabled={busy || !detail}
-                      onClick={() => setConfirmDelete(true)}
-                      variant='destructive'
-                    >
-                      {t('subscriptions.nodes.delete')}
-                    </Button>
-                  )}
                   {node?.origin === 'local' && (
                     <Button
                       render={<Link to={`/configuration?inbound=${encodeURIComponent(node.name)}`} />}
@@ -381,11 +389,20 @@ export function SubscriptionNodeEditor({
                   </Button>
                   {editable && (
                     <Button
-                      disabled={busy || loading || (mode === 'import' ? !importText.trim() : !parsed)}
+                      disabled={busy || editorLoading || (node !== null && !detail) || (mode === 'import' ? !importText.trim() : !parsed)}
                       onClick={() => void (mode === 'import' ? parseImport() : save())}
                       variant='default'
                     >
                       {t(mode === 'import' ? 'subscriptions.nodes.parse' : 'subscriptions.nodes.save')}
+                    </Button>
+                  )}
+                  {node?.origin === 'manual' && (
+                    <Button
+                      disabled={busy || !detail}
+                      onClick={() => setConfirmDelete(true)}
+                      variant='destructive'
+                    >
+                      {t('subscriptions.nodes.delete')}
                     </Button>
                   )}
                 </>

@@ -280,6 +280,9 @@ export function createSubscriptionHttpApi(context: HttpApiContext) {
         signal,
       });
     },
+    getSubscriptionTokenSecret(tokenID, signal) {
+      return request<{ token: string }>(fetcher, `${baseUrl}/subscription/tokens/${encodeURIComponent(tokenID)}/secret`, { method: 'GET', signal });
+    },
     getSubscriptionToken(tokenID, signal) {
       return request<SubscriptionToken>(
         fetcher,

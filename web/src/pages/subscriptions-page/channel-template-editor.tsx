@@ -5,6 +5,7 @@ import type { ChannelNativeTemplate, SubscriptionPreview } from '@/api/api-clien
 
 import { Button } from '@/components/ui/button';
 import { toast } from '@/components/ui/toast-manager';
+import { useUnsavedChanges } from '@/hooks/use-unsaved-changes';
 import { describeRequestError } from '@/components/error-notice';
 import {
   Dialog,
@@ -26,16 +27,14 @@ interface Props {
 }
 export function ChannelTemplateEditor({ template, format, onClose, onPreview, onSave }: Props) {
   const { t } = useTranslation();
-  const [content, setContent] = useState(
-    template?.content ?? (format === 'sing-box' ? '{\n  "log": { "level": "info" }\n}' : 'log-level: info\n'),
-  );
-  const [error, setError] = useState('');
+  const baseline = template?.content ?? (format === 'sing-box' ? '{\n  "log": { "level": "info" }\n}' : 'log-level: info\n');
+  const [content, setContent] = useState(baseline);
   const [busy, setBusy] = useState(false);
   const [preview, setPreview] = useState<SubscriptionPreview | null>(null);
   const [validated, setValidated] = useState<string | null>(null);
+  useUnsavedChanges(content !== baseline, onClose, busy);
   async function act(kind: 'validate' | 'preview' | 'save') {
     setBusy(true);
-    setError('');
     try {
       const draft = { format, content };
       const result = await onPreview(draft);
@@ -49,7 +48,7 @@ export function ChannelTemplateEditor({ template, format, onClose, onPreview, on
         toast.add({ title: t('channels.valid'), type: 'success' });
       }
     } catch (reason) {
-      setError(describeRequestError(reason));
+      toast.add({ title: describeRequestError(reason), type: 'error' });
       setValidated(null);
     } finally {
       setBusy(false);
@@ -70,11 +69,6 @@ export function ChannelTemplateEditor({ template, format, onClose, onPreview, on
           spellCheck={false}
           onChange={(event) => setContent(event.target.value)}
         />
-        {error && (
-          <p className='subscription-form-error' role='alert'>
-            {error}
-          </p>
-        )}
         <DialogFooter>
           <Button variant='outline' disabled={busy} onClick={onClose}>
             {t('common.cancel')}

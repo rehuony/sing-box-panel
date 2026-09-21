@@ -514,6 +514,7 @@ export function createMockApiClient(overrides: Partial<ApiClient> = {}): Mocked<
     }),
     restoreSubscriptionSourceVersion: vi.fn().mockResolvedValue(testSubscriptionSources[0]),
     listSubscriptionTokens: vi.fn().mockResolvedValue({ items: testSubscriptionTokens }),
+    getSubscriptionTokenSecret: vi.fn().mockResolvedValue({ token: 'sample-subscription-token' }),
     getSubscriptionToken: vi.fn().mockResolvedValue(testSubscriptionTokens[0]),
     createSubscriptionToken: vi.fn().mockResolvedValue({
       metadata: { ...testSubscriptionTokens[0], id: 'token_new' },

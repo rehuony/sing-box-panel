@@ -1,6 +1,6 @@
 import { useTranslation } from 'react-i18next';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ChevronLeft, ChevronRight, Plus, Search } from 'lucide-react';
+import { ChevronLeft, ChevronRight, CirclePlus, Search } from 'lucide-react';
 
 import type {
   SubscriptionChannel,
@@ -14,6 +14,7 @@ import { toast } from '@/components/ui/toast-manager';
 import { useApiClient } from '@/api/api-client-context';
 import { SelectField } from '@/components/select-field';
 import { ToolbarActions } from '@/components/workspace-toolbar';
+import { useUnsavedChanges } from '@/hooks/use-unsaved-changes';
 import { describeRequestError, ErrorNotice } from '@/components/error-notice';
 import {
   Dialog,
@@ -26,6 +27,7 @@ import {
 
 import { ChannelWorkspace } from './channel-workspace';
 import { initialChannelPolicy } from './channel-policy';
+import { ChannelLinkDialog } from './channel-token-links';
 
 export function SubscriptionChannelPanel({ active = true, toolbarTarget }: {
   active?: boolean;
@@ -42,10 +44,16 @@ export function SubscriptionChannelPanel({ active = true, toolbarTarget }: {
   const [error, setError] = useState<unknown>(null);
   const [busy, setBusy] = useState(false);
   const [creating, setCreating] = useState(false);
+  const [linkChannel, setLinkChannel] = useState<SubscriptionChannel | null>(null);
   const [name, setName] = useState('');
   const [format, setFormat] = useState<SubscriptionFormat>('sing-box');
   const [formError, setFormError] = useState('');
   const [deleting, setDeleting] = useState<SubscriptionChannelSummary | null>(null);
+  useUnsavedChanges(creating && (name !== '' || format !== 'sing-box'), () => {
+    setCreating(false);
+    setName('');
+    setFormat('sing-box');
+  }, busy);
   const lifetimeRef = useRef<AbortController | null>(null);
   const generationRef = useRef(0);
   const load = useCallback(
@@ -94,6 +102,39 @@ export function SubscriptionChannelPanel({ active = true, toolbarTarget }: {
       toast.add({ title: describeRequestError(reason), type: 'error' });
     } finally {
       setBusy(false);
+    }
+  }
+  async function channelAction(id: string, action: 'duplicate' | 'link') {
+    if (busy) return;
+    setBusy(true);
+    const signal = lifetimeRef.current?.signal;
+    try {
+      const fresh = await client.getSubscriptionChannel(id, signal);
+      if (signal?.aborted) return;
+      if (action === 'link') {
+        setLinkChannel(fresh);
+      } else {
+        function nameForCopy(number: number) {
+          const suffix = ` ${t('channels.duplicateSuffix')}${number > 1 ? ` ${number}` : ''}`;
+          const characters = Array.from(fresh.name);
+          while (new TextEncoder().encode(characters.join('') + suffix).length > 128) characters.pop();
+          return characters.join('') + suffix;
+        }
+        let number = 1;
+        let copyName = nameForCopy(number);
+        while (channels.some((item) => item.name === copyName)) copyName = nameForCopy(++number);
+        await client.createSubscriptionChannel({
+          name: copyName, format: fresh.format, enabled: fresh.enabled,
+          public_host: fresh.public_host, config: fresh.config,
+        }, signal);
+        if (signal?.aborted) return;
+        await load(signal);
+        if (!signal?.aborted) toast.add({ title: t('channels.duplicated'), type: 'success' });
+      }
+    } catch (reason) {
+      if (!signal?.aborted) toast.add({ title: describeRequestError(reason), type: 'error' });
+    } finally {
+      if (!signal?.aborted) setBusy(false);
     }
   }
   async function create() {
@@ -149,6 +190,12 @@ export function SubscriptionChannelPanel({ active = true, toolbarTarget }: {
   const current = Math.min(page, pages);
   return (
     <section className='subscription-source-workspace'>
+      {linkChannel && (
+        <ChannelLinkDialog
+          channelID={linkChannel.id} tokenIDs={linkChannel.config.export_token_ids ?? []}
+          onClose={() => setLinkChannel(null)}
+        />
+      )}
       {error != null && <ErrorNotice error={error} title={t('channels.title')} />}
       {channel
         ? (
@@ -163,13 +210,29 @@ export function SubscriptionChannelPanel({ active = true, toolbarTarget }: {
                 void load(lifetimeRef.current?.signal);
               }}
               onSaved={setChannel}
-              onRefresh={() => load(lifetimeRef.current?.signal)}
             />
           )
         : (
             <>
               <ToolbarActions active={active} target={toolbarTarget}>
                 <div className='subscription-source-toolbar workspace-toolbar-content'>
+                  <div className='subscription-toolbar-actions'>
+                    <Button
+                      aria-label={t('channels.add')}
+                      title={t('channels.add')}
+                      disabled={busy}
+                      size='icon-sm'
+                      variant='ghost'
+                      onClick={() => {
+                        setCreating(true);
+                        setName('');
+                        setFormat('sing-box');
+                        setFormError('');
+                      }}
+                    >
+                      <CirclePlus aria-hidden='true' />
+                    </Button>
+                  </div>
                   <div className='subscription-search'>
                     <Search />
                     <input
@@ -181,22 +244,6 @@ export function SubscriptionChannelPanel({ active = true, toolbarTarget }: {
                         setPage(1);
                       }}
                     />
-                  </div>
-                  <div className='subscription-toolbar-actions'>
-                    <Button
-                      aria-label={t('channels.add')}
-                      disabled={busy}
-                      size='icon'
-                      variant='outline'
-                      onClick={() => {
-                        setCreating(true);
-                        setName('');
-                        setFormat('sing-box');
-                        setFormError('');
-                      }}
-                    >
-                      <Plus />
-                    </Button>
                   </div>
                 </div>
               </ToolbarActions>
@@ -214,22 +261,22 @@ export function SubscriptionChannelPanel({ active = true, toolbarTarget }: {
                     {filtered.slice((current - 1) * size, current * size).map((value) => (
                       <tr key={value.id}>
                         <td>
-                          <Button variant='ghost' size='content' onClick={() => void open(value.id)} title={value.name}>
-                            {value.name}
-                          </Button>
+                          <span className='block truncate' title={value.name}>{value.name}</span>
                         </td>
                         <td>
                           {value.format === 'sing-box'
-                            ? 'sing-box JSON'
+                            ? t('subscriptions.channel.format.singBox')
                             : value.format === 'mihomo'
-                              ? 'Mihomo YAML'
-                              : 'Loon'}
+                              ? t('subscriptions.channel.format.mihomo')
+                              : t('subscriptions.channel.format.loon')}
                         </td>
                         <td>{t(value.enabled ? 'channels.enabled' : 'channels.disabled')}</td>
                         <td>
                           <Button size='sm' disabled={busy} variant='outline' onClick={() => void open(value.id)}>
                             {t('channels.edit')}
                           </Button>
+                          <Button size='sm' disabled={busy} variant='outline' onClick={() => void channelAction(value.id, 'duplicate')}>{t('channels.copy')}</Button>
+                          <Button size='sm' disabled={busy || !value.enabled} variant='outline' onClick={() => void channelAction(value.id, 'link')}>{t('channels.link')}</Button>
                           <Button size='sm' disabled={busy} variant='destructive' onClick={() => setDeleting(value)}>
                             {t('channels.remove')}
                           </Button>
@@ -288,19 +335,18 @@ export function SubscriptionChannelPanel({ active = true, toolbarTarget }: {
               onChange={(event) => setName(event.target.value)}
             />
             <label htmlFor='channel-format'>{t('channels.client')}</label>
-            <select
+            <SelectField<SubscriptionFormat>
               id='channel-format'
               value={format}
-              onChange={(event) => setFormat(event.target.value as SubscriptionFormat)}
-            >
-              <option value='sing-box'>sing-box JSON</option>
-              <option value='mihomo'>Mihomo YAML</option>
-            </select>
+              onValueChange={setFormat}
+              items={[
+                { value: 'sing-box', label: t('subscriptions.channel.format.singBox') },
+                { value: 'mihomo', label: t('subscriptions.channel.format.mihomo') },
+              ]}
+            />
           </div>
           {formError && (
-            <p role='alert' className='subscription-form-error'>
-              {formError}
-            </p>
+            <ErrorNotice error={formError} />
           )}
           <DialogFooter>
             <Button disabled={busy} variant='outline' onClick={() => setCreating(false)}>

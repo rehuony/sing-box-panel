@@ -12,6 +12,7 @@ import type { ConfigurationFile } from '@/api/api-client';
 
 import { toast } from '@/components/ui/toast-manager';
 import { useApiClient } from '@/api/api-client-context';
+import { useUnsavedChanges } from '@/hooks/use-unsaved-changes';
 import { useCanonicalDraftSession } from '@/stores/canonical-draft.store';
 
 export interface CanonicalDraft {
@@ -120,8 +121,11 @@ export function useCanonicalConfiguration() {
     }
   }, [client, saving, state, t]);
   const reset = useCallback(() => {
-    setState(current => current.status === 'ready' ? { ...current, content: current.file.content } : current);
-  }, []);
+    if (state.status !== 'ready') return;
+    session.current = { file: state.file, content: state.file.content, dirty: false };
+    setState({ ...state, content: state.file.content });
+  }, [session, state]);
+  useUnsavedChanges(dirty, reset, saving);
 
   return { state, draft: parsed.draft, editorError: parsed.error, dirty, saving, save, reset, update, updateText };
 }

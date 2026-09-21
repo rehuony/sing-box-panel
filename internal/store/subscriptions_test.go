@@ -374,3 +374,65 @@ func testTokenDigest(plaintext string) string {
 	sum := sha256.Sum256([]byte(plaintext))
 	return hex.EncodeToString(sum[:])
 }
+
+func TestSubscriptionSecretDigestMismatchIsAtomic(t *testing.T) {
+	ctx := testContext(t)
+	database := openTestStore(t, ctx)
+	_, err := database.CreateSubscriptionToken(ctx, SubscriptionToken{
+		ID: "token-bad-secret", Label: "bad", TokenSHA256: testTokenDigest("expected"), Secret: "different", Enabled: true,
+	})
+	if err == nil {
+		t.Fatal("mismatched secret accepted")
+	}
+	if _, err := database.GetSubscriptionToken(ctx, "token-bad-secret"); !errors.Is(err, ErrSubscriptionTokenNotFound) {
+		t.Fatalf("failed insert persisted: %v", err)
+	}
+	if _, err := database.SubscriptionTokenSecret(ctx, "token-bad-secret"); !errors.Is(err, ErrSubscriptionTokenNotFound) {
+		t.Fatalf("failed secret persisted: %v", err)
+	}
+}
+
+func TestSubscriptionDigestOnlySecretIsUnavailable(t *testing.T) {
+	ctx := testContext(t)
+	database := openTestStore(t, ctx)
+	created, err := database.CreateSubscriptionToken(ctx, SubscriptionToken{
+		ID: "token-digest-only", Label: "old", TokenSHA256: testTokenDigest("legacy-token"), Enabled: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.SubscriptionTokenSecret(ctx, created.ID); !errors.Is(err, ErrSubscriptionTokenSecretUnavailable) {
+		t.Fatalf("digest-only secret read: %v", err)
+	}
+	if _, err := database.GetSubscriptionToken(ctx, created.ID); err != nil {
+		t.Fatalf("old token was modified: %v", err)
+	}
+}
+
+func TestSubscriptionExportKeyBindingsRoundTrip(t *testing.T) {
+	ctx := testContext(t)
+	database := openTestStore(t, ctx)
+	created, err := database.CreateSubscriptionChannel(ctx, SubscriptionChannel{
+		ID: "channel-bindings", Name: "bindings", Format: SubscriptionFormatMihomo,
+		Config: json.RawMessage(`{"export_token_ids":["token-first","token-second"]}`), Enabled: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	reloaded, err := database.GetSubscriptionChannel(ctx, created.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var config SubscriptionChannelConfig
+	if err := json.Unmarshal(reloaded.Config, &config); err != nil {
+		t.Fatal(err)
+	}
+	if len(config.ExportTokenIDs) != 2 || config.ExportTokenIDs[0] != "token-first" || config.ExportTokenIDs[1] != "token-second" {
+		t.Fatalf("key bindings changed: %v", config.ExportTokenIDs)
+	}
+	for _, invalid := range []string{`{"export_token_ids":["token-first","token-first"]}`, `{"export_token_ids":[""]}`, `{"export_token_ids":null}`} {
+		if _, err := DecodeSubscriptionChannelConfig(json.RawMessage(invalid)); err == nil {
+			t.Fatalf("invalid bindings accepted: %s", invalid)
+		}
+	}
+}

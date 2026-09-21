@@ -94,6 +94,7 @@ var managementOperations = []managementOperation{
 	{Method: http.MethodPost, Path: "/subscription/sources/{sourceId}/versions/{versionId}/restore", OperationID: "restoreSubscriptionSourceVersion"},
 	{Method: http.MethodGet, Path: "/subscription/tokens", OperationID: "listSubscriptionTokens"},
 	{Method: http.MethodPost, Path: "/subscription/tokens", OperationID: "createSubscriptionToken"},
+	{Method: http.MethodGet, Path: "/subscription/tokens/{tokenId}/secret", OperationID: "getSubscriptionTokenSecret"},
 	{Method: http.MethodGet, Path: "/subscription/tokens/{tokenId}", OperationID: "getSubscriptionToken"},
 	{Method: http.MethodDelete, Path: "/subscription/tokens/{tokenId}", OperationID: "deleteSubscriptionToken"},
 	{Method: http.MethodPost, Path: "/subscription/tokens/{tokenId}/rotate", OperationID: "rotateSubscriptionToken"},

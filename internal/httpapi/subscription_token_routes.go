@@ -107,3 +107,15 @@ func (handler *Handler) deleteSubscriptionToken(w http.ResponseWriter, request *
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
+
+func (handler *Handler) getSubscriptionTokenSecret(w http.ResponseWriter, request *http.Request, identifier string) {
+	if !handler.subscriptionReadRequest(w, request) {
+		return
+	}
+	secret, err := handler.commands.SubscriptionTokenSecret(request.Context(), identifier)
+	if err != nil {
+		writeSubscriptionProblem(w, request, "subscription_token_secret_read_failed", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, secret)
+}
