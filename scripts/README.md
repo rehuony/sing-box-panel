@@ -3,7 +3,7 @@
 This directory owns executable project scripts. `installer.sh` installs a
 published release on a Linux host. `build.sh` builds and verifies an
 isolated source snapshot. `test/` contains local script tests and the
-GitHub Actions release smoke orchestration plus the native Linux sing-box core
+shared release smoke orchestration plus the native Linux sing-box core
 contract. GitHub workflow YAML and the release signing trust root remain under
 `.github/`.
 
@@ -39,9 +39,18 @@ bash scripts/test/installer-test.sh
 
 `build.sh` is used by local Make targets, CI, and the signed-release
 workflow. It never publishes, uploads, signs, installs, or retains artifacts.
-`test/smoke-release.sh` is GitHub Actions-only orchestration for native release
-smoke tests. The `Release Build` workflow adds the signature, runs those
-smoke tests, and creates a verified Draft Release for a maintainer to publish.
+`test/smoke-release.sh` validates signed artifacts and exercises native startup,
+editable configuration and panel settings persistence, authenticated self-update,
+and restart. `test/release-contract.sh` builds disposable candidates from the
+current working tree, signs them with a newly generated test key, and invokes
+that same scenario in ordinary CI and local Linux checks. It never reads the
+repository's private key or replaces the committed public key. Temporary keys,
+binaries and instance data are removed on exit.
+
+The `Release Build` workflow supplies the actual signed release artifacts to
+the shared scenario, then creates a verified Draft Release for a maintainer
+to publish. The isolated packaging check remains separate from the working-tree
+smoke build: it validates the formal build's committed inputs and trust root.
 
 ## Interface
 
@@ -51,6 +60,7 @@ Use the Make targets from the repository root:
 make snapshot OUT=/absolute/path/to/new-output
 make release VERSION=v0.1.0 OUT=/absolute/path/to/new-output
 make release-verify
+make release-smoke # current working tree; native Linux, non-root user
 make support-generate
 make support-check
 make core-contract # exact binaries plus raw configuration checks; native Linux only
@@ -62,7 +72,22 @@ Their underlying script interface is:
 scripts/build.sh snapshot --output /absolute/path/to/new-output
 scripts/build.sh release --version v0.1.0 --output /absolute/path/to/new-output
 scripts/build.sh verify
+bash scripts/test/release-contract.sh # requires web/dist from make web-build
 ```
+
+Release smoke tests require Bash, curl, Git, Go, jq, OpenSSL, Python 3 and
+sha256sum. `make release-smoke` builds the Web distribution first, using the same
+Node.js/Corepack prerequisites as `make build`. `RELEASE_ARCHITECTURE`, when
+provided by CI, must match the native runner; emulation is not a fallback.
+These native checks are separate from the cross-platform `make ci` target.
+
+The release configuration fixture is `testdata/release-configuration.json`.
+The HTTP contract test uses the same fixture against the real handler,
+reopened SQLite database, and `api/openapi.yaml`. The native scenario additionally
+tests actual process restart and binary replacement. When changing a public
+configuration contract, update that contract, its implementation, this fixture
+when needed, and the shared smoke scenario together. Do not add a second
+release-only API representation or bypass a failing assertion.
 
 The destination of `snapshot` and `release` must not exist, and its parent
 directory must already exist. `snapshot` uses version `dev`. `release`

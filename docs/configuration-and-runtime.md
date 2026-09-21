@@ -56,6 +56,13 @@ immutable evidence remains for native checks, runtime identities, and recovery.
 The CLI's `config` group instead manages the panel settings file; see
 [Panel settings](cli.md#panel-settings).
 
+Ordinary CI and signed releases exercise this same file API across a real
+self-update and restart. The release fixture includes whitespace and a number
+beyond JavaScript's safe integer range; the scenario also retains unfinished
+JSON through the update before correcting it. Immutable history is verified as
+lossless `document_json` plus its identity and digest, separately from editable
+text. See [Release process](release.md#verification-scope) for the native checks.
+
 ## Switching versions without rewriting JSON
 
 Selecting a different core carries the current JSON forward unchanged. The

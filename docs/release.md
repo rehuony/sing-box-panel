@@ -21,7 +21,17 @@ either reproducible CI/workflow jobs or the maintainer's final draft review.
 
 ## Verification scope
 
-The ordinary `CI Checks` workflow runs Go, Web, package, race, and fuzz checks.
+The ordinary `CI Checks` workflow runs Go, Web, package, race, and fuzz checks,
+plus the release smoke scenario on native Linux amd64 and arm64. These jobs
+build the checked-out source with a disposable Ed25519 key, sign temporary
+test candidates, and call the same `scripts/test/smoke-release.sh` used for
+formal releases. They have read-only permissions, use no release secret or
+protected environment, and publish no artifacts. A change to an API, CLI,
+storage contract, or smoke assertion must pass this path before release.
+The fixture builds exercise the current working tree; the separate isolated
+packaging job still verifies the committed-source build and repository trust
+root.
+
 A separate path-filtered `Core Compatibility` workflow downloads every reviewed
 sing-box archive and runs the raw-configuration and real `sing-box check`
 contract on native amd64 and arm64 runners. Schema reproducibility is a separate
@@ -32,7 +42,26 @@ The signed-release workflow calls the same reusable native core contract with
 read-only permissions before `build-sign` can enter the protected `release`
 environment or access its private key. It then adds native amd64 and arm64 smoke
 tests for the packaged panel binary, HTTP startup, persistent state, and
-authenticated self-update.
+authenticated self-update. The shared scenario writes through the current
+editable-file API rather than using the legacy canonical write API. It checks
+exact text (including whitespace and large integers), stale-write rejection,
+unfinished JSON, immutable history, panel settings, and correction of the saved
+draft after update. The immutable history comparison uses `document_json`
+without decoding large numbers through jq, and compares the original identity,
+digest and schema metadata instead of assuming an obsolete document envelope.
+
+On a native Linux amd64 or arm64 development machine, run as a non-root user:
+
+```sh
+make bootstrap release-smoke
+```
+
+The non-root requirement keeps initialization inside temporary XDG directories
+instead of the root installation's `/var/lib/sing-box-panel`. Each phase and
+failed assertion is named in the log; diagnostic JSON contains only selected
+metadata, never configuration text, credential values, or complete settings.
+`make ci` retains the platform-independent checks; `make release-smoke` and
+`make core-contract` are the additional native Linux gates.
 
 ## Local development build
 
@@ -209,9 +238,13 @@ runs five stages:
    authenticated API; writes persistent state; and exercises a real update
    from a lower-version probe through a temporary release endpoint. The test
    confirms that the running process remains unchanged until restart and that
-   both the new version and SQLite state survive the restart. The arm64 job
-   never falls back to QEMU. The Actions-only orchestration is implemented by
-   `scripts/test/smoke-release.sh`.
+   the new version, exact editable text, immutable SQLite history, and settings
+   file survive restart. It then corrects the unfinished draft through the new
+   binary and checks persistence after another restart. The arm64 job never
+   falls back to QEMU. Both this release gate and ordinary CI use
+   `scripts/test/smoke-release.sh`; neither maintains a separate set of API
+   assertions. Each smoke job installs its own Go, Node.js and pinned pnpm
+   prerequisites before building the probe's Web distribution.
 5. `draft` obtains `contents: write` only after both smoke jobs pass. It creates
    a Draft Release targeted at the frozen commit, generates release notes,
    uploads the four exact assets, downloads them into an empty directory, and
