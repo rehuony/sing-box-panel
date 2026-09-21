@@ -14,6 +14,7 @@ import (
 	"github.com/rehuony/sing-box-panel/internal/configuration"
 	"github.com/rehuony/sing-box-panel/internal/singbox"
 	"github.com/rehuony/sing-box-panel/internal/store"
+	"github.com/rehuony/sing-box-panel/internal/testutil"
 )
 
 func TestPreviewAndCompileUseRawRevisionWithoutSchema(t *testing.T) {
@@ -24,11 +25,19 @@ func TestPreviewAndCompileUseRawRevisionWithoutSchema(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = database.Close() })
 	application := FromStore(database)
+	application.SetRuntimeController(runtimeControllerFunc(func(ctx context.Context, request RuntimeRequest) (RuntimeResponse, error) {
+		if request.Action != "check" {
+			t.Fatalf("unexpected action %s", request.Action)
+		}
+		checked, err := application.CompleteStartupCheck(ctx, request.StartupArtifactID, true)
+		summary := StartupArtifactSummary{ID: checked.ID, State: checked.State, CoreArtifactID: checked.CoreArtifactID}
+		return RuntimeResponse{Startup: &summary}, err
+	}))
 	now := time.Date(2026, 8, 28, 1, 2, 3, 0, time.UTC)
 	application.now = func() time.Time { return now }
 
 	_, err = database.UpsertCoreArtifact(ctx, store.CoreArtifact{
-		ID: "core_11319", ExactVersion: "1.13.19", OperatingSystem: "linux", Architecture: "arm64", Variant: "plain",
+		ID: "core_11319", ExactVersion: "1.13.19", OperatingSystem: "linux", Architecture: "arm64", Variant: "musl",
 		SourceKind: store.CoreArtifactSourceUserVerified, UserSource: "test", ArchiveSHA256: strings.Repeat("a", 64),
 		BinarySHA256: strings.Repeat("b", 64), BinaryPath: "/tmp/sing-box", ReportedVersion: "1.13.19",
 		FeatureFingerprint: json.RawMessage(`{"status":"not_reported"}`), CreatedAt: now,
@@ -40,9 +49,9 @@ func TestPreviewAndCompileUseRawRevisionWithoutSchema(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	revision, err := database.SaveCanonicalRevisionAndTask(ctx, "", store.NewCanonicalRevision{
+	revision, err := testutil.SaveConfiguration(ctx, database, 0, store.NewCanonicalRevision{
 		ID: "rev_1", SchemaVersion: configuration.SchemaVersion, Document: document.CanonicalJSON(), CommandID: "cmd_1", CreatedAt: now,
-	}, store.NewTask{ID: "task_1", Lane: store.TaskLaneMaintenance, Kind: store.TaskKindCanonicalSaved, CreatedAt: now})
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -66,7 +75,7 @@ func TestPreviewAndCompileUseRawRevisionWithoutSchema(t *testing.T) {
 		t.Fatalf("CompileConfiguration() error = %v", err)
 	}
 	if compiled.Support.Structured || compiled.Artifact.CanonicalRevisionID != revision.ID ||
-		compiled.Artifact.CoreArtifactID != "core_11319" || compiled.Task.Kind != store.TaskKindStartupCheck {
+		compiled.Artifact.CoreArtifactID != "core_11319" || compiled.Artifact.State != store.StartupArtifactReady {
 		t.Fatalf("compile = %+v", compiled)
 	}
 	startup, err := database.GetStartupArtifact(ctx, compiled.Artifact.ID)
@@ -76,9 +85,25 @@ func TestPreviewAndCompileUseRawRevisionWithoutSchema(t *testing.T) {
 	if string(startup.ConfigBytes) != string(revision.Document) || startup.ConfigSHA256 != revision.SHA256 {
 		t.Fatalf("startup = %+v config=%s", startup, startup.ConfigBytes)
 	}
+	draft, err := application.SaveConfigurationFile(ctx, ConfigurationFileWrite{Revision: 1, Content: "{"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := application.PreviewConfiguration(ctx, ConfigurationPreviewRequest{CoreArtifactID: "core_11319"}); !errors.Is(err, store.ErrConfigurationFileUnparsed) {
+		t.Fatalf("invalid draft fell back to prior snapshot: %v", err)
+	}
+	current, err := application.SaveConfigurationFile(ctx, ConfigurationFileWrite{Revision: draft.Revision, Content: `{"log":{"level":"debug"}}`})
+	if err != nil {
+		t.Fatal(err)
+	}
+	preview, err = application.PreviewConfiguration(ctx, ConfigurationPreviewRequest{CoreArtifactID: "core_11319"})
+	if err != nil || preview.CanonicalRevision.ID != current.CanonicalRevisionID || string(preview.Config) != current.Content {
+		t.Fatalf("preview did not use current saved file: %+v %v", preview, err)
+	}
+
 }
 
-func TestCompileUsesNativeSchemaByExactVersionBeforeEnqueue(t *testing.T) {
+func TestCompileUsesNativeSchemaByExactVersionBeforeBinaryCheck(t *testing.T) {
 	ctx := context.Background()
 	database, err := store.Open(ctx, filepath.Join(t.TempDir(), "panel.db"))
 	if err != nil {
@@ -86,10 +111,18 @@ func TestCompileUsesNativeSchemaByExactVersionBeforeEnqueue(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = database.Close() })
 	application := FromStore(database)
+	application.SetRuntimeController(runtimeControllerFunc(func(ctx context.Context, request RuntimeRequest) (RuntimeResponse, error) {
+		if request.Action != "check" {
+			t.Fatalf("unexpected action %s", request.Action)
+		}
+		checked, err := application.CompleteStartupCheck(ctx, request.StartupArtifactID, true)
+		summary := StartupArtifactSummary{ID: checked.ID, State: checked.State, CoreArtifactID: checked.CoreArtifactID}
+		return RuntimeResponse{Startup: &summary}, err
+	}))
 	now := time.Date(2026, 8, 31, 12, 0, 0, 0, time.UTC)
 	application.now = func() time.Time { return now }
 	_, err = database.UpsertCoreArtifact(ctx, store.CoreArtifact{
-		ID: "core_1140", ExactVersion: "1.14.0", OperatingSystem: "linux", Architecture: "arm64", Variant: "plain",
+		ID: "core_1140", ExactVersion: "1.14.0", OperatingSystem: "linux", Architecture: "arm64", Variant: "musl",
 		SourceKind: store.CoreArtifactSourceUserVerified, UserSource: "test", ArchiveSHA256: strings.Repeat("c", 64),
 		BinarySHA256: strings.Repeat("d", 64), BinaryPath: "/tmp/sing-box", ReportedVersion: "1.14.0",
 		FeatureFingerprint: json.RawMessage(`{"status":"not_reported"}`), CreatedAt: now,
@@ -97,10 +130,10 @@ func TestCompileUsesNativeSchemaByExactVersionBeforeEnqueue(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = database.SaveCanonicalRevisionAndTask(ctx, "", store.NewCanonicalRevision{
+	_, err = testutil.SaveConfiguration(ctx, database, 0, store.NewCanonicalRevision{
 		ID: "rev_invalid_1140", SchemaVersion: configuration.SchemaVersion,
 		Document: json.RawMessage(`{"inbounds":"not-an-array"}`), CommandID: "cmd_invalid_1140", CreatedAt: now,
-	}, store.NewTask{ID: "task_invalid_1140", Lane: store.TaskLaneMaintenance, Kind: store.TaskKindCanonicalSaved, CreatedAt: now})
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -116,4 +149,10 @@ func TestCompileUsesNativeSchemaByExactVersionBeforeEnqueue(t *testing.T) {
 	if err != nil || len(artifacts.Items) != 0 {
 		t.Fatalf("startup artifacts after validation failure = %+v, %v", artifacts, err)
 	}
+}
+
+type runtimeControllerFunc func(context.Context, RuntimeRequest) (RuntimeResponse, error)
+
+func (f runtimeControllerFunc) ExecuteRuntime(ctx context.Context, r RuntimeRequest) (RuntimeResponse, error) {
+	return f(ctx, r)
 }

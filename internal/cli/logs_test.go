@@ -104,7 +104,7 @@ func TestDurableLogTailFollowStreamsJSONLAndCancelsCleanly(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = database.Close() })
-	appendCLILog(t, database, "log_initial", time.Now().UTC(), store.LogSourceTask)
+	appendCLILog(t, database, "log_initial", time.Now().UTC(), store.LogSourcePanel)
 
 	writer := &signalingWriter{ready: make(chan struct{})}
 	command := newDurableLogCommand(&options{format: outputJSONL}, sharedLogApplication(database))

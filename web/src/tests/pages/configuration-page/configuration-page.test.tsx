@@ -4,7 +4,7 @@ import { Link, Route, Routes } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 
-import type { ApiClient, ConfigurationFile, ConfigurationSchemaContract } from '@/api/api-client';
+import type { ApiClient, ConfigurationCompile, ConfigurationFile, ConfigurationSchemaContract } from '@/api/api-client';
 
 import { ApiRequestError } from '@/api/api-client';
 import '@/i18n';
@@ -21,7 +21,6 @@ import {
   testDashboardContext,
   testRevision,
   testStartupArtifact,
-  testTask,
 } from '@/tests/api/mock-api-client';
 
 const reviewedSchema = reviewedSchemaManifest['1.14.0'];
@@ -69,6 +68,20 @@ beforeEach(() => {
 });
 
 describe('configurationPage', () => {
+  it.skipIf(reviewedSchema === undefined)('allows visual authoring before the first core is installed', async () => {
+    const client = createMockApiClient({
+      getDashboardContext: vi.fn().mockResolvedValue({ ...testDashboardContext, view: { exactVersion: 'Not selected' } }),
+      listCoreArtifacts: vi.fn().mockResolvedValue({ items: [] }),
+      getConfigurationFile: vi.fn().mockResolvedValue({ revision: 0, content: '{}', syntax_valid: true }),
+    });
+    renderPage(client);
+    await screen.findByRole('combobox', { name: 'Log level' }, { timeout: 5000 });
+    expect(screen.getByRole('tab', { name: 'Visual editor' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByText(/Install this version to validate/)).toBeVisible();
+    expect(client.getConfigurationSchema).not.toHaveBeenCalled();
+    expect(client.startRuntime).not.toHaveBeenCalled();
+  });
+
   it.skipIf(reviewedSchema === undefined).each(['file', 'schema'])(
     'keeps the workspace mounted without a JSON flash when %s loads first',
     async first => {
@@ -204,8 +217,6 @@ describe('configurationPage', () => {
     expect(screen.getByRole('button', { name: 'Validate configuration' })).toBeDisabled();
     await user.click(screen.getByRole('button', { name: 'Save configuration' }));
     await waitFor(() => expect(client.saveConfigurationFile).toHaveBeenCalledWith({ revision: 0, content: '{}' }));
-    expect(client.listRevisions).not.toHaveBeenCalled();
-    expect(client.getCanonical).not.toHaveBeenCalled();
     expect(screen.queryByRole('tab', { name: 'History' })).not.toBeInTheDocument();
     expect(screen.queryByRole('tab', { name: 'Deploy' })).not.toBeInTheDocument();
   });
@@ -319,20 +330,23 @@ describe('configurationPage', () => {
     expect(screen.getByRole('button', { name: 'Save configuration' })).toBeEnabled();
   });
 
-  it.each(['succeeded', 'failed'] as const)('waits for a %s validation result without launching the core', async status => {
+  it.each(['ready', 'failed'] as const)('shows a %s validation result without launching the core', async state => {
     const user = userEvent.setup();
+    let finish!: (value: ConfigurationCompile) => void;
     const client = createMockApiClient({
-      compileConfiguration: vi.fn().mockResolvedValue({ startup: testStartupArtifact, task: { ...testTask, status: 'queued' } }),
-      getTask: vi.fn().mockResolvedValue({ ...testTask, status }),
+      compileConfiguration: vi.fn(() => new Promise<ConfigurationCompile>(resolve => {
+        finish = resolve;
+      })),
     });
     renderPage(client);
     await screen.findByLabelText('sing-box configuration JSON');
     await user.click(screen.getByRole('button', { name: 'Validate configuration' }));
     expect(screen.getByLabelText('sing-box configuration JSON')).toHaveAttribute('contenteditable', 'false');
     expect(toastAdd).not.toHaveBeenCalled();
+    await act(async () => finish({ support: { structured: false, exact_version: '1.13.19' }, artifact: { ...testStartupArtifact, state } }));
     await waitFor(() => expect(toastAdd).toHaveBeenCalledWith(expect.objectContaining({
-      type: status === 'succeeded' ? 'success' : 'error',
-    })), { timeout: 3000 });
+      type: state === 'ready' ? 'success' : 'error',
+    })));
     expect(screen.getByLabelText('sing-box configuration JSON')).toHaveAttribute('contenteditable', 'true');
     expect(client.startRuntime).not.toHaveBeenCalled();
     expect(client.restartRuntime).not.toHaveBeenCalled();

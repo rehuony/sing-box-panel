@@ -17,6 +17,7 @@ import (
 	"github.com/rehuony/sing-box-panel/internal/application"
 	"github.com/rehuony/sing-box-panel/internal/artifactstore"
 	"github.com/rehuony/sing-box-panel/internal/buildinfo"
+	"github.com/rehuony/sing-box-panel/internal/console"
 	"github.com/rehuony/sing-box-panel/internal/httpapi"
 	"github.com/rehuony/sing-box-panel/internal/installation"
 	"github.com/rehuony/sing-box-panel/internal/panelprocess"
@@ -87,8 +88,8 @@ func Run(ctx context.Context, settingsPath string, build buildinfo.Info, assets 
 		return errors.New("settings changed data directory during startup; restart with a stable settings file")
 	}
 	commands := application.FromStoreWithSettings(database, configuration)
-	if err := commands.MigratePanelSettings(ctx); err != nil {
-		return startupError(ctx, "migrate panel settings to file", err)
+	if err := commands.RecoverPanelSettingsFile(ctx); err != nil {
+		return startupError(ctx, "recover interrupted panel settings save", err)
 	}
 	configuration, err = commands.EffectiveSettings(ctx)
 	if err != nil {
@@ -98,6 +99,8 @@ func Run(ctx context.Context, settingsPath string, build buildinfo.Info, assets 
 		return errors.New("settings changed data directory during startup; restart with a stable settings file")
 	}
 	commands = application.FromStoreWithSettings(database, configuration)
+	output := console.FromContext(ctx)
+	commands.SetLogObserver(func(entry store.LogEntry) { output.Event(entry.Time, string(entry.Level), entry.Code, entry.Message) })
 	commands.SetPublicIPResolver(publicip.New().Resolve)
 	defer func() {
 		level, code, message := store.LogLevelInfo, "panel.stopped", "Panel server stopped"
@@ -137,7 +140,7 @@ func Run(ctx context.Context, settingsPath string, build buildinfo.Info, assets 
 	if uploadGCErr != nil {
 		recordOperationalLog(commands, application.LogRecordRequest{
 			Source: store.LogSourcePanel, Level: store.LogLevelWarn, Code: "core_upload.gc_aborted",
-			Message:  "Staged core upload cleanup was skipped because active task ownership was uncertain",
+			Message:  "Staged core upload cleanup was skipped because the staging directory could not be inspected",
 			Metadata: mustLogMetadata(map[string]any{"error": uploadGCErr.Error()}),
 		})
 	} else if uploadGC.Deleted > 0 {
@@ -167,6 +170,7 @@ func Run(ctx context.Context, settingsPath string, build buildinfo.Info, assets 
 	if err := syncEnabledCore(ctx); err != nil {
 		return fmt.Errorf("restore enabled core link: %w", err)
 	}
+	commands.SetArtifactInstaller(artifacts)
 	runtimeControl, err := newRuntimeServices(database, commands, configuration)
 	if err != nil {
 		return fmt.Errorf("construct sing-box runtime: %w", err)
@@ -174,6 +178,10 @@ func Run(ctx context.Context, settingsPath string, build buildinfo.Info, assets 
 	defer func() {
 		runErr = errors.Join(runErr, runtimeControl.Close())
 	}()
+	runtimeControl.lifetime = ctx
+	runtimeControl.syncEnabledCore = syncEnabledCore
+	commands.SetRuntimeController(runtimeControl)
+	control.SetRuntimeHandler(runtimeControl)
 	trafficContext, stopTraffic := context.WithCancel(ctx)
 	trafficDone := startTrafficSampler(trafficContext, runtimeControl)
 	defer func() {
@@ -200,27 +208,16 @@ func Run(ctx context.Context, settingsPath string, build buildinfo.Info, assets 
 	}
 
 	httpServer := &http.Server{
+		BaseContext:       func(net.Listener) context.Context { return ctx },
 		Handler:           handler,
 		ReadHeaderTimeout: readHeaderTimeout,
 		ReadTimeout:       readTimeout,
 		IdleTimeout:       idleTimeout,
 		MaxHeaderBytes:    maxHeaderBytes,
 	}
-	handlers := builtInTaskHandlers(commands, artifacts, runtimeControl)
-	for kind, taskHandler := range handlers {
-		handlers[kind] = withTaskLogging(commands, taskHandler)
-	}
-	runner, err := newTaskRunner(database, handlers, taskRunnerOptions{
-		WorkerID: workerID(), FinalizeTask: commands.FinalizeTaskResources, SyncRuntime: syncEnabledCore,
-	})
-	if err != nil {
-		_ = listener.Close()
-		return fmt.Errorf("construct durable task runner: %w", err)
-	}
-	if err := runner.Start(ctx); err != nil {
-		_ = listener.Close()
-		return startupError(ctx, "start durable task runner", err)
-	}
+	subscriptionContext, stopSubscriptions := context.WithCancel(ctx)
+	subscriptionDone := startSubscriptionRefresh(subscriptionContext, commands)
+	defer func() { stopSubscriptions(); <-subscriptionDone }()
 	recoveryContext, stopRecovery := context.WithCancel(ctx)
 	recoveryDone := startRuntimeReconciler(recoveryContext, runtimeControl)
 	defer func() {
@@ -229,51 +226,25 @@ func Run(ctx context.Context, settingsPath string, build buildinfo.Info, assets 
 	}()
 	recordOperationalLog(commands, application.LogRecordRequest{
 		Source: store.LogSourcePanel, Level: store.LogLevelInfo, Code: "panel.ready",
-		Message:  "Panel HTTP server and durable task executor are ready",
+		Message:  "Panel HTTP server is ready",
 		Metadata: mustLogMetadata(map[string]any{"version": build.Version}),
 	})
-	runnerResult := make(chan error, 1)
-	go func() {
-		runnerResult <- runner.Wait()
-	}()
-
 	serveResult := make(chan error, 1)
 	go func() {
 		serveResult <- httpServer.Serve(listener)
 	}()
 	control.Ready(listener.Addr().String())
+	output.Ready("http://"+listener.Addr().String()+configuration.Server.BasePath+"/", settingsPath, configuration.DataDir)
 
 	select {
 	case err := <-serveResult:
-		runner.Close()
-		runnerErr := <-runnerResult
+		cancel()
 		if errors.Is(err, http.ErrServerClosed) {
-			return runnerErr
+			return nil
 		}
 		return fmt.Errorf("serve panel HTTP server: %w", err)
-	case runnerErr := <-runnerResult:
-		shutdownErr := stopHTTPServer(httpServer, serveResult)
-		if ctx.Err() != nil {
-			return shutdownErr
-		}
-		if runnerErr != nil {
-			return fmt.Errorf("run durable task executor: %w", runnerErr)
-		}
-		if shutdownErr != nil {
-			return shutdownErr
-		}
-		return errors.New("durable task executor stopped unexpectedly")
 	case <-ctx.Done():
-		runner.Close()
-		shutdownErr := stopHTTPServer(httpServer, serveResult)
-		runnerErr := <-runnerResult
-		if shutdownErr != nil {
-			return shutdownErr
-		}
-		if runnerErr != nil {
-			return fmt.Errorf("stop durable task executor: %w", runnerErr)
-		}
-		return nil
+		return stopHTTPServer(httpServer, serveResult)
 	}
 }
 
@@ -284,25 +255,4 @@ func startupError(ctx context.Context, operation string, err error) error {
 		return nil
 	}
 	return fmt.Errorf("%s: %w", operation, err)
-}
-
-func builtInTaskHandlers(
-	commands *application.Application,
-	artifacts application.ArtifactInstaller,
-	runtimeControl *runtimeServices,
-) map[store.TaskKind]taskHandler {
-	runtimeHandler := runtimeIntentHandler(runtimeControl)
-	return map[store.TaskKind]taskHandler{
-		store.TaskKindCanonicalSaved:            taskHandlerFunc(acknowledgeCanonicalSave),
-		store.TaskKindCatalogRefresh:            taskHandlerFunc(catalogRefreshHandler(commands)),
-		store.TaskKindCoreInstall:               taskHandlerFunc(coreArtifactHandler(commands, artifacts)),
-		store.TaskKindCoreImport:                taskHandlerFunc(coreArtifactHandler(commands, artifacts)),
-		store.TaskKindStartupCheck:              taskHandlerFunc(startupCheckHandler(commands, runtimeControl.manager)),
-		store.TaskKindSubscriptionSourceRefresh: taskHandlerFunc(subscriptionSourceRefreshHandler(commands)),
-		store.TaskKindRuntimeApply:              runtimeHandler,
-		store.TaskKindRuntimeStart:              runtimeHandler,
-		store.TaskKindRuntimeStop:               runtimeHandler,
-		store.TaskKindRuntimeRestart:            runtimeHandler,
-		store.TaskKindRuntimeRollback:           runtimeHandler,
-	}
 }

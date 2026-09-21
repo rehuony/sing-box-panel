@@ -22,8 +22,8 @@ func (handler *Handler) previewConfiguration(w http.ResponseWriter, request *htt
 	if !decodeStrictRequest(w, request, maximumRuntimeRequestBytes, &input) {
 		return
 	}
-	if !validCoreArtifactID(input.CoreArtifactID) || (input.CanonicalRevisionID != "" && !validStableIdentifier(input.CanonicalRevisionID)) {
-		writeProblem(w, request, http.StatusUnprocessableEntity, "configuration_preview_invalid", "Configuration preview invalid", "A valid core_artifact_id and optional canonical_revision_id are required.")
+	if !validCoreArtifactID(input.CoreArtifactID) {
+		writeProblem(w, request, http.StatusUnprocessableEntity, "configuration_preview_invalid", "Configuration preview invalid", "A valid core_artifact_id is required.")
 		return
 	}
 	result, err := handler.commands.PreviewConfiguration(request.Context(), input)
@@ -51,7 +51,7 @@ func (handler *Handler) compileConfiguration(w http.ResponseWriter, request *htt
 		writeConfigurationProblem(w, request, "configuration_compile_failed", err)
 		return
 	}
-	writeJSON(w, http.StatusAccepted, result)
+	writeJSON(w, http.StatusOK, result)
 }
 
 func (handler *Handler) coreConfigurationSupport(w http.ResponseWriter, request *http.Request, identifier string) {

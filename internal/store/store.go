@@ -19,8 +19,8 @@ const (
 	// ApplicationID identifies the current incompatible storage epoch.
 	ApplicationID = 0x53425034
 
-	// CurrentSchemaVersion is the newest schema this package can open.
-	CurrentSchemaVersion = 9
+	// CurrentSchemaVersion is the only schema this package can open.
+	CurrentSchemaVersion = 11
 
 	defaultBusyTimeoutMillis  = 5_000
 	defaultMaxOpenConnections = 4
@@ -28,6 +28,7 @@ const (
 
 var (
 	ErrUnexpectedApplicationID = errors.New("unexpected SQLite application id")
+	ErrSchemaUnsupported       = errors.New("SQLite schema is unsupported; use a fresh data directory")
 	ErrSchemaTooNew            = errors.New("SQLite schema is newer than this binary")
 	ErrSchemaInconsistent      = errors.New("SQLite schema metadata is inconsistent")
 )
@@ -45,7 +46,7 @@ type Store struct {
 	dataLock  *os.File
 }
 
-// Open opens (or creates) a local SQLite database, applies embedded migrations,
+// Open opens (or creates) a local SQLite database, initializes the current schema,
 // verifies its identity, and returns a shared connection pool.
 //
 // The parent directory must already exist. Directory creation and ownership are
@@ -109,7 +110,7 @@ func open(ctx context.Context, path string, exclusive bool) (*Store, error) {
 	if err := db.PingContext(ctx); err != nil {
 		return nil, fmt.Errorf("open SQLite database: %w", err)
 	}
-	if err := store.migrate(ctx); err != nil {
+	if err := store.initializeSchema(ctx); err != nil {
 		return nil, err
 	}
 	if _, err := store.SchemaInfo(ctx); err != nil {

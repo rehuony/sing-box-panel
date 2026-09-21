@@ -4,7 +4,6 @@ package application
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -31,11 +30,10 @@ type CompiledConfigurationArtifact struct {
 type ConfigurationCompile struct {
 	Support  ConfigurationSupport          `json:"support"`
 	Artifact CompiledConfigurationArtifact `json:"artifact"`
-	Task     Task                          `json:"task"`
 }
 
 // CompileConfiguration snapshots the current raw JSON revision and atomically
-// queues validation by the selected exact binary.
+// validates it with the selected exact binary.
 func (application *Application) CompileConfiguration(
 	ctx context.Context,
 	request ConfigurationCompileRequest,
@@ -55,23 +53,12 @@ func (application *Application) CompileConfiguration(
 	if err != nil {
 		return ConfigurationCompile{}, err
 	}
-	taskID, err := application.newID("task")
-	if err != nil {
-		return ConfigurationCompile{}, err
-	}
 	createdAt := application.now().UTC()
-	payload, err := json.Marshal(map[string]string{"startup_artifact_id": startupID})
-	if err != nil {
-		return ConfigurationCompile{}, err
-	}
-	stored, err := application.database.CreateStartupArtifactAndCheckTask(ctx, store.StartupArtifact{
+	stored, err := application.database.CreateCompiledStartupArtifact(ctx, store.StartupArtifact{
 		ID: startupID, CanonicalRevisionID: preview.CanonicalRevision.ID,
 		ExactCoreVersion: preview.CoreArtifact.ExactVersion,
 		CoreArtifactID:   preview.CoreArtifact.ID, ConfigBytes: preview.Config,
 		CreatedAt: createdAt,
-	}, store.NewTask{
-		ID: taskID, IdempotencyKey: "startup-check:" + startupID,
-		Lane: store.TaskLaneMaintenance, Kind: store.TaskKindStartupCheck, Payload: payload, CreatedAt: createdAt,
 	}, store.CompiledStartupEvidence{
 		ExpectedCanonicalHeadID: preview.CanonicalRevision.ID,
 	})
@@ -81,13 +68,17 @@ func (application *Application) CompileConfiguration(
 		}
 		return ConfigurationCompile{}, err
 	}
+	checked, err := application.CheckStartup(ctx, stored.ID)
+	if err != nil {
+		return ConfigurationCompile{}, err
+	}
+	stored.State = checked.State
 	return ConfigurationCompile{
 		Support: preview.Support,
 		Artifact: CompiledConfigurationArtifact{
-			ID: stored.Artifact.ID, CanonicalRevisionID: stored.Artifact.CanonicalRevisionID,
-			ExactCoreVersion: stored.Artifact.ExactCoreVersion, CoreArtifactID: stored.Artifact.CoreArtifactID,
-			ConfigSHA256: stored.Artifact.ConfigSHA256, State: stored.Artifact.State,
+			ID: stored.ID, CanonicalRevisionID: stored.CanonicalRevisionID,
+			ExactCoreVersion: stored.ExactCoreVersion, CoreArtifactID: stored.CoreArtifactID,
+			ConfigSHA256: stored.ConfigSHA256, State: stored.State,
 		},
-		Task: applicationTask(stored.Task),
 	}, nil
 }

@@ -55,9 +55,6 @@
     var(--color-surface),
     var(--color-surface-raised)
   );
-  --background-task-queue-contract: var(--color-primary-soft);
-  --shadow-task-queue-contract-inset: inset 0 1px 0 #ffffffb8;
-  --shadow-task-queue-icon: 0 9px 20px -13px #3d39bed1;
   --color-core-summary-hover: #ffffff7a;
   --shadow-core-option-inset: inset 0 1px 0 #ffffffb8;
   --background-runtime-contract-note: var(--color-primary-soft);
@@ -75,7 +72,9 @@
   --color-code-editor-border: #6f8bb161;
   --color-code-editor-text: #e4eefc;
   --background-one-time-secret: linear-gradient(135deg, var(--color-warning-surface), #fffbf4eb);
-  --background-login-page: linear-gradient(150deg, #f9fbff, var(--color-canvas));
+  --background-login-page:
+    radial-gradient(ellipse at 37% 46%, #e9e0f8 0%, transparent 46%),
+    radial-gradient(ellipse at 70% 72%, #eef5fc 0%, transparent 43%), #f4f0fc;
   --background-login-identity: linear-gradient(145deg, #ffffffc7, #eef1ff9e);
   --shadow-login-timeline-marker: 0 0 0 5px #ffffff8f;
   --color-login-form-panel: #ffffff85;
@@ -260,8 +259,6 @@
   --color-quiet-button-hover: oklch(28% 0.022 274 / 90%);
   --color-form-control-surface: oklch(21% 0.018 274 / 94%);
   --color-support-pill-surface: oklch(27% 0.022 274 / 72%);
-  --shadow-task-queue-contract-inset: inset 0 1px 0 #ffffff14;
-  --shadow-task-queue-icon: 0 9px 20px -13px oklch(70% 0.2 293 / 70%);
   --color-core-summary-hover: oklch(27% 0.022 274 / 72%);
   --shadow-core-option-inset: inset 0 1px 0 #ffffff14;
   --color-operation-panel-surface: oklch(20% 0.018 274 / 96%);
@@ -844,28 +841,6 @@ h3 {
   font-variant-numeric: tabular-nums;
   letter-spacing: 0.025em;
   text-transform: uppercase;
-}
-
-.task-mark {
-  background: var(--color-border-strong);
-  border-radius: 99px;
-  display: inline-block;
-  height: 0.55rem;
-  width: 0.55rem;
-}
-
-.task-mark--running,
-.task-mark--succeeded {
-  background: var(--color-signal);
-}
-
-.task-mark--queued {
-  background: var(--color-cobalt);
-}
-
-.task-mark--failed,
-.task-mark--canceled {
-  background: var(--color-danger);
 }
 
 .entity-table-wrap {

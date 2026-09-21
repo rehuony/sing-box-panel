@@ -4,8 +4,8 @@ package store
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
+	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -20,11 +20,11 @@ func TestRuntimeRecoveryPersistsEpisodeBackoffAndExhaustion(t *testing.T) {
 	bundle, observation := seedAppliedRuntime(t, ctx, database, now)
 
 	first := requestRecovery(t, ctx, database, RuntimeRecoveryInput{
-		TaskID: "recovery-1", NewEpisodeID: "episode-durable", ExpectedBundleID: bundle.ID,
+		NewEpisodeID: "episode-durable", ExpectedBundleID: bundle.ID,
 		ExpectedGeneration: 1, ExpectedObservation: &observation, CreatedAt: now.Add(10 * time.Second),
 	})
 	assertRecoveryDecision(t, first, "episode-durable", 1, time.Second)
-	completeRecoveryTask(t, ctx, database, first.Task, false)
+	completeRecoveryIntent(t, ctx, database, first.Intent, false)
 
 	path := database.Path()
 	if err := database.Close(); err != nil {
@@ -37,24 +37,24 @@ func TestRuntimeRecoveryPersistsEpisodeBackoffAndExhaustion(t *testing.T) {
 	t.Cleanup(func() { _ = database.Close() })
 
 	second := requestRecovery(t, ctx, database, RuntimeRecoveryInput{
-		TaskID: "recovery-2", NewEpisodeID: "episode-ignored", ExpectedBundleID: bundle.ID,
+		NewEpisodeID: "episode-ignored", ExpectedBundleID: bundle.ID,
 		ExpectedGeneration: 2, CreatedAt: now.Add(20 * time.Second),
 	})
 	assertRecoveryDecision(t, second, "episode-durable", 2, 5*time.Second)
-	completeRecoveryTask(t, ctx, database, second.Task, false)
+	completeRecoveryIntent(t, ctx, database, second.Intent, false)
 
 	third := requestRecovery(t, ctx, database, RuntimeRecoveryInput{
-		TaskID: "recovery-3", NewEpisodeID: "episode-still-ignored", ExpectedBundleID: bundle.ID,
+		NewEpisodeID: "episode-still-ignored", ExpectedBundleID: bundle.ID,
 		ExpectedGeneration: 3, CreatedAt: now.Add(30 * time.Second),
 	})
 	assertRecoveryDecision(t, third, "episode-durable", 3, 30*time.Second)
-	completeRecoveryTask(t, ctx, database, third.Task, false)
+	completeRecoveryIntent(t, ctx, database, third.Intent, false)
 
 	exhausted := requestRecovery(t, ctx, database, RuntimeRecoveryInput{
-		TaskID: "recovery-4", NewEpisodeID: "episode-never-used", ExpectedBundleID: bundle.ID,
+		NewEpisodeID: "episode-never-used", ExpectedBundleID: bundle.ID,
 		ExpectedGeneration: 4, CreatedAt: now.Add(time.Minute),
 	})
-	if !exhausted.Exhausted || exhausted.Task != nil || exhausted.EpisodeID != "episode-durable" ||
+	if !exhausted.Exhausted || exhausted.Intent != nil || exhausted.EpisodeID != "episode-durable" ||
 		exhausted.Attempt != RuntimeRecoveryMaximumAttempts {
 		t.Fatalf("exhausted decision = %+v", exhausted)
 	}
@@ -93,22 +93,22 @@ func TestRuntimeRecoveryStableWindowStartsNewEpisode(t *testing.T) {
 			now := time.Date(2026, time.August, 29, 13, 0, 0, 0, time.UTC)
 			bundle, observation := seedAppliedRuntime(t, ctx, database, now)
 			first := requestRecovery(t, ctx, database, RuntimeRecoveryInput{
-				TaskID: "recovery-first", NewEpisodeID: "episode-first", ExpectedBundleID: bundle.ID,
+				NewEpisodeID: "episode-first", ExpectedBundleID: bundle.ID,
 				ExpectedGeneration: 1, ExpectedObservation: &observation, CreatedAt: now.Add(10 * time.Second),
 			})
-			completeRecoveryTask(t, ctx, database, first.Task, true)
+			completeRecoveryIntent(t, ctx, database, first.Intent, true)
 
-			startedAt := first.Task.NotBefore.Add(time.Second)
+			startedAt := first.Intent.Recovery.RequestedAt.Add(2 * time.Second)
 			failed := runtimeObservationFixture(bundle, 2202, "process-recovered", startedAt, startedAt.Add(time.Second))
 			if _, err := database.RecordRuntimeObservation(ctx, failed); err != nil {
 				t.Fatalf("RecordRuntimeObservation(recovered process) error = %v", err)
 			}
 			decision := requestRecovery(t, ctx, database, RuntimeRecoveryInput{
-				TaskID: "recovery-next", NewEpisodeID: "episode-reset", ExpectedBundleID: bundle.ID,
+				NewEpisodeID: "episode-reset", ExpectedBundleID: bundle.ID,
 				ExpectedGeneration: 2, ExpectedObservation: &failed,
 				StableRunProven: test.stableRunProven, CreatedAt: startedAt.Add(test.uptime),
 			})
-			if decision.Task == nil || decision.EpisodeID != test.wantEpisode || decision.Attempt != test.wantAttempt {
+			if decision.Intent == nil || decision.EpisodeID != test.wantEpisode || decision.Attempt != test.wantAttempt {
 				t.Fatalf("recovery after uptime %s = %+v", test.uptime, decision)
 			}
 		})
@@ -121,21 +121,21 @@ func TestRuntimeRecoveryCleanRestartAfterSuccessStartsNewEpisode(t *testing.T) {
 	now := time.Date(2026, time.August, 29, 13, 30, 0, 0, time.UTC)
 	bundle, observation := seedAppliedRuntime(t, ctx, database, now)
 	first := requestRecovery(t, ctx, database, RuntimeRecoveryInput{
-		TaskID: "recovery-before-clean-restart", NewEpisodeID: "episode-before-clean-restart",
+		NewEpisodeID:     "episode-before-clean-restart",
 		ExpectedBundleID: bundle.ID, ExpectedGeneration: 1,
 		ExpectedObservation: &observation, CreatedAt: now.Add(10 * time.Second),
 	})
-	completeRecoveryTask(t, ctx, database, first.Task, true)
+	completeRecoveryIntent(t, ctx, database, first.Intent, true)
 
-	// Successful runtime tasks normally record a process observation; a clean
+	// Successful runtime operations normally record a process observation; a clean
 	// server Close removes that exact record. Absence at the next startup is a
 	// clean episode boundary, not another failure attempt.
 	afterRestart := requestRecovery(t, ctx, database, RuntimeRecoveryInput{
-		TaskID: "recovery-after-clean-restart", NewEpisodeID: "episode-after-clean-restart",
+		NewEpisodeID:     "episode-after-clean-restart",
 		ExpectedBundleID: bundle.ID, ExpectedGeneration: 2,
 		CleanBoundaryProven: true, CreatedAt: now.Add(20 * time.Second),
 	})
-	if afterRestart.Task == nil || afterRestart.EpisodeID != "episode-after-clean-restart" || afterRestart.Attempt != 1 {
+	if afterRestart.Intent == nil || afterRestart.EpisodeID != "episode-after-clean-restart" || afterRestart.Attempt != 1 {
 		t.Fatalf("recovery after clean restart = %+v", afterRestart)
 	}
 }
@@ -148,46 +148,32 @@ func TestExplicitRuntimeIntentStartsFreshRecoveryEpisode(t *testing.T) {
 			now := time.Date(2026, time.August, 29, 13, 45, 0, 0, time.UTC)
 			bundle, observation := seedAppliedRuntime(t, ctx, database, now)
 			first := requestRecovery(t, ctx, database, RuntimeRecoveryInput{
-				TaskID: "recovery-before-user-intent", NewEpisodeID: "episode-before-user-intent",
+				NewEpisodeID:     "episode-before-user-intent",
 				ExpectedBundleID: bundle.ID, ExpectedGeneration: 1,
 				ExpectedObservation: &observation, CreatedAt: now.Add(10 * time.Second),
 			})
-			completeRecoveryTask(t, ctx, database, first.Task, false)
+			completeRecoveryIntent(t, ctx, database, first.Intent, false)
 
 			input := RuntimeIntentInput{
-				TaskID: "user-intent-between-episodes", Kind: kind, CreatedAt: now.Add(20 * time.Second),
+				Kind: kind, CreatedAt: now.Add(20 * time.Second),
 			}
 			if kind == RuntimeIntentApply {
 				input.BundleID = bundle.ID
 			}
-			userTask, err := database.RequestRuntimeIntent(ctx, input)
+			userIntent, err := database.RequestRuntimeIntent(ctx, input)
 			if err != nil {
-				t.Fatal(err)
-			}
-			claimed, err := database.ClaimTask(ctx, ClaimTaskInput{
-				Lane: TaskLaneRuntime, LeaseOwner: "user-intent-test",
-				Now: now.Add(21 * time.Second), LeaseDuration: time.Minute,
-			})
-			if err != nil || claimed == nil || claimed.ID != userTask.ID {
-				t.Fatalf("ClaimTask(user intent) = %+v, %v", claimed, err)
-			}
-			if _, err := database.CompleteTask(
-				ctx, claimed.ID, claimed.LeaseOwner, now.Add(22*time.Second), TaskCompletion{Succeeded: true},
-			); err != nil {
 				t.Fatal(err)
 			}
 			afterUserIntent := runtimeObservationFixture(
 				bundle, 4404, "process-after-user-intent", now.Add(23*time.Second), now.Add(24*time.Second),
 			)
-			if _, err := database.RecordRuntimeObservation(ctx, afterUserIntent); err != nil {
-				t.Fatal(err)
-			}
+			completeRunningIntent(t, ctx, database, userIntent, nil, afterUserIntent)
 			decision := requestRecovery(t, ctx, database, RuntimeRecoveryInput{
-				TaskID: "recovery-after-user-intent", NewEpisodeID: "episode-after-user-intent",
-				ExpectedBundleID: bundle.ID, ExpectedGeneration: userTask.Generation,
+				NewEpisodeID:     "episode-after-user-intent",
+				ExpectedBundleID: bundle.ID, ExpectedGeneration: userIntent.Generation,
 				ExpectedObservation: &afterUserIntent, CreatedAt: now.Add(25 * time.Second),
 			})
-			if decision.Task == nil || decision.EpisodeID != "episode-after-user-intent" || decision.Attempt != 1 {
+			if decision.Intent == nil || decision.EpisodeID != "episode-after-user-intent" || decision.Attempt != 1 {
 				t.Fatalf("recovery after explicit %s = %+v", kind, decision)
 			}
 		})
@@ -205,7 +191,7 @@ func TestRuntimeRecoveryObservationFencePreservesNewIncarnation(t *testing.T) {
 	}
 
 	decision := requestRecovery(t, ctx, database, RuntimeRecoveryInput{
-		TaskID: "recovery-fenced", NewEpisodeID: "episode-fenced", ExpectedBundleID: bundle.ID,
+		NewEpisodeID: "episode-fenced", ExpectedBundleID: bundle.ID,
 		ExpectedGeneration: 1, ExpectedObservation: &oldObservation, CreatedAt: now.Add(3 * time.Second),
 	})
 	if decision != (RuntimeRecoveryDecision{}) {
@@ -240,7 +226,7 @@ func TestRuntimeRecoveryRacesExplicitUserIntent(t *testing.T) {
 
 			start := make(chan struct{})
 			var recovery RuntimeRecoveryDecision
-			var userTask Task
+			var userIntent RuntimeIntent
 			var recoveryErr, userErr error
 			var workers sync.WaitGroup
 			workers.Add(2)
@@ -248,15 +234,15 @@ func TestRuntimeRecoveryRacesExplicitUserIntent(t *testing.T) {
 				defer workers.Done()
 				<-start
 				recovery, recoveryErr = first.RequestRuntimeRecovery(ctx, RuntimeRecoveryInput{
-					TaskID: "recovery-race", NewEpisodeID: "episode-race", ExpectedBundleID: bundle.ID,
+					NewEpisodeID: "episode-race", ExpectedBundleID: bundle.ID,
 					ExpectedGeneration: 1, ExpectedObservation: &observation, CreatedAt: now.Add(time.Second),
 				})
 			}()
 			go func() {
 				defer workers.Done()
 				<-start
-				userTask, userErr = second.RequestRuntimeIntent(ctx, RuntimeIntentInput{
-					TaskID: "user-intent", Kind: test.kind, CreatedAt: now.Add(2 * time.Second),
+				userIntent, userErr = second.RequestRuntimeIntent(ctx, RuntimeIntentInput{
+					Kind: test.kind, CreatedAt: now.Add(2 * time.Second),
 				})
 			}()
 			close(start)
@@ -268,16 +254,13 @@ func TestRuntimeRecoveryRacesExplicitUserIntent(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if bootstrap.Hub.DesiredRunning != test.want || bootstrap.Hub.TargetGeneration != userTask.Generation {
-				t.Fatalf("hub after race = %+v; user task = %+v; recovery = %+v", bootstrap.Hub, userTask, recovery)
+			if bootstrap.Hub.DesiredRunning != test.want || bootstrap.Hub.TargetGeneration != userIntent.Generation {
+				t.Fatalf("hub after race = %+v; user task = %+v; recovery = %+v", bootstrap.Hub, userIntent, recovery)
 			}
-			current, err := first.GetTask(ctx, userTask.ID)
-			if err != nil {
+			if err := first.CheckRuntimeGeneration(ctx, userIntent.Generation); err != nil {
 				t.Fatal(err)
 			}
-			if current.Generation != bootstrap.Hub.TargetGeneration || current.Status != TaskStatusQueued {
-				t.Fatalf("current explicit task = %+v; hub = %+v", current, bootstrap.Hub)
-			}
+
 		})
 	}
 }
@@ -289,13 +272,11 @@ func seedAppliedRuntime(
 	now time.Time,
 ) (ActivationBundle, RuntimeObservation) {
 	t.Helper()
-	revision, err := database.SaveCanonicalRevisionAndTask(ctx, "", NewCanonicalRevision{
+	revision, err := saveTestConfiguration(ctx, database, 0, NewCanonicalRevision{
 		ID: "revision-runtime-recovery", SchemaVersion: configuration.SchemaVersion,
 		Document: configuration.Empty().CanonicalJSON(), CommandID: "command-runtime-recovery", CreatedAt: now,
-	}, NewTask{
-		ID: "canonical-runtime-recovery", IdempotencyKey: "canonical:runtime-recovery",
-		Lane: TaskLaneMaintenance, Kind: TaskKindCanonicalSaved, Payload: json.RawMessage(`{}`), CreatedAt: now,
-	})
+	},
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -322,26 +303,13 @@ func seedAppliedRuntime(
 		t.Fatal(err)
 	}
 	apply, err := database.RequestRuntimeIntent(ctx, RuntimeIntentInput{
-		TaskID: "runtime-apply-recovery", Kind: RuntimeIntentApply, BundleID: bundle.ID, CreatedAt: now.Add(4 * time.Second),
+		Kind: RuntimeIntentApply, BundleID: bundle.ID, CreatedAt: now.Add(4 * time.Second),
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	claimed, err := database.ClaimTask(ctx, ClaimTaskInput{
-		Lane: TaskLaneRuntime, LeaseOwner: "runtime-recovery-seed", Now: now.Add(5 * time.Second), LeaseDuration: time.Minute,
-	})
-	if err != nil || claimed == nil || claimed.ID != apply.ID {
-		t.Fatalf("ClaimTask(seed apply) = %+v, %v", claimed, err)
-	}
-	if _, err := database.CompleteTask(
-		ctx, claimed.ID, claimed.LeaseOwner, now.Add(6*time.Second), TaskCompletion{Succeeded: true},
-	); err != nil {
-		t.Fatal(err)
-	}
 	observation := runtimeObservationFixture(bundle, 1101, "process-original", now.Add(7*time.Second), now.Add(8*time.Second))
-	if _, err := database.RecordRuntimeObservation(ctx, observation); err != nil {
-		t.Fatal(err)
-	}
+	completeRunningIntent(t, ctx, database, apply, nil, observation)
 	return bundle, observation
 }
 
@@ -366,7 +334,7 @@ func TestRequestRuntimeRollbackBindsFrozenBundle(t *testing.T) {
 	}
 
 	_, err = database.RequestRuntimeIntent(ctx, RuntimeIntentInput{
-		TaskID: "runtime-rollback-stale", Kind: RuntimeIntentRollback,
+		Kind:     RuntimeIntentRollback,
 		BundleID: "bundle-shown-before-drift", CreatedAt: initialized.OccurredAt.Add(2 * time.Minute),
 	})
 	if !errors.Is(err, ErrRuntimeIntentStale) {
@@ -381,10 +349,10 @@ func TestRequestRuntimeRollbackBindsFrozenBundle(t *testing.T) {
 	}
 
 	queued, err := database.RequestRuntimeIntent(ctx, RuntimeIntentInput{
-		TaskID: "runtime-rollback-exact", Kind: RuntimeIntentRollback,
+		Kind:     RuntimeIntentRollback,
 		BundleID: bundle.ID, CreatedAt: initialized.OccurredAt.Add(3 * time.Minute),
 	})
-	if err != nil || queued.ActivationBundleID != bundle.ID || queued.Kind != TaskKindRuntimeRollback {
+	if err != nil || queued.ActivationBundleID != bundle.ID || queued.Kind != RuntimeIntentRollback {
 		t.Fatalf("RequestRuntimeIntent(exact rollback) = %+v, %v", queued, err)
 	}
 }
@@ -416,64 +384,59 @@ func requestRecovery(
 	if err != nil {
 		t.Fatalf("RequestRuntimeRecovery() error = %v", err)
 	}
+	if decision.Intent == nil && !decision.Exhausted && decision.Attempt > 0 {
+		input.ExpectedObservation = nil
+		input.Transition = nil
+		input.StableRunProven = false
+		input.CleanBoundaryProven = false
+		input.CreatedAt = input.CreatedAt.Add(runtimeRecoveryDelays[decision.Attempt-1])
+		decision, err = database.RequestRuntimeRecovery(ctx, input)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
 	return decision
 }
 
-func assertRecoveryDecision(
-	t *testing.T,
-	decision RuntimeRecoveryDecision,
-	episode string,
-	attempt int,
-	delay time.Duration,
-) {
+func assertRecoveryDecision(t *testing.T, decision RuntimeRecoveryDecision, episode string, attempt int, delay time.Duration) {
 	t.Helper()
-	if decision.Task == nil || decision.Exhausted || decision.EpisodeID != episode || decision.Attempt != attempt {
+	if decision.Intent == nil || decision.Exhausted || decision.EpisodeID != episode || decision.Attempt != attempt {
 		t.Fatalf("recovery decision = %+v", decision)
 	}
-	wantNotBefore := decision.Task.CreatedAt.Add(delay)
-	if decision.Task.NotBefore == nil || !decision.Task.NotBefore.Equal(wantNotBefore) {
-		t.Fatalf("recovery not_before = %v, want %v", decision.Task.NotBefore, wantNotBefore)
-	}
-	var payload runtimeRecoveryPayload
-	if err := json.Unmarshal(decision.Task.Payload, &payload); err != nil {
-		t.Fatal(err)
-	}
-	if payload.Recovery == nil || payload.Origin != "auto_recovery" ||
-		payload.RecoveryEpisodeGeneration != payload.Recovery.EpisodeGeneration || payload.RecoveryAttempt != attempt ||
-		payload.Recovery.EpisodeID != episode || payload.Recovery.Attempt != attempt {
-		t.Fatalf("recovery payload = %+v", payload)
+	if decision.Intent.Recovery == nil || runtimeRecoveryDelays[decision.Intent.Recovery.Attempt-1] != delay {
+		t.Fatal("invalid recovery delay")
 	}
 }
 
-func completeRecoveryTask(
-	t *testing.T,
-	ctx context.Context,
-	database *Store,
-	task *Task,
-	succeeded bool,
-) {
+func completeRecoveryIntent(t *testing.T, ctx context.Context, database *Store, intent *RuntimeIntent, succeeded bool) {
 	t.Helper()
-	if task == nil || task.NotBefore == nil {
-		t.Fatal("recovery task is unavailable")
+	if intent == nil || intent.Recovery == nil {
+		t.Fatal("missing recovery intent")
 	}
-	claimed, err := database.ClaimTask(ctx, ClaimTaskInput{
-		Lane: TaskLaneRuntime, LeaseOwner: "recovery-test", Now: *task.NotBefore, LeaseDuration: time.Minute,
-	})
-	if err != nil || claimed == nil || claimed.ID != task.ID {
-		t.Fatalf("ClaimTask(recovery) = %+v, %v", claimed, err)
+	at := intent.Recovery.RequestedAt.Add(runtimeRecoveryDelays[intent.Recovery.Attempt-1]).Add(time.Second)
+	if !succeeded {
+		if err := database.CompleteRuntimeIntent(ctx, *intent, false, nil, at); err != nil {
+			t.Fatal(err)
+		}
+		return
 	}
-	completed, err := database.CompleteTask(
-		ctx, claimed.ID, claimed.LeaseOwner, task.NotBefore.Add(time.Second),
-		TaskCompletion{Succeeded: succeeded, Failure: json.RawMessage(`{"code":"test_failure"}`)},
-	)
+	bundle, err := database.GetActivationBundle(ctx, intent.ActivationBundleID)
 	if err != nil {
-		t.Fatalf("CompleteTask(recovery) error = %v", err)
+		t.Fatal(err)
 	}
-	want := TaskStatusFailed
-	if succeeded {
-		want = TaskStatusSucceeded
+	observation := runtimeObservationFixture(bundle, 2202, "recovery-process", at, at)
+	completeRunningIntent(t, ctx, database, *intent, nil, observation)
+	// Simulate clean process disposal; callers can install the next observed incarnation.
+	if _, err := database.ClearRuntimeObservation(ctx, observation.PID, observation.ProcessStartToken); err != nil {
+		t.Fatal(err)
 	}
-	if completed.Status != want {
-		t.Fatalf("completed recovery status = %q, want %q", completed.Status, want)
+}
+
+func completeRunningIntent(t *testing.T, ctx context.Context, database *Store, intent RuntimeIntent, expected *RuntimeObservation, observation RuntimeObservation) {
+	t.Helper()
+	transition := runtimeTransitionTestInput(fmt.Sprintf("fixture:%d", intent.Generation), RuntimeTransitionRunning, "start_succeeded", intent.ActivationBundleID, observation, observation.ObservedAt)
+	transition.Generation = intent.Generation
+	if err := database.CompleteRuntimeIntent(ctx, intent, true, &RuntimeCommit{ExpectedObservation: expected, Observation: &observation, Transitions: []RuntimeTransitionInput{transition}}, observation.ObservedAt); err != nil {
+		t.Fatal(err)
 	}
 }

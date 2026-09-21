@@ -21,7 +21,7 @@ const (
 
 type runtimeReconciler struct {
 	services           *runtimeServices
-	clock              taskClock
+	clock              runtimeClock
 	exhaustedEpisode   string
 	lastUnexpectedExit string
 	lastError          string
@@ -38,7 +38,7 @@ func startRuntimeReconciler(ctx context.Context, services *runtimeServices) <-ch
 func startRuntimeReconcilerWithClock(
 	ctx context.Context,
 	services *runtimeServices,
-	clock taskClock,
+	clock runtimeClock,
 ) <-chan struct{} {
 	done := make(chan struct{})
 	reconciler := &runtimeReconciler{services: services, clock: clock}
@@ -59,6 +59,11 @@ func startRuntimeReconcilerWithClock(
 }
 
 func (reconciler *runtimeReconciler) reconcile(ctx context.Context) {
+	reconciler.services.mu.Lock()
+	defer reconciler.services.mu.Unlock()
+	if ctx.Err() != nil {
+		return
+	}
 	live := reconciler.services.manager.ObserveLiveIdentity()
 	if live.Running {
 		if err := reconciler.observeRunningIncarnation(ctx, live); err != nil {
@@ -66,11 +71,6 @@ func (reconciler *runtimeReconciler) reconcile(ctx context.Context) {
 		} else {
 			reconciler.lastError = ""
 		}
-		return
-	}
-	if live.State != coreruntime.StateFailed {
-		reconciler.resetRunningIncarnation()
-		reconciler.lastError = ""
 		return
 	}
 	result, err := reconciler.services.reconcileFailedRuntime(ctx)
@@ -81,6 +81,11 @@ func (reconciler *runtimeReconciler) reconcile(ctx context.Context) {
 	reconciler.lastError = ""
 	reconciler.recordUnexpectedExit(ctx, result)
 	reconciler.recordRecoveryDecision(result)
+	if result.Intent != nil {
+		if err := reconciler.services.executeIntent(ctx, *result.Intent); err != nil {
+			reconciler.recordReconcileError(err)
+		}
+	}
 }
 
 func (reconciler *runtimeReconciler) recordReconcileError(err error) {
@@ -96,10 +101,13 @@ func (reconciler *runtimeReconciler) recordReconcileError(err error) {
 }
 
 func (reconciler *runtimeReconciler) recordRecoveryDecision(result application.RuntimeRecoveryResult) {
-	if result.Task != nil {
+	if result.Intent != nil {
 		reconciler.exhaustedEpisode = ""
-		recordRuntimeRecoveryQueued(reconciler.services.commands, result)
+		recordRuntimeRecoveryAttempt(reconciler.services.commands, result)
 		return
+	}
+	if !result.Exhausted && result.EpisodeID != "" {
+		recordRuntimeRecoveryScheduled(reconciler.services.commands, result)
 	}
 	if result.Exhausted && result.EpisodeID != "" && result.EpisodeID != reconciler.exhaustedEpisode {
 		reconciler.exhaustedEpisode = result.EpisodeID
@@ -192,13 +200,13 @@ func (reconciler *runtimeReconciler) resetRunningIncarnation() {
 	reconciler.stableFence = ""
 }
 
-func recordRuntimeRecoveryQueued(commands *application.Application, result application.RuntimeRecoveryResult) {
+func recordRuntimeRecoveryAttempt(commands *application.Application, result application.RuntimeRecoveryResult) {
 	recordOperationalLog(commands, application.LogRecordRequest{
-		Source: store.LogSourcePanel, Level: store.LogLevelWarn, Code: "runtime.recovery_queued",
-		Message: "Automatic sing-box recovery attempt queued",
+		Source: store.LogSourcePanel, Level: store.LogLevelWarn, Code: "runtime.recovery_attempt",
+		Message: "Automatic sing-box recovery attempt started",
 		Metadata: mustLogMetadata(map[string]any{
-			"task_id": result.Task.ID, "episode_id": result.EpisodeID, "bundle_id": result.BundleID,
-			"generation": result.Task.Generation,
+			"episode_id": result.EpisodeID, "bundle_id": result.BundleID,
+			"generation": result.Intent.Generation,
 			"attempt":    result.Attempt, "maximum_attempts": store.RuntimeRecoveryMaximumAttempts,
 		}),
 	})
@@ -238,8 +246,8 @@ func (reconciler *runtimeReconciler) recordUnexpectedExit(
 		generation = bootstrap.Hub.TargetGeneration
 		bundleID = bootstrap.Hub.AppliedBundleID
 	}
-	if result.Task != nil && result.Task.Generation > 0 {
-		generation = result.Task.Generation - 1
+	if result.Intent != nil && result.Intent.Generation > 0 {
+		generation = result.Intent.Generation - 1
 	}
 	reconciler.lastUnexpectedExit = eventKey
 	recordOperationalLog(reconciler.services.commands, application.LogRecordRequest{
@@ -259,7 +267,7 @@ func (services *runtimeServices) reconcileFailedRuntime(
 		return application.RuntimeRecoveryResult{}, nil
 	}
 	live := services.manager.ObserveLiveIdentity()
-	if live.Running || live.State != coreruntime.StateFailed {
+	if live.Running {
 		return application.RuntimeRecoveryResult{}, nil
 	}
 	bootstrap, err := services.database.Bootstrap(ctx)
@@ -269,6 +277,12 @@ func (services *runtimeServices) reconcileFailedRuntime(
 	recoveryEligible := bootstrap.Hub.DesiredRunning && bootstrap.Hub.AppliedBundleID != "" &&
 		bootstrap.Hub.DesiredBundleID == bootstrap.Hub.AppliedBundleID
 
+	if live.State != coreruntime.StateFailed {
+		if !recoveryEligible {
+			return application.RuntimeRecoveryResult{}, nil
+		}
+		return services.commands.RequestRuntimeRecovery(ctx, application.RuntimeRecoveryRequest{ExpectedBundleID: bootstrap.Hub.AppliedBundleID, ExpectedGeneration: bootstrap.Hub.TargetGeneration})
+	}
 	var expectedObservation *store.RuntimeObservation
 	observation, err := services.database.RuntimeObservation(ctx)
 	switch {
@@ -285,9 +299,9 @@ func (services *runtimeServices) reconcileFailedRuntime(
 	}
 	reason := runtimeFailureReason(live, "unexpected_exit")
 	occurredAt := runtimeFailureTime(live, time.Now())
-	transitionTask := store.Task{}
+	transitionIntent := store.RuntimeIntent{}
 	if recoveryEligible {
-		transitionTask.Generation = bootstrap.Hub.TargetGeneration
+		transitionIntent.Generation = bootstrap.Hub.TargetGeneration
 	}
 	var transition store.RuntimeTransitionInput
 	if expectedObservation != nil {
@@ -299,7 +313,7 @@ func (services *runtimeServices) reconcileFailedRuntime(
 			*expectedObservation,
 			occurredAt,
 			nil,
-			transitionTask,
+			transitionIntent,
 		)
 	} else {
 		bundleID := live.BundleID
@@ -318,7 +332,7 @@ func (services *runtimeServices) reconcileFailedRuntime(
 			bundleID,
 			occurredAt,
 			nil,
-			transitionTask,
+			transitionIntent,
 		)
 	}
 	if !recoveryEligible {
@@ -351,4 +365,8 @@ func (services *runtimeServices) reconcileFailedRuntime(
 
 func runtimeObservationProvesStableRun(observation *store.RuntimeObservation) bool {
 	return observation != nil && observation.StableObservedAt != nil
+}
+
+func recordRuntimeRecoveryScheduled(commands *application.Application, result application.RuntimeRecoveryResult) {
+	recordOperationalLog(commands, application.LogRecordRequest{Source: store.LogSourcePanel, Level: store.LogLevelWarn, Code: "runtime.recovery_scheduled", Message: "Automatic sing-box recovery scheduled", Metadata: mustLogMetadata(map[string]any{"episode_id": result.EpisodeID, "bundle_id": result.BundleID, "generation": result.Generation, "attempt": result.Attempt})})
 }

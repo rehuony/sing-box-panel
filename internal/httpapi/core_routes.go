@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/rehuony/sing-box-panel/internal/application"
+	"github.com/rehuony/sing-box-panel/internal/catalog"
 	"github.com/rehuony/sing-box-panel/internal/store"
 )
 
@@ -52,7 +53,7 @@ func (handler *Handler) listCatalogAssets(w http.ResponseWriter, request *http.R
 	writeJSON(w, http.StatusOK, result)
 }
 
-func (handler *Handler) queueCatalogRefresh(w http.ResponseWriter, request *http.Request) {
+func (handler *Handler) refreshCatalog(w http.ResponseWriter, request *http.Request) {
 	if !handler.requireCommands(w, request) {
 		return
 	}
@@ -69,14 +70,22 @@ func (handler *Handler) queueCatalogRefresh(w http.ResponseWriter, request *http
 		writeProblem(w, request, http.StatusUnprocessableEntity, "catalog_refresh_invalid", "Catalog refresh request is invalid", "The force field is required.")
 		return
 	}
-	task, err := handler.commands.QueueCatalogRefresh(
+	result, err := handler.commands.RefreshCatalog(
 		request.Context(), application.CatalogRefreshOptions{Force: *input.Force},
 	)
 	if err != nil {
-		writeProblem(w, request, http.StatusInternalServerError, "catalog_refresh_failed", "Catalog refresh failed", "The catalog refresh task could not be queued.")
+		var failure *catalog.Failure
+		detail := "The catalog could not be refreshed."
+		if errors.As(err, &failure) {
+			detail = failure.Error()
+		}
+		writeProblem(w, request, http.StatusBadGateway, "catalog_refresh_failed", "Catalog refresh failed", detail)
 		return
 	}
-	writeJSON(w, http.StatusAccepted, task)
+	writeJSON(w, http.StatusOK, map[string]any{
+		"refreshed_at": result.RefreshedAt, "not_modified": result.NotModified,
+		"releases": len(result.Catalog.Releases), "assets": len(result.Catalog.Assets()),
+	})
 }
 
 func (handler *Handler) listCoreArtifacts(w http.ResponseWriter, request *http.Request) {
@@ -191,7 +200,7 @@ func (handler *Handler) deleteCoreArtifact(w http.ResponseWriter, request *http.
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func (handler *Handler) queueCoreInstall(w http.ResponseWriter, request *http.Request) {
+func (handler *Handler) installCore(w http.ResponseWriter, request *http.Request) {
 	if !handler.requireCommands(w, request) {
 		return
 	}
@@ -214,7 +223,7 @@ func (handler *Handler) queueCoreInstall(w http.ResponseWriter, request *http.Re
 			writeProblem(w, request, http.StatusConflict, "catalog_not_initialized", "Catalog not initialized", "Refresh the core catalog before installing an asset.")
 			return
 		}
-		writeProblem(w, request, http.StatusInternalServerError, "core_install_failed", "Core install failed", "The catalog could not be inspected before queuing the installation.")
+		writeProblem(w, request, http.StatusInternalServerError, "core_install_failed", "Core install failed", "The catalog could not be inspected before installation.")
 		return
 	}
 	installable := false
@@ -228,15 +237,15 @@ func (handler *Handler) queueCoreInstall(w http.ResponseWriter, request *http.Re
 		writeProblem(w, request, http.StatusUnprocessableEntity, "core_install_invalid", "Core install request invalid", "The catalog asset cannot be installed.")
 		return
 	}
-	task, err := handler.commands.QueueCoreInstall(request.Context(), *input.AssetID)
+	result, err := handler.commands.InstallCore(request.Context(), *input.AssetID)
 	if err != nil {
-		writeProblem(w, request, http.StatusInternalServerError, "core_install_failed", "Core install failed", "The core installation task could not be queued.")
+		writeProblem(w, request, http.StatusInternalServerError, "core_install_failed", "Core install failed", "The core could not be installed.")
 		return
 	}
-	writeJSON(w, http.StatusAccepted, task)
+	writeJSON(w, http.StatusOK, result)
 }
 
-func (handler *Handler) queueCoreImport(w http.ResponseWriter, request *http.Request) {
+func (handler *Handler) importCore(w http.ResponseWriter, request *http.Request) {
 	if !handler.requireCommands(w, request) {
 		return
 	}
@@ -251,9 +260,8 @@ func (handler *Handler) queueCoreImport(w http.ResponseWriter, request *http.Req
 	}
 	fields := make(map[string]string, 5)
 	var stagedPath, actualDigest string
-	queued := false
 	defer func() {
-		if !queued && stagedPath != "" {
+		if stagedPath != "" {
 			_ = os.Remove(stagedPath)
 		}
 	}()
@@ -308,13 +316,12 @@ func (handler *Handler) queueCoreImport(w http.ResponseWriter, request *http.Req
 		writeProblem(w, request, http.StatusUnprocessableEntity, "core_import_invalid", "Core import request invalid", "The local core archive cannot be imported with the supplied metadata.")
 		return
 	}
-	task, err := handler.commands.QueueCoreImport(request.Context(), importRequest)
+	result, err := handler.commands.ImportCore(request.Context(), importRequest)
 	if err != nil {
-		writeProblem(w, request, http.StatusInternalServerError, "core_import_failed", "Core import failed", "The core import task could not be queued.")
+		writeProblem(w, request, http.StatusInternalServerError, "core_import_failed", "Core import failed", "The core archive could not be imported.")
 		return
 	}
-	queued = true
-	writeJSON(w, http.StatusAccepted, task)
+	writeJSON(w, http.StatusOK, result)
 }
 
 func (handler *Handler) stageCoreUpload(source io.Reader) (string, string, error) {

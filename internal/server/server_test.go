@@ -79,47 +79,21 @@ func TestRuntimeExecutorLeaseExcludesSecondOwner(t *testing.T) {
 	}
 }
 
-func TestTaskLoggingRecordsLifecycleWithoutPayloadOrErrorText(t *testing.T) {
+func TestOperationLoggingOmitsSensitiveErrorText(t *testing.T) {
 	ctx := context.Background()
-	database, err := store.Open(ctx, filepath.Join(t.TempDir(), "panel.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = database.Close() })
+	database := openRunnerStore(t, ctx)
 	commands := application.FromStore(database)
-	wantErr := errors.New("token=must-not-be-persisted")
-	commit := &store.RuntimeTaskCommit{}
-	handler := withTaskLogging(commands, taskResultHandlerFunc(func(
-		context.Context,
-		store.Task,
-		taskExecutionControl,
-	) (taskHandlerResult, error) {
-		return taskHandlerResult{Runtime: commit}, wantErr
-	}))
-	task := store.Task{
-		ID: "task-log-test", Kind: store.TaskKindCoreInstall, Lane: store.TaskLaneMaintenance,
-		Attempt: 2, Payload: json.RawMessage(`{"token":"also-must-not-be-persisted"}`),
-	}
-	result, err := handler.Handle(ctx, task, nil)
-	if !errors.Is(err, wantErr) {
-		t.Fatalf("Handle() error = %v", err)
-	}
-	if result.Runtime != commit {
-		t.Fatal("task logging did not preserve runtime completion evidence")
-	}
-	page, err := commands.ListLogs(ctx, application.LogListRequest{Source: store.LogSourceTask, Limit: 10})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(page.Items) != 2 || page.Items[0].Code != "task.failed" || page.Items[1].Code != "task.started" {
-		t.Fatalf("logs = %+v", page.Items)
+	commands.RecordOperation(ctx, "core.install", "Core installation", errors.New("token=must-not-be-persisted"))
+	page, err := commands.ListLogs(ctx, application.LogListRequest{Source: store.LogSourcePanel, Limit: 10})
+	if err != nil || len(page.Items) != 1 || page.Items[0].Code != "core.install.failed" {
+		t.Fatalf("logs: %+v %v", page, err)
 	}
 	encoded, err := json.Marshal(page.Items)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(string(encoded), "must-not-be-persisted") || !strings.Contains(string(encoded), `"task_id":"task-log-test"`) {
-		t.Fatalf("unsafe or incomplete logs: %s", encoded)
+	if strings.Contains(string(encoded), "must-not-be-persisted") {
+		t.Fatalf("unsafe logs: %s", encoded)
 	}
 }
 
@@ -153,7 +127,7 @@ func TestDashboardContextUsesAppliedBundleAndConfigurationSupport(t *testing.T) 
 	commands := application.FromStore(database)
 	now := time.Date(2026, time.August, 26, 12, 0, 0, 0, time.UTC)
 	core := store.CoreArtifact{
-		ID: "core-dashboard", ExactVersion: "1.13.19", OperatingSystem: "linux", Architecture: "arm64", Variant: "plain",
+		ID: "core-dashboard", ExactVersion: "1.13.19", OperatingSystem: "linux", Architecture: "arm64", Variant: "musl",
 		SourceKind: store.CoreArtifactSourceUserVerified, UserSource: "dashboard fixture",
 		ArchiveSHA256: strings.Repeat("a", 64), BinarySHA256: strings.Repeat("b", 64),
 		BinaryPath: "/opt/sing-box-panel/core-dashboard/sing-box", ReportedVersion: "1.13.19",
@@ -163,29 +137,26 @@ func TestDashboardContextUsesAppliedBundleAndConfigurationSupport(t *testing.T) 
 	if _, err := database.UpsertCoreArtifact(ctx, core); err != nil {
 		t.Fatal(err)
 	}
-	canonicalSave, err := commands.ReplaceCanonical(ctx, "", configuration.Empty().CanonicalJSON())
+	canonicalSave, err := commands.SaveConfigurationFile(ctx, application.ConfigurationFileWrite{Content: "{}"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	compiled, err := commands.CompileConfiguration(ctx, application.ConfigurationCompileRequest{CoreArtifactID: core.ID})
+	intent, err := database.RequestConfigurationRuntimeIntent(ctx, store.RuntimeIntentInput{Kind: store.RuntimeIntentRestart, SelectOnly: true, CreatedAt: now}, store.StartupArtifact{ID: "dashboard-startup", CanonicalRevisionID: canonicalSave.CanonicalRevisionID, CoreArtifactID: core.ID, ExactCoreVersion: core.ExactVersion, ConfigBytes: configuration.Empty().CanonicalJSON(), CreatedAt: now})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := commands.CompleteStartupCheck(ctx, compiled.Artifact.ID, true); err != nil {
+	if _, err := commands.CompleteStartupCheck(ctx, intent.StartupArtifactID, true); err != nil {
 		t.Fatal(err)
 	}
-	prepared, task, err := commands.PrepareAndQueueRuntimeApply(ctx, compiled.Artifact.ID, store.MonitoringProcessOnly)
+	prepared, err := commands.PrepareActivationBundle(ctx, intent.StartupArtifactID, store.MonitoringProcessOnly)
 	if err != nil {
 		t.Fatal(err)
 	}
-	claimed, err := database.ClaimTask(ctx, store.ClaimTaskInput{
-		Lane: store.TaskLaneRuntime, LeaseOwner: "dashboard-worker", Now: time.Now().UTC().Add(time.Second), LeaseDuration: time.Minute,
-	})
-	if err != nil || claimed == nil || claimed.ID != task.ID {
-		t.Fatalf("claim = %+v, %v", claimed, err)
+	intent, err = database.BindCheckedRuntimeIntent(ctx, intent, prepared.Bundle.ID, now)
+	if err != nil {
+		t.Fatal(err)
 	}
-	completedAt := time.Now().UTC().Add(2 * time.Second)
-	if _, err := database.CompleteTask(ctx, claimed.ID, claimed.LeaseOwner, completedAt, store.TaskCompletion{Succeeded: true}); err != nil {
+	if err := database.CompleteRuntimeIntent(ctx, intent, true, &store.RuntimeCommit{ClearObservation: true, Transitions: []store.RuntimeTransitionInput{{DedupeKey: "dashboard-selection", State: store.RuntimeTransitionStopped, Reason: "core_selected", Generation: intent.Generation, OccurredAt: now}}}, now); err != nil {
 		t.Fatal(err)
 	}
 	provider := &statusProvider{database: database, commands: commands, build: buildinfo.Info{Version: "test"}}
@@ -202,13 +173,13 @@ func TestDashboardContextUsesAppliedBundleAndConfigurationSupport(t *testing.T) 
 		t.Fatal(err)
 	}
 	if contextValue.Applied == nil || contextValue.Applied.Bundle != prepared.Bundle.ID ||
-		contextValue.Applied.Revision != canonicalSave.Revision.Sequence ||
+		contextValue.Applied.Revision != int64(1) ||
 		contextValue.View.ExactVersion != core.ExactVersion || contextValue.Configuration.Supported ||
 		contextValue.Configuration.Label != "Raw JSON" ||
 		contextValue.Canonical.HasUnappliedChanges {
 		t.Fatalf("dashboard context = %+v", contextValue)
 	}
-	if _, err := commands.PatchCanonical(ctx, canonicalSave.Revision.ID, []application.CanonicalChange{{Operation: "set", Path: "/log", ValueJSON: `{"level":"info"}`}}); err != nil {
+	if _, err := commands.SaveConfigurationFile(ctx, application.ConfigurationFileWrite{Revision: canonicalSave.Revision, Content: `{"log":{"level":"info"}}`}); err != nil {
 		t.Fatal(err)
 	}
 	contextValue, err = provider.DashboardContext(ctx)

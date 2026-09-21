@@ -46,7 +46,7 @@ are preserved unless `--force` is explicitly requested.
 - creates a random management token;
 - writes the settings atomically with mode `0600`;
 - creates the data directory with mode `0700`; and
-- creates and migrates `panel.db` in that data directory.
+- creates `panel.db` with the current schema in that data directory.
 
 Do not commit the settings file, management token, database, exported
 configuration, or subscription data.
@@ -54,11 +54,12 @@ configuration, or subscription data.
 ### Database compatibility
 
 The current application uses SQLite `application_id = 0x53425034` and storage
-schema version 9. Opening a new database applies the embedded migrations;
-existing databases with this application identity migrate forward automatically.
-Unidentified non-empty databases, previous application identities, and schemas
-newer than the binary fail closed. Startup also transfers legacy panel settings
-from SQLite to the selected settings file once; subsequent edits use that file.
+schema version 11, defined in `internal/store/schema.sql`. An empty database is
+initialized directly; an existing database must have exactly this format.
+Unidentified databases, other application identities, and older or newer schemas
+are rejected without converting their data. Development instances from an older
+format need a fresh data directory. The panel never deletes old data automatically.
+Panel settings are read from the selected `setting.json` only.
 
 Configuration revisions contain a sing-box JSON object directly. SQLite's
 storage schema version describes panel tables and is unrelated to sing-box
@@ -81,9 +82,9 @@ user it is `$XDG_DATA_HOME/sing-box-panel`, or
 The settings file is the single source for all panel settings. The Web UI,
 `config init/show/set/unset/check/verify`, and manual edits use this same file. Shared fields retain
 their existing sections; `panel` adds the public node host, protocol identity,
-language and appearance. Web saves preserve fields not exposed by its form. Changing `data_dir` moves
+language and appearance. The Web form exposes all settings, including service paths, cache lifetime, retention and subscription source policy. Changing `data_dir` moves
 existing storage on the next explicit start, with interruption recovery.
-Sing-box documents, subscriptions, tasks and runtime evidence remain in SQLite.
+Sing-box documents, subscriptions and runtime evidence remain in SQLite.
 See the [complete field mapping](configuration-and-runtime.md#shared-settings-file).
 New settings initialize `subscription.provider` to `"default"`; existing files
 retain their configured value.
@@ -118,30 +119,25 @@ without `--config`, using the default path for the current user.
 First-run guidance lists the settings file, data directory, default URL, generated
 `Login token`, and stop shortcut. Open the default URL and use the printed token
 to log in to a new instance; the same value is saved as `auth.token` in settings.
-The summary confirms settings creation, not that the HTTP listener is ready.
-If an existing database contains legacy panel preferences or credentials, startup
-imports them into the file once, retaining the previously effective values. In
-that migration case, the imported management token replaces the generated token.
+That initial summary confirms settings creation. After binding the listener, every
+start prints the actual panel URL, settings and data paths, log location and stop
+hint, then streams sanitized panel events. Redirected output omits ANSI color;
+`NO_COLOR` disables it in terminals and `--output json` emits structured events.
 
 This runs in the foreground. Stop it with `Ctrl+C`, or run
 `./bin/sing-box-panel server stop --config ./setting.json` in another terminal.
 Use `server status` with the same settings to inspect the process. For
 background operation, install and start the systemd service instead.
 
-The server exposes the embedded UI and management API and is the only durable
-task executor. Keep it active while commands install cores, refresh the
-catalog or a subscription source, check or apply configuration, enable a
-core, or control the child process.
+The server exposes the embedded UI and management API and exclusively owns the
+core process. Keep it active for configuration checks, enabling/disabling a core,
+and start/stop/restart/rollback. Local CLI controls use its owner-only Unix socket.
+Catalog refresh, core installation/import, and subscription refresh execute in the
+calling CLI process and do not require a running server. Commands return their
+completed result; interrupting the caller cancels active work at a safe boundary.
 
-Core, catalog, and runtime commands normally wait for their
-task. Add `--detach` where supported to return immediately. Subscription source
-refresh always returns its queued task immediately. Inspect either kind of
-task separately with:
-
-```sh
-./bin/sing-box-panel task show TASK_ID --config ./setting.json
-./bin/sing-box-panel task wait TASK_ID --config ./setting.json
-```
+Runtime recovery and configured source refresh keep their own bounded schedules.
+There is no generic operation queue or detached polling API.
 
 ## Save the first sing-box configuration
 

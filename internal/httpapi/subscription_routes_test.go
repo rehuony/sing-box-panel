@@ -23,6 +23,7 @@ import (
 	"github.com/rehuony/sing-box-panel/internal/singbox"
 	"github.com/rehuony/sing-box-panel/internal/store"
 	"github.com/rehuony/sing-box-panel/internal/subscription"
+	"github.com/rehuony/sing-box-panel/internal/testutil"
 )
 
 func TestSubscriptionManagementHTTPCRUDStrictnessAndCAS(t *testing.T) {
@@ -134,11 +135,6 @@ func TestSubscriptionManagementHTTPCRUDStrictnessAndCAS(t *testing.T) {
 		"", versionResponse.Header().Get("ETag"))
 	if restoredVersion.Code != http.StatusOK {
 		t.Fatalf("source version restore status=%d body=%s", restoredVersion.Code, restoredVersion.Body.String())
-	}
-	refreshTask := authenticatedRequest(handler, http.MethodPost,
-		"/api/v1/subscription/sources/"+source.ID+"/refresh", "", "")
-	if refreshTask.Code != http.StatusAccepted || !strings.Contains(refreshTask.Body.String(), `"kind":"subscription-source-refresh"`) {
-		t.Fatalf("source refresh task status=%d body=%s", refreshTask.Code, refreshTask.Body.String())
 	}
 	deleteSource := authenticatedRequest(handler, http.MethodDelete, "/api/v1/subscription/sources/"+source.ID,
 		"", restoredVersion.Header().Get("ETag"))
@@ -425,7 +421,7 @@ func newSubscriptionPublicationHTTPFixture(
 	now := time.Now().UTC()
 	core := store.CoreArtifact{
 		ID: "core-http-publication", ExactVersion: "1.13.19", OperatingSystem: "linux",
-		Architecture: "arm64", Variant: "plain", SourceKind: store.CoreArtifactSourceOfficial,
+		Architecture: "arm64", Variant: "musl", SourceKind: store.CoreArtifactSourceOfficial,
 		RepositoryID: 1, ReleaseID: 2, AssetID: 3, ArchiveSHA256: strings.Repeat("a", 64),
 		BinarySHA256: strings.Repeat("b", 64), BinaryPath: "/secure/core-http-publication/sing-box",
 		ReportedVersion:    "1.13.19",
@@ -436,13 +432,13 @@ func newSubscriptionPublicationHTTPFixture(
 		t.Fatal(err)
 	}
 	startupBytes := []byte(`{"inbounds":[{"type":"shadowsocks","tag":"publish","listen":"::","listen_port":443,"method":"aes-256-gcm","password":"secret"}],"outbounds":[{"type":"shadowsocks","tag":"publish","server":"publish.example","server_port":443,"method":"aes-256-gcm","password":"secret"}]}`)
-	revision, err := app.ReplaceCanonical(ctx, "", startupBytes)
+	revision, err := app.SaveConfigurationFile(ctx, application.ConfigurationFileWrite{Content: string(startupBytes)})
 	if err != nil {
 		t.Fatal(err)
 	}
 	startup, err := database.CreateStartupArtifact(ctx, store.StartupArtifact{
 		ID:                  "startup-http-publication",
-		CanonicalRevisionID: revision.Revision.ID, ExactCoreVersion: core.ExactVersion,
+		CanonicalRevisionID: revision.CanonicalRevisionID, ExactCoreVersion: core.ExactVersion,
 		CoreArtifactID: core.ID,
 		ConfigBytes:    startupBytes,
 		CreatedAt:      now.Add(time.Second),
@@ -466,23 +462,7 @@ func newSubscriptionPublicationHTTPFixture(
 
 func applySubscriptionHTTPBundle(t *testing.T, database *store.Store, app *application.Application, bundleID string) {
 	t.Helper()
-	ctx := context.Background()
-	queued, err := app.QueueRuntimeApply(ctx, bundleID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	now := time.Now().UTC().Add(10 * time.Minute)
-	claimed, err := database.ClaimTask(ctx, store.ClaimTaskInput{
-		Lane: store.TaskLaneRuntime, LeaseOwner: "subscription-http-test", Now: now, LeaseDuration: time.Minute,
-	})
-	if err != nil || claimed == nil || claimed.ID != queued.ID {
-		t.Fatalf("claim apply task=%+v err=%v", claimed, err)
-	}
-	if _, err := database.CompleteTask(ctx, claimed.ID, claimed.LeaseOwner, now.Add(time.Second), store.TaskCompletion{
-		Succeeded: true, Result: json.RawMessage(`{"healthy":true}`),
-	}); err != nil {
-		t.Fatal(err)
-	}
+	testutil.ApplyBundle(t, database, bundleID)
 }
 
 func publicSubscriptionRequest(handler http.Handler, target string) *httptest.ResponseRecorder {

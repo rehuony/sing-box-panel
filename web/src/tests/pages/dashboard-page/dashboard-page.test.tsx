@@ -26,6 +26,20 @@ function show(client = createMockApiClient()) {
   return client;
 }
 describe('dashboard evidence', () => {
+  it('paginates runtime history within the API limit of 200', async () => {
+    const client = createMockApiClient({ getRuntimeHistory: vi.fn()
+      .mockResolvedValueOnce({ items: [], next: { id: 'transition-1', occurred_at: '2026-09-20T00:00:00Z' } })
+      .mockResolvedValue({ items: [] }) });
+    show(client);
+    await waitFor(() => expect(client.getRuntimeHistory).toHaveBeenCalledTimes(2));
+    expect(client.getRuntimeHistory).toHaveBeenNthCalledWith(
+      1, expect.objectContaining({ limit: 200 }), expect.any(AbortSignal),
+    );
+    expect(client.getRuntimeHistory).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      limit: 200, beforeID: 'transition-1', beforeTime: '2026-09-20T00:00:00Z',
+    }), expect.any(AbortSignal));
+  });
+
   it('shows separate traffic and connection charts with a fixed one-hour connection window', async () => {
     const client = show();
     expect(screen.getAllByRole('figure')).toHaveLength(2);

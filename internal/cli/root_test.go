@@ -323,7 +323,6 @@ var visibleLeafCapabilities = []string{
 	"channel list", "channel show", "channel create", "channel update", "channel delete", "channel render",
 	"source list", "source show", "source create", "source update", "source refresh", "source delete",
 	"token list", "token create", "token rotate", "token revoke",
-	"task list", "task show", "task wait", "task cancel",
 	"log list", "log show", "log tail", "log clear", "log delete",
 	"metrics show", "metrics watch", "metrics history", "metrics period",
 	"system df", "system prune",
@@ -332,8 +331,8 @@ var visibleLeafCapabilities = []string{
 }
 
 func TestCommandTreeIsAtMostTwoWordsDeepAndKeepsEveryCapability(t *testing.T) {
-	if len(visibleLeafCapabilities) != 66 {
-		t.Fatalf("inventory lists %d capabilities, want 66", len(visibleLeafCapabilities))
+	if len(visibleLeafCapabilities) != 62 {
+		t.Fatalf("inventory lists %d capabilities, want 62", len(visibleLeafCapabilities))
 	}
 	var stdout, stderr bytes.Buffer
 	root := NewRootCommand(Dependencies{Stdin: strings.NewReader(""), Stdout: &stdout, Stderr: &stderr})

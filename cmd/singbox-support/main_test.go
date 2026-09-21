@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -47,6 +48,11 @@ func TestCatalogValidationRejectsInvalidMetadata(t *testing.T) {
 		{name: "invalid digest", match: "invalid amd64 asset metadata", mutate: func(value *sourceCatalog) {
 			profile := value.Versions[0].Profiles[singbox.ArchitectureAMD64]
 			profile.SHA256 = "invalid"
+			value.Versions[0].Profiles[singbox.ArchitectureAMD64] = profile
+		}},
+		{name: "non-musl fingerprint", match: "must include with_musl", mutate: func(value *sourceCatalog) {
+			profile := value.Versions[0].Profiles[singbox.ArchitectureAMD64]
+			profile.Features = slices.DeleteFunc(profile.Features, func(feature string) bool { return feature == "with_musl" })
 			value.Versions[0].Profiles[singbox.ArchitectureAMD64] = profile
 		}},
 	}

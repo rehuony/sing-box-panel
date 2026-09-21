@@ -4,7 +4,7 @@ import { createHttpApiClient } from '@/api/http-api-client';
 
 describe('createHttpApiClient core and configuration domain', () => {
   it.each(['enable', 'disable'] as const)('%s targets the selected artifact with an empty body and encoded identity', async (action) => {
-    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(new Response(JSON.stringify({ id: 'switch', status: 'queued' }), { status: 202 }));
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(new Response(JSON.stringify({ observation_state: 'stopped', desired_running: false }), { status: 200 }));
     const client = createHttpApiClient({ baseUrl: '/api/v1', fetcher });
     await client[`${action}Core`]('core/one');
     expect(fetcher).toHaveBeenCalledWith(`/api/v1/core/artifacts/core%2Fone/${action}`, expect.objectContaining({ method: 'POST' }));
@@ -18,13 +18,13 @@ describe('createHttpApiClient core and configuration domain', () => {
     const client = createHttpApiClient({ baseUrl: '/panel/api/v1', fetcher });
 
     await client.getConfigurationSupport('core/one');
-    await client.previewConfiguration({ coreArtifactID: 'core_1', canonicalRevisionID: 'revision_3' });
+    await client.previewConfiguration({ coreArtifactID: 'core_1' });
     await client.compileConfiguration({ coreArtifactID: 'core_1' });
 
     expect(fetcher.mock.calls[0]?.[0]).toBe('/panel/api/v1/core/artifacts/core%2Fone/configuration-support');
     expect(fetcher).toHaveBeenNthCalledWith(2, '/panel/api/v1/config/preview', expect.objectContaining({
       method: 'POST',
-      body: JSON.stringify({ core_artifact_id: 'core_1', canonical_revision_id: 'revision_3' }),
+      body: JSON.stringify({ core_artifact_id: 'core_1' }),
     }));
     expect(fetcher).toHaveBeenNthCalledWith(3, '/panel/api/v1/config/compile', expect.objectContaining({
       method: 'POST',
@@ -34,7 +34,7 @@ describe('createHttpApiClient core and configuration domain', () => {
 
   it('exposes every local runtime lifecycle operation without a manual configuration path', async () => {
     const fetcher = vi.fn<typeof fetch>().mockImplementation(async () =>
-      new Response(JSON.stringify({ id: 'task_1' }), {
+      new Response(JSON.stringify({ observation_state: 'stopped', desired_running: false }), {
         status: 200, headers: { 'Content-Type': 'application/json' },
       }));
     const client = createHttpApiClient({ fetcher });

@@ -6,7 +6,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -26,8 +25,8 @@ func runtimeTransitionDedupeKey(parts ...string) string {
 	return "runtime_" + hex.EncodeToString(digest.Sum(nil))
 }
 
-func runtimeTaskTransitionKey(task store.Task, phase string) string {
-	return runtimeTransitionDedupeKey("task", task.ID, phase)
+func runtimeIntentTransitionKey(intent store.RuntimeIntent, phase string) string {
+	return runtimeTransitionDedupeKey("generation", fmt.Sprint(intent.Generation), phase)
 }
 
 func runtimeIncarnationTransitionKey(
@@ -52,7 +51,7 @@ func runtimeTransitionFromObservation(
 	observation store.RuntimeObservation,
 	occurredAt time.Time,
 	uncertainSince *time.Time,
-	task store.Task,
+	intent store.RuntimeIntent,
 ) store.RuntimeTransitionInput {
 	startedAt := observation.StartedAt
 	return store.RuntimeTransitionInput{
@@ -60,8 +59,7 @@ func runtimeTransitionFromObservation(
 		State:              state,
 		Reason:             reason,
 		ActivationBundleID: observation.ActivationBundleID,
-		Generation:         task.Generation,
-		TaskID:             task.ID,
+		Generation:         intent.Generation,
 		PID:                observation.PID,
 		ProcessStartToken:  observation.ProcessStartToken,
 		ProcessStartedAt:   &startedAt,
@@ -77,25 +75,24 @@ func runtimeTransitionWithoutObservation(
 	bundleID string,
 	occurredAt time.Time,
 	uncertainSince *time.Time,
-	task store.Task,
+	intent store.RuntimeIntent,
 ) store.RuntimeTransitionInput {
 	return store.RuntimeTransitionInput{
 		DedupeKey:          dedupeKey,
 		State:              state,
 		Reason:             reason,
 		ActivationBundleID: bundleID,
-		Generation:         task.Generation,
-		TaskID:             task.ID,
+		Generation:         intent.Generation,
 		OccurredAt:         occurredAt,
 		UncertainSince:     uncertainSince,
 	}
 }
 
-func runtimeTaskReason(task store.Task, suffix string) string {
-	if runtimeTaskIsRecovery(task) {
+func runtimeIntentReason(intent store.RuntimeIntent, suffix string) string {
+	if runtimeIntentIsRecovery(intent) {
 		return "recovery_" + suffix
 	}
-	kind := strings.TrimPrefix(string(task.Kind), "runtime-")
+	kind := strings.TrimPrefix(string(intent.Kind), "runtime-")
 	kind = strings.ReplaceAll(kind, "-", "_")
 	if kind == "" {
 		kind = "runtime"
@@ -103,12 +100,7 @@ func runtimeTaskReason(task store.Task, suffix string) string {
 	return kind + "_" + suffix
 }
 
-func runtimeTaskIsRecovery(task store.Task) bool {
-	var payload struct {
-		Origin string `json:"origin"`
-	}
-	return json.Unmarshal(task.Payload, &payload) == nil && payload.Origin == "auto_recovery"
-}
+func runtimeIntentIsRecovery(intent store.RuntimeIntent) bool { return intent.Recovery != nil }
 
 func runtimeFailureReason(live coreruntime.LiveIdentity, fallback string) string {
 	if live.Failure == nil {
@@ -173,29 +165,29 @@ func (services *runtimeServices) ensureRuntimeStopped(
 		latest.ActivationBundleID,
 		runtimeEventTime(occurredAt, latest.OccurredAt),
 		nil,
-		store.Task{},
+		store.RuntimeIntent{},
 	)
 	return services.appendRuntimeTransition(ctx, transition)
 }
 
-func (services *runtimeServices) runtimeTaskFailureCommit(
-	task store.Task,
+func (services *runtimeServices) runtimeIntentFailureCommit(
+	intent store.RuntimeIntent,
 	material application.RuntimeMaterial,
 	captured *store.RuntimeObservation,
-) (*store.RuntimeTaskCommit, error) {
+) (*store.RuntimeCommit, error) {
 	live := services.manager.ObserveLiveIdentity()
 	if live.Running {
 		// A failed restart whose old process remains verified did not change the
-		// observed runtime state, so task failure must not masquerade as runtime
+		// observed runtime state, so intent failure must not masquerade as runtime
 		// failure history.
 		return nil, nil
 	}
-	reason := runtimeFailureReason(live, runtimeTaskReason(task, "failed"))
+	reason := runtimeFailureReason(live, runtimeIntentReason(intent, "failed"))
 	occurredAt := runtimeFailureTime(live, time.Now())
 	if captured != nil {
 		exited, err := services.capturedObservationExited(captured)
 		if err != nil {
-			return nil, errors.Join(errRuntimeTaskEvidenceUnavailable, err)
+			return nil, errors.Join(errRuntimeEvidenceUnavailable, err)
 		}
 		if !exited {
 			return nil, nil
@@ -203,15 +195,15 @@ func (services *runtimeServices) runtimeTaskFailureCommit(
 		occurredAt = runtimeEventTime(occurredAt, captured.ObservedAt)
 	}
 	transition := runtimeTransitionWithoutObservation(
-		runtimeTaskTransitionKey(task, "failed"),
+		runtimeIntentTransitionKey(intent, "failed"),
 		store.RuntimeTransitionFailed,
 		reason,
 		material.Activation.ID,
 		occurredAt,
 		nil,
-		task,
+		intent,
 	)
-	commit := &store.RuntimeTaskCommit{
+	commit := &store.RuntimeCommit{
 		ExpectedObservation: captured,
 		ClearObservation:    true,
 		Transitions:         []store.RuntimeTransitionInput{transition},

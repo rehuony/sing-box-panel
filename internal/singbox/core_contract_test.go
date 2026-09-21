@@ -5,12 +5,14 @@ package singbox
 import (
 	"bytes"
 	"context"
+	"debug/elf"
 	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"testing"
 	"time"
 
@@ -56,8 +58,26 @@ func TestExactOfficialBinaryAcceptsRawConfiguration(t *testing.T) {
 	if !found {
 		t.Fatalf("sing-box %s is not in the support catalog", expectedVersion)
 	}
-	if _, found := version.Profiles[expectedArchitecture]; !found {
+	profile, found := version.Profiles[expectedArchitecture]
+	if !found {
 		t.Fatalf("sing-box %s has no %s release profile", expectedVersion, expectedArchitecture)
+	}
+	if report.FeatureFingerprint.Status != artifactstore.FeatureFingerprintReported ||
+		!slices.Equal(report.FeatureFingerprint.Features, profile.Features) {
+		t.Fatalf("reported features = %+v, want %v", report.FeatureFingerprint, profile.Features)
+	}
+	file, err := elf.Open(absoluteBinary)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer file.Close()
+	for _, program := range file.Progs {
+		if program.Type == elf.PT_INTERP {
+			t.Fatal("musl release must not require a dynamic interpreter")
+		}
+	}
+	if libraries, err := file.ImportedLibraries(); err != nil || len(libraries) > 0 {
+		t.Fatalf("musl release dynamic dependencies = %v, error = %v", libraries, err)
 	}
 	rawConfiguration := []byte(`{"log":{"disabled":true},"inbounds":[{"type":"mixed","tag":"contract-mixed","listen":"127.0.0.1","listen_port":19090}]}`)
 	if err := ValidateConfiguration(expectedVersion, rawConfiguration); err != nil && !errors.Is(err, ErrConfigurationSchemaUnavailable) {

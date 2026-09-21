@@ -39,7 +39,7 @@ each exact sing-box version to one file and SHA-256 digest, and the plugin
 precompiles the root validator as an Ajv 2020 module for the browser. Generated
 validators contain no CommonJS `require`. A version without a native Schema
 remains available in the Advanced JSON editor; structured editing is enabled
-only when the exact-version local Schema and served digest match.
+only when the exact-version local Schema and served digest match. With no matching installed artifact, the configuration version selector supports authoring from the bundled reviewed schema; validation and execution still require the corresponding installed core.
 
 `pnpm run build` produces a deterministic SPA bundle in `web/dist/`. The Go
 Web package embeds that directory and uses `index.html` for client-side
@@ -50,16 +50,15 @@ logo, release bundles, and the repository README.
 
 At runtime the browser client uses same-origin `/api/v1` endpoints for the
 session, live dashboard context, the single saved configuration, panel settings,
-subscription publication, durable logs/tasks and exact core-artifact operations. Cookie-backed writes retain
-the session CSRF token, and saved-file writes include the numeric revision in the request; legacy
-canonical endpoints retain `If-Match`.
+subscription publication, persistent logs and exact core-artifact operations. Cookie-backed writes retain
+the session CSRF token, and saved-file writes include the numeric revision in the request.
 
-Asynchronous operations use shared task tracking and report completion only after
-a terminal API result. Version/source actions update in place; failures retain
-previous usable state. The panel-log detail view follows pending tasks, stops
-polling at a terminal state and aborts tracking when closed. Task detail links use
-`/observability?tab=panel&task=<id>`. Core logs and telemetry use authenticated streams
-with bounded buffering, reconnect and polling recovery.
+Operations await the completed API resource; version/source actions update in
+place and failures retain previous usable state. Runtime controls verify observed
+process identity before reporting success. Version management displays the cached
+catalog immediately and automatically refreshes it using the configured TTL.
+Panel logs display ordinary events with no operation tracking dialogs. Core logs
+and telemetry use authenticated streams with bounded buffering and reconnect.
 
 Tests inject an `ApiClient`, keeping pages independent from `fetch` while the
 HTTP client has focused tests for base-path routing, CSRF, problem details, and
@@ -72,8 +71,8 @@ sing-box JSON editor. It preserves unknown fields and unmodified large-number
 lexemes, and never adds panel metadata to executable configuration. Versions
 before native Schema support use the Advanced editor only. The Web UI offers Save and Validate, with validation feedback in a Toast.
 Start/Restart validate saved bytes using the selected exact binary before
-replacing the process; immutable history and rollback remain internal/legacy
-API and CLI contracts rather than a second deployment UI.
+replacing the process. Immutable snapshots support runtime verification and recovery;
+the editor has one current document with no historical selection or restoration.
 
 Configuration modules are edited individually, with optional object settings
 added on demand. Collection actions stay in a consistent, vertically centered

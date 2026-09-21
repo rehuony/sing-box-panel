@@ -15,6 +15,7 @@ import (
 	"github.com/rehuony/sing-box-panel/internal/application"
 	"github.com/rehuony/sing-box-panel/internal/settings"
 	"github.com/rehuony/sing-box-panel/internal/store"
+	"github.com/rehuony/sing-box-panel/internal/testutil"
 )
 
 func TestSubscriptionChannelAndSourceCLIEndToEnd(t *testing.T) {
@@ -78,14 +79,6 @@ func TestSubscriptionChannelAndSourceCLIEndToEnd(t *testing.T) {
 		t.Fatalf("created source = %+v", source)
 	}
 
-	refreshedSourceOutput := runApplicationCommand(t, settingsPath, "",
-		"--output", "json", "source", "refresh", source.ID,
-	)
-	var refreshTask application.Task
-	decodeSubscriptionCLIOutput(t, refreshedSourceOutput, &refreshTask)
-	if refreshTask.Kind != store.TaskKindSubscriptionSourceRefresh || refreshTask.Status != store.TaskStatusQueued {
-		t.Fatalf("refresh task = %+v", refreshTask)
-	}
 	shownSourceOutput := runApplicationCommand(t, settingsPath, "",
 		"--output", "json", "source", "show", source.ID,
 	)
@@ -153,7 +146,7 @@ func TestSubscriptionChannelRenderCLIEndToEnd(t *testing.T) {
 	now := time.Now().UTC()
 	core, err := database.UpsertCoreArtifact(context.Background(), store.CoreArtifact{
 		ID: "core-subscription-cli", ExactVersion: "1.13.19",
-		OperatingSystem: "linux", Architecture: "arm64", Variant: "plain",
+		OperatingSystem: "linux", Architecture: "arm64", Variant: "musl",
 		SourceKind: store.CoreArtifactSourceOfficial, RepositoryID: 1, ReleaseID: 2, AssetID: 3,
 		ArchiveSHA256: strings.Repeat("a", 64), BinarySHA256: strings.Repeat("b", 64),
 		BinaryPath: filepath.Join(configuration.DataDir, "sing-box"), ReportedVersion: "1.13.19",
@@ -182,22 +175,7 @@ func TestSubscriptionChannelRenderCLIEndToEnd(t *testing.T) {
 		var prepared application.ActivationPreparation
 		prepared, err = instance.PrepareActivationBundle(context.Background(), startup.ID, store.MonitoringProcessOnly)
 		if err == nil {
-			var task application.Task
-			task, err = instance.QueueRuntimeApply(context.Background(), prepared.Bundle.ID)
-			if err == nil {
-				var claimed *store.Task
-				claimed, err = database.ClaimTask(context.Background(), store.ClaimTaskInput{
-					Lane: store.TaskLaneRuntime, LeaseOwner: "subscription-cli-test",
-					Now: time.Now().UTC(), LeaseDuration: time.Minute,
-				})
-				if err == nil && (claimed == nil || claimed.ID != task.ID) {
-					err = errors.New("runtime apply task was not claimable")
-				}
-				if err == nil {
-					_, err = database.CompleteTask(context.Background(), claimed.ID, claimed.LeaseOwner,
-						time.Now().UTC(), store.TaskCompletion{Succeeded: true})
-				}
-			}
+			testutil.ApplyBundle(t, database, prepared.Bundle.ID)
 		}
 		if err == nil {
 			user, err = instance.CreateSubscriptionUser(context.Background(), application.CreateSubscriptionUserRequest{

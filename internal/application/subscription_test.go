@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/rehuony/sing-box-panel/internal/store"
+	"github.com/rehuony/sing-box-panel/internal/testutil"
 	"github.com/rehuony/sing-box-panel/internal/subscription"
 )
 
@@ -309,7 +310,7 @@ func TestRenderSubscriptionPreviewUsesAppliedVersionAndSelectedUserGrants(t *tes
 	now := app.now().UTC()
 	features := json.RawMessage(`{"status":"reported","features":["badlinkname","tfogo_checklinkname0","with_acme","with_ccm","with_clash_api","with_dhcp","with_gvisor","with_naive_outbound","with_ocm","with_purego","with_quic","with_tailscale","with_utls","with_wireguard"]}`)
 	core := store.CoreArtifact{
-		ID: "core-subscription", ExactVersion: "1.13.19", OperatingSystem: "linux", Architecture: "arm64", Variant: "plain",
+		ID: "core-subscription", ExactVersion: "1.13.19", OperatingSystem: "linux", Architecture: "arm64", Variant: "musl",
 		SourceKind: store.CoreArtifactSourceUserVerified, UserSource: "test", ArchiveSHA256: strings.Repeat("a", 64),
 		BinarySHA256: strings.Repeat("b", 64), BinaryPath: "/tmp/sing-box", ReportedVersion: "1.13.19",
 		FeatureFingerprint: features, CreatedAt: now,
@@ -323,13 +324,13 @@ func TestRenderSubscriptionPreviewUsesAppliedVersionAndSelectedUserGrants(t *tes
         {"type":"shadowsocks","tag":"public","listen_port":8443,"method":"aes-256-gcm","password":"public-secret"}
       ]
     }`)
-	canonicalSave, err := app.ReplaceConfiguration(ctx, "", startupBytes)
+	canonicalSave, err := app.SaveConfigurationFile(ctx, ConfigurationFileWrite{Content: string(startupBytes)})
 	if err != nil {
 		t.Fatal(err)
 	}
 	ready, err := database.CreateStartupArtifact(ctx, store.StartupArtifact{
 		ID:                  "startup-subscription-ready",
-		CanonicalRevisionID: canonicalSave.Revision.ID, ExactCoreVersion: core.ExactVersion,
+		CanonicalRevisionID: canonicalSave.CanonicalRevisionID, ExactCoreVersion: core.ExactVersion,
 		CoreArtifactID: core.ID, ConfigBytes: startupBytes,
 		CreatedAt: now.Add(time.Second),
 	})
@@ -352,19 +353,7 @@ func TestRenderSubscriptionPreviewUsesAppliedVersionAndSelectedUserGrants(t *tes
 	if err != nil {
 		t.Fatal(err)
 	}
-	task, err := app.QueueRuntimeApply(ctx, prepared.Bundle.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	claimed, err := database.ClaimTask(ctx, store.ClaimTaskInput{
-		Lane: store.TaskLaneRuntime, LeaseOwner: "preview-test", Now: now.Add(3 * time.Second), LeaseDuration: time.Minute,
-	})
-	if err != nil || claimed == nil || claimed.ID != task.ID {
-		t.Fatalf("claim apply task = %+v, %v", claimed, err)
-	}
-	if _, err := database.CompleteTask(ctx, claimed.ID, claimed.LeaseOwner, now.Add(4*time.Second), store.TaskCompletion{Succeeded: true}); err != nil {
-		t.Fatal(err)
-	}
+	testutil.ApplyBundle(t, database, prepared.Bundle.ID)
 	user, err := app.CreateSubscriptionUser(ctx, CreateSubscriptionUserRequest{Name: "preview", Enabled: true})
 	if err != nil {
 		t.Fatal(err)

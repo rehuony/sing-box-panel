@@ -25,19 +25,15 @@ func TestDisableCoreClearsSelectionOnlyAfterSuccessfulStop(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			var queued application.Task
+			var intent store.RuntimeIntent
 			var err error
 			if scenario == "ordinary-stop" {
-				queued, err = commands.QueueRuntimeStop(ctx)
+				intent, err = commands.PrepareRuntimeIntent(ctx, store.RuntimeIntentStop, "")
 			} else {
-				queued, err = commands.DisableCore(ctx, previous.CoreArtifactID)
+				intent, err = commands.PrepareCoreDisable(ctx, previous.CoreArtifactID)
 			}
 			if err != nil {
 				t.Fatal(err)
-			}
-			task, err := db.ClaimTask(ctx, store.ClaimTaskInput{Lane: store.TaskLaneRuntime, LeaseOwner: "disable-test", Now: time.Now().UTC(), LeaseDuration: time.Minute})
-			if err != nil || task == nil || task.ID != queued.ID {
-				t.Fatalf("claim: %+v %v", task, err)
 			}
 			manager := &fakeRuntimeManager{}
 			if scenario == "stop-failed" {
@@ -45,21 +41,25 @@ func TestDisableCoreClearsSelectionOnlyAfterSuccessfulStop(t *testing.T) {
 			}
 			services := &runtimeServices{database: db, commands: commands, manager: manager,
 				identity: &fakeRuntimeIdentityResolver{startToken: previous.ProcessStartToken}}
-			control := taskControlFunc(func(context.Context) error {
+			control := runtimeGuardFunc(func(context.Context) error {
 				if scenario == "canceled" {
-					_, _, err := db.RequestTaskCancellation(ctx, task.ID, time.Now().UTC())
-					return errors.Join(errors.New("canceled before stop"), err)
+					return context.Canceled
 				}
 				return nil
 			})
-			result, handleErr := runtimeIntentHandler(services)(ctx, *task, control)
+			result, handleErr := services.performRuntimeIntent(ctx, intent, control)
 			if scenario == "superseded" {
-				if _, err := commands.QueueRuntimeStop(ctx); err != nil {
+				if _, err := commands.PrepareRuntimeIntent(ctx, store.RuntimeIntentStop, ""); err != nil {
 					t.Fatal(err)
 				}
 			}
-			if _, err := db.CompleteTask(ctx, task.ID, task.LeaseOwner, time.Now().UTC(), store.TaskCompletion{Succeeded: handleErr == nil, Runtime: result.Runtime}); err != nil {
-				t.Fatal(err)
+			completeErr := db.CompleteRuntimeIntent(ctx, intent, handleErr == nil, result.Runtime, time.Now().UTC())
+			if scenario == "superseded" {
+				if !errors.Is(completeErr, store.ErrRuntimeIntentStale) {
+					t.Fatal(completeErr)
+				}
+			} else if completeErr != nil {
+				t.Fatal(completeErr)
 			}
 			bootstrap, err := db.Bootstrap(ctx)
 			if err != nil {
@@ -79,10 +79,10 @@ func TestDisableCoreClearsSelectionOnlyAfterSuccessfulStop(t *testing.T) {
 			if err != nil || status.EnabledCore != nil || status.Running != nil {
 				t.Fatalf("disabled status: %+v %v", status, err)
 			}
-			if _, err := commands.QueueRuntimeStart(ctx); !errors.Is(err, store.ErrNoAppliedBundle) {
+			if _, err := commands.PrepareConfigurationRuntime(ctx, "", store.RuntimeIntentStart); !errors.Is(err, store.ErrNoAppliedBundle) {
 				t.Fatalf("start reused disabled selection: %v", err)
 			}
-			if _, err := commands.DisableCore(ctx, previous.CoreArtifactID); !errors.Is(err, store.ErrCoreNotEnabled) {
+			if _, err := commands.PrepareCoreDisable(ctx, previous.CoreArtifactID); !errors.Is(err, store.ErrCoreNotEnabled) {
 				t.Fatalf("disabled stale selection: %v", err)
 			}
 			root, err := filepath.EvalSymlinks(t.TempDir())

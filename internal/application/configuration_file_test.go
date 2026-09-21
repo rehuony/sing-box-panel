@@ -12,7 +12,7 @@ import (
 	"github.com/rehuony/sing-box-panel/internal/store"
 )
 
-func TestConfigurationFilePreservesInvalidTextAndLegacyHistory(t *testing.T) {
+func TestConfigurationFilePreservesInvalidTextAndRuntimeSnapshots(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "panel.db")
 	db, err := store.Open(ctx, path)
@@ -21,12 +21,12 @@ func TestConfigurationFilePreservesInvalidTextAndLegacyHistory(t *testing.T) {
 	}
 	defer db.Close()
 	app := FromStore(db)
-	initial, err := app.ReplaceConfiguration(ctx, "", []byte(`{"x":9007199254740993}`))
+	initial, err := app.SaveConfigurationFile(ctx, ConfigurationFileWrite{Content: `{"x":9007199254740993}`})
 	if err != nil {
 		t.Fatal(err)
 	}
 	file, err := app.ConfigurationFile(ctx)
-	if err != nil || file.CanonicalRevisionID != initial.Revision.ID || file.Revision != 1 {
+	if err != nil || file.CanonicalRevisionID != initial.CanonicalRevisionID || file.Revision != 1 {
 		t.Fatalf("initial: %+v %v", file, err)
 	}
 	raw := "{\n  \"x\": 9007199254740993,\n"
@@ -35,14 +35,8 @@ func TestConfigurationFilePreservesInvalidTextAndLegacyHistory(t *testing.T) {
 		t.Fatalf("invalid save: %+v %v", saved, err)
 	}
 	head, err := db.Head(ctx)
-	if err != nil || head.ID != initial.Revision.ID {
+	if err != nil || head.ID != initial.CanonicalRevisionID {
 		t.Fatalf("immutable history changed: %+v %v", head, err)
-	}
-	if _, err := app.ReplaceConfiguration(ctx, head.ID, []byte(`{}`)); !errors.Is(err, store.ErrConfigurationFileUnparsed) {
-		t.Fatalf("legacy overwrote unparsed file: %v", err)
-	}
-	if _, err := app.PatchConfiguration(ctx, head.ID, []CanonicalChange{{Operation: "set", Path: "/x", ValueJSON: "1"}}); !errors.Is(err, store.ErrConfigurationFileUnparsed) {
-		t.Fatalf("patch overwrote unparsed file: %v", err)
 	}
 	if _, err := app.SaveConfigurationFile(ctx, ConfigurationFileWrite{Revision: file.Revision, Content: "{}"}); !errors.Is(err, store.ErrConfigurationFileConflict) {
 		t.Fatalf("CAS: %v", err)
@@ -58,20 +52,20 @@ func TestConfigurationFilePreservesInvalidTextAndLegacyHistory(t *testing.T) {
 	}
 	corrected := "{\n  \"x\": 9007199254740993\n}\n"
 	fixed, err := app.SaveConfigurationFile(ctx, ConfigurationFileWrite{Revision: saved.Revision, Content: corrected})
-	if err != nil || !fixed.SyntaxValid || fixed.Content != corrected || fixed.CanonicalRevisionID != initial.Revision.ID {
+	if err != nil || !fixed.SyntaxValid || fixed.Content != corrected || fixed.CanonicalRevisionID != initial.CanonicalRevisionID {
 		t.Fatalf("correction: %+v %v", fixed, err)
 	}
 	noChange, err := app.SaveConfigurationFile(ctx, ConfigurationFileWrite{Revision: fixed.Revision, Content: corrected})
 	if err != nil || noChange.Revision != fixed.Revision {
 		t.Fatalf("no change: %+v %v", noChange, err)
 	}
-	replaced, err := app.ReplaceConfiguration(ctx, fixed.CanonicalRevisionID, []byte(`{"x":9007199254740994}`))
+	replaced, err := app.SaveConfigurationFile(ctx, ConfigurationFileWrite{Revision: fixed.Revision, Content: `{"x":9007199254740994}`})
 	if err != nil {
 		t.Fatal(err)
 	}
 	file, err = app.ConfigurationFile(ctx)
-	if err != nil || file.CanonicalRevisionID != replaced.Revision.ID || file.Revision != fixed.Revision+1 {
-		t.Fatalf("legacy sync: %+v %v", file, err)
+	if err != nil || file.CanonicalRevisionID != replaced.CanonicalRevisionID || file.Revision != fixed.Revision+1 {
+		t.Fatalf("saved snapshot: %+v %v", file, err)
 	}
 }
 

@@ -110,7 +110,7 @@ func TestRuntimeHistoryPaginationFiltersPrecedingAndDedupe(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(next.Items) != 1 || next.Items[0].ID != stored[0].ID || next.Next != nil {
+	if len(next.Items) != 2 || next.Items[0].ID != stored[0].ID || next.Next != nil {
 		t.Fatalf("second runtime history page = %+v", next)
 	}
 
@@ -235,7 +235,7 @@ func TestRuntimeRecoveryAtomicallyRecordsFailedIncarnation(t *testing.T) {
 		observation.ObservedAt.Add(time.Second),
 	)
 	decision, err := database.RequestRuntimeRecovery(ctx, RuntimeRecoveryInput{
-		TaskID:              "runtime-history-recovery",
+
 		NewEpisodeID:        "runtime-history-episode",
 		ExpectedBundleID:    bundle.ID,
 		ExpectedGeneration:  1,
@@ -243,7 +243,7 @@ func TestRuntimeRecoveryAtomicallyRecordsFailedIncarnation(t *testing.T) {
 		CreatedAt:           transition.OccurredAt,
 		Transition:          &transition,
 	})
-	if err != nil || decision.Task == nil {
+	if err != nil || decision.EpisodeID == "" {
 		t.Fatalf("RequestRuntimeRecovery() = %+v, %v", decision, err)
 	}
 	if _, err := database.RuntimeObservation(ctx); !errors.Is(err, ErrRuntimeObservationNotFound) {

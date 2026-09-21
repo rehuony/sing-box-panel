@@ -50,7 +50,7 @@ func TestReleaseConfigurationFileContractSurvivesReopen(t *testing.T) {
 	}
 	database, handler := open()
 	var expectedRevision int64
-	var history application.CanonicalSnapshot
+	var history store.CanonicalRevision
 	for _, content := range []string{string(fixture), "{\n  \"log\": ", string(fixture)} {
 		body, err := json.Marshal(application.ConfigurationFileWrite{Revision: expectedRevision, Content: content})
 		if err != nil {
@@ -79,14 +79,15 @@ func TestReleaseConfigurationFileContractSurvivesReopen(t *testing.T) {
 		if !reflect.DeepEqual(persisted, saved) {
 			t.Fatalf("editable file changed after reopening at revision %d", expectedRevision)
 		}
-		response = serveConformingRequest(t, router, handler, http.MethodGet, "/api/v1/config/canonical", "", http.StatusOK, true, nil)
-		var snapshot application.CanonicalSnapshot
-		if err := json.Unmarshal(response.Body.Bytes(), &snapshot); err != nil {
-			t.Fatal(err)
+		current, err := database.Head(t.Context())
+		if err != nil || current == nil {
+			t.Fatalf("runtime snapshot: %v", err)
 		}
+		snapshot := *current
+
 		digest := sha256.Sum256(document.CanonicalJSON())
 		if snapshot.SchemaVersion != configuration.SchemaVersion || snapshot.Sequence != 1 ||
-			!bytes.Equal(snapshot.Document, document.CanonicalJSON()) || snapshot.DocumentJSON != string(document.CanonicalJSON()) ||
+			!bytes.Equal(snapshot.Document, document.CanonicalJSON()) ||
 			snapshot.SHA256 != hex.EncodeToString(digest[:]) {
 			t.Fatal("immutable history does not match the lossless configuration contract")
 		}

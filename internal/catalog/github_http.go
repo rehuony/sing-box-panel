@@ -4,6 +4,7 @@ package catalog
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"mime"
 	"net/http"
@@ -44,7 +45,14 @@ func (client *GitHubClient) requestJSON(
 		return response, nil, nil
 	}
 	if response.StatusCode != http.StatusOK {
-		return nil, nil, fail(step, "http_status", nil)
+		code := "http_status"
+		if response.StatusCode == http.StatusUnauthorized {
+			code = "authentication_failed"
+		}
+		if response.StatusCode == http.StatusTooManyRequests || (response.StatusCode == http.StatusForbidden && response.Header.Get("X-RateLimit-Remaining") == "0") {
+			code = "rate_limited"
+		}
+		return nil, nil, fail(step, code, fmt.Errorf("GitHub returned HTTP %d", response.StatusCode))
 	}
 	mediaType, _, err := mime.ParseMediaType(response.Header.Get("Content-Type"))
 	if err != nil || mediaType != "application/json" {

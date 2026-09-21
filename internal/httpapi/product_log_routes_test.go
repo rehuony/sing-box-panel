@@ -8,9 +8,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
-	"time"
 
-	"github.com/rehuony/sing-box-panel/internal/application"
 	"github.com/rehuony/sing-box-panel/internal/corelogs"
 	"github.com/rehuony/sing-box-panel/internal/store"
 )
@@ -57,54 +55,27 @@ func TestCoreLogFilesAreAuthenticatedAndCursorReadable(t *testing.T) {
 	}
 }
 
-func TestPanelLogsAndRetryUseCurrentTaskState(t *testing.T) {
-	handler, db := newCoreHTTPFixture(t)
-	ctx := context.Background()
-	queued, err := handler.commands.QueueCatalogRefresh(ctx, application.CatalogRefreshOptions{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	path := "/api/v1/tasks/" + queued.ID + "/retry"
-	response := authenticatedRequest(handler, "POST", path, "", "")
-	if response.Code != 409 {
-		t.Fatal(response.Code, response.Body.String())
-	}
-	if _, err = handler.commands.CancelTask(ctx, queued.ID); err != nil {
-		t.Fatal(err)
-	}
-	response = authenticatedRequest(handler, "POST", path, "", "")
-	var retried application.Task
-	if response.Code != 202 || json.Unmarshal(response.Body.Bytes(), &retried) != nil || retried.ID == queued.ID || retried.Status != "queued" {
-		t.Fatal(response.Code, response.Body.String())
-	}
-	response = authenticatedRequest(handler, "POST", path, "", "")
-	var duplicate application.Task
-	if response.Code != 202 || json.Unmarshal(response.Body.Bytes(), &duplicate) != nil || duplicate.ID != retried.ID {
-		t.Fatal(response.Code, response.Body.String())
-	}
-	_, err = db.AppendLogEntry(ctx, store.LogEntry{ID: "retry-worker", Time: time.Now(), Source: store.LogSourceTask, Level: store.LogLevelInfo, Code: "task.queued", Message: "task queued", Metadata: json.RawMessage(`{"task_id":"` + retried.ID + `"}`)})
-	if err != nil {
-		t.Fatal(err)
-	}
-	response = authenticatedRequest(handler, "GET", "/api/v1/logs/panel?limit=5", "", "")
+func TestPanelLogsIncludeCompletedOperations(t *testing.T) {
+	handler, _ := newCoreHTTPFixture(t)
+	handler.commands.RecordOperation(context.Background(), "catalog.refresh", "Catalog refresh", nil)
+	response := authenticatedRequest(handler, "GET", "/api/v1/logs/panel?limit=5", "", "")
 	var page store.PanelLogPage
 	if response.Code != 200 || json.Unmarshal(response.Body.Bytes(), &page) != nil {
 		t.Fatal(response.Code, response.Body.String())
 	}
-	count := 0
-	for _, item := range page.Items {
-		if item.TaskID == retried.ID {
-			count++
-		}
-		if item.ID == "log:retry-worker" {
-			t.Fatal("duplicated worker event")
+	found := false
+	for _, entry := range page.Items {
+		if entry.Code == "catalog.refresh.completed" {
+			found = true
 		}
 	}
-	if count != 1 {
+	if !found {
 		t.Fatal(page)
 	}
-	if res := authenticatedRequest(handler, http.MethodPost, path, "{}", ""); res.Code < 400 {
-		t.Fatal("accepted an unexpected retry payload")
+	for _, path := range []string{"/api/v1/tasks", "/api/v1/tasks/old/retry", "/api/v1/tasks/old/cancel"} {
+		if response := authenticatedRequest(handler, http.MethodPost, path, "", ""); response.Code != 404 {
+			t.Fatalf("removed endpoint: %s %d", path, response.Code)
+		}
 	}
 }
 

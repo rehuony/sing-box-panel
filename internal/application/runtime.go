@@ -44,12 +44,12 @@ type RuntimeRecoveryRequest struct {
 }
 
 type RuntimeRecoveryResult struct {
-	Task       *Task  `json:"task,omitempty"`
-	BundleID   string `json:"bundle_id,omitempty"`
-	Generation int64  `json:"generation,omitempty"`
-	EpisodeID  string `json:"episode_id,omitempty"`
-	Attempt    int    `json:"attempt,omitempty"`
-	Exhausted  bool   `json:"exhausted"`
+	Intent     *store.RuntimeIntent `json:"-"`
+	BundleID   string               `json:"bundle_id,omitempty"`
+	Generation int64                `json:"generation,omitempty"`
+	EpisodeID  string               `json:"episode_id,omitempty"`
+	Attempt    int                  `json:"attempt,omitempty"`
+	Exhausted  bool                 `json:"exhausted"`
 }
 
 type ActivationPreparation struct {
@@ -173,58 +173,9 @@ func (application *Application) verifyActivationCandidate(
 	return nil
 }
 
-func (application *Application) QueueRuntimeApply(ctx context.Context, bundleID string) (Task, error) {
-	return application.queueRuntimeIntent(ctx, store.RuntimeIntentApply, bundleID)
-}
-
-func (application *Application) PrepareAndQueueRuntimeApply(
-	ctx context.Context,
-	startupArtifactID string,
-	monitoring store.MonitoringTier,
-) (ActivationPreparation, Task, error) {
-	prepared, err := application.PrepareActivationBundle(ctx, startupArtifactID, monitoring)
-	if err != nil {
-		return ActivationPreparation{}, Task{}, err
-	}
-	task, err := application.QueueRuntimeApply(ctx, prepared.Bundle.ID)
-	if err != nil {
-		return ActivationPreparation{}, Task{}, err
-	}
-	return prepared, task, nil
-}
-
-func (application *Application) QueueRuntimeStart(ctx context.Context) (Task, error) {
-	return application.QueueConfigurationRuntime(ctx, "", store.RuntimeIntentStart)
-}
-
-func (application *Application) QueueRuntimeStop(ctx context.Context) (Task, error) {
-	return application.queueRuntimeIntent(ctx, store.RuntimeIntentStop, "")
-}
-
-func (application *Application) QueueRuntimeRestart(ctx context.Context) (Task, error) {
-	return application.QueueConfigurationRuntime(ctx, "", store.RuntimeIntentRestart)
-}
-
-func (application *Application) QueueRuntimeRollback(ctx context.Context, expectedBundleID string) (Task, error) {
-	return application.queueRuntimeIntent(ctx, store.RuntimeIntentRollback, expectedBundleID)
-}
-
-func (application *Application) queueRuntimeIntent(
-	ctx context.Context,
-	kind store.RuntimeIntentKind,
-	bundleID string,
-) (Task, error) {
-	taskID, err := application.newID("task")
-	if err != nil {
-		return Task{}, err
-	}
-	queued, err := application.database.RequestRuntimeIntent(ctx, store.RuntimeIntentInput{
-		TaskID: taskID, Kind: kind, BundleID: strings.TrimSpace(bundleID), CreatedAt: application.now().UTC(),
-	})
-	if err != nil {
-		return Task{}, err
-	}
-	return applicationTask(queued), nil
+// PrepareRuntimeIntent is called only by the process owning the runtime lock.
+func (application *Application) PrepareRuntimeIntent(ctx context.Context, kind store.RuntimeIntentKind, bundleID string) (store.RuntimeIntent, error) {
+	return application.database.RequestRuntimeIntent(ctx, store.RuntimeIntentInput{Kind: kind, BundleID: strings.TrimSpace(bundleID), CreatedAt: application.now().UTC()})
 }
 
 // RequestRuntimeRecovery asks the store to fence the observed failed process
@@ -235,16 +186,11 @@ func (application *Application) RequestRuntimeRecovery(
 	ctx context.Context,
 	request RuntimeRecoveryRequest,
 ) (RuntimeRecoveryResult, error) {
-	taskID, err := application.newID("task")
-	if err != nil {
-		return RuntimeRecoveryResult{}, err
-	}
 	episodeID, err := application.newID("recovery")
 	if err != nil {
 		return RuntimeRecoveryResult{}, err
 	}
 	decision, err := application.database.RequestRuntimeRecovery(ctx, store.RuntimeRecoveryInput{
-		TaskID:              taskID,
 		NewEpisodeID:        episodeID,
 		ExpectedBundleID:    strings.TrimSpace(request.ExpectedBundleID),
 		ExpectedGeneration:  request.ExpectedGeneration,
@@ -261,10 +207,7 @@ func (application *Application) RequestRuntimeRecovery(
 		BundleID: decision.BundleID, Generation: decision.Generation,
 		EpisodeID: decision.EpisodeID, Attempt: decision.Attempt, Exhausted: decision.Exhausted,
 	}
-	if decision.Task != nil {
-		task := applicationTask(*decision.Task)
-		result.Task = &task
-	}
+	result.Intent = decision.Intent
 	return result, nil
 }
 
@@ -314,7 +257,7 @@ func (application *Application) RuntimeStatus(ctx context.Context) (RuntimeStatu
 	return result, nil
 }
 
-// LoadRuntimeMaterial resolves every immutable input for a runtime task. It
+// LoadRuntimeMaterial resolves every immutable input for a runtime request. It
 // never chooses a version or artifact from desired/global state.
 func (application *Application) LoadRuntimeMaterial(
 	ctx context.Context,

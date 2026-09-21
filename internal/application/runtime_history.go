@@ -15,7 +15,6 @@ type RuntimeTransition struct {
 	Reason             string                       `json:"reason"`
 	ActivationBundleID string                       `json:"activation_bundle_id,omitempty"`
 	Generation         int64                        `json:"generation,omitempty"`
-	TaskID             string                       `json:"task_id,omitempty"`
 	PID                int                          `json:"pid,omitempty"`
 	ProcessStartedAt   *time.Time                   `json:"process_started_at,omitempty"`
 	OccurredAt         time.Time                    `json:"occurred_at"`
@@ -84,7 +83,6 @@ func applicationRuntimeTransition(value store.RuntimeTransition) RuntimeTransiti
 		Reason:             value.Reason,
 		ActivationBundleID: value.ActivationBundleID,
 		Generation:         value.Generation,
-		TaskID:             value.TaskID,
 		PID:                value.PID,
 		ProcessStartedAt:   cloneTime(value.ProcessStartedAt),
 		OccurredAt:         value.OccurredAt,

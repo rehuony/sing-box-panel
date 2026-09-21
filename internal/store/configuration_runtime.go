@@ -12,22 +12,22 @@ import (
 // RequestConfigurationRuntimeIntent reserves the runtime lane but leaves the
 // currently desired process unchanged until the selected binary accepts the
 // saved configuration. This keeps a failed preflight from stopping a service.
-func (s *Store) RequestConfigurationRuntimeIntent(ctx context.Context, input RuntimeIntentInput, artifact StartupArtifact) (Task, error) {
+func (s *Store) RequestConfigurationRuntimeIntent(ctx context.Context, input RuntimeIntentInput, artifact StartupArtifact) (RuntimeIntent, error) {
 	prepared, err := prepareRuntimeIntent(input)
 	if err != nil {
-		return Task{}, err
+		return RuntimeIntent{}, err
 	}
 	if prepared.Kind != RuntimeIntentStart && prepared.Kind != RuntimeIntentRestart {
-		return Task{}, errors.New("configuration runtime intent must start or restart")
+		return RuntimeIntent{}, errors.New("configuration runtime intent must start or restart")
 	}
 	if prepared.SelectOnly && prepared.Kind != RuntimeIntentRestart {
-		return Task{}, errors.New("selection-only intent must be a checked version switch")
+		return RuntimeIntent{}, errors.New("selection-only intent must be a checked version switch")
 	}
 	startup, err := prepareNewStartupArtifact(artifact)
 	if err != nil {
-		return Task{}, err
+		return RuntimeIntent{}, err
 	}
-	var result Task
+	var result RuntimeIntent
 	err = s.WithTx(ctx, func(tx *sql.Tx) error {
 		var head sql.NullString
 		var generation int64
@@ -44,33 +44,26 @@ func (s *Store) RequestConfigurationRuntimeIntent(ctx context.Context, input Run
 		if err != nil {
 			return err
 		}
-		result, err = enqueueRuntimeIntentTx(ctx, tx, prepared, "", stored.CanonicalRevisionID, stored.ID, generation, true, false)
+		result, err = beginRuntimeIntentTx(ctx, tx, prepared, "", stored.CanonicalRevisionID, stored.ID, generation, true, false)
 		return err
 	})
 	return result, err
 }
 
-// BindCheckedRuntimeTask attaches a ready bundle only while the same worker
+// BindCheckedRuntimeIntent attaches a ready bundle only while the same worker
 // owns the current runtime generation and the configuration is still current.
-func (s *Store) BindCheckedRuntimeTask(ctx context.Context, task Task, bundleID string, now time.Time) (Task, error) {
-	var result Task
+func (s *Store) BindCheckedRuntimeIntent(ctx context.Context, intent RuntimeIntent, bundleID string, now time.Time) (RuntimeIntent, error) {
+	var result RuntimeIntent
 	err := s.WithTx(ctx, func(tx *sql.Tx) error {
-		current, err := getTask(ctx, tx, task.ID)
-		if err != nil {
-			return err
-		}
-		if current.Status != TaskStatusRunning || current.LeaseOwner != task.LeaseOwner || current.LeaseExpiresAt == nil || !current.LeaseExpiresAt.After(now) {
-			return ErrTaskLeaseLost
-		}
 		var head sql.NullString
 		var generation int64
 		if err := tx.QueryRowContext(ctx, `SELECT head_revision_id,target_generation FROM hub_state WHERE singleton=1`).Scan(&head, &generation); err != nil {
 			return err
 		}
-		if current.CancelRequested || current.Generation != generation || current.Generation != task.Generation {
-			return ErrTaskGenerationConflict
+		if intent.Generation != generation {
+			return ErrRuntimeIntentStale
 		}
-		if current.Lane != TaskLaneRuntime || current.StartupArtifactID == "" || current.StartupArtifactID != task.StartupArtifactID {
+		if intent.StartupArtifactID == "" {
 			return ErrRuntimeIntentStale
 		}
 		if err := validateApplicableBundle(ctx, tx, bundleID, valueOrEmpty(head)); err != nil {
@@ -80,17 +73,15 @@ func (s *Store) BindCheckedRuntimeTask(ctx context.Context, task Task, bundleID 
 		if err := tx.QueryRowContext(ctx, `SELECT startup_artifact_id FROM activation_bundles WHERE id=?`, bundleID).Scan(&startupID); err != nil {
 			return err
 		}
-		if startupID != current.StartupArtifactID {
+		if startupID != intent.StartupArtifactID {
 			return ErrRuntimeIntentStale
 		}
-		if _, err := tx.ExecContext(ctx, `UPDATE tasks SET activation_bundle_id=?,updated_at=? WHERE id=?`, bundleID, formatTaskTime(now), task.ID); err != nil {
+		if _, err := tx.ExecContext(ctx, `UPDATE hub_state SET desired_bundle_id=?,desired_running=?,updated_at=? WHERE singleton=1`, bundleID, boolInt(!CoreSelectionOnly(intent)), formatTime(now)); err != nil {
 			return err
 		}
-		if _, err := tx.ExecContext(ctx, `UPDATE hub_state SET desired_bundle_id=?,desired_running=?,updated_at=? WHERE singleton=1`, bundleID, boolInt(!CoreSelectionOnly(current)), formatTaskTime(now)); err != nil {
-			return err
-		}
-		result, err = getTask(ctx, tx, task.ID)
-		return err
+		result = intent
+		result.ActivationBundleID = bundleID
+		return nil
 	})
 	return result, err
 }

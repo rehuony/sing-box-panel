@@ -5,11 +5,11 @@ package application
 import (
 	"bytes"
 	"context"
-	"database/sql"
 	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -64,10 +64,6 @@ func TestPanelSettingsFileSharedWithManualAndCLIChanges(t *testing.T) {
 	if err != nil || loaded.Panel.Appearance.Radius != 0 || loaded.Subscription.Provider != "custom" || loaded.Server.BasePath != "/panel" || bytes.Equal(before, after) {
 		t.Fatal("Web save did not preserve complete file", err)
 	}
-	legacy, _, err := app.database.PanelSettings(t.Context())
-	if err != nil || len(legacy) != 0 {
-		t.Fatal("Web save still stored preferences in SQLite")
-	}
 	// Formatting-only external edits also invalidate the opaque revision.
 	view, _ = app.PanelSettings(t.Context())
 	if err := os.WriteFile(app.settingsPath, append(after, '\n'), 0600); err != nil {
@@ -106,43 +102,18 @@ func TestConcurrentWebSettingsFileWritesUseCAS(t *testing.T) {
 	}
 }
 
-func TestLegacyPanelSettingsMigrateOnceToSelectedFile(t *testing.T) {
+func TestStartupRecoveryPreservesSelectedSettingsFile(t *testing.T) {
 	app := panelFileApp(t)
-	old := panelValues(app.settings)
-	old.Preferences.Language = "en"
-	old.Preferences.PublicNodeHost = "legacy.example.com"
-	old.Preferences.Appearance.Radius = 0
-	old.ManagementToken = strings.Repeat("m", 32)
-	old.IdentityKey = "preserved-identity"
-	raw, _ := json.Marshal(old)
-	if err := app.database.WithTx(t.Context(), func(tx *sql.Tx) error {
-		_, err := tx.ExecContext(t.Context(), "INSERT INTO panel_settings VALUES(1,7,?)", string(raw))
-		return err
-	}); err != nil {
+	before, err := settings.Read(app.settingsPath)
+	if err != nil {
 		t.Fatal(err)
 	}
-	if err := app.MigratePanelSettings(t.Context()); err != nil {
+	if err := app.RecoverPanelSettingsFile(t.Context()); err != nil {
 		t.Fatal(err)
 	}
-	loaded, err := settings.Load(app.settingsPath)
-	if err != nil || loaded.Panel.Language != "en" || loaded.Panel.Appearance.Radius != 0 || loaded.Panel.IdentityKey != "preserved-identity" || loaded.Auth.Token != old.ManagementToken {
-		t.Fatal("migration lost values", err)
-	}
-	legacy, revision, err := app.database.PanelSettings(t.Context())
-	if err != nil || legacy != nil || revision != 0 {
-		t.Fatal("legacy source remained active", err)
-	}
-	loaded.Panel.Language = "zh-CN"
-	next, _ := json.Marshal(loaded)
-	if err := settings.Replace(app.settingsPath, next); err != nil {
-		t.Fatal(err)
-	}
-	if err := app.MigratePanelSettings(t.Context()); err != nil {
-		t.Fatal(err)
-	}
-	after, _ := settings.Read(app.settingsPath)
-	if !bytes.Equal(after, next) {
-		t.Fatal("startup migration overwrote later file edits")
+	after, err := settings.Read(app.settingsPath)
+	if err != nil || !bytes.Equal(before, after) {
+		t.Fatalf("startup rewrote settings: %v", err)
 	}
 }
 
@@ -165,7 +136,7 @@ func TestSettingsFileJournalRecoversCommitAndRollback(t *testing.T) {
 					}
 				}
 				if committed {
-					if err := app.database.CommitPanelSettingsFile(t.Context(), app.settingsPath, "interrupted", nil, nil, func() error { return nil }); err != nil {
+					if err := app.database.CommitPanelSettingsFile(t.Context(), app.settingsPath, "interrupted", nil, func() error { return nil }); err != nil {
 						t.Fatal(err)
 					}
 				}
@@ -295,7 +266,7 @@ func TestSettingsRecoveryUsesCommitIdentityAcrossPathAliases(t *testing.T) {
 	if err := settings.WriteAtomic(app.settingsPath+".pending", journal); err != nil {
 		t.Fatal(err)
 	}
-	if err := app.database.CommitPanelSettingsFile(t.Context(), app.settingsPath, "committed-through-original-path", nil, nil, func() error {
+	if err := app.database.CommitPanelSettingsFile(t.Context(), app.settingsPath, "committed-through-original-path", nil, func() error {
 		return settings.ReplaceLocked(app.settingsPath, after)
 	}); err != nil {
 		t.Fatal(err)
@@ -308,5 +279,58 @@ func TestSettingsRecoveryUsesCommitIdentityAcrossPathAliases(t *testing.T) {
 	view, err := app.PanelSettings(t.Context())
 	if err != nil || view.Preferences.Language != "en" {
 		t.Fatalf("committed settings rolled back through alias: %+v %v", view, err)
+	}
+}
+
+func TestPanelServiceSettingsRoundTripAndValidation(t *testing.T) {
+	app := panelFileApp(t)
+	ctx := t.Context()
+	view, err := app.PanelSettings(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	originalDir := view.Service.DataDir
+	service := PanelServiceSettings{
+		DataDir: filepath.Join(t.TempDir(), "panel-data"), BasePath: "/control", SecureCookie: true,
+		CatalogTTLHours: 24, TrafficPeriodMonths: 3, SampleRetentionDays: 120,
+		SubscriptionAuthor: "Example", SubscriptionProvider: "Custom", PrivateSourceCIDRs: []string{"10.0.0.0/24", "fd00::/64"}, LogRetentionDays: 30,
+	}
+	view.Preferences.ExternalOrigin = "https://panel.example.com"
+	input := PanelSettingsWrite{Revision: view.Revision, Preferences: view.Preferences, Service: &service, IdentityKey: "private-key"}
+	saved, err := app.SavePanelSettings(ctx, input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(saved.Service, service) || !saved.RestartRequired || !saved.IdentityKeyConfigured {
+		t.Fatalf("service settings not exposed: %+v", saved)
+	}
+	loaded, err := settings.Load(app.settingsPath)
+	if err != nil || !reflect.DeepEqual(serviceSettings(loaded), service) {
+		t.Fatalf("file round trip: %+v %v", loaded, err)
+	}
+	if app.settings.DataDir != originalDir {
+		t.Fatal("running data directory changed before restart")
+	}
+	before, _ := settings.Read(app.settingsPath)
+	invalid := service
+	invalid.PrivateSourceCIDRs = []string{"not-a-network"}
+	input.Revision, input.Service, input.IdentityKey = saved.Revision, &invalid, ""
+	if _, err := app.SavePanelSettings(ctx, input); !errors.Is(err, ErrPanelSettingsInvalid) {
+		t.Fatalf("invalid network accepted: %v", err)
+	}
+	after, _ := settings.Read(app.settingsPath)
+	if !bytes.Equal(before, after) {
+		t.Fatal("failed save changed settings file")
+	}
+	input.Service, input.ClearIdentityKey = &service, true
+	cleared, err := app.SavePanelSettings(ctx, input)
+	if err != nil || cleared.IdentityKeyConfigured {
+		t.Fatalf("clear identity: %+v %v", cleared, err)
+	}
+	input.Revision, input.Service, input.ClearIdentityKey = cleared.Revision, nil, false
+	input.Preferences.Appearance.Radius = 4
+	preserved, err := app.SavePanelSettings(ctx, input)
+	if err != nil || !reflect.DeepEqual(preserved.Service, service) {
+		t.Fatalf("older client lost service settings: %+v %v", preserved, err)
 	}
 }

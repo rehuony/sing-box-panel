@@ -15,7 +15,7 @@ boundaries without duplicating the endpoint inventory.
 routes. It must be empty or a normalized path without a trailing slash. Browser
 code uses same-origin paths and depends only on the HTTP contract.
 
-Configuration operations address one global JSON history. Compilation binds an
+Configuration operations address one saved JSON document. Compilation binds an
 immutable installed core artifact, not a naked version string. The server
 derives and rechecks the artifact's verified identity, then asks that exact
 binary to validate the immutable configuration bytes. JSON Schema and inbound
@@ -81,8 +81,8 @@ Use file or stdin inputs for secrets instead of command arguments.
 ## Concurrency and immutable evidence
 
 Configuration writes use revision preconditions. The editable file API accepts
-`{ revision, content }` in the `PUT /api/v1/config/file` JSON body; the legacy
-canonical API uses `If-Match`. A stale revision receives `412 Precondition Failed`
+`{ revision, content }` in the `PUT /api/v1/config/file` JSON body. A stale
+revision receives `412 Precondition Failed`
 and must be reviewed rather than overwritten automatically. Channel, source,
 user-grant, and token mutations use their documented compare-and-swap or
 lifecycle preconditions.
@@ -94,18 +94,26 @@ selected binary's `sing-box check` never becomes ready.
 
 Public subscription responses are rendered from one consistency read of the
 applied local startup artifact, current enabled source versions, channel and key.
-Legacy user-bound keys additionally require an enabled user and exact grants;
+User-bound keys additionally require an enabled user and exact grants;
 independent keys use channel publication policies. Response bodies are not frozen
 into activation bundles.
 
-An accepted asynchronous management request identifies a durable task; its
-initial task state is not proof that the operation completed. Core operations,
-source refresh and configuration validation wait for terminal task results;
-the shared runtime controls also track lifecycle completion. Task details are
-available from the panel log, not a separate Tasks page. API clients that require
-completion must inspect or wait for that task explicitly.
+Management mutations return HTTP 200 after completion, with the resulting core
+artifact, catalog summary, refreshed source version, checked startup artifact or
+runtime status. The browser keeps controls pending until that response and verifies
+process identity for runtime changes. Errors use problem details and leave the
+previous usable state intact where the operation has not committed.
+
+Integrations consume the completed resource response directly. Runtime snapshots
+are internal evidence; there is no separate configuration-history write or restore API.
 
 ## Web presentation boundary
+
+HTML responses generate a unique style nonce, place it in the page metadata and
+include it in `style-src`. CodeMirror uses that nonce for its generated styles.
+HTML is served with `Cache-Control: no-store`; script policy remains self-only,
+without unsafe-inline or unsafe-eval. Ordinary notifications dismiss after three
+seconds (hover/focus pauses the accessible toast timer).
 
 The React application contains its own trusted structured controls. It does
 not load Schema-provided scripts, components, templates, or remote resources.
@@ -115,7 +123,7 @@ resolving the new exact version.
 The editable configuration response includes authoritative `content` text,
 `revision` and `syntax_valid`. The Web editor uses a lossless codec, preserves
 unshown fields, and saves the complete text with the current body revision.
-Exact versions without a native Schema use the Advanced editor exclusively.
+The version selector can use a bundled reviewed schema for authoring before core installation. Exact versions without a native schema use the Advanced editor and show the reason; selecting another version never changes the installed core.
 A `412` response preserves the local draft for review.
 
 See the [Web application reference](../web/README.md) for frontend ownership

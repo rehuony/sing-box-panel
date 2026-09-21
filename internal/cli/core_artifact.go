@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/rehuony/sing-box-panel/internal/application"
 	"github.com/rehuony/sing-box-panel/internal/store"
@@ -58,8 +57,7 @@ func newCoreShowCommand(state *options, open openApplicationFunc) *cobra.Command
 }
 
 func newCoreInstallCommand(state *options, open openApplicationFunc) *cobra.Command {
-	var detach bool
-	command := &cobra.Command{Use: "install ASSET_ID", Short: "Install one cached official asset as a durable verified task", Args: cobra.ExactArgs(1),
+	command := &cobra.Command{Use: "install ASSET_ID", Short: "Install one cached official asset with checksum verification", Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			assetID, err := strconv.ParseInt(args[0], 10, 64)
 			if err != nil || assetID <= 0 {
@@ -70,20 +68,18 @@ func newCoreInstallCommand(state *options, open openApplicationFunc) *cobra.Comm
 				return err
 			}
 			defer instance.Close()
-			task, err := instance.QueueCoreInstall(cmd.Context(), assetID)
+			result, err := instance.InstallCore(cmd.Context(), assetID)
 			if err != nil {
-				return classifyCoreError("core_install_queue_failed", err)
+				return classifyCoreError("core_install_failed", err)
 			}
-			return renderQueuedTask(cmd, state, instance, task, detach)
+			return writeResult(cmd.OutOrStdout(), state.format, result, coreArtifactText(result))
 		}}
-	command.Flags().BoolVar(&detach, "detach", false, "return the durable task immediately")
 	return command
 }
 
 func newCoreImportCommand(state *options, open openApplicationFunc) *cobra.Command {
 	var filePath, digest, version, architecture, variant, sourceDescription string
-	var detach bool
-	command := &cobra.Command{Use: "import", Short: "Import a local tar.gz as a durable task", Args: cobra.NoArgs,
+	command := &cobra.Command{Use: "import", Short: "Import a local tar.gz", Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			for flag, value := range map[string]string{"file": filePath, "sha256": digest, "version": version, "arch": architecture} {
 				if strings.TrimSpace(value) == "" {
@@ -99,22 +95,21 @@ func newCoreImportCommand(state *options, open openApplicationFunc) *cobra.Comma
 				return err
 			}
 			defer instance.Close()
-			task, err := instance.QueueCoreImport(cmd.Context(), application.CoreImportRequest{
+			result, err := instance.ImportCore(cmd.Context(), application.CoreImportRequest{
 				SourcePath: absolutePath, SourceDescription: sourceDescription, SHA256: digest,
 				ExactVersion: version, Architecture: architecture, Variant: variant,
 			})
 			if err != nil {
 				return &Error{Kind: ErrorValidation, Code: "core_import_invalid", Message: err.Error(), Cause: err}
 			}
-			return renderQueuedTask(cmd, state, instance, task, detach)
+			return writeResult(cmd.OutOrStdout(), state.format, result, coreArtifactText(result))
 		}}
 	command.Flags().StringVar(&filePath, "file", "", "absolute or working-directory-relative local tar.gz path")
 	command.Flags().StringVar(&digest, "sha256", "", "expected archive SHA-256")
 	command.Flags().StringVar(&version, "version", "", "expected exact sing-box version")
 	command.Flags().StringVar(&architecture, "arch", "", "expected architecture: amd64 or arm64")
-	command.Flags().StringVar(&variant, "variant", "plain", "artifact variant")
+	command.Flags().StringVar(&variant, "variant", "musl", "artifact variant (musl)")
 	command.Flags().StringVar(&sourceDescription, "source", "local archive", "non-secret source description")
-	command.Flags().BoolVar(&detach, "detach", false, "return the durable task immediately")
 	return command
 }
 
@@ -131,20 +126,6 @@ func newCoreRemoveCommand(state *options, open openApplicationFunc) *cobra.Comma
 			}
 			return writeResult(cmd.OutOrStdout(), state.format, map[string]any{"artifact_id": args[0], "unregistered": true}, "unregistered core artifact "+args[0])
 		}}
-}
-
-func renderQueuedTask(cmd *cobra.Command, state *options, instance *application.Application, task application.Task, detach bool) error {
-	if detach {
-		return writeResult(cmd.OutOrStdout(), state.format, task, "queued task "+task.ID)
-	}
-	completed, err := waitForTaskWithCancellationRequest(cmd.Context(), instance, task.ID, 250*time.Millisecond, "task_wait_failed")
-	if err != nil {
-		return err
-	}
-	if err := writeResult(cmd.OutOrStdout(), state.format, completed, taskText(completed)); err != nil {
-		return err
-	}
-	return terminalTaskError(completed)
 }
 
 func classifyCoreError(code string, err error) error {

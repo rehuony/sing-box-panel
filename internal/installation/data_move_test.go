@@ -48,8 +48,7 @@ func TestDataDirectoryMovePreservesDataAndRebasesReferences(t *testing.T) {
 		if err != nil {
 			return err
 		}
-		payload, _ := json.Marshal(map[string]any{"source_path": filepath.Join(source, "imports/core-upload-test"), "delete_source": true})
-		_, err = tx.ExecContext(t.Context(), `INSERT INTO tasks(id,lane,kind,payload_json,created_at,updated_at) VALUES('import','maintenance','core-import',?,'2026-09-19T00:00:00Z','2026-09-19T00:00:00Z')`, string(payload))
+
 		return err
 	})
 	if err != nil {
@@ -90,18 +89,7 @@ func TestDataDirectoryMovePreservesDataAndRebasesReferences(t *testing.T) {
 	if err != nil || core.BinaryPath != filepath.Join(physicalTarget, "artifacts/core/sing-box") {
 		t.Fatalf("core path: %s %v", core.BinaryPath, err)
 	}
-	if err := db.WithTx(t.Context(), func(tx *sql.Tx) error {
-		var raw string
-		if err := tx.QueryRowContext(t.Context(), "SELECT payload_json FROM tasks WHERE id='import'").Scan(&raw); err != nil {
-			return err
-		}
-		if !strings.Contains(raw, filepath.Join(target, "imports/core-upload-test")) {
-			t.Fatalf("task retained old path: %s", raw)
-		}
-		return nil
-	}); err != nil {
-		t.Fatal(err)
-	}
+
 }
 
 func TestDataMoveRefusesBusyOrConflictingStorage(t *testing.T) {
@@ -269,7 +257,7 @@ func TestSettingsRecoveryPrecedesDataDirectoryMove(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := db.CommitPanelSettingsFile(t.Context(), path, "pending-settings", nil, nil, func() error { return settings.ReplaceLocked(path, after) }); err != nil {
+	if err := db.CommitPanelSettingsFile(t.Context(), path, "pending-settings", nil, func() error { return settings.ReplaceLocked(path, after) }); err != nil {
 		t.Fatal(err)
 	}
 	db.Close()

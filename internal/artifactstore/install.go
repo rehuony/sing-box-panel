@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 
 	"github.com/rehuony/sing-box-panel/internal/catalog"
 	"github.com/rehuony/sing-box-panel/internal/coreartifact"
@@ -186,6 +187,9 @@ func (store *Store) install(ctx context.Context, request installRequest) (Result
 	featureFingerprint, err := report.FeatureFingerprint.normalized()
 	if err != nil {
 		return Result{}, fail(StepVersion, "feature_fingerprint", ErrVersion)
+	}
+	if !slices.Contains(featureFingerprint.Features, "with_musl") {
+		return Result{}, fail(StepVersion, "musl_build_required", ErrVersion)
 	}
 	diagnostics = append(diagnostics, Diagnostic{Step: StepVersion, Code: "exact_version_verified", Message: "the real binary reported the requested exact version"})
 	if err := verifyFileDigest(ctx, archivePath, request.expectedDigest, store.limits.MaximumArchiveBytes); err != nil {

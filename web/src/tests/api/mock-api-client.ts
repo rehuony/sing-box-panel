@@ -14,6 +14,7 @@ import type {
   MetricsHistory,
   MetricsSnapshot,
   RuntimeHistoryPage,
+  RuntimeStatus,
   Session,
   StartupArtifactSummary,
   SubscriptionChannel,
@@ -21,7 +22,6 @@ import type {
   SubscriptionSourceVersion,
   SubscriptionToken,
   SystemStatus,
-  Task,
   TrafficPeriod,
 } from '@/api/api-client';
 
@@ -91,17 +91,15 @@ export const testRevision: CanonicalSnapshot = {
   created_at: '2026-08-26T07:30:00Z',
 };
 
-export const testTask: Task = {
-  id: 'task_catalog_refresh',
-  lane: 'maintenance',
-  kind: 'catalog-refresh',
-  status: 'succeeded',
-  generation: 0,
-  payload: {},
-  cancel_requested: false,
-  attempt: 1,
-  created_at: '2026-08-26T07:20:00Z',
-  updated_at: '2026-08-26T07:21:00Z',
+export const testRuntimeStatus: RuntimeStatus = {
+  desired_running: true,
+  target_generation: 1,
+  observation_state: 'running',
+  running: {
+    pid: 8124, process_start_token: 'test-process', exact_core_version: '1.13.19',
+    core_artifact_id: 'core_1', archive_sha256: 'b'.repeat(64), binary_sha256: 'd'.repeat(64),
+    activation_bundle_id: 'bundle_18', started_at: '2026-08-26T07:32:00Z',
+  },
 };
 
 export const testCatalog: CatalogAssetList = {
@@ -112,14 +110,14 @@ export const testCatalog: CatalogAssetList = {
       repository_id: 509091576,
       release_id: 101,
       asset_id: 201,
-      name: 'sing-box-1.13.19-linux-arm64.tar.gz',
+      name: 'sing-box-1.13.19-linux-arm64-musl.tar.gz',
       download_url:
-        'https://github.com/SagerNet/sing-box/releases/download/v1.13.19/sing-box-1.13.19-linux-arm64.tar.gz',
+        'https://github.com/SagerNet/sing-box/releases/download/v1.13.19/sing-box-1.13.19-linux-arm64-musl.tar.gz',
       size: 12_000_000,
       version: '1.13.19',
       os: 'linux',
       arch: 'arm64',
-      variant: 'plain',
+      variant: 'musl',
       api_digest: 'b'.repeat(64),
       has_api_digest: true,
       has_catalog_digest: false,
@@ -134,7 +132,7 @@ export const testArtifacts: CoreArtifactPage = {
       exact_version: '1.13.19',
       os: 'linux',
       arch: 'arm64',
-      variant: 'plain',
+      variant: 'musl',
       source_kind: 'official',
       repository_id: 509091576,
       release_id: 101,
@@ -298,7 +296,6 @@ export const testRuntimeHistory: RuntimeHistoryPage = {
       reason: 'apply_succeeded',
       activation_bundle_id: 'bundle_18',
       generation: 7,
-      task_id: 'task_apply',
       pid: 4182,
       process_started_at: '2026-08-26T07:32:00Z',
       occurred_at: '2026-08-26T07:32:00Z',
@@ -322,8 +319,8 @@ export function createMockApiClient(overrides: Partial<ApiClient> = {}): Mocked<
   } satisfies ConfigurationSupport;
   const client: ApiClient = {
     newInboundDefaults: vi.fn().mockImplementation(async (type) => ({ type })),
-    enableCore: vi.fn().mockResolvedValue(testTask),
-    disableCore: vi.fn().mockResolvedValue(testTask),
+    enableCore: vi.fn().mockResolvedValue(testRuntimeStatus),
+    disableCore: vi.fn().mockResolvedValue(testRuntimeStatus),
     getConfigurationFile: vi.fn().mockResolvedValue({
       revision: 1,
       content: testRevision.document_json,
@@ -347,6 +344,7 @@ export function createMockApiClient(overrides: Partial<ApiClient> = {}): Mocked<
     }),
     getPanelSettings: vi.fn().mockResolvedValue({
       revision: 0,
+      service: { data_dir: '/var/lib/sing-box-panel', base_path: '', secure_cookie: false, catalog_ttl_hours: 12, traffic_period_months: 1, sample_retention_days: 90, subscription_author: 'reagin', subscription_provider: 'default', private_source_cidrs: [], log_retention_days: 7 },
       github_token_configured: false,
       identity_key_configured: false,
       restart_required: false,
@@ -364,6 +362,7 @@ export function createMockApiClient(overrides: Partial<ApiClient> = {}): Mocked<
     savePanelSettings: vi.fn().mockImplementation(async (input) => ({
       revision: input.revision + 1,
       preferences: input.preferences,
+      service: input.service ?? { data_dir: '/var/lib/sing-box-panel', base_path: '', secure_cookie: false, catalog_ttl_hours: 12, traffic_period_months: 1, sample_retention_days: 90, subscription_author: 'reagin', subscription_provider: 'default', private_source_cidrs: [], log_retention_days: 7 },
       github_token_configured: Boolean(input.github_token),
       identity_key_configured: Boolean(input.identity_key),
       restart_required: false,
@@ -374,32 +373,15 @@ export function createMockApiClient(overrides: Partial<ApiClient> = {}): Mocked<
     login: vi.fn().mockResolvedValue(testSession),
     logout: vi.fn().mockResolvedValue(undefined),
     getDashboardContext: vi.fn().mockResolvedValue(testDashboardContext),
-    getCanonical: vi.fn().mockResolvedValue(testRevision),
-    replaceCanonical: vi.fn().mockResolvedValue({ revision: testRevision, no_change: false }),
-    patchCanonical: vi.fn().mockResolvedValue({ revision: testRevision, no_change: false }),
-    listRevisions: vi.fn().mockResolvedValue({ items: [testRevision] }),
-    getRevision: vi.fn().mockResolvedValue(testRevision),
-    diffRevisions: vi.fn().mockResolvedValue({
-      from: testRevision,
-      to: testRevision,
-      changes: [],
-    }),
-    restoreRevision: vi.fn().mockResolvedValue({ revision: testRevision, no_change: false }),
+
     listCatalogAssets: vi.fn().mockResolvedValue(testCatalog),
-    refreshCatalog: vi.fn().mockResolvedValue({ ...testTask, status: 'queued' }),
+    refreshCatalog: vi.fn().mockResolvedValue({
+      refreshed_at: testCatalog.refreshed_at, not_modified: false, releases: 1, assets: 1,
+    }),
     listCoreArtifacts: vi.fn().mockResolvedValue(testArtifacts),
     getCoreArtifact: vi.fn().mockResolvedValue(testArtifacts.items[0]),
-    installCore: vi.fn().mockResolvedValue({
-      ...testTask,
-      id: 'task_core_install',
-      kind: 'core-install',
-      status: 'queued',
-    }),
-    importCoreArchive: vi.fn().mockResolvedValue({
-      ...testTask,
-      id: 'task_core_import',
-      kind: 'core-import',
-    }),
+    installCore: vi.fn().mockResolvedValue(testArtifacts.items[0]),
+    importCoreArchive: vi.fn().mockResolvedValue(testArtifacts.items[0]),
     removeCoreArtifact: vi.fn().mockResolvedValue(undefined),
     getConfigurationSupport: vi.fn().mockResolvedValue(support),
     getConfigurationSchema: vi.fn(async () => {
@@ -418,12 +400,12 @@ export function createMockApiClient(overrides: Partial<ApiClient> = {}): Mocked<
     }),
     compileConfiguration: vi.fn().mockResolvedValue({
       support,
-      artifact: { ...testStartupArtifact, state: 'pending' },
-      task: { ...testTask, id: 'task_startup_check', kind: 'startup-check', status: 'queued' },
+      artifact: testStartupArtifact,
     }),
     listStartupArtifacts: vi.fn().mockResolvedValue({ items: [testStartupArtifact] }),
-    checkStartupArtifact: vi.fn().mockResolvedValue(testTask),
+    checkStartupArtifact: vi.fn().mockResolvedValue(testStartupArtifact),
     activateStartupArtifact: vi.fn().mockResolvedValue({
+      status: testRuntimeStatus,
       activation: {
         startup_artifact_id: testStartupArtifact.id,
         canonical_revision_id: testRevision.id,
@@ -434,21 +416,13 @@ export function createMockApiClient(overrides: Partial<ApiClient> = {}): Mocked<
         activation_sha256: '2'.repeat(64),
         monitoring_tier: 'process_only',
       },
-      task: { ...testTask, id: 'task_apply', kind: 'runtime-apply', status: 'queued' },
     }),
-    getRuntimeStatus: vi.fn().mockResolvedValue({
-      desired_running: true,
-      target_generation: 1,
-      observation_state: 'running',
-    }),
+    getRuntimeStatus: vi.fn().mockResolvedValue(testRuntimeStatus),
     getRuntimeHistory: vi.fn().mockResolvedValue(testRuntimeHistory),
-    startRuntime: vi.fn().mockResolvedValue(testTask),
-    stopRuntime: vi.fn().mockResolvedValue(testTask),
-    restartRuntime: vi.fn().mockResolvedValue(testTask),
-    rollbackRuntime: vi.fn().mockResolvedValue(testTask),
-    listTasks: vi.fn().mockResolvedValue({ items: [testTask] }),
-    getTask: vi.fn().mockResolvedValue(testTask),
-    cancelTask: vi.fn().mockResolvedValue({ ...testTask, cancel_requested: true }),
+    startRuntime: vi.fn().mockResolvedValue(testRuntimeStatus),
+    stopRuntime: vi.fn().mockResolvedValue({ desired_running: false, target_generation: 2, observation_state: 'stopped' }),
+    restartRuntime: vi.fn().mockResolvedValue(testRuntimeStatus),
+    rollbackRuntime: vi.fn().mockResolvedValue(testRuntimeStatus),
     listSubscriptionChannels: vi.fn().mockResolvedValue({ items: testSubscriptionChannels }),
     getSubscriptionChannel: vi.fn().mockResolvedValue(testSubscriptionChannels[0]),
     createSubscriptionChannel: vi.fn().mockResolvedValue(testSubscriptionChannels[0]),
@@ -503,7 +477,7 @@ export function createMockApiClient(overrides: Partial<ApiClient> = {}): Mocked<
     createSubscriptionSource: vi.fn().mockResolvedValue(testSubscriptionSources[0]),
     updateSubscriptionSource: vi.fn().mockResolvedValue(testSubscriptionSources[0]),
     deleteSubscriptionSource: vi.fn().mockResolvedValue(undefined),
-    refreshSubscriptionSource: vi.fn().mockResolvedValue(testTask),
+    refreshSubscriptionSource: vi.fn().mockResolvedValue({ source_id: testSubscriptionSources[0].id, version_id: testSubscriptionSourceVersion.id, format: 'sing-box', sha256: 'a'.repeat(64), node_count: 0, fetched_at: '2026-09-21T00:00:00Z' }),
     listSubscriptionSourceVersions: vi
       .fn()
       .mockResolvedValue({ items: [testSubscriptionSourceVersion] }),
@@ -536,7 +510,6 @@ export function createMockApiClient(overrides: Partial<ApiClient> = {}): Mocked<
       .mockResolvedValue({ file: '2026-09-19-000.log', text: '', next_offset: 0, size: 0 }),
     streamCoreLog: vi.fn(async function* () {}),
     listPanelLogs: vi.fn().mockResolvedValue({ items: [] }),
-    retryTask: vi.fn().mockResolvedValue(testTask),
     listLogs: vi.fn().mockResolvedValue({ items: [testLogEntry] }),
     streamLogs: vi.fn(testLogStream),
     getLog: vi.fn().mockResolvedValue(testLogEntry),

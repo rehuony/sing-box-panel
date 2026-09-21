@@ -6,10 +6,8 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 import '@/i18n';
 import type { CoreLogChunk, PanelLog } from '@/api/api-client';
 
-import { toast } from '@/components/ui/toast-manager';
 import { ApiClientProvider } from '@/api/api-client-context';
-import { createMockApiClient, testTask } from '@/tests/api/mock-api-client';
-import { PanelLogDetail } from '@/pages/observability-page/panel-log-detail';
+import { createMockApiClient } from '@/tests/api/mock-api-client';
 import { ObservabilityPage } from '@/pages/observability-page/observability-page';
 import { appendCoreText, parseCoreLines } from '@/pages/observability-page/core-log-lines';
 
@@ -72,43 +70,6 @@ describe('unified product logs', () => {
     expect(screen.queryByText(`INFO ${file}`)).not.toBeInTheDocument();
     expect(client.streamCoreLog).toHaveBeenLastCalledWith(latest, -1, expect.any(AbortSignal));
   });
-  it('recovers polling errors and stops polling terminal tasks', async () => {
-    const addToast = vi.spyOn(toast, 'add');
-    const closeToast = vi.spyOn(toast, 'close');
-    vi.useFakeTimers();
-    const client = createMockApiClient({
-      getTask: vi.fn().mockRejectedValueOnce(new Error('offline')).mockResolvedValue({ ...testTask, status: 'succeeded' }),
-    });
-    render(
-      <ApiClientProvider client={client}>
-        <PanelLogDetail taskID={testTask.id} onClose={() => {}} onTaskChange={() => {}} />
-      </ApiClientProvider>,
-    );
-    await act(async () => {});
-    expect(addToast).toHaveBeenCalledWith(expect.objectContaining({ type: 'error', description: 'offline' }));
-    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
-    await act(() => vi.advanceTimersByTimeAsync(2000));
-    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
-    expect(closeToast).toHaveBeenCalled();
-    addToast.mockRestore();
-    closeToast.mockRestore();
-    expect(screen.getByText('succeeded')).toBeVisible();
-    await act(() => vi.advanceTimersByTimeAsync(10_000));
-    expect(client.getTask).toHaveBeenCalledTimes(2);
-  });
-  it('ignores a retry response after its dialog closes', async () => {
-    let finish!: (value: typeof testTask) => void;
-    const retryTask = vi.fn(() => new Promise<typeof testTask>((resolve) => {
-      finish = resolve;
-    }));
-    const client = createMockApiClient({ getTask: vi.fn().mockResolvedValue({ ...testTask, status: 'failed', kind: 'catalog-refresh' }), retryTask });
-    show(client, `/observability?tab=panel&task=${testTask.id}`);
-    await userEvent.click(await screen.findByRole('button', { name: 'Retry' }));
-    await userEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Close' }));
-    await act(async () => finish({ ...testTask, id: 'retry-late', status: 'queued' }));
-    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
-    expect(client.getTask).toHaveBeenCalledTimes(1);
-  });
   it('keeps message colors with levels, including multiline errors, and bounds the buffer', () => {
     const lines = parseCoreLines(
       '+0800 2026-09-19 12:00:00 ERROR TLS handshake\nEOF\nINFO connected\n',
@@ -162,14 +123,13 @@ describe('unified product logs', () => {
   });
   it('lists panel activity in four columns without detail actions and paginates', async () => {
     const item: PanelLog = {
-      id: `task:${testTask.id}`,
-      task_id: testTask.id,
-      time: testTask.updated_at,
-      source: 'task',
+      id: 'log_1',
+      time: '2026-09-19T00:00:00Z',
+      source: 'panel',
       level: 'info',
-      code: testTask.kind,
-      message: testTask.kind,
-      status: testTask.status,
+      code: 'Catalog refreshed',
+      message: 'Catalog refreshed',
+      status: 'succeeded',
       metadata: {},
     };
     const client = show(
@@ -186,7 +146,6 @@ describe('unified product logs', () => {
       .toEqual(['Time', 'Message', 'Log level', 'Source']);
     expect(screen.queryByRole('button', { name: 'Details' })).not.toBeInTheDocument();
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
-    expect(client.getTask).not.toHaveBeenCalled();
     await userEvent.click(screen.getByRole('button', { name: 'Next' }));
     await waitFor(() =>
       expect(client.listPanelLogs).toHaveBeenCalledWith(
@@ -204,36 +163,12 @@ describe('unified product logs', () => {
       ),
     );
   });
-  it.each(['succeeded', 'failed'] as const)('shows readable %s guidance without raw task data', async (status) => {
-    const client = createMockApiClient({
-      getTask: vi.fn().mockResolvedValue({
-        ...testTask,
-        status,
-        result: { artifact_id: 'internal-artifact-id' },
-        failure: { code: 'handler_failed', message: 'internal-error-detail' },
-      }),
-    });
-    render(
-      <ApiClientProvider client={client}>
-        <PanelLogDetail taskID={testTask.id} onClose={() => {}} onTaskChange={() => {}} />
-      </ApiClientProvider>,
-    );
-    const guidance = status === 'succeeded'
-      ? 'The operation completed successfully.'
-      : 'The operation failed. Review the relevant settings and logs before trying again.';
-    expect(await screen.findByText(guidance)).toBeVisible();
-    const dialog = screen.getByRole('dialog');
-    for (const value of [testTask.id, 'internal-artifact-id', 'handler_failed', 'internal-error-detail']) {
-      expect(dialog).not.toHaveTextContent(value);
-    }
-    expect(dialog.querySelector('pre')).toBeNull();
-  });
-  it('uses the filtered log level for task and event rows instead of lifecycle status', async () => {
+  it('uses the filtered log level for operation and security events', async () => {
     const items: PanelLog[] = [
-      { id: 'task:done', time: testTask.updated_at, source: 'task', level: 'info', status: 'succeeded', code: 'configuration-apply', message: 'Configuration applied', metadata: {} },
-      { id: 'task:failed', time: testTask.updated_at, source: 'task', level: 'error', status: 'failed', code: 'catalog-refresh', message: 'Catalog refresh failed', metadata: {} },
-      { id: 'security:session', time: testTask.updated_at, source: 'security', level: 'warn', status: '', code: 'session-renewed', message: 'Administrator session renewed', metadata: {} },
-      { id: 'internal-event-id', time: testTask.updated_at, source: 'panel', level: 'debug', status: '', code: 'saved', message: 'Panel settings saved', metadata: { task_id: 'internal-task-id' } },
+      { id: 'operation:done', time: '2026-09-19T00:00:00Z', source: 'panel', level: 'info', status: 'succeeded', code: 'configuration-apply', message: 'Configuration applied', metadata: {} },
+      { id: 'operation:failed', time: '2026-09-19T00:00:00Z', source: 'panel', level: 'error', status: 'failed', code: 'catalog-refresh', message: 'Catalog refresh failed', metadata: {} },
+      { id: 'security:session', time: '2026-09-19T00:00:00Z', source: 'security', level: 'warn', status: '', code: 'session-renewed', message: 'Administrator session renewed', metadata: {} },
+      { id: 'internal-event-id', time: '2026-09-19T00:00:00Z', source: 'panel', level: 'debug', status: '', code: 'saved', message: 'Panel settings saved', metadata: { operation_id: 'internal-operation-id' } },
     ];
     const client = show(
       createMockApiClient({ listPanelLogs: vi.fn(async (filter) => ({
@@ -246,10 +181,10 @@ describe('unified product logs', () => {
     for (const level of ['INFO', 'ERROR', 'WARN', 'DEBUG']) {
       expect(within(table).getByRole('cell', { name: level })).toBeVisible();
     }
-    for (const value of ['succeeded', 'failed', 'canceled', 'internal-task-id']) {
+    for (const value of ['succeeded', 'failed', 'canceled', 'internal-operation-id']) {
       expect(within(table).queryByRole('cell', { name: value })).not.toBeInTheDocument();
     }
-    expect(table).not.toHaveTextContent('internal-task-id');
+    expect(table).not.toHaveTextContent('internal-operation-id');
     await userEvent.click(screen.getByRole('combobox', { name: 'Log level' }));
     await userEvent.click(await screen.findByRole('option', { name: 'ERROR' }));
     await waitFor(() => expect(within(table).getAllByRole('row')).toHaveLength(2));

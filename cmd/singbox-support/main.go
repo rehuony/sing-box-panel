@@ -210,13 +210,16 @@ func validateCatalog(catalog sourceCatalog) error {
 			if !ok {
 				return fmt.Errorf("version %s is missing %s profile", version.ExactVersion, architecture)
 			}
-			expectedAsset := fmt.Sprintf("sing-box-%s-linux-%s.tar.gz", version.ExactVersion, architecture)
+			expectedAsset := fmt.Sprintf("sing-box-%s-linux-%s-musl.tar.gz", version.ExactVersion, architecture)
 			expectedURL := fmt.Sprintf("https://github.com/SagerNet/sing-box/releases/download/v%s/%s", version.ExactVersion, expectedAsset)
 			if profile.AssetName != expectedAsset || profile.URL != expectedURL || !isLowerHex(profile.SHA256, 64) || profile.Size <= 0 {
 				return fmt.Errorf("version %s has invalid %s asset metadata", version.ExactVersion, architecture)
 			}
 			if len(profile.Features) == 0 || !slices.IsSorted(profile.Features) || hasDuplicate(profile.Features) {
 				return fmt.Errorf("version %s %s features must be non-empty, unique, and sorted", version.ExactVersion, architecture)
+			}
+			if !slices.Contains(profile.Features, "with_musl") {
+				return fmt.Errorf("version %s %s profile must include with_musl", version.ExactVersion, architecture)
 			}
 			for _, feature := range profile.Features {
 				if !validBuildTag(feature) {

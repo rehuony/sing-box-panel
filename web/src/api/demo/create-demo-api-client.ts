@@ -6,8 +6,6 @@ import {
 
 import type {
   ApiClient,
-  CanonicalChange,
-  CanonicalRevisionDiff,
   CanonicalSnapshot,
   CatalogAsset,
   ConfigurationFile,
@@ -21,7 +19,6 @@ import type {
   SubscriptionSourceVersion,
   SubscriptionToken,
   SubscriptionUser,
-  Task,
 } from '../api-client';
 
 import { ApiRequestError } from '../api-client';
@@ -41,17 +38,8 @@ import {
   demoSystemStatus,
 } from './demo-data';
 
-const taskDurationMilliseconds = 700;
-
-interface PendingTask {
-  readyAt: number;
-  complete: () => void;
-}
-
 interface DemoState extends ReturnType<typeof createDemoData> {
   nextID: number;
-  revisions: CanonicalSnapshot[];
-  pendingTasks: Map<string, PendingTask>;
   session: { displayName: string } | null;
 }
 
@@ -141,92 +129,16 @@ function pageByCreatedAt<T extends { id: string; created_at: string }>(
 
 function createState(): DemoState {
   const data = createDemoData();
-  const revisions = [data.canonical];
-  for (let sequence = data.canonical.sequence - 1; sequence >= 1; sequence -= 1) {
-    const createdAt = new Date(
-      new Date(data.canonical.created_at).getTime()
-        - (data.canonical.sequence - sequence) * 3_600_000,
-    ).toISOString();
-    const document = structuredClone(data.canonical.document);
-    if (sequence < 5 && 'log' in document) {
-      document.log = { level: sequence < 3 ? 'warn' : 'info' };
-    }
-    revisions.push({
-      id: `revision_demo_${sequence}`,
-      sequence,
-      parent_id: sequence > 1 ? `revision_demo_${sequence - 1}` : undefined,
-      schema_version: 1,
-      document,
-      document_json: JSON.stringify(document),
-      sha256: sequence.toString(16).repeat(64).slice(0, 64),
-      created_at: createdAt,
-    });
-  }
+
   return {
     ...data,
     nextID: 100,
-    pendingTasks: new Map(),
-    revisions,
     session: { displayName: 'Demo administrator' },
   };
 }
 
-function settleTasks(state: DemoState): void {
-  const now = Date.now();
-  for (const [taskID, pending] of state.pendingTasks) {
-    const task = requireItem(state.tasks, taskID, 'Task');
-    if (now >= pending.readyAt) {
-      task.status = task.cancel_requested ? 'canceled' : 'succeeded';
-      task.updated_at = updatedAt();
-      task.result = task.cancel_requested ? undefined : { accepted: true };
-      if (!task.cancel_requested) pending.complete();
-      state.pendingTasks.delete(taskID);
-    } else if (now >= pending.readyAt - taskDurationMilliseconds / 2) {
-      task.status = 'running';
-      task.attempt = 1;
-      task.updated_at = updatedAt();
-    }
-  }
-}
-
-function queueTask(
-  state: DemoState,
-  kind: Task['kind'],
-  options: {
-    complete?: () => void;
-    lane?: Task['lane'];
-    payload?: unknown;
-    startupArtifactID?: string;
-    activationBundleID?: string;
-  } = {},
-): Task {
-  const now = updatedAt();
-  const task: Task = {
-    id: nextID(state, 'task'),
-    lane: options.lane ?? (kind.startsWith('runtime-') ? 'runtime' : 'maintenance'),
-    kind,
-    status: 'queued',
-    generation: kind.startsWith('runtime-') ? state.runtime.target_generation + 1 : 0,
-    canonical_revision_id: state.canonical.id,
-    startup_artifact_id: options.startupArtifactID,
-    activation_bundle_id: options.activationBundleID,
-    payload: options.payload ?? {},
-    cancel_requested: false,
-    attempt: 0,
-    created_at: now,
-    updated_at: now,
-  };
-  state.tasks.unshift(task);
-  state.pendingTasks.set(task.id, {
-    readyAt: Date.now() + taskDurationMilliseconds,
-    complete: options.complete ?? (() => undefined),
-  });
-  return task;
-}
-
 function addRuntimeTransition(
   state: DemoState,
-  task: Task,
   runtimeState: 'running' | 'stopped',
   reason: string,
 ): void {
@@ -235,42 +147,41 @@ function addRuntimeTransition(
     state: runtimeState,
     reason,
     activation_bundle_id: state.runtime.applied_bundle_id,
-    generation: task.generation,
-    task_id: task.id,
+    generation: state.runtime.target_generation,
     pid: state.runtime.running?.pid,
     process_started_at: state.runtime.running?.started_at,
     occurred_at: updatedAt(),
   });
 }
 
-function stoppedRuntime(state: DemoState, task: Task): void {
+function stoppedRuntime(state: DemoState): void {
   state.runtime = {
     ...state.runtime,
     desired_running: false,
-    target_generation: task.generation,
+    target_generation: state.runtime.target_generation,
     observation_state: 'stopped',
     running: undefined,
     loaded_canonical_revision_id: undefined,
   };
-  addRuntimeTransition(state, task, 'stopped', 'stop_succeeded');
+  addRuntimeTransition(state, 'stopped', 'stop_succeeded');
 }
 
-function runningRuntime(state: DemoState, task: Task, bundleID?: string): void {
+function runningRuntime(state: DemoState, bundleID?: string): void {
   const core
     = state.cores.find((item) => item.id === state.runtime.enabled_core?.core_artifact_id)
       ?? state.cores.find((item) => item.id === state.runtime.running?.core_artifact_id)
       ?? state.cores[0];
   if (core === undefined) return;
-  const processToken = `demo-process-${state.nextID}-${Date.now()}`;
+  const processToken = `demo-process-${state.nextID++}-${Date.now()}`;
   state.runtime = {
     ...state.runtime,
     enabled_core: { core_artifact_id: core.id, exact_core_version: core.exact_version },
     desired_running: true,
     desired_bundle_id: bundleID ?? state.runtime.desired_bundle_id,
     applied_bundle_id: bundleID ?? state.runtime.applied_bundle_id,
-    target_generation: task.generation,
+    target_generation: state.runtime.target_generation,
     observation_state: 'running',
-    loaded_canonical_revision_id: task.canonical_revision_id,
+    loaded_canonical_revision_id: state.canonical.id,
     running: {
       pid: 4_000 + state.nextID,
       process_start_token: processToken,
@@ -282,16 +193,7 @@ function runningRuntime(state: DemoState, task: Task, bundleID?: string): void {
       started_at: updatedAt(),
     },
   };
-  addRuntimeTransition(state, task, 'running', 'start_succeeded');
-}
-
-function canonicalReference(state: DemoState, reference: string): CanonicalSnapshot {
-  const numeric = Number(reference);
-  return (
-    state.revisions.find(
-      (item) => item.id === reference || (Number.isInteger(numeric) && item.sequence === numeric),
-    ) ?? notFound('Revision', reference)
-  );
+  addRuntimeTransition(state, 'running', 'start_succeeded');
 }
 
 function saveCanonical(state: DemoState, documentJSON: string, baseRevision: string) {
@@ -335,38 +237,7 @@ function saveCanonical(state: DemoState, documentJSON: string, baseRevision: str
     created_at: updatedAt(),
   };
   state.canonical = revision;
-  state.revisions.unshift(revision);
-  const task = queueTask(state, 'canonical-saved', { payload: { revision_id: revision.id } });
-  return { revision, no_change: false, task_id: task.id } as const;
-}
-
-function applyChanges(
-  document: Record<string, unknown>,
-  changes: CanonicalChange[],
-): Record<string, unknown> {
-  const next = structuredClone(document);
-  for (const change of changes) {
-    const parts = change.path
-      .split('/')
-      .slice(1)
-      .map((part) => part.replaceAll('~1', '/').replaceAll('~0', '~'));
-    if (parts.length === 0) continue;
-    let parent: Record<string, unknown> = next;
-    for (const part of parts.slice(0, -1)) {
-      const child = parent[part];
-      if (child === null || Array.isArray(child) || typeof child !== 'object') parent[part] = {};
-      parent = parent[part] as Record<string, unknown>;
-    }
-    const key = parts.at(-1);
-    if (key === undefined) continue;
-    if (change.op === 'unset') {
-      delete parent[key];
-    } else {
-      parent[key]
-        = change.value_json === undefined ? null : (JSON.parse(change.value_json) as unknown);
-    }
-  }
-  return next;
+  return { revision, no_change: false } as const;
 }
 
 function matchesLog(entry: LogEntry, filter: Parameters<ApiClient['listLogs']>[0] = {}): boolean {
@@ -388,6 +259,7 @@ export function createDemoApiClient(): ApiClient {
   const tokenSecrets = new Map(state.tokens.map((token) => [token.id, `sbp_demo_${token.id}_secret`]));
   const nodeApi = createDemoNodeApi([...demoManualNodes(), ...demoSourceNodeDetails(state)]);
   let panelSettings: PanelSettingsView = {
+    service: { data_dir: '/var/lib/sing-box-panel', base_path: '', secure_cookie: false, catalog_ttl_hours: 12, traffic_period_months: 1, sample_retention_days: 90, subscription_author: 'reagin', subscription_provider: 'default', private_source_cidrs: [], log_retention_days: 7 },
     revision: 0,
     github_token_configured: false,
     identity_key_configured: false,
@@ -419,21 +291,6 @@ export function createDemoApiClient(): ApiClient {
       });
     }
   }
-  function saveLegacyConfiguration(content: string, base: string) {
-    requireParsedFile();
-    const result = saveCanonical(state, content, base);
-    if (!result.no_change) {
-      configurationFile = {
-        revision: configurationFile.revision + 1,
-        content: result.revision.document_json,
-        canonical_revision_id: result.revision.id,
-        syntax_valid: true,
-        updated_at: updatedAt(),
-      };
-    }
-    return result;
-  }
-
   const client: ApiClient = {
     newInboundDefaults: (type, signal) => respond({ type }, signal),
     getConfigurationFile: (signal) => respond(configurationFile, signal),
@@ -462,12 +319,13 @@ export function createDemoApiClient(): ApiClient {
       if (input.revision !== panelSettings.revision) conflict('Panel settings');
       panelSettings = {
         revision: panelSettings.revision + 1,
+        service: input.service ?? panelSettings.service,
         preferences: structuredClone(input.preferences),
         github_token_configured: input.clear_github_token
           ? false
           : Boolean(input.github_token) || panelSettings.github_token_configured,
         identity_key_configured:
-          Boolean(input.identity_key) || panelSettings.identity_key_configured,
+          !input.clear_identity_key && (Boolean(input.identity_key) || panelSettings.identity_key_configured),
         restart_required:
           input.preferences.listen_host !== '127.0.0.1'
           || input.preferences.listen_port !== 3000
@@ -493,53 +351,6 @@ export function createDemoApiClient(): ApiClient {
     },
     getSystemStatus: (signal) => respond(demoSystemStatus(state), signal),
     getDashboardContext: (signal) => respond(demoDashboardContext(state), signal),
-    getCanonical: (signal) => respond(state.canonical, signal),
-    async replaceCanonical(documentJSON, baseRevision, signal) {
-      assertActive(signal);
-      return respond(saveLegacyConfiguration(documentJSON, baseRevision), signal);
-    },
-    async patchCanonical(changes, baseRevision, signal) {
-      assertActive(signal);
-      const next = applyChanges(state.canonical.document, changes);
-      return respond(saveLegacyConfiguration(JSON.stringify(next), baseRevision), signal);
-    },
-    listRevisions(filter = {}, signal) {
-      const eligible
-        = filter.beforeSequence === undefined
-          ? state.revisions
-          : state.revisions.filter((revision) => revision.sequence < filter.beforeSequence!);
-      const limit = Math.max(1, filter.limit ?? 8);
-      const items = eligible.slice(0, limit);
-      const last = items.at(-1);
-      return respond(
-        {
-          items,
-          next_before_sequence: items.length < eligible.length ? last?.sequence : undefined,
-        },
-        signal,
-      );
-    },
-    getRevision: (reference, signal) => respond(canonicalReference(state, reference), signal),
-    diffRevisions(from, to, signal) {
-      const fromRevision = canonicalReference(state, from);
-      const toRevision = canonicalReference(state, to);
-      const fromDocument = fromRevision.document;
-      const toDocument = toRevision.document;
-      const keys = new Set([...Object.keys(fromDocument), ...Object.keys(toDocument)]);
-      const changes: CanonicalRevisionDiff['changes'] = [...keys]
-        .filter((key) => JSON.stringify(fromDocument[key]) !== JSON.stringify(toDocument[key]))
-        .map((key) => ({
-          path: `/${key}`,
-          from: { present: key in fromDocument, value: fromDocument[key] },
-          to: { present: key in toDocument, value: toDocument[key] },
-        }));
-      return respond({ from: fromRevision, to: toRevision, changes }, signal);
-    },
-    async restoreRevision(reference, baseRevision, signal) {
-      assertActive(signal);
-      const revision = canonicalReference(state, reference);
-      return respond(saveLegacyConfiguration(revision.document_json, baseRevision), signal);
-    },
     listCatalogAssets(filter = {}, signal) {
       const assets = state.catalog.assets.filter(
         (asset) =>
@@ -553,13 +364,11 @@ export function createDemoApiClient(): ApiClient {
     },
     refreshCatalog(force = false, signal) {
       assertActive(signal);
-      const task = queueTask(state, 'catalog-refresh', {
-        payload: { force },
-        complete: () => {
-          state.catalog.refreshed_at = updatedAt();
-        },
-      });
-      return respond(task, signal);
+      state.catalog.refreshed_at = updatedAt();
+      return respond({
+        refreshed_at: state.catalog.refreshed_at, not_modified: !force,
+        releases: state.catalog.assets.length, assets: state.catalog.assets.length,
+      }, signal);
     },
     listCoreArtifacts(filter = {}, signal) {
       const filtered = state.cores.filter(
@@ -575,42 +384,31 @@ export function createDemoApiClient(): ApiClient {
       respond(requireItem(state.cores, artifactID, 'Core artifact'), signal),
     installCore(assetID, signal) {
       assertActive(signal);
-      const asset
-        = state.catalog.assets.find((item) => item.asset_id === assetID)
-          ?? notFound('Catalog asset', String(assetID));
-      const task = queueTask(state, 'core-install', {
-        payload: { asset_id: assetID },
-        complete: () => {
-          if (state.cores.some((item) => item.asset_id === assetID)) return;
-          state.cores.unshift(coreFromCatalog(state, asset));
-        },
-      });
-      return respond(task, signal);
+      const asset = state.catalog.assets.find(item => item.asset_id === assetID) ?? notFound('Catalog asset', String(assetID));
+      const core = state.cores.find(item => item.asset_id === assetID) ?? coreFromCatalog(state, asset);
+      if (!state.cores.includes(core)) state.cores.unshift(core);
+      return respond(core, signal);
     },
     importCoreArchive(input, signal) {
       assertActive(signal);
-      const task = queueTask(state, 'core-import', {
-        payload: { name: input.archive.name, exact_version: input.exactVersion },
-        complete: () => {
-          const id = nextID(state, 'core');
-          state.cores.unshift({
-            id,
-            exact_version: input.exactVersion,
-            os: 'linux',
-            arch: input.architecture,
-            variant: input.variant,
-            source_kind: 'user_verified',
-            user_source: input.sourceDescription,
-            archive_sha256: '8'.repeat(64),
-            binary_sha256: '9'.repeat(64),
-            binary_path: `/var/lib/sing-box-panel/artifacts/${id}/sing-box`,
-            reported_version: input.exactVersion,
-            feature_fingerprint: { source: 'demo-import' },
-            created_at: updatedAt(),
-          });
-        },
+      const id = nextID(state, 'core');
+      state.cores.unshift({
+        id,
+        exact_version: input.exactVersion,
+        os: 'linux',
+        arch: input.architecture,
+        variant: input.variant,
+        source_kind: 'user_verified',
+        user_source: input.sourceDescription,
+        archive_sha256: '8'.repeat(64),
+        binary_sha256: '9'.repeat(64),
+        binary_path: `/var/lib/sing-box-panel/artifacts/${id}/sing-box`,
+        reported_version: input.exactVersion,
+        feature_fingerprint: { source: 'demo-import' },
+        created_at: updatedAt(),
       });
-      return respond(task, signal);
+
+      return respond(state.cores[0], signal);
     },
     async removeCoreArtifact(artifactID, signal) {
       assertActive(signal);
@@ -649,10 +447,7 @@ export function createDemoApiClient(): ApiClient {
     },
     previewConfiguration(input, signal) {
       const core = requireItem(state.cores, input.coreArtifactID, 'Core artifact');
-      const revision
-        = input.canonicalRevisionID === undefined
-          ? state.canonical
-          : canonicalReference(state, input.canonicalRevisionID);
+      const revision = state.canonical;
       const structured = reviewedSchemaManifest[core.exact_version] !== undefined;
       return respond(
         {
@@ -682,13 +477,8 @@ export function createDemoApiClient(): ApiClient {
         created_at: updatedAt(),
       };
       state.startupArtifacts.unshift(artifact);
-      const task = queueTask(state, 'startup-check', {
-        startupArtifactID: artifact.id,
-        complete: () => {
-          artifact.state = 'ready';
-          (artifact as typeof artifact & { checked_at?: string }).checked_at = updatedAt();
-        },
-      });
+      artifact.state = 'ready';
+      artifact.checked_at = updatedAt();
       return respond(
         {
           support: {
@@ -696,7 +486,6 @@ export function createDemoApiClient(): ApiClient {
             exact_version: core.exact_version,
           },
           artifact,
-          task,
         },
         signal,
       );
@@ -717,28 +506,18 @@ export function createDemoApiClient(): ApiClient {
     checkStartupArtifact(artifactID, signal) {
       assertActive(signal);
       const artifact = requireItem(state.startupArtifacts, artifactID, 'Startup artifact');
-      artifact.state = 'pending';
-      const task = queueTask(state, 'startup-check', {
-        startupArtifactID: artifactID,
-        complete: () => {
-          artifact.state = 'ready';
-          artifact.checked_at = updatedAt();
-        },
-      });
-      return respond(task, signal);
+      artifact.state = 'ready';
+      artifact.checked_at = updatedAt();
+      return respond(artifact, signal);
     },
     activateStartupArtifact(artifactID, monitoringTier, signal) {
       assertActive(signal);
       const artifact = requireItem(state.startupArtifacts, artifactID, 'Startup artifact');
       const bundleID = nextID(state, 'bundle');
-      const task = queueTask(state, 'runtime-apply', {
-        startupArtifactID: artifactID,
-        activationBundleID: bundleID,
-        payload: { monitoring_tier: monitoringTier },
-        complete: () => runningRuntime(state, task, bundleID),
-      });
+      runningRuntime(state, bundleID);
       return respond(
         {
+          status: state.runtime,
           activation: {
             startup_artifact_id: artifact.id,
             canonical_revision_id: artifact.canonical_revision_id,
@@ -749,17 +528,14 @@ export function createDemoApiClient(): ApiClient {
             activation_sha256: '6'.repeat(64),
             monitoring_tier: monitoringTier,
           },
-          task,
         },
         signal,
       );
     },
     getRuntimeStatus(signal) {
-      settleTasks(state);
       return respond(state.runtime, signal);
     },
     getRuntimeHistory(filter = {}, signal) {
-      settleTasks(state);
       let items = state.runtimeHistory.items.filter(
         (item) =>
           (filter.state === undefined || item.state === filter.state)
@@ -781,19 +557,13 @@ export function createDemoApiClient(): ApiClient {
     },
     startRuntime(signal) {
       assertActive(signal);
-      settleTasks(state);
       if (!state.runtime.enabled_core) throw new Error('No core version is enabled.');
       requireParsedFile();
-      const task = queueTask(state, 'runtime-start', {
-        complete: () => {
-          if (state.runtime.observation_state !== 'running') runningRuntime(state, task);
-        },
-      });
-      return respond(task, signal);
+      if (state.runtime.observation_state !== 'running') runningRuntime(state);
+      return respond(state.runtime, signal);
     },
     enableCore(artifactID, signal) {
       assertActive(signal);
-      settleTasks(state);
       requireParsedFile();
       const artifact = requireItem(state.cores, artifactID, 'Core artifact');
       const platform = demoSystemStatus(state).platform;
@@ -803,82 +573,47 @@ export function createDemoApiClient(): ApiClient {
       ) {
         throw new Error('The core must match the demo platform.');
       }
-      const task = queueTask(state, 'runtime-restart', {
-        complete: () => {
-          const wasRunning = state.runtime.observation_state === 'running';
-          if (wasRunning) stoppedRuntime(state, task);
-          state.runtime.rollback_bundle_id = state.runtime.applied_bundle_id;
-          state.runtime.applied_bundle_id = `bundle_${task.id}`;
-          state.runtime.desired_bundle_id = state.runtime.applied_bundle_id;
-          state.runtime.enabled_core = { core_artifact_id: artifact.id, exact_core_version: artifact.exact_version };
-          if (wasRunning) runningRuntime(state, task);
-          else state.runtime.target_generation = task.generation;
-        },
-      });
-      return respond(task, signal);
+      const wasRunning = state.runtime.observation_state === 'running';
+      if (wasRunning) stoppedRuntime(state);
+      state.runtime.rollback_bundle_id = state.runtime.applied_bundle_id;
+      state.runtime.applied_bundle_id = nextID(state, 'bundle');
+      state.runtime.desired_bundle_id = state.runtime.applied_bundle_id;
+      state.runtime.enabled_core = { core_artifact_id: artifact.id, exact_core_version: artifact.exact_version };
+      if (wasRunning) runningRuntime(state);
+      else state.runtime.target_generation += 1;
+
+      return respond(state.runtime, signal);
     },
     disableCore(artifactID, signal) {
       assertActive(signal);
-      settleTasks(state);
       requireItem(state.cores, artifactID, 'Core artifact');
       if (state.runtime.enabled_core?.core_artifact_id !== artifactID) {
         throw new Error('The requested core is no longer enabled.');
       }
-      const task = queueTask(state, 'runtime-stop', {
-        complete: () => {
-          stoppedRuntime(state, task);
-          state.runtime.enabled_core = undefined;
-          state.runtime.applied_bundle_id = undefined;
-          state.runtime.desired_bundle_id = undefined;
-          state.runtime.rollback_bundle_id = undefined;
-        },
-      });
-      return respond(task, signal);
+      stoppedRuntime(state);
+      state.runtime.enabled_core = undefined;
+      state.runtime.applied_bundle_id = undefined;
+      state.runtime.desired_bundle_id = undefined;
+      state.runtime.rollback_bundle_id = undefined;
+
+      return respond(state.runtime, signal);
     },
     stopRuntime(signal) {
       assertActive(signal);
-      const task = queueTask(state, 'runtime-stop', {
-        complete: () => stoppedRuntime(state, task),
-      });
-      return respond(task, signal);
+      stoppedRuntime(state);
+      return respond(state.runtime, signal);
     },
     restartRuntime(signal) {
       assertActive(signal);
-      settleTasks(state);
       if (!state.runtime.enabled_core) throw new Error('No core version is enabled.');
       requireParsedFile();
-      const task = queueTask(state, 'runtime-restart', {
-        complete: () => runningRuntime(state, task),
-      });
-      return respond(task, signal);
+      runningRuntime(state);
+      return respond(state.runtime, signal);
     },
     rollbackRuntime(activationBundleID, signal) {
       assertActive(signal);
-      const task = queueTask(state, 'runtime-rollback', {
-        activationBundleID,
-        complete: () => runningRuntime(state, task, activationBundleID),
-      });
-      return respond(task, signal);
-    },
-    listTasks(filter = {}, signal) {
-      settleTasks(state);
-      const filtered = state.tasks.filter(
-        (task) =>
-          (filter.kind === undefined || task.kind === filter.kind)
-          && (filter.lane === undefined || task.lane === filter.lane)
-          && (filter.status === undefined || task.status === filter.status),
-      );
-      return respond(pageByCreatedAt(filtered, filter), signal);
-    },
-    getTask(taskID, signal) {
-      settleTasks(state);
-      return respond(requireItem(state.tasks, taskID, 'Task'), signal);
-    },
-    cancelTask(taskID, signal) {
-      const task = requireItem(state.tasks, taskID, 'Task');
-      if (task.status === 'queued' || task.status === 'running') task.cancel_requested = true;
-      settleTasks(state);
-      return respond(task, signal);
+      runningRuntime(state, activationBundleID);
+      return respond(state.runtime, signal);
     },
     listSubscriptionChannels(filter = {}, signal) {
       return respond(pageByCreatedAt(state.channels, filter), signal);
@@ -1039,13 +774,9 @@ export function createDemoApiClient(): ApiClient {
     refreshSubscriptionSource(sourceID, signal) {
       assertActive(signal);
       const source = requireItem(state.sources, sourceID, 'Subscription source');
-      const task = queueTask(state, 'subscription-source-refresh', {
-        payload: { source_id: sourceID },
-        complete: () => {
-          source.updated_at = updatedAt();
-        },
-      });
-      return respond(task, signal);
+      source.updated_at = updatedAt();
+      const version = state.sourceVersions.get(sourceID)?.[0];
+      return respond({ source_id: sourceID, version_id: version?.id ?? nextID(state, 'version'), format: 'sing-box', sha256: version?.sha256 ?? '8'.repeat(64), node_count: 2, fetched_at: source.updated_at }, signal);
     },
     listSubscriptionSourceVersions(sourceID, filter = {}, signal) {
       requireItem(state.sources, sourceID, 'Subscription source');
@@ -1185,24 +916,7 @@ export function createDemoApiClient(): ApiClient {
     },
     ...createDemoCoreLogs(),
     listPanelLogs(filter = {}, signal) {
-      settleTasks(state);
-      const taskIDs = new Set(state.tasks.map((task) => task.id));
-      let entries: PanelLog[] = [
-        ...state.tasks.map((task) => ({
-          id: `task:${task.id}`,
-          time: task.updated_at,
-          source: 'task' as const,
-          level: task.status === 'failed' ? ('error' as const) : ('info' as const),
-          code: task.kind,
-          message: task.kind,
-          status: task.status,
-          task_id: task.id,
-          metadata: {},
-        })),
-        ...state.logs
-          .filter((log) => !taskIDs.has(String(log.metadata.task_id)))
-          .map((log) => ({ ...log, id: `log:${log.id}`, status: '' })),
-      ];
+      let entries: PanelLog[] = state.logs.map(log => ({ ...log, id: `log:${log.id}`, status: '' }));
       entries = entries.filter(
         (entry) =>
           (!filter.level || entry.level === filter.level)
@@ -1229,23 +943,6 @@ export function createDemoApiClient(): ApiClient {
         },
         signal,
       );
-    },
-    retryTask(taskID, signal) {
-      const previous = requireItem(state.tasks, taskID, 'Task');
-      if (
-        !['failed', 'canceled'].includes(previous.status)
-        || !['catalog-refresh', 'core-install', 'subscription-source-refresh'].includes(previous.kind)
-      ) {
-        throw new ApiRequestError('Retry unavailable', {
-          status: 409,
-          code: 'task_retry_unavailable',
-        });
-      }
-      const existing = state.tasks.find((task) => task.idempotency_key === `panel-retry:${taskID}`);
-      if (existing) return respond(existing, signal);
-      const task = queueTask(state, previous.kind);
-      task.idempotency_key = `panel-retry:${taskID}`;
-      return respond(task, signal);
     },
     listLogs(filter = {}, signal) {
       let logs = state.logs

@@ -45,7 +45,7 @@ describe('createDemoApiClient', () => {
     const client = createDemoApiClient();
     const controller = new AbortController();
 
-    const request = client.getCanonical(controller.signal);
+    const request = client.getConfigurationFile(controller.signal);
     controller.abort();
 
     await expect(request).rejects.toMatchObject({ name: 'AbortError' });
@@ -108,80 +108,55 @@ describe('createDemoApiClient', () => {
     vi.useFakeTimers();
     const client = createDemoApiClient();
     const platform = (await client.getSystemStatus()).platform!;
-    const matchingTask = await client.enableCore('core_demo_113');
+    expect(await client.enableCore('core_demo_113')).toMatchObject({ enabled_core: { core_artifact_id: 'core_demo_113' } });
     await vi.advanceTimersByTimeAsync(700);
-    await expect(client.getTask(matchingTask.id)).resolves.toMatchObject({ status: 'succeeded' });
 
     for (const architecture of ['amd64', 'arm64'] as const) {
-      const task = await client.importCoreArchive({
+      const result = await client.importCoreArchive({
         archive: new File(['archive'], 'sing-box.tar.gz'),
-        exactVersion: '1.14.0', sourceDescription: 'Local build', variant: 'plain', architecture,
+        exactVersion: '1.14.0', sourceDescription: 'Local build', variant: 'musl', architecture,
       });
       await vi.advanceTimersByTimeAsync(700);
-      await expect(client.getTask(task.id)).resolves.toMatchObject({ status: 'succeeded' });
       const imported = (await client.listCoreArtifacts()).items.find(
         (core) => core.source_kind === 'user_verified' && core.arch === architecture,
       )!;
+      expect(result.id).toBe(imported.id);
       expect(imported).not.toHaveProperty('verification_state');
       if (architecture !== platform.arch) {
         expect(() => client.enableCore(imported.id)).toThrow('match the demo platform');
         continue;
       }
-      const enabled = await client.enableCore(imported.id);
+      expect((await client.enableCore(imported.id)).enabled_core?.core_artifact_id).toBe(imported.id);
       await vi.advanceTimersByTimeAsync(700);
-      await expect(client.getTask(enabled.id)).resolves.toMatchObject({ status: 'succeeded' });
       await expect(client.getRuntimeStatus()).resolves.toMatchObject({
         observation_state: 'running', running: { core_artifact_id: imported.id },
       });
     }
   });
 
-  it('persists replacement and JSON Pointer patch mutations as new canonical revisions', async () => {
+  it('saves one editable configuration with numeric CAS and invalid drafts', async () => {
     const client = createDemoApiClient();
-    const initial = await client.getCanonical();
-    const replacementDocument = {
-      ...initial.document,
-      experimental: { cache_file: { enabled: true } },
-    };
-
-    const replaced = await client.replaceCanonical(JSON.stringify(replacementDocument), initial.id);
-    expect(replaced).toMatchObject({
-      no_change: false,
-      revision: {
-        parent_id: initial.id,
-        sequence: initial.sequence + 1,
-      },
-    });
-    expect(replaced.task_id).toMatch(/^task_demo_/u);
-
-    const patched = await client.patchCanonical(
-      [
-        { op: 'set', path: '/log/level', value_json: '"debug"' },
-        { op: 'unset', path: '/dns/strategy' },
-      ],
-      replaced.revision.id,
-    );
-    const current = await client.getCanonical();
-
-    expect(patched.revision.id).toBe(current.id);
-    expect(current.sequence).toBe(initial.sequence + 2);
-    expect(current.document).toMatchObject({
-      experimental: { cache_file: { enabled: true } },
-      log: { level: 'debug', timestamp: true },
-    });
-    expect(current.document.dns).not.toHaveProperty('strategy');
+    const initial = await client.getConfigurationFile();
+    const draft = await client.saveConfigurationFile({ revision: initial.revision, content: '{' });
+    expect(draft).toMatchObject({ revision: initial.revision + 1, content: '{', syntax_valid: false });
+    expect(draft.canonical_revision_id).toBeUndefined();
+    await expect(client.saveConfigurationFile({ revision: initial.revision, content: '{}' })).rejects.toThrow();
+    const saved = await client.saveConfigurationFile({ revision: draft.revision, content: '{"log":{"level":"debug"}}' });
+    expect(saved.syntax_valid).toBe(true);
+    expect(saved.canonical_revision_id).toBeTruthy();
+    expect(await client.getConfigurationFile()).toEqual(saved);
   });
 
   it('preserves integers outside the JavaScript safe range in Advanced JSON', async () => {
     const client = createDemoApiClient();
-    const initial = await client.getCanonical();
+    const initial = await client.getConfigurationFile();
     const documentJSON = '{"experimental":{"cache_file":{"cache_id":9007199254740993}}}';
 
-    const saved = await client.replaceCanonical(documentJSON, initial.id);
-    const current = await client.getCanonical();
+    const saved = await client.saveConfigurationFile({ revision: initial.revision, content: documentJSON });
+    const current = await client.getConfigurationFile();
 
-    expect(saved.revision.document_json).toBe(documentJSON);
-    expect(current.document_json).toBe(documentJSON);
+    expect(saved.content).toBe(documentJSON);
+    expect(current.content).toBe(documentJSON);
   });
 
   it('reads and replaces node grants with stable, de-duplicated node keys', async () => {
@@ -275,33 +250,24 @@ describe('createDemoApiClient', () => {
     expect((await client.getRuntimeStatus()).running?.core_artifact_id).toBe('core_demo_113');
   });
 
-  it('settles stop, start, and restart tasks and rotates the running process identity', async () => {
+  it('completes stop, start, and restart operations and rotates the running process identity', async () => {
     vi.useFakeTimers({ now: new Date('2026-09-01T08:00:00.000Z') });
     const client = createDemoApiClient();
     const initialRuntime = await client.getRuntimeStatus();
     const initialToken = initialRuntime.running!.process_start_token;
 
-    const stopTask = await client.stopRuntime();
-    expect(stopTask.status).toBe('queued');
-    await vi.advanceTimersByTimeAsync(350);
-    await expect(client.getTask(stopTask.id)).resolves.toMatchObject({ status: 'running' });
-    await vi.advanceTimersByTimeAsync(350);
-    await expect(client.getTask(stopTask.id)).resolves.toMatchObject({ status: 'succeeded' });
+    expect(await client.stopRuntime()).toMatchObject({ observation_state: 'stopped' });
     await expect(client.getRuntimeStatus()).resolves.toMatchObject({
       desired_running: false,
       observation_state: 'stopped',
       running: undefined,
     });
 
-    const startTask = await client.startRuntime();
-    await vi.advanceTimersByTimeAsync(700);
-    await expect(client.getTask(startTask.id)).resolves.toMatchObject({ status: 'succeeded' });
+    await client.startRuntime();
     const startedRuntime = await client.getRuntimeStatus();
     expect(startedRuntime.running?.process_start_token).not.toBe(initialToken);
 
-    const restartTask = await client.restartRuntime();
-    await vi.advanceTimersByTimeAsync(700);
-    await expect(client.getTask(restartTask.id)).resolves.toMatchObject({ status: 'succeeded' });
+    await client.restartRuntime();
     const restartedRuntime = await client.getRuntimeStatus();
 
     expect(restartedRuntime).toMatchObject({

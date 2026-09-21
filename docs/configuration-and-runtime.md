@@ -59,9 +59,8 @@ The CLI's `config` group instead manages the panel settings file; see
 Ordinary CI and signed releases exercise this same file API across a real
 self-update and restart. The release fixture includes whitespace and a number
 beyond JavaScript's safe integer range; the scenario also retains unfinished
-JSON through the update before correcting it. Immutable history is verified as
-lossless `document_json` plus its identity and digest, separately from editable
-text. See [Release process](release.md#verification-scope) for the native checks.
+JSON through the update before correcting it. The saved text and runtime snapshot identity survive the restart unchanged.
+Store/API integration tests separately verify the immutable snapshot bytes and digest. See [Release process](release.md#verification-scope) for the native checks.
 
 ## Switching versions without rewriting JSON
 
@@ -89,8 +88,8 @@ version-scoped. The response contains only `exact_version`, `schema_sha256`,
 and the Schema. Its ETag binds the exact version and digest and supports
 `If-None-Match`.
 
-The panel currently commits native Schema output for `1.14.0`. Releases before
-sing-box added `sing-box schema`, including `1.11.15`, `1.12.25`, and `1.13.19`,
+The panel currently commits native Schema output for `1.14.0`. Before installing a core, the Web visual editor can use that bundled schema for authoring and labels the exact target version. Installed artifacts still require the served schema to match the reviewed manifest. Native validation and runtime startup always require an installed matching core. Releases before
+sing-box added `sing-box schema`, including `1.13.19`,
 remain Advanced-JSON-only; the panel does not synthesize schemas for them. A
 missing Schema disables only structured controls, never JSON save,
 compile, check, Apply, Start, Restart, or Rollback.
@@ -117,25 +116,24 @@ Formatting preserves numeric literals and remains undoable; incomplete input is 
 The editor loads on demand. The browser can save invalid JSON; it disables visual editing and binary
 validation until the text is a valid object. Saving and checking lock editing
 until the result arrives, so feedback describes the submitted file. Validation
-success is a Toast shown only after the check task succeeds. Unknown fields and
+success is a Toast shown only after the binary check succeeds. Unknown fields and
 numeric lexemes are retained through visual edits.
 
 ## Validate and load configuration
 
-A check atomically snapshots the immutable configuration bytes and queues a
-durable `sing-box check` against the selected binary without touching the live
+A check snapshots immutable configuration bytes and runs
+`sing-box check` against the selected binary without touching the live
 core. The configuration page offers Save configuration and Validate configuration;
-validation uses `POST /api/v1/config/compile` and reports the completed task result.
+validation uses `POST /api/v1/config/compile` and returns the completed artifact state.
 There is no separate Apply action on that page. Use Enable in version management
 to select a binary, then Start or Restart to load the current saved configuration.
-Those operations perform preflight in the serialized runtime lane before changing
+Those operations perform preflight in the serialized runtime controller before changing
 the running process. The Web UI uses
 `POST /api/v1/core/artifacts/{artifactId}/enable` and the runtime endpoints.
 Startup artifacts and activation bundles remain internal evidence.
 The CLI retains `core enable CORE_ARTIFACT_ID` to switch
 binaries with the current saved document while preserving stopped/running state;
-it waits for the durable task unless
-`--detach` is supplied.
+it returns after the operation completes.
 
 Apply rechecks the current file, canonical head, artifact identity, and startup
 evidence. A concurrent configuration or artifact change cannot be combined with
@@ -172,7 +170,7 @@ sing-box-panel core stop
 Start and Restart use the last successfully selected binary identity and the current saved
 file. A changed file is snapshotted for binary preflight in the serialized runtime
 lane. The desired process and current observation remain unchanged until that
-check passes. The worker rechecks the current file, canonical head, artifact identity,
+check passes. The controller rechecks the current file, canonical head, artifact identity,
 generation and lease before binding the checked candidate. Invalid text, failed
 checks, superseded intents and concurrent edits cannot replace the live process.
 
@@ -186,10 +184,12 @@ restart-required states.
 Rollback uses the previous immutable bundle and its corresponding configuration
 and binary evidence; it does not reinterpret current configuration.
 
-Runtime and maintenance operations are durable tasks with leases,
-cancellation, attempts, and terminal results stored in SQLite. The server
-holds the process-level runtime executor lease; CLI processes inspect state and
-enqueue work without becoming a second runtime manager.
+Core operations return the completed resource or observed runtime state in the
+requesting call. The server holds the process lease and serializes configuration
+checks and process controls. CLI callers use its private Unix socket rather than
+creating another process manager. Catalog, artifact and source maintenance can
+run directly from the CLI. Interrupted requests are canceled at safe boundaries;
+completed side effects retain their evidence. There is no generic operation queue.
 
 ## Runtime identity and history
 
@@ -207,19 +207,20 @@ activation bundle and paginates newest-first with the stable
 or `unknown`; an `unknown` record includes `uncertain_since` and represents an
 interval that cannot be classified as uptime or downtime.
 
-Task-driven lifecycle success, controlled stop, abnormal exit, and failed
-health or version handshake commit the final runtime observation, transition,
-runtime intent, and task terminal state in one SQLite transaction. If evidence
-cannot be committed, the task remains recoverable instead of recording a false
-terminal result. Recovery, reconciliation, startup coordination, and shutdown
-history that is not owned by a task remains an independently appended record.
-Stable dedupe keys make retries idempotent, and verified PID/start-token
-fencing prevents a late task from changing a newer process incarnation.
-Database initialization adds one `history_initialized` marker and does not
-infer earlier history from tasks or logs.
+Lifecycle success and controlled stop commit the final process observation,
+transition and runtime intent in one SQLite transaction. Commit failure does not
+report success; a newly started process is stopped if its evidence cannot be
+committed. Reconciliation and shutdown append their observed history separately.
+Stable dedupe keys and verified PID/start-token fencing prevent a stale request
+from changing a newer process incarnation. Database initialization adds one
+`history_initialized` marker and does not infer earlier uptime from logs.
 
+Runtime recovery uses a dedicated persisted record: at most three attempts with
+1, 5 and 30 second delays. Deadlines survive panel restarts. Five minutes of
+continuously verified healthy runtime reset an episode; downtime alone does not.
+Explicit lifecycle requests supersede the old recovery episode.
 
-## Panel settings and protocol identity
+## Panel settings## Panel settings and protocol identity
 
 The panel settings API at authenticated `GET/PUT /api/v1/panel/settings` is a
 projection of the shared settings file selected by `--config`. The Web UI,
@@ -229,30 +230,30 @@ not a sequence number. Manual edits, including formatting changes, invalidate
 older forms; stale writes return a conflict without changing either resource.
 The three UI categories remain service/security, nodes/subscriptions, and
 statistics/appearance. Credential reads expose only configured flags; an
-omitted credential preserves it, and GitHub removal is explicit.
+omitted credential preserves it. GitHub tokens and identity keys have explicit remove controls; clearing the identity key preserves existing inbound credentials.
 
 ### Shared settings file
 
 Existing file fields retain their paths. Web-only preferences are added under
-`panel`, with matching defaults. The Web form preserves fields it does not edit.
+`panel`, with matching defaults. Every setting has a Web control. The `service` API projection covers non-secret service options and is optional on writes so older clients preserve those values. Settings validation and revision checks cover the entire file. Changing service options that are captured at startup displays a restart notice.
 
 | Settings field | Web field | Generated default |
 | --- | --- | --- |
 | `server.host` / `server.port` | Listener host / port | `127.0.0.1` / `3000` |
 | `server.external_origin` | External origin | Empty |
-| `server.base_path` | File/CLI only | Empty |
-| `data_dir` | File/CLI only | Root or XDG data directory |
+| `server.base_path` | Base path | Empty |
+| `data_dir` | Data directory (absolute path) | Root or XDG data directory |
 | `auth.token` | Management token | Random token |
-| `auth.secure_cookie` | Derived from Web origin | `false`; must match HTTPS origin |
+| `auth.secure_cookie` | HTTPS-only session cookie (synchronized with origin) | `false`; must match HTTPS origin |
 | `github.token` | GitHub token | Empty |
-| `github.catalog_ttl_hours` | File/CLI only | `12` |
+| `github.catalog_ttl_hours` | Version cache lifetime | `12` |
 | `traffic.quota_gib` | Traffic quota | `null`; `null` and `0` are unlimited |
-| `traffic.period_months` | File/CLI only | `1` |
-| `traffic.sample_retention_days` | File/CLI only | `90` |
-| `subscription.author` | File/CLI only | `reagin` |
-| `subscription.provider` | File/CLI only | `default`; editable, existing values retained |
-| `subscription.private_source_cidrs` | File/CLI only | `[]` |
-| `logs.retention_days` | File/CLI only | `7` |
+| `traffic.period_months` | Traffic period | `1` |
+| `traffic.sample_retention_days` | Metric retention | `90` |
+| `subscription.author` | Subscription author | `reagin` |
+| `subscription.provider` | Subscription provider | `default`; editable, existing values retained |
+| `subscription.private_source_cidrs` | Allowed private source networks (CIDR per line) | `[]` |
+| `logs.retention_days` | Log retention | `7` |
 | `panel.public_node_host` | Public node host | Empty; automatic detection |
 | `panel.identity_name` / `panel.identity_key` | Protocol identity | Empty / empty |
 | `panel.language` | Language | `zh-CN` |
@@ -268,7 +269,7 @@ are not duplicated as independent settings:
 
 ```text
 data_dir/
-  panel.db                # product state, tasks, metrics and panel logs
+  panel.db                # product state, metrics and panel logs
   artifacts/              # installed sing-box cores
   runtime/configs/        # immutable execution snapshots
   imports/                # temporary core uploads
@@ -296,12 +297,6 @@ A token change invalidates existing sessions. File edits of protocol identity
 change defaults for new inbounds; updating existing sing-box credentials remains
 an explicit Web action: enter the key and save, then perform a checked restart.
 CLI file management never rewrites the sing-box document.
-
-On first upgraded startup, legacy SQLite panel preferences are imported into the
-selected file once, preserving previously effective values and credentials. The
-legacy row is removed after the file update commits. Older files without `panel`
-receive the new defaults; explicit custom values and relative `data_dir` are
-retained. Subsequent startups do not overwrite file edits from old database values.
 
 Writers use a private persistent `.lock` sidecar and atomic file replacement.
 Web saves use a temporary private `.pending` recovery journal and a SQLite commit
@@ -342,7 +337,7 @@ saving. Help is in hover/focus tips.
 The existing defaults remain unchanged. Edit `data_dir` through the same
 `config set` command or settings file; no separate data-directory command exists.
 A private `setting.json.location` records the established directory so manual
-edits can be distinguished from a new instance. It is migration metadata, not
+edits can be distinguished from a new instance. It is relocation metadata, not
 another configuration source. Status and stop continue to locate the old
 instance before relocation. Keep this sidecar with the selected settings file.
 
@@ -352,7 +347,7 @@ It copies files, takes a consistent SQLite snapshot (including committed WAL),
 rebases installed-core and pending-import paths, verifies the copied content,
 and only then removes the source data and commits the new location. This works
 across filesystems. Interrupted copies are rebuilt; interrupted cleanup resumes
-from the verified destination. Migration markers block ordinary database access
+from the verified destination. Relocation markers block ordinary database access
 to unfinished locations. Missing established storage, nonempty destinations,
 nested instances, overlapping paths and settings located inside either data
 root fail closed. Native sing-box JSON and historical evidence are unchanged;
@@ -364,7 +359,7 @@ performs the move outside its sandbox, updates directory/ownership declarations,
 and starts the service again. `systemd start` does the same preparation for a
 stopped service; it never stops an already running one implicitly. Customized
 units or drop-ins are not overwritten: stop the service and explicitly reinstall
-its unit with the selected settings. Failed migration leaves the service stopped
+its unit with the selected settings. Failed relocation leaves the service stopped
 and can be retried after the cause is corrected. A sandbox that prevents removal
 of an empty old root may leave only a private relocation marker there.
 

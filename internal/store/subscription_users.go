@@ -69,7 +69,7 @@ func (s *Store) CreateSubscriptionUser(ctx context.Context, user SubscriptionUse
             id, name, description, enabled, created_at, updated_at
         ) VALUES (?, ?, ?, ?, ?, ?)`,
 			prepared.ID, prepared.Name, prepared.Description, boolInt(prepared.Enabled),
-			formatTaskTime(prepared.CreatedAt), formatTaskTime(prepared.UpdatedAt))
+			formatTime(prepared.CreatedAt), formatTime(prepared.UpdatedAt))
 		if err != nil {
 			return fmt.Errorf("insert subscription user: %w", err)
 		}
@@ -98,7 +98,7 @@ func (s *Store) ListSubscriptionUsers(ctx context.Context, filter SubscriptionUs
 	args := make([]any, 0, 4)
 	if filter.Cursor != nil {
 		query += ` WHERE (created_at < ? OR (created_at = ? AND id < ?))`
-		cursorTime := formatTaskTime(filter.Cursor.CreatedAt)
+		cursorTime := formatTime(filter.Cursor.CreatedAt)
 		args = append(args, cursorTime, cursorTime, filter.Cursor.ID)
 	}
 	query += ` ORDER BY created_at DESC, id DESC LIMIT ?`
@@ -148,8 +148,8 @@ func (s *Store) UpdateSubscriptionUser(ctx context.Context, input UpdateSubscrip
 		result, err := tx.ExecContext(ctx, `UPDATE subscription_users
             SET name = ?, description = ?, enabled = ?, updated_at = ?
             WHERE id = ? AND updated_at = ?`,
-			prepared.Name, prepared.Description, boolInt(prepared.Enabled), formatTaskTime(prepared.UpdatedAt),
-			prepared.ID, formatTaskTime(prepared.ExpectedUpdatedAt))
+			prepared.Name, prepared.Description, boolInt(prepared.Enabled), formatTime(prepared.UpdatedAt),
+			prepared.ID, formatTime(prepared.ExpectedUpdatedAt))
 		if err != nil {
 			return fmt.Errorf("update subscription user: %w", err)
 		}
@@ -181,7 +181,7 @@ func (s *Store) DeleteSubscriptionUser(ctx context.Context, id string, expectedU
 		if _, err := tx.ExecContext(ctx, `DELETE FROM subscription_tokens WHERE user_id = ?`, id); err != nil {
 			return fmt.Errorf("delete subscription user tokens: %w", err)
 		}
-		result, err := tx.ExecContext(ctx, `DELETE FROM subscription_users WHERE id = ? AND updated_at = ?`, id, formatTaskTime(expected))
+		result, err := tx.ExecContext(ctx, `DELETE FROM subscription_users WHERE id = ? AND updated_at = ?`, id, formatTime(expected))
 		if err != nil {
 			return fmt.Errorf("delete subscription user: %w", err)
 		}
@@ -248,11 +248,11 @@ func (s *Store) ReplaceSubscriptionUserGrants(
 			return fmt.Errorf("replace subscription user grants: %w", err)
 		}
 		for _, key := range keys {
-			if _, err := tx.ExecContext(ctx, `INSERT INTO subscription_user_node_grants(user_id, node_key, created_at) VALUES (?, ?, ?)`, userID, key, formatTaskTime(updated)); err != nil {
+			if _, err := tx.ExecContext(ctx, `INSERT INTO subscription_user_node_grants(user_id, node_key, created_at) VALUES (?, ?, ?)`, userID, key, formatTime(updated)); err != nil {
 				return fmt.Errorf("insert subscription user grant: %w", err)
 			}
 		}
-		write, err := tx.ExecContext(ctx, `UPDATE subscription_users SET updated_at = ? WHERE id = ? AND updated_at = ?`, formatTaskTime(updated), userID, formatTaskTime(expected))
+		write, err := tx.ExecContext(ctx, `UPDATE subscription_users SET updated_at = ? WHERE id = ? AND updated_at = ?`, formatTime(updated), userID, formatTime(expected))
 		if err != nil {
 			return fmt.Errorf("advance subscription user grant version: %w", err)
 		}
@@ -315,7 +315,7 @@ func getSubscriptionUser(ctx context.Context, q queryRower, id string) (Subscrip
 	return user, nil
 }
 
-func scanSubscriptionUser(row taskScanner) (SubscriptionUser, error) {
+func scanSubscriptionUser(row rowScanner) (SubscriptionUser, error) {
 	var user SubscriptionUser
 	var enabled int
 	var createdAt, updatedAt string
@@ -324,11 +324,11 @@ func scanSubscriptionUser(row taskScanner) (SubscriptionUser, error) {
 	}
 	user.Enabled = enabled == 1
 	var err error
-	user.CreatedAt, err = parseTaskTime(createdAt)
+	user.CreatedAt, err = parseTime(createdAt)
 	if err != nil {
 		return SubscriptionUser{}, fmt.Errorf("parse user created_at: %w", err)
 	}
-	user.UpdatedAt, err = parseTaskTime(updatedAt)
+	user.UpdatedAt, err = parseTime(updatedAt)
 	if err != nil {
 		return SubscriptionUser{}, fmt.Errorf("parse user updated_at: %w", err)
 	}

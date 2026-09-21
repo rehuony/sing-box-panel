@@ -88,7 +88,6 @@ export const observability = {
       core: '核心',
       panel: '面板',
       security: '安全',
-      task: '任务',
     },
     startStream: '开启实时流',
     stopStream: '停止实时流',

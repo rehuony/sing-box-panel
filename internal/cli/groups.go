@@ -19,10 +19,6 @@ func newCoreCommand(state *options, open openApplicationFunc) *cobra.Command {
 	return root
 }
 
-func newTaskCommand(state *options, open openApplicationFunc) *cobra.Command {
-	return newDurableTaskCommand(state, open)
-}
-
 func group(use, short string) *cobra.Command {
 	return &cobra.Command{Use: use, Short: short, Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error { return cmd.Help() }}
 }

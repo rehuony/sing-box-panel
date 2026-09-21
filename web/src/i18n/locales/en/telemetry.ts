@@ -2,9 +2,7 @@ export const telemetry = {
   demo: 'Demo',
   action: {
     failed: '{{action}} failed',
-    queued: '{{action}} · {{status}}',
-    queueing: 'Queueing {{action}}…',
-    taskTimedOut: '{{action}} task tracking timed out',
+    executing: '{{action}} in progress…',
     timedOut: '{{action}} verification timed out',
     verified: '{{action}} verified',
     verifying: 'Verifying {{action}}…',
@@ -14,12 +12,12 @@ export const telemetry = {
     cancel: 'Cancel',
     restart: {
       action: 'Restart sing-box',
-      description: 'The current process will be replaced through the durable runtime queue. Traffic may pause briefly.',
+      description: 'The current process will restart. Traffic may pause briefly.',
       title: 'Restart the sing-box runtime?',
     },
     stop: {
       action: 'Stop sing-box',
-      description: 'The desired runtime state will be changed to stopped through the durable queue.',
+      description: 'Stop the currently running core.',
       title: 'Stop the sing-box runtime?',
     },
   },
@@ -55,14 +53,6 @@ export const telemetry = {
     unknown: '—',
   },
   startedAt: 'Started {{value}}',
-  taskStatus: {
-    canceled: 'canceled',
-    failed: 'failed',
-    queued: 'queued',
-    running: 'running',
-    succeeded: 'succeeded',
-    superseded: 'superseded',
-  },
   toggleNavigation: 'Open navigation',
   unit: {
     day: 'd',

@@ -9,7 +9,6 @@ import type {
 } from '@/api/api-client';
 
 import { Button } from '@/components/ui/button';
-import { waitForTask } from '@/lib/wait-for-task';
 import { toast } from '@/components/ui/toast-manager';
 import { useApiClient } from '@/api/api-client-context';
 import { SelectField } from '@/components/select-field';
@@ -181,9 +180,7 @@ export function SubscriptionSourcePanel({ active = true, toolbarTarget }: {
         sourceIDs.map(async (id) => {
           const currentSignal = signal();
           if (!currentSignal) return;
-          const task = await client.refreshSubscriptionSource(id, currentSignal);
-          const completed = await waitForTask(client, task, currentSignal);
-          if (completed.status !== 'succeeded') throw new Error(t('subscriptions.sources.refreshFailed'));
+          await client.refreshSubscriptionSource(id, currentSignal);
         }),
       );
       if (signal()?.aborted) return;

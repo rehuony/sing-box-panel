@@ -35,6 +35,41 @@ function setup(client = createMockApiClient()) {
 }
 
 describe('panel settings', () => {
+  it('edits the full service configuration and leaves empty credentials without placeholders', async () => {
+    const user = userEvent.setup();
+    const client = setup();
+    const dataDir = await screen.findByLabelText('Data directory', { selector: 'input' });
+    expect(screen.getByLabelText('GitHub Token', { selector: 'input' })).not.toHaveAttribute('placeholder');
+    fireEvent.change(dataDir, { target: { value: '/srv/panel' } });
+    fireEvent.change(screen.getByLabelText('Base path', { selector: 'input' }), { target: { value: '/control' } });
+    fireEvent.change(screen.getByLabelText('Access origin', { selector: 'input' }), { target: { value: 'https://panel.example.com' } });
+    expect(screen.getByRole('switch', { name: 'HTTPS-only session cookie' })).toBeChecked();
+    fireEvent.change(screen.getByLabelText('Version cache lifetime (hours)'), { target: { value: '24' } });
+    await user.click(screen.getByRole('button', { name: 'Save settings' }));
+    await waitFor(() => expect(client.savePanelSettings).toHaveBeenCalledWith(expect.objectContaining({
+      service: expect.objectContaining({ data_dir: '/srv/panel', base_path: '/control', secure_cookie: true, catalog_ttl_hours: 24 }),
+    })));
+    await user.click(screen.getByRole('tab', { name: 'Nodes & subscriptions' }));
+    expect(screen.getByLabelText('Identity key')).not.toHaveAttribute('placeholder');
+    fireEvent.change(screen.getByLabelText('Subscription author'), { target: { value: 'Example' } });
+    fireEvent.change(screen.getByLabelText('Subscription provider'), { target: { value: 'Custom' } });
+    fireEvent.change(screen.getByLabelText('Allowed private source networks', { selector: 'textarea' }), { target: { value: '10.0.0.0/24\nfd00::/64\n' } });
+    await user.click(screen.getByRole('button', { name: 'Save settings' }));
+    await waitFor(() => expect(client.savePanelSettings).toHaveBeenLastCalledWith(expect.objectContaining({
+      service: expect.objectContaining({ subscription_author: 'Example', subscription_provider: 'Custom', private_source_cidrs: ['10.0.0.0/24', 'fd00::/64'] }),
+    })));
+    await user.click(screen.getByRole('tab', { name: 'Usage & appearance' }));
+    fireEvent.change(screen.getByLabelText('Traffic period (months)'), { target: { value: '3' } });
+    fireEvent.change(screen.getByLabelText('Metric retention (days)'), { target: { value: '180' } });
+    fireEvent.change(screen.getByLabelText('Log retention (days)'), { target: { value: '30' } });
+    await user.click(screen.getByRole('button', { name: 'Save settings' }));
+    await waitFor(() => expect(client.savePanelSettings).toHaveBeenLastCalledWith(expect.objectContaining({
+      service: expect.objectContaining({
+        traffic_period_months: 3, sample_retention_days: 180, log_retention_days: 30,
+      }),
+    })));
+  });
+
   it('applies a custom color only on confirmation and saves it through panel settings', async () => {
     const user = userEvent.setup();
     const client = setup();

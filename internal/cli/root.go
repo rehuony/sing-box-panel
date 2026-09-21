@@ -73,7 +73,6 @@ func NewRootCommand(deps Dependencies) *cobra.Command {
 		newSubscriptionChannelCommand(state, deps.OpenApplication),
 		newSubscriptionSourceCommand(state, deps.OpenApplication),
 		newSubscriptionTokenCommand(state, deps.OpenApplication),
-		newTaskCommand(state, deps.OpenApplication),
 		newDurableLogCommand(state, deps.OpenApplication),
 		newMetricsCommand(state, deps.OpenApplication),
 		newSystemCommand(state, systemdService),

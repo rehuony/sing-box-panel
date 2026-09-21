@@ -1,11 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
-import type { RuntimeStatus, Task } from '@/api/api-client';
+import type { RuntimeStatus } from '@/api/api-client';
 
 import { useApiClient } from '@/api/api-client-context';
 
 export const RUNTIME_VERIFICATION_TIMEOUT_MS = 20_000;
-const TASK_TRACKING_TIMEOUT_MS = 60_000;
 const POLL_INTERVAL_MS = 750;
 const SUCCESS_FEEDBACK_DURATION_MS = 2_000;
 const ERROR_FEEDBACK_DURATION_MS = 5_000;
@@ -13,16 +12,13 @@ const ERROR_FEEDBACK_DURATION_MS = 5_000;
 export type RuntimeAction = 'restart' | 'start' | 'stop';
 export type RuntimeActionPhase
   = | 'idle'
-    | 'queueing'
-    | 'tracking'
+    | 'executing'
     | 'verifying'
     | 'verified'
     | 'failed'
-    | 'task_timeout'
     | 'verification_timeout';
 
 export interface RuntimeControlState {
-  task: Task | null;
   error: unknown | null;
   phase: RuntimeActionPhase;
   action: RuntimeAction | null;
@@ -36,7 +32,6 @@ const initialState: RuntimeControlState = {
   action: null,
   error: null,
   phase: 'idle',
-  task: null,
 };
 
 function abortError(): DOMException {
@@ -66,10 +61,6 @@ function isAbortError(error: unknown): boolean {
   return error instanceof DOMException && error.name === 'AbortError';
 }
 
-function isTerminal(task: Task): boolean {
-  return task.status !== 'queued' && task.status !== 'running';
-}
-
 export function runtimeMatchesAction(
   action: RuntimeAction,
   status: RuntimeStatus,
@@ -85,7 +76,7 @@ export function useRuntimeControl({ onRuntimeStatus }: RuntimeControlOptions) {
   const client = useApiClient();
   const controllerRef = useRef<AbortController | null>(null);
   const [state, setState] = useState<RuntimeControlState>(initialState);
-  const busy = state.phase === 'queueing' || state.phase === 'tracking' || state.phase === 'verifying';
+  const busy = state.phase === 'executing' || state.phase === 'verifying';
 
   useEffect(() => () => controllerRef.current?.abort(), []);
 
@@ -109,42 +100,27 @@ export function useRuntimeControl({ onRuntimeStatus }: RuntimeControlOptions) {
     const controller = new AbortController();
     controllerRef.current = controller;
     const previousProcessToken = currentRuntime?.running?.process_start_token;
-    setState({ action, error: null, phase: 'queueing', task: null });
+    setState({ action, error: null, phase: 'executing' });
 
     try {
-      let task = await client[`${action}Runtime`](controller.signal);
-      setState({ action, error: null, phase: 'tracking', task });
-
-      const taskDeadline = Date.now() + TASK_TRACKING_TIMEOUT_MS;
-      while (!isTerminal(task) && Date.now() < taskDeadline) {
-        await delay(POLL_INTERVAL_MS, controller.signal);
-        try {
-          task = await client.getTask(task.id, controller.signal);
-          setState({ action, error: null, phase: 'tracking', task });
-        } catch (error) {
-          if (isAbortError(error)) throw error;
-        }
-      }
-
-      if (!isTerminal(task)) {
-        setState({ action, error: null, phase: 'task_timeout', task });
+      const result = await client[`${action}Runtime`](controller.signal);
+      if (controller.signal.aborted) return;
+      onRuntimeStatus(result);
+      if (runtimeMatchesAction(action, result, previousProcessToken)) {
+        setState({ action, error: null, phase: 'verified' });
         return;
       }
-      if (task.status !== 'succeeded') {
-        setState({ action, error: task.failure ?? null, phase: 'failed', task });
-        return;
-      }
-
-      setState({ action, error: null, phase: 'verifying', task });
+      setState({ action, error: null, phase: 'verifying' });
       const verificationDeadline = Date.now() + RUNTIME_VERIFICATION_TIMEOUT_MS;
       let lastError: unknown | null = null;
       while (Date.now() < verificationDeadline) {
         try {
           const runtimeStatus = await client.getRuntimeStatus(controller.signal);
+          if (controller.signal.aborted) return;
           onRuntimeStatus(runtimeStatus);
           lastError = null;
           if (runtimeMatchesAction(action, runtimeStatus, previousProcessToken)) {
-            setState({ action, error: null, phase: 'verified', task });
+            setState({ action, error: null, phase: 'verified' });
             return;
           }
         } catch (error) {
@@ -153,9 +129,9 @@ export function useRuntimeControl({ onRuntimeStatus }: RuntimeControlOptions) {
         }
         await delay(POLL_INTERVAL_MS, controller.signal);
       }
-      setState({ action, error: lastError, phase: 'verification_timeout', task });
+      setState({ action, error: lastError, phase: 'verification_timeout' });
     } catch (error) {
-      if (!isAbortError(error)) {
+      if (!controller.signal.aborted && !isAbortError(error)) {
         setState((current) => ({ ...current, error, phase: 'failed' }));
       }
     }

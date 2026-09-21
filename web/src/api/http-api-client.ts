@@ -2,10 +2,8 @@ import type { ApiClient } from './api-client';
 import type { HttpApiOptions } from './http/shared';
 
 import { createCoreHttpApi } from './http/core';
-import { createTasksHttpApi } from './http/tasks';
 import { createHttpApiContext } from './http/shared';
 import { createSessionHttpApi } from './http/session';
-import { createCanonicalHttpApi } from './http/canonical';
 import { createSubscriptionHttpApi } from './http/subscription';
 import { createObservabilityHttpApi } from './http/observability';
 import { createPanelSettingsHttpApi } from './http/panel-settings';
@@ -19,8 +17,6 @@ export function createHttpApiClient(options: HttpApiClientOptions = {}): ApiClie
     ...createSessionHttpApi(context),
     ...createPanelSettingsHttpApi(context),
     ...createConfigurationFileHttpApi(context),
-    ...createCanonicalHttpApi(context),
-    ...createTasksHttpApi(context),
     ...createCoreHttpApi(context),
     ...createSubscriptionHttpApi(context),
     ...createObservabilityHttpApi(context),

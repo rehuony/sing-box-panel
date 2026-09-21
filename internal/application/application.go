@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"github.com/rehuony/sing-box-panel/internal/hostmetrics"
@@ -18,16 +19,20 @@ import (
 )
 
 type Application struct {
-	hostSampler  hostmetrics.Sampler
-	database     *store.Store
-	ownsDatabase bool
-	now          func() time.Time
-	random       func([]byte) (int, error)
-	removeFile   func(string) error
-	runtime      RuntimeResolver
-	settings     settings.Settings
-	settingsPath string
-	publicIP     func(context.Context) string
+	logObserver    func(store.LogEntry)
+	artifacts      ArtifactInstaller
+	catalogMu      sync.Mutex
+	runtimeControl RuntimeController
+	hostSampler    hostmetrics.Sampler
+	database       *store.Store
+	ownsDatabase   bool
+	now            func() time.Time
+	random         func([]byte) (int, error)
+	removeFile     func(string) error
+	runtime        RuntimeResolver
+	settings       settings.Settings
+	settingsPath   string
+	publicIP       func(context.Context) string
 }
 
 type RuntimeResolver interface {
@@ -111,4 +116,9 @@ func (application *Application) Close() error {
 		return nil
 	}
 	return application.database.Close()
+}
+
+// SetLogObserver attaches a sink before the application begins serving requests.
+func (application *Application) SetLogObserver(observer func(store.LogEntry)) {
+	application.logObserver = observer
 }

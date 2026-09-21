@@ -4,7 +4,6 @@ import { useSyncExternalStore } from 'react';
 import {
   Activity as StaticActivityIcon,
   Boxes as StaticBoxesIcon,
-  ClipboardCheck as StaticClipboardCheckIcon,
   Gauge as StaticGaugeIcon,
   Radio as StaticRadioIcon,
   Settings as StaticSettingsIcon,
@@ -17,7 +16,6 @@ import { RadioIcon } from './icons/radio-icon';
 import { SlidersIcon } from './icons/sliders-icon';
 import { ActivityIcon } from './icons/activity-icon';
 import { SettingsIcon } from './icons/settings-icon';
-import { ClipboardCheckIcon } from './icons/clipboard-check-icon';
 
 const REDUCED_MOTION_QUERY = '(prefers-reduced-motion: reduce)';
 
@@ -45,10 +43,6 @@ const ICONS = {
   subscriptions: {
     animated: RadioIcon,
     fallback: StaticRadioIcon,
-  },
-  tasks: {
-    animated: ClipboardCheckIcon,
-    fallback: StaticClipboardCheckIcon,
   },
 } as const;
 

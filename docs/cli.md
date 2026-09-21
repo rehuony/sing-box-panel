@@ -21,7 +21,6 @@ sing-box-panel
 ├─ channel list | show | create | update | delete | render
 ├─ source list | show | create | update | refresh | delete
 ├─ token list | create | rotate | revoke
-├─ task list | show | wait | cancel
 ├─ log list | show | tail | clear | delete
 ├─ metrics show | watch | history | period PERIOD_ID
 └─ completion bash | zsh | fish
@@ -91,7 +90,7 @@ instance. They reject missing, empty, wrongly typed, or ambiguous paths and
 malformed JSON; unrelated runtime fields such as `traffic.sample_retention_days`
 do not block them. Relative data paths resolve against the settings file. After a directory edit,
 status/stop and database commands keep using the recorded current location until
-the next explicit start completes migration.
+the next explicit start completes relocation.
 If the settings file itself is missing, `system df` and the `system prune`
 preview still report known paths, with the data directory marked unknown.
 `system prune --yes` continues to require settings that identify the data directory.
@@ -117,8 +116,7 @@ When `server start` creates settings, it prints a compact first-run summary to
 stderr: the selected settings and data paths, default panel URL, the generated
 token next to `Login token`, and how to stop the foreground process. This reports
 initialization, not HTTP readiness. It does not repeat the summary when the
-file already exists. Legacy database preferences and credentials are imported into the file once at
-startup; if they contain a management token, it replaces the generated token. Color is limited to text on a terminal
+file already exists. Color is limited to text on a terminal
 and respects `NO_COLOR` and `TERM`. In JSON/JSONL mode, stderr receives one event
 with `event: "settings_initialized"`, `settings_path`, `data_dir`,
 `default_panel_url`, and `login_token`; stdout remains free of startup guidance.
@@ -165,8 +163,8 @@ sing-box-panel config set --config ./setting.json --file - < ./new-setting.json
   creating the data directory, opening SQLite, or starting a service. New settings
   directories use `0700` and the file uses `0600`. Existing files are preserved;
   `--force` explicitly replaces a regular file and generates a new token.
-  Symlinks and pending settings/data migration recovery are rejected even with
-  `--force`. Location metadata is retained for the next startup migration.
+  Symlinks and pending settings/data relocation recovery are rejected even with
+  `--force`. Location metadata is retained for the next startup relocation.
   Text output displays the file path and login token; JSON/JSONL returns
   `initialized: true`, `settings_path`, and `login_token`. Top-level `init` retains
   its broader responsibility of also initializing storage.
@@ -194,7 +192,7 @@ sing-box-panel config set --config ./setting.json --file - < ./new-setting.json
   credentials, are preserved. Missing files are not initialized. JSON/JSONL
   returns `saved: true`, `settings_path`, and `reset_fields` without their values.
   Resetting `data_dir` selects the current effective user's default directory;
-  the old directory remains active until the existing startup migration runs.
+  the old directory remains active until the existing startup relocation runs.
 
 Settings documents are limited to 1 MiB. `set`, `unset`, `check`, and
 `verify` reject unknown fields, duplicate keys, trailing JSON, and invalid
@@ -212,11 +210,11 @@ update protocol identity in SQLite. While recovery is pending, file commands
 fail closed; start the panel to finish recovery before editing. A private
 `setting.json.location` also records the established data directory and any
 pending move. These sidecars appear in `system df`; cleanup removes idle metadata
-and refuses an unfinished migration.
+and refuses an unfinished relocation.
 Do not remove recovery material to bypass a conflict.
 
 The top-level `verify` command is removed; use `config verify` or `config check`.
-The former sing-box configuration interfaces and their revision, core, and task
+The former sing-box configuration interfaces and their revision and core
 flags remain removed. The current `config check`, `verify`, `set`, and `unset`
 operate only on panel settings. Move sing-box editing, validation, and Apply
 workflows to the Web UI, and regenerate shell completions after upgrading.
@@ -232,7 +230,6 @@ Check or Apply. The CLI retains explicit core switching:
 
 ```sh
 sing-box-panel core enable CORE_ARTIFACT_ID
-sing-box-panel core enable CORE_ARTIFACT_ID --detach
 ```
 
 `core enable` preserves the stopped/running state: a stopped core is selected
@@ -257,26 +254,16 @@ Clash API and otherwise `process_only`; nothing is injected into the file to
 create that endpoint. Rollback uses the previous immutable bundle and its own
 configuration and binary evidence.
 
-## Durable tasks and cancellation
+## Operation completion and cancellation
 
-Core download and verification, catalog refresh, configuration checks,
-checked restarts, source refresh, and child-process control are durable tasks.
-Core, catalog, and runtime commands wait by default and expose
-`--detach` where applicable. `source refresh` instead returns the
-queued task immediately, because that command has no local waiting mode.
+Core download/import, catalog refresh and source refresh execute directly and
+return completed results without requiring the server. Configuration checks and
+core process controls require the active server and use its private Unix socket;
+that server serializes them under the existing process lease. Interrupting the
+caller cancels work at its next safe boundary. Logs record completed outcomes.
+There is no generic queue, operation polling command, or `--detach` flag.
 
-```sh
-sing-box-panel task list --lane runtime
-sing-box-panel task show TASK_ID
-sing-box-panel task wait TASK_ID
-sing-box-panel task cancel TASK_ID
-```
-
-Canceling queued work is immediate. Canceling a running task requests
-cancellation at its next safe boundary. Interrupting a local wait also attempts
-to record a cancellation request for that durable task before exiting.
-
-## Foreground panel control
+## Foreground panel control## Foreground panel control
 
 ```sh
 sing-box-panel server start --config ./setting.json
@@ -284,6 +271,10 @@ sing-box-panel server start --config ./setting.json
 sing-box-panel server status --config ./setting.json
 sing-box-panel server stop --config ./setting.json --timeout 30s
 ```
+
+After the listener is ready, `start` prints the actual panel URL, settings and data
+paths and log location, then streams sanitized panel logs. Color is enabled only
+for a terminal and can be disabled with `NO_COLOR`; JSON output remains structured.
 
 `start` occupies the current terminal until `Ctrl+C`, `SIGTERM`, or a separate
 `server stop` request shuts it down. It never detaches or creates a background
@@ -493,9 +484,8 @@ The process uses stable high-level exit categories:
 | `143` | Terminated by `SIGTERM` |
 
 `SIGINT` and `SIGTERM` cancel the command context first so active operations
-can stop at their defined boundaries. A task that reached a terminal failed,
-canceled, or superseded state is reported as a command failure rather than as
-a successful wait.
+can stop at their defined boundaries. Failed operations return a nonzero exit
+code; successful mutations return the resulting resource or observed runtime state.
 
 ## Shell completion
 

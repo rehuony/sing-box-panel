@@ -146,7 +146,7 @@ func TestIdentityAndSettingsSaveAtomicallyWithoutLaunching(t *testing.T) {
 		t.Fatal(err)
 	}
 	change, _ := app.configurationFileUpdate(ConfigurationFileWrite{Revision: updated.Revision, Content: `{"inbounds":[]}`})
-	err = db.CommitPanelSettingsFile(ctx, app.settingsPath, "rejected", nil, change, func() error { t.Fatal("stale identity update published settings"); return nil })
+	err = db.CommitPanelSettingsFile(ctx, app.settingsPath, "rejected", change, func() error { t.Fatal("stale identity update published settings"); return nil })
 	if !errors.Is(err, store.ErrConfigurationFileConflict) {
 		t.Fatal(err)
 	}

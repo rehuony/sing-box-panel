@@ -157,7 +157,7 @@ func newSubscriptionSourceUpdateCommand(state *options, open openApplicationFunc
 func newSubscriptionSourceRefreshCommand(state *options, open openApplicationFunc) *cobra.Command {
 	command := &cobra.Command{
 		Use:   "refresh SOURCE_ID",
-		Short: "Queue a durable refresh of the subscription source",
+		Short: "Refresh the subscription source",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			sourceID, err := requiredSubscriptionID(args[0], "source")
@@ -169,11 +169,11 @@ func newSubscriptionSourceRefreshCommand(state *options, open openApplicationFun
 				return err
 			}
 			defer instance.Close()
-			task, err := instance.QueueSubscriptionSourceRefresh(cmd.Context(), sourceID)
+			result, err := instance.RefreshSubscriptionSource(cmd.Context(), sourceID)
 			if err != nil {
 				return classifySubscriptionError("subscription_source_refresh_failed", err)
 			}
-			return writeResult(cmd.OutOrStdout(), state.format, task, "queued subscription source refresh "+task.ID)
+			return writeResult(cmd.OutOrStdout(), state.format, result, fmt.Sprintf("Refreshed subscription source %s: %d nodes", result.SourceID, result.NodeCount))
 		},
 	}
 	return command

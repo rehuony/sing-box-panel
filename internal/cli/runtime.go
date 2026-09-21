@@ -9,16 +9,16 @@ import (
 
 	"github.com/rehuony/sing-box-panel/internal/application"
 	"github.com/rehuony/sing-box-panel/internal/configuration"
+	"github.com/rehuony/sing-box-panel/internal/panelprocess"
 	"github.com/rehuony/sing-box-panel/internal/store"
 	"github.com/spf13/cobra"
 )
 
 func newCoreEnableCommand(state *options, open openApplicationFunc) *cobra.Command {
-	var detach bool
 	command := &cobra.Command{
 		Use:   "enable CORE_ARTIFACT_ID",
 		Short: "Select an installed core while preserving its running or stopped state",
-		Long: `Queue a checked version selection. A stopped core stays stopped; a running
+		Long: `Check and select a version. A stopped core stays stopped; a running
 core is restarted with the selected version. The saved configuration is
 carried forward unchanged: the selected binary must accept an execution
 snapshot of that configuration with "sing-box check" before the live process
@@ -29,24 +29,23 @@ is replaced. A failed preflight leaves the running core and the saved file untou
 			if coreID == "" {
 				return &Error{Kind: ErrorUsage, Code: "core_required", Message: "CORE_ARTIFACT_ID must not be blank; see core list"}
 			}
-			return enableCore(cmd, state, open, coreID, detach)
+			return enableCore(cmd, state, open, coreID)
 		},
 	}
-	command.Flags().BoolVar(&detach, "detach", false, "return after the durable runtime task is queued")
 	return command
 }
 
-func enableCore(cmd *cobra.Command, state *options, open openApplicationFunc, coreID string, detach bool) error {
+func enableCore(cmd *cobra.Command, state *options, open openApplicationFunc, coreID string) error {
 	instance, err := openApplication(cmd.Context(), state.settingsPath, open)
 	if err != nil {
 		return err
 	}
 	defer instance.Close()
-	task, err := instance.EnableCore(cmd.Context(), coreID)
+	result, err := instance.EnableCore(cmd.Context(), coreID)
 	if err != nil {
-		return classifyConfigurationRuntimeError("runtime_apply_queue_failed", err)
+		return classifyConfigurationRuntimeError("runtime_apply_failed", err)
 	}
-	return renderQueuedTask(cmd, state, instance, task, detach)
+	return writeResult(cmd.OutOrStdout(), state.format, result, "Core: "+result.ObservationState)
 }
 
 func newCoreStatusCommand(state *options, open openApplicationFunc) *cobra.Command {
@@ -78,9 +77,8 @@ func newCoreLifecycleCommand(
 	name string,
 	state *options,
 	open openApplicationFunc,
-	queue func(*application.Application, *cobra.Command) (application.Task, error),
+	execute func(*application.Application, *cobra.Command) (application.RuntimeStatus, error),
 ) *cobra.Command {
-	var detach bool
 	command := &cobra.Command{
 		Use:   name,
 		Short: "Manage " + name + " sing-box runtime",
@@ -91,43 +89,44 @@ func newCoreLifecycleCommand(
 				return err
 			}
 			defer instance.Close()
-			task, err := queue(instance, cmd)
+			result, err := execute(instance, cmd)
 			if err != nil {
-				return classifyRuntimeError("runtime_"+name+"_queue_failed", err)
+				return classifyRuntimeError("runtime_"+name+"_failed", err)
 			}
-			return renderQueuedTask(cmd, state, instance, task, detach)
+			return writeResult(cmd.OutOrStdout(), state.format, result, "Core: "+result.ObservationState)
 		},
 	}
-	command.Flags().BoolVar(&detach, "detach", false, "return after the durable runtime task is queued")
 	return command
 }
 
 func newCoreStartCommand(state *options, open openApplicationFunc) *cobra.Command {
-	return newCoreLifecycleCommand("start", state, open, func(instance *application.Application, cmd *cobra.Command) (application.Task, error) {
-		return instance.QueueRuntimeStart(cmd.Context())
+	return newCoreLifecycleCommand("start", state, open, func(instance *application.Application, cmd *cobra.Command) (application.RuntimeStatus, error) {
+		return instance.StartRuntime(cmd.Context())
 	})
 }
 
 func newCoreStopCommand(state *options, open openApplicationFunc) *cobra.Command {
-	return newCoreLifecycleCommand("stop", state, open, func(instance *application.Application, cmd *cobra.Command) (application.Task, error) {
-		return instance.QueueRuntimeStop(cmd.Context())
+	return newCoreLifecycleCommand("stop", state, open, func(instance *application.Application, cmd *cobra.Command) (application.RuntimeStatus, error) {
+		return instance.StopRuntime(cmd.Context())
 	})
 }
 
 func newCoreRestartCommand(state *options, open openApplicationFunc) *cobra.Command {
-	return newCoreLifecycleCommand("restart", state, open, func(instance *application.Application, cmd *cobra.Command) (application.Task, error) {
-		return instance.QueueRuntimeRestart(cmd.Context())
+	return newCoreLifecycleCommand("restart", state, open, func(instance *application.Application, cmd *cobra.Command) (application.RuntimeStatus, error) {
+		return instance.RestartRuntime(cmd.Context())
 	})
 }
 
 func newCoreRollbackCommand(state *options, open openApplicationFunc) *cobra.Command {
-	return newCoreLifecycleCommand("rollback", state, open, func(instance *application.Application, cmd *cobra.Command) (application.Task, error) {
-		return instance.QueueRuntimeRollback(cmd.Context(), "")
+	return newCoreLifecycleCommand("rollback", state, open, func(instance *application.Application, cmd *cobra.Command) (application.RuntimeStatus, error) {
+		return instance.RollbackRuntime(cmd.Context(), "")
 	})
 }
 
 func classifyRuntimeError(code string, err error) error {
 	switch {
+	case errors.Is(err, panelprocess.ErrUnavailable):
+		return &Error{Kind: ErrorUnavailable, Code: "panel_unavailable", Message: err.Error(), Cause: err}
 	case errors.Is(err, store.ErrConfigurationFileUnparsed):
 		return &Error{Kind: ErrorValidation, Code: "configuration_file_unparsed", Message: "saved sing-box configuration is not valid JSON; correct it in the Web UI first", Cause: err}
 	case application.IsMonitoringTierUnavailable(err):
@@ -154,6 +153,8 @@ func emptyAsDash(value string) string {
 
 func classifyConfigurationRuntimeError(code string, err error) error {
 	switch {
+	case errors.Is(err, panelprocess.ErrUnavailable):
+		return &Error{Kind: ErrorUnavailable, Code: "panel_unavailable", Message: err.Error(), Cause: err}
 	case errors.Is(err, store.ErrConfigurationFileUnparsed):
 		return &Error{Kind: ErrorValidation, Code: "configuration_file_unparsed", Message: "saved sing-box configuration is not valid JSON; correct it in the Web UI first", Cause: err}
 	case errors.Is(err, configuration.ErrInvalidDocument):

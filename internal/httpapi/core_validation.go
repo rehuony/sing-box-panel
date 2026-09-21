@@ -80,19 +80,7 @@ func validOptionalCoreArtifactSource(value string) bool {
 	return value == "" || value == string(store.CoreArtifactSourceOfficial) || value == string(store.CoreArtifactSourceUserVerified)
 }
 func validOptionalVariant(value string) bool {
-	if value == "" {
-		return true
-	}
-	if len(value) > 64 || value[0] < 'a' || value[0] > 'z' {
-		return false
-	}
-	for _, character := range value {
-		if (character >= 'a' && character <= 'z') || (character >= '0' && character <= '9') || character == '-' || character == '_' || character == '.' {
-			continue
-		}
-		return false
-	}
-	return true
+	return value == "" || value == "musl"
 }
 
 func validCoreArtifactID(value string) bool {
@@ -125,7 +113,7 @@ func validCoreImportRequest(request application.CoreImportRequest) bool {
 	}
 	variant := coreartifact.Variant(request.Variant)
 	if variant == "" {
-		variant = coreartifact.VariantPlain
+		variant = coreartifact.VariantMusl
 	}
 	source, err := coreartifact.NewUserSource(request.SourceDescription)
 	if err != nil {

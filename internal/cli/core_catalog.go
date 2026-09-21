@@ -43,10 +43,10 @@ func newCoreCatalogListCommand(state *options, open openApplicationFunc) *cobra.
 }
 
 func newCoreCatalogRefreshCommand(state *options, open openApplicationFunc) *cobra.Command {
-	var detach, force bool
+	var force bool
 	command := &cobra.Command{
 		Use:   "refresh",
-		Short: "Refresh the official stable release catalog as a durable task",
+		Short: "Refresh the official stable release catalog",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			instance, err := openApplication(cmd.Context(), state.settingsPath, open)
@@ -54,14 +54,13 @@ func newCoreCatalogRefreshCommand(state *options, open openApplicationFunc) *cob
 				return err
 			}
 			defer instance.Close()
-			task, err := instance.QueueCatalogRefresh(cmd.Context(), application.CatalogRefreshOptions{Force: force})
+			result, err := instance.RefreshCatalog(cmd.Context(), application.CatalogRefreshOptions{Force: force})
 			if err != nil {
-				return &Error{Kind: ErrorDomain, Code: "catalog_refresh_queue_failed", Message: err.Error(), Cause: err}
+				return &Error{Kind: ErrorDomain, Code: "catalog_refresh_failed", Message: err.Error(), Cause: err}
 			}
-			return renderQueuedTask(cmd, state, instance, task, detach)
+			return writeResult(cmd.OutOrStdout(), state.format, result, fmt.Sprintf("Refreshed official catalog: %d releases, %d assets", len(result.Catalog.Releases), len(result.Catalog.Assets())))
 		},
 	}
-	command.Flags().BoolVar(&detach, "detach", false, "return the durable task immediately")
 	command.Flags().BoolVar(&force, "force", false, "bypass the configured catalog TTL")
 	return command
 }

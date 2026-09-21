@@ -4,7 +4,7 @@ import {
   stringify as stringifyLosslessJSON,
 } from 'lossless-json';
 
-import type { CanonicalDocument, CanonicalSnapshot } from '@/api/api-client';
+import type { CanonicalDocument } from '@/api/api-client';
 
 import i18n from '@/i18n';
 
@@ -29,14 +29,6 @@ export function valueAtPointer(document: unknown, pointer: string): unknown {
     current = (current as Record<string, unknown>)[token];
   }
   return current;
-}
-
-export function parseCanonicalDocument(snapshot: CanonicalSnapshot): CanonicalDocument {
-  const parsed = parseLosslessJSON(snapshot.document_json);
-  if (parsed === null || Array.isArray(parsed) || typeof parsed !== 'object') {
-    throw new Error(i18n.t('configuration.canonical.error.snapshotObject'));
-  }
-  return parsed as CanonicalDocument;
 }
 
 export function cloneCanonicalDocument(source: CanonicalDocument): CanonicalDocument {

@@ -32,7 +32,7 @@ func TestInstallOfficialVerifiesAndPublishesContentAddressedBinary(t *testing.T)
 	)
 	digest := bytesDigest(archive)
 	downloader := &memoryDownloader{data: archive}
-	fingerprint, err := newReportedFeatureFingerprint([]string{"with_utls", "with_quic"})
+	fingerprint, err := newReportedFeatureFingerprint([]string{"with_utls", "with_quic", "with_musl"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -52,7 +52,7 @@ func TestInstallOfficialVerifiesAndPublishesContentAddressedBinary(t *testing.T)
 		t.Fatalf("installed identity = %+v", result.Identity)
 	}
 	featureJSON, err := result.FeatureFingerprint.CanonicalJSON()
-	if err != nil || string(featureJSON) != `{"status":"reported","features":["with_quic","with_utls"]}` {
+	if err != nil || string(featureJSON) != `{"status":"reported","features":["with_musl","with_quic","with_utls"]}` {
 		t.Fatalf("feature fingerprint = %s, err=%v", featureJSON, err)
 	}
 	wantPath := filepath.Join(store.Root(), "sha256", digest.String()[:2], digest.String(), "sing-box")
@@ -106,7 +106,7 @@ func TestInstallDetectsMutatedContentAddress(t *testing.T) {
 	version := artifactVersion(t, "1.13.19")
 	archive := makeArchive(t, tarEntry{name: "bundle/sing-box", data: minimalELF(coreartifact.ArchitectureAMD64), kind: tar.TypeReg})
 	digest := bytesDigest(archive)
-	store := newTestStore(t, &memoryDownloader{data: archive}, &fakeInspector{report: VersionReport{Version: version}}, Limits{})
+	store := newTestStore(t, &memoryDownloader{data: archive}, &fakeInspector{report: VersionReport{Version: version, FeatureFingerprint: FeatureFingerprint{Status: FeatureFingerprintReported, Features: []string{"with_musl"}}}}, Limits{})
 	result, err := store.InstallOfficial(context.Background(), officialAsset(version, digest, int64(len(archive))))
 	if err != nil {
 		t.Fatalf("InstallOfficial: %v", err)
@@ -129,7 +129,7 @@ func TestInstallPublishesFreshArchiveBytesAfterVersionInspection(t *testing.T) {
 		if err := os.WriteFile(path, []byte("replacement payload"), 0o700); err != nil {
 			return VersionReport{}, err
 		}
-		return VersionReport{Version: version}, nil
+		return VersionReport{Version: version, FeatureFingerprint: FeatureFingerprint{Status: FeatureFingerprintReported, Features: []string{"with_musl"}}}, nil
 	}), Limits{})
 	result, err := store.InstallOfficial(context.Background(), officialAsset(version, bytesDigest(archive), int64(len(archive))))
 	if err != nil {
@@ -162,7 +162,7 @@ func TestInstallRejectsSymlinkedContentStoreDirectory(t *testing.T) {
 	archive := makeArchive(t, tarEntry{name: "bundle/sing-box", data: minimalELF(coreartifact.ArchitectureAMD64), kind: tar.TypeReg})
 	store, err := New(Options{
 		Root: root, Downloader: &memoryDownloader{data: archive},
-		Inspector: &fakeInspector{report: VersionReport{Version: version}},
+		Inspector: &fakeInspector{report: VersionReport{Version: version, FeatureFingerprint: FeatureFingerprint{Status: FeatureFingerprintReported, Features: []string{"with_musl"}}}},
 	})
 	if err != nil {
 		t.Fatalf("New: %v", err)
@@ -203,7 +203,7 @@ func TestInstallDoesNotTrustDownloaderReportedSize(t *testing.T) {
 		written, err := destination.Write(archive)
 		return int64(written + 1), err
 	})
-	store := newTestStore(t, downloader, &fakeInspector{report: VersionReport{Version: version}}, Limits{})
+	store := newTestStore(t, downloader, &fakeInspector{report: VersionReport{Version: version, FeatureFingerprint: FeatureFingerprint{Status: FeatureFingerprintReported, Features: []string{"with_musl"}}}}, Limits{})
 	_, err := store.InstallOfficial(context.Background(), officialAsset(version, bytesDigest(archive), int64(len(archive))))
 	if !errors.Is(err, ErrDigest) {
 		t.Fatalf("InstallOfficial(lying downloader) error = %v, want ErrDigest", err)
@@ -241,6 +241,23 @@ func TestInstallOfficialRejectsDigestEvidenceBeforeDownload(t *testing.T) {
 	}
 }
 
+func TestInstallRejectsDynamicBinaryBeforeExecution(t *testing.T) {
+	t.Parallel()
+	version := artifactVersion(t, "1.14.0")
+	data := minimalELF(coreartifact.ArchitectureAMD64)
+	binary.LittleEndian.PutUint64(data[32:40], 64) // Program header offset.
+	binary.LittleEndian.PutUint16(data[56:58], 1)  // One program header.
+	data = append(data, make([]byte, 56)...)
+	binary.LittleEndian.PutUint32(data[64:68], 3) // PT_INTERP.
+	archive := makeArchive(t, tarEntry{name: "musl/sing-box", data: data, kind: tar.TypeReg})
+	inspector := &fakeInspector{}
+	store := newTestStore(t, &memoryDownloader{data: archive}, inspector, Limits{})
+	_, err := store.InstallOfficial(context.Background(), officialAsset(version, bytesDigest(archive), int64(len(archive))))
+	if !errors.Is(err, ErrELF) || inspector.calls != 0 {
+		t.Fatalf("dynamic binary: error = %v, executions = %d", err, inspector.calls)
+	}
+}
+
 func TestInstallRejectsDigestSizeELFAndVersionMismatch(t *testing.T) {
 	t.Parallel()
 	version := artifactVersion(t, "1.13.19")
@@ -253,10 +270,12 @@ func TestInstallRejectsDigestSizeELFAndVersionMismatch(t *testing.T) {
 		inspector VersionInspector
 		want      error
 	}{
-		{name: "digest", data: validArchive, assetSize: int64(len(validArchive)), digest: bytesDigest([]byte("different")), inspector: &fakeInspector{report: VersionReport{Version: version}}, want: ErrDigest},
-		{name: "declared size", data: validArchive, assetSize: int64(len(validArchive) + 1), digest: bytesDigest(validArchive), inspector: &fakeInspector{report: VersionReport{Version: version}}, want: ErrDigest},
-		{name: "ELF architecture", data: makeArchive(t, tarEntry{name: "bundle/sing-box", data: minimalELF(coreartifact.ArchitectureARM64), kind: tar.TypeReg}), inspector: &fakeInspector{report: VersionReport{Version: version}}, want: ErrELF},
+		{name: "digest", data: validArchive, assetSize: int64(len(validArchive)), digest: bytesDigest([]byte("different")), inspector: &fakeInspector{report: VersionReport{Version: version, FeatureFingerprint: FeatureFingerprint{Status: FeatureFingerprintReported, Features: []string{"with_musl"}}}}, want: ErrDigest},
+		{name: "declared size", data: validArchive, assetSize: int64(len(validArchive) + 1), digest: bytesDigest(validArchive), inspector: &fakeInspector{report: VersionReport{Version: version, FeatureFingerprint: FeatureFingerprint{Status: FeatureFingerprintReported, Features: []string{"with_musl"}}}}, want: ErrDigest},
+		{name: "ELF architecture", data: makeArchive(t, tarEntry{name: "bundle/sing-box", data: minimalELF(coreartifact.ArchitectureARM64), kind: tar.TypeReg}), inspector: &fakeInspector{report: VersionReport{Version: version, FeatureFingerprint: FeatureFingerprint{Status: FeatureFingerprintReported, Features: []string{"with_musl"}}}}, want: ErrELF},
 		{name: "reported version", data: validArchive, inspector: &fakeInspector{report: VersionReport{Version: artifactVersion(t, "1.12.0")}}, want: ErrVersion},
+		{name: "missing musl fingerprint", data: validArchive, inspector: &fakeInspector{report: VersionReport{Version: version}}, want: ErrVersion},
+		{name: "plain fingerprint", data: validArchive, inspector: &fakeInspector{report: VersionReport{Version: version, FeatureFingerprint: FeatureFingerprint{Status: FeatureFingerprintReported, Features: []string{"with_purego", "with_quic"}}}}, want: ErrVersion},
 		{name: "feature fingerprint", data: validArchive, inspector: &fakeInspector{report: VersionReport{
 			Version: version,
 			FeatureFingerprint: FeatureFingerprint{
@@ -304,7 +323,7 @@ func TestInstallRejectsUnsafeArchives(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 			archive := makeArchive(t, test.entries...)
-			store := newTestStore(t, &memoryDownloader{data: archive}, &fakeInspector{report: VersionReport{Version: version}}, Limits{})
+			store := newTestStore(t, &memoryDownloader{data: archive}, &fakeInspector{report: VersionReport{Version: version, FeatureFingerprint: FeatureFingerprint{Status: FeatureFingerprintReported, Features: []string{"with_musl"}}}}, Limits{})
 			_, err := store.InstallOfficial(context.Background(), officialAsset(version, bytesDigest(archive), int64(len(archive))))
 			if !errors.Is(err, ErrArchive) {
 				t.Fatalf("InstallOfficial() error = %v, want ErrArchive", err)
@@ -320,7 +339,7 @@ func TestInstallRejectsExpandedArchiveLimit(t *testing.T) {
 	limits := DefaultLimits()
 	limits.MaximumFileBytes = 32
 	limits.MaximumExpandedBytes = 64
-	store := newTestStore(t, &memoryDownloader{data: archive}, &fakeInspector{report: VersionReport{Version: version}}, limits)
+	store := newTestStore(t, &memoryDownloader{data: archive}, &fakeInspector{report: VersionReport{Version: version, FeatureFingerprint: FeatureFingerprint{Status: FeatureFingerprintReported, Features: []string{"with_musl"}}}}, limits)
 	_, err := store.InstallOfficial(context.Background(), officialAsset(version, bytesDigest(archive), int64(len(archive))))
 	if !errors.Is(err, ErrTooLarge) || !errors.Is(err, ErrArchive) {
 		t.Fatalf("expanded limit error = %v, want ErrTooLarge and ErrArchive", err)
@@ -343,7 +362,7 @@ func TestInstallRejectsCorruptOrConcatenatedGzipStreams(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
-			store := newTestStore(t, &memoryDownloader{data: test.archive}, &fakeInspector{report: VersionReport{Version: version}}, Limits{})
+			store := newTestStore(t, &memoryDownloader{data: test.archive}, &fakeInspector{report: VersionReport{Version: version, FeatureFingerprint: FeatureFingerprint{Status: FeatureFingerprintReported, Features: []string{"with_musl"}}}}, Limits{})
 			_, err := store.InstallOfficial(context.Background(), officialAsset(version, bytesDigest(test.archive), int64(len(test.archive))))
 			if !errors.Is(err, ErrArchive) {
 				t.Fatalf("InstallOfficial() error = %v, want ErrArchive", err)
@@ -360,11 +379,11 @@ func TestImportLocalRequiresUserDigestAndMarksIdentity(t *testing.T) {
 	if err := os.WriteFile(sourcePath, archive, 0o600); err != nil {
 		t.Fatalf("WriteFile: %v", err)
 	}
-	store := newTestStore(t, &memoryDownloader{}, &fakeInspector{report: VersionReport{Version: version}}, Limits{})
+	store := newTestStore(t, &memoryDownloader{}, &fakeInspector{report: VersionReport{Version: version, FeatureFingerprint: FeatureFingerprint{Status: FeatureFingerprintReported, Features: []string{"with_musl"}}}}, Limits{})
 	request := ImportRequest{
 		SourcePath: sourcePath, SourceDescription: "manually verified archive",
 		ExpectedSHA256: bytesDigest(archive), ExpectedVersion: version,
-		ExpectedArchitecture: coreartifact.ArchitectureAMD64, Variant: coreartifact.VariantPlain,
+		ExpectedArchitecture: coreartifact.ArchitectureAMD64, Variant: coreartifact.VariantMusl,
 	}
 	result, err := store.ImportLocal(context.Background(), request)
 	if err != nil {
@@ -393,7 +412,7 @@ func TestImportLocalRejectsSymlinkSource(t *testing.T) {
 	store := newTestStore(t, &memoryDownloader{}, &fakeInspector{}, Limits{})
 	_, err := store.ImportLocal(context.Background(), ImportRequest{
 		SourcePath: link, SourceDescription: "link", ExpectedSHA256: bytesDigest([]byte("data")),
-		ExpectedVersion: artifactVersion(t, "1.13.19"), ExpectedArchitecture: coreartifact.ArchitectureAMD64, Variant: coreartifact.VariantPlain,
+		ExpectedVersion: artifactVersion(t, "1.13.19"), ExpectedArchitecture: coreartifact.ArchitectureAMD64, Variant: coreartifact.VariantMusl,
 	})
 	if err == nil {
 		t.Fatalf("ImportLocal accepted symlink source")
@@ -499,13 +518,13 @@ func newTestStore(t *testing.T, downloader Downloader, inspector VersionInspecto
 }
 
 func officialAsset(version coreartifact.ExactVersion, digest coreartifact.SHA256, size int64) catalog.Asset {
-	name := "sing-box-" + version.String() + "-linux-amd64.tar.gz"
+	name := "sing-box-" + version.String() + "-linux-amd64-musl.tar.gz"
 	asset := catalog.Asset{
 		RepositoryID: catalog.OfficialRepositoryID, ReleaseID: 11, AssetID: 13,
 		Name:        name,
 		DownloadURL: "https://github.com/SagerNet/sing-box/releases/download/v" + version.String() + "/" + name,
 		Size:        size, Version: version, OperatingSystem: coreartifact.OperatingSystemLinux,
-		Architecture: coreartifact.ArchitectureAMD64, Variant: coreartifact.VariantPlain,
+		Architecture: coreartifact.ArchitectureAMD64, Variant: coreartifact.VariantMusl,
 	}
 	if !digest.IsZero() {
 		asset.APIDigest, asset.HasAPIDigest = digest, true

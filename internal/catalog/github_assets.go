@@ -61,6 +61,7 @@ func (client *GitHubClient) filter(ctx context.Context, repositoryID int64, rele
 			return nil, nil, fail(StepFilter, "asset_count", nil)
 		}
 		candidateRelease := Release{ID: release.ID, Tag: release.TagName, Version: version, Assets: make([]Asset, 0)}
+		seenArchitectures := make(map[coreartifact.Architecture]struct{})
 		for _, rawAsset := range release.Assets {
 			if _, duplicate := seenAssets[rawAsset.ID]; duplicate || rawAsset.ID <= 0 {
 				return nil, nil, fail(StepFilter, "duplicate_asset_identity", nil)
@@ -70,6 +71,10 @@ func (client *GitHubClient) filter(ctx context.Context, repositoryID int64, rele
 			if !valid {
 				continue
 			}
+			if _, duplicate := seenArchitectures[architecture]; duplicate {
+				return nil, nil, fail(StepFilter, "duplicate_platform_asset", nil)
+			}
+			seenArchitectures[architecture] = struct{}{}
 			if rawAsset.Size <= 0 || !validOfficialDownloadURL(rawAsset.BrowserDownloadURL, version, rawAsset.Name) {
 				diagnostics = append(diagnostics, Diagnostic{Step: StepFilter, Severity: DiagnosticWarning, Code: "invalid_asset_skipped", Message: "a Linux artifact with invalid size or URL was skipped"})
 				continue
@@ -115,7 +120,9 @@ func (client *GitHubClient) filter(ctx context.Context, repositoryID int64, rele
 			}
 			candidateRelease.Assets = append(candidateRelease.Assets, candidate)
 		}
-		filtered = append(filtered, candidateRelease)
+		if len(candidateRelease.Assets) > 0 {
+			filtered = append(filtered, candidateRelease)
+		}
 	}
 	return filtered, diagnostics, nil
 }

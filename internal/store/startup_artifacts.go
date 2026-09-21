@@ -116,7 +116,7 @@ func insertStartupArtifactTx(
 		prepared.CoreArtifactID,
 		prepared.ConfigBytes,
 		prepared.ConfigSHA256,
-		formatTaskTime(prepared.CreatedAt),
+		formatTime(prepared.CreatedAt),
 	)
 	if err != nil {
 		if strings.Contains(err.Error(), "UNIQUE constraint failed") {
@@ -165,7 +165,7 @@ func (s *Store) ListStartupArtifacts(
 		}
 	}
 	if filter.Cursor != nil {
-		cursorTime := formatTaskTime(filter.Cursor.CreatedAt)
+		cursorTime := formatTime(filter.Cursor.CreatedAt)
 		clauses = append(clauses, "(created_at < ? OR (created_at = ? AND id < ?))")
 		args = append(args, cursorTime, cursorTime, filter.Cursor.ID)
 	}
@@ -202,7 +202,7 @@ func (s *Store) ListStartupArtifacts(
 }
 
 // CompleteStartupArtifactCheck records exactly one checker outcome. A stale
-// candidate is never revived by a late task completion.
+// candidate is never revived by a late operation completion.
 func (s *Store) CompleteStartupArtifactCheck(
 	ctx context.Context,
 	artifactID string,
@@ -237,7 +237,7 @@ func (s *Store) CompleteStartupArtifactCheck(
 		            SET state = ?, checked_at = ?
 		          WHERE id = ? AND state = 'pending'`,
 			string(wanted),
-			formatTaskTime(checkedAt),
+			formatTime(checkedAt),
 			artifactID,
 		); err != nil {
 			return fmt.Errorf("complete startup artifact check: %w", err)
@@ -320,7 +320,7 @@ func getStartupArtifact(ctx context.Context, q queryRower, artifactID string) (S
 	return artifact, nil
 }
 
-func scanStartupArtifact(row taskScanner) (StartupArtifact, error) {
+func scanStartupArtifact(row rowScanner) (StartupArtifact, error) {
 	var artifact StartupArtifact
 	var checkedAt sql.NullString
 	var createdAt string
@@ -339,12 +339,12 @@ func scanStartupArtifact(row taskScanner) (StartupArtifact, error) {
 	}
 	artifact.ConfigBytes = bytes.Clone(artifact.ConfigBytes)
 	var err error
-	artifact.CreatedAt, err = parseTaskTime(createdAt)
+	artifact.CreatedAt, err = parseTime(createdAt)
 	if err != nil {
 		return StartupArtifact{}, fmt.Errorf("parse created_at: %w", err)
 	}
 	if checkedAt.Valid {
-		parsed, err := parseTaskTime(checkedAt.String)
+		parsed, err := parseTime(checkedAt.String)
 		if err != nil {
 			return StartupArtifact{}, fmt.Errorf("parse checked_at: %w", err)
 		}
@@ -353,7 +353,7 @@ func scanStartupArtifact(row taskScanner) (StartupArtifact, error) {
 	return artifact, nil
 }
 
-func scanStartupArtifactSummary(row taskScanner) (StartupArtifactSummary, error) {
+func scanStartupArtifactSummary(row rowScanner) (StartupArtifactSummary, error) {
 	var artifact StartupArtifactSummary
 	var checkedAt sql.NullString
 	var createdAt string
@@ -370,12 +370,12 @@ func scanStartupArtifactSummary(row taskScanner) (StartupArtifactSummary, error)
 		return StartupArtifactSummary{}, err
 	}
 	var err error
-	artifact.CreatedAt, err = parseTaskTime(createdAt)
+	artifact.CreatedAt, err = parseTime(createdAt)
 	if err != nil {
 		return StartupArtifactSummary{}, fmt.Errorf("parse created_at: %w", err)
 	}
 	if checkedAt.Valid {
-		parsed, err := parseTaskTime(checkedAt.String)
+		parsed, err := parseTime(checkedAt.String)
 		if err != nil {
 			return StartupArtifactSummary{}, fmt.Errorf("parse checked_at: %w", err)
 		}

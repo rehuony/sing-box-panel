@@ -15,12 +15,12 @@ const (
 	OfficialRepositoryID int64 = 509091576
 	githubAPIOrigin            = "https://api.github.com"
 	githubRepositoryPath       = "/repos/SagerNet/sing-box"
-	defaultPerPage             = 20
+	defaultPerPage             = 50
 	defaultMaximumPages        = 100
-	defaultMaximumPage         = 8 << 20
-	defaultMaximumTotal        = 128 << 20
+	defaultMaximumPage         = 32 << 20
+	defaultMaximumTotal        = 256 << 20
 	defaultTimeout             = 3 * time.Minute
-	pageValidatorPrefix        = "sbp-github-pages-v1."
+	pageValidatorPrefix        = "sbp-github-pages-v2."
 	maximumValidatorSize       = 16 << 10
 )
 
@@ -71,7 +71,6 @@ func NewGitHubClient(options ClientOptions) (*GitHubClient, error) {
 	}
 	if options.HTTP == nil {
 		transport := http.DefaultTransport.(*http.Transport).Clone()
-		transport.Proxy = nil
 		options.HTTP = &http.Client{
 			Transport: transport,
 			Timeout:   options.Timeout,

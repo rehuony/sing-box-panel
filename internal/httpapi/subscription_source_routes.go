@@ -114,12 +114,12 @@ func (handler *Handler) refreshSubscriptionSource(w http.ResponseWriter, request
 	if !handler.subscriptionMutationRequest(w, request) || !requireEmptyCoreBody(w, request) {
 		return
 	}
-	task, err := handler.commands.QueueSubscriptionSourceRefresh(request.Context(), sourceID)
+	result, err := handler.commands.RefreshSubscriptionSource(request.Context(), sourceID)
 	if err != nil {
 		writeSubscriptionProblem(w, request, "subscription_source_refresh_failed", err)
 		return
 	}
-	writeJSON(w, http.StatusAccepted, task)
+	writeJSON(w, http.StatusOK, result)
 }
 
 func (handler *Handler) createSubscriptionSourceVersion(w http.ResponseWriter, request *http.Request, sourceID string) {

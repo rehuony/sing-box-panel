@@ -5,6 +5,7 @@ package httpapi
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -15,6 +16,7 @@ import (
 	"github.com/rehuony/sing-box-panel/internal/application"
 	"github.com/rehuony/sing-box-panel/internal/configuration"
 	"github.com/rehuony/sing-box-panel/internal/store"
+	"github.com/rehuony/sing-box-panel/internal/testutil"
 )
 
 func TestRuntimeHistoryHTTPUsesStablePairedCursor(t *testing.T) {
@@ -126,14 +128,14 @@ func TestRuntimeAndConfigurationHTTPRoutesUseApplicationServices(t *testing.T) {
 		`{"core_artifact_id":"`+core.ID+`"}`,
 		"",
 	)
-	if compileResponse.Code != http.StatusAccepted {
+	if compileResponse.Code != http.StatusOK {
 		t.Fatalf("compile status=%d body=%s", compileResponse.Code, compileResponse.Body.String())
 	}
 	var compiled application.ConfigurationCompile
 	if err := json.Unmarshal(compileResponse.Body.Bytes(), &compiled); err != nil {
 		t.Fatal(err)
 	}
-	if compiled.Task.Kind != store.TaskKindStartupCheck {
+	if compiled.Artifact.State != store.StartupArtifactReady {
 		t.Fatalf("compile = %+v", compiled)
 	}
 
@@ -144,7 +146,9 @@ func TestRuntimeAndConfigurationHTTPRoutesUseApplicationServices(t *testing.T) {
 		`{"startup_artifact_id":"`+startup.ID+`"}`,
 		"",
 	)
-	assertQueuedCoreHTTPTask(t, checkResponse, store.TaskKindStartupCheck)
+	if checkResponse.Code != http.StatusOK {
+		t.Fatal(checkResponse.Code, checkResponse.Body.String())
+	}
 	if _, err := database.CompleteStartupArtifactCheck(
 		context.Background(), startup.ID, true, time.Now().UTC(),
 	); err != nil {
@@ -158,25 +162,27 @@ func TestRuntimeAndConfigurationHTTPRoutesUseApplicationServices(t *testing.T) {
 		`{"startup_artifact_id":"`+startup.ID+`","monitoring_tier":"process_only"}`,
 		"",
 	)
-	if activateResponse.Code != http.StatusAccepted {
+	if activateResponse.Code != http.StatusOK {
 		t.Fatalf("activate status=%d body=%s", activateResponse.Code, activateResponse.Body.String())
 	}
 	var activated struct {
 		Activation application.ActivationSummary `json:"activation"`
-		Task       application.Task              `json:"task"`
+		Status     application.RuntimeStatus     `json:"status"`
 	}
 	if err := json.Unmarshal(activateResponse.Body.Bytes(), &activated); err != nil {
 		t.Fatal(err)
 	}
 	if activated.Activation.StartupArtifactID != startup.ID ||
-		activated.Task.Kind != store.TaskKindRuntimeApply || activated.Task.Status != store.TaskStatusQueued {
+		activated.Status.ObservationState != "stopped" {
 		t.Fatalf("activation response = %+v", activated)
 	}
 
 	startResponse := authenticatedRequest(handler, http.MethodPost, "/api/v1/core/start", "", "")
 	assertCoreHTTPProblem(t, startResponse, http.StatusConflict, "no_applied_bundle")
 	stopResponse := authenticatedRequest(handler, http.MethodPost, "/api/v1/core/stop", "", "")
-	assertQueuedCoreHTTPTask(t, stopResponse, store.TaskKindRuntimeStop)
+	if stopResponse.Code != http.StatusOK {
+		t.Fatal(stopResponse.Code, stopResponse.Body.String())
+	}
 }
 
 func TestRuntimeAndConfigurationHTTPRejectAmbiguousInputs(t *testing.T) {
@@ -235,13 +241,11 @@ func seedRuntimeHTTPStartup(
 ) (store.CanonicalRevision, store.StartupArtifact) {
 	t.Helper()
 	createdAt := time.Date(2026, time.August, 26, 14, 0, 0, 0, time.UTC)
-	revision, err := database.SaveCanonicalRevisionAndTask(context.Background(), "", store.NewCanonicalRevision{
+	revision, err := testutil.SaveConfiguration(context.Background(), database, 0, store.NewCanonicalRevision{
 		ID: "revision_runtime_http", SchemaVersion: configuration.SchemaVersion,
 		Document: configuration.Empty().CanonicalJSON(), CommandID: "command_runtime_http", CreatedAt: createdAt,
-	}, store.NewTask{
-		ID: "task_runtime_http", Lane: store.TaskLaneMaintenance,
-		Kind: store.TaskKindCanonicalSaved, CreatedAt: createdAt,
-	})
+	},
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -259,7 +263,7 @@ func seedRuntimeHTTPStartup(
 func seedSupportedRuntimeHTTPCore(t *testing.T, database *store.Store) store.CoreArtifact {
 	t.Helper()
 	artifact, err := database.UpsertCoreArtifact(context.Background(), store.CoreArtifact{
-		ID: "core_runtime_http", ExactVersion: "1.13.19", OperatingSystem: "linux", Architecture: "arm64", Variant: "plain",
+		ID: "core_runtime_http", ExactVersion: "1.13.19", OperatingSystem: "linux", Architecture: "arm64", Variant: "musl",
 		SourceKind: store.CoreArtifactSourceUserVerified, UserSource: "runtime HTTP fixture",
 		ArchiveSHA256: strings.Repeat("ca", 32), BinarySHA256: strings.Repeat("cb", 32),
 		BinaryPath: "/var/lib/sing-box-panel/artifacts/core_runtime_http/sing-box", ReportedVersion: "1.13.19",
@@ -271,4 +275,38 @@ func seedSupportedRuntimeHTTPCore(t *testing.T, database *store.Store) store.Cor
 		t.Fatal(err)
 	}
 	return artifact
+}
+
+// HTTP tests validate dispatch and response contracts; server tests exercise process execution.
+type httpRuntimeFixture struct{ commands *application.Application }
+
+func (fixture httpRuntimeFixture) ExecuteRuntime(ctx context.Context, input application.RuntimeRequest) (application.RuntimeResponse, error) {
+	result := application.RuntimeResponse{Status: application.RuntimeStatus{ObservationState: "stopped"}}
+	var err error
+	switch input.Action {
+	case "check":
+		checked, checkErr := fixture.commands.CompleteStartupCheck(ctx, input.StartupArtifactID, true)
+		result.Startup = &application.StartupArtifactSummary{ID: checked.ID, CanonicalRevisionID: checked.CanonicalRevisionID, CoreArtifactID: checked.CoreArtifactID, ExactCoreVersion: checked.ExactCoreVersion, ConfigSHA256: checked.ConfigSHA256, State: checked.State, CheckedAt: checked.CheckedAt, CreatedAt: checked.CreatedAt}
+		err = checkErr
+	case "activate":
+		prepared, prepareErr := fixture.commands.PrepareActivationBundle(ctx, input.StartupArtifactID, input.MonitoringTier)
+		summary := prepared.Summary()
+		result.Activation = &summary
+		err = prepareErr
+	case "start":
+		_, err = fixture.commands.PrepareConfigurationRuntime(ctx, "", store.RuntimeIntentStart)
+	case "restart":
+		_, err = fixture.commands.PrepareConfigurationRuntime(ctx, "", store.RuntimeIntentRestart)
+	case "stop":
+		_, err = fixture.commands.PrepareRuntimeIntent(ctx, store.RuntimeIntentStop, "")
+	case "rollback":
+		_, err = fixture.commands.PrepareRuntimeIntent(ctx, store.RuntimeIntentRollback, input.BundleID)
+	case "enable":
+		_, err = fixture.commands.PrepareCoreEnable(ctx, input.CoreID)
+	case "disable":
+		_, err = fixture.commands.PrepareCoreDisable(ctx, input.CoreID)
+	default:
+		err = errors.New("unsupported fixture action")
+	}
+	return result, err
 }

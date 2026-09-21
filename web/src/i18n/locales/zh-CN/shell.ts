@@ -32,7 +32,6 @@ export const nav = {
   dashboard: '仪表盘',
   observability: '运行日志',
   subscriptions: '订阅管理',
-  tasks: '任务记录',
 } as const;
 
 export const account = {

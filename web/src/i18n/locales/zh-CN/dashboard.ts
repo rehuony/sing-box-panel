@@ -40,7 +40,7 @@ export const dashboard = {
   },
   error: {
     history: '历史指标不可用',
-    tasks: '任务记录不可用',
+    activity: '活动记录不可用',
     timeline: '运行历史不可用',
   },
   evidence: {
@@ -68,8 +68,8 @@ export const dashboard = {
     runtimeLoading: '正在加载运行历史…',
     runtimeStale: '时间范围已变更，正在等待匹配的运行历史。',
     snapshotStale: '正在刷新运行证据，旧快照已隐藏。',
-    tasksLoading: '正在加载最近任务…',
-    tasksStale: '正在刷新最近任务，旧快照已隐藏。',
+    activityLoading: '正在加载最近活动…',
+    activityStale: '正在刷新最近活动，旧快照已隐藏。',
   },
   summary: {
     average: '平均值',
@@ -84,18 +84,10 @@ export const dashboard = {
     time: '时间',
     title: '无障碍数据表格',
   },
-  tasks: {
-    empty: '暂无任务记录。',
-    status: {
-      canceled: '已取消',
-      canceling: '正在取消',
-      failed: '失败',
-      queued: '排队中',
-      running: '执行中',
-      succeeded: '已完成',
-      superseded: '已取代',
-    },
-    title: '最近任务',
+  activity: {
+    empty: '暂无活动记录。',
+
+    title: '最近活动',
     viewAll: '查看全部',
   },
   timeline: {

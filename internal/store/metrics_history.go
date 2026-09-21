@@ -79,8 +79,8 @@ func (s *Store) MetricsHistory(ctx context.Context, filter MetricsHistoryFilter)
 
 	clauses := []string{"sampled_at >= ?", "sampled_at < ?"}
 	args := []any{
-		formatTaskTime(prepared.From), prepared.BucketSeconds,
-		formatTaskTime(prepared.From), formatTaskTime(prepared.To),
+		formatTime(prepared.From), prepared.BucketSeconds,
+		formatTime(prepared.From), formatTime(prepared.To),
 	}
 	if prepared.ActivationBundleID != "" {
 		clauses = append(clauses, "activation_bundle_id = ?")
@@ -144,9 +144,9 @@ func (s *Store) MetricsHistory(ctx context.Context, filter MetricsHistoryFilter)
 		"sample.interval_start < ?",
 	}
 	evidenceArgs := []any{
-		formatTaskTime(prepared.From), formatTaskTime(prepared.To),
+		formatTime(prepared.From), formatTime(prepared.To),
 		prepared.BucketSeconds, bucketCount,
-		formatTaskTime(prepared.From), formatTaskTime(prepared.To),
+		formatTime(prepared.From), formatTime(prepared.To),
 	}
 	if prepared.ActivationBundleID != "" {
 		evidenceClauses = append(evidenceClauses, "sample.activation_bundle_id = ?")
@@ -312,7 +312,7 @@ func (s *Store) DeleteTrafficSamplesBefore(ctx context.Context, cutoff time.Time
 	result, err := s.db.ExecContext(
 		ctx,
 		`DELETE FROM traffic_samples WHERE sampled_at < ?`,
-		formatTaskTime(cutoff.UTC()),
+		formatTime(cutoff.UTC()),
 	)
 	if err != nil {
 		return 0, fmt.Errorf("delete expired traffic samples: %w", err)

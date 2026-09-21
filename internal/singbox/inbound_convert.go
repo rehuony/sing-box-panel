@@ -14,9 +14,7 @@ import (
 )
 
 type inboundOptions struct {
-	anyTLS bool
-	naive  bool
-	snell  bool
+	snell bool
 }
 
 type converter struct {
@@ -28,13 +26,7 @@ func newInboundConverter(exactVersion string, options inboundOptions) subscripti
 	convertible := map[string]struct{}{
 		"mixed": {}, "socks": {}, "http": {}, "shadowsocks": {}, "vmess": {},
 		"trojan": {}, "hysteria": {}, "shadowtls": {}, "vless": {}, "tuic": {},
-		"hysteria2": {},
-	}
-	if options.anyTLS {
-		convertible["anytls"] = struct{}{}
-	}
-	if options.naive {
-		convertible["naive"] = struct{}{}
+		"hysteria2": {}, "anytls": {}, "naive": {},
 	}
 	if options.snell {
 		convertible["snell"] = struct{}{}

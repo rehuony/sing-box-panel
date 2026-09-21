@@ -81,7 +81,7 @@ func (s *Store) SaveManualSubscriptionNode(ctx context.Context, node ManualSubsc
 		node.UpdatedAt = now
 		_, err = tx.ExecContext(ctx, `INSERT INTO subscription_manual_nodes(id, revision, outbound_json, created_at, updated_at) VALUES(?,?,?,?,?)
             ON CONFLICT(id) DO UPDATE SET revision=excluded.revision, outbound_json=excluded.outbound_json, updated_at=excluded.updated_at`,
-			node.ID, node.Revision, string(node.Outbound), formatTaskTime(node.CreatedAt), formatTaskTime(now))
+			node.ID, node.Revision, string(node.Outbound), formatTime(node.CreatedAt), formatTime(now))
 		return err
 	})
 	return node, err
@@ -95,7 +95,7 @@ func getManualSubscriptionNode(ctx context.Context, q queryRower, id string) (Ma
 	return value, err
 }
 
-func scanManualSubscriptionNode(row taskScanner) (ManualSubscriptionNode, error) {
+func scanManualSubscriptionNode(row rowScanner) (ManualSubscriptionNode, error) {
 	var node ManualSubscriptionNode
 	var raw, created, updated string
 	if err := row.Scan(&node.ID, &node.Revision, &raw, &created, &updated); err != nil {
@@ -103,11 +103,11 @@ func scanManualSubscriptionNode(row taskScanner) (ManualSubscriptionNode, error)
 	}
 	node.Outbound = json.RawMessage(raw)
 	var err error
-	node.CreatedAt, err = parseTaskTime(created)
+	node.CreatedAt, err = parseTime(created)
 	if err != nil {
 		return node, err
 	}
-	node.UpdatedAt, err = parseTaskTime(updated)
+	node.UpdatedAt, err = parseTime(updated)
 	return node, err
 }
 

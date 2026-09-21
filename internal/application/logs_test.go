@@ -31,8 +31,8 @@ func TestLogApplicationRecordsListsTailsAndDeletes(t *testing.T) {
 	}
 
 	recorded, err := app.RecordLog(ctx, LogRecordRequest{
-		Source: store.LogSourceTask, Level: store.LogLevelInfo, Code: "task.started",
-		Message: "task started", Metadata: json.RawMessage(`{"token":"plaintext","task_id":"task_1"}`),
+		Source: store.LogSourcePanel, Level: store.LogLevelInfo, Code: "catalog.started",
+		Message: "catalog refresh started", Metadata: json.RawMessage(`{"token":"plaintext","operation_id":"catalog_1"}`),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -40,11 +40,11 @@ func TestLogApplicationRecordsListsTailsAndDeletes(t *testing.T) {
 	if recorded.ID != "log_0102030405060708090a0b0c0d0e0f10" || !recorded.Time.Equal(now) {
 		t.Fatalf("recorded=%+v", recorded)
 	}
-	if string(recorded.Metadata) != `{"task_id":"task_1","token":"[REDACTED]"}` {
+	if string(recorded.Metadata) != `{"operation_id":"catalog_1","token":"[REDACTED]"}` {
 		t.Fatalf("metadata=%s", recorded.Metadata)
 	}
 
-	page, err := app.ListLogs(ctx, LogListRequest{Source: store.LogSourceTask, Limit: 10})
+	page, err := app.ListLogs(ctx, LogListRequest{Source: store.LogSourcePanel, Limit: 10})
 	if err != nil || len(page.Items) != 1 || page.Items[0].ID != recorded.ID {
 		t.Fatalf("page=%+v error=%v", page, err)
 	}

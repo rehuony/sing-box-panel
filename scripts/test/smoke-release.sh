@@ -471,15 +471,6 @@ assert_json 'valid file preserves exact text and links immutable history' \
 stale_save="$(authenticated_put '/api/v1/config/file' 412 <<<"${file_write}")"
 assert_json 'stale editable-file writes are rejected' '.code == "configuration_file_conflict"' <<<"${stale_save}"
 
-# The history is evidence of the file save, not a second writable configuration.
-canonical_before="$(authenticated_get '/api/v1/config/canonical')"
-assert_json 'file and immutable history share an identity and preserve large numbers' \
-  --arg id "$(jq -r '.canonical_revision_id' <<<"${saved_file}")" \
-  '.id == $id and .sequence == 1 and .document.log.level == "debug" and (.document_json | contains("9007199254740993"))' \
-  <<<"${canonical_before}"
-# Compare the lossless JSON string, not the decoded numeric values in jq.
-canonical_before="$(jq 'del(.document)' <<<"${canonical_before}")"
-
 panel_settings="$(authenticated_get '/api/v1/panel/settings')"
 settings_write="$(jq '{revision, preferences: (.preferences | .language = "en" | .appearance.theme = "dark")}' <<<"${panel_settings}")"
 saved_settings="$(authenticated_put '/api/v1/panel/settings' <<<"${settings_write}")"
@@ -526,9 +517,6 @@ assert_json 'release retains history and does not start a core implicitly' --arg
 persisted_file="$(authenticated_get '/api/v1/config/file')"
 assert_json 'unfinished configuration text and revision survive restart unchanged' \
   --argjson saved "${saved_draft}" '. == $saved' <<<"${persisted_file}"
-persisted_canonical="$(authenticated_get '/api/v1/config/canonical')"
-assert_json 'immutable identity, digest, schema and lossless JSON survive restart unchanged' \
-  --argjson saved "${canonical_before}" 'del(.document) == $saved' <<<"${persisted_canonical}"
 persisted_settings="$(authenticated_get '/api/v1/panel/settings')"
 assert_json 'panel preferences and credential-presence flags survive restart unchanged' \
   --argjson saved "${saved_settings}" \

@@ -14,7 +14,7 @@ export function ObservabilityPage() {
   const { t } = useTranslation();
   const [params] = useSearchParams();
   const [toolbarTarget, setToolbarTarget] = useState<HTMLDivElement | null>(null);
-  const [tab, setTab] = useHashTab('logs-', ['core', 'panel'] as const, params.get('tab') === 'panel' || params.has('task') ? 'panel' : 'core', ['tab', 'task']);
+  const [tab, setTab] = useHashTab('logs-', ['core', 'panel'] as const, params.get('tab') === 'panel' ? 'panel' : 'core', ['tab']);
   return (
     <section className='observability-page panel-page'>
       <h1 className='sr-only'>{t('productLogs.title')}</h1>

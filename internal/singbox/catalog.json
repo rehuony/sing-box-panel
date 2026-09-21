@@ -3,58 +3,6 @@
   "source_repository": "SagerNet/sing-box",
   "versions": [
     {
-      "version": "1.11.15",
-      "inbound_family": "1.11",
-      "upstream": {
-        "tag": "v1.11.15",
-        "commit": "bc35aca01704497c179da1a03e45ad8e32f1a51b",
-        "module_sum": "h1:K4IK4U3DBQYmRJVYQE/NdsKW5ezqG3BMiF6sQGhWZHY=",
-        "go_mod_sum": "h1:E/V6629+bJOeU3HvW0IUCjF0x4UFyq+82jMZoHxxozw="
-      },
-      "profiles": {
-        "amd64": {
-          "asset_name": "sing-box-1.11.15-linux-amd64.tar.gz",
-          "url": "https://github.com/SagerNet/sing-box/releases/download/v1.11.15/sing-box-1.11.15-linux-amd64.tar.gz",
-          "sha256": "950af37eb2d7e55dddae34a18411cd617303fd99d2dc75bc76b6dd9fcd97d9c5",
-          "size": 12343812,
-          "features": ["with_acme", "with_clash_api", "with_dhcp", "with_ech", "with_gvisor", "with_quic", "with_reality_server", "with_utls", "with_wireguard"]
-        },
-        "arm64": {
-          "asset_name": "sing-box-1.11.15-linux-arm64.tar.gz",
-          "url": "https://github.com/SagerNet/sing-box/releases/download/v1.11.15/sing-box-1.11.15-linux-arm64.tar.gz",
-          "sha256": "20a6a9cd259a95411599f811a5066513a98db63705a51121252ad27daf96c029",
-          "size": 11276002,
-          "features": ["with_acme", "with_clash_api", "with_dhcp", "with_ech", "with_gvisor", "with_quic", "with_reality_server", "with_utls", "with_wireguard"]
-        }
-      }
-    },
-    {
-      "version": "1.12.25",
-      "inbound_family": "1.12",
-      "upstream": {
-        "tag": "v1.12.25",
-        "commit": "73bfb99ebce7923c485435e4faf8571b412065a9",
-        "module_sum": "h1:zg7RV4CCRsSelCfMTlQWiFvZE4gVyCVgwQWkfQWXggs=",
-        "go_mod_sum": "h1:WMV0Jgg7Xtdge0g2YjiQ4MhFDcZQDuiPXEmqUmPgOVA="
-      },
-      "profiles": {
-        "amd64": {
-          "asset_name": "sing-box-1.12.25-linux-amd64.tar.gz",
-          "url": "https://github.com/SagerNet/sing-box/releases/download/v1.12.25/sing-box-1.12.25-linux-amd64.tar.gz",
-          "sha256": "a1ec76e2b6b139eb747a1b1ebee7d14b8d4be5a833596cad8070a31ef960301f",
-          "size": 16523863,
-          "features": ["with_acme", "with_clash_api", "with_dhcp", "with_gvisor", "with_quic", "with_tailscale", "with_utls", "with_wireguard"]
-        },
-        "arm64": {
-          "asset_name": "sing-box-1.12.25-linux-arm64.tar.gz",
-          "url": "https://github.com/SagerNet/sing-box/releases/download/v1.12.25/sing-box-1.12.25-linux-arm64.tar.gz",
-          "sha256": "719b76196c8b31efa636b2d8f669e314547e0da0a5ab38a75e1882d307bbd154",
-          "size": 14962486,
-          "features": ["with_acme", "with_clash_api", "with_dhcp", "with_gvisor", "with_quic", "with_tailscale", "with_utls", "with_wireguard"]
-        }
-      }
-    },
-    {
       "version": "1.13.19",
       "inbound_family": "1.13",
       "upstream": {
@@ -65,18 +13,48 @@
       },
       "profiles": {
         "amd64": {
-          "asset_name": "sing-box-1.13.19-linux-amd64.tar.gz",
-          "url": "https://github.com/SagerNet/sing-box/releases/download/v1.13.19/sing-box-1.13.19-linux-amd64.tar.gz",
-          "sha256": "ef88a9e577d474210867bd708933d042e9b70106529df2656182c9db90106aa1",
-          "size": 23928553,
-          "features": ["badlinkname", "tfogo_checklinkname0", "with_acme", "with_ccm", "with_clash_api", "with_dhcp", "with_gvisor", "with_naive_outbound", "with_ocm", "with_purego", "with_quic", "with_tailscale", "with_utls", "with_wireguard"]
+          "asset_name": "sing-box-1.13.19-linux-amd64-musl.tar.gz",
+          "url": "https://github.com/SagerNet/sing-box/releases/download/v1.13.19/sing-box-1.13.19-linux-amd64-musl.tar.gz",
+          "sha256": "150456f94fcf936fc2519de28d856422fb671a1ff181cd909b78f20e208fdcb8",
+          "size": 24753732,
+          "features": [
+            "badlinkname",
+            "tfogo_checklinkname0",
+            "with_acme",
+            "with_ccm",
+            "with_clash_api",
+            "with_dhcp",
+            "with_gvisor",
+            "with_musl",
+            "with_naive_outbound",
+            "with_ocm",
+            "with_quic",
+            "with_tailscale",
+            "with_utls",
+            "with_wireguard"
+          ]
         },
         "arm64": {
-          "asset_name": "sing-box-1.13.19-linux-arm64.tar.gz",
-          "url": "https://github.com/SagerNet/sing-box/releases/download/v1.13.19/sing-box-1.13.19-linux-arm64.tar.gz",
-          "sha256": "7fe3597a95a3c5ad67477b1d7653b9ce097e0be7c676758eba1fcf558f353d57",
-          "size": 22122605,
-          "features": ["badlinkname", "tfogo_checklinkname0", "with_acme", "with_ccm", "with_clash_api", "with_dhcp", "with_gvisor", "with_naive_outbound", "with_ocm", "with_purego", "with_quic", "with_tailscale", "with_utls", "with_wireguard"]
+          "asset_name": "sing-box-1.13.19-linux-arm64-musl.tar.gz",
+          "url": "https://github.com/SagerNet/sing-box/releases/download/v1.13.19/sing-box-1.13.19-linux-arm64-musl.tar.gz",
+          "sha256": "5146181884310ea2381e085ef504005c81bd09f80721542127efb0a73f12cd2f",
+          "size": 22735134,
+          "features": [
+            "badlinkname",
+            "tfogo_checklinkname0",
+            "with_acme",
+            "with_ccm",
+            "with_clash_api",
+            "with_dhcp",
+            "with_gvisor",
+            "with_musl",
+            "with_naive_outbound",
+            "with_ocm",
+            "with_quic",
+            "with_tailscale",
+            "with_utls",
+            "with_wireguard"
+          ]
         }
       }
     },
@@ -91,18 +69,56 @@
       },
       "profiles": {
         "amd64": {
-          "asset_name": "sing-box-1.14.0-linux-amd64.tar.gz",
-          "url": "https://github.com/SagerNet/sing-box/releases/download/v1.14.0/sing-box-1.14.0-linux-amd64.tar.gz",
-          "sha256": "2375de6999f4f56ab46b4fc5ddf26a6aba1d3e61a0f4e7ddec2f4690457d5f63",
-          "size": 31639897,
-          "features": ["badlinkname", "tfogo_checklinkname0", "with_acme", "with_ccm", "with_clash_api", "with_cloudflared", "with_dhcp", "with_gvisor", "with_naive_outbound", "with_ocm", "with_openconnect", "with_openvpn", "with_purego", "with_quic", "with_tailscale", "with_usbip", "with_utls", "with_wireguard"]
+          "asset_name": "sing-box-1.14.0-linux-amd64-musl.tar.gz",
+          "url": "https://github.com/SagerNet/sing-box/releases/download/v1.14.0/sing-box-1.14.0-linux-amd64-musl.tar.gz",
+          "sha256": "d2d6b4543d850269214ced70ffe41b13b1595baa1b6f9c016466abfba162c4d4",
+          "size": 32481765,
+          "features": [
+            "badlinkname",
+            "tfogo_checklinkname0",
+            "with_acme",
+            "with_ccm",
+            "with_clash_api",
+            "with_cloudflared",
+            "with_dhcp",
+            "with_gvisor",
+            "with_musl",
+            "with_naive_outbound",
+            "with_ocm",
+            "with_openconnect",
+            "with_openvpn",
+            "with_quic",
+            "with_tailscale",
+            "with_usbip",
+            "with_utls",
+            "with_wireguard"
+          ]
         },
         "arm64": {
-          "asset_name": "sing-box-1.14.0-linux-arm64.tar.gz",
-          "url": "https://github.com/SagerNet/sing-box/releases/download/v1.14.0/sing-box-1.14.0-linux-arm64.tar.gz",
-          "sha256": "04d9b40bc98dc55b6f509ce3292145c65478f65866bea64826ebb2f382385088",
-          "size": 29059388,
-          "features": ["badlinkname", "tfogo_checklinkname0", "with_acme", "with_ccm", "with_clash_api", "with_cloudflared", "with_dhcp", "with_gvisor", "with_naive_outbound", "with_ocm", "with_openconnect", "with_openvpn", "with_purego", "with_quic", "with_tailscale", "with_usbip", "with_utls", "with_wireguard"]
+          "asset_name": "sing-box-1.14.0-linux-arm64-musl.tar.gz",
+          "url": "https://github.com/SagerNet/sing-box/releases/download/v1.14.0/sing-box-1.14.0-linux-arm64-musl.tar.gz",
+          "sha256": "1811c446a4957edee1b62ed2363607f8e99e1f7b6d88179719251d7ed5f30169",
+          "size": 29685215,
+          "features": [
+            "badlinkname",
+            "tfogo_checklinkname0",
+            "with_acme",
+            "with_ccm",
+            "with_clash_api",
+            "with_cloudflared",
+            "with_dhcp",
+            "with_gvisor",
+            "with_musl",
+            "with_naive_outbound",
+            "with_ocm",
+            "with_openconnect",
+            "with_openvpn",
+            "with_quic",
+            "with_tailscale",
+            "with_usbip",
+            "with_utls",
+            "with_wireguard"
+          ]
         }
       }
     }

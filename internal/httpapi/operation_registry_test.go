@@ -99,12 +99,9 @@ func TestRepresentativeHTTPResponsesConformToOpenAPI(t *testing.T) {
 		Commands: application.FromStoreWithSettings(database, value),
 	})
 
-	canonical := serveConformingRequest(t, router, handler, http.MethodPut, "/api/v1/config/canonical",
-		`{}`, http.StatusOK, true, map[string]string{"If-Match": `"none"`})
-	var saved application.CanonicalSave
-	if err := json.Unmarshal(canonical.Body.Bytes(), &saved); err != nil || saved.TaskID == "" {
-		t.Fatalf("decode canonical save: save=%+v err=%v", saved, err)
-	}
+	serveConformingRequest(t, router, handler, http.MethodPut, "/api/v1/config/file",
+		`{"revision":0,"content":"{}"}`, http.StatusOK, true, nil)
+
 	fileResponse := serveConformingRequest(t, router, handler, http.MethodGet, "/api/v1/config/file", "", http.StatusOK, true, nil)
 	var file application.ConfigurationFile
 	if err := json.Unmarshal(fileResponse.Body.Bytes(), &file); err != nil {
@@ -126,7 +123,6 @@ func TestRepresentativeHTTPResponsesConformToOpenAPI(t *testing.T) {
 		t.Fatal(err)
 	}
 	serveConformingRequest(t, router, handler, http.MethodPut, "/api/v1/panel/settings", string(panelBody), http.StatusOK, true, nil)
-	serveConformingRequest(t, router, handler, http.MethodGet, "/api/v1/tasks/"+saved.TaskID, "", http.StatusOK, true, nil)
 
 	now := time.Date(2026, time.August, 29, 10, 0, 0, 0, time.UTC)
 	source, err := database.CreateSubscriptionSource(ctx, store.SubscriptionSource{
@@ -151,8 +147,6 @@ func TestRepresentativeHTTPResponsesConformToOpenAPI(t *testing.T) {
 	serveConformingRequest(t, router, handler, http.MethodGet,
 		"/api/v1/subscription/sources/"+source.ID+"/versions/"+version.Version.ID,
 		"", http.StatusOK, true, nil)
-	serveConformingRequest(t, router, handler, http.MethodGet, "/api/v1/tasks/"+saved.TaskID,
-		"", http.StatusUnauthorized, false, nil)
 }
 
 func serveConformingRequest(

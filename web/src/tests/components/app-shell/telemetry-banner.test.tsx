@@ -2,7 +2,7 @@ import userEvent from '@testing-library/user-event';
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import type { ApiClient, MetricsSnapshot, RuntimeStatus, Task } from '@/api/api-client';
+import type { ApiClient, MetricsSnapshot, RuntimeStatus } from '@/api/api-client';
 
 import { setAppLanguage } from '@/i18n';
 import { ThemeProvider } from '@/theme';
@@ -14,7 +14,6 @@ import { TelemetryProvider } from '@/components/app-shell/telemetry-provider';
 import {
   createMockApiClient,
   testMetrics,
-  testTask,
 } from '@/tests/api/mock-api-client';
 
 function runtimeIdentity(processStartToken = 'process-8124') {
@@ -185,52 +184,33 @@ describe('telemetryBanner', () => {
     expect(screen.getByRole('button', { name: 'Stop' })).toBeEnabled();
   });
 
-  it('tracks the durable start task and verifies the observed runtime', async () => {
+  it('waits for start to finish and verifies the returned runtime', async () => {
     const user = userEvent.setup();
-    const queuedTask: Task = {
-      ...testTask,
-      id: 'task_runtime_start',
-      kind: 'runtime-start',
-      status: 'queued',
-    };
-    const getTask = vi.fn()
-      .mockResolvedValueOnce({ ...queuedTask, status: 'running' })
-      .mockResolvedValueOnce({ ...queuedTask, status: 'succeeded' });
+    let finish!: (status: RuntimeStatus) => void;
     const client = createMockApiClient({
-      getRuntimeStatus: vi.fn()
-        .mockResolvedValueOnce(stoppedStatus)
-        .mockResolvedValue(runningStatus()),
+      getRuntimeStatus: vi.fn().mockResolvedValue(stoppedStatus),
       getTrafficStatus: vi.fn().mockResolvedValue({ ...testMetrics, available: false }),
-      getTask,
-      startRuntime: vi.fn().mockResolvedValue(queuedTask),
+      startRuntime: vi.fn(() => new Promise<RuntimeStatus>(resolve => {
+        finish = resolve;
+      })),
     });
-
     renderBanner(client);
     await user.click(await screen.findByRole('button', { name: 'Start' }));
-
     expect(client.startRuntime).toHaveBeenCalledTimes(1);
-    expect(await screen.findByText('Start · running')).toBeInTheDocument();
-    expect(screen.queryByText(queuedTask.id)).not.toBeInTheDocument();
-    expect(screen.queryByTitle(queuedTask.id)).not.toBeInTheDocument();
-    expect(await screen.findByText('Start verified', {}, { timeout: 3_500 })).toBeInTheDocument();
-    expect(getTask).toHaveBeenCalledTimes(2);
+    expect(screen.getByText('Start in progress…')).toBeInTheDocument();
+    await act(async () => finish(runningStatus()));
+    expect(await screen.findByText('Start verified')).toBeInTheDocument();
     expect(screen.getByText('Running')).toBeInTheDocument();
   });
 
   it('requires confirmation for stop and restart actions', async () => {
     const user = userEvent.setup();
-    const restartTask: Task = {
-      ...testTask,
-      id: 'task_runtime_restart',
-      kind: 'runtime-restart',
-      status: 'succeeded',
-    };
     const client = createMockApiClient({
       getRuntimeStatus: vi.fn()
         .mockResolvedValueOnce(runningStatus('process-old'))
         .mockResolvedValue(runningStatus('process-new')),
       getTrafficStatus: vi.fn().mockResolvedValue({ ...testMetrics, available: false }),
-      restartRuntime: vi.fn().mockResolvedValue(restartTask),
+      restartRuntime: vi.fn().mockResolvedValue(runningStatus('process-new')),
     });
 
     renderBanner(client);
@@ -277,19 +257,17 @@ describe('telemetryBanner', () => {
   it.each(['start', 'stop', 'restart'] as const)('replaces controls with %s feedback until it expires', async (action) => {
     vi.useFakeTimers();
     const label = action[0]!.toUpperCase() + action.slice(1);
-    const queuedTask = { ...testTask, status: 'queued' as const };
-    let resolveTask!: (task: Task) => void;
-    const taskRequest = new Promise<Task>((resolve) => {
-      resolveTask = resolve;
+    let resolveOperation!: (status: RuntimeStatus) => void;
+    const operationRequest = new Promise<RuntimeStatus>((resolve) => {
+      resolveOperation = resolve;
     });
     const initialRuntime = action === 'start' ? stoppedStatus : runningStatus('previous-process');
     const nextRuntime = action === 'stop' ? stoppedStatus : runningStatus('next-process');
-    const runtimeAction = vi.fn().mockReturnValue(taskRequest);
+    const runtimeAction = vi.fn().mockReturnValue(operationRequest);
     const getRuntimeStatus = vi.fn().mockResolvedValue(initialRuntime);
     const client = createMockApiClient({
       [`${action}Runtime`]: runtimeAction,
       getRuntimeStatus,
-      getTask: vi.fn().mockResolvedValue({ ...queuedTask, status: 'succeeded' }),
       getTrafficStatus: vi.fn().mockResolvedValue({ ...testMetrics, available: false }),
     });
     const { container } = renderBanner(client);
@@ -304,15 +282,11 @@ describe('telemetryBanner', () => {
     if (action !== 'start') fireEvent.click(screen.getByRole('button', { name: `${label} sing-box` }));
 
     const actions = container.querySelector('.telemetry-banner__actions')!;
-    expect(screen.getByText(`Queueing ${label}…`)).toBeInTheDocument();
+    expect(screen.getByText(`${label} in progress…`)).toBeInTheDocument();
     expect(actions.querySelector('button')).toBeNull();
     expect(actions.querySelectorAll('[data-slot="spinner"]')).toHaveLength(1);
 
-    await act(async () => resolveTask(queuedTask));
-    expect(screen.getByText(`${label} · queued`)).toBeInTheDocument();
-    expect(actions.querySelector('button')).toBeNull();
-
-    await act(async () => vi.advanceTimersByTimeAsync(750));
+    await act(async () => resolveOperation(initialRuntime));
     expect(screen.getByText(`Verifying ${label}…`)).toBeInTheDocument();
     expect(actions.querySelector('button')).toBeNull();
 

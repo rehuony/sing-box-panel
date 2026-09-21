@@ -50,7 +50,7 @@ func TestConfigurationRuntimePreflightPreservesProcessAndFencesChanges(t *testin
 			if err != nil {
 				t.Fatal(err)
 			}
-			queued, err := commands.QueueRuntimeRestart(ctx)
+			queued, err := commands.PrepareConfigurationRuntime(ctx, "", store.RuntimeIntentRestart)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -59,11 +59,7 @@ func TestConfigurationRuntimePreflightPreservesProcessAndFencesChanges(t *testin
 				t.Fatal(err)
 			}
 			if reserved.Hub.DesiredBundleID != before.Hub.DesiredBundleID || reserved.Hub.AppliedBundleID != before.Hub.AppliedBundleID || reserved.Hub.DesiredRunning != before.Hub.DesiredRunning {
-				t.Fatal("queue changed the desired process before validation")
-			}
-			task, err := db.ClaimTask(ctx, store.ClaimTaskInput{Lane: store.TaskLaneRuntime, LeaseOwner: "preflight", Now: time.Now().UTC(), LeaseDuration: time.Minute})
-			if err != nil || task == nil || task.ID != queued.ID {
-				t.Fatalf("claim: %+v %v", task, err)
+				t.Fatal("preflight changed the desired process before validation")
 			}
 			manager := &configurationCheckManager{}
 			if scenario == "binary-rejected" {
@@ -78,13 +74,13 @@ func TestConfigurationRuntimePreflightPreservesProcessAndFencesChanges(t *testin
 			}
 			if scenario == "superseded-during-check" {
 				manager.checkHook = func() {
-					if _, err := commands.QueueRuntimeStop(ctx); err != nil {
+					if _, err := commands.PrepareRuntimeIntent(ctx, store.RuntimeIntentStop, ""); err != nil {
 						t.Fatal(err)
 					}
 				}
 			}
 			services := &runtimeServices{database: db, commands: commands, manager: manager}
-			bound, err := services.checkConfigurationForTask(ctx, *task, successfulTaskControl{})
+			bound, err := services.checkConfigurationForIntent(ctx, queued, successfulRuntimeGuard{})
 			if scenario == "success" {
 				if err != nil || bound.ActivationBundleID == "" {
 					t.Fatalf("bind: %+v %v", bound, err)
@@ -117,8 +113,8 @@ func TestInvalidSavedConfigurationCannotStartOrRestartFromOldHistory(t *testing.
 	if _, err := commands.SaveConfigurationFile(ctx, application.ConfigurationFileWrite{Revision: file.Revision, Content: "{"}); err != nil {
 		t.Fatal(err)
 	}
-	for _, queue := range []func(context.Context) (application.Task, error){commands.QueueRuntimeStart, commands.QueueRuntimeRestart} {
-		if _, err := queue(ctx); !errors.Is(err, store.ErrConfigurationFileUnparsed) {
+	for _, kind := range []store.RuntimeIntentKind{store.RuntimeIntentStart, store.RuntimeIntentRestart} {
+		if _, err := commands.PrepareConfigurationRuntime(ctx, "", kind); !errors.Is(err, store.ErrConfigurationFileUnparsed) {
 			t.Fatalf("invalid file used old history: %v", err)
 		}
 	}
@@ -158,28 +154,19 @@ func TestSavedConfigurationRestartCommitsCheckedBytesAndLoadedIdentity(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	queued, err := commands.QueueRuntimeRestart(ctx)
+	queued, err := commands.PrepareConfigurationRuntime(ctx, "", store.RuntimeIntentRestart)
 	if err != nil {
 		t.Fatal(err)
-	}
-	task, err := db.ClaimTask(ctx, store.ClaimTaskInput{Lane: store.TaskLaneRuntime, LeaseOwner: "launch-review", Now: time.Now().UTC(), LeaseDuration: time.Minute})
-	if err != nil || task == nil || task.ID != queued.ID {
-		t.Fatalf("claim: %+v %v", task, err)
 	}
 	manager := &configurationLaunchManager{}
 	manager.live = coreruntime.LiveIdentity{Running: true, PID: previous.PID, BundleID: previous.ActivationBundleID}
 	resolver := &fakeRuntimeIdentityResolver{startToken: "new-incarnation"}
 	services := &runtimeServices{database: db, commands: commands, manager: manager, identity: resolver}
-	result, err := runtimeIntentHandler(services)(ctx, *task, successfulTaskControl{})
-	if err != nil {
+	if err := services.executeIntent(ctx, queued); err != nil {
 		t.Fatal(err)
 	}
-	completed, err := db.CompleteTask(ctx, task.ID, task.LeaseOwner, time.Now().UTC(), store.TaskCompletion{Succeeded: true, Result: result.Payload, Runtime: result.Runtime})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if completed.Status != store.TaskStatusSucceeded || manager.launches != 1 || manager.checkedBundle == nil {
-		t.Fatalf("incomplete lifecycle: %+v", completed)
+	if manager.launches != 1 || manager.checkedBundle == nil {
+		t.Fatal("incomplete lifecycle")
 	}
 	observation, err := db.RuntimeObservation(ctx)
 	if err != nil {
@@ -203,7 +190,7 @@ func TestSavedConfigurationRestartCommitsCheckedBytesAndLoadedIdentity(t *testin
 func TestStartDoesNotReloadAnAlreadyRunningProcess(t *testing.T) {
 	ctx := context.Background()
 	db, commands, previous := seedRuntimeObservation(t, ctx)
-	unchanged, err := commands.QueueRuntimeStart(ctx)
+	unchanged, err := commands.PrepareConfigurationRuntime(ctx, "", store.RuntimeIntentStart)
 	if err != nil || unchanged.ActivationBundleID != previous.ActivationBundleID || unchanged.StartupArtifactID != "" {
 		t.Fatalf("unchanged start: %+v %v", unchanged, err)
 	}
@@ -214,17 +201,14 @@ func TestStartDoesNotReloadAnAlreadyRunningProcess(t *testing.T) {
 	if _, err := commands.SaveConfigurationFile(ctx, application.ConfigurationFileWrite{Revision: file.Revision, Content: `{"log":{"level":"debug"}}`}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := commands.QueueRuntimeStart(ctx); err != nil {
+	intent, err := commands.PrepareConfigurationRuntime(ctx, "", store.RuntimeIntentStart)
+	if err != nil {
 		t.Fatal(err)
-	}
-	task, err := db.ClaimTask(ctx, store.ClaimTaskInput{Lane: store.TaskLaneRuntime, LeaseOwner: "start-review", Now: time.Now().UTC(), LeaseDuration: time.Minute})
-	if err != nil || task == nil {
-		t.Fatalf("claim: %+v %v", task, err)
 	}
 	manager := &configurationLaunchManager{}
 	manager.live = coreruntime.LiveIdentity{Running: true, PID: previous.PID, BundleID: previous.ActivationBundleID}
 	services := &runtimeServices{database: db, commands: commands, manager: manager}
-	if _, err := runtimeIntentHandler(services)(ctx, *task, successfulTaskControl{}); err == nil {
+	if err := services.executeIntent(ctx, intent); err == nil {
 		t.Fatal("start silently reloaded a changed configuration")
 	}
 	if manager.launches != 0 || manager.stopCalls != 0 {
@@ -273,16 +257,12 @@ func TestStoppedCoreSelectionCommitsWithoutLaunchingAndRetainsVersion(t *testing
 			if err != nil {
 				t.Fatal(err)
 			}
-			queued, err := db.RequestConfigurationRuntimeIntent(ctx, store.RuntimeIntentInput{TaskID: "select-stopped", Kind: store.RuntimeIntentRestart, SelectOnly: true, CreatedAt: time.Now().UTC()}, store.StartupArtifact{
+			queued, err := db.RequestConfigurationRuntimeIntent(ctx, store.RuntimeIntentInput{Kind: store.RuntimeIntentRestart, SelectOnly: true, CreatedAt: time.Now().UTC()}, store.StartupArtifact{
 				ID: "selected-startup", CanonicalRevisionID: saved.CanonicalRevisionID, ExactCoreVersion: previous.ExactCoreVersion,
 				CoreArtifactID: core.ID, ConfigBytes: []byte(saved.Content), CreatedAt: time.Now().UTC(),
 			})
 			if err != nil {
 				t.Fatal(err)
-			}
-			task, err := db.ClaimTask(ctx, store.ClaimTaskInput{Lane: store.TaskLaneRuntime, LeaseOwner: "selection", Now: time.Now().UTC(), LeaseDuration: time.Minute})
-			if err != nil || task == nil || task.ID != queued.ID {
-				t.Fatalf("claim: %+v %v", task, err)
 			}
 			manager := &configurationLaunchManager{}
 			if scenario == "binary-rejected" {
@@ -290,25 +270,24 @@ func TestStoppedCoreSelectionCommitsWithoutLaunchingAndRetainsVersion(t *testing
 			}
 			resolver := &fakeRuntimeIdentityResolver{err: application.ErrNoRunningCore}
 			services := &runtimeServices{database: db, commands: commands, manager: manager, identity: resolver}
-			result, handleErr := runtimeIntentHandler(services)(ctx, *task, successfulTaskControl{})
-			if scenario == "binary-rejected" && handleErr == nil {
-				t.Fatal("accepted invalid configuration")
-			}
-			if scenario != "binary-rejected" && handleErr != nil {
-				t.Fatal(handleErr)
-			}
+			actionContext, cancel := context.WithCancel(ctx)
+			defer cancel()
 			if scenario == "canceled" {
-				if _, _, err := db.RequestTaskCancellation(ctx, task.ID, time.Now().UTC()); err != nil {
-					t.Fatal(err)
-				}
+				manager.checkHook = cancel
 			}
 			if scenario == "superseded" {
-				if _, err := commands.QueueRuntimeStop(ctx); err != nil {
-					t.Fatal(err)
+				manager.checkHook = func() {
+					if _, err := commands.PrepareRuntimeIntent(ctx, store.RuntimeIntentStop, ""); err != nil {
+						t.Fatal(err)
+					}
 				}
 			}
-			if _, err := db.CompleteTask(ctx, task.ID, task.LeaseOwner, time.Now().UTC(), store.TaskCompletion{Succeeded: handleErr == nil, Runtime: result.Runtime}); err != nil {
-				t.Fatal(err)
+			handleErr := services.executeIntent(actionContext, queued)
+			if scenario == "success" && handleErr != nil {
+				t.Fatal(handleErr)
+			}
+			if scenario != "success" && handleErr == nil {
+				t.Fatal("unsafe selection accepted")
 			}
 			if manager.launches != 0 || manager.stopCalls != 0 {
 				t.Fatal("selection changed process state")
@@ -341,12 +320,12 @@ func TestStoppedCoreSelectionCommitsWithoutLaunchingAndRetainsVersion(t *testing
 				if target, err := filepath.EvalSymlinks(link); err != nil || target != core.BinaryPath {
 					t.Fatalf("recovered link: %q %v", target, err)
 				}
-				start, err := commands.QueueRuntimeStart(ctx)
+				start, err := commands.PrepareConfigurationRuntime(ctx, "", store.RuntimeIntentStart)
 				if err != nil || start.ActivationBundleID != bootstrap.Hub.AppliedBundleID {
 					t.Fatalf("start lost selection: %+v %v", start, err)
 				}
 			} else if bootstrap.Hub.AppliedBundleID != previous.ActivationBundleID {
-				t.Fatal("unsuccessful task changed selection")
+				t.Fatal("unsuccessful operation changed selection")
 			}
 		})
 	}

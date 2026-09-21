@@ -52,22 +52,35 @@ export function useVersionLibrary() {
             items.push(...page.items);
             next = page.next;
           } while (next && !signal.aborted);
-          return items.filter((value) => value.os === system.platform!.os && value.arch === arch);
+          const matching = items.filter((value) => value.os === system.platform!.os && value.arch === arch);
+          if (!signal.aborted) setArtifacts(matching);
+          return matching;
         })(),
-        client.listCatalogAssets({ architecture: arch }, signal),
+        (async () => {
+          try {
+            const cached = await client.listCatalogAssets({ architecture: arch }, signal);
+            if (!signal.aborted) {
+              setCatalog({ ...cached, assets: cached.assets.filter(
+                asset => asset.os === system.platform!.os && asset.arch === arch,
+              ) });
+            }
+          } catch { /* An empty installation has no catalog yet. */ }
+          if (signal.aborted) return null;
+          await client.refreshCatalog(false, signal);
+          return client.listCatalogAssets({ architecture: arch }, signal);
+        })(),
       ]);
       if (signal.aborted) return;
       if (installed.status === 'fulfilled') setArtifacts(installed.value);
       else setError(installed.reason);
-      if (available.status === 'fulfilled') {
+      if (available.status === 'fulfilled' && available.value !== null) {
         setCatalog({
           ...available.value,
           assets: available.value.assets.filter(
             (asset) => asset.os === system.platform!.os && asset.arch === arch,
           ),
         });
-      } else {
-        setCatalog(null);
+      } else if (available.status === 'rejected') {
         setCatalogError(available.reason);
       }
     } catch (reason) {

@@ -16,14 +16,12 @@ import type {
   SubscriptionToken,
   SubscriptionUser,
   SystemStatus,
-  Task,
   TrafficPeriod,
 } from '../api-client';
 
 import { demoSourceNodeDetails, nodeSummary } from './demo-subscription-nodes';
 
 export interface DemoData {
-  tasks: Task[];
   logs: LogEntry[];
   cores: CoreArtifact[];
   runtime: RuntimeStatus;
@@ -91,7 +89,7 @@ export function createDemoData(now = new Date()): DemoData {
     exact_version: '1.14.0',
     os: 'linux',
     arch: 'amd64',
-    variant: 'with_quic',
+    variant: 'musl',
     source_kind: 'official',
     repository_id: 509091576,
     release_id: 214000,
@@ -107,7 +105,7 @@ export function createDemoData(now = new Date()): DemoData {
     exact_version: '1.13.19',
     os: 'linux',
     arch: 'amd64',
-    variant: 'plain',
+    variant: 'musl',
     source_kind: 'official',
     repository_id: 509091576,
     release_id: 213019,
@@ -137,34 +135,6 @@ export function createDemoData(now = new Date()): DemoData {
     state: 'ready',
     checked_at: ago(now, 1_430),
     created_at: ago(now, 1_440),
-  }];
-  const tasks: Task[] = [{
-    id: 'task_demo_apply',
-    lane: 'runtime',
-    kind: 'runtime-apply',
-    status: 'succeeded',
-    generation: 4,
-    canonical_revision_id: canonical.id,
-    startup_artifact_id: startupArtifacts[0].id,
-    activation_bundle_id: 'bundle_demo_current',
-    payload: { monitoring_tier: 'limited' },
-    result: { state: 'running' },
-    cancel_requested: false,
-    attempt: 1,
-    created_at: ago(now, 11),
-    updated_at: ago(now, 10),
-  }, {
-    id: 'task_demo_catalog',
-    lane: 'maintenance',
-    kind: 'catalog-refresh',
-    status: 'succeeded',
-    generation: 0,
-    payload: { force: false },
-    result: { asset_count: 3 },
-    cancel_requested: false,
-    attempt: 1,
-    created_at: ago(now, 95),
-    updated_at: ago(now, 94),
   }];
   const channels: SubscriptionChannel[] = [{
     id: 'channel_demo_singbox',
@@ -257,7 +227,7 @@ export function createDemoData(now = new Date()): DemoData {
     code: 'runtime.ready', message: 'sing-box 1.14.0 passed its health check.',
     metadata: { activation_bundle_id: 'bundle_demo_current', pid: 4281 },
   }, {
-    id: 'log_demo_config', time: ago(now, 12), source: 'task', level: 'info',
+    id: 'log_demo_config', time: ago(now, 12), source: 'panel', level: 'info',
     code: 'configuration.checked', message: 'The startup configuration is ready to activate.',
     metadata: { startup_artifact_id: startupArtifacts[0].id },
   }, {
@@ -287,21 +257,21 @@ export function createDemoData(now = new Date()): DemoData {
       refreshed_at: ago(now, 94),
       assets: [{
         repository_id: 509091576, release_id: 214000, asset_id: 114001,
-        name: 'sing-box-1.14.0-linux-amd64.tar.gz',
-        download_url: 'https://github.com/SagerNet/sing-box/releases/download/v1.14.0/sing-box-1.14.0-linux-amd64.tar.gz',
-        size: 15_728_640, version: '1.14.0', os: 'linux', arch: 'amd64', variant: 'with_quic',
+        name: 'sing-box-1.14.0-linux-amd64-musl.tar.gz',
+        download_url: 'https://github.com/SagerNet/sing-box/releases/download/v1.14.0/sing-box-1.14.0-linux-amd64-musl.tar.gz',
+        size: 15_728_640, version: '1.14.0', os: 'linux', arch: 'amd64', variant: 'musl',
         api_digest: digest('a'), catalog_digest: digest('a'), has_api_digest: true, has_catalog_digest: true,
       }, {
         repository_id: 509091576, release_id: 214000, asset_id: 114002,
-        name: 'sing-box-1.14.0-linux-arm64.tar.gz',
-        download_url: 'https://github.com/SagerNet/sing-box/releases/download/v1.14.0/sing-box-1.14.0-linux-arm64.tar.gz',
-        size: 14_680_064, version: '1.14.0', os: 'linux', arch: 'arm64', variant: 'with_quic',
+        name: 'sing-box-1.14.0-linux-arm64-musl.tar.gz',
+        download_url: 'https://github.com/SagerNet/sing-box/releases/download/v1.14.0/sing-box-1.14.0-linux-arm64-musl.tar.gz',
+        size: 14_680_064, version: '1.14.0', os: 'linux', arch: 'arm64', variant: 'musl',
         api_digest: digest('4'), catalog_digest: digest('4'), has_api_digest: true, has_catalog_digest: true,
       }, {
         repository_id: 509091576, release_id: 213019, asset_id: 113019,
-        name: 'sing-box-1.13.19-linux-amd64.tar.gz',
-        download_url: 'https://github.com/SagerNet/sing-box/releases/download/v1.13.19/sing-box-1.13.19-linux-amd64.tar.gz',
-        size: 14_155_776, version: '1.13.19', os: 'linux', arch: 'amd64', variant: 'plain',
+        name: 'sing-box-1.13.19-linux-amd64-musl.tar.gz',
+        download_url: 'https://github.com/SagerNet/sing-box/releases/download/v1.13.19/sing-box-1.13.19-linux-amd64-musl.tar.gz',
+        size: 14_155_776, version: '1.13.19', os: 'linux', arch: 'amd64', variant: 'musl',
         has_api_digest: false, has_catalog_digest: true, catalog_digest: digest('c'),
       }],
     },
@@ -338,7 +308,7 @@ export function createDemoData(now = new Date()): DemoData {
     runtimeHistory: {
       items: [{
         id: 4, state: 'running', reason: 'apply_succeeded', activation_bundle_id: 'bundle_demo_current',
-        generation: 4, task_id: tasks[0].id, pid: 4281, process_started_at: ago(now, 10),
+        generation: 4, pid: 4281, process_started_at: ago(now, 10),
         occurred_at: ago(now, 10),
       }, {
         id: 3, state: 'stopped', reason: 'restart_requested', activation_bundle_id: 'bundle_demo_previous',
@@ -353,7 +323,6 @@ export function createDemoData(now = new Date()): DemoData {
     sources,
     sourceVersions,
     startupArtifacts,
-    tasks,
     tokens,
     trafficPeriods,
     users,

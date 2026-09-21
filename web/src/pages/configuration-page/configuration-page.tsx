@@ -5,10 +5,12 @@ import { Button } from '@/components/ui/button';
 import { useHashTab } from '@/hooks/use-hash-tab';
 import { toast } from '@/components/ui/toast-manager';
 import { useApiClient } from '@/api/api-client-context';
-import { ErrorNotice } from '@/components/error-notice';
+import { reviewedSchemaManifest } from '@/schemas/generated';
 import { useControlPlane } from '@/stores/control-plane.store';
+import { describeRequestError, ErrorNotice } from '@/components/error-notice';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useOptionalSharedTelemetry } from '@/components/app-shell/telemetry-context';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 
 import { DynamicGeneralEditor } from './dynamic-general-editor';
 import { useConfigurationSchema } from './use-configuration-schema';
@@ -23,7 +25,15 @@ export function ConfigurationPage() {
   const controlPlane = useControlPlane();
   const telemetry = useOptionalSharedTelemetry();
   const canonical = useCanonicalConfiguration();
-  const schema = useConfigurationSchema(controlPlane.viewVersion);
+  const [selectedSchemaVersion, setSelectedSchemaVersion] = useState<string | null>(null);
+  const runningVersion = controlPlane.context?.view.exactVersion;
+  const installedVersion = runningVersion && /^\d+\.\d+\.\d+$/.test(runningVersion) ? runningVersion : '';
+  const schemaVersion = selectedSchemaVersion
+    ?? (installedVersion || Object.keys(reviewedSchemaManifest)[0] || '');
+  const schemaVersions = [...new Set([
+    ...Object.keys(reviewedSchemaManifest), installedVersion, schemaVersion,
+  ])].filter(Boolean);
+  const schema = useConfigurationSchema(schemaVersion);
   const [checking, setChecking] = useState(false);
   const [linkedInbound] = useState(() => new URLSearchParams(window.location.search).get('inbound'));
   const [selectedEditor, setSelectedEditor] = useHashTab('configuration-', ['visual', 'advanced'] as const, 'visual');
@@ -37,32 +47,13 @@ export function ConfigurationPage() {
     setChecking(true);
     try {
       const cores = await client.listCoreArtifacts(
-        { exactVersion: controlPlane.viewVersion, limit: 200 }, controller.signal,
+        { exactVersion: schemaVersion, limit: 200 }, controller.signal,
       );
       const runtime = await client.getRuntimeStatus(controller.signal);
       const core = cores.items.find(item => item.id === runtime.running?.core_artifact_id) ?? cores.items[0];
       if (core === undefined) throw new Error(t('configuration.file.noCore'));
       const result = await client.compileConfiguration({ coreArtifactID: core.id }, controller.signal);
-      let task = result.task;
-      const deadline = Date.now() + 60_000;
-      while (task.status === 'queued' || task.status === 'running') {
-        if (Date.now() >= deadline) throw new Error(t('configuration.file.checkPending'));
-        await new Promise<void>((resolve, reject) => {
-          let timer = 0;
-          const abort = () => {
-            window.clearTimeout(timer);
-            reject(new DOMException('Aborted', 'AbortError'));
-          };
-          timer = window.setTimeout(() => {
-            controller.signal.removeEventListener('abort', abort);
-            resolve();
-          }, 750);
-          if (controller.signal.aborted) abort();
-          else controller.signal.addEventListener('abort', abort, { once: true });
-        });
-        task = await client.getTask(task.id, controller.signal);
-      }
-      if (task.status !== 'succeeded') throw new Error(t('configuration.file.checkFailed'));
+      if (result.artifact.state !== 'ready') throw new Error(t('configuration.file.checkFailed'));
       if (!controller.signal.aborted) toast.add({ title: t('configuration.file.checked'), type: 'success' });
     } catch (error) {
       if (!controller.signal.aborted) toast.add({ title: error instanceof Error ? error.message : t('configuration.file.checkFailed'), type: 'error' });
@@ -107,7 +98,28 @@ export function ConfigurationPage() {
               <TabsTrigger disabled={!fileReady || schema.status !== 'ready' || invalid} value='visual'>{t('configuration.file.visual')}</TabsTrigger>
               <TabsTrigger disabled={!fileReady} value='advanced'>{t('configuration.tab.advanced')}</TabsTrigger>
             </TabsList>
+            <div className='configuration-schema-version'>
+              <label htmlFor='configuration-schema-version'>{t('configuration.schema.version')}</label>
+              <Select value={schemaVersion} onValueChange={value => {
+                if (value) setSelectedSchemaVersion(value);
+              }}>
+                <SelectTrigger id='configuration-schema-version'><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {schemaVersions.map(version => <SelectItem key={version} value={version}>{version}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
           </div>
+          {schema.status === 'ready' && schema.bundled && <p className='configuration-schema-notice' role='status'>{t('configuration.schema.bundled', { version: schemaVersion })}</p>}
+          {schema.status === 'unavailable' && <p className='configuration-schema-notice' role='status'>{t('configuration.schema.unsupported', { version: schemaVersion })}</p>}
+          {schema.status === 'error' && (
+            <p className='configuration-schema-notice' role='alert'>
+              {t('configuration.schema.failClosed')}
+              :
+              {' '}
+              {describeRequestError(schema.error)}
+            </p>
+          )}
           {canonical.state.status === 'error'
             ? <div className='configuration-tabs__content'><ErrorNotice error={canonical.state.error} title={t('configuration.error.unavailable')} /></div>
             : (

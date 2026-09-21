@@ -48,14 +48,16 @@ func applyPanelValues(value *settings.Settings, panel storedPanelSettings) {
 
 // encodeSettings retains a relative data_dir instead of rewriting it as the
 // absolute runtime location when unrelated Web preferences are saved.
-func encodeSettings(value settings.Settings, before []byte) ([]byte, error) {
+func encodeSettings(value settings.Settings, before []byte, preserveDataDir bool) ([]byte, error) {
 	var location struct {
 		DataDir string `json:"data_dir"`
 	}
 	if err := json.Unmarshal(before, &location); err != nil {
 		return nil, err
 	}
-	value.DataDir = location.DataDir
+	if preserveDataDir {
+		value.DataDir = location.DataDir
+	}
 	raw, err := json.MarshalIndent(value, "", "  ")
 	return append(raw, '\n'), err
 }
@@ -158,7 +160,7 @@ func (app *Application) RecoverPanelSettingsFileLocked(ctx context.Context) erro
 
 // commitSettingsFile requires the file lock. The durable journal is published
 // before either resource changes and cleared only after a known commit outcome.
-func (app *Application) commitSettingsFile(ctx context.Context, before, after []byte, legacy *int64, configuration *store.ConfigurationFileUpdate) error {
+func (app *Application) commitSettingsFile(ctx context.Context, before, after []byte, configuration *store.ConfigurationFileUpdate) error {
 	if _, err := settings.Parse(app.settingsPath, after); err != nil {
 		return err
 	}
@@ -173,7 +175,7 @@ func (app *Application) commitSettingsFile(ctx context.Context, before, after []
 	if err := settings.WriteAtomic(app.settingsPath+".pending", journal); err != nil {
 		return err
 	}
-	err = app.database.CommitPanelSettingsFile(ctx, app.settingsPath, id, legacy, configuration, func() error {
+	err = app.database.CommitPanelSettingsFile(ctx, app.settingsPath, id, configuration, func() error {
 		current, err := settings.ReadRaw(app.settingsPath)
 		if err != nil {
 			return err
@@ -191,10 +193,8 @@ func (app *Application) commitSettingsFile(ctx context.Context, before, after []
 	return errors.Join(err, recoveryErr)
 }
 
-// MigratePanelSettings runs at startup, when the selected file and database are
-// both known. Legacy preferences override bootstrap values exactly once. The
-// legacy row is removed in the same recoverable transaction as file publication.
-func (app *Application) MigratePanelSettings(ctx context.Context) error {
+// RecoverPanelSettingsFile completes an interrupted save of the selected settings file.
+func (app *Application) RecoverPanelSettingsFile(ctx context.Context) error {
 	if app.settingsPath == "" {
 		return errors.New("panel settings file path is required")
 	}
@@ -203,38 +203,5 @@ func (app *Application) MigratePanelSettings(ctx context.Context) error {
 		return err
 	}
 	defer lock.Close()
-	if err := app.recoverSettingsFile(ctx); err != nil {
-		return err
-	}
-	before, err := settings.Read(app.settingsPath)
-	if err != nil {
-		return err
-	}
-	value, err := settings.Parse(app.settingsPath, before)
-	if err != nil {
-		return err
-	}
-	legacy, revision, err := app.database.PanelSettings(ctx)
-	if err != nil {
-		return err
-	}
-	var fields map[string]json.RawMessage
-	if err := json.Unmarshal(before, &fields); err != nil {
-		return err
-	}
-	if len(legacy) == 0 && fields["panel"] != nil {
-		return nil
-	}
-	if len(legacy) != 0 {
-		panel := panelValues(value)
-		if err := json.Unmarshal(legacy, &panel); err != nil {
-			return errors.New("legacy panel settings are invalid")
-		}
-		applyPanelValues(&value, panel)
-	}
-	after, err := encodeSettings(value, before)
-	if err != nil {
-		return err
-	}
-	return app.commitSettingsFile(ctx, before, after, &revision, nil)
+	return app.recoverSettingsFile(ctx)
 }

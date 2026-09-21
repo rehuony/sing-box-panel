@@ -75,9 +75,10 @@ func TestStableVersionAndAssetClassification(t *testing.T) {
 		variant coreartifact.Variant
 		valid   bool
 	}{
-		{name: "sing-box-1.13.19-linux-amd64.tar.gz", arch: coreartifact.ArchitectureAMD64, variant: coreartifact.VariantPlain, valid: true},
-		{name: "sing-box-1.13.19-linux-amd64-glibc.tar.gz", arch: coreartifact.ArchitectureAMD64, variant: coreartifact.VariantGlibc, valid: true},
-		{name: "sing-box-1.13.19-linux-amd64v3.tar.gz", arch: coreartifact.ArchitectureAMD64, variant: "amd64v3", valid: true},
+		{name: "sing-box-1.13.19-linux-amd64.tar.gz"},
+		{name: "sing-box-1.13.19-linux-amd64-glibc.tar.gz"},
+		{name: "sing-box-1.13.19-linux-amd64v3.tar.gz"},
+		{name: "sing-box-1.13.19-linux-amd64-musl.tar.gz", arch: coreartifact.ArchitectureAMD64, variant: coreartifact.VariantMusl, valid: true},
 		{name: "sing-box-1.13.19-linux-arm64-musl.tar.gz", arch: coreartifact.ArchitectureARM64, variant: coreartifact.VariantMusl, valid: true},
 		{name: "sing-box-1.13.19-linux-386.tar.gz"},
 		{name: "sing-box-1.13.18-linux-amd64.tar.gz"},
@@ -111,15 +112,16 @@ func TestGitHubRefreshFiltersPaginatesAndResolvesDigests(t *testing.T) {
 	catalogDigest := digest(t, "22")
 	pageOne := `[
 		{"id":101,"tag_name":"v1.13.19","draft":false,"prerelease":false,"unknown":"accepted","assets":[
-		{"id":1001,"name":"sing-box-1.13.19-linux-amd64.tar.gz","size":100,"browser_download_url":"https://github.com/SagerNet/sing-box/releases/download/v1.13.19/sing-box-1.13.19-linux-amd64.tar.gz","digest":"sha256:` + apiDigest.String() + `"},
-		{"id":1002,"name":"sing-box-1.13.19-linux-arm64.tar.gz","size":101,"browser_download_url":"https://github.com/SagerNet/sing-box/releases/download/v1.13.19/sing-box-1.13.19-linux-arm64.tar.gz","digest":""},
+		{"id":1001,"name":"sing-box-1.13.19-linux-amd64-musl.tar.gz","size":100,"browser_download_url":"https://github.com/SagerNet/sing-box/releases/download/v1.13.19/sing-box-1.13.19-linux-amd64-musl.tar.gz","digest":"sha256:` + apiDigest.String() + `"},
+		{"id":1002,"name":"sing-box-1.13.19-linux-arm64-musl.tar.gz","size":101,"browser_download_url":"https://github.com/SagerNet/sing-box/releases/download/v1.13.19/sing-box-1.13.19-linux-arm64-musl.tar.gz","digest":""},
 		{"id":1003,"name":"sing-box-1.13.19-linux-amd64-glibc.tar.gz","size":102,"browser_download_url":"https://github.com/SagerNet/sing-box/releases/download/v1.13.19/sing-box-1.13.19-linux-amd64-glibc.tar.gz","digest":"sha256:` + apiDigest.String() + `"},
 		{"id":1004,"name":"sing-box-1.13.19-windows-amd64.zip","size":103,"browser_download_url":"https://github.com/SagerNet/sing-box/releases/download/v1.13.19/sing-box-1.13.19-windows-amd64.zip","digest":"sha256:` + apiDigest.String() + `"}
       ]},
       {"id":102,"tag_name":"v1.14.0-beta.1","draft":false,"prerelease":true,"assets":[]}
     ]`
 	pageTwo := `[
-      {"id":103,"tag_name":"v1.12.3","draft":false,"prerelease":false,"assets":[]},
+      {"id":103,"tag_name":"v1.13.18","draft":false,"prerelease":false,"assets":[{"id":1005,"name":"sing-box-1.13.18-linux-amd64-musl.tar.gz","size":102,"browser_download_url":"https://github.com/SagerNet/sing-box/releases/download/v1.13.18/sing-box-1.13.18-linux-amd64-musl.tar.gz","digest":"sha256:` + apiDigest.String() + `"}]},
+      {"id":106,"tag_name":"v1.12.3","draft":false,"prerelease":false,"assets":[]},
       {"id":104,"tag_name":"latest","draft":false,"prerelease":false,"assets":[]},
       {"id":105,"tag_name":"v1.11.0","draft":true,"prerelease":false,"assets":[]}
     ]`
@@ -139,7 +141,7 @@ func TestGitHubRefreshFiltersPaginatesAndResolvesDigests(t *testing.T) {
 			return apiDigest, true, nil
 		case 1002:
 			return catalogDigest, true, nil
-		case 1003:
+		case 1005:
 			return catalogDigest, true, nil
 		default:
 			return coreartifact.SHA256{}, false, nil
@@ -160,12 +162,12 @@ func TestGitHubRefreshFiltersPaginatesAndResolvesDigests(t *testing.T) {
 	if err != nil || len(pageETags) != 2 || pageETags[0] != `W/"new-page-1"` || pageETags[1] != `W/"new-page-2"` {
 		t.Fatalf("page validator = (%q, %v)", pageETags, err)
 	}
-	if len(result.Catalog.Releases) != 2 || result.Catalog.Releases[0].Version.String() != "1.13.19" || result.Catalog.Releases[1].Version.String() != "1.12.3" {
+	if len(result.Catalog.Releases) != 2 || result.Catalog.Releases[0].Version.String() != "1.13.19" || result.Catalog.Releases[1].Version.String() != "1.13.18" {
 		t.Fatalf("filtered releases = %+v", result.Catalog.Releases)
 	}
 	assets := result.Catalog.Releases[0].Assets
-	if len(assets) != 3 {
-		t.Fatalf("stable Linux assets = %d, want 3", len(assets))
+	if len(assets) != 2 {
+		t.Fatalf("stable musl Linux assets = %d, want 2", len(assets))
 	}
 	assetsByID := make(map[int64]Asset, len(assets))
 	for _, asset := range assets {
@@ -238,6 +240,40 @@ func TestGitHubRefreshNotModifiedAvoidsOtherRequests(t *testing.T) {
 	}
 }
 
+func TestOfficialCatalogKeepsOnlyOneMuslAssetPerArchitecture(t *testing.T) {
+	t.Parallel()
+	var assets []githubAsset
+	for index, platform := range []string{"amd64", "amd64-glibc", "amd64v3", "amd64-musl", "arm64", "arm64-glibc", "arm64-musl"} {
+		name := "sing-box-1.14.1-linux-" + platform + ".tar.gz"
+		assets = append(assets, githubAsset{
+			ID: int64(index + 1), Name: name, Size: 100,
+			BrowserDownloadURL: "https://github.com/SagerNet/sing-box/releases/download/v1.14.1/" + name,
+		})
+	}
+	client := &GitHubClient{}
+	releases, _, err := client.filter(context.Background(), OfficialRepositoryID, []githubRelease{
+		{ID: 101, TagName: "v1.14.1", Assets: assets},
+		{ID: 102, TagName: "v1.12.25"},
+	})
+	if err != nil || len(releases) != 1 || len(releases[0].Assets) != 2 {
+		t.Fatalf("musl catalog = %+v, error = %v", releases, err)
+	}
+	for _, asset := range releases[0].Assets {
+		if asset.Variant != coreartifact.VariantMusl {
+			t.Fatalf("unexpected build: %+v", asset)
+		}
+	}
+	duplicate := assets[3]
+	duplicate.ID = 99
+	_, _, err = client.filter(context.Background(), OfficialRepositoryID, []githubRelease{{
+		ID: 101, TagName: "v1.14.1", Assets: append(assets, duplicate),
+	}})
+	var failure *Failure
+	if !errors.As(err, &failure) || failure.Code != "duplicate_platform_asset" {
+		t.Fatalf("duplicate platform error = %v", err)
+	}
+}
+
 func TestGitHubRefreshDetectsChangeOutsideFirstPage(t *testing.T) {
 	t.Parallel()
 	previous, err := encodePageValidator([]string{`W/"page-1"`, `W/"old-page-2"`})
@@ -251,7 +287,7 @@ func TestGitHubRefreshDetectsChangeOutsideFirstPage(t *testing.T) {
 	pageOneFullHeaders.Set("Link", `<https://api.github.com/next>; rel="next"`)
 	pageTwoHeaders := make(http.Header)
 	pageTwoHeaders.Set("ETag", `W/"new-page-2"`)
-	changedPage := `[{"id":301,"tag_name":"v1.2.3","draft":false,"prerelease":false,"assets":[]}]`
+	changedPage := `[{"id":301,"tag_name":"v1.2.3","draft":false,"prerelease":false,"assets":[{"id":1008,"name":"sing-box-1.2.3-linux-arm64-musl.tar.gz","size":100,"browser_download_url":"https://github.com/SagerNet/sing-box/releases/download/v1.2.3/sing-box-1.2.3-linux-arm64-musl.tar.gz"}]}]`
 	doer := &queueDoer{responses: []*http.Response{
 		{StatusCode: http.StatusNotModified, Header: pageOneNotModifiedHeaders, Body: io.NopCloser(strings.NewReader(""))},
 		jsonResponse(http.StatusOK, changedPage, pageTwoHeaders),
@@ -364,8 +400,8 @@ func TestGitHubRefreshSupportsMoreThanThirtyReleasePages(t *testing.T) {
 	if len(requests) != 32 {
 		t.Fatalf("requests = %d, want 31 release pages plus repository", len(requests))
 	}
-	if !strings.Contains(requests[0].URL.RawQuery, "per_page=20") {
-		t.Fatalf("release query = %q, want per_page=20", requests[0].URL.RawQuery)
+	if !strings.Contains(requests[0].URL.RawQuery, "per_page=50") {
+		t.Fatalf("release query = %q, want per_page=50", requests[0].URL.RawQuery)
 	}
 }
 

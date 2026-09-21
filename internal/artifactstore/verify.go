@@ -40,6 +40,14 @@ func verifyELF(binaryPath string, expected coreartifact.Architecture) error {
 	if file.Machine != wantMachine {
 		return fail(StepELF, "architecture_mismatch", ErrELF)
 	}
+	for _, program := range file.Progs {
+		if program.Type == elf.PT_INTERP {
+			return fail(StepELF, "dynamic_interpreter", ErrELF)
+		}
+	}
+	if libraries, err := file.ImportedLibraries(); err != nil || len(libraries) > 0 {
+		return fail(StepELF, "dynamic_dependencies", errors.Join(ErrELF, err))
+	}
 	return nil
 }
 

@@ -214,7 +214,7 @@ describe('native output and panel activity', () => {
     expect(events).toEqual([chunk]);
     expect(fetcher.mock.calls[0][0]).toContain('file=2026-09-19-000.log&offset=5');
   });
-  it('encodes combined panel filters and leaves retry bodies empty', async () => {
+  it('encodes combined panel filters', async () => {
     const fetcher = vi
       .fn<typeof fetch>()
       .mockImplementation(
@@ -223,13 +223,10 @@ describe('native output and panel activity', () => {
     const client = createHttpApiClient({ fetcher });
     await client.listPanelLogs({
       search: 'a&b',
-      beforeID: 'task:x',
+      beforeID: 'log:x',
       beforeTime: '2026-09-19T00:00:00Z',
       limit: 5,
     });
     expect(fetcher.mock.calls[0][0]).toContain('search=a%26b');
-    await client.retryTask('task/x');
-    expect(fetcher.mock.calls[1][0]).toContain('/tasks/task%2Fx/retry');
-    expect(fetcher.mock.calls[1][1]?.body).toBeUndefined();
   });
 });

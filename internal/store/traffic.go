@@ -86,12 +86,12 @@ func (s *Store) UpsertTrafficPeriod(ctx context.Context, period TrafficPeriod) (
                  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
 				prepared.ID,
 				nullIfEmpty(prepared.ActivationBundleID),
-				formatTaskTime(prepared.PeriodStart),
-				formatTaskTime(prepared.PeriodEnd),
+				formatTime(prepared.PeriodStart),
+				formatTime(prepared.PeriodEnd),
 				prepared.InboundBytes,
 				prepared.OutboundBytes,
 				string(prepared.Counters),
-				formatTaskTime(prepared.CreatedAt),
+				formatTime(prepared.CreatedAt),
 			); err != nil {
 				return fmt.Errorf("insert traffic period: %w", err)
 			}
@@ -122,8 +122,8 @@ func (s *Store) CurrentTrafficPeriod(ctx context.Context, at time.Time) (Traffic
            FROM traffic_periods
           WHERE period_start <= ? AND period_end > ?
           ORDER BY period_start DESC, id DESC LIMIT 1`,
-		formatTaskTime(at.UTC()),
-		formatTaskTime(at.UTC()),
+		formatTime(at.UTC()),
+		formatTime(at.UTC()),
 	))
 	if errors.Is(err, sql.ErrNoRows) {
 		return TrafficPeriod{}, ErrTrafficPeriodNotFound
@@ -155,14 +155,14 @@ func (s *Store) ListTrafficPeriodPage(ctx context.Context, filter TrafficPeriodF
 	}
 	if filter.OverlapsStart != nil {
 		clauses = append(clauses, "period_end > ?")
-		args = append(args, formatTaskTime(filter.OverlapsStart.UTC()))
+		args = append(args, formatTime(filter.OverlapsStart.UTC()))
 	}
 	if filter.OverlapsEnd != nil {
 		clauses = append(clauses, "period_start < ?")
-		args = append(args, formatTaskTime(filter.OverlapsEnd.UTC()))
+		args = append(args, formatTime(filter.OverlapsEnd.UTC()))
 	}
 	if filter.Cursor != nil {
-		cursorTime := formatTaskTime(filter.Cursor.PeriodStart.UTC())
+		cursorTime := formatTime(filter.Cursor.PeriodStart.UTC())
 		clauses = append(clauses, "(period_start < ? OR (period_start = ? AND id < ?))")
 		args = append(args, cursorTime, cursorTime, filter.Cursor.ID)
 	}
@@ -252,7 +252,7 @@ func getTrafficPeriod(ctx context.Context, q queryRower, periodID string) (Traff
 	return period, nil
 }
 
-func scanTrafficPeriod(row taskScanner) (TrafficPeriod, error) {
+func scanTrafficPeriod(row rowScanner) (TrafficPeriod, error) {
 	var period TrafficPeriod
 	var bundleID sql.NullString
 	var periodStart, periodEnd, counters, createdAt string
@@ -270,15 +270,15 @@ func scanTrafficPeriod(row taskScanner) (TrafficPeriod, error) {
 	}
 	var err error
 	period.ActivationBundleID = valueOrEmpty(bundleID)
-	period.PeriodStart, err = parseTaskTime(periodStart)
+	period.PeriodStart, err = parseTime(periodStart)
 	if err != nil {
 		return TrafficPeriod{}, fmt.Errorf("parse period_start: %w", err)
 	}
-	period.PeriodEnd, err = parseTaskTime(periodEnd)
+	period.PeriodEnd, err = parseTime(periodEnd)
 	if err != nil {
 		return TrafficPeriod{}, fmt.Errorf("parse period_end: %w", err)
 	}
-	period.CreatedAt, err = parseTaskTime(createdAt)
+	period.CreatedAt, err = parseTime(createdAt)
 	if err != nil {
 		return TrafficPeriod{}, fmt.Errorf("parse created_at: %w", err)
 	}

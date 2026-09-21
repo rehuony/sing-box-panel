@@ -64,7 +64,6 @@ type CoreArtifactRemovalEligibility struct {
 	Eligible                  bool
 	StartupArtifactReferences int64
 	ActiveBundleReferences    int64
-	ActiveTaskReferences      int64
 }
 
 const coreArtifactColumns = `
@@ -119,7 +118,7 @@ func (s *Store) UpsertCoreArtifact(
 			prepared.BinaryPath,
 			prepared.ReportedVersion,
 			string(prepared.FeatureFingerprint),
-			formatTaskTime(prepared.CreatedAt),
+			formatTime(prepared.CreatedAt),
 		); err != nil {
 			return fmt.Errorf("insert core artifact: %w", err)
 		}
@@ -176,7 +175,7 @@ func (s *Store) ListCoreArtifacts(
 		args = append(args, string(filter.SourceKind))
 	}
 	if filter.Cursor != nil {
-		cursorTime := formatTaskTime(filter.Cursor.CreatedAt)
+		cursorTime := formatTime(filter.Cursor.CreatedAt)
 		clauses = append(clauses, "(created_at < ? OR (created_at = ? AND id < ?))")
 		args = append(args, cursorTime, cursorTime, filter.Cursor.ID)
 	}
@@ -229,7 +228,7 @@ func getCoreArtifact(ctx context.Context, q queryRower, artifactID string) (Core
 	return artifact, nil
 }
 
-func scanCoreArtifact(row taskScanner) (CoreArtifact, error) {
+func scanCoreArtifact(row rowScanner) (CoreArtifact, error) {
 	var (
 		artifact           CoreArtifact
 		repositoryID       sql.NullString
@@ -275,7 +274,7 @@ func scanCoreArtifact(row taskScanner) (CoreArtifact, error) {
 		return CoreArtifact{}, fmt.Errorf("parse asset_id: %w", err)
 	}
 	artifact.FeatureFingerprint = append(json.RawMessage(nil), featureFingerprint...)
-	artifact.CreatedAt, err = parseTaskTime(createdAt)
+	artifact.CreatedAt, err = parseTime(createdAt)
 	if err != nil {
 		return CoreArtifact{}, fmt.Errorf("parse created_at: %w", err)
 	}

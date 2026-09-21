@@ -161,14 +161,25 @@ describe('application routes', () => {
     expect(screen.getByRole('button', { name: 'Sign out' })).toBeInTheDocument();
   });
 
-  it('opens task details directly from panel-log links', async () => {
-    const client = createMockApiClient();
-    renderRoutes('/observability?tab=panel&task=task_1', client);
-    expect(await screen.findByRole('tab', { name: 'Panel logs', hidden: true })).toHaveAttribute(
-      'aria-selected',
-      'true',
-    );
-    expect(await screen.findByRole('dialog')).toBeVisible();
-    await waitFor(() => expect(client.getTask).toHaveBeenCalledWith('task_1', expect.any(AbortSignal)));
+  it('matches the login form content and toggles token visibility without submitting', async () => {
+    const user = userEvent.setup();
+    const client = createMockApiClient({ getSession: vi.fn().mockResolvedValue(null) });
+    renderRoutes('/login', client);
+    const input = await screen.findByLabelText('Management token');
+    expect(await screen.findByRole('heading', { name: 'Welcome back' })).toBeVisible();
+    expect(input).toHaveAttribute('type', 'password');
+    await user.type(input, 'preview-token');
+    await user.click(screen.getByRole('button', { name: 'Show management token' }));
+    expect(input).toHaveAttribute('type', 'text');
+    expect(input).toHaveValue('preview-token');
+    await user.click(screen.getByRole('button', { name: 'Hide management token' }));
+    expect(input).toHaveAttribute('type', 'password');
+    expect(client.login).not.toHaveBeenCalled();
+  });
+
+  it('opens panel logs without a legacy operation dialog', async () => {
+    renderRoutes('/observability?tab=panel&task=legacy');
+    expect(await screen.findByRole('tab', { name: 'Panel logs' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
 });

@@ -32,21 +32,10 @@ func classifyAsset(version coreartifact.ExactVersion, name string) (coreartifact
 	}
 	platform := strings.TrimSuffix(strings.TrimPrefix(name, prefix), ".tar.gz")
 	switch platform {
-	case "amd64":
-		return coreartifact.ArchitectureAMD64, coreartifact.VariantPlain, true
-	case "amd64-glibc":
-		return coreartifact.ArchitectureAMD64, coreartifact.VariantGlibc, true
 	case "amd64-musl":
 		return coreartifact.ArchitectureAMD64, coreartifact.VariantMusl, true
-	case "arm64":
-		return coreartifact.ArchitectureARM64, coreartifact.VariantPlain, true
-	case "arm64-glibc":
-		return coreartifact.ArchitectureARM64, coreartifact.VariantGlibc, true
 	case "arm64-musl":
 		return coreartifact.ArchitectureARM64, coreartifact.VariantMusl, true
-	}
-	if strings.HasPrefix(platform, "amd64v") && allDigits(strings.TrimPrefix(platform, "amd64v")) {
-		return coreartifact.ArchitectureAMD64, coreartifact.Variant(platform), true
 	}
 	return "", "", false
 }
@@ -80,18 +69,6 @@ func hasNextLink(value string) bool {
 	return false
 }
 
-func allDigits(value string) bool {
-	if value == "" || len(value) > 3 {
-		return false
-	}
-	for _, character := range value {
-		if character < '0' || character > '9' {
-			return false
-		}
-	}
-	return true
-}
-
 func containsControl(value string) bool {
 	for _, character := range value {
 		if unicode.IsControl(character) {
@@ -119,11 +96,12 @@ func decodeGitHubJSON(data []byte, destination any) error {
 	return nil
 }
 
+// HTTP responses are byte-bounded before decoding. Limit nesting and reject
+// duplicate keys without a token count that rejects valid, asset-heavy releases.
 func rejectDuplicateKeys(data []byte) error {
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	stack := make([]map[string]struct{}, 0, 16)
 	expectingKey := make([]bool, 0, 16)
-	tokens := 0
 	for {
 		token, err := decoder.Token()
 		if err == io.EOF {
@@ -131,10 +109,6 @@ func rejectDuplicateKeys(data []byte) error {
 		}
 		if err != nil {
 			return err
-		}
-		tokens++
-		if tokens > 200_000 {
-			return fmt.Errorf("JSON token limit exceeded")
 		}
 		switch value := token.(type) {
 		case json.Delim:

@@ -62,6 +62,7 @@ export function AdvancedConfigurationEditor({ disabled, text, error, onChange }:
       parent: hostRef.current,
       doc: latestRef.current.text,
       extensions: [
+        EditorView.cspNonce.of(document.querySelector<HTMLMetaElement>('meta[name="sing-box-panel-style-nonce"]')?.content ?? ''),
         keymap.of([{ key: 'Mod-Shift-f', run: formatDocument }]),
         search({
           top: true, literal: true,

@@ -88,7 +88,6 @@ export const observability = {
       core: 'Core',
       panel: 'Panel',
       security: 'Security',
-      task: 'Task',
     },
     startStream: 'Start live stream',
     stopStream: 'Stop live stream',

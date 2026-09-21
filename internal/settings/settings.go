@@ -27,7 +27,7 @@ const MaximumBytes = 1 << 20
 var basePathPattern = regexp.MustCompile(`^/[A-Za-z0-9._~/-]+$`)
 
 // Settings is the shared file contract for panel configuration. Sing-box
-// documents, subscriptions, tasks, and runtime evidence belong in SQLite.
+// documents, subscriptions and runtime evidence belong in SQLite.
 type Settings struct {
 	sourcePath   string
 	Panel        Panel        `json:"panel"`

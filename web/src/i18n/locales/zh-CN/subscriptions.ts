@@ -228,9 +228,7 @@ export const subscriptions = {
       createdWithoutVersion:
         '已创建 {{name}}，但初始版本未保存。来源已保持打开以便编辑，请直接重试上传版本。',
       deleted: '已删除 {{name}}。',
-      refreshAccepted: '刷新请求已作为任务 {{id}} 接受；任务失败时将保留当前版本。',
       restored: '已为 {{name}} 恢复不可变版本 {{version}}。',
-      viewTask: '查看已接受的任务',
       updated: '已更新 {{name}}，当前来源版本未改变。',
     },
     refresh: '刷新',

@@ -2,9 +2,7 @@ export const telemetry = {
   demo: '演示环境',
   action: {
     failed: '{{action}}失败',
-    queued: '{{action}} · {{status}}',
-    queueing: '正在提交{{action}}…',
-    taskTimedOut: '{{action}}任务跟踪超时',
+    executing: '正在提交{{action}}…',
     timedOut: '{{action}}验证超时',
     verified: '{{action}}已验证',
     verifying: '正在验证{{action}}…',
@@ -14,12 +12,12 @@ export const telemetry = {
     cancel: '取消',
     restart: {
       action: '重启 sing-box',
-      description: '当前进程将通过持久化运行队列被替换，流量可能短暂中断。',
+      description: '操作将更改内核运行状态。',
       title: '要重启 sing-box 吗？',
     },
     stop: {
       action: '停止 sing-box',
-      description: '期望运行状态将通过持久化队列更改为停止。',
+      description: '操作将更改内核运行状态。',
       title: '要停止 sing-box 吗？',
     },
   },
@@ -55,14 +53,6 @@ export const telemetry = {
     unknown: '—',
   },
   startedAt: '启动于 {{value}}',
-  taskStatus: {
-    canceled: '已取消',
-    failed: '失败',
-    queued: '排队中',
-    running: '执行中',
-    succeeded: '已完成',
-    superseded: '已取代',
-  },
   toggleNavigation: '打开导航',
   unit: {
     day: '天',

@@ -20,7 +20,7 @@ import (
 // newDurableLogCommand is kept separate from groups.go so durable log command
 // behavior stays independent from server and HTTP transport wiring.
 func newDurableLogCommand(state *options, open openApplicationFunc) *cobra.Command {
-	root := group("log", "Inspect sanitized panel, core, task, and security event metadata")
+	root := group("log", "Inspect sanitized panel, core, and security event metadata")
 	root.AddCommand(
 		newLogListCommand(state, open),
 		newLogShowCommand(state, open),
@@ -187,7 +187,7 @@ func newLogClearCommand(state *options, open openApplicationFunc) *cobra.Command
 			return writeResult(cmd.OutOrStdout(), state.format, result, fmt.Sprintf("deleted %d log entries", result.Deleted))
 		},
 	}
-	command.Flags().StringVar(&source, "source", "", "limit deletion to panel, core, task, or security")
+	command.Flags().StringVar(&source, "source", "", "limit deletion to panel, core, or security")
 	command.Flags().StringVar(&beforeRaw, "before", "", "delete entries before an RFC3339 time or relative duration such as 168h")
 	command.Flags().BoolVar(&all, "all", false, "acknowledge deletion without a time boundary")
 	return command
@@ -340,7 +340,7 @@ func writeLogTailBatch(writer io.Writer, format outputFormat, entries []store.Lo
 }
 
 func addLogFilterFlags(command *cobra.Command, source, level, code *string) {
-	command.Flags().StringVar(source, "source", "", "filter panel, core, task, or security events")
+	command.Flags().StringVar(source, "source", "", "filter panel, core, or security events")
 	command.Flags().StringVar(level, "level", "", "filter trace, debug, info, warn, error, or fatal events")
 	command.Flags().StringVar(code, "code", "", "filter one exact stable event code")
 }

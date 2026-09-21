@@ -23,7 +23,7 @@ describe('compact core import', () => {
     expect(screen.getByRole('button', { name: 'Import' })).toBeDisabled();
   });
 
-  it.each(['sing-box-1.14.0-linux-arm64.tar.gz', 'sing-box-v1.14.0.tgz'])(
+  it.each(['sing-box-1.14.0-linux-arm64-musl.tar.gz', 'sing-box-v1.14.0.tgz'])(
     'fills the version from %s and supplies hidden metadata', async (name) => {
       const user = userEvent.setup();
       const { onImport, onClose } = renderImport();
@@ -33,7 +33,7 @@ describe('compact core import', () => {
       expect(screen.getByText(name)).toHaveTextContent(name);
       await user.click(screen.getByRole('button', { name: 'Import' }));
       expect(onImport).toHaveBeenCalledWith({
-        archive, exactVersion: '1.14.0', architecture: 'arm64', sourceDescription: name, variant: 'plain',
+        archive, exactVersion: '1.14.0', architecture: 'arm64', sourceDescription: name, variant: 'musl',
       });
       expect(onClose).toHaveBeenCalledOnce();
     },
@@ -43,7 +43,7 @@ describe('compact core import', () => {
     const user = userEvent.setup();
     const { onImport } = renderImport();
     const input = screen.getByLabelText('Archive');
-    await user.upload(input, new File(['first'], 'sing-box-1.14.0-linux-arm64.tar.gz'));
+    await user.upload(input, new File(['first'], 'sing-box-1.14.0-linux-arm64-musl.tar.gz'));
     const archive = new File(['custom'], 'custom-core.tgz');
     await user.upload(input, archive);
     const version = screen.getByRole('textbox', { name: 'Version' });
@@ -53,10 +53,21 @@ describe('compact core import', () => {
     expect(onImport).toHaveBeenCalledWith(expect.objectContaining({ archive, exactVersion: '1.13.19' }));
   });
 
+  it.each(['arm64', 'arm64-glibc', 'amd64-musl'])(
+    'rejects a recognized incompatible build %s', async (platform) => {
+      const user = userEvent.setup();
+      const { onImport } = renderImport();
+      await user.upload(screen.getByLabelText('Archive'), new File(['archive'], `sing-box-1.14.0-linux-${platform}.tar.gz`));
+      expect(screen.getByText('Choose a musl archive matching the server architecture.')).toBeVisible();
+      expect(screen.getByRole('button', { name: 'Import' })).toBeDisabled();
+      expect(onImport).not.toHaveBeenCalled();
+    },
+  );
+
   it('does not guess a stable version from a prerelease filename', async () => {
     const user = userEvent.setup();
     renderImport();
-    await user.upload(screen.getByLabelText('Archive'), new File(['archive'], 'sing-box-1.14.0-beta.1-linux-arm64.tar.gz'));
+    await user.upload(screen.getByLabelText('Archive'), new File(['archive'], 'sing-box-1.14.0-beta.1-linux-arm64-musl.tar.gz'));
     expect(screen.getByRole('textbox', { name: 'Version' })).toHaveValue('');
     expect(screen.getByRole('button', { name: 'Import' })).toBeDisabled();
   });
@@ -65,7 +76,7 @@ describe('compact core import', () => {
     const user = userEvent.setup();
     const { onImport } = renderImport();
     const input = screen.getByLabelText('Archive');
-    const archive = new File(['archive'], 'sing-box-1.14.0-linux-arm64.tar.gz');
+    const archive = new File(['archive'], 'sing-box-1.14.0-linux-arm64-musl.tar.gz');
     const dataTransfer = { files: [archive], types: ['Files'], dropEffect: 'none' };
     fireEvent.dragOver(input, { dataTransfer });
     expect(screen.getByText('Release to select the archive')).toBeVisible();

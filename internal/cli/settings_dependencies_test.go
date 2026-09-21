@@ -152,7 +152,7 @@ func TestInstanceCommandsIgnoreInvalidRuntimeSettings(t *testing.T) {
 		{"server", "status"}, {"server", "stop"},
 		{"config", "show"}, {"core", "list"},
 		{"channel", "list"}, {"source", "list"}, {"token", "list"},
-		{"task", "list"}, {"log", "list"}, {"metrics", "show"}, {"metrics", "history"},
+		{"log", "list"}, {"metrics", "show"}, {"metrics", "history"},
 	} {
 		t.Run(strings.Join(args, " "), func(t *testing.T) {
 			var stdout, stderr bytes.Buffer

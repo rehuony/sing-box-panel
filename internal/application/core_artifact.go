@@ -15,88 +15,85 @@ import (
 	"github.com/rehuony/sing-box-panel/internal/artifactstore"
 	"github.com/rehuony/sing-box-panel/internal/catalog"
 	"github.com/rehuony/sing-box-panel/internal/coreartifact"
-	"github.com/rehuony/sing-box-panel/internal/jsonstrict"
 	"github.com/rehuony/sing-box-panel/internal/store"
 )
 
-func (application *Application) QueueCoreInstall(ctx context.Context, assetID int64) (Task, error) {
+func (application *Application) InstallCore(ctx context.Context, assetID int64) (result CoreArtifact, operationErr error) {
+	defer func() { application.RecordOperation(ctx, "core.install", "Core installation", operationErr) }()
 	asset, err := application.catalogAsset(ctx, assetID)
 	if err != nil {
-		return Task{}, err
+		return CoreArtifact{}, err
 	}
-	digest, err := asset.TrustedDigest()
+	if _, err := asset.TrustedDigest(); err != nil {
+		return CoreArtifact{}, err
+	}
+	installer, err := application.coreInstaller()
 	if err != nil {
-		return Task{}, err
+		return CoreArtifact{}, err
 	}
-	payload, err := json.Marshal(coreInstallPayload{Asset: asset})
+	installed, err := installer.InstallOfficial(ctx, asset)
 	if err != nil {
-		return Task{}, err
+		return CoreArtifact{}, err
 	}
-	key := fmt.Sprintf("core-install:%d:%d:%d:%s", asset.RepositoryID, asset.ReleaseID, asset.AssetID, digest.String())
-	return application.queueMaintenanceTask(ctx, store.TaskKindCoreInstall, payload, key)
+	return application.PersistInstalledCore(ctx, installed)
 }
 
-func (application *Application) QueueCoreImport(ctx context.Context, request CoreImportRequest) (Task, error) {
-	if !filepath.IsAbs(request.SourcePath) || filepath.Clean(request.SourcePath) != request.SourcePath {
-		return Task{}, errors.New("core import path must be absolute and clean")
+func (application *Application) ImportCore(ctx context.Context, input CoreImportRequest) (result CoreArtifact, operationErr error) {
+	defer func() { application.RecordOperation(ctx, "core.import", "Core import", operationErr) }()
+	if !filepath.IsAbs(input.SourcePath) || filepath.Clean(input.SourcePath) != input.SourcePath {
+		return CoreArtifact{}, errors.New("core import path must be absolute and clean")
 	}
-	if request.DeleteSource {
-		if err := application.validatePrivateUploadedCoreFile(request.SourcePath); err != nil {
-			return Task{}, err
+	if input.DeleteSource {
+		if err := application.validatePrivateUploadedCoreFile(input.SourcePath); err != nil {
+			return CoreArtifact{}, err
 		}
+		defer func() {
+			if err := application.removePrivateUploadedCore(input.SourcePath); err != nil {
+				application.recordCoreUploadCleanupWarning(ctx, "core_upload.cleanup_failed", "The imported upload could not be removed", map[string]any{})
+			}
+		}()
 	}
-	digest, err := coreartifact.ParseSHA256(request.SHA256)
+	digest, err := coreartifact.ParseSHA256(input.SHA256)
 	if err != nil || digest.IsZero() {
-		return Task{}, errors.New("core import SHA-256 is invalid")
+		return CoreArtifact{}, errors.New("core import SHA-256 is invalid")
 	}
-	version, err := coreartifact.ParseExactVersion(request.ExactVersion)
+	version, err := coreartifact.ParseExactVersion(input.ExactVersion)
 	if err != nil || version.IsZero() {
-		return Task{}, errors.New("core import exact version is invalid")
+		return CoreArtifact{}, errors.New("core import exact version is invalid")
 	}
-	architecture := coreartifact.Architecture(request.Architecture)
-	if architecture != coreartifact.ArchitectureAMD64 && architecture != coreartifact.ArchitectureARM64 {
-		return Task{}, errors.New("core import architecture must be amd64 or arm64")
-	}
-	variant := coreartifact.Variant(request.Variant)
+	variant := coreartifact.Variant(input.Variant)
 	if variant == "" {
-		variant = coreartifact.VariantPlain
+		variant = coreartifact.VariantMusl
 	}
-	source, err := coreartifact.NewUserSource(request.SourceDescription)
+	source, err := coreartifact.NewUserSource(input.SourceDescription)
 	if err != nil {
-		return Task{}, err
+		return CoreArtifact{}, err
 	}
-	if _, err := coreartifact.NewIdentity(source, digest, coreartifact.OperatingSystemLinux, architecture, variant, version); err != nil {
-		return Task{}, err
+	if _, err := coreartifact.NewIdentity(source, digest, coreartifact.OperatingSystemLinux, coreartifact.Architecture(input.Architecture), variant, version); err != nil {
+		return CoreArtifact{}, err
 	}
-	payload, err := json.Marshal(coreImportPayload{
-		SourcePath: request.SourcePath, SourceDescription: request.SourceDescription,
-		SHA256: digest.String(), ExactVersion: version.String(), Architecture: string(architecture), Variant: string(variant),
-		DeleteSource: request.DeleteSource,
-	})
+	installer, err := application.coreInstaller()
 	if err != nil {
-		return Task{}, err
+		return CoreArtifact{}, err
 	}
-	key := "core-import:" + digest.String() + ":" + version.String() + ":" + string(architecture) + ":" + string(variant)
-	if request.DeleteSource {
-		pathDigest := sha256.Sum256([]byte(request.SourcePath))
-		key += ":upload:" + hex.EncodeToString(pathDigest[:16])
+	installed, err := installer.ImportLocal(ctx, artifactstore.ImportRequest{SourcePath: input.SourcePath, SourceDescription: input.SourceDescription, ExpectedSHA256: digest, ExpectedVersion: version, ExpectedArchitecture: coreartifact.Architecture(input.Architecture), Variant: variant})
+	if err != nil {
+		return CoreArtifact{}, err
 	}
-	return application.queueMaintenanceTask(ctx, store.TaskKindCoreImport, payload, key)
+	return application.PersistInstalledCore(ctx, installed)
 }
 
-func (application *Application) queueMaintenanceTask(ctx context.Context, kind store.TaskKind, payload json.RawMessage, idempotencyKey string) (Task, error) {
-	taskID, err := application.newID("task")
-	if err != nil {
-		return Task{}, err
+func (application *Application) SetArtifactInstaller(installer ArtifactInstaller) {
+	application.artifacts = installer
+}
+func (application *Application) coreInstaller() (ArtifactInstaller, error) {
+	if application.artifacts != nil {
+		return application.artifacts, nil
 	}
-	queued, err := application.database.EnqueueTask(ctx, store.EnqueueTaskInput{
-		ID: taskID, IdempotencyKey: idempotencyKey, Lane: store.TaskLaneMaintenance,
-		Kind: kind, Payload: payload, CreatedAt: application.now().UTC(),
-	})
-	if err != nil {
-		return Task{}, err
+	if !filepath.IsAbs(application.settings.DataDir) {
+		return nil, errors.New("panel data directory is unavailable")
 	}
-	return applicationTask(queued), nil
+	return artifactstore.New(artifactstore.Options{Root: filepath.Join(application.settings.DataDir, "artifacts")})
 }
 
 func (application *Application) catalogAsset(ctx context.Context, assetID int64) (catalog.Asset, error) {
@@ -186,58 +183,4 @@ func (application *Application) PersistInstalledCore(ctx context.Context, result
 		return CoreArtifact{}, err
 	}
 	return coreArtifact(stored), nil
-}
-
-func (application *Application) ExecuteCoreArtifactTask(ctx context.Context, kind store.TaskKind, payload json.RawMessage, installer ArtifactInstaller, beforePersist func(context.Context) error) (CoreArtifact, error) {
-	if installer == nil {
-		return CoreArtifact{}, errors.New("artifact installer is unavailable")
-	}
-	var result artifactstore.Result
-	switch kind {
-	case store.TaskKindCoreInstall:
-		var input coreInstallPayload
-		if err := jsonstrict.Decode(payload, 128<<10, &input); err != nil {
-			return CoreArtifact{}, fmt.Errorf("decode core install task: %w", err)
-		}
-		if err := input.Asset.Validate(); err != nil {
-			return CoreArtifact{}, err
-		}
-		if _, err := input.Asset.TrustedDigest(); err != nil {
-			return CoreArtifact{}, err
-		}
-		installed, err := installer.InstallOfficial(ctx, input.Asset)
-		if err != nil {
-			return CoreArtifact{}, err
-		}
-		result = installed
-	case store.TaskKindCoreImport:
-		input, err := decodeCoreImportPayload(payload)
-		if err != nil {
-			return CoreArtifact{}, fmt.Errorf("decode core import task: %w", err)
-		}
-		if input.DeleteSource {
-			if err := application.validatePrivateUploadedCoreFile(input.SourcePath); err != nil {
-				return CoreArtifact{}, err
-			}
-		}
-		digest, _ := coreartifact.ParseSHA256(input.SHA256)
-		version, _ := coreartifact.ParseExactVersion(input.ExactVersion)
-		imported, err := installer.ImportLocal(ctx, artifactstore.ImportRequest{
-			SourcePath: input.SourcePath, SourceDescription: input.SourceDescription,
-			ExpectedSHA256: digest, ExpectedVersion: version,
-			ExpectedArchitecture: coreartifact.Architecture(input.Architecture), Variant: coreartifact.Variant(input.Variant),
-		})
-		if err != nil {
-			return CoreArtifact{}, err
-		}
-		result = imported
-	default:
-		return CoreArtifact{}, fmt.Errorf("unsupported core artifact task %q", kind)
-	}
-	if beforePersist != nil {
-		if err := beforePersist(ctx); err != nil {
-			return CoreArtifact{}, err
-		}
-	}
-	return application.PersistInstalledCore(ctx, result)
 }

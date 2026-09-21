@@ -4,7 +4,6 @@ package application
 
 import (
 	"context"
-	"encoding/json"
 	"time"
 
 	"github.com/rehuony/sing-box-panel/internal/configuration"
@@ -48,7 +47,7 @@ func (application *Application) SaveConfigurationFile(ctx context.Context, input
 	if err != nil {
 		return ConfigurationFile{}, err
 	}
-	file, err := application.database.SaveConfigurationFile(ctx, update.ExpectedRevision, update.Content, update.Revision, update.Task)
+	file, err := application.database.SaveConfigurationFile(ctx, update.ExpectedRevision, update.Content, update.Revision)
 	if err != nil {
 		return ConfigurationFile{}, err
 	}
@@ -64,19 +63,9 @@ func (application *Application) configurationFileUpdate(input ConfigurationFileW
 	if err != nil {
 		return nil, err
 	}
-	taskID, err := application.newID("task")
-	if err != nil {
-		return nil, err
-	}
 	now := application.now().UTC()
-	payload, err := json.Marshal(map[string]string{"revision_id": revisionID})
-	if err != nil {
-		return nil, err
-	}
 	return &store.ConfigurationFileUpdate{ExpectedRevision: input.Revision, Content: input.Content, Revision: store.NewCanonicalRevision{
 		ID: revisionID, SchemaVersion: configuration.SchemaVersion, CommandID: commandID, CreatedAt: now,
-	}, Task: store.NewTask{
-		ID: taskID, Lane: store.TaskLaneMaintenance, Kind: store.TaskKindCanonicalSaved, Payload: payload, CreatedAt: now,
 	}}, nil
 }
 

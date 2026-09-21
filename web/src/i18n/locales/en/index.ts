@@ -1,6 +1,5 @@
 import { cores } from './cores';
 import { login } from './login';
-import { tasks } from './tasks';
 import { channels } from './channels';
 import { notFound } from './not-found';
 import { dashboard } from './dashboard';
@@ -35,6 +34,5 @@ export const en = {
   sidebar,
   shell,
   subscriptions,
-  tasks,
   telemetry,
 } as const;

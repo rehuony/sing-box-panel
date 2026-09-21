@@ -67,14 +67,14 @@ func TestIdentityValidation(t *testing.T) {
 		variant Variant
 		version ExactVersion
 	}{
-		{name: "zero official repository", source: Source{kind: SourceOfficial, releaseID: 2, assetID: 3}, digest: validDigest, os: OperatingSystemLinux, arch: ArchitectureAMD64, variant: VariantPlain, version: validVersion},
-		{name: "mixed user and official", source: Source{kind: SourceUser, repositoryID: 1, userSource: "local"}, digest: validDigest, os: OperatingSystemLinux, arch: ArchitectureAMD64, variant: VariantPlain, version: validVersion},
-		{name: "empty user description", source: Source{kind: SourceUser}, digest: validDigest, os: OperatingSystemLinux, arch: ArchitectureAMD64, variant: VariantPlain, version: validVersion},
-		{name: "zero digest", source: validOfficial, digest: SHA256{}, os: OperatingSystemLinux, arch: ArchitectureAMD64, variant: VariantPlain, version: validVersion},
-		{name: "unsupported OS", source: validOfficial, digest: validDigest, os: "darwin", arch: ArchitectureAMD64, variant: VariantPlain, version: validVersion},
-		{name: "unsupported architecture", source: validUser, digest: validDigest, os: OperatingSystemLinux, arch: "386", variant: VariantPlain, version: validVersion},
+		{name: "zero official repository", source: Source{kind: SourceOfficial, releaseID: 2, assetID: 3}, digest: validDigest, os: OperatingSystemLinux, arch: ArchitectureAMD64, variant: VariantMusl, version: validVersion},
+		{name: "mixed user and official", source: Source{kind: SourceUser, repositoryID: 1, userSource: "local"}, digest: validDigest, os: OperatingSystemLinux, arch: ArchitectureAMD64, variant: VariantMusl, version: validVersion},
+		{name: "empty user description", source: Source{kind: SourceUser}, digest: validDigest, os: OperatingSystemLinux, arch: ArchitectureAMD64, variant: VariantMusl, version: validVersion},
+		{name: "zero digest", source: validOfficial, digest: SHA256{}, os: OperatingSystemLinux, arch: ArchitectureAMD64, variant: VariantMusl, version: validVersion},
+		{name: "unsupported OS", source: validOfficial, digest: validDigest, os: "darwin", arch: ArchitectureAMD64, variant: VariantMusl, version: validVersion},
+		{name: "unsupported architecture", source: validUser, digest: validDigest, os: OperatingSystemLinux, arch: "386", variant: VariantMusl, version: validVersion},
 		{name: "unsafe variant", source: validOfficial, digest: validDigest, os: OperatingSystemLinux, arch: ArchitectureARM64, variant: "../custom", version: validVersion},
-		{name: "missing version", source: validOfficial, digest: validDigest, os: OperatingSystemLinux, arch: ArchitectureAMD64, variant: VariantGlibc, version: ExactVersion{}},
+		{name: "missing version", source: validOfficial, digest: validDigest, os: OperatingSystemLinux, arch: ArchitectureAMD64, variant: VariantMusl, version: ExactVersion{}},
 	}
 
 	for _, test := range tests {
@@ -88,36 +88,23 @@ func TestIdentityValidation(t *testing.T) {
 	}
 }
 
-func TestIdentityAllowsFutureSafeVariant(t *testing.T) {
+func TestIdentityRejectsNonMuslVariants(t *testing.T) {
 	t.Parallel()
-
-	source, err := NewUserSource("future official-compatible build")
+	source, err := NewUserSource("local archive")
 	if err != nil {
-		t.Fatalf("NewUserSource: %v", err)
+		t.Fatal(err)
 	}
-	if got := source.Kind(); got != SourceKind("user_verified") {
-		t.Fatalf("user source kind = %q, want user_verified", got)
-	}
-	identity, err := NewIdentity(
-		source,
-		mustDigest(t, strings.Repeat("ef", 32)),
-		OperatingSystemLinux,
-		ArchitectureAMD64,
-		Variant("future-libc_v2"),
-		NewExactVersion(2, 0, 0),
-	)
-	if err != nil {
-		t.Fatalf("NewIdentity(future variant): %v", err)
-	}
-	if got := identity.Variant(); got != "future-libc_v2" {
-		t.Fatalf("identity.Variant() = %q, want future-libc_v2", got)
+	for _, variant := range []Variant{"plain", "glibc", "amd64v3", "future-libc_v2", ""} {
+		if _, err := NewIdentity(source, mustDigest(t, strings.Repeat("ef", 32)), OperatingSystemLinux, ArchitectureAMD64, variant, NewExactVersion(1, 14, 0)); !errors.Is(err, ErrInvalidIdentity) {
+			t.Fatalf("variant %q: got %v, want invalid identity", variant, err)
+		}
 	}
 }
 
 func TestDecodeIdentityRejectsAmbiguousJSON(t *testing.T) {
 	t.Parallel()
 
-	base := `{"source_kind":"user_verified","user_source":"local","sha256":"` + strings.Repeat("12", 32) + `","os":"linux","arch":"amd64","variant":"plain","reported_version":"1.13.19"}`
+	base := `{"source_kind":"user_verified","user_source":"local","sha256":"` + strings.Repeat("12", 32) + `","os":"linux","arch":"amd64","variant":"musl","reported_version":"1.13.19"}`
 	tests := []struct {
 		name string
 		json string

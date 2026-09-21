@@ -13,7 +13,7 @@ func TestCatalogAccessorsReturnDefensiveCopies(t *testing.T) {
 	profile := versions[0].Profiles[ArchitectureARM64]
 	profile.Features[0] = "changed"
 	versions[0].Profiles[ArchitectureARM64] = profile
-	again, ok := Lookup("1.11.15")
+	again, ok := Lookup("1.13.19")
 	if !ok {
 		t.Fatal("compiled version disappeared")
 	}

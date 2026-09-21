@@ -264,7 +264,7 @@ func insertSubscriptionToken(ctx context.Context, tx *sql.Tx, token Subscription
 		token.TokenSHA256,
 		boolInt(token.Enabled),
 		nullableSubscriptionTime(token.ExpiresAt),
-		formatTaskTime(token.CreatedAt),
+		formatTime(token.CreatedAt),
 		token.DownloadLimit, token.SuccessfulRequestCount, token.BodyResponseCount, token.BytesServed, nullableSubscriptionTime(token.LastUsedAt),
 	)
 	if err != nil {
@@ -395,5 +395,5 @@ func nullableSubscriptionTime(value *time.Time) any {
 	if value == nil {
 		return nil
 	}
-	return formatTaskTime(*value)
+	return formatTime(*value)
 }

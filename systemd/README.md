@@ -108,7 +108,7 @@ refresh the unit and ownership before saving preferences through the Web UI.
 Use `--force` when replacing an older generated template after reviewing changes.
 
 After editing `data_dir`, an explicit `systemd restart` coordinates a stopped
-migration and refreshes generated working-directory, sandbox and tmpfiles paths.
+relocation and refreshes generated working-directory, sandbox and tmpfiles paths.
 System services retain `ProtectHome=true`, so data destinations under `/home`,
 `/root` or `/run/user` are rejected before stopping the service. Explicit data
 and configuration directories under private temporary roots receive narrow bind

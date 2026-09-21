@@ -1,21 +1,19 @@
-import { useTranslation } from 'react-i18next';
 import { useCallback, useEffect, useState } from 'react';
 
 import type { ReviewedSchemaResolution } from '@/schemas/resolve-reviewed-schema';
 
 import { useApiClient } from '@/api/api-client-context';
 import { hasReviewedSchemaVersion } from '@/schemas/generated';
-import { resolveReviewedSchema } from '@/schemas/resolve-reviewed-schema';
+import { resolveBundledReviewedSchema, resolveReviewedSchema } from '@/schemas/resolve-reviewed-schema';
 
 type SchemaState
   = | { status: 'unavailable'; resolution: null; error: null }
     | { status: 'loading'; resolution: null; error: null }
     | { status: 'error'; resolution: null; error: unknown }
-    | { status: 'ready'; resolution: ReviewedSchemaResolution; error: null };
+    | { status: 'ready'; resolution: ReviewedSchemaResolution; error: null; bundled: boolean };
 
 export function useConfigurationSchema(exactVersion: string) {
   const client = useApiClient();
-  const { i18n } = useTranslation();
   const [state, setState] = useState<SchemaState>(() => ({
     status: hasReviewedSchemaVersion(exactVersion) ? 'loading' : 'unavailable',
     resolution: null,
@@ -36,20 +34,18 @@ export function useConfigurationSchema(exactVersion: string) {
       }, signal);
       const artifacts = page.items.filter((artifact) => artifact.exact_version === exactVersion);
       const selected = artifacts[0];
-      if (selected === undefined) {
-        throw new Error(i18n.t('configuration.schema.noVerifiedArtifact', { version: exactVersion }));
-      }
-      const contract = await client.getConfigurationSchema(selected.id, signal);
-      const resolution = await resolveReviewedSchema(contract, exactVersion);
+      const resolution = selected === undefined
+        ? await resolveBundledReviewedSchema(exactVersion)
+        : await resolveReviewedSchema(await client.getConfigurationSchema(selected.id, signal), exactVersion);
       if (signal?.aborted) return;
       setState({
-        status: 'ready', resolution, error: null,
+        status: 'ready', resolution, error: null, bundled: selected === undefined,
       });
     } catch (error) {
       if (signal?.aborted || (error instanceof DOMException && error.name === 'AbortError')) return;
       setState({ status: 'error', resolution: null, error });
     }
-  }, [client, exactVersion, i18n]);
+  }, [client, exactVersion]);
 
   useEffect(() => {
     const controller = new AbortController();

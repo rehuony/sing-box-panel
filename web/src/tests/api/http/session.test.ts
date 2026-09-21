@@ -145,11 +145,11 @@ describe('createHttpApiClient session domain', () => {
 
     await client.login('secret-token');
     await expect(client.getDashboardContext()).rejects.toMatchObject({ status: 401 });
-    await client.cancelTask('task_1');
+    await client.stopRuntime();
 
     expect(invalidated).toHaveBeenCalledOnce();
     expect(fetcher).toHaveBeenLastCalledWith(
-      '/api/v1/tasks/task_1/cancel',
+      '/api/v1/core/stop',
       expect.objectContaining({
         headers: { Accept: 'application/json' },
         method: 'POST',
