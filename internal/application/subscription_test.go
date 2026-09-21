@@ -16,8 +16,8 @@ import (
 	"time"
 
 	"github.com/rehuony/sing-box-panel/internal/store"
-	"github.com/rehuony/sing-box-panel/internal/testutil"
 	"github.com/rehuony/sing-box-panel/internal/subscription"
+	"github.com/rehuony/sing-box-panel/internal/testutil"
 )
 
 func TestSubscriptionStartupRequiresMatchingCoreIdentity(t *testing.T) {
