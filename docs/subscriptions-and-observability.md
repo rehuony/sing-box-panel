@@ -209,8 +209,9 @@ press. Space/Enter toggle selection; F2 starts/finishes keyboard sorting, arrow
 keys move, and Escape cancels the drag without closing the picker. Filtering only
 reorders visible slots. Confirmed additions retain their mixed node/builtin order,
 and Save changes persists it. Built-ins remain separate
-from publication IDs, and Clear selection removes both kinds of candidates. Built-in candidates are never automatically
-injected into a nonempty group. An unavailable fixed manual exit still rejects
+from publication IDs. Remove selected nodes removes either kind of selected
+candidate; Clear selection leaves both kinds in the group. Built-in candidates
+are never automatically injected into a nonempty group. An unavailable fixed manual exit still rejects
 traffic; the renderer may add a rejection target to enforce that behavior.
 Mihomo supports all three types and both built-ins. Current sing-box supports
 select/url-test and direct; fallback and reject candidates are rejected during
