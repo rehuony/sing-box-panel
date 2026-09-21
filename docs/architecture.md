@@ -30,10 +30,11 @@ A cohesive domain stays in one package and uses file prefixes to make ownership
 visible. File length alone is not a reason to create another package.
 
 - `internal/settings` owns the shared panel settings file, validation, defaults,
-  atomic replacement and writer locking. `application` owns one-time migration
-  and recovery when a Web save also updates sing-box protocol identity.
-- `internal/configuration` owns strict, lossless sing-box JSON documents and
-  immutable revision operations.
+  atomic replacement and writer locking. `application` owns recovery when a
+  Web save also updates sing-box protocol identity.
+- `internal/configuration` owns strict, lossless sing-box JSON parsing and
+  canonical serialization. `store` retains immutable
+  snapshots as runtime evidence and initializes the current `schema.sql` directly.
 - `internal/subscription` owns documents, normalized nodes, source parsing and
   fetching, rendering, and inbound conversion contracts. Files use
   `document_*`, `node_*`, `source_*`, `render_*`, and `inbound_*` prefixes.
@@ -44,7 +45,8 @@ visible. File length alone is not a reason to create another package.
   monitoring client.
 - `internal/application` owns use cases and runtime identity resolution backed
   by persistent state.
-- `internal/server` owns server composition and its private task runner.
+- `internal/server` owns server composition, serialized runtime controls, bounded recovery,
+  and periodic subscription refresh.
 - `internal/panelprocess` owns private local process control; it reuses the
   server's lifetime and lease and does not launch background processes.
 - `internal/installation` inventories and cleans one selected instance's

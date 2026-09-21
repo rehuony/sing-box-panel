@@ -6,8 +6,8 @@ import { Cpu, HardDrive, MemoryStick, Radio } from 'lucide-react';
 import type {
   MetricsHistory,
   MetricsSnapshot,
+  PanelLogPage,
   RuntimeHistoryPage,
-  TaskPage,
 } from '@/api/api-client';
 
 import { useApiClient } from '@/api/api-client-context';
@@ -44,7 +44,7 @@ export function DashboardPage() {
     traffic: MetricsHistory | null;
     connections: MetricsHistory | null;
     runtime: RuntimeHistoryPage | null;
-    tasks: TaskPage | null;
+    activity: PanelLogPage | null;
     metrics: MetricsSnapshot | null;
     errors: unknown[];
   } | null>(null);
@@ -74,7 +74,7 @@ export function DashboardPage() {
       traffic,
       range === '1h' ? traffic : requestHistory(1),
       (async () => {
-        const filter = { from: new Date(end - 86_400_000).toISOString(), to, limit: 512 };
+        const filter = { from: new Date(end - 86_400_000).toISOString(), to, limit: 200 };
         const page = await client.getRuntimeHistory(filter, controller.signal);
         const items = [...page.items];
         let next = page.next;
@@ -88,18 +88,18 @@ export function DashboardPage() {
         }
         return { ...page, items, next };
       })(),
-      client.listTasks({ limit: 2 }, controller.signal),
+      client.listPanelLogs({ limit: 2 }, controller.signal),
       shared ? Promise.resolve(null) : client.getMetrics(controller.signal),
-    ]).then(([traffic, connections, runtime, tasks, metrics]) => {
+    ]).then(([traffic, connections, runtime, activity, metrics]) => {
       if (controller.signal.aborted) return;
       setData({
         range,
         traffic: traffic.status === 'fulfilled' ? traffic.value : null,
         connections: connections.status === 'fulfilled' ? connections.value : null,
         runtime: runtime.status === 'fulfilled' ? runtime.value : null,
-        tasks: tasks.status === 'fulfilled' ? tasks.value : null,
+        activity: activity.status === 'fulfilled' ? activity.value : null,
         metrics: metrics.status === 'fulfilled' ? metrics.value : null,
-        errors: [traffic, connections, runtime, tasks, metrics].flatMap((result) =>
+        errors: [traffic, connections, runtime, activity, metrics].flatMap((result) =>
           result.status === 'rejected' ? [result.reason] : [],
         ),
       });
@@ -235,26 +235,21 @@ export function DashboardPage() {
         </section>
         <section className='dashboard-card'>
           <header>
-            <h2>{t('dashboard.tasks.title')}</h2>
-            <Link to='/observability?tab=panel'>{t('dashboard.tasks.viewAll')}</Link>
+            <h2>{t('dashboard.activity.title')}</h2>
+            <Link to='/observability?tab=panel'>{t('dashboard.activity.viewAll')}</Link>
           </header>
-          <ol className='dashboard-tasks'>
-            {current?.tasks?.items.map((task) => (
-              <li key={task.id}>
-                <Link to={`/observability?tab=panel&task=${encodeURIComponent(task.id)}`}>
-                  {t(`tasks.kind.${task.kind}`, { defaultValue: task.kind })}
-                </Link>
-                <time>
-                  {new Date(task.updated_at).toLocaleTimeString(locale, {
-                    hour: '2-digit',
-                    minute: '2-digit',
-                  })}
+          <ol className='dashboard-activity'>
+            {current?.activity?.items.map((entry) => (
+              <li key={entry.id}>
+                <Link to='/observability#logs-panel'>{entry.message}</Link>
+                <time dateTime={entry.time}>
+                  {new Date(entry.time).toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' })}
                 </time>
-                <span data-status={task.status}>{t(`telemetry.taskStatus.${task.status}`)}</span>
+                <span data-status={entry.level}>{entry.level.toUpperCase()}</span>
               </li>
             ))}
           </ol>
-          {current?.tasks?.items.length === 0 && <small>{t('dashboard.tasks.empty')}</small>}
+          {current?.activity?.items.length === 0 && <small>{t('dashboard.activity.empty')}</small>}
         </section>
       </div>
     </div>

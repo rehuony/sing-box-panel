@@ -5,47 +5,18 @@ package store
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"errors"
-	"fmt"
 )
 
 var ErrPanelSettingsConflict = errors.New("panel settings changed")
 
-// PanelSettings reads legacy preferences for one-time migration into the file.
-func (s *Store) PanelSettings(ctx context.Context) (json.RawMessage, int64, error) {
-	var document string
-	var revision int64
-	err := s.db.QueryRowContext(ctx, "SELECT document, revision FROM panel_settings WHERE singleton = 1").Scan(&document, &revision)
-	if errors.Is(err, sql.ErrNoRows) {
-		return nil, 0, nil
-	}
-	if err != nil {
-		return nil, 0, fmt.Errorf("read panel settings: %w", err)
-	}
-	return json.RawMessage(document), revision, nil
-}
-
 // CommitPanelSettingsFile couples identity changes and the recovery marker in
 // one transaction. publish runs before commit while application readers hold
 // the selected file lock; its journal resolves ambiguous commit outcomes.
-func (s *Store) CommitPanelSettingsFile(ctx context.Context, path, id string, legacyRevision *int64, configuration *ConfigurationFileUpdate, publish func() error) error {
+func (s *Store) CommitPanelSettingsFile(ctx context.Context, path, id string, configuration *ConfigurationFileUpdate, publish func() error) error {
 	return s.WithTx(ctx, func(tx *sql.Tx) error {
-		if legacyRevision != nil {
-			var current int64
-			err := tx.QueryRowContext(ctx, "SELECT revision FROM panel_settings WHERE singleton=1").Scan(&current)
-			if err != nil && !errors.Is(err, sql.ErrNoRows) {
-				return err
-			}
-			if current != *legacyRevision {
-				return ErrPanelSettingsConflict
-			}
-			if _, err := tx.ExecContext(ctx, "DELETE FROM panel_settings WHERE singleton=1"); err != nil {
-				return err
-			}
-		}
 		if configuration != nil {
-			if _, err := saveConfigurationFileTx(ctx, tx, configuration.ExpectedRevision, configuration.Content, configuration.Revision, configuration.Task); err != nil {
+			if _, err := saveConfigurationFileTx(ctx, tx, configuration.ExpectedRevision, configuration.Content, configuration.Revision); err != nil {
 				return err
 			}
 		}

@@ -9,13 +9,16 @@ its exact version.
 
 An installed artifact is identified by its immutable artifact ID, exact
 `MAJOR.MINOR.PATCH` version, operating system, architecture, variant, archive
-digest, binary digest, and reported feature fingerprint. Multiple artifacts
-for one version may coexist.
+digest, binary digest, and reported feature fingerprint. The supported build
+variant is `musl`, with separate `amd64` and `arm64` CPU architectures. Artifacts
+with different source or digest identities can still coexist.
 
 Official installation and administrator import both verify bounded archive
 extraction, ELF identity, SHA-256, and the output of `sing-box version`. A
-reported version must match the requested exact version. Missing build tags
-are recorded as `not_reported`; they are never treated as an empty feature set.
+reported version must match the requested exact version. Installation requires
+the reported `with_musl` build tag and an ELF without a dynamic interpreter or
+shared-library dependencies. Missing tags and non-musl builds are rejected,
+including archives renamed to look like musl builds.
 
 ```sh
 sing-box-panel core refresh
@@ -33,20 +36,28 @@ sing-box-panel core import \
   --sha256 ARCHIVE_SHA256 \
   --version 1.13.19 \
   --arch arm64 \
-  --variant plain
+  --variant musl
 ```
 
 ## Catalog refresh and last-known-good state
 
-The official catalog reads stable GitHub Releases in pages of 20, up to 100
-pages. Each page is limited to 8 MiB, the complete refresh to 128 MiB, and the
+The official catalog reads stable GitHub Releases in pages of 50, up to 100
+pages. Each page is limited to 32 MiB, the complete refresh to 256 MiB, and the
 operation to three minutes. Drafts, prereleases, malformed releases, and
 irrelevant assets are filtered before a candidate can enter the stored
-catalog.
+catalog. Only `sing-box-VERSION-linux-{amd64,arm64}-musl.tar.gz` archives are
+accepted. Each version has at most one asset per architecture; releases without
+a matching musl archive are omitted, with no plain/glibc fallback. Missing or
+inconsistent digest evidence still blocks installation. Storage uses the current format described in
+[Database compatibility](getting-started.md#database-compatibility).
 
 An ordinary refresh honors `github.catalog_ttl_hours`; use `--force` for an
 explicit upstream refresh. The Web refresh action also requests a forced
-refresh. Per-page ETags allow the panel to prove an unchanged catalog without
+refresh. Opening version management automatically requests a TTL-aware refresh;
+cached rows and installed versions remain visible while it runs. The HTTP client
+honors standard proxy environment variables. Large valid release pages are byte
+bounded and checked for duplicate keys and excessive nesting without an asset-count
+limit. Authentication and GitHub rate-limit errors have distinct diagnostics. Per-page ETags allow the panel to prove an unchanged catalog without
 replacing it. A timeout, rate limit, invalid response, or size failure returns
 an error and leaves the last successful catalog and validator intact.
 
@@ -70,7 +81,7 @@ status bar shows that selected version even while stopped. Confirmed stopped
 state displays zero uptime and `0 B/s` upload/download rates; unavailable or
 uncertain observations still remain unknown. Available assets are filtered using the
 deployed panel binary's GOOS/GOARCH, not browser/device detection. Enabling rejects incompatible artifacts
-before queueing work, then validates the saved configuration before replacement.
+before process control, then validates the saved configuration before replacement.
 Selecting while stopped does not launch sing-box. Selecting while running
 restarts it only after preflight succeeds. Start, stop and restart are available
 in the top status bar; stop retains the selected version. The selected row offers
@@ -95,7 +106,10 @@ The compact import dialog accepts a single `.tar.gz`/`.tgz` archive by drag-and-
 or file selection, and asks for its exact version. Standard sing-box filenames
 fill the version automatically; custom
 filenames require manual entry, and the suggested version remains editable.
-Source metadata records the filename and the variant defaults to `plain`.
+Source metadata records the filename and the variant is `musl`. Recognized
+non-musl or wrong-architecture filenames are rejected by the browser. Both CLI
+and HTTP imports reject other variant identities. Custom archive names are
+allowed when the operator supplies a musl build for the server architecture.
 
 An optional GitHub Token in panel service/security settings is used server-side
 for version discovery. An omitted token retains the configured value; explicit
@@ -113,15 +127,14 @@ identity, digest, and binary check gates.
 
 The catalog currently contains the exact releases:
 
-- sing-box 1.11.15;
-- sing-box 1.12.25;
 - sing-box 1.13.19; and
 - sing-box 1.14.0.
 
 The reviewed source catalog at `internal/singbox/catalog.json` records each
 exact tag and commit plus the module sums, amd64 and arm64 asset name, URL,
-size, SHA-256, feature fingerprint, behavior family, and upstream Go identity.
-It is the version and official-artifact lock.
+size, SHA-256, musl feature fingerprint, behavior family, and upstream Go identity.
+It is the version and official-artifact lock. The old 1.11.15/1.12.25 profiles
+and inbound converters are removed because those releases have no musl assets.
 
 Schema support is independently keyed by exact version. Starting with 1.14,
 the networked `go tool singbox-support generate` command executes the locked
@@ -135,7 +148,8 @@ digest.
 The `Core Compatibility` workflow runs every catalog entry on native Linux
 amd64 and arm64 runners. It verifies the reviewed archive size and SHA-256,
 executes the real binary to inspect its exact version and feature fingerprint,
-and requires that binary to accept representative raw configuration with
+verifies static linking without a dynamic interpreter or shared-library
+dependencies, and requires that binary to accept representative raw configuration with
 `sing-box check`. Native Schema reproducibility is checked separately by the
 networked regeneration job and offline asset validation. Relevant pull
 requests run these contracts automatically, and every signed release must pass
@@ -156,13 +170,8 @@ preserving the running/stopped state. Removal unregisters an unused version and 
 Archive format, size, platform, checksum and exact-version checks still detect
 invalid files, incompatible binaries and changed bytes.
 
-Migration 0008 removes the former verification state while preserving artifact
-IDs, creation times, digests, and startup/runtime references. Previously restricted
-artifacts are selectable after migration; migration does not start a process or
-change desired runtime state. The quarantine/revoke HTTP and CLI operations and
-the verification-state filter are removed. The persisted source code
-`user_verified` continues to mean manual import, preserving artifact identities;
-it is not an approval state.
+The source kind `user_verified` identifies an administrator-imported archive.
+Archive verification runs before registration; there is no additional approval state.
 
 ## Adding a stable version
 
@@ -173,7 +182,7 @@ has its own native output or is JSON-only.
 
 Adding support is intentionally manual:
 
-1. Review the upstream stable release and both official Linux artifacts.
+1. Review the upstream stable release and both official Linux musl artifacts.
 2. Add the exact catalog entry. If the release exposes `sing-box schema`, run
    `make support-generate` and require a clean offline `make support-check`; if
    it does not, leave the version JSON-only.

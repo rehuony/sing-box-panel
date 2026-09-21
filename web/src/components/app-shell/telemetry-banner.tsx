@@ -308,35 +308,14 @@ export function TelemetryBanner() {
       : EM_DASH;
   const action = runtimeControl.state.action;
   const actionLabel = action === null ? '' : t(`telemetry.control.${action}`);
-  const taskStatus = runtimeControl.state.task?.status;
-  const actionMessage = action === null
+  const actionMessage = action === null || runtimeControl.state.phase === 'idle'
     ? ''
-    : runtimeControl.state.phase === 'queueing'
-      ? t('telemetry.action.queueing', { action: actionLabel })
-      : runtimeControl.state.phase === 'tracking'
-        ? t('telemetry.action.queued', {
-            action: actionLabel,
-            status: taskStatus === undefined ? EM_DASH : t(`telemetry.taskStatus.${taskStatus}`),
-          })
-        : runtimeControl.state.phase === 'verifying'
-          ? t('telemetry.action.verifying', { action: actionLabel })
-          : runtimeControl.state.phase === 'verified'
-            ? t('telemetry.action.verified', { action: actionLabel })
-            : runtimeControl.state.phase === 'task_timeout'
-              ? t('telemetry.action.taskTimedOut', { action: actionLabel })
-              : runtimeControl.state.phase === 'verification_timeout'
-                ? t('telemetry.action.timedOut', { action: actionLabel })
-                : runtimeControl.state.phase === 'failed'
-                  ? t('telemetry.action.failed', { action: actionLabel })
-                  : '';
+    : t(`telemetry.action.${runtimeControl.state.phase === 'verification_timeout' ? 'timedOut' : runtimeControl.state.phase}`, { action: actionLabel });
   const actionVariant = runtimeControl.state.phase === 'verified'
     ? 'success'
     : runtimeControl.state.phase === 'failed'
       ? 'destructive'
-      : runtimeControl.state.phase === 'task_timeout'
-        || runtimeControl.state.phase === 'verification_timeout'
-        ? 'warning'
-        : 'info';
+      : runtimeControl.state.phase === 'verification_timeout' ? 'warning' : 'info';
 
   function runRuntimeAction(nextAction: RuntimeAction) {
     void runtimeControl.run(nextAction, runtimeStatus);
@@ -408,7 +387,6 @@ export function TelemetryBanner() {
                   : runtimeControl.state.phase === 'verified'
                     ? <CircleCheck aria-hidden='true' data-icon='inline-start' />
                     : runtimeControl.state.phase === 'failed'
-                      || runtimeControl.state.phase === 'task_timeout'
                       || runtimeControl.state.phase === 'verification_timeout'
                       ? <TriangleAlert aria-hidden='true' data-icon='inline-start' />
                       : null}

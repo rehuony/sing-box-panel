@@ -1,13 +1,5 @@
-import type { Task, TaskFilter, TaskPage } from './contracts/tasks';
 import type {
-  CanonicalChange,
-  CanonicalRevisionDiff,
-  CanonicalRevisionListFilter,
-  CanonicalRevisionPage,
-  CanonicalSave,
-  CanonicalSnapshot,
-} from './contracts/canonical';
-import type {
+  CatalogRefresh,
   ConfigurationFile,
   ConfigurationFileWrite,
   DashboardContext,
@@ -15,6 +7,7 @@ import type {
   PanelSettingsView,
   PanelSettingsWrite,
   Session,
+  SubscriptionSourceRefreshResult,
   SystemStatus,
 } from './generated';
 import type {
@@ -36,7 +29,6 @@ import type {
   TrafficPeriodPage,
 } from './contracts/observability';
 import type {
-  ActivationQueued,
   CatalogAssetFilter,
   CatalogAssetList,
   ConfigurationCompile,
@@ -50,9 +42,11 @@ import type {
   MonitoringTier,
   RuntimeHistoryFilter,
   RuntimeHistoryPage,
+  RuntimeResponse,
   RuntimeStatus,
   StartupArtifactPage,
   StartupArtifactState,
+  StartupArtifactSummary,
 } from './contracts/core';
 import type {
   CreatedSubscriptionToken,
@@ -83,20 +77,22 @@ import type {
 
 export type {
   AppearanceSettings,
+  CatalogRefresh,
   ConfigurationFile,
   ConfigurationFileWrite,
   DashboardContext,
   DynamicObject as JsonObject,
   PanelPreferences,
+  PanelServiceSettings,
   PanelSettingsView,
   PanelSettingsWrite,
   Session,
+  SubscriptionSourceRefreshResult,
   SystemStatus,
 } from './generated';
 export * from './contracts/observability';
 export * from './contracts/subscription';
 export * from './contracts/canonical';
-export * from './contracts/tasks';
 
 export * from './contracts/core';
 
@@ -104,65 +100,58 @@ export type DashboardConfiguration = DashboardContext['configuration'];
 
 export interface ApiClient {
   logout: (signal?: AbortSignal) => Promise<void>;
-  stopRuntime: (signal?: AbortSignal) => Promise<Task>;
-  startRuntime: (signal?: AbortSignal) => Promise<Task>;
-  restartRuntime: (signal?: AbortSignal) => Promise<Task>;
   getSession: (signal?: AbortSignal) => Promise<Session | null>;
-
+  stopRuntime: (signal?: AbortSignal) => Promise<RuntimeStatus>;
   getMetrics: (signal?: AbortSignal) => Promise<MetricsSnapshot>;
+  startRuntime: (signal?: AbortSignal) => Promise<RuntimeStatus>;
+
   getSystemStatus: (signal?: AbortSignal) => Promise<SystemStatus>;
-  getTask: (taskID: string, signal?: AbortSignal) => Promise<Task>;
   login: (token: string, signal?: AbortSignal) => Promise<Session>;
+  restartRuntime: (signal?: AbortSignal) => Promise<RuntimeStatus>;
   subscribeSessionInvalidated: (listener: () => void) => () => void;
-  getCanonical: (signal?: AbortSignal) => Promise<CanonicalSnapshot>;
   getRuntimeStatus: (signal?: AbortSignal) => Promise<RuntimeStatus>;
-  retryTask: (taskID: string, signal?: AbortSignal) => Promise<Task>;
-  cancelTask: (taskID: string, signal?: AbortSignal) => Promise<Task>;
   getLog: (entryID: string, signal?: AbortSignal) => Promise<LogEntry>;
 
   getTrafficStatus: (signal?: AbortSignal) => Promise<MetricsSnapshot>;
-  installCore: (assetID: number, signal?: AbortSignal) => Promise<Task>;
   getPanelSettings: (signal?: AbortSignal) => Promise<PanelSettingsView>;
-  enableCore: (artifactID: string, signal?: AbortSignal) => Promise<Task>;
-  disableCore: (artifactID: string, signal?: AbortSignal) => Promise<Task>;
   getDashboardContext: (signal?: AbortSignal) => Promise<DashboardContext>;
   listLogs: (filter?: LogFilter, signal?: AbortSignal) => Promise<LogPage>;
-  refreshCatalog: (force?: boolean, signal?: AbortSignal) => Promise<Task>;
   getConfigurationFile: (signal?: AbortSignal) => Promise<ConfigurationFile>;
-  listTasks: (filter?: TaskFilter, signal?: AbortSignal) => Promise<TaskPage>;
+  installCore: (assetID: number, signal?: AbortSignal) => Promise<CoreArtifact>;
   listCoreLogFiles: (signal?: AbortSignal) => Promise<{ items: CoreLogFile[] }>;
   newInboundDefaults: (type: string, signal?: AbortSignal) => Promise<JsonObject>;
   removeCoreArtifact: (artifactID: string, signal?: AbortSignal) => Promise<void>;
-
-  checkStartupArtifact: (artifactID: string, signal?: AbortSignal) => Promise<Task>;
+  enableCore: (artifactID: string, signal?: AbortSignal) => Promise<RuntimeStatus>;
   deleteSubscriptionToken: (tokenID: string, signal?: AbortSignal) => Promise<void>;
-  importCoreArchive: (input: CoreImportUpload, signal?: AbortSignal) => Promise<Task>;
+  disableCore: (artifactID: string, signal?: AbortSignal) => Promise<RuntimeStatus>;
+
+  refreshCatalog: (force?: boolean, signal?: AbortSignal) => Promise<CatalogRefresh>;
   getCoreArtifact: (artifactID: string, signal?: AbortSignal) => Promise<CoreArtifact>;
-  getRevision: (reference: string, signal?: AbortSignal) => Promise<CanonicalSnapshot>;
   getTrafficPeriod: (periodID: string, signal?: AbortSignal) => Promise<TrafficPeriod>;
-  refreshSubscriptionSource: (sourceID: string, signal?: AbortSignal) => Promise<Task>;
-  rollbackRuntime: (activationBundleID: string, signal?: AbortSignal) => Promise<Task>;
   getSubscriptionNodeCatalog: (signal?: AbortSignal) => Promise<SubscriptionNodeCatalog>;
   listPanelLogs: (filter?: PanelLogFilter, signal?: AbortSignal) => Promise<PanelLogPage>;
   getSubscriptionUser: (userID: string, signal?: AbortSignal) => Promise<SubscriptionUser>;
   clearLogs: (filter?: LogClearFilter, signal?: AbortSignal) => Promise<{ deleted: number }>;
   getSubscriptionNode: (id: string, signal?: AbortSignal) => Promise<SubscriptionNodeDetail>;
   getSubscriptionToken: (tokenID: string, signal?: AbortSignal) => Promise<SubscriptionToken>;
+  importCoreArchive: (input: CoreImportUpload, signal?: AbortSignal) => Promise<CoreArtifact>;
   readCoreLog: (file: string, offset?: number, signal?: AbortSignal) => Promise<CoreLogChunk>;
   deleteLog: (entryID: string, signal?: AbortSignal) => Promise<{ id: string; deleted: true }>;
   deleteSubscriptionNode: (id: string, revision: number, signal?: AbortSignal) => Promise<void>;
+  rollbackRuntime: (activationBundleID: string, signal?: AbortSignal) => Promise<RuntimeStatus>;
   streamLogs: (filter?: LogStreamFilter, signal?: AbortSignal) => AsyncIterable<LogStreamEvent>;
   getSubscriptionSource: (sourceID: string, signal?: AbortSignal) => Promise<SubscriptionSource>;
   revokeSubscriptionToken: (tokenID: string, signal?: AbortSignal) => Promise<SubscriptionToken>;
-  diffRevisions: (from: string, to: string, signal?: AbortSignal) => Promise<CanonicalRevisionDiff>;
   getSubscriptionChannel: (channelID: string, signal?: AbortSignal) => Promise<SubscriptionChannel>;
   getSubscriptionTokenSecret: (tokenID: string, signal?: AbortSignal) => Promise<{ token: string }>;
   parseSubscriptionNode: (text: string, signal?: AbortSignal) => Promise<{ outbound_json: string }>;
-
+  checkStartupArtifact: (artifactID: string, signal?: AbortSignal) => Promise<StartupArtifactSummary>;
   getMetricsHistory: (
     filter: MetricsHistoryFilter,
     signal?: AbortSignal,
   ) => Promise<MetricsHistory>;
+
+  refreshSubscriptionSource: (sourceID: string, signal?: AbortSignal) => Promise<SubscriptionSourceRefreshResult>;
   savePanelSettings: (
     input: PanelSettingsWrite,
     signal?: AbortSignal,
@@ -232,15 +221,6 @@ export interface ApiClient {
     updatedAt: string,
     signal?: AbortSignal,
   ) => Promise<void>;
-  listRevisions: (
-    filter?: CanonicalRevisionListFilter,
-    signal?: AbortSignal,
-  ) => Promise<CanonicalRevisionPage>;
-  restoreRevision: (
-    reference: string,
-    baseRevision: string,
-    signal?: AbortSignal,
-  ) => Promise<CanonicalSave>;
   createSubscriptionSource: (
     input: SubscriptionSourceWrite,
     signal?: AbortSignal,
@@ -253,6 +233,10 @@ export interface ApiClient {
     input: { coreArtifactID: string },
     signal?: AbortSignal,
   ) => Promise<ConfigurationCompile>;
+  previewConfiguration: (
+    input: { coreArtifactID: string },
+    signal?: AbortSignal,
+  ) => Promise<ConfigurationPreview>;
   listSubscriptionTokens: (
     filter?: SubscriptionListFilter,
     signal?: AbortSignal,
@@ -261,11 +245,6 @@ export interface ApiClient {
     input: SubscriptionChannelWrite,
     signal?: AbortSignal,
   ) => Promise<SubscriptionChannel>;
-  replaceCanonical: (
-    documentJSON: string,
-    baseRevision: string,
-    signal?: AbortSignal,
-  ) => Promise<CanonicalSave>;
   listSubscriptionSources: (
     filter?: SubscriptionListFilter,
     signal?: AbortSignal,
@@ -274,11 +253,6 @@ export interface ApiClient {
     filter?: SubscriptionListFilter,
     signal?: AbortSignal,
   ) => Promise<SubscriptionChannelPage>;
-  patchCanonical: (
-    changes: CanonicalChange[],
-    baseRevision: string,
-    signal?: AbortSignal,
-  ) => Promise<CanonicalSave>;
   setSubscriptionTokenEnabled: (
     tokenID: string,
     enabled: boolean,
@@ -289,26 +263,22 @@ export interface ApiClient {
     expiresAt?: string,
     signal?: AbortSignal,
   ) => Promise<SubscriptionTokenRotation>;
+  activateStartupArtifact: (
+    artifactID: string,
+    monitoringTier: MonitoringTier,
+    signal?: AbortSignal,
+  ) => Promise<RuntimeResponse>;
   getSubscriptionSourceVersion: (
     sourceID: string,
     versionID: string,
     signal?: AbortSignal,
   ) => Promise<SubscriptionSourceVersion>;
-  activateStartupArtifact: (
-    artifactID: string,
-    monitoringTier: MonitoringTier,
-    signal?: AbortSignal,
-  ) => Promise<ActivationQueued>;
   updateSubscriptionNode: (
     id: string,
     outboundJSON: string,
     revision: number,
     signal?: AbortSignal,
   ) => Promise<SubscriptionNodeDetail>;
-  previewConfiguration: (
-    input: { coreArtifactID: string; canonicalRevisionID?: string },
-    signal?: AbortSignal,
-  ) => Promise<ConfigurationPreview>;
   setSubscriptionNodeVisibility: (
     id: string,
     hidden: boolean,

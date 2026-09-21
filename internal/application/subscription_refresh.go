@@ -23,11 +23,6 @@ type remoteSubscriptionSourceConfig struct {
 	RefreshIntervalMinutes int                       `json:"refresh_interval_minutes,omitempty"`
 }
 
-type subscriptionSourceRefreshPayload struct {
-	SourceID          string    `json:"source_id"`
-	ExpectedUpdatedAt time.Time `json:"expected_updated_at"`
-}
-
 type SubscriptionSourceRefreshResult struct {
 	SourceID  string    `json:"source_id"`
 	VersionID string    `json:"version_id"`
@@ -37,39 +32,15 @@ type SubscriptionSourceRefreshResult struct {
 	FetchedAt time.Time `json:"fetched_at"`
 }
 
-func (application *Application) QueueSubscriptionSourceRefresh(
-	ctx context.Context,
-	sourceID string,
-) (Task, error) {
+func (application *Application) RefreshSubscriptionSource(ctx context.Context, sourceID string) (result SubscriptionSourceRefreshResult, operationErr error) {
+	defer func() { application.RecordOperation(ctx, "subscription.refresh", "Subscription refresh", operationErr) }()
 	source, err := application.database.GetSubscriptionSource(ctx, strings.TrimSpace(sourceID))
-	if err != nil {
-		return Task{}, err
-	}
-	if source.SourceKind != store.SubscriptionSourceRemote {
-		return Task{}, errors.New("subscription source is not remote")
-	}
-	if _, err := decodeRemoteSubscriptionSourceConfig(source.Config); err != nil {
-		return Task{}, err
-	}
-	return application.enqueueSubscriptionSourceRefresh(ctx, source, nil)
-}
-
-func (application *Application) ExecuteSubscriptionSourceRefresh(
-	ctx context.Context,
-	payload json.RawMessage,
-	safePoint func(context.Context) error,
-) (SubscriptionSourceRefreshResult, error) {
-	var input subscriptionSourceRefreshPayload
-	if err := jsonstrict.Decode(payload, 64<<10, &input); err != nil {
-		return SubscriptionSourceRefreshResult{}, errors.New("invalid subscription source refresh task")
-	}
-	source, err := application.database.GetSubscriptionSource(ctx, strings.TrimSpace(input.SourceID))
 	if err != nil {
 		return SubscriptionSourceRefreshResult{}, err
 	}
-	if !source.UpdatedAt.Equal(input.ExpectedUpdatedAt.UTC()) {
-		return SubscriptionSourceRefreshResult{}, store.ErrSubscriptionConflict
-	}
+	return application.refreshSubscriptionSource(ctx, source)
+}
+func (application *Application) refreshSubscriptionSource(ctx context.Context, source store.SubscriptionSource) (SubscriptionSourceRefreshResult, error) {
 	if source.SourceKind != store.SubscriptionSourceRemote {
 		return SubscriptionSourceRefreshResult{}, errors.New("subscription source is not remote")
 	}
@@ -77,20 +48,10 @@ func (application *Application) ExecuteSubscriptionSourceRefresh(
 	if err != nil {
 		return SubscriptionSourceRefreshResult{}, err
 	}
-	if safePoint != nil {
-		if err := safePoint(ctx); err != nil {
-			return SubscriptionSourceRefreshResult{}, err
-		}
-	}
 	body, fetchErr := subscription.FetchSource(ctx, config.URL, application.settings.Subscription.PrivateSourceCIDRs)
 	if fetchErr != nil {
 		_ = application.scheduleNextSubscriptionSourceRefresh(ctx, source, config)
 		return SubscriptionSourceRefreshResult{}, fetchErr
-	}
-	if safePoint != nil {
-		if err := safePoint(ctx); err != nil {
-			return SubscriptionSourceRefreshResult{}, err
-		}
 	}
 	saved, saveErr := application.CreateSubscriptionSourceVersion(ctx, source.ID, CreateSubscriptionSourceVersionRequest{
 		Format: config.Format, RawBody: body, ExpectedUpdatedAt: source.UpdatedAt,
@@ -110,9 +71,7 @@ func (application *Application) ExecuteSubscriptionSourceRefresh(
 	}, nil
 }
 
-func (application *Application) configuredSubscriptionSourceRefreshTask(
-	source store.SubscriptionSource,
-) (*store.EnqueueTaskInput, error) {
+func (application *Application) configuredSubscriptionSourceRefreshSchedule(source store.SubscriptionSource) (*store.SubscriptionRefreshSchedule, error) {
 	if source.SourceKind != store.SubscriptionSourceRemote {
 		return nil, nil
 	}
@@ -120,18 +79,10 @@ func (application *Application) configuredSubscriptionSourceRefreshTask(
 	if err != nil {
 		return nil, err
 	}
-	if !source.Enabled {
+	if !source.Enabled || config.RefreshIntervalMinutes == 0 {
 		return nil, nil
 	}
-	if config.RefreshIntervalMinutes == 0 {
-		return nil, nil
-	}
-	notBefore := application.now().UTC().Add(time.Duration(config.RefreshIntervalMinutes) * time.Minute)
-	prepared, err := application.subscriptionSourceRefreshTask(source, &notBefore)
-	if err != nil {
-		return nil, err
-	}
-	return &prepared, nil
+	return &store.SubscriptionRefreshSchedule{SourceID: source.ID, ExpectedUpdatedAt: source.UpdatedAt, NextAt: application.now().UTC().Add(time.Duration(config.RefreshIntervalMinutes) * time.Minute)}, nil
 }
 
 func decodeRemoteSubscriptionSourceConfig(raw json.RawMessage) (remoteSubscriptionSourceConfig, error) {
@@ -157,58 +108,34 @@ func decodeRemoteSubscriptionSourceConfig(raw json.RawMessage) (remoteSubscripti
 	return config, nil
 }
 
-func (application *Application) scheduleNextSubscriptionSourceRefresh(
-	ctx context.Context,
-	source store.SubscriptionSource,
-	config remoteSubscriptionSourceConfig,
-) error {
-	if config.RefreshIntervalMinutes == 0 {
+func (application *Application) scheduleNextSubscriptionSourceRefresh(ctx context.Context, source store.SubscriptionSource, config remoteSubscriptionSourceConfig) error {
+	// Retry an initial fetch, but do not enable periodic refresh for an already
+	// populated manual-only source.
+	if !source.Enabled || (config.RefreshIntervalMinutes == 0 && source.CurrentVersionID != "") {
 		return nil
 	}
-	notBefore := application.now().UTC().Add(time.Duration(config.RefreshIntervalMinutes) * time.Minute)
-	_, err := application.enqueueSubscriptionSourceRefresh(ctx, source, &notBefore)
-	return err
+	interval := config.RefreshIntervalMinutes
+	if interval == 0 {
+		interval = minimumSubscriptionRefreshIntervalMinutes
+	}
+	return application.database.ScheduleSubscriptionRefresh(ctx, store.SubscriptionRefreshSchedule{SourceID: source.ID, ExpectedUpdatedAt: source.UpdatedAt, NextAt: application.now().UTC().Add(time.Duration(interval) * time.Minute)})
 }
 
-func (application *Application) enqueueSubscriptionSourceRefresh(
-	ctx context.Context,
-	source store.SubscriptionSource,
-	notBefore *time.Time,
-) (Task, error) {
-	input, err := application.subscriptionSourceRefreshTask(source, notBefore)
+func (application *Application) RefreshDueSubscriptionSources(ctx context.Context) error {
+	due, err := application.database.DueSubscriptionRefreshes(ctx, application.now().UTC())
 	if err != nil {
-		return Task{}, err
+		return err
 	}
-	queued, err := application.database.EnqueueTask(ctx, input)
-	if err != nil {
-		return Task{}, err
+	for _, entry := range due {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		source, err := application.database.GetSubscriptionSource(ctx, entry.SourceID)
+		if err != nil || !source.Enabled || !source.UpdatedAt.Equal(entry.ExpectedUpdatedAt) {
+			continue
+		}
+		_, err = application.refreshSubscriptionSource(ctx, source)
+		application.RecordOperation(ctx, "subscription.refresh", "Subscription source refresh", err)
 	}
-	return applicationTask(queued), nil
-}
-
-func (application *Application) subscriptionSourceRefreshTask(
-	source store.SubscriptionSource,
-	notBefore *time.Time,
-) (store.EnqueueTaskInput, error) {
-	payload, err := json.Marshal(subscriptionSourceRefreshPayload{
-		SourceID: source.ID, ExpectedUpdatedAt: source.UpdatedAt,
-	})
-	if err != nil {
-		return store.EnqueueTaskInput{}, err
-	}
-	taskID, err := application.newID("task")
-	if err != nil {
-		return store.EnqueueTaskInput{}, err
-	}
-	keySuffix := "manual"
-	if notBefore != nil {
-		keySuffix = notBefore.UTC().Format(time.RFC3339Nano)
-	}
-	key := "subscription-source-refresh:" + source.ID + ":" +
-		source.UpdatedAt.UTC().Format(time.RFC3339Nano) + ":" + keySuffix
-	return store.EnqueueTaskInput{
-		ID: taskID, IdempotencyKey: key, Lane: store.TaskLaneMaintenance,
-		Kind: store.TaskKindSubscriptionSourceRefresh, Payload: payload,
-		NotBefore: notBefore, CreatedAt: application.now().UTC(),
-	}, nil
+	return nil
 }

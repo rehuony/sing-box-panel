@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"os"
 	"time"
 
 	"github.com/rehuony/sing-box-panel/internal/application"
@@ -47,38 +46,6 @@ func startLogRetention(ctx context.Context, commands *application.Application) <
 	return done
 }
 
-func withTaskLogging(commands *application.Application, next taskHandler) taskHandler {
-	return taskResultHandlerFunc(func(
-		ctx context.Context,
-		task store.Task,
-		control taskExecutionControl,
-	) (taskHandlerResult, error) {
-		metadata := mustLogMetadata(map[string]any{
-			"task_id": task.ID,
-			"kind":    task.Kind,
-			"lane":    task.Lane,
-			"attempt": task.Attempt,
-		})
-		recordOperationalLog(commands, application.LogRecordRequest{
-			Source: store.LogSourceTask, Level: store.LogLevelInfo, Code: "task.started",
-			Message: "Durable task execution started", Metadata: metadata,
-		})
-		result, err := next.Handle(ctx, task, control)
-		if err != nil {
-			recordOperationalLog(commands, application.LogRecordRequest{
-				Source: store.LogSourceTask, Level: store.LogLevelError, Code: "task.failed",
-				Message: "Durable task execution failed", Metadata: metadata,
-			})
-			return result, err
-		}
-		recordOperationalLog(commands, application.LogRecordRequest{
-			Source: store.LogSourceTask, Level: store.LogLevelInfo, Code: "task.succeeded",
-			Message: "Durable task execution succeeded", Metadata: metadata,
-		})
-		return result, nil
-	})
-}
-
 func recordOperationalLog(commands *application.Application, request application.LogRecordRequest) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
@@ -108,12 +75,4 @@ func stopHTTPServer(server *http.Server, serveResult <-chan error) error {
 		return fmt.Errorf("serve panel HTTP server during shutdown: %w", serveErr)
 	}
 	return nil
-}
-
-func workerID() string {
-	hostname, err := os.Hostname()
-	if err != nil || hostname == "" {
-		hostname = "unknown-host"
-	}
-	return fmt.Sprintf("panel/%s/%d", hostname, os.Getpid())
 }

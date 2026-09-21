@@ -18,7 +18,7 @@ var (
 )
 
 // Lease is held for the complete server lifetime. The lock is
-// deliberately outside SQLite: task leases coordinate durable work, while
+// deliberately outside SQLite: runtime generations fence committed state, while
 // this lease guarantees that only one OS process can own the sing-box runtime
 // manager for a data directory.
 type Lease struct {

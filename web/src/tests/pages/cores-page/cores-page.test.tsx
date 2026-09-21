@@ -1,7 +1,7 @@
 import { MemoryRouter } from 'react-router-dom';
 import { describe, expect, it, vi } from 'vitest';
 import userEvent from '@testing-library/user-event';
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 
 import '@/i18n';
 
@@ -15,8 +15,8 @@ import {
   testArtifacts,
   testCatalog,
   testDashboardContext,
+  testRuntimeStatus,
   testSystemStatus,
-  testTask,
 } from '@/tests/api/mock-api-client';
 
 function renderCores(client: ApiClient) {
@@ -40,6 +40,39 @@ function renderCores(client: ApiClient) {
   );
 }
 describe('inline version library', () => {
+  it('automatically initializes an empty catalog without blocking installed versions', async () => {
+    const user = userEvent.setup();
+    let finish!: () => void;
+    const client = createMockApiClient({
+      listCatalogAssets: vi.fn().mockRejectedValueOnce(new Error('Catalog not initialized')).mockResolvedValue(testCatalog),
+      refreshCatalog: vi.fn().mockImplementation(() => new Promise(resolve => {
+        finish = () => resolve({ refreshed_at: testCatalog.refreshed_at, releases: 1, assets: 1, not_modified: false });
+      })),
+    });
+    renderCores(client);
+    expect(await screen.findByText(testArtifacts.items[0].exact_version)).toBeVisible();
+    expect(client.refreshCatalog).toHaveBeenCalledWith(false, expect.any(AbortSignal));
+    await user.click(screen.getByRole('tab', { name: 'Available' }));
+    await act(async () => finish());
+    expect(await screen.findByRole('link', { name: testCatalog.assets[0].name })).toBeVisible();
+    expect(client.listCatalogAssets).toHaveBeenCalledTimes(2);
+  });
+
+  it('retains cached catalog rows if automatic refresh fails and permits a forced retry', async () => {
+    const user = userEvent.setup();
+    const client = createMockApiClient({
+      refreshCatalog: vi.fn().mockRejectedValueOnce(new Error('GitHub unavailable')).mockResolvedValue({
+        refreshed_at: testCatalog.refreshed_at, releases: 1, assets: 1, not_modified: false,
+      }),
+    });
+    renderCores(client);
+    await screen.findByText(testArtifacts.items[0].exact_version);
+    await user.click(screen.getByRole('tab', { name: 'Available' }));
+    expect(await screen.findByRole('link', { name: testCatalog.assets[0].name })).toBeVisible();
+    await user.click(screen.getByRole('button', { name: 'Refresh catalog' }));
+    await waitFor(() => expect(client.refreshCatalog).toHaveBeenCalledWith(true, expect.any(AbortSignal)));
+  });
+
   it('switches library tabs by keyboard and associates the visible panel with its tab', async () => {
     const user = userEvent.setup();
     renderCores(createMockApiClient());
@@ -80,10 +113,9 @@ describe('inline version library', () => {
     expect(screen.getByRole('button', { name: 'Import archive' })).toBeEnabled();
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
-  it('queues inline enable and keeps it pending until the real task settles', async () => {
+  it('keeps inline enable pending until the operation finishes', async () => {
     const user = userEvent.setup();
-    let finish!: (task: typeof testTask) => void;
-    const queued = { ...testTask, status: 'queued' as const };
+    let finish!: (status: typeof testRuntimeStatus) => void;
     const client = createMockApiClient({
       getRuntimeStatus: vi.fn().mockResolvedValue({
         desired_running: false,
@@ -96,13 +128,12 @@ describe('inline version library', () => {
             finish = resolve;
           }),
       ),
-      getTask: vi.fn().mockResolvedValue({ ...testTask, status: 'succeeded' }),
     });
     renderCores(client);
     await user.click(await screen.findByRole('button', { name: 'Enable' }));
     expect(client.enableCore).toHaveBeenCalledWith('core_1', expect.any(AbortSignal));
     expect(screen.getByRole('button', { name: 'Enable' })).toBeDisabled();
-    finish({ ...queued, status: 'succeeded' });
+    finish(testRuntimeStatus);
     await waitFor(() => expect(screen.getByRole('button', { name: 'Enable' })).toBeEnabled());
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
@@ -118,8 +149,8 @@ describe('inline version library', () => {
         testArtifacts.items[0],
         { ...testArtifacts.items[0], id: 'imported', source_kind: 'user_verified' },
       ] }),
-      enableCore: vi.fn().mockResolvedValue({ ...testTask, status: 'succeeded' }),
-      disableCore: vi.fn().mockResolvedValue({ ...testTask, status: 'succeeded' }),
+      enableCore: vi.fn().mockResolvedValue(testRuntimeStatus),
+      disableCore: vi.fn().mockResolvedValue(testRuntimeStatus),
     });
     renderCores(client);
     const enabled = await screen.findByRole('button', { name: 'Disable' });

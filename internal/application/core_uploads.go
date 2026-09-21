@@ -12,16 +12,13 @@ import (
 	"strings"
 	"time"
 
-	"github.com/rehuony/sing-box-panel/internal/coreartifact"
-	"github.com/rehuony/sing-box-panel/internal/jsonstrict"
 	"github.com/rehuony/sing-box-panel/internal/store"
 )
 
 const coreUploadPrefix = "core-upload-"
 
 // CoreUploadGCResult summarizes one conservative startup garbage-collection
-// pass. Aborted means no deletion was attempted because an active task payload
-// could not be interpreted safely.
+// pass. It only visits regular files in the private staging directory.
 type CoreUploadGCResult struct {
 	Deleted  int
 	Retained int
@@ -29,49 +26,11 @@ type CoreUploadGCResult struct {
 	Aborted  bool
 }
 
-// FinalizeTaskResources releases task-owned files only after the durable task
-// has reached a committed terminal state. Cleanup is deliberately best effort:
-// a filesystem failure is recorded but never changes the task result.
-func (application *Application) FinalizeTaskResources(ctx context.Context, task store.Task) {
-	if !terminalTaskStatus(task.Status) {
-		return
-	}
-	if err := application.finalizeTaskResources(task); err != nil {
-		application.recordCoreUploadCleanupWarning(
-			ctx,
-			"task.resource_cleanup_failed",
-			"A durable task completed but its staged upload could not be removed",
-			map[string]any{"task_id": task.ID, "kind": task.Kind, "error": err.Error()},
-		)
-	}
-}
-
-func (application *Application) finalizeTaskResources(task store.Task) error {
-	if task.Kind != store.TaskKindCoreImport {
-		return nil
-	}
-	input, err := decodeCoreImportPayload(task.Payload)
-	if err != nil {
-		return fmt.Errorf("decode terminal core import payload: %w", err)
-	}
-	if !input.DeleteSource {
-		return nil
-	}
-	return application.removePrivateUploadedCore(input.SourcePath)
-}
-
-// GarbageCollectCoreUploads removes only unreferenced, directly contained
-// regular staging files. It first parses every active core-import payload; one
-// malformed payload aborts the entire pass so uncertainty can only leak files,
-// never delete a task resource that may still be needed for lease reclaim.
+// GarbageCollectCoreUploads runs before the server accepts uploads, while it
+// holds the exclusive data-directory lease. Every remaining staged file belongs
+// to an interrupted request and can be removed conservatively.
 func (application *Application) GarbageCollectCoreUploads(ctx context.Context) (CoreUploadGCResult, error) {
 	result := CoreUploadGCResult{}
-	references, err := application.activeCoreUploadReferences(ctx)
-	if err != nil {
-		result.Aborted = true
-		return result, err
-	}
-
 	directory, err := application.privateCoreUploadDirectory()
 	if err != nil {
 		result.Aborted = true
@@ -101,10 +60,6 @@ func (application *Application) GarbageCollectCoreUploads(ctx context.Context) (
 			continue
 		}
 		path := filepath.Join(directory, entry.Name())
-		if _, retained := references[path]; retained {
-			result.Retained++
-			continue
-		}
 		if entry.Type()&os.ModeSymlink != 0 {
 			result.Skipped++
 			continue
@@ -141,72 +96,6 @@ func (application *Application) GarbageCollectCoreUploads(ctx context.Context) (
 	return result, nil
 }
 
-func (application *Application) activeCoreUploadReferences(ctx context.Context) (map[string]struct{}, error) {
-	references := make(map[string]struct{})
-	for _, status := range []store.TaskStatus{store.TaskStatusQueued, store.TaskStatusRunning} {
-		var cursor *store.CreatedAtCursor
-		for {
-			page, err := application.database.ListTasks(ctx, store.TaskListFilter{
-				Status: status, Kind: store.TaskKindCoreImport, Cursor: cursor, Limit: 200,
-			})
-			if err != nil {
-				return nil, fmt.Errorf("list active core import tasks: %w", err)
-			}
-			for _, task := range page.Items {
-				input, err := decodeCoreImportPayload(task.Payload)
-				if err != nil {
-					return nil, fmt.Errorf("decode active core import task %q: %w", task.ID, err)
-				}
-				if !input.DeleteSource {
-					continue
-				}
-				if !application.isPrivateUploadedCorePath(input.SourcePath) {
-					return nil, fmt.Errorf("active core import task %q has an unsafe staged upload path", task.ID)
-				}
-				references[input.SourcePath] = struct{}{}
-			}
-			if page.Next == nil {
-				break
-			}
-			cursor = page.Next
-		}
-	}
-	return references, nil
-}
-
-func decodeCoreImportPayload(payload json.RawMessage) (coreImportPayload, error) {
-	var input coreImportPayload
-	if err := jsonstrict.Decode(payload, 128<<10, &input); err != nil {
-		return coreImportPayload{}, err
-	}
-	if !filepath.IsAbs(input.SourcePath) || filepath.Clean(input.SourcePath) != input.SourcePath {
-		return coreImportPayload{}, errors.New("core import source path is not absolute and clean")
-	}
-	digest, err := coreartifact.ParseSHA256(input.SHA256)
-	if err != nil || digest.IsZero() {
-		return coreImportPayload{}, errors.New("core import digest is invalid")
-	}
-	version, err := coreartifact.ParseExactVersion(input.ExactVersion)
-	if err != nil || version.IsZero() {
-		return coreImportPayload{}, errors.New("core import version is invalid")
-	}
-	source, err := coreartifact.NewUserSource(input.SourceDescription)
-	if err != nil {
-		return coreImportPayload{}, err
-	}
-	if _, err := coreartifact.NewIdentity(
-		source,
-		digest,
-		coreartifact.OperatingSystemLinux,
-		coreartifact.Architecture(input.Architecture),
-		coreartifact.Variant(input.Variant),
-		version,
-	); err != nil {
-		return coreImportPayload{}, err
-	}
-	return input, nil
-}
-
 func (application *Application) privateCoreUploadDirectory() (string, error) {
 	if application.settings.DataDir == "" || !filepath.IsAbs(application.settings.DataDir) ||
 		filepath.Clean(application.settings.DataDir) != application.settings.DataDir {
@@ -226,7 +115,7 @@ func (application *Application) isPrivateUploadedCorePath(path string) bool {
 
 func (application *Application) validatePrivateUploadedCoreFile(path string) error {
 	if !application.isPrivateUploadedCorePath(path) {
-		return errors.New("core import task upload path is outside the private staging directory")
+		return errors.New("core import upload path is outside the private staging directory")
 	}
 	info, err := os.Lstat(path)
 	if err != nil {
@@ -240,7 +129,7 @@ func (application *Application) validatePrivateUploadedCoreFile(path string) err
 
 func (application *Application) removePrivateUploadedCore(path string) error {
 	if !application.isPrivateUploadedCorePath(path) {
-		return errors.New("core import task upload path is outside the private staging directory")
+		return errors.New("core import upload path is outside the private staging directory")
 	}
 	info, err := os.Lstat(path)
 	if errors.Is(err, os.ErrNotExist) {
@@ -283,16 +172,7 @@ func (application *Application) recordCoreUploadCleanupWarning(
 	logContext, cancel := context.WithTimeout(ctx, 2*time.Second)
 	defer cancel()
 	_, _ = application.RecordLog(logContext, LogRecordRequest{
-		Source: store.LogSourceTask, Level: store.LogLevelWarn, Code: code,
+		Source: store.LogSourcePanel, Level: store.LogLevelWarn, Code: code,
 		Message: message, Metadata: encoded,
 	})
-}
-
-func terminalTaskStatus(status store.TaskStatus) bool {
-	switch status {
-	case store.TaskStatusSucceeded, store.TaskStatusFailed, store.TaskStatusCanceled, store.TaskStatusSuperseded:
-		return true
-	default:
-		return false
-	}
 }

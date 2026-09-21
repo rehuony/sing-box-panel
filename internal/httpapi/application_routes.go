@@ -42,7 +42,7 @@ func (handler *Handler) handleApplicationRoute(w http.ResponseWriter, request *h
 		}
 	} else if path == "/api/v1/config/apply" {
 		if request.Method == http.MethodPost {
-			next = handler.queueCoreActivate
+			next = handler.activateCore
 		} else {
 			next = methodNotAllowed
 		}
@@ -71,7 +71,7 @@ func (handler *Handler) handleApplicationRoute(w http.ResponseWriter, request *h
 		case resource == "catalog-assets" && request.Method == http.MethodGet:
 			next = handler.listCatalogAssets
 		case resource == "catalog-refresh" && request.Method == http.MethodPost:
-			next = handler.queueCatalogRefresh
+			next = handler.refreshCatalog
 		case resource == "artifacts" && identifier == "" && request.Method == http.MethodGet:
 			next = handler.listCoreArtifacts
 		case resource == "artifacts" && identifier != "" && request.Method == http.MethodGet:
@@ -99,65 +99,40 @@ func (handler *Handler) handleApplicationRoute(w http.ResponseWriter, request *h
 				handler.coreConfigurationSchema(w, request, identifier)
 			}
 		case resource == "install" && request.Method == http.MethodPost:
-			next = handler.queueCoreInstall
+			next = handler.installCore
 		case resource == "import" && request.Method == http.MethodPost:
-			next = handler.queueCoreImport
+			next = handler.importCore
 		case resource == "status" && request.Method == http.MethodGet:
 			next = handler.coreRuntimeStatus
 		case resource == "runtime-history" && request.Method == http.MethodGet:
 			next = handler.coreRuntimeHistory
 		case resource == "check" && request.Method == http.MethodPost:
-			next = handler.queueStartupCheck
+			next = handler.checkStartup
 		case resource == "activate" && request.Method == http.MethodPost:
-			next = handler.queueCoreActivate
+			next = handler.activateCore
 		case resource == "start" && request.Method == http.MethodPost:
 			next = func(w http.ResponseWriter, request *http.Request) {
-				handler.queueRuntimeLifecycle(w, request, "start")
+				handler.runtimeLifecycle(w, request, "start")
 			}
 		case resource == "stop" && request.Method == http.MethodPost:
 			next = func(w http.ResponseWriter, request *http.Request) {
-				handler.queueRuntimeLifecycle(w, request, "stop")
+				handler.runtimeLifecycle(w, request, "stop")
 			}
 		case resource == "restart" && request.Method == http.MethodPost:
 			next = func(w http.ResponseWriter, request *http.Request) {
-				handler.queueRuntimeLifecycle(w, request, "restart")
+				handler.runtimeLifecycle(w, request, "restart")
 			}
 		case resource == "rollback" && request.Method == http.MethodPost:
 			next = func(w http.ResponseWriter, request *http.Request) {
-				handler.queueRuntimeLifecycle(w, request, "rollback")
+				handler.runtimeLifecycle(w, request, "rollback")
 			}
 		default:
 			next = methodNotAllowed
 		}
 	} else if resource, identifier, operation, matched := matchSubscriptionRoute(path); matched {
 		next = handler.subscriptionManagementHandler(request.Method, resource, identifier, operation)
-	} else if reference, operation, matched := matchRevisionRoute(path); matched {
-		switch {
-		case reference == "" && operation == "" && request.Method == http.MethodGet:
-			next = handler.listRevisions
-		case reference == "" && operation == "diff" && request.Method == http.MethodGet:
-			next = handler.diffRevisions
-		case reference != "" && operation == "" && request.Method == http.MethodGet:
-			next = func(w http.ResponseWriter, request *http.Request) { handler.getRevision(w, request, reference) }
-		case reference != "" && operation == "restore" && request.Method == http.MethodPost:
-			next = func(w http.ResponseWriter, request *http.Request) { handler.restoreRevision(w, request, reference) }
-		default:
-			next = methodNotAllowed
-		}
-	} else if taskID, operation, matched := matchTaskRoute(path); matched {
-		switch {
-		case taskID == "" && operation == "" && request.Method == http.MethodGet:
-			next = handler.listTasks
-		case taskID != "" && operation == "" && request.Method == http.MethodGet:
-			next = func(w http.ResponseWriter, request *http.Request) { handler.getTask(w, request, taskID) }
-		case taskID != "" && operation == "retry" && request.Method == http.MethodPost:
-			next = func(w http.ResponseWriter, request *http.Request) { handler.retryTask(w, request, taskID) }
-		case taskID != "" && operation == "cancel" && request.Method == http.MethodPost:
-			next = func(w http.ResponseWriter, request *http.Request) { handler.cancelTask(w, request, taskID) }
-		default:
-			next = methodNotAllowed
-		}
 	}
+
 	if next == nil {
 		return false
 	}
@@ -219,45 +194,6 @@ func matchCoreRoute(path string) (string, string, bool) {
 		return "invalid", "", true
 	}
 	return "invalid", "", true
-}
-
-func matchRevisionRoute(path string) (string, string, bool) {
-	const prefix = "/api/v1/config/revisions"
-	if path == prefix {
-		return "", "", true
-	}
-	if path == prefix+"/diff" {
-		return "", "diff", true
-	}
-	if !strings.HasPrefix(path, prefix+"/") {
-		return "", "", false
-	}
-	parts := strings.Split(strings.TrimPrefix(path, prefix+"/"), "/")
-	if len(parts) == 1 && parts[0] != "" {
-		return parts[0], "", true
-	}
-	if len(parts) == 2 && parts[0] != "" && parts[1] == "restore" {
-		return parts[0], "restore", true
-	}
-	return "", "invalid", true
-}
-
-func matchTaskRoute(path string) (string, string, bool) {
-	const prefix = "/api/v1/tasks"
-	if path == prefix {
-		return "", "", true
-	}
-	if !strings.HasPrefix(path, prefix+"/") {
-		return "", "", false
-	}
-	parts := strings.Split(strings.TrimPrefix(path, prefix+"/"), "/")
-	if len(parts) == 1 && parts[0] != "" {
-		return parts[0], "", true
-	}
-	if len(parts) == 2 && parts[0] != "" && (parts[1] == "cancel" || parts[1] == "retry") {
-		return parts[0], parts[1], true
-	}
-	return "", "invalid", true
 }
 
 func methodNotAllowed(w http.ResponseWriter, request *http.Request) {

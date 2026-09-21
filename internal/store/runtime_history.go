@@ -36,7 +36,6 @@ type RuntimeTransition struct {
 	Reason             string
 	ActivationBundleID string
 	Generation         int64
-	TaskID             string
 	PID                int
 	ProcessStartToken  string
 	ProcessStartedAt   *time.Time
@@ -50,7 +49,6 @@ type RuntimeTransitionInput struct {
 	Reason             string
 	ActivationBundleID string
 	Generation         int64
-	TaskID             string
 	PID                int
 	ProcessStartToken  string
 	ProcessStartedAt   *time.Time
@@ -115,20 +113,19 @@ func appendRuntimeTransition(
 		ctx,
 		`INSERT INTO runtime_transitions(
             dedupe_key, state, reason, activation_bundle_id, generation,
-            task_id, pid, process_start_token, process_started_at,
+            pid, process_start_token, process_started_at,
             occurred_at, uncertain_since
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(dedupe_key) DO NOTHING`,
 		input.DedupeKey,
 		string(input.State),
 		input.Reason,
 		nullIfEmpty(input.ActivationBundleID),
 		nullRuntimeInt64(input.Generation),
-		nullIfEmpty(input.TaskID),
 		nullRuntimeInt(input.PID),
 		nullIfEmpty(input.ProcessStartToken),
 		nullRuntimeTime(input.ProcessStartedAt),
-		formatTaskTime(input.OccurredAt),
+		formatTime(input.OccurredAt),
 		nullRuntimeTime(input.UncertainSince),
 	)
 	if err != nil {
@@ -174,7 +171,7 @@ func (s *Store) ListRuntimeTransitions(
 		return RuntimeHistoryPage{}, err
 	}
 	if filter.Cursor != nil {
-		cursorTime := formatTaskTime(filter.Cursor.OccurredAt)
+		cursorTime := formatTime(filter.Cursor.OccurredAt)
 		clauses = append(clauses, "(occurred_at < ? OR (occurred_at = ? AND id < ?))")
 		args = append(args, cursorTime, cursorTime, filter.Cursor.ID)
 	}
@@ -228,7 +225,7 @@ func (s *Store) ListRuntimeTransitions(
 }
 
 const runtimeTransitionColumns = `id, dedupe_key, state, reason,
-    activation_bundle_id, generation, task_id, pid, process_start_token,
+    activation_bundle_id, generation, pid, process_start_token,
     process_started_at, occurred_at, uncertain_since`
 
 type runtimeTransitionScanner interface {
@@ -240,7 +237,6 @@ func scanRuntimeTransition(scanner runtimeTransitionScanner) (RuntimeTransition,
 		transition       RuntimeTransition
 		bundleID         sql.NullString
 		generation       sql.NullInt64
-		taskID           sql.NullString
 		pid              sql.NullInt64
 		processToken     sql.NullString
 		processStartedAt sql.NullString
@@ -254,7 +250,6 @@ func scanRuntimeTransition(scanner runtimeTransitionScanner) (RuntimeTransition,
 		&transition.Reason,
 		&bundleID,
 		&generation,
-		&taskID,
 		&pid,
 		&processToken,
 		&processStartedAt,
@@ -265,23 +260,22 @@ func scanRuntimeTransition(scanner runtimeTransitionScanner) (RuntimeTransition,
 	}
 	transition.ActivationBundleID = valueOrEmpty(bundleID)
 	transition.Generation = generation.Int64
-	transition.TaskID = valueOrEmpty(taskID)
 	transition.PID = int(pid.Int64)
 	transition.ProcessStartToken = valueOrEmpty(processToken)
 	var err error
-	transition.OccurredAt, err = parseTaskTime(occurredAt)
+	transition.OccurredAt, err = parseTime(occurredAt)
 	if err != nil {
 		return RuntimeTransition{}, fmt.Errorf("parse occurred_at: %w", err)
 	}
 	if processStartedAt.Valid {
-		parsed, err := parseTaskTime(processStartedAt.String)
+		parsed, err := parseTime(processStartedAt.String)
 		if err != nil {
 			return RuntimeTransition{}, fmt.Errorf("parse process_started_at: %w", err)
 		}
 		transition.ProcessStartedAt = &parsed
 	}
 	if uncertainSince.Valid {
-		parsed, err := parseTaskTime(uncertainSince.String)
+		parsed, err := parseTime(uncertainSince.String)
 		if err != nil {
 			return RuntimeTransition{}, fmt.Errorf("parse uncertain_since: %w", err)
 		}
@@ -325,7 +319,7 @@ func runtimeHistoryStartedAt(ctx context.Context, q queryRower) (time.Time, erro
 	} else if err != nil {
 		return time.Time{}, fmt.Errorf("read runtime history initialization: %w", err)
 	}
-	startedAt, err := parseTaskTime(raw)
+	startedAt, err := parseTime(raw)
 	if err != nil {
 		return time.Time{}, fmt.Errorf("parse runtime history initialization: %w", err)
 	}
@@ -346,7 +340,7 @@ func precedingRuntimeTransition(
 		return RuntimeTransition{}, err
 	}
 	clauses = append(clauses, "occurred_at < ?")
-	args = append(args, formatTaskTime(filter.From.UTC()))
+	args = append(args, formatTime(filter.From.UTC()))
 	transition, err := scanRuntimeTransition(q.QueryRowContext(
 		ctx,
 		`SELECT `+runtimeTransitionColumns+`
@@ -392,11 +386,11 @@ func runtimeHistoryClauses(filter RuntimeHistoryFilter) ([]string, []any, error)
 	args := make([]any, 0, 12)
 	if filter.From != nil {
 		clauses = append(clauses, "occurred_at >= ?")
-		args = append(args, formatTaskTime(filter.From.UTC()))
+		args = append(args, formatTime(filter.From.UTC()))
 	}
 	if filter.To != nil {
 		clauses = append(clauses, "occurred_at < ?")
-		args = append(args, formatTaskTime(filter.To.UTC()))
+		args = append(args, formatTime(filter.To.UTC()))
 	}
 	if filter.State != "" {
 		clauses = append(clauses, "state = ?")
@@ -425,9 +419,6 @@ func prepareRuntimeTransition(input RuntimeTransitionInput) (RuntimeTransitionIn
 	}
 	if input.ActivationBundleID != "" && !validRuntimeTransitionIdentifier(input.ActivationBundleID) {
 		return RuntimeTransitionInput{}, errors.New("runtime transition bundle id is invalid")
-	}
-	if input.TaskID != "" && !validRuntimeTransitionIdentifier(input.TaskID) {
-		return RuntimeTransitionInput{}, errors.New("runtime transition task id is invalid")
 	}
 	if input.Generation < 0 {
 		return RuntimeTransitionInput{}, errors.New("runtime transition generation is negative")
@@ -504,7 +495,6 @@ func sameRuntimeTransition(stored RuntimeTransition, input RuntimeTransitionInpu
 		stored.Reason == input.Reason &&
 		stored.ActivationBundleID == input.ActivationBundleID &&
 		stored.Generation == input.Generation &&
-		stored.TaskID == input.TaskID &&
 		stored.PID == input.PID &&
 		stored.ProcessStartToken == input.ProcessStartToken &&
 		sameRuntimeTime(stored.ProcessStartedAt, input.ProcessStartedAt) &&
@@ -531,7 +521,7 @@ func nullRuntimeTime(value *time.Time) any {
 	if value == nil {
 		return nil
 	}
-	return formatTaskTime(value.UTC())
+	return formatTime(value.UTC())
 }
 
 func nullRuntimeInt(value int) any {

@@ -14,28 +14,6 @@ import (
 	"github.com/rehuony/sing-box-panel/internal/configuration"
 )
 
-var ErrRevisionConflict = errors.New("canonical revision head conflict")
-
-// RevisionConflictError reports a failed compare-and-swap without hiding the
-// actual head an interactive client needs for a three-way diff.
-type RevisionConflictError struct {
-	ExpectedHead string
-	ActualHead   string
-}
-
-func (e *RevisionConflictError) Error() string {
-	return fmt.Sprintf(
-		"%v: expected head %q, actual head %q",
-		ErrRevisionConflict,
-		e.ExpectedHead,
-		e.ActualHead,
-	)
-}
-
-func (e *RevisionConflictError) Unwrap() error {
-	return ErrRevisionConflict
-}
-
 // CanonicalRevision is one immutable full snapshot of canonical configuration.
 type CanonicalRevision struct {
 	ID            string
@@ -58,24 +36,6 @@ type NewCanonicalRevision struct {
 	CreatedAt     time.Time
 }
 
-type TaskLane string
-
-const (
-	TaskLaneRuntime     TaskLane = "runtime"
-	TaskLaneMaintenance TaskLane = "maintenance"
-)
-
-// NewTask is the durable work enqueued atomically with a canonical save.
-type NewTask struct {
-	ID             string
-	IdempotencyKey string
-	Lane           TaskLane
-	Kind           TaskKind
-	Generation     int64
-	Payload        json.RawMessage
-	CreatedAt      time.Time
-}
-
 // HubState is the singleton set of mutable control-plane pointers.
 type HubState struct {
 	HeadRevisionID   string
@@ -95,77 +55,28 @@ type BootstrapState struct {
 	Head   *CanonicalRevision
 }
 
-// SaveCanonicalRevisionAndTask creates one immutable full snapshot, advances
-// the singleton head with compare-and-swap semantics, and enqueues its durable
-// task in the same short SQLite transaction.
-func (s *Store) SaveCanonicalRevisionAndTask(
-	ctx context.Context,
-	expectedHead string,
-	revision NewCanonicalRevision,
-	task NewTask,
-) (CanonicalRevision, error) {
-	preparedRevision, preparedTask, err := prepareCanonicalSave(revision, task)
-	if err != nil {
-		return CanonicalRevision{}, err
-	}
-
-	err = s.WithTx(ctx, func(tx *sql.Tx) error {
-		storedRevision, _, err := saveCanonicalRevisionTx(
-			ctx,
-			tx,
-			expectedHead,
-			preparedRevision,
-			false,
-		)
-		if err != nil {
-			return err
-		}
-		preparedRevision = storedRevision
-		if err := syncCanonicalFileTx(ctx, tx, storedRevision); err != nil {
-			return err
-		}
-		return insertCanonicalTaskTx(ctx, tx, preparedTask, preparedRevision.ID, "")
-	})
-	if err != nil {
-		return CanonicalRevision{}, err
-	}
-
-	return preparedRevision, nil
-}
-
-// saveCanonicalRevisionTx checks expectedHead and creates a new immutable
-// revision. When reuseUnchanged is true, a byte-identical document reuses the
-// current head after the same compare-and-swap check. The returned bool reports
-// whether a new revision was inserted.
+// saveCanonicalRevisionTx records runtime evidence inside a saved-file transaction.
+// A byte-identical document reuses the current head.
 func saveCanonicalRevisionTx(
 	ctx context.Context,
 	tx *sql.Tx,
-	expectedHead string,
 	prepared CanonicalRevision,
-	reuseUnchanged bool,
-) (CanonicalRevision, bool, error) {
+) (CanonicalRevision, error) {
 	var currentHead sql.NullString
 	if err := tx.QueryRowContext(
 		ctx,
 		`SELECT head_revision_id FROM hub_state WHERE singleton = 1`,
 	).Scan(&currentHead); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return CanonicalRevision{}, false, fmt.Errorf(
+			return CanonicalRevision{}, fmt.Errorf(
 				"%w: singleton hub_state row is missing",
 				ErrSchemaInconsistent,
 			)
 		}
-		return CanonicalRevision{}, false, fmt.Errorf("read canonical head: %w", err)
+		return CanonicalRevision{}, fmt.Errorf("read canonical head: %w", err)
 	}
 
 	actualHead := valueOrEmpty(currentHead)
-	if actualHead != expectedHead {
-		return CanonicalRevision{}, false, &RevisionConflictError{
-			ExpectedHead: expectedHead,
-			ActualHead:   actualHead,
-		}
-	}
-
 	sequence := int64(1)
 	if currentHead.Valid {
 		head, err := getCanonicalRevision(tx.QueryRowContext(
@@ -174,10 +85,10 @@ func saveCanonicalRevisionTx(
 			currentHead.String,
 		))
 		if err != nil {
-			return CanonicalRevision{}, false, fmt.Errorf("read canonical head revision: %w", err)
+			return CanonicalRevision{}, fmt.Errorf("read canonical head revision: %w", err)
 		}
-		if reuseUnchanged && head.SHA256 == prepared.SHA256 {
-			return head, false, nil
+		if head.SHA256 == prepared.SHA256 {
+			return head, nil
 		}
 		sequence = head.Sequence + 1
 	}
@@ -200,7 +111,7 @@ func saveCanonicalRevisionTx(
 		prepared.CommandID,
 		createdAt,
 	); err != nil {
-		return CanonicalRevision{}, false, fmt.Errorf("insert canonical revision: %w", err)
+		return CanonicalRevision{}, fmt.Errorf("insert canonical revision: %w", err)
 	}
 
 	result, err := tx.ExecContext(
@@ -210,103 +121,46 @@ func saveCanonicalRevisionTx(
           WHERE singleton = 1 AND head_revision_id IS ?`,
 		prepared.ID,
 		createdAt,
-		nullIfEmpty(expectedHead),
+		nullIfEmpty(actualHead),
 	)
 	if err != nil {
-		return CanonicalRevision{}, false, fmt.Errorf("advance canonical head: %w", err)
+		return CanonicalRevision{}, fmt.Errorf("advance canonical head: %w", err)
 	}
 	rows, err := result.RowsAffected()
 	if err != nil {
-		return CanonicalRevision{}, false, fmt.Errorf("inspect canonical head update: %w", err)
+		return CanonicalRevision{}, fmt.Errorf("inspect canonical head update: %w", err)
 	}
 	if rows != 1 {
-		return CanonicalRevision{}, false, &RevisionConflictError{
-			ExpectedHead: expectedHead,
-			ActualHead:   actualHead,
-		}
+		return CanonicalRevision{}, fmt.Errorf("%w: canonical head changed within saved-file transaction", ErrSchemaInconsistent)
 	}
-	return prepared, true, nil
-}
 
-func insertCanonicalTaskTx(
-	ctx context.Context,
-	tx *sql.Tx,
-	task NewTask,
-	canonicalRevisionID string,
-	startupArtifactID string,
-) error {
-	if _, err := tx.ExecContext(
-		ctx,
-		`INSERT INTO tasks(
-            id, idempotency_key, lane, kind, status, generation,
-            canonical_revision_id, startup_artifact_id, payload_json,
-            created_at, updated_at
-         ) VALUES (?, ?, ?, ?, 'queued', ?, ?, ?, ?, ?, ?)`,
-		task.ID,
-		nullIfEmpty(task.IdempotencyKey),
-		string(task.Lane),
-		task.Kind,
-		task.Generation,
-		canonicalRevisionID,
-		nullIfEmpty(startupArtifactID),
-		string(task.Payload),
-		formatTaskTime(task.CreatedAt),
-		formatTaskTime(task.CreatedAt),
-	); err != nil {
-		return fmt.Errorf("enqueue canonical task: %w", err)
-	}
-	return nil
+	return prepared, nil
 }
 
 func prepareCanonicalSave(
 	revision NewCanonicalRevision,
-	task NewTask,
-) (CanonicalRevision, NewTask, error) {
+) (CanonicalRevision, error) {
 	if strings.TrimSpace(revision.ID) == "" {
-		return CanonicalRevision{}, NewTask{}, errors.New("canonical revision id is empty")
+		return CanonicalRevision{}, errors.New("canonical revision id is empty")
 	}
 	if revision.SchemaVersion != configuration.SchemaVersion {
-		return CanonicalRevision{}, NewTask{}, fmt.Errorf(
+		return CanonicalRevision{}, fmt.Errorf(
 			"canonical schema version must be exactly %d",
 			configuration.SchemaVersion,
 		)
 	}
 	document, err := configuration.Parse(revision.Document)
 	if err != nil {
-		return CanonicalRevision{}, NewTask{}, fmt.Errorf("canonical document: %w", err)
+		return CanonicalRevision{}, fmt.Errorf("canonical document: %w", err)
 	}
 	revision.Document = document.CanonicalJSON()
 	if strings.TrimSpace(revision.CommandID) == "" {
-		return CanonicalRevision{}, NewTask{}, errors.New("canonical command id is empty")
+		return CanonicalRevision{}, errors.New("canonical command id is empty")
 	}
 	if revision.CreatedAt.IsZero() {
 		revision.CreatedAt = time.Now().UTC()
 	} else {
 		revision.CreatedAt = revision.CreatedAt.UTC()
-	}
-
-	if strings.TrimSpace(task.ID) == "" {
-		return CanonicalRevision{}, NewTask{}, errors.New("task id is empty")
-	}
-	if task.Lane != TaskLaneRuntime && task.Lane != TaskLaneMaintenance {
-		return CanonicalRevision{}, NewTask{}, fmt.Errorf("invalid task lane %q", task.Lane)
-	}
-	if !validTaskLaneKind(task.Lane, task.Kind) {
-		return CanonicalRevision{}, NewTask{}, fmt.Errorf("invalid %s task kind %q", task.Lane, task.Kind)
-	}
-	if task.Generation < 0 {
-		return CanonicalRevision{}, NewTask{}, errors.New("task generation must not be negative")
-	}
-	if len(task.Payload) == 0 {
-		task.Payload = json.RawMessage(`{}`)
-	}
-	if !json.Valid(task.Payload) {
-		return CanonicalRevision{}, NewTask{}, errors.New("task payload is not valid JSON")
-	}
-	if task.CreatedAt.IsZero() {
-		task.CreatedAt = revision.CreatedAt
-	} else {
-		task.CreatedAt = task.CreatedAt.UTC()
 	}
 
 	digest := sha256.Sum256(revision.Document)
@@ -317,7 +171,7 @@ func prepareCanonicalSave(
 		SHA256:        hex.EncodeToString(digest[:]),
 		CommandID:     revision.CommandID,
 		CreatedAt:     revision.CreatedAt,
-	}, task, nil
+	}, nil
 }
 
 func nullIfEmpty(value string) any {

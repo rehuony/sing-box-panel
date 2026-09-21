@@ -27,20 +27,16 @@ func (application *Application) CreateSubscriptionSource(
 		Config:  request.Config,
 		Enabled: request.Enabled, CreatedAt: now, UpdatedAt: now,
 	}
-	var refreshTask *store.EnqueueTaskInput
+	var schedule *store.SubscriptionRefreshSchedule
 	if source.SourceKind == store.SubscriptionSourceRemote {
 		if _, err := decodeRemoteSubscriptionSourceConfig(source.Config); err != nil {
 			return SubscriptionSource{}, err
 		}
 		if source.Enabled {
-			firstRefresh, err := application.subscriptionSourceRefreshTask(source, nil)
-			if err != nil {
-				return SubscriptionSource{}, err
-			}
-			refreshTask = &firstRefresh
+			schedule = &store.SubscriptionRefreshSchedule{SourceID: source.ID, ExpectedUpdatedAt: source.UpdatedAt, NextAt: now}
 		}
 	}
-	stored, err := application.database.CreateSubscriptionSourceAndTask(ctx, source, refreshTask)
+	stored, err := application.database.CreateSubscriptionSourceWithSchedule(ctx, source, schedule)
 	if err != nil {
 		return SubscriptionSource{}, err
 	}
@@ -86,7 +82,7 @@ func (application *Application) UpdateSubscriptionSource(
 		ID: strings.TrimSpace(sourceID), Name: request.Name, SourceKind: request.SourceKind,
 		Config: request.Config, Enabled: request.Enabled, UpdatedAt: updatedAt,
 	}
-	refreshTask, err := application.configuredSubscriptionSourceRefreshTask(prospective)
+	schedule, err := application.configuredSubscriptionSourceRefreshSchedule(prospective)
 	if err != nil {
 		return SubscriptionSource{}, err
 	}
@@ -95,7 +91,7 @@ func (application *Application) UpdateSubscriptionSource(
 		Config: request.Config, Enabled: request.Enabled,
 		ExpectedUpdatedAt: request.ExpectedUpdatedAt,
 		UpdatedAt:         updatedAt,
-		RefreshTask:       refreshTask,
+		RefreshSchedule:   schedule,
 	})
 	if err != nil {
 		return SubscriptionSource{}, err
@@ -128,7 +124,7 @@ func (application *Application) CreateSubscriptionSourceVersion(
 	}
 	updatedAt := application.nextSubscriptionUpdateTime(request.ExpectedUpdatedAt)
 	source.UpdatedAt = updatedAt
-	refreshTask, err := application.configuredSubscriptionSourceRefreshTask(source)
+	schedule, err := application.configuredSubscriptionSourceRefreshSchedule(source)
 	if err != nil {
 		return SubscriptionSourceVersionSave{}, err
 	}
@@ -144,7 +140,7 @@ func (application *Application) CreateSubscriptionSourceVersion(
 		},
 		ExpectedSourceUpdatedAt: request.ExpectedUpdatedAt,
 		UpdatedAt:               updatedAt,
-		RefreshTask:             refreshTask,
+		RefreshSchedule:         schedule,
 	})
 	if err != nil {
 		return SubscriptionSourceVersionSave{}, err
@@ -201,13 +197,13 @@ func (application *Application) RestoreSubscriptionSourceVersion(
 		return SubscriptionSource{}, err
 	}
 	source.UpdatedAt = updatedAt
-	refreshTask, err := application.configuredSubscriptionSourceRefreshTask(source)
+	schedule, err := application.configuredSubscriptionSourceRefreshSchedule(source)
 	if err != nil {
 		return SubscriptionSource{}, err
 	}
-	stored, err := application.database.ActivateSubscriptionSourceVersionAndTask(
+	stored, err := application.database.ActivateSubscriptionSourceVersionWithSchedule(
 		ctx, sourceID, strings.TrimSpace(versionID), expectedUpdatedAt,
-		updatedAt, refreshTask,
+		updatedAt, schedule,
 	)
 	if err != nil {
 		return SubscriptionSource{}, err

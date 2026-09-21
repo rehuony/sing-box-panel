@@ -36,7 +36,7 @@ contract_test="${work_directory}/core-contract.test"
 while IFS=$'\t' read -r version asset_name url expected_sha256 expected_size; do
   case_directory="${work_directory}/${version}"
   archive="${case_directory}/${asset_name}"
-  member="sing-box-${version}-linux-${architecture}/sing-box"
+  member="${asset_name%.tar.gz}/sing-box"
   mkdir -- "${case_directory}"
 
   curl --fail --location --retry 3 --silent --show-error \

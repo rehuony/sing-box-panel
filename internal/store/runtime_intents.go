@@ -5,7 +5,6 @@ package store
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -13,66 +12,49 @@ import (
 )
 
 var (
-	ErrNoAppliedBundle     = errors.New("no activation bundle has been applied")
-	ErrNoRollbackBundle    = errors.New("no rollback activation bundle is available")
-	ErrRuntimeIntentStale  = errors.New("runtime intent evidence is stale")
-	ErrIdempotencyConflict = errors.New("idempotency key belongs to a different runtime intent")
-	ErrCoreNotEnabled      = errors.New("the requested core is no longer enabled")
+	ErrNoAppliedBundle    = errors.New("no activation bundle has been applied")
+	ErrNoRollbackBundle   = errors.New("no rollback activation bundle is available")
+	ErrRuntimeIntentStale = errors.New("runtime intent evidence is stale")
+
+	ErrCoreNotEnabled = errors.New("the requested core is no longer enabled")
 )
 
-type RuntimeIntentKind = TaskKind
+type RuntimeIntentKind string
 
 const (
-	RuntimeIntentApply    RuntimeIntentKind = TaskKindRuntimeApply
-	RuntimeIntentStart    RuntimeIntentKind = TaskKindRuntimeStart
-	RuntimeIntentStop     RuntimeIntentKind = TaskKindRuntimeStop
-	RuntimeIntentRestart  RuntimeIntentKind = TaskKindRuntimeRestart
-	RuntimeIntentRollback RuntimeIntentKind = TaskKindRuntimeRollback
+	RuntimeIntentApply    RuntimeIntentKind = "runtime-apply"
+	RuntimeIntentStart    RuntimeIntentKind = "runtime-start"
+	RuntimeIntentStop     RuntimeIntentKind = "runtime-stop"
+	RuntimeIntentRestart  RuntimeIntentKind = "runtime-restart"
+	RuntimeIntentRollback RuntimeIntentKind = "runtime-rollback"
 )
 
 type RuntimeIntentInput struct {
-	SelectOnly     bool   // Checked version selection without starting a stopped process.
-	DisableCoreID  string // Stop and clear this selection, fenced against a different enabled core.
-	TaskID         string
-	IdempotencyKey string
-	Kind           RuntimeIntentKind
-	BundleID       string
-	CreatedAt      time.Time
+	SelectOnly    bool   // Checked version selection without starting a stopped process.
+	DisableCoreID string // Stop and clear this selection, fenced against a different enabled core.
+	Kind          RuntimeIntentKind
+	BundleID      string
+	CreatedAt     time.Time
 }
 
-// RequestRuntimeIntent advances the desired generation and enqueues its task
+// RequestRuntimeIntent advances the desired generation and reserves its generation
 // in the same transaction. Start/restart resolve to the last applied bundle,
 // rollback resolves to the frozen prior bundle, and apply requires an explicit
 // ready bundle built from the current head.
-func (s *Store) RequestRuntimeIntent(ctx context.Context, input RuntimeIntentInput) (Task, error) {
+func (s *Store) RequestRuntimeIntent(ctx context.Context, input RuntimeIntentInput) (RuntimeIntent, error) {
 	prepared, err := prepareRuntimeIntent(input)
 	if err != nil {
-		return Task{}, err
+		return RuntimeIntent{}, err
 	}
 	if prepared.SelectOnly {
-		return Task{}, errors.New("version selection requires a checked configuration candidate")
+		return RuntimeIntent{}, errors.New("version selection requires a checked configuration candidate")
 	}
-	return s.requestRuntimeIntentNullable(ctx, prepared)
+	return s.beginRuntimeIntent(ctx, prepared)
 }
 
-func (s *Store) requestRuntimeIntentNullable(ctx context.Context, input RuntimeIntentInput) (Task, error) {
-	var queued Task
+func (s *Store) beginRuntimeIntent(ctx context.Context, input RuntimeIntentInput) (RuntimeIntent, error) {
+	var intent RuntimeIntent
 	err := s.WithTx(ctx, func(tx *sql.Tx) error {
-		if input.IdempotencyKey != "" {
-			existing, err := getTaskByLaneIdempotency(ctx, tx, TaskLaneRuntime, input.IdempotencyKey)
-			if err == nil {
-				if existing.Kind != input.Kind ||
-					disabledCoreID(existing) != input.DisableCoreID ||
-					(input.BundleID != "" && existing.ActivationBundleID != input.BundleID) {
-					return ErrIdempotencyConflict
-				}
-				queued = existing
-				return nil
-			}
-			if !errors.Is(err, ErrTaskNotFound) {
-				return err
-			}
-		}
 		var headID, appliedBundleID, rollbackBundleID sql.NullString
 		var generation int64
 		if err := tx.QueryRowContext(
@@ -136,34 +118,16 @@ func (s *Store) requestRuntimeIntentNullable(ctx context.Context, input RuntimeI
 			}
 		}
 
-		var queueErr error
-		queued, queueErr = enqueueRuntimeIntentTx(ctx, tx, input, bundleID, "", "", generation, desiredRunning, true)
-		return queueErr
+		var beginErr error
+		intent, beginErr = beginRuntimeIntentTx(ctx, tx, input, bundleID, "", "", generation, desiredRunning, true)
+		return beginErr
 	})
-	return queued, err
+	return intent, err
 }
 
-func enqueueRuntimeIntentTx(ctx context.Context, tx *sql.Tx, input RuntimeIntentInput, bundleID, canonicalID, startupID string, generation int64, desiredRunning, advanceDesired bool) (Task, error) {
+func beginRuntimeIntentTx(ctx context.Context, tx *sql.Tx, input RuntimeIntentInput, bundleID, canonicalID, startupID string, generation int64, desiredRunning, advanceDesired bool) (RuntimeIntent, error) {
 	generation++
-	createdAt := formatTaskTime(input.CreatedAt)
-	if _, err := tx.ExecContext(
-		ctx,
-		`UPDATE tasks SET status = 'superseded', updated_at = ?
-                  WHERE lane = 'runtime' AND status = 'queued' AND generation < ?`,
-		createdAt,
-		generation,
-	); err != nil {
-		return Task{}, fmt.Errorf("supersede queued runtime intents: %w", err)
-	}
-	if _, err := tx.ExecContext(
-		ctx,
-		`UPDATE tasks SET cancel_requested = 1, updated_at = ?
-                  WHERE lane = 'runtime' AND status = 'running' AND generation < ?`,
-		createdAt,
-		generation,
-	); err != nil {
-		return Task{}, fmt.Errorf("cancel older running intent: %w", err)
-	}
+	createdAt := formatTime(input.CreatedAt)
 	if advanceDesired {
 		if _, err := tx.ExecContext(
 			ctx,
@@ -177,43 +141,22 @@ func enqueueRuntimeIntentTx(ctx context.Context, tx *sql.Tx, input RuntimeIntent
 			boolInt(desiredRunning),
 			createdAt,
 		); err != nil {
-			return Task{}, fmt.Errorf("advance runtime intent: %w", err)
+			return RuntimeIntent{}, fmt.Errorf("advance runtime intent: %w", err)
 		}
 	} else if _, err := tx.ExecContext(ctx, `UPDATE hub_state SET target_generation=?, updated_at=? WHERE singleton=1`, generation, createdAt); err != nil {
-		return Task{}, fmt.Errorf("reserve runtime generation: %w", err)
+		return RuntimeIntent{}, fmt.Errorf("reserve runtime generation: %w", err)
 	}
 
-	payload, _ := json.Marshal(struct {
-		Intent        RuntimeIntentKind `json:"intent"`
-		BundleID      string            `json:"bundle_id"`
-		SelectOnly    bool              `json:"select_only,omitempty"`
-		DisableCoreID string            `json:"disable_core_id,omitempty"`
-	}{input.Kind, bundleID, input.SelectOnly, input.DisableCoreID})
-	if _, err := tx.ExecContext(
-		ctx,
-		`INSERT INTO tasks(
-                    id, idempotency_key, lane, kind, status, generation,
-                    activation_bundle_id, canonical_revision_id, startup_artifact_id, payload_json, created_at, updated_at
-                 ) VALUES (?, ?, 'runtime', ?, 'queued', ?, ?, ?, ?, ?, ?, ?)`,
-		input.TaskID,
-		nullIfEmpty(input.IdempotencyKey),
-		string(input.Kind),
-		generation,
-		nullIfEmpty(bundleID),
-		nullIfEmpty(canonicalID), nullIfEmpty(startupID),
-		string(payload),
-		createdAt,
-		createdAt,
-	); err != nil {
-		return Task{}, fmt.Errorf("enqueue runtime intent: %w", err)
+	// Explicit commands reset the bounded automatic recovery episode.
+	if _, err := tx.ExecContext(ctx, `DELETE FROM runtime_recovery WHERE singleton=1`); err != nil {
+		return RuntimeIntent{}, err
 	}
-	return getTask(ctx, tx, input.TaskID)
+	return RuntimeIntent{Kind: input.Kind, Generation: generation,
+		ActivationBundleID: bundleID, CanonicalRevisionID: canonicalID,
+		StartupArtifactID: startupID, SelectOnly: input.SelectOnly, DisableCoreID: input.DisableCoreID}, nil
 }
 
 func prepareRuntimeIntent(input RuntimeIntentInput) (RuntimeIntentInput, error) {
-	if strings.TrimSpace(input.TaskID) == "" {
-		return RuntimeIntentInput{}, errors.New("runtime task id is empty")
-	}
 	switch input.Kind {
 	case RuntimeIntentApply, RuntimeIntentStart, RuntimeIntentStop, RuntimeIntentRestart, RuntimeIntentRollback:
 	default:
@@ -282,42 +225,18 @@ func validateRunnableBundle(ctx context.Context, tx *sql.Tx, bundleID string) er
 	return nil
 }
 
-func getTaskByLaneIdempotency(
-	ctx context.Context,
-	q queryRower,
-	lane TaskLane,
-	idempotencyKey string,
-) (Task, error) {
-	task, err := scanTask(q.QueryRowContext(
-		ctx,
-		`SELECT `+taskColumns+`
-		   FROM tasks
-		  WHERE lane = ? AND idempotency_key = ?
-		    AND status IN ('queued', 'running')`,
-		string(lane),
-		idempotencyKey,
-	))
-	if errors.Is(err, sql.ErrNoRows) {
-		return Task{}, ErrTaskNotFound
-	}
-	if err != nil {
-		return Task{}, fmt.Errorf("read idempotent task: %w", err)
-	}
-	return task, nil
-}
-
 func commitSuccessfulRuntimeIntent(
 	ctx context.Context,
 	tx *sql.Tx,
-	task Task,
+	intent RuntimeIntent,
 	completedAt time.Time,
 ) error {
-	switch RuntimeIntentKind(task.Kind) {
+	switch RuntimeIntentKind(intent.Kind) {
 	case RuntimeIntentApply, RuntimeIntentStart, RuntimeIntentRestart:
-		if task.ActivationBundleID == "" {
+		if intent.ActivationBundleID == "" {
 			return errors.New("successful runtime intent has no activation bundle")
 		}
-		if err := validateRunnableBundle(ctx, tx, task.ActivationBundleID); err != nil {
+		if err := validateRunnableBundle(ctx, tx, intent.ActivationBundleID); err != nil {
 			return err
 		}
 		var appliedBundleID, rollbackBundleID sql.NullString
@@ -328,7 +247,7 @@ func commitSuccessfulRuntimeIntent(
 			return fmt.Errorf("read applied runtime state: %w", err)
 		}
 		rollback := valueOrEmpty(rollbackBundleID)
-		if appliedBundleID.Valid && appliedBundleID.String != task.ActivationBundleID {
+		if appliedBundleID.Valid && appliedBundleID.String != intent.ActivationBundleID {
 			rollback = appliedBundleID.String
 		}
 		result, err := tx.ExecContext(
@@ -342,26 +261,26 @@ func commitSuccessfulRuntimeIntent(
                         END,
                         updated_at = ?
                   WHERE singleton = 1 AND target_generation = ?`,
-			task.ActivationBundleID,
-			task.ActivationBundleID,
+			intent.ActivationBundleID,
+			intent.ActivationBundleID,
 			nullIfEmpty(rollback),
-			boolInt(!CoreSelectionOnly(task)),
-			task.ActivationBundleID,
-			formatTaskTime(completedAt),
-			formatTaskTime(completedAt),
-			task.Generation,
+			boolInt(!CoreSelectionOnly(intent)),
+			intent.ActivationBundleID,
+			formatTime(completedAt),
+			formatTime(completedAt),
+			intent.Generation,
 		)
 		if err != nil {
 			return fmt.Errorf("commit applied activation bundle: %w", err)
 		}
 		if rows, err := result.RowsAffected(); err != nil || rows != 1 {
-			return errors.Join(ErrTaskGenerationConflict, err)
+			return errors.Join(ErrRuntimeIntentStale, err)
 		}
 	case RuntimeIntentRollback:
-		if task.ActivationBundleID == "" {
+		if intent.ActivationBundleID == "" {
 			return errors.New("successful rollback intent has no activation bundle")
 		}
-		if err := validateRunnableBundle(ctx, tx, task.ActivationBundleID); err != nil {
+		if err := validateRunnableBundle(ctx, tx, intent.ActivationBundleID); err != nil {
 			return err
 		}
 		var appliedBundleID, rollbackBundleID sql.NullString
@@ -371,7 +290,7 @@ func commitSuccessfulRuntimeIntent(
 		).Scan(&appliedBundleID, &rollbackBundleID); err != nil {
 			return fmt.Errorf("read rollback runtime state: %w", err)
 		}
-		if valueOrEmpty(rollbackBundleID) != task.ActivationBundleID || !appliedBundleID.Valid {
+		if valueOrEmpty(rollbackBundleID) != intent.ActivationBundleID || !appliedBundleID.Valid {
 			return errors.New("frozen rollback bundle changed before completion")
 		}
 		result, err := tx.ExecContext(
@@ -380,21 +299,21 @@ func commitSuccessfulRuntimeIntent(
 			        SET desired_bundle_id = ?, applied_bundle_id = ?, rollback_bundle_id = ?,
 			            desired_running = 1, applied_at = ?, updated_at = ?
 			      WHERE singleton = 1 AND target_generation = ?`,
-			task.ActivationBundleID,
-			task.ActivationBundleID,
+			intent.ActivationBundleID,
+			intent.ActivationBundleID,
 			appliedBundleID.String,
-			formatTaskTime(completedAt),
-			formatTaskTime(completedAt),
-			task.Generation,
+			formatTime(completedAt),
+			formatTime(completedAt),
+			intent.Generation,
 		)
 		if err != nil {
 			return fmt.Errorf("commit rollback activation bundle: %w", err)
 		}
 		if rows, err := result.RowsAffected(); err != nil || rows != 1 {
-			return errors.Join(ErrTaskGenerationConflict, err)
+			return errors.Join(ErrRuntimeIntentStale, err)
 		}
 	case RuntimeIntentStop:
-		clearSelection := disabledCoreID(task) != ""
+		clearSelection := disabledCoreID(intent) != ""
 		result, err := tx.ExecContext(
 			ctx,
 			`UPDATE hub_state SET desired_running = 0,
@@ -405,40 +324,18 @@ func commitSuccessfulRuntimeIntent(
 			      updated_at = ?
                   WHERE singleton = 1 AND target_generation = ?`,
 			clearSelection, clearSelection, clearSelection, clearSelection,
-			formatTaskTime(completedAt),
-			task.Generation,
+			formatTime(completedAt),
+			intent.Generation,
 		)
 		if err != nil {
 			return fmt.Errorf("commit stopped runtime state: %w", err)
 		}
 		if rows, err := result.RowsAffected(); err != nil || rows != 1 {
-			return errors.Join(ErrTaskGenerationConflict, err)
+			return errors.Join(ErrRuntimeIntentStale, err)
 		}
 	}
 	return nil
 }
 
-func disabledCoreID(task Task) string {
-	if task.Kind != TaskKindRuntimeStop {
-		return ""
-	}
-	var payload struct {
-		DisableCoreID string `json:"disable_core_id"`
-	}
-	if json.Unmarshal(task.Payload, &payload) != nil {
-		return ""
-	}
-	return payload.DisableCoreID
-}
-
-// CoreSelectionOnly identifies the stopped variant of a checked version switch.
-// Existing restart tasks without this explicit option retain their start behavior.
-func CoreSelectionOnly(task Task) bool {
-	if task.Kind != TaskKindRuntimeRestart || task.StartupArtifactID == "" {
-		return false
-	}
-	var payload struct {
-		SelectOnly bool `json:"select_only"`
-	}
-	return json.Unmarshal(task.Payload, &payload) == nil && payload.SelectOnly
-}
+func disabledCoreID(intent RuntimeIntent) string  { return intent.DisableCoreID }
+func CoreSelectionOnly(intent RuntimeIntent) bool { return intent.SelectOnly }

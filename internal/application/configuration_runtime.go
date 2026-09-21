@@ -15,101 +15,93 @@ import (
 
 var ErrCorePlatformMismatch = errors.New("core platform does not match the deployed panel")
 
-// EnableCore selects a checked binary while preserving whether the core is running.
+// PrepareCoreEnable selects a checked binary while preserving whether the core is running.
 // A running core is replaced only after the candidate passes binary validation.
-func (application *Application) EnableCore(ctx context.Context, coreID string) (Task, error) {
+func (application *Application) PrepareCoreEnable(ctx context.Context, coreID string) (store.RuntimeIntent, error) {
 	core, err := application.database.GetCoreArtifact(ctx, coreID)
 	if err != nil {
-		return Task{}, err
+		return store.RuntimeIntent{}, err
 	}
 	if core.OperatingSystem != runtime.GOOS || core.Architecture != runtime.GOARCH {
-		return Task{}, ErrCorePlatformMismatch
+		return store.RuntimeIntent{}, ErrCorePlatformMismatch
 	}
 	_, err = application.runtime.Resolve(ctx)
 	selectOnly := errors.Is(err, ErrNoRunningCore)
 	if err != nil && !selectOnly {
-		return Task{}, err
+		return store.RuntimeIntent{}, err
 	}
-	return application.queueConfigurationRuntime(ctx, coreID, store.RuntimeIntentRestart, selectOnly)
+	return application.prepareConfigurationRuntime(ctx, coreID, store.RuntimeIntentRestart, selectOnly)
 }
 
-// DisableCore stops the process and clears the selected version. A normal
+// PrepareCoreDisable stops the process and clears the selected version. A normal
 // runtime stop retains the selection so that it can be started again.
-func (application *Application) DisableCore(ctx context.Context, coreID string) (Task, error) {
+func (application *Application) PrepareCoreDisable(ctx context.Context, coreID string) (store.RuntimeIntent, error) {
 	if _, err := application.database.GetCoreArtifact(ctx, coreID); err != nil {
-		return Task{}, err
+		return store.RuntimeIntent{}, err
 	}
-	taskID, err := application.newID("task")
-	if err != nil {
-		return Task{}, err
-	}
-	task, err := application.database.RequestRuntimeIntent(ctx, store.RuntimeIntentInput{
-		TaskID: taskID, Kind: store.RuntimeIntentStop, DisableCoreID: coreID, CreatedAt: application.now().UTC(),
+	intent, err := application.database.RequestRuntimeIntent(ctx, store.RuntimeIntentInput{
+		Kind: store.RuntimeIntentStop, DisableCoreID: coreID, CreatedAt: application.now().UTC(),
 	})
 	if err != nil {
-		return Task{}, err
+		return store.RuntimeIntent{}, err
 	}
-	return applicationTask(task), nil
+	return intent, nil
 }
 
-// QueueConfigurationRuntime snapshots the current file for a fresh binary
-// preflight in the serialized runtime lane. Empty coreID retains the applied
+// PrepareConfigurationRuntime snapshots the current file for a fresh binary
+// preflight in the serialized runtime controller. Empty coreID retains the applied
 // binary identity; version selection may supply an explicit verified artifact.
-func (application *Application) QueueConfigurationRuntime(ctx context.Context, coreID string, kind store.RuntimeIntentKind) (Task, error) {
-	return application.queueConfigurationRuntime(ctx, coreID, kind, false)
+func (application *Application) PrepareConfigurationRuntime(ctx context.Context, coreID string, kind store.RuntimeIntentKind) (store.RuntimeIntent, error) {
+	return application.prepareConfigurationRuntime(ctx, coreID, kind, false)
 }
 
-func (application *Application) queueConfigurationRuntime(ctx context.Context, coreID string, kind store.RuntimeIntentKind, selectOnly bool) (Task, error) {
+func (application *Application) prepareConfigurationRuntime(ctx context.Context, coreID string, kind store.RuntimeIntentKind, selectOnly bool) (store.RuntimeIntent, error) {
 	coreID = strings.TrimSpace(coreID)
 	var appliedCanonical string
 	if coreID == "" {
 		bootstrap, err := application.database.Bootstrap(ctx)
 		if err != nil {
-			return Task{}, err
+			return store.RuntimeIntent{}, err
 		}
 		if bootstrap.Hub.AppliedBundleID == "" {
-			return Task{}, store.ErrNoAppliedBundle
+			return store.RuntimeIntent{}, store.ErrNoAppliedBundle
 		}
 		material, err := application.LoadRuntimeMaterial(ctx, bootstrap.Hub.AppliedBundleID)
 		if err != nil {
-			return Task{}, err
+			return store.RuntimeIntent{}, err
 		}
 		coreID = material.Core.ID
 		appliedCanonical = material.Startup.CanonicalRevisionID
 	}
 	preview, err := application.PreviewConfiguration(ctx, ConfigurationPreviewRequest{CoreArtifactID: coreID})
 	if err != nil {
-		return Task{}, err
+		return store.RuntimeIntent{}, err
 	}
 	if kind == store.RuntimeIntentStart && appliedCanonical == preview.CanonicalRevision.ID {
-		return application.queueRuntimeIntent(ctx, store.RuntimeIntentStart, "")
+		return application.PrepareRuntimeIntent(ctx, store.RuntimeIntentStart, "")
 	}
 	if preview.Support.Structured {
 		if err := singbox.ValidateConfiguration(preview.CoreArtifact.ExactVersion, preview.Config); err != nil {
-			return Task{}, fmt.Errorf("%w: %v", ErrConfigurationSchemaValidation, err)
+			return store.RuntimeIntent{}, fmt.Errorf("%w: %v", ErrConfigurationSchemaValidation, err)
 		}
 	}
 	startupID, err := application.newID("startup")
 	if err != nil {
-		return Task{}, err
-	}
-	taskID, err := application.newID("task")
-	if err != nil {
-		return Task{}, err
+		return store.RuntimeIntent{}, err
 	}
 	now := application.now().UTC()
-	task, err := application.database.RequestConfigurationRuntimeIntent(ctx, store.RuntimeIntentInput{TaskID: taskID, Kind: kind, CreatedAt: now, SelectOnly: selectOnly}, store.StartupArtifact{
+	intent, err := application.database.RequestConfigurationRuntimeIntent(ctx, store.RuntimeIntentInput{Kind: kind, CreatedAt: now, SelectOnly: selectOnly}, store.StartupArtifact{
 		ID: startupID, CanonicalRevisionID: preview.CanonicalRevision.ID, ExactCoreVersion: preview.CoreArtifact.ExactVersion,
 		CoreArtifactID: coreID, ConfigBytes: preview.Config, CreatedAt: now,
 	})
 	if err != nil {
-		return Task{}, err
+		return store.RuntimeIntent{}, err
 	}
-	return applicationTask(task), nil
+	return intent, nil
 }
 
 // LoadConfigurationRuntimeCandidate also accepts ready candidates after a
-// worker crash between preflight and binding. Rechecking is safe and required.
+// interrupted request between preflight and binding. Rechecking is required.
 func (application *Application) LoadConfigurationRuntimeCandidate(ctx context.Context, id string) (RuntimeMaterial, error) {
 	startup, err := application.database.GetStartupArtifact(ctx, id)
 	if err != nil {

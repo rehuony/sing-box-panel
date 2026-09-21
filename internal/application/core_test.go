@@ -17,7 +17,7 @@ import (
 	"github.com/rehuony/sing-box-panel/internal/store"
 )
 
-func TestCatalogSnapshotRoundTripFilteringAndInstallQueue(t *testing.T) {
+func TestCatalogSnapshotRoundTripFilteringAndInstallation(t *testing.T) {
 	ctx := context.Background()
 	database, err := store.Open(ctx, filepath.Join(t.TempDir(), "panel.db"))
 	if err != nil {
@@ -49,17 +49,6 @@ func TestCatalogSnapshotRoundTripFilteringAndInstallQueue(t *testing.T) {
 	if err != nil || len(filtered.Assets) != 1 {
 		t.Fatalf("filtered=%+v err=%v", filtered, err)
 	}
-	queued, err := application.QueueCoreInstall(ctx, asset.AssetID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	retry, err := application.QueueCoreInstall(ctx, asset.AssetID)
-	if err != nil || retry.ID != queued.ID {
-		t.Fatalf("install retry=%+v err=%v", retry, err)
-	}
-	if queued.Kind != store.TaskKindCoreInstall || queued.Status != store.TaskStatusQueued {
-		t.Fatalf("queued install=%+v", queued)
-	}
 	source, err := coreartifact.NewOfficialSource(asset.RepositoryID, asset.ReleaseID, asset.AssetID)
 	if err != nil {
 		t.Fatal(err)
@@ -70,17 +59,14 @@ func TestCatalogSnapshotRoundTripFilteringAndInstallQueue(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	checkpoints := 0
-	installed, err := application.ExecuteCoreArtifactTask(ctx, queued.Kind, queued.Payload, fakeArtifactInstaller{
-		installResult: artifactstore.Result{
-			Identity: identity, BinarySHA256: mustDigest(t, "bc"), BinaryPath: "/secure/artifacts/sing-box",
-		},
-	}, func(context.Context) error {
-		checkpoints++
-		return nil
-	})
-	if err != nil || checkpoints != 1 || installed.AssetID != asset.AssetID {
-		t.Fatalf("installed=%+v checkpoints=%d err=%v", installed, checkpoints, err)
+	application.SetArtifactInstaller(fakeArtifactInstaller{installResult: artifactstore.Result{Identity: identity, BinarySHA256: mustDigest(t, "bc"), BinaryPath: "/secure/artifacts/sing-box"}})
+	installed, err := application.InstallCore(ctx, asset.AssetID)
+	if err != nil || installed.AssetID != asset.AssetID {
+		t.Fatalf("installed=%+v err=%v", installed, err)
+	}
+	retry, err := application.InstallCore(ctx, asset.AssetID)
+	if err != nil || retry.ID != installed.ID {
+		t.Fatalf("repeat installation=%+v err=%v", retry, err)
 	}
 	if string(installed.FeatureFingerprint) != `{"status":"not_reported"}` {
 		t.Fatalf("feature fingerprint = %s, want explicit not_reported", installed.FeatureFingerprint)
@@ -168,7 +154,7 @@ func TestPersistInstalledCorePreservesFullSourceIdentity(t *testing.T) {
 	source, _ := coreartifact.NewUserSource("administrator verified local archive")
 	identity, err := coreartifact.NewIdentity(
 		source, digest, coreartifact.OperatingSystemLinux, coreartifact.ArchitectureAMD64,
-		coreartifact.VariantPlain, version,
+		coreartifact.VariantMusl, version,
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -192,9 +178,9 @@ func TestPersistInstalledCorePreservesFullSourceIdentity(t *testing.T) {
 	if string(first.FeatureFingerprint) != `{"status":"reported","features":["with_quic","with_utls"]}` {
 		t.Fatalf("persisted feature fingerprint = %s", first.FeatureFingerprint)
 	}
-	if _, err := application.QueueCoreImport(ctx, CoreImportRequest{
+	if _, err := application.ImportCore(ctx, CoreImportRequest{
 		SourcePath: "relative.tar.gz", SourceDescription: "admin", SHA256: digest.String(),
-		ExactVersion: version.String(), Architecture: "amd64", Variant: "plain",
+		ExactVersion: version.String(), Architecture: "amd64", Variant: "musl",
 	}); err == nil {
 		t.Fatal("core import accepted a relative path")
 	}
@@ -206,23 +192,26 @@ func TestPersistInstalledCorePreservesFullSourceIdentity(t *testing.T) {
 	if err := os.WriteFile(secondUploadPath, []byte("two"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	firstUpload, err := application.QueueCoreImport(ctx, CoreImportRequest{
+	application.SetArtifactInstaller(fakeArtifactInstaller{importResult: result})
+	firstUpload, err := application.ImportCore(ctx, CoreImportRequest{
 		SourcePath: firstUploadPath, SourceDescription: "browser upload", SHA256: digest.String(),
-		ExactVersion: version.String(), Architecture: "amd64", Variant: "plain", DeleteSource: true,
+		ExactVersion: version.String(), Architecture: "amd64", Variant: "musl", DeleteSource: true,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	secondUpload, err := application.QueueCoreImport(ctx, CoreImportRequest{
+	secondUpload, err := application.ImportCore(ctx, CoreImportRequest{
 		SourcePath: secondUploadPath, SourceDescription: "browser upload", SHA256: digest.String(),
-		ExactVersion: version.String(), Architecture: "amd64", Variant: "plain", DeleteSource: true,
+		ExactVersion: version.String(), Architecture: "amd64", Variant: "musl", DeleteSource: true,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if firstUpload.ID == secondUpload.ID || firstUpload.IdempotencyKey == secondUpload.IdempotencyKey {
-		t.Fatalf("distinct staged uploads reused one task: first=%+v second=%+v", firstUpload, secondUpload)
+	if firstUpload.ID != secondUpload.ID {
+		t.Fatalf("same artifact changed identity across staged uploads: first=%+v second=%+v", firstUpload, secondUpload)
 	}
+	assertPathMissing(t, firstUploadPath)
+	assertPathMissing(t, secondUploadPath)
 }
 
 type fakeCatalogRefresher struct {
@@ -266,10 +255,10 @@ func validCatalogAsset(t *testing.T) catalog.Asset {
 	}
 	return catalog.Asset{
 		RepositoryID: catalog.OfficialRepositoryID, ReleaseID: 2001, AssetID: 3001,
-		Name:        "sing-box-1.13.19-linux-amd64.tar.gz",
-		DownloadURL: "https://github.com/SagerNet/sing-box/releases/download/v1.13.19/sing-box-1.13.19-linux-amd64.tar.gz",
+		Name:        "sing-box-1.13.19-linux-amd64-musl.tar.gz",
+		DownloadURL: "https://github.com/SagerNet/sing-box/releases/download/v1.13.19/sing-box-1.13.19-linux-amd64-musl.tar.gz",
 		Size:        1234, Version: version, OperatingSystem: coreartifact.OperatingSystemLinux,
-		Architecture: coreartifact.ArchitectureAMD64, Variant: coreartifact.VariantPlain,
+		Architecture: coreartifact.ArchitectureAMD64, Variant: coreartifact.VariantMusl,
 		APIDigest: mustDigest(t, "cd"), HasAPIDigest: true,
 	}
 }

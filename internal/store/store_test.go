@@ -147,15 +147,6 @@ func TestSchemaConstraints(t *testing.T) {
 
 	if _, err := store.db.ExecContext(
 		ctx,
-		`INSERT INTO tasks(id, lane, kind, created_at, updated_at)
-		 VALUES ('invalid-lane-kind', 'runtime', 'catalog-refresh', ?, ?)`,
-		now, now,
-	); err == nil {
-		t.Fatal("task with an invalid lane/kind combination succeeded")
-	}
-
-	if _, err := store.db.ExecContext(
-		ctx,
 		`UPDATE hub_state SET head_revision_id = 'missing-revision' WHERE singleton = 1`,
 	); err == nil {
 		t.Fatal("foreign-key violating hub update succeeded")
@@ -204,146 +195,49 @@ func TestWithTxRollsBackCallbackFailure(t *testing.T) {
 	}
 }
 
-func TestCanonicalSaveAndTaskAreAtomic(t *testing.T) {
+func TestConfigurationSaveAndSnapshotAreAtomic(t *testing.T) {
 	ctx := testContext(t)
-	store := openTestStore(t, ctx)
-	createdAt := time.Date(2026, time.August, 26, 12, 0, 0, 0, time.UTC)
-
-	_, err := store.SaveCanonicalRevisionAndTask(
-		ctx,
-		"",
-		NewCanonicalRevision{
-			ID: "revision-invalid", SchemaVersion: configuration.SchemaVersion,
-			Document:  json.RawMessage(`[]`),
-			CommandID: "command-invalid", CreatedAt: createdAt,
-		},
-		NewTask{ID: "task-invalid", Lane: TaskLaneMaintenance, Kind: TaskKindCanonicalSaved},
-	)
-	if !errors.Is(err, configuration.ErrInvalidDocument) {
-		t.Fatalf("invalid canonical save error = %v, want ErrInvalidDocument", err)
-	}
-	if head, headErr := store.Head(ctx); headErr != nil || head != nil {
-		t.Fatalf("invalid canonical save changed head: head=%+v err=%v", head, headErr)
-	}
-	if _, taskErr := store.GetTask(ctx, "task-invalid"); !errors.Is(taskErr, ErrTaskNotFound) {
-		t.Fatalf("invalid canonical save created task: %v", taskErr)
-	}
-
-	first, err := store.SaveCanonicalRevisionAndTask(
-		ctx,
-		"",
-		NewCanonicalRevision{
-			ID:            "revision-1",
-			SchemaVersion: configuration.SchemaVersion,
-			Document:      json.RawMessage(`{"experimental":{"port":8080}}`),
-			CommandID:     "command-1",
-			CreatedAt:     createdAt,
-		},
-		NewTask{
-			ID:             "task-1",
-			IdempotencyKey: "project-revision-1",
-			Lane:           TaskLaneMaintenance,
-			Kind:           TaskKindCanonicalSaved,
-			Payload:        json.RawMessage(`{"revision":"revision-1"}`),
-		},
-	)
+	database := openTestStore(t, ctx)
+	revision := NewCanonicalRevision{ID: "snapshot-1", SchemaVersion: configuration.SchemaVersion, CommandID: "save-1"}
+	first, err := database.SaveConfigurationFile(ctx, 0, `{"value":9007199254740993}`, revision)
 	if err != nil {
-		t.Fatalf("first SaveCanonicalRevisionAndTask() error = %v", err)
+		t.Fatal(err)
 	}
-	if first.Sequence != 1 || first.ParentID != "" || first.SHA256 == "" {
-		t.Fatalf("first revision = %+v, want sequence 1, no parent, and digest", first)
+	assertHeadAndCounts(t, ctx, database, first.CanonicalRevisionID, 1)
+	// Duplicate snapshot identity must roll back both the text and runtime head.
+	if _, err := database.SaveConfigurationFile(ctx, first.Revision, `{"value":2}`, revision); err == nil {
+		t.Fatal("duplicate identity accepted")
 	}
-
-	bootstrap, err := store.Bootstrap(ctx)
+	unchanged, err := database.ConfigurationFile(ctx)
+	if err != nil || unchanged != first {
+		t.Fatalf("partial save: %+v %v", unchanged, err)
+	}
+	revision.ID, revision.CommandID = "snapshot-2", "save-2"
+	second, err := database.SaveConfigurationFile(ctx, first.Revision, `{"value":2}`, revision)
 	if err != nil {
-		t.Fatalf("Bootstrap() after first save error = %v", err)
+		t.Fatal(err)
 	}
-	if bootstrap.Head == nil || bootstrap.Head.ID != first.ID {
-		t.Fatalf("head after first save = %+v, want %q", bootstrap.Head, first.ID)
+	if _, err := database.SaveConfigurationFile(ctx, first.Revision, `{}`, revision); !errors.Is(err, ErrConfigurationFileConflict) {
+		t.Fatalf("stale save: %v", err)
 	}
-
-	_, err = store.SaveCanonicalRevisionAndTask(
-		ctx,
-		first.ID,
-		NewCanonicalRevision{
-			ID:            "revision-rolled-back",
-			SchemaVersion: configuration.SchemaVersion,
-			Document:      json.RawMessage(`{"experimental":{"port":9090}}`),
-			CommandID:     "command-rolled-back",
-			CreatedAt:     createdAt.Add(time.Minute),
-		},
-		NewTask{
-			ID:      "task-1",
-			Lane:    TaskLaneMaintenance,
-			Kind:    TaskKindCanonicalSaved,
-			Payload: json.RawMessage(`{}`),
-		},
-	)
-	if err == nil {
-		t.Fatal("save with duplicate task id succeeded")
-	}
-
-	assertHeadAndCounts(t, ctx, store, first.ID, 1, 1)
-
-	second, err := store.SaveCanonicalRevisionAndTask(
-		ctx,
-		first.ID,
-		NewCanonicalRevision{
-			ID:            "revision-2",
-			SchemaVersion: configuration.SchemaVersion,
-			Document:      json.RawMessage(`{"experimental":{"port":9090}}`),
-			CommandID:     "command-2",
-			CreatedAt:     createdAt.Add(2 * time.Minute),
-		},
-		NewTask{
-			ID:         "task-2",
-			Lane:       TaskLaneMaintenance,
-			Kind:       TaskKindCanonicalSaved,
-			Generation: 1,
-			Payload:    json.RawMessage(`{"revision":"revision-2"}`),
-		},
-	)
-	if err != nil {
-		t.Fatalf("second SaveCanonicalRevisionAndTask() error = %v", err)
-	}
-	if second.Sequence != 2 || second.ParentID != first.ID {
-		t.Fatalf("second revision = %+v, want sequence 2 parent %q", second, first.ID)
-	}
-
-	_, err = store.SaveCanonicalRevisionAndTask(
-		ctx,
-		first.ID,
-		NewCanonicalRevision{
-			ID:            "revision-conflict",
-			SchemaVersion: configuration.SchemaVersion,
-			Document:      json.RawMessage(`{"experimental":{"port":10000}}`),
-			CommandID:     "command-conflict",
-		},
-		NewTask{ID: "task-conflict", Lane: TaskLaneMaintenance, Kind: TaskKindCanonicalSaved},
-	)
-	if !errors.Is(err, ErrRevisionConflict) {
-		t.Fatalf("stale save error = %v, want ErrRevisionConflict", err)
-	}
-	var conflict *RevisionConflictError
-	if !errors.As(err, &conflict) || conflict.ActualHead != second.ID {
-		t.Fatalf("stale save conflict = %#v, want actual head %q", conflict, second.ID)
-	}
-
-	assertHeadAndCounts(t, ctx, store, second.ID, 2, 2)
-
-	path := store.Path()
-	if err := store.Close(); err != nil {
-		t.Fatalf("Close() before reopen error = %v", err)
+	assertHeadAndCounts(t, ctx, database, second.CanonicalRevisionID, 2)
+	path := database.Path()
+	if err := database.Close(); err != nil {
+		t.Fatal(err)
 	}
 	reopened, err := Open(ctx, path)
 	if err != nil {
-		t.Fatalf("Open() after canonical saves error = %v", err)
+		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = reopened.Close() })
-	assertHeadAndCounts(t, ctx, reopened, second.ID, 2, 2)
+	defer reopened.Close()
+	persisted, err := reopened.ConfigurationFile(ctx)
+	if err != nil || persisted != second {
+		t.Fatalf("reopen: %+v %v", persisted, err)
+	}
+	assertHeadAndCounts(t, ctx, reopened, second.CanonicalRevisionID, 2)
 }
 
-func TestCanonicalCASAcrossStores(t *testing.T) {
+func TestConfigurationCASAcrossStores(t *testing.T) {
 	ctx := testContext(t)
 	path := filepath.Join(t.TempDir(), "panel.db")
 	first, err := Open(ctx, path)
@@ -365,20 +259,12 @@ func TestCanonicalCASAcrossStores(t *testing.T) {
 		go func(i int, store *Store) {
 			defer writers.Done()
 			<-start
-			_, errorsByWriter[i] = store.SaveCanonicalRevisionAndTask(
-				ctx,
-				"",
+			_, errorsByWriter[i] = saveTestConfiguration(ctx, store, 0,
 				NewCanonicalRevision{
 					ID:            fmt.Sprintf("revision-%d", i),
 					SchemaVersion: configuration.SchemaVersion,
 					Document:      json.RawMessage(fmt.Sprintf(`{"experimental":{"writer":%d}}`, i)),
 					CommandID:     fmt.Sprintf("command-%d", i),
-				},
-				NewTask{
-					ID:      fmt.Sprintf("task-%d", i),
-					Lane:    TaskLaneMaintenance,
-					Kind:    TaskKindCanonicalSaved,
-					Payload: json.RawMessage(`{}`),
 				},
 			)
 		}(i, store)
@@ -392,7 +278,7 @@ func TestCanonicalCASAcrossStores(t *testing.T) {
 		switch {
 		case err == nil:
 			successes++
-		case errors.Is(err, ErrRevisionConflict):
+		case errors.Is(err, ErrConfigurationFileConflict):
 			conflicts++
 		default:
 			t.Fatalf("writer %d error = %v, want success or conflict", i, err)
@@ -402,15 +288,13 @@ func TestCanonicalCASAcrossStores(t *testing.T) {
 		t.Fatalf("writers: successes=%d conflicts=%d, want 1 and 1", successes, conflicts)
 	}
 
-	var revisionCount, taskCount int
+	var revisionCount int
 	if err := first.db.QueryRowContext(ctx, `SELECT count(*) FROM canonical_revisions`).Scan(&revisionCount); err != nil {
 		t.Fatalf("count revisions: %v", err)
 	}
-	if err := first.db.QueryRowContext(ctx, `SELECT count(*) FROM tasks`).Scan(&taskCount); err != nil {
-		t.Fatalf("count tasks: %v", err)
-	}
-	if revisionCount != 1 || taskCount != 1 {
-		t.Fatalf("revision/task counts = %d/%d, want 1/1", revisionCount, taskCount)
+
+	if revisionCount != 1 {
+		t.Fatalf("revision count = %d, want 1", revisionCount)
 	}
 }
 
@@ -459,7 +343,6 @@ func assertHeadAndCounts(
 	store *Store,
 	wantHead string,
 	wantRevisions int,
-	wantTasks int,
 ) {
 	t.Helper()
 	head, err := store.Head(ctx)
@@ -470,22 +353,14 @@ func assertHeadAndCounts(
 		t.Fatalf("Head() = %+v, want %q", head, wantHead)
 	}
 
-	var revisions, tasks int
+	var revisions int
 	if err := store.db.QueryRowContext(ctx, `SELECT count(*) FROM canonical_revisions`).Scan(&revisions); err != nil {
 		t.Fatalf("count revisions: %v", err)
 	}
-	if err := store.db.QueryRowContext(ctx, `SELECT count(*) FROM tasks`).Scan(&tasks); err != nil {
-		t.Fatalf("count tasks: %v", err)
+	if revisions != wantRevisions {
+		t.Fatalf("revision count = %d, want %d", revisions, wantRevisions)
 	}
-	if revisions != wantRevisions || tasks != wantTasks {
-		t.Fatalf(
-			"revision/task counts = %d/%d, want %d/%d",
-			revisions,
-			tasks,
-			wantRevisions,
-			wantTasks,
-		)
-	}
+
 }
 
 func stringsOf(value byte, count int) string {

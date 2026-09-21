@@ -147,7 +147,7 @@ func runtimeTransitionCursor(
 	return &store.RuntimeTransitionCursor{OccurredAt: occurredAt.UTC(), ID: identifier}, true
 }
 
-func (handler *Handler) queueStartupCheck(w http.ResponseWriter, request *http.Request) {
+func (handler *Handler) checkStartup(w http.ResponseWriter, request *http.Request) {
 	if !handler.requireCommands(w, request) {
 		return
 	}
@@ -164,12 +164,12 @@ func (handler *Handler) queueStartupCheck(w http.ResponseWriter, request *http.R
 		writeProblem(w, request, http.StatusUnprocessableEntity, "startup_artifact_id_invalid", "Startup artifact ID invalid", "startup_artifact_id must identify one immutable candidate.")
 		return
 	}
-	task, err := handler.commands.QueueStartupCheck(request.Context(), input.StartupArtifactID)
+	result, err := handler.commands.CheckStartup(request.Context(), input.StartupArtifactID)
 	if err != nil {
 		writeRuntimeProblem(w, request, "startup_check_failed", err)
 		return
 	}
-	writeJSON(w, http.StatusAccepted, task)
+	writeJSON(w, http.StatusOK, result)
 }
 
 func (handler *Handler) enableCoreArtifact(w http.ResponseWriter, request *http.Request, id string) {
@@ -179,7 +179,7 @@ func (handler *Handler) enableCoreArtifact(w http.ResponseWriter, request *http.
 	if _, ok := strictCoreQuery(w, request); !ok || !requireEmptyCoreBody(w, request) {
 		return
 	}
-	task, err := handler.commands.EnableCore(request.Context(), id)
+	result, err := handler.commands.EnableCore(request.Context(), id)
 	if err != nil {
 		if errors.Is(err, application.ErrCorePlatformMismatch) {
 			writeProblem(w, request, http.StatusConflict, "core_enable_blocked", "Core cannot be enabled", "The artifact must be verified and match the deployed panel operating system and architecture.")
@@ -190,7 +190,7 @@ func (handler *Handler) enableCoreArtifact(w http.ResponseWriter, request *http.
 		}
 		return
 	}
-	writeJSON(w, http.StatusAccepted, task)
+	writeJSON(w, http.StatusOK, result)
 }
 
 func (handler *Handler) disableCoreArtifact(w http.ResponseWriter, request *http.Request, id string) {
@@ -200,7 +200,7 @@ func (handler *Handler) disableCoreArtifact(w http.ResponseWriter, request *http
 	if _, ok := strictCoreQuery(w, request); !ok || !requireEmptyCoreBody(w, request) {
 		return
 	}
-	task, err := handler.commands.DisableCore(request.Context(), id)
+	result, err := handler.commands.DisableCore(request.Context(), id)
 	if err != nil {
 		if errors.Is(err, store.ErrCoreArtifactNotFound) {
 			writeProblem(w, request, http.StatusNotFound, "core_artifact_not_found", "Core artifact not found", "The requested artifact does not exist.")
@@ -211,10 +211,10 @@ func (handler *Handler) disableCoreArtifact(w http.ResponseWriter, request *http
 		}
 		return
 	}
-	writeJSON(w, http.StatusAccepted, task)
+	writeJSON(w, http.StatusOK, result)
 }
 
-func (handler *Handler) queueCoreActivate(w http.ResponseWriter, request *http.Request) {
+func (handler *Handler) activateCore(w http.ResponseWriter, request *http.Request) {
 	if !handler.requireCommands(w, request) {
 		return
 	}
@@ -232,42 +232,39 @@ func (handler *Handler) queueCoreActivate(w http.ResponseWriter, request *http.R
 		writeProblem(w, request, http.StatusUnprocessableEntity, "activation_request_invalid", "Activation request invalid", "A startup artifact ID and a supported monitoring tier are required.")
 		return
 	}
-	prepared, task, err := handler.commands.PrepareAndQueueRuntimeApply(request.Context(), input.StartupArtifactID, input.MonitoringTier)
+	result, err := handler.commands.ActivateRuntime(request.Context(), input.StartupArtifactID, input.MonitoringTier)
 	if err != nil {
 		writeRuntimeProblem(w, request, "runtime_activate_failed", err)
 		return
 	}
-	writeJSON(w, http.StatusAccepted, struct {
-		Activation application.ActivationSummary `json:"activation"`
-		Task       application.Task              `json:"task"`
-	}{prepared.Summary(), task})
+	writeJSON(w, http.StatusOK, result)
 }
 
-func (handler *Handler) queueRuntimeLifecycle(w http.ResponseWriter, request *http.Request, operation string) {
+func (handler *Handler) runtimeLifecycle(w http.ResponseWriter, request *http.Request, operation string) {
 	if !handler.requireCommands(w, request) {
 		return
 	}
 	if _, ok := strictCoreQuery(w, request); !ok {
 		return
 	}
-	var task application.Task
+	var result application.RuntimeStatus
 	var err error
 	switch operation {
 	case "start":
 		if !requireEmptyCoreBody(w, request) {
 			return
 		}
-		task, err = handler.commands.QueueRuntimeStart(request.Context())
+		result, err = handler.commands.StartRuntime(request.Context())
 	case "stop":
 		if !requireEmptyCoreBody(w, request) {
 			return
 		}
-		task, err = handler.commands.QueueRuntimeStop(request.Context())
+		result, err = handler.commands.StopRuntime(request.Context())
 	case "restart":
 		if !requireEmptyCoreBody(w, request) {
 			return
 		}
-		task, err = handler.commands.QueueRuntimeRestart(request.Context())
+		result, err = handler.commands.RestartRuntime(request.Context())
 	case "rollback":
 		var input struct {
 			ActivationBundleID string `json:"activation_bundle_id"`
@@ -279,7 +276,7 @@ func (handler *Handler) queueRuntimeLifecycle(w http.ResponseWriter, request *ht
 			writeProblem(w, request, http.StatusUnprocessableEntity, "rollback_bundle_id_invalid", "Rollback bundle ID invalid", "activation_bundle_id must identify the immutable rollback bundle shown during confirmation.")
 			return
 		}
-		task, err = handler.commands.QueueRuntimeRollback(request.Context(), input.ActivationBundleID)
+		result, err = handler.commands.RollbackRuntime(request.Context(), input.ActivationBundleID)
 	default:
 		err = errors.New("unsupported runtime operation")
 	}
@@ -287,7 +284,7 @@ func (handler *Handler) queueRuntimeLifecycle(w http.ResponseWriter, request *ht
 		writeRuntimeProblem(w, request, "runtime_"+operation+"_failed", err)
 		return
 	}
-	writeJSON(w, http.StatusAccepted, task)
+	writeJSON(w, http.StatusOK, result)
 }
 
 func validStableIdentifier(value string) bool {

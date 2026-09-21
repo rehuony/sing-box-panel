@@ -3,22 +3,18 @@
 package httpapi
 
 import (
-	"context"
 	"encoding/json"
 	"io/fs"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
 	"testing/fstest"
 	"time"
 
-	"github.com/rehuony/sing-box-panel/internal/application"
 	"github.com/rehuony/sing-box-panel/internal/buildinfo"
 	"github.com/rehuony/sing-box-panel/internal/settings"
-	"github.com/rehuony/sing-box-panel/internal/store"
 )
 
 func testHandler(t *testing.T) *Handler {
@@ -32,133 +28,15 @@ func testHandler(t *testing.T) *Handler {
 	return NewHandler(HandlerOptions{Settings: value, Build: buildinfo.Info{Version: "test"}})
 }
 
-func TestCanonicalHTTPUsesIfMatchCAS(t *testing.T) {
-	ctx := context.Background()
-	database, err := store.Open(ctx, filepath.Join(t.TempDir(), "panel.db"))
-	if err != nil {
-		t.Fatalf("store.Open() error = %v", err)
-	}
-	t.Cleanup(func() { _ = database.Close() })
-	value := settings.Defaults()
-	value.DataDir = t.TempDir()
-	value.Auth.Token = "correct-management-token"
-	handler := NewHandler(HandlerOptions{Settings: value, Commands: application.FromStore(database)})
-	document := `{}`
-
-	replace := httptest.NewRequest(http.MethodPut, "/api/v1/config/canonical", strings.NewReader(document))
-	replace.Header.Set("Authorization", "Bearer correct-management-token")
-	replace.Header.Set("If-Match", `"none"`)
-	replaceResponse := httptest.NewRecorder()
-	handler.ServeHTTP(replaceResponse, replace)
-	if replaceResponse.Code != http.StatusOK || replaceResponse.Header().Get("ETag") == "" {
-		t.Fatalf("replace status = %d; etag=%q body=%s", replaceResponse.Code, replaceResponse.Header().Get("ETag"), replaceResponse.Body.String())
-	}
-
-	show := httptest.NewRequest(http.MethodGet, "/api/v1/config/canonical", nil)
-	show.Header.Set("Authorization", "Bearer correct-management-token")
-	showResponse := httptest.NewRecorder()
-	handler.ServeHTTP(showResponse, show)
-	if showResponse.Code != http.StatusOK || showResponse.Header().Get("ETag") != replaceResponse.Header().Get("ETag") {
-		t.Fatalf("show status = %d; etag=%q body=%s", showResponse.Code, showResponse.Header().Get("ETag"), showResponse.Body.String())
-	}
-
-	stale := httptest.NewRequest(http.MethodPut, "/api/v1/config/canonical", strings.NewReader(document))
-	stale.Header.Set("Authorization", "Bearer correct-management-token")
-	stale.Header.Set("If-Match", `"none"`)
-	staleResponse := httptest.NewRecorder()
-	handler.ServeHTTP(staleResponse, stale)
-	if staleResponse.Code != http.StatusPreconditionFailed {
-		t.Fatalf("stale status = %d; body=%s", staleResponse.Code, staleResponse.Body.String())
-	}
-}
-
-func TestCanonicalPatchHTTPPreservesLosslessValuesAndRejectsInvalidInput(t *testing.T) {
-	ctx := context.Background()
-	database, err := store.Open(ctx, filepath.Join(t.TempDir(), "panel.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = database.Close() })
-	value := settings.Defaults()
-	value.DataDir = t.TempDir()
-	value.Auth.Token = "correct-management-token"
-	handler := NewHandler(HandlerOptions{Settings: value, Commands: application.FromStore(database)})
-
-	initialResponse := authenticatedRequest(
-		handler,
-		http.MethodPut,
-		"/api/v1/config/canonical",
-		`{"experimental":{"untouched":9007199254740993}}`,
-		`"none"`,
-	)
-	if initialResponse.Code != http.StatusOK {
-		t.Fatalf("initial status=%d body=%s", initialResponse.Code, initialResponse.Body.String())
-	}
-	var initial application.CanonicalSave
-	if err := json.Unmarshal(initialResponse.Body.Bytes(), &initial); err != nil {
-		t.Fatal(err)
-	}
-
-	patchResponse := authenticatedRequest(
-		handler,
-		http.MethodPatch,
-		"/api/v1/config/canonical",
-		`{"changes":[{"op":"set","path":"/experimental/large","value_json":"9007199254740995"},{"op":"set","path":"/experimental/payload","value_json":"{\"huge\":1e999,\"decimal\":1.0}"}]}`,
-		quoteETag(initial.Revision.ID),
-	)
-	if patchResponse.Code != http.StatusOK {
-		t.Fatalf("patch status=%d body=%s", patchResponse.Code, patchResponse.Body.String())
-	}
-	for _, exact := range []string{
-		`"untouched":9007199254740993`,
-		`"large":9007199254740995`,
-		`"payload":{"decimal":1.0,"huge":1e999}`,
-	} {
-		if !strings.Contains(patchResponse.Body.String(), exact) {
-			t.Fatalf("patch response lost %s: %s", exact, patchResponse.Body.String())
-		}
-	}
-	if patchResponse.Header().Get("ETag") == "" || patchResponse.Header().Get("ETag") == quoteETag(initial.Revision.ID) {
-		t.Fatalf("patch ETag = %q", patchResponse.Header().Get("ETag"))
-	}
-
-	missingBase := authenticatedRequest(
-		handler,
-		http.MethodPatch,
-		"/api/v1/config/canonical",
-		`{"changes":[{"op":"set","path":"/experimental/value","value_json":"true"}]}`,
-		"",
-	)
-	if missingBase.Code != http.StatusPreconditionRequired {
-		t.Fatalf("missing base status=%d body=%s", missingBase.Code, missingBase.Body.String())
-	}
-	duplicateValueKey := authenticatedRequest(
-		handler,
-		http.MethodPatch,
-		"/api/v1/config/canonical",
-		`{"changes":[{"op":"set","path":"/experimental/value","value_json":"{\"x\":1,\"x\":2}"}]}`,
-		patchResponse.Header().Get("ETag"),
-	)
-	if duplicateValueKey.Code != http.StatusUnprocessableEntity {
-		t.Fatalf("duplicate value key status=%d body=%s", duplicateValueKey.Code, duplicateValueKey.Body.String())
-	}
-	stale := authenticatedRequest(
-		handler,
-		http.MethodPatch,
-		"/api/v1/config/canonical",
-		`{"changes":[{"op":"set","path":"/experimental/value","value_json":"true"}]}`,
-		quoteETag(initial.Revision.ID),
-	)
-	if stale.Code != http.StatusPreconditionFailed {
-		t.Fatalf("stale status=%d body=%s", stale.Code, stale.Body.String())
-	}
-}
-
-func TestLegacyEntityRoutesAreNotExposed(t *testing.T) {
+func TestRemovedConfigurationRoutesAreNotExposed(t *testing.T) {
 	handler := testHandler(t)
-	response := authenticatedRequest(handler, http.MethodGet, "/api/v1/nodes", "", "")
-	if response.Code != http.StatusNotFound {
-		t.Fatalf("legacy entity route status=%d body=%s", response.Code, response.Body.String())
+	for _, path := range []string{"/api/v1/nodes", "/api/v1/config/canonical", "/api/v1/config/revisions", "/api/v1/config/revisions/diff", "/api/v1/config/revisions/old/restore"} {
+		for _, method := range []string{http.MethodGet, http.MethodPut, http.MethodPatch, http.MethodPost} {
+			response := authenticatedRequest(handler, method, path, "", "")
+			if response.Code != http.StatusNotFound {
+				t.Fatalf("%s %s: status=%d body=%s", method, path, response.Code, response.Body.String())
+			}
+		}
 	}
 }
 
@@ -436,5 +314,32 @@ func TestCSRFUsesConfiguredExternalOriginWithoutForwardedHeaders(t *testing.T) {
 	handler.ServeHTTP(response, logout)
 	if response.Code != http.StatusNoContent {
 		t.Fatalf("external-origin logout status=%d body=%s", response.Code, response.Body.String())
+	}
+}
+
+func TestIndexStyleNonceIsUniqueAndMatchesPolicy(t *testing.T) {
+	handler := NewHandler(HandlerOptions{Settings: settings.Defaults(), Assets: fstest.MapFS{
+		"index.html": &fstest.MapFile{Data: []byte(`<head><meta name="sing-box-panel-style-nonce" content="__SBP_STYLE_NONCE__" /></head>`)},
+	}})
+	previous := ""
+	for range 2 {
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/login", nil))
+		if response.Code != http.StatusOK {
+			t.Fatalf("index: %d %s", response.Code, response.Body.String())
+		}
+		policy := response.Header().Get("Content-Security-Policy")
+		_, suffix, found := strings.Cut(policy, "'nonce-")
+		nonce, _, terminated := strings.Cut(suffix, "'")
+		if !found || !terminated || len(nonce) != 48 || nonce == previous {
+			t.Fatalf("invalid nonce policy: %s", policy)
+		}
+		if !strings.Contains(response.Body.String(), `content="`+nonce+`"`) {
+			t.Fatal("nonce does not match page")
+		}
+		if strings.Contains(policy, "unsafe-") || response.Header().Get("Cache-Control") != "no-store" {
+			t.Fatalf("unsafe policy/cache: %v", response.Header())
+		}
+		previous = nonce
 	}
 }

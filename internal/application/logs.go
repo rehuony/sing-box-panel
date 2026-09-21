@@ -72,7 +72,7 @@ func (application *Application) RecordLog(ctx context.Context, request LogRecord
 	if err != nil {
 		return store.LogEntry{}, fmt.Errorf("generate log entry id: %w", err)
 	}
-	return application.database.AppendLogEntry(ctx, store.LogEntry{
+	entry, err := application.database.AppendLogEntry(ctx, store.LogEntry{
 		ID:       id,
 		Time:     application.now().UTC(),
 		Source:   request.Source,
@@ -81,6 +81,10 @@ func (application *Application) RecordLog(ctx context.Context, request LogRecord
 		Message:  request.Message,
 		Metadata: request.Metadata,
 	})
+	if err == nil && application.logObserver != nil {
+		application.logObserver(entry)
+	}
+	return entry, err
 }
 
 func (application *Application) Log(ctx context.Context, entryID string) (store.LogEntry, error) {
@@ -165,4 +169,20 @@ func (application *Application) CoreLogContent(name string, offset int64) (corel
 
 func (application *Application) PanelLogs(ctx context.Context, filter store.PanelLogFilter) (store.PanelLogPage, error) {
 	return application.database.ListPanelLogs(ctx, filter)
+}
+
+// RecordOperation records a completed action without exposing inputs or credentials.
+func (application *Application) RecordOperation(ctx context.Context, code, message string, operationErr error) {
+	level := store.LogLevelInfo
+	if operationErr != nil {
+		level = store.LogLevelError
+		message += " failed"
+		code += ".failed"
+	} else {
+		message += " completed"
+		code += ".completed"
+	}
+	logCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
+	defer cancel()
+	_, _ = application.RecordLog(logCtx, LogRecordRequest{Source: store.LogSourcePanel, Level: level, Code: code, Message: message, Metadata: json.RawMessage(`{}`)})
 }

@@ -7,7 +7,6 @@ import type {
 } from '../generated';
 
 export type {
-  ActivationQueued,
   ActivationSummary,
   CatalogAsset,
   CatalogAssetList,
@@ -19,6 +18,7 @@ export type {
   CoreArtifact,
   CoreArtifactPage,
   RuntimeHistoryPage,
+  RuntimeResponse,
   RuntimeStatus,
   RuntimeTransition,
   RuntimeTransitionCursor,
@@ -51,10 +51,10 @@ export interface CatalogAssetFilter {
 
 export interface CoreImportUpload {
   archive: File;
-  variant: string;
   exactVersion: string;
   sourceDescription: string;
   architecture: 'amd64' | 'arm64';
+  variant: CoreArtifact['variant'];
 }
 
 export interface CoreArtifactFilter {

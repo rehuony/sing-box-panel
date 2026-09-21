@@ -19,14 +19,19 @@ installer contains no copied public-key value.
 
 The installer chooses the existing application layout from the effective user:
 
-- root installs the binary at `/usr/local/bin/sing-box-panel`, settings at
+- root installs the binary at `/usr/local/bin/sing-box-panel`; default settings are at
   `/etc/sing-box-panel/setting.json`, and default data under
   `/var/lib/sing-box-panel`;
 - another user installs the binary under `~/.local/bin` and uses the current
   XDG configuration and data homes.
 
-Existing settings and data are retained and verified. Missing settings are
-initialized through the verified release binary. The installer does not
+Installation only writes the binary. Settings and data are neither read nor
+validated nor initialized, so malformed leftovers do not block replacement. An
+existing binary requires interactive confirmation; use `--yes` for unattended
+replacement. Declining exits without download or replacement. `server start`
+initializes missing settings and storage later. Formatted logs use color on a
+terminal unless `NO_COLOR` is set. The final summary lists installation and default
+settings/data paths plus Bash, Zsh and Fish completion commands. The installer does not
 modify shell profiles or configure, start, stop, or restart systemd; it prints
 the appropriate explicit `systemd install` and `systemd restart` commands after
 installation. Run its network-independent contract tests locally with:

@@ -1,54 +1,11 @@
 package store
 
 import (
-	"database/sql"
 	"errors"
-	"fmt"
-	"path/filepath"
 	"sync"
 	"testing"
 	"time"
 )
-
-func TestSubscriptionKeyMigrationRetainsLegacyScopeAndUsage(t *testing.T) {
-	ctx := testContext(t)
-	path := filepath.Join(t.TempDir(), "legacy.db")
-	db, err := sql.Open("sqlite", path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	initial, err := migrationFiles.ReadFile("migrations/0001_initial.sql")
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, statement := range []string{
-		string(initial), fmt.Sprintf("PRAGMA application_id = %d", ApplicationID),
-		"PRAGMA user_version = 1", "INSERT INTO schema_migrations VALUES(1, '0001_initial', '2026-09-01T00:00:00Z')",
-		`INSERT INTO subscription_users(id,name,enabled,created_at,updated_at) VALUES('legacy','Legacy',1,'2026-09-01T00:00:00Z','2026-09-01T00:00:00Z')`,
-		`INSERT INTO subscription_user_node_grants(user_id,node_key,created_at) VALUES('legacy','local:existing','2026-09-01T00:00:00Z')`,
-		fmt.Sprintf(`INSERT INTO subscription_tokens(id,user_id,label,token_sha256,successful_request_count,body_response_count,bytes_served,created_at) VALUES('old','legacy','Old','%s',9,7,420,'2026-09-01T00:00:00Z')`, testTokenDigest("legacy")),
-	} {
-		if _, err := db.ExecContext(ctx, statement); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if err := db.Close(); err != nil {
-		t.Fatal(err)
-	}
-	upgraded, err := Open(ctx, path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer upgraded.Close()
-	key, err := upgraded.GetSubscriptionToken(ctx, "old")
-	if err != nil || key.UserID != "legacy" || key.DownloadLimit != nil || key.BodyResponseCount != 7 || key.SuccessfulRequestCount != 9 || key.BytesServed != 420 || key.TokenSHA256 != testTokenDigest("legacy") {
-		t.Fatalf("migration changed legacy key: %+v %v", key, err)
-	}
-	var grant string
-	if err := upgraded.db.QueryRowContext(ctx, `SELECT node_key FROM subscription_user_node_grants WHERE user_id='legacy'`).Scan(&grant); err != nil || grant != "local:existing" {
-		t.Fatalf("grant: %s %v", grant, err)
-	}
-}
 
 func TestSubscriptionDownloadQuotaIsAtomicAndRotationRetainsUsage(t *testing.T) {
 	ctx := testContext(t)

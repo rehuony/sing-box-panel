@@ -17,7 +17,6 @@ type PanelLog struct {
 	Code     string          `json:"code"`
 	Message  string          `json:"message"`
 	Status   string          `json:"status"`
-	TaskID   string          `json:"task_id,omitempty"`
 	Metadata json.RawMessage `json:"metadata"`
 }
 type PanelLogFilter struct {
@@ -41,7 +40,7 @@ func (s *Store) ListPanelLogs(ctx context.Context, filter PanelLogFilter) (Panel
 	args := []any{}
 	if filter.Cursor != nil {
 		clauses = append(clauses, "(occurred_at < ? OR (occurred_at = ? AND id < ?))")
-		args = append(args, formatTaskTime(filter.Cursor.Time), formatTaskTime(filter.Cursor.Time), filter.Cursor.ID)
+		args = append(args, formatTime(filter.Cursor.Time), formatTime(filter.Cursor.Time), filter.Cursor.ID)
 	}
 	if filter.Level != "" {
 		clauses = append(clauses, "level = ?")
@@ -49,29 +48,23 @@ func (s *Store) ListPanelLogs(ctx context.Context, filter PanelLogFilter) (Panel
 	}
 	if filter.Since != nil {
 		clauses = append(clauses, "occurred_at >= ?")
-		args = append(args, formatTaskTime(*filter.Since))
+		args = append(args, formatTime(*filter.Since))
 	}
 	if filter.Until != nil {
 		clauses = append(clauses, "occurred_at < ?")
-		args = append(args, formatTaskTime(*filter.Until))
+		args = append(args, formatTime(*filter.Until))
 	}
 	if filter.Search != "" {
 		clauses = append(clauses, "(instr(lower(message), lower(?)) > 0 OR instr(lower(code), lower(?)) > 0)")
 		args = append(args, filter.Search, filter.Search)
 	}
 	args = append(args, limit+1)
-	// Each task contributes its current lifecycle record exactly once. Worker
-	// messages and task-linked transitions retain their durable audit records,
-	// but do not duplicate the task in the combined product-facing list.
 	rows, err := s.db.QueryContext(ctx, `WITH combined AS (
- SELECT 'task:'||id AS id,updated_at AS occurred_at,'task' AS source,
- CASE WHEN status='failed' THEN 'error' ELSE 'info' END AS level,kind AS code,kind AS message,status,id AS task_id,'{}' AS metadata_json FROM tasks
+ SELECT 'log:'||id AS id,occurred_at,source,level,code,message,'' AS status,metadata_json FROM log_entries
  UNION ALL
- SELECT 'log:'||l.id,l.occurred_at,l.source,l.level,l.code,l.message,'','',l.metadata_json FROM log_entries l
- WHERE NOT EXISTS(SELECT 1 FROM tasks t WHERE t.id=json_extract(l.metadata_json,'$.task_id'))
- UNION ALL
- SELECT 'runtime:'||id,occurred_at,'runtime',CASE WHEN state='failed' THEN 'error' ELSE 'info' END,reason,reason,state,'','{}' FROM runtime_transitions WHERE task_id IS NULL
- ) SELECT id,occurred_at,source,level,code,message,status,task_id,metadata_json FROM combined WHERE `+strings.Join(clauses, " AND ")+` ORDER BY occurred_at DESC,id DESC LIMIT ?`, args...)
+ SELECT 'runtime:'||id,occurred_at,'runtime',CASE WHEN state='failed' THEN 'error' ELSE 'info' END,reason,reason,state,'{}' FROM runtime_transitions
+ ) SELECT id,occurred_at,source,level,code,message,status,metadata_json FROM combined WHERE `+strings.Join(clauses, " AND ")+` ORDER BY occurred_at DESC,id DESC LIMIT ?`, args...)
+
 	if err != nil {
 		return PanelLogPage{}, fmt.Errorf("query panel log: %w", err)
 	}
@@ -80,7 +73,7 @@ func (s *Store) ListPanelLogs(ctx context.Context, filter PanelLogFilter) (Panel
 	for rows.Next() {
 		var item PanelLog
 		var at, metadata string
-		if err := rows.Scan(&item.ID, &at, &item.Source, &item.Level, &item.Code, &item.Message, &item.Status, &item.TaskID, &metadata); err != nil {
+		if err := rows.Scan(&item.ID, &at, &item.Source, &item.Level, &item.Code, &item.Message, &item.Status, &metadata); err != nil {
 			return PanelLogPage{}, err
 		}
 		item.Time, err = time.Parse(time.RFC3339Nano, at)

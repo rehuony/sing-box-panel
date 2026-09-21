@@ -1,5 +1,5 @@
 export const cores = {
-  library: { officialLink: 'Official link', version: 'Version', source: 'Source', status: 'Status', actions: 'Actions', enable: 'Enable', disable: 'Disable', enabled: 'Enabled', disabled: 'Disabled', unknown: 'Status unknown', installed: 'Installed', notInstalled: 'Not installed', download: 'Download', operationFailed: 'Operation {{status}}. See panel log for task {{id}}.', completed: 'Operation completed', queued: 'Waiting', running: 'Processing', succeeded: 'Completed', failed: 'Failed', canceled: 'Canceled', pageSize: 'Items per page', perPage: '{{count}} per page', previous: 'Previous page', next: 'Next page' },
+  library: { officialLink: 'Official link', version: 'Version', source: 'Source', status: 'Status', actions: 'Actions', enable: 'Enable', disable: 'Disable', enabled: 'Enabled', disabled: 'Disabled', unknown: 'Status unknown', installed: 'Installed', notInstalled: 'Not installed', download: 'Download', operationFailed: 'Operation failed. See the panel log.', completed: 'Operation completed', running: 'Processing', succeeded: 'Completed', failed: 'Failed', canceled: 'Canceled', pageSize: 'Items per page', perPage: '{{count}} per page', previous: 'Previous page', next: 'Next page' },
   action: { remove: 'Remove' },
   artifact: { changed: 'Version removed.' },
   catalog: { short: 'catalog' },
@@ -27,7 +27,8 @@ export const cores = {
     archive: 'Archive',
     archiveFormat: 'Choose a .tar.gz or .tgz archive.',
     chooseArchive: 'or click to browse',
-    description: 'Choose an archive and confirm its version.',
+    description: 'Choose a Linux musl archive for this server and confirm its version.',
+    unsupportedBuild: 'Choose a musl archive matching the server architecture.',
     dragArchive: 'Drop your archive here',
     dropArchive: 'Release to select the archive',
     importing: 'Importing…',
@@ -42,8 +43,6 @@ export const cores = {
   installed: { short: 'installed' },
   loading: 'Loading artifacts…',
   loadOlder: 'Load older',
-  openTasks: 'Open tasks',
-  queueing: 'Queueing…',
   refresh: 'Refresh catalog',
   schema: {
     error: 'Schema lookup failed',
@@ -57,12 +56,10 @@ export const cores = {
   },
   startup: {
     state: { failed: 'Failed', pending: 'Pending', ready: 'Ready' },
-    taskAccepted: 'Task accepted',
     title: 'Startup artifacts',
   },
   subtitle: 'Manage core versions and version-scoped configuration editing.',
   tabs: { catalog: 'Available', installed: 'Installed' },
-  task: { accepted: '{{action}} accepted as task {{id}}.', title: 'Task accepted' },
   title: 'Versions',
   versions: 'Versions',
   value: { unknownSize: 'Unknown size' },

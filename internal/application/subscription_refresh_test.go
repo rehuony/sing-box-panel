@@ -17,7 +17,7 @@ import (
 	"github.com/rehuony/sing-box-panel/internal/subscription"
 )
 
-func TestSubscriptionSourceRefreshTaskPublishesOnlySuccessfulVersion(t *testing.T) {
+func TestSubscriptionSourceRefreshPublishesOnlySuccessfulVersion(t *testing.T) {
 	ctx := context.Background()
 	response := `[{"type":"socks","tag":"remote","server":"remote.example","server_port":1080}]`
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -39,11 +39,7 @@ func TestSubscriptionSourceRefreshTaskPublishesOnlySuccessfulVersion(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	queued, err := app.QueueSubscriptionSourceRefresh(ctx, source.ID)
-	if err != nil || queued.Kind != store.TaskKindSubscriptionSourceRefresh || queued.Status != store.TaskStatusQueued {
-		t.Fatalf("queued=%+v err=%v", queued, err)
-	}
-	result, err := app.ExecuteSubscriptionSourceRefresh(ctx, queued.Payload, nil)
+	result, err := app.RefreshSubscriptionSource(ctx, source.ID)
 	if err != nil || result.SourceID != source.ID || result.VersionID == "" || result.NodeCount != 1 {
 		t.Fatalf("result=%+v err=%v", result, err)
 	}
@@ -55,11 +51,7 @@ func TestSubscriptionSourceRefreshTaskPublishesOnlySuccessfulVersion(t *testing.
 	// A malformed refresh candidate cannot replace the current successful
 	// version, even though the HTTP request itself succeeded.
 	response = `{"outbounds":[{"type":"trojan","tag":"broken","server":"broken.example","server_port":443}]}`
-	retry, err := app.QueueSubscriptionSourceRefresh(ctx, source.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := app.ExecuteSubscriptionSourceRefresh(ctx, retry.Payload, nil); err == nil {
+	if _, err := app.RefreshSubscriptionSource(ctx, source.ID); err == nil {
 		t.Fatal("malformed source candidate was accepted")
 	}
 	unchanged, err := app.SubscriptionSource(ctx, source.ID)
@@ -91,14 +83,14 @@ func TestRemoteSubscriptionSourceConfigRequiresExplicitScheduleMinimum(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	tasks, err := database.ListTasks(ctx, store.TaskListFilter{Kind: store.TaskKindSubscriptionSourceRefresh})
-	if err != nil || len(tasks.Items) != 1 || tasks.Items[0].NotBefore != nil ||
-		!strings.Contains(string(tasks.Items[0].Payload), scheduled.ID) {
-		t.Fatalf("scheduled refresh tasks=%+v err=%v", tasks, err)
+	scheduledRefreshes, err := database.DueSubscriptionRefreshes(ctx, app.now())
+	if err != nil || len(scheduledRefreshes) != 1 || scheduledRefreshes[0].SourceID != scheduled.ID {
+		t.Fatalf("refresh deadlines: %+v %v", scheduledRefreshes, err)
 	}
+
 }
 
-func TestScheduledSubscriptionSourceIsNotCreatedWhenRefreshTaskPreparationFails(t *testing.T) {
+func TestScheduledSubscriptionSourceIsNotCreatedWhenIdentityGenerationFails(t *testing.T) {
 	ctx := context.Background()
 	database, err := store.Open(ctx, filepath.Join(t.TempDir(), "panel.db"))
 	if err != nil {
@@ -109,8 +101,8 @@ func TestScheduledSubscriptionSourceIsNotCreatedWhenRefreshTaskPreparationFails(
 	calls := 0
 	app.random = func(destination []byte) (int, error) {
 		calls++
-		if calls == 2 {
-			return 0, errors.New("task identity unavailable")
+		if calls == 1 {
+			return 0, errors.New("source identity unavailable")
 		}
 		for index := range destination {
 			destination[index] = 1
@@ -121,7 +113,7 @@ func TestScheduledSubscriptionSourceIsNotCreatedWhenRefreshTaskPreparationFails(
 		Name: "atomic scheduled source", SourceKind: store.SubscriptionSourceRemote,
 		Config:  json.RawMessage(`{"url":"https://example.test/sub","refresh_interval_minutes":15}`),
 		Enabled: true,
-	}); err == nil || !strings.Contains(err.Error(), "task identity unavailable") {
+	}); err == nil || !strings.Contains(err.Error(), "source identity unavailable") {
 		t.Fatalf("CreateSubscriptionSource() error = %v", err)
 	}
 	sources, err := app.ListSubscriptionSources(ctx, SubscriptionListRequest{})

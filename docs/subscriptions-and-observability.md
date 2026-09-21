@@ -4,7 +4,7 @@ Public subscription output combines immutable applied runtime state with live,
 administrator-managed authorization. Metrics are exposed only when a real
 collector sample exists.
 
-## Subscription keys and legacy grants
+## Subscription keys and user-scoped grants
 
 The Web UI exposes subscription sources, keys, and channels. New keys do not
 require a subscription user. They authorize the nodes allowed by each channel's
@@ -15,8 +15,6 @@ SQLite database so an authenticated administrator can explicitly reveal them
 through `GET /subscription/tokens/{tokenId}/secret`. This response is `no-store`;
 ordinary token metadata, lists, channel configuration and logs never include it.
 The database and its backups therefore contain recoverable subscription credentials.
-The migration preserves existing digest-only keys; their plaintext cannot be
-recovered, so exporting those keys requires an explicit rotation and rebinding.
 Creation does not choose a channel or generate a subscription URL.
 Channel settings bind key IDs through `config.export_token_ids`. These bindings
 are export conveniences, not access restrictions: existing global key scope,
@@ -52,17 +50,15 @@ presentation order does not rewrite source data or channel policies. Header acti
 do not initiate dragging; dragging a hidden card does not restore its visibility.
 Storage failures use an error toast while keeping the current in-memory order.
 
-Migration retains every existing key's user ID, digest, expiry, usage and grants.
-Those keys continue to require an enabled user and exact node grants; an empty
-grant set still renders an empty subscription. Existing user/grant management
-APIs remain available for compatibility, but are no longer a Web management tab.
-A key governed by channel publication policies has no user ID. The authenticated preview accepts an omitted
-user ID to show the channel policy, or a legacy user ID to preview that user's
-restricted output. No migration silently expands an existing key's access.
+The API also supports user-scoped keys, which require an enabled user and exact
+node grants. An empty grant set renders an empty subscription. User/grant
+management is available through the API; the Web key UI uses channel policies.
+The authenticated preview accepts an omitted user ID for the channel policy,
+or a user ID for that user's restricted output.
 
 The public endpoint remains `GET /sub/{token}/{channelId}`. A key's body-response
 counter is shared across all channels. After rendering succeeds, an atomic write
-rechecks enablement, revocation, expiry, legacy user status and remaining quota
+rechecks enablement, revocation, expiry, user status and remaining quota
 before committing a 200 response. Concurrent requests cannot exceed the limit.
 A 304 response increments the request counter but not downloads; failed
 validation, authorization or rendering consumes neither. Accounting describes
@@ -84,11 +80,10 @@ configuration is never published. Rollback changes the applied bundle pointer
 and therefore restores the matching local-node input without re-projecting the
 current revision.
 
-The inbound registry accepts only the exact reviewed releases `1.11.15`,
-`1.12.25`, `1.13.19`, and `1.14.0`; other versions fail closed. Each converter publishes
+The inbound registry accepts only the exact reviewed releases `1.13.19` and `1.14.0`; other versions fail closed. Each converter publishes
 only the client-usable inbound types available in that release and reports
 stable diagnostics for server-only or unsupported types. Multi-user inbounds
-become separate grantable credentials for legacy access compatibility. The panel public-host override, existing channel `public_host`, or detected
+become separate grantable credentials for user-scoped access. The panel public-host override, existing channel `public_host`, or detected
 public IP combines with each inbound `listen_port`; server certificate private keys,
 ACME configuration, and listen-side fields are never copied.
 
@@ -96,9 +91,7 @@ The current exact inbound contracts are:
 
 | Core | Convertible local inbound types |
 | --- | --- |
-| `1.11.15` | `mixed`, `socks`, `http`, `shadowsocks`, `vmess`, `trojan`, `hysteria`, `shadowtls`, `vless`, `tuic`, `hysteria2` |
-| `1.12.25` | All 1.11.15 types plus `anytls` |
-| `1.13.19` | All 1.12.25 types plus `naive` |
+| `1.13.19` | `mixed`, `socks`, `http`, `shadowsocks`, `vmess`, `trojan`, `hysteria`, `shadowtls`, `vless`, `tuic`, `hysteria2`, `anytls`, `naive` |
 | `1.14.0` | All 1.13.19 types plus `snell` |
 
 For these versions, `direct`, `tun`, `redirect`, `tproxy`, and
@@ -114,8 +107,10 @@ digest, normalized nodes, detected format, fetch time, and diagnostics. An
 older successful version can be restored as current. Parse or fetch failure
 never replaces the current version.
 
-Remote refresh is a durable maintenance task. It is disabled on a schedule by
-default; a configured interval is at least 15 minutes. Fetches allow at most
+Remote refresh returns the fetched version and node count after completion. New
+remote sources receive an initial fetch, retried after 15 minutes on failure.
+Periodic refresh is otherwise disabled by default; a configured interval is at
+least 15 minutes. Its next deadline is persisted per source. Fetches allow at most
 4 MiB, 20 seconds, and five redirects. DNS and every redirect target are
 checked against the SSRF policy. Loopback, link-local, and private addresses
 are denied unless `subscription.private_source_cidrs` explicitly allows them.
@@ -139,7 +134,7 @@ interactive; reduced transparency and increased contrast use an opaque overlay.
 Publication IDs remain stable
 across credential updates. Hiding a node keeps it recoverable at the source but
 omits it from channel selection views and downloads. It does not delete the
-inbound, channel membership, or existing legacy grants.
+inbound, channel membership, or user-scoped grants.
 
 Channel configuration accepts a typed policy: selected/excluded publication IDs,
 new-node include/exclude policy, organizer options, ordered rule groups and a
@@ -291,17 +286,13 @@ The Web page has two tabs. **Real-time logs** shows sanitized sing-box output,
 with a muted timestamp and the entire remaining message colored by TRACE,
 DEBUG, INFO, WARN, ERROR, FATAL or PANIC. A file selector and level filter sit on
 the right; search, pause/resume and LIVE state operate on a bounded local buffer.
-**Panel logs** combines each durable task's current state with standalone panel
-and runtime events once. The table shows time, message, log level and source,
-without an actions column. Every row uses the API log level for both presentation
-and filtering, including task rows; task lifecycle states do not replace levels.
-Task links still open readable operation status and guidance;
-task IDs and raw result/failure metadata stay internal. Failed/canceled
-catalog refresh, official core installation and source refresh can queue a fresh
-validated attempt. Runtime commands and temporary-file imports require a new
-explicit operation, never replay of stale payloads.
+**Panel logs** combines sanitized operation outcomes with panel, security and
+runtime events. The table shows time, message, log level and source, without an
+actions column or operation detail dialogs. Rows use their API log level for both
+presentation and filtering. Retry an unsuccessful action from its original control;
+old payloads and temporary uploads are never replayed.
 
-`/api/v1/core/logs/files`, `/api/v1/core/logs/content` and
+`/api/v1/core/logs/files``/api/v1/core/logs/files`, `/api/v1/core/logs/content` and
 `/api/v1/core/logs/stream` expose only managed file names and bounded byte
 cursors. The collector captures child stdout/stderr. If native `log.output` is
 set, it follows new bytes from that regular file, handling creation, truncation
@@ -324,7 +315,7 @@ provides the combined panel view. The legacy log API below remains available.
 ## Durable logs
 
 The log CLI and authenticated API expose bounded, sanitized metadata for
-panel, core, task, and security events:
+panel, core, and security events:
 
 ```sh
 sing-box-panel log list
@@ -422,8 +413,8 @@ through `history` and `period`; a separate `traffic` CLI group is unnecessary.
 ## Management surfaces
 
 The Web interface exposes sources, manual nodes, keys and channel policy.
-OpenAPI also preserves legacy user profiles/grant matrices and source history
-for existing clients. Runtime operations, tasks and traffic evidence retain
+OpenAPI also provides user profiles/grant matrices and source history
+for existing clients. Runtime operations and traffic evidence retain
 their authenticated management contracts. The
 browser core import uses bounded multipart upload and a private staging
 directory; it never asks a browser to submit a server-local path.

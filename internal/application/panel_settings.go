@@ -5,6 +5,7 @@ package application
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net"
 	"slices"
 	"strings"
@@ -29,22 +30,59 @@ type PanelPreferences struct {
 	Appearance      AppearanceSettings `json:"appearance"`
 }
 
+// PanelServiceSettings exposes every non-secret service option from setting.json.
+// Writes are optional so existing clients preserve options they do not edit.
+type PanelServiceSettings struct {
+	DataDir              string   `json:"data_dir"`
+	BasePath             string   `json:"base_path"`
+	SecureCookie         bool     `json:"secure_cookie"`
+	CatalogTTLHours      int      `json:"catalog_ttl_hours"`
+	TrafficPeriodMonths  int      `json:"traffic_period_months"`
+	SampleRetentionDays  int      `json:"sample_retention_days"`
+	SubscriptionAuthor   string   `json:"subscription_author"`
+	SubscriptionProvider string   `json:"subscription_provider"`
+	PrivateSourceCIDRs   []string `json:"private_source_cidrs"`
+	LogRetentionDays     int      `json:"log_retention_days"`
+}
+
+func serviceSettings(value settings.Settings) PanelServiceSettings {
+	return PanelServiceSettings{
+		DataDir: value.DataDir, BasePath: value.Server.BasePath, SecureCookie: value.Auth.SecureCookie,
+		CatalogTTLHours: value.GitHub.CatalogTTLHours, TrafficPeriodMonths: value.Traffic.PeriodMonths,
+		SampleRetentionDays: value.Traffic.SampleRetentionDays, SubscriptionAuthor: value.Subscription.Author,
+		SubscriptionProvider: value.Subscription.Provider, PrivateSourceCIDRs: append([]string{}, value.Subscription.PrivateSourceCIDRs...),
+		LogRetentionDays: value.Logs.RetentionDays,
+	}
+}
+
+func (service PanelServiceSettings) apply(value *settings.Settings) {
+	value.DataDir, value.Server.BasePath, value.Auth.SecureCookie = service.DataDir, service.BasePath, service.SecureCookie
+	value.GitHub.CatalogTTLHours = service.CatalogTTLHours
+	value.Traffic.PeriodMonths, value.Traffic.SampleRetentionDays = service.TrafficPeriodMonths, service.SampleRetentionDays
+	value.Subscription.Author, value.Subscription.Provider = service.SubscriptionAuthor, service.SubscriptionProvider
+	value.Subscription.PrivateSourceCIDRs = slices.Clone(service.PrivateSourceCIDRs)
+	value.Logs.RetentionDays = service.LogRetentionDays
+}
+
 type PanelSettingsView struct {
-	DetectedPublicIP      string           `json:"detected_public_ip,omitempty"`
-	Revision              int64            `json:"revision"`
-	Preferences           PanelPreferences `json:"preferences"`
-	GitHubTokenConfigured bool             `json:"github_token_configured"`
-	IdentityKeyConfigured bool             `json:"identity_key_configured"`
-	RestartRequired       bool             `json:"restart_required"`
+	Service               PanelServiceSettings `json:"service"`
+	DetectedPublicIP      string               `json:"detected_public_ip,omitempty"`
+	Revision              int64                `json:"revision"`
+	Preferences           PanelPreferences     `json:"preferences"`
+	GitHubTokenConfigured bool                 `json:"github_token_configured"`
+	IdentityKeyConfigured bool                 `json:"identity_key_configured"`
+	RestartRequired       bool                 `json:"restart_required"`
 }
 
 type PanelSettingsWrite struct {
-	Revision         int64            `json:"revision"`
-	Preferences      PanelPreferences `json:"preferences"`
-	GitHubToken      string           `json:"github_token,omitempty"`
-	ClearGitHubToken bool             `json:"clear_github_token,omitempty"`
-	IdentityKey      string           `json:"identity_key,omitempty"`
-	ManagementToken  string           `json:"management_token,omitempty"`
+	Service          *PanelServiceSettings `json:"service,omitempty"`
+	ClearIdentityKey bool                  `json:"clear_identity_key,omitempty"`
+	Revision         int64                 `json:"revision"`
+	Preferences      PanelPreferences      `json:"preferences"`
+	GitHubToken      string                `json:"github_token,omitempty"`
+	ClearGitHubToken bool                  `json:"clear_github_token,omitempty"`
+	IdentityKey      string                `json:"identity_key,omitempty"`
+	ManagementToken  string                `json:"management_token,omitempty"`
 }
 
 type storedPanelSettings struct {
@@ -82,7 +120,7 @@ func (app *Application) panelSettingsView(configuration settings.Settings, revis
 		configuration.Traffic.PeriodMonths != loaded.Traffic.PeriodMonths || configuration.Traffic.SampleRetentionDays != loaded.Traffic.SampleRetentionDays ||
 		configuration.Logs != loaded.Logs || !slices.Equal(configuration.Subscription.PrivateSourceCIDRs, loaded.Subscription.PrivateSourceCIDRs)
 	return PanelSettingsView{
-		Revision: revision, Preferences: p,
+		Revision: revision, Preferences: p, Service: serviceSettings(configuration),
 		GitHubTokenConfigured: value.GitHubToken != "", IdentityKeyConfigured: value.IdentityKey != "",
 		RestartRequired: restartRequired,
 	}
@@ -116,7 +154,7 @@ func (app *Application) SavePanelSettings(ctx context.Context, input PanelSettin
 	if input.Revision != revision {
 		return PanelSettingsView{}, store.ErrPanelSettingsConflict
 	}
-	identityChanged := input.Preferences.IdentityName != value.Preferences.IdentityName || input.IdentityKey != ""
+	identityChanged := input.Preferences.IdentityName != value.Preferences.IdentityName || input.IdentityKey != "" || input.ClearIdentityKey
 	value.Preferences = input.Preferences
 	value.Preferences.Appearance.Color = strings.ToUpper(input.Preferences.Appearance.Color)
 	if input.GitHubToken != "" {
@@ -128,6 +166,9 @@ func (app *Application) SavePanelSettings(ctx context.Context, input PanelSettin
 	if input.IdentityKey != "" {
 		value.IdentityKey = input.IdentityKey
 	}
+	if input.ClearIdentityKey {
+		value.IdentityKey = ""
+	}
 	if input.ManagementToken != "" {
 		value.ManagementToken = input.ManagementToken
 	}
@@ -138,12 +179,19 @@ func (app *Application) SavePanelSettings(ctx context.Context, input PanelSettin
 			return PanelSettingsView{}, err
 		}
 	}
+	originalDataDir := configurationFile.DataDir
 	applyPanelValues(&configurationFile, value)
-	after, err := encodeSettings(configurationFile, before)
+	if input.Service != nil {
+		input.Service.apply(&configurationFile)
+	}
+	if err := configurationFile.Validate(); err != nil {
+		return PanelSettingsView{}, fmt.Errorf("%w: %s", ErrPanelSettingsInvalid, err)
+	}
+	after, err := encodeSettings(configurationFile, before, configurationFile.DataDir == originalDataDir)
 	if err != nil {
 		return PanelSettingsView{}, err
 	}
-	if err := app.commitSettingsFile(ctx, before, after, nil, configuration); err != nil {
+	if err := app.commitSettingsFile(ctx, before, after, configuration); err != nil {
 		return PanelSettingsView{}, err
 	}
 	revision = settings.Revision(after)
@@ -184,7 +232,7 @@ func validatePanelSettings(input PanelSettingsWrite) error {
 	if token != "" && (len(token) < 32 || token != trimmedToken) {
 		return ErrPanelSettingsInvalid
 	}
-	if input.GitHubToken != "" && input.ClearGitHubToken {
+	if (input.GitHubToken != "" && input.ClearGitHubToken) || (input.IdentityKey != "" && input.ClearIdentityKey) {
 		return ErrPanelSettingsInvalid
 	}
 	return nil

@@ -37,6 +37,14 @@ func (handler *Handler) serveIndex(w http.ResponseWriter, request *http.Request)
 		writeProblem(w, request, http.StatusServiceUnavailable, "frontend_unavailable", "Frontend unavailable", "The embedded frontend index is missing.")
 		return
 	}
+	nonceBytes := make([]byte, 24)
+	if _, err := rand.Read(nonceBytes); err != nil {
+		writeProblem(w, request, http.StatusServiceUnavailable, "frontend_unavailable", "Frontend unavailable", "Unable to initialize frontend style policy.")
+		return
+	}
+	nonce := hex.EncodeToString(nonceBytes)
+	data = bytes.ReplaceAll(data, []byte("__SBP_STYLE_NONCE__"), []byte(nonce))
+	w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self' 'nonce-"+nonce+"'; img-src 'self' data:; connect-src 'self'")
 	data = bytes.ReplaceAll(data, []byte("__SBP_BASE_PATH__"), []byte(handler.settings.Server.BasePath))
 	baseHref := handler.settings.Server.BasePath + "/"
 	if baseHref == "" {
@@ -44,7 +52,7 @@ func (handler *Handler) serveIndex(w http.ResponseWriter, request *http.Request)
 	}
 	data = bytes.ReplaceAll(data, []byte(`<base href="/" data-sbp-runtime />`), []byte(`<base href="`+baseHref+`" data-sbp-runtime />`))
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(data)
 }

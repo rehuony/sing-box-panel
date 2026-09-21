@@ -2,12 +2,11 @@ import { useTranslation } from 'react-i18next';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronLeft, ChevronRight, ExternalLink, RefreshCw, Search, Upload } from 'lucide-react';
 
-import type { CatalogAsset, CoreArtifact, Task } from '@/api/api-client';
+import type { CatalogAsset, CoreArtifact } from '@/api/api-client';
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { useHashTab } from '@/hooks/use-hash-tab';
-import { waitForTask } from '@/lib/wait-for-task';
 import { toast } from '@/components/ui/toast-manager';
 import { useApiClient } from '@/api/api-client-context';
 import { SelectField } from '@/components/select-field';
@@ -82,22 +81,14 @@ export function CoresPage() {
   const canImport = library.platform?.os === 'linux' && (arch === 'arm64' || arch === 'amd64');
   async function run(
     key: string,
-    action: (signal: AbortSignal) => Promise<Task>,
+    action: (signal: AbortSignal) => Promise<unknown>,
   ): Promise<boolean> {
     if (pending || !lifecycleRef.current) return false;
     const { signal } = lifecycleRef.current;
-    setPending({ key, status: 'queued' });
+    setPending({ key, status: 'running' });
     try {
-      const task = await action(signal);
-      const result = await waitForTask(client, task, signal, (value) =>
-        setPending({ key, status: value.status }),
-      );
+      await action(signal);
       if (signal.aborted) return false;
-      if (result.status !== 'succeeded') {
-        throw new Error(
-          t('cores.library.operationFailed', { id: result.id, status: result.status }),
-        );
-      }
       await Promise.all([library.load(), control.refresh(signal)]);
       toast.add({ title: t('cores.library.completed'), type: 'success' });
       return true;

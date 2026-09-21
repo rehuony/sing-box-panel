@@ -194,51 +194,78 @@ test_atomic_binary_installation() {
   pass
 }
 
-test_configuration_preservation() {
-  local fixture_dir="${test_root}/configuration"
-  local mock_binary="${fixture_dir}/mock-panel"
-  local existing_settings="${fixture_dir}/existing/setting.json"
-  local new_settings="${fixture_dir}/new/setting.json"
-  local existing_before
-  local existing_after
-  local log_path="${fixture_dir}/commands.log"
-
-  mkdir -p -- "${fixture_dir}" "${existing_settings%/*}"
-  printf 'existing settings must remain byte-identical\n' >"${existing_settings}"
-  existing_before="$(installer_sha256 "${existing_settings}")"
-  # The single-quoted lines are the source of the generated mock executable.
+# Exercise the real install flow with signed local assets. Only network and the
+# destination layout are replaced; settings and data are deliberately unusable.
+test_binary_only_installation() (
+  local fixture_dir="${test_root}/binary-only"
+  local assets="${fixture_dir}/assets"
+  local private_key="${test_root}/signature/private.pem"
+  local output digest
+  mkdir -p -- "${assets}" "${fixture_dir}/config" "${fixture_dir}/data"
+  printf '{ invalid JSON\n' >"${fixture_dir}/config/setting.json"
+  printf 'not a SQLite database\n' >"${fixture_dir}/data/panel.db"
   # shellcheck disable=SC2016
-  printf '%s\n' \
-    '#!/usr/bin/env bash' \
-    'set -euo pipefail' \
-    'printf "%s\\n" "$*" >>"${INSTALLER_TEST_LOG}"' \
-    'if [[ "$1" == init ]]; then' \
-    '  mkdir -p -- "${INSTALLER_TEST_NEW_SETTINGS%/*}"' \
-    '  printf "initialized settings\\n" >"${INSTALLER_TEST_NEW_SETTINGS}"' \
-    'fi' >"${mock_binary}"
-  chmod 0755 "${mock_binary}"
-  export INSTALLER_TEST_LOG="${log_path}"
-  export INSTALLER_TEST_NEW_SETTINGS="${new_settings}"
+  printf '%s\n' '#!/usr/bin/env bash' \
+    '[[ "$*" == "--output json version" ]] || exit 91' \
+    'printf '\''{"version":"v1.2.3"}\n'\''' >"${assets}/sing-box-panel-linux-amd64"
+  cp -- "${assets}/sing-box-panel-linux-amd64" "${assets}/sing-box-panel-linux-arm64"
+  digest="$(installer_sha256 "${assets}/sing-box-panel-linux-amd64")"
+  printf '%s  sing-box-panel-linux-amd64\n%s  sing-box-panel-linux-arm64\n' "${digest}" "${digest}" >"${assets}/SHA256SUMS"
+  printf '%s\nv1.2.3\n' "${installer_signature_domain}" >"${assets}/message"
+  cat -- "${assets}/SHA256SUMS" >>"${assets}/message"
+  openssl pkeyutl -sign -inkey "${private_key}" -rawin -in "${assets}/message" -out "${assets}/signature"
+  openssl base64 -A -in "${assets}/signature" -out "${assets}/SHA256SUMS.sig"
+  printf '\n' >>"${assets}/SHA256SUMS.sig"
+  openssl pkey -in "${private_key}" -pubout -outform DER 2>/dev/null | tail -c 32 | openssl base64 -A >"${assets}/key"
+  printf '\n' >>"${assets}/key"
 
-  installer_prepare_configuration "${mock_binary}" "${existing_settings}" >/dev/null
-  existing_after="$(installer_sha256 "${existing_settings}")"
-  assert_equal "${existing_before}" "${existing_after}" "existing settings digest"
-  grep -Fqx "config check --config ${existing_settings}" "${log_path}" || fail "existing settings were not verified"
+  installer_resolve_architecture() { installer_architecture=amd64; }
+  installer_resolve_layout() {
+    installer_binary_path="${fixture_dir}/bin/sing-box-panel"
+    installer_settings_path="${fixture_dir}/config/setting.json"
+    installer_default_data_dir="${fixture_dir}/data"
+    installer_service_scope=user
+  }
+  installer_download_asset() { cp -- "${assets}/$2" "$3"; }
+  installer_download_public_key() { cp -- "${assets}/key" "$1"; }
+  output="$(installer_main --version v1.2.3 2>&1)" || fail "binary-only install failed"
+  [[ -x "${fixture_dir}/bin/sing-box-panel" ]] || fail "binary not installed"
+  [[ "$(<"${fixture_dir}/config/setting.json")" == '{ invalid JSON' ]] || fail "settings changed"
+  [[ "$(<"${fixture_dir}/data/panel.db")" == 'not a SQLite database' ]] || fail "data changed"
+  for expected in "${fixture_dir}/bin/sing-box-panel" "${fixture_dir}/config/setting.json" "${fixture_dir}/data" 'eval "$(sing-box-panel completion zsh)"' 'INFO ' 'OK '; do
+    [[ "${output}" == *"${expected}"* ]] || fail "summary omitted ${expected}"
+  done
+  [[ "${output}" != *$'\033'* ]] || fail "redirected output contains ANSI codes"
+  installer_main --yes --version v1.2.3 >/dev/null 2>&1 || fail "explicit replacement failed"
 
-  installer_prepare_configuration "${mock_binary}" "${new_settings}" >/dev/null
-  [[ -f "${new_settings}" ]] || fail "missing settings were not initialized"
-  grep -Fqx "init --config ${new_settings}" "${log_path}" || fail "new settings were not initialized through the CLI"
-  if grep -Eq 'systemd? (install|start|stop|restart)' "${log_path}"; then
-    fail "configuration preparation invoked a service command"
-  fi
-  pass
-}
+  # A missing configuration directory is also left uninitialized.
+  fixture_dir="${test_root}/fresh-binary-only"
+  installer_main --version v1.2.3 >/dev/null 2>&1 || fail "fresh install failed"
+  [[ ! -e "${fixture_dir}/config" && ! -e "${fixture_dir}/data" ]] || fail "fresh install initialized data"
+)
+
+test_replacement_confirmation() (
+  installer_binary_path="${test_root}/install/bin/sing-box-panel"
+  installer_parse_args --yes
+  installer_confirm_replacement || fail "--yes did not permit replacement"
+  installer_assume_yes=false
+  # Replace only the prompt decision to verify cancellation stops before download.
+  installer_resolve_architecture() { installer_architecture=amd64; }
+  installer_resolve_layout() { :; }
+  installer_confirm_replacement() { return 2; }
+  installer_download_asset() { fail "canceled install downloaded assets"; }
+  installer_resolve_latest_version() { fail "canceled install contacted GitHub"; }
+  installer_main || fail "cancel should exit successfully"
+)
 
 test_entrypoints
 test_arguments_and_versions
 test_architectures_and_layouts
 test_signature_and_checksums
 test_atomic_binary_installation
-test_configuration_preservation
+test_binary_only_installation
+pass
+test_replacement_confirmation
+pass
 
 printf 'installer tests passed (%d groups)\n' "${test_count}"

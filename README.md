@@ -18,23 +18,17 @@
 </div>
 
 sing-box-panel manages exact-version sing-box binaries, immutable
-configuration and activation artifacts, subscriptions, durable tasks, and
+configuration and activation artifacts, subscriptions, and
 sanitized operational metadata. Release builds embed the React interface and
 the SQLite schema in one Go executable, so a target host does not need Go,
 Node.js, pnpm, or a separate SQLite CLI.
 
-> [!WARNING]
-> sing-box-panel is available for development and integration testing. The
-> release workflow creates a signed Draft Release only after the source commit
-> passes CI, native amd64 and arm64 real-core contracts, and native packaged-
-> panel smoke tests. It never publishes the
-> release automatically; a maintainer must review and publish the draft.
-
 ## Features
 
 - Manage official and administrator-verified sing-box artifacts by exact
-  version, architecture, variant, and immutable digest.
-- Keep one lossless JSON configuration history, validate every candidate with
+  version, Linux architecture (amd64 or arm64), and immutable digest.
+  Each platform uses the static musl build.
+- Edit one lossless sing-box JSON document, validate every candidate with
   the selected exact binary, and add structured editing only for versions that
   publish a native JSON Schema.
 - Keep canonical revisions, checked startup artifacts, applied bundles, and
@@ -43,8 +37,8 @@ Node.js, pnpm, or a separate SQLite CLI.
   from the last applied local nodes and current third-party source versions.
 - Operate through a Docker-style CLI, versioned HTTP API, embedded React UI, or
   audited systemd integration.
-- Persist runtime and maintenance work as observable, cancelable tasks instead
-  of hiding long operations inside request handlers.
+- Return completed operation results, serialize process controls, and retain
+  sanitized logs and immutable runtime history.
 
 The supported deployment targets are `linux/amd64` and `linux/arm64`. Windows,
 macOS, BSD, multiple simultaneous sing-box runtimes, and external databases are
@@ -58,8 +52,8 @@ may select an already published stable release or GitHub pre-release. The
 installer authenticates the exact `SHA256SUMS` bytes and release version
 with the Ed25519 key retrieved from the repository's canonical
 `.github/keypair/release-signing-public-key` file, verifies the selected
-binary's SHA-256 digest, and then initializes settings only when they do not
-already exist.
+binary's SHA-256 digest, and installs only that binary. It does not read,
+initialize, migrate, or rewrite settings or data.
 
 Install for the current user:
 
@@ -91,9 +85,17 @@ The default layouts are:
 | Regular user | `~/.local/bin/sing-box-panel` | `${XDG_CONFIG_HOME:-$HOME/.config}/sing-box-panel/setting.json` | `${XDG_DATA_HOME:-$HOME/.local/share}/sing-box-panel` |
 | root | `/usr/local/bin/sing-box-panel` | `/etc/sing-box-panel/setting.json` | `/var/lib/sing-box-panel` |
 
-The installer never overwrites existing settings, modifies shell startup
-files, or configures and starts systemd. Add `~/.local/bin` to `PATH` when it
-is not already present. To install and start the audited service explicitly:
+An existing binary requires overwrite confirmation; pass `--yes` for an unattended
+replacement. The formatted completion summary lists the installed binary, default
+settings and data paths, and shell-completion commands, for example:
+
+```sh
+eval "$(sing-box-panel completion zsh)"
+```
+
+The installer leaves shell startup files and systemd unchanged. Add `~/.local/bin`
+to `PATH` when it is not already present. To install and start the audited service
+explicitly:
 
 ```sh
 # Regular user
@@ -151,19 +153,20 @@ Initialize an isolated development instance and start the server:
 
 `server start` also creates default settings automatically when the selected
 file is missing, so `init` is optional. On creation, it prints a concise summary
-of the paths, default URL, and generated login token. Existing settings are never
-overwritten by startup.
+of the paths, default URL, and generated login token. Every successful start also
+prints the bound panel URL and streams formatted panel logs. Existing settings
+are never overwritten by startup.
 
 The default listener is `127.0.0.1:3000`. The settings file contains a random
-management token and must not be committed. Keep `server start` active while
-using commands that queue core, configuration, or runtime tasks.
+management token and must not be committed. Keep `server start` active for configuration checks and core process controls.
+Catalog refresh, installation, import and source refresh also work directly from the CLI.
 
 See [Getting started](docs/getting-started.md) for the first configuration,
 settings precedence, and systemd deployment paths.
 
 ## Documentation
 
-| Task | Guide |
+| Workflow | Guide |
 | --- | --- |
 | Build, initialize, and run the panel | [Getting started](docs/getting-started.md) |
 | Use commands, automation output, and shell completion | [CLI reference](docs/cli.md) |

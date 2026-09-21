@@ -1,5 +1,5 @@
 export const cores = {
-  library: { officialLink: '官网链接', version: '版本', source: '来源', status: '状态', actions: '操作', enable: '启用', disable: '禁用', enabled: '已启用', disabled: '未启用', unknown: '状态未知', installed: '已安装', notInstalled: '未安装', download: '下载', operationFailed: '操作状态：{{status}}。可在面板日志查看任务 {{id}}。', completed: '操作已完成', queued: '等待中', running: '处理中', succeeded: '已完成', failed: '失败', canceled: '已取消', pageSize: '每页条数', perPage: '每页 {{count}} 条', previous: '上一页', next: '下一页' },
+  library: { officialLink: '官网链接', version: '版本', source: '来源', status: '状态', actions: '操作', enable: '启用', disable: '禁用', enabled: '已启用', disabled: '未启用', unknown: '状态未知', installed: '已安装', notInstalled: '未安装', download: '下载', operationFailed: '操作状态：{{status}}。可在面板日志查看操作失败，请查看面板日志。', completed: '操作已完成', running: '处理中', succeeded: '已完成', failed: '失败', canceled: '已取消', pageSize: '每页条数', perPage: '每页 {{count}} 条', previous: '上一页', next: '下一页' },
   action: { remove: '移除' },
   artifact: { changed: '版本已移除。' },
   catalog: { short: '目录' },
@@ -27,7 +27,8 @@ export const cores = {
     archive: '压缩包',
     archiveFormat: '请选择 .tar.gz 或 .tgz 压缩包。',
     chooseArchive: '或点击选择文件',
-    description: '选择压缩包，确认版本后导入。',
+    description: '选择适用于此服务器的 Linux musl 压缩包，确认版本后导入。',
+    unsupportedBuild: '请选择与服务器架构匹配的 musl 压缩包。',
     dragArchive: '拖拽压缩包到此处',
     dropArchive: '松开以选择文件',
     importing: '正在导入…',
@@ -42,8 +43,6 @@ export const cores = {
   installed: { short: '已安装' },
   loading: '正在载入制品…',
   loadOlder: '载入更早记录',
-  openTasks: '打开任务记录',
-  queueing: '正在排队…',
   refresh: '刷新目录',
   schema: {
     error: 'Schema 查询失败',
@@ -57,12 +56,10 @@ export const cores = {
   },
   startup: {
     state: { failed: '失败', pending: '待检查', ready: '就绪' },
-    taskAccepted: '任务已接受',
     title: '启动制品',
   },
   subtitle: '管理内核版本及对应的配置编辑能力。',
   tabs: { catalog: '可安装', installed: '已安装' },
-  task: { accepted: '{{action}}请求已接受，任务 {{id}}。', title: '任务已接受' },
   title: '版本管理',
   versions: '版本',
   value: { unknownSize: '未知大小' },

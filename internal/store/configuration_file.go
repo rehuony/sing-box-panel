@@ -52,13 +52,13 @@ func (s *Store) ConfigurationFile(ctx context.Context) (ConfigurationFile, error
 }
 
 // SaveConfigurationFile preserves exact text, even when JSON is incomplete.
-// Valid documents advance the immutable canonical head and task in the same
+// Valid documents advance the immutable canonical head in the same
 // transaction. Invalid documents never substitute an old valid configuration.
-func (s *Store) SaveConfigurationFile(ctx context.Context, expected int64, content string, revision NewCanonicalRevision, task NewTask) (ConfigurationFile, error) {
+func (s *Store) SaveConfigurationFile(ctx context.Context, expected int64, content string, revision NewCanonicalRevision) (ConfigurationFile, error) {
 	var result ConfigurationFile
 	err := s.WithTx(ctx, func(tx *sql.Tx) error {
 		var err error
-		result, err = saveConfigurationFileTx(ctx, tx, expected, content, revision, task)
+		result, err = saveConfigurationFileTx(ctx, tx, expected, content, revision)
 		return err
 	})
 	return result, err
@@ -69,20 +69,18 @@ type ConfigurationFileUpdate struct {
 	ExpectedRevision int64
 	Content          string
 	Revision         NewCanonicalRevision
-	Task             NewTask
 }
 
-func saveConfigurationFileTx(ctx context.Context, tx *sql.Tx, expected int64, content string, revision NewCanonicalRevision, task NewTask) (ConfigurationFile, error) {
+func saveConfigurationFileTx(ctx context.Context, tx *sql.Tx, expected int64, content string, revision NewCanonicalRevision) (ConfigurationFile, error) {
 	if expected < 0 || len(content) > configuration.MaximumBytes || !utf8.ValidString(content) || strings.ContainsRune(content, '\x00') {
 		return ConfigurationFile{}, ErrConfigurationFileInvalid
 	}
 	document, parseErr := configuration.Parse([]byte(content))
 	var prepared CanonicalRevision
-	var preparedTask NewTask
 	var err error
 	if parseErr == nil {
 		revision.Document = document.CanonicalJSON()
-		prepared, preparedTask, err = prepareCanonicalSave(revision, task)
+		prepared, err = prepareCanonicalSave(revision)
 		if err != nil {
 			return ConfigurationFile{}, err
 		}
@@ -105,20 +103,11 @@ func saveConfigurationFileTx(ctx context.Context, tx *sql.Tx, expected int64, co
 		}
 		var canonicalID string
 		if parseErr == nil {
-			var head sql.NullString
-			if err := tx.QueryRowContext(ctx, `SELECT head_revision_id FROM hub_state WHERE singleton=1`).Scan(&head); err != nil {
-				return err
-			}
-			stored, inserted, err := saveCanonicalRevisionTx(ctx, tx, valueOrEmpty(head), prepared, true)
+			stored, err := saveCanonicalRevisionTx(ctx, tx, prepared)
 			if err != nil {
 				return err
 			}
 			canonicalID = stored.ID
-			if inserted {
-				if err := insertCanonicalTaskTx(ctx, tx, preparedTask, stored.ID, ""); err != nil {
-					return err
-				}
-			}
 		}
 		result = ConfigurationFile{Revision: current.Revision + 1, Content: content, CanonicalRevisionID: canonicalID, UpdatedAt: revision.CreatedAt.UTC()}
 		return writeConfigurationFileTx(ctx, tx, result)
@@ -134,21 +123,6 @@ func writeConfigurationFileTx(ctx context.Context, tx *sql.Tx, value Configurati
 		return fmt.Errorf("save configuration file: %w", err)
 	}
 	return nil
-}
-
-// Legacy JSON-pointer/full-document writes remain supported, but cannot
-// silently overwrite invalid saved text that they cannot represent.
-func syncCanonicalFileTx(ctx context.Context, tx *sql.Tx, revision CanonicalRevision) error {
-	current, err := readConfigurationFile(tx.QueryRowContext(ctx, `SELECT `+configurationFileColumns+` FROM configuration_file WHERE singleton=1`))
-	if err != nil {
-		return err
-	}
-	if current.Revision > 0 && current.CanonicalRevisionID == "" {
-		return ErrConfigurationFileUnparsed
-	}
-	return writeConfigurationFileTx(ctx, tx, ConfigurationFile{
-		Revision: current.Revision + 1, Content: string(revision.Document), CanonicalRevisionID: revision.ID, UpdatedAt: revision.CreatedAt,
-	})
 }
 
 func requireCurrentConfigurationFileTx(ctx context.Context, tx *sql.Tx, canonicalID string) error {

@@ -42,7 +42,6 @@ type LogSource string
 const (
 	LogSourcePanel    LogSource = "panel"
 	LogSourceCore     LogSource = "core"
-	LogSourceTask     LogSource = "task"
 	LogSourceSecurity LogSource = "security"
 )
 
@@ -120,7 +119,7 @@ func (s *Store) AppendLogEntry(ctx context.Context, entry LogEntry) (LogEntry, e
             id, occurred_at, source, level, code, message, metadata_json
          ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
 		prepared.ID,
-		formatTaskTime(prepared.Time),
+		formatTime(prepared.Time),
 		string(prepared.Source),
 		string(prepared.Level),
 		prepared.Code,
@@ -152,7 +151,7 @@ func (s *Store) ListLogEntries(ctx context.Context, filter LogListFilter) (LogPa
 		return LogPage{}, err
 	}
 	if filter.Cursor != nil {
-		cursorTime := formatTaskTime(filter.Cursor.Time)
+		cursorTime := formatTime(filter.Cursor.Time)
 		clauses = append(clauses, "(occurred_at < ? OR (occurred_at = ? AND id < ?))")
 		args = append(args, cursorTime, cursorTime, filter.Cursor.ID)
 	}
@@ -204,7 +203,7 @@ func (s *Store) TailLogEntries(ctx context.Context, filter LogTailFilter) ([]Log
 		return nil, err
 	}
 	if filter.After != nil {
-		cursorTime := formatTaskTime(filter.After.Time)
+		cursorTime := formatTime(filter.After.Time)
 		clauses = append(clauses, "(occurred_at > ? OR (occurred_at = ? AND id > ?))")
 		args = append(args, cursorTime, cursorTime, filter.After.ID)
 	}
@@ -251,7 +250,7 @@ func (s *Store) ClearLogEntries(ctx context.Context, filter LogClearFilter) (int
 			return 0, errors.New("log clear before time is zero")
 		}
 		clauses = append(clauses, "occurred_at < ?")
-		args = append(args, formatTaskTime(filter.Before.UTC()))
+		args = append(args, formatTime(filter.Before.UTC()))
 	}
 	result, err := s.db.ExecContext(
 		ctx,
@@ -325,7 +324,7 @@ func validateLogID(value string) error {
 
 func validLogSource(value LogSource) bool {
 	switch value {
-	case LogSourcePanel, LogSourceCore, LogSourceTask, LogSourceSecurity:
+	case LogSourcePanel, LogSourceCore, LogSourceSecurity:
 		return true
 	default:
 		return false
@@ -382,11 +381,11 @@ func logFilterClauses(
 	}
 	if since != nil {
 		clauses = append(clauses, "occurred_at >= ?")
-		args = append(args, formatTaskTime(since.UTC()))
+		args = append(args, formatTime(since.UTC()))
 	}
 	if until != nil {
 		clauses = append(clauses, "occurred_at < ?")
-		args = append(args, formatTaskTime(until.UTC()))
+		args = append(args, formatTime(until.UTC()))
 	}
 	return clauses, args, nil
 }
@@ -420,7 +419,7 @@ func getLogEntry(ctx context.Context, q queryRower, entryID string) (LogEntry, e
 	return entry, nil
 }
 
-func scanLogEntry(row taskScanner) (LogEntry, error) {
+func scanLogEntry(row rowScanner) (LogEntry, error) {
 	var entry LogEntry
 	var occurredAt, source, level, metadata string
 	if err := row.Scan(
@@ -434,7 +433,7 @@ func scanLogEntry(row taskScanner) (LogEntry, error) {
 	); err != nil {
 		return LogEntry{}, err
 	}
-	parsed, err := parseTaskTime(occurredAt)
+	parsed, err := parseTime(occurredAt)
 	if err != nil {
 		return LogEntry{}, fmt.Errorf("parse log entry time: %w", err)
 	}

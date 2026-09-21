@@ -40,7 +40,7 @@ func (s *Store) SaveCatalogState(ctx context.Context, state CatalogState) (Catal
 		prepared.Validator,
 		string(prepared.Catalog),
 		string(prepared.Diagnostics),
-		formatTaskTime(prepared.RefreshedAt),
+		formatTime(prepared.RefreshedAt),
 	)
 	if err != nil {
 		return CatalogState{}, fmt.Errorf("save catalog state: %w", err)
@@ -64,7 +64,7 @@ func (s *Store) CatalogState(ctx context.Context) (CatalogState, error) {
 	}
 	state.Catalog = append(json.RawMessage(nil), catalogJSON...)
 	state.Diagnostics = append(json.RawMessage(nil), diagnosticsJSON...)
-	state.RefreshedAt, err = parseTaskTime(refreshedAt)
+	state.RefreshedAt, err = parseTime(refreshedAt)
 	if err != nil {
 		return CatalogState{}, fmt.Errorf("parse catalog refreshed_at: %w", err)
 	}

@@ -43,12 +43,10 @@ read-only permissions before `build-sign` can enter the protected `release`
 environment or access its private key. It then adds native amd64 and arm64 smoke
 tests for the packaged panel binary, HTTP startup, persistent state, and
 authenticated self-update. The shared scenario writes through the current
-editable-file API rather than using the legacy canonical write API. It checks
-exact text (including whitespace and large integers), stale-write rejection,
-unfinished JSON, immutable history, panel settings, and correction of the saved
-draft after update. The immutable history comparison uses `document_json`
-without decoding large numbers through jq, and compares the original identity,
-digest and schema metadata instead of assuming an obsolete document envelope.
+editable-file API. It checks exact text (including whitespace and large integers),
+stale-write rejection, unfinished JSON, the runtime snapshot identity, panel
+settings, and correction of the saved draft after update. Go integration tests
+verify the immutable snapshot bytes, digest and metadata across database reopen.
 
 On a native Linux amd64 or arm64 development machine, run as a non-root user:
 

@@ -11,43 +11,26 @@ import (
 
 var ErrCompiledStartupEvidenceStale = errors.New("compiled startup evidence is stale")
 
-type StartupArtifactTask struct {
-	Artifact StartupArtifact
-	Task     Task
-}
-
 // CompiledStartupEvidence binds startup bytes to the immutable global head
 // observed before the short insert transaction.
 type CompiledStartupEvidence struct {
 	ExpectedCanonicalHeadID string
 }
 
-func (s *Store) CreateStartupArtifactAndCheckTask(
+func (s *Store) CreateCompiledStartupArtifact(
 	ctx context.Context,
 	artifact StartupArtifact,
-	task NewTask,
 	evidence CompiledStartupEvidence,
-) (StartupArtifactTask, error) {
+) (StartupArtifact, error) {
 	preparedArtifact, err := prepareNewStartupArtifact(artifact)
 	if err != nil {
-		return StartupArtifactTask{}, err
-	}
-	preparedTask, err := prepareEnqueuedTask(EnqueueTaskInput{
-		ID: task.ID, IdempotencyKey: task.IdempotencyKey, Lane: task.Lane, Kind: task.Kind,
-		Generation: task.Generation, CanonicalRevisionID: preparedArtifact.CanonicalRevisionID,
-		StartupArtifactID: preparedArtifact.ID, Payload: task.Payload, CreatedAt: task.CreatedAt,
-	})
-	if err != nil {
-		return StartupArtifactTask{}, err
-	}
-	if preparedTask.Lane != TaskLaneMaintenance || preparedTask.Kind != TaskKindStartupCheck {
-		return StartupArtifactTask{}, errors.New("compiled startup artifact requires a maintenance startup-check task")
+		return StartupArtifact{}, err
 	}
 	if evidence.ExpectedCanonicalHeadID == "" || evidence.ExpectedCanonicalHeadID != preparedArtifact.CanonicalRevisionID {
-		return StartupArtifactTask{}, errors.New("compiled startup evidence is missing or inconsistent")
+		return StartupArtifact{}, errors.New("compiled startup evidence is missing or inconsistent")
 	}
 
-	var result StartupArtifactTask
+	var result StartupArtifact
 	err = s.WithTx(ctx, func(tx *sql.Tx) error {
 		var head sql.NullString
 		if err := tx.QueryRowContext(ctx, `SELECT head_revision_id FROM hub_state WHERE singleton = 1`).Scan(&head); err != nil {
@@ -63,18 +46,7 @@ func (s *Store) CreateStartupArtifactAndCheckTask(
 		if err != nil {
 			return err
 		}
-		if err := insertCanonicalTaskTx(ctx, tx, NewTask{
-			ID: preparedTask.ID, IdempotencyKey: preparedTask.IdempotencyKey,
-			Lane: preparedTask.Lane, Kind: preparedTask.Kind, Generation: preparedTask.Generation,
-			Payload: preparedTask.Payload, CreatedAt: preparedTask.CreatedAt,
-		}, storedArtifact.CanonicalRevisionID, storedArtifact.ID); err != nil {
-			return err
-		}
-		storedTask, err := getTask(ctx, tx, preparedTask.ID)
-		if err != nil {
-			return err
-		}
-		result = StartupArtifactTask{Artifact: storedArtifact, Task: storedTask}
+		result = storedArtifact
 		return nil
 	})
 	return result, err

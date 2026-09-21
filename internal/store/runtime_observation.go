@@ -53,7 +53,7 @@ func (s *Store) RecordRuntimeObservation(
 
 // RecordRuntimeObservationAndTransitions replaces only the process incarnation
 // captured by expected and appends the supplied lifecycle evidence in the same
-// transaction. A late task cannot overwrite a newer observation or add history
+// transaction. A late operation cannot overwrite a newer observation or add history
 // for a process it no longer owns.
 func (s *Store) RecordRuntimeObservationAndTransitions(
 	ctx context.Context,
@@ -194,16 +194,16 @@ func (s *Store) RuntimeObservation(ctx context.Context) (RuntimeObservation, err
 	if err != nil {
 		return RuntimeObservation{}, fmt.Errorf("read runtime observation: %w", err)
 	}
-	observation.StartedAt, err = parseTaskTime(startedAt)
+	observation.StartedAt, err = parseTime(startedAt)
 	if err != nil {
 		return RuntimeObservation{}, fmt.Errorf("parse runtime started_at: %w", err)
 	}
-	observation.ObservedAt, err = parseTaskTime(observedAt)
+	observation.ObservedAt, err = parseTime(observedAt)
 	if err != nil {
 		return RuntimeObservation{}, fmt.Errorf("parse runtime observed_at: %w", err)
 	}
 	if stableObservedAt.Valid {
-		parsed, err := parseTaskTime(stableObservedAt.String)
+		parsed, err := parseTime(stableObservedAt.String)
 		if err != nil {
 			return RuntimeObservation{}, fmt.Errorf("parse runtime stable_observed_at: %w", err)
 		}
@@ -231,11 +231,11 @@ func (s *Store) HeartbeatRuntimeObservation(
             SET observed_at = ?
           WHERE singleton = 1 AND pid = ? AND process_start_token = ?
             AND started_at <= ? AND observed_at <= ?`,
-		formatTaskTime(observedAt),
+		formatTime(observedAt),
 		pid,
 		processStartToken,
-		formatTaskTime(observedAt),
-		formatTaskTime(observedAt),
+		formatTime(observedAt),
+		formatTime(observedAt),
 	)
 	if err != nil {
 		return false, fmt.Errorf("heartbeat fenced runtime observation: %w", err)
@@ -267,12 +267,12 @@ func (s *Store) ConfirmRuntimeObservation(
 		        stable_observed_at = COALESCE(stable_observed_at, ?)
 		  WHERE singleton = 1 AND pid = ? AND process_start_token = ?
 		    AND started_at <= ? AND observed_at <= ?`,
-		formatTaskTime(observedAt),
-		formatTaskTime(observedAt),
+		formatTime(observedAt),
+		formatTime(observedAt),
 		pid,
 		processStartToken,
-		formatTaskTime(observedAt),
-		formatTaskTime(observedAt),
+		formatTime(observedAt),
+		formatTime(observedAt),
 	)
 	if err != nil {
 		return false, fmt.Errorf("confirm fenced runtime observation: %w", err)
@@ -407,8 +407,8 @@ func recordRuntimeObservationTx(
 		observation.ExactCoreVersion,
 		observation.ArchiveSHA256,
 		observation.BinarySHA256,
-		formatTaskTime(observation.StartedAt),
-		formatTaskTime(observation.ObservedAt),
+		formatTime(observation.StartedAt),
+		formatTime(observation.ObservedAt),
 		nullRuntimeTime(observation.StableObservedAt),
 	)
 	if err != nil {
@@ -439,7 +439,7 @@ func runtimeObservationMatches(
 	if expected == nil {
 		return false, nil
 	}
-	parsedStartedAt, err := parseTaskTime(startedAt)
+	parsedStartedAt, err := parseTime(startedAt)
 	if err != nil {
 		return false, fmt.Errorf("parse runtime observation fence: %w", err)
 	}

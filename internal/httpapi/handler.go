@@ -17,9 +17,8 @@ import (
 
 const (
 	// An accepted 8 KiB token may expand sixfold when JSON-escaped.
-	maxLoginBody          = 64 << 10
-	maxCanonicalPatchBody = 5 << 20
-	sessionCookie         = "sbp_session"
+	maxLoginBody  = 64 << 10
+	sessionCookie = "sbp_session"
 )
 
 type StatusProvider interface {
@@ -167,12 +166,6 @@ func (handler *Handler) ServeHTTP(w http.ResponseWriter, request *http.Request) 
 		handler.authenticated(handler.systemStatus)(w, request)
 	case request.Method == http.MethodGet && path == "/api/v1/dashboard/context":
 		handler.authenticated(handler.dashboardContext)(w, request)
-	case request.Method == http.MethodGet && path == "/api/v1/config/canonical":
-		handler.authenticated(handler.canonicalDocument)(w, request)
-	case request.Method == http.MethodPut && path == "/api/v1/config/canonical":
-		handler.authenticated(handler.replaceCanonicalDocument)(w, request)
-	case request.Method == http.MethodPatch && path == "/api/v1/config/canonical":
-		handler.authenticated(handler.patchCanonicalDocument)(w, request)
 	case handler.handleApplicationRoute(w, request, path):
 		return
 	case strings.HasPrefix(path, "/api/"):

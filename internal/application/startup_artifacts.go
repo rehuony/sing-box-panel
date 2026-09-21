@@ -4,7 +4,6 @@ package application
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -90,34 +89,6 @@ func startupArtifactSummary(artifact store.StartupArtifactSummary) StartupArtifa
 		CoreArtifactID:   artifact.CoreArtifactID, ConfigSHA256: artifact.ConfigSHA256,
 		State: artifact.State, CheckedAt: artifact.CheckedAt, CreatedAt: artifact.CreatedAt,
 	}
-}
-
-func (application *Application) QueueStartupCheck(ctx context.Context, startupArtifactID string) (Task, error) {
-	artifact, err := application.database.GetStartupArtifact(ctx, strings.TrimSpace(startupArtifactID))
-	if err != nil {
-		return Task{}, err
-	}
-	if artifact.State != store.StartupArtifactPending {
-		return Task{}, store.ErrStartupArtifactState
-	}
-	taskID, err := application.newID("task")
-	if err != nil {
-		return Task{}, err
-	}
-	payload, err := json.Marshal(map[string]string{"startup_artifact_id": artifact.ID})
-	if err != nil {
-		return Task{}, err
-	}
-	queued, err := application.database.EnqueueTask(ctx, store.EnqueueTaskInput{
-		ID: taskID, IdempotencyKey: "startup-check:" + artifact.ID,
-		Lane: store.TaskLaneMaintenance, Kind: store.TaskKindStartupCheck,
-		CanonicalRevisionID: artifact.CanonicalRevisionID, StartupArtifactID: artifact.ID,
-		Payload: payload, CreatedAt: application.now().UTC(),
-	})
-	if err != nil {
-		return Task{}, err
-	}
-	return applicationTask(queued), nil
 }
 
 func IsStartupArtifactNotFound(err error) bool {

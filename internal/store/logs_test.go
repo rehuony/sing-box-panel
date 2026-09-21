@@ -110,7 +110,7 @@ func TestLogListTailAndKeysetPaginationAreDeterministic(t *testing.T) {
 		logFixture("log_a", base, LogSourcePanel, LogLevelInfo),
 		logFixture("log_c", base.Add(time.Second), LogSourceCore, LogLevelWarn),
 		logFixture("log_b", base.Add(time.Second), LogSourceCore, LogLevelError),
-		logFixture("log_d", base.Add(2*time.Second), LogSourceTask, LogLevelInfo),
+		logFixture("log_d", base.Add(2*time.Second), LogSourcePanel, LogLevelInfo),
 	}
 	for _, entry := range entries {
 		if _, err := database.AppendLogEntry(ctx, entry); err != nil {

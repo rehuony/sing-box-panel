@@ -343,13 +343,11 @@ type trafficTestHelper interface {
 
 func seedTrafficActivationBundle(t trafficTestHelper, ctx context.Context, database *Store, now time.Time) ActivationBundle {
 	t.Helper()
-	revision, err := database.SaveCanonicalRevisionAndTask(ctx, "", NewCanonicalRevision{
+	revision, err := saveTestConfiguration(ctx, database, 0, NewCanonicalRevision{
 		ID: "revision-traffic", SchemaVersion: configuration.SchemaVersion,
 		Document: configuration.Empty().CanonicalJSON(), CommandID: "command-traffic", CreatedAt: now,
-	}, NewTask{
-		ID: "canonical-traffic", IdempotencyKey: "canonical:traffic",
-		Lane: TaskLaneMaintenance, Kind: TaskKindCanonicalSaved, Payload: json.RawMessage(`{}`), CreatedAt: now,
-	})
+	},
+	)
 	if err != nil {
 		t.Fatal(err)
 	}

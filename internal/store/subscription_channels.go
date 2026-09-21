@@ -102,8 +102,8 @@ func (s *Store) CreateSubscriptionChannel(
 			prepared.PublicHost,
 			string(prepared.Config),
 			boolInt(prepared.Enabled),
-			formatTaskTime(prepared.CreatedAt),
-			formatTaskTime(prepared.UpdatedAt),
+			formatTime(prepared.CreatedAt),
+			formatTime(prepared.UpdatedAt),
 		); err != nil {
 			return fmt.Errorf("insert subscription channel: %w", err)
 		}
@@ -139,7 +139,7 @@ func (s *Store) ListSubscriptionChannels(
 	args := make([]any, 0, 4)
 	if filter.Cursor != nil {
 		query += ` WHERE (created_at < ? OR (created_at = ? AND id < ?))`
-		cursorTime := formatTaskTime(filter.Cursor.CreatedAt)
+		cursorTime := formatTime(filter.Cursor.CreatedAt)
 		args = append(args, cursorTime, cursorTime, filter.Cursor.ID)
 	}
 	query += ` ORDER BY created_at DESC, id DESC LIMIT ?`
@@ -205,9 +205,9 @@ func (s *Store) UpdateSubscriptionChannel(
 			prepared.PublicHost,
 			string(prepared.Config),
 			boolInt(prepared.Enabled),
-			formatTaskTime(prepared.UpdatedAt),
+			formatTime(prepared.UpdatedAt),
 			prepared.ID,
-			formatTaskTime(prepared.ExpectedUpdatedAt),
+			formatTime(prepared.ExpectedUpdatedAt),
 		)
 		if err != nil {
 			return fmt.Errorf("update subscription channel: %w", err)
@@ -245,7 +245,7 @@ func (s *Store) DeleteSubscriptionChannel(
 			ctx,
 			`DELETE FROM subscription_channels WHERE id = ? AND updated_at = ?`,
 			channelID,
-			formatTaskTime(expectedUpdatedAt),
+			formatTime(expectedUpdatedAt),
 		)
 		if err != nil {
 			return fmt.Errorf("delete subscription channel: %w", err)
@@ -417,7 +417,7 @@ func getSubscriptionChannel(ctx context.Context, q queryRower, id string) (Subsc
 	return channel, nil
 }
 
-func scanSubscriptionChannel(row taskScanner) (SubscriptionChannel, error) {
+func scanSubscriptionChannel(row rowScanner) (SubscriptionChannel, error) {
 	var channel SubscriptionChannel
 	var config, createdAt, updatedAt string
 	var enabled int
@@ -436,18 +436,18 @@ func scanSubscriptionChannel(row taskScanner) (SubscriptionChannel, error) {
 	channel.Config = append(json.RawMessage(nil), config...)
 	channel.Enabled = enabled != 0
 	var err error
-	channel.CreatedAt, err = parseTaskTime(createdAt)
+	channel.CreatedAt, err = parseTime(createdAt)
 	if err != nil {
 		return SubscriptionChannel{}, fmt.Errorf("parse created_at: %w", err)
 	}
-	channel.UpdatedAt, err = parseTaskTime(updatedAt)
+	channel.UpdatedAt, err = parseTime(updatedAt)
 	if err != nil {
 		return SubscriptionChannel{}, fmt.Errorf("parse updated_at: %w", err)
 	}
 	return channel, nil
 }
 
-func scanSubscriptionChannelSummary(row taskScanner) (SubscriptionChannelSummary, error) {
+func scanSubscriptionChannelSummary(row rowScanner) (SubscriptionChannelSummary, error) {
 	var channel SubscriptionChannelSummary
 	var createdAt, updatedAt string
 	var enabled int
@@ -464,11 +464,11 @@ func scanSubscriptionChannelSummary(row taskScanner) (SubscriptionChannelSummary
 	}
 	channel.Enabled = enabled != 0
 	var err error
-	channel.CreatedAt, err = parseTaskTime(createdAt)
+	channel.CreatedAt, err = parseTime(createdAt)
 	if err != nil {
 		return SubscriptionChannelSummary{}, fmt.Errorf("parse created_at: %w", err)
 	}
-	channel.UpdatedAt, err = parseTaskTime(updatedAt)
+	channel.UpdatedAt, err = parseTime(updatedAt)
 	if err != nil {
 		return SubscriptionChannelSummary{}, fmt.Errorf("parse updated_at: %w", err)
 	}

@@ -234,10 +234,7 @@ export const subscriptions = {
       createdWithoutVersion:
         'Created {{name}}, but its initial version was not saved. The source is open for editing; retry the version upload directly.',
       deleted: 'Deleted {{name}}.',
-      refreshAccepted:
-        'Refresh accepted as task {{id}}. A failure will preserve the current version.',
       restored: 'Restored immutable version {{version}} for {{name}}.',
-      viewTask: 'View accepted task',
       updated: 'Updated {{name}}. Its current source version did not change.',
     },
     refresh: 'Refresh',

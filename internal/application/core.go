@@ -97,29 +97,22 @@ type CoreImportRequest struct {
 	DeleteSource      bool
 }
 
-type coreInstallPayload struct {
-	Asset catalog.Asset `json:"asset"`
-}
-
-type coreImportPayload struct {
-	SourcePath        string `json:"source_path"`
-	SourceDescription string `json:"source_description"`
-	SHA256            string `json:"sha256"`
-	ExactVersion      string `json:"exact_version"`
-	Architecture      string `json:"architecture"`
-	Variant           string `json:"variant"`
-	DeleteSource      bool   `json:"delete_source,omitempty"`
-}
-
 type CatalogRefreshOptions struct {
 	Force bool `json:"force"`
 }
 
-func (application *Application) RefreshCatalog(ctx context.Context, options CatalogRefreshOptions) (CatalogSnapshot, error) {
-	if !options.Force && application.settings.GitHub.CatalogTTLHours > 0 {
+func (application *Application) RefreshCatalog(ctx context.Context, options CatalogRefreshOptions) (result CatalogSnapshot, operationErr error) {
+	defer func() { application.RecordOperation(ctx, "catalog.refresh", "Catalog refresh", operationErr) }()
+	application.catalogMu.Lock()
+	defer application.catalogMu.Unlock()
+	currentSettings, err := application.EffectiveSettings(ctx)
+	if err != nil {
+		return CatalogSnapshot{}, err
+	}
+	if !options.Force && currentSettings.GitHub.CatalogTTLHours > 0 {
 		state, stateErr := application.database.CatalogState(ctx)
 		if stateErr == nil && application.now().UTC().Before(
-			state.RefreshedAt.Add(time.Duration(application.settings.GitHub.CatalogTTLHours)*time.Hour),
+			state.RefreshedAt.Add(time.Duration(currentSettings.GitHub.CatalogTTLHours)*time.Hour),
 		) {
 			snapshot, catalogErr := application.Catalog(ctx)
 			if catalogErr != nil {
@@ -135,10 +128,6 @@ func (application *Application) RefreshCatalog(ctx context.Context, options Cata
 		if stateErr != nil && !errors.Is(stateErr, store.ErrCatalogStateNotFound) {
 			return CatalogSnapshot{}, stateErr
 		}
-	}
-	currentSettings, err := application.EffectiveSettings(ctx)
-	if err != nil {
-		return CatalogSnapshot{}, err
 	}
 	client, err := catalog.NewGitHubClient(catalog.ClientOptions{Token: currentSettings.GitHub.Token})
 	if err != nil {
@@ -257,14 +246,6 @@ func (application *Application) ListCatalogAssets(
 		return assets[left].AssetID < assets[right].AssetID
 	})
 	return CatalogAssetList{Validator: snapshot.Validator, RefreshedAt: snapshot.RefreshedAt, Assets: assets}, nil
-}
-
-func (application *Application) QueueCatalogRefresh(ctx context.Context, options CatalogRefreshOptions) (Task, error) {
-	payload, err := json.Marshal(options)
-	if err != nil {
-		return Task{}, err
-	}
-	return application.queueMaintenanceTask(ctx, store.TaskKindCatalogRefresh, payload, "")
 }
 
 func decodeCatalog(raw json.RawMessage) (catalog.Catalog, error) {

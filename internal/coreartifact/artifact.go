@@ -37,11 +37,7 @@ const (
 
 type Variant string
 
-const (
-	VariantPlain Variant = "plain"
-	VariantGlibc Variant = "glibc"
-	VariantMusl  Variant = "musl"
-)
+const VariantMusl Variant = "musl"
 
 // Source identifies either an immutable GitHub release asset or a
 // user-supplied import. A user source is descriptive metadata and is never a
@@ -168,27 +164,13 @@ func (identity Identity) Validate() error {
 	default:
 		return fmt.Errorf("%w: unsupported architecture %q", ErrInvalidIdentity, identity.architecture)
 	}
-	if !validVariant(identity.variant) {
-		return fmt.Errorf("%w: variant %q is not a safe artifact variant identifier", ErrInvalidIdentity, identity.variant)
+	if identity.variant != VariantMusl {
+		return fmt.Errorf("%w: unsupported variant %q; only musl is supported", ErrInvalidIdentity, identity.variant)
 	}
 	if identity.reportedVersion.IsZero() {
 		return fmt.Errorf("%w: reported version must not be 0.0.0", ErrInvalidIdentity)
 	}
 	return nil
-}
-
-func validVariant(variant Variant) bool {
-	if len(variant) == 0 || len(variant) > 64 || variant[0] < 'a' || variant[0] > 'z' {
-		return false
-	}
-	for _, character := range variant {
-		if (character >= 'a' && character <= 'z') || (character >= '0' && character <= '9') ||
-			character == '-' || character == '_' || character == '.' {
-			continue
-		}
-		return false
-	}
-	return true
 }
 
 type identityWire struct {

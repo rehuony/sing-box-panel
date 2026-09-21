@@ -23,6 +23,7 @@ import (
 	"github.com/rehuony/sing-box-panel/internal/coreartifact"
 	"github.com/rehuony/sing-box-panel/internal/settings"
 	"github.com/rehuony/sing-box-panel/internal/store"
+	"github.com/rehuony/sing-box-panel/internal/testutil"
 )
 
 func TestCoreHTTPRoutesUseApplicationServices(t *testing.T) {
@@ -43,7 +44,7 @@ func TestCoreHTTPRoutesUseApplicationServices(t *testing.T) {
 	assetsResponse := authenticatedRequest(
 		handler,
 		http.MethodGet,
-		"/api/v1/core/catalog/assets?exact_version=1.13.19&architecture=amd64&variant=plain&installable=true",
+		"/api/v1/core/catalog/assets?exact_version=1.13.19&architecture=amd64&variant=musl&installable=true",
 		"",
 		"",
 	)
@@ -58,21 +59,10 @@ func TestCoreHTTPRoutesUseApplicationServices(t *testing.T) {
 		t.Fatalf("catalog assets = %+v", assets)
 	}
 
-	refreshResponse := authenticatedRequest(handler, http.MethodPost, "/api/v1/core/catalog/refresh", `{"force":true}`, "")
-	assertQueuedCoreHTTPTask(t, refreshResponse, store.TaskKindCatalogRefresh)
-
-	installResponse := authenticatedRequest(
-		handler,
-		http.MethodPost,
-		"/api/v1/core/install",
-		`{"asset_id":3001}`,
-		"",
-	)
-	assertQueuedCoreHTTPTask(t, installResponse, store.TaskKindCoreInstall)
-
-	importResponse := authenticatedCoreUpload(handler, []byte("archive fixture"), "")
-	assertQueuedCoreHTTPTask(t, importResponse, store.TaskKindCoreImport)
-
+	refreshResponse := authenticatedRequest(handler, http.MethodPost, "/api/v1/core/catalog/refresh", `{"force":false}`, "")
+	if refreshResponse.Code != http.StatusOK || !strings.Contains(refreshResponse.Body.String(), `"not_modified":true`) {
+		t.Fatal(refreshResponse.Code, refreshResponse.Body.String())
+	}
 	supportResponse := authenticatedRequest(
 		handler,
 		http.MethodGet,
@@ -102,7 +92,7 @@ func TestCoreHTTPRoutesUseApplicationServices(t *testing.T) {
 	listResponse := authenticatedRequest(
 		handler,
 		http.MethodGet,
-		"/api/v1/core/artifacts?exact_version=1.13.19&architecture=amd64&variant=plain&source_kind=official&limit=1",
+		"/api/v1/core/artifacts?exact_version=1.13.19&architecture=amd64&variant=musl&source_kind=official&limit=1",
 		"",
 		"",
 	)
@@ -162,7 +152,7 @@ func TestCoreHTTPRoutesUseApplicationServices(t *testing.T) {
 func TestCoreConfigurationSchemaUsesExactVersionContractAndETag(t *testing.T) {
 	handler, database := newCoreHTTPFixture(t)
 	artifact, err := database.UpsertCoreArtifact(context.Background(), store.CoreArtifact{
-		ID: "core_schema_http", ExactVersion: "1.14.0", OperatingSystem: "linux", Architecture: "amd64", Variant: "plain",
+		ID: "core_schema_http", ExactVersion: "1.14.0", OperatingSystem: "linux", Architecture: "amd64", Variant: "musl",
 		SourceKind: store.CoreArtifactSourceUserVerified, UserSource: "schema HTTP fixture",
 		ArchiveSHA256: strings.Repeat("a1", 32), BinarySHA256: strings.Repeat("b1", 32),
 		BinaryPath: "/var/lib/sing-box-panel/artifacts/core_schema_http/sing-box", ReportedVersion: "1.14.0",
@@ -348,7 +338,7 @@ func authenticatedCoreUpload(handler http.Handler, archive []byte, overrideDiges
 	}
 	for name, value := range map[string]string{
 		"source_description": "browser upload", "sha256": digest,
-		"exact_version": "1.13.19", "architecture": "amd64", "variant": "plain",
+		"exact_version": "1.13.19", "architecture": "amd64", "variant": "musl",
 	} {
 		_ = writer.WriteField(name, value)
 	}
@@ -365,12 +355,11 @@ func TestCoreHTTPRejectsDeletingReferencedArtifact(t *testing.T) {
 	handler, database := newCoreHTTPFixture(t)
 	artifact := seedCoreHTTPArtifact(t, database)
 	now := time.Date(2026, time.August, 26, 13, 0, 0, 0, time.UTC)
-	revision, err := database.SaveCanonicalRevisionAndTask(context.Background(), "", store.NewCanonicalRevision{
+	revision, err := testutil.SaveConfiguration(context.Background(), database, 0, store.NewCanonicalRevision{
 		ID: "revision_core_http", SchemaVersion: configuration.SchemaVersion, Document: json.RawMessage(`{}`),
 		CommandID: "command_core_http", CreatedAt: now,
-	}, store.NewTask{
-		ID: "task_core_http", Lane: store.TaskLaneMaintenance, Kind: store.TaskKindCanonicalSaved, CreatedAt: now,
-	})
+	},
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -387,7 +376,7 @@ func TestCoreHTTPRejectsDeletingReferencedArtifact(t *testing.T) {
 }
 
 func TestCoreHTTPAuthenticationCSRFAndCatalogState(t *testing.T) {
-	handler, _ := newCoreHTTPFixture(t)
+	handler, database := newCoreHTTPFixture(t)
 
 	unauthenticated := httptest.NewRequest(http.MethodGet, "/api/v1/core/catalog/assets", nil)
 	unauthenticatedResponse := httptest.NewRecorder()
@@ -423,6 +412,7 @@ func TestCoreHTTPAuthenticationCSRFAndCatalogState(t *testing.T) {
 	handler.ServeHTTP(rejectedResponse, rejected)
 	assertCoreHTTPProblem(t, rejectedResponse, http.StatusForbidden, "csrf_failed")
 
+	seedCoreHTTPCatalog(t, database)
 	accepted := httptest.NewRequest(http.MethodPost, "/api/v1/core/catalog/refresh", strings.NewReader(`{"force":false}`))
 	accepted.Header.Set("Content-Type", "application/json")
 	accepted.Host = "panel.example"
@@ -431,7 +421,9 @@ func TestCoreHTTPAuthenticationCSRFAndCatalogState(t *testing.T) {
 	accepted.AddCookie(cookie)
 	acceptedResponse := httptest.NewRecorder()
 	handler.ServeHTTP(acceptedResponse, accepted)
-	assertQueuedCoreHTTPTask(t, acceptedResponse, store.TaskKindCatalogRefresh)
+	if acceptedResponse.Code != http.StatusOK {
+		t.Fatal(acceptedResponse.Code, acceptedResponse.Body.String())
+	}
 }
 
 func newCoreHTTPFixture(t *testing.T) (*Handler, *store.Store) {
@@ -448,9 +440,11 @@ func newCoreHTTPFixture(t *testing.T) (*Handler, *store.Store) {
 	if err := configuration.Validate(); err != nil {
 		t.Fatal(err)
 	}
+	commands := application.FromStoreWithSettings(database, configuration)
+	commands.SetRuntimeController(httpRuntimeFixture{commands: commands})
 	return NewHandler(HandlerOptions{
 		Settings: configuration,
-		Commands: application.FromStoreWithSettings(database, configuration),
+		Commands: commands,
 	}), database
 }
 
@@ -468,13 +462,13 @@ func seedCoreHTTPCatalog(t *testing.T, database *store.Store) catalog.Asset {
 		RepositoryID:    catalog.OfficialRepositoryID,
 		ReleaseID:       2001,
 		AssetID:         3001,
-		Name:            "sing-box-1.13.19-linux-amd64.tar.gz",
-		DownloadURL:     "https://github.com/SagerNet/sing-box/releases/download/v1.13.19/sing-box-1.13.19-linux-amd64.tar.gz",
+		Name:            "sing-box-1.13.19-linux-amd64-musl.tar.gz",
+		DownloadURL:     "https://github.com/SagerNet/sing-box/releases/download/v1.13.19/sing-box-1.13.19-linux-amd64-musl.tar.gz",
 		Size:            1234,
 		Version:         version,
 		OperatingSystem: coreartifact.OperatingSystemLinux,
 		Architecture:    coreartifact.ArchitectureAMD64,
-		Variant:         coreartifact.VariantPlain,
+		Variant:         coreartifact.VariantMusl,
 		APIDigest:       digest,
 		HasAPIDigest:    true,
 	}
@@ -490,7 +484,7 @@ func seedCoreHTTPCatalog(t *testing.T, database *store.Store) catalog.Asset {
 	}
 	if _, err := database.SaveCatalogState(context.Background(), store.CatalogState{
 		Validator: "catalog-v1", Catalog: catalogJSON, Diagnostics: json.RawMessage(`[]`),
-		RefreshedAt: time.Date(2026, time.August, 26, 12, 0, 0, 0, time.UTC),
+		RefreshedAt: time.Now().UTC(),
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -504,7 +498,7 @@ func seedCoreHTTPArtifact(t *testing.T, database *store.Store) store.CoreArtifac
 		ExactVersion:       "1.13.19",
 		OperatingSystem:    "linux",
 		Architecture:       "amd64",
-		Variant:            "plain",
+		Variant:            "musl",
 		SourceKind:         store.CoreArtifactSourceOfficial,
 		RepositoryID:       catalog.OfficialRepositoryID,
 		ReleaseID:          2001,
@@ -521,20 +515,6 @@ func seedCoreHTTPArtifact(t *testing.T, database *store.Store) store.CoreArtifac
 		t.Fatal(err)
 	}
 	return artifact
-}
-
-func assertQueuedCoreHTTPTask(t *testing.T, response *httptest.ResponseRecorder, kind store.TaskKind) {
-	t.Helper()
-	if response.Code != http.StatusAccepted {
-		t.Fatalf("queue %s status=%d body=%s", kind, response.Code, response.Body.String())
-	}
-	var task application.Task
-	if err := json.Unmarshal(response.Body.Bytes(), &task); err != nil {
-		t.Fatal(err)
-	}
-	if task.ID == "" || task.Kind != kind || task.Status != store.TaskStatusQueued {
-		t.Fatalf("queued task = %+v", task)
-	}
 }
 
 func assertCoreHTTPProblem(t *testing.T, response *httptest.ResponseRecorder, status int, code string) {

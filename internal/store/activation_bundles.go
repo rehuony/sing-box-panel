@@ -73,7 +73,7 @@ func (s *Store) SaveActivationBundle(ctx context.Context, bundle ActivationBundl
 		if _, err := tx.ExecContext(ctx, `INSERT INTO activation_bundles(
 			id, startup_artifact_id, monitoring_tier, sha256, created_at
 		) VALUES (?, ?, ?, ?, ?)`, prepared.ID, prepared.StartupArtifactID,
-			string(prepared.MonitoringTier), prepared.SHA256, formatTaskTime(prepared.CreatedAt)); err != nil {
+			string(prepared.MonitoringTier), prepared.SHA256, formatTime(prepared.CreatedAt)); err != nil {
 			return fmt.Errorf("insert activation bundle: %w", err)
 		}
 		stored, err = getActivationBundle(ctx, tx, prepared.ID)
@@ -141,7 +141,7 @@ func getActivationBundle(ctx context.Context, q queryRower, bundleID string) (Ac
 	if err != nil {
 		return ActivationBundle{}, fmt.Errorf("get activation bundle: %w", err)
 	}
-	bundle.CreatedAt, err = parseTaskTime(createdAt)
+	bundle.CreatedAt, err = parseTime(createdAt)
 	if err != nil {
 		return ActivationBundle{}, fmt.Errorf("parse activation bundle created_at: %w", err)
 	}

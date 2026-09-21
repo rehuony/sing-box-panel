@@ -35,7 +35,7 @@ export function CoreImportDialog({
   const { archive, version } = selection;
   const [busy, setBusy] = useState(false);
   const [dragging, setDragging] = useState(false);
-  const [fileError, setFileError] = useState<'singleArchive' | 'archiveFormat' | null>(null);
+  const [fileError, setFileError] = useState<'singleArchive' | 'archiveFormat' | 'unsupportedBuild' | null>(null);
   const valid = archive !== null && !fileError && /^\d+\.\d+\.\d+$/.test(version.trim());
 
   function selectArchive(files: File[]) {
@@ -47,6 +47,11 @@ export function CoreImportDialog({
     const [file] = files;
     if (!/\.(?:tar\.gz|tgz)$/i.test(file.name)) {
       setFileError('archiveFormat');
+      return;
+    }
+    const platform = /^sing-box-v?\d+\.\d+\.\d+-linux-(.+)\.(?:tar\.gz|tgz)$/i.exec(file.name);
+    if (platform && platform[1] !== `${architecture}-musl`) {
+      setFileError('unsupportedBuild');
       return;
     }
     const match = /^sing-box-v?(\d+\.\d+\.\d+)(?:-linux-[\w.-]+)?\.(?:tar\.gz|tgz)$/i.exec(file.name);
@@ -73,7 +78,7 @@ export function CoreImportDialog({
                 archive,
                 exactVersion: version.trim(),
                 sourceDescription: archive.name,
-                variant: 'plain',
+                variant: 'musl',
                 architecture,
               })) {
                 onClose();

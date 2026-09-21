@@ -159,54 +159,6 @@ paths:
       responses:
         "200":
           $ref: "#/components/responses/DashboardContext"
-  /config/canonical:
-    get:
-      operationId: getCanonicalConfiguration
-      responses:
-        "200":
-          description: Current global immutable revision.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/CanonicalSnapshot"
-    put:
-      operationId: replaceCanonicalConfiguration
-      parameters:
-        - $ref: "#/components/parameters/IfMatch"
-        - $ref: "#/components/parameters/CSRFToken"
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/CanonicalDocument"
-      responses:
-        "200":
-          description: Saved global revision.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/CanonicalSave"
-    patch:
-      operationId: patchCanonicalConfiguration
-      parameters:
-        - $ref: "#/components/parameters/IfMatch"
-        - $ref: "#/components/parameters/CSRFToken"
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [changes]
-              properties:
-                changes:
-                  type: array
-                  items:
-                    $ref: "#/components/schemas/CanonicalChange"
-      responses:
-        "200":
-          $ref: "#/components/responses/CanonicalSave"
   /config/preview:
     post:
       operationId: previewConfiguration
@@ -222,8 +174,6 @@ paths:
               required: [core_artifact_id]
               properties:
                 core_artifact_id:
-                  type: string
-                canonical_revision_id:
                   type: string
       responses:
         "200":
@@ -249,8 +199,8 @@ paths:
                 core_artifact_id:
                   type: string
       responses:
-        "202":
-          description: Immutable raw configuration candidate and queued exact-core check.
+        "200":
+          description: Immutable raw configuration artifact after the exact-core check completes.
           content:
             application/json:
               schema:
@@ -277,53 +227,8 @@ paths:
       requestBody:
         $ref: "#/components/requestBodies/Activation"
       responses:
-        "202":
-          $ref: "#/components/responses/ActivationQueued"
-  /config/revisions:
-    get:
-      operationId: listCanonicalRevisions
-      parameters:
-        - $ref: "#/components/parameters/BeforeSequence"
-        - $ref: "#/components/parameters/Limit"
-      responses:
         "200":
-          $ref: "#/components/responses/CanonicalRevisionPage"
-  /config/revisions/diff:
-    get:
-      operationId: diffCanonicalRevisions
-      parameters:
-        - name: from
-          in: query
-          required: true
-          schema:
-            type: string
-        - name: to
-          in: query
-          required: true
-          schema:
-            type: string
-      responses:
-        "200":
-          $ref: "#/components/responses/CanonicalRevisionDiff"
-  /config/revisions/{revisionId}:
-    parameters:
-      - $ref: "#/components/parameters/RevisionID"
-    get:
-      operationId: getCanonicalRevision
-      responses:
-        "200":
-          $ref: "#/components/responses/CanonicalSnapshot"
-  /config/revisions/{revisionId}/restore:
-    parameters:
-      - $ref: "#/components/parameters/RevisionID"
-    post:
-      operationId: restoreCanonicalRevision
-      parameters:
-        - $ref: "#/components/parameters/IfMatch"
-        - $ref: "#/components/parameters/CSRFToken"
-      responses:
-        "200":
-          $ref: "#/components/responses/CanonicalSave"
+          $ref: "#/components/responses/RuntimeResponse"
   /core/catalog/assets:
     get:
       operationId: listCoreCatalogAssets
@@ -352,8 +257,8 @@ paths:
                 force:
                   type: boolean
       responses:
-        "202":
-          $ref: "#/components/responses/Task"
+        "200":
+          $ref: "#/components/responses/CatalogRefresh"
   /core/artifacts:
     get:
       operationId: listCoreArtifacts
@@ -392,8 +297,8 @@ paths:
       parameters:
         - $ref: "#/components/parameters/CSRFToken"
       responses:
-        "202":
-          $ref: "#/components/responses/Task"
+        "200":
+          $ref: "#/components/responses/RuntimeStatus"
   /core/artifacts/{artifactId}/disable:
     parameters:
       - $ref: "#/components/parameters/ArtifactID"
@@ -403,8 +308,8 @@ paths:
       parameters:
         - $ref: "#/components/parameters/CSRFToken"
       responses:
-        "202":
-          $ref: "#/components/responses/Task"
+        "200":
+          $ref: "#/components/responses/RuntimeStatus"
   /core/artifacts/{artifactId}/configuration-support:
     parameters:
       - $ref: "#/components/parameters/ArtifactID"
@@ -462,8 +367,8 @@ paths:
                   format: int64
                   minimum: 1
       responses:
-        "202":
-          $ref: "#/components/responses/Task"
+        "200":
+          $ref: "#/components/responses/CoreArtifact"
   /core/import:
     post:
       operationId: importCoreArtifact
@@ -491,8 +396,8 @@ paths:
                 source_description:
                   type: string
       responses:
-        "202":
-          $ref: "#/components/responses/Task"
+        "200":
+          $ref: "#/components/responses/CoreArtifact"
   /core/status:
     get:
       operationId: getCoreRuntimeStatus
@@ -522,8 +427,8 @@ paths:
       requestBody:
         $ref: "#/components/requestBodies/StartupArtifact"
       responses:
-        "202":
-          $ref: "#/components/responses/Task"
+        "200":
+          $ref: "#/components/responses/StartupArtifactSummary"
   /core/activate:
     post:
       operationId: activateStartupArtifact
@@ -532,32 +437,32 @@ paths:
       requestBody:
         $ref: "#/components/requestBodies/Activation"
       responses:
-        "202":
-          $ref: "#/components/responses/ActivationQueued"
+        "200":
+          $ref: "#/components/responses/RuntimeResponse"
   /core/start:
     post:
       operationId: startCoreRuntime
       parameters:
         - $ref: "#/components/parameters/CSRFToken"
       responses:
-        "202":
-          $ref: "#/components/responses/Task"
+        "200":
+          $ref: "#/components/responses/RuntimeStatus"
   /core/stop:
     post:
       operationId: stopCoreRuntime
       parameters:
         - $ref: "#/components/parameters/CSRFToken"
       responses:
-        "202":
-          $ref: "#/components/responses/Task"
+        "200":
+          $ref: "#/components/responses/RuntimeStatus"
   /core/restart:
     post:
       operationId: restartCoreRuntime
       parameters:
         - $ref: "#/components/parameters/CSRFToken"
       responses:
-        "202":
-          $ref: "#/components/responses/Task"
+        "200":
+          $ref: "#/components/responses/RuntimeStatus"
   /core/rollback:
     post:
       operationId: rollbackCoreRuntime
@@ -570,50 +475,8 @@ paths:
             schema:
               $ref: "#/components/schemas/RuntimeRollbackRequest"
       responses:
-        "202":
-          $ref: "#/components/responses/Task"
-  /tasks:
-    get:
-      operationId: listTasks
-      parameters:
-        - $ref: "#/components/parameters/TaskLane"
-        - $ref: "#/components/parameters/TaskStatus"
-        - $ref: "#/components/parameters/TaskKind"
-        - $ref: "#/components/parameters/BeforeTime"
-        - $ref: "#/components/parameters/BeforeID"
-        - $ref: "#/components/parameters/Limit"
-      responses:
         "200":
-          $ref: "#/components/responses/TaskPage"
-  /tasks/{taskId}:
-    parameters:
-      - $ref: "#/components/parameters/TaskID"
-    get:
-      operationId: getTask
-      responses:
-        "200":
-          $ref: "#/components/responses/Task"
-  /tasks/{taskId}/retry:
-    parameters:
-      - $ref: '#/components/parameters/TaskID'
-    post:
-      operationId: retryTask
-      description: Retry failed or canceled catalog, core download or remote-source refresh with current validated inputs. Idempotent for the original task ID.
-      parameters:
-        - $ref: '#/components/parameters/CSRFToken'
-      responses:
-        '202': {$ref: '#/components/responses/Task'}
-        default: {$ref: '#/components/responses/Problem'}
-  /tasks/{taskId}/cancel:
-    parameters:
-      - $ref: "#/components/parameters/TaskID"
-    post:
-      operationId: cancelTask
-      parameters:
-        - $ref: "#/components/parameters/CSRFToken"
-      responses:
-        "200":
-          $ref: "#/components/responses/Task"
+          $ref: "#/components/responses/RuntimeStatus"
   /subscription/nodes:
     get:
       operationId: listSubscriptionNodes
@@ -910,8 +773,8 @@ paths:
       parameters:
         - $ref: "#/components/parameters/CSRFToken"
       responses:
-        "202":
-          $ref: "#/components/responses/Task"
+        "200":
+          $ref: "#/components/responses/SubscriptionSourceRefreshResult"
   /subscription/sources/{sourceId}/versions:
     parameters:
       - $ref: "#/components/parameters/SourceID"
@@ -1147,7 +1010,7 @@ paths:
   /logs/panel:
     get:
       operationId: listPanelLogs
-      summary: Panel events and current task lifecycle records, newest first
+      summary: Panel events and runtime transitions, newest first
       parameters:
         - $ref: '#/components/parameters/LogLevel'
         - $ref: '#/components/parameters/Since'
@@ -1164,7 +1027,7 @@ paths:
           schema: {type: string, maxLength: 256}
       responses:
         '200':
-          description: Combined panel activity without repeated worker messages for the same task.
+          description: Panel activity and runtime transition history.
           content:
             application/json:
               schema: {$ref: '#/components/schemas/PanelLogPage'}
@@ -1341,13 +1204,6 @@ components:
         type: integer
         format: int64
         minimum: 1
-    BeforeSequence:
-      name: before_sequence
-      in: query
-      schema:
-        type: integer
-        format: int64
-        minimum: 1
     ExactVersion:
       name: exact_version
       in: query
@@ -1398,30 +1254,12 @@ components:
       schema:
         type: string
         enum: [pending, ready, failed]
-    TaskLane:
-      name: lane
-      in: query
-      schema:
-        type: string
-        enum: [runtime, maintenance]
-    TaskStatus:
-      name: status
-      in: query
-      schema:
-        type: string
-        enum: [queued, running, succeeded, failed, canceled, superseded]
-    TaskKind:
-      name: kind
-      in: query
-      schema:
-        type: string
-        enum: [canonical-saved, catalog-refresh, core-install, core-import, startup-check, subscription-source-refresh, runtime-apply, runtime-start, runtime-stop, runtime-restart, runtime-rollback]
     LogSource:
       name: source
       in: query
       schema:
         type: string
-        enum: [panel, core, task, security]
+        enum: [panel, core, security]
     LogLevel:
       name: level
       in: query
@@ -1528,18 +1366,6 @@ components:
       required: true
       schema:
         type: string
-    RevisionID:
-      name: revisionId
-      in: path
-      required: true
-      schema:
-        type: string
-    TaskID:
-      name: taskId
-      in: path
-      required: true
-      schema:
-        type: string
     UserID:
       name: userId
       in: path
@@ -1632,6 +1458,15 @@ components:
           schema:
             $ref: "#/components/schemas/SubscriptionSourceInput"
   responses:
+    SubscriptionSourceRefreshResult:
+      description: Refreshed subscription source.
+      content: {application/json: {schema: {$ref: "#/components/schemas/SubscriptionSourceRefreshResult"}}}
+    StartupArtifactSummary:
+      description: Validated startup artifact.
+      content: {application/json: {schema: {$ref: "#/components/schemas/StartupArtifactSummary"}}}
+    CatalogRefresh:
+      description: Completed catalog refresh.
+      content: {application/json: {schema: {$ref: "#/components/schemas/CatalogRefresh"}}}
     Health:
       $ref: "#/components/responses/HealthResponse"
     HealthResponse:
@@ -1646,30 +1481,15 @@ components:
     DashboardContext:
       description: Dashboard projection of durable and observed state.
       content: {application/json: {schema: {$ref: "#/components/schemas/DashboardContext"}}}
-    CanonicalSave:
-      description: Saved canonical revision.
-      content: {application/json: {schema: {$ref: "#/components/schemas/CanonicalSave"}}}
     StartupArtifactPage:
       description: Page of immutable startup artifacts.
       content: {application/json: {schema: {$ref: "#/components/schemas/StartupArtifactPage"}}}
-    ActivationQueued:
-      description: Activation bundle prepared and runtime task accepted.
-      content: {application/json: {schema: {$ref: "#/components/schemas/ActivationQueued"}}}
-    CanonicalRevisionPage:
-      description: Page of canonical revisions.
-      content: {application/json: {schema: {$ref: "#/components/schemas/CanonicalRevisionPage"}}}
-    CanonicalRevisionDiff:
-      description: Structural diff between two canonical revisions.
-      content: {application/json: {schema: {$ref: "#/components/schemas/CanonicalRevisionDiff"}}}
-    CanonicalSnapshot:
-      description: Immutable canonical revision.
-      content: {application/json: {schema: {$ref: "#/components/schemas/CanonicalSnapshot"}}}
+    RuntimeResponse:
+      description: Completed runtime operation and observed process state.
+      content: {application/json: {schema: {$ref: "#/components/schemas/RuntimeResponse"}}}
     CatalogAssetList:
       description: Filtered catalog assets.
       content: {application/json: {schema: {$ref: "#/components/schemas/CatalogAssetList"}}}
-    Task:
-      description: Durable task state.
-      content: {application/json: {schema: {$ref: "#/components/schemas/Task"}}}
     CoreArtifactPage:
       description: Page of immutable core artifacts.
       content: {application/json: {schema: {$ref: "#/components/schemas/CoreArtifactPage"}}}
@@ -1682,9 +1502,6 @@ components:
     RuntimeHistoryPage:
       description: Stable newest-first page of durable runtime transitions.
       content: {application/json: {schema: {$ref: "#/components/schemas/RuntimeHistoryPage"}}}
-    TaskPage:
-      description: Page of durable tasks.
-      content: {application/json: {schema: {$ref: "#/components/schemas/TaskPage"}}}
     SubscriptionNodeCatalog:
       description: Current publishable subscription node catalog.
       content: {application/json: {schema: {$ref: "#/components/schemas/SubscriptionNodeCatalog"}}}
@@ -1766,6 +1583,26 @@ components:
           schema:
             $ref: "#/components/schemas/Problem"
   schemas:
+    CatalogRefresh:
+      type: object
+      additionalProperties: false
+      required: [refreshed_at, not_modified, releases, assets]
+      properties:
+        refreshed_at: {type: string, format: date-time}
+        not_modified: {type: boolean}
+        releases: {type: integer, minimum: 0}
+        assets: {type: integer, minimum: 0}
+    SubscriptionSourceRefreshResult:
+      type: object
+      additionalProperties: false
+      required: [source_id, version_id, format, sha256, node_count, fetched_at]
+      properties:
+        source_id: {type: string}
+        version_id: {type: string}
+        format: {type: string}
+        sha256: {type: string}
+        node_count: {type: integer, minimum: 0}
+        fetched_at: {type: string, format: date-time}
     AppearanceSettings:
       type: object
       additionalProperties: false
@@ -1843,10 +1680,47 @@ components:
         content:
           type: string
           maxLength: 2097152
+    PanelServiceSettings:
+      type: object
+      additionalProperties: false
+      required: [data_dir, base_path, secure_cookie, catalog_ttl_hours, traffic_period_months, sample_retention_days, subscription_author, subscription_provider, private_source_cidrs, log_retention_days]
+      properties:
+        data_dir:
+          type: string
+          description: Absolute data directory. Takes effect after restarting the service.
+        base_path:
+          type: string
+        secure_cookie:
+          type: boolean
+        catalog_ttl_hours:
+          type: integer
+          minimum: 1
+          maximum: 720
+        traffic_period_months:
+          type: integer
+          minimum: 1
+          maximum: 120
+        sample_retention_days:
+          type: integer
+          minimum: 1
+          maximum: 366
+        subscription_author:
+          type: string
+          minLength: 1
+        subscription_provider:
+          type: string
+          minLength: 1
+        private_source_cidrs:
+          type: array
+          items: {type: string}
+        log_retention_days:
+          type: integer
+          minimum: 1
+          maximum: 3650
     PanelSettingsView:
       type: object
       additionalProperties: false
-      required: [revision, preferences, github_token_configured, identity_key_configured, restart_required]
+      required: [revision, preferences, service, github_token_configured, identity_key_configured, restart_required]
       properties:
         detected_public_ip:
           type: string
@@ -1859,6 +1733,8 @@ components:
           description: Opaque fingerprint of the shared settings file, including manual edits; not a sequence number.
         preferences:
           $ref: '#/components/schemas/PanelPreferences'
+        service:
+          $ref: '#/components/schemas/PanelServiceSettings'
         github_token_configured:
           type: boolean
         identity_key_configured:
@@ -1878,6 +1754,8 @@ components:
           description: Opaque fingerprint of the shared settings file, including manual edits; not a sequence number.
         preferences:
           $ref: '#/components/schemas/PanelPreferences'
+        service:
+          $ref: '#/components/schemas/PanelServiceSettings'
         github_token:
           type: string
           maxLength: 8192
@@ -1885,6 +1763,9 @@ components:
         clear_github_token:
           type: boolean
           description: Explicitly removes the persisted GitHub credential.
+        clear_identity_key:
+          type: boolean
+          description: Removes the identity key. Existing inbound credentials are preserved.
         identity_key:
           type: string
           maxLength: 8192
@@ -1988,38 +1869,6 @@ components:
       properties:
         created_at: {type: string, format: date-time}
         id: {type: string}
-    Task:
-      type: object
-      additionalProperties: false
-      required: [id, lane, kind, status, generation, payload, cancel_requested, attempt, created_at, updated_at]
-      properties:
-        id: {type: string}
-        idempotency_key: {type: string}
-        lane: {type: string, enum: [runtime, maintenance]}
-        kind:
-          type: string
-          enum: [canonical-saved, catalog-refresh, core-install, core-import, startup-check, subscription-source-refresh, runtime-apply, runtime-start, runtime-stop, runtime-restart, runtime-rollback]
-        status: {type: string, enum: [queued, running, succeeded, failed, canceled, superseded]}
-        generation: {type: integer, format: int64, minimum: 0}
-        canonical_revision_id: {type: string}
-        startup_artifact_id: {type: string}
-        activation_bundle_id: {type: string}
-        payload: {$ref: "#/components/schemas/DynamicValue"}
-        result: {$ref: "#/components/schemas/DynamicValue"}
-        failure: {$ref: "#/components/schemas/DynamicValue"}
-        cancel_requested: {type: boolean}
-        attempt: {type: integer, minimum: 0}
-        lease_expires_at: {type: string, format: date-time}
-        not_before: {type: string, format: date-time}
-        created_at: {type: string, format: date-time}
-        updated_at: {type: string, format: date-time}
-    TaskPage:
-      type: object
-      additionalProperties: false
-      required: [items]
-      properties:
-        items: {type: array, items: {$ref: "#/components/schemas/Task"}}
-        next: {$ref: "#/components/schemas/CreatedAtCursor"}
     RuntimeIdentity:
       type: object
       additionalProperties: false
@@ -2074,7 +1923,6 @@ components:
         reason: {type: string}
         activation_bundle_id: {type: string}
         generation: {type: integer, format: int64, minimum: 0}
-        task_id: {type: string}
         pid: {type: integer, minimum: 1}
         process_started_at: {type: string, format: date-time}
         occurred_at: {type: string, format: date-time}
@@ -2102,9 +1950,7 @@ components:
       pattern: '^[0-9]+\.[0-9]+\.[0-9]+$'
     CoreVariant:
       type: string
-      minLength: 1
-      maxLength: 64
-      pattern: '^[a-z][a-z0-9._-]*$'
+      const: musl
     SHA256:
       type: string
       pattern: '^[0-9a-f]{64}$'
@@ -2137,6 +1983,7 @@ components:
         items: {type: array, items: {$ref: "#/components/schemas/CoreArtifact"}}
         next: {$ref: "#/components/schemas/CreatedAtCursor"}
     CatalogAsset:
+      description: Official Linux musl archive; one asset per exact version and CPU architecture.
       type: object
       additionalProperties: false
       required: [repository_id, release_id, asset_id, name, download_url, size, version, os, arch, variant, has_api_digest, has_catalog_digest]
@@ -2215,58 +2062,6 @@ components:
         created_at:
           type: string
           format: date-time
-    CanonicalChange:
-      type: object
-      required: [op, path]
-      properties:
-        op:
-          type: string
-          enum: [set, unset]
-        path:
-          type: string
-        value_json:
-          type: string
-    CanonicalSave:
-      type: object
-      required: [revision, no_change]
-      properties:
-        revision:
-          $ref: "#/components/schemas/CanonicalSnapshot"
-        no_change:
-          type: boolean
-        task_id:
-          type: string
-    CanonicalRevisionPage:
-      type: object
-      additionalProperties: false
-      required: [items]
-      properties:
-        items: {type: array, items: {$ref: "#/components/schemas/CanonicalSnapshot"}}
-        next_before_sequence: {type: integer, format: int64, minimum: 1}
-    CanonicalDiffValue:
-      type: object
-      additionalProperties: false
-      required: [present]
-      properties:
-        present: {type: boolean}
-        value: {$ref: "#/components/schemas/DynamicValue"}
-    CanonicalRevisionDiff:
-      type: object
-      additionalProperties: false
-      required: [from, to, changes]
-      properties:
-        from: {$ref: "#/components/schemas/CanonicalSnapshot"}
-        to: {$ref: "#/components/schemas/CanonicalSnapshot"}
-        changes:
-          type: array
-          items:
-            type: object
-            additionalProperties: false
-            required: [path, from, to]
-            properties:
-              path: {type: string}
-              from: {$ref: "#/components/schemas/CanonicalDiffValue"}
-              to: {$ref: "#/components/schemas/CanonicalDiffValue"}
     ConfigurationSupport:
       type: object
       additionalProperties: false
@@ -2304,14 +2099,12 @@ components:
           $ref: "#/components/schemas/DynamicObject"
     ConfigurationCompile:
       type: object
-      required: [support, artifact, task]
+      required: [support, artifact]
       properties:
         support:
           $ref: "#/components/schemas/ConfigurationSupport"
         artifact:
           $ref: "#/components/schemas/CompiledConfigurationArtifact"
-        task:
-          $ref: "#/components/schemas/Task"
     CompiledConfigurationArtifact:
       type: object
       additionalProperties: false
@@ -2356,13 +2149,14 @@ components:
         activation_bundle_id: {type: string}
         activation_sha256: {$ref: "#/components/schemas/SHA256"}
         monitoring_tier: {type: string, enum: [process_only, limited]}
-    ActivationQueued:
+    RuntimeResponse:
       type: object
       additionalProperties: false
-      required: [activation, task]
+      required: [status]
       properties:
+        status: {$ref: "#/components/schemas/RuntimeStatus"}
         activation: {$ref: "#/components/schemas/ActivationSummary"}
-        task: {$ref: "#/components/schemas/Task"}
+        startup: {$ref: "#/components/schemas/StartupArtifactSummary"}
     SubscriptionCursor:
       $ref: "#/components/schemas/CreatedAtCursor"
     SubscriptionUser:
@@ -2745,12 +2539,11 @@ components:
       properties:
         id: {type: string}
         time: {type: string, format: date-time}
-        source: {type: string, enum: [task, runtime, panel, core, security]}
+        source: {type: string, enum: [runtime, panel, core, security]}
         level: {type: string, enum: [trace, debug, info, warn, error, fatal]}
         code: {type: string}
         message: {type: string}
         status: {type: string}
-        task_id: {type: string}
         metadata: {$ref: '#/components/schemas/DynamicObject'}
     PanelLogPage:
       type: object
@@ -2766,7 +2559,7 @@ components:
       properties:
         id: {type: string}
         time: {type: string, format: date-time}
-        source: {type: string, enum: [panel, core, task, security]}
+        source: {type: string, enum: [panel, core, security]}
         level: {type: string, enum: [trace, debug, info, warn, error, fatal]}
         code: {type: string}
         message: {type: string}

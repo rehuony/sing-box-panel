@@ -32,7 +32,6 @@ export const nav = {
   dashboard: 'Dashboard',
   observability: 'Runtime logs',
   subscriptions: 'Subscriptions',
-  tasks: 'Task History',
 } as const;
 
 export const account = {

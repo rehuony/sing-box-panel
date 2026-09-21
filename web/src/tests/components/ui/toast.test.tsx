@@ -1,5 +1,5 @@
 import { Toast } from '@base-ui/react/toast';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import userEvent from '@testing-library/user-event';
 import { act, render, screen, waitFor } from '@testing-library/react';
 
@@ -7,6 +7,29 @@ import '@/i18n';
 import { Toaster } from '@/components/ui/toast';
 
 describe('toast feedback', () => {
+  it.each(['success', 'error'])('automatically dismisses %s feedback after three seconds', async (type) => {
+    vi.useFakeTimers();
+    try {
+      const manager = Toast.createToastManager();
+      const view = render(<Toaster toastManager={manager} />);
+      await act(async () => {
+        manager.add({ title: 'Timed feedback', type });
+      });
+      expect(screen.getByText('Timed feedback')).toBeInTheDocument();
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2999);
+      });
+      expect(screen.getByText('Timed feedback')).toBeInTheDocument();
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1);
+      });
+      expect(screen.queryByText('Timed feedback')).not.toBeInTheDocument();
+      view.unmount();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it.each(['success', 'info', 'warning', 'error'])('keeps %s feedback dismissible and exposes its semantic type', async (type) => {
     const manager = Toast.createToastManager();
     render(<Toaster toastManager={manager} />);

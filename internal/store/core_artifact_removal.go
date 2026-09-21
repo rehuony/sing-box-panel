@@ -74,26 +74,14 @@ func coreArtifactRemovalEligibility(
                         UNION SELECT applied_bundle_id FROM hub_state
                         UNION SELECT rollback_bundle_id FROM hub_state
                    )
-            ),
-            (
-                SELECT count(*)
-                  FROM tasks AS task
-                  JOIN startup_artifacts AS startup ON startup.id = task.startup_artifact_id
-                 WHERE startup.core_artifact_id = ?
-                   AND task.status IN ('queued', 'running')
             )`,
-		artifactID,
-		artifactID,
-		artifactID,
-	).Scan(
-		&result.StartupArtifactReferences,
-		&result.ActiveBundleReferences,
-		&result.ActiveTaskReferences,
-	)
+		artifactID, artifactID,
+	).Scan(&result.StartupArtifactReferences, &result.ActiveBundleReferences)
+
 	if err != nil {
 		return CoreArtifactRemovalEligibility{}, fmt.Errorf("inspect core artifact references: %w", err)
 	}
 	result.Eligible = result.StartupArtifactReferences == 0 &&
-		result.ActiveBundleReferences == 0 && result.ActiveTaskReferences == 0
+		result.ActiveBundleReferences == 0
 	return result, nil
 }

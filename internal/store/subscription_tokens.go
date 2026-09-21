@@ -133,7 +133,7 @@ func (s *Store) ListSubscriptionTokens(
 	args := make([]any, 0, 4)
 	if filter.Cursor != nil {
 		query += ` WHERE (created_at < ? OR (created_at = ? AND id < ?))`
-		cursorTime := formatTaskTime(filter.Cursor.CreatedAt)
+		cursorTime := formatTime(filter.Cursor.CreatedAt)
 		args = append(args, cursorTime, cursorTime, filter.Cursor.ID)
 	}
 	query += ` ORDER BY created_at DESC, id DESC LIMIT ?`
@@ -244,7 +244,7 @@ func (s *Store) RotateSubscriptionToken(
 			`UPDATE subscription_tokens
                 SET revoked_at = ?
               WHERE id = ? AND revoked_at IS NULL`,
-			formatTaskTime(rotatedAt),
+			formatTime(rotatedAt),
 			oldTokenID,
 		)
 		if err != nil {
@@ -304,7 +304,7 @@ func (s *Store) RevokeSubscriptionToken(
 		result, err := tx.ExecContext(
 			ctx,
 			`UPDATE subscription_tokens SET revoked_at = ? WHERE id = ? AND revoked_at IS NULL`,
-			formatTaskTime(revokedAt),
+			formatTime(revokedAt),
 			tokenID,
 		)
 		if err != nil {
@@ -393,7 +393,7 @@ func (s *Store) RecordSubscriptionTokenUse(
           AND (expires_at IS NULL OR expires_at > ?)
           AND (user_id IS NULL OR EXISTS (SELECT 1 FROM subscription_users AS u WHERE u.id = subscription_tokens.user_id AND u.enabled = 1))
           AND (download_limit IS NULL OR body_response_count < download_limit)`,
-		bodyBytes, bodyBytes, formatTaskTime(at), tokenID, formatTaskTime(at))
+		bodyBytes, bodyBytes, formatTime(at), tokenID, formatTime(at))
 	if err != nil {
 		return fmt.Errorf("record subscription token use: %w", err)
 	}
@@ -473,7 +473,7 @@ func getSubscriptionToken(ctx context.Context, q queryRower, id string) (Subscri
 	return token, nil
 }
 
-func scanSubscriptionToken(row taskScanner) (SubscriptionToken, error) {
+func scanSubscriptionToken(row rowScanner) (SubscriptionToken, error) {
 	var token SubscriptionToken
 	var expiresAt, revokedAt, lastUsedAt, userID sql.NullString
 	var enabled int
@@ -498,26 +498,26 @@ func scanSubscriptionToken(row taskScanner) (SubscriptionToken, error) {
 	var err error
 	token.UserID = userID.String
 	token.Enabled = enabled == 1
-	token.CreatedAt, err = parseTaskTime(createdAt)
+	token.CreatedAt, err = parseTime(createdAt)
 	if err != nil {
 		return SubscriptionToken{}, fmt.Errorf("parse created_at: %w", err)
 	}
 	if expiresAt.Valid {
-		parsed, err := parseTaskTime(expiresAt.String)
+		parsed, err := parseTime(expiresAt.String)
 		if err != nil {
 			return SubscriptionToken{}, fmt.Errorf("parse expires_at: %w", err)
 		}
 		token.ExpiresAt = &parsed
 	}
 	if revokedAt.Valid {
-		parsed, err := parseTaskTime(revokedAt.String)
+		parsed, err := parseTime(revokedAt.String)
 		if err != nil {
 			return SubscriptionToken{}, fmt.Errorf("parse revoked_at: %w", err)
 		}
 		token.RevokedAt = &parsed
 	}
 	if lastUsedAt.Valid {
-		parsed, err := parseTaskTime(lastUsedAt.String)
+		parsed, err := parseTime(lastUsedAt.String)
 		if err != nil {
 			return SubscriptionToken{}, fmt.Errorf("parse last_used_at: %w", err)
 		}

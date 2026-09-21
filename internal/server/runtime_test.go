@@ -3,10 +3,10 @@
 package server
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/rehuony/sing-box-panel/internal/testutil"
 	"os"
 	"path/filepath"
 	"strings"
@@ -130,34 +130,10 @@ func TestReconcileStartupEstablishesKnownStoppedBoundaryAfterHistoryInitializati
 	}
 }
 
-func TestReconcileStartupPreservesObservationWhileUserIntentOwnsRuntimeLane(t *testing.T) {
-	ctx := context.Background()
-	database, commands, observation := seedRuntimeObservation(t, ctx)
-	userTask, err := commands.QueueRuntimeRestart(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	services := &runtimeServices{
-		database: database, commands: commands, manager: &fakeRuntimeManager{},
-		identity: &fakeRuntimeIdentityResolver{startTokenErr: os.ErrNotExist},
-	}
-	if err := services.ReconcileStartup(ctx); err != nil {
-		t.Fatalf("ReconcileStartup() error = %v", err)
-	}
-	stored, err := database.RuntimeObservation(ctx)
-	if err != nil || stored.PID != observation.PID || stored.ProcessStartToken != observation.ProcessStartToken {
-		t.Fatalf("observation while user task is active = %+v, %v", stored, err)
-	}
-	current, err := database.GetTask(ctx, userTask.ID)
-	if err != nil || current.Status != store.TaskStatusQueued {
-		t.Fatalf("explicit runtime task after startup reconciliation = %+v, %v", current, err)
-	}
-}
-
 func TestReconcileStartupClearsExitedObservationWhenDesiredStopped(t *testing.T) {
 	ctx := context.Background()
 	database, commands, _ := seedRuntimeObservation(t, ctx)
-	if _, err := commands.QueueRuntimeStop(ctx); err != nil {
+	if _, err := commands.PrepareRuntimeIntent(ctx, store.RuntimeIntentStop, ""); err != nil {
 		t.Fatal(err)
 	}
 	services := &runtimeServices{
@@ -172,7 +148,7 @@ func TestReconcileStartupClearsExitedObservationWhenDesiredStopped(t *testing.T)
 	}
 }
 
-func TestStopForTaskFailsBeforeStoppingProcessOnObservationReadError(t *testing.T) {
+func TestStopForIntentFailsBeforeStoppingProcessOnObservationReadError(t *testing.T) {
 	ctx := context.Background()
 	database, commands, _ := seedRuntimeObservation(t, ctx)
 	if err := database.Close(); err != nil {
@@ -180,15 +156,15 @@ func TestStopForTaskFailsBeforeStoppingProcessOnObservationReadError(t *testing.
 	}
 	manager := &fakeRuntimeManager{}
 	services := &runtimeServices{database: database, commands: commands, manager: manager}
-	if _, err := services.stopForTask(ctx, store.Task{}, successfulTaskControl{}); err == nil {
-		t.Fatal("stopForTask() succeeded after observation read failed")
+	if _, err := services.stopForIntent(ctx, store.RuntimeIntent{}, successfulRuntimeGuard{}); err == nil {
+		t.Fatal("stopForIntent() succeeded after observation read failed")
 	}
 	if manager.stopCalls != 0 {
 		t.Fatalf("manager.Stop() calls = %d, want 0", manager.stopCalls)
 	}
 }
 
-func TestStopForTaskClearsOnlyCapturedIncarnationProvenExited(t *testing.T) {
+func TestStopForIntentClearsOnlyCapturedIncarnationProvenExited(t *testing.T) {
 	tests := []struct {
 		name            string
 		startToken      string
@@ -208,45 +184,29 @@ func TestStopForTaskClearsOnlyCapturedIncarnationProvenExited(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			ctx := context.Background()
 			database, commands, observation := seedRuntimeObservation(t, ctx)
-			queued, err := commands.QueueRuntimeStop(ctx)
+			queued, err := commands.PrepareRuntimeIntent(ctx, store.RuntimeIntentStop, "")
 			if err != nil {
 				t.Fatal(err)
 			}
-			task, err := database.ClaimTask(ctx, store.ClaimTaskInput{
-				Lane: store.TaskLaneRuntime, LeaseOwner: "failed-stop-test",
-				Now: time.Now().UTC(), LeaseDuration: time.Minute,
-			})
-			if err != nil || task == nil || task.ID != queued.ID {
-				t.Fatalf("ClaimTask(runtime stop) = %+v, %v", task, err)
-			}
+			intent := queued
 			manager := &fakeRuntimeManager{stopErr: errors.New("termination failed")}
 			resolver := &fakeRuntimeIdentityResolver{startToken: test.startToken, startTokenErr: test.startTokenErr}
 			services := &runtimeServices{database: database, commands: commands, manager: manager, identity: resolver}
-			result, handlerErr := services.stopForTask(ctx, *task, successfulTaskControl{})
+			result, handlerErr := services.stopForIntent(ctx, intent, successfulRuntimeGuard{})
 			if handlerErr == nil {
-				t.Fatal("stopForTask() succeeded after termination failed")
+				t.Fatal("stopForIntent() succeeded after termination failed")
 			}
 			stored, err := database.RuntimeObservation(ctx)
 			if err != nil || stored.PID != observation.PID || stored.ProcessStartToken != observation.ProcessStartToken {
 				t.Fatalf("observation changed before terminal completion: %+v, %v", stored, err)
 			}
 			if test.wantRecoverable {
-				if !errors.Is(handlerErr, errRuntimeTaskEvidenceUnavailable) || result.Runtime != nil {
+				if !errors.Is(handlerErr, errRuntimeEvidenceUnavailable) || result.Runtime != nil {
 					t.Fatalf("uncertain failed stop = %v; commit = %+v", handlerErr, result.Runtime)
-				}
-				current, taskErr := database.GetTask(ctx, task.ID)
-				if taskErr != nil || current.Status != store.TaskStatusRunning || current.LeaseOwner != task.LeaseOwner {
-					t.Fatalf("recoverable failed-stop task = %+v, %v", current, taskErr)
 				}
 				return
 			}
-			if _, err := database.CompleteTask(
-				ctx, task.ID, task.LeaseOwner, time.Now().UTC(),
-				store.TaskCompletion{
-					Failure: json.RawMessage(`{"code":"termination_failed"}`),
-					Runtime: result.Runtime,
-				},
-			); err != nil {
+			if err := database.CompleteRuntimeIntent(ctx, intent, false, result.Runtime, time.Now().UTC()); err != nil {
 				t.Fatalf("CompleteTask(failed stop) error = %v", err)
 			}
 			stored, err = database.RuntimeObservation(ctx)
@@ -257,7 +217,7 @@ func TestStopForTaskClearsOnlyCapturedIncarnationProvenExited(t *testing.T) {
 				history, historyErr := database.ListRuntimeTransitions(ctx, store.RuntimeHistoryFilter{
 					Reason: "termination_result_uncertain", Limit: 10,
 				})
-				if historyErr != nil || len(history.Items) != 1 || history.Items[0].TaskID != task.ID {
+				if historyErr != nil || len(history.Items) != 1 || history.Items[0].Generation != intent.Generation {
 					t.Fatalf("failed-stop runtime history = %+v, %v", history, historyErr)
 				}
 			} else if err != nil || stored.PID != observation.PID || stored.ProcessStartToken != observation.ProcessStartToken {
@@ -371,7 +331,7 @@ func TestRuntimeReconcilerPersistsStableRunOnlyAfterContinuousIdentityProof(t *t
 	}
 }
 
-func TestRuntimeReconcilerLogsUnexpectedExitAndRecoveryQueueOnce(t *testing.T) {
+func TestRuntimeReconcilerLogsUnexpectedExitAndRecoveryScheduleOnce(t *testing.T) {
 	ctx := context.Background()
 	database, commands, observation := seedRuntimeObservation(t, ctx)
 	manager := &fakeRuntimeManager{live: coreruntime.LiveIdentity{
@@ -389,7 +349,7 @@ func TestRuntimeReconcilerLogsUnexpectedExitAndRecoveryQueueOnce(t *testing.T) {
 	reconciler.reconcile(ctx)
 
 	assertSingleRuntimeLog(t, ctx, database, "runtime.unexpected_exit", observation.ActivationBundleID, 1, 1)
-	assertSingleRuntimeLog(t, ctx, database, "runtime.recovery_queued", observation.ActivationBundleID, 2, 1)
+	assertSingleRuntimeLog(t, ctx, database, "runtime.recovery_scheduled", observation.ActivationBundleID, 1, 1)
 	history, err := database.ListRuntimeTransitions(ctx, store.RuntimeHistoryFilter{
 		Reason: "unexpected_exit",
 		Limit:  10,
@@ -403,7 +363,7 @@ func TestRuntimeReconcilerLogsUnexpectedExitAndRecoveryQueueOnce(t *testing.T) {
 func TestRuntimeReconcilerRecordsFailureWhenRecoveryIsNoLongerDesired(t *testing.T) {
 	ctx := context.Background()
 	database, commands, observation := seedRuntimeObservation(t, ctx)
-	if _, err := commands.QueueRuntimeStop(ctx); err != nil {
+	if _, err := commands.PrepareRuntimeIntent(ctx, store.RuntimeIntentStop, ""); err != nil {
 		t.Fatal(err)
 	}
 	services := &runtimeServices{
@@ -434,36 +394,27 @@ func TestRuntimeReconcilerRecordsFailureWhenRecoveryIsNoLongerDesired(t *testing
 	}
 }
 
-func TestStopForTaskClearsObservationAndAppendsStoppedTransition(t *testing.T) {
+func TestStopForIntentClearsObservationAndAppendsStoppedTransition(t *testing.T) {
 	ctx := context.Background()
 	database, commands, observation := seedRuntimeObservation(t, ctx)
-	queued, err := commands.QueueRuntimeStop(ctx)
+	queued, err := commands.PrepareRuntimeIntent(ctx, store.RuntimeIntentStop, "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	task, err := database.ClaimTask(ctx, store.ClaimTaskInput{
-		Lane: store.TaskLaneRuntime, LeaseOwner: "stop-test",
-		Now: time.Now().UTC(), LeaseDuration: time.Minute,
-	})
-	if err != nil || task == nil || task.ID != queued.ID {
-		t.Fatalf("ClaimTask(runtime stop) = %+v, %v", task, err)
-	}
+	intent := queued
 	manager := &fakeRuntimeManager{live: coreruntime.LiveIdentity{
 		State:          coreruntime.StateStopped,
 		TransitionedAt: observation.ObservedAt.Add(time.Second),
 	}}
 	services := &runtimeServices{database: database, commands: commands, manager: manager}
-	result, err := services.stopForTask(ctx, *task, successfulTaskControl{})
+	result, err := services.stopForIntent(ctx, intent, successfulRuntimeGuard{})
 	if err != nil {
-		t.Fatalf("stopForTask() error = %v", err)
+		t.Fatalf("stopForIntent() error = %v", err)
 	}
 	if stored, err := database.RuntimeObservation(ctx); err != nil || stored.PID != observation.PID {
 		t.Fatalf("observation changed before terminal commit = %+v, %v", stored, err)
 	}
-	if _, err := database.CompleteTask(
-		ctx, task.ID, task.LeaseOwner, time.Now().UTC(),
-		store.TaskCompletion{Succeeded: true, Runtime: result.Runtime},
-	); err != nil {
+	if err := database.CompleteRuntimeIntent(ctx, intent, true, result.Runtime, time.Now().UTC()); err != nil {
 		t.Fatalf("CompleteTask(runtime stop) error = %v", err)
 	}
 	if _, err := database.RuntimeObservation(ctx); !errors.Is(err, store.ErrRuntimeObservationNotFound) {
@@ -474,43 +425,37 @@ func TestStopForTaskClearsObservationAndAppendsStoppedTransition(t *testing.T) {
 		Limit:  10,
 	})
 	if err != nil || len(history.Items) != 1 || history.Items[0].State != store.RuntimeTransitionStopped ||
-		history.Items[0].TaskID != task.ID || history.Items[0].PID != observation.PID {
+		history.Items[0].Generation != intent.Generation || history.Items[0].PID != observation.PID {
 		t.Fatalf("controlled-stop runtime history = %+v, %v", history, err)
 	}
 }
 
-func TestStopForTaskReturnsEvidenceBeforePostStopSupersession(t *testing.T) {
+func TestStopForIntentReturnsEvidenceBeforePostStopSupersession(t *testing.T) {
 	ctx := context.Background()
 	database, commands, observation := seedRuntimeObservation(t, ctx)
-	queued, err := commands.QueueRuntimeStop(ctx)
+	queued, err := commands.PrepareRuntimeIntent(ctx, store.RuntimeIntentStop, "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	task, err := database.ClaimTask(ctx, store.ClaimTaskInput{
-		Lane: store.TaskLaneRuntime, LeaseOwner: "stop-race-test",
-		Now: time.Now().UTC(), LeaseDuration: time.Minute,
-	})
-	if err != nil || task == nil || task.ID != queued.ID {
-		t.Fatalf("ClaimTask(runtime stop) = %+v, %v", task, err)
-	}
+	intent := queued
 	manager := &fakeRuntimeManager{live: coreruntime.LiveIdentity{
 		State: coreruntime.StateStopped, TransitionedAt: observation.ObservedAt.Add(time.Second),
 	}}
 	services := &runtimeServices{database: database, commands: commands, manager: manager}
 	safePoints := 0
-	control := taskControlFunc(func(checkCtx context.Context) error {
+	control := runtimeGuardFunc(func(checkCtx context.Context) error {
 		safePoints++
 		if safePoints == 1 {
 			return nil
 		}
-		if _, queueErr := commands.QueueRuntimeStart(checkCtx); queueErr != nil {
+		if _, queueErr := commands.PrepareRuntimeIntent(checkCtx, store.RuntimeIntentStart, ""); queueErr != nil {
 			return queueErr
 		}
-		return errTaskSuperseded
+		return store.ErrRuntimeIntentStale
 	})
-	result, err := services.stopForTask(ctx, *task, control)
-	if !errors.Is(err, errTaskSuperseded) {
-		t.Fatalf("stopForTask() error = %v, want superseded", err)
+	result, err := services.stopForIntent(ctx, intent, control)
+	if !errors.Is(err, store.ErrRuntimeIntentStale) {
+		t.Fatalf("stopForIntent() error = %v, want superseded", err)
 	}
 	if manager.stopCalls != 1 || safePoints != 2 || result.Runtime == nil {
 		t.Fatalf("post-stop state: stop calls=%d safe points=%d commit=%+v", manager.stopCalls, safePoints, result.Runtime)
@@ -518,48 +463,36 @@ func TestStopForTaskReturnsEvidenceBeforePostStopSupersession(t *testing.T) {
 	if stored, err := database.RuntimeObservation(ctx); err != nil || stored.PID != observation.PID {
 		t.Fatalf("observation changed before superseded completion = %+v, %v", stored, err)
 	}
-	completed, err := database.CompleteTask(
-		ctx, task.ID, task.LeaseOwner, time.Now().UTC(),
-		store.TaskCompletion{
-			Failure: json.RawMessage(`{"code":"superseded_after_stop"}`),
-			Runtime: result.Runtime,
-		},
-	)
-	if err != nil || completed.Status != store.TaskStatusSuperseded {
-		t.Fatalf("CompleteTask(superseded stop) = %+v, %v", completed, err)
+	err = database.CompleteRuntimeIntent(ctx, intent, false, result.Runtime, time.Now().UTC())
+	if !errors.Is(err, store.ErrRuntimeIntentStale) {
+		t.Fatalf("stale completion accepted: %v", err)
 	}
-	if _, err := database.RuntimeObservation(ctx); !errors.Is(err, store.ErrRuntimeObservationNotFound) {
-		t.Fatalf("runtime observation after superseded stop = %v", err)
+	stored, err := database.RuntimeObservation(ctx)
+	if err != nil || stored.PID != observation.PID {
+		t.Fatalf("stale completion changed observation: %+v %v", stored, err)
 	}
-	history, err := database.ListRuntimeTransitions(ctx, store.RuntimeHistoryFilter{
-		Reason: "stop_succeeded", Limit: 10,
-	})
-	if err != nil || len(history.Items) != 1 || history.Items[0].TaskID != task.ID {
-		t.Fatalf("superseded-stop runtime history = %+v, %v", history, err)
+	history, err := database.ListRuntimeTransitions(ctx, store.RuntimeHistoryFilter{Reason: "stop_succeeded", Limit: 10})
+	if err != nil || len(history.Items) != 0 {
+		t.Fatalf("stale history: %+v %v", history, err)
 	}
+
 }
 
-func TestStopForTaskCompletionFenceFailureLeavesTaskRecoverable(t *testing.T) {
+func TestStopForIntentCompletionFenceFailureLeavesEvidenceIntact(t *testing.T) {
 	ctx := context.Background()
 	database, commands, observation := seedRuntimeObservation(t, ctx)
-	queued, err := commands.QueueRuntimeStop(ctx)
+	queued, err := commands.PrepareRuntimeIntent(ctx, store.RuntimeIntentStop, "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	task, err := database.ClaimTask(ctx, store.ClaimTaskInput{
-		Lane: store.TaskLaneRuntime, LeaseOwner: "stop-commit-failure-test",
-		Now: time.Now().UTC(), LeaseDuration: time.Minute,
-	})
-	if err != nil || task == nil || task.ID != queued.ID {
-		t.Fatalf("ClaimTask(runtime stop) = %+v, %v", task, err)
-	}
+	intent := queued
 	manager := &fakeRuntimeManager{live: coreruntime.LiveIdentity{
 		State: coreruntime.StateStopped, TransitionedAt: observation.ObservedAt.Add(time.Second),
 	}}
 	services := &runtimeServices{database: database, commands: commands, manager: manager}
-	result, err := services.stopForTask(ctx, *task, successfulTaskControl{})
+	result, err := services.stopForIntent(ctx, intent, successfulRuntimeGuard{})
 	if err != nil {
-		t.Fatalf("stopForTask() error = %v", err)
+		t.Fatalf("stopForIntent() error = %v", err)
 	}
 
 	newer := observation
@@ -570,16 +503,9 @@ func TestStopForTaskCompletionFenceFailureLeavesTaskRecoverable(t *testing.T) {
 	if _, err := database.RecordRuntimeObservation(ctx, newer); err != nil {
 		t.Fatal(err)
 	}
-	_, err = database.CompleteTask(
-		ctx, task.ID, task.LeaseOwner, time.Now().UTC(),
-		store.TaskCompletion{Succeeded: true, Runtime: result.Runtime},
-	)
+	err = database.CompleteRuntimeIntent(ctx, intent, true, result.Runtime, time.Now().UTC())
 	if !errors.Is(err, store.ErrRuntimeIdentityMismatch) {
 		t.Fatalf("CompleteTask(stale post-stop evidence) error = %v", err)
-	}
-	current, err := database.GetTask(ctx, task.ID)
-	if err != nil || current.Status != store.TaskStatusRunning || current.LeaseOwner != task.LeaseOwner {
-		t.Fatalf("task after failed post-stop completion = %+v, %v", current, err)
 	}
 	stored, err := database.RuntimeObservation(ctx)
 	if err != nil || stored.PID != newer.PID || stored.ProcessStartToken != newer.ProcessStartToken {
@@ -596,20 +522,14 @@ func TestStopForTaskCompletionFenceFailureLeavesTaskRecoverable(t *testing.T) {
 	}
 }
 
-func TestRuntimeTaskHealthFailureClearsObservationAndAppendsFailedTransition(t *testing.T) {
+func TestRuntimeIntentHealthFailureClearsObservationAndAppendsFailedTransition(t *testing.T) {
 	ctx := context.Background()
 	database, commands, observation := seedRuntimeObservation(t, ctx)
-	queued, err := commands.QueueRuntimeRestart(ctx)
+	queued, err := commands.PrepareRuntimeIntent(ctx, store.RuntimeIntentRestart, "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	task, err := database.ClaimTask(ctx, store.ClaimTaskInput{
-		Lane: store.TaskLaneRuntime, LeaseOwner: "health-failure-test",
-		Now: time.Now().UTC(), LeaseDuration: time.Minute,
-	})
-	if err != nil || task == nil || task.ID != queued.ID {
-		t.Fatalf("ClaimTask(runtime restart) = %+v, %v", task, err)
-	}
+	intent := queued
 	activation, err := database.GetActivationBundle(ctx, observation.ActivationBundleID)
 	if err != nil {
 		t.Fatal(err)
@@ -635,7 +555,7 @@ func TestRuntimeTaskHealthFailureClearsObservationAndAppendsFailedTransition(t *
 		}},
 		identity: &fakeRuntimeIdentityResolver{startTokenErr: os.ErrNotExist},
 	}
-	commit, err := services.runtimeTaskFailureCommit(*task, application.RuntimeMaterial{
+	commit, err := services.runtimeIntentFailureCommit(intent, application.RuntimeMaterial{
 		Activation: activation, Startup: startup, Core: core,
 	}, &observation)
 	if err != nil {
@@ -644,13 +564,7 @@ func TestRuntimeTaskHealthFailureClearsObservationAndAppendsFailedTransition(t *
 	if stored, err := database.RuntimeObservation(ctx); err != nil || stored.PID != observation.PID {
 		t.Fatalf("runtime observation changed before terminal completion = %+v, %v", stored, err)
 	}
-	if _, err := database.CompleteTask(
-		ctx, task.ID, task.LeaseOwner, time.Now().UTC(),
-		store.TaskCompletion{
-			Failure: json.RawMessage(`{"code":"health_check_failed"}`),
-			Runtime: commit,
-		},
-	); err != nil {
+	if err := database.CompleteRuntimeIntent(ctx, intent, false, commit, time.Now().UTC()); err != nil {
 		t.Fatalf("CompleteTask(health failure) error = %v", err)
 	}
 	if _, err := database.RuntimeObservation(ctx); !errors.Is(err, store.ErrRuntimeObservationNotFound) {
@@ -661,7 +575,7 @@ func TestRuntimeTaskHealthFailureClearsObservationAndAppendsFailedTransition(t *
 		Limit:  10,
 	})
 	if err != nil || len(history.Items) != 1 || history.Items[0].State != store.RuntimeTransitionFailed ||
-		history.Items[0].TaskID != task.ID {
+		history.Items[0].Generation != intent.Generation {
 		t.Fatalf("health-failure runtime history = %+v, %v", history, err)
 	}
 }
@@ -669,17 +583,11 @@ func TestRuntimeTaskHealthFailureClearsObservationAndAppendsFailedTransition(t *
 func TestMonitoringHandshakeFailureAppendsFailedTransition(t *testing.T) {
 	ctx := context.Background()
 	database, commands, observation := seedRuntimeObservation(t, ctx)
-	queued, err := commands.QueueRuntimeRestart(ctx)
+	queued, err := commands.PrepareRuntimeIntent(ctx, store.RuntimeIntentRestart, "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	task, err := database.ClaimTask(ctx, store.ClaimTaskInput{
-		Lane: store.TaskLaneRuntime, LeaseOwner: "handshake-failure-test",
-		Now: time.Now().UTC(), LeaseDuration: time.Minute,
-	})
-	if err != nil || task == nil || task.ID != queued.ID {
-		t.Fatalf("ClaimTask(runtime restart) = %+v, %v", task, err)
-	}
+	intent := queued
 	services := &runtimeServices{
 		database: database,
 		commands: commands,
@@ -689,7 +597,7 @@ func TestMonitoringHandshakeFailureAppendsFailedTransition(t *testing.T) {
 	}
 	commit, err := services.stopAfterLostIntent(
 		&observation,
-		*task,
+		intent,
 		observation.ActivationBundleID,
 		store.RuntimeTransitionFailed,
 		"monitoring_handshake_failed",
@@ -700,13 +608,7 @@ func TestMonitoringHandshakeFailureAppendsFailedTransition(t *testing.T) {
 	if stored, err := database.RuntimeObservation(ctx); err != nil || stored.PID != observation.PID {
 		t.Fatalf("runtime observation changed before terminal completion = %+v, %v", stored, err)
 	}
-	if _, err := database.CompleteTask(
-		ctx, task.ID, task.LeaseOwner, time.Now().UTC(),
-		store.TaskCompletion{
-			Failure: json.RawMessage(`{"code":"monitoring_handshake_failed"}`),
-			Runtime: commit,
-		},
-	); err != nil {
+	if err := database.CompleteRuntimeIntent(ctx, intent, false, commit, time.Now().UTC()); err != nil {
 		t.Fatalf("CompleteTask(handshake failure) error = %v", err)
 	}
 	history, err := database.ListRuntimeTransitions(ctx, store.RuntimeHistoryFilter{
@@ -714,23 +616,23 @@ func TestMonitoringHandshakeFailureAppendsFailedTransition(t *testing.T) {
 		Limit:  10,
 	})
 	if err != nil || len(history.Items) != 1 || history.Items[0].State != store.RuntimeTransitionFailed ||
-		history.Items[0].TaskID != task.ID {
+		history.Items[0].Generation != intent.Generation {
 		t.Fatalf("handshake-failure runtime history = %+v, %v", history, err)
 	}
 }
 
-func TestPrepareRuntimeTaskRunningCommitDefersTaskSpecificTransitions(t *testing.T) {
+func TestPrepareRuntimeIntentRunningCommitDefersIntentSpecificTransitions(t *testing.T) {
 	tests := []struct {
-		kind       store.TaskKind
-		payload    json.RawMessage
+		kind       store.RuntimeIntentKind
+		recovery   *store.RuntimeRecoveryMetadata
 		wantReason string
 	}{
-		{kind: store.TaskKindRuntimeApply, wantReason: "apply_succeeded"},
-		{kind: store.TaskKindRuntimeStart, wantReason: "start_succeeded"},
-		{kind: store.TaskKindRuntimeRestart, wantReason: "restart_succeeded"},
-		{kind: store.TaskKindRuntimeRollback, wantReason: "rollback_succeeded"},
+		{kind: store.RuntimeIntentApply, wantReason: "apply_succeeded"},
+		{kind: store.RuntimeIntentStart, wantReason: "start_succeeded"},
+		{kind: store.RuntimeIntentRestart, wantReason: "restart_succeeded"},
+		{kind: store.RuntimeIntentRollback, wantReason: "rollback_succeeded"},
 		{
-			kind: store.TaskKindRuntimeStart, payload: json.RawMessage(`{"origin":"auto_recovery"}`),
+			kind: store.RuntimeIntentStart, recovery: &store.RuntimeRecoveryMetadata{EpisodeID: "test"},
 			wantReason: "recovery_succeeded",
 		},
 	}
@@ -758,9 +660,9 @@ func TestPrepareRuntimeTaskRunningCommitDefersTaskSpecificTransitions(t *testing
 			}}
 			services := &runtimeServices{
 				database: database, commands: commands, manager: manager,
-				identity: &fakeRuntimeIdentityResolver{startToken: "task-specific-incarnation"},
+				identity: &fakeRuntimeIdentityResolver{startToken: "intent-specific-incarnation"},
 			}
-			task := store.Task{Kind: test.kind, Generation: 2, Payload: test.payload}
+			intent := store.RuntimeIntent{Kind: test.kind, Generation: 2, Recovery: test.recovery}
 			observation, err := services.recordLiveObservation(
 				ctx,
 				application.RuntimeMaterial{Activation: activation, Startup: startup, Core: core},
@@ -776,7 +678,7 @@ func TestPrepareRuntimeTaskRunningCommitDefersTaskSpecificTransitions(t *testing
 			if err != nil || len(premature.Items) != 0 {
 				t.Fatalf("premature %s runtime history = %+v, %v", test.wantReason, premature, err)
 			}
-			observation, commit, err := services.prepareRuntimeTaskRunningCommit(ctx, task, observation, &previous)
+			observation, commit, err := services.prepareRuntimeIntentRunningCommit(ctx, intent, observation, &previous)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -788,13 +690,13 @@ func TestPrepareRuntimeTaskRunningCommitDefersTaskSpecificTransitions(t *testing
 				Limit:  10,
 			})
 			if err != nil || len(history.Items) != 0 {
-				t.Fatalf("%s history was written before task completion = %+v, %v", test.wantReason, history, err)
+				t.Fatalf("%s history was written before intent completion = %+v, %v", test.wantReason, history, err)
 			}
 			if len(commit.Transitions) != 2 || commit.Transitions[0].State != store.RuntimeTransitionStopped ||
-				commit.Transitions[0].Reason != runtimeTaskReason(task, "boundary") ||
+				commit.Transitions[0].Reason != runtimeIntentReason(intent, "boundary") ||
 				commit.Transitions[1].State != store.RuntimeTransitionRunning ||
 				commit.Transitions[1].Reason != test.wantReason {
-				t.Fatalf("prepared runtime task commit = %+v", commit)
+				t.Fatalf("prepared runtime intent commit = %+v", commit)
 			}
 		})
 	}
@@ -859,19 +761,16 @@ func seedRuntimeObservation(
 	}
 	t.Cleanup(func() { _ = database.Close() })
 	now := time.Date(2026, time.August, 29, 9, 0, 0, 0, time.UTC)
-	revision, err := database.SaveCanonicalRevisionAndTask(ctx, "", store.NewCanonicalRevision{
+	revision, err := testutil.SaveConfiguration(ctx, database, 0, store.NewCanonicalRevision{
 		ID: "revision-runtime-test", SchemaVersion: configuration.SchemaVersion,
 		Document: configuration.Empty().CanonicalJSON(), CommandID: "command-runtime-test", CreatedAt: now,
-	}, store.NewTask{
-		ID: "task-runtime-canonical", IdempotencyKey: "canonical:runtime-test",
-		Lane: store.TaskLaneMaintenance, Kind: store.TaskKindCanonicalSaved,
-		Payload: json.RawMessage(`{}`), CreatedAt: now,
-	})
+	},
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
 	core := store.CoreArtifact{
-		ID: "core-runtime-test", ExactVersion: "1.13.19", OperatingSystem: "linux", Architecture: "arm64", Variant: "plain",
+		ID: "core-runtime-test", ExactVersion: "1.13.19", OperatingSystem: "linux", Architecture: "arm64", Variant: "musl",
 		SourceKind: store.CoreArtifactSourceUserVerified, UserSource: "runtime state test",
 		ArchiveSHA256: strings.Repeat("a", 64), BinarySHA256: strings.Repeat("b", 64),
 		BinaryPath: "/opt/sing-box-panel/core-runtime-test/sing-box", ReportedVersion: "1.13.19",
@@ -898,23 +797,8 @@ func seedRuntimeObservation(
 	if err != nil {
 		t.Fatal(err)
 	}
-	apply, err := database.RequestRuntimeIntent(ctx, store.RuntimeIntentInput{
-		TaskID: "task-runtime-apply", Kind: store.RuntimeIntentApply,
-		BundleID: bundle.ID, CreatedAt: now.Add(3 * time.Second),
-	})
+	intent, err := database.RequestRuntimeIntent(ctx, store.RuntimeIntentInput{Kind: store.RuntimeIntentApply, BundleID: bundle.ID, CreatedAt: now.Add(3 * time.Second)})
 	if err != nil {
-		t.Fatal(err)
-	}
-	claimed, err := database.ClaimTask(ctx, store.ClaimTaskInput{
-		Lane: store.TaskLaneRuntime, LeaseOwner: "runtime-test",
-		Now: now.Add(4 * time.Second), LeaseDuration: time.Minute,
-	})
-	if err != nil || claimed == nil || claimed.ID != apply.ID {
-		t.Fatalf("ClaimTask(runtime apply) = %+v, %v", claimed, err)
-	}
-	if _, err := database.CompleteTask(
-		ctx, claimed.ID, claimed.LeaseOwner, now.Add(5*time.Second), store.TaskCompletion{Succeeded: true},
-	); err != nil {
 		t.Fatal(err)
 	}
 	observation, err := database.RecordRuntimeObservation(ctx, store.RuntimeObservation{
@@ -924,6 +808,10 @@ func seedRuntimeObservation(
 		StartedAt: now.Add(6 * time.Second), ObservedAt: now.Add(7 * time.Second),
 	})
 	if err != nil {
+		t.Fatal(err)
+	}
+	started := observation.StartedAt
+	if err := database.CompleteRuntimeIntent(ctx, intent, true, &store.RuntimeCommit{ExpectedObservation: &observation, Observation: &observation, Transitions: []store.RuntimeTransitionInput{{DedupeKey: "fixture-running", State: store.RuntimeTransitionRunning, Reason: "fixture_running", ActivationBundleID: bundle.ID, Generation: intent.Generation, PID: observation.PID, ProcessStartToken: observation.ProcessStartToken, ProcessStartedAt: &started, OccurredAt: observation.ObservedAt}}}, observation.ObservedAt); err != nil {
 		t.Fatal(err)
 	}
 	return database, application.FromStore(database), observation
@@ -938,18 +826,16 @@ func TestStartupCheckUsesRawRevisionWithExactBinaryWithoutSchema(t *testing.T) {
 	t.Cleanup(func() { _ = database.Close() })
 	now := time.Date(2026, time.August, 31, 13, 0, 0, 0, time.UTC)
 	raw := json.RawMessage(`{"future_option":{"enabled":true}}`)
-	revision, err := database.SaveCanonicalRevisionAndTask(ctx, "", store.NewCanonicalRevision{
+	revision, err := testutil.SaveConfiguration(ctx, database, 0, store.NewCanonicalRevision{
 		ID: "revision-raw-startup-check", SchemaVersion: configuration.SchemaVersion,
 		Document: raw, CommandID: "command-raw-startup-check", CreatedAt: now,
-	}, store.NewTask{
-		ID: "task-raw-canonical", Lane: store.TaskLaneMaintenance,
-		Kind: store.TaskKindCanonicalSaved, CreatedAt: now,
-	})
+	},
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
 	core := store.CoreArtifact{
-		ID: "core-raw-startup-check", ExactVersion: "1.13.19", OperatingSystem: "linux", Architecture: "arm64", Variant: "plain",
+		ID: "core-raw-startup-check", ExactVersion: "1.13.19", OperatingSystem: "linux", Architecture: "arm64", Variant: "musl",
 		SourceKind: store.CoreArtifactSourceUserVerified, UserSource: "raw startup check",
 		ArchiveSHA256: strings.Repeat("a", 64), BinarySHA256: strings.Repeat("b", 64),
 		BinaryPath: "/opt/sing-box-panel/core-raw-startup-check/sing-box", ReportedVersion: "1.13.19",
@@ -967,15 +853,14 @@ func TestStartupCheckUsesRawRevisionWithExactBinaryWithoutSchema(t *testing.T) {
 		t.Fatal(err)
 	}
 	manager := &fakeRuntimeManager{}
-	result, err := startupCheckHandler(application.FromStore(database), manager).Handle(ctx, store.Task{
-		ID: "task-startup-check", StartupArtifactID: startup.ID,
-	}, successfulTaskControl{})
+	services := &runtimeServices{commands: application.FromStore(database), database: database, manager: manager}
+	result, err := services.checkStartup(ctx, startup.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if manager.checkedBundle == nil || string(manager.checkedBundle.StartupConfig) != string(raw) ||
-		manager.checkedBundle.BinaryPath != core.BinaryPath || !bytes.Contains(result.Payload, []byte(`"state":"ready"`)) {
-		t.Fatalf("checked bundle = %+v, result = %s", manager.checkedBundle, result.Payload)
+		manager.checkedBundle.BinaryPath != core.BinaryPath || result.State != store.StartupArtifactReady {
+		t.Fatalf("checked bundle = %+v, result = %+v", manager.checkedBundle, result)
 	}
 	stored, err := database.GetStartupArtifact(ctx, startup.ID)
 	if err != nil || stored.State != store.StartupArtifactReady {
@@ -1038,10 +923,10 @@ func (manager *fakeRuntimeManager) ObserveLiveIdentity() coreruntime.LiveIdentit
 	return manager.live
 }
 
-type successfulTaskControl struct{}
+type successfulRuntimeGuard struct{}
 
-func (successfulTaskControl) SafePoint(context.Context) error { return nil }
+func (successfulRuntimeGuard) SafePoint(context.Context) error { return nil }
 
-type taskControlFunc func(context.Context) error
+type runtimeGuardFunc func(context.Context) error
 
-func (control taskControlFunc) SafePoint(ctx context.Context) error { return control(ctx) }
+func (control runtimeGuardFunc) SafePoint(ctx context.Context) error { return control(ctx) }

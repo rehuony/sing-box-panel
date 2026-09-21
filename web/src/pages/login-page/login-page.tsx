@@ -2,6 +2,7 @@ import type { FormEvent } from 'react';
 
 import { useTranslation } from 'react-i18next';
 import { useEffect, useRef, useState } from 'react';
+import { Eye, EyeOff, ShieldCheck } from 'lucide-react';
 import { Navigate, useLocation, useNavigate } from 'react-router-dom';
 
 import { Input } from '@/components/ui/input';
@@ -34,6 +35,7 @@ export function LoginPage() {
   const location = useLocation();
   const navigate = useNavigate();
   const [token, setToken] = useState('');
+  const [showToken, setShowToken] = useState(false);
   const [error, setError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const controllerRef = useRef<AbortController | null>(null);
@@ -94,27 +96,45 @@ export function LoginPage() {
   return (
     <main className='login-page'>
       <section className='login-card' aria-labelledby='login-title'>
-        <h1 id='login-title'>{t('login.title')}</h1>
+        <div className='login-card__brand'>
+          <span className='login-card__icon' aria-hidden='true'><ShieldCheck /></span>
+          <h1 id='login-title'>{t('login.title')}</h1>
+          <p>{t('login.subtitle')}</p>
+        </div>
 
         <form noValidate onSubmit={handleSubmit}>
           <div className='field-group'>
             <label className='sr-only' htmlFor='management-token'>
               {t('login.token.label', { defaultValue: 'Management token' })}
             </label>
-            <Input
-              aria-describedby={error === '' ? undefined : 'management-token-error'}
-              aria-invalid={error !== ''}
-              autoComplete='current-password'
-              autoFocus
-              disabled={isSubmitting}
-              id='management-token'
-              name='management-token'
-              onChange={(event) => setToken(event.target.value)}
-              placeholder={t('login.token.placeholder', { defaultValue: 'Enter token' })}
-              spellCheck={false}
-              type='password'
-              value={token}
-            />
+            <div className='login-card__token'>
+              <Input
+                aria-describedby={error === '' ? undefined : 'management-token-error'}
+                aria-invalid={error !== ''}
+                autoComplete='current-password'
+                autoFocus
+                disabled={isSubmitting}
+                id='management-token'
+                name='management-token'
+                onChange={(event) => setToken(event.target.value)}
+                placeholder={t('login.token.placeholder', { defaultValue: 'Enter token' })}
+                spellCheck={false}
+                type={showToken ? 'text' : 'password'}
+                value={token}
+              />
+              <Button
+                aria-label={t(showToken ? 'login.token.hide' : 'login.token.show')}
+                aria-pressed={showToken}
+                className='login-card__visibility'
+                disabled={isSubmitting}
+                onClick={() => setShowToken((visible) => !visible)}
+                size='icon-sm'
+                type='button'
+                variant='ghost'
+              >
+                {showToken ? <EyeOff /> : <Eye />}
+              </Button>
+            </div>
             {error === ''
               ? null
               : (

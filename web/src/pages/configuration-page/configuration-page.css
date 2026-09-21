@@ -21,7 +21,6 @@
 .configuration-toolbar__actions,
 .managed-editor__toolbar,
 .managed-editor__collections,
-.revision-card__actions,
 .inline-actions {
   align-items: center;
   display: flex;
@@ -36,7 +35,6 @@
 .configuration-toolbar__actions [data-slot='select-trigger'],
 .configuration-tabs [data-slot='tabs-trigger'],
 .managed-editor button,
-.revision-section button,
 .startup-workflow button {
   white-space: nowrap;
 }
@@ -207,8 +205,7 @@
   font-size: var(--text-sm);
 }
 
-.managed-node-card :is(strong, [data-slot='badge'], [data-slot='button']),
-.revision-card :is(strong, .state-label, [data-slot='button']) {
+.managed-node-card :is(strong, [data-slot='badge'], [data-slot='button']) {
   font-weight: 400;
 }
 
@@ -254,9 +251,7 @@
   font-size: var(--text-sm);
 }
 
-.configuration-entity-json,
-.revision-detail pre,
-.revision-diff-list pre {
+.configuration-entity-json {
   background: var(--color-code-surface);
   border-radius: var(--radius-control);
   color: var(--color-on-ink);
@@ -267,8 +262,6 @@
   padding: var(--space-md);
   white-space: pre;
 }
-
-.revision-section,
 .startup-workflow {
   background: var(--color-surface);
   border: var(--rule-thin) solid var(--color-border);
@@ -303,8 +296,6 @@
   margin: 0;
   max-width: 65ch;
 }
-
-.revision-history__list,
 .diagnostic-list {
   display: grid;
   gap: var(--space-xs);
@@ -312,148 +303,6 @@
   max-height: min(38dvh, 24rem);
   overflow-y: auto;
   overscroll-behavior: contain;
-}
-
-.revision-card {
-  align-items: center;
-  border-bottom: var(--rule-thin) solid var(--color-border);
-  display: flex;
-  gap: var(--space-md);
-  justify-content: space-between;
-  min-width: 0;
-  padding: var(--space-sm) var(--space-xs);
-}
-
-.revision-card > div:first-child {
-  display: grid;
-  gap: var(--space-2xs);
-  min-width: 0;
-}
-
-.revision-card span,
-.revision-card code {
-  color: var(--color-text-muted);
-  font-size: var(--text-xs);
-}
-
-.revision-card code {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.revision-inspector-grid {
-  display: grid;
-  gap: var(--space-md);
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  margin-top: var(--space-md);
-}
-
-.revision-inspector-card {
-  border-top: var(--rule-thin) solid var(--color-border);
-  min-width: 0;
-  padding-top: var(--space-md);
-}
-
-.revision-inspector-card header,
-.revision-diff-controls {
-  align-items: center;
-  display: flex;
-  gap: var(--space-sm);
-  justify-content: space-between;
-}
-
-.revision-inspector-card h3 {
-  font-size: var(--text-sm);
-  margin: 0;
-}
-
-.revision-detail pre,
-.revision-diff-list {
-  max-height: 20rem;
-  overflow: auto;
-}
-
-.revision-detail dl {
-  display: grid;
-  gap: var(--space-xs);
-}
-
-.revision-detail dl > div {
-  display: grid;
-  gap: var(--space-2xs);
-  grid-template-columns: 5rem minmax(0, 1fr);
-}
-
-.revision-detail dt,
-.revision-diff-list span {
-  color: var(--color-text-muted);
-  font-size: var(--text-xs);
-}
-
-.revision-detail dd {
-  margin: 0;
-  min-width: 0;
-  overflow-wrap: anywhere;
-}
-
-.revision-diff-controls {
-  align-items: flex-end;
-  flex-wrap: wrap;
-  margin-top: var(--space-sm);
-}
-
-.revision-diff-list {
-  list-style: none;
-  margin: var(--space-sm) 0 0;
-  padding: 0;
-}
-
-.revision-diff-list > li {
-  border-bottom: var(--rule-thin) solid var(--color-border);
-  display: grid;
-  gap: var(--space-xs);
-  padding-block: var(--space-sm);
-}
-
-.revision-diff-list__values {
-  display: grid;
-  gap: var(--space-xs);
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-}
-
-.revision-diff-list__values > div {
-  display: grid;
-  gap: var(--space-2xs);
-  min-width: 0;
-}
-
-.revision-history__footer,
-.revision-compare-controls,
-.revision-compare-controls label {
-  align-items: center;
-  display: flex;
-  gap: var(--space-xs);
-}
-
-.revision-history__footer {
-  border-top: var(--rule-thin) solid var(--color-border);
-  justify-content: space-between;
-  margin-top: var(--space-sm);
-  padding-top: var(--space-sm);
-}
-
-.revision-compare-controls label > span {
-  color: var(--color-text-muted);
-  font-size: var(--text-xs);
-}
-
-.revision-compare-controls [data-slot='select-trigger'] {
-  min-width: 5rem;
-}
-
-.configuration-history-dialog {
-  max-width: min(56rem, calc(100vw - var(--space-lg)));
 }
 
 .startup-workflow {
@@ -467,8 +316,7 @@
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
-.startup-workflow .field-group,
-.revision-diff-controls .field-group {
+.startup-workflow .field-group {
   display: grid;
   gap: var(--space-2xs);
   min-width: 0;
@@ -510,8 +358,6 @@
     grid-column: 1 / -1;
     justify-self: start;
   }
-
-  .revision-inspector-grid,
   .startup-workflow .form-grid {
     grid-template-columns: minmax(0, 1fr);
   }
@@ -543,18 +389,6 @@
     padding: var(--space-xs) var(--space-2xs);
     font-size: var(--text-xs);
     white-space: normal;
-  }
-
-  .revision-diff-list__values {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .revision-card,
-  .revision-inspector-card header,
-  .revision-history__footer,
-  .revision-compare-controls {
-    align-items: stretch;
-    flex-direction: column;
   }
 
   .managed-node-card {
@@ -810,5 +644,33 @@
   .configuration-section-tabs__nav {
     overflow-x: auto;
     scrollbar-width: none;
+  }
+}
+
+.configuration-schema-version {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+  color: var(--color-text-secondary);
+  font-size: 12px;
+}
+.configuration-schema-version [data-slot='select-trigger'] {
+  width: 120px;
+}
+.configuration-schema-notice {
+  margin: 0;
+  padding: 8px 16px;
+  font-size: 12px;
+  color: var(--color-text-secondary);
+  border-bottom: 1px solid var(--color-border);
+}
+@media (max-width: 640px) {
+  .configuration-tabs__rail {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .configuration-schema-version {
+    margin-left: 0;
   }
 }

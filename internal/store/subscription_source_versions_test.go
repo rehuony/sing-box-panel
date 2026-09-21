@@ -79,27 +79,17 @@ func TestSubscriptionSourceVersionsAppendReuseAndRestore(t *testing.T) {
 	}
 }
 
-func TestSubscriptionSourceAndVersionWritesRollBackWhenRefreshTaskInsertFails(t *testing.T) {
+func TestSubscriptionSourceAndVersionWritesRollBackWhenRefreshScheduleIsStale(t *testing.T) {
 	ctx := context.Background()
 	database := openTestStore(t, ctx)
 	now := time.Date(2026, time.August, 27, 9, 0, 0, 0, time.UTC)
-	collision := EnqueueTaskInput{
-		ID: "task-refresh-collision", IdempotencyKey: "existing-refresh-task",
-		Lane: TaskLaneMaintenance, Kind: TaskKindSubscriptionSourceRefresh,
-		Payload: json.RawMessage(`{"source_id":"unrelated"}`), CreatedAt: now,
-	}
-	if _, err := database.EnqueueTask(ctx, collision); err != nil {
-		t.Fatal(err)
-	}
-	refreshTask := collision
-	refreshTask.IdempotencyKey = "new-refresh-task"
-	refreshTask.Payload = json.RawMessage(`{"source_id":"source-atomic"}`)
+	refreshSchedule := SubscriptionRefreshSchedule{SourceID: "source-atomic", ExpectedUpdatedAt: now.Add(-time.Minute), NextAt: now}
 
-	if _, err := database.CreateSubscriptionSourceAndTask(ctx, SubscriptionSource{
+	if _, err := database.CreateSubscriptionSourceWithSchedule(ctx, SubscriptionSource{
 		ID: "source-create-rollback", Name: "create rollback", SourceKind: SubscriptionSourceRemote,
 		Config: json.RawMessage(`{"url":"https://example.test/create"}`), Enabled: true, CreatedAt: now,
-	}, &refreshTask); err == nil {
-		t.Fatal("source create succeeded despite refresh task identity collision")
+	}, &refreshSchedule); err == nil {
+		t.Fatal("source create succeeded despite stale refresh schedule")
 	}
 	if _, err := database.GetSubscriptionSource(ctx, "source-create-rollback"); !errors.Is(err, ErrSubscriptionSourceNotFound) {
 		t.Fatalf("failed create left a source behind: %v", err)
@@ -115,9 +105,9 @@ func TestSubscriptionSourceAndVersionWritesRollBackWhenRefreshTaskInsertFails(t 
 	if _, err := database.UpdateSubscriptionSource(ctx, UpdateSubscriptionSourceInput{
 		ID: source.ID, Name: "mutated", SourceKind: source.SourceKind,
 		Config: json.RawMessage(`{"url":"https://example.test/mutated"}`), Enabled: source.Enabled,
-		ExpectedUpdatedAt: source.UpdatedAt, UpdatedAt: now.Add(time.Minute), RefreshTask: &refreshTask,
+		ExpectedUpdatedAt: source.UpdatedAt, UpdatedAt: now.Add(time.Minute), RefreshSchedule: &refreshSchedule,
 	}); err == nil {
-		t.Fatal("source update succeeded despite refresh task identity collision")
+		t.Fatal("source update succeeded despite stale refresh schedule")
 	}
 	unchanged, err := database.GetSubscriptionSource(ctx, source.ID)
 	if err != nil {
@@ -136,9 +126,9 @@ func TestSubscriptionSourceAndVersionWritesRollBackWhenRefreshTaskInsertFails(t 
 	}
 	if _, err := database.SaveSubscriptionSourceVersion(ctx, SaveSubscriptionSourceVersionInput{
 		Version: failedVersion, ExpectedSourceUpdatedAt: source.UpdatedAt,
-		UpdatedAt: now.Add(time.Minute), RefreshTask: &refreshTask,
+		UpdatedAt: now.Add(time.Minute), RefreshSchedule: &refreshSchedule,
 	}); err == nil {
-		t.Fatal("version save succeeded despite refresh task identity collision")
+		t.Fatal("version save succeeded despite stale refresh schedule")
 	}
 	if _, err := database.GetSubscriptionSourceVersion(ctx, source.ID, failedVersion.ID); !errors.Is(err, ErrSubscriptionSourceVersionNotFound) {
 		t.Fatalf("failed version save left a version behind: %v", err)
@@ -166,10 +156,10 @@ func TestSubscriptionSourceAndVersionWritesRollBackWhenRefreshTaskInsertFails(t 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := database.ActivateSubscriptionSourceVersionAndTask(
-		ctx, source.ID, first.Version.ID, second.Source.UpdatedAt, now.Add(3*time.Minute), &refreshTask,
+	if _, err := database.ActivateSubscriptionSourceVersionWithSchedule(
+		ctx, source.ID, first.Version.ID, second.Source.UpdatedAt, now.Add(3*time.Minute), &refreshSchedule,
 	); err == nil {
-		t.Fatal("version restore succeeded despite refresh task identity collision")
+		t.Fatal("version restore succeeded despite stale refresh schedule")
 	}
 	afterRestore, err := database.GetSubscriptionSource(ctx, source.ID)
 	if err != nil || afterRestore.CurrentVersionID != second.Version.ID || !afterRestore.UpdatedAt.Equal(second.Source.UpdatedAt) {

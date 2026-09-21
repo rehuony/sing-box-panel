@@ -127,7 +127,8 @@ func encodePageValidator(pageETags []string) (string, error) {
 }
 
 func (client *GitHubClient) decodePageValidator(value string) ([]string, error) {
-	if value == "" {
+	// v1 validators used 20 releases per page and cannot validate 50-item pages.
+	if value == "" || strings.HasPrefix(value, "sbp-github-pages-v1.") {
 		return nil, nil
 	}
 	if len(value) > maximumValidatorSize || containsControl(value) || !strings.HasPrefix(value, pageValidatorPrefix) {

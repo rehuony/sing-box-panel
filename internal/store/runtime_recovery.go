@@ -23,9 +23,7 @@ var runtimeRecoveryDelays = [...]time.Duration{
 	30 * time.Second,
 }
 
-// RuntimeRecoveryMetadata is persisted in a recovery task's payload. Keeping
-// the episode and attempt in task history makes the retry budget durable across
-// panel restarts without adding mutable recovery state beside the task log.
+// RuntimeRecoveryMetadata records the bounded recovery episode across restarts.
 type RuntimeRecoveryMetadata struct {
 	EpisodeID              string     `json:"episode_id"`
 	EpisodeGeneration      int64      `json:"episode_generation"`
@@ -37,20 +35,10 @@ type RuntimeRecoveryMetadata struct {
 	FailedProcessStartedAt *time.Time `json:"failed_process_started_at,omitempty"`
 }
 
-type runtimeRecoveryPayload struct {
-	Intent                    RuntimeIntentKind        `json:"intent"`
-	BundleID                  string                   `json:"bundle_id"`
-	Origin                    string                   `json:"origin,omitempty"`
-	RecoveryEpisodeGeneration int64                    `json:"recovery_episode_generation,omitempty"`
-	RecoveryAttempt           int                      `json:"recovery_attempt,omitempty"`
-	Recovery                  *RuntimeRecoveryMetadata `json:"recovery,omitempty"`
-}
-
 // RuntimeRecoveryInput contains the state observed by one reconciliation pass.
 // ExpectedObservation is nil only when the caller observed that no persisted
 // process identity exists. A non-nil value is an exact PID-incarnation fence.
 type RuntimeRecoveryInput struct {
-	TaskID              string
 	NewEpisodeID        string
 	ExpectedBundleID    string
 	ExpectedGeneration  int64
@@ -63,9 +51,9 @@ type RuntimeRecoveryInput struct {
 
 // RuntimeRecoveryDecision reports whether recovery was scheduled or its
 // durable episode exhausted. A zero decision means that concurrent state made
-// the observation stale or another runtime task already owns reconciliation.
+// the observation stale or a serialized control request owns reconciliation.
 type RuntimeRecoveryDecision struct {
-	Task       *Task
+	Intent     *RuntimeIntent
 	BundleID   string
 	Generation int64
 	EpisodeID  string
@@ -77,7 +65,7 @@ type RuntimeRecoveryDecision struct {
 // the observed desired/applied generation is still current, and schedules at
 // most one bounded recovery attempt. Explicit user runtime intents race through
 // the same hub generation, so whichever transaction commits later supersedes or
-// prevents recovery without an unfenced check-then-enqueue window.
+// prevents recovery without an unfenced check-then-start window.
 func (s *Store) RequestRuntimeRecovery(
 	ctx context.Context,
 	input RuntimeRecoveryInput,
@@ -93,10 +81,6 @@ func (s *Store) RequestRuntimeRecovery(
 		if err != nil || !eligible {
 			return err
 		}
-		active, err := hasActiveRuntimeTask(ctx, tx)
-		if err != nil || active {
-			return err
-		}
 		observationMatches, err := runtimeRecoveryObservationMatches(ctx, tx, prepared.ExpectedObservation)
 		if err != nil || !observationMatches {
 			return err
@@ -105,14 +89,31 @@ func (s *Store) RequestRuntimeRecovery(
 			return err
 		}
 
-		current, err := runtimeTaskAtGeneration(ctx, tx, prepared.ExpectedGeneration)
-		if err != nil && !errors.Is(err, ErrTaskNotFound) {
-			return err
-		}
-		metadata, err := nextRuntimeRecoveryMetadata(prepared, current)
+		previous, nextAt, succeeded, err := readRuntimeRecovery(ctx, tx, prepared.ExpectedGeneration)
 		if err != nil {
 			return err
 		}
+		// A pending deadline survives panel restarts. Only a due attempt reserves
+		// a generation; polling does not consume the retry budget.
+		if nextAt != nil {
+			if prepared.CreatedAt.Before(*nextAt) {
+				return nil
+			}
+			generation := prepared.ExpectedGeneration + 1
+			if _, err := tx.ExecContext(ctx, `UPDATE hub_state SET target_generation=?,updated_at=? WHERE singleton=1`, generation, formatTime(prepared.CreatedAt)); err != nil {
+				return err
+			}
+			if _, err := tx.ExecContext(ctx, `UPDATE runtime_recovery SET generation=?,next_attempt_at=NULL,succeeded=0 WHERE singleton=1`, generation); err != nil {
+				return err
+			}
+			decision.Intent = &RuntimeIntent{Kind: RuntimeIntentStart, Generation: generation, ActivationBundleID: prepared.ExpectedBundleID, Recovery: previous}
+			decision.Generation = generation
+			decision.BundleID = prepared.ExpectedBundleID
+			decision.EpisodeID = previous.EpisodeID
+			decision.Attempt = previous.Attempt
+			return nil
+		}
+		metadata := nextRuntimeRecoveryMetadata(prepared, previous, succeeded)
 		decision.EpisodeID = metadata.EpisodeID
 		decision.Attempt = metadata.Attempt
 		decision.BundleID = prepared.ExpectedBundleID
@@ -132,43 +133,26 @@ func (s *Store) RequestRuntimeRecovery(
 			return nil
 		}
 
-		payload, err := json.Marshal(runtimeRecoveryPayload{
-			Intent: RuntimeIntentStart, BundleID: prepared.ExpectedBundleID,
-			Origin: "auto_recovery", RecoveryEpisodeGeneration: metadata.EpisodeGeneration,
-			RecoveryAttempt: metadata.Attempt, Recovery: &metadata,
-		})
-		if err != nil {
-			return fmt.Errorf("encode runtime recovery task: %w", err)
-		}
-		notBefore := prepared.CreatedAt.Add(runtimeRecoveryDelays[metadata.Attempt-1])
-		taskInput, err := prepareEnqueuedTask(EnqueueTaskInput{
-			ID:                 prepared.TaskID,
-			IdempotencyKey:     fmt.Sprintf("runtime-recovery:%s:%d", metadata.EpisodeID, metadata.Attempt),
-			Lane:               TaskLaneRuntime,
-			Kind:               TaskKindRuntimeStart,
-			Generation:         prepared.ExpectedGeneration + 1,
-			ActivationBundleID: prepared.ExpectedBundleID,
-			Payload:            payload,
-			NotBefore:          &notBefore,
-			CreatedAt:          prepared.CreatedAt,
-		})
+		raw, err := json.Marshal(metadata)
 		if err != nil {
 			return err
 		}
-		queued, err := enqueuePreparedTaskTx(ctx, tx, taskInput)
+		nextAtValue := prepared.CreatedAt.Add(runtimeRecoveryDelays[metadata.Attempt-1])
+		_, err = tx.ExecContext(ctx, `INSERT INTO runtime_recovery(singleton,generation,metadata_json,next_attempt_at,succeeded) VALUES(1,?,?,?,0)
+          ON CONFLICT(singleton) DO UPDATE SET generation=excluded.generation,metadata_json=excluded.metadata_json,next_attempt_at=excluded.next_attempt_at,succeeded=0`,
+			prepared.ExpectedGeneration, string(raw), formatTime(nextAtValue))
 		if err != nil {
 			return err
 		}
-		decision.Task = &queued
-		decision.Generation = queued.Generation
+
 		return nil
 	})
 	return decision, err
 }
 
 func prepareRuntimeRecoveryInput(input RuntimeRecoveryInput) (RuntimeRecoveryInput, error) {
-	if strings.TrimSpace(input.TaskID) == "" || strings.TrimSpace(input.NewEpisodeID) == "" {
-		return RuntimeRecoveryInput{}, errors.New("runtime recovery task and episode IDs are required")
+	if strings.TrimSpace(input.NewEpisodeID) == "" {
+		return RuntimeRecoveryInput{}, errors.New("runtime recovery episode ID are required")
 	}
 	if strings.TrimSpace(input.ExpectedBundleID) == "" {
 		return RuntimeRecoveryInput{}, errors.New("runtime recovery bundle is required")
@@ -242,20 +226,6 @@ func runtimeRecoveryStateMatches(
 		valueOrEmpty(appliedBundle) == input.ExpectedBundleID, nil
 }
 
-func hasActiveRuntimeTask(ctx context.Context, tx *sql.Tx) (bool, error) {
-	var active int
-	if err := tx.QueryRowContext(
-		ctx,
-		`SELECT EXISTS(
-	        SELECT 1 FROM tasks
-	         WHERE lane = 'runtime' AND status IN ('queued', 'running')
-	    )`,
-	).Scan(&active); err != nil {
-		return false, fmt.Errorf("inspect active runtime recovery work: %w", err)
-	}
-	return active != 0, nil
-}
-
 func runtimeRecoveryObservationMatches(
 	ctx context.Context,
 	tx *sql.Tx,
@@ -292,87 +262,51 @@ func clearRuntimeRecoveryObservation(
 	return nil
 }
 
-func runtimeTaskAtGeneration(
-	ctx context.Context,
-	tx *sql.Tx,
-	generation int64,
-) (Task, error) {
-	task, err := scanTask(tx.QueryRowContext(
-		ctx,
-		`SELECT `+taskColumns+`
-	       FROM tasks
-	      WHERE lane = 'runtime' AND generation = ?
-	      ORDER BY created_at DESC, id DESC
-	      LIMIT 1`,
-		generation,
-	))
+func readRuntimeRecovery(ctx context.Context, tx *sql.Tx, generation int64) (*RuntimeRecoveryMetadata, *time.Time, bool, error) {
+	var raw string
+	var next sql.NullString
+	var succeeded bool
+	err := tx.QueryRowContext(ctx, `SELECT metadata_json,next_attempt_at,succeeded FROM runtime_recovery WHERE singleton=1 AND generation=?`, generation).Scan(&raw, &next, &succeeded)
 	if errors.Is(err, sql.ErrNoRows) {
-		return Task{}, ErrTaskNotFound
+		return nil, nil, false, nil
 	}
 	if err != nil {
-		return Task{}, fmt.Errorf("read runtime recovery history: %w", err)
+		return nil, nil, false, err
 	}
-	return task, nil
+	var metadata RuntimeRecoveryMetadata
+	if err := json.Unmarshal([]byte(raw), &metadata); err != nil {
+		return nil, nil, false, err
+	}
+	if metadata.EpisodeID == "" || metadata.Attempt < 1 || metadata.Attempt > RuntimeRecoveryMaximumAttempts {
+		return nil, nil, false, ErrSchemaInconsistent
+	}
+	var nextAt *time.Time
+	if next.Valid {
+		parsed, err := parseTime(next.String)
+		if err != nil {
+			return nil, nil, false, err
+		}
+		nextAt = &parsed
+	}
+	return &metadata, nextAt, succeeded, nil
 }
 
-func nextRuntimeRecoveryMetadata(
-	input RuntimeRecoveryInput,
-	current Task,
-) (RuntimeRecoveryMetadata, error) {
+func nextRuntimeRecoveryMetadata(input RuntimeRecoveryInput, previous *RuntimeRecoveryMetadata, succeeded bool) RuntimeRecoveryMetadata {
 	attempt := 1
 	episodeID := input.NewEpisodeID
 	episodeGeneration := input.ExpectedGeneration + 1
-	if current.ID != "" {
-		previous, err := runtimeRecoveryMetadataFromTask(current)
-		if err != nil {
-			return RuntimeRecoveryMetadata{}, err
-		}
-		// Wall-clock age is not evidence of continuous uptime: both the child
-		// and panel may have been down for most of the interval. Only the live
-		// reconciler can prove that one PID incarnation remained observable for
-		// the full stability window in this panel process.
-		stable := previous != nil && current.Status == TaskStatusSucceeded &&
-			(input.StableRunProven || input.CleanBoundaryProven)
-		if previous != nil && !stable {
-			episodeID = previous.EpisodeID
-			episodeGeneration = previous.EpisodeGeneration
-			attempt = previous.Attempt + 1
-		}
+	// Reset only after an observed stable PID incarnation or a proven clean stop.
+	if previous != nil && !(succeeded && (input.StableRunProven || input.CleanBoundaryProven)) {
+		episodeID = previous.EpisodeID
+		episodeGeneration = previous.EpisodeGeneration
+		attempt = previous.Attempt + 1
 	}
-	metadata := RuntimeRecoveryMetadata{
-		EpisodeID:           episodeID,
-		EpisodeGeneration:   episodeGeneration,
-		Attempt:             attempt,
-		MaximumAttempts:     RuntimeRecoveryMaximumAttempts,
-		StableWindowSeconds: int64(RuntimeRecoveryStableWindow / time.Second),
-		RequestedAt:         input.CreatedAt,
-		PreviousGeneration:  input.ExpectedGeneration,
-	}
+	metadata := RuntimeRecoveryMetadata{EpisodeID: episodeID, EpisodeGeneration: episodeGeneration, Attempt: attempt,
+		MaximumAttempts: RuntimeRecoveryMaximumAttempts, StableWindowSeconds: int64(RuntimeRecoveryStableWindow / time.Second),
+		RequestedAt: input.CreatedAt, PreviousGeneration: input.ExpectedGeneration}
 	if input.ExpectedObservation != nil {
-		startedAt := input.ExpectedObservation.StartedAt
-		metadata.FailedProcessStartedAt = &startedAt
+		started := input.ExpectedObservation.StartedAt
+		metadata.FailedProcessStartedAt = &started
 	}
-	return metadata, nil
-}
-
-func runtimeRecoveryMetadataFromTask(task Task) (*RuntimeRecoveryMetadata, error) {
-	var payload runtimeRecoveryPayload
-	if err := json.Unmarshal(task.Payload, &payload); err != nil {
-		return nil, fmt.Errorf("decode runtime recovery history: %w", err)
-	}
-	if payload.Recovery == nil {
-		return nil, nil
-	}
-	metadata := *payload.Recovery
-	if task.Kind != TaskKindRuntimeStart || payload.Intent != RuntimeIntentStart || payload.Origin != "auto_recovery" ||
-		payload.BundleID != task.ActivationBundleID || strings.TrimSpace(metadata.EpisodeID) == "" ||
-		payload.RecoveryEpisodeGeneration != metadata.EpisodeGeneration || payload.RecoveryAttempt != metadata.Attempt ||
-		metadata.EpisodeGeneration < 1 || metadata.EpisodeGeneration > task.Generation ||
-		metadata.Attempt < 1 || metadata.Attempt > RuntimeRecoveryMaximumAttempts ||
-		metadata.MaximumAttempts != RuntimeRecoveryMaximumAttempts ||
-		metadata.StableWindowSeconds != int64(RuntimeRecoveryStableWindow/time.Second) ||
-		metadata.RequestedAt.IsZero() || metadata.PreviousGeneration < 1 {
-		return nil, fmt.Errorf("%w: invalid runtime recovery task payload", ErrSchemaInconsistent)
-	}
-	return &metadata, nil
+	return metadata
 }

@@ -4,10 +4,7 @@ package store
 
 import (
 	"context"
-	"crypto/sha256"
 	"database/sql"
-	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"path/filepath"
@@ -60,56 +57,6 @@ func (s *Store) RebaseDataPaths(ctx context.Context, source, destination, id str
 				if _, err := tx.ExecContext(ctx, "UPDATE core_artifacts SET binary_path=? WHERE id=?", next, e.id); err != nil {
 					return err
 				}
-			}
-		}
-		rows, err = tx.QueryContext(ctx, "SELECT id, payload_json, idempotency_key FROM tasks WHERE kind=? AND status IN ('queued','running')", TaskKindCoreImport)
-		if err != nil {
-			return err
-		}
-		type task struct {
-			id, payload string
-			key         sql.NullString
-		}
-		var tasks []task
-		for rows.Next() {
-			var t task
-			if err := rows.Scan(&t.id, &t.payload, &t.key); err != nil {
-				rows.Close()
-				return err
-			}
-			tasks = append(tasks, t)
-		}
-		err = errors.Join(rows.Err(), rows.Close())
-		if err != nil {
-			return err
-		}
-		for _, t := range tasks {
-			var payload map[string]json.RawMessage
-			if err := json.Unmarshal([]byte(t.payload), &payload); err != nil {
-				return err
-			}
-			var old string
-			if err := json.Unmarshal(payload["source_path"], &old); err != nil {
-				return err
-			}
-			next, ok := rebasedPath(old, source, destination)
-			if !ok {
-				next, ok = rebasedPath(old, physicalSource, destination)
-			}
-			if !ok {
-				continue
-			}
-			payload["source_path"], _ = json.Marshal(next)
-			raw, err := json.Marshal(payload)
-			if err != nil {
-				return err
-			}
-			if i := strings.LastIndex(t.key.String, ":upload:"); t.key.Valid && i >= 0 {
-				digest := sha256.Sum256([]byte(next))
-				t.key.String = t.key.String[:i] + ":upload:" + hex.EncodeToString(digest[:16])
-			}
-			if _, err := tx.ExecContext(ctx, "UPDATE tasks SET payload_json=?, idempotency_key=? WHERE id=?", string(raw), t.key, t.id); err != nil {
-				return err
 			}
 		}
 		_, err = tx.ExecContext(ctx, "INSERT INTO data_directory_moves(id,source_path,target_path) VALUES(?,?,?)", id, source, destination)

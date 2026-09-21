@@ -35,7 +35,7 @@ type SaveSubscriptionSourceVersionInput struct {
 	Version                 SubscriptionSourceVersion
 	ExpectedSourceUpdatedAt time.Time
 	UpdatedAt               time.Time
-	RefreshTask             *EnqueueTaskInput
+	RefreshSchedule         *SubscriptionRefreshSchedule
 }
 
 type SubscriptionSourceVersionListFilter struct {
@@ -74,7 +74,7 @@ func (s *Store) SaveSubscriptionSourceVersion(
 	if err != nil {
 		return SubscriptionSourceVersionSave{}, err
 	}
-	refreshTask, err := prepareSubscriptionRefreshTask(input.RefreshTask)
+	schedule, err := prepareSubscriptionRefreshSchedule(input.RefreshSchedule)
 	if err != nil {
 		return SubscriptionSourceVersionSave{}, err
 	}
@@ -98,7 +98,7 @@ func (s *Store) SaveSubscriptionSourceVersion(
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 				version.ID, version.SourceID, version.Format, version.RawBody,
 				string(version.NormalizedNodes), string(version.Diagnostics), version.SHA256,
-				formatTaskTime(version.FetchedAt), formatTaskTime(version.CreatedAt)); err != nil {
+				formatTime(version.FetchedAt), formatTime(version.CreatedAt)); err != nil {
 				return fmt.Errorf("insert subscription source version: %w", err)
 			}
 		default:
@@ -107,7 +107,7 @@ func (s *Store) SaveSubscriptionSourceVersion(
 		write, err := tx.ExecContext(ctx, `UPDATE subscription_sources
             SET current_version_id = ?, updated_at = ?
             WHERE id = ? AND updated_at = ?`,
-			version.ID, formatTaskTime(updated), source.ID, formatTaskTime(expected))
+			version.ID, formatTime(updated), source.ID, formatTime(expected))
 		if err != nil {
 			return fmt.Errorf("activate subscription source version: %w", err)
 		}
@@ -119,7 +119,7 @@ func (s *Store) SaveSubscriptionSourceVersion(
 			return err
 		}
 		saved.Version = cloneSubscriptionSourceVersion(version)
-		return enqueueSubscriptionRefreshTaskTx(ctx, tx, refreshTask)
+		return saveSubscriptionRefreshScheduleTx(ctx, tx, saved.Source.ID, schedule)
 	})
 	return saved, err
 }
@@ -159,7 +159,7 @@ func (s *Store) ListSubscriptionSourceVersions(
 	args := []any{filter.SourceID}
 	if filter.Cursor != nil {
 		query += ` AND (created_at < ? OR (created_at = ? AND id < ?))`
-		cursorTime := formatTaskTime(filter.Cursor.CreatedAt)
+		cursorTime := formatTime(filter.Cursor.CreatedAt)
 		args = append(args, cursorTime, cursorTime, filter.Cursor.ID)
 	}
 	query += ` ORDER BY created_at DESC, id DESC LIMIT ?`
@@ -196,18 +196,18 @@ func (s *Store) ActivateSubscriptionSourceVersion(
 	expectedUpdatedAt time.Time,
 	updatedAt time.Time,
 ) (SubscriptionSource, error) {
-	return s.ActivateSubscriptionSourceVersionAndTask(ctx, sourceID, versionID, expectedUpdatedAt, updatedAt, nil)
+	return s.ActivateSubscriptionSourceVersionWithSchedule(ctx, sourceID, versionID, expectedUpdatedAt, updatedAt, nil)
 }
 
-// ActivateSubscriptionSourceVersionAndTask changes the current immutable
+// ActivateSubscriptionSourceVersionWithSchedule changes the current immutable
 // version and schedules the next refresh in the same transaction.
-func (s *Store) ActivateSubscriptionSourceVersionAndTask(
+func (s *Store) ActivateSubscriptionSourceVersionWithSchedule(
 	ctx context.Context,
 	sourceID string,
 	versionID string,
 	expectedUpdatedAt time.Time,
 	updatedAt time.Time,
-	refreshTask *EnqueueTaskInput,
+	schedule *SubscriptionRefreshSchedule,
 ) (SubscriptionSource, error) {
 	if err := validateSubscriptionID(sourceID, "source"); err != nil {
 		return SubscriptionSource{}, err
@@ -223,7 +223,7 @@ func (s *Store) ActivateSubscriptionSourceVersionAndTask(
 	if err != nil {
 		return SubscriptionSource{}, err
 	}
-	preparedTask, err := prepareSubscriptionRefreshTask(refreshTask)
+	preparedSchedule, err := prepareSubscriptionRefreshSchedule(schedule)
 	if err != nil {
 		return SubscriptionSource{}, err
 	}
@@ -240,7 +240,7 @@ func (s *Store) ActivateSubscriptionSourceVersionAndTask(
 			return err
 		}
 		write, err := tx.ExecContext(ctx, `UPDATE subscription_sources SET current_version_id = ?, updated_at = ?
-            WHERE id = ? AND updated_at = ?`, versionID, formatTaskTime(updated), sourceID, formatTaskTime(expected))
+            WHERE id = ? AND updated_at = ?`, versionID, formatTime(updated), sourceID, formatTime(expected))
 		if err != nil {
 			return err
 		}
@@ -251,7 +251,7 @@ func (s *Store) ActivateSubscriptionSourceVersionAndTask(
 		if err != nil {
 			return err
 		}
-		return enqueueSubscriptionRefreshTaskTx(ctx, tx, preparedTask)
+		return saveSubscriptionRefreshScheduleTx(ctx, tx, stored.ID, preparedSchedule)
 	})
 	return stored, err
 }
@@ -326,7 +326,7 @@ func getSubscriptionSourceVersionByDigest(
 	return version, err
 }
 
-func scanSubscriptionSourceVersion(row taskScanner) (SubscriptionSourceVersion, error) {
+func scanSubscriptionSourceVersion(row rowScanner) (SubscriptionSourceVersion, error) {
 	var version SubscriptionSourceVersion
 	var nodes, diagnostics, fetchedAt, createdAt string
 	if err := row.Scan(
@@ -339,11 +339,11 @@ func scanSubscriptionSourceVersion(row taskScanner) (SubscriptionSourceVersion, 
 	version.NormalizedNodes = json.RawMessage(nodes)
 	version.Diagnostics = json.RawMessage(diagnostics)
 	var err error
-	version.FetchedAt, err = parseTaskTime(fetchedAt)
+	version.FetchedAt, err = parseTime(fetchedAt)
 	if err != nil {
 		return SubscriptionSourceVersion{}, err
 	}
-	version.CreatedAt, err = parseTaskTime(createdAt)
+	version.CreatedAt, err = parseTime(createdAt)
 	return version, err
 }
 

@@ -26,8 +26,7 @@ type ConfigurationSchema struct {
 }
 
 type ConfigurationPreviewRequest struct {
-	CoreArtifactID      string `json:"core_artifact_id"`
-	CanonicalRevisionID string `json:"canonical_revision_id,omitempty"`
+	CoreArtifactID string `json:"core_artifact_id"`
 }
 
 type ConfigurationPreview struct {
@@ -87,8 +86,8 @@ func (application *Application) ConfigurationSchema(
 	}, nil
 }
 
-// PreviewConfiguration returns one immutable raw sing-box JSON revision without
-// persisting startup bytes. An empty revision ID means the current global head.
+// PreviewConfiguration snapshots the current valid file for the selected core
+// without persisting startup bytes.
 func (application *Application) PreviewConfiguration(
 	ctx context.Context,
 	request ConfigurationPreviewRequest,
@@ -97,24 +96,19 @@ func (application *Application) PreviewConfiguration(
 	if err != nil {
 		return ConfigurationPreview{}, err
 	}
-	var revision store.CanonicalRevision
-	if strings.TrimSpace(request.CanonicalRevisionID) == "" {
-		if err := application.requireParsedConfigurationFile(ctx); err != nil {
-			return ConfigurationPreview{}, err
-		}
-		head, headErr := application.database.Head(ctx)
-		if headErr != nil {
-			return ConfigurationPreview{}, headErr
-		}
-		if head == nil {
-			return ConfigurationPreview{}, errors.New("no canonical revision has been saved")
-		}
-		revision = *head
-	} else {
-		revision, err = application.database.GetCanonicalRevision(ctx, strings.TrimSpace(request.CanonicalRevisionID))
-		if err != nil {
-			return ConfigurationPreview{}, err
-		}
+	file, err := application.database.ConfigurationFile(ctx)
+	if err != nil {
+		return ConfigurationPreview{}, err
+	}
+	if file.Revision == 0 {
+		return ConfigurationPreview{}, errors.New("no configuration has been saved")
+	}
+	if file.CanonicalRevisionID == "" {
+		return ConfigurationPreview{}, store.ErrConfigurationFileUnparsed
+	}
+	revision, err := application.database.GetCanonicalRevision(ctx, file.CanonicalRevisionID)
+	if err != nil {
+		return ConfigurationPreview{}, err
 	}
 
 	document, err := configuration.Parse(revision.Document)

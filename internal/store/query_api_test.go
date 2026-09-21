@@ -13,89 +13,22 @@ import (
 	"github.com/rehuony/sing-box-panel/internal/configuration"
 )
 
-func TestListTasksFiltersAndPaginatesWithStableCursor(t *testing.T) {
-	ctx := testContext(t)
-	store := openTestStore(t, ctx)
-	now := time.Date(2026, time.August, 28, 8, 0, 0, 0, time.UTC)
-
-	for _, input := range []EnqueueTaskInput{
-		{ID: "m1", Lane: TaskLaneMaintenance, Kind: TaskKindCatalogRefresh, Payload: json.RawMessage(`{"n":1}`), CreatedAt: now},
-		{ID: "m2", Lane: TaskLaneMaintenance, Kind: TaskKindCatalogRefresh, Payload: json.RawMessage(`{"n":2}`), CreatedAt: now.Add(time.Second)},
-		{ID: "m3", Lane: TaskLaneMaintenance, Kind: TaskKindCoreInstall, Payload: json.RawMessage(`{"n":3}`), CreatedAt: now.Add(time.Second)},
-		{ID: "m4", Lane: TaskLaneMaintenance, Kind: TaskKindCatalogRefresh, Payload: json.RawMessage(`{"n":4}`), CreatedAt: now.Add(2 * time.Second)},
-	} {
-		enqueueTask(t, ctx, store, input)
-	}
-	if _, _, err := store.RequestTaskCancellation(ctx, "m4", now.Add(3*time.Second)); err != nil {
-		t.Fatalf("RequestTaskCancellation(m4) error = %v", err)
-	}
-
-	first, err := store.ListTasks(ctx, TaskListFilter{Limit: 2})
-	if err != nil {
-		t.Fatalf("ListTasks(first) error = %v", err)
-	}
-	assertTaskIDs(t, first.Items, "m4", "m3")
-	if first.Next == nil || first.Next.ID != "m3" {
-		t.Fatalf("first task cursor = %+v, want m3", first.Next)
-	}
-	second, err := store.ListTasks(ctx, TaskListFilter{Limit: 2, Cursor: first.Next})
-	if err != nil {
-		t.Fatalf("ListTasks(second) error = %v", err)
-	}
-	assertTaskIDs(t, second.Items, "m2", "m1")
-	if second.Next != nil {
-		t.Fatalf("second task cursor = %+v, want nil", second.Next)
-	}
-
-	filtered, err := store.ListTasks(ctx, TaskListFilter{
-		Lane: TaskLaneMaintenance, Status: TaskStatusQueued, Kind: TaskKindCatalogRefresh, Limit: 10,
-	})
-	if err != nil {
-		t.Fatalf("ListTasks(filtered) error = %v", err)
-	}
-	assertTaskIDs(t, filtered.Items, "m2", "m1")
-
-	if _, err := store.ListTasks(ctx, TaskListFilter{Kind: `alpha' OR 1=1 --`, Limit: 10}); err == nil {
-		t.Fatal("ListTasks accepted an unknown injection-shaped task kind")
-	}
-
-	first.Items[0].Payload[0] = 'x'
-	stored, err := store.GetTask(ctx, "m4")
-	if err != nil {
-		t.Fatalf("GetTask(m4) error = %v", err)
-	}
-	if string(stored.Payload) != `{"n":4}` {
-		t.Fatalf("stored payload = %s, want defensive copy", stored.Payload)
-	}
-}
-
 func TestReadAPIsReturnEmptyCollections(t *testing.T) {
 	ctx := testContext(t)
 	store := openTestStore(t, ctx)
 
-	tasks, err := store.ListTasks(ctx, TaskListFilter{})
-	if err != nil || tasks.Items == nil || len(tasks.Items) != 0 || tasks.Next != nil {
-		t.Fatalf("empty ListTasks() = %+v, %v", tasks, err)
-	}
-	revisions, err := store.ListCanonicalRevisions(ctx, CanonicalRevisionListFilter{})
-	if err != nil || revisions.Items == nil || len(revisions.Items) != 0 || revisions.Next != nil {
-		t.Fatalf("empty ListCanonicalRevisions() = %+v, %v", revisions, err)
-	}
 	artifacts, err := store.ListCoreArtifacts(ctx, CoreArtifactListFilter{})
 	if err != nil || artifacts.Items == nil || len(artifacts.Items) != 0 || artifacts.Next != nil {
 		t.Fatalf("empty ListCoreArtifacts() = %+v, %v", artifacts, err)
 	}
 }
 
-func TestCanonicalRevisionQueriesAndPagination(t *testing.T) {
+func TestConfigurationSnapshotsRemainReadableByID(t *testing.T) {
 	ctx := testContext(t)
 	store := openTestStore(t, ctx)
 	now := time.Date(2026, time.August, 28, 9, 0, 0, 0, time.UTC)
-	head := ""
 	for i := 1; i <= 3; i++ {
-		revision, err := store.SaveCanonicalRevisionAndTask(
-			ctx,
-			head,
+		_, err := saveTestConfiguration(ctx, store, int64(i-1),
 			NewCanonicalRevision{
 				ID:            fmt.Sprintf("revision-%d", i),
 				SchemaVersion: configuration.SchemaVersion,
@@ -103,50 +36,15 @@ func TestCanonicalRevisionQueriesAndPagination(t *testing.T) {
 				CommandID:     fmt.Sprintf("command-%d", i),
 				CreatedAt:     now.Add(time.Duration(i) * time.Second),
 			},
-			NewTask{
-				ID:      fmt.Sprintf("revision-task-%d", i),
-				Lane:    TaskLaneMaintenance,
-				Kind:    TaskKindCanonicalSaved,
-				Payload: json.RawMessage(`{}`),
-			},
 		)
 		if err != nil {
-			t.Fatalf("SaveCanonicalRevisionAndTask(%d) error = %v", i, err)
+			t.Fatalf("SaveConfigurationFile(%d) error = %v", i, err)
 		}
-		head = revision.ID
-	}
-
-	first, err := store.ListCanonicalRevisions(ctx, CanonicalRevisionListFilter{Limit: 2})
-	if err != nil {
-		t.Fatalf("ListCanonicalRevisions(first) error = %v", err)
-	}
-	if len(first.Items) != 2 || first.Items[0].Sequence != 3 || first.Items[1].Sequence != 2 {
-		t.Fatalf("first revision page = %+v, want sequences 3,2", first.Items)
-	}
-	if first.Next == nil || first.Next.BeforeSequence != 2 {
-		t.Fatalf("first revision cursor = %+v, want before 2", first.Next)
-	}
-	second, err := store.ListCanonicalRevisions(ctx, CanonicalRevisionListFilter{
-		Cursor: first.Next,
-		Limit:  2,
-	})
-	if err != nil {
-		t.Fatalf("ListCanonicalRevisions(second) error = %v", err)
-	}
-	if len(second.Items) != 1 || second.Items[0].Sequence != 1 || second.Next != nil {
-		t.Fatalf("second revision page = %+v cursor=%+v, want sequence 1 and no cursor", second.Items, second.Next)
 	}
 
 	byID, err := store.GetCanonicalRevision(ctx, "revision-2")
 	if err != nil {
 		t.Fatalf("GetCanonicalRevision() error = %v", err)
-	}
-	bySequence, err := store.GetCanonicalRevisionBySequence(ctx, 2)
-	if err != nil {
-		t.Fatalf("GetCanonicalRevisionBySequence() error = %v", err)
-	}
-	if byID.ID != bySequence.ID || string(byID.Document) != string(bySequence.Document) {
-		t.Fatalf("revision selectors disagree: by ID=%+v by sequence=%+v", byID, bySequence)
 	}
 	byID.Document[0] = 'x'
 	unchanged, err := store.GetCanonicalRevision(ctx, "revision-2")
@@ -242,17 +140,14 @@ func TestCoreArtifactRepositoryAndRemovalEligibility(t *testing.T) {
 		t.Fatalf("removed artifact lookup error = %v, want ErrCoreArtifactNotFound", err)
 	}
 
-	revision, err := store.SaveCanonicalRevisionAndTask(
-		ctx,
-		"",
+	revision, err := saveTestConfiguration(ctx, store, 0,
 		NewCanonicalRevision{
 			ID: "artifact-reference-revision", SchemaVersion: configuration.SchemaVersion,
 			Document: json.RawMessage(`{}`), CommandID: "artifact-reference-command", CreatedAt: now,
 		},
-		NewTask{ID: "artifact-reference-task", Lane: TaskLaneMaintenance, Kind: TaskKindCanonicalSaved},
 	)
 	if err != nil {
-		t.Fatalf("SaveCanonicalRevisionAndTask(reference) error = %v", err)
+		t.Fatalf("SaveConfigurationFile(reference) error = %v", err)
 	}
 	if _, err := store.db.ExecContext(
 		ctx,
@@ -265,7 +160,7 @@ func TestCoreArtifactRepositoryAndRemovalEligibility(t *testing.T) {
 		"artifact-1",
 		[]byte(`{}`),
 		strings.Repeat("f", 64),
-		formatTaskTime(now),
+		formatTime(now),
 	); err != nil {
 		t.Fatalf("insert startup artifact reference: %v", err)
 	}
@@ -355,7 +250,7 @@ func testCoreArtifact(
 		ExactVersion:       "1.13.19",
 		OperatingSystem:    "linux",
 		Architecture:       architecture,
-		Variant:            "plain",
+		Variant:            "musl",
 		SourceKind:         CoreArtifactSourceOfficial,
 		RepositoryID:       1,
 		ReleaseID:          100,
@@ -367,18 +262,6 @@ func testCoreArtifact(
 		FeatureFingerprint: json.RawMessage(`{"features":["with_clash_api"]}`),
 
 		CreatedAt: createdAt,
-	}
-}
-
-func assertTaskIDs(t *testing.T, tasks []Task, want ...string) {
-	t.Helper()
-	if len(tasks) != len(want) {
-		t.Fatalf("task count = %d, want %d: %+v", len(tasks), len(want), tasks)
-	}
-	for index := range want {
-		if tasks[index].ID != want[index] {
-			t.Fatalf("task[%d] id = %q, want %q", index, tasks[index].ID, want[index])
-		}
 	}
 }
 

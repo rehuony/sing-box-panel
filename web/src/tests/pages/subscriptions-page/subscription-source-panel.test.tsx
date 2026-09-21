@@ -20,7 +20,6 @@ import {
   createMockApiClient,
   testRuntimeHistory,
   testSubscriptionSources,
-  testTask,
 } from '@/tests/api/mock-api-client';
 
 const node: SubscriptionNodeSummary = {
@@ -472,7 +471,7 @@ describe('subscription sources and nodes', () => {
           .fn()
           .mockResolvedValueOnce({ ...node, hidden: true, visibility_revision: 1 })
           .mockResolvedValueOnce({ ...node, hidden: false, visibility_revision: 2 }),
-        refreshSubscriptionSource: vi.fn().mockResolvedValue({ ...testTask, status: 'failed' }),
+        refreshSubscriptionSource: vi.fn().mockRejectedValue(new Error('Source refresh failed')),
       }),
     );
     const sourceRow = (await screen.findByRole('cell', { name: 'Manual nodes' })).closest('tr')!;

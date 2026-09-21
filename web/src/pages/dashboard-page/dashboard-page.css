@@ -179,38 +179,38 @@
 .dashboard-bottom {
   min-height: 180px;
 }
-.dashboard-tasks {
+.dashboard-activity {
   list-style: none;
   padding: 0;
   margin: 0;
 }
-.dashboard-tasks li {
+.dashboard-activity li {
   display: flex;
   align-items: center;
   gap: 10px;
   min-height: 40px;
   font-size: 12px;
 }
-.dashboard-tasks a {
+.dashboard-activity a {
   flex: 1;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.dashboard-tasks time {
+.dashboard-activity time {
   color: var(--color-text-muted);
 }
-.dashboard-tasks [data-status] {
+.dashboard-activity [data-status] {
   border-radius: 999px;
   padding: 5px 8px;
   background: var(--color-surface-raised);
 }
-.dashboard-tasks [data-status='succeeded'] {
+.dashboard-activity [data-status='info'] {
   color: var(--color-success-text);
   background: var(--color-success-soft);
 }
-.dashboard-tasks [data-status='failed'] {
+.dashboard-activity [data-status='error'] {
   color: var(--color-danger-text);
   background: var(--color-danger-soft);
 }

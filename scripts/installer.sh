@@ -11,6 +11,7 @@ readonly installer_ed25519_spki_prefix="MCowBQYDK2VwAyEA"
 
 installer_requested_version=""
 installer_show_help=false
+installer_assume_yes=false
 installer_architecture=""
 installer_binary_path=""
 installer_settings_path=""
@@ -21,30 +22,61 @@ installer_temporary_directory=""
 
 installer_usage() {
   cat <<'EOF'
-usage: installer.sh [--version vMAJOR.MINOR.PATCH]
+usage: installer.sh [--version vMAJOR.MINOR.PATCH] [--yes]
 
 Install a signed sing-box-panel Linux release for the current effective user.
 
 options:
   --version VERSION  install one exact published release (for example v0.1.0)
+  -y, --yes          replace an existing binary without prompting
   -h, --help         show this help
 
 Without --version, the installer selects the latest stable GitHub Release.
 An explicit version may identify a stable release or a GitHub pre-release.
 
 The installer verifies the signed checksum manifest, installs the binary, and
-initializes settings only when they do not already exist. It does not install,
-start, stop, or restart a systemd service.
+does not read, validate, or initialize settings or data. Start the panel with
+`sing-box-panel server start` to initialize missing settings. The installer does
+not install, start, stop, or restart a systemd service.
 EOF
 }
 
-installer_error() {
-  printf 'installer: %s\n' "$*" >&2
+installer_log() {
+  local level="$1" color="$2"
+  shift 2
+  if [[ -t 2 && -z "${NO_COLOR:-}" && "${TERM:-}" != dumb ]]; then
+    printf '\033[%sm%-7s\033[0m %s\n' "${color}" "${level}" "$*" >&2
+  else
+    printf '%-7s %s\n' "${level}" "$*" >&2
+  fi
+}
+
+installer_error() { installer_log ERROR 31 "$*"; }
+installer_info() { installer_log INFO 36 "$*"; }
+installer_success() { installer_log OK 32 "$*"; }
+
+installer_confirm_replacement() {
+  local answer
+  [[ ! -e "${installer_binary_path}" ]] && return 0
+  [[ "${installer_assume_yes}" == true ]] && return 0
+  # A curl | bash invocation reads the script from stdin. Read the actual
+  # terminal instead; unattended installations must explicitly pass --yes.
+  if ! { : </dev/tty; } 2>/dev/null; then
+    installer_error "${installer_binary_path} already exists; rerun with --yes to replace it"
+    return 1
+  fi
+  installer_log CONFIRM 33 "Replace ${installer_binary_path}? [y/N]"
+  IFS= read -r answer </dev/tty || return 1
+  case "${answer}" in
+    y | Y | yes | YES) return 0 ;;
+    *) installer_info "Installation canceled; existing binary kept."; return 2 ;;
+  esac
 }
 
 installer_parse_args() {
   installer_requested_version=""
   installer_show_help=false
+  installer_assume_yes=false
 
   while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -55,6 +87,10 @@ installer_parse_args() {
       fi
       installer_requested_version="$2"
       shift 2
+      ;;
+    -y | --yes)
+      installer_assume_yes=true
+      shift
       ;;
     -h | --help)
       installer_show_help=true
@@ -403,28 +439,6 @@ installer_verify_binary_version() {
   fi
 }
 
-installer_prepare_configuration() {
-  local binary_path="$1"
-  local settings_path="$2"
-
-  if [[ -L "${settings_path}" ]]; then
-    installer_error "refusing symbolic settings path: ${settings_path}"
-    return 1
-  fi
-  if [[ -e "${settings_path}" ]]; then
-    if [[ ! -f "${settings_path}" ]]; then
-      installer_error "settings path is not a regular file: ${settings_path}"
-      return 1
-    fi
-    printf 'Verifying existing settings at %s\n' "${settings_path}"
-    "${binary_path}" config check --config "${settings_path}"
-    return 0
-  fi
-
-  printf 'Initializing settings at %s\n' "${settings_path}"
-  "${binary_path}" init --config "${settings_path}"
-}
-
 installer_ensure_binary_directory() {
   local directory="$1"
   local previous_umask
@@ -524,10 +538,16 @@ installer_cleanup() {
 installer_print_next_steps() {
   local binary_directory="${installer_binary_path%/*}"
 
-  printf '\nInstalled sing-box-panel successfully.\n'
+  installer_success 'Installed sing-box-panel successfully.'
   printf '  Binary: %s\n' "${installer_binary_path}"
-  printf '  Settings: %s\n' "${installer_settings_path}"
+  printf '  Default settings: %s\n' "${installer_settings_path}"
   printf '  Default data directory: %s\n' "${installer_default_data_dir}"
+  printf '\nStart the panel (creates missing settings and data):\n  '
+  printf '%q server start\n' "${installer_binary_path}"
+  printf '\nEnable shell completion:\n'
+  printf '  zsh:  eval "$(sing-box-panel completion zsh)"\n'
+  printf '  bash: source <(sing-box-panel completion bash)\n'
+  printf '  fish: sing-box-panel completion fish | source\n'
   printf '\nThe installer did not configure or start systemd. To install and start the service:\n  '
   printf '%q systemd install --scope=%s --now\n' "${installer_binary_path}" "${installer_service_scope}"
   printf 'After a later binary upgrade, restart an existing service explicitly:\n  '
@@ -550,6 +570,7 @@ installer_main() {
   local release_binary
   local raw_public_key_path
   local public_key_path
+  local confirmation_status
 
   if ! installer_parse_args "$@"; then
     installer_usage >&2
@@ -567,6 +588,14 @@ installer_main() {
   installer_require_commands || return
   installer_resolve_architecture "$(uname -s)" "$(uname -m)" || return
   installer_resolve_layout "${EUID}" "${HOME:-}" "${XDG_CONFIG_HOME:-}" "${XDG_DATA_HOME:-}" || return
+  installer_preflight_binary_destination "${installer_binary_path}" || return
+  if installer_confirm_replacement; then
+    :
+  else
+    confirmation_status=$?
+    [[ "${confirmation_status}" == 2 ]] && return 0
+    return "${confirmation_status}"
+  fi
 
   if [[ -n "${installer_requested_version}" ]]; then
     release_version="${installer_requested_version}"
@@ -585,12 +614,13 @@ installer_main() {
   raw_public_key_path="${installer_temporary_directory}/release-signing-public-key"
   public_key_path="${installer_temporary_directory}/release-public-key.pem"
 
-  printf 'Downloading sing-box-panel %s for linux/%s\n' "${release_version}" "${installer_architecture}"
+  installer_info "Downloading sing-box-panel ${release_version} for linux/${installer_architecture}"
   installer_download_asset "${release_version}" "SHA256SUMS" "${checksums_path}"
   installer_download_asset "${release_version}" "SHA256SUMS.sig" "${signature_path}"
   installer_download_asset "${release_version}" "${release_asset}" "${release_binary}"
   installer_download_public_key "${raw_public_key_path}"
   installer_prepare_public_key "${raw_public_key_path}" "${public_key_path}"
+  installer_info "Verifying release signature and checksums"
   installer_verify_signature \
     "${release_version}" "${checksums_path}" "${signature_path}" \
     "${public_key_path}" "${installer_temporary_directory}"
@@ -598,8 +628,7 @@ installer_main() {
   installer_verify_checksum "${release_binary}" "${installer_expected_digest}"
   chmod 0700 "${release_binary}"
   installer_verify_binary_version "${release_binary}" "${release_version}"
-  installer_preflight_binary_destination "${installer_binary_path}"
-  installer_prepare_configuration "${release_binary}" "${installer_settings_path}"
+  installer_info "Installing binary at ${installer_binary_path}"
   installer_install_binary "${release_binary}" "${installer_binary_path}"
   installer_verify_binary_version "${installer_binary_path}" "${release_version}"
   installer_print_next_steps

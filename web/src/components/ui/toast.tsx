@@ -11,7 +11,7 @@ import { Button } from '@/components/ui/button';
 import { toast } from './toast-manager';
 
 function ToastProvider({ ...props }: ToastPrimitive.Provider.Props) {
-  return <ToastPrimitive.Provider {...props} />;
+  return <ToastPrimitive.Provider timeout={3000} {...props} />;
 }
 
 function ToastPortal({ ...props }: ToastPrimitive.Portal.Props) {

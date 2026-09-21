@@ -195,15 +195,15 @@ func getTrafficCheckpoint(ctx context.Context, tx *sql.Tx) (trafficCheckpoint, e
 	if err != nil {
 		return trafficCheckpoint{}, err
 	}
-	checkpoint.PeriodStart, err = parseTaskTime(start)
+	checkpoint.PeriodStart, err = parseTime(start)
 	if err != nil {
 		return trafficCheckpoint{}, err
 	}
-	checkpoint.PeriodEnd, err = parseTaskTime(end)
+	checkpoint.PeriodEnd, err = parseTime(end)
 	if err != nil {
 		return trafficCheckpoint{}, err
 	}
-	checkpoint.SampledAt, err = parseTaskTime(sampled)
+	checkpoint.SampledAt, err = parseTime(sampled)
 	return checkpoint, err
 }
 
@@ -223,7 +223,7 @@ func insertTrafficSample(
             active_connections, upload_total, download_total, upload_delta, download_delta,
 			interval_start, interval_end, coverage, accepted, diagnostic_code
 		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		input.ActivationBundleID, input.PID, input.ProcessStartToken, formatTaskTime(input.SampledAt),
+		input.ActivationBundleID, input.PID, input.ProcessStartToken, formatTime(input.SampledAt),
 		input.MemoryBytes, input.ActiveConnections, input.UploadTotal, input.DownloadTotal,
 		uploadDelta, downloadDelta, nullRuntimeTime(intervalStart), nullRuntimeTime(intervalEnd),
 		coverage, accepted, diagnostic,
@@ -266,9 +266,9 @@ func upsertTrafficCheckpoint(
             last_upload_total=excluded.last_upload_total, last_download_total=excluded.last_download_total,
             accumulated_upload=excluded.accumulated_upload, accumulated_download=excluded.accumulated_download,
 			has_delta=excluded.has_delta, sampled_at=excluded.sampled_at`,
-		formatTaskTime(input.PeriodStart), formatTaskTime(input.PeriodEnd), input.PID,
+		formatTime(input.PeriodStart), formatTime(input.PeriodEnd), input.PID,
 		input.ProcessStartToken, input.ActivationBundleID, input.UploadTotal, input.DownloadTotal,
-		upload, download, hasDelta, formatTaskTime(input.SampledAt),
+		upload, download, hasDelta, formatTime(input.SampledAt),
 	)
 	if err != nil {
 		return fmt.Errorf("update traffic checkpoint: %w", err)
@@ -305,8 +305,8 @@ func upsertCollectedTrafficPeriod(
             inbound_bytes=excluded.inbound_bytes,
             outbound_bytes=excluded.outbound_bytes,
             counters_json=excluded.counters_json`,
-		periodID, formatTaskTime(input.PeriodStart), formatTaskTime(input.PeriodEnd),
-		download, upload, string(counters), formatTaskTime(input.SampledAt),
+		periodID, formatTime(input.PeriodStart), formatTime(input.PeriodEnd),
+		download, upload, string(counters), formatTime(input.SampledAt),
 	)
 	if err != nil {
 		return TrafficPeriod{}, fmt.Errorf("update collected traffic period: %w", err)
@@ -318,7 +318,7 @@ func trafficPeriodID(start, end time.Time) string {
 	return "traffic_" + start.UTC().Format("200601") + "_" + end.UTC().Format("200601")
 }
 
-func scanTrafficSample(row taskScanner) (TrafficSample, error) {
+func scanTrafficSample(row rowScanner) (TrafficSample, error) {
 	var sample TrafficSample
 	var sampledAt string
 	var uploadDelta, downloadDelta sql.NullInt64
@@ -332,7 +332,7 @@ func scanTrafficSample(row taskScanner) (TrafficSample, error) {
 	if err != nil {
 		return TrafficSample{}, err
 	}
-	sample.SampledAt, err = parseTaskTime(sampledAt)
+	sample.SampledAt, err = parseTime(sampledAt)
 	if uploadDelta.Valid {
 		sample.UploadDelta = &uploadDelta.Int64
 	}
@@ -340,14 +340,14 @@ func scanTrafficSample(row taskScanner) (TrafficSample, error) {
 		sample.DownloadDelta = &downloadDelta.Int64
 	}
 	if intervalStart.Valid {
-		parsed, parseErr := parseTaskTime(intervalStart.String)
+		parsed, parseErr := parseTime(intervalStart.String)
 		if parseErr != nil {
 			return TrafficSample{}, fmt.Errorf("parse traffic interval_start: %w", parseErr)
 		}
 		sample.IntervalStart = &parsed
 	}
 	if intervalEnd.Valid {
-		parsed, parseErr := parseTaskTime(intervalEnd.String)
+		parsed, parseErr := parseTime(intervalEnd.String)
 		if parseErr != nil {
 			return TrafficSample{}, fmt.Errorf("parse traffic interval_end: %w", parseErr)
 		}

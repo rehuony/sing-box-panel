@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/rehuony/sing-box-panel/internal/console"
 	"github.com/rehuony/sing-box-panel/internal/panelprocess"
 	"github.com/rehuony/sing-box-panel/internal/settings"
 	"github.com/spf13/cobra"
@@ -50,7 +51,7 @@ func newServerStartCommand(state *options, run func(context.Context, string) err
 			if err := cmd.Context().Err(); err != nil {
 				return err
 			}
-			return run(cmd.Context(), state.settingsPath)
+			return run(console.WithOutput(cmd.Context(), cmd.ErrOrStderr(), state.format != outputText), state.settingsPath)
 		},
 	}
 }

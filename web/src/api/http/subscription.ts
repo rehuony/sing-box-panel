@@ -1,5 +1,5 @@
 import type { HttpApiContext } from './shared';
-import type { ApiClient, CreatedSubscriptionToken, SubscriptionChannel, SubscriptionChannelPage, SubscriptionNodeCatalog, SubscriptionNodeDetail, SubscriptionNodeSummary, SubscriptionPreview, SubscriptionSource, SubscriptionSourcePage, SubscriptionSourceVersion, SubscriptionSourceVersionPage, SubscriptionSourceVersionSave, SubscriptionToken, SubscriptionTokenPage, SubscriptionTokenRotation, SubscriptionUser, SubscriptionUserGrants, SubscriptionUserPage, Task } from '../api-client';
+import type { ApiClient, CreatedSubscriptionToken, SubscriptionChannel, SubscriptionChannelPage, SubscriptionNodeCatalog, SubscriptionNodeDetail, SubscriptionNodeSummary, SubscriptionPreview, SubscriptionSource, SubscriptionSourcePage, SubscriptionSourceRefreshResult, SubscriptionSourceVersion, SubscriptionSourceVersionPage, SubscriptionSourceVersionSave, SubscriptionToken, SubscriptionTokenPage, SubscriptionTokenRotation, SubscriptionUser, SubscriptionUserGrants, SubscriptionUserPage } from '../api-client';
 
 function utf8Base64(value: string): string {
   const bytes = new TextEncoder().encode(value);
@@ -210,7 +210,7 @@ export function createSubscriptionHttpApi(context: HttpApiContext) {
       );
     },
     refreshSubscriptionSource(sourceID, signal) {
-      return request<Task>(fetcher, `${baseUrl}/subscription/sources/${encodeURIComponent(sourceID)}/refresh`, {
+      return request<SubscriptionSourceRefreshResult>(fetcher, `${baseUrl}/subscription/sources/${encodeURIComponent(sourceID)}/refresh`, {
         method: 'POST',
         headers: writeHeaders(),
         signal,

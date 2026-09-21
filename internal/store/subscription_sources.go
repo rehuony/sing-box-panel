@@ -58,28 +58,28 @@ type UpdateSubscriptionSourceInput struct {
 	Enabled           bool
 	ExpectedUpdatedAt time.Time
 	UpdatedAt         time.Time
-	RefreshTask       *EnqueueTaskInput
+	RefreshSchedule   *SubscriptionRefreshSchedule
 }
 
 func (s *Store) CreateSubscriptionSource(
 	ctx context.Context,
 	source SubscriptionSource,
 ) (SubscriptionSource, error) {
-	return s.CreateSubscriptionSourceAndTask(ctx, source, nil)
+	return s.CreateSubscriptionSourceWithSchedule(ctx, source, nil)
 }
 
-// CreateSubscriptionSourceAndTask persists a source and its next automatic
-// refresh as one invariant. A task failure rolls the source insert back.
-func (s *Store) CreateSubscriptionSourceAndTask(
+// CreateSubscriptionSourceWithSchedule persists a source and its next automatic
+// refresh as one invariant. A schedule failure rolls the source insert back.
+func (s *Store) CreateSubscriptionSourceWithSchedule(
 	ctx context.Context,
 	source SubscriptionSource,
-	refreshTask *EnqueueTaskInput,
+	schedule *SubscriptionRefreshSchedule,
 ) (SubscriptionSource, error) {
 	prepared, err := prepareNewSubscriptionSource(source)
 	if err != nil {
 		return SubscriptionSource{}, err
 	}
-	preparedTask, err := prepareSubscriptionRefreshTask(refreshTask)
+	preparedSchedule, err := prepareSubscriptionRefreshSchedule(schedule)
 	if err != nil {
 		return SubscriptionSource{}, err
 	}
@@ -102,8 +102,8 @@ func (s *Store) CreateSubscriptionSourceAndTask(
 			string(prepared.SourceKind),
 			string(prepared.Config),
 			boolInt(prepared.Enabled),
-			formatTaskTime(prepared.CreatedAt),
-			formatTaskTime(prepared.UpdatedAt),
+			formatTime(prepared.CreatedAt),
+			formatTime(prepared.UpdatedAt),
 		); err != nil {
 			return fmt.Errorf("insert subscription source: %w", err)
 		}
@@ -111,7 +111,7 @@ func (s *Store) CreateSubscriptionSourceAndTask(
 		if err != nil {
 			return err
 		}
-		return enqueueSubscriptionRefreshTaskTx(ctx, tx, preparedTask)
+		return saveSubscriptionRefreshScheduleTx(ctx, tx, stored.ID, preparedSchedule)
 	})
 	return stored, err
 }
@@ -144,7 +144,7 @@ func (s *Store) ListSubscriptionSources(
 	args := make([]any, 0, 4)
 	if filter.Cursor != nil {
 		query += ` WHERE (created_at < ? OR (created_at = ? AND id < ?))`
-		cursorTime := formatTaskTime(filter.Cursor.CreatedAt)
+		cursorTime := formatTime(filter.Cursor.CreatedAt)
 		args = append(args, cursorTime, cursorTime, filter.Cursor.ID)
 	}
 	query += ` ORDER BY created_at DESC, id DESC LIMIT ?`
@@ -209,9 +209,9 @@ func (s *Store) UpdateSubscriptionSource(
 			string(prepared.SourceKind),
 			string(prepared.Config),
 			boolInt(prepared.Enabled),
-			formatTaskTime(prepared.UpdatedAt),
+			formatTime(prepared.UpdatedAt),
 			prepared.ID,
-			formatTaskTime(prepared.ExpectedUpdatedAt),
+			formatTime(prepared.ExpectedUpdatedAt),
 		)
 		if err != nil {
 			return fmt.Errorf("update subscription source: %w", err)
@@ -223,31 +223,9 @@ func (s *Store) UpdateSubscriptionSource(
 		if err != nil {
 			return err
 		}
-		return enqueueSubscriptionRefreshTaskTx(ctx, tx, prepared.RefreshTask)
+		return saveSubscriptionRefreshScheduleTx(ctx, tx, stored.ID, prepared.RefreshSchedule)
 	})
 	return stored, err
-}
-
-func prepareSubscriptionRefreshTask(input *EnqueueTaskInput) (*EnqueueTaskInput, error) {
-	if input == nil {
-		return nil, nil
-	}
-	prepared, err := prepareEnqueuedTask(*input)
-	if err != nil {
-		return nil, err
-	}
-	if prepared.Lane != TaskLaneMaintenance || prepared.Kind != TaskKindSubscriptionSourceRefresh {
-		return nil, errors.New("subscription source refresh requires a maintenance subscription-source-refresh task")
-	}
-	return &prepared, nil
-}
-
-func enqueueSubscriptionRefreshTaskTx(ctx context.Context, tx *sql.Tx, task *EnqueueTaskInput) error {
-	if task == nil {
-		return nil
-	}
-	_, err := enqueuePreparedTaskTx(ctx, tx, *task)
-	return err
 }
 
 func (s *Store) DeleteSubscriptionSource(
@@ -274,7 +252,7 @@ func (s *Store) DeleteSubscriptionSource(
 			ctx,
 			`DELETE FROM subscription_sources WHERE id = ? AND updated_at = ?`,
 			sourceID,
-			formatTaskTime(expectedUpdatedAt),
+			formatTime(expectedUpdatedAt),
 		)
 		if err != nil {
 			return fmt.Errorf("delete subscription source: %w", err)
@@ -334,7 +312,7 @@ func prepareSubscriptionSourceUpdate(
 		return UpdateSubscriptionSourceInput{}, err
 	}
 	input.Config = config
-	input.RefreshTask, err = prepareSubscriptionRefreshTask(input.RefreshTask)
+	input.RefreshSchedule, err = prepareSubscriptionRefreshSchedule(input.RefreshSchedule)
 	if err != nil {
 		return UpdateSubscriptionSourceInput{}, err
 	}
@@ -356,7 +334,7 @@ func getSubscriptionSource(ctx context.Context, q queryRower, id string) (Subscr
 	return source, nil
 }
 
-func scanSubscriptionSource(row taskScanner) (SubscriptionSource, error) {
+func scanSubscriptionSource(row rowScanner) (SubscriptionSource, error) {
 	var source SubscriptionSource
 	var config, createdAt, updatedAt string
 	var currentVersionID sql.NullString
@@ -379,18 +357,18 @@ func scanSubscriptionSource(row taskScanner) (SubscriptionSource, error) {
 	}
 	source.Enabled = enabled != 0
 	var err error
-	source.CreatedAt, err = parseTaskTime(createdAt)
+	source.CreatedAt, err = parseTime(createdAt)
 	if err != nil {
 		return SubscriptionSource{}, fmt.Errorf("parse created_at: %w", err)
 	}
-	source.UpdatedAt, err = parseTaskTime(updatedAt)
+	source.UpdatedAt, err = parseTime(updatedAt)
 	if err != nil {
 		return SubscriptionSource{}, fmt.Errorf("parse updated_at: %w", err)
 	}
 	return source, nil
 }
 
-func scanSubscriptionSourceSummary(row taskScanner) (SubscriptionSourceSummary, error) {
+func scanSubscriptionSourceSummary(row rowScanner) (SubscriptionSourceSummary, error) {
 	var source SubscriptionSourceSummary
 	var hasVersion, enabled int
 	var currentVersionID sql.NullString
@@ -413,11 +391,11 @@ func scanSubscriptionSourceSummary(row taskScanner) (SubscriptionSourceSummary, 
 	}
 	source.Enabled = enabled != 0
 	var err error
-	source.CreatedAt, err = parseTaskTime(createdAt)
+	source.CreatedAt, err = parseTime(createdAt)
 	if err != nil {
 		return SubscriptionSourceSummary{}, fmt.Errorf("parse created_at: %w", err)
 	}
-	source.UpdatedAt, err = parseTaskTime(updatedAt)
+	source.UpdatedAt, err = parseTime(updatedAt)
 	if err != nil {
 		return SubscriptionSourceSummary{}, fmt.Errorf("parse updated_at: %w", err)
 	}

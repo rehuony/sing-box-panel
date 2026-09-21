@@ -1,7 +1,6 @@
 import { useTranslation } from 'react-i18next';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { useDeferredValue, useEffect, useState } from 'react';
-import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 
 import type { LogLevel, PanelLogPage } from '@/api/api-client';
 
@@ -12,17 +11,12 @@ import { ErrorNotice } from '@/components/error-notice';
 import { SelectField } from '@/components/select-field';
 import { ToolbarActions } from '@/components/workspace-toolbar';
 
-import { PanelLogDetail } from './panel-log-detail';
-
 export function PanelLogsPanel({ active = true, toolbarTarget }: {
   active?: boolean;
   toolbarTarget?: HTMLElement | null;
 } = {}) {
   const { t } = useTranslation();
   const client = useApiClient();
-  const [params] = useSearchParams();
-  const location = useLocation();
-  const navigate = useNavigate();
   const [search, setSearch] = useState('');
   const query = useDeferredValue(search);
   const [level, setLevel] = useState('');
@@ -31,7 +25,6 @@ export function PanelLogsPanel({ active = true, toolbarTarget }: {
   const [result, setResult] = useState<PanelLogPage>({ items: [] });
   const [error, setError] = useState<unknown>(null);
   const [loading, setLoading] = useState(true);
-  const taskID = params.get('task');
   const cursor = cursors.at(-1);
   useEffect(() => {
     const abort = new AbortController();
@@ -71,13 +64,6 @@ export function PanelLogsPanel({ active = true, toolbarTarget }: {
       clearInterval(timer);
     };
   }, [client, limit, level, query, cursor]);
-  function selectTask(id: string | null) {
-    const next = new URLSearchParams(params);
-    next.delete('tab');
-    if (id) next.set('task', id);
-    else next.delete('task');
-    void navigate({ pathname: location.pathname, search: next.size ? `?${next}` : '', hash: '#logs-panel' }, { state: location.state });
-  }
   return (
     <div className='log-workspace'>
       <ToolbarActions active={active} target={toolbarTarget}>
@@ -121,9 +107,7 @@ export function PanelLogsPanel({ active = true, toolbarTarget }: {
                   <time dateTime={item.time}>{new Date(item.time).toLocaleString()}</time>
                 </td>
                 <td>
-                  {item.source === 'task'
-                    ? t(`tasks.kind.${item.code}`, { defaultValue: item.message })
-                    : item.message}
+                  {item.message}
                 </td>
                 <td>
                   <span className={`panel-log-state panel-log-state--${item.level}`}>
@@ -173,12 +157,6 @@ export function PanelLogsPanel({ active = true, toolbarTarget }: {
           </Button>
         </div>
       </div>
-      <PanelLogDetail
-        key={taskID ?? 'closed'}
-        taskID={taskID}
-        onClose={() => selectTask(null)}
-        onTaskChange={selectTask}
-      />
     </div>
   );
 }

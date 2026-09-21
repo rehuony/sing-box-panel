@@ -40,7 +40,7 @@ export const dashboard = {
   },
   error: {
     history: 'History is unavailable',
-    tasks: 'Tasks are unavailable',
+    activity: 'Activity is unavailable',
     timeline: 'Runtime history is unavailable',
   },
   evidence: {
@@ -68,8 +68,8 @@ export const dashboard = {
     runtimeLoading: 'Loading runtime history…',
     runtimeStale: 'The time range changed. Waiting for matching runtime history.',
     snapshotStale: 'Runtime evidence is refreshing; the previous snapshot is hidden.',
-    tasksLoading: 'Loading recent tasks…',
-    tasksStale: 'Recent tasks are refreshing; the previous snapshot is hidden.',
+    activityLoading: 'Loading recent activity…',
+    activityStale: 'Recent activity is refreshing; the previous snapshot is hidden.',
   },
   summary: {
     average: 'Average',
@@ -84,18 +84,10 @@ export const dashboard = {
     time: 'Time',
     title: 'Accessible data table',
   },
-  tasks: {
-    empty: 'No task records.',
-    status: {
-      canceled: 'canceled',
-      canceling: 'canceling',
-      failed: 'failed',
-      queued: 'queued',
-      running: 'running',
-      succeeded: 'succeeded',
-      superseded: 'superseded',
-    },
-    title: 'Recent tasks',
+  activity: {
+    empty: 'No activity records.',
+
+    title: 'Recent activity',
     viewAll: 'View all',
   },
   timeline: {

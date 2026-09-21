@@ -18,8 +18,6 @@ function collectLeafKeys(value: unknown, prefix = ''): string[] {
 const requiredDynamicKeys = [
   ...['complete', 'partial', 'missing'].map((value) => `dashboard.coverage.${value}`),
   ...['running', 'stopped', 'failed', 'unknown'].map((value) => `dashboard.timeline.state.${value}`),
-  ...['queued', 'running', 'succeeded', 'failed', 'canceled', 'superseded', 'canceling']
-    .map((value) => `dashboard.tasks.status.${value}`),
   ...['trace', 'debug', 'info', 'warn', 'error', 'fatal']
     .map((value) => `observability.logs.levelOption.${value}`),
   ...['off', 'connecting', 'live', 'ended', 'error']
@@ -27,9 +25,6 @@ const requiredDynamicKeys = [
   ...['start', 'stop', 'restart'].map((value) => `telemetry.control.${value}`),
   ...['stop', 'restart'].flatMap((action) =>
     ['title', 'description', 'action'].map((value) => `telemetry.confirm.${action}.${value}`)),
-  ...['queued', 'running', 'succeeded', 'failed', 'canceled', 'superseded']
-    .map((value) => `telemetry.taskStatus.${value}`),
-  ...['payload', 'result', 'failure'].map((value) => `tasks.detail.${value}`),
 ];
 
 describe('application language', () => {
