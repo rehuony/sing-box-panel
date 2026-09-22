@@ -79,6 +79,30 @@ describe('useTelemetry', () => {
     expect(result.current.dashboardSnapshot).toBe(testDashboardSnapshot);
   });
 
+  it('reports initial dashboard failures and clears the error after a successful reconnect', async () => {
+    vi.useFakeTimers();
+    let calls = 0;
+    const failure = new Error('The dashboard snapshot could not be collected.');
+    const client = createMockApiClient({
+      streamDashboard: vi.fn(async function* (signal) {
+        if (++calls === 1) throw failure;
+        yield testDashboardSnapshot;
+        await waitForAbort(signal);
+      }),
+    });
+    const { result } = renderHook(() => useTelemetry(), { wrapper: wrapper(client) });
+
+    await act(async () => Promise.resolve());
+    expect(result.current.dashboardSnapshot).toBeNull();
+    expect(result.current.dashboardError).toBe(failure);
+    expect(result.current.dashboardStale).toBe(true);
+
+    await act(async () => vi.advanceTimersByTimeAsync(1_000));
+    expect(result.current.dashboardSnapshot).toBe(testDashboardSnapshot);
+    expect(result.current.dashboardError).toBeNull();
+    expect(result.current.dashboardStale).toBe(false);
+  });
+
   it('accepts authoritative runtime results from lifecycle operations', async () => {
     const client = createMockApiClient();
     const { result } = renderHook(() => useTelemetry(), { wrapper: wrapper(client) });

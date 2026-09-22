@@ -350,6 +350,15 @@ shell owns this stream across route changes, keeps the last valid snapshot while
 reconnecting with bounded backoff, and does not fall back to periodic history,
 runtime, traffic, or log requests.
 
+The one-minute lifetime includes snapshot collection, and cancels in-flight
+queries when it expires. Each write has a deadline of at most ten seconds, which
+is cleared after flushing so idle connections can close normally. An initial
+snapshot failure returns a non-success Problem response before opening SSE.
+Each complete UTF-8 event frame is limited to 1 MiB. Runtime history keeps at
+most 4096 newest transitions, or fewer when necessary to fit the frame limit.
+Any truncation retains a `runtime_24h.next` cursor at the last included transition;
+the omitted older interval is unknown, not inferred from the preceding state.
+
 The dashboard shows host summaries, transfer history and one-hour active
 connections. Graph gaps remain gaps. The 24-hour runtime strip uses 48 equal
 segments and persisted transitions; unknown intervals are not guessed healthy.

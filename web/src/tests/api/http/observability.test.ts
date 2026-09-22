@@ -132,6 +132,34 @@ describe('createHttpApiClient observability domain', () => {
     );
   });
 
+  it('surfaces a failed initial dashboard snapshot as an API error', async () => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(new Response(JSON.stringify({
+      code: 'dashboard_snapshot_unavailable',
+      detail: 'The dashboard snapshot could not be collected.',
+    }), {
+      status: 500,
+      headers: { 'Content-Type': 'application/problem+json' },
+    }));
+    const client = createHttpApiClient({ fetcher });
+
+    await expect(client.streamDashboard()[Symbol.asyncIterator]().next()).rejects.toMatchObject({
+      code: 'dashboard_snapshot_unavailable',
+      status: 500,
+    });
+  });
+
+  it('rejects a dashboard stream that closes without a snapshot', async () => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(new Response(': keepalive\n\n', {
+      headers: { 'Content-Type': 'text/event-stream' },
+    }));
+    const client = createHttpApiClient({ fetcher });
+
+    await expect(client.streamDashboard()[Symbol.asyncIterator]().next()).rejects.toMatchObject({
+      code: 'stream_invalid',
+      status: 200,
+    });
+  });
+
   it('uses stable explicit durable-log deletion endpoints', async () => {
     const fetcher = vi.fn<typeof fetch>().mockImplementation(
       async () =>

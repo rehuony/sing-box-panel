@@ -63,6 +63,7 @@ func (application *Application) dashboardRuntimeHistory(
 	request := RuntimeHistoryRequest{From: &from, To: &to, Limit: 200}
 	combined := RuntimeHistoryPage{Items: []RuntimeTransition{}}
 	for len(combined.Items) < dashboardRuntimeHistoryLimit {
+		request.Limit = min(200, dashboardRuntimeHistoryLimit-len(combined.Items))
 		page, err := application.RuntimeHistory(ctx, request)
 		if err != nil {
 			return RuntimeHistoryPage{}, err
@@ -70,10 +71,6 @@ func (application *Application) dashboardRuntimeHistory(
 		if combined.Preceding == nil {
 			combined.Preceding = page.Preceding
 			combined.HistoryStartedAt = page.HistoryStartedAt
-		}
-		remaining := dashboardRuntimeHistoryLimit - len(combined.Items)
-		if len(page.Items) > remaining {
-			page.Items = page.Items[:remaining]
 		}
 		combined.Items = append(combined.Items, page.Items...)
 		combined.Next = page.Next

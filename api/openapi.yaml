@@ -1113,7 +1113,7 @@ paths:
       summary: Stream the cached dashboard projection every thirty seconds
       responses:
         '200':
-          description: Server-sent dashboard events. Each data field is a DashboardStreamSnapshot; reconnect after stream closure.
+          description: Server-sent dashboard events, each limited to 1 MiB including UTF-8 framing. Each data field is a DashboardStreamSnapshot. Runtime history includes at most 4096 newest transitions, or fewer to fit the byte limit, with a next cursor whenever older records are omitted. Initial snapshot failures return a Problem response. Reconnect after stream closure; the one-minute lifetime includes snapshot collection.
           content:
             text/event-stream:
               schema: {type: string}
