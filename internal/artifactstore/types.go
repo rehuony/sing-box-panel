@@ -20,7 +20,6 @@ var (
 	ErrUnsafeExecution = errors.New("artifact version execution cannot be safely bounded")
 	ErrUnsafeURL       = errors.New("artifact download URL is unsafe")
 	ErrTooLarge        = errors.New("artifact exceeds a resource limit")
-	ErrDigest          = errors.New("artifact digest verification failed")
 	ErrArchive         = errors.New("artifact archive verification failed")
 	ErrELF             = errors.New("artifact ELF verification failed")
 	ErrVersion         = errors.New("artifact version verification failed")
@@ -32,7 +31,6 @@ type Step string
 const (
 	StepPrepare  Step = "prepare"
 	StepDownload Step = "download"
-	StepDigest   Step = "digest"
 	StepArchive  Step = "archive"
 	StepELF      Step = "elf"
 	StepVersion  Step = "version"
@@ -134,12 +132,11 @@ type Options struct {
 }
 
 // ImportRequest describes an administrator-trusted local archive. ImportLocal
-// runs an isolated copy's `version` command; SHA-256 pins bytes but does not
-// make arbitrary code safe.
+// runs an isolated copy's `version` command. Content hashes record installed
+// bytes for storage and identity; they are not an execution approval gate.
 type ImportRequest struct {
 	SourcePath           string
 	SourceDescription    string
-	ExpectedSHA256       coreartifact.SHA256
 	ExpectedVersion      coreartifact.ExactVersion
 	ExpectedArchitecture coreartifact.Architecture
 	Variant              coreartifact.Variant

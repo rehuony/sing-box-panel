@@ -3,14 +3,15 @@ import type { RJSFSchema, UiSchema, ValidationData, ValidatorType } from '@rjsf/
 
 import Form from '@rjsf/core';
 import { useId, useMemo } from 'react';
+import { getSchemaType } from '@rjsf/utils';
 
 import type { ReviewedSchemaResolution } from '@/schemas/resolve-reviewed-schema';
 
 import type { CanonicalDraft } from './use-canonical-configuration';
 
 import { encodeCanonicalValue } from './use-canonical-configuration';
-import { documentWithoutValue, documentWithValue } from './canonical-document';
 import { panelRJSFFields, panelRJSFTemplates, panelRJSFWidgets } from './rjsf-shadcn-theme';
+import { documentWithoutValue, documentWithValue, valueAtPointer } from './canonical-document';
 import {
   mergeSchemaKnownData,
   projectSchemaKnownData,
@@ -184,7 +185,7 @@ export function SchemaSectionForm({
   );
   const external = useMemo(
     () => displayCopy(projectSchemaKnownData(schema, resolution.schema, data)
-      ?? (resolvedSchema(schema, resolution.schema).type === 'array' ? [] : {})),
+      ?? (getSchemaType(resolvedSchema(schema, resolution.schema)) === 'array' ? [] : {})),
     [data, resolution.schema, schema],
   );
   const validator = useMemo(
@@ -213,6 +214,16 @@ export function SchemaSectionForm({
         const value = relative === ''
           ? losslessNext
           : valueAtDisplayPointer(losslessNext, relative);
+        // Materialize optional object parents only for an actual edit, never on render.
+        if (value !== undefined) {
+          const segments = pointer.split('/');
+          for (let end = 2; end < segments.length; end += 1) {
+            const parent = segments.slice(0, end).join('/');
+            if (valueAtPointer(updated, parent) == null) {
+              updated = documentWithValue(updated, parent, {}) as CanonicalDraft;
+            }
+          }
+        }
         updated = value === undefined
           ? documentWithoutValue(updated, pointer) as CanonicalDraft
           : documentWithValue(updated, pointer, value) as CanonicalDraft;

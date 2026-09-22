@@ -88,7 +88,7 @@ func TestInstallOfficialVerifiesAndPublishesContentAddressedBinary(t *testing.T)
 	if info.Mode().Perm() != 0o700 {
 		t.Fatalf("installed mode = %o, want 0700", info.Mode().Perm())
 	}
-	if len(result.Diagnostics) != 7 || downloader.calls != 1 || inspector.calls != 1 {
+	if len(result.Diagnostics) != 6 || downloader.calls != 1 || inspector.calls != 1 {
 		t.Fatalf("result diagnostics/calls = %d/%d/%d", len(result.Diagnostics), downloader.calls, inspector.calls)
 	}
 
@@ -101,7 +101,7 @@ func TestInstallOfficialVerifiesAndPublishesContentAddressedBinary(t *testing.T)
 	}
 }
 
-func TestInstallDetectsMutatedContentAddress(t *testing.T) {
+func TestInstallReusesContentAddressWithoutDigestComparison(t *testing.T) {
 	t.Parallel()
 	version := artifactVersion(t, "1.13.19")
 	archive := makeArchive(t, tarEntry{name: "bundle/sing-box", data: minimalELF(coreartifact.ArchitectureAMD64), kind: tar.TypeReg})
@@ -111,12 +111,18 @@ func TestInstallDetectsMutatedContentAddress(t *testing.T) {
 	if err != nil {
 		t.Fatalf("InstallOfficial: %v", err)
 	}
-	if err := os.WriteFile(result.BinaryPath, []byte("mutated"), 0o700); err != nil {
+	if err := os.WriteFile(result.BinaryPath, append(minimalELF(coreartifact.ArchitectureAMD64), []byte("different bytes")...), 0o700); err != nil {
 		t.Fatalf("mutate fixture: %v", err)
 	}
 	_, err = store.InstallOfficial(context.Background(), officialAsset(version, digest, int64(len(archive))))
-	if !errors.Is(err, ErrCorruptStore) {
-		t.Fatalf("InstallOfficial(mutated store) error = %v, want ErrCorruptStore", err)
+	if err != nil {
+		t.Fatalf("existing installation should not be compared by digest: %v", err)
+	}
+	if err := os.WriteFile(result.BinaryPath, minimalELF(coreartifact.ArchitectureARM64), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.InstallOfficial(context.Background(), officialAsset(version, digest, int64(len(archive)))); !errors.Is(err, ErrELF) {
+		t.Fatalf("wrong-architecture existing file accepted: %v", err)
 	}
 }
 
@@ -205,23 +211,24 @@ func TestInstallDoesNotTrustDownloaderReportedSize(t *testing.T) {
 	})
 	store := newTestStore(t, downloader, &fakeInspector{report: VersionReport{Version: version, FeatureFingerprint: FeatureFingerprint{Status: FeatureFingerprintReported, Features: []string{"with_musl"}}}}, Limits{})
 	_, err := store.InstallOfficial(context.Background(), officialAsset(version, bytesDigest(archive), int64(len(archive))))
-	if !errors.Is(err, ErrDigest) {
-		t.Fatalf("InstallOfficial(lying downloader) error = %v, want ErrDigest", err)
+	if !errors.Is(err, ErrArchive) {
+		t.Fatalf("InstallOfficial(lying downloader) error = %v, want ErrArchive", err)
 	}
 }
 
-func TestInstallOfficialRejectsDigestEvidenceBeforeDownload(t *testing.T) {
+func TestInstallOfficialRecordsActualHashWithoutDigestGate(t *testing.T) {
 	t.Parallel()
 	version := artifactVersion(t, "1.13.19")
+	archive := makeArchive(t, tarEntry{name: "bundle/sing-box", data: minimalELF(coreartifact.ArchitectureAMD64), kind: tar.TypeReg})
 	first := bytesDigest([]byte("first"))
 	second := bytesDigest([]byte("second"))
 	tests := []struct {
 		name  string
 		asset catalog.Asset
 	}{
-		{name: "missing", asset: officialAsset(version, coreartifact.SHA256{}, 100)},
+		{name: "missing", asset: officialAsset(version, coreartifact.SHA256{}, int64(len(archive)))},
 		{name: "mismatch", asset: func() catalog.Asset {
-			asset := officialAsset(version, first, 100)
+			asset := officialAsset(version, first, int64(len(archive)))
 			asset.CatalogDigest, asset.HasCatalogDigest = second, true
 			return asset
 		}()},
@@ -229,13 +236,11 @@ func TestInstallOfficialRejectsDigestEvidenceBeforeDownload(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
-			downloader := &memoryDownloader{data: []byte("must not download")}
-			store := newTestStore(t, downloader, &fakeInspector{}, Limits{})
-			if _, err := store.InstallOfficial(context.Background(), test.asset); err == nil {
-				t.Fatalf("InstallOfficial() succeeded without trustworthy digest evidence")
-			}
-			if downloader.calls != 0 {
-				t.Fatalf("downloader calls = %d, want 0", downloader.calls)
+			downloader := &memoryDownloader{data: archive}
+			store := newTestStore(t, downloader, &fakeInspector{report: VersionReport{Version: version, FeatureFingerprint: FeatureFingerprint{Status: FeatureFingerprintReported, Features: []string{"with_musl"}}}}, Limits{})
+			result, err := store.InstallOfficial(context.Background(), test.asset)
+			if err != nil || result.Identity.Digest() != bytesDigest(archive) || downloader.calls != 1 {
+				t.Fatalf("install without digest gate: result=%+v err=%v calls=%d", result, err, downloader.calls)
 			}
 		})
 	}
@@ -258,7 +263,7 @@ func TestInstallRejectsDynamicBinaryBeforeExecution(t *testing.T) {
 	}
 }
 
-func TestInstallRejectsDigestSizeELFAndVersionMismatch(t *testing.T) {
+func TestInstallRejectsSizeELFAndVersionMismatch(t *testing.T) {
 	t.Parallel()
 	version := artifactVersion(t, "1.13.19")
 	validArchive := makeArchive(t, tarEntry{name: "bundle/sing-box", data: minimalELF(coreartifact.ArchitectureAMD64), kind: tar.TypeReg})
@@ -270,8 +275,7 @@ func TestInstallRejectsDigestSizeELFAndVersionMismatch(t *testing.T) {
 		inspector VersionInspector
 		want      error
 	}{
-		{name: "digest", data: validArchive, assetSize: int64(len(validArchive)), digest: bytesDigest([]byte("different")), inspector: &fakeInspector{report: VersionReport{Version: version, FeatureFingerprint: FeatureFingerprint{Status: FeatureFingerprintReported, Features: []string{"with_musl"}}}}, want: ErrDigest},
-		{name: "declared size", data: validArchive, assetSize: int64(len(validArchive) + 1), digest: bytesDigest(validArchive), inspector: &fakeInspector{report: VersionReport{Version: version, FeatureFingerprint: FeatureFingerprint{Status: FeatureFingerprintReported, Features: []string{"with_musl"}}}}, want: ErrDigest},
+		{name: "declared size", data: validArchive, assetSize: int64(len(validArchive) + 1), digest: bytesDigest(validArchive), inspector: &fakeInspector{report: VersionReport{Version: version, FeatureFingerprint: FeatureFingerprint{Status: FeatureFingerprintReported, Features: []string{"with_musl"}}}}, want: ErrArchive},
 		{name: "ELF architecture", data: makeArchive(t, tarEntry{name: "bundle/sing-box", data: minimalELF(coreartifact.ArchitectureARM64), kind: tar.TypeReg}), inspector: &fakeInspector{report: VersionReport{Version: version, FeatureFingerprint: FeatureFingerprint{Status: FeatureFingerprintReported, Features: []string{"with_musl"}}}}, want: ErrELF},
 		{name: "reported version", data: validArchive, inspector: &fakeInspector{report: VersionReport{Version: artifactVersion(t, "1.12.0")}}, want: ErrVersion},
 		{name: "missing musl fingerprint", data: validArchive, inspector: &fakeInspector{report: VersionReport{Version: version}}, want: ErrVersion},
@@ -371,7 +375,7 @@ func TestInstallRejectsCorruptOrConcatenatedGzipStreams(t *testing.T) {
 	}
 }
 
-func TestImportLocalRequiresUserDigestAndMarksIdentity(t *testing.T) {
+func TestImportLocalComputesHashAndMarksIdentity(t *testing.T) {
 	t.Parallel()
 	version := artifactVersion(t, "1.13.19")
 	archive := makeArchive(t, tarEntry{name: "bundle/sing-box", data: minimalELF(coreartifact.ArchitectureAMD64), kind: tar.TypeReg})
@@ -382,7 +386,7 @@ func TestImportLocalRequiresUserDigestAndMarksIdentity(t *testing.T) {
 	store := newTestStore(t, &memoryDownloader{}, &fakeInspector{report: VersionReport{Version: version, FeatureFingerprint: FeatureFingerprint{Status: FeatureFingerprintReported, Features: []string{"with_musl"}}}}, Limits{})
 	request := ImportRequest{
 		SourcePath: sourcePath, SourceDescription: "manually verified archive",
-		ExpectedSHA256: bytesDigest(archive), ExpectedVersion: version,
+		ExpectedVersion:      version,
 		ExpectedArchitecture: coreartifact.ArchitectureAMD64, Variant: coreartifact.VariantMusl,
 	}
 	result, err := store.ImportLocal(context.Background(), request)
@@ -392,9 +396,8 @@ func TestImportLocalRequiresUserDigestAndMarksIdentity(t *testing.T) {
 	if result.Identity.Source().Kind() != coreartifact.SourceUser {
 		t.Fatalf("import source kind = %q, want %q", result.Identity.Source().Kind(), coreartifact.SourceUser)
 	}
-	request.ExpectedSHA256 = coreartifact.SHA256{}
-	if _, err := store.ImportLocal(context.Background(), request); !errors.Is(err, ErrDigest) {
-		t.Fatalf("ImportLocal(without digest) error = %v, want ErrDigest", err)
+	if result.Identity.Digest() != bytesDigest(archive) {
+		t.Fatal("import did not record actual archive hash")
 	}
 }
 
@@ -411,7 +414,7 @@ func TestImportLocalRejectsSymlinkSource(t *testing.T) {
 	}
 	store := newTestStore(t, &memoryDownloader{}, &fakeInspector{}, Limits{})
 	_, err := store.ImportLocal(context.Background(), ImportRequest{
-		SourcePath: link, SourceDescription: "link", ExpectedSHA256: bytesDigest([]byte("data")),
+		SourcePath: link, SourceDescription: "link",
 		ExpectedVersion: artifactVersion(t, "1.13.19"), ExpectedArchitecture: coreartifact.ArchitectureAMD64, Variant: coreartifact.VariantMusl,
 	})
 	if err == nil {

@@ -19,6 +19,7 @@ interface SchemaManifestEntry {
   schema_file: string;
   exact_version: string;
   schema_sha256: string;
+  source: 'native' | 'reviewed-1.13';
 }
 
 interface SchemaManifest {
@@ -128,6 +129,7 @@ export function parseConfigurationSchemaManifest(source: string): SchemaManifest
       || typeof entry.exact_version !== 'string' || !/^\d+\.\d+\.\d+$/.test(entry.exact_version)
       || typeof entry.schema_file !== 'string' || entry.schema_file === ''
       || !isSha256(entry.schema_sha256)
+      || (entry.source !== 'native' && entry.source !== 'reviewed-1.13')
     ) {
       throw new Error(`configuration schema manifest entry for ${entry.exact_version ?? 'unknown'} is incomplete`);
     }
@@ -136,6 +138,7 @@ export function parseConfigurationSchemaManifest(source: string): SchemaManifest
     }
     versions.add(entry.exact_version);
     entries.push({
+      source: entry.source,
       exact_version: entry.exact_version,
       schema_sha256: entry.schema_sha256,
       schema_file: entry.schema_file,
@@ -155,7 +158,7 @@ function compileValidator(
 ): string {
   return compileConfigurationSchemaValidator(
     schema,
-    `github.com/sagernet/sing-box@v${entry.exact_version}`,
+    `${entry.source}: github.com/sagernet/sing-box@v${entry.exact_version}`,
     validatorFile,
   );
 }

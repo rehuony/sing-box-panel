@@ -1,0 +1,26 @@
+{
+  "log": {"disabled": true},
+  "certificate": {"store": "system"},
+  "ntp": {"enabled": false, "server": "127.0.0.1", "server_port": 123, "interval": "30m"},
+  "inbounds": [{
+    "type": "vless", "tag": "vless", "listen": "127.0.0.1", "listen_port": 19091,
+    "users": [{"name": "fixture", "uuid": "00000000-0000-4000-8000-000000000001"}],
+    "transport": {"type": "ws", "path": "/vless", "headers": {"X-Test": ["one", "two"]}, "max_early_data": 2048, "early_data_header_name": "Sec-WebSocket-Protocol"},
+    "tls": {
+      "enabled": false,
+      "client_authentication": "require-and-verify",
+      "client_certificate_path": ["unused.pem"],
+      "curve_preferences": ["X25519", "p256"],
+      "acme": {"domain": ["example.invalid"], "email": "admin@example.invalid", "dns01_challenge": {"provider": "cloudflare", "api_token": "fixture-token"}},
+      "ech": {"enabled": false, "key": "unused-key"},
+      "reality": {"enabled": false, "private_key": "unused-private-key", "handshake": {"server": "example.invalid", "server_port": 443}, "short_id": ["0123456789abcdef"]}
+    }
+  }],
+  "outbounds": [{
+    "type": "vmess", "tag": "vmess", "server": "192.0.2.1", "server_port": 443,
+    "uuid": "00000000-0000-4000-8000-000000000002", "security": "auto",
+    "transport": {"type": "grpc", "service_name": "fixture", "idle_timeout": "15s", "ping_timeout": "5s", "permit_without_stream": true},
+    "tls": {"enabled": true, "server_name": "example.invalid", "insecure": true, "min_version": "1.2", "max_version": "1.3", "alpn": ["h2"], "utls": {"enabled": true, "fingerprint": "chrome"}, "ech": {"enabled": false}}
+  }],
+  "experimental": {"cache_file": {"enabled": false}, "clash_api": {"default_mode": "rule", "external_controller": "127.0.0.1:19092"}}
+}

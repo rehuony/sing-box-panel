@@ -27,7 +27,7 @@ describe('createDemoApiClient', () => {
     });
     await expect(client.getConfigurationSupport(legacy!.id)).resolves.toMatchObject({
       exact_version: '1.13.19',
-      structured: false,
+      structured: true,
     });
 
     const contract = await client.getConfigurationSchema(current!.id);

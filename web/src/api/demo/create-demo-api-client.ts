@@ -356,9 +356,7 @@ export function createDemoApiClient(): ApiClient {
         (asset) =>
           (filter.exactVersion === undefined || asset.version === filter.exactVersion)
           && (filter.architecture === undefined || asset.arch === filter.architecture)
-          && (filter.variant === undefined || asset.variant === filter.variant)
-          && (filter.installable === undefined
-            || filter.installable === (asset.has_api_digest || asset.has_catalog_digest)),
+          && (filter.variant === undefined || asset.variant === filter.variant),
       );
       return respond({ ...state.catalog, assets }, signal);
     },

@@ -311,10 +311,8 @@ func (application *Application) runtimeMaterial(
 	if err != nil {
 		return RuntimeMaterial{}, err
 	}
-	binaryDigest, err := coreartifact.ParseSHA256(core.BinarySHA256)
-	if err != nil {
-		return RuntimeMaterial{}, err
-	}
+	// BinarySHA256 is installation metadata, not runtime evidence.
+	binaryDigest, _ := coreartifact.ParseSHA256(core.BinarySHA256)
 	configDigest, err := coreartifact.ParseSHA256(startup.ConfigSHA256)
 	if err != nil {
 		return RuntimeMaterial{}, err

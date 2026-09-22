@@ -51,7 +51,7 @@ func (application *Application) configurationSupport(core store.CoreArtifact) Co
 	}
 }
 
-// ConfigurationSupport reports whether the exact sing-box version has a native
+// ConfigurationSupport reports whether the exact sing-box version has a committed
 // browser schema. Raw JSON editing, checking, and execution do not depend on
 // this presentation capability.
 func (application *Application) ConfigurationSupport(

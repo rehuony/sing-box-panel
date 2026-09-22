@@ -19,6 +19,54 @@ export interface ReviewedSchemaManifestEntry {
 }
 
 export const reviewedSchemaManifest: Readonly<Record<string, ReviewedSchemaManifestEntry>> = {
+  "1.13.19": {
+    exactVersion: "1.13.19",
+    schemaSHA256: "1724b7f442b55808a42cc6fa250b280dfbaacf72c8e9001c0b04765f1e13fe55",
+    async load() {
+      const [schemaModule, validatorModule] = await Promise.all([
+        import("./schema-1_13_19.json"),
+        import("./validator-1_13_19"),
+      ]);
+      return {
+        exactVersion: "1.13.19",
+        schemaSHA256: "1724b7f442b55808a42cc6fa250b280dfbaacf72c8e9001c0b04765f1e13fe55",
+        schema: schemaModule.default as unknown as RJSFSchema,
+        validateFns: validatorModule.default as unknown as ReviewedValidatorFunctions,
+      };
+    },
+  },
+  "1.13.20": {
+    exactVersion: "1.13.20",
+    schemaSHA256: "1724b7f442b55808a42cc6fa250b280dfbaacf72c8e9001c0b04765f1e13fe55",
+    async load() {
+      const [schemaModule, validatorModule] = await Promise.all([
+        import("./schema-1_13_20.json"),
+        import("./validator-1_13_20"),
+      ]);
+      return {
+        exactVersion: "1.13.20",
+        schemaSHA256: "1724b7f442b55808a42cc6fa250b280dfbaacf72c8e9001c0b04765f1e13fe55",
+        schema: schemaModule.default as unknown as RJSFSchema,
+        validateFns: validatorModule.default as unknown as ReviewedValidatorFunctions,
+      };
+    },
+  },
+  "1.13.21": {
+    exactVersion: "1.13.21",
+    schemaSHA256: "1724b7f442b55808a42cc6fa250b280dfbaacf72c8e9001c0b04765f1e13fe55",
+    async load() {
+      const [schemaModule, validatorModule] = await Promise.all([
+        import("./schema-1_13_21.json"),
+        import("./validator-1_13_21"),
+      ]);
+      return {
+        exactVersion: "1.13.21",
+        schemaSHA256: "1724b7f442b55808a42cc6fa250b280dfbaacf72c8e9001c0b04765f1e13fe55",
+        schema: schemaModule.default as unknown as RJSFSchema,
+        validateFns: validatorModule.default as unknown as ReviewedValidatorFunctions,
+      };
+    },
+  },
   "1.14.0": {
     exactVersion: "1.14.0",
     schemaSHA256: "d57ce462cd6305f427aec339a3027840b0478ef3bcbcf699c5fcb5861827c641",

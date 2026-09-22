@@ -38,7 +38,6 @@ export const cores = {
     title: 'Import archive',
     version: 'Version',
   },
-  installUnavailable: 'Download checksum is unavailable or inconsistent.',
   install: 'Install',
   installed: { short: 'installed' },
   loading: 'Loading artifacts…',

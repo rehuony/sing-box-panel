@@ -3,9 +3,6 @@
 package catalog
 
 import (
-	"context"
-	"errors"
-
 	"github.com/rehuony/sing-box-panel/internal/coreartifact"
 )
 
@@ -30,7 +27,7 @@ type githubAsset struct {
 	Digest             string `json:"digest"`
 }
 
-func (client *GitHubClient) filter(ctx context.Context, repositoryID int64, releases []githubRelease) ([]Release, []Diagnostic, error) {
+func (client *GitHubClient) filter(repositoryID int64, releases []githubRelease) ([]Release, []Diagnostic, error) {
 	if len(releases) > 5000 {
 		return nil, nil, fail(StepFilter, "release_count", nil)
 	}
@@ -85,38 +82,11 @@ func (client *GitHubClient) filter(ctx context.Context, repositoryID int64, rele
 				Version: version, OperatingSystem: coreartifact.OperatingSystemLinux,
 				Architecture: architecture, Variant: variant,
 			}
-			if rawAsset.Digest != "" {
-				apiDigest, err := parseGitHubDigest(rawAsset.Digest)
-				if err != nil {
-					diagnostics = append(diagnostics, Diagnostic{Step: StepDigest, Severity: DiagnosticWarning, Code: "invalid_api_digest", Message: "an artifact with a malformed API digest was skipped"})
-					continue
-				}
-				candidate.APIDigest, candidate.HasAPIDigest = apiDigest, true
-			}
-			if client.digestLookup != nil {
-				catalogDigest, found, err := client.digestLookup.Lookup(ctx, DigestKey{
-					RepositoryID: repositoryID, ReleaseID: release.ID, AssetID: rawAsset.ID,
-					Version: version, AssetName: rawAsset.Name,
-				})
-				if err != nil {
-					return nil, nil, fail(StepDigest, "lookup_failed", err)
-				}
-				if found {
-					if catalogDigest.IsZero() {
-						return nil, nil, fail(StepDigest, "invalid_catalog_digest", nil)
-					}
-					candidate.CatalogDigest, candidate.HasCatalogDigest = catalogDigest, true
-				}
+			if digest, err := parseGitHubDigest(rawAsset.Digest); err == nil {
+				candidate.APIDigest, candidate.HasAPIDigest = digest, true
 			}
 			if err := candidate.Validate(); err != nil {
 				return nil, nil, fail(StepFilter, "invalid_candidate", err)
-			}
-			if _, err := candidate.TrustedDigest(); err != nil {
-				code := "digest_missing"
-				if errors.Is(err, ErrDigestMismatch) {
-					code = "digest_mismatch"
-				}
-				diagnostics = append(diagnostics, Diagnostic{Step: StepDigest, Severity: DiagnosticWarning, Code: code, Message: "artifact is visible but official installation is blocked by digest evidence"})
 			}
 			candidateRelease.Assets = append(candidateRelease.Assets, candidate)
 		}

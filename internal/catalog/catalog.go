@@ -5,7 +5,6 @@
 package catalog
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"sort"
@@ -16,8 +15,6 @@ import (
 
 var (
 	ErrCatalog          = errors.New("catalog operation failed")
-	ErrDigestMissing    = errors.New("trusted artifact digest is missing")
-	ErrDigestMismatch   = errors.New("trusted artifact digests do not match")
 	ErrInvalidCandidate = errors.New("invalid catalog artifact candidate")
 )
 
@@ -26,7 +23,6 @@ type Step string
 const (
 	StepReleases   Step = "releases"
 	StepRepository Step = "repository"
-	StepDigest     Step = "digest"
 	StepFilter     Step = "filter"
 )
 
@@ -62,20 +58,6 @@ type Diagnostic struct {
 	Message  string             `json:"message"`
 }
 
-type DigestKey struct {
-	RepositoryID int64                     `json:"repository_id"`
-	ReleaseID    int64                     `json:"release_id"`
-	AssetID      int64                     `json:"asset_id"`
-	Version      coreartifact.ExactVersion `json:"version"`
-	AssetName    string                    `json:"asset_name"`
-}
-
-// DigestLookup represents the separately maintained, trusted catalog digest
-// source. A nil lookup means no project catalog digest is available.
-type DigestLookup interface {
-	Lookup(ctx context.Context, key DigestKey) (coreartifact.SHA256, bool, error)
-}
-
 type Asset struct {
 	RepositoryID     int64                        `json:"repository_id"`
 	ReleaseID        int64                        `json:"release_id"`
@@ -93,27 +75,6 @@ type Asset struct {
 	HasCatalogDigest bool                         `json:"has_catalog_digest"`
 }
 
-// TrustedDigest returns the one SHA-256 value an official installation may
-// trust. Missing evidence and disagreement are both hard failures.
-func (asset Asset) TrustedDigest() (coreartifact.SHA256, error) {
-	if asset.HasAPIDigest && asset.APIDigest.IsZero() {
-		return coreartifact.SHA256{}, fmt.Errorf("%w: API digest is zero", ErrInvalidCandidate)
-	}
-	if asset.HasCatalogDigest && asset.CatalogDigest.IsZero() {
-		return coreartifact.SHA256{}, fmt.Errorf("%w: catalog digest is zero", ErrInvalidCandidate)
-	}
-	if asset.HasAPIDigest && asset.HasCatalogDigest && asset.APIDigest != asset.CatalogDigest {
-		return coreartifact.SHA256{}, ErrDigestMismatch
-	}
-	if asset.HasCatalogDigest {
-		return asset.CatalogDigest, nil
-	}
-	if asset.HasAPIDigest {
-		return asset.APIDigest, nil
-	}
-	return coreartifact.SHA256{}, ErrDigestMissing
-}
-
 func (asset Asset) Validate() error {
 	if asset.RepositoryID != OfficialRepositoryID || asset.ReleaseID <= 0 || asset.AssetID <= 0 {
 		return fmt.Errorf("%w: pinned repository and positive release/asset IDs are required", ErrInvalidCandidate)
@@ -127,36 +88,6 @@ func (asset Asset) Validate() error {
 	architecture, variant, valid := classifyAsset(asset.Version, asset.Name)
 	if !valid || architecture != asset.Architecture || variant != asset.Variant || asset.OperatingSystem != coreartifact.OperatingSystemLinux {
 		return fmt.Errorf("%w: asset name and platform dimensions disagree", ErrInvalidCandidate)
-	}
-	if (!asset.HasAPIDigest && !asset.APIDigest.IsZero()) || (!asset.HasCatalogDigest && !asset.CatalogDigest.IsZero()) {
-		return fmt.Errorf("%w: digest value and presence flag disagree", ErrInvalidCandidate)
-	}
-	source, err := coreartifact.NewOfficialSource(asset.RepositoryID, asset.ReleaseID, asset.AssetID)
-	if err != nil {
-		return fmt.Errorf("%w: source identity", ErrInvalidCandidate)
-	}
-	digest := asset.APIDigest
-	if digest.IsZero() {
-		digest = asset.CatalogDigest
-	}
-	if digest.IsZero() {
-		// A candidate may be displayed without a digest, but validate its other
-		// identity dimensions with a non-zero placeholder.
-		parsed, parseErr := coreartifact.ParseSHA256(strings.Repeat("01", 32))
-		if parseErr != nil {
-			return fmt.Errorf("%w: internal digest placeholder", ErrInvalidCandidate)
-		}
-		digest = parsed
-	}
-	if _, err := coreartifact.NewIdentity(
-		source,
-		digest,
-		asset.OperatingSystem,
-		asset.Architecture,
-		asset.Variant,
-		asset.Version,
-	); err != nil {
-		return fmt.Errorf("%w: artifact dimensions", ErrInvalidCandidate)
 	}
 	return nil
 }

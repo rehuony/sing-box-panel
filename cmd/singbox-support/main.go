@@ -134,6 +134,9 @@ func check(root string) error {
 	if err := singbox.ValidateConfigurationSchemaAssets(); err != nil {
 		return fmt.Errorf("validate configuration schema assets: %w", err)
 	}
+	if err := checkReviewedSchemas(root, catalog); err != nil {
+		return err
+	}
 	if err := singbox.ValidateFamilies(); err != nil {
 		return err
 	}
@@ -198,6 +201,19 @@ func validateCatalog(catalog sourceCatalog) error {
 		if version.InboundFamily != "" && !validBehaviorFamily(version.InboundFamily, releaseLine) {
 			return fmt.Errorf("version %s has mismatched inbound family %s", version.ExactVersion, version.InboundFamily)
 		}
+		switch version.SchemaSource {
+		case "":
+		case singbox.SchemaSourceNative:
+			if !singbox.SupportsNativeConfigurationSchema(version.ExactVersion) {
+				return fmt.Errorf("version %s has no native schema command", version.ExactVersion)
+			}
+		case singbox.SchemaSourceReviewed113:
+			if !slices.Contains([]string{"1.13.19", "1.13.20", "1.13.21"}, version.ExactVersion) {
+				return fmt.Errorf("version %s is outside the reviewed 1.13 schema contract", version.ExactVersion)
+			}
+		default:
+			return fmt.Errorf("version %s has an unknown schema source %q", version.ExactVersion, version.SchemaSource)
+		}
 		if version.Upstream.Tag != "v"+version.ExactVersion || !isLowerHex(version.Upstream.Commit, 40) ||
 			!validModuleSum(version.Upstream.ModuleSum) || !validModuleSum(version.Upstream.GoModSum) {
 			return fmt.Errorf("version %s has invalid upstream provenance", version.ExactVersion)
@@ -250,8 +266,8 @@ func renderGenerated(catalog sourceCatalog) ([]byte, error) {
 	output.WriteString("// SPDX-License-Identifier: GPL-3.0-or-later\n\npackage singbox\n\n")
 	output.WriteString("var generatedVersions = []Version{\n")
 	for _, version := range catalog.Versions {
-		fmt.Fprintf(&output, "{ExactVersion:%q, InboundFamily:%q, Upstream:Upstream{Tag:%q, Commit:%q, ModuleSum:%q, GoModSum:%q}, Profiles:map[string]Profile{\n",
-			version.ExactVersion, version.InboundFamily, version.Upstream.Tag, version.Upstream.Commit,
+		fmt.Fprintf(&output, "{ExactVersion:%q, InboundFamily:%q, SchemaSource:%q, Upstream:Upstream{Tag:%q, Commit:%q, ModuleSum:%q, GoModSum:%q}, Profiles:map[string]Profile{\n",
+			version.ExactVersion, version.InboundFamily, version.SchemaSource, version.Upstream.Tag, version.Upstream.Commit,
 			version.Upstream.ModuleSum, version.Upstream.GoModSum)
 		for _, architecture := range []string{singbox.ArchitectureAMD64, singbox.ArchitectureARM64} {
 			profile := version.Profiles[architecture]

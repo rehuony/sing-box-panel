@@ -72,8 +72,8 @@ func TestHelpSectionOrder(t *testing.T) {
 		{name: "config verify", args: []string{"config", "verify", "--help"}, usage: "config verify [flags]", inherited: true, examples: true},
 		{name: "config init", args: []string{"config", "init", "--help"}, usage: "config init [flags]", inherited: true, examples: true},
 		{name: "config unset", args: []string{"config", "unset", "--help"}, usage: "config unset FIELD [FIELD...] [flags]", inherited: true, examples: true},
-		{name: "leaf flag", args: []string{"core", "install", "--help"}, usage: "core install ASSET_ID [flags]", inherited: true},
-		{name: "leaf help command", args: []string{"help", "core", "install"}, usage: "core install ASSET_ID [flags]", inherited: true},
+		{name: "leaf flag", args: []string{"core", "install", "--help"}, usage: "core install VERSION [flags]", inherited: true},
+		{name: "leaf help command", args: []string{"help", "core", "install"}, usage: "core install VERSION [flags]", inherited: true},
 		{name: "period argument", args: []string{"metrics", "period", "--help"}, usage: "metrics period PERIOD_ID [flags]", inherited: true},
 		{name: "optional help argument", args: []string{"help", "--help"}, usage: "help [command] [flags]", inherited: true},
 	} {

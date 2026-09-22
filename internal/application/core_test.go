@@ -46,7 +46,7 @@ func TestCatalogSnapshotRoundTripFilteringAndInstallation(t *testing.T) {
 	if err != nil || len(loaded.Catalog.Assets()) != 1 || loaded.Catalog.Assets()[0].AssetID != asset.AssetID {
 		t.Fatalf("loaded catalog=%+v err=%v", loaded, err)
 	}
-	filtered, err := application.ListCatalogAssets(ctx, CatalogAssetFilter{ExactVersion: "1.13.19", Architecture: "amd64", Installable: true})
+	filtered, err := application.ListCatalogAssets(ctx, CatalogAssetFilter{ExactVersion: "1.13.19", Architecture: "amd64"})
 	if err != nil || len(filtered.Assets) != 1 {
 		t.Fatalf("filtered=%+v err=%v", filtered, err)
 	}
@@ -192,7 +192,7 @@ func TestPersistInstalledCorePreservesFullSourceIdentity(t *testing.T) {
 		t.Fatalf("persisted feature fingerprint = %s", first.FeatureFingerprint)
 	}
 	if _, err := application.ImportCore(ctx, CoreImportRequest{
-		SourcePath: "relative.tar.gz", SourceDescription: "admin", SHA256: digest.String(),
+		SourcePath: "relative.tar.gz", SourceDescription: "admin",
 		ExactVersion: version.String(), Architecture: "amd64", Variant: "musl",
 	}); err == nil {
 		t.Fatal("core import accepted a relative path")
@@ -207,14 +207,14 @@ func TestPersistInstalledCorePreservesFullSourceIdentity(t *testing.T) {
 	}
 	application.SetArtifactInstaller(fakeArtifactInstaller{importResult: result})
 	firstUpload, err := application.ImportCore(ctx, CoreImportRequest{
-		SourcePath: firstUploadPath, SourceDescription: "browser upload", SHA256: digest.String(),
+		SourcePath: firstUploadPath, SourceDescription: "browser upload",
 		ExactVersion: version.String(), Architecture: "amd64", Variant: "musl", DeleteSource: true,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	secondUpload, err := application.ImportCore(ctx, CoreImportRequest{
-		SourcePath: secondUploadPath, SourceDescription: "browser upload", SHA256: digest.String(),
+		SourcePath: secondUploadPath, SourceDescription: "browser upload",
 		ExactVersion: version.String(), Architecture: "amd64", Variant: "musl", DeleteSource: true,
 	})
 	if err != nil {

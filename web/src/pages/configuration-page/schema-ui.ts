@@ -1,5 +1,6 @@
 import type { RJSFSchema, UiSchema } from '@rjsf/utils';
 
+import { getSchemaType } from '@rjsf/utils';
 import { isLosslessNumber } from 'lossless-json';
 
 interface PanelMetadata {
@@ -475,7 +476,7 @@ export function uiSchemaFromPanel(
     result[key] = child;
   }
   const itemSchema = collectionItemSchema(resolved, root);
-  if (resolved.type === 'array' && itemSchema !== null) {
+  if (getSchemaType(resolved) === 'array' && itemSchema !== null) {
     // Build item UI lazily: recursive rule schemas must not recurse before an item exists.
     result.items = (itemData: unknown) => uiSchemaFromPanel(itemSchema, [], root, itemData);
   }

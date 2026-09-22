@@ -117,7 +117,7 @@ func TestRuntimeAndConfigurationHTTPRoutesUseApplicationServices(t *testing.T) {
 		`{"core_artifact_id":"`+core.ID+`"}`,
 		"",
 	)
-	if previewResponse.Code != http.StatusOK || !strings.Contains(previewResponse.Body.String(), `"structured":false`) ||
+	if previewResponse.Code != http.StatusOK || !strings.Contains(previewResponse.Body.String(), `"structured":true`) ||
 		!strings.Contains(previewResponse.Body.String(), `"config":{}`) {
 		t.Fatalf("preview status=%d body=%s", previewResponse.Code, previewResponse.Body.String())
 	}

@@ -229,8 +229,16 @@ through the Web UI. Select an exact installed artifact there for
 Check or Apply. The CLI retains explicit core switching:
 
 ```sh
-sing-box-panel core enable CORE_ARTIFACT_ID
+sing-box-panel core enable 1.13.21
 ```
+
+`install`, `show`, `enable` and `remove` take a complete version or `v` tag.
+The default is this machine's architecture and musl; `--arch` is explicit.
+When multiple installations match, copy `BUILD` from `core list` and pass
+`--build`. The old asset/artifact ID positional arguments, `catalog --installable`
+and import `--sha256` are removed. Full IDs remain in machine output and HTTP
+management paths. See [core commands and migration](core-versions.md#cli-and-http-migration)
+for examples and refresh/cache behavior.
 
 `core enable` preserves the stopped/running state: a stopped core is selected
 without launching it, while a running core is restarted after validation.
@@ -243,8 +251,7 @@ preserved. A failed preflight leaves the live core and saved document unchanged.
 
 Missing JSON Schema disables only structured editing in the Web UI. Raw JSON
 check and Apply there, and core enable/start/restart/rollback in the CLI, retain
-the selected binary's native check as the final gate. No surface guesses a core
-from a version string or silently selects a nearby release.
+the selected binary's native check as the final gate. Version selection requires an exact match and never silently selects a nearby release.
 
 The CLI does not expose the internal startup-artifact and activation-bundle
 steps; the HTTP API still exposes them for the Web UI. The monitoring tier is
@@ -263,7 +270,7 @@ that server serializes them under the existing process lease. Interrupting the
 caller cancels work at its next safe boundary. Logs record completed outcomes.
 There is no generic queue, operation polling command, or `--detach` flag.
 
-## Foreground panel control## Foreground panel control
+## Foreground panel control
 
 ```sh
 sing-box-panel server start --config ./setting.json
@@ -552,4 +559,4 @@ prior cancellation leaves the running executable unchanged.
 
 The invoking user must be able to write the executable's directory. Replacing
 the file does not restart an already-running systemd service. See
-[Release process](release.md) for the signing and publication procedure.
+[Release process](../development/release.md) for the signing and publication procedure.

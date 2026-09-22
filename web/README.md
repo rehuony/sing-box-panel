@@ -35,9 +35,9 @@ and theme labels in `shell.ts`, with shared and startup messages in `common.ts`.
 
 Configuration contracts under `src/schemas/generated/` are exported offline
 from the committed backend Schema assets by the Vite plugin. Its manifest binds
-each exact sing-box version to one file and SHA-256 digest, and the plugin
+each exact sing-box version to its native/reviewed source kind, file and SHA-256 digest, and the plugin
 precompiles the root validator as an Ajv 2020 module for the browser. Generated
-validators contain no CommonJS `require`. A version without a native Schema
+validators contain no CommonJS `require`. A version without a committed Schema
 remains available in the Advanced JSON editor; structured editing is enabled
 only when the exact-version local Schema and served digest match. The
 configuration version selector lists compatible installed core versions,
@@ -61,7 +61,8 @@ the session CSRF token, and saved-file writes include the numeric revision in th
 Operations await the completed API resource; version/source actions update in
 place and failures retain previous usable state. Runtime controls verify observed
 process identity before reporting success. Version management displays the cached
-catalog immediately and automatically refreshes it using the configured TTL.
+catalog immediately, initializes a missing cache, and offers a forced refresh;
+the running server handles periodic refresh using the configured interval.
 Panel logs display ordinary events with no operation tracking dialogs. Core logs
 and telemetry use authenticated streams with bounded buffering and reconnect.
 
@@ -74,7 +75,7 @@ is persisted and takes precedence on later visits.
 The configuration UI combines version-scoped RJSF controls with a lossless
 sing-box JSON editor. It preserves unknown fields and unmodified large-number
 lexemes, and never adds panel metadata to executable configuration. Versions
-before native Schema support use the Advanced editor only. The Web UI offers Save and Validate, with validation feedback in a Toast.
+without a committed native or reviewed Schema use the Advanced editor only. The Web UI offers Save and Validate, with validation feedback in a Toast.
 Visual fields, Advanced JSON and visual module navigation share one in-memory
 draft for the authenticated session. Internal tab changes retain that draft;
 only leaving the configuration route or unloading the page invokes the

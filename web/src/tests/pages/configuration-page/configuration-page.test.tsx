@@ -114,6 +114,8 @@ describe('configurationPage', () => {
     expect(screen.getByRole('button', { name: 'Validate configuration' })).toBeDisabled();
     expect(client.getConfigurationSchema).not.toHaveBeenCalled();
     await user.click(screen.getByRole('tab', { name: 'Advanced JSON' }));
+    // Let the real lazy editor load before starting the DOM assertion's timeout.
+    await act(() => vi.dynamicImportSettled());
     const editor = await screen.findByLabelText('sing-box configuration JSON');
     changeEditor(editor, '{"log":{"level":"debug"}}');
     await user.click(screen.getByRole('button', { name: 'Save configuration' }));

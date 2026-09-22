@@ -39,22 +39,18 @@ func (manager *Manager) startLocked(ctx context.Context, bundle AppliedBundle) e
 	if err := verifyStartupConfigDigest(bundle.StartupConfig, bundle.StartupConfigDigest); err != nil {
 		return manager.startFailure("verify_config", "digest_mismatch", ErrStartupConfigDigest, err)
 	}
-	actualDigest, err := verifyBinaryDigest(
+	err := verifyBinaryFile(
 		operationContext,
 		bundle.BinaryPath,
-		bundle.ArtifactDigest,
 		manager.options.MaximumBinaryBytes,
 	)
 	if err != nil {
 		if operationContext.Err() != nil {
 			return manager.startFailure("start", "cancelled", operationContext.Err(), err)
 		}
-		if !actualDigest.IsZero() {
-			manager.recordActualArtifact(generation, "", actualDigest)
-		}
-		return manager.startFailure("verify_artifact", "digest_mismatch", ErrArtifactDigest, err)
+		return manager.startFailure("verify_artifact", "unsafe_file", ErrArtifactFile, err)
 	}
-	manager.recordActualArtifact(generation, bundle.ArtifactID, actualDigest)
+	manager.recordActualArtifact(generation, bundle.ArtifactID, bundle.ArtifactDigest)
 
 	// Every subprocess uses RuntimeDir as its working directory. A ready startup
 	// artifact may outlive that directory, so recreate and validate it before
@@ -64,7 +60,7 @@ func (manager *Manager) startLocked(ctx context.Context, bundle AppliedBundle) e
 	}
 	versionOutput, err := manager.options.Executor.Run(
 		operationContext,
-		manager.command(bundle.BinaryPath, "version"),
+		manager.command(bundle, "version"),
 		manager.options.MaximumCommandOutput,
 	)
 	if err != nil {
@@ -81,20 +77,16 @@ func (manager *Manager) startLocked(ctx context.Context, bundle AppliedBundle) e
 	if actualVersion != bundle.ExactVersion {
 		return manager.startFailure("verify_version", "mismatch", ErrVersionMismatch, nil)
 	}
-	actualDigest, err = verifyBinaryDigest(
+	err = verifyBinaryFile(
 		operationContext,
 		bundle.BinaryPath,
-		bundle.ArtifactDigest,
 		manager.options.MaximumBinaryBytes,
 	)
 	if err != nil {
 		if operationContext.Err() != nil {
 			return manager.startFailure("start", "cancelled", operationContext.Err(), err)
 		}
-		if !actualDigest.IsZero() {
-			manager.recordActualArtifact(generation, "", actualDigest)
-		}
-		return manager.startFailure("verify_artifact", "changed_after_version", ErrArtifactDigest, err)
+		return manager.startFailure("verify_artifact", "changed_after_version", ErrArtifactFile, err)
 	}
 
 	if err := contextError(operationContext); err != nil {
@@ -110,7 +102,7 @@ func (manager *Manager) startLocked(ctx context.Context, bundle AppliedBundle) e
 	}
 	if _, err := manager.options.Executor.Run(
 		operationContext,
-		manager.command(bundle.BinaryPath, "check", "-c", configPath),
+		manager.command(bundle, "check", "-c", configPath),
 		manager.options.MaximumCommandOutput,
 	); err != nil {
 		if operationContext.Err() != nil {
@@ -118,20 +110,16 @@ func (manager *Manager) startLocked(ctx context.Context, bundle AppliedBundle) e
 		}
 		return manager.startFailure("check_config", "rejected", ErrCheckFailed, err)
 	}
-	actualDigest, err = verifyBinaryDigest(
+	err = verifyBinaryFile(
 		operationContext,
 		bundle.BinaryPath,
-		bundle.ArtifactDigest,
 		manager.options.MaximumBinaryBytes,
 	)
 	if err != nil {
 		if operationContext.Err() != nil {
 			return manager.startFailure("start", "cancelled", operationContext.Err(), err)
 		}
-		if !actualDigest.IsZero() {
-			manager.recordActualArtifact(generation, "", actualDigest)
-		}
-		return manager.startFailure("verify_artifact", "changed_after_check", ErrArtifactDigest, err)
+		return manager.startFailure("verify_artifact", "changed_after_check", ErrArtifactFile, err)
 	}
 	if err := contextError(operationContext); err != nil {
 		return manager.startFailure("start", "cancelled", err, err)
@@ -150,7 +138,7 @@ func (manager *Manager) startLocked(ctx context.Context, bundle AppliedBundle) e
 			_ = output.Close()
 		}
 	}()
-	child, err := manager.options.Executor.Start(manager.command(bundle.BinaryPath, "run", "-c", configPath))
+	child, err := manager.options.Executor.Start(manager.command(bundle, "run", "-c", configPath))
 	if err != nil {
 		return manager.startFailure("start_process", "execution", ErrProcessExited, err)
 	}

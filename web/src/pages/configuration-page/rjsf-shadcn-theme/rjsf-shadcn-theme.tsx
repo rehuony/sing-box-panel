@@ -35,6 +35,7 @@ import {
   enumOptionValueEncoder,
   getInputProps,
   getOptionValueFormat,
+  getSchemaType,
 } from '@rjsf/utils';
 
 import { Input } from '@/components/ui/input';
@@ -106,13 +107,14 @@ function PanelFieldTemplate(props: FieldTemplateProps) {
       </div>
     );
   }
-  if (fieldPathId.path.length === 0 || schema.type === 'object' || schema.type === 'array') {
+  const schemaType = getSchemaType(schema);
+  if (fieldPathId.path.length === 0 || schemaType === 'object' || schemaType === 'array') {
     return children;
   }
   const discriminator = (schema.discriminator as { propertyName?: string } | undefined)?.propertyName;
   if (discriminator && (schema.oneOf || schema.anyOf)) return children;
   const resolvedLabel = localizedLabel(schema, label, i18n.language, t);
-  const booleanField = schema.type === 'boolean';
+  const booleanField = schemaType === 'boolean';
   const labelTarget = id;
   return (
     <Field

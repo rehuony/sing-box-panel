@@ -7,6 +7,7 @@ import (
 	"io"
 
 	"github.com/rehuony/sing-box-panel/internal/coreartifact"
+	"github.com/rehuony/sing-box-panel/internal/singbox"
 )
 
 func (manager *Manager) startFailure(operation, code string, kind, cause error) error {
@@ -86,12 +87,12 @@ func (manager *Manager) reap(process *managedProcess) {
 	close(process.done)
 }
 
-func (manager *Manager) command(path string, arguments ...string) Command {
+func (manager *Manager) command(bundle AppliedBundle, arguments ...string) Command {
 	return Command{
-		Path:   path,
+		Path:   bundle.BinaryPath,
 		Args:   append([]string(nil), arguments...),
 		Dir:    manager.options.RuntimeDir,
-		Env:    append([]string(nil), fixedCommandEnvironment...),
+		Env:    append(append([]string(nil), fixedCommandEnvironment...), singbox.RuntimeCompatibilityEnvironment(bundle.ExactVersion.String())...),
 		Stdout: manager.options.Stdout,
 		Stderr: manager.options.Stderr,
 	}

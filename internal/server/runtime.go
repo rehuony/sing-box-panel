@@ -258,8 +258,7 @@ func (services *runtimeServices) performRuntimeIntent(ctx context.Context, inten
 	var recordedObservation *store.RuntimeObservation
 	live := services.manager.ObserveLiveIdentity()
 	alreadyExact := live.Running && live.BundleID == material.Bundle.ID &&
-		live.ArtifactID == material.Bundle.ArtifactID && live.ExactVersion == material.Bundle.ExactVersion &&
-		live.ArtifactDigest == material.Bundle.ArtifactDigest
+		live.ArtifactID == material.Bundle.ArtifactID && live.ExactVersion == material.Bundle.ExactVersion
 	startedByIntent := false
 	if runtimeIntentNeedsTransition(store.RuntimeIntentKind(intent.Kind), alreadyExact) {
 		if err := control.SafePoint(ctx); err != nil {
@@ -418,7 +417,6 @@ func (services *runtimeServices) revalidateRuntimeMaterial(
 	if current.Startup.ID != material.Startup.ID ||
 		current.Core.ID != material.Core.ID ||
 		current.Bundle.ExactVersion != material.Bundle.ExactVersion ||
-		current.Bundle.ArtifactDigest != material.Bundle.ArtifactDigest ||
 		current.Bundle.StartupConfigDigest != material.Bundle.StartupConfigDigest {
 		return store.ErrActivationBundleNotReady
 	}

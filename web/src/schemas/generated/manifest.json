@@ -2,11 +2,31 @@
   "schema_version": 1,
   "entries": [
     {
+      "source": "reviewed-1.13",
+      "exact_version": "1.13.19",
+      "schema_sha256": "1724b7f442b55808a42cc6fa250b280dfbaacf72c8e9001c0b04765f1e13fe55",
+      "schema_file": "schema-1_13_19.json"
+    },
+    {
+      "source": "reviewed-1.13",
+      "exact_version": "1.13.20",
+      "schema_sha256": "1724b7f442b55808a42cc6fa250b280dfbaacf72c8e9001c0b04765f1e13fe55",
+      "schema_file": "schema-1_13_20.json"
+    },
+    {
+      "source": "reviewed-1.13",
+      "exact_version": "1.13.21",
+      "schema_sha256": "1724b7f442b55808a42cc6fa250b280dfbaacf72c8e9001c0b04765f1e13fe55",
+      "schema_file": "schema-1_13_21.json"
+    },
+    {
+      "source": "native",
       "exact_version": "1.14.0",
       "schema_sha256": "d57ce462cd6305f427aec339a3027840b0478ef3bcbcf699c5fcb5861827c641",
       "schema_file": "schema-1_14_0.json"
     },
     {
+      "source": "native",
       "exact_version": "1.14.1",
       "schema_sha256": "d57ce462cd6305f427aec339a3027840b0478ef3bcbcf699c5fcb5861827c641",
       "schema_file": "schema-1_14_1.json"

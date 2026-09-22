@@ -236,7 +236,6 @@ paths:
         - $ref: "#/components/parameters/ExactVersion"
         - $ref: "#/components/parameters/Architecture"
         - $ref: "#/components/parameters/Variant"
-        - $ref: "#/components/parameters/Installable"
       responses:
         "200":
           $ref: "#/components/responses/CatalogAssetList"
@@ -380,13 +379,11 @@ paths:
           multipart/form-data:
             schema:
               type: object
-              required: [archive, sha256, exact_version, architecture, variant]
+              required: [archive, exact_version, architecture, variant]
               properties:
                 archive:
                   type: string
                   format: binary
-                sha256:
-                  type: string
                 exact_version:
                   type: string
                 architecture:
@@ -1232,11 +1229,6 @@ components:
       in: query
       schema:
         $ref: "#/components/schemas/CoreVariant"
-    Installable:
-      name: installable
-      in: query
-      schema:
-        type: boolean
     CoreSourceKind:
       name: source_kind
       in: query

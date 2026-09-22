@@ -1,11 +1,6 @@
 import type { HttpApiContext } from './shared';
 import type { ApiClient, CatalogAssetFilter, CatalogAssetList, CatalogRefresh, ConfigurationCompile, ConfigurationPreview, ConfigurationSchemaContract, ConfigurationSupport, CoreArtifact, CoreArtifactFilter, CoreArtifactPage, CoreImportUpload, RuntimeHistoryPage, RuntimeResponse, RuntimeStatus, StartupArtifactPage, StartupArtifactSummary } from '../api-client';
 
-async function fileSHA256(file: File): Promise<string> {
-  const digest = await crypto.subtle.digest('SHA-256', await file.arrayBuffer());
-  return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, '0')).join('');
-}
-
 export function createCoreHttpApi(context: HttpApiContext) {
   const {
     baseUrl, buildQuery, fetcher, request, writeHeaders, writeJSONHeaders,
@@ -22,7 +17,6 @@ export function createCoreHttpApi(context: HttpApiContext) {
       const query = buildQuery({
         architecture: filter.architecture,
         exact_version: filter.exactVersion,
-        installable: filter.installable,
         variant: filter.variant,
       });
       return request<CatalogAssetList>(fetcher, `${baseUrl}/core/catalog/assets${query}`, {
@@ -58,11 +52,10 @@ export function createCoreHttpApi(context: HttpApiContext) {
         method: 'POST', body: JSON.stringify({ asset_id: assetID }), headers: writeJSONHeaders(), signal,
       });
     },
-    async importCoreArchive(input: CoreImportUpload, signal) {
+    importCoreArchive(input: CoreImportUpload, signal) {
       const form = new FormData();
       form.set('archive', input.archive);
       form.set('source_description', input.sourceDescription);
-      form.set('sha256', await fileSHA256(input.archive));
       form.set('exact_version', input.exactVersion);
       form.set('architecture', input.architecture);
       form.set('variant', input.variant);

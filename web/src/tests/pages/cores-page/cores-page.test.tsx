@@ -201,6 +201,25 @@ describe('inline version library', () => {
     expect(within(missing).getByRole('link')).toHaveAttribute('href', 'https://github.com/SagerNet/sing-box/releases/tag/v1.14.0');
     expect(within(missing).getByRole('button', { name: 'Download' })).toBeEnabled();
   });
+  it.each(['missing', 'malformed', 'conflicting'])('allows downloads with %s digest metadata', async (kind) => {
+    const user = userEvent.setup();
+    const asset = {
+      ...testCatalog.assets[0], asset_id: 202, version: '1.13.21',
+      has_api_digest: kind !== 'missing', api_digest: kind === 'malformed' ? 'invalid' : 'a'.repeat(64),
+      has_catalog_digest: kind === 'conflicting', catalog_digest: 'b'.repeat(64),
+    };
+    const client = createMockApiClient({
+      listCatalogAssets: vi.fn().mockResolvedValue({ ...testCatalog, assets: [asset] }),
+    });
+    renderCores(client);
+    await screen.findByText(testArtifacts.items[0].exact_version);
+    await user.click(screen.getByRole('tab', { name: 'Available' }));
+    const download = await screen.findByRole('button', { name: 'Download' });
+    expect(download).toBeEnabled();
+    await user.click(download);
+    expect(client.installCore).toHaveBeenCalledWith(202, expect.any(AbortSignal));
+  });
+
   it('paginates versions with concise source and runtime columns', async () => {
     const user = userEvent.setup();
     const items = Array.from({ length: 12 }, (_, index) => ({

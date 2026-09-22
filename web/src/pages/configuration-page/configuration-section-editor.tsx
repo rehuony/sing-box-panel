@@ -1,6 +1,7 @@
 import type { RJSFSchema } from '@rjsf/utils';
 
 import { useState } from 'react';
+import { getSchemaType } from '@rjsf/utils';
 import { useTranslation } from 'react-i18next';
 
 import type { ReviewedSchemaResolution } from '@/schemas/resolve-reviewed-schema';
@@ -42,7 +43,7 @@ export function ConfigurationSectionEditor({
   }
   if (groups.length === 0) {
     const content = form(schema, draft[name], `/${name}`);
-    if (resolvedSchema(schema, resolution.schema).type !== 'array') return content;
+    if (getSchemaType(resolvedSchema(schema, resolution.schema)) !== 'array') return content;
     return (
       <div className='configuration-section-tabs'>
         <div className='configuration-section-toolbar'>

@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/rehuony/sing-box-panel/internal/coreartifact"
+	"github.com/rehuony/sing-box-panel/internal/singbox"
 )
 
 func TestManagerStartsOnlyVerifiedAppliedBundle(t *testing.T) {
@@ -69,7 +70,7 @@ func TestManagerStartsOnlyVerifiedAppliedBundle(t *testing.T) {
 		if command.Path != fixture.bundle.BinaryPath || !reflect.DeepEqual(command.Args, wantArguments[index]) {
 			t.Fatalf("command[%d] = %q %q, want %q %q", index, command.Path, command.Args, fixture.bundle.BinaryPath, wantArguments[index])
 		}
-		if command.Dir != fixture.runtimeDir || !reflect.DeepEqual(command.Env, fixedCommandEnvironment) {
+		if command.Dir != fixture.runtimeDir || !reflect.DeepEqual(command.Env, append(append([]string(nil), fixedCommandEnvironment...), singbox.RuntimeCompatibilityEnvironment("1.13.19")...)) {
 			t.Fatalf("command[%d] dir/env = %q/%q", index, command.Dir, command.Env)
 		}
 	}
@@ -159,56 +160,22 @@ func TestManagerCheckCreatesPrivateRuntimeDirectoryBeforeExecution(t *testing.T)
 	closeManager(t, manager)
 }
 
-func TestManagerRejectsDigestMismatchBeforeExecution(t *testing.T) {
+func TestManagerRejectsConfigurationDigestMismatchBeforeExecution(t *testing.T) {
 	t.Parallel()
-
-	tests := []struct {
-		name       string
-		mutate     func(*AppliedBundle)
-		wantError  error
-		wantActual bool
-	}{
-		{
-			name: "config",
-			mutate: func(bundle *AppliedBundle) {
-				bundle.StartupConfigDigest = digestOf([]byte("different"))
-			},
-			wantError: ErrStartupConfigDigest,
-		},
-		{
-			name: "artifact",
-			mutate: func(bundle *AppliedBundle) {
-				bundle.ArtifactDigest = digestOf([]byte("different"))
-			},
-			wantError:  ErrArtifactDigest,
-			wantActual: true,
-		},
+	fixture := newRuntimeFixture(t, "1.13.19", []byte(`{"route":{}}`))
+	fixture.bundle.StartupConfigDigest = digestOf([]byte("different"))
+	executor := newFakeExecutor(newFakeProcess(4102, true))
+	manager := newTestManager(t, fixture.runtimeDir, executor, newFakeClock(), immediateProbe())
+	if err := manager.Start(testContext(t), fixture.bundle); !errors.Is(err, ErrStartupConfigDigest) {
+		t.Fatalf("Start error = %v", err)
 	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			t.Parallel()
-			fixture := newRuntimeFixture(t, "1.13.19", []byte(`{"route":{}}`))
-			test.mutate(&fixture.bundle)
-			executor := newFakeExecutor(newFakeProcess(4102, true))
-			manager := newTestManager(t, fixture.runtimeDir, executor, newFakeClock(), immediateProbe())
-
-			err := manager.Start(testContext(t), fixture.bundle)
-			if !errors.Is(err, test.wantError) {
-				t.Fatalf("Start error = %v, want %v", err, test.wantError)
-			}
-			if got := len(executor.Commands()); got != 0 {
-				t.Fatalf("executed %d commands before digest acceptance", got)
-			}
-			status := manager.Status()
-			if status.State != StateFailed || status.Failure == nil {
-				t.Fatalf("status = %+v, want failed", status)
-			}
-			if test.wantActual && status.ActualArtifactDigest.IsZero() {
-				t.Fatal("actual mismatching artifact digest was not recorded")
-			}
-			closeManager(t, manager)
-		})
+	if got := len(executor.Commands()); got != 0 {
+		t.Fatalf("executed %d commands with invalid configuration digest", got)
 	}
+	if status := manager.Status(); status.State != StateFailed || status.Failure == nil {
+		t.Fatalf("status = %+v, want failed", status)
+	}
+	closeManager(t, manager)
 }
 
 func TestManagerRejectsExactVersionMismatch(t *testing.T) {
@@ -264,32 +231,35 @@ func TestManagerRunsExactCheckBeforeStart(t *testing.T) {
 	closeManager(t, manager)
 }
 
-func TestManagerDetectsArtifactMutationBetweenVerificationSteps(t *testing.T) {
+func TestManagerIgnoresRecordedArtifactDigestDuringCheckAndStart(t *testing.T) {
 	t.Parallel()
+	for _, missing := range []bool{false, true} {
+		t.Run(fmt.Sprint("missing=", missing), func(t *testing.T) {
 
-	fixture := newRuntimeFixture(t, "1.13.19", []byte(`{"outbounds":[]}`))
-	executor := newFakeExecutor(newFakeProcess(4105, true))
-	executor.versions[fixture.bundle.BinaryPath] = fixture.bundle.ExactVersion.String()
-	executor.runHook = func(command Command) {
-		if reflect.DeepEqual(command.Args, []string{"version"}) {
-			if err := os.WriteFile(command.Path, []byte("mutated executable"), 0o700); err != nil {
-				t.Errorf("mutate binary: %v", err)
+			fixture := newRuntimeFixture(t, "1.13.19", []byte(`{"outbounds":[]}`))
+			executor := newFakeExecutor(newFakeProcess(4105, true))
+			executor.versions[fixture.bundle.BinaryPath] = fixture.bundle.ExactVersion.String()
+			fixture.bundle.ArtifactDigest = digestOf([]byte("obsolete installation metadata"))
+			if missing {
+				fixture.bundle.ArtifactDigest = coreartifact.SHA256{}
 			}
-		}
-	}
-	manager := newTestManager(t, fixture.runtimeDir, executor, newFakeClock(), immediateProbe())
+			manager := newTestManager(t, fixture.runtimeDir, executor, newFakeClock(), immediateProbe())
 
-	err := manager.Start(testContext(t), fixture.bundle)
-	if !errors.Is(err, ErrArtifactDigest) {
-		t.Fatalf("Start error = %v, want ErrArtifactDigest", err)
+			if err := manager.Check(testContext(t), fixture.bundle); err != nil {
+				t.Fatal(err)
+			}
+			if err := manager.Start(testContext(t), fixture.bundle); err != nil {
+				t.Fatal(err)
+			}
+			if executor.StartCalls() != 1 {
+				t.Fatal("core was not started")
+			}
+			if manager.Status().ActualArtifactDigest != fixture.bundle.ArtifactDigest {
+				t.Fatal("installation metadata should be retained")
+			}
+			closeManager(t, manager)
+		})
 	}
-	if executor.StartCalls() != 0 {
-		t.Fatal("mutated artifact was started")
-	}
-	if manager.Status().ActualArtifactDigest == fixture.bundle.ArtifactDigest {
-		t.Fatal("status retained stale actual artifact digest after mutation")
-	}
-	closeManager(t, manager)
 }
 
 func TestManagerHealthFailureTerminatesProcess(t *testing.T) {

@@ -46,7 +46,6 @@ export interface CatalogAssetFilter {
   variant?: string;
   architecture?: string;
   exactVersion?: string;
-  installable?: boolean;
 }
 
 export interface CoreImportUpload {

@@ -30,7 +30,6 @@ type HTTPDoer interface {
 
 type ClientOptions struct {
 	HTTP                HTTPDoer
-	DigestLookup        DigestLookup
 	Token               string
 	Timeout             time.Duration
 	MaximumPages        int
@@ -40,7 +39,6 @@ type ClientOptions struct {
 
 type GitHubClient struct {
 	http         HTTPDoer
-	digestLookup DigestLookup
 	token        string
 	timeout      time.Duration
 	maximumPages int
@@ -81,7 +79,6 @@ func NewGitHubClient(options ClientOptions) (*GitHubClient, error) {
 	}
 	return &GitHubClient{
 		http:         options.HTTP,
-		digestLookup: options.DigestLookup,
 		token:        options.Token,
 		timeout:      options.Timeout,
 		maximumPages: options.MaximumPages,
@@ -111,10 +108,7 @@ func (client *GitHubClient) Refresh(ctx context.Context, previousETag string) (R
 		if probeErr != nil {
 			return RefreshResult{}, probeErr
 		}
-		// DigestLookup is a separate source whose state is not covered by GitHub
-		// validators. Without its own immutable snapshot token, refresh it rather
-		// than speculating that the combined catalog is unchanged.
-		if unchanged && client.digestLookup == nil {
+		if unchanged {
 			repositoryID, repositoryErr := client.loadRepository(operationContext, &remainingBytes)
 			if repositoryErr != nil {
 				return RefreshResult{}, repositoryErr
@@ -144,7 +138,7 @@ func (client *GitHubClient) Refresh(ctx context.Context, previousETag string) (R
 		return RefreshResult{}, err
 	}
 
-	filtered, diagnostics, err := client.filter(operationContext, repositoryID, rawReleases)
+	filtered, diagnostics, err := client.filter(repositoryID, rawReleases)
 	if err != nil {
 		return RefreshResult{}, err
 	}

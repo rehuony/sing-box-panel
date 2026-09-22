@@ -112,7 +112,7 @@ func TestDirectCoreImportCleansStagedFilesOnSuccessFailureAndCancellation(t *tes
 				app.removeFile = func(string) error { return errors.New("injected removal failure") }
 			}
 			app.SetArtifactInstaller(installer)
-			_, err = app.ImportCore(ctx, CoreImportRequest{SourcePath: path, SourceDescription: "browser upload", SHA256: digest.String(), ExactVersion: version.String(), Architecture: "amd64", Variant: "musl", DeleteSource: true})
+			_, err = app.ImportCore(ctx, CoreImportRequest{SourcePath: path, SourceDescription: "browser upload", ExactVersion: version.String(), Architecture: "amd64", Variant: "musl", DeleteSource: true})
 			if (scenario == "success" || scenario == "cleanup-failed") && err != nil {
 				t.Fatal(err)
 			}

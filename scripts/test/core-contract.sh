@@ -53,6 +53,8 @@ while IFS=$'\t' read -r version asset_name url expected_sha256 expected_size; do
   binary="${case_directory}/${member}"
   chmod 0755 "${binary}"
 
+  (
+  cd -- "${repository_root}/internal/singbox"
   SING_BOX_CONTRACT_REQUIRED=1 \
   SING_BOX_CONTRACT_BINARY="${binary}" \
   SING_BOX_CONTRACT_VERSION="${version}" \
@@ -60,6 +62,7 @@ while IFS=$'\t' read -r version asset_name url expected_sha256 expected_size; do
     "${contract_test}" \
       -test.run '^TestExactOfficialBinaryAcceptsRawConfiguration$' \
       -test.count=1
+  )
 done < <(
   jq -r --arg architecture "${architecture}" '
     .versions[]

@@ -4,7 +4,9 @@ package cli
 
 import (
 	"fmt"
+	"runtime"
 	"strings"
+	"text/tabwriter"
 
 	"github.com/rehuony/sing-box-panel/internal/application"
 	"github.com/spf13/cobra"
@@ -12,7 +14,6 @@ import (
 
 func newCoreCatalogListCommand(state *options, open openApplicationFunc) *cobra.Command {
 	var version, architecture, variant string
-	var installable bool
 	command := &cobra.Command{
 		Use:   "catalog",
 		Short: "List cached official stable release assets",
@@ -23,12 +24,21 @@ func newCoreCatalogListCommand(state *options, open openApplicationFunc) *cobra.
 				return err
 			}
 			defer instance.Close()
+			if version != "" {
+				version, err = parseCoreVersion(version)
+				if err != nil {
+					return err
+				}
+			}
+			if err := validateCoreArchitecture(architecture); err != nil {
+				return err
+			}
 			result, err := instance.ListCatalogAssets(cmd.Context(), application.CatalogAssetFilter{
-				ExactVersion: version, Architecture: architecture, Variant: variant, Installable: installable,
+				ExactVersion: version, Architecture: architecture, Variant: variant,
 			})
 			if err != nil {
 				if application.IsCatalogNotInitialized(err) {
-					return &Error{Kind: ErrorUnavailable, Code: "catalog_not_initialized", Message: "official catalog is not cached; run core refresh", Cause: err}
+					return &Error{Kind: ErrorUnavailable, Code: "catalog_not_initialized", Message: "official catalog is not cached; run sing-box-panel core refresh then sing-box-panel core catalog", Cause: err}
 				}
 				return &Error{Kind: ErrorValidation, Code: "catalog_filter_invalid", Message: err.Error(), Cause: err}
 			}
@@ -36,9 +46,8 @@ func newCoreCatalogListCommand(state *options, open openApplicationFunc) *cobra.
 		},
 	}
 	command.Flags().StringVar(&version, "core-version", "", "filter by exact sing-box version")
-	command.Flags().StringVar(&architecture, "arch", "", "filter by amd64 or arm64")
-	command.Flags().StringVar(&variant, "variant", "", "filter by exact artifact variant")
-	command.Flags().BoolVar(&installable, "installable", false, "show only assets with trusted digest evidence")
+	command.Flags().StringVar(&architecture, "arch", runtime.GOARCH, "filter by amd64 or arm64 (defaults to this machine)")
+	command.Flags().StringVar(&variant, "variant", "musl", "filter by exact artifact variant")
 	return command
 }
 
@@ -70,12 +79,11 @@ func catalogAssetListText(result application.CatalogAssetList) string {
 		return "no matching official assets"
 	}
 	var output strings.Builder
+	table := tabwriter.NewWriter(&output, 0, 4, 2, ' ', 0)
+	fmt.Fprintln(table, "VERSION\tARCH\tSOURCE\tSTATUS\tPACKAGE")
 	for _, asset := range result.Assets {
-		installable := "no-digest"
-		if _, err := asset.TrustedDigest(); err == nil {
-			installable = "installable"
-		}
-		fmt.Fprintf(&output, "%d\t%s\t%s\t%s\t%s\t%s\n", asset.AssetID, asset.Version, asset.Architecture, asset.Variant, installable, asset.Name)
+		fmt.Fprintf(table, "%s\t%s\tofficial\tavailable\t%s\n", asset.Version, asset.Architecture, asset.Name)
 	}
+	_ = table.Flush()
 	return strings.TrimSuffix(output.String(), "\n")
 }

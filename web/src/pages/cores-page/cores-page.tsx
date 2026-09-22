@@ -2,7 +2,7 @@ import { useTranslation } from 'react-i18next';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronLeft, ChevronRight, ExternalLink, RefreshCw, Search, Upload } from 'lucide-react';
 
-import type { CatalogAsset, CoreArtifact } from '@/api/api-client';
+import type { CoreArtifact } from '@/api/api-client';
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -28,11 +28,6 @@ import { CoreImportDialog } from './core-import-dialog';
 import { useVersionLibrary } from './use-version-library';
 import './cores-page.css';
 
-function hasDownloadChecksum(asset: CatalogAsset) {
-  return asset.has_api_digest && asset.has_catalog_digest
-    ? asset.api_digest === asset.catalog_digest
-    : asset.has_api_digest || asset.has_catalog_digest;
-}
 export function CoresPage() {
   const { t } = useTranslation();
   const client = useApiClient();
@@ -286,8 +281,7 @@ export function CoresPage() {
                           <Button
                             size='sm'
                             variant='default'
-                            title={!exists && !hasDownloadChecksum(asset) ? t('cores.installUnavailable') : undefined}
-                            disabled={exists || Boolean(pending) || !hasDownloadChecksum(asset)}
+                            disabled={exists || Boolean(pending)}
                             onClick={() =>
                               void run(`install:${asset.asset_id}`, (signal) =>
                                 client.installCore(asset.asset_id, signal),

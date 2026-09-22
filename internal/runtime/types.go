@@ -19,7 +19,7 @@ var (
 	ErrRuntime               = errors.New("runtime operation failed")
 	ErrUnavailable           = errors.New("runtime process execution is unavailable")
 	ErrInvalidBundle         = errors.New("invalid applied bundle")
-	ErrArtifactDigest        = errors.New("artifact digest verification failed")
+	ErrArtifactFile          = errors.New("artifact file is unsafe or unavailable")
 	ErrStartupConfigDigest   = errors.New("startup config digest verification failed")
 	ErrVersionMismatch       = errors.New("sing-box exact version mismatch")
 	ErrCheckFailed           = errors.New("sing-box config check failed")

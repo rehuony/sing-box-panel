@@ -84,19 +84,44 @@ func TestExactOfficialBinaryAcceptsRawConfiguration(t *testing.T) {
 		t.Fatalf("validate raw configuration: %v", err)
 	}
 
+	checkContractConfiguration(t, ctx, absoluteBinary, expectedVersion, rawConfiguration, true)
+	if version.SchemaSource == SchemaSourceReviewed113 {
+		for name, data := range reviewed113Fixtures(t) {
+			t.Run(name, func(t *testing.T) {
+				if err := ValidateConfiguration(expectedVersion, data); err != nil {
+					t.Fatal(err)
+				}
+				checkContractConfiguration(t, ctx, absoluteBinary, expectedVersion, data, true)
+			})
+		}
+		for name, data := range rejected113Configurations {
+			// The 1.13 certificate custom decoder silently ignores unknown properties.
+			// The reviewed Schema still rejects 1.14 providers rather than offering an ineffective setting.
+			if name == "certificate providers" {
+				continue
+			}
+			t.Run("reject/"+name, func(t *testing.T) {
+				checkContractConfiguration(t, ctx, absoluteBinary, expectedVersion, []byte(data), false)
+			})
+		}
+	}
+}
+
+func checkContractConfiguration(t *testing.T, ctx context.Context, absoluteBinary, version string, rawConfiguration []byte, accepted bool) {
+	t.Helper()
 	configurationDirectory := t.TempDir()
 	configurationPath := filepath.Join(configurationDirectory, "config.json")
 	if err := os.WriteFile(configurationPath, rawConfiguration, 0o600); err != nil {
 		t.Fatalf("write raw configuration: %v", err)
 	}
 	command := exec.CommandContext(ctx, absoluteBinary, "check", "-c", configurationPath)
-	command.Env = []string{"HOME=" + configurationDirectory, "LANG=C", "LC_ALL=C", "PATH=/usr/bin:/bin"}
+	command.Env = append([]string{"HOME=" + configurationDirectory, "LANG=C", "LC_ALL=C", "PATH=/usr/bin:/bin"}, RuntimeCompatibilityEnvironment(version)...)
 	command.Dir = configurationDirectory
 	output := &contractOutput{maximum: maximumContractOutput}
 	command.Stdout = output
 	command.Stderr = output
-	if err := command.Run(); err != nil {
-		t.Fatalf("sing-box check failed: %v\n%s", err, output.Bytes())
+	if err := command.Run(); (err == nil) != accepted {
+		t.Fatalf("sing-box check accepted=%t, want %t: %v\n%s", err == nil, accepted, err, output.Bytes())
 	}
 }
 
