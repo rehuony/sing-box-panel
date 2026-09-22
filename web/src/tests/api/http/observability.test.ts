@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import { createHttpApiClient } from '@/api/http-api-client';
+import { testDashboardSnapshot } from '@/tests/api/mock-api-client';
 
 describe('createHttpApiClient observability domain', () => {
   it('centralizes observability filters on the stable read-only endpoints', async () => {
@@ -106,6 +107,29 @@ describe('createHttpApiClient observability domain', () => {
 
     await expect(iterator.next()).rejects.toMatchObject({ code: 'unauthorized', status: 401 });
     expect(invalidated).toHaveBeenCalledOnce();
+  });
+
+  it('decodes dashboard snapshots from the authenticated SSE endpoint', async () => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response(`event: dashboard\ndata: ${JSON.stringify(testDashboardSnapshot)}\n\n`, {
+        status: 200,
+        headers: { 'Content-Type': 'text/event-stream' },
+      }),
+    );
+    const client = createHttpApiClient({ baseUrl: '/panel/api/v1', fetcher });
+    const snapshots = [];
+
+    for await (const snapshot of client.streamDashboard()) snapshots.push(snapshot);
+
+    expect(snapshots).toEqual([testDashboardSnapshot]);
+    expect(fetcher).toHaveBeenCalledWith(
+      '/panel/api/v1/dashboard/stream',
+      expect.objectContaining({
+        credentials: 'same-origin',
+        headers: { Accept: 'text/event-stream' },
+        method: 'GET',
+      }),
+    );
   });
 
   it('uses stable explicit durable-log deletion endpoints', async () => {

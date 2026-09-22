@@ -9,6 +9,7 @@ import { reviewedSchemaManifest } from '@/schemas/generated';
 import { useControlPlane } from '@/stores/control-plane.store';
 import { describeRequestError, ErrorNotice } from '@/components/error-notice';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { useOptionalSharedTelemetry } from '@/components/app-shell/telemetry-context';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 
@@ -95,7 +96,18 @@ export function ConfigurationPage() {
         <Tabs className='configuration-tabs' value={editor} onValueChange={setSelectedEditor}>
           <div className='configuration-tabs__rail'>
             <TabsList aria-label={t('configuration.sections')}>
-              <TabsTrigger disabled={!fileReady || schema.status !== 'ready' || invalid} value='visual'>{t('configuration.file.visual')}</TabsTrigger>
+              {schema.status === 'unavailable'
+                ? (
+                    <Tooltip>
+                      <TooltipTrigger
+                        render={<span className='configuration-disabled-tab' tabIndex={0} />}
+                      >
+                        <TabsTrigger disabled value='visual'>{t('configuration.file.visual')}</TabsTrigger>
+                      </TooltipTrigger>
+                      <TooltipContent>{t('configuration.schema.unsupported', { version: schemaVersion })}</TooltipContent>
+                    </Tooltip>
+                  )
+                : <TabsTrigger disabled={!fileReady || schema.status !== 'ready' || invalid} value='visual'>{t('configuration.file.visual')}</TabsTrigger>}
               <TabsTrigger disabled={!fileReady} value='advanced'>{t('configuration.tab.advanced')}</TabsTrigger>
             </TabsList>
             <div className='configuration-schema-version'>
@@ -111,7 +123,6 @@ export function ConfigurationPage() {
             </div>
           </div>
           {schema.status === 'ready' && schema.bundled && <p className='configuration-schema-notice' role='status'>{t('configuration.schema.bundled', { version: schemaVersion })}</p>}
-          {schema.status === 'unavailable' && <p className='configuration-schema-notice' role='status'>{t('configuration.schema.unsupported', { version: schemaVersion })}</p>}
           {schema.status === 'error' && (
             <p className='configuration-schema-notice' role='alert'>
               {t('configuration.schema.failClosed')}

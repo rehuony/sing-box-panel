@@ -9,6 +9,7 @@ import type { ApiClient, ConfigurationCompile, ConfigurationFile, ConfigurationS
 import { ApiRequestError } from '@/api/api-client';
 import '@/i18n';
 import { toast } from '@/components/ui/toast-manager';
+import { TooltipProvider } from '@/components/ui/tooltip';
 import { ApiClientProvider } from '@/api/api-client-context';
 import { reviewedSchemaManifest } from '@/schemas/generated';
 import { TestRouter as MemoryRouter } from '@/tests/test-router';
@@ -41,7 +42,9 @@ function renderPage(client: ApiClient) {
   return render(
     <MemoryRouter>
       <ApiClientProvider client={client}>
-        <ControlPlaneProvider><ConfigurationPage /></ControlPlaneProvider>
+        <TooltipProvider delay={0}>
+          <ControlPlaneProvider><ConfigurationPage /></ControlPlaneProvider>
+        </TooltipProvider>
       </ApiClientProvider>
     </MemoryRouter>,
   );
@@ -68,6 +71,34 @@ beforeEach(() => {
 });
 
 describe('configurationPage', () => {
+  it('explains an unsupported visual editor on hover and keyboard focus without an inline notice', async () => {
+    const user = userEvent.setup();
+    const client = createMockApiClient({
+      getDashboardContext: vi.fn().mockResolvedValue({
+        ...testDashboardContext,
+        view: { exactVersion: '1.14.1' },
+      }),
+    });
+    renderPage(client);
+
+    await waitFor(() => {
+      const currentTab = screen.getByRole('tab', { name: 'Visual editor' });
+      expect(currentTab).toHaveAttribute('aria-disabled', 'true');
+      expect(currentTab.parentElement).toHaveAttribute('tabindex', '0');
+    });
+    const visualTab = screen.getByRole('tab', { name: 'Visual editor' });
+    const trigger = visualTab.parentElement!;
+    expect(screen.queryByText(/No visual editor schema for 1\.14\.1/)).not.toBeInTheDocument();
+
+    await user.hover(trigger);
+    expect(await screen.findByText(/No visual editor schema for 1\.14\.1/)).toBeVisible();
+    await user.unhover(trigger);
+    await waitFor(() => expect(screen.queryByText(/No visual editor schema for 1\.14\.1/)).not.toBeInTheDocument());
+
+    trigger.focus();
+    expect(await screen.findByText(/No visual editor schema for 1\.14\.1/)).toBeVisible();
+  });
+
   it.skipIf(reviewedSchema === undefined)('allows visual authoring before the first core is installed', async () => {
     const client = createMockApiClient({
       getDashboardContext: vi.fn().mockResolvedValue({ ...testDashboardContext, view: { exactVersion: 'Not selected' } }),

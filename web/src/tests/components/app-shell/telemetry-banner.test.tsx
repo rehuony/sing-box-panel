@@ -73,7 +73,22 @@ function trafficSnapshot(
   };
 }
 
+function waitForAbort(signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve) => {
+    if (signal?.aborted) resolve();
+    else signal?.addEventListener('abort', () => resolve(), { once: true });
+  });
+}
+
 function renderBanner(client: ApiClient) {
+  client.streamMetrics = vi.fn(async function* (signal) {
+    const runtime = await client.getRuntimeStatus(signal);
+    for (let index = 0; index < 2; index++) {
+      const metrics = await client.getTrafficStatus(signal);
+      yield { metrics, runtime };
+    }
+    await waitForAbort(signal);
+  });
   return render(
     <ApiClientProvider client={client}>
       <ThemeProvider>

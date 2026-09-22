@@ -82,7 +82,7 @@ user it is `$XDG_DATA_HOME/sing-box-panel`, or
 The settings file is the single source for all panel settings. The Web UI,
 `config init/show/set/unset/check/verify`, and manual edits use this same file. Shared fields retain
 their existing sections; `panel` adds the public node host, protocol identity,
-language and appearance. The Web form exposes all settings, including service paths, cache lifetime, retention and subscription source policy. Changing `data_dir` moves
+language and appearance. The Web form exposes all settings, including service paths, version check interval, retention and subscription source policy. Changing `data_dir` moves
 existing storage on the next explicit start, with interruption recovery.
 Sing-box documents, subscriptions and runtime evidence remain in SQLite.
 See the [complete field mapping](configuration-and-runtime.md#shared-settings-file).

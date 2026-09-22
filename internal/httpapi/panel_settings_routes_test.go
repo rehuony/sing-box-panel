@@ -90,6 +90,36 @@ func TestPanelSettingsAuthenticationPersistenceAndRotation(t *testing.T) {
 	}
 }
 
+func TestPanelSettingsRejectsRemovedCatalogTTLField(t *testing.T) {
+	database, err := store.Open(t.Context(), filepath.Join(t.TempDir(), "panel.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = database.Close() })
+	configuration := settingsFileFixture(t, settings.Defaults())
+	app := application.FromStoreWithSettings(database, configuration)
+	handler := NewHandler(HandlerOptions{Settings: configuration, Commands: app})
+	view, err := app.PanelSettings(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, err := json.Marshal(application.PanelSettingsWrite{
+		Revision:    view.Revision,
+		Preferences: view.Preferences,
+		Service:     &view.Service,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacy := strings.Replace(string(body), "catalog_refresh_interval_hours", "catalog_ttl_hours", 1)
+	request := httptest.NewRequest(http.MethodPut, "/api/v1/panel/settings", strings.NewReader(legacy))
+	request.Header.Set("Authorization", "Bearer "+configuration.Auth.Token)
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	assertCoreHTTPProblem(t, response, http.StatusUnprocessableEntity, "invalid_json")
+}
+
 func TestPanelSettingsTokenRotationRemainsUsable(t *testing.T) {
 	for _, tc := range []struct {
 		name  string

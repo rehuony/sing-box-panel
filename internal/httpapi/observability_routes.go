@@ -33,6 +33,8 @@ func matchObservabilityRoute(path string) (resource string, identifier string, m
 		return "metrics", "", true
 	case "/api/v1/metrics/stream":
 		return "metrics-stream", "", true
+	case "/api/v1/dashboard/stream":
+		return "dashboard-stream", "", true
 	case "/api/v1/metrics/history":
 		return "metrics-history", "", true
 	case "/api/v1/traffic/status":
@@ -81,6 +83,8 @@ func (handler *Handler) observabilityHandler(method, resource, identifier string
 		return func(w http.ResponseWriter, request *http.Request) { handler.deleteDurableLog(w, request, identifier) }
 	case resource == "metrics-stream" && method == http.MethodGet:
 		return handler.streamMetrics
+	case resource == "dashboard-stream" && method == http.MethodGet:
+		return handler.streamDashboard
 	case resource == "metrics" && method == http.MethodGet:
 		return handler.currentMetrics
 	case resource == "metrics-history" && method == http.MethodGet:

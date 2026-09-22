@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
-import type { MetricsSnapshot, RuntimeStatus } from '@/api/api-client';
+import type { DashboardStreamSnapshot, MetricsSnapshot, RuntimeStatus } from '@/api/api-client';
 
 import { useApiClient } from '@/api/api-client-context';
 
-const POLL_INTERVAL_MS = 10_000;
+const MAX_RECONNECT_DELAY_MS = 30_000;
 
 type TrafficSample = NonNullable<MetricsSnapshot['latest_sample']>;
 
@@ -19,12 +19,13 @@ export interface TrafficRates {
 
 export interface TelemetryState {
   rates: TrafficRates;
-  refreshing: boolean;
-  refresh: () => Promise<void>;
+  dashboardStale: boolean;
   runtimeError: unknown | null;
   trafficError: unknown | null;
+  dashboardError: unknown | null;
   snapshot: MetricsSnapshot | null;
   runtimeStatus: RuntimeStatusEvidence | null;
+  dashboardSnapshot: DashboardStreamSnapshot | null;
   acceptRuntimeStatus: (status: RuntimeStatus) => void;
 }
 
@@ -70,151 +71,30 @@ export function deriveTrafficRates(
 
 export function useTelemetry(): TelemetryState {
   const client = useApiClient();
-  const controllerRef = useRef<AbortController | null>(null);
-  const refreshPromiseRef = useRef<Promise<void> | null>(null);
   const previousSampleRef = useRef<TrafficSample | null>(null);
-  const refreshRequestRef = useRef(0);
-  const runtimeRequestRef = useRef(0);
-  const trafficRequestRef = useRef(0);
   const [snapshot, setSnapshot] = useState<MetricsSnapshot | null>(null);
   const [runtimeStatus, setRuntimeStatus] = useState<RuntimeStatusEvidence | null>(null);
   const [rates, setRates] = useState<TrafficRates>(emptyRates);
   const [runtimeError, setRuntimeError] = useState<unknown | null>(null);
   const [trafficError, setTrafficError] = useState<unknown | null>(null);
-  const [refreshing, setRefreshing] = useState(false);
+  const [dashboardSnapshot, setDashboardSnapshot] = useState<DashboardStreamSnapshot | null>(null);
+  const [dashboardError, setDashboardError] = useState<unknown | null>(null);
+  const [dashboardStale, setDashboardStale] = useState(true);
 
   const acceptRuntimeStatus = useCallback((status: RuntimeStatus) => {
-    runtimeRequestRef.current += 1;
     setRuntimeError(null);
     setRuntimeStatus(status as RuntimeStatusEvidence);
   }, []);
 
-  const refresh = useCallback(() => {
-    if (refreshPromiseRef.current !== null) return refreshPromiseRef.current;
-
-    const refreshRequest = refreshRequestRef.current + 1;
-    const runtimeRequest = runtimeRequestRef.current + 1;
-    const trafficRequest = trafficRequestRef.current + 1;
-    const controller = new AbortController();
-    refreshRequestRef.current = refreshRequest;
-    runtimeRequestRef.current = runtimeRequest;
-    trafficRequestRef.current = trafficRequest;
-    controllerRef.current = controller;
-    setRefreshing(true);
-    const request = (async () => {
-      try {
-        const [trafficResult, runtimeResult] = await Promise.allSettled([
-          client.getTrafficStatus(controller.signal),
-          client.getRuntimeStatus(controller.signal),
-        ]);
-
-        if (trafficRequestRef.current === trafficRequest && trafficResult.status === 'fulfilled') {
-          const next = trafficResult.value;
-          const acceptedSample
-            = next.available && next.latest_sample?.accepted === true
-              ? next.latest_sample
-              : undefined;
-          if (!acceptedSample || acceptedSample.id !== previousSampleRef.current?.id) {
-            setRates(deriveTrafficRates(previousSampleRef.current, acceptedSample));
-          }
-          previousSampleRef.current = acceptedSample ?? null;
-          setSnapshot(next);
-          setTrafficError(null);
-        } else if (trafficRequestRef.current === trafficRequest) {
-          previousSampleRef.current = null;
-          setRates(emptyRates);
-          setSnapshot(null);
-          setTrafficError(trafficResult.status === 'rejected' ? trafficResult.reason : null);
-        }
-        if (runtimeRequestRef.current === runtimeRequest && runtimeResult.status === 'fulfilled') {
-          setRuntimeStatus(runtimeResult.value as RuntimeStatusEvidence);
-          setRuntimeError(null);
-        } else if (runtimeRequestRef.current === runtimeRequest) {
-          setRuntimeStatus(null);
-          setRuntimeError(runtimeResult.status === 'rejected' ? runtimeResult.reason : null);
-        }
-      } catch (error) {
-        if (trafficRequestRef.current === trafficRequest) {
-          previousSampleRef.current = null;
-          setRates(emptyRates);
-          setSnapshot(null);
-          setTrafficError(error);
-        }
-        if (runtimeRequestRef.current === runtimeRequest) {
-          setRuntimeStatus(null);
-          setRuntimeError(error);
-        }
-      } finally {
-        if (controllerRef.current === controller) controllerRef.current = null;
-        if (refreshRequestRef.current === refreshRequest) setRefreshing(false);
-      }
-    })();
-
-    refreshPromiseRef.current = request;
-    void request.finally(() => {
-      if (refreshPromiseRef.current === request) refreshPromiseRef.current = null;
-    });
-    return request;
-  }, [client]);
-
-  useEffect(() => {
-    let disposed = false;
-    let polling = false;
-    let timer: number | undefined;
-
-    function clearTimer() {
-      if (timer === undefined) return;
-      window.clearTimeout(timer);
-      timer = undefined;
-    }
-
-    function schedulePoll() {
-      if (disposed) return;
-      clearTimer();
-      timer = window.setTimeout(() => void poll(), POLL_INTERVAL_MS);
-    }
-
-    async function poll() {
-      if (disposed || polling) return;
-      polling = true;
-      clearTimer();
-      try {
-        await refresh();
-      } finally {
-        polling = false;
-        schedulePoll();
-      }
-    }
-
-    function refreshWhenVisible() {
-      if (document.visibilityState === 'visible') void poll();
-    }
-
-    document.addEventListener('visibilitychange', refreshWhenVisible);
-    void poll();
-    return () => {
-      disposed = true;
-      refreshRequestRef.current += 1;
-      runtimeRequestRef.current += 1;
-      trafficRequestRef.current += 1;
-      clearTimer();
-      controllerRef.current?.abort();
-      controllerRef.current = null;
-      refreshPromiseRef.current = null;
-      document.removeEventListener('visibilitychange', refreshWhenVisible);
-    };
-  }, [refresh]);
-
   useEffect(() => {
     const controller = new AbortController();
     let retry: ReturnType<typeof setTimeout> | undefined;
+    let attempt = 0;
     async function connect() {
       try {
         for await (const event of client.streamMetrics(controller.signal)) {
           if (controller.signal.aborted) return;
-          // Supersede any polling response already in flight.
-          trafficRequestRef.current += 1;
-          runtimeRequestRef.current += 1;
+          attempt = 0;
           const sample
             = event.metrics.available && event.metrics.latest_sample?.accepted
               ? event.metrics.latest_sample
@@ -228,10 +108,45 @@ export function useTelemetry(): TelemetryState {
           setTrafficError(null);
           setRuntimeError(null);
         }
-      } catch {
-        // The existing bounded poll refreshes evidence while SSE reconnects.
+      } catch (error) {
+        if (!controller.signal.aborted) {
+          setTrafficError(error);
+          setRuntimeError(error);
+        }
       }
-      if (!controller.signal.aborted) retry = setTimeout(() => void connect(), 2000);
+      if (!controller.signal.aborted) {
+        const delay = Math.min(1_000 * 2 ** attempt++, MAX_RECONNECT_DELAY_MS);
+        retry = setTimeout(() => void connect(), delay);
+      }
+    }
+    void connect();
+    return () => {
+      controller.abort();
+      clearTimeout(retry);
+    };
+  }, [client]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    let retry: ReturnType<typeof setTimeout> | undefined;
+    let attempt = 0;
+    async function connect() {
+      try {
+        for await (const next of client.streamDashboard(controller.signal)) {
+          if (controller.signal.aborted) return;
+          attempt = 0;
+          setDashboardSnapshot(next);
+          setDashboardError(null);
+          setDashboardStale(false);
+        }
+      } catch (error) {
+        if (!controller.signal.aborted) setDashboardError(error);
+      }
+      if (!controller.signal.aborted) {
+        setDashboardStale(true);
+        const delay = Math.min(1_000 * 2 ** attempt++, MAX_RECONNECT_DELAY_MS);
+        retry = setTimeout(() => void connect(), delay);
+      }
     }
     void connect();
     return () => {
@@ -242,9 +157,10 @@ export function useTelemetry(): TelemetryState {
 
   return {
     acceptRuntimeStatus,
+    dashboardError,
+    dashboardSnapshot,
+    dashboardStale,
     rates,
-    refresh,
-    refreshing,
     runtimeError,
     runtimeStatus,
     snapshot,

@@ -77,6 +77,9 @@
   align-items: center;
   gap: 16px;
 }
+.settings-field:has([data-slot='textarea']) {
+  align-items: start;
+}
 .settings-field__label {
   display: flex;
   align-items: center;

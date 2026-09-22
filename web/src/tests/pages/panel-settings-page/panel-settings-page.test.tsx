@@ -39,15 +39,21 @@ describe('panel settings', () => {
     const user = userEvent.setup();
     const client = setup();
     const dataDir = await screen.findByLabelText('Data directory', { selector: 'input' });
+    const access = screen.getByText('Panel access').closest('fieldset')!;
+    const authentication = screen.getByText('Authentication').closest('fieldset')!;
+    expect(within(access).getByLabelText('Base path', { selector: 'input' })).toBeInTheDocument();
+    expect(within(access).queryByRole('switch', { name: 'HTTPS-only session cookie' })).not.toBeInTheDocument();
+    expect(within(authentication).getByRole('switch', { name: 'HTTPS-only session cookie' })).toBeInTheDocument();
+    expect(within(authentication).getByLabelText('Management token', { selector: 'input' })).toBeInTheDocument();
     expect(screen.getByLabelText('GitHub Token', { selector: 'input' })).not.toHaveAttribute('placeholder');
     fireEvent.change(dataDir, { target: { value: '/srv/panel' } });
     fireEvent.change(screen.getByLabelText('Base path', { selector: 'input' }), { target: { value: '/control' } });
     fireEvent.change(screen.getByLabelText('Access origin', { selector: 'input' }), { target: { value: 'https://panel.example.com' } });
     expect(screen.getByRole('switch', { name: 'HTTPS-only session cookie' })).toBeChecked();
-    fireEvent.change(screen.getByLabelText('Version cache lifetime (hours)'), { target: { value: '24' } });
+    fireEvent.change(screen.getByLabelText('Version check interval (hours)'), { target: { value: '24' } });
     await user.click(screen.getByRole('button', { name: 'Save settings' }));
     await waitFor(() => expect(client.savePanelSettings).toHaveBeenCalledWith(expect.objectContaining({
-      service: expect.objectContaining({ data_dir: '/srv/panel', base_path: '/control', secure_cookie: true, catalog_ttl_hours: 24 }),
+      service: expect.objectContaining({ data_dir: '/srv/panel', base_path: '/control', secure_cookie: true, catalog_refresh_interval_hours: 24 }),
     })));
     await user.click(screen.getByRole('tab', { name: 'Nodes & subscriptions' }));
     expect(screen.getByLabelText('Identity key')).not.toHaveAttribute('placeholder');

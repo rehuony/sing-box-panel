@@ -4,7 +4,7 @@ import { LogOut } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { motion, useReducedMotion } from 'motion/react';
 import { NavLink, Outlet, useLocation } from 'react-router-dom';
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { Suspense, useEffect, useLayoutEffect, useRef, useState } from 'react';
 
 import '@/i18n';
 import { Button } from '@/components/ui/button';
@@ -153,6 +153,16 @@ function ShellErrorState({ message, onRetry }: { message: string; onRetry: () =>
   );
 }
 
+function WorkspaceLoadingState() {
+  const { t } = useTranslation();
+  return (
+    <div className='shell-route-loading' aria-busy='true' aria-live='polite'>
+      <Spinner />
+      <span>{t('shell.loading.page')}</span>
+    </div>
+  );
+}
+
 export function AppShell() {
   const { t } = useTranslation();
   const { logout, session } = useAuthSession();
@@ -163,6 +173,9 @@ export function AppShell() {
   const scrollRef = useRef<HTMLDivElement>(null);
   const [logoutError, setLogoutError] = useState<unknown | null>(null);
   const [loggingOut, setLoggingOut] = useState(false);
+  useEffect(() => {
+    void import('@/pages/dashboard-page/dashboard-page');
+  }, []);
   useEffect(() => {
     if (scrollRef.current) scrollRef.current.scrollTop = 0;
     mainRef.current?.focus({ preventScroll: true });
@@ -261,7 +274,9 @@ export function AppShell() {
                   />
                 )}
             <main id='main-content' ref={mainRef} tabIndex={-1}>
-              <Outlet />
+              <Suspense fallback={<WorkspaceLoadingState />}>
+                <Outlet />
+              </Suspense>
             </main>
           </div>
         </div>

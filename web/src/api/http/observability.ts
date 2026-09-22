@@ -1,5 +1,6 @@
 import type { HttpApiContext } from './shared';
 import type { ApiClient, CoreLogChunk, CoreLogFile,
+  DashboardStreamSnapshot,
   LogClearFilter,
   LogEntry,
   LogFilter,
@@ -168,6 +169,13 @@ export function createObservabilityHttpApi(context: HttpApiContext) {
         metrics: MetricsSnapshot;
         runtime: import('../api-client').RuntimeStatus;
       }>(response, 'metrics');
+    },
+    async* streamDashboard(signal) {
+      const response = await openEventStream(fetcher, `${baseUrl}/dashboard/stream`, {
+        method: 'GET',
+        signal,
+      });
+      yield* readJSONEvents<DashboardStreamSnapshot>(response, 'dashboard');
     },
     getMetrics(signal) {
       return request<MetricsSnapshot>(fetcher, `${baseUrl}/metrics`, {

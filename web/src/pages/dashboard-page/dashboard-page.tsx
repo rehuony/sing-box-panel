@@ -1,16 +1,9 @@
 import { Link } from 'react-router-dom';
+import { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useEffect, useMemo, useState } from 'react';
 import { Cpu, HardDrive, MemoryStick, Radio } from 'lucide-react';
 
-import type {
-  MetricsHistory,
-  MetricsSnapshot,
-  PanelLogPage,
-  RuntimeHistoryPage,
-} from '@/api/api-client';
-
-import { useApiClient } from '@/api/api-client-context';
+import { Spinner } from '@/components/ui/spinner';
 import { ErrorNotice } from '@/components/error-notice';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useOptionalSharedTelemetry } from '@/components/app-shell/telemetry-context';
@@ -33,87 +26,27 @@ function bytes(value: number | null | undefined, locale: string): string {
 function percent(used: number | null | undefined, total: number | null | undefined): string {
   return used == null || !total ? '—' : `${((100 * used) / total).toFixed(1)}%`;
 }
+function gibibytes(value: number | undefined, locale: string): string {
+  if (value === undefined) return '—';
+  return new Intl.NumberFormat(locale, { maximumFractionDigits: 2 }).format(value / 2 ** 30);
+}
 export function DashboardPage() {
   const { t, i18n } = useTranslation();
-  const client = useApiClient();
   const telemetry = useOptionalSharedTelemetry();
   const [range, setRange] = useState<'1h' | '24h'>('1h');
-  const [tick, setTick] = useState(() => Math.floor(Date.now() / 30_000));
-  const [data, setData] = useState<{
-    range: '1h' | '24h';
-    traffic: MetricsHistory | null;
-    connections: MetricsHistory | null;
-    runtime: RuntimeHistoryPage | null;
-    activity: PanelLogPage | null;
-    metrics: MetricsSnapshot | null;
-    errors: unknown[];
-  } | null>(null);
-  useEffect(() => {
-    const timer = setInterval(() => setTick(Math.floor(Date.now() / 30_000)), 30_000);
-    return () => clearInterval(timer);
-  }, []);
-  const streamTick = telemetry?.snapshot
-    ? Math.floor(Date.parse(telemetry.snapshot.collected_at) / 30_000)
-    : 0;
-  const end = Math.max(tick, streamTick) * 30_000;
-  const shared = telemetry !== null;
-  useEffect(() => {
-    const controller = new AbortController();
-    const to = new Date(end).toISOString();
-    const requestHistory = (hours: number) =>
-      client.getMetricsHistory(
-        {
-          from: new Date(end - hours * 3_600_000).toISOString(),
-          to,
-          bucketSeconds: hours === 1 ? 60 : 300,
-        },
-        controller.signal,
-      );
-    const traffic = requestHistory(range === '1h' ? 1 : 24);
-    void Promise.allSettled([
-      traffic,
-      range === '1h' ? traffic : requestHistory(1),
-      (async () => {
-        const filter = { from: new Date(end - 86_400_000).toISOString(), to, limit: 200 };
-        const page = await client.getRuntimeHistory(filter, controller.signal);
-        const items = [...page.items];
-        let next = page.next;
-        while (next && items.length < 4096 && !controller.signal.aborted) {
-          const older = await client.getRuntimeHistory(
-            { ...filter, beforeID: next.id, beforeTime: next.occurred_at },
-            controller.signal,
-          );
-          items.push(...older.items);
-          next = older.next;
-        }
-        return { ...page, items, next };
-      })(),
-      client.listPanelLogs({ limit: 2 }, controller.signal),
-      shared ? Promise.resolve(null) : client.getMetrics(controller.signal),
-    ]).then(([traffic, connections, runtime, activity, metrics]) => {
-      if (controller.signal.aborted) return;
-      setData({
-        range,
-        traffic: traffic.status === 'fulfilled' ? traffic.value : null,
-        connections: connections.status === 'fulfilled' ? connections.value : null,
-        runtime: runtime.status === 'fulfilled' ? runtime.value : null,
-        activity: activity.status === 'fulfilled' ? activity.value : null,
-        metrics: metrics.status === 'fulfilled' ? metrics.value : null,
-        errors: [traffic, connections, runtime, activity, metrics].flatMap((result) =>
-          result.status === 'rejected' ? [result.reason] : [],
-        ),
-      });
-    });
-    return () => controller.abort();
-  }, [client, end, range, shared]);
-  const current = data?.range === range ? data : null;
-  const snapshot = telemetry?.snapshot ?? current?.metrics;
+  const [initialEnd] = useState(() => Date.now());
+  const current = telemetry?.dashboardSnapshot ?? null;
+  const snapshot = telemetry?.snapshot ?? null;
+  const end = current === null ? initialEnd : Date.parse(current.collected_at);
+  const trafficHistory = current === null
+    ? null
+    : range === '1h' ? current.history_1h : current.history_24h;
   const host = snapshot?.host;
   const traffic = snapshot?.traffic_available ? snapshot.current_traffic_period : undefined;
   const used = traffic ? traffic.inbound_bytes + traffic.outbound_bytes : undefined;
   const slots = useMemo(
-    () => buildRuntimeSlots(current?.runtime ?? null, end - 86_400_000, end),
-    [current?.runtime, end],
+    () => buildRuntimeSlots(current?.runtime_24h ?? null, end - 86_400_000, end),
+    [current?.runtime_24h, end],
   );
   const locale = i18n.language;
   const metrics = [
@@ -146,16 +79,19 @@ export function DashboardPage() {
             used: percent(used, snapshot.quota_bytes),
             total: bytes(snapshot.quota_bytes, locale),
           })
-        : t('dashboard.metric.noQuota'),
+        : `${gibibytes(used, locale)} / ∞ GiB`,
     },
   ];
   return (
     <div className='dashboard-page panel-page'>
       <h1 className='sr-only'>{t('nav.dashboard')}</h1>
-      {current?.errors.length
+      {telemetry?.dashboardError
         ? (
-            <ErrorNotice error={current.errors[0]} title={t('dashboard.error.history')} />
+            <ErrorNotice error={telemetry.dashboardError} title={t('dashboard.error.history')} />
           )
+        : null}
+      {telemetry?.dashboardStale && current !== null
+        ? <p className='dashboard-stream-status' role='status'>{t('dashboard.state.reconnecting')}</p>
         : null}
       <div className='dashboard-metrics'>
         {metrics.map(({ key, icon: Icon, value, detail }) => (
@@ -191,7 +127,15 @@ export function DashboardPage() {
           </header>
           {(['1h', '24h'] as const).map((value) => (
             <TabsContent key={value} value={value} className='dashboard-traffic__chart'>
-              <TrendChart history={current?.traffic ?? null} kind='traffic' />
+              <TrendChart history={trafficHistory} kind='traffic' />
+              {current === null
+                ? (
+                    <div className='dashboard-stream-loading'>
+                      <Spinner />
+                      <span>{t('dashboard.state.historyLoading')}</span>
+                    </div>
+                  )
+                : null}
             </TabsContent>
           ))}
         </Tabs>
@@ -205,7 +149,15 @@ export function DashboardPage() {
             </h2>
             <small>{t('dashboard.metric.lastHour')}</small>
           </header>
-          <TrendChart history={current?.connections ?? null} kind='connections' />
+          <TrendChart history={current?.history_1h ?? null} kind='connections' />
+          {current === null
+            ? (
+                <div className='dashboard-stream-loading'>
+                  <Spinner />
+                  <span>{t('dashboard.state.historyLoading')}</span>
+                </div>
+              )
+            : null}
         </section>
       </div>
       <div className='dashboard-bottom'>
@@ -224,6 +176,14 @@ export function DashboardPage() {
               />
             ))}
           </div>
+          {current === null
+            ? (
+                <div className='dashboard-stream-loading dashboard-stream-loading--compact'>
+                  <Spinner />
+                  <span>{t('dashboard.state.runtimeLoading')}</span>
+                </div>
+              )
+            : null}
           <div className='runtime-timeline__legend'>
             {(['running', 'failed', 'stopped', 'unknown'] as const).map((state) => (
               <span key={state} data-state={state}>
@@ -239,7 +199,7 @@ export function DashboardPage() {
             <Link to='/observability?tab=panel'>{t('dashboard.activity.viewAll')}</Link>
           </header>
           <ol className='dashboard-activity'>
-            {current?.activity?.items.map((entry) => (
+            {current?.activity.items.map((entry) => (
               <li key={entry.id}>
                 <Link to='/observability#logs-panel'>{entry.message}</Link>
                 <time dateTime={entry.time}>
@@ -249,7 +209,15 @@ export function DashboardPage() {
               </li>
             ))}
           </ol>
-          {current?.activity?.items.length === 0 && <small>{t('dashboard.activity.empty')}</small>}
+          {current?.activity.items.length === 0 ? <small>{t('dashboard.activity.empty')}</small> : null}
+          {current === null
+            ? (
+                <div className='dashboard-stream-loading dashboard-stream-loading--compact'>
+                  <Spinner />
+                  <span>{t('dashboard.state.activityLoading')}</span>
+                </div>
+              )
+            : null}
         </section>
       </div>
     </div>

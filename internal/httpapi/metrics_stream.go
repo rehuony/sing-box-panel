@@ -3,6 +3,7 @@ package httpapi
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"time"
@@ -33,7 +34,7 @@ func (handler *Handler) streamMetrics(w http.ResponseWriter, request *http.Reque
 		if err != nil {
 			return err
 		}
-		if err := http.NewResponseController(w).SetWriteDeadline(time.Now().Add(10 * time.Second)); err != nil && err != http.ErrNotSupported {
+		if err := http.NewResponseController(w).SetWriteDeadline(time.Now().Add(10 * time.Second)); err != nil && !errors.Is(err, http.ErrNotSupported) {
 			return err
 		}
 		_, err = fmt.Fprintf(w, "event: metrics\ndata: %s\n\n", data)

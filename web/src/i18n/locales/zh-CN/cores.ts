@@ -42,8 +42,12 @@ export const cores = {
   install: '安装',
   installed: { short: '已安装' },
   loading: '正在载入制品…',
+  loadingInstalled: '正在读取已安装版本…',
+  loadingCatalog: '正在加载可安装版本…',
   loadOlder: '载入更早记录',
   refresh: '刷新目录',
+  refreshInstalled: '刷新已安装列表',
+  refreshCatalog: '检查 GitHub 更新',
   schema: {
     error: 'Schema 查询失败',
     jsonOnly: '仅 JSON',

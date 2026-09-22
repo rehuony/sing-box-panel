@@ -70,6 +70,7 @@ export const dashboard = {
     snapshotStale: '正在刷新运行证据，旧快照已隐藏。',
     activityLoading: '正在加载最近活动…',
     activityStale: '正在刷新最近活动，旧快照已隐藏。',
+    reconnecting: '数据流暂时中断，正在保留现有数据并重新连接。',
   },
   summary: {
     average: '平均值',

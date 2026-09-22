@@ -97,6 +97,7 @@ var managementOperations = []managementOperation{
 	{Method: http.MethodGet, Path: "/logs/{logId}", OperationID: "getLog"},
 	{Method: http.MethodDelete, Path: "/logs/{logId}", OperationID: "deleteLog"},
 	{Method: http.MethodGet, Path: "/metrics/stream", OperationID: "streamMetrics"},
+	{Method: http.MethodGet, Path: "/dashboard/stream", OperationID: "streamDashboard"},
 	{Method: http.MethodGet, Path: "/core/logs/files", OperationID: "listCoreLogFiles"},
 	{Method: http.MethodGet, Path: "/core/logs/content", OperationID: "readCoreLog"},
 	{Method: http.MethodGet, Path: "/core/logs/stream", OperationID: "streamCoreLog"},

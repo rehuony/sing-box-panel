@@ -40,7 +40,7 @@ func commandSettingsFixture(t *testing.T) string {
       "server":{"host":"127.0.0.1","port":3000,"base_path":""},
       "data_dir":%q,
       "auth":{"token":"test-token","secure_cookie":false},
-      "github":{"token":"","catalog_ttl_hours":12},
+      "github":{"token":"","catalog_refresh_interval_hours":12},
       "traffic":{"quota_gib":null,"period_months":1,"sample_retention_days":90},
       "subscription":{"author":"a","provider":"p","private_source_cidrs":[]},
       "logs":{"retention_days":7}

@@ -42,8 +42,12 @@ export const cores = {
   install: 'Install',
   installed: { short: 'installed' },
   loading: 'Loading artifacts…',
+  loadingInstalled: 'Reading installed versions…',
+  loadingCatalog: 'Loading available versions…',
   loadOlder: 'Load older',
   refresh: 'Refresh catalog',
+  refreshInstalled: 'Refresh installed versions',
+  refreshCatalog: 'Check GitHub for updates',
   schema: {
     error: 'Schema lookup failed',
     jsonOnly: 'JSON only',

@@ -259,7 +259,7 @@ export function createDemoApiClient(): ApiClient {
   const tokenSecrets = new Map(state.tokens.map((token) => [token.id, `sbp_demo_${token.id}_secret`]));
   const nodeApi = createDemoNodeApi([...demoManualNodes(), ...demoSourceNodeDetails(state)]);
   let panelSettings: PanelSettingsView = {
-    service: { data_dir: '/var/lib/sing-box-panel', base_path: '', secure_cookie: false, catalog_ttl_hours: 12, traffic_period_months: 1, sample_retention_days: 90, subscription_author: 'reagin', subscription_provider: 'default', private_source_cidrs: [], log_retention_days: 7 },
+    service: { data_dir: '/var/lib/sing-box-panel', base_path: '', secure_cookie: false, catalog_refresh_interval_hours: 12, traffic_period_months: 1, sample_retention_days: 90, subscription_author: 'reagin', subscription_provider: 'default', private_source_cidrs: [], log_retention_days: 7 },
     revision: 0,
     github_token_configured: false,
     identity_key_configured: false,
@@ -1015,6 +1015,38 @@ export function createDemoApiClient(): ApiClient {
         yield { metrics: demoMetrics(state), runtime: structuredClone(state.runtime) };
         await new Promise<void>((resolve) => {
           const timer = setTimeout(done, 2000);
+          function done() {
+            clearTimeout(timer);
+            signal?.removeEventListener('abort', done);
+            resolve();
+          }
+          signal?.addEventListener('abort', done, { once: true });
+        });
+      }
+    },
+    async* streamDashboard(signal) {
+      while (!signal?.aborted) {
+        const collectedAt = updatedAt();
+        const history1H = demoMetricsHistory(
+          new Date(Date.parse(collectedAt) - 3_600_000).toISOString(),
+          collectedAt,
+          60,
+        );
+        const history24H = demoMetricsHistory(
+          new Date(Date.parse(collectedAt) - 86_400_000).toISOString(),
+          collectedAt,
+          300,
+        );
+        const activity = await client.listPanelLogs({ limit: 2 }, signal);
+        yield {
+          collected_at: collectedAt,
+          history_1h: history1H,
+          history_24h: history24H,
+          runtime_24h: structuredClone(state.runtimeHistory),
+          activity,
+        };
+        await new Promise<void>((resolve) => {
+          const timer = setTimeout(done, 30_000);
           function done() {
             clearTimeout(timer);
             signal?.removeEventListener('abort', done);

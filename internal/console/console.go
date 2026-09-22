@@ -72,5 +72,5 @@ func (output *Output) Ready(url, settingsPath, dataDir string) {
 		title = "\x1b[1;32m" + title + "\x1b[0m"
 		url = "\x1b[36m" + url + "\x1b[0m"
 	}
-	_, _ = fmt.Fprintf(output.writer, "\n  %s\n\n  Panel URL    %s\n  Settings     %s\n  Data         %s\n  Panel logs   %s/panel.db (also shown below)\n\n  Press Ctrl+C to stop. View stored logs: sing-box-panel log list\n\n", title, url, settingsPath, dataDir, dataDir)
+	_, _ = fmt.Fprintf(output.writer, "\n%s\n\n  Panel URL    %s\n  Data         %s\n  Settings     %s\n\n  Press Ctrl+C to stop. View stored logs: sing-box-panel log list\n\n", title, url, dataDir, settingsPath)
 }

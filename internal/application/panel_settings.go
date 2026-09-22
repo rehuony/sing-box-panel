@@ -33,22 +33,22 @@ type PanelPreferences struct {
 // PanelServiceSettings exposes every non-secret service option from setting.json.
 // Writes are optional so existing clients preserve options they do not edit.
 type PanelServiceSettings struct {
-	DataDir              string   `json:"data_dir"`
-	BasePath             string   `json:"base_path"`
-	SecureCookie         bool     `json:"secure_cookie"`
-	CatalogTTLHours      int      `json:"catalog_ttl_hours"`
-	TrafficPeriodMonths  int      `json:"traffic_period_months"`
-	SampleRetentionDays  int      `json:"sample_retention_days"`
-	SubscriptionAuthor   string   `json:"subscription_author"`
-	SubscriptionProvider string   `json:"subscription_provider"`
-	PrivateSourceCIDRs   []string `json:"private_source_cidrs"`
-	LogRetentionDays     int      `json:"log_retention_days"`
+	DataDir                     string   `json:"data_dir"`
+	BasePath                    string   `json:"base_path"`
+	SecureCookie                bool     `json:"secure_cookie"`
+	CatalogRefreshIntervalHours int      `json:"catalog_refresh_interval_hours"`
+	TrafficPeriodMonths         int      `json:"traffic_period_months"`
+	SampleRetentionDays         int      `json:"sample_retention_days"`
+	SubscriptionAuthor          string   `json:"subscription_author"`
+	SubscriptionProvider        string   `json:"subscription_provider"`
+	PrivateSourceCIDRs          []string `json:"private_source_cidrs"`
+	LogRetentionDays            int      `json:"log_retention_days"`
 }
 
 func serviceSettings(value settings.Settings) PanelServiceSettings {
 	return PanelServiceSettings{
 		DataDir: value.DataDir, BasePath: value.Server.BasePath, SecureCookie: value.Auth.SecureCookie,
-		CatalogTTLHours: value.GitHub.CatalogTTLHours, TrafficPeriodMonths: value.Traffic.PeriodMonths,
+		CatalogRefreshIntervalHours: value.GitHub.CatalogRefreshIntervalHours, TrafficPeriodMonths: value.Traffic.PeriodMonths,
 		SampleRetentionDays: value.Traffic.SampleRetentionDays, SubscriptionAuthor: value.Subscription.Author,
 		SubscriptionProvider: value.Subscription.Provider, PrivateSourceCIDRs: append([]string{}, value.Subscription.PrivateSourceCIDRs...),
 		LogRetentionDays: value.Logs.RetentionDays,
@@ -57,7 +57,7 @@ func serviceSettings(value settings.Settings) PanelServiceSettings {
 
 func (service PanelServiceSettings) apply(value *settings.Settings) {
 	value.DataDir, value.Server.BasePath, value.Auth.SecureCookie = service.DataDir, service.BasePath, service.SecureCookie
-	value.GitHub.CatalogTTLHours = service.CatalogTTLHours
+	value.GitHub.CatalogRefreshIntervalHours = service.CatalogRefreshIntervalHours
 	value.Traffic.PeriodMonths, value.Traffic.SampleRetentionDays = service.TrafficPeriodMonths, service.SampleRetentionDays
 	value.Subscription.Author, value.Subscription.Provider = service.SubscriptionAuthor, service.SubscriptionProvider
 	value.Subscription.PrivateSourceCIDRs = slices.Clone(service.PrivateSourceCIDRs)
@@ -116,7 +116,7 @@ func (app *Application) panelSettingsView(configuration settings.Settings, revis
 	p := value.Preferences
 	loaded := app.settings
 	restartRequired := configuration.Server != loaded.Server || configuration.DataDir != loaded.DataDir ||
-		configuration.Auth.SecureCookie != loaded.Auth.SecureCookie || configuration.GitHub.CatalogTTLHours != loaded.GitHub.CatalogTTLHours ||
+		configuration.Auth.SecureCookie != loaded.Auth.SecureCookie ||
 		configuration.Traffic.PeriodMonths != loaded.Traffic.PeriodMonths || configuration.Traffic.SampleRetentionDays != loaded.Traffic.SampleRetentionDays ||
 		configuration.Logs != loaded.Logs || !slices.Equal(configuration.Subscription.PrivateSourceCIDRs, loaded.Subscription.PrivateSourceCIDRs)
 	return PanelSettingsView{
