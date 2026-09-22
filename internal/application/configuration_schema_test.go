@@ -104,50 +104,54 @@ func TestPreviewAndCompileUseRawRevisionWithoutSchema(t *testing.T) {
 }
 
 func TestCompileUsesNativeSchemaByExactVersionBeforeBinaryCheck(t *testing.T) {
-	ctx := context.Background()
-	database, err := store.Open(ctx, filepath.Join(t.TempDir(), "panel.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = database.Close() })
-	application := FromStore(database)
-	application.SetRuntimeController(runtimeControllerFunc(func(ctx context.Context, request RuntimeRequest) (RuntimeResponse, error) {
-		if request.Action != "check" {
-			t.Fatalf("unexpected action %s", request.Action)
-		}
-		checked, err := application.CompleteStartupCheck(ctx, request.StartupArtifactID, true)
-		summary := StartupArtifactSummary{ID: checked.ID, State: checked.State, CoreArtifactID: checked.CoreArtifactID}
-		return RuntimeResponse{Startup: &summary}, err
-	}))
-	now := time.Date(2026, 8, 31, 12, 0, 0, 0, time.UTC)
-	application.now = func() time.Time { return now }
-	_, err = database.UpsertCoreArtifact(ctx, store.CoreArtifact{
-		ID: "core_1140", ExactVersion: "1.14.0", OperatingSystem: "linux", Architecture: "arm64", Variant: "musl",
-		SourceKind: store.CoreArtifactSourceUserVerified, UserSource: "test", ArchiveSHA256: strings.Repeat("c", 64),
-		BinarySHA256: strings.Repeat("d", 64), BinaryPath: "/tmp/sing-box", ReportedVersion: "1.14.0",
-		FeatureFingerprint: json.RawMessage(`{"status":"not_reported"}`), CreatedAt: now,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, err = testutil.SaveConfiguration(ctx, database, 0, store.NewCanonicalRevision{
-		ID: "rev_invalid_1140", SchemaVersion: configuration.SchemaVersion,
-		Document: json.RawMessage(`{"inbounds":"not-an-array"}`), CommandID: "cmd_invalid_1140", CreatedAt: now,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	support, err := application.ConfigurationSupport(ctx, "core_1140")
-	if err != nil || !support.Structured || support.ExactVersion != "1.14.0" {
-		t.Fatalf("ConfigurationSupport() = %+v, %v", support, err)
-	}
-	_, err = application.CompileConfiguration(ctx, ConfigurationCompileRequest{CoreArtifactID: "core_1140"})
-	if !errors.Is(err, ErrConfigurationSchemaValidation) {
-		t.Fatalf("CompileConfiguration() error = %v, want schema validation failure", err)
-	}
-	artifacts, err := database.ListStartupArtifacts(ctx, store.StartupArtifactListFilter{})
-	if err != nil || len(artifacts.Items) != 0 {
-		t.Fatalf("startup artifacts after validation failure = %+v, %v", artifacts, err)
+	for _, exactVersion := range []string{"1.14.0", "1.14.1"} {
+		t.Run(exactVersion, func(t *testing.T) {
+			ctx := context.Background()
+			database, err := store.Open(ctx, filepath.Join(t.TempDir(), "panel.db"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = database.Close() })
+			application := FromStore(database)
+			application.SetRuntimeController(runtimeControllerFunc(func(ctx context.Context, request RuntimeRequest) (RuntimeResponse, error) {
+				if request.Action != "check" {
+					t.Fatalf("unexpected action %s", request.Action)
+				}
+				checked, err := application.CompleteStartupCheck(ctx, request.StartupArtifactID, true)
+				summary := StartupArtifactSummary{ID: checked.ID, State: checked.State, CoreArtifactID: checked.CoreArtifactID}
+				return RuntimeResponse{Startup: &summary}, err
+			}))
+			now := time.Date(2026, 8, 31, 12, 0, 0, 0, time.UTC)
+			application.now = func() time.Time { return now }
+			_, err = database.UpsertCoreArtifact(ctx, store.CoreArtifact{
+				ID: "core_native", ExactVersion: exactVersion, OperatingSystem: "linux", Architecture: "arm64", Variant: "musl",
+				SourceKind: store.CoreArtifactSourceUserVerified, UserSource: "test", ArchiveSHA256: strings.Repeat("c", 64),
+				BinarySHA256: strings.Repeat("d", 64), BinaryPath: "/tmp/sing-box", ReportedVersion: exactVersion,
+				FeatureFingerprint: json.RawMessage(`{"status":"not_reported"}`), CreatedAt: now,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, err = testutil.SaveConfiguration(ctx, database, 0, store.NewCanonicalRevision{
+				ID: "rev_invalid_native", SchemaVersion: configuration.SchemaVersion,
+				Document: json.RawMessage(`{"inbounds":"not-an-array"}`), CommandID: "cmd_invalid_native", CreatedAt: now,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			support, err := application.ConfigurationSupport(ctx, "core_native")
+			if err != nil || !support.Structured || support.ExactVersion != exactVersion {
+				t.Fatalf("ConfigurationSupport() = %+v, %v", support, err)
+			}
+			_, err = application.CompileConfiguration(ctx, ConfigurationCompileRequest{CoreArtifactID: "core_native"})
+			if !errors.Is(err, ErrConfigurationSchemaValidation) {
+				t.Fatalf("CompileConfiguration() error = %v, want schema validation failure", err)
+			}
+			artifacts, err := database.ListStartupArtifacts(ctx, store.StartupArtifactListFilter{})
+			if err != nil || len(artifacts.Items) != 0 {
+				t.Fatalf("startup artifacts after validation failure = %+v, %v", artifacts, err)
+			}
+		})
 	}
 }
 

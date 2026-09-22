@@ -13,20 +13,24 @@ import (
 )
 
 func TestConfigurationSchemaIsSelectedOnlyByExactVersion(t *testing.T) {
-	contract, err := ConfigurationSchema("1.14.0")
-	if err != nil {
-		t.Fatalf("ConfigurationSchema(1.14.0) error = %v", err)
+	for _, exactVersion := range []string{"1.14.0", "1.14.1"} {
+		t.Run(exactVersion, func(t *testing.T) {
+			contract, err := ConfigurationSchema(exactVersion)
+			if err != nil {
+				t.Fatalf("ConfigurationSchema(%s) error = %v", exactVersion, err)
+			}
+			digest := sha256.Sum256(contract.Schema)
+			if hex.EncodeToString(digest[:]) != contract.SchemaSHA256 {
+				t.Fatal("contract digest differs from content")
+			}
+			var schema any
+			if err := json.Unmarshal(contract.Schema, &schema); err != nil {
+				t.Fatal(err)
+			}
+			assertLocalSchemaReferences(t, schema)
+		})
 	}
-	digest := sha256.Sum256(contract.Schema)
-	if hex.EncodeToString(digest[:]) != contract.SchemaSHA256 {
-		t.Fatal("contract digest differs from content")
-	}
-	var schema any
-	if err := json.Unmarshal(contract.Schema, &schema); err != nil {
-		t.Fatal(err)
-	}
-	assertLocalSchemaReferences(t, schema)
-	for _, exactVersion := range []string{"1.11.15", "1.12.25", "1.13.19", "1.14.1", "invalid"} {
+	for _, exactVersion := range []string{"1.11.15", "1.12.25", "1.13.19", "1.14.2", "1.14", "v1.14.1", "1.14.1-beta.1", "invalid"} {
 		if _, err := ConfigurationSchema(exactVersion); !errors.Is(err, ErrConfigurationSchemaUnavailable) {
 			t.Fatalf("ConfigurationSchema(%s) error = %v, want ErrSchemaUnavailable", exactVersion, err)
 		}
@@ -38,12 +42,12 @@ func TestConfigurationSchemaWebAssetsContainOnlyManifestAndFormSchema(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range []string{"manifest.json", "schema-1_14_0.json"} {
+	for _, name := range []string{"manifest.json", "schema-1_14_0.json", "schema-1_14_1.json"} {
 		if len(assets[name]) == 0 {
 			t.Fatalf("missing Web schema asset %q", name)
 		}
 	}
-	if len(assets) != 2 {
+	if len(assets) != 3 {
 		t.Fatalf("Web schema assets = %v", mapsKeys(assets))
 	}
 }
@@ -87,11 +91,15 @@ func TestValidateConfigurationIsOptionalBeforeNativeSchema(t *testing.T) {
 	if err := ValidateConfiguration("1.13.19", []byte(`{}`)); !errors.Is(err, ErrConfigurationSchemaUnavailable) {
 		t.Fatalf("ValidateConfiguration(1.13.19) error = %v", err)
 	}
-	if err := ValidateConfiguration("1.14.0", []byte(`{}`)); err != nil {
-		t.Fatalf("ValidateConfiguration(1.14.0) error = %v", err)
-	}
-	if err := ValidateConfiguration("1.14.0", []byte(`[]`)); err == nil || errors.Is(err, ErrConfigurationSchemaUnavailable) {
-		t.Fatalf("ValidateConfiguration(array) error = %v", err)
+	for _, exactVersion := range []string{"1.14.0", "1.14.1"} {
+		t.Run(exactVersion, func(t *testing.T) {
+			if err := ValidateConfiguration(exactVersion, []byte(`{}`)); err != nil {
+				t.Fatalf("ValidateConfiguration(%s) error = %v", exactVersion, err)
+			}
+			if err := ValidateConfiguration(exactVersion, []byte(`[]`)); err == nil || errors.Is(err, ErrConfigurationSchemaUnavailable) {
+				t.Fatalf("ValidateConfiguration(%s, array) error = %v", exactVersion, err)
+			}
+		})
 	}
 }
 

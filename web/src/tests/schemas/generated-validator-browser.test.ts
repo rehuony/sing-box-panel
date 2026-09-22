@@ -100,8 +100,8 @@ describe('generated configuration validators', () => {
     })).toBe(true);
   }, 20_000);
 
-  it('executes the exact v1.14 validator without panel-only fields', async () => {
-    const entry = reviewedSchemaManifest['1.14.0'];
+  it.each(['1.14.0', '1.14.1'])('executes the exact %s validator without panel-only fields', async (exactVersion) => {
+    const entry = reviewedSchemaManifest[exactVersion];
     const loaded = await entry?.load();
     const validate = loaded?.validateFns['https://sing-box.sagernet.org/schema.json'];
     expect(Object.keys(loaded?.validateFns ?? {})).toEqual(['https://sing-box.sagernet.org/schema.json']);

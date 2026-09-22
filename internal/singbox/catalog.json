@@ -121,6 +121,70 @@
           ]
         }
       }
+    },
+    {
+      "version": "1.14.1",
+      "inbound_family": "1.14",
+      "upstream": {
+        "tag": "v1.14.1",
+        "commit": "1ac1a339cb1223e9c70eae14c44411c75033c02d",
+        "module_sum": "h1:LumpcrArE3cxXYxoKhNN4yOQq1TeaEEuKWHCokodO9M=",
+        "go_mod_sum": "h1:PrCZZGTXK5PtbNkAuQI4SiFHl0A3GJBpmqEbn39b8bQ="
+      },
+      "profiles": {
+        "amd64": {
+          "asset_name": "sing-box-1.14.1-linux-amd64-musl.tar.gz",
+          "url": "https://github.com/SagerNet/sing-box/releases/download/v1.14.1/sing-box-1.14.1-linux-amd64-musl.tar.gz",
+          "sha256": "b907365b154e4a7e3e40be15c2cd83433c0fa65c7dc736bdb1b5face2afe4501",
+          "size": 32504094,
+          "features": [
+            "badlinkname",
+            "tfogo_checklinkname0",
+            "with_acme",
+            "with_ccm",
+            "with_clash_api",
+            "with_cloudflared",
+            "with_dhcp",
+            "with_gvisor",
+            "with_musl",
+            "with_naive_outbound",
+            "with_ocm",
+            "with_openconnect",
+            "with_openvpn",
+            "with_quic",
+            "with_tailscale",
+            "with_usbip",
+            "with_utls",
+            "with_wireguard"
+          ]
+        },
+        "arm64": {
+          "asset_name": "sing-box-1.14.1-linux-arm64-musl.tar.gz",
+          "url": "https://github.com/SagerNet/sing-box/releases/download/v1.14.1/sing-box-1.14.1-linux-arm64-musl.tar.gz",
+          "sha256": "d94fc9704372ca2fa2854e54c20b406e4b8779b5ccdd0c557da90ea9344e9631",
+          "size": 29706406,
+          "features": [
+            "badlinkname",
+            "tfogo_checklinkname0",
+            "with_acme",
+            "with_ccm",
+            "with_clash_api",
+            "with_cloudflared",
+            "with_dhcp",
+            "with_gvisor",
+            "with_musl",
+            "with_naive_outbound",
+            "with_ocm",
+            "with_openconnect",
+            "with_openvpn",
+            "with_quic",
+            "with_tailscale",
+            "with_usbip",
+            "with_utls",
+            "with_wireguard"
+          ]
+        }
+      }
     }
   ]
 }

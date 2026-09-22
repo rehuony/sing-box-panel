@@ -101,7 +101,8 @@ func TestCatalogDeclaresOnlyNativeSchemaVersions(t *testing.T) {
 			schemaVersions = append(schemaVersions, version.ExactVersion)
 		}
 	}
-	if len(schemaVersions) != 1 || schemaVersions[0] != "1.14.0" {
-		t.Fatalf("native schema versions = %v, want [1.14.0]", schemaVersions)
+	want := []string{"1.14.0", "1.14.1"}
+	if !reflect.DeepEqual(schemaVersions, want) {
+		t.Fatalf("native schema versions = %v, want %v", schemaVersions, want)
 	}
 }

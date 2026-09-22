@@ -133,14 +133,24 @@ identity, digest, and binary check gates.
 
 The catalog currently contains the exact releases:
 
-- sing-box 1.13.19; and
-- sing-box 1.14.0.
+- sing-box 1.13.19;
+- sing-box 1.14.0; and
+- sing-box 1.14.1.
 
 The reviewed source catalog at `internal/singbox/catalog.json` records each
 exact tag and commit plus the module sums, amd64 and arm64 asset name, URL,
 size, SHA-256, musl feature fingerprint, behavior family, and upstream Go identity.
 It is the version and official-artifact lock. The old 1.11.15/1.12.25 profiles
 and inbound converters are removed because those releases have no musl assets.
+
+The [1.14.1 review](https://github.com/SagerNet/sing-box/compare/v1.14.0...v1.14.1)
+reuses inbound family `1.14`: the supported inbound input types and published
+client fields remain unchanged. Upstream changes to HTTP/2 receive-window
+options and OpenVPN peer addresses preserve the JSON field names; the migration
+note changes concern the upstream macOS standalone client. Regenerating from
+the locked 1.14.1 Linux musl binary produces the same canonical Schema digest as
+1.14.0. Both exact versions retain separate manifest entries and generated assets;
+unreviewed patch versions do not inherit either capability.
 
 Schema support is independently keyed by exact version. Starting with 1.14,
 the networked `go tool singbox-support generate` command executes the locked
