@@ -116,11 +116,12 @@ panel. The explicit `init` step is optional. Existing files are validated withou
 replacement; broken or unreadable settings still fail. The same behavior applies
 without `--config`, using the default path for the current user.
 
-First-run guidance lists the settings file, data directory, default URL, generated
-`Login token`, and stop shortcut. Open the default URL and use the printed token
+First-run guidance lists `Default URL`, the generated `Default Token`,
+`Default Settings`, and `Default Data Dir` in aligned columns.
+Open the default URL and use the printed token
 to log in to a new instance; the same value is saved as `auth.token` in settings.
 That initial summary confirms settings creation. After binding the listener, every
-start prints the actual panel URL, settings and data paths, log location and stop
+start prints the actual panel URL, settings and data paths, stored-log command and stop
 hint, then streams sanitized panel events. Redirected output omits ANSI color;
 `NO_COLOR` disables it in terminals and `--output json` emits structured events.
 

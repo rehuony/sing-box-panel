@@ -112,11 +112,13 @@ its `server start` command uses the same initialization and validation rules.
 `init` explicitly creates settings and initializes storage. It refuses to overwrite an existing file
 unless `--force` is supplied. No command silently repairs a damaged file.
 
-When `server start` creates settings, it prints a compact first-run summary to
-stderr: the selected settings and data paths, default panel URL, the generated
-token next to `Login token`, and how to stop the foreground process. This reports
-initialization, not HTTP readiness. It does not repeat the summary when the
-file already exists. Color is limited to text on a terminal
+When `server start` creates settings, it prints `sing-box-panel settings is created`
+to stderr, followed by aligned `Default URL`, `Default Token`, `Default Settings`,
+and `Default Data Dir` rows. This reports initialization, not HTTP readiness.
+It does not repeat the summary when the file already exists. Once the server is
+ready, it prints `sing-box-panel is running` with aligned `Panel URL`, `Settings`,
+and `Data Dir` rows, followed by the stop shortcut and stored-log command.
+Color is limited to text on a terminal
 and respects `NO_COLOR` and `TERM`. In JSON/JSONL mode, stderr receives one event
 with `event: "settings_initialized"`, `settings_path`, `data_dir`,
 `default_panel_url`, and `login_token`; stdout remains free of startup guidance.
