@@ -23,6 +23,7 @@ import {
   ArrowDown,
   ArrowUp,
   Copy,
+  Info,
   Plus,
   Trash2,
   X,
@@ -43,6 +44,7 @@ import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
 import { ErrorNotice } from '@/components/error-notice';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import {
   Field,
   FieldDescription,
@@ -88,7 +90,7 @@ function localizedLabel(schema: RJSFSchema, fallback: string, language: string, 
 function PanelFieldTemplate(props: FieldTemplateProps) {
   const { i18n, t } = useTranslation();
   const {
-    children, description, disabled, displayLabel, fieldPathId, hidden, id,
+    children, disabled, displayLabel, fieldPathId, hidden, id,
     label, rawDescription, rawErrors, required, schema,
   } = props;
   if (hidden) return children;
@@ -127,13 +129,27 @@ function PanelFieldTemplate(props: FieldTemplateProps) {
       {displayLabel === false && !booleanField && !discriminator
         ? null
         : (
-            <FieldLabel htmlFor={labelTarget}>
-              {resolvedLabel}
-              {required ? <span aria-hidden='true'>*</span> : null}
-            </FieldLabel>
+            <div className='schema-form__label'>
+              <FieldLabel htmlFor={labelTarget}>
+                {resolvedLabel}
+                {required ? <span aria-hidden='true'>*</span> : null}
+              </FieldLabel>
+              {rawDescription
+                ? (
+                    <Tooltip>
+                      <TooltipTrigger
+                        aria-label={t('configuration.general.fieldHelp', { field: resolvedLabel })}
+                        render={<Button className='focus-visible:border-transparent focus-visible:ring-0' size='icon-xs' type='button' variant='ghost' />}
+                      >
+                        <Info aria-hidden />
+                      </TooltipTrigger>
+                      <TooltipContent>{rawDescription}</TooltipContent>
+                    </Tooltip>
+                  )
+                : null}
+            </div>
           )}
       <div className='schema-form__control'>{children}</div>
-      {rawDescription ? <FieldDescription>{description}</FieldDescription> : null}
       {rawErrors !== undefined && rawErrors.length > 0 ? <ErrorNotice error={rawErrors.join('; ')} title={label} /> : null}
     </Field>
   );

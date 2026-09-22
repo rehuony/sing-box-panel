@@ -54,7 +54,6 @@ export const configuration = {
   },
   loading: 'Loading configuration…',
   managed: {
-    actions: 'Actions for {{name}}',
     add: 'Add node',
     collection: {
       endpoints: 'Endpoints',
@@ -69,7 +68,6 @@ export const configuration = {
     deleteTitle: 'Delete node?',
     dialogDescription: 'Edit supported fields or inspect the exact lossless entity JSON.',
     emptyDescription: 'Add the first node to this collection.',
-    emptyTitle: 'No nodes yet',
     form: 'Form',
     json: 'JSON',
     needsRepair: 'Needs repair',
@@ -77,7 +75,6 @@ export const configuration = {
     panelID: 'Tag',
     panelIDHelp: 'Use a non-empty tag that is unique in this collection.',
     protocol: 'Protocol',
-    reorder: 'Reorder {{name}}',
     repair: 'Repair identity',
     toggle: 'Toggle {{name}}',
     untyped: 'Untyped',
@@ -143,6 +140,7 @@ export const configuration = {
     auto_detect_interface: 'Detect default interface',
     default_interface: 'Default interface',
     default_domain_resolver: 'Default domain resolver',
+    debug: 'Debug',
     cache_file: 'Cache file',
     clash_api: 'Clash API',
     v2ray_api: 'V2Ray API',
@@ -171,6 +169,8 @@ export const configuration = {
     null: 'None',
   },
   general: {
+    fieldHelp: 'Help for {{field}}',
+    moveUp: 'Move {{name}} up', moveDown: 'Move {{name}} down',
     editEntry: 'Edit entry',
     editDescription: 'Save changes to update this entry in the current draft.',
     saveChanges: 'Save changes',
@@ -198,7 +198,7 @@ export const configuration = {
     unsupported: 'No visual editor schema for {{version}}. Edit JSON or select a supported configuration version.',
     manageVersions: 'Go to version management',
     noInstalledDescription: 'Download a core version in version management to use visual editing and configuration validation.',
-    noInstalledOption: 'No installed versions',
+    noInstalledOption: 'None',
     noInstalledTitle: 'No core versions installed',
     error: {
       contract: 'The version Schema differs from the reviewed browser Schema.',

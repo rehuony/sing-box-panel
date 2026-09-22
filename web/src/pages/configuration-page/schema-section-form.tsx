@@ -30,6 +30,7 @@ interface SchemaSectionFormProps {
   protectedPaths?: string[];
   resolution: ReviewedSchemaResolution;
   onTouched?: (paths: string[]) => void;
+  arrayLayout?: 'default' | 'standalone';
   arrayActionContainer?: HTMLElement | null;
   onChange: (change: (draft: CanonicalDraft) => CanonicalDraft) => void;
 }
@@ -168,6 +169,7 @@ function sectionValidator(
 
 export function SchemaSectionForm({
   arrayActionContainer,
+  arrayLayout = 'default',
   basePointer,
   data,
   disabled = false,
@@ -239,7 +241,7 @@ export function SchemaSectionForm({
       experimental_defaultFormStateBehavior={{ emptyObjectFields: 'populateRequiredDefaults' }}
       fields={panelRJSFFields}
       formData={external}
-      formContext={{ arrayActionContainer }}
+      formContext={{ arrayActionContainer, arrayLayout }}
       idPrefix={`schema-${formId}`}
       liveValidate
       noHtml5Validate

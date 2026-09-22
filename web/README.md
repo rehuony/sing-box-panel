@@ -98,10 +98,25 @@ replacing the process. Immutable snapshots support runtime verification and reco
 the editor has one current document with no historical selection or restoration.
 
 Configuration modules are edited individually, with optional object settings
-added on demand. Collection actions stay in a consistent, vertically centered
-toolbar beside the section tabs where present, without item counts. List cells
-are centered and entry names are display-only. Adding a record or choosing its
-Edit action opens a dialog; confirming updates the draft and cancelling discards
+added on demand. Sections with child tabs keep collection actions in the toolbar
+beside those tabs.
+Standalone top-level collections show identifier, type, details and actions
+columns after a small top inset. A full-width dashed Add row is the final row
+inside the table, including empty lists. Actions show Edit, up/down arrows and
+Delete together, with identity repair available for malformed nodes. Up/down
+buttons replace node dragging; node deletion retains its confirmation dialog.
+Narrow screens scroll these tables horizontally within the list. List cells are centered and entry names
+are display-only. Experimental tabs follow Debug, Clash API, V2Ray API and cache
+file order, showing only groups available in the selected Schema. The version
+selector contains its label and a compact empty-state value in the same control.
+The visual editor scrolls at the workspace edge, with an inset keeping controls
+clear of the scrollbar. The Add row has a small gap and its own dashed outline
+without a doubled divider. Scalar field descriptions appear in an information
+tooltip beside the label, available on hover or keyboard focus; validation
+errors remain visible beside the control.
+Panel settings use the same Tooltip and information icon for field help.
+Adding a record or choosing its Edit action opens a dialog; confirming updates
+the draft and cancelling discards
 the pending changes. Map fields keep keys separate from typed text, list or object
 values, and referenced scalar lists are edited inline. Dialog content remains
 mounted through the synchronized closing transition. Navigation to another route,

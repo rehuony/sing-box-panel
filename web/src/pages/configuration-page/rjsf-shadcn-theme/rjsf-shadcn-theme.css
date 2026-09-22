@@ -30,15 +30,27 @@
   min-height: 64px;
   padding: 12px 0;
 }
-.schema-form__field > [data-slot='field-label'] {
+.schema-form__field > :is(.schema-form__label, [data-slot='field-label']) {
   grid-column: 1;
   margin: 0;
   font-weight: 400;
   color: var(--color-text-secondary);
   overflow-wrap: anywhere;
 }
-.schema-form__field[data-invalid='true'] > [data-slot='field-label'] {
+.schema-form__field[data-invalid='true'] > :is(.schema-form__label, [data-slot='field-label']) {
   color: var(--color-danger);
+}
+.schema-form__label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+.schema-form__label > [data-slot='field-label'] {
+  min-width: 0;
+  margin: 0;
+  font-weight: inherit;
+  color: inherit;
 }
 .schema-form__control {
   grid-column: 2;
@@ -48,7 +60,6 @@
   display: flex;
   justify-content: flex-end;
 }
-.schema-form__field > [data-slot='field-description'],
 .schema-form__field > [data-slot='field-error'] {
   grid-column: 2;
   margin: 0;
@@ -124,7 +135,7 @@
   padding-bottom: 0;
   min-height: 0;
 }
-.schema-form__union-value > .schema-form__field > [data-slot='field-label'],
+.schema-form__union-value > .schema-form__field > :is(.schema-form__label, [data-slot='field-label']),
 .schema-form__union-value > .schema-form__object > [data-slot='field-legend'] {
   display: none;
 }
@@ -211,7 +222,7 @@
   min-height: 0;
   padding: 0;
 }
-.schema-form__value-row .schema-form__field > [data-slot='field-label'] {
+.schema-form__value-row .schema-form__field > :is(.schema-form__label, [data-slot='field-label']) {
   display: none;
 }
 .schema-form__empty {
@@ -226,7 +237,6 @@
     gap: 8px;
   }
   .schema-form__field > .schema-form__control,
-  .schema-form__field > [data-slot='field-description'],
   .schema-form__field > [data-slot='field-error'],
   .schema-form__union-selector,
   .schema-form__union-value > .schema-form__field > .schema-form__control {
@@ -323,7 +333,8 @@
 .schema-form__field--union:has(> .schema-form__control > .schema-form__union--compact) {
   align-items: start;
 }
-.schema-form__field--union:has(> .schema-form__control > .schema-form__union--compact) > [data-slot='field-label'] {
+.schema-form__field--union:has(> .schema-form__control > .schema-form__union--compact)
+  > :is(.schema-form__label, [data-slot='field-label']) {
   padding-top: 12px;
 }
 .schema-form__field--union:has(> .schema-form__control > .schema-form__union--compact) > .schema-form__control {

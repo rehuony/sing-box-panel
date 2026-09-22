@@ -401,8 +401,9 @@ export function mergeSchemaKnownData(
   if (Array.isArray(before) && Array.isArray(after)) {
     const itemSchema = collectionItemSchema(resolved, root);
     if (itemSchema === null || !Array.isArray(original)) return after;
-    const visible = original.map((raw) => ({
-      known: projectSchemaKnownData(itemSchema, root, raw),
+    const visible = original.map((raw, index) => ({
+      // Match the form's display projection, which may round lossless numbers.
+      known: before[index],
       raw,
     }));
     const used = new Set<number>();

@@ -1,7 +1,7 @@
 import type { RJSFSchema } from '@rjsf/utils';
 
 import { useState } from 'react';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import userEvent from '@testing-library/user-event';
 import { customizeValidator } from '@rjsf/validator-ajv8';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
@@ -10,6 +10,7 @@ import type { ReviewedSchemaResolution } from '@/schemas/resolve-reviewed-schema
 import type { CanonicalDraft } from '@/pages/configuration-page/use-canonical-configuration';
 
 import '@/i18n';
+import { TooltipProvider } from '@/components/ui/tooltip';
 import { uiSchemaFromPanel } from '@/pages/configuration-page/schema-ui';
 import { SchemaSectionForm } from '@/pages/configuration-page/schema-section-form';
 import { encodeCanonicalDraft, parseCanonicalDraft } from '@/pages/configuration-page/use-canonical-configuration';
@@ -107,6 +108,55 @@ function NumericHarness() {
 }
 
 describe('schemaSectionForm', () => {
+  it('shows field descriptions beside labels on hover and keyboard focus without changing values', async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    const schema: RJSFSchema = {
+      type: 'object',
+      properties: {
+        interval: { type: 'string', description: 'A Go duration such as 300ms or 5s.' },
+        enabled: { type: 'boolean', description: 'Synchronize the system clock.' },
+        server: { type: 'string' },
+      },
+    };
+    const { container, rerender } = render(
+      <TooltipProvider delay={0}>
+        <SchemaSectionForm basePointer='/section' data={{ interval: '5s', enabled: false }} onChange={onChange}
+          resolution={{ ...resolution, schema: { type: 'object', properties: { section: schema } } }} schema={schema} />
+      </TooltipProvider>,
+    );
+    expect(screen.queryByText('A Go duration such as 300ms or 5s.')).not.toBeInTheDocument();
+    expect(container.querySelector('[data-slot="field-description"]')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Help for Server' })).not.toBeInTheDocument();
+
+    const intervalHelp = screen.getByRole('button', { name: 'Help for Sync interval' });
+    expect(intervalHelp.parentElement).toHaveTextContent('Sync interval');
+    await user.hover(intervalHelp);
+    expect(await screen.findByText('A Go duration such as 300ms or 5s.')).toBeVisible();
+    await user.unhover(intervalHelp);
+    await waitFor(() => expect(screen.queryByText('A Go duration such as 300ms or 5s.')).not.toBeInTheDocument());
+    await user.click(screen.getByRole('textbox', { name: 'Sync interval' }));
+    await user.tab({ shift: true });
+    expect(intervalHelp).toHaveFocus();
+    expect(await screen.findByText('A Go duration such as 300ms or 5s.')).toBeVisible();
+    await user.keyboard('{Escape}');
+    await waitFor(() => expect(screen.queryByText('A Go duration such as 300ms or 5s.')).not.toBeInTheDocument());
+
+    await user.click(screen.getByRole('button', { name: 'Help for Enabled' }));
+    expect(screen.getByRole('switch', { name: 'Enabled' })).not.toBeChecked();
+    expect(screen.getByRole('textbox', { name: 'Sync interval' })).toHaveValue('5s');
+    expect(onChange).not.toHaveBeenCalled();
+
+    rerender(
+      <TooltipProvider delay={0}>
+        <SchemaSectionForm basePointer='/section' data={{ interval: '5s' }} disabled onChange={onChange}
+          resolution={{ ...resolution, schema: { type: 'object', properties: { section: schema } } }} schema={schema} />
+      </TooltipProvider>,
+    );
+    expect(screen.getByRole('textbox', { name: 'Sync interval' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Help for Sync interval' })).toBeEnabled();
+  });
+
   it('edits array and object union representations without erasing hidden extensions', () => {
     const properties: RJSFSchema = {
       type: 'object',

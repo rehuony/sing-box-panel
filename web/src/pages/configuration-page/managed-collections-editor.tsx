@@ -1,35 +1,18 @@
 import type { RJSFSchema } from '@rjsf/utils';
 
-import { CSS } from '@dnd-kit/utilities';
 import { useTranslation } from 'react-i18next';
 import { isLosslessNumber } from 'lossless-json';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
+  ArrowDown,
+  ArrowUp,
   Braces,
   CircleAlert,
-  GripVertical,
-  MoreHorizontal,
   Pencil,
   Plus,
   Trash2,
   Wrench,
 } from 'lucide-react';
-import {
-  closestCenter,
-  DndContext,
-  KeyboardSensor,
-  PointerSensor,
-  TouchSensor,
-  useSensor,
-  useSensors,
-} from '@dnd-kit/core';
-import {
-  arrayMove,
-  SortableContext,
-  sortableKeyboardCoordinates,
-  useSortable,
-  verticalListSortingStrategy,
-} from '@dnd-kit/sortable';
 
 import type { JsonObject } from '@/api/api-client';
 import type { ReviewedSchemaResolution } from '@/schemas/resolve-reviewed-schema';
@@ -42,6 +25,7 @@ import { useApiClient } from '@/api/api-client-context';
 import { describeRequestError } from '@/components/error-notice';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import {
   Select,
   SelectContent,
@@ -59,13 +43,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuGroup,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -191,96 +168,59 @@ function nextIdentifier(
   throw new Error(unavailableMessage);
 }
 
-interface SortableEntryCardProps {
-  index: number;
+interface EntryRowProps {
   entry: EntryView;
   disabled: boolean;
+  canMoveUp: boolean;
   onEdit: () => void;
+  canMoveDown: boolean;
   onDelete: () => void;
+  onMoveUp: () => void;
   onRepair: () => void;
+  onMoveDown: () => void;
 }
 
-function SortableEntryCard({
+function EntryRow({
   disabled,
   entry,
-  index,
+  canMoveUp,
+  canMoveDown,
+  onMoveUp,
+  onMoveDown,
   onDelete,
   onEdit,
   onRepair,
-}: SortableEntryCardProps) {
+}: EntryRowProps) {
   const { t } = useTranslation();
-  const sortable = useSortable({ disabled, id: `${entry.id}:${index}` });
   return (
-    <article
-      className='managed-node-card'
-      ref={sortable.setNodeRef}
-      style={{
-        transform: CSS.Transform.toString(sortable.transform),
-        transition: sortable.transition,
-      }}
-    >
-      <Button
-        {...sortable.attributes}
-        {...sortable.listeners}
-        aria-label={t('configuration.managed.reorder', { name: entry.tag })}
-        className='managed-node-card__handle'
-        disabled={disabled}
-        size='icon-sm'
-        type='button'
-        variant='ghost'
-      >
-        <GripVertical aria-hidden='true' />
-      </Button>
-      <div className='managed-node-card__identity'>
-        <strong>{entry.tag}</strong>
-        <span>{entry.type === 'untyped' ? t('configuration.managed.untyped') : entry.type}</span>
-      </div>
-      <div className='managed-node-card__badges'>
-        {!entry.valid
-          ? (
-              <Badge variant='destructive'>{t('configuration.managed.needsRepair')}</Badge>
-            )
-          : null}
-        {summaryBadges(entry.value).map((badge) => (
-          <span key={badge}>{badge}</span>
-        ))}
-      </div>
-      <Button disabled={disabled} onClick={onEdit} size='sm' type='button' variant='ghost'>{t('common.edit')}</Button>
-      <DropdownMenu>
-        <DropdownMenuTrigger
-          render={(
-            <Button
-              aria-label={t('configuration.managed.actions', { name: entry.tag })}
-              disabled={disabled}
-              size='icon-sm'
-              variant='ghost'
-            />
+    <TableRow>
+      <TableCell><span className='configuration-list__text' title={entry.tag}>{entry.tag}</span></TableCell>
+      <TableCell className='configuration-list__secondary'><span className='configuration-list__text'>{entry.type === 'untyped' ? t('configuration.managed.untyped') : entry.type}</span></TableCell>
+      <TableCell className='configuration-list__secondary'>
+        <div className='configuration-list__summary'>
+          {!entry.valid
+            ? (
+                <Badge variant='destructive'>{t('configuration.managed.needsRepair')}</Badge>
+              )
+            : null}
+          {summaryBadges(entry.value).map((badge) => (
+            <span className='configuration-list__text' key={badge} title={badge}>{badge}</span>
+          ))}
+          {entry.valid && summaryBadges(entry.value).length === 0 ? '—' : null}
+        </div>
+      </TableCell>
+      <TableCell>
+        <div className='configuration-list__actions'>
+          <Button disabled={disabled} onClick={onEdit} size='sm' type='button' variant='ghost'>{t('common.edit')}</Button>
+          <Button aria-label={t('configuration.general.moveUp', { name: entry.tag })} title={t('common.moveUp')} disabled={disabled || !canMoveUp} onClick={onMoveUp} size='icon-sm' type='button' variant='ghost'><ArrowUp aria-hidden='true' /></Button>
+          <Button aria-label={t('configuration.general.moveDown', { name: entry.tag })} title={t('common.moveDown')} disabled={disabled || !canMoveDown} onClick={onMoveDown} size='icon-sm' type='button' variant='ghost'><ArrowDown aria-hidden='true' /></Button>
+          {!entry.valid && (
+            <Button aria-label={t('configuration.managed.repair')} title={t('configuration.managed.repair')} disabled={disabled} onClick={onRepair} size='icon-sm' type='button' variant='ghost'><Wrench aria-hidden='true' /></Button>
           )}
-        >
-          <MoreHorizontal aria-hidden='true' />
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align='end'>
-          <DropdownMenuGroup>
-            <DropdownMenuItem onClick={onEdit}>
-              <Pencil aria-hidden='true' />
-              {t('common.edit')}
-            </DropdownMenuItem>
-            {!entry.valid
-              ? (
-                  <DropdownMenuItem onClick={onRepair}>
-                    <Wrench aria-hidden='true' />
-                    {t('configuration.managed.repair')}
-                  </DropdownMenuItem>
-                )
-              : null}
-            <DropdownMenuItem onClick={onDelete} variant='destructive'>
-              <Trash2 aria-hidden='true' />
-              {t('common.delete')}
-            </DropdownMenuItem>
-          </DropdownMenuGroup>
-        </DropdownMenuContent>
-      </DropdownMenu>
-    </article>
+          <Button aria-label={t('common.delete')} title={t('common.delete')} className='configuration-list__remove' disabled={disabled} onClick={onDelete} size='icon-sm' type='button' variant='ghost'><Trash2 aria-hidden='true' /></Button>
+        </div>
+      </TableCell>
+    </TableRow>
   );
 }
 
@@ -331,11 +271,6 @@ export function ManagedCollectionsEditor({
   const types = activeSchema === undefined ? [] : protocolTypes(activeSchema, resolution.schema);
   const [newID, setNewID] = useState('');
   const [newType, setNewType] = useState(() => defaultProtocolType(types));
-  const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
-    useSensor(TouchSensor, { activationConstraint: { delay: 180, tolerance: 5 } }),
-    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
-  );
   const usedIDs = useMemo(() => new Set(views.map((entry) => entry.id)), [views]);
   const newIDValid = newID !== '' && newID.trim() === newID && !usedIDs.has(newID);
 
@@ -345,6 +280,14 @@ export function ManagedCollectionsEditor({
       ...current,
       [activeCollection]: next,
     }));
+  }
+
+  function move(index: number, delta: -1 | 1) {
+    const target = index + delta;
+    if (disabled || index < 0 || index >= items.length || target < 0 || target >= items.length) return;
+    const next = [...items];
+    [next[index], next[target]] = [next[target], next[index]];
+    replace(next);
   }
 
   function repair(index: number) {
@@ -404,43 +347,19 @@ export function ManagedCollectionsEditor({
 
   return (
     <div className='managed-editor'>
-      <div className='managed-editor__toolbar configuration-section-toolbar'>
-        {selectedCollection === undefined
-          ? (
-              <div
-                aria-label={t('configuration.managed.collections')}
-                className='managed-editor__collections'
-                role='tablist'
-              >
-                {collectionSchemas.map(([name, schema]) => (
-                  <Button
-                    aria-selected={name === activeCollection}
-                    key={name}
-                    onClick={() => setChosenCollection(name)}
-                    role='tab'
-                    size='sm'
-                    type='button'
-                    variant={name === activeCollection ? 'secondary' : 'ghost'}
-                  >
-                    {schemaLabel(schema, i18n.language, t(`configuration.managed.collection.${name}`))}
-                  </Button>
-                ))}
-              </div>
-            )
-          : null}
-        <Button
-          aria-label={t('configuration.managed.add')}
-          disabled={disabled || types.length === 0}
-          onClick={openCreate}
-          size='sm'
-          type='button'
-          variant='outline'
-        >
-          <Plus aria-hidden='true' data-icon='inline-start' />
-          {t('common.add')}
-        </Button>
-      </div>
-
+      {selectedCollection === undefined && (
+        <div className='managed-editor__collections' role='tablist' aria-label={t('configuration.managed.collections')}>
+          {collectionSchemas.map(([name, schema]) => (
+            <Button
+              aria-selected={name === activeCollection} key={name}
+              onClick={() => setChosenCollection(name)} role='tab' size='sm' type='button'
+              variant={name === activeCollection ? 'secondary' : 'ghost'}
+            >
+              {schemaLabel(schema, i18n.language, t(`configuration.managed.collection.${name}`))}
+            </Button>
+          ))}
+        </div>
+      )}
       {activeSchema === undefined || itemSchema === null
         ? (
             <div className='configuration-empty-copy' role='status'>
@@ -448,46 +367,47 @@ export function ManagedCollectionsEditor({
               {t('configuration.schema.noManagedFields')}
             </div>
           )
-        : items.length === 0
-          ? (
-              <div className='configuration-empty-copy'>
-                <strong>{t('configuration.managed.emptyTitle')}</strong>
-              </div>
-            )
-          : (
-              <DndContext
-                collisionDetection={closestCenter}
-                onDragEnd={({ active, over }) => {
-                  if (disabled || over === null || active.id === over.id) return;
-                  const from = views.findIndex((entry, index) => `${entry.id}:${index}` === active.id);
-                  const to = views.findIndex((entry, index) => `${entry.id}:${index}` === over.id);
-                  if (from >= 0 && to >= 0) replace(arrayMove(items, from, to));
-                }}
-                sensors={sensors}
-              >
-                <SortableContext
-                  items={views.map((entry, index) => `${entry.id}:${index}`)}
-                  strategy={verticalListSortingStrategy}
-                >
-                  <div className='managed-node-list'>
-                    {views.map((entry, index) => (
-                      <SortableEntryCard
-                        disabled={disabled}
-                        entry={entry}
-                        index={index}
-                        key={`${entry.id}:${encodeCanonicalValue(entry.value)}`}
-                        onDelete={() => setDeletingIndex(index)}
-                        onEdit={() => {
-                          setEditing({ index, draft: { [activeCollection]: [items[index]] } });
-                          setEditOpen(true);
-                        }}
-                        onRepair={() => repair(index)}
-                      />
-                    ))}
-                  </div>
-                </SortableContext>
-              </DndContext>
-            )}
+        : (
+            <Table className='configuration-list' aria-label={t(`configuration.managed.collection.${activeCollection}`)}>
+              <TableHeader>
+                <TableRow>
+                  <TableHead scope='col'>{t('configuration.fields.tag')}</TableHead>
+                  <TableHead scope='col'>{t('configuration.fields.type')}</TableHead>
+                  <TableHead scope='col'>{t('configuration.general.summary')}</TableHead>
+                  <TableHead scope='col'>{t('common.actions')}</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {views.map((entry, index) => (
+                  <EntryRow
+                    disabled={disabled} entry={entry}
+                    canMoveUp={index > 0} canMoveDown={index < views.length - 1}
+                    onMoveUp={() => move(index, -1)} onMoveDown={() => move(index, 1)}
+                    key={`${entry.id}:${encodeCanonicalValue(entry.value)}`}
+                    onDelete={() => setDeletingIndex(index)}
+                    onEdit={() => {
+                      setEditing({ index, draft: { [activeCollection]: [items[index]] } });
+                      setEditOpen(true);
+                    }}
+                    onRepair={() => repair(index)}
+                  />
+                ))}
+                <TableRow className='configuration-list__add-row'>
+                  <TableCell colSpan={4}>
+                    <Button
+                      aria-label={t('configuration.managed.add')}
+                      className='configuration-list__add'
+                      disabled={disabled || types.length === 0} onClick={openCreate}
+                      size='content' type='button' variant='outline'
+                    >
+                      <Plus aria-hidden='true' data-icon='inline-start' />
+                      {t('common.add')}
+                    </Button>
+                  </TableCell>
+                </TableRow>
+              </TableBody>
+            </Table>
+          )}
 
       <Dialog open={editOpen} onOpenChange={setEditOpen} onOpenChangeComplete={(open) => {
         if (!open) setEditing(null);

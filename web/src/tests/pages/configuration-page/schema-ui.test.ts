@@ -1,6 +1,7 @@
 import type { RJSFSchema } from '@rjsf/utils';
 
 import { describe, expect, it } from 'vitest';
+import { parse, stringify } from 'lossless-json';
 
 import {
   collectionItemSchema,
@@ -10,6 +11,16 @@ import {
   schemaProperties,
   selfContainedSchema,
 } from '@/pages/configuration-page/schema-ui';
+
+it('preserves numeric lexemes when records without identities are reordered through a rounded display projection', () => {
+  const arraySchema: RJSFSchema = {
+    type: 'array', items: { type: 'object', properties: { counter: { type: 'integer' } } },
+  };
+  const original = parse('[{"counter":900719925474099312345,"future":"first"},{"counter":2,"future":"second"}]');
+  const before = JSON.parse(stringify(projectSchemaKnownData(arraySchema, arraySchema, original))!);
+  const result = mergeSchemaKnownData(arraySchema, arraySchema, original, before, [before[1], before[0]]);
+  expect(stringify(result)).toBe('[{"counter":2,"future":"second"},{"counter":900719925474099312345,"future":"first"}]');
+});
 
 const schema: RJSFSchema = {
   type: 'object',

@@ -109,7 +109,8 @@ describe('configurationPage', () => {
     expect(await screen.findByRole('heading', { name: 'No core versions installed' })).toBeVisible();
     expect(screen.getByRole('tab', { name: 'Visual editor' })).toHaveAttribute('aria-selected', 'true');
     expect(screen.getByRole('combobox', { name: 'Configuration version' })).toBeDisabled();
-    expect(screen.getByText('No installed versions')).toBeVisible();
+    expect(screen.getByRole('combobox', { name: 'Configuration version' })).toHaveTextContent('None');
+    expect(within(screen.getByRole('combobox', { name: 'Configuration version' })).getByText('Configuration version')).toBeVisible();
     expect(screen.getByRole('link', { name: 'Go to version management' })).toHaveAttribute('href', '/cores#cores-catalog');
     expect(screen.getByRole('button', { name: 'Validate configuration' })).toBeDisabled();
     expect(client.getConfigurationSchema).not.toHaveBeenCalled();
@@ -277,6 +278,36 @@ describe('configurationPage', () => {
     }));
     const saved = vi.mocked(client.saveConfigurationFile).mock.calls[0][0];
     expect(JSON.parse(saved.content)).toEqual({ dns: { servers: [{ type: 'dhcp', tag: 'dns-new' }], rules: [] } });
+  });
+
+  it.skipIf(reviewedSchema === undefined).each([
+    ['Certificate providers', 'certificate_providers'],
+    ['HTTP clients', 'http_clients'],
+    ['Network namespaces', 'network_namespaces'],
+  ])('creates %s from its standalone table and saves only confirmed changes', async (label, collection) => {
+    const user = userEvent.setup();
+    const client = await createStructuredClient({
+      getConfigurationFile: vi.fn().mockResolvedValue({ ...savedFile, content: '{}' }),
+    });
+    renderPage(client);
+    await user.click(await screen.findByRole('tab', { name: label }));
+    const table = screen.getByRole('table');
+    expect(within(table).getAllByRole('columnheader').map(header => header.textContent)).toEqual(['Tag', 'Type', 'Details', 'Actions']);
+    const add = within(table).getByRole('button', { name: 'Add' });
+    await user.click(add);
+    await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Cancel' }));
+    expect(screen.getByRole('button', { name: 'Save configuration' })).toBeDisabled();
+    await user.click(add);
+    const dialog = screen.getByRole('dialog');
+    fireEvent.change(within(dialog).getByRole('textbox', { name: 'Tag' }), { target: { value: 'new-entry' } });
+    await user.click(within(dialog).getByRole('button', { name: 'Add' }));
+    expect(within(table).getByText('new-entry')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Move new-entry up' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Move new-entry down' })).toBeDisabled();
+    await user.click(screen.getByRole('button', { name: 'Save configuration' }));
+    await waitFor(() => expect(client.saveConfigurationFile).toHaveBeenCalled());
+    const saved = vi.mocked(client.saveConfigurationFile).mock.calls[0][0];
+    expect(JSON.parse(saved.content)[collection]).toEqual([expect.objectContaining({ tag: 'new-entry' })]);
   });
 
   it.each(['{"log":{"level":"debug"}}', '{"log":'])('cancels navigation with unsaved %s and saves exact text', async content => {
