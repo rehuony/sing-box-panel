@@ -51,15 +51,21 @@ a matching musl archive are omitted, with no plain/glibc fallback. Missing or
 inconsistent digest evidence still blocks installation. Storage uses the current format described in
 [Database compatibility](getting-started.md#database-compatibility).
 
-An ordinary refresh honors `github.catalog_ttl_hours`; use `--force` for an
-explicit upstream refresh. The Web refresh action also requests a forced
-refresh. Opening version management automatically requests a TTL-aware refresh;
-cached rows and installed versions remain visible while it runs. The HTTP client
+The complete successful catalog and validator remain in SQLite until a newer
+successful refresh replaces them. `github.catalog_refresh_interval_hours`
+controls when the running server checks GitHub again; it is not a cache expiry.
+The server checks the schedule in the background at startup and continues while
+the panel runs, without delaying HTTP readiness. An ordinary refresh honors the
+interval; use `--force` for an explicit upstream check. The Web “Check GitHub
+for updates” action requests a forced refresh, while opening version management
+reads the local catalog and only initializes it when missing. Cached rows and
+installed versions remain visible while a refresh runs. The HTTP client
 honors standard proxy environment variables. Large valid release pages are byte
 bounded and checked for duplicate keys and excessive nesting without an asset-count
 limit. Authentication and GitHub rate-limit errors have distinct diagnostics. Per-page ETags allow the panel to prove an unchanged catalog without
 replacing it. A timeout, rate limit, invalid response, or size failure returns
-an error and leaves the last successful catalog and validator intact.
+an error, leaves the last successful catalog and validator intact, and is
+retried by the running server after five minutes.
 
 ```sh
 sing-box-panel core refresh --force

@@ -334,14 +334,37 @@ payloads.
 ## Dashboard delivery and host metrics
 
 `GET /api/v1/metrics/stream` pushes runtime and metric snapshots every two seconds,
-with bounded writes and a one-minute authenticated reconnect. Polling recovers
-stream interruptions. Repeated collector timestamps do not replace the last
-valid transfer rate with zero. Linux host CPU/memory/disk metrics are separate
-from sing-box process samples; unsupported hosts report unavailable values.
+with bounded writes and a one-minute authenticated reconnect. The application
+shell reconnects with bounded backoff after interruptions and retains the last
+valid event; it does not start a parallel polling loop. Repeated collector
+timestamps do not replace the last valid transfer rate with zero. Linux host
+CPU/memory/disk metrics are separate from sing-box process samples; unsupported
+hosts report unavailable values.
+
+`GET /api/v1/dashboard/stream` sends an authenticated dashboard snapshot
+immediately, updates it every 30 seconds, and closes after one minute so the
+next connection revalidates authentication. Each `dashboard` event contains its
+collection time, one-hour traffic and connection history, 24-hour traffic and
+runtime history, and the latest two panel activity records. The application
+shell owns this stream across route changes, keeps the last valid snapshot while
+reconnecting with bounded backoff, and does not fall back to periodic history,
+runtime, traffic, or log requests.
+
+The one-minute lifetime includes snapshot collection, and cancels in-flight
+queries when it expires. Each write has a deadline of at most ten seconds, which
+is cleared after flushing so idle connections can close normally. An initial
+snapshot failure returns a non-success Problem response before opening SSE.
+Each complete UTF-8 event frame is limited to 1 MiB. Runtime history keeps at
+most 4096 newest transitions, or fewer when necessary to fit the frame limit.
+Any truncation retains a `runtime_24h.next` cursor at the last included transition;
+the omitted older interval is unknown, not inferred from the preceding state.
 
 The dashboard shows host summaries, transfer history and one-hour active
 connections. Graph gaps remain gaps. The 24-hour runtime strip uses 48 equal
 segments and persisted transitions; unknown intervals are not guessed healthy.
+An absent or zero traffic quota is rendered as unlimited (`∞ GiB`) while keeping
+the observed used-byte value; unavailable traffic evidence remains unknown rather
+than being rendered as zero.
 
 ## Limited monitoring and traffic
 

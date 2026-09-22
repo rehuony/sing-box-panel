@@ -88,11 +88,24 @@ version-scoped. The response contains only `exact_version`, `schema_sha256`,
 and the Schema. Its ETag binds the exact version and digest and supports
 `If-None-Match`.
 
-The panel currently commits native Schema output for `1.14.0`. Before installing a core, the Web visual editor can use that bundled schema for authoring and labels the exact target version. Installed artifacts still require the served schema to match the reviewed manifest. Native validation and runtime startup always require an installed matching core. Releases before
+The panel currently commits native Schema output for `1.14.0`. The Web
+configuration selector lists compatible installed versions, defaults to the
+enabled core when available and otherwise uses the highest installed semantic
+version. Installed artifacts require the served schema to match the reviewed
+manifest. With no installed core, the Web UI keeps Advanced JSON editing and
+saving available, while the visual editor directs the operator to version
+management. Native validation and runtime startup always require an installed
+matching core. Releases before
 sing-box added `sing-box schema`, including `1.13.19`,
 remain Advanced-JSON-only; the panel does not synthesize schemas for them. A
 missing Schema disables only structured controls, never JSON save,
 compile, check, Apply, Start, Restart, or Rollback.
+
+The selected configuration version and current unsaved document live in one
+authenticated browser-session store. Switching between visual modules or
+Advanced JSON retains the same draft. Navigation away from configuration and
+browser unload remain protected by the unsaved-change confirmation; refreshing
+or signing out starts a new selection session.
 
 The committed Schema is canonicalized native output with optional `x-panel`
 presentation metadata such as section, order, widget, sensitivity, and
@@ -220,7 +233,7 @@ Runtime recovery uses a dedicated persisted record: at most three attempts with
 continuously verified healthy runtime reset an episode; downtime alone does not.
 Explicit lifecycle requests supersede the old recovery episode.
 
-## Panel settings## Panel settings and protocol identity
+## Panel settings and protocol identity
 
 The panel settings API at authenticated `GET/PUT /api/v1/panel/settings` is a
 projection of the shared settings file selected by `--config`. The Web UI,
@@ -246,7 +259,7 @@ Existing file fields retain their paths. Web-only preferences are added under
 | `auth.token` | Management token | Random token |
 | `auth.secure_cookie` | HTTPS-only session cookie (synchronized with origin) | `false`; must match HTTPS origin |
 | `github.token` | GitHub token | Empty |
-| `github.catalog_ttl_hours` | Version cache lifetime | `12` |
+| `github.catalog_refresh_interval_hours` | GitHub version check interval | `12` |
 | `traffic.quota_gib` | Traffic quota | `null`; `null` and `0` are unlimited |
 | `traffic.period_months` | Traffic period | `1` |
 | `traffic.sample_retention_days` | Metric retention | `90` |
@@ -289,9 +302,11 @@ the Web API continues to redact them. Quota accepts whole GiB from zero through
 
 Tokens, public-node host, identity defaults and quota are read at operation
 boundaries; language/appearance update when the Web view reloads or saves.
-Listener, base path, origin/cookie policy, data directory, catalog TTL, traffic
+Listener, base path, origin/cookie policy, data directory, traffic
 period/retention, private-source allowlist and log retention need a panel restart.
-The API restart flag includes these file-only startup fields. Changing `data_dir` requests a relocation on the next explicit start/restart.
+The catalog refresh interval is read dynamically by the background catalog
+worker and does not require a restart. The API restart flag includes the
+remaining file-only startup fields. Changing `data_dir` requests a relocation on the next explicit start/restart.
 The current listener and data directory remain active until stopped.
 A token change invalidates existing sessions. File edits of protocol identity
 change defaults for new inbounds; updating existing sing-box credentials remains

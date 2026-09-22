@@ -1,13 +1,18 @@
 import type { PropsWithChildren } from 'react';
 
-import { act, renderHook } from '@testing-library/react';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { act, renderHook, waitFor } from '@testing-library/react';
 
-import type { ApiClient, MetricsSnapshot, RuntimeStatus } from '@/api/api-client';
+import type { ApiClient, RuntimeStatus } from '@/api/api-client';
 
 import { ApiClientProvider } from '@/api/api-client-context';
 import { useTelemetry } from '@/components/app-shell/use-telemetry';
-import { createMockApiClient, testMetrics } from '@/tests/api/mock-api-client';
+import {
+  createMockApiClient,
+  testDashboardSnapshot,
+  testMetrics,
+  testRuntimeStatus,
+} from '@/tests/api/mock-api-client';
 
 function wrapper(client: ApiClient) {
   return function ApiWrapper({ children }: PropsWithChildren) {
@@ -15,144 +20,117 @@ function wrapper(client: ApiClient) {
   };
 }
 
-function deferred<T>() {
-  let resolve!: (value: T) => void;
-  let reject!: (reason: unknown) => void;
-  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
-    resolve = resolvePromise;
-    reject = rejectPromise;
+function waitForAbort(signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve) => {
+    if (signal?.aborted) resolve();
+    else signal?.addEventListener('abort', () => resolve(), { once: true });
   });
-  return { promise, reject, resolve };
 }
 
-const runningStatus = {
-  desired_running: true,
-  target_generation: 1,
-  observation_state: 'running',
-} as RuntimeStatus;
-
 describe('useTelemetry', () => {
-  beforeEach(() => {
+  afterEach(() => vi.useRealTimers());
+
+  it('hydrates live and dashboard streams without periodic GET requests', async () => {
+    const client = createMockApiClient({
+      streamMetrics: vi.fn(async function* (signal) {
+        yield { metrics: testMetrics, runtime: testRuntimeStatus };
+        await waitForAbort(signal);
+      }),
+      streamDashboard: vi.fn(async function* (signal) {
+        yield testDashboardSnapshot;
+        await waitForAbort(signal);
+      }),
+    });
+    const { result } = renderHook(() => useTelemetry(), { wrapper: wrapper(client) });
+
+    await waitFor(() => expect(result.current.dashboardSnapshot).toBe(testDashboardSnapshot));
+    expect(result.current.snapshot).toBe(testMetrics);
+    expect(result.current.runtimeStatus).toBe(testRuntimeStatus);
+    expect(client.getRuntimeStatus).not.toHaveBeenCalled();
+    expect(client.getTrafficStatus).not.toHaveBeenCalled();
+    expect(client.getMetricsHistory).not.toHaveBeenCalled();
+    expect(client.getRuntimeHistory).not.toHaveBeenCalled();
+    expect(client.listPanelLogs).not.toHaveBeenCalled();
+  });
+
+  it('retains the last dashboard snapshot while reconnecting', async () => {
     vi.useFakeTimers();
-    Object.defineProperty(document, 'visibilityState', {
-      configurable: true,
-      value: 'visible',
+    let calls = 0;
+    const streamDashboard = vi.fn(async function* (signal?: AbortSignal) {
+      calls += 1;
+      if (calls === 1) {
+        yield testDashboardSnapshot;
+        throw new Error('stream interrupted');
+      }
+      await waitForAbort(signal);
     });
-  });
-
-  afterEach(() => {
-    vi.useRealTimers();
-  });
-
-  it('polls every ten seconds after the previous request completes', async () => {
-    const client = createMockApiClient({
-      getRuntimeStatus: vi.fn().mockResolvedValue(runningStatus),
-      getTrafficStatus: vi.fn().mockResolvedValue(testMetrics),
-    });
-
-    renderHook(() => useTelemetry(), { wrapper: wrapper(client) });
-    await act(async () => Promise.resolve());
-    expect(client.getRuntimeStatus).toHaveBeenCalledTimes(1);
-    expect(client.getTrafficStatus).toHaveBeenCalledTimes(1);
-
-    await act(async () => vi.advanceTimersByTimeAsync(9_999));
-    expect(client.getRuntimeStatus).toHaveBeenCalledTimes(1);
-
-    await act(async () => vi.advanceTimersByTimeAsync(1));
-    expect(client.getRuntimeStatus).toHaveBeenCalledTimes(2);
-    expect(client.getTrafficStatus).toHaveBeenCalledTimes(2);
-  });
-
-  it('refreshes immediately when the page becomes visible', async () => {
-    const client = createMockApiClient({
-      getRuntimeStatus: vi.fn().mockResolvedValue(runningStatus),
-      getTrafficStatus: vi.fn().mockResolvedValue(testMetrics),
-    });
-
-    renderHook(() => useTelemetry(), { wrapper: wrapper(client) });
-    await act(async () => Promise.resolve());
-
-    await act(async () => document.dispatchEvent(new Event('visibilitychange')));
-    expect(client.getRuntimeStatus).toHaveBeenCalledTimes(2);
-    expect(client.getTrafficStatus).toHaveBeenCalledTimes(2);
-  });
-
-  it('does not overlap a visibility refresh with an in-flight poll', async () => {
-    const runtime = deferred<RuntimeStatus>();
-    const traffic = deferred<MetricsSnapshot>();
-    const client = createMockApiClient({
-      getRuntimeStatus: vi.fn().mockReturnValue(runtime.promise),
-      getTrafficStatus: vi.fn().mockReturnValue(traffic.promise),
-    });
-
-    renderHook(() => useTelemetry(), { wrapper: wrapper(client) });
-    await act(async () => Promise.resolve());
-    await act(async () => document.dispatchEvent(new Event('visibilitychange')));
-    await act(async () => vi.advanceTimersByTimeAsync(20_000));
-
-    expect(client.getRuntimeStatus).toHaveBeenCalledTimes(1);
-    expect(client.getTrafficStatus).toHaveBeenCalledTimes(1);
+    const client = createMockApiClient({ streamDashboard });
+    const { result } = renderHook(() => useTelemetry(), { wrapper: wrapper(client) });
 
     await act(async () => {
-      runtime.resolve(runningStatus);
-      traffic.resolve(testMetrics);
-      await Promise.all([runtime.promise, traffic.promise]);
+      await Promise.resolve();
+      await Promise.resolve();
     });
+    expect(result.current.dashboardSnapshot).toBe(testDashboardSnapshot);
+    expect(result.current.dashboardStale).toBe(true);
+    expect(result.current.dashboardError).toBeInstanceOf(Error);
+    await act(async () => vi.advanceTimersByTimeAsync(1_000));
+    expect(streamDashboard).toHaveBeenCalledTimes(2);
+    expect(result.current.dashboardSnapshot).toBe(testDashboardSnapshot);
   });
 
-  it('clears old evidence after either source fails', async () => {
+  it('reports initial dashboard failures and clears the error after a successful reconnect', async () => {
+    vi.useFakeTimers();
+    let calls = 0;
+    const failure = new Error('The dashboard snapshot could not be collected.');
     const client = createMockApiClient({
-      getRuntimeStatus: vi.fn()
-        .mockResolvedValueOnce(runningStatus)
-        .mockRejectedValueOnce(new Error('runtime unavailable')),
-      getTrafficStatus: vi.fn()
-        .mockResolvedValueOnce(testMetrics)
-        .mockRejectedValueOnce(new Error('traffic unavailable')),
+      streamDashboard: vi.fn(async function* (signal) {
+        if (++calls === 1) throw failure;
+        yield testDashboardSnapshot;
+        await waitForAbort(signal);
+      }),
     });
     const { result } = renderHook(() => useTelemetry(), { wrapper: wrapper(client) });
 
     await act(async () => Promise.resolve());
-    expect(result.current.runtimeStatus).toBe(runningStatus);
-    expect(result.current.snapshot).toBe(testMetrics);
+    expect(result.current.dashboardSnapshot).toBeNull();
+    expect(result.current.dashboardError).toBe(failure);
+    expect(result.current.dashboardStale).toBe(true);
 
-    await act(async () => {
-      document.dispatchEvent(new Event('visibilitychange'));
-      await Promise.resolve();
-    });
-    expect(result.current.runtimeStatus).toBeNull();
-    expect(result.current.snapshot).toBeNull();
-    expect(result.current.runtimeError).toBeInstanceOf(Error);
-    expect(result.current.trafficError).toBeInstanceOf(Error);
+    await act(async () => vi.advanceTimersByTimeAsync(1_000));
+    expect(result.current.dashboardSnapshot).toBe(testDashboardSnapshot);
+    expect(result.current.dashboardError).toBeNull();
+    expect(result.current.dashboardStale).toBe(false);
   });
 
-  it('aborts the active request and removes visibility listeners on unmount', async () => {
-    let runtimeSignal: AbortSignal | undefined;
-    let trafficSignal: AbortSignal | undefined;
-    const runtime = deferred<RuntimeStatus>();
-    const traffic = deferred<MetricsSnapshot>();
+  it('accepts authoritative runtime results from lifecycle operations', async () => {
+    const client = createMockApiClient();
+    const { result } = renderHook(() => useTelemetry(), { wrapper: wrapper(client) });
+    const stopped = { observation_state: 'stopped' } as RuntimeStatus;
+
+    act(() => result.current.acceptRuntimeStatus(stopped));
+    expect(result.current.runtimeStatus).toBe(stopped);
+    expect(result.current.runtimeError).toBeNull();
+  });
+
+  it('aborts both stream subscriptions on unmount', async () => {
+    let metricsSignal: AbortSignal | undefined;
+    let dashboardSignal: AbortSignal | undefined;
     const client = createMockApiClient({
-      getRuntimeStatus: vi.fn().mockImplementation((signal) => {
-        runtimeSignal = signal;
-        return runtime.promise;
+      streamMetrics: vi.fn(async function* (signal) {
+        metricsSignal = signal;
+        await waitForAbort(signal);
       }),
-      getTrafficStatus: vi.fn().mockImplementation((signal) => {
-        trafficSignal = signal;
-        return traffic.promise;
+      streamDashboard: vi.fn(async function* (signal) {
+        dashboardSignal = signal;
+        await waitForAbort(signal);
       }),
     });
-
     const { unmount } = renderHook(() => useTelemetry(), { wrapper: wrapper(client) });
     await act(async () => Promise.resolve());
     unmount();
 
-    expect(runtimeSignal?.aborted).toBe(true);
-    expect(trafficSignal?.aborted).toBe(true);
-    document.dispatchEvent(new Event('visibilitychange'));
-    expect(client.getRuntimeStatus).toHaveBeenCalledTimes(1);
-    expect(client.getTrafficStatus).toHaveBeenCalledTimes(1);
-
-    runtime.reject(new DOMException('Aborted', 'AbortError'));
-    traffic.reject(new DOMException('Aborted', 'AbortError'));
-    await Promise.allSettled([runtime.promise, traffic.promise]);
+    expect(metricsSignal?.aborted).toBe(true);
+    expect(dashboardSignal?.aborted).toBe(true);
   });
 });

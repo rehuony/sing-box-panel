@@ -123,7 +123,11 @@ resolving the new exact version.
 The editable configuration response includes authoritative `content` text,
 `revision` and `syntax_valid`. The Web editor uses a lossless codec, preserves
 unshown fields, and saves the complete text with the current body revision.
-The version selector can use a bundled reviewed schema for authoring before core installation. Exact versions without a native schema use the Advanced editor and show the reason; selecting another version never changes the installed core.
+The version selector contains compatible installed core versions and does not
+enable or replace a core when its selection changes. Exact versions without a
+native schema use the Advanced editor and show the reason. With no installed
+version, Advanced JSON saving remains available but visual editing and binary
+validation require the operator to install one.
 A `412` response preserves the local draft for review.
 
 See the [Web application reference](../web/README.md) for frontend ownership

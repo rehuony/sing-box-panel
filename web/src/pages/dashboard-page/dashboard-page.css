@@ -57,10 +57,31 @@
   min-height: min-content;
 }
 .dashboard-card {
+  position: relative;
   padding: 20px;
   display: flex;
   flex-direction: column;
   gap: 16px;
+}
+.dashboard-stream-status {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: 12px;
+}
+.dashboard-stream-loading {
+  position: absolute;
+  inset: 52px 8px 4px;
+  z-index: 1;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 10px;
+  color: var(--color-text-muted);
+  font-size: 12px;
+  background: color-mix(in srgb, var(--color-surface) 84%, transparent);
+}
+.dashboard-stream-loading--compact {
+  inset: 52px 12px 12px;
 }
 .dashboard-card > header {
   display: flex;

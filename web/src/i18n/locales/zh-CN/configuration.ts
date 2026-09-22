@@ -50,6 +50,7 @@ export const configuration = {
   error: {
     notSaved: '配置未能保存',
     unavailable: '配置不可用',
+    versionsUnavailable: '无法获取已安装版本',
   },
   loading: '正在载入配置…',
   managed: {
@@ -194,8 +195,11 @@ export const configuration = {
   },
   schema: {
     version: '配置版本',
-    bundled: '正在使用内置规则编辑 sing-box {{version}} 配置。校验或运行前请安装该版本。',
     unsupported: '{{version}} 暂无可视化编辑规则。可使用 JSON 编辑，或选择受支持的配置版本。',
+    manageVersions: '前往版本管理',
+    noInstalledDescription: '请先前往版本管理下载核心版本，再使用可视化编辑和配置校验。',
+    noInstalledOption: '暂无已安装版本',
+    noInstalledTitle: '尚未安装核心版本',
     error: {
       contract: '该版本 Schema 与已审查的浏览器 Schema 不同。',
       notReviewed: '已审查的浏览器清单中不存在该版本 Schema。',

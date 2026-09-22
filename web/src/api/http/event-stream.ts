@@ -1,5 +1,7 @@
 import { ApiRequestError } from '../api-client';
 
+const frameByteLimit = 1_048_576;
+
 /** Bounded SSE decoder shared by telemetry and raw-output transports. */
 export async function* readJSONEvents<T>(
   response: Response,
@@ -13,16 +15,20 @@ export async function* readJSONEvents<T>(
   }
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
+  const encoder = new TextEncoder();
   let buffer = '';
   try {
     while (true) {
       const { done, value } = await reader.read();
       buffer += decoder.decode(value, { stream: !done });
-      if (buffer.length > 1_048_576) throw new Error('Event stream frame exceeds the limit.');
       let boundary = /\r?\n\r?\n/.exec(buffer);
       while (boundary) {
+        const frameEnd = boundary.index + boundary[0].length;
+        if (encoder.encode(buffer.slice(0, frameEnd)).byteLength > frameByteLimit) {
+          throw new Error('Event stream frame exceeds the limit.');
+        }
         const frame = buffer.slice(0, boundary.index);
-        buffer = buffer.slice(boundary.index + boundary[0].length);
+        buffer = buffer.slice(frameEnd);
         const lines = frame.split(/\r?\n/);
         const event = lines
           .find((line) => line.startsWith('event:'))
@@ -36,6 +42,9 @@ export async function* readJSONEvents<T>(
           yield JSON.parse(data) as T;
         }
         boundary = /\r?\n\r?\n/.exec(buffer);
+      }
+      if (encoder.encode(buffer).byteLength > frameByteLimit) {
+        throw new Error('Event stream frame exceeds the limit.');
       }
       if (done) return;
     }

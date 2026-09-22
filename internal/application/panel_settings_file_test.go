@@ -292,7 +292,7 @@ func TestPanelServiceSettingsRoundTripAndValidation(t *testing.T) {
 	originalDir := view.Service.DataDir
 	service := PanelServiceSettings{
 		DataDir: filepath.Join(t.TempDir(), "panel-data"), BasePath: "/control", SecureCookie: true,
-		CatalogTTLHours: 24, TrafficPeriodMonths: 3, SampleRetentionDays: 120,
+		CatalogRefreshIntervalHours: 24, TrafficPeriodMonths: 3, SampleRetentionDays: 120,
 		SubscriptionAuthor: "Example", SubscriptionProvider: "Custom", PrivateSourceCIDRs: []string{"10.0.0.0/24", "fd00::/64"}, LogRetentionDays: 30,
 	}
 	view.Preferences.ExternalOrigin = "https://panel.example.com"
@@ -332,5 +332,25 @@ func TestPanelServiceSettingsRoundTripAndValidation(t *testing.T) {
 	preserved, err := app.SavePanelSettings(ctx, input)
 	if err != nil || !reflect.DeepEqual(preserved.Service, service) {
 		t.Fatalf("older client lost service settings: %+v %v", preserved, err)
+	}
+}
+
+func TestCatalogRefreshIntervalAppliesWithoutRestart(t *testing.T) {
+	app := panelFileApp(t)
+	view, err := app.PanelSettings(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	view.Service.CatalogRefreshIntervalHours = 24
+	saved, err := app.SavePanelSettings(t.Context(), PanelSettingsWrite{
+		Revision:    view.Revision,
+		Preferences: view.Preferences,
+		Service:     &view.Service,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if saved.RestartRequired || saved.Service.CatalogRefreshIntervalHours != 24 {
+		t.Fatalf("dynamic catalog refresh interval result=%+v", saved)
 	}
 }

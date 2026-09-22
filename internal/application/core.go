@@ -109,10 +109,10 @@ func (application *Application) RefreshCatalog(ctx context.Context, options Cata
 	if err != nil {
 		return CatalogSnapshot{}, err
 	}
-	if !options.Force && currentSettings.GitHub.CatalogTTLHours > 0 {
+	if !options.Force && currentSettings.GitHub.CatalogRefreshIntervalHours > 0 {
 		state, stateErr := application.database.CatalogState(ctx)
 		if stateErr == nil && application.now().UTC().Before(
-			state.RefreshedAt.Add(time.Duration(currentSettings.GitHub.CatalogTTLHours)*time.Hour),
+			state.RefreshedAt.Add(time.Duration(currentSettings.GitHub.CatalogRefreshIntervalHours)*time.Hour),
 		) {
 			snapshot, catalogErr := application.Catalog(ctx)
 			if catalogErr != nil {
@@ -120,8 +120,8 @@ func (application *Application) RefreshCatalog(ctx context.Context, options Cata
 			}
 			snapshot.NotModified = true
 			snapshot.Diagnostics = append(snapshot.Diagnostics, catalog.Diagnostic{
-				Step: catalog.StepReleases, Severity: catalog.DiagnosticInfo, Code: "ttl_fresh",
-				Message: "the cached official catalog is still within its configured TTL",
+				Step: catalog.StepReleases, Severity: catalog.DiagnosticInfo, Code: "refresh_not_due",
+				Message: "the next scheduled official catalog refresh is not due yet",
 			})
 			return snapshot, nil
 		}

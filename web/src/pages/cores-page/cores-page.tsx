@@ -6,6 +6,7 @@ import type { CatalogAsset, CoreArtifact } from '@/api/api-client';
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Spinner } from '@/components/ui/spinner';
 import { useHashTab } from '@/hooks/use-hash-tab';
 import { toast } from '@/components/ui/toast-manager';
 import { useApiClient } from '@/api/api-client-context';
@@ -89,7 +90,7 @@ export function CoresPage() {
     try {
       await action(signal);
       if (signal.aborted) return false;
-      await Promise.all([library.load(), control.refresh(signal)]);
+      await Promise.all([library.refreshInstalled(), control.refresh(signal)]);
       toast.add({ title: t('cores.library.completed'), type: 'success' });
       return true;
     } catch (reason) {
@@ -108,7 +109,7 @@ export function CoresPage() {
     try {
       await client.removeCoreArtifact(artifact.id, signal);
       if (!signal.aborted) {
-        await library.load();
+        await library.refreshInstalled();
         toast.add({ title: t('cores.artifact.changed'), type: 'success' });
       }
     } catch (reason) {
@@ -120,6 +121,9 @@ export function CoresPage() {
   const runtimeUncertain
     = !library.runtime
       || ['stale', 'inspection_unavailable'].includes(library.runtime.observation_state);
+  const listLoading = library.platformLoading
+    || (tab === 'installed' ? library.installedLoading : library.catalogLoading);
+  const refreshLabel = t(tab === 'installed' ? 'cores.refreshInstalled' : 'cores.refreshCatalog');
   return (
     <div className='core-page panel-page'>
       <h1 className='sr-only'>{t('cores.title')}</h1>
@@ -142,12 +146,16 @@ export function CoresPage() {
             <Button
               variant='ghost'
               size='icon-sm'
-              aria-label={t('cores.refresh')}
-              title={t('cores.refresh')}
-              disabled={Boolean(pending)}
-              onClick={() => void run('refresh', (signal) => client.refreshCatalog(true, signal))}
+              aria-label={refreshLabel}
+              title={refreshLabel}
+              disabled={Boolean(pending) || listLoading}
+              onClick={() => void (tab === 'installed'
+                ? library.refreshInstalled()
+                : library.refreshCatalog(true))}
             >
-              <RefreshCw />
+              <span className='core-refresh-icon' data-loading={listLoading || undefined}>
+                <RefreshCw />
+              </span>
             </Button>
             <Button
               variant='ghost'
@@ -179,7 +187,7 @@ export function CoresPage() {
         <TabsContent
           className='core-list-scroll'
           value={tab}
-          aria-busy={library.loading}
+          aria-busy={listLoading}
         >
           <table className='workspace-table core-table'>
             <thead>
@@ -296,11 +304,20 @@ export function CoresPage() {
                   })}
             </tbody>
           </table>
-          {!count && (
-            <p className='core-empty'>
-              {library.loading ? t('cores.loading') : t(`cores.empty.${tab}`)}
-            </p>
-          )}
+          {!count
+            ? (
+                <div className='core-list-state' role='status' aria-live='polite'>
+                  {listLoading
+                    ? (
+                        <>
+                          <Spinner />
+                          <span>{t(tab === 'installed' ? 'cores.loadingInstalled' : 'cores.loadingCatalog')}</span>
+                        </>
+                      )
+                    : <span>{t(`cores.empty.${tab}`)}</span>}
+                </div>
+              )
+            : null}
         </TabsContent>
         <footer className='core-pagination'>
           <SelectField

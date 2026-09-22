@@ -58,19 +58,31 @@ describe('inline version library', () => {
     expect(client.listCatalogAssets).toHaveBeenCalledTimes(2);
   });
 
-  it('retains cached catalog rows if automatic refresh fails and permits a forced retry', async () => {
+  it('uses cached catalog rows until the user requests a forced GitHub check', async () => {
     const user = userEvent.setup();
     const client = createMockApiClient({
-      refreshCatalog: vi.fn().mockRejectedValueOnce(new Error('GitHub unavailable')).mockResolvedValue({
+      refreshCatalog: vi.fn().mockResolvedValue({
         refreshed_at: testCatalog.refreshed_at, releases: 1, assets: 1, not_modified: false,
       }),
     });
     renderCores(client);
     await screen.findByText(testArtifacts.items[0].exact_version);
+    expect(client.refreshCatalog).not.toHaveBeenCalled();
     await user.click(screen.getByRole('tab', { name: 'Available' }));
     expect(await screen.findByRole('link', { name: testCatalog.assets[0].name })).toBeVisible();
-    await user.click(screen.getByRole('button', { name: 'Refresh catalog' }));
+    await user.click(screen.getByRole('button', { name: 'Check GitHub for updates' }));
     await waitFor(() => expect(client.refreshCatalog).toHaveBeenCalledWith(true, expect.any(AbortSignal)));
+  });
+
+  it('refreshes installed records without contacting GitHub', async () => {
+    const user = userEvent.setup();
+    const client = createMockApiClient();
+    renderCores(client);
+    await screen.findByText(testArtifacts.items[0].exact_version);
+    const initialCalls = client.listCoreArtifacts.mock.calls.length;
+    await user.click(screen.getByRole('button', { name: 'Refresh installed versions' }));
+    await waitFor(() => expect(client.listCoreArtifacts.mock.calls.length).toBeGreaterThan(initialCalls));
+    expect(client.refreshCatalog).not.toHaveBeenCalled();
   });
 
   it('switches library tabs by keyboard and associates the visible panel with its tab', async () => {

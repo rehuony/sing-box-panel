@@ -16,7 +16,7 @@ function history(overrides: Partial<RuntimeHistoryPage>): RuntimeHistoryPage {
 }
 
 describe('buildRuntimeTimeline', () => {
-  it('marks the unrequested prefix unknown when the 4096-event client cap leaves a next cursor', () => {
+  it('marks the omitted prefix unknown when the snapshot record or byte cap leaves a next cursor', () => {
     const timeline = buildRuntimeTimeline(
       history({
         items: [

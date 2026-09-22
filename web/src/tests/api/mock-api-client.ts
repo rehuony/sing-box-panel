@@ -9,6 +9,7 @@ import type {
   ConfigurationSupport,
   CoreArtifactPage,
   DashboardContext,
+  DashboardStreamSnapshot,
   LogEntry,
   LogStreamEvent,
   MetricsHistory,
@@ -311,6 +312,14 @@ export const testRuntimeHistory: RuntimeHistoryPage = {
   history_started_at: '2026-08-26T07:00:00Z',
 };
 
+export const testDashboardSnapshot: DashboardStreamSnapshot = {
+  collected_at: '2026-08-26T07:40:00Z',
+  history_1h: { ...testMetricsHistory, bucket_seconds: 60 },
+  history_24h: testMetricsHistory,
+  runtime_24h: testRuntimeHistory,
+  activity: { items: [] },
+};
+
 export function createMockApiClient(overrides: Partial<ApiClient> = {}): Mocked<ApiClient> {
   const support = {
     structured: false,
@@ -344,7 +353,7 @@ export function createMockApiClient(overrides: Partial<ApiClient> = {}): Mocked<
     }),
     getPanelSettings: vi.fn().mockResolvedValue({
       revision: 0,
-      service: { data_dir: '/var/lib/sing-box-panel', base_path: '', secure_cookie: false, catalog_ttl_hours: 12, traffic_period_months: 1, sample_retention_days: 90, subscription_author: 'reagin', subscription_provider: 'default', private_source_cidrs: [], log_retention_days: 7 },
+      service: { data_dir: '/var/lib/sing-box-panel', base_path: '', secure_cookie: false, catalog_refresh_interval_hours: 12, traffic_period_months: 1, sample_retention_days: 90, subscription_author: 'reagin', subscription_provider: 'default', private_source_cidrs: [], log_retention_days: 7 },
       github_token_configured: false,
       identity_key_configured: false,
       restart_required: false,
@@ -362,7 +371,7 @@ export function createMockApiClient(overrides: Partial<ApiClient> = {}): Mocked<
     savePanelSettings: vi.fn().mockImplementation(async (input) => ({
       revision: input.revision + 1,
       preferences: input.preferences,
-      service: input.service ?? { data_dir: '/var/lib/sing-box-panel', base_path: '', secure_cookie: false, catalog_ttl_hours: 12, traffic_period_months: 1, sample_retention_days: 90, subscription_author: 'reagin', subscription_provider: 'default', private_source_cidrs: [], log_retention_days: 7 },
+      service: input.service ?? { data_dir: '/var/lib/sing-box-panel', base_path: '', secure_cookie: false, catalog_refresh_interval_hours: 12, traffic_period_months: 1, sample_retention_days: 90, subscription_author: 'reagin', subscription_provider: 'default', private_source_cidrs: [], log_retention_days: 7 },
       github_token_configured: Boolean(input.github_token),
       identity_key_configured: Boolean(input.identity_key),
       restart_required: false,
@@ -519,6 +528,12 @@ export function createMockApiClient(overrides: Partial<ApiClient> = {}): Mocked<
       deleted: true as const,
     })),
     streamMetrics: vi.fn(async function* (signal) {
+      await new Promise<void>((resolve) => {
+        if (signal?.aborted) resolve();
+        else signal?.addEventListener('abort', () => resolve(), { once: true });
+      });
+    }),
+    streamDashboard: vi.fn(async function* (signal) {
       await new Promise<void>((resolve) => {
         if (signal?.aborted) resolve();
         else signal?.addEventListener('abort', () => resolve(), { once: true });

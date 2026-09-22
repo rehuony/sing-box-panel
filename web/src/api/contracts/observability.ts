@@ -2,6 +2,7 @@ import type { LogEntry } from '../generated';
 
 export type {
   CoverageStatus,
+  DashboardStreamSnapshot,
   LogEntry,
   LogPage,
   MetricsHistory,

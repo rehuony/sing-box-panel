@@ -8,10 +8,10 @@ import '@/i18n';
 import { TestRouter } from '@/tests/test-router';
 import { useUnsavedChanges } from '@/hooks/use-unsaved-changes';
 
-function Editor({ name = 'Draft' }: { name?: string }) {
+function Editor({ allowSamePathNavigation = false, name = 'Draft' }: { allowSamePathNavigation?: boolean; name?: string }) {
   const [value, setValue] = useState('');
   const [busy, setBusy] = useState(false);
-  useUnsavedChanges(value !== '', () => setValue(''), busy);
+  useUnsavedChanges(value !== '', () => setValue(''), busy, { allowSamePathNavigation });
   return (
     <>
       <input aria-label={name} value={value} onChange={event => setValue(event.target.value)} />
@@ -66,6 +66,23 @@ it.each(['Other page', 'Hash tab', 'Replace hash', 'Back', 'Forward'])(
   },
 );
 
+it.each(['Hash tab', 'Replace hash'])(
+  'keeps edits without confirmation during same-page %s navigation', async action => {
+    const user = userEvent.setup();
+    render(
+      <TestRouter initialEntries={['/configuration#one']}>
+        <Editor allowSamePathNavigation />
+        <Navigation />
+      </TestRouter>,
+    );
+    await user.type(screen.getByRole('textbox'), 'unsaved');
+    await user.click(screen.getByRole('button', { name: action }));
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+    expect(screen.getByTestId('location')).toHaveTextContent('/configuration#second');
+    expect(screen.getByRole('textbox')).toHaveValue('unsaved');
+  },
+);
+
 it('protects browser unload only while edits are unsaved and allows navigation after saving', async () => {
   const user = userEvent.setup();
   render(
@@ -99,7 +116,7 @@ it('uses one confirmation for multiple drafts and prevents discarding while a sa
   await user.type(screen.getByRole('textbox', { name: 'Draft' }), 'outer');
   await user.type(screen.getByRole('textbox', { name: 'Nested draft' }), 'inner');
   await user.click(screen.getByRole('button', { name: 'Saving Draft' }));
-  await user.click(screen.getByRole('button', { name: 'Hash tab' }));
+  await user.click(screen.getByRole('button', { name: 'Other page' }));
   expect(screen.getAllByRole('alertdialog')).toHaveLength(1);
   expect(screen.getByRole('button', { name: 'Discard changes' })).toBeDisabled();
   await user.click(screen.getByRole('button', { name: 'Keep editing' }));

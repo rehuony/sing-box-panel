@@ -1,51 +1,48 @@
 import { useCallback, useEffect, useState } from 'react';
 
+import type { CoreArtifact } from '@/api/api-client';
 import type { ReviewedSchemaResolution } from '@/schemas/resolve-reviewed-schema';
 
 import { useApiClient } from '@/api/api-client-context';
 import { hasReviewedSchemaVersion } from '@/schemas/generated';
-import { resolveBundledReviewedSchema, resolveReviewedSchema } from '@/schemas/resolve-reviewed-schema';
+import { resolveReviewedSchema } from '@/schemas/resolve-reviewed-schema';
 
 type SchemaState
-  = | { status: 'unavailable'; resolution: null; error: null }
-    | { status: 'loading'; resolution: null; error: null }
-    | { status: 'error'; resolution: null; error: unknown }
-    | { status: 'ready'; resolution: ReviewedSchemaResolution; error: null; bundled: boolean };
+  = | { status: 'unavailable'; artifactID: string | null; resolution: null; error: null }
+    | { status: 'loading'; artifactID: string; resolution: null; error: null }
+    | { status: 'error'; artifactID: string; resolution: null; error: unknown }
+    | { status: 'ready'; artifactID: string; resolution: ReviewedSchemaResolution; error: null };
 
-export function useConfigurationSchema(exactVersion: string) {
+export function useConfigurationSchema(artifact: CoreArtifact | null): SchemaState {
   const client = useApiClient();
-  const [state, setState] = useState<SchemaState>(() => ({
-    status: hasReviewedSchemaVersion(exactVersion) ? 'loading' : 'unavailable',
-    resolution: null,
-    error: null,
-  }));
+  const exactVersion = artifact?.exact_version ?? '';
+  const [state, setState] = useState<SchemaState>(() =>
+    artifact !== null && hasReviewedSchemaVersion(exactVersion)
+      ? { status: 'loading', artifactID: artifact.id, resolution: null, error: null }
+      : { status: 'unavailable', artifactID: artifact?.id ?? null, resolution: null, error: null });
 
   const load = useCallback(async (signal?: AbortSignal) => {
-    if (exactVersion === '' || !hasReviewedSchemaVersion(exactVersion)) {
+    if (artifact === null || !hasReviewedSchemaVersion(exactVersion)) {
       setState({
-        status: 'unavailable', resolution: null, error: null,
+        status: 'unavailable', artifactID: artifact?.id ?? null, resolution: null, error: null,
       });
       return;
     }
-    setState({ status: 'loading', resolution: null, error: null });
+    setState({ status: 'loading', artifactID: artifact.id, resolution: null, error: null });
     try {
-      const page = await client.listCoreArtifacts({
-        exactVersion, limit: 50,
-      }, signal);
-      const artifacts = page.items.filter((artifact) => artifact.exact_version === exactVersion);
-      const selected = artifacts[0];
-      const resolution = selected === undefined
-        ? await resolveBundledReviewedSchema(exactVersion)
-        : await resolveReviewedSchema(await client.getConfigurationSchema(selected.id, signal), exactVersion);
+      const resolution = await resolveReviewedSchema(
+        await client.getConfigurationSchema(artifact.id, signal),
+        exactVersion,
+      );
       if (signal?.aborted) return;
       setState({
-        status: 'ready', resolution, error: null, bundled: selected === undefined,
+        status: 'ready', artifactID: artifact.id, resolution, error: null,
       });
     } catch (error) {
       if (signal?.aborted || (error instanceof DOMException && error.name === 'AbortError')) return;
-      setState({ status: 'error', resolution: null, error });
+      setState({ status: 'error', artifactID: artifact.id, resolution: null, error });
     }
-  }, [client, exactVersion]);
+  }, [artifact, client, exactVersion]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -53,5 +50,9 @@ export function useConfigurationSchema(exactVersion: string) {
     return () => controller.abort();
   }, [load]);
 
-  return state;
+  if (state.artifactID === artifact?.id) return state;
+  const pending: SchemaState = artifact !== null && hasReviewedSchemaVersion(exactVersion)
+    ? { status: 'loading', artifactID: artifact.id, resolution: null, error: null }
+    : { status: 'unavailable', artifactID: artifact?.id ?? null, resolution: null, error: null };
+  return pending;
 }

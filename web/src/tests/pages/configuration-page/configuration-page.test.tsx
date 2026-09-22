@@ -9,6 +9,7 @@ import type { ApiClient, ConfigurationCompile, ConfigurationFile, ConfigurationS
 import { ApiRequestError } from '@/api/api-client';
 import '@/i18n';
 import { toast } from '@/components/ui/toast-manager';
+import { TooltipProvider } from '@/components/ui/tooltip';
 import { ApiClientProvider } from '@/api/api-client-context';
 import { reviewedSchemaManifest } from '@/schemas/generated';
 import { TestRouter as MemoryRouter } from '@/tests/test-router';
@@ -41,7 +42,9 @@ function renderPage(client: ApiClient) {
   return render(
     <MemoryRouter>
       <ApiClientProvider client={client}>
-        <ControlPlaneProvider><ConfigurationPage /></ControlPlaneProvider>
+        <TooltipProvider delay={0}>
+          <ControlPlaneProvider><ConfigurationPage /></ControlPlaneProvider>
+        </TooltipProvider>
       </ApiClientProvider>
     </MemoryRouter>,
   );
@@ -68,18 +71,123 @@ beforeEach(() => {
 });
 
 describe('configurationPage', () => {
-  it.skipIf(reviewedSchema === undefined)('allows visual authoring before the first core is installed', async () => {
+  it('explains an unsupported visual editor on hover and keyboard focus without an inline notice', async () => {
+    const user = userEvent.setup();
+    const unsupported = {
+      ...testArtifacts.items[0], exact_version: '1.14.1', reported_version: '1.14.1',
+    };
     const client = createMockApiClient({
-      getDashboardContext: vi.fn().mockResolvedValue({ ...testDashboardContext, view: { exactVersion: 'Not selected' } }),
+      listCoreArtifacts: vi.fn().mockResolvedValue({ items: [unsupported] }),
+    });
+    renderPage(client);
+
+    await waitFor(() => {
+      const currentTab = screen.getByRole('tab', { name: 'Visual editor' });
+      expect(currentTab).toHaveAttribute('aria-disabled', 'true');
+      expect(currentTab.parentElement).toHaveAttribute('tabindex', '0');
+    });
+    const visualTab = screen.getByRole('tab', { name: 'Visual editor' });
+    const trigger = visualTab.parentElement!;
+    expect(screen.queryByText(/No visual editor schema for 1\.14\.1/)).not.toBeInTheDocument();
+
+    await user.hover(trigger);
+    expect(await screen.findByText(/No visual editor schema for 1\.14\.1/)).toBeVisible();
+    await user.unhover(trigger);
+    await waitFor(() => expect(screen.queryByText(/No visual editor schema for 1\.14\.1/)).not.toBeInTheDocument());
+
+    trigger.focus();
+    expect(await screen.findByText(/No visual editor schema for 1\.14\.1/)).toBeVisible();
+  });
+
+  it('guides users to version management without blocking Advanced JSON when no core is installed', async () => {
+    const user = userEvent.setup();
+    const client = createMockApiClient({
       listCoreArtifacts: vi.fn().mockResolvedValue({ items: [] }),
       getConfigurationFile: vi.fn().mockResolvedValue({ revision: 0, content: '{}', syntax_valid: true }),
     });
     renderPage(client);
-    await screen.findByRole('combobox', { name: 'Log level' }, { timeout: 5000 });
+    expect(await screen.findByRole('heading', { name: 'No core versions installed' })).toBeVisible();
     expect(screen.getByRole('tab', { name: 'Visual editor' })).toHaveAttribute('aria-selected', 'true');
-    expect(screen.getByText(/Install this version to validate/)).toBeVisible();
+    expect(screen.getByRole('combobox', { name: 'Configuration version' })).toBeDisabled();
+    expect(screen.getByText('No installed versions')).toBeVisible();
+    expect(screen.getByRole('link', { name: 'Go to version management' })).toHaveAttribute('href', '/cores#cores-catalog');
+    expect(screen.getByRole('button', { name: 'Validate configuration' })).toBeDisabled();
     expect(client.getConfigurationSchema).not.toHaveBeenCalled();
-    expect(client.startRuntime).not.toHaveBeenCalled();
+    await user.click(screen.getByRole('tab', { name: 'Advanced JSON' }));
+    const editor = await screen.findByLabelText('sing-box configuration JSON');
+    changeEditor(editor, '{"log":{"level":"debug"}}');
+    await user.click(screen.getByRole('button', { name: 'Save configuration' }));
+    await waitFor(() => expect(client.saveConfigurationFile).toHaveBeenCalledWith({
+      revision: 0, content: '{"log":{"level":"debug"}}',
+    }));
+  });
+
+  it.skipIf(reviewedSchema === undefined)('keeps visual modules and Advanced JSON synchronized without navigation prompts', async () => {
+    const user = userEvent.setup();
+    const client = await createStructuredClient({
+      getConfigurationFile: vi.fn().mockResolvedValue({
+        ...savedFile, content: '{"dns":{},"log":{"level":"info"}}',
+      }),
+    });
+    renderPage(client);
+
+    const level = await screen.findByRole('combobox', { name: 'Log level' });
+    await user.click(level);
+    await user.click(await screen.findByRole('option', { name: 'debug' }));
+    await user.click(screen.getByRole('tab', { name: 'DNS' }));
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('tab', { name: 'Advanced JSON' }));
+    const editor = await screen.findByLabelText('sing-box configuration JSON');
+    expect(JSON.parse(editorView(editor).state.doc.toString()).log.level).toBe('debug');
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+
+    changeEditor(editor, '{"dns":{},"log":{"level":"warn"}}');
+    await user.click(screen.getByRole('tab', { name: 'Visual editor' }));
+    expect(await screen.findByRole('combobox', { name: 'Log level' })).toHaveTextContent('warn');
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+  });
+
+  it.skipIf(reviewedSchema === undefined)('prefers the enabled version and remembers an explicit version across route changes', async () => {
+    const user = userEvent.setup();
+    const current = {
+      ...testArtifacts.items[0], id: 'core_114', exact_version: '1.14.0', reported_version: '1.14.0',
+    };
+    const legacy = { ...testArtifacts.items[0], id: 'core_113' };
+    const client = await createStructuredClient({
+      listCoreArtifacts: vi.fn().mockResolvedValue({ items: [current, legacy] }),
+      getRuntimeStatus: vi.fn().mockResolvedValue({
+        desired_running: false,
+        enabled_core: { core_artifact_id: legacy.id, exact_core_version: legacy.exact_version },
+        observation_state: 'stopped',
+        target_generation: 2,
+      }),
+    });
+    render(
+      <MemoryRouter initialEntries={['/configuration']}>
+        <ApiClientProvider client={client}>
+          <TooltipProvider delay={0}>
+            <ControlPlaneProvider>
+              <Link to='/other'>Other page</Link>
+              <Link to='/configuration'>Configuration page</Link>
+              <Routes>
+                <Route path='/configuration' element={<ConfigurationPage />} />
+                <Route path='/other' element={<p>Another page</p>} />
+              </Routes>
+            </ControlPlaneProvider>
+          </TooltipProvider>
+        </ApiClientProvider>
+      </MemoryRouter>,
+    );
+
+    const version = await screen.findByRole('combobox', { name: 'Configuration version' });
+    expect(version).toHaveTextContent('1.13.19');
+    await user.click(version);
+    await user.click(await screen.findByRole('option', { name: '1.14.0' }));
+    expect(version).toHaveTextContent('1.14.0');
+    await user.click(screen.getByRole('link', { name: 'Other page' }));
+    await user.click(screen.getByRole('link', { name: 'Configuration page' }));
+    expect(await screen.findByRole('combobox', { name: 'Configuration version' })).toHaveTextContent('1.14.0');
   });
 
   it.skipIf(reviewedSchema === undefined).each(['file', 'schema'])(

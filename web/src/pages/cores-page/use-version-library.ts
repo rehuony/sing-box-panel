@@ -3,101 +3,141 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { CatalogAssetList, CoreArtifact, RuntimeStatus, SystemStatus } from '@/api/api-client';
 
 import { useApiClient } from '@/api/api-client-context';
+import { listInstalledCoreArtifacts } from '@/utils/installed-core-artifacts';
 import { useOptionalSharedTelemetry } from '@/components/app-shell/telemetry-context';
+
+type Platform = NonNullable<SystemStatus['platform']>;
 
 export function useVersionLibrary() {
   const client = useApiClient();
   const telemetry = useOptionalSharedTelemetry();
   const acceptRuntimeStatus = telemetry?.acceptRuntimeStatus;
-  const [platform, setPlatform] = useState<SystemStatus['platform']>();
+  const [platform, setPlatform] = useState<Platform>();
+  const platformRef = useRef<Platform | undefined>(undefined);
   const [artifacts, setArtifacts] = useState<CoreArtifact[]>([]);
   const [catalog, setCatalog] = useState<CatalogAssetList | null>(null);
   const [runtime, setRuntime] = useState<RuntimeStatus | null>(null);
   const [error, setError] = useState<unknown>(null);
   const [catalogError, setCatalogError] = useState<unknown>(null);
-  const [loading, setLoading] = useState(true);
-  const requestRef = useRef<AbortController | null>(null);
-  const load = useCallback(async () => {
-    requestRef.current?.abort();
-    const controller = new AbortController();
-    requestRef.current = controller;
-    const { signal } = controller;
-    setLoading(true);
-    setError(null);
-    setCatalogError(null);
+  const [platformLoading, setPlatformLoading] = useState(true);
+  const [installedLoading, setInstalledLoading] = useState(true);
+  const [catalogLoading, setCatalogLoading] = useState(true);
+  const installedRef = useRef<AbortController | null>(null);
+  const catalogRef = useRef<AbortController | null>(null);
+
+  const readCatalog = useCallback(async (
+    target: Platform,
+    signal: AbortSignal,
+    force: boolean,
+  ) => {
+    if (force) await client.refreshCatalog(true, signal);
     try {
-      const [system, current] = await Promise.all([
-        client.getSystemStatus(signal),
-        client.getRuntimeStatus(signal),
+      const cached = await client.listCatalogAssets({ architecture: target.arch }, signal);
+      return {
+        ...cached,
+        assets: cached.assets.filter(asset => asset.os === target.os && asset.arch === target.arch),
+      };
+    } catch (reason) {
+      if (force || signal.aborted) throw reason;
+      await client.refreshCatalog(false, signal);
+      const initialized = await client.listCatalogAssets({ architecture: target.arch }, signal);
+      return {
+        ...initialized,
+        assets: initialized.assets.filter(asset => asset.os === target.os && asset.arch === target.arch),
+      };
+    }
+  }, [client]);
+
+  const refreshInstalled = useCallback(async () => {
+    const target = platformRef.current;
+    if (!target) return;
+    installedRef.current?.abort();
+    const controller = new AbortController();
+    installedRef.current = controller;
+    setInstalledLoading(true);
+    setError(null);
+    try {
+      const [installed, current] = await Promise.all([
+        listInstalledCoreArtifacts(client, target, controller.signal),
+        client.getRuntimeStatus(controller.signal),
       ]);
-      if (signal.aborted) return;
-      setPlatform(system.platform);
+      if (controller.signal.aborted) return;
+      setArtifacts(installed);
       setRuntime(current);
       acceptRuntimeStatus?.(current);
-      if (!system.platform) {
-        setArtifacts([]);
-        setCatalog(null);
-        return;
-      }
-      const arch = system.platform.arch;
-      const [installed, available] = await Promise.allSettled([
-        (async () => {
-          const items: CoreArtifact[] = [];
-          let next: { created_at: string; id: string } | undefined;
-          do {
-            const page = await client.listCoreArtifacts(
-              { architecture: arch, limit: 200, beforeID: next?.id, beforeTime: next?.created_at },
-              signal,
-            );
-            items.push(...page.items);
-            next = page.next;
-          } while (next && !signal.aborted);
-          const matching = items.filter((value) => value.os === system.platform!.os && value.arch === arch);
-          if (!signal.aborted) setArtifacts(matching);
-          return matching;
-        })(),
-        (async () => {
-          try {
-            const cached = await client.listCatalogAssets({ architecture: arch }, signal);
-            if (!signal.aborted) {
-              setCatalog({ ...cached, assets: cached.assets.filter(
-                asset => asset.os === system.platform!.os && asset.arch === arch,
-              ) });
-            }
-          } catch { /* An empty installation has no catalog yet. */ }
-          if (signal.aborted) return null;
-          await client.refreshCatalog(false, signal);
-          return client.listCatalogAssets({ architecture: arch }, signal);
-        })(),
-      ]);
-      if (signal.aborted) return;
-      if (installed.status === 'fulfilled') setArtifacts(installed.value);
-      else setError(installed.reason);
-      if (available.status === 'fulfilled' && available.value !== null) {
-        setCatalog({
-          ...available.value,
-          assets: available.value.assets.filter(
-            (asset) => asset.os === system.platform!.os && asset.arch === arch,
-          ),
-        });
-      } else if (available.status === 'rejected') {
-        setCatalogError(available.reason);
-      }
     } catch (reason) {
-      if (!signal.aborted) {
-        setError(reason);
-        setPlatform(undefined);
-      }
+      if (!controller.signal.aborted) setError(reason);
     } finally {
-      if (!signal.aborted) setLoading(false);
+      if (!controller.signal.aborted) setInstalledLoading(false);
     }
-  }, [client, acceptRuntimeStatus]);
+  }, [acceptRuntimeStatus, client]);
+
+  const refreshCatalog = useCallback(async (force = true) => {
+    const target = platformRef.current;
+    if (!target) return;
+    catalogRef.current?.abort();
+    const controller = new AbortController();
+    catalogRef.current = controller;
+    setCatalogLoading(true);
+    setCatalogError(null);
+    try {
+      const next = await readCatalog(target, controller.signal, force);
+      if (!controller.signal.aborted) setCatalog(next);
+    } catch (reason) {
+      if (!controller.signal.aborted) setCatalogError(reason);
+    } finally {
+      if (!controller.signal.aborted) setCatalogLoading(false);
+    }
+  }, [readCatalog]);
+
   useEffect(() => {
-    void load();
-    return () => requestRef.current?.abort();
-  }, [load]);
+    const controller = new AbortController();
+    void (async () => {
+      try {
+        const [system, current] = await Promise.all([
+          client.getSystemStatus(controller.signal),
+          client.getRuntimeStatus(controller.signal),
+        ]);
+        if (controller.signal.aborted) return;
+        setPlatform(system.platform);
+        platformRef.current = system.platform;
+        setRuntime(current);
+        acceptRuntimeStatus?.(current);
+        setPlatformLoading(false);
+        if (!system.platform) {
+          setInstalledLoading(false);
+          setCatalogLoading(false);
+          return;
+        }
+        void refreshInstalled();
+        void refreshCatalog(false);
+      } catch (reason) {
+        if (!controller.signal.aborted) {
+          setError(reason);
+          setPlatformLoading(false);
+          setInstalledLoading(false);
+          setCatalogLoading(false);
+        }
+      }
+    })();
+    return () => {
+      controller.abort();
+      installedRef.current?.abort();
+      catalogRef.current?.abort();
+    };
+  }, [acceptRuntimeStatus, client, refreshCatalog, refreshInstalled]);
+
   return {
-    platform, artifacts, catalog, runtime: telemetry?.runtimeStatus ?? runtime,
-    loading, error, catalogError, load,
+    platform,
+    artifacts,
+    catalog,
+    runtime: telemetry?.runtimeStatus ?? runtime,
+    platformLoading,
+    installedLoading,
+    catalogLoading,
+    error,
+    catalogError,
+    refreshInstalled,
+    refreshCatalog,
   };
 }

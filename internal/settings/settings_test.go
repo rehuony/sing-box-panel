@@ -3,11 +3,35 @@
 package settings
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 )
+
+func TestLoadRejectsRemovedCatalogTTLField(t *testing.T) {
+	value := Defaults()
+	value.DataDir = t.TempDir()
+	value.Auth.Token = "test-token"
+	encoded, err := json.Marshal(value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacy := strings.Replace(
+		string(encoded),
+		"catalog_refresh_interval_hours",
+		"catalog_ttl_hours",
+		1,
+	)
+	path := filepath.Join(t.TempDir(), "setting.json")
+	if err := os.WriteFile(path, []byte(legacy), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Load(path); err == nil || !strings.Contains(err.Error(), "unknown field") {
+		t.Fatalf("Load() removed catalog TTL field error = %v", err)
+	}
+}
 
 func TestInitializeAndLoad(t *testing.T) {
 	root := t.TempDir()
@@ -51,7 +75,7 @@ func TestLoadRejectsAmbiguousSettings(t *testing.T) {
   "server":{"host":"127.0.0.1","port":3000,"base_path":""},
   "data_dir":"data",
   "auth":{"token":"one","token":"two","secure_cookie":false},
-  "github":{"token":"","catalog_ttl_hours":12},
+  "github":{"token":"","catalog_refresh_interval_hours":12},
   "traffic":{"quota_gib":null,"period_months":1},
   "subscription":{"author":"a","provider":"p","private_source_cidrs":[]},
   "logs":{"retention_days":7}
@@ -72,7 +96,7 @@ func TestLoadRejectsMissingOrInvalidTrafficSampleRetention(t *testing.T) {
   "server":{"host":"127.0.0.1","port":3000,"base_path":""},
   "data_dir":"data",
   "auth":{"token":"token","secure_cookie":false},
-  "github":{"token":"","catalog_ttl_hours":12},
+  "github":{"token":"","catalog_refresh_interval_hours":12},
   "traffic":{"quota_gib":null,"period_months":1},
   "subscription":{"author":"a","provider":"p","private_source_cidrs":[]},
   "logs":{"retention_days":7}

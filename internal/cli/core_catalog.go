@@ -61,7 +61,7 @@ func newCoreCatalogRefreshCommand(state *options, open openApplicationFunc) *cob
 			return writeResult(cmd.OutOrStdout(), state.format, result, fmt.Sprintf("Refreshed official catalog: %d releases, %d assets", len(result.Catalog.Releases), len(result.Catalog.Assets())))
 		},
 	}
-	command.Flags().BoolVar(&force, "force", false, "bypass the configured catalog TTL")
+	command.Flags().BoolVar(&force, "force", false, "bypass the configured catalog refresh interval")
 	return command
 }
 

@@ -133,13 +133,8 @@ function SettingsEditor({ initial }: { initial: PanelSettingsView }) {
                   updateService('secure_cookie', e.target.value.startsWith('https://'));
                 }} />
               </SettingsField>
-            </SettingsGroup>
-            <SettingsGroup title={t('panelSettings.routing')}>
               <SettingsField id='base-path' label={t('panelSettings.basePath')} help={t('panelSettings.basePathHelp')}>
                 <Input id='base-path' value={service.base_path} onChange={e => updateService('base_path', e.target.value)} />
-              </SettingsField>
-              <SettingsField id='secure-cookie' label={t('panelSettings.secureCookie')} help={t('panelSettings.secureCookieHelp')}>
-                <Switch id='secure-cookie' checked={service.secure_cookie} onCheckedChange={value => updateService('secure_cookie', value)} />
               </SettingsField>
             </SettingsGroup>
             <SettingsGroup title={t('panelSettings.storage')}>
@@ -153,6 +148,9 @@ function SettingsEditor({ initial }: { initial: PanelSettingsView }) {
                   <Input id='management-token' aria-label={t('panelSettings.managementToken')} readOnly value='••••••••••••' />
                   <Button type='button' variant='ghost' onClick={() => setTokenOpen(true)}>{t('panelSettings.change')}</Button>
                 </div>
+              </SettingsField>
+              <SettingsField id='secure-cookie' label={t('panelSettings.secureCookie')} help={t('panelSettings.secureCookieHelp')}>
+                <Switch id='secure-cookie' checked={service.secure_cookie} onCheckedChange={value => updateService('secure_cookie', value)} />
               </SettingsField>
             </SettingsGroup>
             <SettingsGroup title={t('panelSettings.updates')}>
@@ -169,8 +167,8 @@ function SettingsEditor({ initial }: { initial: PanelSettingsView }) {
                   )}
                 </div>
               </SettingsField>
-              <SettingsField id='catalog-ttl' label={t('panelSettings.catalogTTL')}>
-                <Input id='catalog-ttl' type='number' min={1} max={720} required value={service.catalog_ttl_hours} onChange={e => updateService('catalog_ttl_hours', Number(e.target.value))} />
+              <SettingsField id='catalog-refresh-interval' label={t('panelSettings.catalogRefreshInterval')}>
+                <Input id='catalog-refresh-interval' type='number' min={1} max={720} required value={service.catalog_refresh_interval_hours} onChange={e => updateService('catalog_refresh_interval_hours', Number(e.target.value))} />
               </SettingsField>
             </SettingsGroup>
           </TabsContent>

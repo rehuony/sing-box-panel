@@ -4,6 +4,7 @@ package application
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -91,6 +92,18 @@ func TestCatalogNotModifiedRequiresAndReusesLocalSnapshot(t *testing.T) {
 	if _, err := application.refreshCatalogWith(ctx, fakeCatalogRefresher{result: catalog.RefreshResult{Catalog: initial, ETag: "v1"}}); err != nil {
 		t.Fatal(err)
 	}
+	beforeFailure, err := application.Catalog(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := application.refreshCatalogWith(ctx, fakeCatalogRefresher{err: errors.New("github unavailable")}); err == nil {
+		t.Fatal("failed refresh unexpectedly succeeded")
+	}
+	afterFailure, err := application.Catalog(ctx)
+	if err != nil || afterFailure.Validator != beforeFailure.Validator ||
+		!afterFailure.RefreshedAt.Equal(beforeFailure.RefreshedAt) || len(afterFailure.Catalog.Assets()) != 1 {
+		t.Fatalf("failed refresh changed last-known-good catalog: before=%+v after=%+v err=%v", beforeFailure, afterFailure, err)
+	}
 	refresher := &capturingCatalogRefresher{result: catalog.RefreshResult{NotModified: true}}
 	updated, err := application.refreshCatalogWith(ctx, refresher)
 	if err != nil || refresher.previous != "v1" || len(updated.Catalog.Assets()) != 1 || !updated.NotModified {
@@ -98,7 +111,7 @@ func TestCatalogNotModifiedRequiresAndReusesLocalSnapshot(t *testing.T) {
 	}
 }
 
-func TestRefreshCatalogHonorsConfiguredTTL(t *testing.T) {
+func TestRefreshCatalogHonorsConfiguredRefreshInterval(t *testing.T) {
 	ctx := context.Background()
 	database, err := store.Open(ctx, filepath.Join(t.TempDir(), "panel.db"))
 	if err != nil {
@@ -109,13 +122,13 @@ func TestRefreshCatalogHonorsConfiguredTTL(t *testing.T) {
 	now := time.Date(2026, time.August, 27, 8, 0, 0, 0, time.UTC)
 	application.now = func() time.Time { return now }
 	application.settings = settings.Defaults()
-	application.settings.GitHub.CatalogTTLHours = 12
+	application.settings.GitHub.CatalogRefreshIntervalHours = 12
 	asset := validCatalogAsset(t)
 	value := catalog.Catalog{RepositoryID: catalog.OfficialRepositoryID, Releases: []catalog.Release{{
 		ID: asset.ReleaseID, Tag: "v1.13.19", Version: asset.Version, Assets: []catalog.Asset{asset},
 	}}}
 	if _, err := application.refreshCatalogWith(ctx, fakeCatalogRefresher{result: catalog.RefreshResult{
-		Catalog: value, ETag: "ttl-v1",
+		Catalog: value, ETag: "interval-v1",
 	}}); err != nil {
 		t.Fatal(err)
 	}
@@ -124,15 +137,15 @@ func TestRefreshCatalogHonorsConfiguredTTL(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RefreshCatalog: %v", err)
 	}
-	if !result.NotModified || result.Validator != "ttl-v1" {
-		t.Fatalf("TTL result = %+v", result)
+	if !result.NotModified || result.Validator != "interval-v1" {
+		t.Fatalf("refresh interval result = %+v", result)
 	}
 	found := false
 	for _, diagnostic := range result.Diagnostics {
-		found = found || diagnostic.Code == "ttl_fresh"
+		found = found || diagnostic.Code == "refresh_not_due"
 	}
 	if !found {
-		t.Fatalf("TTL diagnostic missing: %+v", result.Diagnostics)
+		t.Fatalf("refresh interval diagnostic missing: %+v", result.Diagnostics)
 	}
 }
 

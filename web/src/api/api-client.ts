@@ -13,6 +13,7 @@ import type {
 import type {
   CoreLogChunk,
   CoreLogFile,
+  DashboardStreamSnapshot,
   LogClearFilter,
   LogEntry,
   LogFilter,
@@ -133,6 +134,9 @@ export interface ApiClient {
   getSubscriptionUser: (userID: string, signal?: AbortSignal) => Promise<SubscriptionUser>;
   clearLogs: (filter?: LogClearFilter, signal?: AbortSignal) => Promise<{ deleted: number }>;
   getSubscriptionNode: (id: string, signal?: AbortSignal) => Promise<SubscriptionNodeDetail>;
+  streamDashboard: (
+    signal?: AbortSignal,
+  ) => AsyncIterable<DashboardStreamSnapshot>;
   getSubscriptionToken: (tokenID: string, signal?: AbortSignal) => Promise<SubscriptionToken>;
   importCoreArchive: (input: CoreImportUpload, signal?: AbortSignal) => Promise<CoreArtifact>;
   readCoreLog: (file: string, offset?: number, signal?: AbortSignal) => Promise<CoreLogChunk>;
@@ -146,11 +150,11 @@ export interface ApiClient {
   getSubscriptionTokenSecret: (tokenID: string, signal?: AbortSignal) => Promise<{ token: string }>;
   parseSubscriptionNode: (text: string, signal?: AbortSignal) => Promise<{ outbound_json: string }>;
   checkStartupArtifact: (artifactID: string, signal?: AbortSignal) => Promise<StartupArtifactSummary>;
+
   getMetricsHistory: (
     filter: MetricsHistoryFilter,
     signal?: AbortSignal,
   ) => Promise<MetricsHistory>;
-
   refreshSubscriptionSource: (sourceID: string, signal?: AbortSignal) => Promise<SubscriptionSourceRefreshResult>;
   savePanelSettings: (
     input: PanelSettingsWrite,
@@ -164,11 +168,11 @@ export interface ApiClient {
     filter?: CoreArtifactFilter,
     signal?: AbortSignal,
   ) => Promise<CoreArtifactPage>;
+
   getConfigurationSupport: (
     artifactID: string,
     signal?: AbortSignal,
   ) => Promise<ConfigurationSupport>;
-
   getSubscriptionUserGrants: (
     userID: string,
     signal?: AbortSignal,

@@ -1107,6 +1107,17 @@ paths:
             text/event-stream:
               schema: {type: string}
         default: {$ref: '#/components/responses/Problem'}
+  /dashboard/stream:
+    get:
+      operationId: streamDashboard
+      summary: Stream the cached dashboard projection every thirty seconds
+      responses:
+        '200':
+          description: Server-sent dashboard events, each limited to 1 MiB including UTF-8 framing. Each data field is a DashboardStreamSnapshot. Runtime history includes at most 4096 newest transitions, or fewer to fit the byte limit, with a next cursor whenever older records are omitted. Initial snapshot failures return a Problem response. Reconnect after stream closure; the one-minute lifetime includes snapshot collection.
+          content:
+            text/event-stream:
+              schema: {type: string}
+        default: {$ref: '#/components/responses/Problem'}
   /metrics/history:
     get:
       operationId: getMetricsHistory
@@ -1683,7 +1694,7 @@ components:
     PanelServiceSettings:
       type: object
       additionalProperties: false
-      required: [data_dir, base_path, secure_cookie, catalog_ttl_hours, traffic_period_months, sample_retention_days, subscription_author, subscription_provider, private_source_cidrs, log_retention_days]
+      required: [data_dir, base_path, secure_cookie, catalog_refresh_interval_hours, traffic_period_months, sample_retention_days, subscription_author, subscription_provider, private_source_cidrs, log_retention_days]
       properties:
         data_dir:
           type: string
@@ -1692,7 +1703,7 @@ components:
           type: string
         secure_cookie:
           type: boolean
-        catalog_ttl_hours:
+        catalog_refresh_interval_hours:
           type: integer
           minimum: 1
           maximum: 720
@@ -2704,6 +2715,16 @@ components:
           type: array
           maxItems: 512
           items: {$ref: "#/components/schemas/MetricsHistoryBucket"}
+    DashboardStreamSnapshot:
+      type: object
+      additionalProperties: false
+      required: [collected_at, history_1h, history_24h, runtime_24h, activity]
+      properties:
+        collected_at: {type: string, format: date-time}
+        history_1h: {$ref: '#/components/schemas/MetricsHistory'}
+        history_24h: {$ref: '#/components/schemas/MetricsHistory'}
+        runtime_24h: {$ref: '#/components/schemas/RuntimeHistoryPage'}
+        activity: {$ref: '#/components/schemas/PanelLogPage'}
     TrafficPeriodCursor:
       type: object
       additionalProperties: false

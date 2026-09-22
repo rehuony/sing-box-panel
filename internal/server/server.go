@@ -218,6 +218,9 @@ func Run(ctx context.Context, settingsPath string, build buildinfo.Info, assets 
 	subscriptionContext, stopSubscriptions := context.WithCancel(ctx)
 	subscriptionDone := startSubscriptionRefresh(subscriptionContext, commands)
 	defer func() { stopSubscriptions(); <-subscriptionDone }()
+	catalogContext, stopCatalog := context.WithCancel(ctx)
+	catalogDone := startCatalogRefresh(catalogContext, commands)
+	defer func() { stopCatalog(); <-catalogDone }()
 	recoveryContext, stopRecovery := context.WithCancel(ctx)
 	recoveryDone := startRuntimeReconciler(recoveryContext, runtimeControl)
 	defer func() {

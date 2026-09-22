@@ -805,6 +805,14 @@ License: MIT
 License documents:
   - LICENSE (SHA-256: 869c30f368eb08735e779027b9f4bc9fea2f39624351856aebe42741f0bc0884)
 
+Component: zustand
+Ecosystem: web-package
+Version: 5.0.15
+Source: https://github.com/pmndrs/zustand
+License: MIT
+License documents:
+  - LICENSE (SHA-256: c1e6e266563517467b1bf874817d23e426f3149252bd7d42758cd697514b8417)
+
 LICENSE TEXTS
 
 ================================================================================
@@ -2771,6 +2779,33 @@ Applies to:
 MIT License
 
 Copyright (c) 2025 Tony Quetano
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+================================================================================
+SHA-256: c1e6e266563517467b1bf874817d23e426f3149252bd7d42758cd697514b8417
+Applies to:
+  - web-package:zustand@5.0.15 — LICENSE
+--------------------------------------------------------------------------------
+MIT License
+
+Copyright (c) 2019 Paul Henschel
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal

@@ -53,8 +53,8 @@ type Auth struct {
 }
 
 type GitHub struct {
-	Token           string `json:"token"`
-	CatalogTTLHours int    `json:"catalog_ttl_hours"`
+	Token                       string `json:"token"`
+	CatalogRefreshIntervalHours int    `json:"catalog_refresh_interval_hours"`
 }
 
 type Traffic struct {
@@ -80,7 +80,7 @@ func Defaults() Settings {
 		Panel:   DefaultPanel(),
 		Server:  Server{Host: "127.0.0.1", Port: 3000},
 		DataDir: dataDir,
-		GitHub:  GitHub{CatalogTTLHours: 12},
+		GitHub:  GitHub{CatalogRefreshIntervalHours: 12},
 		Traffic: Traffic{PeriodMonths: 1, SampleRetentionDays: 90},
 		Subscription: Subscription{
 			Author:             "reagin",
@@ -212,8 +212,8 @@ func (value Settings) Validate() error {
 	if strings.TrimSpace(value.Auth.Token) == "" {
 		return errors.New("auth.token must not be empty")
 	}
-	if value.GitHub.CatalogTTLHours < 1 || value.GitHub.CatalogTTLHours > 24*30 {
-		return errors.New("github.catalog_ttl_hours must be between 1 and 720")
+	if value.GitHub.CatalogRefreshIntervalHours < 1 || value.GitHub.CatalogRefreshIntervalHours > 24*30 {
+		return errors.New("github.catalog_refresh_interval_hours must be between 1 and 720")
 	}
 	if err := ValidateTrafficQuota(value.Traffic.QuotaGiB); err != nil {
 		return err
