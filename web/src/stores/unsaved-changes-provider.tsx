@@ -15,11 +15,12 @@ export function UnsavedChangesProvider({ children }: { children: ReactNode }) {
   const [pending, setPending] = useState<(() => void) | null>(null);
   const dirty = changes.size > 0;
   const busy = [...changes.values()].some(change => change.busy);
-  const blocker = useBlocker(({ currentLocation, nextLocation }) => dirty && (
-    currentLocation.pathname !== nextLocation.pathname
-    || currentLocation.search !== nextLocation.search
-    || currentLocation.hash !== nextLocation.hash
-  ));
+  const blocker = useBlocker(({ currentLocation, nextLocation }) => {
+    if (!dirty) return false;
+    if (currentLocation.pathname !== nextLocation.pathname) return true;
+    if ([...changes.values()].every(change => change.allowSamePathNavigation)) return false;
+    return currentLocation.search !== nextLocation.search || currentLocation.hash !== nextLocation.hash;
+  });
 
   const register = useCallback((id: string, change: UnsavedChange) => {
     setChanges(current => new Map(current).set(id, change));

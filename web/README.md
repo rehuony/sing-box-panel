@@ -39,7 +39,12 @@ each exact sing-box version to one file and SHA-256 digest, and the plugin
 precompiles the root validator as an Ajv 2020 module for the browser. Generated
 validators contain no CommonJS `require`. A version without a native Schema
 remains available in the Advanced JSON editor; structured editing is enabled
-only when the exact-version local Schema and served digest match. With no matching installed artifact, the configuration version selector supports authoring from the bundled reviewed schema; validation and execution still require the corresponding installed core.
+only when the exact-version local Schema and served digest match. The
+configuration version selector lists compatible installed core versions,
+prefers the enabled version, and otherwise selects the highest installed exact
+version. Without an installed core, Advanced JSON editing and saving remain
+available while structured editing and validation direct the operator to
+version management.
 
 `pnpm run build` produces a deterministic SPA bundle in `web/dist/`. The Go
 Web package embeds that directory and uses `index.html` for client-side
@@ -70,6 +75,10 @@ The configuration UI combines version-scoped RJSF controls with a lossless
 sing-box JSON editor. It preserves unknown fields and unmodified large-number
 lexemes, and never adds panel metadata to executable configuration. Versions
 before native Schema support use the Advanced editor only. The Web UI offers Save and Validate, with validation feedback in a Toast.
+Visual fields, Advanced JSON and visual module navigation share one in-memory
+draft for the authenticated session. Internal tab changes retain that draft;
+only leaving the configuration route or unloading the page invokes the
+unsaved-change guard.
 Start/Restart validate saved bytes using the selected exact binary before
 replacing the process. Immutable snapshots support runtime verification and recovery;
 the editor has one current document with no historical selection or restoration.

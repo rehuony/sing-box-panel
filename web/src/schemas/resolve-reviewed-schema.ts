@@ -45,16 +45,3 @@ export async function resolveReviewedSchema(
     },
   };
 }
-
-// Authoring without an installed core uses only the same reviewed, build-time
-// schema and precompiled validators. Native validation still requires a core.
-export async function resolveBundledReviewedSchema(exactVersion: string): Promise<ReviewedSchemaResolution> {
-  const reviewed = await loadReviewedSchema(exactVersion);
-  if (!reviewed) throw new Error(i18n.t('configuration.schema.error.notReviewed'));
-  return {
-    schema: reviewed.schema,
-    createValidator(schema) {
-      return createPrecompiledValidator(reviewed.validateFns as never, schema);
-    },
-  };
-}

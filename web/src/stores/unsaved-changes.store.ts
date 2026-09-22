@@ -3,6 +3,7 @@ import { createContext, use } from 'react';
 export interface UnsavedChange {
   busy: boolean;
   discard: () => void;
+  allowSamePathNavigation?: boolean;
 }
 
 interface UnsavedChangesContextValue {

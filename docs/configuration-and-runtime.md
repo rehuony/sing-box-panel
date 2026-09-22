@@ -88,11 +88,24 @@ version-scoped. The response contains only `exact_version`, `schema_sha256`,
 and the Schema. Its ETag binds the exact version and digest and supports
 `If-None-Match`.
 
-The panel currently commits native Schema output for `1.14.0`. Before installing a core, the Web visual editor can use that bundled schema for authoring and labels the exact target version. Installed artifacts still require the served schema to match the reviewed manifest. Native validation and runtime startup always require an installed matching core. Releases before
+The panel currently commits native Schema output for `1.14.0`. The Web
+configuration selector lists compatible installed versions, defaults to the
+enabled core when available and otherwise uses the highest installed semantic
+version. Installed artifacts require the served schema to match the reviewed
+manifest. With no installed core, the Web UI keeps Advanced JSON editing and
+saving available, while the visual editor directs the operator to version
+management. Native validation and runtime startup always require an installed
+matching core. Releases before
 sing-box added `sing-box schema`, including `1.13.19`,
 remain Advanced-JSON-only; the panel does not synthesize schemas for them. A
 missing Schema disables only structured controls, never JSON save,
 compile, check, Apply, Start, Restart, or Rollback.
+
+The selected configuration version and current unsaved document live in one
+authenticated browser-session store. Switching between visual modules or
+Advanced JSON retains the same draft. Navigation away from configuration and
+browser unload remain protected by the unsaved-change confirmation; refreshing
+or signing out starts a new selection session.
 
 The committed Schema is canonicalized native output with optional `x-panel`
 presentation metadata such as section, order, widget, sensitivity, and

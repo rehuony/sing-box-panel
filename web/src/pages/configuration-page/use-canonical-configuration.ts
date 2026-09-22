@@ -13,7 +13,10 @@ import type { ConfigurationFile } from '@/api/api-client';
 import { toast } from '@/components/ui/toast-manager';
 import { useApiClient } from '@/api/api-client-context';
 import { useUnsavedChanges } from '@/hooks/use-unsaved-changes';
-import { useCanonicalDraftSession } from '@/stores/canonical-draft.store';
+import {
+  useConfigurationSessionStore,
+  useConfigurationSessionStoreApi,
+} from '@/stores/configuration-session.store';
 
 export interface CanonicalDraft {
   [key: string]: unknown;
@@ -57,60 +60,79 @@ type FileState
     | { status: 'error'; file: null; content: string; error: unknown }
     | { status: 'ready'; file: ConfigurationFile; content: string; error: null };
 
+type LoadState
+  = | { status: 'loading'; error: null }
+    | { status: 'error'; error: unknown }
+    | { status: 'ready'; error: null };
+
 export function useCanonicalConfiguration() {
   const client = useApiClient();
   const { t } = useTranslation();
-  const session = useCanonicalDraftSession();
-  const [restored] = useState(() => session.current?.dirty ? session.current : null);
-  const [state, setState] = useState<FileState>(() => restored === null
-    ? { status: 'loading', file: null, content: '', error: null }
-    : { status: 'ready', file: restored.file, content: restored.content, error: null });
+  const store = useConfigurationSessionStoreApi();
+  const draftSession = useConfigurationSessionStore(state => state.draft);
+  const replaceDraft = useConfigurationSessionStore(state => state.replaceDraft);
+  const resetDraft = useConfigurationSessionStore(state => state.resetDraft);
+  const updateDraftContent = useConfigurationSessionStore(state => state.updateDraftContent);
+  const [restored] = useState(() => {
+    const current = store.getState().draft;
+    return current !== null && current.content !== current.file.content;
+  });
+  const [loadState, setLoadState] = useState<LoadState>(() => restored
+    ? { status: 'ready', error: null }
+    : { status: 'loading', error: null });
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    if (restored !== null) return;
+    if (restored) return;
     const controller = new AbortController();
     void client.getConfigurationFile(controller.signal).then(file => {
-      if (!controller.signal.aborted) setState({ status: 'ready', file, content: file.content, error: null });
+      if (!controller.signal.aborted) {
+        replaceDraft({ file, content: file.content });
+        setLoadState({ status: 'ready', error: null });
+      }
     }).catch((error: unknown) => {
-      if (!controller.signal.aborted) setState({ status: 'error', file: null, content: '', error });
+      if (!controller.signal.aborted) setLoadState({ status: 'error', error });
     });
     return () => controller.abort();
-  }, [client, restored]);
+  }, [client, replaceDraft, restored]);
+
+  const state = useMemo<FileState>(() => {
+    if (loadState.status === 'error') return { status: 'error', file: null, content: '', error: loadState.error };
+    if (loadState.status === 'loading' || draftSession === null) return { status: 'loading', file: null, content: '', error: null };
+    return { status: 'ready', file: draftSession.file, content: draftSession.content, error: null };
+  }, [draftSession, loadState]);
 
   const parsed = useMemo(() => {
+    if (state.status !== 'ready') return { draft: null, error: null };
     try {
       return { draft: parseCanonicalDraft(state.content), error: null };
     } catch (error) {
       return { draft: null, error: localizeCanonicalDraftError(error, t) };
     }
-  }, [state.content, t]);
+  }, [state.content, state.status, t]);
   const dirty = state.status === 'ready' && state.content !== state.file.content;
-  useEffect(() => {
-    if (state.status === 'ready') session.current = { file: state.file, content: state.content, dirty };
-  }, [dirty, session, state]);
 
   const updateText = useCallback((content: string) => {
-    if (!saving) setState(current => current.status === 'ready' ? { ...current, content } : current);
-  }, [saving]);
+    if (!saving) updateDraftContent(content);
+  }, [saving, updateDraftContent]);
   const update = useCallback((change: (draft: CanonicalDraft) => CanonicalDraft) => {
     if (saving) return;
-    setState(current => {
-      if (current.status !== 'ready') return current;
+    updateDraftContent((content) => {
       try {
-        return { ...current, content: encodeCanonicalDraft(change(parseCanonicalDraft(current.content)), 2) };
+        return encodeCanonicalDraft(change(parseCanonicalDraft(content)), 2);
       } catch {
-        return current;
+        return content;
       }
     });
-  }, [saving]);
+  }, [saving, updateDraftContent]);
 
   const save = useCallback(async () => {
-    if (state.status !== 'ready' || saving) return null;
+    const current = store.getState().draft;
+    if (current === null || saving) return null;
     setSaving(true);
     try {
-      const file = await client.saveConfigurationFile({ revision: state.file.revision, content: state.content });
-      setState({ status: 'ready', file, content: file.content, error: null });
+      const file = await client.saveConfigurationFile({ revision: current.file.revision, content: current.content });
+      replaceDraft({ file, content: file.content });
       toast.add({ title: t('configuration.file.saved'), type: 'success' });
       return file;
     } catch (error) {
@@ -119,13 +141,11 @@ export function useCanonicalConfiguration() {
     } finally {
       setSaving(false);
     }
-  }, [client, saving, state, t]);
+  }, [client, replaceDraft, saving, store, t]);
   const reset = useCallback(() => {
-    if (state.status !== 'ready') return;
-    session.current = { file: state.file, content: state.file.content, dirty: false };
-    setState({ ...state, content: state.file.content });
-  }, [session, state]);
-  useUnsavedChanges(dirty, reset, saving);
+    resetDraft();
+  }, [resetDraft]);
+  useUnsavedChanges(dirty, reset, saving, { allowSamePathNavigation: true });
 
   return { state, draft: parsed.draft, editorError: parsed.error, dirty, saving, save, reset, update, updateText };
 }

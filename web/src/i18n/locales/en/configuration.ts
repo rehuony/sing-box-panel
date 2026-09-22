@@ -50,6 +50,7 @@ export const configuration = {
   error: {
     notSaved: 'Configuration was not saved',
     unavailable: 'Configuration is unavailable',
+    versionsUnavailable: 'Installed versions are unavailable',
   },
   loading: 'Loading configuration…',
   managed: {
@@ -194,8 +195,11 @@ export const configuration = {
   },
   schema: {
     version: 'Configuration version',
-    bundled: 'Editing for sing-box {{version}} using the bundled schema. Install this version to validate or run the configuration.',
     unsupported: 'No visual editor schema for {{version}}. Edit JSON or select a supported configuration version.',
+    manageVersions: 'Go to version management',
+    noInstalledDescription: 'Download a core version in version management to use visual editing and configuration validation.',
+    noInstalledOption: 'No installed versions',
+    noInstalledTitle: 'No core versions installed',
     error: {
       contract: 'The version Schema differs from the reviewed browser Schema.',
       notReviewed: 'The version Schema is not present in the reviewed browser manifest.',

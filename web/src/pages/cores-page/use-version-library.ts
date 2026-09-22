@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { CatalogAssetList, CoreArtifact, RuntimeStatus, SystemStatus } from '@/api/api-client';
 
 import { useApiClient } from '@/api/api-client-context';
+import { listInstalledCoreArtifacts } from '@/utils/installed-core-artifacts';
 import { useOptionalSharedTelemetry } from '@/components/app-shell/telemetry-context';
 
 type Platform = NonNullable<SystemStatus['platform']>;
@@ -23,25 +24,6 @@ export function useVersionLibrary() {
   const [catalogLoading, setCatalogLoading] = useState(true);
   const installedRef = useRef<AbortController | null>(null);
   const catalogRef = useRef<AbortController | null>(null);
-
-  const readInstalled = useCallback(async (target: Platform, signal: AbortSignal) => {
-    const items: CoreArtifact[] = [];
-    let next: { created_at: string; id: string } | undefined;
-    do {
-      const page = await client.listCoreArtifacts(
-        {
-          architecture: target.arch,
-          limit: 200,
-          beforeID: next?.id,
-          beforeTime: next?.created_at,
-        },
-        signal,
-      );
-      items.push(...page.items);
-      next = page.next;
-    } while (next && !signal.aborted);
-    return items.filter(value => value.os === target.os && value.arch === target.arch);
-  }, [client]);
 
   const readCatalog = useCallback(async (
     target: Platform,
@@ -76,7 +58,7 @@ export function useVersionLibrary() {
     setError(null);
     try {
       const [installed, current] = await Promise.all([
-        readInstalled(target, controller.signal),
+        listInstalledCoreArtifacts(client, target, controller.signal),
         client.getRuntimeStatus(controller.signal),
       ]);
       if (controller.signal.aborted) return;
@@ -88,7 +70,7 @@ export function useVersionLibrary() {
     } finally {
       if (!controller.signal.aborted) setInstalledLoading(false);
     }
-  }, [acceptRuntimeStatus, client, readInstalled]);
+  }, [acceptRuntimeStatus, client]);
 
   const refreshCatalog = useCallback(async (force = true) => {
     const target = platformRef.current;
