@@ -153,6 +153,11 @@ publisher authenticity or ongoing tamper detection.
 ## Switching and runtime state
 
 Web Enable and CLI `core enable VERSION` preserve the stopped/running state.
+Panel startup initializes an absent sing-box configuration to `{}`, so the first
+installed version can be enabled without manually saving an empty document.
+Existing saved configuration is preserved. Installation and version selection
+do not create or rewrite that document. An unexpectedly absent configuration
+returns `409 configuration_not_saved`; the Web notification links to Configuration.
 Selecting while stopped does not start a process. Selecting while running performs
 preflight before replacing the process. A failed preflight retains the old
 selection, running process and saved JSON. Switching never migrates, fills or

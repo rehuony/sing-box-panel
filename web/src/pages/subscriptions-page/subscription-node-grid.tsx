@@ -3,14 +3,14 @@ import { CSS } from '@dnd-kit/utilities';
 import { useTranslation } from 'react-i18next';
 import { useSortable } from '@dnd-kit/sortable';
 import { useReducedMotion } from 'motion/react';
-import { ChevronLeft, ChevronRight, Eye, EyeOff, MoreHorizontal } from 'lucide-react';
+import { Eye, EyeOff, MoreHorizontal } from 'lucide-react';
 
 import type { SubscriptionNodeSummary } from '@/api/api-client';
 
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { toast } from '@/components/ui/toast-manager';
-import { SelectField } from '@/components/select-field';
+import { ListPagination } from '@/components/list-pagination';
 
 import { SubscriptionNodeCardContent } from './subscription-node-card';
 import { SubscriptionNodeSortContext } from './subscription-node-sort-context';
@@ -143,6 +143,7 @@ export function SubscriptionNodeGrid({
   );
   const pages = Math.max(1, Math.ceil(filtered.length / size));
   const current = Math.min(page, pages);
+  if (pagination.search !== search || pagination.size !== size || pagination.page !== current) setPage(current);
   const pageNodes = filtered.slice((current - 1) * size, current * size);
   function move(active: string, over: string) {
     const next = reorderVisibleNodes(order, pageNodes.map((node) => node.id), active, over);
@@ -200,37 +201,14 @@ export function SubscriptionNodeGrid({
               </SubscriptionNodeSortContext>
             )}
       </div>
-      <footer className='subscription-pagination'>
-        <SelectField
-          aria-label={t('subscriptions.keys.pageSize')}
-          value={size}
-          onValueChange={(value) => {
-            setSize(value);
-          }}
-          items={[5, 10, 50].map((value) => ({ value, label: t('subscriptions.keys.perPage', { count: value }) }))}
-        />
-        <div>
-          <Button
-            aria-label={t('subscriptions.keys.previous')}
-            disabled={current === 1}
-            onClick={() => setPage(current - 1)}
-            size='icon'
-            variant='outline'
-          >
-            <ChevronLeft />
-          </Button>
-          <span aria-current='page'>{current}</span>
-          <Button
-            aria-label={t('subscriptions.keys.next')}
-            disabled={current === pages}
-            onClick={() => setPage(current + 1)}
-            size='icon'
-            variant='outline'
-          >
-            <ChevronRight />
-          </Button>
-        </div>
-      </footer>
+      <ListPagination
+        page={current}
+        pages={pages}
+        pageSize={size}
+        disabled={filtered.length === 0}
+        onPageChange={setPage}
+        onPageSizeChange={setSize}
+      />
     </div>
   );
 }

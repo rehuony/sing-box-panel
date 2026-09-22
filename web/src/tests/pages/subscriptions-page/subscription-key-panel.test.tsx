@@ -11,6 +11,33 @@ import { createMockApiClient, testSubscriptionTokens } from '@/tests/api/mock-ap
 import { SubscriptionTokenPanel } from '@/pages/subscriptions-page/subscription-token-panel';
 
 const feedback = vi.spyOn(toast, 'add');
+
+it('jumps between key pages and updates the total after changing page size', async () => {
+  const user = userEvent.setup();
+  const keys = Array.from({ length: 12 }, (_, index) => ({ ...testSubscriptionTokens[0], id: `key-${index}`, label: `Key ${index + 1}` }));
+  const client = createMockApiClient({ listSubscriptionTokens: vi.fn(async (filter) => ({
+    items: keys.slice(filter?.offset ?? 0, (filter?.offset ?? 0) + (filter?.limit ?? 10)), total: keys.length,
+  })) });
+  render(<TestRouter><ApiClientProvider client={client}><SubscriptionTokenPanel /></ApiClientProvider></TestRouter>);
+  await screen.findByText('Key 1');
+  const input = screen.getByRole('spinbutton', { name: 'Current page' });
+  expect(input).toHaveAccessibleDescription('2 pages in total');
+  await user.clear(input);
+  await user.type(input, '2{Enter}');
+  expect(await screen.findByText('Key 11')).toBeVisible();
+  expect(screen.queryByText('Key 1')).not.toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Next page' })).toBeDisabled();
+  await user.click(screen.getByRole('combobox', { name: 'Items per page' }));
+  await user.click(await screen.findByRole('option', { name: '5 per page' }));
+  await screen.findByText('Key 1');
+  expect(input).toHaveValue(1);
+  expect(input).toHaveAccessibleDescription('3 pages in total');
+  await user.clear(input);
+  await user.type(input, '3{Enter}');
+  await screen.findByText('Key 11');
+  expect(client.listSubscriptionTokens).toHaveBeenLastCalledWith({ limit: 5, offset: 10 }, expect.any(AbortSignal));
+});
+
 beforeEach(() => {
   feedback.mockClear();
   window.history.replaceState(null, '', '/subscriptions');
@@ -61,7 +88,7 @@ it('retains entered values after rejection without a false creation result', asy
 it('shows the key name and quota without a legacy description, inspect or revoke actions', async () => {
   const key = { ...testSubscriptionTokens[0], active: false, download_limit: 2, body_response_count: 2 };
   const client = createMockApiClient({
-    listSubscriptionTokens: vi.fn().mockResolvedValue({ items: [key] }),
+    listSubscriptionTokens: vi.fn().mockResolvedValue({ items: [key], total: 1 }),
     getSubscriptionToken: vi.fn().mockResolvedValue(key),
   });
   render(<TestRouter><ApiClientProvider client={client}><SubscriptionTokenPanel /></ApiClientProvider></TestRouter>);
@@ -80,7 +107,7 @@ it('disables and enables the selected key directly from its row', async () => {
   const user = userEvent.setup();
   let key = testSubscriptionTokens[0];
   const client = createMockApiClient({
-    listSubscriptionTokens: vi.fn().mockImplementation(async () => ({ items: [key] })),
+    listSubscriptionTokens: vi.fn().mockImplementation(async () => ({ items: [key], total: 1 })),
     setSubscriptionTokenEnabled: vi.fn().mockImplementation(async (_id, enabled) => {
       key = { ...key, enabled, active: enabled };
       return key;
@@ -100,7 +127,7 @@ it.each([true, false])('rotates an enabled=%s key after confirmation and shows t
   const user = userEvent.setup();
   const key = { ...testSubscriptionTokens[0], enabled, active: enabled };
   const client = createMockApiClient({
-    listSubscriptionTokens: vi.fn().mockResolvedValue({ items: [key] }),
+    listSubscriptionTokens: vi.fn().mockResolvedValue({ items: [key], total: 1 }),
   });
   render(<TestRouter><ApiClientProvider client={client}><SubscriptionTokenPanel /></ApiClientProvider></TestRouter>);
   await user.click(await screen.findByRole('button', { name: 'Rotate' }));
@@ -120,7 +147,9 @@ it('deletes the selected revoked key, with cancellation and retry after failure'
   const user = userEvent.setup();
   const key = { ...testSubscriptionTokens[0], id: 'unused', label: 'Unused', revoked_at: '2026-09-01T00:00:00Z', active: false };
   const client = createMockApiClient({
-    listSubscriptionTokens: vi.fn().mockResolvedValue({ items: [...testSubscriptionTokens, key] }),
+    listSubscriptionTokens: vi.fn().mockResolvedValue({
+      items: [...testSubscriptionTokens, key], total: testSubscriptionTokens.length + 1,
+    }),
     deleteSubscriptionToken: vi.fn().mockRejectedValueOnce(new Error('delete failed')).mockResolvedValueOnce(undefined),
   });
   render(<TestRouter><ApiClientProvider client={client}><SubscriptionTokenPanel /></ApiClientProvider></TestRouter>);

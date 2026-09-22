@@ -2,12 +2,12 @@ import { CirclePlus } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
-import type { CreatedSubscriptionToken, SubscriptionCursor, SubscriptionToken } from '@/api/api-client';
+import type { CreatedSubscriptionToken, SubscriptionToken } from '@/api/api-client';
 
 import { Button } from '@/components/ui/button';
 import { toast } from '@/components/ui/toast-manager';
 import { useApiClient } from '@/api/api-client-context';
-import { SelectField } from '@/components/select-field';
+import { ListPagination } from '@/components/list-pagination';
 import { ToolbarActions } from '@/components/workspace-toolbar';
 import { useUnsavedChanges } from '@/hooks/use-unsaved-changes';
 import { describeRequestError, ErrorNotice } from '@/components/error-notice';
@@ -22,9 +22,8 @@ export function SubscriptionTokenPanel({ active = true, toolbarTarget }: {
   const { t, i18n } = useTranslation();
   const client = useApiClient();
   const [items, setItems] = useState<SubscriptionToken[]>([]);
-  const [next, setNext] = useState<SubscriptionCursor>();
-  const [cursors, setCursors] = useState<(SubscriptionCursor | undefined)[]>([undefined]);
-  const [page, setPage] = useState(0);
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
   const [reload, setReload] = useState(0);
   const [completedRequest, setCompletedRequest] = useState<{ key: string; error: unknown } | null>(null);
@@ -41,8 +40,8 @@ export function SubscriptionTokenPanel({ active = true, toolbarTarget }: {
     setExpiry('');
     setLimit('');
   }, busy);
-  const cursor = cursors[page];
-  const requestKey = `${pageSize}:${cursor?.id ?? ''}:${cursor?.created_at ?? ''}:${reload}`;
+  const pages = Math.max(1, Math.ceil(total / pageSize));
+  const requestKey = `${pageSize}:${page}:${reload}`;
   const loading = completedRequest?.key !== requestKey;
   const error = loading ? null : completedRequest?.error;
   const operationRef = useRef(0);
@@ -52,12 +51,13 @@ export function SubscriptionTokenPanel({ active = true, toolbarTarget }: {
   useEffect(() => {
     const controller = new AbortController();
     void client.listSubscriptionTokens({
-      limit: pageSize, beforeID: cursor?.id, beforeTime: cursor?.created_at,
+      limit: pageSize, offset: (page - 1) * pageSize,
     }, controller.signal)
       .then(result => {
         if (!controller.signal.aborted) {
           setItems(result.items);
-          setNext(result.next);
+          setTotal(result.total);
+          setPage(current => Math.min(current, Math.max(1, Math.ceil(result.total / pageSize))));
           setCompletedRequest({ key: requestKey, error: null });
         }
       })
@@ -65,15 +65,14 @@ export function SubscriptionTokenPanel({ active = true, toolbarTarget }: {
         if (!controller.signal.aborted) setCompletedRequest({ key: requestKey, error: reason });
       });
     return () => controller.abort();
-  }, [client, cursor, pageSize, requestKey]);
+  }, [client, page, pageSize, requestKey]);
 
   const report = useCallback((reason: unknown) => {
     toast.add({ title: describeRequestError(reason), type: 'error' });
   }, []);
 
   function refresh() {
-    setCursors([undefined]);
-    setPage(0);
+    setPage(1);
     setReload(value => value + 1);
   }
   function keyState(key: SubscriptionToken) {
@@ -207,27 +206,17 @@ export function SubscriptionTokenPanel({ active = true, toolbarTarget }: {
         {!loading && items.length === 0 && !error ? <p className='subscription-empty'>{t('subscriptions.keys.empty')}</p> : null}
         {loading ? <p role='status'>{t('subscriptions.common.loading')}</p> : null}
       </div>
-      <footer className='subscription-keys__pagination'>
-        <SelectField
-          aria-label={t('subscriptions.keys.pageSize')}
-          value={pageSize}
-          onValueChange={(value) => {
-            setPageSize(value);
-            refresh();
-          }}
-          items={[5, 10, 50].map((value) => ({ value, label: t('subscriptions.keys.perPage', { count: value }) }))}
-        />
-        <div>
-          <Button size='icon' variant='outline' disabled={page === 0 || loading} onClick={() => setPage(value => value - 1)} aria-label={t('subscriptions.keys.previous')}>‹</Button>
-          <span aria-current='page'>{page + 1}</span>
-          <Button size='icon' variant='outline' disabled={!next || loading} onClick={() => {
-            setCursors([...cursors.slice(0, page + 1), next]);
-            setPage(value => value + 1);
-          }} aria-label={t('subscriptions.keys.next')}>
-            ›
-          </Button>
-        </div>
-      </footer>
+      <ListPagination
+        page={page}
+        pages={pages}
+        pageSize={pageSize}
+        disabled={loading || total === 0}
+        onPageChange={setPage}
+        onPageSizeChange={value => {
+          setPageSize(value);
+          refresh();
+        }}
+      />
 
       <Dialog open={creating} onOpenChange={open => {
         if (!busy) setCreating(open);

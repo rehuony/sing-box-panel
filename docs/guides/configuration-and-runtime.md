@@ -39,9 +39,17 @@ depend on the selected exact version. The 1.14 contract includes `log`, `dns`,
 `certificate_providers`, `http_clients`, `network_namespaces`, and `experimental`. The panel does not add
 `_panel`, disabled-item markers, or another storage envelope to these bytes.
 
+Before serving requests, panel startup saves `{}` and its immutable JSON revision
+if no configuration has ever been saved. This also initializes an existing data
+directory whose configuration is still absent. Repeated starts preserve saved
+text, revision identity, and timestamps, including unfinished or blank drafts.
+Initialization does not select or start a core; enabling still validates the
+configuration against the selected binary.
+
 The Web editor manages this document through `GET/PUT /api/v1/config/file`.
-The numeric file revision is a compare-and-swap guard, starting at `0` before
-the first save. Reads return the stored text exactly, including unfinished
+The numeric file revision is a compare-and-swap guard: `0` means no save yet,
+and startup initialization advances a new file to `1`.
+Reads return the stored text exactly, including unfinished
 JSON, together with `revision`, `syntax_valid`, and `canonical_revision_id`.
 A stale save fails instead of merging implicitly. The logical name `config.json`
 is not a filesystem path: the text lives in the `configuration_file` table of

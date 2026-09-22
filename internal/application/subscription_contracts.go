@@ -223,6 +223,7 @@ type SubscriptionCursor struct {
 type SubscriptionListRequest struct {
 	Cursor *SubscriptionCursor
 	Limit  int
+	Offset int // Token lists also support numbered pages.
 }
 
 type SubscriptionChannelPage struct {
@@ -238,6 +239,7 @@ type SubscriptionSourcePage struct {
 type SubscriptionTokenPage struct {
 	Items []SubscriptionToken `json:"items"`
 	Next  *SubscriptionCursor `json:"next,omitempty"`
+	Total int                 `json:"total"`
 }
 
 type CreatedSubscriptionToken struct {

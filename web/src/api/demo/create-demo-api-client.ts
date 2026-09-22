@@ -100,13 +100,13 @@ function nextID(state: DemoState, prefix: string): string {
 
 function pageByCreatedAt<T extends { id: string; created_at: string }>(
   items: T[],
-  filter: { beforeID?: string; beforeTime?: string; limit?: number },
+  filter: { beforeID?: string; beforeTime?: string; limit?: number; offset?: number },
 ): { items: T[]; next?: { created_at: string; id: string } } {
   const sorted = [...items].sort(
     (left, right) =>
       right.created_at.localeCompare(left.created_at) || right.id.localeCompare(left.id),
   );
-  let start = 0;
+  let start = filter.offset ?? 0;
   if (filter.beforeTime !== undefined && filter.beforeID !== undefined) {
     const beforeTime = filter.beforeTime;
     const cursor = sorted.findIndex(
@@ -820,7 +820,7 @@ export function createDemoApiClient(): ApiClient {
     },
     listSubscriptionTokens(filter = {}, signal) {
       const keys = state.tokens.map((key) => ({ ...key, active: subscriptionKeyActive(key) }));
-      return respond(pageByCreatedAt(keys, filter), signal);
+      return respond({ ...pageByCreatedAt(keys, filter), total: keys.length }, signal);
     },
     getSubscriptionTokenSecret(tokenID, signal) {
       requireItem(state.tokens, tokenID, 'Subscription token');
@@ -923,6 +923,7 @@ export function createDemoApiClient(): ApiClient {
           && (!filter.since || entry.time >= filter.since)
           && (!filter.until || entry.time < filter.until),
       );
+      const total = entries.length;
       entries.sort((a, b) => b.time.localeCompare(a.time) || b.id.localeCompare(a.id));
       if (filter.beforeTime && filter.beforeID) {
         entries = entries.filter(
@@ -931,13 +932,15 @@ export function createDemoApiClient(): ApiClient {
             || (e.time === filter.beforeTime && e.id < filter.beforeID!),
         );
       }
-      const items = entries.slice(0, filter.limit ?? 10);
+      const offset = filter.offset ?? 0;
+      const items = entries.slice(offset, offset + (filter.limit ?? 10));
       const last = items.at(-1);
       return respond(
         {
           items,
+          total,
           next:
-            last && items.length < entries.length ? { time: last.time, id: last.id } : undefined,
+            last && offset + items.length < entries.length ? { time: last.time, id: last.id } : undefined,
         },
         signal,
       );

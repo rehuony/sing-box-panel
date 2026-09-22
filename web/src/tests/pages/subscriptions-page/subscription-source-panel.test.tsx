@@ -574,13 +574,13 @@ describe('subscription sources and nodes', () => {
     expect(screen.queryByText('Node 1', { exact: true })).not.toBeInTheDocument();
     expect(screen.getByRole('checkbox', { name: 'Select Node 2' })).toBeChecked();
     expect(screen.getAllByRole('article')).toHaveLength(10);
-    await user.click(screen.getByRole('combobox', { name: 'Rows per page' }));
+    await user.click(screen.getByRole('combobox', { name: 'Items per page' }));
     await user.keyboard('[ArrowDown]');
     await user.click(screen.getByRole('option', { name: '5 per page' }));
     expect(screen.getAllByRole('article')).toHaveLength(5);
     await user.click(screen.getByRole('button', { name: 'Next page' }));
     expect(screen.getByText('Node 7', { exact: true })).toBeInTheDocument();
-    await user.click(screen.getByRole('combobox', { name: 'Rows per page' }));
+    await user.click(screen.getByRole('combobox', { name: 'Items per page' }));
     await user.keyboard('[ArrowDown]');
     await user.click(await screen.findByRole('option', { name: '50 per page' }));
     expect(screen.getAllByRole('article')).toHaveLength(13);

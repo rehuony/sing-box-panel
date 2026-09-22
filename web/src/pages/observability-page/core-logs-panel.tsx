@@ -1,4 +1,5 @@
 import { useTranslation } from 'react-i18next';
+import { SearchX, SquareTerminal } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 
 import { Badge } from '@/components/ui/badge';
@@ -6,6 +7,7 @@ import { Input } from '@/components/ui/input';
 import { ErrorNotice } from '@/components/error-notice';
 import { SelectField } from '@/components/select-field';
 import { ToolbarActions } from '@/components/workspace-toolbar';
+import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty';
 
 import { useCoreLogs } from './use-core-logs';
 import { coreLevels, parseCoreLines } from './core-log-lines';
@@ -91,6 +93,7 @@ export function CoreLogsPanel({ active = true, toolbarTarget }: {
         <div
           ref={viewportRef}
           className='native-log__output'
+          data-empty={!lines.length || undefined}
           tabIndex={0}
           role='region'
           aria-label={t('productLogs.core')}
@@ -99,26 +102,39 @@ export function CoreLogsPanel({ active = true, toolbarTarget }: {
             followRef.current = node.scrollHeight - node.scrollTop - node.clientHeight < 48;
           }}
         >
-          {!lines.length && (
-            <p className='log-empty'>
-              {t(
-                log.loading
-                  ? 'productLogs.loading'
-                  : !log.files.length
-                      ? 'productLogs.emptyCore'
-                      : 'productLogs.empty',
+          {!lines.length
+            ? (
+                <Empty className='native-log__empty' role='status'>
+                  <EmptyHeader>
+                    {!log.loading && (
+                      <EmptyMedia className='native-log__empty-icon'>
+                        {!log.files.length
+                          ? <SquareTerminal aria-hidden='true' strokeWidth={1.5} />
+                          : <SearchX aria-hidden='true' strokeWidth={1.5} />}
+                      </EmptyMedia>
+                    )}
+                    <EmptyTitle>
+                      {t(log.loading ? 'productLogs.loading' : !log.files.length ? 'productLogs.emptyCore' : 'productLogs.empty')}
+                    </EmptyTitle>
+                    {!log.loading && (
+                      <EmptyDescription>
+                        {t(!log.files.length ? 'productLogs.emptyCoreDescription' : 'productLogs.emptyDescription')}
+                      </EmptyDescription>
+                    )}
+                  </EmptyHeader>
+                </Empty>
+              )
+            : (
+                <pre>
+                  {lines.map((line) => (
+                    <span className={`native-log__line native-log__line--${line.level}`} key={line.id}>
+                      <span className='native-log__timestamp'>{line.prefix}</span>
+                      {line.message}
+                      {'\n'}
+                    </span>
+                  ))}
+                </pre>
               )}
-            </p>
-          )}
-          <pre>
-            {lines.map((line) => (
-              <span className={`native-log__line native-log__line--${line.level}`} key={line.id}>
-                <span className='native-log__timestamp'>{line.prefix}</span>
-                {line.message}
-                {'\n'}
-              </span>
-            ))}
-          </pre>
         </div>
       </div>
     </div>

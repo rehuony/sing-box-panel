@@ -63,6 +63,7 @@ export interface PanelLogFilter {
   limit?: number;
   since?: string;
   until?: string;
+  offset?: number;
   search?: string;
   level?: LogLevel;
   beforeID?: string;

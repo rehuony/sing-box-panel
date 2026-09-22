@@ -312,6 +312,13 @@ file while paused and polls for rotation. Streaming uses write deadlines and
 closes within a minute to reauthenticate on reconnect. `/api/v1/logs/panel`
 provides the combined panel view. The legacy log API below remains available.
 
+Panel-log and subscription-key lists support `offset` with `limit` for numbered
+pages and return `total` before pagination. Panel-log totals include the active
+level, search, and time filters. Counts and rows come from one database snapshot;
+live inserts or deletions may shift rows between requests. Existing `before_time`
+and `before_id` cursors remain supported and cannot be combined with `offset`.
+The Web footer supports direct page entry and 5, 10, or 50 items per page.
+
 ## Durable logs
 
 The log CLI and authenticated API expose bounded, sanitized metadata for

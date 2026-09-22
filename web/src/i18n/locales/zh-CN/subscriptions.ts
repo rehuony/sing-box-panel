@@ -92,10 +92,6 @@ export const subscriptions = {
     cancel: '取消',
     done: '完成',
     scope: '访问范围',
-    pageSize: '每页条数',
-    perPage: '每页 {{count}} 条',
-    previous: '上一页',
-    next: '下一页',
   },
   channel: {
     actionFailed: '渠道修改失败',

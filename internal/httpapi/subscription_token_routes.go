@@ -10,7 +10,7 @@ import (
 )
 
 func (handler *Handler) listSubscriptionTokens(w http.ResponseWriter, request *http.Request) {
-	input, ok := handler.subscriptionListRequest(w, request)
+	input, ok := handler.subscriptionListRequest(w, request, "offset")
 	if !ok {
 		return
 	}

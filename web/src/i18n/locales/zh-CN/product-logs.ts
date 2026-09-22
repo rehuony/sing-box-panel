@@ -10,7 +10,9 @@ export const productLogs = {
   unavailable: '日志暂不可用，正在重新连接…',
   loading: '加载中…',
   emptyCore: '尚未采集到核心日志',
+  emptyCoreDescription: '启动 sing-box 后，核心日志会显示在这里。',
   empty: '暂无匹配记录',
+  emptyDescription: '试试其他关键词，或调整日志等级。',
   live: '实时输出',
   paused: '暂停输出',
   connecting: '连接中',
@@ -20,8 +22,6 @@ export const productLogs = {
   time: '时间',
   message: '内容',
   source: '来源',
-  pageSize: '每页条数',
-  perPage: '每页 {{count}} 条',
   sources: {
     runtime: '服务',
     panel: '面板',

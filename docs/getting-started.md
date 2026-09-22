@@ -140,19 +140,23 @@ completed result; interrupting the caller cancels active work at a safe boundary
 Runtime recovery and configured source refresh keep their own bounded schedules.
 There is no generic operation queue or detached polling API.
 
-## Save the first sing-box configuration
+## Edit the sing-box configuration
 
 Log in to the Web UI and open Configuration. The panel keeps one sing-box
 document, logically named `config.json`, as text in the `configuration_file`
 table of `panel.db`. The Web editor manages it; there is no separately editable
-file on disk or CLI for its content. A minimal document is:
+file on disk or CLI for its content. Before accepting requests, startup creates
+and saves this minimal document if no configuration exists:
 
 ```json
 {}
 ```
 
-Save in the Web editor, install and enable a core, then use Validate configuration
-to check the saved text and Start or Restart to load it.
+You can install and enable a core immediately without first saving an empty
+configuration manually. Edit and save the configuration in the Web editor,
+then use Validate configuration to check the saved text and Start or Restart
+to load it. Repeated starts preserve existing configuration, including invalid
+or unfinished text.
 Concurrent saves use the current file revision and reject stale edits instead
 of merging implicitly. Invalid JSON can be saved as text but blocks validation,
 Enable, Start, and Restart until corrected. Core lifecycle and artifact commands remain

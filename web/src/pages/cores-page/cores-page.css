@@ -217,32 +217,6 @@
     animation: none;
   }
 }
-.core-pagination {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  flex: none;
-}
-.core-pagination > div {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.core-pagination [data-slot='select-trigger'] {
-  background: transparent;
-  border: 0;
-  color: var(--color-text-muted);
-  padding: 8px;
-}
-.core-pagination [aria-current] {
-  display: grid;
-  place-items: center;
-  width: 40px;
-  height: 40px;
-  border-radius: var(--radius-control);
-  background: var(--color-primary-soft);
-  color: var(--color-primary);
-}
 @media (max-width: 720px) {
   .core-library {
     padding: 16px 16px 8px;

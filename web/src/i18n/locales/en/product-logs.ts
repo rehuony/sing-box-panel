@@ -10,7 +10,9 @@ export const productLogs = {
   unavailable: 'Logs are unavailable. Reconnecting…',
   loading: 'Loading…',
   emptyCore: 'No core output has been captured.',
+  emptyCoreDescription: 'Core logs will appear here after sing-box starts.',
   empty: 'No matching records.',
+  emptyDescription: 'Try another keyword or change the log level.',
   live: 'Live',
   paused: 'Paused',
   connecting: 'Connecting',
@@ -20,8 +22,6 @@ export const productLogs = {
   time: 'Time',
   message: 'Message',
   source: 'Source',
-  pageSize: 'Page size',
-  perPage: '{{count}} per page',
   sources: {
     runtime: 'Service',
     panel: 'Panel',

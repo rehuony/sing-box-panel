@@ -874,22 +874,6 @@
   width: 100%;
   max-width: 20rem;
 }
-.subscription-keys__pagination {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding-top: 8px;
-}
-.subscription-keys__pagination > div {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.subscription-keys__pagination [data-slot='select-trigger'] {
-  background: transparent;
-  border: 0;
-  color: var(--color-text-muted);
-}
 .subscription-key-form,
 .subscription-key-details {
   display: grid;
@@ -1096,34 +1080,6 @@
 }
 .subscription-source-table td:last-child > [data-slot='button'] + [data-slot='button'] {
   margin-inline-start: 8px;
-}
-.subscription-pagination {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  flex: none;
-  gap: 16px;
-  padding-top: 8px;
-}
-.subscription-pagination > div {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-.subscription-pagination [data-slot='select-trigger'] {
-  border: none;
-  background: transparent;
-  color: var(--color-text-muted);
-  padding: 8px;
-}
-.subscription-pagination [aria-current] {
-  display: grid;
-  place-items: center;
-  width: 36px;
-  height: 36px;
-  background: var(--color-accent-soft);
-  color: var(--color-accent);
-  border-radius: var(--radius-control);
 }
 .subscription-node-grid {
   display: grid;

@@ -28,6 +28,7 @@ func TestForegroundPanelCanBeStoppedFromAnotherClient(t *testing.T) {
 	t.Setenv("INVOCATION_ID", "")
 	value, path := processSettings(t)
 	var err error
+	var initialConfiguration application.ConfigurationFile
 	for start := range 2 {
 		ctx, cancel := context.WithCancel(context.Background())
 		result := make(chan error, 1)
@@ -53,6 +54,30 @@ func TestForegroundPanelCanBeStoppedFromAnotherClient(t *testing.T) {
 		}
 		if status.SettingsPath != path || status.DataDir != value.DataDir || status.PID != os.Getpid() {
 			t.Fatalf("live status=%+v", status)
+		}
+		request, err := http.NewRequestWithContext(wait, http.MethodGet, "http://"+status.Listen+"/api/v1/config/file", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		request.Header.Set("Authorization", "Bearer "+value.Auth.Token)
+		response, err := http.DefaultClient.Do(request)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var file application.ConfigurationFile
+		decodeErr := json.NewDecoder(response.Body).Decode(&file)
+		response.Body.Close()
+		if response.StatusCode != http.StatusOK || decodeErr != nil || file.Content != "{}" || file.Revision != 1 ||
+			!file.SyntaxValid || file.CanonicalRevisionID == "" || file.UpdatedAt == nil {
+			cancel()
+			stop()
+			<-result
+			t.Fatalf("startup configuration: status=%d file=%+v err=%v", response.StatusCode, file, decodeErr)
+		}
+		if start == 0 {
+			initialConfiguration = file
+		} else if file.CanonicalRevisionID != initialConfiguration.CanonicalRevisionID || !file.UpdatedAt.Equal(*initialConfiguration.UpdatedAt) {
+			t.Fatal("restart rewrote the initialized configuration")
 		}
 		if err := Run(wait, path, buildinfo.Info{}, fstest.MapFS{}); err == nil || !strings.Contains(err.Error(), "owns this data directory") {
 			t.Fatalf("duplicate start error=%v", err)

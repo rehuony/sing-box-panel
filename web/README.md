@@ -66,6 +66,19 @@ the running server handles periodic refresh using the configured interval.
 Panel logs display ordinary events with no operation tracking dialogs. Core logs
 and telemetry use authenticated streams with bounded buffering and reconnect.
 
+Version, subscription source, node, channel, key, and panel-log lists use the
+shared `components/list-pagination` footer. It combines the page-size selector,
+circular previous/next buttons, current-page input, and read-only total.
+Enter or blur commits a page; Escape cancels an edit.
+Page numbers are clamped to the filtered list, and changing the tab, search or
+page size resets to the first page. The total follows the selected page size;
+empty lists display 1 / 1 with navigation disabled.
+Key and panel-log lists request server offsets and matching totals; arbitrary
+page jumps do not load all records into the browser. Counts and list items are
+read from the same database snapshot, and shrinking lists return to a valid page.
+Enabled buttons, selectors, menu options, tabs, and choice controls use a pointer
+cursor. Disabled controls retain unavailable feedback; text inputs remain editable.
+
 Tests inject an `ApiClient`, keeping pages independent from `fetch` while the
 HTTP client has focused tests for base-path routing, CSRF, problem details, and
 revision preconditions. The first visit selects Simplified Chinese for a
@@ -98,8 +111,8 @@ Discard changes resets the draft and continues to the requested destination.
 Subscription areas return to their initial lists after leaving. Reloading or
 closing the page uses the browser's native unsaved-changes prompt, and signing
 out requires confirmation while edits are pending. No draft or embedded
-configuration secrets are written to browser storage. An uninitialized file opens an empty editor and creates its first
-file version. The file API uses its own numeric compare-and-swap revision;
+configuration secrets are written to browser storage. Server startup persists an
+empty configuration if none exists. The file API uses its own numeric compare-and-swap revision;
 immutable canonical revisions remain internal runtime evidence.
 
 The interface retains its violet identity with floating frosted navigation and

@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/url"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"unicode"
 
@@ -13,6 +14,19 @@ import (
 	"github.com/rehuony/sing-box-panel/internal/coreartifact"
 	"github.com/rehuony/sing-box-panel/internal/store"
 )
+
+func optionalPageOffset(w http.ResponseWriter, request *http.Request) (int, bool) {
+	query := request.URL.Query()
+	if !query.Has("offset") {
+		return 0, true
+	}
+	value, err := strconv.ParseInt(query.Get("offset"), 10, 32)
+	if err != nil || value < 0 || query.Has("before_time") || query.Has("before_id") {
+		writeProblem(w, request, http.StatusBadRequest, "query_invalid", "Query invalid", "offset must be between 0 and 2147483647 and cannot be combined with a cursor.")
+		return 0, false
+	}
+	return int(value), true
+}
 
 func strictCoreQuery(w http.ResponseWriter, request *http.Request, allowed ...string) (url.Values, bool) {
 	if len(request.URL.RawQuery) > maximumCoreQueryBytes {

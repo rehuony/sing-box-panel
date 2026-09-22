@@ -3,6 +3,14 @@ import { describe, expect, it, vi } from 'vitest';
 import { createHttpApiClient } from '@/api/http-api-client';
 
 describe('createHttpApiClient subscription domain', () => {
+  it('requests numbered key pages and preserves the server total', async () => {
+    const page = { items: [], total: 27 };
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(new Response(JSON.stringify(page)));
+    const client = createHttpApiClient({ fetcher });
+    await expect(client.listSubscriptionTokens({ offset: 20, limit: 10 })).resolves.toEqual(page);
+    expect(fetcher).toHaveBeenCalledWith('/api/v1/subscription/tokens?offset=20&limit=10', expect.objectContaining({ method: 'GET' }));
+  });
+
   it('decodes UTF-8 preview bytes and sends isolated unsaved template input', async () => {
     const text = '{"outbounds":[{"tag":"香港"}]}';
     const encoded = btoa(String.fromCharCode(...new TextEncoder().encode(text)));
