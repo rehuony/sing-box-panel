@@ -275,6 +275,13 @@
 .schema-form__details[open] > summary {
   padding-bottom: 6px;
 }
+.schema-form__details[open] > .schema-form__grid {
+  width: auto;
+  margin-block: 6px 12px;
+  margin-inline-start: 4px;
+  padding-inline-start: 20px;
+  border-inline-start: 2px solid var(--color-rule-2);
+}
 .schema-form__map-header,
 .schema-form__map-entry {
   display: grid;
