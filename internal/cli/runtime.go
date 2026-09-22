@@ -5,7 +5,6 @@ package cli
 import (
 	"errors"
 	"fmt"
-	"strings"
 
 	"github.com/rehuony/sing-box-panel/internal/application"
 	"github.com/rehuony/sing-box-panel/internal/configuration"
@@ -15,8 +14,9 @@ import (
 )
 
 func newCoreEnableCommand(state *options, open openApplicationFunc) *cobra.Command {
+	var selection coreSelection
 	command := &cobra.Command{
-		Use:   "enable CORE_ARTIFACT_ID",
+		Use:   "enable VERSION",
 		Short: "Select an installed core while preserving its running or stopped state",
 		Long: `Check and select a version. A stopped core stays stopped; a running
 core is restarted with the selected version. The saved configuration is
@@ -25,23 +25,24 @@ snapshot of that configuration with "sing-box check" before the live process
 is replaced. A failed preflight leaves the running core and the saved file untouched.`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			coreID := strings.TrimSpace(args[0])
-			if coreID == "" {
-				return &Error{Kind: ErrorUsage, Code: "core_required", Message: "CORE_ARTIFACT_ID must not be blank; see core list"}
-			}
-			return enableCore(cmd, state, open, coreID)
+			return enableCore(cmd, state, open, args[0], selection)
 		},
 	}
+	configureCoreSelection(command, &selection, true, state, open)
 	return command
 }
 
-func enableCore(cmd *cobra.Command, state *options, open openApplicationFunc, coreID string) error {
+func enableCore(cmd *cobra.Command, state *options, open openApplicationFunc, version string, selection coreSelection) error {
 	instance, err := openApplication(cmd.Context(), state.settingsPath, open)
 	if err != nil {
 		return err
 	}
 	defer instance.Close()
-	result, err := instance.EnableCore(cmd.Context(), coreID)
+	artifact, err := resolveInstalledCore(cmd, instance, version, selection)
+	if err != nil {
+		return err
+	}
+	result, err := instance.EnableCore(cmd.Context(), artifact.ID)
 	if err != nil {
 		return classifyConfigurationRuntimeError("runtime_apply_failed", err)
 	}

@@ -3,8 +3,6 @@
 package httpapi
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"io"
 	"net/http"
@@ -22,7 +20,7 @@ func (handler *Handler) listCatalogAssets(w http.ResponseWriter, request *http.R
 	if !handler.requireCommands(w, request) {
 		return
 	}
-	query, ok := strictCoreQuery(w, request, "exact_version", "architecture", "variant", "installable")
+	query, ok := strictCoreQuery(w, request, "exact_version", "architecture", "variant")
 	if !ok {
 		return
 	}
@@ -32,15 +30,10 @@ func (handler *Handler) listCatalogAssets(w http.ResponseWriter, request *http.R
 		writeProblem(w, request, http.StatusBadRequest, "catalog_filter_invalid", "Catalog filter invalid", "The catalog filter contains an unsupported value.")
 		return
 	}
-	installable, ok := optionalStrictBool(w, request, query, "installable")
-	if !ok {
-		return
-	}
 	result, err := handler.commands.ListCatalogAssets(request.Context(), application.CatalogAssetFilter{
 		ExactVersion: query.Get("exact_version"),
 		Architecture: query.Get("architecture"),
 		Variant:      query.Get("variant"),
-		Installable:  installable,
 	})
 	if err != nil {
 		if application.IsCatalogNotInitialized(err) {
@@ -217,7 +210,7 @@ func (handler *Handler) installCore(w http.ResponseWriter, request *http.Request
 		writeProblem(w, request, http.StatusUnprocessableEntity, "core_install_invalid", "Core install request invalid", "asset_id must be a positive integer.")
 		return
 	}
-	assets, err := handler.commands.ListCatalogAssets(request.Context(), application.CatalogAssetFilter{Installable: true})
+	assets, err := handler.commands.ListCatalogAssets(request.Context(), application.CatalogAssetFilter{})
 	if err != nil {
 		if application.IsCatalogNotInitialized(err) {
 			writeProblem(w, request, http.StatusConflict, "catalog_not_initialized", "Catalog not initialized", "Refresh the core catalog before installing an asset.")
@@ -226,14 +219,14 @@ func (handler *Handler) installCore(w http.ResponseWriter, request *http.Request
 		writeProblem(w, request, http.StatusInternalServerError, "core_install_failed", "Core install failed", "The catalog could not be inspected before installation.")
 		return
 	}
-	installable := false
+	found := false
 	for _, asset := range assets.Assets {
 		if asset.AssetID == *input.AssetID {
-			installable = true
+			found = true
 			break
 		}
 	}
-	if !installable {
+	if !found {
 		writeProblem(w, request, http.StatusUnprocessableEntity, "core_install_invalid", "Core install request invalid", "The catalog asset cannot be installed.")
 		return
 	}
@@ -258,8 +251,8 @@ func (handler *Handler) importCore(w http.ResponseWriter, request *http.Request)
 		writeProblem(w, request, http.StatusUnsupportedMediaType, "core_import_media_type", "Core import media type invalid", "Use multipart/form-data with one archive file.")
 		return
 	}
-	fields := make(map[string]string, 5)
-	var stagedPath, actualDigest string
+	fields := make(map[string]string, 4)
+	var stagedPath string
 	defer func() {
 		if stagedPath != "" {
 			_ = os.Remove(stagedPath)
@@ -281,7 +274,7 @@ func (handler *Handler) importCore(w http.ResponseWriter, request *http.Request)
 				writeProblem(w, request, http.StatusUnprocessableEntity, "core_import_invalid", "Core import request invalid", "Exactly one archive file is required.")
 				return
 			}
-			stagedPath, actualDigest, err = handler.stageCoreUpload(part)
+			stagedPath, err = handler.stageCoreUpload(part)
 			_ = part.Close()
 			if err != nil {
 				writeProblem(w, request, http.StatusUnprocessableEntity, "core_import_invalid", "Core import request invalid", "The uploaded archive is empty, too large, or could not be staged privately.")
@@ -289,7 +282,7 @@ func (handler *Handler) importCore(w http.ResponseWriter, request *http.Request)
 			}
 			continue
 		}
-		if name != "source_description" && name != "sha256" && name != "exact_version" && name != "architecture" && name != "variant" {
+		if name != "source_description" && name != "exact_version" && name != "architecture" && name != "variant" {
 			_ = part.Close()
 			writeProblem(w, request, http.StatusUnprocessableEntity, "core_import_invalid", "Core import request invalid", "The multipart upload contains an unknown field.")
 			return
@@ -309,10 +302,10 @@ func (handler *Handler) importCore(w http.ResponseWriter, request *http.Request)
 	}
 	importRequest := application.CoreImportRequest{
 		SourcePath: stagedPath, SourceDescription: fields["source_description"],
-		SHA256: fields["sha256"], ExactVersion: fields["exact_version"],
+		ExactVersion: fields["exact_version"],
 		Architecture: fields["architecture"], Variant: fields["variant"], DeleteSource: true,
 	}
-	if stagedPath == "" || actualDigest != strings.ToLower(importRequest.SHA256) || !validCoreImportRequest(importRequest) {
+	if stagedPath == "" || !validCoreImportRequest(importRequest) {
 		writeProblem(w, request, http.StatusUnprocessableEntity, "core_import_invalid", "Core import request invalid", "The local core archive cannot be imported with the supplied metadata.")
 		return
 	}
@@ -324,21 +317,21 @@ func (handler *Handler) importCore(w http.ResponseWriter, request *http.Request)
 	writeJSON(w, http.StatusOK, result)
 }
 
-func (handler *Handler) stageCoreUpload(source io.Reader) (string, string, error) {
+func (handler *Handler) stageCoreUpload(source io.Reader) (string, error) {
 	directory := filepath.Join(handler.settings.DataDir, "imports")
 	if err := os.MkdirAll(directory, 0o700); err != nil {
-		return "", "", err
+		return "", err
 	}
 	if err := os.Chmod(directory, 0o700); err != nil {
-		return "", "", err
+		return "", err
 	}
 	info, err := os.Lstat(directory)
 	if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 || info.Mode().Perm() != 0o700 {
-		return "", "", errors.New("private import directory is unsafe")
+		return "", errors.New("private import directory is unsafe")
 	}
 	file, err := os.CreateTemp(directory, "core-upload-*")
 	if err != nil {
-		return "", "", err
+		return "", err
 	}
 	path := file.Name()
 	keep := false
@@ -349,19 +342,18 @@ func (handler *Handler) stageCoreUpload(source io.Reader) (string, string, error
 		}
 	}()
 	if err := file.Chmod(0o600); err != nil {
-		return "", "", err
+		return "", err
 	}
-	hash := sha256.New()
-	written, err := io.Copy(io.MultiWriter(file, hash), io.LimitReader(source, maximumCoreUploadBytes+1))
+	written, err := io.Copy(file, io.LimitReader(source, maximumCoreUploadBytes+1))
 	if err != nil || written < 1 || written > maximumCoreUploadBytes {
-		return "", "", errors.New("uploaded core archive size is invalid")
+		return "", errors.New("uploaded core archive size is invalid")
 	}
 	if err := file.Sync(); err != nil {
-		return "", "", err
+		return "", err
 	}
 	if err := file.Close(); err != nil {
-		return "", "", err
+		return "", err
 	}
 	keep = true
-	return path, hex.EncodeToString(hash.Sum(nil)), nil
+	return path, nil
 }

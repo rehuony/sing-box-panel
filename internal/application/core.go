@@ -40,7 +40,6 @@ type CatalogAssetFilter struct {
 	ExactVersion string
 	Architecture string
 	Variant      string
-	Installable  bool
 }
 
 type CatalogAssetList struct {
@@ -90,7 +89,6 @@ type CoreArtifactPage struct {
 type CoreImportRequest struct {
 	SourcePath        string
 	SourceDescription string
-	SHA256            string
 	ExactVersion      string
 	Architecture      string
 	Variant           string
@@ -230,11 +228,6 @@ func (application *Application) ListCatalogAssets(
 		}
 		if filter.Variant != "" && string(asset.Variant) != filter.Variant {
 			continue
-		}
-		if filter.Installable {
-			if _, err := asset.TrustedDigest(); err != nil {
-				continue
-			}
 		}
 		assets = append(assets, asset)
 	}

@@ -38,7 +38,6 @@ export const cores = {
     title: '导入压缩包',
     version: '版本号',
   },
-  installUnavailable: '下载校验信息不可用或不一致。',
   install: '安装',
   installed: { short: '已安装' },
   loading: '正在载入制品…',

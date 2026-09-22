@@ -3,7 +3,6 @@
 package artifactstore
 
 import (
-	"crypto/sha256"
 	"errors"
 	"io"
 	"os"
@@ -103,10 +102,6 @@ func publishFile(stagedPath, finalPath string, expectedMode os.FileMode) error {
 		if !errors.Is(err, os.ErrExist) {
 			return fail(StepPublish, "link", err)
 		}
-		equal, compareErr := equalFiles(stagedPath, finalPath)
-		if compareErr != nil || !equal {
-			return fail(StepPublish, "existing_mismatch", errors.Join(ErrCorruptStore, compareErr))
-		}
 	}
 	finalInfo, err := os.Lstat(finalPath)
 	if err != nil || !finalInfo.Mode().IsRegular() || finalInfo.Mode()&os.ModeSymlink != 0 ||
@@ -114,36 +109,6 @@ func publishFile(stagedPath, finalPath string, expectedMode os.FileMode) error {
 		return fail(StepPublish, "unsafe_file", errors.Join(ErrCorruptStore, err))
 	}
 	return nil
-}
-
-func equalFiles(leftPath, rightPath string) (bool, error) {
-	leftInfo, err := os.Lstat(leftPath)
-	if err != nil || !leftInfo.Mode().IsRegular() || leftInfo.Mode()&os.ModeSymlink != 0 {
-		return false, errors.Join(ErrCorruptStore, err)
-	}
-	left, err := os.Open(leftPath)
-	if err != nil {
-		return false, err
-	}
-	defer left.Close()
-	rightInfo, err := os.Lstat(rightPath)
-	if err != nil || !rightInfo.Mode().IsRegular() || rightInfo.Mode()&os.ModeSymlink != 0 || rightInfo.Size() != leftInfo.Size() {
-		return false, errors.Join(ErrCorruptStore, err)
-	}
-	right, err := os.Open(rightPath)
-	if err != nil {
-		return false, err
-	}
-	defer right.Close()
-	leftHash := sha256.New()
-	rightHash := sha256.New()
-	if _, err := io.Copy(leftHash, left); err != nil {
-		return false, err
-	}
-	if _, err := io.Copy(rightHash, right); err != nil {
-		return false, err
-	}
-	return string(leftHash.Sum(nil)) == string(rightHash.Sum(nil)), nil
 }
 
 func syncDirectory(path string) error {

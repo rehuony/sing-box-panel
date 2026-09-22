@@ -56,7 +56,122 @@
             "with_wireguard"
           ]
         }
-      }
+      },
+      "configuration_schema": "reviewed-1.13"
+    },
+    {
+      "version": "1.13.20",
+      "inbound_family": "1.13",
+      "upstream": {
+        "tag": "v1.13.20",
+        "commit": "56f91dfeabd6f4edbd437dfcc1e5b0ebc856b778",
+        "module_sum": "h1:2PfQuwVsV3rbvvOqoJOc1K2CY5xe5b9BL/TmIlGoCPE=",
+        "go_mod_sum": "h1:QkfLSGwPZB5adT5zF6PL6bPKRBVkS4tCIVv/zbM9WHA="
+      },
+      "profiles": {
+        "amd64": {
+          "asset_name": "sing-box-1.13.20-linux-amd64-musl.tar.gz",
+          "url": "https://github.com/SagerNet/sing-box/releases/download/v1.13.20/sing-box-1.13.20-linux-amd64-musl.tar.gz",
+          "sha256": "ea5c79f74d88db43b58debbd510aac03e8c9432ed6de51b34f67271dddb5d05e",
+          "size": 24760001,
+          "features": [
+            "badlinkname",
+            "tfogo_checklinkname0",
+            "with_acme",
+            "with_ccm",
+            "with_clash_api",
+            "with_dhcp",
+            "with_gvisor",
+            "with_musl",
+            "with_naive_outbound",
+            "with_ocm",
+            "with_quic",
+            "with_tailscale",
+            "with_utls",
+            "with_wireguard"
+          ]
+        },
+        "arm64": {
+          "asset_name": "sing-box-1.13.20-linux-arm64-musl.tar.gz",
+          "url": "https://github.com/SagerNet/sing-box/releases/download/v1.13.20/sing-box-1.13.20-linux-arm64-musl.tar.gz",
+          "sha256": "ab37923ee950695edf25733c10e7381b368ab9069617727be06ebd1b1b0e031a",
+          "size": 22741138,
+          "features": [
+            "badlinkname",
+            "tfogo_checklinkname0",
+            "with_acme",
+            "with_ccm",
+            "with_clash_api",
+            "with_dhcp",
+            "with_gvisor",
+            "with_musl",
+            "with_naive_outbound",
+            "with_ocm",
+            "with_quic",
+            "with_tailscale",
+            "with_utls",
+            "with_wireguard"
+          ]
+        }
+      },
+      "configuration_schema": "reviewed-1.13"
+    },
+    {
+      "version": "1.13.21",
+      "inbound_family": "1.13",
+      "upstream": {
+        "tag": "v1.13.21",
+        "commit": "628cb31ffa79cffffd34c2f9cde6cae044e4fc12",
+        "module_sum": "h1:XTr2SU9ONdnnWWtxWdSH2BQksGC6nF8pOqcFJpGdKvI=",
+        "go_mod_sum": "h1:gGuBVtf0W/5nZfVQev01s5UVS3gQAUIu+j+WBfZJ1LI="
+      },
+      "profiles": {
+        "amd64": {
+          "asset_name": "sing-box-1.13.21-linux-amd64-musl.tar.gz",
+          "url": "https://github.com/SagerNet/sing-box/releases/download/v1.13.21/sing-box-1.13.21-linux-amd64-musl.tar.gz",
+          "sha256": "8864abb3b72a6b404445a8c25183c79cfa44a80def0d775ac79578e74fb980e7",
+          "size": 24759892,
+          "features": [
+            "badlinkname",
+            "tfogo_checklinkname0",
+            "with_acme",
+            "with_ccm",
+            "with_clash_api",
+            "with_dhcp",
+            "with_gvisor",
+            "with_musl",
+            "with_naive_outbound",
+            "with_ocm",
+            "with_quic",
+            "with_tailscale",
+            "with_utls",
+            "with_wireguard"
+          ]
+        },
+        "arm64": {
+          "asset_name": "sing-box-1.13.21-linux-arm64-musl.tar.gz",
+          "url": "https://github.com/SagerNet/sing-box/releases/download/v1.13.21/sing-box-1.13.21-linux-arm64-musl.tar.gz",
+          "sha256": "5cf4d77d21101a6f20ada0debb8a137dbb380e2c1e503abc33e1d307216fa9c1",
+          "size": 22742494,
+          "features": [
+            "badlinkname",
+            "tfogo_checklinkname0",
+            "with_acme",
+            "with_ccm",
+            "with_clash_api",
+            "with_dhcp",
+            "with_gvisor",
+            "with_musl",
+            "with_naive_outbound",
+            "with_ocm",
+            "with_quic",
+            "with_tailscale",
+            "with_utls",
+            "with_wireguard"
+          ]
+        }
+      },
+      "configuration_schema": "reviewed-1.13"
     },
     {
       "version": "1.14.0",
@@ -120,7 +235,73 @@
             "with_wireguard"
           ]
         }
-      }
+      },
+      "configuration_schema": "native"
+    },
+    {
+      "version": "1.14.1",
+      "inbound_family": "1.14",
+      "upstream": {
+        "tag": "v1.14.1",
+        "commit": "1ac1a339cb1223e9c70eae14c44411c75033c02d",
+        "module_sum": "h1:LumpcrArE3cxXYxoKhNN4yOQq1TeaEEuKWHCokodO9M=",
+        "go_mod_sum": "h1:PrCZZGTXK5PtbNkAuQI4SiFHl0A3GJBpmqEbn39b8bQ="
+      },
+      "profiles": {
+        "amd64": {
+          "asset_name": "sing-box-1.14.1-linux-amd64-musl.tar.gz",
+          "url": "https://github.com/SagerNet/sing-box/releases/download/v1.14.1/sing-box-1.14.1-linux-amd64-musl.tar.gz",
+          "sha256": "b907365b154e4a7e3e40be15c2cd83433c0fa65c7dc736bdb1b5face2afe4501",
+          "size": 32504094,
+          "features": [
+            "badlinkname",
+            "tfogo_checklinkname0",
+            "with_acme",
+            "with_ccm",
+            "with_clash_api",
+            "with_cloudflared",
+            "with_dhcp",
+            "with_gvisor",
+            "with_musl",
+            "with_naive_outbound",
+            "with_ocm",
+            "with_openconnect",
+            "with_openvpn",
+            "with_quic",
+            "with_tailscale",
+            "with_usbip",
+            "with_utls",
+            "with_wireguard"
+          ]
+        },
+        "arm64": {
+          "asset_name": "sing-box-1.14.1-linux-arm64-musl.tar.gz",
+          "url": "https://github.com/SagerNet/sing-box/releases/download/v1.14.1/sing-box-1.14.1-linux-arm64-musl.tar.gz",
+          "sha256": "d94fc9704372ca2fa2854e54c20b406e4b8779b5ccdd0c557da90ea9344e9631",
+          "size": 29706406,
+          "features": [
+            "badlinkname",
+            "tfogo_checklinkname0",
+            "with_acme",
+            "with_ccm",
+            "with_clash_api",
+            "with_cloudflared",
+            "with_dhcp",
+            "with_gvisor",
+            "with_musl",
+            "with_naive_outbound",
+            "with_ocm",
+            "with_openconnect",
+            "with_openvpn",
+            "with_quic",
+            "with_tailscale",
+            "with_usbip",
+            "with_utls",
+            "with_wireguard"
+          ]
+        }
+      },
+      "configuration_schema": "native"
     }
   ]
 }

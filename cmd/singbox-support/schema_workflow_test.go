@@ -86,7 +86,7 @@ func stripXPanel(value any) any {
 	}
 }
 
-func TestCatalogDeclaresOnlyNativeSchemaVersions(t *testing.T) {
+func TestCatalogDistinguishesNativeAndReviewedSchemaSources(t *testing.T) {
 	root, err := repositoryRoot()
 	if err != nil {
 		t.Fatal(err)
@@ -95,13 +95,20 @@ func TestCatalogDeclaresOnlyNativeSchemaVersions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var schemaVersions []string
+	var schemaVersions, reviewedVersions []string
 	for _, version := range catalog.Versions {
+		if version.SchemaSource == singbox.SchemaSourceReviewed113 {
+			reviewedVersions = append(reviewedVersions, version.ExactVersion)
+		}
 		if singbox.SupportsNativeConfigurationSchema(version.ExactVersion) {
 			schemaVersions = append(schemaVersions, version.ExactVersion)
 		}
 	}
-	if len(schemaVersions) != 1 || schemaVersions[0] != "1.14.0" {
-		t.Fatalf("native schema versions = %v, want [1.14.0]", schemaVersions)
+	if !reflect.DeepEqual(reviewedVersions, []string{"1.13.19", "1.13.20", "1.13.21"}) {
+		t.Fatalf("reviewed versions = %v", reviewedVersions)
+	}
+	want := []string{"1.14.0", "1.14.1"}
+	if !reflect.DeepEqual(schemaVersions, want) {
+		t.Fatalf("native schema versions = %v, want %v", schemaVersions, want)
 	}
 }

@@ -42,7 +42,7 @@ func TestConfigurationRuntimePreflightPreservesProcessAndFencesChanges(t *testin
 			if err != nil {
 				t.Fatal(err)
 			}
-			saved, err := commands.SaveConfigurationFile(ctx, application.ConfigurationFileWrite{Revision: file.Revision, Content: `{"log":{"level":"debug"},"future":9007199254740993}`})
+			saved, err := commands.SaveConfigurationFile(ctx, application.ConfigurationFileWrite{Revision: file.Revision, Content: `{"log":{"level":"debug","output":"9007199254740993"}}`})
 			if err != nil {
 				t.Fatal(err)
 			}

@@ -1,44 +1,47 @@
 # Documentation
 
-These guides describe the supported sing-box-panel workflows. Start with the
-workflow you need to complete and follow links to component-level specifications
-when exact schemas or packaging details matter.
+Start with [Getting started](getting-started.md) to build, initialize and run the
+panel. The guides below describe the current supported behavior; exact API,
+Schema and packaging contracts remain beside their owning components.
 
-## Guide responsibilities
+## Using the panel
 
-Each guide has one primary responsibility. Keeping behavior in the owning
-guide avoids repeating details that can drift independently.
+| Task | Guide |
+| --- | --- |
+| Commands, settings, output formats and shell completion | [CLI reference](guides/cli.md) |
+| Install, import and select an exact version; inspect support and migration rules | [Core versions](guides/core-versions.md) |
+| Edit and validate configuration; operate, recover and observe the runtime | [Configuration and runtime](guides/configuration-and-runtime.md) |
+| Publish subscriptions, manage access, and inspect logs, metrics and traffic | [Subscriptions and observability](guides/subscriptions-and-observability.md) |
 
-| Guide | Primary reader | Describes | Primary source of truth |
-| --- | --- | --- | --- |
-| This index | All readers | Documentation ownership, navigation, and conflict resolution | Current `docs/` tree |
-| [Product design implementation](product-design.md) | Product reviewer or contributor | Accepted redesign, requirement traceability, implementation gaps and verification gates | Latest accepted design decisions; implementation status is explicitly tracked |
-| [Getting started](getting-started.md) | Contributor or local operator | Toolchain, initialization, settings paths, first revision, and systemd entry point | `go.mod`, `web/package.json`, `Makefile`, `internal/settings`, and CLI initialization |
-| [CLI reference](cli.md) | CLI user or automation author | Command hierarchy, I/O, operation results, exit codes, completion, and self-update | Cobra command tree under `internal/cli` and live `--help` output |
-| [Core versions](core-versions.md) | Core operator or capability maintainer | Catalog caching, artifact identity and lifecycle, version-scoped native Schema support, behavior families, native core contracts, and manual version onboarding | `internal/catalog`, `internal/coreartifact`, `internal/artifactstore`, `internal/singbox`, and `scripts/test/core-contract.sh` |
-| [Configuration and runtime](configuration-and-runtime.md) | Configuration or runtime operator | Single saved configuration, optional structured editing, panel settings, checked lifecycle and internal history | `internal/configuration`, configuration application services, `internal/runtime`, and activation storage |
-| [Subscriptions and observability](subscriptions-and-observability.md) | Subscription or operations administrator | Sources, manual nodes, keys, native channel policies, user-scoped grants, logs, metrics and traffic | Subscription application/store packages, `internal/subscription`, and `internal/runtime` |
-| [HTTP API and security](http-api-and-security.md) | API integrator or security reviewer | Routing, authentication, request boundaries, concurrency, and the Web trust boundary | `api/openapi.yaml`, `internal/httpapi`, and the Web HTTP client |
-| [Release process](release.md) | Release maintainer | Isolated packaging, signing, native smoke tests, Draft Release verification, and publication | `Makefile`, `scripts`, and GitHub Actions workflows |
-| [Repository architecture](architecture.md) | Contributor or maintainer | Dependency direction, package ownership, version capabilities, and test placement | Current imports, composition roots, directory layout, and colocated tests |
+## Developing and releasing
 
-## Authoritative component references
+| Task | Reference |
+| --- | --- |
+| Understand package ownership and dependency direction | [Architecture](development/architecture.md) |
+| Review product behavior and its verification coverage | [Product contract](development/architecture.md#product-contract) |
+| Integrate HTTP clients and understand authentication and trust boundaries | [HTTP API and security](development/architecture.md#http-api-and-security) |
+| Review a new sing-box release and regenerate support assets | [Maintaining support](guides/core-versions.md#maintaining-support) |
+| Build, sign, verify and publish a panel release | [Release process](development/release.md) |
 
-- [OpenAPI contract](../api/openapi.yaml) defines management HTTP operations,
-  request and response schemas, and problem details.
-- [Core support catalog](../internal/singbox/catalog.json) defines the exact
-  upstream release and official artifact identities supported by this build.
-- [Configuration Schema manifest](../internal/singbox/schemas/manifest.json)
-  records each version-scoped native Schema file and digest. Versions without a
-  manifest entry remain fully editable as JSON and do not gain a synthetic
-  Schema.
-- [systemd packaging](../systemd/README.md) defines supported service
-  layouts, ownership, installation, and hardening.
-- [Project scripts](../scripts/README.md) defines the installer, release
-  script inputs, local script checks, and generated release files.
-- [Web application](../web/README.md) defines frontend ownership, pnpm commands,
-  embedding, and API-client boundaries.
+Version-specific review evidence belongs in the core guide, including the
+[1.13 review](guides/core-versions.md#113-configuration-review). Generated field
+inventories live beside their Schema source rather than as separate guides.
 
-The guides summarize these contracts without replacing them. When a guide and
-an authoritative component reference disagree, treat the component reference
-and executable validation as the source of truth and update the guide.
+## Sources of truth
+
+| Component | Authoritative source |
+| --- | --- |
+| Toolchain and verification commands | [`go.mod`](../go.mod), [`web/package.json`](../web/package.json), [`Makefile`](../Makefile) |
+| CLI behavior | Cobra commands under [`internal/cli`](../internal/cli) and live `--help` |
+| HTTP operations, payloads and problem details | [`api/openapi.yaml`](../api/openapi.yaml) |
+| Exact core releases and official artifact pins | [`internal/singbox/catalog.json`](../internal/singbox/catalog.json) |
+| Exact-version Schema sources and digests | [Schema manifest](../internal/singbox/schemas/manifest.json) |
+| Reviewed 1.13 fields and upstream provenance | [Source definition](../cmd/singbox-support/schema-sources/1.13.json), [generated field table](../cmd/singbox-support/schema-sources/1.13-fields.csv) |
+| Service layouts, ownership and hardening | [systemd packaging](../systemd/README.md) |
+| Installer, packaging scripts and generated release files | [Project scripts](../scripts/README.md) |
+| Frontend ownership, embedding and HTTP client boundaries | [Web application](../web/README.md) |
+
+Keep each behavior in its owning guide and link to it from other guides.
+When a summary conflicts with an authoritative contract or executable validation,
+resolve the discrepancy there and update the summary. Keep generated outputs in
+their component directories and regenerate them through the documented workflow.

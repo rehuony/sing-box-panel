@@ -20,7 +20,7 @@ func convert(t *testing.T, document []byte, publicHost string) (subscription.Inb
 	)
 }
 
-func TestInbound11319ContractRegistry(t *testing.T) {
+func TestInbound113ContractRegistry(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
 		typeID string
@@ -40,27 +40,29 @@ func TestInbound11319ContractRegistry(t *testing.T) {
 		{typeID: "hysteria2", extra: `,"users":[{"name":"one","password":"pass"}],"tls":{"enabled":true}`},
 		{typeID: "anytls", extra: `,"users":[{"name":"one","password":"pass"}],"tls":{"enabled":true}`},
 	}
-	for _, test := range tests {
-		t.Run(test.typeID, func(t *testing.T) {
-			document := []byte(fmt.Sprintf(`{"inbounds":[{"type":%q,"tag":%q,"listen":"::","listen_port":443%s}]}`,
-				test.typeID, test.typeID, test.extra))
-			result, err := convert(t, document, "public.example")
-			if err != nil || len(result.Nodes) != 1 || len(result.Diagnostics) != 0 {
-				t.Fatalf("nodes=%+v diagnostics=%+v err=%v", result.Nodes, result.Diagnostics, err)
-			}
-			if result.Nodes[0].Key == "" || result.Nodes[0].SourceID != "local" ||
-				!bytes.Contains(result.Nodes[0].Outbound, []byte(`"server":"public.example"`)) {
-				t.Fatalf("node=%+v", result.Nodes[0])
-			}
-			if bytes.Contains(result.Nodes[0].Outbound, []byte("private-key")) ||
-				bytes.Contains(result.Nodes[0].Outbound, []byte("certificate_path")) ||
-				bytes.Contains(result.Nodes[0].Outbound, []byte("acme")) {
-				t.Fatalf("server TLS material leaked: %s", result.Nodes[0].Outbound)
-			}
-			if _, err := subscription.RenderNodes(result.Nodes, subscription.RenderChannel{Format: subscription.RenderFormatSingBox}); err != nil {
-				t.Fatalf("RenderNodes: %v", err)
-			}
-		})
+	for _, version := range reviewed113Versions {
+		for _, test := range tests {
+			t.Run(version+"/"+test.typeID, func(t *testing.T) {
+				document := []byte(fmt.Sprintf(`{"inbounds":[{"type":%q,"tag":%q,"listen":"::","listen_port":443%s}]}`,
+					test.typeID, test.typeID, test.extra))
+				result, err := NewInboundRegistry().Convert(version, subscription.InboundRequest{FinalStartupJSON: document, PublicHost: "public.example"})
+				if err != nil || len(result.Nodes) != 1 || len(result.Diagnostics) != 0 {
+					t.Fatalf("nodes=%+v diagnostics=%+v err=%v", result.Nodes, result.Diagnostics, err)
+				}
+				if result.Nodes[0].Key == "" || result.Nodes[0].SourceID != "local" ||
+					!bytes.Contains(result.Nodes[0].Outbound, []byte(`"server":"public.example"`)) {
+					t.Fatalf("node=%+v", result.Nodes[0])
+				}
+				if bytes.Contains(result.Nodes[0].Outbound, []byte("private-key")) ||
+					bytes.Contains(result.Nodes[0].Outbound, []byte("certificate_path")) ||
+					bytes.Contains(result.Nodes[0].Outbound, []byte("acme")) {
+					t.Fatalf("server TLS material leaked: %s", result.Nodes[0].Outbound)
+				}
+				if _, err := subscription.RenderNodes(result.Nodes, subscription.RenderChannel{Format: subscription.RenderFormatSingBox}); err != nil {
+					t.Fatalf("RenderNodes: %v", err)
+				}
+			})
+		}
 	}
 }
 

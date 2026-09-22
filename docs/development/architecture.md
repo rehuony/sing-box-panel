@@ -1,27 +1,123 @@
-# Product design implementation contract
+# Repository architecture
 
-This document tracks the accepted product redesign and its implementation. It is
+This guide owns package boundaries, product requirements, and HTTP trust boundaries.
+Operator workflows live in the [documentation index](../README.md); exact HTTP
+operations and schemas remain in [OpenAPI](../../api/openapi.yaml).
+
+- [Dependency direction](#dependency-direction) and [package ownership](#domain-package-layout)
+- [Version support](#adding-a-sing-box-version) and [test ownership](#test-ownership)
+- [Product contract](#product-contract)
+- [HTTP API and security](#http-api-and-security)
+
+## Dependency direction
+
+The backend keeps one main package per domain and introduces another package
+only for a concrete dependency or side-effect boundary:
+
+```text
+configuration --\
+subscription ---+--> singbox --> application --> cli / httpapi / server
+coreartifact ---/
+
+catalog / artifactstore / runtime / store --> application / server
+release --> selfupdate / release commands
+```
+
+`configuration` and `subscription` never import `singbox`. Transport packages
+translate input and output but do not own use-case rules. `application`
+composes use cases and stable package contracts. Infrastructure packages own
+process, network, filesystem, and database effects. The web client depends on
+the documented HTTP contract rather than Go implementation details.
+
+## Domain package layout
+
+A cohesive domain stays in one package and uses file prefixes to make ownership
+visible. File length alone is not a reason to create another package.
+
+- `internal/settings` owns the shared panel settings file, validation, defaults,
+  atomic replacement and writer locking. `application` owns recovery when a
+  Web save also updates sing-box protocol identity.
+- `internal/configuration` owns strict, lossless sing-box JSON parsing and
+  canonical serialization. `store` retains immutable
+  snapshots as runtime evidence and initializes the current `schema.sql` directly.
+- `internal/subscription` owns documents, normalized nodes, source parsing and
+  fetching, rendering, and inbound conversion contracts. Files use
+  `document_*`, `node_*`, `source_*`, `render_*`, and `inbound_*` prefixes.
+- `internal/singbox` owns the reviewed support catalog, version-scoped native and reviewed
+  Schema assets, inbound conversion, and behavior-family dispatch. Exact
+  versions exist as catalog data rather than forwarding packages.
+- `internal/runtime` owns managed processes and its restricted Clash API
+  monitoring client.
+- `internal/application` owns use cases and runtime identity resolution backed
+  by persistent state.
+- `internal/server` owns server composition, serialized runtime controls, bounded recovery,
+  and periodic subscription refresh.
+- `internal/panelprocess` owns private local process control; it reuses the
+  server's lifetime and lease and does not launch background processes.
+- `internal/installation` inventories and cleans one selected instance's
+  persistent paths. Database-directory locks in `internal/store` exclude
+  cleanup while the panel or another CLI command owns a database connection.
+- `internal/release` owns release-version validation and signatures;
+  `internal/selfupdate` remains the download and atomic-replacement boundary.
+
+Packages such as `store`, `catalog`, `artifactstore`, `coreartifact`, and
+`runtime` remain separate because they represent durable dependency or
+side-effect boundaries. The top-level `systemd` resource package remains
+separate because Go embedding cannot read files from a parent directory.
+
+## Adding a sing-box version
+
+Follow [Maintaining support](../guides/core-versions.md#maintaining-support)
+for exact-version review, source and artifact pins, Schema generation and native
+Linux verification. Runtime eligibility, configuration Schema and inbound
+conversion are separate capabilities; unreviewed versions never inherit nearby
+capabilities.
+
+Do not add exact-version forwarding directories. Version identity belongs in
+the catalog; reusable behavior belongs in private `singbox` family functions.
+
+## Test ownership
+
+- Go unit, integration, fuzz, and package contract tests live beside their
+  production package. Shared test helpers remain in that package's
+  `test_helpers_test.go`.
+- sing-box behavior differences use catalog- or family-driven table tests in
+  `internal/singbox`. The real-binary contract is
+  `internal/singbox/core_contract_test.go` and runs in dedicated native Linux
+  CI jobs.
+- React tests mirror the `web/src` ownership structure. API client tests are
+  split by the same contract domains as the implementation.
+- External inputs must skip in ordinary local tests and fail when their
+  dedicated job requires them; do not recreate a centralized Docker E2E suite.
+
+When moving a responsibility, move its focused tests and update callers in the
+same change. Generated contracts and public compatibility boundaries must be
+updated only through their designated workflow.
+
+## Product contract
+
+This section records the accepted product behavior and its implementation. It is
 the product-behavior reference; OpenAPI and executable tests remain authoritative
 for the implemented API. The matrix records the delivered behavior; the validation
 record distinguishes automated and browser evidence from native-runtime limits.
 
-## Accepted baseline and precedence
+### Accepted baseline and precedence
 
 The accepted design is [sing-box-panel in Figma](https://www.figma.com/design/ppQe6qWogFBlM2gEhxAoEh/sing-box-panel).
 The final review contains 15 formal screens, 402 components and 46 local overlays.
 Earlier references to 16 screens, three log tabs, six settings categories, user
 management, draft/history workflows or generic node-origin badges are superseded.
-The two design conversations are `01a0a998-4f14-7243-b0fc-db7074ed390e` and
-`01a0b44b-e100-7001-a96d-4950db6e476d`. The implementation authorization explicitly
-includes frontend, backend, contracts and persistence. Development storage has
-no automatic upgrade path; authentication and artifact guarantees remain enforced.
+Development storage has
+no automatic upgrade path. Authentication, checked configuration snapshots and
+panel release signatures remain enforced; the core installation trust boundary
+is described in [Core versions](../guides/core-versions.md#checks-and-recorded-hashes).
 
 The formal screens are login, dashboard, installed/available versions, sources,
 manual nodes, source detail, subscription keys, channels, channel detail, visual
 configuration, JSON configuration, panel settings, core logs and panel logs.
 Detail tabs and feedback are local states, not duplicate screens.
 
-## Requirement → screen → contract → implementation → verification
+### Requirement → screen → contract → implementation → verification
 
 All rows below describe the current implementation. The verification workflows
 below exercise the corresponding source, API and runtime boundaries.
@@ -37,7 +133,7 @@ below exercise the corresponding source, API and runtime boundaries.
 | DASH-02 | 24h runtime history in 48 equal segments; running/failed/stopped/unknown with legend, no yellow state | Persistent runtime history | Restart persistence and unknown periods | implemented |
 | CORE-01 | Installed/available fill-height lists, inline enable/download with persistent selection; source and capabilities retained; 5/10/50 pagination | Catalog, artifacts, runtime switch | Paging and scrolling; invalid switch retains runtime; artifact verification | implemented |
 | CORE-02 | Filter assets by deployed OS/CPU architecture; no architecture badge or selector, never browser architecture or unknown→ARM64 | Platform detection, catalog/cache, imported artifact inspection | Cross-architecture assets and rate-limit/cache behavior | implemented |
-| CFG-01 | One editable config.json, 13 native root sections with flat label/control rows, DNS/route sub-tabs and inline list editing; advanced JSON; floating icon tools and find/replace with case, word and regex matching; preserve unknown fields and numbers | Canonical saved text, version-scoped schema, validated startup artifacts | Lossless round trip; invalid JSON can save, cannot start | implemented |
+| CFG-01 | One editable config.json, version-scoped root sections (13 in 1.14) with flat label/control rows, DNS/route sub-tabs and inline list editing; advanced JSON; floating icon tools and find/replace with case, word and regex matching; preserve unknown fields and numbers | Canonical saved text, version-scoped schema, validated startup artifacts | Lossless round trip; invalid JSON can save, cannot start | implemented |
 | CFG-02 | Save independent of running process; loaded/dirty/restart-required/start-pending states; start/restart checks saved file before replacement | Saved-file identity vs loaded immutable artifact; CAS and runtime transitions | Concurrent edits, failed validation preserves running process, restart loads saved bytes | implemented |
 | SUB-01 | Sources/keys/channels only; source and channel names are display-only; toolbar refresh then add; URL-only source creation; source edit/refresh row actions without deletion; stable source-detail navigation across node/settings tabs | Source API, SSRF-safe acquisition and source versions | Source creation/edit/refresh failure retains last success; no single-node source path | implemented |
 | NODE-01 | Local publishable inbounds and manual nodes in one manual collection; real name, actual source badge, system/imported badge after the manual collection badge, protocol/endpoint/TLS/Reality/SNI; configuration opens only from the corner details action; hidden cards omit the corner visibility icon and restore visibility through their clickable overlay | Node catalog/provenance and inbound-to-client conversion | No automatic core outbound/TUN/redirect/tproxy publishing; no invented prefixes; card clicks do not open configuration; hidden overlays restore visibility | implemented |
@@ -60,16 +156,16 @@ below exercise the corresponding source, API and runtime boundaries.
 | LOG-01 | Real-time core raw logs only; timestamp muted, full message matches level; all native levels, file/date/level selectors consistent and right aligned; one top-right status pill toggles live output and pause, without a separate icon or surrounding container | Core log file/tail API | Real file reading/stream/reconnect/pause/filter, independent scroll | implemented |
 | LOG-02 | Panel log shows operation outcomes and runtime events; time, message, log level and source only | Unified event query with sanitized operation outcomes | Consistent displayed/filter levels; pagination/filter | implemented |
 
-## Implementation and evidence map
+### Implementation and evidence map
 
 | Requirements | Owning implementation and guide | Focused evidence |
 | --- | --- | --- |
 | UI-01/02, AUTH-01, RUN-01 | `web/src/components/app-shell`, shared `components/ui`, `pages/login-page`; existing HTTP session and origin protections | App-shell, route and login tests; 18 desktop layout cases; real centered dialogs, Toast, focus and return journeys |
-| DASH-01/02 | `pages/dashboard-page`, `internal/hostmetrics`, `httpapi/metrics_stream.go`, persisted runtime transitions; [observability guide](subscriptions-and-observability.md) | Metrics sampling/stream tests, chart and timeline tests, browser missing-data and layout review |
-| CORE-01/02 | `pages/cores-page`, application core commands and runtime preflight; [core guide](core-versions.md) | `httpapi/core_enable_test.go`, artifact verification and runtime tests; inline action and platform UI tests |
-| CFG-01/02 | `application/configuration_file.go`, `store/configuration_file.go`, `server/configuration_runtime.go`, visual/JSON editors; [configuration guide](configuration-and-runtime.md) | File CAS and lossless tests; `server/configuration_runtime_test.go`; real HTTP browser invalid-text save/reload; schema form union/unknown-field round trips |
+| DASH-01/02 | `pages/dashboard-page`, `internal/hostmetrics`, `httpapi/metrics_stream.go`, persisted runtime transitions; [observability guide](../guides/subscriptions-and-observability.md) | Metrics sampling/stream tests, chart and timeline tests, browser missing-data and layout review |
+| CORE-01/02 | `pages/cores-page`, application core commands and runtime preflight; [core guide](../guides/core-versions.md) | `httpapi/core_enable_test.go`, artifact verification and runtime tests; inline action and platform UI tests |
+| CFG-01/02 | `application/configuration_file.go`, `store/configuration_file.go`, `server/configuration_runtime.go`, visual/JSON editors; [configuration guide](../guides/configuration-and-runtime.md) | File CAS and lossless tests; `server/configuration_runtime_test.go`; real HTTP browser invalid-text save/reload; schema form union/unknown-field round trips |
 | SUB-01, NODE-01–04 | Source/node services, `singbox/inbound_convert.go`, `subscription/manual_node.go`, node editor/grid | Source refresh tests; `httpapi/subscription_nodes_test.go`, `manual_node_validation_test.go`, 1.14 inbound/TLS tests; browser hide/restore and conditional node form |
-| KEY-01 | Store key accounting, public delivery and key panel; [subscription guide](subscriptions-and-observability.md) | 24-request concurrency tests, cross-channel quota HTTP tests, expiry/revocation/304/failure accounting, explicit secret-read authorization, persistence and UI tests |
+| KEY-01 | Store key accounting, public delivery and key panel; [subscription guide](../guides/subscriptions-and-observability.md) | 24-request concurrency tests, cross-channel quota HTTP tests, expiry/revocation/304/failure accounting, explicit secret-read authorization, persistence and UI tests |
 | CHAN-01–03, RULE-01–03, TPL-01 | `subscription/channel_*`, channel policy API, channel workspace and nested editors | Native renderer and URL tests; `httpapi/subscription_channel_policy_test.go`; browser persisted group/reference reload, nested return, preview/copy and source visibility |
 | SET-01–05 | `application/panel_settings.go`, `protocol_identity.go`, `store/panel_settings.go`, `pages/panel-settings-page`, `theme/appearance.ts` | CAS/redaction/validation/atomic identity tests; appearance contrast/bounds tests; browser preview, category retention, save/reload, leaving restores saved appearance |
 | LOG-01/02 | `internal/corelogs`, runtime output observer, `store/panel_logs.go`, product log API and two log panels | File/rotation/custom-output tests; operation logs/cursors and authenticated file API tests; frontend pause/filter and log rendering tests |
@@ -78,7 +174,7 @@ Paths in this table are relative to `internal/` or `web/src/` where the context 
 unambiguous. API details remain in `api/openapi.yaml`; the owning guides describe
 persistence, security boundaries and runtime semantics.
 
-## Persistence and preserved guarantees
+### Persistence and preserved guarantees
 
 The current `internal/store/schema.sql` creates the editable configuration,
 immutable runtime evidence, subscription state and operational records directly.
@@ -87,7 +183,7 @@ markers for interrupted settings/identity updates. Old storage formats require
 a fresh development data directory and are never converted on startup.
 
 Authenticated management, CSRF/origin controls, safe source acquisition,
-immutable checked startup artifacts and verified core identities remain in place.
+immutable checked startup artifacts and exact core-version checks remain in place.
 Core enable checks the deployed platform before selection; runtime preflight
 checks the selected file before replacing the current process. Settings and
 configuration writes use optimistic concurrency. Protocol identity updates and
@@ -99,7 +195,7 @@ Internal immutable evidence remains for checked startup and runtime recovery. Un
 lexemes survive editing. Neither hide nor delete-publication actions delete an
 underlying core inbound.
 
-## Verification workflows
+### Verification workflows
 
 - `make check` runs Go tests and vet, Web lint/tests/build, OpenAPI coverage,
   generated support checks, shell syntax checks and installer scenarios.
@@ -117,7 +213,7 @@ underlying core inbound.
   settings persistence, notifications and observed runtime controls. Demo fixtures
   do not establish native process behavior.
 
-## Deliberate distinctions and validation limits
+### Deliberate distinctions and validation limits
 
 - An invalid **core configuration** can be saved as text, but cannot launch.
   An invalid **channel template** cannot be saved as an active template.
@@ -138,3 +234,141 @@ underlying core inbound.
 Demo outcomes are explicitly separate from production results. Production
 feedback follows completed operations and observed runtime state rather than hardcoded
 Figma samples.
+
+## HTTP API and security
+
+The HTTP server delivers the embedded Web application, the authenticated
+management API, and token-authenticated subscription output. Its default
+listener is loopback-only.
+
+### API contract and routing
+
+The management API is rooted at `/api/v1`. The authoritative operation,
+schema, status-code, and problem-detail contract is
+[`api/openapi.yaml`](../../api/openapi.yaml); this guide describes its trust
+boundaries without duplicating the endpoint inventory.
+
+`server.base_path` prefixes the Web application, management API, and `/sub`
+routes. It must be empty or a normalized path without a trailing slash. Browser
+code uses same-origin paths and depends only on the HTTP contract.
+
+Configuration operations address one saved JSON document. Compilation binds an
+immutable installed core artifact, not a naked version string. The server
+checks the stored installation, safe executable file and exact reported version,
+then asks that
+binary to validate the immutable configuration bytes. JSON Schema and inbound
+conversion availability are independent optional capabilities.
+
+`GET /api/v1/system/status` reports the configuration revision and binary
+evidence associated with the live artifact or, when stopped, the applied
+bundle. It never selects the newest catalog version or a nearby release.
+
+### Management authentication
+
+The shared settings file supplies the management token. Web replacements update
+`auth.token` in that file; CLI or manual token edits are seen at the next
+authentication boundary and invalidate existing sessions. API clients may send the
+current token as a Bearer credential. Browser login exchanges it for an HttpOnly,
+SameSite session cookie and a CSRF token.
+
+Replacement tokens must contain 32–8192 UTF-8 bytes, without leading or trailing
+Unicode whitespace or BOM, NUL, CR, or LF. Invalid replacements leave the current
+credential and sessions intact. The login JSON body is bounded to 64 KiB so every
+accepted token fits even when JSON encoding escapes its characters.
+
+Cookie-authenticated state changes require both the session CSRF token and a
+same-origin request. Login failures are rate-limited by the direct peer
+address; forwarded-IP headers are not trusted. CORS is disabled by default.
+
+The generated listener is `127.0.0.1:3000`. Before exposing the service beyond
+loopback, place it behind a reviewed HTTPS reverse proxy, set
+`server.external_origin` to its normalized public origin, and set
+`auth.secure_cookie` so the browser session cookie is HTTPS-only. CSRF origin
+checks use this explicit value and never trust `Forwarded` or
+`X-Forwarded-*` headers. Do not treat the management token as a public
+subscription token.
+
+### Request and download protections
+
+The server applies bounded request bodies, strict JSON decoding where the
+contract requires it, constant-time token comparison, security response
+headers, and secret-redacting event metadata.
+
+Network downloads use explicit host and resolved-address checks, bounded
+responses, timeouts, and restricted redirects. Browser core import accepts one
+bounded multipart file and stages it in a
+mode-0700 private data-directory location rather than accepting a server-local
+path. Archive verification rejects path traversal, symbolic links, non-regular
+entries, duplicate binaries, excessive expansion, and non-canonical gzip/tar
+input. See [Core versions](../guides/core-versions.md#checks-and-recorded-hashes)
+for the artifact trust boundary.
+
+Third-party subscription refresh validates DNS and every redirect destination
+against the configured source-network policy. Public subscription requests use
+only persisted successful source versions and never fetch an upstream URL.
+
+Keep the following data private:
+
+- settings files and management tokens;
+- exported sing-box configuration;
+- subscription token plaintext and raw source versions; and
+- diagnostic files that may contain paths or operator-provided values.
+
+Use file or stdin inputs for secrets instead of command arguments.
+
+### Concurrency and immutable evidence
+
+Configuration writes use revision preconditions. The editable file API accepts
+`{ revision, content }` in the `PUT /api/v1/config/file` JSON body. A stale
+revision receives `412 Precondition Failed`
+and must be reviewed rather than overwritten automatically. Channel, source,
+user-grant, and token mutations use their documented compare-and-swap or
+lifecycle preconditions.
+
+Compilation stores the raw JSON bytes together with the configuration revision,
+core installation, exact version, configuration digest and recorded core hashes.
+Apply and lifecycle operations revalidate configuration, safe files and exact
+version; recorded core hashes are informational and are not compared against
+the executable. Uploads have no expected `sha256` parameter. A candidate that
+fails the selected binary's `sing-box check` never becomes ready.
+
+Public subscription responses are rendered from one consistency read of the
+applied local startup artifact, current enabled source versions, channel and key.
+User-bound keys additionally require an enabled user and exact grants;
+independent keys use channel publication policies. Response bodies are not frozen
+into activation bundles.
+
+Management mutations return HTTP 200 after completion, with the resulting core
+artifact, catalog summary, refreshed source version, checked startup artifact or
+runtime status. The browser keeps controls pending until that response and verifies
+process identity for runtime changes. Errors use problem details and leave the
+previous usable state intact where the operation has not committed.
+
+Integrations consume the completed resource response directly. Runtime snapshots
+are internal evidence; there is no separate configuration-history write or restore API.
+
+### Web presentation boundary
+
+HTML responses generate a unique style nonce, place it in the page metadata and
+include it in `style-src`. CodeMirror uses that nonce for its generated styles.
+HTML is served with `Cache-Control: no-store`; script policy remains self-only,
+without unsafe-inline or unsafe-eval. Ordinary notifications dismiss after three
+seconds (hover/focus pauses the accessible toast timer).
+
+The React application contains its own trusted structured controls. It does
+not load Schema-provided scripts, components, templates, or remote resources.
+Changing the selected artifact clears the previous Schema state before
+resolving the new exact version.
+
+The editable configuration response includes authoritative `content` text,
+`revision` and `syntax_valid`. The Web editor uses a lossless codec, preserves
+unshown fields, and saves the complete text with the current body revision.
+The version selector contains compatible installed core versions and does not
+enable or replace a core when its selection changes. Exact versions without a
+committed native or reviewed Schema use the Advanced editor and show the reason. With no installed
+version, Advanced JSON saving remains available but visual editing and binary
+validation require the operator to install one.
+A `412` response preserves the local draft for review.
+
+See the [Web application reference](../../web/README.md) for frontend ownership
+and build behavior.

@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 )
 
@@ -33,18 +32,18 @@ func TestCurrentLinkSwitchAndValidation(t *testing.T) {
 		if err := os.WriteFile(binary, []byte(content), 0700); err != nil {
 			t.Fatal(err)
 		}
-		if err := artifacts.SetCurrent(ctx, binary, strings.Repeat("a", 64)); err == nil {
-			t.Fatal("accepted wrong digest")
+		if err := artifacts.SetCurrent(ctx, filepath.Dir(binary)); err == nil {
+			t.Fatal("accepted directory instead of executable")
 		}
 		if previous != "" {
 			if target, err := filepath.EvalSymlinks(current); err != nil || target != previous {
 				t.Fatalf("failed selection changed link: %q %v", target, err)
 			}
 		}
-		if err := artifacts.SetCurrent(ctx, binary, digest); err != nil {
+		if err := artifacts.SetCurrent(ctx, binary); err != nil {
 			t.Fatal(err)
 		}
-		if err := artifacts.SetCurrent(ctx, binary, digest); err != nil {
+		if err := artifacts.SetCurrent(ctx, binary); err != nil {
 			t.Fatal(err)
 		}
 		if target, err := filepath.EvalSymlinks(current); err != nil || target != binary {
@@ -55,10 +54,10 @@ func TestCurrentLinkSwitchAndValidation(t *testing.T) {
 		}
 		previous = binary
 	}
-	if err := artifacts.SetCurrent(ctx, "/outside/sing-box", strings.Repeat("a", 64)); err == nil {
+	if err := artifacts.SetCurrent(ctx, "/outside/sing-box"); err == nil {
 		t.Fatal("accepted external binary")
 	}
-	if err := artifacts.SetCurrent(ctx, "", ""); err != nil {
+	if err := artifacts.SetCurrent(ctx, ""); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Lstat(current); !os.IsNotExist(err) {
@@ -67,7 +66,7 @@ func TestCurrentLinkSwitchAndValidation(t *testing.T) {
 	if err := os.WriteFile(current, []byte("operator file"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	if err := artifacts.SetCurrent(ctx, "", ""); err == nil {
+	if err := artifacts.SetCurrent(ctx, ""); err == nil {
 		t.Fatal("removed an unrelated regular file")
 	}
 }

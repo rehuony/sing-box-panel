@@ -99,10 +99,6 @@ func validCoreImportRequest(request application.CoreImportRequest) bool {
 	if !filepath.IsAbs(request.SourcePath) || filepath.Clean(request.SourcePath) != request.SourcePath {
 		return false
 	}
-	digest, err := coreartifact.ParseSHA256(request.SHA256)
-	if err != nil || digest.IsZero() {
-		return false
-	}
 	version, err := coreartifact.ParseExactVersion(request.ExactVersion)
 	if err != nil || version.IsZero() {
 		return false
@@ -115,10 +111,9 @@ func validCoreImportRequest(request application.CoreImportRequest) bool {
 	if variant == "" {
 		variant = coreartifact.VariantMusl
 	}
-	source, err := coreartifact.NewUserSource(request.SourceDescription)
+	_, err = coreartifact.NewUserSource(request.SourceDescription)
 	if err != nil {
 		return false
 	}
-	_, err = coreartifact.NewIdentity(source, digest, coreartifact.OperatingSystemLinux, architecture, variant, version)
-	return err == nil
+	return variant == coreartifact.VariantMusl
 }

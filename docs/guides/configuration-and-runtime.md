@@ -33,10 +33,10 @@ The minimal document is:
 {}
 ```
 
-The document is the executable sing-box configuration. Top-level keys follow
-sing-box concepts (`log`, `dns`, `ntp`, `certificate`, `endpoints`, `inbounds`,
-`outbounds`, `route`, `services`, `certificate_providers`, `http_clients`,
-`network_namespaces`, and `experimental`). The panel does not add
+The document is the executable sing-box configuration. Available top-level keys
+depend on the selected exact version. The 1.14 contract includes `log`, `dns`,
+`ntp`, `certificate`, `endpoints`, `inbounds`, `outbounds`, `route`, `services`,
+`certificate_providers`, `http_clients`, `network_namespaces`, and `experimental`. The panel does not add
 `_panel`, disabled-item markers, or another storage envelope to these bytes.
 
 The Web editor manages this document through `GET/PUT /api/v1/config/file`.
@@ -60,20 +60,22 @@ Ordinary CI and signed releases exercise this same file API across a real
 self-update and restart. The release fixture includes whitespace and a number
 beyond JavaScript's safe integer range; the scenario also retains unfinished
 JSON through the update before correcting it. The saved text and runtime snapshot identity survive the restart unchanged.
-Store/API integration tests separately verify the immutable snapshot bytes and digest. See [Release process](release.md#verification-scope) for the native checks.
+Store/API integration tests separately verify the immutable snapshot bytes and digest. See [Release process](../development/release.md#verification-scope) for the native checks.
 
 ## Switching versions without rewriting JSON
 
 Selecting a different core carries the current JSON forward unchanged. The
 panel does not infer which keys an older release accepts and does not silently
 drop fields. A check snapshots the current valid file and asks that exact,
-digest-verified binary to validate the execution snapshot. Snapshot formatting
+platform- and version-checked binary to validate the execution snapshot. Snapshot formatting
 may differ from the saved text, but field names and values are preserved and
 the saved text is untouched. Select the target core and use Check in the Web UI.
 
-If the configuration uses fields unavailable in that version, `sing-box check`
-fails, the startup artifact becomes failed, and the currently applied runtime
-is left untouched. There is no separate editable startup JSON or
+For versions with a committed Schema, compilation and fresh runtime candidates
+first pass Schema validation. A Schema rejection stops before creating a startup
+artifact. The selected binary then checks the snapshot; a native check failure
+marks the startup artifact failed. Both failures leave the currently applied
+runtime untouched. There is no separate editable startup JSON or
 version-specific transformation path. The Web UI requests the check
 through `POST /api/v1/config/compile`.
 
@@ -88,16 +90,17 @@ version-scoped. The response contains only `exact_version`, `schema_sha256`,
 and the Schema. Its ETag binds the exact version and digest and supports
 `If-None-Match`.
 
-The panel currently commits native Schema output for `1.14.0`. The Web
+The panel commits reviewed Schema definitions for `1.13.19`, `1.13.20` and
+`1.13.21`, plus native Schema output for `1.14.0` and `1.14.1`. The Web
 configuration selector lists compatible installed versions, defaults to the
 enabled core when available and otherwise uses the highest installed semantic
 version. Installed artifacts require the served schema to match the reviewed
 manifest. With no installed core, the Web UI keeps Advanced JSON editing and
 saving available, while the visual editor directs the operator to version
 management. Native validation and runtime startup always require an installed
-matching core. Releases before
-sing-box added `sing-box schema`, including `1.13.19`,
-remain Advanced-JSON-only; the panel does not synthesize schemas for them. A
+matching core. The three 1.13 releases share an explicitly reviewed source definition based on
+their exact tag sources and documentation; unreviewed versions remain
+Advanced-JSON-only. A
 missing Schema disables only structured controls, never JSON save,
 compile, check, Apply, Start, Restart, or Rollback.
 
@@ -107,7 +110,8 @@ Advanced JSON retains the same draft. Navigation away from configuration and
 browser unload remain protected by the unsaved-change confirmation; refreshing
 or signing out starts a new selection session.
 
-The committed Schema is canonicalized native output with optional `x-panel`
+The committed Schema is canonicalized native output or an explicitly reviewed
+source definition, with separately maintained optional `x-panel`
 presentation metadata such as section, order, widget, sensitivity, and
 bilingual labels. The metadata cannot add `_panel`, introduce a disabled-item
 union, fill cross-version fields, or change a sing-box constraint. References
@@ -115,7 +119,7 @@ remain local to that one Schema document.
 
 The Web build exports each committed Schema and compiles its root validator into
 an Ajv 2020 standalone module. The generated manifest records only the exact
-version, file, and digest. At runtime the browser selects by exact version and
+version, source kind, file, and digest. At runtime the browser selects by exact version and
 verifies the served digest and content against its local asset. An unavailable
 Schema or mismatch falls back to the lossless Advanced editor; the production
 UI does not fetch schemas from the network or relax the Content Security Policy
@@ -144,7 +148,7 @@ Those operations perform preflight in the serialized runtime controller before c
 the running process. The Web UI uses
 `POST /api/v1/core/artifacts/{artifactId}/enable` and the runtime endpoints.
 Startup artifacts and activation bundles remain internal evidence.
-The CLI retains `core enable CORE_ARTIFACT_ID` to switch
+The CLI retains `core enable VERSION` to switch
 binaries with the current saved document while preserving stopped/running state;
 it returns after the operation completes.
 
@@ -207,8 +211,11 @@ completed side effects retain their evidence. There is no generic operation queu
 ## Runtime identity and history
 
 A running `RuntimeIdentity` includes the observed `started_at` value together
-with the verified PID, process start token, exact core, artifact hashes, and
-activation bundle. While that identity remains verified, the panel refreshes
+with the verified PID, process start token, exact core, recorded installation hashes, and
+activation bundle. Installation hashes are metadata and are not compared against
+core files during checks, activation, rollback or recovery. Configuration snapshot
+and Schema digests remain checked. See [core verification boundaries](core-versions.md#checks-and-recorded-hashes).
+While that identity remains verified, the panel refreshes
 its persisted observation watermark every 30 seconds so a later recovery can
 distinguish current evidence from a stale process incarnation.
 
@@ -320,7 +327,7 @@ outcome after interruption. The marker contains transaction identity, not a
 second copy of settings. Startup recovers before serving requests. Incomplete
 updates block file commands; a conflicting external edit is never overwritten
 by automatic recovery. Keep the selected file and its directory writable by the
-service account; see [systemd permissions](../systemd/README.md#system-service).
+service account; see [systemd permissions](../../systemd/README.md#system-service).
 
 The public-node host accepts a public IP or domain override; otherwise the
 bounded public-IP detector provides the input placeholder and publication host.

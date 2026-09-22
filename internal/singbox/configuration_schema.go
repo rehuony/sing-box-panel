@@ -41,6 +41,7 @@ type schemaManifestEntry struct {
 	ExactVersion string `json:"exact_version"`
 	SchemaSHA256 string `json:"schema_sha256"`
 	SchemaFile   string `json:"schema_file"`
+	Source       string `json:"source"`
 }
 
 type compiledSchema struct {
@@ -65,6 +66,12 @@ func SupportsNativeConfigurationSchema(exactVersion string) bool {
 	return parsed.Major() > 1 || parsed.Major() == 1 && parsed.Minor() >= 14
 }
 
+// SupportsConfigurationSchema reports explicitly cataloged exact-version support.
+func SupportsConfigurationSchema(exactVersion string) bool {
+	version, found := Lookup(exactVersion)
+	return found && version.SchemaSource != ""
+}
+
 // ConfigurationSchema resolves a committed canonical schema by exact version only.
 func ConfigurationSchema(exactVersion string) (SchemaContract, error) {
 	compiled, err := configurationSchema(exactVersion)
@@ -77,8 +84,7 @@ func ConfigurationSchema(exactVersion string) (SchemaContract, error) {
 	}, nil
 }
 
-// ValidateConfiguration applies the optional native schema for versions that
-// provide one. The exact binary's `sing-box check` remains authoritative.
+// ValidateConfiguration applies the committed schema for reviewed exact versions. The exact binary's `sing-box check` remains authoritative.
 func ValidateConfiguration(exactVersion string, raw []byte) error {
 	compiled, err := configurationSchema(exactVersion)
 	if err != nil {
@@ -95,7 +101,7 @@ func ValidateConfiguration(exactVersion string, raw []byte) error {
 }
 
 func configurationSchema(exactVersion string) (compiledSchema, error) {
-	if _, found := Lookup(exactVersion); !found || !SupportsNativeConfigurationSchema(exactVersion) {
+	if _, found := Lookup(exactVersion); !found || !SupportsConfigurationSchema(exactVersion) {
 		return compiledSchema{}, fmt.Errorf("%w: sing-box %s", ErrConfigurationSchemaUnavailable, exactVersion)
 	}
 	schemas, err := loadConfigurationSchemas()
@@ -104,7 +110,7 @@ func configurationSchema(exactVersion string) (compiledSchema, error) {
 	}
 	compiled, found := schemas[exactVersion]
 	if !found {
-		return compiledSchema{}, fmt.Errorf("native configuration schema is missing for sing-box %s", exactVersion)
+		return compiledSchema{}, fmt.Errorf("configuration schema is missing for sing-box %s", exactVersion)
 	}
 	return compiled, nil
 }
@@ -151,14 +157,14 @@ func readConfigurationSchemasFromFS(assets fs.FS) (map[string]compiledSchema, er
 	if manifest.SchemaVersion != 1 {
 		return nil, fmt.Errorf("unsupported schema manifest version %d", manifest.SchemaVersion)
 	}
-	nativeVersions := 0
+	schemaVersions := 0
 	for _, version := range generatedVersions {
-		if SupportsNativeConfigurationSchema(version.ExactVersion) {
-			nativeVersions++
+		if version.SchemaSource != "" {
+			schemaVersions++
 		}
 	}
-	if len(manifest.Entries) != nativeVersions {
-		return nil, fmt.Errorf("schema manifest has %d entries; native schema catalog requires %d", len(manifest.Entries), nativeVersions)
+	if len(manifest.Entries) != schemaVersions {
+		return nil, fmt.Errorf("schema manifest has %d entries; schema catalog requires %d", len(manifest.Entries), schemaVersions)
 	}
 
 	result := make(map[string]compiledSchema, len(manifest.Entries))
@@ -186,8 +192,9 @@ func readConfigurationSchemasFromFS(assets fs.FS) (map[string]compiledSchema, er
 }
 
 func validateSchemaManifestEntry(entry schemaManifestEntry) error {
-	if _, found := Lookup(entry.ExactVersion); !found || !SupportsNativeConfigurationSchema(entry.ExactVersion) {
-		return fmt.Errorf("version %q does not provide a native schema", entry.ExactVersion)
+	version, found := Lookup(entry.ExactVersion)
+	if !found || version.SchemaSource == "" || version.SchemaSource != entry.Source {
+		return fmt.Errorf("version %q has an unreviewed schema source %q", entry.ExactVersion, entry.Source)
 	}
 	digest, err := coreartifact.ParseSHA256(entry.SchemaSHA256)
 	if err != nil || digest.String() != entry.SchemaSHA256 {

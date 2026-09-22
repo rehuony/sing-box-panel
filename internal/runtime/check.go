@@ -43,17 +43,17 @@ func (manager *Manager) checkLocked(ctx context.Context, bundle AppliedBundle) e
 	if err := verifyStartupConfigDigest(bundle.StartupConfig, bundle.StartupConfigDigest); err != nil {
 		return fail("verify_config", "digest_mismatch", ErrStartupConfigDigest, err)
 	}
-	if _, err := verifyBinaryDigest(
-		ctx, bundle.BinaryPath, bundle.ArtifactDigest, manager.options.MaximumBinaryBytes,
+	if err := verifyBinaryFile(
+		ctx, bundle.BinaryPath, manager.options.MaximumBinaryBytes,
 	); err != nil {
 		if ctx.Err() != nil {
 			return fail("check", "cancelled", ctx.Err(), err)
 		}
-		return fail("verify_artifact", "digest_mismatch", ErrArtifactDigest, err)
+		return fail("verify_artifact", "unsafe_file", ErrArtifactFile, err)
 	}
 	versionOutput, err := manager.options.Executor.Run(
 		ctx,
-		manager.command(bundle.BinaryPath, "version"),
+		manager.command(bundle, "version"),
 		manager.options.MaximumCommandOutput,
 	)
 	if err != nil {
@@ -69,10 +69,10 @@ func (manager *Manager) checkLocked(ctx context.Context, bundle AppliedBundle) e
 	if actualVersion != bundle.ExactVersion {
 		return fail("verify_version", "mismatch", ErrVersionMismatch, nil)
 	}
-	if _, err := verifyBinaryDigest(
-		ctx, bundle.BinaryPath, bundle.ArtifactDigest, manager.options.MaximumBinaryBytes,
+	if err := verifyBinaryFile(
+		ctx, bundle.BinaryPath, manager.options.MaximumBinaryBytes,
 	); err != nil {
-		return fail("verify_artifact", "changed_after_version", ErrArtifactDigest, err)
+		return fail("verify_artifact", "changed_after_version", ErrArtifactFile, err)
 	}
 	configPath, err := materializeStartupConfig(
 		manager.options.RuntimeDir, bundle.StartupConfigDigest, bundle.StartupConfig,
@@ -82,7 +82,7 @@ func (manager *Manager) checkLocked(ctx context.Context, bundle AppliedBundle) e
 	}
 	if _, err := manager.options.Executor.Run(
 		ctx,
-		manager.command(bundle.BinaryPath, "check", "-c", configPath),
+		manager.command(bundle, "check", "-c", configPath),
 		manager.options.MaximumCommandOutput,
 	); err != nil {
 		if ctx.Err() != nil {
@@ -90,10 +90,10 @@ func (manager *Manager) checkLocked(ctx context.Context, bundle AppliedBundle) e
 		}
 		return fail("check_config", "rejected", ErrCheckFailed, err)
 	}
-	if _, err := verifyBinaryDigest(
-		ctx, bundle.BinaryPath, bundle.ArtifactDigest, manager.options.MaximumBinaryBytes,
+	if err := verifyBinaryFile(
+		ctx, bundle.BinaryPath, manager.options.MaximumBinaryBytes,
 	); err != nil {
-		return fail("verify_artifact", "changed_after_check", ErrArtifactDigest, err)
+		return fail("verify_artifact", "changed_after_check", ErrArtifactFile, err)
 	}
 	if err := contextError(ctx); err != nil {
 		return fail("check", "cancelled", err, errors.Join(ErrCheckFailed, err))

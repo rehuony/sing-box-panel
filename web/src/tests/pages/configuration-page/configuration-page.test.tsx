@@ -50,16 +50,16 @@ function renderPage(client: ApiClient) {
   );
 }
 
-async function createStructuredClient(overrides: Partial<ApiClient> = {}) {
-  const reviewed = await reviewedSchema?.load();
-  if (reviewed === undefined) throw new Error('The reviewed 1.14.0 Schema fixture is unavailable.');
+async function createStructuredClient(overrides: Partial<ApiClient> = {}, exactVersion = '1.14.0') {
+  const reviewed = await reviewedSchemaManifest[exactVersion]?.load();
+  if (reviewed === undefined) throw new Error(`The reviewed ${exactVersion} Schema fixture is unavailable.`);
   const artifact = {
-    ...testArtifacts.items[0], id: 'core_114', exact_version: '1.14.0', reported_version: '1.14.0',
+    ...testArtifacts.items[0], id: 'core_114', exact_version: exactVersion, reported_version: exactVersion,
   };
   return createMockApiClient({
-    getDashboardContext: vi.fn().mockResolvedValue({ ...testDashboardContext, view: { exactVersion: '1.14.0' } }),
+    getDashboardContext: vi.fn().mockResolvedValue({ ...testDashboardContext, view: { exactVersion } }),
     getConfigurationSchema: vi.fn().mockResolvedValue({
-      exact_version: '1.14.0', schema_sha256: reviewed.schemaSHA256, schema: reviewed.schema,
+      exact_version: exactVersion, schema_sha256: reviewed.schemaSHA256, schema: reviewed.schema,
     }),
     listCoreArtifacts: vi.fn().mockResolvedValue({ items: [artifact] }),
     ...overrides,
@@ -74,7 +74,7 @@ describe('configurationPage', () => {
   it('explains an unsupported visual editor on hover and keyboard focus without an inline notice', async () => {
     const user = userEvent.setup();
     const unsupported = {
-      ...testArtifacts.items[0], exact_version: '1.14.1', reported_version: '1.14.1',
+      ...testArtifacts.items[0], exact_version: '1.14.2', reported_version: '1.14.2',
     };
     const client = createMockApiClient({
       listCoreArtifacts: vi.fn().mockResolvedValue({ items: [unsupported] }),
@@ -88,15 +88,15 @@ describe('configurationPage', () => {
     });
     const visualTab = screen.getByRole('tab', { name: 'Visual editor' });
     const trigger = visualTab.parentElement!;
-    expect(screen.queryByText(/No visual editor schema for 1\.14\.1/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/No visual editor schema for 1\.14\.2/)).not.toBeInTheDocument();
 
     await user.hover(trigger);
-    expect(await screen.findByText(/No visual editor schema for 1\.14\.1/)).toBeVisible();
+    expect(await screen.findByText(/No visual editor schema for 1\.14\.2/)).toBeVisible();
     await user.unhover(trigger);
-    await waitFor(() => expect(screen.queryByText(/No visual editor schema for 1\.14\.1/)).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByText(/No visual editor schema for 1\.14\.2/)).not.toBeInTheDocument());
 
     trigger.focus();
-    expect(await screen.findByText(/No visual editor schema for 1\.14\.1/)).toBeVisible();
+    expect(await screen.findByText(/No visual editor schema for 1\.14\.2/)).toBeVisible();
   });
 
   it('guides users to version management without blocking Advanced JSON when no core is installed', async () => {
@@ -114,6 +114,8 @@ describe('configurationPage', () => {
     expect(screen.getByRole('button', { name: 'Validate configuration' })).toBeDisabled();
     expect(client.getConfigurationSchema).not.toHaveBeenCalled();
     await user.click(screen.getByRole('tab', { name: 'Advanced JSON' }));
+    // Let the real lazy editor load before starting the DOM assertion's timeout.
+    await act(() => vi.dynamicImportSettled());
     const editor = await screen.findByLabelText('sing-box configuration JSON');
     changeEditor(editor, '{"log":{"level":"debug"}}');
     await user.click(screen.getByRole('button', { name: 'Save configuration' }));
@@ -122,13 +124,13 @@ describe('configurationPage', () => {
     }));
   });
 
-  it.skipIf(reviewedSchema === undefined)('keeps visual modules and Advanced JSON synchronized without navigation prompts', async () => {
+  it.each(['1.14.0', '1.14.1'])('keeps %s visual modules and Advanced JSON synchronized without navigation prompts', async (exactVersion) => {
     const user = userEvent.setup();
     const client = await createStructuredClient({
       getConfigurationFile: vi.fn().mockResolvedValue({
         ...savedFile, content: '{"dns":{},"log":{"level":"info"}}',
       }),
-    });
+    }, exactVersion);
     renderPage(client);
 
     const level = await screen.findByRole('combobox', { name: 'Log level' });

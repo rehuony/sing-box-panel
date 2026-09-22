@@ -85,7 +85,7 @@ their existing sections; `panel` adds the public node host, protocol identity,
 language and appearance. The Web form exposes all settings, including service paths, version check interval, retention and subscription source policy. Changing `data_dir` moves
 existing storage on the next explicit start, with interruption recovery.
 Sing-box documents, subscriptions and runtime evidence remain in SQLite.
-See the [complete field mapping](configuration-and-runtime.md#shared-settings-file).
+See the [complete field mapping](guides/configuration-and-runtime.md#shared-settings-file).
 New settings initialize `subscription.provider` to `"default"`; existing files
 retain their configured value.
 
@@ -93,7 +93,7 @@ retain their configured value.
 `config check` and must be between 1 and 366;
 older settings without it are rejected instead of receiving a compatibility
 default. Commands that only locate instance files or data validate `data_dir`
-without validating unrelated runtime fields; see [CLI configuration dependencies](cli.md#global-flags-and-output).
+without validating unrelated runtime fields; see [CLI configuration dependencies](guides/cli.md#global-flags-and-output).
 
 When the panel is served through a reverse proxy, set `server.external_origin`
 to the single public HTTP origin, for example `https://panel.example.com`.
@@ -156,10 +156,10 @@ Concurrent saves use the current file revision and reject stale edits instead
 of merging implicitly. Invalid JSON can be saved as text but blocks validation,
 Enable, Start, and Restart until corrected. Core lifecycle and artifact commands remain
 available through the CLI. The separate `config init/show/set/unset/check/verify` commands manage
-only the panel's `setting.json`; see [Panel settings](cli.md#panel-settings).
+only the panel's `setting.json`; see [Panel settings](guides/cli.md#panel-settings).
 
-Continue with [Core versions](core-versions.md), then
-[Configuration and runtime](configuration-and-runtime.md).
+Continue with [Core versions](guides/core-versions.md), then
+[Configuration and runtime](guides/configuration-and-runtime.md).
 
 ## Install a systemd service
 

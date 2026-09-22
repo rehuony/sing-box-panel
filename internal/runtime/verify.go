@@ -8,7 +8,6 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -27,7 +26,7 @@ var fixedCommandEnvironment = []string{
 func cloneAndValidateBundle(bundle AppliedBundle, maximumConfigBytes int64) (AppliedBundle, error) {
 	bundle.StartupConfig = bytes.Clone(bundle.StartupConfig)
 	if !validIdentifier(bundle.ID) || !validIdentifier(bundle.ArtifactID) || bundle.ExactVersion.IsZero() ||
-		bundle.ArtifactDigest.IsZero() || bundle.StartupConfigDigest.IsZero() {
+		bundle.StartupConfigDigest.IsZero() {
 		return AppliedBundle{}, ErrInvalidBundle
 	}
 	if bundle.BinaryPath == "" || !filepath.IsAbs(bundle.BinaryPath) ||
@@ -60,72 +59,31 @@ func verifyStartupConfigDigest(data []byte, expected coreartifact.SHA256) error 
 	return nil
 }
 
-func verifyBinaryDigest(
-	ctx context.Context,
-	path string,
-	expected coreartifact.SHA256,
-	maximumBytes int64,
-) (coreartifact.SHA256, error) {
+func verifyBinaryFile(ctx context.Context, path string, maximumBytes int64) error {
 	if err := contextError(ctx); err != nil {
-		return coreartifact.SHA256{}, err
+		return err
 	}
-	pathInfo, err := os.Lstat(path)
+	info, err := os.Lstat(path)
 	if err != nil {
-		return coreartifact.SHA256{}, errors.Join(ErrArtifactDigest, err)
+		return errors.Join(ErrArtifactFile, err)
 	}
-	if pathInfo.Mode()&os.ModeSymlink != 0 || !pathInfo.Mode().IsRegular() ||
-		pathInfo.Mode().Perm()&0o111 == 0 || pathInfo.Size() <= 0 || pathInfo.Size() > maximumBytes {
-		return coreartifact.SHA256{}, ErrArtifactDigest
+	if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 || info.Mode().Perm()&0o111 == 0 || info.Size() <= 0 || info.Size() > maximumBytes {
+		return ErrArtifactFile
 	}
-
 	file, err := os.Open(path)
 	if err != nil {
-		return coreartifact.SHA256{}, errors.Join(ErrArtifactDigest, err)
+		return errors.Join(ErrArtifactFile, err)
 	}
 	defer file.Close()
-	openedInfo, err := file.Stat()
-	if err != nil || !os.SameFile(pathInfo, openedInfo) {
-		return coreartifact.SHA256{}, errors.Join(ErrArtifactDigest, err)
+	opened, err := file.Stat()
+	if err != nil || !os.SameFile(info, opened) {
+		return errors.Join(ErrArtifactFile, err)
 	}
-
-	hasher := sha256.New()
-	reader := &contextReader{ctx: ctx, reader: io.LimitReader(file, maximumBytes+1)}
-	written, err := io.Copy(hasher, reader)
-	if err != nil {
-		return coreartifact.SHA256{}, errors.Join(ErrArtifactDigest, err)
+	after, err := os.Lstat(path)
+	if err != nil || !after.Mode().IsRegular() || !os.SameFile(opened, after) {
+		return errors.Join(ErrArtifactFile, err)
 	}
-	if written != pathInfo.Size() || written > maximumBytes {
-		return coreartifact.SHA256{}, ErrArtifactDigest
-	}
-	afterInfo, err := file.Stat()
-	if err != nil || !os.SameFile(openedInfo, afterInfo) || afterInfo.Size() != openedInfo.Size() ||
-		!afterInfo.ModTime().Equal(openedInfo.ModTime()) {
-		return coreartifact.SHA256{}, errors.Join(ErrArtifactDigest, err)
-	}
-	pathAfterInfo, err := os.Lstat(path)
-	if err != nil || pathAfterInfo.Mode()&os.ModeSymlink != 0 || !os.SameFile(afterInfo, pathAfterInfo) {
-		return coreartifact.SHA256{}, errors.Join(ErrArtifactDigest, err)
-	}
-
-	var sum [sha256.Size]byte
-	copy(sum[:], hasher.Sum(nil))
-	actual := coreartifact.NewSHA256(sum)
-	if actual != expected {
-		return actual, ErrArtifactDigest
-	}
-	return actual, nil
-}
-
-type contextReader struct {
-	ctx    context.Context
-	reader io.Reader
-}
-
-func (reader *contextReader) Read(data []byte) (int, error) {
-	if err := contextError(reader.ctx); err != nil {
-		return 0, err
-	}
-	return reader.reader.Read(data)
+	return nil
 }
 
 func parseVersionOutput(output []byte) (coreartifact.ExactVersion, error) {

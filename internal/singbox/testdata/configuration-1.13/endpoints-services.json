@@ -1,0 +1,10 @@
+{
+  "log": {"disabled": true},
+  "endpoints": [{
+    "type": "wireguard", "tag": "wg", "system": false,
+    "address": ["10.0.0.2/32"], "private_key": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+    "peers": [{"address": "192.0.2.1", "port": 51820, "public_key": "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE=", "allowed_ips": ["0.0.0.0/0"], "reserved": [1, 2, 3]}]
+  }],
+  "services": [{"type": "resolved", "tag": "resolved", "listen": "127.0.0.53", "listen_port": 53}],
+  "dns": {"servers": [{"type": "resolved", "tag": "resolved-dns", "service": "resolved", "accept_default_resolvers": true}]}
+}

@@ -80,7 +80,7 @@ configuration is never published. Rollback changes the applied bundle pointer
 and therefore restores the matching local-node input without re-projecting the
 current revision.
 
-The inbound registry accepts only the exact reviewed releases `1.13.19` and `1.14.0`; other versions fail closed. Each converter publishes
+The inbound registry accepts only the exact reviewed releases `1.13.19`, `1.13.20`, `1.13.21`, `1.14.0` and `1.14.1`; other versions fail closed. Each converter publishes
 only the client-usable inbound types available in that release and reports
 stable diagnostics for server-only or unsupported types. Multi-user inbounds
 become separate grantable credentials for user-scoped access. The panel public-host override, existing channel `public_host`, or detected
@@ -91,8 +91,8 @@ The current exact inbound contracts are:
 
 | Core | Convertible local inbound types |
 | --- | --- |
-| `1.13.19` | `mixed`, `socks`, `http`, `shadowsocks`, `vmess`, `trojan`, `hysteria`, `shadowtls`, `vless`, `tuic`, `hysteria2`, `anytls`, `naive` |
-| `1.14.0` | All 1.13.19 types plus `snell` |
+| `1.13.19`, `1.13.20`, `1.13.21` | `mixed`, `socks`, `http`, `shadowsocks`, `vmess`, `trojan`, `hysteria`, `shadowtls`, `vless`, `tuic`, `hysteria2`, `anytls`, `naive` |
+| `1.14.0`, `1.14.1` | All 1.13.19 types plus `snell` |
 
 For these versions, `direct`, `tun`, `redirect`, `tproxy`, and
 `cloudflared` are explicitly unpublishable. Any other inbound type currently
@@ -443,5 +443,5 @@ browser core import uses bounded multipart upload and a private staging
 directory; it never asks a browser to submit a server-local path.
 
 See [Configuration and runtime](configuration-and-runtime.md) for activation
-semantics and [HTTP API and security](http-api-and-security.md) for management
+semantics and [HTTP API and security](../development/architecture.md#http-api-and-security) for management
 authentication and request boundaries.

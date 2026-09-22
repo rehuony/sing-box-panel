@@ -15,7 +15,6 @@ import (
 func prepareExecutionCopy(
 	ctx context.Context,
 	sourcePath string,
-	expectedDigest coreartifact.SHA256,
 	maximumBytes int64,
 ) (string, string, error) {
 	lexicalParent := os.TempDir()
@@ -57,22 +56,8 @@ func prepareExecutionCopy(
 	if copyErr != nil || written <= 0 || modeErr != nil || syncErr != nil || closeDestinationErr != nil || closeSourceErr != nil {
 		return "", "", fail(StepVersion, "execution_copy", errors.Join(copyErr, modeErr, syncErr, closeDestinationErr, closeSourceErr))
 	}
-	if err := verifyFileDigest(ctx, destinationPath, expectedDigest, maximumBytes); err != nil {
-		return "", "", fail(StepVersion, "execution_copy_digest", err)
-	}
 	cleanup = false
 	return destinationPath, directory, nil
-}
-
-func verifyFileDigest(ctx context.Context, path string, expected coreartifact.SHA256, maximumBytes int64) error {
-	actual, err := digestFile(ctx, path, maximumBytes)
-	if err != nil {
-		return err
-	}
-	if actual != expected {
-		return ErrDigest
-	}
-	return nil
 }
 
 func digestFile(ctx context.Context, path string, maximumBytes int64) (coreartifact.SHA256, error) {
@@ -84,7 +69,7 @@ func digestFile(ctx context.Context, path string, maximumBytes int64) (coreartif
 	hash := sha256.New()
 	written, err := copyBounded(ctx, hash, file, maximumBytes)
 	if err != nil || written <= 0 {
-		return coreartifact.SHA256{}, errors.Join(err, ErrDigest)
+		return coreartifact.SHA256{}, errors.Join(err, ErrArchive)
 	}
 	var sum [32]byte
 	copy(sum[:], hash.Sum(nil))

@@ -1,0 +1,13 @@
+{
+  "$schema": null,
+  "certificate": null,
+  "dns": null,
+  "endpoints": null,
+  "experimental": null,
+  "inbounds": null,
+  "log": null,
+  "ntp": null,
+  "outbounds": null,
+  "route": null,
+  "services": null
+}

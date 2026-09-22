@@ -16,11 +16,11 @@ func (application *Application) SyncEnabledCoreLink(ctx context.Context, artifac
 		return err
 	}
 	if bootstrap.Hub.AppliedBundleID == "" {
-		return artifacts.SetCurrent(ctx, "", "")
+		return artifacts.SetCurrent(ctx, "")
 	}
 	material, err := application.LoadRuntimeMaterial(ctx, bootstrap.Hub.AppliedBundleID)
 	if err != nil {
 		return err
 	}
-	return artifacts.SetCurrent(ctx, material.Core.BinaryPath, material.Core.BinarySHA256)
+	return artifacts.SetCurrent(ctx, material.Core.BinaryPath)
 }

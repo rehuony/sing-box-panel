@@ -278,7 +278,7 @@ make release-verify
 ```
 
 For the exact script interface and environment-isolation rules, see
-[Project scripts](../scripts/README.md).
+[Project scripts](../../scripts/README.md).
 
 ## Release-hardening backlog
 

@@ -13,8 +13,11 @@ import (
 )
 
 // SetCurrent publishes a relative convenience link to the selected binary.
-// Runtime execution continues to verify and open the immutable binary itself.
-func (store *Store) SetCurrent(ctx context.Context, binaryPath, binarySHA256 string) error {
+// Runtime execution checks the selected file and its exact reported version.
+func (store *Store) SetCurrent(ctx context.Context, binaryPath string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if err := verifyTrustedAncestors(store.root); err != nil {
 		return err
 	}
@@ -47,15 +50,9 @@ func (store *Store) SetCurrent(ctx context.Context, binaryPath, binarySHA256 str
 		return err
 	}
 	info, err = os.Lstat(binaryPath)
-	if err != nil || !info.Mode().IsRegular() || !ownedByCurrentProcess(info) {
+	if err != nil || !info.Mode().IsRegular() || !ownedByCurrentProcess(info) || info.Mode().Perm()&0o111 == 0 ||
+		info.Size() <= 0 || info.Size() > store.limits.MaximumFileBytes {
 		return errors.Join(ErrCorruptStore, err)
-	}
-	digest, err := coreartifact.ParseSHA256(binarySHA256)
-	if err != nil {
-		return err
-	}
-	if err := verifyFileDigest(ctx, binaryPath, digest, store.limits.MaximumFileBytes); err != nil {
-		return err
 	}
 	if target, err := os.Readlink(current); err == nil && target == relative {
 		return nil

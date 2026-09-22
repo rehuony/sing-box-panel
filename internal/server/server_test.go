@@ -164,7 +164,7 @@ func TestDashboardContextUsesAppliedBundleAndConfigurationSupport(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if status.ConfigurationState != "raw" || status.AppliedBundleID == nil ||
+	if status.ConfigurationState != "schema@1.13.19" || status.AppliedBundleID == nil ||
 		*status.AppliedBundleID != prepared.Bundle.ID || status.Running {
 		t.Fatalf("system status = %+v", status)
 	}
@@ -174,8 +174,8 @@ func TestDashboardContextUsesAppliedBundleAndConfigurationSupport(t *testing.T) 
 	}
 	if contextValue.Applied == nil || contextValue.Applied.Bundle != prepared.Bundle.ID ||
 		contextValue.Applied.Revision != int64(1) ||
-		contextValue.View.ExactVersion != core.ExactVersion || contextValue.Configuration.Supported ||
-		contextValue.Configuration.Label != "Raw JSON" ||
+		contextValue.View.ExactVersion != core.ExactVersion || !contextValue.Configuration.Supported ||
+
 		contextValue.Canonical.HasUnappliedChanges {
 		t.Fatalf("dashboard context = %+v", contextValue)
 	}

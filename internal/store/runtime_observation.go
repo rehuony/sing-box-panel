@@ -355,9 +355,7 @@ func recordRuntimeObservationTx(
 		return err
 	}
 	if artifact.ExactVersion != observation.ExactCoreVersion ||
-		artifact.ReportedVersion != observation.ExactCoreVersion ||
-		artifact.ArchiveSHA256 != observation.ArchiveSHA256 ||
-		artifact.BinarySHA256 != observation.BinarySHA256 {
+		artifact.ReportedVersion != observation.ExactCoreVersion {
 		return ErrRuntimeIdentityMismatch
 	}
 	var bundleArtifactID string

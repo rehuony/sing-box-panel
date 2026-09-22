@@ -158,8 +158,8 @@ requires both architectures to build successfully, checks their Go build
 metadata and key, checks the embedded release identity, and confirms that
 invalid release versions fail without leaving an output directory.
 
-See [Core versions](../docs/core-versions.md) for
+See [Core versions](../docs/guides/core-versions.md) for
 support generation, native core contracts, and manual version onboarding. See
-[Release process](../docs/release.md) for signing-key setup, native
+[Release process](../docs/development/release.md) for signing-key setup, native
 amd64 and arm64 smoke tests, Draft Release verification, manual publication,
 trust bootstrap, and the release-hardening backlog.

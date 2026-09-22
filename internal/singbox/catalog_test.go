@@ -7,6 +7,21 @@ import (
 	"testing"
 )
 
+func TestCatalogSupportsReviewed114PatchVersions(t *testing.T) {
+	t.Parallel()
+	for _, exactVersion := range []string{"1.14.0", "1.14.1"} {
+		version, found := Lookup(exactVersion)
+		if !found || version.ExactVersion != exactVersion || version.InboundFamily != "1.14" {
+			t.Fatalf("Lookup(%s) = %+v, %v; want exact version with reviewed 1.14 inbound family", exactVersion, version, found)
+		}
+	}
+	for _, unreviewed := range []string{"1.14", "1.14.2", "v1.14.1", "1.14.1-beta.1"} {
+		if _, found := Lookup(unreviewed); found {
+			t.Fatalf("Lookup(%s) accepted an unreviewed version", unreviewed)
+		}
+	}
+}
+
 func TestCatalogAccessorsReturnDefensiveCopies(t *testing.T) {
 	t.Parallel()
 	versions := Versions()

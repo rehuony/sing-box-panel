@@ -376,10 +376,10 @@ func TestCoreEnableReportsMissingArtifact(t *testing.T) {
 	path := commandSettingsFixture(t)
 	saveConfigurationFixture(t, path, "{}")
 	command := NewRootCommand(Dependencies{Stdout: &bytes.Buffer{}, Stderr: &bytes.Buffer{}, OpenApplication: application.Open})
-	command.SetArgs([]string{"--config", path, "core", "enable", "core-missing"})
+	command.SetArgs([]string{"--config", path, "core", "enable", "1.13.21"})
 	err := command.ExecuteContext(t.Context())
 	var classified *Error
-	if ExitCode(err) != 1 || !errors.As(err, &classified) || classified.Code != "core_artifact_not_found" {
+	if ExitCode(err) != 1 || !errors.As(err, &classified) || classified.Code != "core_version_not_installed" {
 		t.Fatalf("core enable error = %v", err)
 	}
 }

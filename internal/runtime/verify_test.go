@@ -48,7 +48,7 @@ func TestParseVersionOutputIsStrict(t *testing.T) {
 	}
 }
 
-func TestVerifyBinaryDigestRejectsMismatchAndSymlink(t *testing.T) {
+func TestVerifyBinaryFileRejectsSymlink(t *testing.T) {
 	t.Parallel()
 
 	directory := t.TempDir()
@@ -57,26 +57,20 @@ func TestVerifyBinaryDigestRejectsMismatchAndSymlink(t *testing.T) {
 	if err := os.WriteFile(binaryPath, binary, 0o700); err != nil {
 		t.Fatalf("WriteFile: %v", err)
 	}
-	actual, err := verifyBinaryDigest(context.Background(), binaryPath, digestOf(binary), 1024)
-	if err != nil || actual != digestOf(binary) {
-		t.Fatalf("verifyBinaryDigest = %s, %v", actual, err)
-	}
-
-	actual, err = verifyBinaryDigest(context.Background(), binaryPath, digestOf([]byte("other")), 1024)
-	if !errors.Is(err, ErrArtifactDigest) || actual != digestOf(binary) {
-		t.Fatalf("mismatch = %s, %v, want actual digest and ErrArtifactDigest", actual, err)
+	if err := verifyBinaryFile(context.Background(), binaryPath, 1024); err != nil {
+		t.Fatal(err)
 	}
 
 	symlinkPath := filepath.Join(directory, "sing-box-link")
 	if err := os.Symlink(binaryPath, symlinkPath); err != nil {
 		t.Fatalf("Symlink: %v", err)
 	}
-	if _, err := verifyBinaryDigest(context.Background(), symlinkPath, digestOf(binary), 1024); !errors.Is(err, ErrArtifactDigest) {
-		t.Fatalf("symlink verification error = %v, want ErrArtifactDigest", err)
+	if err := verifyBinaryFile(context.Background(), symlinkPath, 1024); !errors.Is(err, ErrArtifactFile) {
+		t.Fatalf("symlink verification error = %v, want ErrArtifactFile", err)
 	}
 }
 
-func TestVerifyBinaryDigestHonorsCancellationAndBounds(t *testing.T) {
+func TestVerifyBinaryFileHonorsCancellationAndBounds(t *testing.T) {
 	t.Parallel()
 
 	binaryPath := filepath.Join(t.TempDir(), "sing-box")
@@ -86,11 +80,11 @@ func TestVerifyBinaryDigestHonorsCancellationAndBounds(t *testing.T) {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	if _, err := verifyBinaryDigest(ctx, binaryPath, digestOf(binary), 1024); !errors.Is(err, context.Canceled) {
+	if err := verifyBinaryFile(ctx, binaryPath, 1024); !errors.Is(err, context.Canceled) {
 		t.Fatalf("canceled verification error = %v, want context.Canceled", err)
 	}
-	if _, err := verifyBinaryDigest(context.Background(), binaryPath, digestOf(binary), int64(len(binary)-1)); !errors.Is(err, ErrArtifactDigest) {
-		t.Fatalf("bounded verification error = %v, want ErrArtifactDigest", err)
+	if err := verifyBinaryFile(context.Background(), binaryPath, int64(len(binary)-1)); !errors.Is(err, ErrArtifactFile) {
+		t.Fatalf("bounded verification error = %v, want ErrArtifactFile", err)
 	}
 }
 

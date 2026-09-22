@@ -36,6 +36,7 @@ type generatedSchemaManifestEntry struct {
 	ExactVersion string `json:"exact_version"`
 	SchemaSHA256 string `json:"schema_sha256"`
 	SchemaFile   string `json:"schema_file"`
+	Source       string `json:"source"`
 }
 
 func exportWebSchemas(outputDirectory string) error {
@@ -74,10 +75,22 @@ func generateSchemas(root string) error {
 		Entries:       make([]generatedSchemaManifestEntry, 0),
 	}
 	for _, version := range catalog.Versions {
-		if !singbox.SupportsNativeConfigurationSchema(version.ExactVersion) {
+		var entry generatedSchemaManifestEntry
+		var err error
+		switch version.SchemaSource {
+		case singbox.SchemaSourceNative:
+			entry, err = generateNativeSchema(temporaryRoot, version, outputRoot)
+		case singbox.SchemaSourceReviewed113:
+			var raw []byte
+			raw, err = canonicalJSONFile(filepath.Join(root, "cmd/singbox-support/schema-sources/1.13.json"))
+			if err == nil {
+				entry, err = writeConfigurationSchema(version, raw, outputRoot)
+			}
+		case "":
 			continue
+		default:
+			return fmt.Errorf("unknown schema source %q", version.SchemaSource)
 		}
-		entry, err := generateNativeSchema(temporaryRoot, version, outputRoot)
 		if err != nil {
 			return err
 		}
@@ -89,6 +102,13 @@ func generateSchemas(root string) error {
 	}
 	manifestJSON = append(manifestJSON, '\n')
 	if err := os.WriteFile(filepath.Join(outputRoot, "manifest.json"), manifestJSON, 0o644); err != nil {
+		return err
+	}
+	fields, err := reviewedSchemaFields(root)
+	if err != nil {
+		return err
+	}
+	if err := writeFileIfChanged(filepath.Join(root, reviewedSchemaFieldsPath), fields); err != nil {
 		return err
 	}
 	return syncSchemaAssets(outputRoot, filepath.Join(root, schemaAssetsPath))
@@ -118,6 +138,10 @@ func generateNativeSchema(
 	if err != nil {
 		return generatedSchemaManifestEntry{}, err
 	}
+	return writeConfigurationSchema(version, raw, outputRoot)
+}
+
+func writeConfigurationSchema(version singbox.Version, raw []byte, outputRoot string) (generatedSchemaManifestEntry, error) {
 	schema, err := applyConfigurationSchemaPresentationOverlay(raw)
 	if err != nil {
 		return generatedSchemaManifestEntry{}, fmt.Errorf("apply presentation overlay to sing-box %s: %w", version.ExactVersion, err)
@@ -135,6 +159,7 @@ func generateNativeSchema(
 		ExactVersion: version.ExactVersion,
 		SchemaSHA256: digestHex(schema),
 		SchemaFile:   schemaName,
+		Source:       version.SchemaSource,
 	}, nil
 }
 
@@ -315,4 +340,42 @@ func writeFileIfChanged(filename string, content []byte) error {
 func digestHex(content []byte) string {
 	digest := sha256.Sum256(content)
 	return hex.EncodeToString(digest[:])
+}
+
+// Reviewed constraints are source data, independently maintained from x-panel.
+// Offline checks ensure changing that source cannot leave committed assets stale.
+func checkReviewedSchemas(root string, catalog sourceCatalog) error {
+	expectedFields, err := reviewedSchemaFields(root)
+	if err != nil {
+		return err
+	}
+	currentFields, err := os.ReadFile(filepath.Join(root, reviewedSchemaFieldsPath))
+	if err != nil {
+		return err
+	}
+	if !bytes.Equal(expectedFields, currentFields) {
+		return errors.New("reviewed 1.13 field table is stale; run go tool singbox-support generate")
+	}
+
+	for _, version := range catalog.Versions {
+		if version.SchemaSource != singbox.SchemaSourceReviewed113 {
+			continue
+		}
+		raw, err := canonicalJSONFile(filepath.Join(root, "cmd/singbox-support/schema-sources/1.13.json"))
+		if err != nil {
+			return err
+		}
+		expected, err := applyConfigurationSchemaPresentationOverlay(raw)
+		if err != nil {
+			return err
+		}
+		contract, err := singbox.ConfigurationSchema(version.ExactVersion)
+		if err != nil {
+			return err
+		}
+		if !bytes.Equal(contract.Schema, expected) {
+			return fmt.Errorf("reviewed schema %s is stale; run go tool singbox-support generate", version.ExactVersion)
+		}
+	}
+	return nil
 }

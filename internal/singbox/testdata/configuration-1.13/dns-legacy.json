@@ -1,0 +1,15 @@
+{
+  "log": {"disabled": true},
+  "dns": {
+    "servers": [
+      {"tag": "old-local", "address": "local", "strategy": "prefer_ipv4"},
+      {"tag": "old-tls", "address": "tls://1.1.1.1", "address_resolver": "old-local", "address_strategy": "ipv4_only", "address_fallback_delay": "300ms", "client_subnet": "192.0.2.0/24"},
+      {"type": "hosts", "tag": "hosts", "predefined": {"example.test": ["192.0.2.1", "2001:db8::1"]}}
+    ],
+    "rules": [{"query_type": ["A", 28], "domain_suffix": "example.test", "server": "hosts", "rewrite_ttl": 60}],
+    "final": "old-local",
+    "fakeip": {"enabled": false, "inet4_range": "198.18.0.0/15"},
+    "cache_capacity": 1024,
+    "client_subnet": "192.0.2.0/24"
+  }
+}

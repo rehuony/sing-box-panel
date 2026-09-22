@@ -25,12 +25,12 @@ Node.js, pnpm, or a separate SQLite CLI.
 
 ## Features
 
-- Manage official and administrator-verified sing-box artifacts by exact
-  version, Linux architecture (amd64 or arm64), and immutable digest.
+- Manage official and administrator-imported sing-box artifacts by exact
+  version and Linux architecture (amd64 or arm64), with recorded installation hashes.
   Each platform uses the static musl build.
 - Edit one lossless sing-box JSON document, validate every candidate with
   the selected exact binary, and add structured editing only for versions that
-  publish a native JSON Schema.
+  have a committed native or project-reviewed JSON Schema.
 - Keep canonical revisions, checked startup artifacts, applied bundles, and
   rollback bundles separate and immutable.
 - Publish live, authorized subscriptions in sing-box, Mihomo, and Loon formats
@@ -169,12 +169,12 @@ settings precedence, and systemd deployment paths.
 | Workflow | Guide |
 | --- | --- |
 | Build, initialize, and run the panel | [Getting started](docs/getting-started.md) |
-| Use commands, automation output, and shell completion | [CLI reference](docs/cli.md) |
-| Install exact versions and inspect configuration capabilities | [Core versions](docs/core-versions.md) |
-| Edit, check, apply, restart, and roll back configuration | [Configuration and runtime](docs/configuration-and-runtime.md) |
-| Publish subscriptions and inspect operational data | [Subscriptions and observability](docs/subscriptions-and-observability.md) |
-| Integrate with the API and operate its security boundary | [HTTP API and security](docs/http-api-and-security.md) |
-| Build, sign, test, and publish release artifacts | [Release process](docs/release.md) |
+| Use commands, automation output, and shell completion | [CLI reference](docs/guides/cli.md) |
+| Install exact versions and inspect configuration capabilities | [Core versions](docs/guides/core-versions.md) |
+| Edit, check, apply, restart, and roll back configuration | [Configuration and runtime](docs/guides/configuration-and-runtime.md) |
+| Publish subscriptions and inspect operational data | [Subscriptions and observability](docs/guides/subscriptions-and-observability.md) |
+| Integrate with the API and operate its security boundary | [HTTP API and security](docs/development/architecture.md#http-api-and-security) |
+| Build, sign, test, and publish release artifacts | [Release process](docs/development/release.md) |
 
 The [documentation index](docs/README.md) also links the component-level
 sources of truth for OpenAPI, version capabilities, systemd packaging, release

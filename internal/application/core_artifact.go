@@ -24,9 +24,6 @@ func (application *Application) InstallCore(ctx context.Context, assetID int64) 
 	if err != nil {
 		return CoreArtifact{}, err
 	}
-	if _, err := asset.TrustedDigest(); err != nil {
-		return CoreArtifact{}, err
-	}
 	installer, err := application.coreInstaller()
 	if err != nil {
 		return CoreArtifact{}, err
@@ -53,10 +50,6 @@ func (application *Application) ImportCore(ctx context.Context, input CoreImport
 			}
 		}()
 	}
-	digest, err := coreartifact.ParseSHA256(input.SHA256)
-	if err != nil || digest.IsZero() {
-		return CoreArtifact{}, errors.New("core import SHA-256 is invalid")
-	}
 	version, err := coreartifact.ParseExactVersion(input.ExactVersion)
 	if err != nil || version.IsZero() {
 		return CoreArtifact{}, errors.New("core import exact version is invalid")
@@ -65,18 +58,18 @@ func (application *Application) ImportCore(ctx context.Context, input CoreImport
 	if variant == "" {
 		variant = coreartifact.VariantMusl
 	}
-	source, err := coreartifact.NewUserSource(input.SourceDescription)
+	_, err = coreartifact.NewUserSource(input.SourceDescription)
 	if err != nil {
 		return CoreArtifact{}, err
 	}
-	if _, err := coreartifact.NewIdentity(source, digest, coreartifact.OperatingSystemLinux, coreartifact.Architecture(input.Architecture), variant, version); err != nil {
-		return CoreArtifact{}, err
+	if variant != coreartifact.VariantMusl || (input.Architecture != "amd64" && input.Architecture != "arm64") {
+		return CoreArtifact{}, errors.New("core import requires Linux amd64 or arm64 musl")
 	}
 	installer, err := application.coreInstaller()
 	if err != nil {
 		return CoreArtifact{}, err
 	}
-	installed, err := installer.ImportLocal(ctx, artifactstore.ImportRequest{SourcePath: input.SourcePath, SourceDescription: input.SourceDescription, ExpectedSHA256: digest, ExpectedVersion: version, ExpectedArchitecture: coreartifact.Architecture(input.Architecture), Variant: variant})
+	installed, err := installer.ImportLocal(ctx, artifactstore.ImportRequest{SourcePath: input.SourcePath, SourceDescription: input.SourceDescription, ExpectedVersion: version, ExpectedArchitecture: coreartifact.Architecture(input.Architecture), Variant: variant})
 	if err != nil {
 		return CoreArtifact{}, err
 	}

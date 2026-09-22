@@ -23,7 +23,8 @@ const (
 	CoreArtifactSourceUserVerified CoreArtifactSourceKind = "user_verified"
 )
 
-// CoreArtifact is the persisted identity of immutable sing-box binary bytes.
+// CoreArtifact is a persisted installation identity. Hashes record installation
+// contents; runtime operations do not recheck them against the core files.
 type CoreArtifact struct {
 	ID                 string
 	ExactVersion       string

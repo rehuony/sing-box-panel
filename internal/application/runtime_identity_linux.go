@@ -40,8 +40,7 @@ func (inspector runtimeIdentityProcInspector) Verify(
 		return errors.New("process start token changed")
 	}
 	if artifact.ID != observation.CoreArtifactID || artifact.ExactVersion != observation.ExactCoreVersion ||
-		artifact.ReportedVersion != observation.ExactCoreVersion || artifact.ArchiveSHA256 != observation.ArchiveSHA256 ||
-		artifact.BinarySHA256 != observation.BinarySHA256 {
+		artifact.ReportedVersion != observation.ExactCoreVersion {
 		return errors.New("persisted artifact identity changed")
 	}
 	processExecutable, err := os.Stat(filepath.Join(inspector.procRoot(), strconv.Itoa(observation.PID), "exe"))

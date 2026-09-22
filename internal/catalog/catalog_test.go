@@ -14,37 +14,22 @@ import (
 	"github.com/rehuony/sing-box-panel/internal/coreartifact"
 )
 
-func TestAssetTrustedDigest(t *testing.T) {
+func TestAssetValidationIgnoresDigestMetadata(t *testing.T) {
 	t.Parallel()
-	first := digest(t, "11")
-	second := digest(t, "22")
-	tests := []struct {
-		name    string
-		asset   Asset
-		want    coreartifact.SHA256
-		wantErr error
-	}{
-		{name: "API only", asset: Asset{APIDigest: first, HasAPIDigest: true}, want: first},
-		{name: "catalog only", asset: Asset{CatalogDigest: first, HasCatalogDigest: true}, want: first},
-		{name: "both agree", asset: Asset{APIDigest: first, HasAPIDigest: true, CatalogDigest: first, HasCatalogDigest: true}, want: first},
-		{name: "missing", asset: Asset{}, wantErr: ErrDigestMissing},
-		{name: "mismatch", asset: Asset{APIDigest: first, HasAPIDigest: true, CatalogDigest: second, HasCatalogDigest: true}, wantErr: ErrDigestMismatch},
-		{name: "present zero", asset: Asset{HasAPIDigest: true}, wantErr: ErrInvalidCandidate},
-	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			t.Parallel()
-			got, err := test.asset.TrustedDigest()
-			if test.wantErr != nil {
-				if !errors.Is(err, test.wantErr) {
-					t.Fatalf("TrustedDigest() error = %v, want %v", err, test.wantErr)
-				}
-				return
-			}
-			if err != nil || got != test.want {
-				t.Fatalf("TrustedDigest() = (%s, %v), want (%s, nil)", got, err, test.want)
-			}
-		})
+	for _, metadata := range []Asset{
+		{}, {HasAPIDigest: true}, {APIDigest: digest(t, "11")},
+		{APIDigest: digest(t, "11"), HasAPIDigest: true, CatalogDigest: digest(t, "22"), HasCatalogDigest: true},
+	} {
+		metadata.RepositoryID = OfficialRepositoryID
+		metadata.ReleaseID, metadata.AssetID = 1, 2
+		metadata.Name = "sing-box-1.13.19-linux-amd64-musl.tar.gz"
+		metadata.DownloadURL = "https://github.com/SagerNet/sing-box/releases/download/v1.13.19/" + metadata.Name
+		metadata.Size = 100
+		metadata.Version = exactVersion(t, "1.13.19")
+		metadata.OperatingSystem, metadata.Architecture, metadata.Variant = coreartifact.OperatingSystemLinux, coreartifact.ArchitectureAMD64, coreartifact.VariantMusl
+		if err := metadata.Validate(); err != nil {
+			t.Fatal(err)
+		}
 	}
 }
 
@@ -109,11 +94,10 @@ func TestStableVersionAndAssetClassification(t *testing.T) {
 func TestGitHubRefreshFiltersPaginatesAndResolvesDigests(t *testing.T) {
 	t.Parallel()
 	apiDigest := digest(t, "11")
-	catalogDigest := digest(t, "22")
 	pageOne := `[
 		{"id":101,"tag_name":"v1.13.19","draft":false,"prerelease":false,"unknown":"accepted","assets":[
 		{"id":1001,"name":"sing-box-1.13.19-linux-amd64-musl.tar.gz","size":100,"browser_download_url":"https://github.com/SagerNet/sing-box/releases/download/v1.13.19/sing-box-1.13.19-linux-amd64-musl.tar.gz","digest":"sha256:` + apiDigest.String() + `"},
-		{"id":1002,"name":"sing-box-1.13.19-linux-arm64-musl.tar.gz","size":101,"browser_download_url":"https://github.com/SagerNet/sing-box/releases/download/v1.13.19/sing-box-1.13.19-linux-arm64-musl.tar.gz","digest":""},
+		{"id":1002,"name":"sing-box-1.13.19-linux-arm64-musl.tar.gz","size":101,"browser_download_url":"https://github.com/SagerNet/sing-box/releases/download/v1.13.19/sing-box-1.13.19-linux-arm64-musl.tar.gz","digest":"invalid-upstream-digest"},
 		{"id":1003,"name":"sing-box-1.13.19-linux-amd64-glibc.tar.gz","size":102,"browser_download_url":"https://github.com/SagerNet/sing-box/releases/download/v1.13.19/sing-box-1.13.19-linux-amd64-glibc.tar.gz","digest":"sha256:` + apiDigest.String() + `"},
 		{"id":1004,"name":"sing-box-1.13.19-windows-amd64.zip","size":103,"browser_download_url":"https://github.com/SagerNet/sing-box/releases/download/v1.13.19/sing-box-1.13.19-windows-amd64.zip","digest":"sha256:` + apiDigest.String() + `"}
       ]},
@@ -135,19 +119,7 @@ func TestGitHubRefreshFiltersPaginatesAndResolvesDigests(t *testing.T) {
 		jsonResponse(http.StatusOK, pageTwo, pageTwoHeaders),
 		jsonResponse(http.StatusOK, `{"id":509091576,"full_name":"SagerNet/sing-box"}`, nil),
 	}}
-	lookup := digestLookupFunc(func(_ context.Context, key DigestKey) (coreartifact.SHA256, bool, error) {
-		switch key.AssetID {
-		case 1001:
-			return apiDigest, true, nil
-		case 1002:
-			return catalogDigest, true, nil
-		case 1005:
-			return catalogDigest, true, nil
-		default:
-			return coreartifact.SHA256{}, false, nil
-		}
-	})
-	client, err := NewGitHubClient(ClientOptions{HTTP: doer, DigestLookup: lookup, Token: "secret-token"})
+	client, err := NewGitHubClient(ClientOptions{HTTP: doer, Token: "secret-token"})
 	if err != nil {
 		t.Fatalf("NewGitHubClient: %v", err)
 	}
@@ -173,23 +145,13 @@ func TestGitHubRefreshFiltersPaginatesAndResolvesDigests(t *testing.T) {
 	for _, asset := range assets {
 		assetsByID[asset.AssetID] = asset
 	}
-	if trusted, err := assetsByID[1001].TrustedDigest(); err != nil || trusted != apiDigest {
-		t.Fatalf("amd64 trusted digest = (%s, %v), want API digest", trusted, err)
+	if assetsByID[1001].APIDigest != apiDigest || assetsByID[1002].HasAPIDigest {
+		t.Fatal("unexpected informational digest metadata")
 	}
-	if trusted, err := assetsByID[1002].TrustedDigest(); err != nil || trusted != catalogDigest {
-		t.Fatalf("arm64 trusted digest = (%s, %v), want catalog digest", trusted, err)
-	}
-	mismatchFound := false
 	for _, diagnostic := range result.Diagnostics {
-		if diagnostic.Code == "digest_mismatch" {
-			mismatchFound = true
+		if strings.Contains(diagnostic.Message, "secret-token") || strings.Contains(diagnostic.Code, "digest") {
+			t.Fatalf("unexpected diagnostic: %+v", diagnostic)
 		}
-		if strings.Contains(diagnostic.Message, "secret-token") {
-			t.Fatalf("diagnostic leaked token: %+v", diagnostic)
-		}
-	}
-	if !mismatchFound {
-		t.Fatalf("digest mismatch diagnostic missing: %+v", result.Diagnostics)
 	}
 	requests := doer.Requests()
 	if len(requests) != 3 {
@@ -251,7 +213,7 @@ func TestOfficialCatalogKeepsOnlyOneMuslAssetPerArchitecture(t *testing.T) {
 		})
 	}
 	client := &GitHubClient{}
-	releases, _, err := client.filter(context.Background(), OfficialRepositoryID, []githubRelease{
+	releases, _, err := client.filter(OfficialRepositoryID, []githubRelease{
 		{ID: 101, TagName: "v1.14.1", Assets: assets},
 		{ID: 102, TagName: "v1.12.25"},
 	})
@@ -265,7 +227,7 @@ func TestOfficialCatalogKeepsOnlyOneMuslAssetPerArchitecture(t *testing.T) {
 	}
 	duplicate := assets[3]
 	duplicate.ID = 99
-	_, _, err = client.filter(context.Background(), OfficialRepositoryID, []githubRelease{{
+	_, _, err = client.filter(OfficialRepositoryID, []githubRelease{{
 		ID: 101, TagName: "v1.14.1", Assets: append(assets, duplicate),
 	}})
 	var failure *Failure
@@ -426,12 +388,6 @@ func TestGitHubRefreshEnforcesAggregateBodyBudget(t *testing.T) {
 	if !errors.As(err, &failure) || failure.Code != "total_body_too_large" {
 		t.Fatalf("Refresh error = %v, want total_body_too_large", err)
 	}
-}
-
-type digestLookupFunc func(context.Context, DigestKey) (coreartifact.SHA256, bool, error)
-
-func (lookup digestLookupFunc) Lookup(ctx context.Context, key DigestKey) (coreartifact.SHA256, bool, error) {
-	return lookup(ctx, key)
 }
 
 type doerFunc func(*http.Request) (*http.Response, error)

@@ -5,8 +5,6 @@ package httpapi
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"mime/multipart"
 	"net/http"
@@ -44,7 +42,7 @@ func TestCoreHTTPRoutesUseApplicationServices(t *testing.T) {
 	assetsResponse := authenticatedRequest(
 		handler,
 		http.MethodGet,
-		"/api/v1/core/catalog/assets?exact_version=1.13.19&architecture=amd64&variant=musl&installable=true",
+		"/api/v1/core/catalog/assets?exact_version=1.13.19&architecture=amd64&variant=musl",
 		"",
 		"",
 	)
@@ -77,7 +75,7 @@ func TestCoreHTTPRoutesUseApplicationServices(t *testing.T) {
 	if err := json.Unmarshal(supportResponse.Body.Bytes(), &support); err != nil {
 		t.Fatal(err)
 	}
-	if support.Structured || support.ExactVersion != "1.13.19" {
+	if !support.Structured || support.ExactVersion != "1.13.19" {
 		t.Fatalf("configuration support = %+v", support)
 	}
 	legacySchemaResponse := authenticatedRequest(
@@ -87,7 +85,9 @@ func TestCoreHTTPRoutesUseApplicationServices(t *testing.T) {
 		"",
 		"",
 	)
-	assertCoreHTTPProblem(t, legacySchemaResponse, http.StatusConflict, "configuration_schema_unavailable")
+	if legacySchemaResponse.Code != http.StatusOK {
+		t.Fatalf("reviewed 1.13 schema: %d %s", legacySchemaResponse.Code, legacySchemaResponse.Body.String())
+	}
 
 	listResponse := authenticatedRequest(
 		handler,
@@ -331,14 +331,13 @@ func authenticatedCoreUpload(handler http.Handler, archive []byte, overrideDiges
 	writer := multipart.NewWriter(&body)
 	part, _ := writer.CreateFormFile("archive", "untrusted-client-name.tar.gz")
 	_, _ = part.Write(archive)
-	sum := sha256.Sum256(archive)
-	digest := hex.EncodeToString(sum[:])
+	// Explicitly exercise rejection of the removed upload parameter.
 	if overrideDigest != "" {
-		digest = overrideDigest
+		_ = writer.WriteField("sha256", overrideDigest)
 	}
 	for name, value := range map[string]string{
-		"source_description": "browser upload", "sha256": digest,
-		"exact_version": "1.13.19", "architecture": "amd64", "variant": "musl",
+		"source_description": "browser upload",
+		"exact_version":      "1.13.19", "architecture": "amd64", "variant": "musl",
 	} {
 		_ = writer.WriteField(name, value)
 	}

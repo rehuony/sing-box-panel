@@ -1,0 +1,26 @@
+{
+  "log": {"disabled": true},
+  "dns": {
+    "servers": [{"type": "local", "tag": "local", "prefer_go": true}],
+    "rules": [
+      {"type": "logical", "mode": "or", "rules": [{"domain": "example.test"}, {"query_type": "AAAA"}], "action": "route", "server": "local", "disable_cache": true},
+      {"domain": "blocked.test", "action": "reject", "method": "default", "no_drop": true},
+      {"domain": "static.test", "action": "predefined", "rcode": "NOERROR", "answer": ["static.test. 60 IN A 192.0.2.10"]},
+      {"domain_suffix": "cache.test", "action": "route-options", "rewrite_ttl": 90, "client_subnet": "192.0.2.0/24"}
+    ]
+  },
+  "route": {
+    "rules": [
+      {"inbound": "mixed", "action": "sniff", "sniffer": ["http", "tls"], "timeout": "1s"},
+      {"protocol": "dns", "action": "hijack-dns"},
+      {"domain": "reject.test", "action": "reject", "method": "drop"},
+      {"domain": "fragment.test", "action": "route-options", "tls_fragment": true},
+      {"domain": "resolve.test", "action": "resolve", "server": "local", "strategy": "prefer_ipv4"},
+      {"type": "logical", "mode": "and", "rules": [{"network": "tcp"}, {"port": [80, 443]}], "action": "route", "outbound": "direct"}
+    ],
+    "rule_set": [{"tag": "inline", "rules": [{"domain_suffix": "example.test"}]}],
+    "default_domain_resolver": "local"
+  },
+  "inbounds": [{"type": "mixed", "tag": "mixed", "listen": "127.0.0.1", "listen_port": 19090}],
+  "outbounds": [{"type": "direct", "tag": "direct"}]
+}

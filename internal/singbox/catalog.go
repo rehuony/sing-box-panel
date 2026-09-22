@@ -8,8 +8,10 @@ package singbox
 import "slices"
 
 const (
-	ArchitectureAMD64 = "amd64"
-	ArchitectureARM64 = "arm64"
+	SchemaSourceNative      = "native"
+	SchemaSourceReviewed113 = "reviewed-1.13"
+	ArchitectureAMD64       = "amd64"
+	ArchitectureARM64       = "arm64"
 )
 
 type Upstream struct {
@@ -32,6 +34,7 @@ type Version struct {
 	// InboundFamily is present only when this exact version has a compiled
 	// subscription inbound converter. Runtime and Schema support do not depend
 	// on this optional capability.
+	SchemaSource  string             `json:"configuration_schema,omitempty"`
 	InboundFamily string             `json:"inbound_family,omitempty"`
 	Upstream      Upstream           `json:"upstream"`
 	Profiles      map[string]Profile `json:"profiles"`
