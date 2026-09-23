@@ -54,11 +54,12 @@ configuration, or subscription data.
 ### Database compatibility
 
 The current application uses SQLite `application_id = 0x53425034` and storage
-schema version 11, defined in `internal/store/schema.sql`. An empty database is
-initialized directly; an existing database must have exactly this format.
-Unidentified databases, other application identities, and older or newer schemas
-are rejected without converting their data. Development instances from an older
-format need a fresh data directory. The panel never deletes old data automatically.
+schema version 12, defined in `internal/store/schema.sql` and
+`internal/store/traffic_months.sql`. Empty databases are initialized directly.
+Version 11 of the same application identity is upgraded transactionally,
+preserving existing data and adding durable monthly traffic totals. Unidentified
+databases, other application identities, and unsupported older or newer schemas
+are rejected without changing their data. The panel never deletes old data automatically.
 Panel settings are read from the selected `setting.json` only.
 
 Configuration revisions contain a sing-box JSON object directly. SQLite's
@@ -82,7 +83,7 @@ user it is `$XDG_DATA_HOME/sing-box-panel`, or
 The settings file is the single source for all panel settings. The Web UI,
 `config init/show/set/unset/verify`, and manual edits use this same file. Shared fields retain
 their existing sections; `panel` adds the public node host, protocol identity,
-language and appearance. The Web form exposes all settings, including service paths, version check interval, retention and subscription source policy. Changing `data_dir` moves
+language and appearance. The Web form exposes service paths, version check interval, metric retention and sing-box log retention. Panel events are retained indefinitely; protocol identity and subscription source policy remain file/API settings. Changing `data_dir` moves
 existing storage on the next explicit start, with interruption recovery.
 Sing-box documents, subscriptions and runtime evidence remain in SQLite.
 See the [complete field mapping](guides/configuration-and-runtime.md#shared-settings-file).

@@ -206,7 +206,7 @@ See [the field mapping and effect timing](configuration-and-runtime.md#shared-se
 
 Writers coordinate through a private `setting.json.lock` beside the selected
 file. A temporary `setting.json.pending` journal protects Web saves that also
-update protocol identity in SQLite. While recovery is pending, file commands
+update protocol identity in SQLite or restore a configuration backup. While recovery is pending, file commands
 fail closed; start the panel to finish recovery before editing. A private
 `setting.json.location` also records the established data directory and any
 pending move. These sidecars appear in `system df`; cleanup removes idle metadata

@@ -19,6 +19,8 @@ type managementOperation struct {
 var managementOperations = []managementOperation{
 	{Method: http.MethodGet, Path: "/panel/settings", OperationID: "getPanelSettings"},
 	{Method: http.MethodPut, Path: "/panel/settings", OperationID: "savePanelSettings"},
+	{Method: http.MethodGet, Path: "/panel/backup", OperationID: "exportPanelBackup"},
+	{Method: http.MethodPost, Path: "/panel/restore", OperationID: "restorePanelBackup"},
 	{Method: http.MethodGet, Path: "/config/file", OperationID: "getConfigurationFile"},
 	{Method: http.MethodPut, Path: "/config/file", OperationID: "saveConfigurationFile"},
 	{Method: http.MethodPost, Path: "/config/inbound-defaults", OperationID: "newInboundDefaults"},
@@ -99,6 +101,7 @@ var managementOperations = []managementOperation{
 	{Method: http.MethodGet, Path: "/metrics/stream", OperationID: "streamMetrics"},
 	{Method: http.MethodGet, Path: "/dashboard/stream", OperationID: "streamDashboard"},
 	{Method: http.MethodGet, Path: "/core/logs/files", OperationID: "listCoreLogFiles"},
+	{Method: http.MethodDelete, Path: "/core/logs/files", OperationID: "deleteCoreLogFile"},
 	{Method: http.MethodGet, Path: "/core/logs/content", OperationID: "readCoreLog"},
 	{Method: http.MethodGet, Path: "/core/logs/stream", OperationID: "streamCoreLog"},
 	{Method: http.MethodGet, Path: "/logs/panel", OperationID: "listPanelLogs"},

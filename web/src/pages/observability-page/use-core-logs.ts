@@ -17,6 +17,8 @@ export function useCoreLogs() {
   const [error, setError] = useState<unknown>(null);
   const [listError, setListError] = useState<unknown>(null);
   const [loading, setLoading] = useState(true);
+  const [filesVersion, setFilesVersion] = useState(0);
+  const listVersionRef = useRef(0);
   const offsetRef = useRef({ file: '', value: -1 });
   const file = paused ? pausedFile : selection || files[0]?.name || '';
   const current = file !== '' && file === files[0]?.name;
@@ -24,16 +26,17 @@ export function useCoreLogs() {
   useEffect(() => {
     const abort = new AbortController();
     async function refresh() {
+      const version = listVersionRef.current;
       try {
         const result = await client.listCoreLogFiles(abort.signal);
-        if (!abort.signal.aborted) {
+        if (!abort.signal.aborted && version === listVersionRef.current) {
           setFiles(result.items);
           setListError(null);
         }
       } catch (reason) {
-        if (!abort.signal.aborted) setListError(reason);
+        if (!abort.signal.aborted && version === listVersionRef.current) setListError(reason);
       } finally {
-        if (!abort.signal.aborted) setLoading(false);
+        if (!abort.signal.aborted && version === listVersionRef.current) setLoading(false);
       }
     }
     void refresh();
@@ -44,10 +47,10 @@ export function useCoreLogs() {
       abort.abort();
       clearInterval(timer);
     };
-  }, [client]);
+  }, [client, filesVersion]);
 
   useEffect(() => {
-    if (!file || paused) return;
+    if (paused) return;
     const abort = new AbortController();
     let timer: ReturnType<typeof setTimeout>;
     async function connect() {
@@ -55,12 +58,15 @@ export function useCoreLogs() {
       if (offsetRef.current.file !== file) {
         offsetRef.current = { file, value: -1 };
         setText('');
+        setError(null);
       }
+      if (!file) return;
       try {
         if (!current) {
-          const chunk = await client.readCoreLog(file, -1, abort.signal);
+          const chunk = await client.readCoreLog(file, offsetRef.current.value, abort.signal);
           if (!abort.signal.aborted) {
-            setText(chunk.text);
+            offsetRef.current.value = chunk.next_offset;
+            setText((previous) => appendCoreText(previous, chunk.text));
             setError(null);
           }
           return;
@@ -103,6 +109,17 @@ export function useCoreLogs() {
     loading,
     error: error ?? listError,
     paused,
+    deletable: files.find((item) => item.name === file)?.deletable === true,
+    clear: () => setText(''),
+    deleteFile: async (name: string) => {
+      await client.deleteCoreLogFile(name);
+      // Ignore list requests started before deletion, then fetch a fresh list.
+      listVersionRef.current++;
+      setFilesVersion((version) => version + 1);
+      setFiles((previous) => previous.filter((item) => item.name !== name));
+      setSelection('');
+      setPaused(false);
+    },
     setPaused: (value: boolean) => {
       if (value) setPausedFile(file);
       setPaused(value);

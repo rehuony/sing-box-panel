@@ -108,7 +108,23 @@ func (s *Store) GetTrafficPeriod(ctx context.Context, periodID string) (TrafficP
 	if strings.TrimSpace(periodID) == "" {
 		return TrafficPeriod{}, errors.New("traffic period id is empty")
 	}
-	return getTrafficPeriod(ctx, s.db, periodID)
+	period, err := getTrafficPeriod(ctx, s.db, periodID)
+	if (err != nil && !errors.Is(err, ErrTrafficPeriodNotFound)) || !strings.HasPrefix(periodID, "traffic_monthly_") {
+		return period, err
+	}
+	parts := strings.Split(strings.TrimPrefix(periodID, "traffic_monthly_"), "_")
+	if len(parts) != 2 {
+		return period, err
+	}
+	start, startErr := time.Parse("200601", parts[0])
+	end, endErr := time.Parse("200601", parts[1])
+	months := (end.Year()-start.Year())*12 + int(end.Month()-start.Month())
+	if startErr != nil || endErr != nil || months < 1 || months > 120 || time.Now().Before(start) {
+		return period, err
+	}
+	// Recompute monthly ranges even when an older materialized row exists: a
+	// different configured range may have collected additional monthly deltas.
+	return s.AggregateTrafficPeriod(ctx, start, end, minTime(time.Now().UTC(), end.Add(-time.Nanosecond)))
 }
 
 func (s *Store) CurrentTrafficPeriod(ctx context.Context, at time.Time) (TrafficPeriod, error) {

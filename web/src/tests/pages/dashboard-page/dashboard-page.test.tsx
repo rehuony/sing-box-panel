@@ -99,8 +99,20 @@ describe('dashboard evidence', () => {
   it('does not invent used traffic when evidence is missing', () => {
     show({ metrics: { ...testMetrics, traffic_available: false } });
     const card = screen.getByText('Period traffic').closest('section')!;
-    expect(card.querySelector('strong')).toHaveTextContent('—');
+    expect(card.querySelector('strong')).toHaveTextContent('Usage unknown');
     expect(card.querySelector('small')).toHaveTextContent('— / ∞ GiB');
+  });
+
+  it('shows the configured quota alongside unknown usage and marks incomplete history', () => {
+    show({ metrics: { ...testMetrics, available: false, traffic_available: false, quota_bytes: 500 * 2 ** 30 } });
+    const card = screen.getByText('Period traffic').closest('section')!;
+    expect(card.querySelector('strong')).toHaveTextContent('Usage unknown');
+    expect(card.querySelector('small')).toHaveTextContent('500 GB');
+  });
+
+  it('marks partial monthly coverage without inventing missing usage', () => {
+    show({ metrics: { ...testMetrics, traffic_coverage: 'partial' } });
+    expect(screen.getByText('Period traffic').closest('section')).toHaveTextContent('Incomplete data');
   });
 
   it('keeps the configured finite quota presentation', () => {

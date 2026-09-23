@@ -9,6 +9,7 @@ import type {
   CanonicalSnapshot,
   CatalogAsset,
   ConfigurationFile,
+  ConfigurationFileWrite,
   CoreArtifact,
   LogEntry,
   PanelLog,
@@ -25,6 +26,7 @@ import { ApiRequestError } from '../api-client';
 import { createDemoCoreLogs } from './demo-core-logs';
 import { DEFAULT_APPEARANCE } from '../../theme/appearance';
 import { reviewedSchemaManifest } from '../../schemas/generated';
+import { demoBackupSettings, demoRestoreSettings } from './demo-panel-backup';
 import {
   createDemoNodeApi,
   demoManualNodes,
@@ -258,8 +260,9 @@ export function createDemoApiClient(): ApiClient {
   const state = createState();
   const tokenSecrets = new Map(state.tokens.map((token) => [token.id, `sbp_demo_${token.id}_secret`]));
   const nodeApi = createDemoNodeApi([...demoManualNodes(), ...demoSourceNodeDetails(state)]);
+  let panelSecrets = { management: 'demo-management-token-for-config-backup', github: '', identity: '' };
   let panelSettings: PanelSettingsView = {
-    service: { data_dir: '/var/lib/sing-box-panel', base_path: '', secure_cookie: false, catalog_refresh_interval_hours: 12, traffic_period_months: 1, sample_retention_days: 90, subscription_author: 'reagin', subscription_provider: 'default', private_source_cidrs: [], log_retention_days: 7 },
+    service: { data_dir: '/var/lib/sing-box-panel', base_path: '', secure_cookie: false, catalog_refresh_interval_hours: 12, traffic_period_months: 1, sample_retention_days: 90, subscription_author: 'reagin', subscription_provider: 'default', private_source_cidrs: [], log_retention_days: 0, core_log_retention_days: 7, core_log_max_files: 0, core_log_max_file_size_mib: 32 },
     revision: 0,
     github_token_configured: false,
     identity_key_configured: false,
@@ -281,6 +284,24 @@ export function createDemoApiClient(): ApiClient {
     syntax_valid: true,
     canonical_revision_id: state.canonical.id,
   };
+  function updateConfigurationFile(input: ConfigurationFileWrite) {
+    if (input.revision !== configurationFile.revision) conflict('Configuration file');
+    if (input.content === configurationFile.content) return configurationFile;
+    let canonicalID: string | undefined;
+    try {
+      canonicalID = saveCanonical(state, input.content, state.canonical.id).revision.id;
+    } catch (error) {
+      if (!(error instanceof ApiRequestError) || error.status !== 422) throw error;
+    }
+    configurationFile = {
+      revision: configurationFile.revision + 1,
+      content: input.content,
+      canonical_revision_id: canonicalID,
+      syntax_valid: canonicalID !== undefined,
+      updated_at: updatedAt(),
+    };
+    return configurationFile;
+  }
   const sessionListeners = new Set<() => void>();
   state.runtime.loaded_canonical_revision_id = state.startupArtifacts[0]?.canonical_revision_id;
   function requireParsedFile() {
@@ -296,27 +317,28 @@ export function createDemoApiClient(): ApiClient {
     getConfigurationFile: (signal) => respond(configurationFile, signal),
     async saveConfigurationFile(input, signal) {
       assertActive(signal);
-      if (input.revision !== configurationFile.revision) conflict('Configuration file');
-      if (input.content === configurationFile.content) return respond(configurationFile, signal);
-      let canonicalID: string | undefined;
-      try {
-        canonicalID = saveCanonical(state, input.content, state.canonical.id).revision.id;
-      } catch (error) {
-        if (!(error instanceof ApiRequestError) || error.status !== 422) throw error;
-      }
-      configurationFile = {
-        revision: configurationFile.revision + 1,
-        content: input.content,
-        canonical_revision_id: canonicalID,
-        syntax_valid: canonicalID !== undefined,
-        updated_at: updatedAt(),
-      };
-      return respond(configurationFile, signal);
+      return respond(updateConfigurationFile(input), signal);
+    },
+    exportPanelBackup: signal => respond({ format: 'sing-box-panel-backup', version: 1, exported_at: updatedAt(), panel_settings: demoBackupSettings(panelSettings, panelSecrets), sing_box_configuration: configurationFile.content }, signal),
+    async restorePanelBackup(input, signal) {
+      assertActive(signal);
+      if (input.settings_revision !== panelSettings.revision || input.configuration_revision !== configurationFile.revision) conflict('Saved configuration');
+      const restored = demoRestoreSettings(input.backup, panelSettings.revision + 1);
+      updateConfigurationFile({
+        revision: configurationFile.revision, content: input.backup.sing_box_configuration,
+      });
+      const reauthenticate = restored.secrets.management !== panelSecrets.management;
+      restored.view.restart_required = restored.view.preferences.listen_host !== '127.0.0.1' || restored.view.preferences.listen_port !== 3000 || restored.view.preferences.external_origin !== '' || restored.view.service.data_dir !== '/var/lib/sing-box-panel' || restored.view.service.base_path !== '' || restored.view.service.secure_cookie;
+      panelSettings = restored.view;
+      panelSecrets = restored.secrets;
+      if (reauthenticate) state.session = null;
+      return respond({ settings: panelSettings, reauthentication_required: reauthenticate }, signal);
     },
     getPanelSettings: (signal) => respond(panelSettings, signal),
     async savePanelSettings(input, signal) {
       assertActive(signal);
       if (input.revision !== panelSettings.revision) conflict('Panel settings');
+      panelSecrets = { management: input.management_token || panelSecrets.management, github: input.clear_github_token ? '' : input.github_token || panelSecrets.github, identity: input.clear_identity_key ? '' : input.identity_key || panelSecrets.identity };
       panelSettings = {
         revision: panelSettings.revision + 1,
         service: input.service ?? panelSettings.service,
@@ -329,7 +351,8 @@ export function createDemoApiClient(): ApiClient {
         restart_required:
           input.preferences.listen_host !== '127.0.0.1'
           || input.preferences.listen_port !== 3000
-          || input.preferences.external_origin !== '',
+          || input.preferences.external_origin !== ''
+          || (input.service !== undefined && (input.service.data_dir !== '/var/lib/sing-box-panel' || input.service.base_path !== '' || input.service.secure_cookie)),
       };
       return respond(panelSettings, signal);
     },

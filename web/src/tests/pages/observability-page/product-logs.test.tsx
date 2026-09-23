@@ -44,12 +44,12 @@ describe('unified product logs', () => {
     expect(screen.queryByRole('textbox', { name: 'Search panel messages' })).not.toBeInTheDocument();
     expect(screen.getByRole('combobox', { name: 'Log file' })).toBeVisible();
   });
-  it('keeps paused output on file rotation and lets the status pill resume the latest file', async () => {
+  it('keeps paused output on file rotation and lets the toolbar toggle resume the latest file', async () => {
     vi.useFakeTimers();
     let latest = file;
     const client = createMockApiClient({
       listCoreLogFiles: vi.fn(async () => ({
-        items: [{ name: latest, size: 32, updated_at: new Date().toISOString() }],
+        items: [{ name: latest, size: 32, deletable: false, updated_at: new Date().toISOString() }],
       })),
       streamCoreLog: vi.fn(async function* (name, _offset, signal) {
         yield { file: name, text: `INFO ${name}\n`, next_offset: 32, size: 32 };
@@ -58,13 +58,13 @@ describe('unified product logs', () => {
     });
     show(client);
     await act(async () => {});
-    fireEvent.click(screen.getByRole('button', { name: 'Live', pressed: true }));
+    fireEvent.click(screen.getByRole('button', { name: 'Live updates', pressed: true }));
     latest = '2026-09-19-001.log';
     await act(() => vi.advanceTimersByTimeAsync(10_000));
     expect(screen.getByText(`INFO ${file}`)).toBeVisible();
     expect(client.streamCoreLog).toHaveBeenCalledTimes(1);
     await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: 'Paused', pressed: false }));
+      fireEvent.click(screen.getByRole('button', { name: 'Live updates', pressed: false }));
     });
     expect(screen.getByText(`INFO ${latest}`)).toBeVisible();
     expect(screen.queryByText(`INFO ${file}`)).not.toBeInTheDocument();
@@ -83,7 +83,7 @@ describe('unified product logs', () => {
     expect(lines[2].level).toBe('info');
     expect(appendCoreText('old\n'.repeat(2500), 'INFO newest\n').split('\n')).toHaveLength(2001);
   });
-  it('toggles live output with the status pill and resumes at the last received byte', async () => {
+  it('toggles live output with the toolbar toggle and resumes at the last received byte', async () => {
     const stream = vi.fn(async function* (_file: string, offset = -1, signal?: AbortSignal) {
       const chunk: CoreLogChunk = {
         file,
@@ -99,27 +99,143 @@ describe('unified product logs', () => {
         listCoreLogFiles: vi
           .fn()
           .mockResolvedValue({
-            items: [{ name: file, size: 32, updated_at: new Date().toISOString() }],
+            items: [{ name: file, size: 32, deletable: false, updated_at: new Date().toISOString() }],
           }),
         streamCoreLog: stream,
       }),
     );
     expect(screen.getAllByRole('tab')).toHaveLength(2);
     await screen.findByText('INFO connected');
-    const live = screen.getByRole('button', { name: 'Live', pressed: true });
+    const live = screen.getByRole('button', { name: 'Live updates', pressed: true });
     await userEvent.click(live);
-    const paused = screen.getByRole('button', { name: 'Paused', pressed: false });
+    const paused = screen.getByRole('button', { name: 'Live updates', pressed: false });
     expect(paused).toHaveFocus();
     expect(stream.mock.calls[0]?.[2]?.aborted).toBe(true);
     await userEvent.keyboard('{Enter}');
     await screen.findByText('ERROR resumed');
-    expect(screen.getByRole('button', { name: 'Live', pressed: true })).toHaveFocus();
+    expect(screen.getByRole('button', { name: 'Live updates', pressed: true })).toHaveFocus();
     expect(stream.mock.calls.at(-1)?.[1]).toBe(32);
     expect(screen.getAllByText('INFO connected')).toHaveLength(1);
     await userEvent.click(screen.getByRole('combobox', { name: 'Log level' }));
     await userEvent.click(await screen.findByRole('option', { name: 'ERROR' }));
     expect(screen.queryByText('INFO connected')).not.toBeInTheDocument();
     expect(screen.getByText('ERROR resumed')).toBeVisible();
+  });
+  it('clears a paused display without deleting the file or replaying received bytes', async () => {
+    const client = show(createMockApiClient({
+      listCoreLogFiles: vi.fn().mockResolvedValue({
+        items: [{ name: file, size: 32, deletable: false, updated_at: new Date().toISOString() }],
+      }),
+      streamCoreLog: vi.fn(async function* (name, offset, signal) {
+        yield { file: name, text: offset === -1 ? 'INFO before clear\n' : 'INFO after clear\n', next_offset: 32, size: 32 };
+        await waitForAbort(signal);
+      }),
+    }));
+    await screen.findByText('INFO before clear');
+    await userEvent.click(screen.getByRole('button', { name: 'Live updates' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Clear displayed logs' }));
+    expect(screen.queryByText('INFO before clear')).not.toBeInTheDocument();
+    expect(screen.getByText('Displayed logs cleared')).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Live updates', pressed: false })).toBeEnabled();
+    expect(client.deleteCoreLogFile).not.toHaveBeenCalled();
+    await userEvent.click(screen.getByRole('button', { name: 'Live updates' }));
+    await screen.findByText('INFO after clear');
+    expect(screen.queryByText('INFO before clear')).not.toBeInTheDocument();
+    expect(client.streamCoreLog).toHaveBeenLastCalledWith(file, 32, expect.any(AbortSignal));
+  });
+  it('keeps receiving after clearing and restores following with the bottom button', async () => {
+    let append = () => {};
+    const client = show(createMockApiClient({
+      listCoreLogFiles: vi.fn().mockResolvedValue({
+        items: [{ name: file, size: 32, deletable: false, updated_at: new Date().toISOString() }],
+      }),
+      streamCoreLog: vi.fn(async function* (name, _offset, signal) {
+        yield { file: name, text: 'INFO first\n', next_offset: 32, size: 32 };
+        await new Promise<void>((resolve) => {
+          append = resolve;
+        });
+        yield { file: name, text: 'INFO second\n', next_offset: 64, size: 64 };
+        await waitForAbort(signal);
+      }),
+    }));
+    await screen.findByText('INFO first');
+    const output = screen.getByRole('region', { name: 'Live logs' });
+    Object.defineProperties(output, {
+      scrollHeight: { value: 1000, configurable: true }, clientHeight: { value: 100 },
+    });
+    fireEvent.scroll(output, { target: { scrollTop: 100 } });
+    await userEvent.click(screen.getByRole('button', { name: 'Scroll to bottom' }));
+    expect(output.scrollTop).toBe(1000);
+    await userEvent.click(screen.getByRole('button', { name: 'Clear displayed logs' }));
+    await act(async () => append());
+    expect(await screen.findByText('INFO second')).toBeVisible();
+    expect(screen.queryByText('INFO first')).not.toBeInTheDocument();
+    expect(output.scrollTop).toBe(1000);
+    expect(client.streamCoreLog).toHaveBeenCalledTimes(1);
+    expect(client.deleteCoreLogFile).not.toHaveBeenCalled();
+  });
+  it('protects all of today’s segments and deletes only the confirmed historical file', async () => {
+    const archive = '2026-09-18-000.log';
+    const earlierToday = '2026-09-19-000.log';
+    const latest = '2026-09-19-001.log';
+    let files = [latest, earlierToday, archive].map((name) => ({ name, size: 32, updated_at: '2026-09-19T00:00:00Z', deletable: name === archive }));
+    const client = show(createMockApiClient({
+      listCoreLogFiles: vi.fn(async () => ({ items: files })),
+      readCoreLog: vi.fn(async (name) => ({ file: name, text: `INFO ${name}\n`, next_offset: 32, size: 32 })),
+      streamCoreLog: vi.fn(async function* (name, _offset, signal) {
+        yield { file: name, text: `INFO ${name}\n`, next_offset: 32, size: 32 };
+        await waitForAbort(signal);
+      }),
+      deleteCoreLogFile: vi.fn(async (name) => {
+        files = files.filter((item) => item.name !== name);
+      }),
+    }));
+    await screen.findByText(`INFO ${latest}`);
+    expect(screen.queryByRole('button', { name: 'Delete log file' })).not.toBeInTheDocument();
+    for (const name of [earlierToday, archive]) {
+      await userEvent.click(screen.getByRole('combobox', { name: 'Log file' }));
+      const options = await screen.findAllByRole('option', { name: `${name.slice(0, 10)} · 0.0 MB` });
+      await userEvent.click(options[name === earlierToday ? 1 : 0]);
+      await screen.findByText(`INFO ${name}`);
+      expect(screen.getByRole('button', { name: 'Live updates' })).toBeDisabled();
+      if (name === earlierToday) expect(screen.queryByRole('button', { name: 'Delete log file' })).not.toBeInTheDocument();
+    }
+    await userEvent.click(screen.getByRole('button', { name: 'Delete log file' }));
+    expect(screen.getByRole('alertdialog')).toHaveTextContent(archive);
+    await userEvent.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Cancel' }));
+    expect(client.deleteCoreLogFile).not.toHaveBeenCalled();
+    await userEvent.click(screen.getByRole('button', { name: 'Delete log file' }));
+    await userEvent.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Delete log file' }));
+    await screen.findByText(`INFO ${latest}`);
+    expect(client.deleteCoreLogFile).toHaveBeenCalledExactlyOnceWith(archive);
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Delete log file' })).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole('combobox', { name: 'Log file' }));
+    expect(screen.queryByRole('option', { name: /2026-09-18/ })).not.toBeInTheDocument();
+  });
+  it('retains the selected file on deletion failure and handles deleting the last file', async () => {
+    let exists = true;
+    const client = show(createMockApiClient({
+      listCoreLogFiles: vi.fn(async () => ({ items: exists ? [{ name: file, size: 32, deletable: true, updated_at: '2026-09-19T00:00:00Z' }] : [] })),
+      streamCoreLog: vi.fn(async function* (name, _offset, signal) {
+        yield { file: name, text: 'INFO preserved\n', next_offset: 32, size: 32 };
+        await waitForAbort(signal);
+      }),
+      deleteCoreLogFile: vi.fn().mockRejectedValueOnce(new Error('Deletion failed')).mockImplementationOnce(async () => {
+        exists = false;
+      }),
+    }));
+    await screen.findByText('INFO preserved');
+    await userEvent.click(screen.getByRole('button', { name: 'Delete log file' }));
+    await userEvent.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Delete log file' }));
+    await waitFor(() => expect(client.deleteCoreLogFile).toHaveBeenCalledTimes(1));
+    expect(screen.getByText('INFO preserved')).toBeVisible();
+    expect(screen.getByRole('alertdialog')).toBeVisible();
+    await userEvent.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Delete log file' }));
+    await screen.findByText('No core output has been captured.');
+    expect(screen.queryByText('INFO preserved')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Live updates' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Clear displayed logs' })).toBeDisabled();
   });
   it('lists panel activity in four columns without detail actions and paginates', async () => {
     const item: PanelLog = {

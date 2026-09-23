@@ -27,6 +27,32 @@ func (handler *Handler) listCoreLogFiles(w http.ResponseWriter, r *http.Request)
 	}
 	writeJSON(w, 200, map[string]any{"items": files})
 }
+
+func (handler *Handler) deleteCoreLogFile(w http.ResponseWriter, r *http.Request) {
+	if !handler.requireCommands(w, r) {
+		return
+	}
+	query, ok := strictCoreQuery(w, r, "file")
+	if !ok || !requireEmptyCoreBody(w, r) {
+		return
+	}
+	err := handler.commands.DeleteCoreLogFile(r.Context(), query.Get("file"))
+	if err != nil {
+		switch {
+		case errors.Is(err, corelogs.ErrCurrentFile):
+			writeProblem(w, r, http.StatusConflict, "core_log_current", "Current log is protected", "Log files from the current UTC day cannot be deleted.")
+		case errors.Is(err, corelogs.ErrInvalidFile):
+			writeProblem(w, r, http.StatusBadRequest, "core_log_invalid", "Invalid log file", "Select a managed core log file.")
+		case errors.Is(err, os.ErrNotExist):
+			writeProblem(w, r, http.StatusNotFound, "core_log_not_found", "Log file not found", "The selected log file no longer exists.")
+		default:
+			writeProblem(w, r, http.StatusServiceUnavailable, "core_log_delete_failed", "Log deletion failed", "The selected log file could not be deleted.")
+		}
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func (handler *Handler) readCoreLog(w http.ResponseWriter, r *http.Request, stream bool) {
 	if !handler.requireCommands(w, r) {
 		return

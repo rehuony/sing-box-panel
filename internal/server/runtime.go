@@ -54,6 +54,10 @@ func newRuntimeServices(
 	if err != nil {
 		return nil, err
 	}
+	if err := logs.SetPolicy(corelogs.Policy{RetentionDays: configuration.Logs.CoreRetentionDays, MaxFiles: configuration.Logs.CoreMaxFiles, MaxFileBytes: int64(configuration.Logs.CoreMaxFileSizeMiB) << 20}); err != nil {
+		return nil, err
+	}
+	commands.SetCoreLogs(logs)
 	manager, err := coreruntime.NewManager(coreruntime.Options{
 		RuntimeDir: filepath.Join(configuration.DataDir, "runtime"),
 		Stdout:     logs.Writer(), Stderr: logs.Writer(),

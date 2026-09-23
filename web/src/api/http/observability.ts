@@ -98,6 +98,13 @@ export function createObservabilityHttpApi(context: HttpApiContext) {
         signal,
       });
     },
+    deleteCoreLogFile(file, signal) {
+      return request<void>(fetcher, `${baseUrl}/core/logs/files${buildQuery({ file })}`, {
+        method: 'DELETE',
+        headers: writeHeaders(),
+        signal,
+      });
+    },
     readCoreLog(file, offset = -1, signal) {
       return request<CoreLogChunk>(
         fetcher,

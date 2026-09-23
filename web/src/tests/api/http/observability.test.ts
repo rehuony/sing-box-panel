@@ -4,6 +4,17 @@ import { createHttpApiClient } from '@/api/http-api-client';
 import { testDashboardSnapshot } from '@/tests/api/mock-api-client';
 
 describe('createHttpApiClient observability domain', () => {
+  it('deletes a managed log by encoded name with the session CSRF token', async () => {
+    const fetcher = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ csrfToken: 'log-csrf-token' })))
+      .mockResolvedValueOnce(new Response(null, { status: 204 }));
+    const client = createHttpApiClient({ baseUrl: '/panel/api/v1', fetcher });
+    await client.getSession();
+    await client.deleteCoreLogFile('2026-09-18-000.log');
+    expect(fetcher).toHaveBeenLastCalledWith('/panel/api/v1/core/logs/files?file=2026-09-18-000.log', expect.objectContaining({
+      method: 'DELETE', credentials: 'same-origin', headers: expect.objectContaining({ 'X-CSRF-Token': 'log-csrf-token' }),
+    }));
+  });
   it('requests filtered numbered panel-log pages', async () => {
     const page = { items: [], total: 27 };
     const fetcher = vi.fn<typeof fetch>().mockResolvedValue(new Response(JSON.stringify(page)));

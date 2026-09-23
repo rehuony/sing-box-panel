@@ -157,7 +157,7 @@ func TestConcurrentFieldResetsPreserveEveryEdit(t *testing.T) {
 	}
 	group.Wait()
 	loaded, err := Load(path)
-	if err != nil || loaded.Server.Port != 3000 || loaded.Subscription.Provider != "default" || loaded.GitHub.Token != "" || loaded.Logs.RetentionDays != 7 {
+	if err != nil || loaded.Server.Port != 3000 || loaded.Subscription.Provider != "default" || loaded.GitHub.Token != "" || loaded.Logs.RetentionDays != 0 {
 		t.Fatal("concurrent reset lost a field", err)
 	}
 }

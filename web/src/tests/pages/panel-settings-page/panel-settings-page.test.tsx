@@ -1,31 +1,46 @@
 import { describe, expect, it, vi } from 'vitest';
 import userEvent from '@testing-library/user-event';
-import { Link, Route, Routes } from 'react-router-dom';
+import { Link, Route, Routes, useNavigate } from 'react-router-dom';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 
 import { ThemeProvider } from '@/theme';
-import '@/i18n';
+import { Toaster } from '@/components/ui/toast';
 import { TooltipProvider } from '@/components/ui/tooltip';
+import '@/i18n';
 import { ApiClientProvider } from '@/api/api-client-context';
 import { TestRouter as MemoryRouter } from '@/tests/test-router';
+import { demoBackupSettings } from '@/api/demo/demo-panel-backup';
 import { createMockApiClient } from '@/tests/api/mock-api-client';
 import { PanelSettingsProvider } from '@/stores/panel-settings-provider';
 import { PanelSettingsPage } from '@/pages/panel-settings-page/panel-settings-page';
 
-function setup(client = createMockApiClient()) {
+function HistoryControls() {
+  const navigate = useNavigate();
+  return (
+    <>
+      <button onClick={() => void navigate(-1)}>Back</button>
+      <button onClick={() => void navigate(1)}>Forward</button>
+    </>
+  );
+}
+
+function setup(client = createMockApiClient(), initialEntry = '/panel') {
   render(
-    <MemoryRouter initialEntries={['/panel']}>
+    <MemoryRouter initialEntries={[initialEntry]}>
       <ApiClientProvider client={client}>
         <ThemeProvider>
           <TooltipProvider>
-            <PanelSettingsProvider>
-              <Link to='/'>Leave settings</Link>
-              <Link to='/panel'>Open settings</Link>
-              <Routes>
-                <Route path='/panel' element={<PanelSettingsPage />} />
-                <Route path='/' element={<div>Dashboard</div>} />
-              </Routes>
-            </PanelSettingsProvider>
+            <Toaster>
+              <PanelSettingsProvider>
+                <HistoryControls />
+                <Link to='/'>Leave settings</Link>
+                <Link to='/panel'>Open settings</Link>
+                <Routes>
+                  <Route path='/panel' element={<PanelSettingsPage />} />
+                  <Route path='/' element={<div>Dashboard</div>} />
+                </Routes>
+              </PanelSettingsProvider>
+            </Toaster>
           </TooltipProvider>
         </ThemeProvider>
       </ApiClientProvider>
@@ -35,51 +50,148 @@ function setup(client = createMockApiClient()) {
 }
 
 describe('panel settings', () => {
-  it('edits the full service configuration and leaves empty credentials without placeholders', async () => {
+  it('shares one draft across topics and preserves hidden settings', async () => {
     const user = userEvent.setup();
     const client = setup();
-    const dataDir = await screen.findByLabelText('Data directory', { selector: 'input' });
-    const access = screen.getByText('Panel access').closest('fieldset')!;
-    const authentication = screen.getByText('Authentication').closest('fieldset')!;
-    expect(within(access).getByLabelText('Base path', { selector: 'input' })).toBeInTheDocument();
-    expect(within(access).queryByRole('switch', { name: 'HTTPS-only session cookie' })).not.toBeInTheDocument();
-    expect(within(authentication).getByRole('switch', { name: 'HTTPS-only session cookie' })).toBeInTheDocument();
-    expect(within(authentication).getByLabelText('Management token', { selector: 'input' })).toBeInTheDocument();
-    expect(screen.getByLabelText('GitHub Token', { selector: 'input' })).not.toHaveAttribute('placeholder');
-    fireEvent.change(dataDir, { target: { value: '/srv/panel' } });
+    const original = await client.getPanelSettings();
+    await screen.findByLabelText('Base path', { selector: 'input' });
+    expect(screen.getAllByRole('tab').map(tab => tab.textContent)).toEqual([
+      'Service settings', 'Traffic usage', 'Log management', 'Interface preferences', 'System maintenance', 'Backup and restore',
+    ]);
     fireEvent.change(screen.getByLabelText('Base path', { selector: 'input' }), { target: { value: '/control' } });
     fireEvent.change(screen.getByLabelText('Access origin', { selector: 'input' }), { target: { value: 'https://panel.example.com' } });
     expect(screen.getByRole('switch', { name: 'HTTPS-only session cookie' })).toBeChecked();
+    fireEvent.change(screen.getByLabelText('Published node address', { selector: 'input' }), { target: { value: 'node.example.com' } });
+    await user.click(screen.getByRole('tab', { name: 'System maintenance' }));
+    fireEvent.change(screen.getByLabelText('Data directory', { selector: 'input' }), { target: { value: '/srv/panel' } });
+    expect(screen.getByLabelText('GitHub Token', { selector: 'input' })).not.toHaveAttribute('placeholder');
     fireEvent.change(screen.getByLabelText('Version check interval (hours)'), { target: { value: '24' } });
-    await user.click(screen.getByRole('button', { name: 'Save settings' }));
-    await waitFor(() => expect(client.savePanelSettings).toHaveBeenCalledWith(expect.objectContaining({
-      service: expect.objectContaining({ data_dir: '/srv/panel', base_path: '/control', secure_cookie: true, catalog_refresh_interval_hours: 24 }),
-    })));
-    await user.click(screen.getByRole('tab', { name: 'Nodes & subscriptions' }));
-    expect(screen.getByLabelText('Identity key')).not.toHaveAttribute('placeholder');
-    fireEvent.change(screen.getByLabelText('Subscription author'), { target: { value: 'Example' } });
-    fireEvent.change(screen.getByLabelText('Subscription provider'), { target: { value: 'Custom' } });
-    fireEvent.change(screen.getByLabelText('Allowed private source networks', { selector: 'textarea' }), { target: { value: '10.0.0.0/24\nfd00::/64\n' } });
-    await user.click(screen.getByRole('button', { name: 'Save settings' }));
-    await waitFor(() => expect(client.savePanelSettings).toHaveBeenLastCalledWith(expect.objectContaining({
-      service: expect.objectContaining({ subscription_author: 'Example', subscription_provider: 'Custom', private_source_cidrs: ['10.0.0.0/24', 'fd00::/64'] }),
-    })));
-    await user.click(screen.getByRole('tab', { name: 'Usage & appearance' }));
+    await user.click(screen.getByRole('tab', { name: 'Service settings' }));
+    expect(screen.queryByLabelText('Identity key')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Subscription author')).not.toBeInTheDocument();
+    await user.click(screen.getByRole('tab', { name: 'Interface preferences' }));
+    expect(screen.getByRole('combobox', { name: 'Display language' })).toBeVisible();
+    fireEvent.change(screen.getByRole('spinbutton', { name: 'Corner radius' }), { target: { value: '8' } });
+    await user.click(screen.getByRole('tab', { name: 'Traffic usage' }));
     fireEvent.change(screen.getByLabelText('Traffic period (months)'), { target: { value: '3' } });
     fireEvent.change(screen.getByLabelText('Metric retention (days)'), { target: { value: '180' } });
-    fireEvent.change(screen.getByLabelText('Log retention (days)'), { target: { value: '30' } });
+    await user.click(screen.getByRole('tab', { name: 'Log management' }));
+    expect(screen.queryByText('Panel events')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Log retention (days)')).not.toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText('Log file retention (days)', { selector: 'input' }), { target: { value: '30' } });
+    fireEvent.change(screen.getByLabelText('Maximum log files', { selector: 'input' }), { target: { value: '20' } });
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Save settings' }));
-    await waitFor(() => expect(client.savePanelSettings).toHaveBeenLastCalledWith(expect.objectContaining({
+    await waitFor(() => expect(client.savePanelSettings).toHaveBeenCalledWith(expect.objectContaining({
+      preferences: expect.objectContaining({
+        identity_name: original.preferences.identity_name, public_node_host: 'node.example.com', appearance: expect.objectContaining({ radius: 8 }),
+      }),
       service: expect.objectContaining({
-        traffic_period_months: 3, sample_retention_days: 180, log_retention_days: 30,
+        data_dir: '/srv/panel', base_path: '/control', secure_cookie: true, catalog_refresh_interval_hours: 24,
+        traffic_period_months: 3, sample_retention_days: 180, core_log_retention_days: 30, core_log_max_files: 20,
+        subscription_author: original.service.subscription_author,
+        subscription_provider: original.service.subscription_provider,
+        private_source_cidrs: original.service.private_source_cidrs,
       }),
     })));
+  });
+
+  it.each([
+    ['access', 'Service settings', 'Base path'],
+    ['authentication', 'Service settings', 'Management token'],
+    ['publication', 'Service settings', 'Published node address'],
+    ['storage', 'System maintenance', 'Data directory'],
+    ['updates', 'System maintenance', 'GitHub Token'],
+    ['languageGroup', 'Interface preferences', 'Display language'],
+  ])('opens the merged category for the previous %s hash', async (hash, category, field) => {
+    setup(createMockApiClient(), `/panel#panel-${hash}`);
+    expect(await screen.findByRole('tab', { name: category })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByLabelText(field, { selector: 'input, button[data-slot="select-trigger"]' })).toBeVisible();
+  });
+
+  it.each([
+    ['Service settings', 'Published node address', 'https://invalid.example.com'],
+    ['System maintenance', 'Version check interval (hours)', '0'],
+  ])('returns to %s when a merged section contains invalid settings', async (category, field, value) => {
+    const user = userEvent.setup();
+    const client = setup();
+    await user.click(await screen.findByRole('tab', { name: category }));
+    fireEvent.change(screen.getByLabelText(field, { selector: 'input' }), { target: { value } });
+    await user.click(screen.getByRole('tab', { name: 'Log management' }));
+    await user.click(screen.getByRole('button', { name: 'Save settings' }));
+    expect(screen.getByRole('tab', { name: category })).toHaveAttribute('aria-selected', 'true');
+    await waitFor(() => expect(screen.getByLabelText(field, { selector: 'input' })).toHaveFocus());
+    expect(client.savePanelSettings).not.toHaveBeenCalled();
+  });
+
+  it('preserves drafts through hash history and focuses validation errors in other topics', async () => {
+    const user = userEvent.setup();
+    const client = setup();
+    await user.click(await screen.findByRole('tab', { name: 'Traffic usage' }));
+    fireEvent.change(screen.getByLabelText('Traffic period (months)'), { target: { value: '0' } });
+    await user.click(screen.getByRole('tab', { name: 'Interface preferences' }));
+    await user.click(screen.getByRole('button', { name: 'Back' }));
+    expect(screen.getByLabelText('Traffic period (months)')).toHaveValue(0);
+    await user.click(screen.getByRole('button', { name: 'Forward' }));
+    expect(screen.getByRole('tab', { name: 'Interface preferences' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+    const unload = new Event('beforeunload', { cancelable: true });
+    window.dispatchEvent(unload);
+    expect(unload.defaultPrevented).toBe(true);
+    await user.click(screen.getByRole('button', { name: 'Save settings' }));
+    expect(screen.getByRole('tab', { name: 'Traffic usage' })).toHaveAttribute('aria-selected', 'true');
+    await waitFor(() => expect(screen.getByLabelText('Traffic period (months)')).toHaveFocus());
+    expect(client.savePanelSettings).not.toHaveBeenCalled();
+  });
+
+  it('previews a backup, requires confirmation and submits both destination revisions', async () => {
+    const user = userEvent.setup();
+    const client = setup();
+    const view = await client.getPanelSettings();
+    const configuration = await client.getConfigurationFile();
+    const native = demoBackupSettings(view, { github: '', management: 'backup-secret', identity: '' });
+    native.data_dir = '/srv/other-machine';
+    const backup = {
+      format: 'sing-box-panel-backup', version: 1, exported_at: '2026-09-23T01:00:00Z',
+      panel_settings: native, sing_box_configuration: '  { unfinished raw text',
+    };
+    vi.mocked(client.restorePanelBackup).mockResolvedValue({
+      settings: { ...view, revision: view.revision + 1 }, reauthentication_required: false,
+    });
+    await user.click(await screen.findByRole('tab', { name: 'Backup and restore' }));
+    const file = new File([JSON.stringify(backup)], 'backup.json', { type: 'application/json' });
+    Object.defineProperty(file, 'text', { value: async () => JSON.stringify(backup) });
+    await user.upload(screen.getByLabelText('Choose backup file', { selector: 'input' }), file);
+    const dialog = await screen.findByRole('alertdialog');
+    expect(dialog).toHaveTextContent('/srv/other-machine');
+    expect(dialog).not.toHaveTextContent('backup-secret');
+    expect(client.restorePanelBackup).not.toHaveBeenCalled();
+    await user.click(within(dialog).getByRole('button', { name: 'Restore configuration' }));
+    await waitFor(() => expect(client.restorePanelBackup).toHaveBeenCalledWith({
+      backup, settings_revision: view.revision, configuration_revision: configuration.revision,
+    }));
+    await waitFor(() => expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument());
+    expect(screen.getByRole('button', { name: 'Save settings' })).toBeDisabled();
+  });
+
+  it('rejects malformed imports before offering restore and warns about unexported drafts', async () => {
+    const user = userEvent.setup();
+    const client = setup();
+    fireEvent.change(await screen.findByLabelText('Base path', { selector: 'input' }), { target: { value: '/draft' } });
+    await user.click(screen.getByRole('tab', { name: 'Backup and restore' }));
+    expect(screen.getByText(/The export includes saved content only/)).toBeVisible();
+    const file = new File(['{}'], 'bad.json', { type: 'application/json' });
+    Object.defineProperty(file, 'text', { value: async () => '{}' });
+    await user.upload(screen.getByLabelText('Choose backup file', { selector: 'input' }), file);
+    expect((await screen.findAllByText(/The backup format is unsupported/))[0]).toBeInTheDocument();
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+    expect(client.restorePanelBackup).not.toHaveBeenCalled();
   });
 
   it('applies a custom color only on confirmation and saves it through panel settings', async () => {
     const user = userEvent.setup();
     const client = setup();
-    await user.click(await screen.findByRole('tab', { name: 'Usage & appearance' }));
+    await user.click(await screen.findByRole('tab', { name: 'Interface preferences' }));
     await user.click(screen.getByRole('button', { name: 'Custom color' }));
     const dialog = within(await screen.findByRole('dialog', { name: 'Custom theme color' }));
     const hex = dialog.getByRole('textbox', { name: 'HEX color' });
@@ -102,7 +214,7 @@ describe('panel settings', () => {
   it('supports keyboard color picking and discards canceled or escaped drafts', async () => {
     const user = userEvent.setup();
     setup();
-    await user.click(await screen.findByRole('tab', { name: 'Usage & appearance' }));
+    await user.click(await screen.findByRole('tab', { name: 'Interface preferences' }));
     await user.click(screen.getByRole('button', { name: 'Custom color' }));
     const hue = await screen.findByRole('slider', { name: 'Hue' });
     hue.focus();
@@ -147,7 +259,8 @@ describe('panel settings', () => {
   it('rejects ambiguous tokens before saving and measures UTF-8 byte length', async () => {
     const user = userEvent.setup();
     const client = setup();
-    await user.click(await screen.findByRole('button', { name: 'Change' }));
+    await user.click(await screen.findByRole('tab', { name: 'Service settings' }));
+    await user.click(screen.getByRole('button', { name: 'Change' }));
     const dialog = within(screen.getByRole('dialog'));
     const token = dialog.getByLabelText('New token', { selector: 'input' });
     const confirm = dialog.getByLabelText('Confirm token', { selector: 'input' });
@@ -173,22 +286,23 @@ describe('panel settings', () => {
   it('confirms leaving unsaved settings and retains a saved appearance', async () => {
     const user = userEvent.setup();
     const client = setup();
-    await user.click(await screen.findByRole('tab', { name: 'Usage & appearance' }));
+    await user.click(await screen.findByRole('tab', { name: 'Interface preferences' }));
     await user.click(screen.getByRole('button', { name: 'Blue' }));
     const radius = screen.getByRole('spinbutton', { name: 'Corner radius' });
     expect(radius).toHaveValue(12);
     fireEvent.change(radius, { target: { value: '8' } });
     await waitFor(() => expect(document.documentElement.style.getPropertyValue('--appearance-color')).toBe('#2563EB'));
     expect(document.documentElement.style.getPropertyValue('--radius-control')).toBe('4px');
-    await user.click(screen.getByRole('tab', { name: 'Service & security' }));
-    await user.click(screen.getByRole('button', { name: 'Keep editing' }));
+    await user.click(screen.getByRole('tab', { name: 'Service settings' }));
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+    await user.click(screen.getByRole('tab', { name: 'Interface preferences' }));
     expect(screen.getByRole('spinbutton', { name: 'Corner radius' })).toHaveValue(8);
     await user.click(screen.getByRole('link', { name: 'Leave settings' }));
     await user.click(screen.getByRole('button', { name: 'Discard changes' }));
     await waitFor(() => expect(document.documentElement.style.getPropertyValue('--appearance-color')).toBe('#6D4ED1'));
     expect(client.savePanelSettings).not.toHaveBeenCalled();
     await user.click(screen.getByRole('link', { name: 'Open settings' }));
-    await user.click(await screen.findByRole('tab', { name: 'Usage & appearance' }));
+    await user.click(await screen.findByRole('tab', { name: 'Interface preferences' }));
     await user.click(screen.getByRole('button', { name: 'Green' }));
     await user.click(screen.getByRole('button', { name: 'Save settings' }));
     await waitFor(() => expect(client.savePanelSettings).toHaveBeenCalledWith(expect.objectContaining({
@@ -201,13 +315,16 @@ describe('panel settings', () => {
   it('does not commit failed saves and resets only color and radius', async () => {
     const user = userEvent.setup();
     const client = setup(createMockApiClient({ savePanelSettings: vi.fn().mockRejectedValue(new Error('Conflict')) }));
-    await user.click(await screen.findByRole('tab', { name: 'Usage & appearance' }));
+    await user.click(await screen.findByRole('tab', { name: 'Traffic usage' }));
     fireEvent.change(screen.getByRole('spinbutton', { name: 'Total traffic quota' }), { target: { value: '800' } });
+    await user.click(screen.getByRole('tab', { name: 'Interface preferences' }));
     fireEvent.change(screen.getByRole('spinbutton', { name: 'Corner radius' }), { target: { value: '24' } });
     await user.click(screen.getByRole('button', { name: 'Blue' }));
     await user.click(screen.getByRole('button', { name: 'Reset defaults' }));
     expect(screen.getByRole('spinbutton', { name: 'Corner radius' })).toHaveValue(12);
+    await user.click(screen.getByRole('tab', { name: 'Traffic usage' }));
     expect(screen.getByRole('spinbutton', { name: 'Total traffic quota' })).toHaveValue(800);
+    await user.click(screen.getByRole('tab', { name: 'Interface preferences' }));
     await user.click(screen.getByRole('button', { name: 'Blue' }));
     await user.click(screen.getByRole('button', { name: 'Save settings' }));
     await waitFor(() => expect(client.savePanelSettings).toHaveBeenCalledOnce());

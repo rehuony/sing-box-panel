@@ -8,6 +8,26 @@ describe('createDemoApiClient', () => {
     vi.useRealTimers();
   });
 
+  it('round trips complete backup settings and exact text and rejects revision conflicts atomically', async () => {
+    const source = createDemoApiClient();
+    const target = createDemoApiClient();
+    const saved = await source.getConfigurationFile();
+    await source.saveConfigurationFile({ revision: saved.revision, content: '  { unfinished raw text' });
+    const backup = await source.exportPanelBackup();
+    expect(backup.panel_settings).toHaveProperty('auth.token');
+    const settings = await target.getPanelSettings();
+    const file = await target.getConfigurationFile();
+    const request = { backup, settings_revision: settings.revision, configuration_revision: file.revision };
+    await expect(target.restorePanelBackup({
+      ...request, configuration_revision: file.revision + 1,
+    })).rejects.toMatchObject({ status: 412 });
+    expect(await target.getPanelSettings()).toEqual(settings);
+    expect(await target.getConfigurationFile()).toEqual(file);
+    await target.restorePanelBackup(request);
+    expect((await target.getConfigurationFile()).content).toBe(backup.sing_box_configuration);
+    expect((await target.exportPanelBackup()).panel_settings).toEqual(backup.panel_settings);
+  });
+
   it('starts authenticated with representative 1.14 core and Schema data', async () => {
     const client = createDemoApiClient();
 

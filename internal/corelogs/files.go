@@ -19,18 +19,26 @@ import (
 	"github.com/rehuony/sing-box-panel/internal/store"
 )
 
-const maxFileBytes = 32 << 20
 const maxChunkBytes = 64 << 10
-const maxFiles = 32
+
+type Policy struct {
+	RetentionDays int
+	MaxFiles      int
+	MaxFileBytes  int64
+}
+
+func DefaultPolicy() Policy { return Policy{RetentionDays: 7, MaxFileBytes: 32 << 20} }
 
 var fileName = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}-\d{3,20}\.log$`)
 var ansi = regexp.MustCompile(`\x1b\[[0-?]*[ -/]*[@-~]`)
 var ErrInvalidFile = errors.New("invalid core log file")
+var ErrCurrentFile = errors.New("current UTC day's core logs cannot be deleted")
 
 type File struct {
 	Name      string    `json:"name"`
 	Size      int64     `json:"size"`
 	UpdatedAt time.Time `json:"updated_at"`
+	Deletable bool      `json:"deletable"`
 }
 type Chunk struct {
 	File       string `json:"file"`
@@ -39,9 +47,11 @@ type Chunk struct {
 	Size       int64  `json:"size"`
 }
 type Files struct {
-	dir string
-	mu  sync.Mutex
-	now func() time.Time
+	dir    string
+	mu     sync.Mutex
+	now    func() time.Time
+	policy Policy
+	active string
 }
 
 func New(dataDir string) (*Files, error) {
@@ -52,7 +62,7 @@ func New(dataDir string) (*Files, error) {
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		return nil, err
 	}
-	return &Files{dir: dir, now: time.Now}, nil
+	return &Files{dir: dir, now: time.Now, policy: DefaultPolicy()}, nil
 }
 
 func logFileIndex(name string) (uint64, bool) {
@@ -80,15 +90,19 @@ func (f *Files) List() ([]File, error) {
 		return nil, err
 	}
 	result := []File{}
+	today := f.now().UTC().Format("2006-01-02")
 	for _, entry := range entries {
 		if _, valid := logFileIndex(entry.Name()); !valid || !entry.Type().IsRegular() {
 			continue
 		}
 		info, err := entry.Info()
+		if errors.Is(err, os.ErrNotExist) {
+			continue // Retention or an explicit deletion may remove a listed file.
+		}
 		if err != nil {
 			return nil, err
 		}
-		result = append(result, File{Name: entry.Name(), Size: info.Size(), UpdatedAt: info.ModTime().UTC()})
+		result = append(result, File{Name: entry.Name(), Size: info.Size(), UpdatedAt: info.ModTime().UTC(), Deletable: entry.Name()[:10] != today})
 	}
 	sort.Slice(result, func(i, j int) bool {
 		left, right := result[i].Name, result[j].Name
@@ -101,6 +115,33 @@ func (f *Files) List() ([]File, error) {
 	})
 	return result, nil
 }
+
+// Delete removes only a managed capture, never the native log.output file.
+// Protect every file from the current UTC day, including rotated segments.
+func (f *Files) Delete(name string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if _, valid := logFileIndex(name); !valid {
+		return ErrInvalidFile
+	}
+	if name[:10] == f.now().UTC().Format("2006-01-02") {
+		return ErrCurrentFile
+	}
+	root, err := os.OpenRoot(f.dir)
+	if err != nil {
+		return err
+	}
+	defer root.Close()
+	info, err := root.Lstat(name)
+	if err != nil {
+		return err
+	}
+	if !info.Mode().IsRegular() {
+		return ErrInvalidFile
+	}
+	return root.Remove(name)
+}
+
 func (f *Files) Read(name string, offset int64) (Chunk, error) {
 	if _, valid := logFileIndex(name); !valid || offset < -1 {
 		return Chunk{}, ErrInvalidFile
@@ -181,7 +222,7 @@ func (f *Files) append(data []byte) error {
 			continue
 		}
 		index, _ = logFileIndex(file.Name)
-		if file.Size+int64(len(data)) > maxFileBytes {
+		if file.Size+int64(len(data)) > f.policy.MaxFileBytes {
 			if index == ^uint64(0) {
 				return errors.New("core log sequence exhausted")
 			}
@@ -206,22 +247,8 @@ func (f *Files) append(data []byte) error {
 	if err := errors.Join(writeErr, closeErr); err != nil {
 		return err
 	}
-	files, err = f.List()
-	if err != nil {
-		return err
-	}
-	remaining := len(files) - maxFiles
-	for i := len(files) - 1; i >= 0 && remaining > 0; i-- {
-		// Never discard the active file, even if the system date moved backwards.
-		if files[i].Name == name {
-			continue
-		}
-		if err := root.Remove(files[i].Name); err != nil {
-			return err
-		}
-		remaining--
-	}
-	return nil
+	f.active = name
+	return f.pruneLocked()
 }
 
 type writer struct {
@@ -260,10 +287,19 @@ func (w *writer) Write(data []byte) (int, error) {
 			w.overflow = true
 		}
 	}
-	if output.Len() > 0 {
-		if err := w.files.append([]byte(output.String())); err != nil {
+	buffer := []byte(output.String())
+	for len(buffer) > 0 {
+		end := len(buffer)
+		if end > maxChunkBytes {
+			end = bytes.LastIndexByte(buffer[:maxChunkBytes], '\n') + 1
+		}
+		if end == 0 {
+			return 0, errors.New("sanitized log line exceeds chunk limit")
+		}
+		if err := w.files.append(buffer[:end]); err != nil {
 			return 0, err
 		}
+		buffer = buffer[end:]
 	}
 	return len(data), nil
 }

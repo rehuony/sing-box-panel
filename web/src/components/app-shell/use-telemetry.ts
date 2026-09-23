@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { use, useCallback, useEffect, useRef, useState } from 'react';
 
 import type { DashboardStreamSnapshot, MetricsSnapshot, RuntimeStatus } from '@/api/api-client';
 
 import { useApiClient } from '@/api/api-client-context';
+import { PanelSettingsContext } from '@/stores/panel-settings.store';
 
 const MAX_RECONNECT_DELAY_MS = 30_000;
 
@@ -71,6 +72,9 @@ export function deriveTrafficRates(
 
 export function useTelemetry(): TelemetryState {
   const client = useApiClient();
+  const settings = use(PanelSettingsContext);
+  const settingsRevision = settings?.view?.revision;
+  const previousSettingsRevisionRef = useRef<number | undefined>(undefined);
   const previousSampleRef = useRef<TrafficSample | null>(null);
   const [snapshot, setSnapshot] = useState<MetricsSnapshot | null>(null);
   const [runtimeStatus, setRuntimeStatus] = useState<RuntimeStatusEvidence | null>(null);
@@ -80,6 +84,24 @@ export function useTelemetry(): TelemetryState {
   const [dashboardSnapshot, setDashboardSnapshot] = useState<DashboardStreamSnapshot | null>(null);
   const [dashboardError, setDashboardError] = useState<unknown | null>(null);
   const [dashboardStale, setDashboardStale] = useState(true);
+
+  useEffect(() => {
+    const previous = previousSettingsRevisionRef.current;
+    previousSettingsRevisionRef.current = settingsRevision;
+    if (previous === undefined || previous === settingsRevision) return;
+    const controller = new AbortController();
+    void client.getMetrics(controller.signal).then(next => {
+      if (!controller.signal.aborted) {
+        setTrafficError(null);
+        setSnapshot(current => current && Date.parse(current.collected_at) > Date.parse(next.collected_at)
+          ? current
+          : next);
+      }
+    }).catch(error => {
+      if (!controller.signal.aborted) setTrafficError(error);
+    });
+    return () => controller.abort();
+  }, [client, settingsRevision]);
 
   const acceptRuntimeStatus = useCallback((status: RuntimeStatus) => {
     setRuntimeError(null);
@@ -103,7 +125,9 @@ export function useTelemetry(): TelemetryState {
             setRates(deriveTrafficRates(previousSampleRef.current, sample));
           }
           previousSampleRef.current = sample ?? null;
-          setSnapshot(event.metrics);
+          setSnapshot(current => current && Date.parse(current.collected_at) > Date.parse(event.metrics.collected_at)
+            ? current
+            : event.metrics);
           setRuntimeStatus(event.runtime);
           setTrafficError(null);
           setRuntimeError(null);

@@ -26,6 +26,18 @@ func (handler *Handler) handleApplicationRoute(w http.ResponseWriter, request *h
 		} else {
 			next = methodNotAllowed
 		}
+	} else if path == "/api/v1/panel/backup" {
+		if request.Method == http.MethodGet {
+			next = handler.exportPanelBackup
+		} else {
+			next = methodNotAllowed
+		}
+	} else if path == "/api/v1/panel/restore" {
+		if request.Method == http.MethodPost {
+			next = handler.restorePanelBackup
+		} else {
+			next = methodNotAllowed
+		}
 	} else if path == "/api/v1/config/file" {
 		if request.Method == http.MethodGet {
 			next = handler.configurationFile

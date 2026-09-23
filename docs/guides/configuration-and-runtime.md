@@ -296,14 +296,25 @@ CLI and manual edits have one source; no database preferences override it.
 The API's revision is an opaque JSON-safe fingerprint of the exact file bytes,
 not a sequence number. Manual edits, including formatting changes, invalidate
 older forms; stale writes return a conflict without changing either resource.
-The three UI categories remain service/security, nodes/subscriptions, and
-statistics/appearance. Credential reads expose only configured flags; an
-omitted credential preserves it. GitHub tokens and identity keys have explicit remove controls; clearing the identity key preserves existing inbound credentials.
+The Web UI has six categories: service settings, traffic usage, log management,
+interface preferences, system maintenance, and backup and restore. Service settings
+groups access, authentication, and node publication; interface preferences groups
+appearance and language; system maintenance groups storage and version updates.
+Log management controls only sing-box capture files; panel events do not expire automatically.
+Each topic keeps its own section heading. Previous category hashes open the
+corresponding merged category.
+Desktop uses an internal sidebar; narrow screens use a category selector.
+All topics share one draft and Save button. Hash navigation and browser history
+retain the draft; leaving `/panel` or closing the page warns about unsaved changes.
+Validation locates the offending category and field; failed saves retain drafts.
+Credential reads expose configured flags. Empty credentials preserve saved values;
+GitHub tokens have an explicit remove control. Protocol identity and subscription
+output/source settings are hidden in this UI and preserved during ordinary saves.
 
 ### Shared settings file
 
 Existing file fields retain their paths. Web-only preferences are added under
-`panel`, with matching defaults. Every setting has a Web control. The `service` API projection covers non-secret service options and is optional on writes so older clients preserve those values. Settings validation and revision checks cover the entire file. Changing service options that are captured at startup displays a restart notice.
+`panel`, with matching defaults. Hidden identity/subscription fields remain supported in the file and API. The `service` API projection covers non-secret service options and is optional on writes so older clients preserve those values. Settings validation and revision checks cover the entire file. Changing service options that are captured at startup displays a restart notice.
 
 | Settings field | Web field | Generated default |
 | --- | --- | --- |
@@ -318,12 +329,15 @@ Existing file fields retain their paths. Web-only preferences are added under
 | `traffic.quota_gib` | Traffic quota | `null`; `null` and `0` are unlimited |
 | `traffic.period_months` | Traffic period | `1` |
 | `traffic.sample_retention_days` | Metric retention | `90` |
-| `subscription.author` | Subscription author | `reagin` |
-| `subscription.provider` | Subscription provider | `default`; editable, existing values retained |
-| `subscription.private_source_cidrs` | Allowed private source networks (CIDR per line) | `[]` |
-| `logs.retention_days` | Log retention | `7` |
+| `subscription.author` | File/API only | `reagin` |
+| `subscription.provider` | File/API only | `default`; editable, existing values retained |
+| `subscription.private_source_cidrs` | File/API only | `[]` |
+| `logs.retention_days` | Deprecated compatibility field; ignored | `0`; panel events are retained indefinitely |
+| `logs.core_retention_days` | Core capture retention (UTC dates including today) | `7` |
+| `logs.core_max_files` | Maximum core capture files | `0` (unlimited) |
+| `logs.core_max_file_size_mib` | Maximum capture file size | `32` MiB |
 | `panel.public_node_host` | Public node host | Empty; automatic detection |
-| `panel.identity_name` / `panel.identity_key` | Protocol identity | Empty / empty |
+| `panel.identity_name` / `panel.identity_key` | File/API only | Empty / empty |
 | `panel.language` | Language | `zh-CN` |
 | `panel.appearance.theme` | Theme | `light` |
 | `panel.appearance.color` | Color | `#6D4ED1` |
@@ -355,18 +369,15 @@ response metadata and are not settings fields. File reads include credentials;
 the Web API continues to redact them. Quota accepts whole GiB from zero through
 8589934591, preserving the existing file range and preventing byte overflow.
 
-Tokens, public-node host, identity defaults and quota are read at operation
-boundaries; language/appearance update when the Web view reloads or saves.
-Listener, base path, origin/cookie policy, data directory, traffic
-period/retention, private-source allowlist and log retention need a panel restart.
-The catalog refresh interval is read dynamically by the background catalog
-worker and does not require a restart. The API restart flag includes the
-remaining file-only startup fields. Changing `data_dir` requests a relocation on the next explicit start/restart.
-The current listener and data directory remain active until stopped.
-A token change invalidates existing sessions. File edits of protocol identity
-change defaults for new inbounds; updating existing sing-box credentials remains
-an explicit Web action: enter the key and save, then perform a checked restart.
-CLI file management never rewrites the sing-box document.
+Quota, natural-month period selection, raw sample/core-log retention,
+public-node host, appearance, language, GitHub token and catalog refresh policy
+are applied after saving. Background cleanup/refresh workers receive change
+notifications and read consistent snapshots. The shared metrics state refreshes
+once after saving, then continues over SSE. Credentials invalidate old sessions.
+Listener host/port, base path, origin, secure cookies and data directory are bound
+to the running HTTP service and require a manual panel restart, shown in the UI.
+Changing `data_dir` requests relocation on the next explicit start/restart; saving
+does not interrupt the service or change the running sing-box process.
 
 Writers use a private persistent `.lock` sidecar and atomic file replacement.
 Web saves use a temporary private `.pending` recovery journal and a SQLite commit
@@ -382,7 +393,7 @@ bounded public-IP detector provides the input placeholder and publication host.
 It never rewrites the actual listener, port, TLS server name or imported node
 address. Detection failure must not publish loopback or wildcard addresses.
 
-Explicitly saving a changed common protocol name or entering its key updates
+Explicit API writes of a changed common protocol name or its key update
 matching managed credentials in the saved configuration, coordinated with the
 settings file through the recoverable transaction above. It preserves other existing
 users, external client nodes and protocol-specific obfuscation secrets. UUID-
@@ -396,11 +407,34 @@ and saves the new inbound through the normal configuration flow.
 Appearance offers five presets and a custom HEX picker, with radius 0–32px (default 12).
 Preview changes page, controls, charts and dialogs immediately while semantic
 status colors and the logo stay independent. Card/dialog radius is R, controls
-R/2, and the shell min(32,7R/6). Saving persists preferences. Changing category
-or leaving the page with unsaved edits requires confirmation: Keep editing
+R/2, and the shell min(32,7R/6). Saving persists preferences. Leaving the page with unsaved edits requires confirmation: Keep editing
 retains the current view and preview; Discard changes restores saved settings
 before navigating. Reset changes only theme color/radius and still requires
 saving. Help is in hover/focus tips.
+
+### Backup and restore
+
+Panel settings → Backup and restore exports the **saved** panel settings and
+exact saved sing-box text; unsaved drafts are excluded. `GET /api/v1/panel/backup`
+returns authenticated, no-store plaintext JSON with `format`, `version` (1),
+`exported_at`, `panel_settings`, and `sing_box_configuration`. The file includes
+credentials, listener settings and data directory paths. External referenced
+files, binaries, logs, metrics and subscription business records are not included.
+
+Selecting a file previews overwritten settings and source/destination service
+addresses and directories before confirmation. `POST /api/v1/panel/restore`
+requires this backup plus both target `settings_revision` and
+`configuration_revision`. Unsupported formats, invalid settings, oversized
+content (1 MiB settings and 2 MiB sing-box text), or revision conflicts leave both
+sources unchanged. The existing settings journal and SQLite commit marker make
+restoration atomic and recover interrupted writes. Native sing-box text, including
+formatting and unfinished edits, is preserved without implicit identity rewrites.
+
+Restore refreshes settings and the configuration editor. A changed management
+token requires signing in again; listener/path changes require a manual restart.
+The running core keeps its current configuration and running/stopped state.
+Review machine-specific paths and apply the restored sing-box configuration
+manually; relative panel data paths resolve beside the target settings file.
 
 ### Data directory changes
 

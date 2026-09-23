@@ -85,7 +85,7 @@ func (f *fileFollower) run() {
 		case <-f.stop:
 			// Bound the final drain independently of an external writer that might
 			// continue appending after the owned process exits.
-			f.err = errors.Join(f.err, f.readNew(maxFileBytes), f.writer.Flush())
+			f.err = errors.Join(f.err, f.readNew(32<<20), f.writer.Flush())
 			return
 		case <-ticker.C:
 			if err := f.readNew(1 << 20); err != nil {

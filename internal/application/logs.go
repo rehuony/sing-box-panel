@@ -118,17 +118,6 @@ func (application *Application) TailLogs(ctx context.Context, request LogTailReq
 	})
 }
 
-// EnforceLogRetention removes entries older than the configured retention
-// period. The server calls it at startup and on a bounded periodic schedule.
-func (application *Application) EnforceLogRetention(ctx context.Context) (LogClearResult, error) {
-	retentionDays := application.settings.Logs.RetentionDays
-	if retentionDays < 1 || retentionDays > 3650 {
-		return LogClearResult{}, errors.New("log retention setting is unavailable")
-	}
-	cutoff := application.now().UTC().Add(-time.Duration(retentionDays) * 24 * time.Hour)
-	return application.ClearLogs(ctx, LogClearRequest{Before: &cutoff})
-}
-
 // ClearLogs and DeleteLog are transport-neutral explicit deletion primitives.
 func (application *Application) ClearLogs(ctx context.Context, request LogClearRequest) (LogClearResult, error) {
 	deleted, err := application.database.ClearLogEntries(ctx, store.LogClearFilter{
@@ -165,6 +154,15 @@ func (application *Application) CoreLogContent(name string, offset int64) (corel
 		return corelogs.Chunk{}, err
 	}
 	return files.Read(name, offset)
+}
+
+func (application *Application) DeleteCoreLogFile(ctx context.Context, name string) (err error) {
+	defer func() { application.RecordOperation(ctx, "core.log.delete", "Core log file deletion", err) }()
+	files, err := corelogs.New(application.settings.DataDir)
+	if err != nil {
+		return err
+	}
+	return files.Delete(name)
 }
 
 func (application *Application) PanelLogs(ctx context.Context, filter store.PanelLogFilter) (store.PanelLogPage, error) {

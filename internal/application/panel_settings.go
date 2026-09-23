@@ -42,7 +42,11 @@ type PanelServiceSettings struct {
 	SubscriptionAuthor          string   `json:"subscription_author"`
 	SubscriptionProvider        string   `json:"subscription_provider"`
 	PrivateSourceCIDRs          []string `json:"private_source_cidrs"`
-	LogRetentionDays            int      `json:"log_retention_days"`
+	// Deprecated: accepted for compatibility only; does not control event retention.
+	LogRetentionDays      int  `json:"log_retention_days"`
+	CoreLogRetentionDays  *int `json:"core_log_retention_days,omitempty"`
+	CoreLogMaxFiles       *int `json:"core_log_max_files,omitempty"`
+	CoreLogMaxFileSizeMiB *int `json:"core_log_max_file_size_mib,omitempty"`
 }
 
 func serviceSettings(value settings.Settings) PanelServiceSettings {
@@ -51,7 +55,8 @@ func serviceSettings(value settings.Settings) PanelServiceSettings {
 		CatalogRefreshIntervalHours: value.GitHub.CatalogRefreshIntervalHours, TrafficPeriodMonths: value.Traffic.PeriodMonths,
 		SampleRetentionDays: value.Traffic.SampleRetentionDays, SubscriptionAuthor: value.Subscription.Author,
 		SubscriptionProvider: value.Subscription.Provider, PrivateSourceCIDRs: append([]string{}, value.Subscription.PrivateSourceCIDRs...),
-		LogRetentionDays: value.Logs.RetentionDays,
+		LogRetentionDays:     value.Logs.RetentionDays,
+		CoreLogRetentionDays: &value.Logs.CoreRetentionDays, CoreLogMaxFiles: &value.Logs.CoreMaxFiles, CoreLogMaxFileSizeMiB: &value.Logs.CoreMaxFileSizeMiB,
 	}
 }
 
@@ -62,6 +67,15 @@ func (service PanelServiceSettings) apply(value *settings.Settings) {
 	value.Subscription.Author, value.Subscription.Provider = service.SubscriptionAuthor, service.SubscriptionProvider
 	value.Subscription.PrivateSourceCIDRs = slices.Clone(service.PrivateSourceCIDRs)
 	value.Logs.RetentionDays = service.LogRetentionDays
+	if service.CoreLogRetentionDays != nil {
+		value.Logs.CoreRetentionDays = *service.CoreLogRetentionDays
+	}
+	if service.CoreLogMaxFiles != nil {
+		value.Logs.CoreMaxFiles = *service.CoreLogMaxFiles
+	}
+	if service.CoreLogMaxFileSizeMiB != nil {
+		value.Logs.CoreMaxFileSizeMiB = *service.CoreLogMaxFileSizeMiB
+	}
 }
 
 type PanelSettingsView struct {
@@ -116,9 +130,7 @@ func (app *Application) panelSettingsView(configuration settings.Settings, revis
 	p := value.Preferences
 	loaded := app.settings
 	restartRequired := configuration.Server != loaded.Server || configuration.DataDir != loaded.DataDir ||
-		configuration.Auth.SecureCookie != loaded.Auth.SecureCookie ||
-		configuration.Traffic.PeriodMonths != loaded.Traffic.PeriodMonths || configuration.Traffic.SampleRetentionDays != loaded.Traffic.SampleRetentionDays ||
-		configuration.Logs != loaded.Logs || !slices.Equal(configuration.Subscription.PrivateSourceCIDRs, loaded.Subscription.PrivateSourceCIDRs)
+		configuration.Auth.SecureCookie != loaded.Auth.SecureCookie
 	return PanelSettingsView{
 		Revision: revision, Preferences: p, Service: serviceSettings(configuration),
 		GitHubTokenConfigured: value.GitHubToken != "", IdentityKeyConfigured: value.IdentityKey != "",
@@ -194,6 +206,7 @@ func (app *Application) SavePanelSettings(ctx context.Context, input PanelSettin
 	if err := app.commitSettingsFile(ctx, before, after, configuration); err != nil {
 		return PanelSettingsView{}, err
 	}
+	app.publishSettings(configurationFile)
 	revision = settings.Revision(after)
 	view := app.panelSettingsView(configurationFile, revision)
 	if app.publicIP != nil {

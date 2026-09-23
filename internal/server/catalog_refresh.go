@@ -31,6 +31,14 @@ func startCatalogRefresh(ctx context.Context, commands catalogRefreshCommands) <
 }
 
 func runCatalogRefresh(ctx context.Context, commands catalogRefreshCommands, now func() time.Time) {
+	var changes <-chan struct{}
+	if source, ok := commands.(interface {
+		SettingsChanges() (<-chan struct{}, func())
+	}); ok {
+		var unsubscribe func()
+		changes, unsubscribe = source.SettingsChanges()
+		defer unsubscribe()
+	}
 	for {
 		wait := catalogRefreshStep(ctx, commands, now())
 		timer := time.NewTimer(wait)
@@ -40,6 +48,8 @@ func runCatalogRefresh(ctx context.Context, commands catalogRefreshCommands, now
 				<-timer.C
 			}
 			return
+		case <-changes:
+			timer.Stop()
 		case <-timer.C:
 		}
 	}

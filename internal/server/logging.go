@@ -11,40 +11,7 @@ import (
 	"time"
 
 	"github.com/rehuony/sing-box-panel/internal/application"
-	"github.com/rehuony/sing-box-panel/internal/store"
 )
-
-func startLogRetention(ctx context.Context, commands *application.Application) <-chan struct{} {
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		ticker := time.NewTicker(24 * time.Hour)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-ticker.C:
-				retention, err := commands.EnforceLogRetention(ctx)
-				if err != nil {
-					recordOperationalLog(commands, application.LogRecordRequest{
-						Source: store.LogSourcePanel, Level: store.LogLevelError, Code: "logs.retention_failed",
-						Message: "Operational log retention failed", Metadata: json.RawMessage(`{}`),
-					})
-					continue
-				}
-				if retention.Deleted > 0 {
-					recordOperationalLog(commands, application.LogRecordRequest{
-						Source: store.LogSourcePanel, Level: store.LogLevelInfo, Code: "logs.retention_enforced",
-						Message:  "Expired operational log entries were deleted",
-						Metadata: mustLogMetadata(map[string]any{"deleted": retention.Deleted}),
-					})
-				}
-			}
-		}
-	}()
-	return done
-}
 
 func recordOperationalLog(commands *application.Application, request application.LogRecordRequest) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)

@@ -33,6 +33,7 @@ type MetricsSnapshot struct {
 	LatestSample       *store.TrafficSample  `json:"latest_sample,omitempty"`
 	TrafficAvailable   bool                  `json:"traffic_available"`
 	QuotaBytes         *int64                `json:"quota_bytes,omitempty"`
+	TrafficCoverage    store.CoverageStatus  `json:"traffic_coverage,omitempty"`
 	QuotaExceeded      bool                  `json:"quota_exceeded"`
 }
 
@@ -44,6 +45,14 @@ type TrafficSampleRetentionResult struct {
 func (application *Application) Metrics(ctx context.Context) (MetricsSnapshot, error) {
 	now := application.now().UTC()
 	result := MetricsSnapshot{CollectedAt: now, Host: application.hostSampler.Sample(application.settings.DataDir)}
+	policy, err := application.trafficAccounting(ctx)
+	if err != nil {
+		return MetricsSnapshot{}, err
+	}
+	if quotaGiB := policy.QuotaGiB; quotaGiB != nil && *quotaGiB > 0 {
+		quota := *quotaGiB * gibibyte
+		result.QuotaBytes = &quota
+	}
 	bootstrap, err := application.database.Bootstrap(ctx)
 	if err != nil {
 		return MetricsSnapshot{}, err
@@ -65,7 +74,15 @@ func (application *Application) Metrics(ctx context.Context) (MetricsSnapshot, e
 	if bundle.MonitoringTier != store.MonitoringLimited {
 		return MetricsSnapshot{}, fmt.Errorf("invalid activation monitoring tier %q", bundle.MonitoringTier)
 	}
-	period, err := application.database.CurrentTrafficPeriod(ctx, now)
+	months := policy.PeriodMonths
+	if months == 0 && application.settingsPath == "" {
+		months = 1
+	}
+	start, end, err := naturalTrafficPeriod(now, months)
+	if err != nil {
+		return MetricsSnapshot{}, err
+	}
+	period, err := application.database.AggregateTrafficPeriod(ctx, start, end, now)
 	if errors.Is(err, store.ErrTrafficPeriodNotFound) {
 		result.ReasonCode = "no_collector_sample"
 		return result, nil
@@ -89,33 +106,45 @@ func (application *Application) Metrics(ctx context.Context) (MetricsSnapshot, e
 	result.Available = true
 	result.CurrentTrafficData = &period
 	var counters struct {
-		TrafficEvidenceAvailable bool `json:"traffic_evidence_available"`
+		TrafficEvidenceAvailable bool                 `json:"traffic_evidence_available"`
+		Coverage                 store.CoverageStatus `json:"coverage"`
 	}
 	if err := json.Unmarshal(period.Counters, &counters); err != nil {
 		return MetricsSnapshot{}, fmt.Errorf("decode traffic period evidence: %w", err)
 	}
 	result.TrafficAvailable = counters.TrafficEvidenceAvailable
+	result.TrafficCoverage = counters.Coverage
 	if !result.TrafficAvailable {
 		return result, nil
 	}
-	quotaGiB, err := application.trafficQuota(ctx)
-	if err != nil {
-		return MetricsSnapshot{}, err
-	}
-	if configured := quotaGiB; configured != nil && *configured > 0 {
-		quota := *configured * gibibyte
-		result.QuotaBytes = &quota
-		result.QuotaExceeded = period.InboundBytes+period.OutboundBytes >= quota
+	if result.QuotaBytes != nil {
+		result.QuotaExceeded = period.InboundBytes+period.OutboundBytes >= *result.QuotaBytes
 	}
 	return result, nil
 }
 
 func (application *Application) trafficQuota(ctx context.Context) (*int64, error) {
-	if application.settingsPath != "" {
-		return settings.LoadTrafficQuota(application.settingsPath)
+	policy, err := application.trafficAccounting(ctx)
+	return policy.QuotaGiB, err
+}
+
+func (application *Application) trafficAccounting(ctx context.Context) (settings.Traffic, error) {
+	if application.settingsPath == "" {
+		value := application.settings.Traffic
+		if value.PeriodMonths == 0 {
+			value.PeriodMonths = 1
+		}
+		return value, settings.ValidateTrafficQuota(value.QuotaGiB)
 	}
-	quota := application.settings.Traffic.QuotaGiB
-	return quota, settings.ValidateTrafficQuota(quota)
+	lock, err := settings.Lock(ctx, application.settingsPath)
+	if err != nil {
+		return settings.Traffic{}, err
+	}
+	defer lock.Close()
+	if err := application.recoverSettingsFile(ctx); err != nil {
+		return settings.Traffic{}, err
+	}
+	return settings.LoadTrafficAccounting(application.settingsPath)
 }
 
 // CollectLimitedTrafficSample reads the configured loopback API for the exact
@@ -144,7 +173,11 @@ func (application *Application) CollectLimitedTrafficSample(
 		return store.TrafficSampleResult{}, err
 	}
 	now := application.now().UTC()
-	periodStart, periodEnd, err := naturalTrafficPeriod(now, application.settings.Traffic.PeriodMonths)
+	effective, err := application.EffectiveSettings(ctx)
+	if err != nil {
+		return store.TrafficSampleResult{}, err
+	}
+	periodStart, periodEnd, err := naturalTrafficPeriod(now, effective.Traffic.PeriodMonths)
 	if err != nil {
 		return store.TrafficSampleResult{}, err
 	}
@@ -190,7 +223,11 @@ func (application *Application) MetricsHistory(
 // EnforceTrafficSampleRetention removes only raw samples. Aggregated traffic
 // periods are intentionally retained as the long-lived accounting record.
 func (application *Application) EnforceTrafficSampleRetention(ctx context.Context) (TrafficSampleRetentionResult, error) {
-	days := application.settings.Traffic.SampleRetentionDays
+	effective, err := application.EffectiveSettings(ctx)
+	if err != nil {
+		return TrafficSampleRetentionResult{}, err
+	}
+	days := effective.Traffic.SampleRetentionDays
 	if days < 1 || days > 366 {
 		return TrafficSampleRetentionResult{}, errors.New("traffic sample retention setting is unavailable")
 	}

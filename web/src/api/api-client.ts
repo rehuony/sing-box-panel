@@ -4,6 +4,9 @@ import type {
   ConfigurationFileWrite,
   DashboardContext,
   DynamicObject as JsonObject,
+  PanelBackup,
+  PanelRestoreRequest,
+  PanelRestoreResult,
   PanelSettingsView,
   PanelSettingsWrite,
   Session,
@@ -83,7 +86,10 @@ export type {
   ConfigurationFileWrite,
   DashboardContext,
   DynamicObject as JsonObject,
+  PanelBackup,
   PanelPreferences,
+  PanelRestoreRequest,
+  PanelRestoreResult,
   PanelServiceSettings,
   PanelSettingsView,
   PanelSettingsWrite,
@@ -109,12 +115,14 @@ export interface ApiClient {
   getSystemStatus: (signal?: AbortSignal) => Promise<SystemStatus>;
   login: (token: string, signal?: AbortSignal) => Promise<Session>;
   restartRuntime: (signal?: AbortSignal) => Promise<RuntimeStatus>;
+  exportPanelBackup: (signal?: AbortSignal) => Promise<PanelBackup>;
   subscribeSessionInvalidated: (listener: () => void) => () => void;
   getRuntimeStatus: (signal?: AbortSignal) => Promise<RuntimeStatus>;
-  getLog: (entryID: string, signal?: AbortSignal) => Promise<LogEntry>;
 
+  getLog: (entryID: string, signal?: AbortSignal) => Promise<LogEntry>;
   getTrafficStatus: (signal?: AbortSignal) => Promise<MetricsSnapshot>;
   getPanelSettings: (signal?: AbortSignal) => Promise<PanelSettingsView>;
+  deleteCoreLogFile: (file: string, signal?: AbortSignal) => Promise<void>;
   getDashboardContext: (signal?: AbortSignal) => Promise<DashboardContext>;
   listLogs: (filter?: LogFilter, signal?: AbortSignal) => Promise<LogPage>;
   getConfigurationFile: (signal?: AbortSignal) => Promise<ConfigurationFile>;
@@ -125,8 +133,8 @@ export interface ApiClient {
   enableCore: (artifactID: string, signal?: AbortSignal) => Promise<RuntimeStatus>;
   deleteSubscriptionToken: (tokenID: string, signal?: AbortSignal) => Promise<void>;
   disableCore: (artifactID: string, signal?: AbortSignal) => Promise<RuntimeStatus>;
-
   refreshCatalog: (force?: boolean, signal?: AbortSignal) => Promise<CatalogRefresh>;
+
   getCoreArtifact: (artifactID: string, signal?: AbortSignal) => Promise<CoreArtifact>;
   getTrafficPeriod: (periodID: string, signal?: AbortSignal) => Promise<TrafficPeriod>;
   getSubscriptionNodeCatalog: (signal?: AbortSignal) => Promise<SubscriptionNodeCatalog>;
@@ -150,6 +158,7 @@ export interface ApiClient {
   getSubscriptionTokenSecret: (tokenID: string, signal?: AbortSignal) => Promise<{ token: string }>;
   parseSubscriptionNode: (text: string, signal?: AbortSignal) => Promise<{ outbound_json: string }>;
   checkStartupArtifact: (artifactID: string, signal?: AbortSignal) => Promise<StartupArtifactSummary>;
+  restorePanelBackup: (input: PanelRestoreRequest, signal?: AbortSignal) => Promise<PanelRestoreResult>;
 
   getMetricsHistory: (
     filter: MetricsHistoryFilter,

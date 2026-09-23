@@ -1,5 +1,7 @@
 export const dashboard = {
   metric: {
+    usageUnknown: 'Usage unknown',
+    incomplete: 'Incomplete data',
     cpu: 'Host CPU',
     cpuDetail: '{{count}} cores · 1m load {{load}}',
     memory: 'Host memory',

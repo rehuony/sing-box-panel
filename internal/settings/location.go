@@ -67,26 +67,38 @@ func resolveDataDir(path, dataDir string) (string, error) {
 // LoadTrafficQuota reads the shared file quota only when a metrics query needs
 // it, without validating unrelated runtime fields.
 func LoadTrafficQuota(path string) (*int64, error) {
+	value, err := LoadTrafficAccounting(path)
+	return value.QuotaGiB, err
+}
+
+// LoadTrafficAccounting reads quota and period from one file snapshot without
+// making read-only metrics commands depend on unrelated runtime settings.
+func LoadTrafficAccounting(path string) (Traffic, error) {
 	var fields map[string]json.RawMessage
 	if err := readSettings(path, &fields); err != nil {
-		return nil, err
+		return Traffic{}, err
 	}
 	var traffic map[string]json.RawMessage
 	if raw, exists := fields["traffic"]; exists {
 		if err := json.Unmarshal(raw, &traffic); err != nil {
-			return nil, fmt.Errorf("parse settings %q traffic: %w", path, err)
+			return Traffic{}, fmt.Errorf("parse settings %q traffic: %w", path, err)
 		}
 	}
-	var quota *int64
-	if raw, exists := traffic["quota_gib"]; exists {
-		if err := json.Unmarshal(raw, &quota); err != nil {
-			return nil, fmt.Errorf("parse settings %q traffic.quota_gib: %w", path, err)
+	value := Traffic{PeriodMonths: 1}
+	for field, destination := range map[string]any{"quota_gib": &value.QuotaGiB, "period_months": &value.PeriodMonths} {
+		if raw, exists := traffic[field]; exists {
+			if err := json.Unmarshal(raw, destination); err != nil {
+				return Traffic{}, fmt.Errorf("parse settings %q traffic.%s: %w", path, field, err)
+			}
 		}
 	}
-	if err := ValidateTrafficQuota(quota); err != nil {
-		return nil, fmt.Errorf("validate settings %q: %w", path, err)
+	if err := ValidateTrafficQuota(value.QuotaGiB); err != nil {
+		return Traffic{}, err
 	}
-	return quota, nil
+	if value.PeriodMonths < 1 || value.PeriodMonths > 120 {
+		return Traffic{}, errors.New("traffic.period_months must be between 1 and 120")
+	}
+	return value, nil
 }
 
 // ValidateTrafficQuota ensures a quota can be safely converted from GiB to bytes.

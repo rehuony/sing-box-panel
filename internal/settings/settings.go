@@ -70,7 +70,11 @@ type Subscription struct {
 }
 
 type Logs struct {
-	RetentionDays int `json:"retention_days"`
+	// Deprecated: retained for settings and backup compatibility; panel events never expire automatically.
+	RetentionDays      int `json:"retention_days"`
+	CoreRetentionDays  int `json:"core_retention_days"`
+	CoreMaxFiles       int `json:"core_max_files"`
+	CoreMaxFileSizeMiB int `json:"core_max_file_size_mib"`
 }
 
 // Defaults returns safe defaults for the current effective user.
@@ -87,7 +91,7 @@ func Defaults() Settings {
 			Provider:           "default",
 			PrivateSourceCIDRs: []string{},
 		},
-		Logs: Logs{RetentionDays: 7},
+		Logs: Logs{CoreRetentionDays: 7, CoreMaxFileSizeMiB: 32},
 	}
 }
 
@@ -136,7 +140,7 @@ func parse(path string, data []byte) (Settings, error) {
 	if err != nil {
 		return Settings{}, err
 	}
-	value := Settings{sourcePath: absolutePath, Panel: DefaultPanel()}
+	value := Settings{sourcePath: absolutePath, Panel: DefaultPanel(), Logs: Logs{CoreRetentionDays: 7, CoreMaxFileSizeMiB: 32}}
 	if err := decodeSettings(path, data, &value); err != nil {
 		return Settings{}, err
 	}
@@ -232,8 +236,8 @@ func (value Settings) Validate() error {
 			return fmt.Errorf("subscription.private_source_cidrs contains invalid CIDR %q", raw)
 		}
 	}
-	if value.Logs.RetentionDays < 1 || value.Logs.RetentionDays > 3650 {
-		return errors.New("logs.retention_days must be between 1 and 3650")
+	if value.Logs.CoreRetentionDays < 1 || value.Logs.CoreRetentionDays > 3650 || value.Logs.CoreMaxFiles < 0 || value.Logs.CoreMaxFiles > 1024 || value.Logs.CoreMaxFileSizeMiB < 1 || value.Logs.CoreMaxFileSizeMiB > 1024 {
+		return errors.New("core log retention must be 1–3650 days, 0–1024 files and 1–1024 MiB per file")
 	}
 	if runtime.GOOS == "windows" {
 		return errors.New("Windows is not supported")

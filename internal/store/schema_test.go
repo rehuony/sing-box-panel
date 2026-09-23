@@ -18,7 +18,7 @@ func TestOpenRejectsUnsupportedFormatsWithoutConvertingData(t *testing.T) {
 		{"foreign", 123, CurrentSchemaVersion, ErrUnexpectedApplicationID},
 		{"future", ApplicationID, CurrentSchemaVersion + 1, ErrSchemaTooNew},
 	}
-	for version := 0; version < CurrentSchemaVersion; version++ {
+	for version := 0; version < 11; version++ {
 		cases = append(cases, struct {
 			name        string
 			id, version int
@@ -77,5 +77,32 @@ func TestFreshSchemaContainsOnlyCurrentStorage(t *testing.T) {
 	}
 	if err := rows.Err(); err != nil || violations != 0 {
 		t.Fatalf("foreign key violations: %d %v", violations, err)
+	}
+}
+
+func TestFailedVersion11UpgradeRollsBackSchemaAndVersion(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "panel.db")
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	// An incomplete version-11 schema cannot supply the migration's source data.
+	if _, err := db.ExecContext(t.Context(), fmt.Sprintf("PRAGMA application_id=%d; PRAGMA user_version=11; CREATE TABLE preserved(value TEXT); INSERT INTO preserved VALUES('untouched')", ApplicationID)); err != nil {
+		t.Fatal(err)
+	}
+	opened, err := Open(t.Context(), path)
+	if err == nil {
+		opened.Close()
+		t.Fatal("incomplete migration succeeded")
+	}
+	assertPragmaInt(t, t.Context(), db, 0, "user_version", 11)
+	var count int
+	if err := db.QueryRowContext(t.Context(), "SELECT count(*) FROM sqlite_schema WHERE name='traffic_months'").Scan(&count); err != nil || count != 0 {
+		t.Fatalf("partial schema persisted: %d %v", count, err)
+	}
+	var value string
+	if err := db.QueryRowContext(t.Context(), "SELECT value FROM preserved").Scan(&value); err != nil || value != "untouched" {
+		t.Fatal("existing data changed", err)
 	}
 }

@@ -22,12 +22,36 @@ import (
 	"github.com/rehuony/sing-box-panel/internal/buildinfo"
 	"github.com/rehuony/sing-box-panel/internal/panelprocess"
 	"github.com/rehuony/sing-box-panel/internal/settings"
+	"github.com/rehuony/sing-box-panel/internal/store"
 )
 
 func TestForegroundPanelCanBeStoppedFromAnotherClient(t *testing.T) {
 	t.Setenv("INVOCATION_ID", "")
 	value, path := processSettings(t)
-	var err error
+	value.Logs.RetentionDays = 1
+	raw, err := json.Marshal(value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := prepareDataDirectory(value.DataDir); err != nil {
+		t.Fatal(err)
+	}
+	database, err := store.Open(t.Context(), filepath.Join(value.DataDir, "panel.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, appendErr := database.AppendLogEntry(t.Context(), store.LogEntry{
+		ID: "historical_event", Time: time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC),
+		Source: store.LogSourcePanel, Level: store.LogLevelInfo, Code: "test.history", Message: "Historical event",
+		Metadata: json.RawMessage(`{}`),
+	})
+	closeErr := database.Close()
+	if appendErr != nil || closeErr != nil {
+		t.Fatalf("seed historical event: %v, %v", appendErr, closeErr)
+	}
 	var initialConfiguration application.ConfigurationFile
 	for start := range 2 {
 		ctx, cancel := context.WithCancel(context.Background())
@@ -125,6 +149,15 @@ func TestForegroundPanelCanBeStoppedFromAnotherClient(t *testing.T) {
 		}
 		cancel()
 		stop()
+		database, err := store.Open(t.Context(), filepath.Join(value.DataDir, "panel.db"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, historyErr := database.GetLogEntry(t.Context(), "historical_event")
+		closeErr := database.Close()
+		if historyErr != nil || closeErr != nil {
+			t.Fatalf("panel start or restart removed historical event: %v, %v", historyErr, closeErr)
+		}
 	}
 }
 
