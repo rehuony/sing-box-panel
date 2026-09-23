@@ -253,6 +253,8 @@ unknown extension fields and large numeric lexemes survive unrelated edits.
 The advanced node JSON editor formats valid content on load, on entry and on
 blur and save, and provides a format button. Invalid or incomplete text is left intact;
 formatting preserves large numeric lexemes and unknown fields.
+Node detail JSON displays credentials directly and copies the complete displayed
+JSON. Configuration forms likewise show passwords, UUIDs, keys and tokens as text.
 HY2 supports a single port, port ranges or Realm, SSH supports password/key/key
 file, and Shadowsocks UDP-over-TCP and multiplexing are mutually exclusive.
 QUIC does not expose uTLS/Reality or TCP fragmentation. Detour references must
@@ -285,14 +287,23 @@ options; unsupported cross-format nodes produce diagnostics.
 The Web page has two tabs. **Real-time logs** shows sanitized sing-box output,
 with a muted timestamp and the entire remaining message colored by TRACE,
 DEBUG, INFO, WARN, ERROR, FATAL or PANIC. A file selector and level filter sit on
-the right; search, pause/resume and LIVE state operate on a bounded local buffer.
+the right. The toolbar also shows connection state and controls for live updates,
+scrolling to the bottom, clearing displayed output, and deleting a historical
+file. Pausing freezes the selected file and disconnects the browser stream;
+collection on the server continues. Resuming uses the last received byte cursor,
+or switches to the latest file after rotation. Scrolling up suspends automatic
+scrolling; the bottom button restores it without changing live-update state.
+Clearing removes only the displayed buffer and preserves its cursor, filters,
+and update state. It does not truncate or delete any file. Switching files reloads
+saved output. Historical deletion requires confirmation, removes only the
+selected managed file, and returns the view to the latest remaining file.
 **Panel logs** combines sanitized operation outcomes with panel, security and
 runtime events. The table shows time, message, log level and source, without an
 actions column or operation detail dialogs. Rows use their API log level for both
 presentation and filtering. Retry an unsuccessful action from its original control;
 old payloads and temporary uploads are never replayed.
 
-`/api/v1/core/logs/files``/api/v1/core/logs/files`, `/api/v1/core/logs/content` and
+`/api/v1/core/logs/files`, `/api/v1/core/logs/content` and
 `/api/v1/core/logs/stream` expose only managed file names and bounded byte
 cursors. The collector captures child stdout/stderr. If native `log.output` is
 set, it follows new bytes from that regular file, handling creation, truncation
@@ -301,16 +312,48 @@ Disabled output is not followed; symbolic-link files and capture-directory loops
 are rejected. On child exit, pending output is drained and its final partial
 line is flushed before completion is reported.
 
-Private core-log retention is at most 32 files of 32 MiB, rotated by UTC date and
-size. Rotation switches only the destination file; the process output pipes and
+Relative `log.output` paths resolve from `<data-dir>/runtime`, the child process's
+working directory, rather than from the saved configuration's directory. For
+example, `box.log` resolves to `<data-dir>/runtime/box.log`. Absolute paths remain
+absolute. The native process must be able to write the destination and the panel
+must be able to read it. Saving a new path takes effect on the next Start/Restart.
+The follower checks for new bytes every 250 ms; it does not import bytes already
+present when following begins. The original output file remains under the
+operator's management, including its permissions, retention and raw contents.
+The panel separately sanitizes and retains its captured copy under
+`<data-dir>/logs/core`. Deleting a captured copy never removes the original file.
+
+`DELETE /api/v1/core/logs/files?file=<managed-name>` requires management
+authentication and the usual CSRF token for cookie sessions. The file list's
+`deletable` field is computed against the server's current UTC date. The browser
+only shows deletion for eligible files; the server rechecks the date and rejects
+all of today's segments with `409 core_log_current`, even after size rotation.
+Invalid names and non-regular files are rejected; missing files return 404.
+Deletion outcomes are recorded as panel activity.
+
+Private core logs default to seven UTC dates including today, 32 MiB per file,
+and no file-count limit. Panel settings → Log management controls
+`logs.core_retention_days` (1–3650), `logs.core_max_files` (0–1024, zero means
+unlimited), and `logs.core_max_file_size_mib` (1–1024). A count cap can shorten
+the effective retention window. Old settings without these fields use the defaults.
+Saving installs the policy immediately and runs cleanup; startup and UTC midnight
+also run cleanup. Shrinking the size limit rotates before the next write without
+truncating existing content. Files rotate by UTC date and size. Rotation switches only the destination file; the process output pipes and
 file follower remain connected. Each day's sequence advances from its newest
 retained file, including after a panel restart, and extends beyond three digits
-when necessary. The active file is never removed by retention. Lines and read
+when necessary. The active file is retained while within the date window. Lines and read
 chunks are bounded; ANSI sequences and known credentials
 are sanitized. The browser resumes from the received cursor, freezes the selected
 file while paused and polls for rotation. Streaming uses write deadlines and
 closes within a minute to reauthenticate on reconnect. `/api/v1/logs/panel`
 provides the combined panel view. The legacy log API below remains available.
+Each initial file read loads the last 64 KiB; the browser retains at most 2,000
+lines and searches/filters only this buffer. File lists refresh every 10 seconds;
+the output stream checks for appended content every second. Core capture
+retention applies only to sing-box capture files. Panel events are retained indefinitely.
+The status dot and icon buttons share an absolutely positioned capsule over the
+output. Pause freezes updates, bottom resumes scroll following, and clear only
+clears the visible buffer. Historical deletion requires confirmation.
 
 Panel-log and subscription-key lists support `offset` with `limit` for numbered
 pages and return `total` before pagination. Panel-log totals include the active
@@ -333,8 +376,11 @@ sing-box-panel log delete LOG_ID
 ```
 
 `GET /api/v1/logs/stream` is a durable server-sent event stream and accepts
-`Last-Event-ID` for reconnection. `logs.retention_days` is enforced at server
-startup and every 24 hours. Configuration bytes, subscription bodies, token
+`Last-Event-ID` for reconnection. Panel events and runtime history have no automatic
+expiration, including on startup, settings changes, or backup restore. The legacy
+`logs.retention_days` file field and `log_retention_days` API field are accepted for
+compatibility but have no retention effect. Explicit log clear/delete commands
+remain available. Configuration bytes, subscription bodies, token
 plaintext, URL credentials, and known secret fields are not stored as log
 payloads.
 
@@ -369,13 +415,16 @@ the omitted older interval is unknown, not inferred from the preceding state.
 The dashboard shows host summaries, transfer history and one-hour active
 connections. Graph gaps remain gaps. The 24-hour runtime strip uses 48 equal
 segments and persisted transitions; unknown intervals are not guessed healthy.
+Traffic and connection chart details follow the pointer and stay inside the chart,
+showing metric values and units without timestamps. Arrow keys inspect samples;
+Escape or leaving the chart dismisses the details.
 An absent or zero traffic quota is rendered as unlimited (`∞ GiB`) while keeping
 the observed used-byte value; unavailable traffic evidence remains unknown rather
 than being rendered as zero.
 
 The demo uses the saved panel traffic quota for both metrics responses and the
-live metrics stream. Saving a new quota updates the dashboard on the next stream
-sample, including the usage percentage; an empty or zero quota remains unlimited.
+live metrics stream. Saving a new quota refreshes shared metrics once immediately; subsequent
+updates use the existing stream, including the usage percentage; an empty or zero quota remains unlimited.
 
 ## Limited monitoring and traffic
 
@@ -393,13 +442,22 @@ than 30 seconds is stale.
 Counters are checkpointed by PID and OS start token. A restart opens a new
 segment and preserves the UTC natural-month period total. A decrease inside
 one process is stored as rejected diagnostic evidence and cannot lower totals.
-Cross-period checkpoints retain the last process counters but add only the
-delta proven inside the new natural period, so a long-lived process cannot
-re-add its lifetime counters each month. Samples and period contributions use
+Checkpoints retain the last process counters across settings changes and add
+only deltas proven inside a UTC month, so changing a period cannot re-add lifetime
+counters. Cross-month intervals are not proportionally guessed. Samples and period contributions use
 nullable upload/download deltas: legacy or interrupted intervals that cannot
 be proven are marked `partial` instead of being rendered as zero.
 
-Periods span `traffic.period_months`; `traffic.quota_gib=0` is unlimited.
+Periods span `traffic.period_months`, aligned to UTC natural months from January
+1970, and are recomputed immediately after saving a new month count. Durable
+monthly totals are updated in the same transaction as samples and checkpoints,
+so changing periods does not depend on retained raw samples. Version-11 migration
+prefers existing single-month totals and backfills only missing months from
+verifiable samples. Unsplit older multi-month records remain available as history;
+no proportional allocation or duplicate accumulation is performed. Coverage is
+`missing`, `partial`, or `complete`; the dashboard marks partial history as
+“Incomplete data”. Missing or stale evidence displays unknown usage while still
+showing the configured quota. `traffic.quota_gib=null` or `0` is unlimited.
 Current periods aggregate across activation bundles while individual samples
 retain bundle evidence. Period list responses include the paired
 `period_start`/`id` cursor in `next`, so every matching record remains
@@ -408,7 +466,8 @@ reachable beyond the requested limit.
 Raw samples follow the required `traffic.sample_retention_days` setting, which
 is initialized to 90 and accepts 1 through 366 days. A settings file without
 the field is rejected. The server removes expired raw samples during startup
-and every 24 hours. Traffic period totals remain retained after raw samples
+and every 24 hours, and rechecks immediately after a Web settings save. Monthly
+and traffic period totals remain retained after raw samples
 are removed.
 
 The authenticated history endpoint is:

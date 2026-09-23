@@ -50,8 +50,6 @@ export const subscriptions = {
     import: 'Import share link',
     parse: 'Parse',
     save: 'Save node',
-    reveal: 'Show credentials',
-    mask: 'Hide credentials',
   },
   sources: {
     onDemand: 'On demand',

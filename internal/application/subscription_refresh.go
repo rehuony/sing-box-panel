@@ -48,7 +48,11 @@ func (application *Application) refreshSubscriptionSource(ctx context.Context, s
 	if err != nil {
 		return SubscriptionSourceRefreshResult{}, err
 	}
-	body, fetchErr := subscription.FetchSource(ctx, config.URL, application.settings.Subscription.PrivateSourceCIDRs)
+	effective, err := application.EffectiveSettings(ctx)
+	if err != nil {
+		return SubscriptionSourceRefreshResult{}, err
+	}
+	body, fetchErr := subscription.FetchSource(ctx, config.URL, effective.Subscription.PrivateSourceCIDRs)
 	if fetchErr != nil {
 		_ = application.scheduleNextSubscriptionSourceRefresh(ctx, source, config)
 		return SubscriptionSourceRefreshResult{}, fetchErr

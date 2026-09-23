@@ -39,7 +39,7 @@ visible. File length alone is not a reason to create another package.
   Web save also updates sing-box protocol identity.
 - `internal/configuration` owns strict, lossless sing-box JSON parsing and
   canonical serialization. `store` retains immutable
-  snapshots as runtime evidence and initializes the current `schema.sql` directly.
+  snapshots as runtime evidence and initializes the current schema and transactionally upgrades version 11 with monthly totals.
 - `internal/subscription` owns documents, normalized nodes, source parsing and
   fetching, rendering, and inbound conversion contracts. Files use
   `document_*`, `node_*`, `source_*`, `render_*`, and `inbound_*` prefixes.
@@ -139,7 +139,7 @@ below exercise the corresponding source, API and runtime boundaries.
 | NODE-01 | Local publishable inbounds and manual nodes in one manual collection; real name, actual source badge, system/imported badge after the manual collection badge, protocol/endpoint/TLS/Reality/SNI; configuration opens only from the corner details action; hidden cards omit the corner visibility icon and restore visibility through their clickable overlay | Node catalog/provenance and inbound-to-client conversion | No automatic core outbound/TUN/redirect/tproxy publishing; no invented prefixes; card clicks do not open configuration; hidden overlays restore visibility | implemented |
 | NODE-02 | Eye controls visibility; hidden cards remain recoverable at source; channel filters before pagination without deleting membership/order | Independent visibility and channel membership | Hide/restore selected node, empty/page bounds, no ghost cards | implemented |
 | NODE-03 | Native conditional protocol editor and node-scoped advanced JSON; parse share link then confirm; no unknown-field loss | Protocol capability/schema and references | TLS/QUIC exclusions, HY2 port modes, SS UoT/mux, SSH auth, detour cycles, version support | implemented |
-| NODE-04 | Listener vs published addresses; credentials masked/copyable; local edit links to configuration; hiding/deleting publication cannot delete inbound | Local-node provenance and configuration deep links | IPv6, unknown public IP, no listener/SNI/port mutation, real copy results | implemented |
+| NODE-04 | Listener vs published addresses; credentials visible/copyable; local edit links to configuration; hiding/deleting publication cannot delete inbound | Local-node provenance and configuration deep links | IPv6, unknown public IP, no listener/SNI/port mutation, real copy results | implemented |
 | KEY-01 | Subscription keys replace user UI; expiry and successful-download quota shared across all channels; failed requests do not consume | Token storage and atomic delivery accounting; user-scoped access checks | Concurrent quota requests, expiry, failures, existing grants preserved | implemented |
 | CHAN-01 | Continuous node grid, actual source badges; nodes/rules tabs; output/distribution/preview toolbar | Channel selected nodes and native output formats | Selection/order/hidden filtering and format change | implemented |
 | CHAN-02 | Channel creation and editing open the strategy-group workspace directly; nodes are selected within each group; back/settings/preview/save actions grouped at the right; channel name and output client appear only in a cancelable settings draft, with no separate identity row; lightweight split workspace with independently scrolling group list and editor; group node/rule counts, card-level pencil actions with cancelable name dialogs; sidebar final-exit toggle beside delete; implicitly enabled groups; optional, exclusive final-exit badges; searchable candidate cards; automatic candidate exits, manual domain/IP/CIDR and remote references; rule dialogs omit exit and enablement fields; unmatched fallback | Typed channel configuration, native renderers | New group selects current eligible candidates; filtered selection preserves other members; edit/additional nodes preserve choice; valid exits | implemented |
@@ -148,9 +148,9 @@ below exercise the corresponding source, API and runtime boundaries.
 | RULE-03 | Single-line full URL; lightning toggles gh-proxy.com for eligible GitHub/raw/gist; unwrap known proxy, no duplicates; off restores origin | URL normalization and effective render URL | Empty/non-GitHub disabled; preview/delivery uses effective URL; no credential forwarding | implemented |
 | CHAN-03 | Distribution: current template + new-node policy; node organizer owns prefix/exclusion/sort/dedup/incompatibility | Channel data separation | Renderer applies each saved option | implemented |
 | TPL-01 | Per-channel native JSON/YAML template; true edit/dirty/validate/location/preview/save/cancel; generated nodes/auth/groups/rules/fallback reserved | New template storage/API/merge/validation; no shared library or DSL | Reject conflicts and invalid save; preserve other channel; preview equals delivery | implemented |
-| SET-01 | Three categories: service/security, nodes/subscriptions, statistics/appearance; consistent rows, hover help, sticky save | Panel settings API/storage/bootstrap separation | Authenticated update, optimistic concurrency, invalid inputs, secrets redacted | implemented |
+| SET-01 | Six grouped categories; shared draft and save, same-path hash navigation, cross-category validation, backup preview and atomic restore | Panel settings API/storage/bootstrap separation | Authenticated update, optimistic concurrency, invalid inputs, secrets redacted | implemented |
 | SET-02 | Listen/address/domain, management token and optional GitHub token; blank token retains, explicit remove; server-only use | Bootstrap/security settings and catalog client | Restart semantics, session invalidation, no token in response/log/browser persistence | implemented |
-| SET-03 | Public node host auto placeholder/custom override; unified identity name/key; protocol obfuscation stays protocol-specific | Publication settings and protocol identity | IPv4/IPv6/domain, failed auto detection cannot export bind/loopback, imported credentials unchanged | implemented |
+| SET-03 | Public node host auto placeholder/custom override; hidden identity/subscription values preserved; protocol obfuscation stays protocol-specific | Publication settings and protocol identity | IPv4/IPv6/domain, failed auto detection cannot export bind/loopback, imported credentials unchanged | implemented |
 | SET-04 | Traffic quota, language, theme, five presets/custom color picker with HEX and explicit apply/cancel after closing; default #6D4ED1, radius 0–32 default12 | Persisted preferences and preview transaction | Save/reload; unsaved category/route changes require confirmation; cancellation retains draft, confirmed departure restores saved; reset only color/radius | implemented |
 | SET-05 | Theme links accent/background/border/focus/charts; R cards/dialogs, R/2 controls, min(32,7R/6) shell; badges/logo/status independent | Shared CSS tokens and accessible color derivation | Text contrast ≥4.5 for arbitrary light/dark colors, radius bounds, all component states | implemented |
 | LOG-01 | Real-time core raw logs only; timestamp muted, full message matches level; all native levels, file/date/level selectors consistent and right aligned; one top-right status pill toggles live output and pause, without a separate icon or surrounding container | Core log file/tail API | Real file reading/stream/reconnect/pause/filter, independent scroll | implemented |
@@ -179,8 +179,10 @@ persistence, security boundaries and runtime semantics.
 The current `internal/store/schema.sql` creates the editable configuration,
 immutable runtime evidence, subscription state and operational records directly.
 Settings live in the selected `setting.json`; SQLite keeps only transaction
-markers for interrupted settings/identity updates. Old storage formats require
-a fresh development data directory and are never converted on startup.
+markers for interrupted settings/identity updates and configuration restores.
+`traffic_months.sql` adds durable monthly traffic accounting. Version 11 of the
+same application identity upgrades transactionally to version 12; unknown and
+newer storage formats remain rejected.
 
 Authenticated management, CSRF/origin controls, safe source acquisition,
 immutable checked startup artifacts and exact core-version checks remain in place.

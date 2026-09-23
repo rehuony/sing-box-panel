@@ -78,6 +78,37 @@ paths:
           $ref: "#/components/responses/Problem"
         "422":
           $ref: "#/components/responses/Problem"
+  /panel/backup:
+    get:
+      operationId: exportPanelBackup
+      responses:
+        "200":
+          description: Plaintext backup of saved settings and sing-box text, including credentials. Never cached.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/PanelBackup'}
+        "500":
+          $ref: '#/components/responses/Problem'
+  /panel/restore:
+    post:
+      operationId: restorePanelBackup
+      parameters:
+        - $ref: '#/components/parameters/CSRFToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/PanelRestoreRequest'}
+      responses:
+        "200":
+          description: Both saved configurations restored atomically. Does not apply or restart sing-box.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/PanelRestoreResult'}
+        "412":
+          $ref: '#/components/responses/Problem'
+        "422":
+          $ref: '#/components/responses/Problem'
   /config/file:
     get:
       operationId: getConfigurationFile
@@ -972,6 +1003,27 @@ paths:
         "304":
           description: The current live publication matches If-None-Match.
   /core/logs/files:
+    delete:
+      operationId: deleteCoreLogFile
+      summary: Delete one managed core output file outside the current UTC day
+      description: Deletes only the panel's captured copy, never the native log.output file. All segments from the current UTC day are protected. Cookie sessions require CSRF protection.
+      parameters:
+        - $ref: '#/components/parameters/CSRFToken'
+        - name: file
+          in: query
+          required: true
+          schema: {type: string, pattern: '^\d{4}-\d{2}-\d{2}-\d{3,20}\.log$'}
+      responses:
+        '204':
+          description: The selected managed file was deleted.
+        '400': {$ref: '#/components/responses/Problem'}
+        '404': {$ref: '#/components/responses/Problem'}
+        '409':
+          description: The selected file belongs to the current UTC day (core_log_current).
+          content:
+            application/problem+json:
+              schema: {$ref: '#/components/schemas/Problem'}
+        default: {$ref: '#/components/responses/Problem'}
     get:
       operationId: listCoreLogFiles
       summary: List bounded captured core output files
@@ -1709,10 +1761,41 @@ components:
         content:
           type: string
           maxLength: 2097152
+    PanelBackup:
+      type: object
+      additionalProperties: false
+      required: [format, version, exported_at, panel_settings, sing_box_configuration]
+      properties:
+        format: {type: string, enum: [sing-box-panel-backup]}
+        version: {type: integer, enum: [1]}
+        exported_at: {type: string, format: date-time}
+        panel_settings:
+          type: object
+          additionalProperties: true
+          description: Complete native setting.json, including credentials. Validated using the settings-file contract; at most 1 MiB.
+        sing_box_configuration:
+          type: string
+          description: Exact saved UTF-8 text, including incomplete JSON; at most 2 MiB in UTF-8.
+          maxLength: 2097152
+    PanelRestoreRequest:
+      type: object
+      additionalProperties: false
+      required: [backup, settings_revision, configuration_revision]
+      properties:
+        backup: {$ref: '#/components/schemas/PanelBackup'}
+        settings_revision: {type: integer, format: int64, minimum: 0, maximum: 9007199254740991}
+        configuration_revision: {type: integer, format: int64, minimum: 0}
+    PanelRestoreResult:
+      type: object
+      additionalProperties: false
+      required: [settings, reauthentication_required]
+      properties:
+        settings: {$ref: '#/components/schemas/PanelSettingsView'}
+        reauthentication_required: {type: boolean}
     PanelServiceSettings:
       type: object
       additionalProperties: false
-      required: [data_dir, base_path, secure_cookie, catalog_refresh_interval_hours, traffic_period_months, sample_retention_days, subscription_author, subscription_provider, private_source_cidrs, log_retention_days]
+      required: [data_dir, base_path, secure_cookie, catalog_refresh_interval_hours, traffic_period_months, sample_retention_days, subscription_author, subscription_provider, private_source_cidrs]
       properties:
         data_dir:
           type: string
@@ -1744,8 +1827,26 @@ components:
           items: {type: string}
         log_retention_days:
           type: integer
+          deprecated: true
+          default: 0
+          description: Legacy compatibility field with no retention effect. Panel events are stored indefinitely unless explicitly deleted.
+        core_log_retention_days:
+          type: integer
           minimum: 1
           maximum: 3650
+          default: 7
+          description: UTC dates retained, including today. Omitted writes preserve the saved policy.
+        core_log_max_files:
+          type: integer
+          minimum: 0
+          maximum: 1024
+          default: 0
+          description: Zero is unlimited. A positive cap can shorten date-based retention.
+        core_log_max_file_size_mib:
+          type: integer
+          minimum: 1
+          maximum: 1024
+          default: 32
     PanelSettingsView:
       type: object
       additionalProperties: false
@@ -2548,11 +2649,14 @@ components:
     CoreLogFile:
       type: object
       additionalProperties: false
-      required: [name, size, updated_at]
+      required: [name, size, updated_at, deletable]
       properties:
         name: {type: string}
         size: {type: integer, format: int64, minimum: 0}
         updated_at: {type: string, format: date-time}
+        deletable:
+          type: boolean
+          description: Whether the filename is outside the server's current UTC day. Deletion rechecks this condition at request time.
     CoreLogChunk:
       type: object
       additionalProperties: false
@@ -2685,6 +2789,7 @@ components:
         collected_at: {type: string, format: date-time}
         current_traffic_period: {$ref: "#/components/schemas/TrafficPeriod"}
         latest_sample: {$ref: "#/components/schemas/TrafficSample"}
+        traffic_coverage: {$ref: "#/components/schemas/CoverageStatus"}
         traffic_available: {type: boolean}
         quota_bytes: {type: integer, format: int64, minimum: 0}
         quota_exceeded: {type: boolean}

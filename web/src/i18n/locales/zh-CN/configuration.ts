@@ -54,6 +54,11 @@ export const configuration = {
   },
   loading: '正在载入配置…',
   managed: {
+    listenAddress: '监听地址',
+    serverAddress: '服务端地址',
+    copyJson: '复制 JSON',
+    jsonCopied: 'JSON 已复制',
+    jsonCopyFailed: '无法复制 JSON，请选中文本后手动复制。',
     add: '添加节点',
     collection: {
       endpoints: '端点',
@@ -175,6 +180,11 @@ export const configuration = {
     sections: '条目配置', basic: '基础配置', match: '匹配条件',
     more: '更多条件', action: '执行动作', authentication: '身份认证',
     tls: 'TLS', transport: '传输配置', connection: '连接选项', advanced: '高级配置', json: 'JSON',
+  },
+  userList: {
+    credentials: '认证信息', unnamed: '未命名用户 {{number}}',
+    credentialValue: '{{credential}}：{{value}}', credentialMissing: '{{credential}}未设置',
+    uuid: 'UUID', auth: '认证密钥', userKey: '用户密钥', token: '令牌',
   },
   general: {
     fieldHelp: '{{field}}的说明',

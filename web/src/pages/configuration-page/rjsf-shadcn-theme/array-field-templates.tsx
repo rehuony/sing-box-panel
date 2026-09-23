@@ -101,10 +101,19 @@ export function PanelArrayField(props: FieldProps) {
 interface ArrayEditorState {
   standalone?: boolean;
   edit: (index: number) => void;
+  userCredentials?: typeof userCredentials;
   records: Record<string, unknown>[] | null;
 }
 
 const ArrayEditorContext = createContext<ArrayEditorState | null>(null);
+
+const userCredentials = [
+  { keys: ['password', 'Password'], label: 'configuration.fields.password' },
+  { keys: ['uuid'], label: 'configuration.userList.uuid' },
+  { keys: ['auth', 'auth_str'], label: 'configuration.userList.auth' },
+  { keys: ['userkey'], label: 'configuration.userList.userKey' },
+  { keys: ['token'], label: 'configuration.userList.token' },
+];
 
 function itemLabel(item: Record<string, unknown>, index: number): string {
   const value = [item.tag, item.name, item.id].find((value) => typeof value === 'string' && value !== '');
@@ -143,6 +152,11 @@ export function PanelArrayFieldTemplate(props: ArrayFieldTemplateProps) {
     ? registry.formContext?.arrayActionContainer as HTMLElement | null | undefined
     : null;
   const standalone = records !== null && fieldPathId.path.length === 0 && registry.formContext?.arrayLayout === 'standalone';
+  const userList = records !== null && fieldPathId.path.at(-1) === 'users';
+  const userFields = userList ? resolvedSchema(schema.items as RJSFSchema, registry.rootSchema).properties : undefined;
+  const credentials = userList
+    ? userCredentials.filter(({ keys }) => keys.some((key) => userFields?.[key] !== undefined))
+    : undefined;
   const addButton = canAdd
     ? (
         <Button className={standalone ? 'configuration-list__add' : undefined} disabled={disabled || readonly} onClick={records !== null && actions !== null ? actions.create : onAddClick} size={standalone ? 'content' : 'sm'} type='button' variant={records === null ? 'ghost' : 'outline'}>
@@ -178,20 +192,31 @@ export function PanelArrayFieldTemplate(props: ArrayFieldTemplateProps) {
     );
   }
   return (
-    <fieldset className={`schema-form__array${records === null ? ' schema-form__array--values' : ''}`} id={`${fieldPathId.$id}-group`}>
+    <fieldset className={`schema-form__array${records === null ? ' schema-form__array--values' : ''}${userList ? ' schema-form__array--users' : ''}`} data-credentials={credentials !== undefined && credentials.length > 0} id={`${fieldPathId.$id}-group`}>
       <div className='schema-form__array-toolbar' hidden={!!actionContainer}>
         <div className='schema-form__array-heading'>
           <ArrayFieldTitleTemplate {...props} title={uiSchema?.['ui:title'] === '' ? '' : title} />
         </div>
         {actionContainer ? createPortal(addButton, actionContainer) : addButton}
       </div>
-      <ArrayEditorContext value={{ records, edit: (index) => actions?.edit(index) }}>
+      <ArrayEditorContext value={{ records, userCredentials: credentials, edit: (index) => actions?.edit(index) }}>
         {records !== null && items.length > 0
           ? (
               <div aria-hidden className='schema-form__list-header'>
-                <span>{t('configuration.fields.tag')}</span>
-                <span>{t('configuration.fields.type')}</span>
-                <span>{t('configuration.general.summary')}</span>
+                {credentials !== undefined
+                  ? (
+                      <>
+                        <span>{t('configuration.fields.username')}</span>
+                        {credentials.length > 0 && <span>{t(credentials.length === 1 ? credentials[0].label : 'configuration.userList.credentials')}</span>}
+                      </>
+                    )
+                  : (
+                      <>
+                        <span>{t('configuration.fields.tag')}</span>
+                        <span>{t('configuration.fields.type')}</span>
+                        <span>{t('configuration.general.summary')}</span>
+                      </>
+                    )}
                 <span>{t('common.actions')}</span>
               </div>
             )
@@ -228,11 +253,35 @@ export function PanelArrayFieldItemTemplate({ buttonsProps, children, index, reg
     );
   }
   if (record !== undefined) {
+    const username = [record.username, record.Username, record.name].find((value) => typeof value === 'string' && value.trim() !== '');
+    const name = state?.userCredentials !== undefined
+      ? (typeof username === 'string' ? username : t('configuration.userList.unnamed', { number: index + 1 }))
+      : itemLabel(record, index);
+    const credentials = state?.userCredentials?.map(({ keys, label }) => {
+      const values = keys.flatMap((key) => {
+        const value = record[key];
+        if (typeof value === 'string' && value.length > 0) return [value];
+        if (Array.isArray(value) && value.length > 0) return [JSON.stringify(value)];
+        return [];
+      });
+      if (state.userCredentials?.length === 1) return values.join(' · ') || '—';
+      return values.length > 0
+        ? t('configuration.userList.credentialValue', { credential: t(label), value: values.join(' · ') })
+        : t('configuration.userList.credentialMissing', { credential: t(label) });
+    }).join('\n');
     return (
       <div className='schema-form__list-row'>
-        <span className='schema-form__item-name'>{itemLabel(record, index)}</span>
-        <span className='schema-form__item-type'>{String(record.type ?? record.action ?? '—')}</span>
-        <span className='schema-form__item-summary'>{itemSummary(record) || '—'}</span>
+        <span className='schema-form__item-name' title={name}>{name}</span>
+        {credentials !== undefined
+          ? (
+              credentials !== '' && <span className='schema-form__item-summary schema-form__item-credentials'>{credentials}</span>
+            )
+          : (
+              <>
+                <span className='schema-form__item-type'>{String(record.type ?? record.action ?? '—')}</span>
+                <span className='schema-form__item-summary'>{itemSummary(record) || '—'}</span>
+              </>
+            )}
         <div className='schema-form__item-actions'>
           <Button disabled={buttonsProps.disabled || buttonsProps.readonly} onClick={() => state?.edit(index)} size='sm' type='button' variant='ghost'>{t('common.edit')}</Button>
           {buttons}

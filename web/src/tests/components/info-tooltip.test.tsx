@@ -101,21 +101,19 @@ describe('info tooltip', () => {
     expect(screen.queryByText(description)).not.toBeInTheDocument();
   });
 
-  it.each(['{Enter}', ' '])('supports keyboard focus, %s and Escape while keeping focus on the trigger', async key => {
+  it('skips help icons in forward and backward Tab navigation', async () => {
     const { user, trigger } = setup();
     await user.tab();
-    expect(trigger).toHaveFocus();
-    expect(screen.getByRole('tooltip')).toHaveTextContent(description);
-    expect(trigger).toHaveAccessibleDescription(description);
-    await user.keyboard(key);
-    expect(screen.getByRole('tooltip')).toBeVisible();
-    await user.keyboard('{Escape}');
+    expect(screen.getByRole('button', { name: 'Action' })).toHaveFocus();
+    expect(trigger).not.toHaveFocus();
+    expect(screen.getByRole('button', { name: 'Help for port' })).not.toHaveFocus();
     expect(screen.queryByRole('tooltip')).not.toBeInTheDocument();
-    expect(trigger).toHaveFocus();
-    await user.keyboard(key);
-    expect(screen.getByRole('tooltip')).toBeVisible();
     await user.tab();
-    await waitFor(() => expect(screen.getByRole('tooltip')).toHaveTextContent(portDescription));
+    expect(screen.getByRole('button', { name: 'Outside' })).toHaveFocus();
+    await user.tab({ shift: true });
+    expect(screen.getByRole('button', { name: 'Action' })).toHaveFocus();
+    await user.tab({ shift: true });
+    expect(document.body).toHaveFocus();
   });
 
   it('opens on touch and dismisses on outside press', async () => {

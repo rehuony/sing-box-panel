@@ -1,13 +1,15 @@
 import { useTranslation } from 'react-i18next';
-import { SearchX, SquareTerminal } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { ArrowDownToLine, Eraser, Pause, Play, SearchX, SquareTerminal, Trash2 } from 'lucide-react';
 
-import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
+import { Button } from '@/components/ui/button';
 import { ErrorNotice } from '@/components/error-notice';
 import { SelectField } from '@/components/select-field';
 import { ToolbarActions } from '@/components/workspace-toolbar';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 
 import { useCoreLogs } from './use-core-logs';
 import { coreLevels, parseCoreLines } from './core-log-lines';
@@ -20,6 +22,11 @@ export function CoreLogsPanel({ active = true, toolbarTarget }: {
   const log = useCoreLogs();
   const [level, setLevel] = useState('');
   const [search, setSearch] = useState('');
+  const [deleteTarget, setDeleteTarget] = useState('');
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<unknown>(null);
+  const [clearedFile, setClearedFile] = useState('');
+  const cleared = clearedFile === log.file && log.file !== '';
   const viewportRef = useRef<HTMLDivElement>(null);
   const followRef = useRef(true);
   const lines = useMemo(
@@ -32,6 +39,9 @@ export function CoreLogsPanel({ active = true, toolbarTarget }: {
     [log.text, level, search],
   );
   useEffect(() => {
+    followRef.current = true;
+  }, [log.file]);
+  useEffect(() => {
     const target = viewportRef.current;
     if (target && followRef.current) target.scrollTop = target.scrollHeight;
   }, [lines]);
@@ -43,6 +53,18 @@ export function CoreLogsPanel({ active = true, toolbarTarget }: {
         ? 'connecting'
         : 'archive';
   const canToggle = log.current || log.paused;
+  async function deleteFile() {
+    setDeleting(true);
+    setDeleteError(null);
+    try {
+      await log.deleteFile(deleteTarget);
+      setDeleteTarget('');
+    } catch (reason) {
+      setDeleteError(reason);
+    } finally {
+      setDeleting(false);
+    }
+  }
   return (
     <div className='log-workspace'>
       <ToolbarActions active={active} target={toolbarTarget}>
@@ -57,8 +79,9 @@ export function CoreLogsPanel({ active = true, toolbarTarget }: {
             <SelectField
               aria-label={t('productLogs.file')}
               value={log.file}
+              disabled={deleting}
               onValueChange={log.selectFile}
-              items={log.files.length ? log.files.map((file) => ({ value: file.name, label: `${file.name.replace('.log', '')} · ${(file.size / 1048576).toFixed(1)} MB` })) : [{ value: '', label: t('productLogs.noFiles') }]}
+              items={log.files.length ? log.files.map((file) => ({ value: file.name, label: `${file.name.slice(0, 10)} · ${(file.size / 1048576).toFixed(1)} MB` })) : [{ value: '', label: t('productLogs.noFiles') }]}
             />
             <SelectField
               aria-label={t('productLogs.level')}
@@ -69,27 +92,110 @@ export function CoreLogsPanel({ active = true, toolbarTarget }: {
               items={[{ value: '', label: 'ALL' }, ...coreLevels.map((value) => ({ value, label: value.toUpperCase() }))]}
             />
           </div>
+
         </div>
       </ToolbarActions>
       {log.error != null && <ErrorNotice error={log.error} title={t('productLogs.unavailable')} />}
+      {deleteError != null && <ErrorNotice error={deleteError} title={t('productLogs.deleteFailed')} />}
+      <AlertDialog open={Boolean(deleteTarget)} onOpenChange={(open) => {
+        if (!open && !deleting) setDeleteTarget('');
+      }}>
+        <AlertDialogContent showCloseButton={!deleting}>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t('productLogs.deleteFile')}</AlertDialogTitle>
+            <AlertDialogDescription>{t('productLogs.deleteDescription', { file: deleteTarget })}</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleting}>{t('common.cancel')}</AlertDialogCancel>
+            <AlertDialogAction variant='destructive' disabled={deleting} onClick={() => void deleteFile()}>
+              {t(deleting ? 'productLogs.deleting' : 'productLogs.deleteFile')}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
       <div className='native-log'>
-        <Badge
-          className='native-log__status native-log__badge'
-          variant={state === 'live' ? 'success' : state === 'paused' ? 'warning' : state === 'connecting' ? 'info' : 'secondary'}
-          render={canToggle
-            ? (
-                <button
-                  type='button'
-                  aria-pressed={!log.paused}
-                  title={t(log.paused ? 'productLogs.resume' : 'productLogs.pause')}
-                  onClick={() => log.setPaused(!log.paused)}
+        <div className={`native-log__actions native-log__actions--${state}`} role='group' aria-label={t('productLogs.actions')}>
+          <Tooltip>
+            <TooltipTrigger render={(
+              <span
+                className={`native-log__status native-log__status--${state}`}
+                role='status'
+                aria-label={t(`productLogs.${state}`)}
+                tabIndex={0}
+              />
+            )}>
+              <i aria-hidden='true' />
+            </TooltipTrigger>
+            <TooltipContent>{t(`productLogs.${state}`)}</TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger render={(
+              <Button
+                size='icon'
+                variant='ghost'
+                aria-label={t('productLogs.liveUpdates')}
+                aria-pressed={canToggle && !log.paused}
+                disabled={!canToggle || deleting}
+                onClick={() => log.setPaused(!log.paused)}
+              />
+            )}>
+              {canToggle && !log.paused ? <Pause aria-hidden='true' /> : <Play aria-hidden='true' />}
+            </TooltipTrigger>
+            <TooltipContent>{t(log.paused || !canToggle ? 'productLogs.resume' : 'productLogs.pause')}</TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger render={(
+              <Button
+                size='icon'
+                variant='ghost'
+                aria-label={t('productLogs.scrollToBottom')}
+                disabled={!lines.length}
+                onClick={() => {
+                  followRef.current = true;
+                  const target = viewportRef.current;
+                  if (target) target.scrollTop = target.scrollHeight;
+                }}
+              />
+            )}>
+              <ArrowDownToLine aria-hidden='true' />
+            </TooltipTrigger>
+            <TooltipContent>{t('productLogs.scrollToBottom')}</TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger render={(
+              <Button
+                size='icon'
+                variant='ghost'
+                aria-label={t('productLogs.clear')}
+                disabled={!log.text}
+                onClick={() => {
+                  log.clear();
+                  setClearedFile(log.file);
+                  followRef.current = true;
+                }}
+              />
+            )}>
+              <Eraser aria-hidden='true' />
+            </TooltipTrigger>
+            <TooltipContent>{t('productLogs.clearDescription')}</TooltipContent>
+          </Tooltip>
+          {log.deletable && (
+            <Tooltip>
+              <TooltipTrigger render={(
+                <Button
+                  size='icon'
+                  variant='ghost'
+                  aria-label={t('productLogs.deleteFile')}
+                  disabled={deleting}
+                  onClick={() => setDeleteTarget(log.file)}
                 />
-              )
-            : undefined}
-        >
-          <i aria-hidden='true' />
-          {t(`productLogs.${state}`)}
-        </Badge>
+              )}>
+                <Trash2 aria-hidden='true' />
+              </TooltipTrigger>
+              <TooltipContent>{t('productLogs.deleteFile')}</TooltipContent>
+            </Tooltip>
+          )}
+        </div>
         <div
           ref={viewportRef}
           className='native-log__output'
@@ -114,11 +220,11 @@ export function CoreLogsPanel({ active = true, toolbarTarget }: {
                       </EmptyMedia>
                     )}
                     <EmptyTitle>
-                      {t(log.loading ? 'productLogs.loading' : !log.files.length ? 'productLogs.emptyCore' : 'productLogs.empty')}
+                      {t(log.loading ? 'productLogs.loading' : !log.files.length ? 'productLogs.emptyCore' : cleared && !log.text ? 'productLogs.cleared' : 'productLogs.empty')}
                     </EmptyTitle>
                     {!log.loading && (
                       <EmptyDescription>
-                        {t(!log.files.length ? 'productLogs.emptyCoreDescription' : 'productLogs.emptyDescription')}
+                        {t(!log.files.length ? 'productLogs.emptyCoreDescription' : cleared && !log.text ? 'productLogs.clearedDescription' : 'productLogs.emptyDescription')}
                       </EmptyDescription>
                     )}
                   </EmptyHeader>

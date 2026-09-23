@@ -1,5 +1,7 @@
 export const dashboard = {
   metric: {
+    usageUnknown: '用量未知',
+    incomplete: '数据不完整',
     cpu: '主机 CPU',
     cpuDetail: '{{count}} 核 · 1 分钟负载 {{load}}',
     memory: '主机内存',

@@ -120,6 +120,7 @@
   min-width: 0;
 }
 .trend-chart {
+  --trend-upload: #2895a6;
   min-height: 160px;
   flex: 1;
   position: relative;
@@ -144,16 +145,54 @@
 }
 .trend-chart__tooltip {
   position: absolute;
-  right: 8px;
+  z-index: 1;
+  left: 0;
   top: 0;
-  max-width: calc(100% - 60px);
-  padding: 6px 10px;
-  font-size: 11px;
+  display: grid;
+  gap: 6px;
+  width: max-content;
+  max-width: calc(100% - 16px);
+  padding: 10px 12px;
+  font-size: 12px;
+  line-height: 1.5;
   background: var(--color-surface);
+  color: var(--color-text);
   border: 1px solid var(--color-border);
-  border-radius: var(--radius-control);
+  border-radius: var(--radius-card);
   pointer-events: none;
   box-shadow: var(--shadow-card);
+}
+.trend-chart__tooltip-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 20px;
+}
+.trend-chart__tooltip-label {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--color-text-muted);
+}
+.trend-chart__tooltip-label i {
+  width: 6px;
+  height: 6px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--color-primary);
+}
+.trend-chart__tooltip-label i[data-series='upload'] {
+  background: var(--trend-upload);
+}
+.trend-chart__tooltip-value {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.trend-chart__tooltip-value small {
+  font-size: 10px;
+  font-weight: 400;
+  color: var(--color-text-muted);
 }
 .runtime-timeline {
   display: grid;

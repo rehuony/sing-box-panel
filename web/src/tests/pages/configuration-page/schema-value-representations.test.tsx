@@ -109,17 +109,17 @@ describe.skipIf(!reviewedEntry)('schema value representations', () => {
     expect(screen.getByLabelText('Representation draft')).toHaveTextContent(`"${fingerprint}":[]`);
   });
 
-  it('keeps private key representation choices separate from masked values', async () => {
+  it('keeps private key representation choices separate from visible credential values', async () => {
     const user = userEvent.setup();
     const { container } = render(<Harness field='key' initial='private-key' />);
     const selector = screen.getByRole('combobox', { name: 'Private key' });
     expect(selector).toHaveTextContent('Single value');
     expect(screen.queryByRole('spinbutton')).not.toBeInTheDocument();
-    expect(screen.getByDisplayValue('private-key')).toHaveAttribute('type', 'password');
+    expect(screen.getByDisplayValue('private-key')).toHaveAttribute('type', 'text');
     await user.click(selector);
     await user.click(await screen.findByRole('option', { name: 'List' }));
     await user.click(screen.getByRole('button', { name: 'Add' }));
-    const input = container.querySelector('input[type="password"]');
+    const input = container.querySelector('input[type="text"]');
     expect(input).not.toBeNull();
     fireEvent.change(input!, { target: { value: 'key-line' } });
     expect(screen.getByLabelText('Representation draft')).toHaveTextContent('"key":["key-line"]');

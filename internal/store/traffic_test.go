@@ -321,7 +321,7 @@ func TestDeleteTrafficSamplesBeforeKeepsPeriods(t *testing.T) {
 	bundle := seedTrafficActivationBundle(t, ctx, database, from.Add(-time.Hour))
 	input := TrafficSampleInput{
 		ActivationBundleID: bundle.ID, PID: 404, ProcessStartToken: "retention-process",
-		PeriodStart: from.Truncate(24 * time.Hour), PeriodEnd: from.Truncate(24*time.Hour).AddDate(0, 1, 0),
+		PeriodStart: monthStart(from), PeriodEnd: monthStart(from).AddDate(0, 1, 0),
 		MemoryBytes: 100, ActiveConnections: 1, UploadTotal: 10, DownloadTotal: 20, SampledAt: from,
 	}
 	if _, err := database.RecordTrafficSample(ctx, input); err != nil {

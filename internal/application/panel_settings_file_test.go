@@ -301,6 +301,7 @@ func TestPanelServiceSettingsRoundTripAndValidation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	service.CoreLogRetentionDays, service.CoreLogMaxFiles, service.CoreLogMaxFileSizeMiB = view.Service.CoreLogRetentionDays, view.Service.CoreLogMaxFiles, view.Service.CoreLogMaxFileSizeMiB
 	if !reflect.DeepEqual(saved.Service, service) || !saved.RestartRequired || !saved.IdentityKeyConfigured {
 		t.Fatalf("service settings not exposed: %+v", saved)
 	}

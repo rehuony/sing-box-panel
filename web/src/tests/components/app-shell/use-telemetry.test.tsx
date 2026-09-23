@@ -1,5 +1,6 @@
 import type { PropsWithChildren } from 'react';
 
+import { useState } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { act, renderHook, waitFor } from '@testing-library/react';
 
@@ -7,6 +8,7 @@ import type { ApiClient, RuntimeStatus } from '@/api/api-client';
 
 import { ApiClientProvider } from '@/api/api-client-context';
 import { useTelemetry } from '@/components/app-shell/use-telemetry';
+import { PanelSettingsContext } from '@/stores/panel-settings.store';
 import {
   createMockApiClient,
   testDashboardSnapshot,
@@ -51,6 +53,41 @@ describe('useTelemetry', () => {
     expect(client.getMetricsHistory).not.toHaveBeenCalled();
     expect(client.getRuntimeHistory).not.toHaveBeenCalled();
     expect(client.listPanelLogs).not.toHaveBeenCalled();
+  });
+
+  it('refreshes metrics once after a settings save without restarting the stream', async () => {
+    const client = createMockApiClient({
+      streamMetrics: vi.fn(async function* (signal) {
+        yield { metrics: testMetrics, runtime: testRuntimeStatus };
+        await waitForAbort(signal);
+      }),
+    });
+    const view = await client.getPanelSettings();
+    let updateRevision: (value: number) => void = () => {};
+    const next = { ...testMetrics, quota_bytes: 800 * 2 ** 30 };
+    vi.mocked(client.getMetrics).mockResolvedValue(next);
+    function SettingsWrapper({ children }: PropsWithChildren) {
+      const [revision, setRevision] = useState(view.revision);
+      updateRevision = setRevision;
+      return (
+        <ApiClientProvider client={client}>
+          <PanelSettingsContext value={{
+            view: { ...view, revision }, error: null, reload: vi.fn(), preview: vi.fn(),
+            accept: vi.fn(), save: client.savePanelSettings,
+          }}>
+            {children}
+          </PanelSettingsContext>
+        </ApiClientProvider>
+      );
+    }
+    const { result, rerender } = renderHook(() => useTelemetry(), { wrapper: SettingsWrapper });
+    await waitFor(() => expect(result.current.snapshot).toBe(testMetrics));
+    expect(client.getMetrics).not.toHaveBeenCalled();
+    act(() => updateRevision(view.revision + 1));
+    await waitFor(() => expect(result.current.snapshot?.quota_bytes).toBe(next.quota_bytes));
+    rerender();
+    expect(client.getMetrics).toHaveBeenCalledOnce();
+    expect(client.streamMetrics).toHaveBeenCalledOnce();
   });
 
   it('retains the last dashboard snapshot while reconnecting', async () => {

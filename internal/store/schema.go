@@ -20,8 +20,8 @@ type SchemaInfo struct {
 	Version       int
 }
 
-// initializeSchema creates only an empty database. Other formats require a
-// fresh data directory; opening them never imports or rewrites their contents.
+// initializeSchema creates an empty database or transactionally upgrades version
+// 11 of this storage epoch. Unrelated and newer formats remain rejected.
 func (s *Store) initializeSchema(ctx context.Context) error {
 	return s.WithTx(ctx, func(tx *sql.Tx) error {
 		applicationID, err := pragmaInt(ctx, tx, "application_id")
@@ -30,6 +30,16 @@ func (s *Store) initializeSchema(ctx context.Context) error {
 		}
 		version, err := pragmaInt(ctx, tx, "user_version")
 		if err != nil {
+			return err
+		}
+		if applicationID == ApplicationID && version == 11 {
+			if _, err := tx.ExecContext(ctx, trafficMonthsSchema); err != nil {
+				return err
+			}
+			if err := seedTrafficMonths(ctx, tx); err != nil {
+				return err
+			}
+			_, err := tx.ExecContext(ctx, "PRAGMA user_version = 12")
 			return err
 		}
 		if applicationID != 0 {
@@ -42,7 +52,7 @@ func (s *Store) initializeSchema(ctx context.Context) error {
 		if version != 0 || hasObjects {
 			return fmt.Errorf("%w: refusing to adopt an unidentified non-empty database", ErrUnexpectedApplicationID)
 		}
-		if _, err := tx.ExecContext(ctx, databaseSchema); err != nil {
+		if _, err := tx.ExecContext(ctx, databaseSchema+"\n"+trafficMonthsSchema); err != nil {
 			return fmt.Errorf("initialize SQLite schema: %w", err)
 		}
 		if _, err := tx.ExecContext(ctx, fmt.Sprintf("PRAGMA application_id = %d; PRAGMA user_version = %d", ApplicationID, CurrentSchemaVersion)); err != nil {

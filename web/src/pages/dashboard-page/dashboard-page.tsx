@@ -73,7 +73,7 @@ export function DashboardPage() {
     {
       key: 'transfer',
       icon: Radio,
-      value: bytes(used, locale),
+      value: used === undefined ? t('dashboard.metric.usageUnknown') : bytes(used, locale),
       detail: snapshot?.quota_bytes
         ? t('dashboard.metric.quota', {
             used: percent(used, snapshot.quota_bytes),
@@ -101,7 +101,16 @@ export function DashboardPage() {
               <Icon size={18} />
             </div>
             <strong>{value}</strong>
-            <small>{detail}</small>
+            <small>
+              {detail}
+              {key === 'transfer' && snapshot?.traffic_coverage === 'partial' && (
+                <>
+                  {' '}
+                  ·
+                  {t('dashboard.metric.incomplete')}
+                </>
+              )}
+            </small>
           </section>
         ))}
       </div>

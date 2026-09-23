@@ -11,40 +11,56 @@ import (
 )
 
 func TestFollowCopiesNewOutputOnlyAndFlushesOnClose(t *testing.T) {
-	logs, _ := New(t.TempDir())
-	dir := t.TempDir()
-	path := filepath.Join(dir, "native.log")
-	if err := os.WriteFile(path, []byte("private preexisting file contents\n"), 0600); err != nil {
-		t.Fatal(err)
-	}
-	follower, err := logs.Follow([]byte(`{"log":{"output":"native.log"}}`), dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer follower.Close()
-	file, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0600)
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, err = file.WriteString("INFO connected\nWARN password=fixture-secret\nERROR last partial line")
-	_ = file.Close()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err = follower.Close(); err != nil {
-		t.Fatal(err)
-	}
-	files, _ := logs.List()
-	if len(files) != 1 {
-		t.Fatal(files)
-	}
-	chunk, err := logs.Read(files[0].Name, 0)
-	if err != nil || strings.Contains(chunk.Text, "preexisting") || strings.Contains(chunk.Text, "fixture-secret") || !strings.Contains(chunk.Text, "ERROR last partial line\n") {
-		t.Fatalf("chunk=%q err=%v", chunk.Text, err)
-	}
-	original, _ := os.ReadFile(path)
-	if !strings.HasPrefix(string(original), "private preexisting file contents\n") {
-		t.Fatal("changed native log file")
+	for _, absolute := range []bool{false, true} {
+		name := "relative"
+		if absolute {
+			name = "absolute"
+		}
+		t.Run(name, func(t *testing.T) {
+			logs, _ := New(t.TempDir())
+			dir := t.TempDir()
+			path := filepath.Join(dir, "native.log")
+			if err := os.WriteFile(path, []byte("private preexisting file contents\n"), 0600); err != nil {
+				t.Fatal(err)
+			}
+			outputPath := "native.log"
+			if absolute {
+				outputPath = path
+			}
+			config, err := json.Marshal(map[string]any{"log": map[string]any{"output": outputPath}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			follower, err := logs.Follow(config, dir)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer follower.Close()
+			file, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0600)
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, err = file.WriteString("INFO connected\nWARN password=fixture-secret\nERROR last partial line")
+			_ = file.Close()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err = follower.Close(); err != nil {
+				t.Fatal(err)
+			}
+			files, _ := logs.List()
+			if len(files) != 1 {
+				t.Fatal(files)
+			}
+			chunk, err := logs.Read(files[0].Name, 0)
+			if err != nil || strings.Contains(chunk.Text, "preexisting") || strings.Contains(chunk.Text, "fixture-secret") || !strings.Contains(chunk.Text, "ERROR last partial line\n") {
+				t.Fatalf("chunk=%q err=%v", chunk.Text, err)
+			}
+			original, _ := os.ReadFile(path)
+			if !strings.HasPrefix(string(original), "private preexisting file contents\n") {
+				t.Fatal("changed native log file")
+			}
+		})
 	}
 }
 

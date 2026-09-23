@@ -180,3 +180,42 @@ func TestValidateExternalOriginAndSecureCookie(t *testing.T) {
 		t.Fatal("Validate() accepted secure cookies without an external origin")
 	}
 }
+
+func TestCoreLogPolicyDefaultsAndBounds(t *testing.T) {
+	value := Defaults()
+	value.Auth.Token = "test-token"
+	value.DataDir = t.TempDir()
+	raw, _ := json.Marshal(value)
+	var legacy map[string]any
+	if err := json.Unmarshal(raw, &legacy); err != nil {
+		t.Fatal(err)
+	}
+	if value.Logs.RetentionDays != 0 {
+		t.Fatal("new settings should not specify panel event expiration")
+	}
+	legacy["logs"] = map[string]any{}
+	raw, _ = json.Marshal(legacy)
+	if _, err := Parse(filepath.Join(t.TempDir(), "setting.json"), raw); err != nil {
+		t.Fatalf("panel event retention must not be required: %v", err)
+	}
+	legacy["logs"] = map[string]any{"retention_days": 30}
+	raw, _ = json.Marshal(legacy)
+	loaded, err := Parse(filepath.Join(t.TempDir(), "setting.json"), raw)
+	if err != nil || loaded.Logs.RetentionDays != 30 || loaded.Logs.CoreRetentionDays != 7 || loaded.Logs.CoreMaxFiles != 0 || loaded.Logs.CoreMaxFileSizeMiB != 32 {
+		t.Fatalf("legacy defaults: %+v %v", loaded.Logs, err)
+	}
+	for _, policy := range []Logs{
+		{RetentionDays: 7, CoreRetentionDays: 0, CoreMaxFileSizeMiB: 32},
+		{RetentionDays: 7, CoreRetentionDays: 3651, CoreMaxFileSizeMiB: 32},
+		{RetentionDays: 7, CoreRetentionDays: 7, CoreMaxFiles: -1, CoreMaxFileSizeMiB: 32},
+		{RetentionDays: 7, CoreRetentionDays: 7, CoreMaxFiles: 1025, CoreMaxFileSizeMiB: 32},
+		{RetentionDays: 7, CoreRetentionDays: 7, CoreMaxFileSizeMiB: 0},
+		{RetentionDays: 7, CoreRetentionDays: 7, CoreMaxFileSizeMiB: 1025},
+	} {
+		value.Logs = policy
+		raw, _ := json.Marshal(value)
+		if _, err := Parse(filepath.Join(t.TempDir(), "setting.json"), raw); err == nil {
+			t.Fatalf("accepted invalid policy: %+v", policy)
+		}
+	}
+}

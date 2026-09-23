@@ -6,7 +6,7 @@ import { useId, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 
-/** Uses the shared tooltip's hover/focus behavior; clicking also opens it immediately. */
+/** Pointer-accessible field help that stays outside the form's Tab sequence. */
 export function InfoTooltip({ label, children }: { label: string; children: ReactNode }) {
   const triggerId = useId();
   const contentId = useId();
@@ -17,11 +17,12 @@ export function InfoTooltip({ label, children }: { label: string; children: Reac
         id={triggerId}
         aria-label={label}
         aria-describedby={open ? contentId : undefined}
+        tabIndex={-1}
         closeOnClick={false}
         onClick={() => setOpen(true)}
         delay={200}
         closeDelay={100}
-        render={<Button size='icon-xs' type='button' variant='ghost' />}
+        render={<Button className='focus-visible:border-transparent focus-visible:ring-0' size='icon-xs' type='button' variant='ghost' />}
       >
         <Info aria-hidden />
       </TooltipTrigger>

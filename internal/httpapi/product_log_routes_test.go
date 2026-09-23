@@ -6,12 +6,94 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/rehuony/sing-box-panel/internal/corelogs"
 	"github.com/rehuony/sing-box-panel/internal/store"
 )
+
+func TestCoreLogDeletionValidatesFilesAndRequiresAuthenticationAndCSRF(t *testing.T) {
+	handler, _ := newCoreHTTPFixture(t)
+	logs, err := corelogs.New(handler.settings.DataDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := logs.Writer().Write([]byte("INFO today's output\n")); err != nil {
+		t.Fatal(err)
+	}
+	files, err := logs.List()
+	if err != nil || len(files) != 1 {
+		t.Fatal(files, err)
+	}
+	today := files[0].Name
+	archive := time.Now().UTC().AddDate(0, 0, -1).Format("2006-01-02") + "-000.log"
+	archivePath := filepath.Join(handler.settings.DataDir, "logs", "core", archive)
+	if err := os.WriteFile(archivePath, []byte("INFO old output\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	path := "/api/v1/core/logs/files?file=" + archive
+	unauthenticated := httptest.NewRecorder()
+	handler.ServeHTTP(unauthenticated, httptest.NewRequest(http.MethodDelete, path, nil))
+	if unauthenticated.Code != http.StatusUnauthorized {
+		t.Fatal(unauthenticated.Code)
+	}
+	login := httptest.NewRecorder()
+	handler.ServeHTTP(login, httptest.NewRequest(http.MethodPost, "/api/v1/auth/session", strings.NewReader(`{"token":"correct-management-token"}`)))
+	var session struct {
+		CSRF string `json:"csrfToken"`
+	}
+	if login.Code != http.StatusOK || json.Unmarshal(login.Body.Bytes(), &session) != nil {
+		t.Fatal(login.Code, login.Body.String())
+	}
+	request := httptest.NewRequest(http.MethodDelete, path, nil)
+	request.AddCookie(login.Result().Cookies()[0])
+	request.Header.Set("Origin", "http://example.com")
+	denied := httptest.NewRecorder()
+	handler.ServeHTTP(denied, request)
+	if denied.Code != http.StatusForbidden {
+		t.Fatal(denied.Code, denied.Body.String())
+	}
+	for _, test := range []struct {
+		query, body string
+		status      int
+	}{
+		{"file=" + today, "", http.StatusConflict},
+		{"file=..%2Fnative.log", "", http.StatusBadRequest},
+		{"", "", http.StatusBadRequest},
+		{"file=" + archive + "&file=" + today, "", http.StatusBadRequest},
+		{"file=" + archive + "&unexpected=true", "", http.StatusBadRequest},
+		{"file=" + archive, `{}`, http.StatusUnprocessableEntity},
+	} {
+		response := authenticatedRequest(handler, http.MethodDelete, "/api/v1/core/logs/files?"+test.query, test.body, "")
+		if response.Code != test.status {
+			t.Fatalf("query %s: %d %s", test.query, response.Code, response.Body.String())
+		}
+	}
+	request = httptest.NewRequest(http.MethodDelete, path, nil)
+	request.AddCookie(login.Result().Cookies()[0])
+	request.Header.Set("Origin", "http://example.com")
+	request.Header.Set("X-CSRF-Token", session.CSRF)
+	deleted := httptest.NewRecorder()
+	handler.ServeHTTP(deleted, request)
+	if deleted.Code != http.StatusNoContent {
+		t.Fatal(deleted.Code, deleted.Body.String())
+	}
+	if _, err := os.Stat(archivePath); !os.IsNotExist(err) {
+		t.Fatalf("archive still exists: %v", err)
+	}
+	response := authenticatedRequest(handler, http.MethodDelete, path, "", "")
+	if response.Code != http.StatusNotFound {
+		t.Fatal(response.Code, response.Body.String())
+	}
+	response = authenticatedRequest(handler, http.MethodGet, "/api/v1/logs/panel?search=Core%20log%20file%20deletion", "", "")
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), "core.log.delete.completed") {
+		t.Fatal(response.Code, response.Body.String())
+	}
+}
 
 func TestCoreLogFilesAreAuthenticatedAndCursorReadable(t *testing.T) {
 	handler, _ := newCoreHTTPFixture(t)

@@ -2,13 +2,121 @@
 package corelogs
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
 )
+
+func TestDeletingArchivesDoesNotInterruptCollection(t *testing.T) {
+	dataDir := t.TempDir()
+	writerFiles, err := New(dataDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// HTTP operations and the process writer own separate Files instances.
+	deleter, err := New(dataDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, time.September, 23, 12, 0, 0, 0, time.UTC)
+	writerFiles.now = func() time.Time { return now }
+	deleter.now = writerFiles.now
+	for index := range 128 {
+		name := fmt.Sprintf("2026-09-22-%03d.log", index)
+		if err := os.WriteFile(filepath.Join(writerFiles.dir, name), []byte("INFO history\n"), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	done := make(chan error, 1)
+	go func() {
+		output := writerFiles.Writer()
+		for range 100 {
+			if _, err := output.Write([]byte("INFO uninterrupted\n")); err != nil {
+				done <- err
+				return
+			}
+			runtime.Gosched()
+		}
+		done <- nil
+	}()
+	for index := range 128 {
+		if err := deleter.Delete(fmt.Sprintf("2026-09-22-%03d.log", index)); err != nil && !errors.Is(err, os.ErrNotExist) {
+			t.Error(err)
+		}
+		runtime.Gosched()
+	}
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	chunk, err := writerFiles.Read("2026-09-23-000.log", 0)
+	if err != nil || chunk.Text != strings.Repeat("INFO uninterrupted\n", 100) {
+		t.Fatalf("collection was interrupted: %q, %v", chunk.Text, err)
+	}
+}
+
+func TestDeleteProtectsUTCDayAndOnlyRemovesManagedFiles(t *testing.T) {
+	logs, err := New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The server's UTC day is Sep 22, despite the local calendar showing Sep 23.
+	now := time.Date(2026, time.September, 23, 1, 0, 0, 0, time.FixedZone("UTC+8", 8*60*60))
+	logs.now = func() time.Time { return now }
+	for _, name := range []string{"2026-09-21-000.log", "2026-09-22-000.log", "2026-09-22-001.log"} {
+		if err := os.WriteFile(filepath.Join(logs.dir, name), []byte("INFO retained\n"), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	files, err := logs.List()
+	if err != nil || len(files) != 3 || files[0].Deletable || files[1].Deletable || !files[2].Deletable {
+		t.Fatalf("UTC deletion eligibility: %+v, %v", files, err)
+	}
+	outside := filepath.Join(t.TempDir(), "native.log")
+	if err := os.WriteFile(outside, []byte("original output"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(logs.dir, "2026-09-21-001.log")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(filepath.Join(logs.dir, "2026-09-21-002.log"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"", "../native.log", outside, "2026-09-21-001.log", "2026-09-21-002.log", "2026-09-21-0000.log"} {
+		if err := logs.Delete(name); !errors.Is(err, ErrInvalidFile) {
+			t.Fatalf("Delete(%q): got %v, want invalid file", name, err)
+		}
+	}
+	for _, name := range []string{"2026-09-22-000.log", "2026-09-22-001.log"} {
+		if err := logs.Delete(name); !errors.Is(err, ErrCurrentFile) {
+			t.Fatalf("Delete(%q): got %v, want protected file", name, err)
+		}
+	}
+	if err := logs.Delete("2026-09-21-000.log"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := logs.Read("2026-09-21-000.log", 0); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("deleted file is still readable: %v", err)
+	}
+	if err := logs.Delete("2026-09-21-000.log"); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("repeat deletion: %v", err)
+	}
+	if content, err := os.ReadFile(outside); err != nil || string(content) != "original output" {
+		t.Fatalf("native file changed: %q, %v", content, err)
+	}
+	// Re-evaluate at deletion time: a previously protected segment ages out.
+	now = now.Add(24 * time.Hour)
+	if err := logs.Delete("2026-09-22-000.log"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := logs.Writer().Write([]byte("INFO after deletion\n")); err != nil {
+		t.Fatal(err)
+	}
+}
 
 func TestRotationRetainsNewOutputAfterPruningAndReopening(t *testing.T) {
 	dataDir := t.TempDir()
@@ -18,8 +126,9 @@ func TestRotationRetainsNewOutputAfterPruningAndReopening(t *testing.T) {
 	}
 	now := time.Date(2026, time.September, 19, 12, 0, 0, 0, time.UTC)
 	logs.now = func() time.Time { return now }
+	logs.policy.MaxFiles = 32
 	day := now.Format("2006-01-02")
-	for index := range maxFiles {
+	for index := range 32 {
 		fullLogFile(t, logs.dir, fmt.Sprintf("%s-%03d.log", day, index))
 	}
 	output := logs.Writer()
@@ -33,11 +142,12 @@ func TestRotationRetainsNewOutputAfterPruningAndReopening(t *testing.T) {
 		t.Fatal(err)
 	}
 	logs.now = func() time.Time { return now }
+	logs.policy.MaxFiles = 32
 	if _, err := logs.Writer().Write([]byte("INFO after reopening\n")); err != nil {
 		t.Fatal(err)
 	}
 	files, err := logs.List()
-	if err != nil || len(files) != maxFiles {
+	if err != nil || len(files) != 32 {
 		t.Fatalf("retained files: count=%d error=%v", len(files), err)
 	}
 	chunk, err := logs.Read(files[0].Name, 0)
@@ -107,14 +217,15 @@ func TestRetentionKeepsActiveFileAfterClockMovesBackwards(t *testing.T) {
 	}
 	now := time.Date(2026, time.September, 19, 12, 0, 0, 0, time.UTC)
 	logs.now = func() time.Time { return now }
-	for index := range maxFiles {
+	logs.policy.MaxFiles = 32
+	for index := range 32 {
 		fullLogFile(t, logs.dir, fmt.Sprintf("2026-09-20-%03d.log", index))
 	}
 	if _, err := logs.Writer().Write([]byte("INFO current output\n")); err != nil {
 		t.Fatal(err)
 	}
 	files, err := logs.List()
-	if err != nil || len(files) != maxFiles {
+	if err != nil || len(files) != 32 {
 		t.Fatalf("retention count: %d, %v", len(files), err)
 	}
 	chunk, err := logs.Read("2026-09-19-000.log", 0)
@@ -129,7 +240,7 @@ func fullLogFile(t *testing.T, dir, name string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := file.Truncate(maxFileBytes); err != nil {
+	if err := file.Truncate(DefaultPolicy().MaxFileBytes); err != nil {
 		_ = file.Close()
 		t.Fatal(err)
 	}

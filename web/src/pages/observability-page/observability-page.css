@@ -42,7 +42,9 @@
   width: 280px;
   flex: 0 1 280px;
   height: 40px;
+  border-color: transparent;
   border-radius: var(--radius-control);
+  background: var(--color-surface-raised);
 }
 .log-toolbar > input:focus-visible {
   border-color: var(--input-focus);
@@ -61,7 +63,6 @@
   height: 40px;
   min-height: 40px;
   padding: 0 12px;
-  border: 1px solid var(--color-border-strong);
   border-radius: var(--radius-control);
   color: var(--color-text);
   background: var(--color-surface-raised);
@@ -79,29 +80,62 @@
   border-radius: var(--radius-control);
   overflow: hidden;
 }
-.native-log__status {
+/* The controls float over the output without reserving a blank header row. */
+.native-log__actions {
   position: absolute;
-  inset: 8px 12px auto auto;
+  top: 8px;
+  right: 12px;
   z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: var(--color-paper-2);
 }
-button.native-log__badge {
-  cursor: pointer;
+.native-log__actions--live {
+  background: color-mix(in srgb, var(--status-success-foreground) 5%, var(--color-surface));
 }
-button.native-log__badge:hover {
-  border-color: currentColor;
+.native-log__actions--paused {
+  background: color-mix(in srgb, var(--status-warning-foreground) 5%, var(--color-surface));
 }
-.native-log__badge {
-  min-width: 84px;
-  justify-content: center;
+.native-log__actions--connecting {
+  background: color-mix(in srgb, var(--status-info-foreground) 5%, var(--color-surface));
+}
+.native-log__actions [data-slot='button'] {
+  width: 28px;
   height: 28px;
-  gap: 6px;
-  padding: 4px 8px;
+  min-height: 28px;
+  border-radius: 50%;
 }
-.native-log__badge i {
-  width: 6px;
-  height: 6px;
+.native-log__status {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 28px;
+  border-radius: 50%;
+  color: var(--color-text-muted);
+}
+.native-log__status--live {
+  color: var(--status-success-foreground);
+}
+.native-log__status--paused {
+  color: var(--status-warning-foreground);
+}
+.native-log__status--connecting {
+  color: var(--status-info-foreground);
+}
+.native-log__status i {
+  width: 8px;
+  height: 8px;
   border-radius: 50%;
   background: currentColor;
+}
+/* Keep keyboard focus visible without drawing a line across the log output. */
+.native-log__output:focus-visible:not([data-slot]) {
+  outline: none;
+  box-shadow: inset 3px 0 0 var(--color-primary);
 }
 .native-log__output {
   flex: 1;

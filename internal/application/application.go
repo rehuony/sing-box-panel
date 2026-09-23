@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/rehuony/sing-box-panel/internal/corelogs"
 	"github.com/rehuony/sing-box-panel/internal/hostmetrics"
 	"github.com/rehuony/sing-box-panel/internal/publicip"
 	"github.com/rehuony/sing-box-panel/internal/settings"
@@ -19,20 +20,23 @@ import (
 )
 
 type Application struct {
-	logObserver    func(store.LogEntry)
-	artifacts      ArtifactInstaller
-	catalogMu      sync.Mutex
-	runtimeControl RuntimeController
-	hostSampler    hostmetrics.Sampler
-	database       *store.Store
-	ownsDatabase   bool
-	now            func() time.Time
-	random         func([]byte) (int, error)
-	removeFile     func(string) error
-	runtime        RuntimeResolver
-	settings       settings.Settings
-	settingsPath   string
-	publicIP       func(context.Context) string
+	settingsListenersMu sync.Mutex
+	settingsListeners   map[chan struct{}]struct{}
+	coreLogs            *corelogs.Files
+	logObserver         func(store.LogEntry)
+	artifacts           ArtifactInstaller
+	catalogMu           sync.Mutex
+	runtimeControl      RuntimeController
+	hostSampler         hostmetrics.Sampler
+	database            *store.Store
+	ownsDatabase        bool
+	now                 func() time.Time
+	random              func([]byte) (int, error)
+	removeFile          func(string) error
+	runtime             RuntimeResolver
+	settings            settings.Settings
+	settingsPath        string
+	publicIP            func(context.Context) string
 }
 
 type RuntimeResolver interface {

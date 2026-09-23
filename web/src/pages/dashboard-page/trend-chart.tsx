@@ -1,6 +1,6 @@
 import UPlot from 'uplot';
 import { useTranslation } from 'react-i18next';
-import { useEffect, useEffectEvent, useId, useMemo, useRef, useState } from 'react';
+import { useEffect, useEffectEvent, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
 import type { MetricsHistory } from '@/api/api-client';
 import 'uplot/dist/uPlot.min.css';
@@ -14,8 +14,9 @@ export function TrendChart({
 }) {
   const { t, i18n } = useTranslation();
   const hostRef = useRef<HTMLDivElement>(null);
+  const tooltipRef = useRef<HTMLOutputElement>(null);
   const plotRef = useRef<UPlot | null>(null);
-  const [focused, setFocused] = useState<number | null>(null);
+  const [focused, setFocused] = useState<{ index: number; left: number; top: number } | null>(null);
   const descriptionId = useId();
   const data = useMemo<UPlot.AlignedData>(() => {
     const buckets = history?.buckets ?? [];
@@ -110,7 +111,8 @@ export function TrendChart({
                 kind === 'traffic' ? 'dashboard.trend.download' : 'dashboard.trend.connections',
               ),
               stroke: color('--color-primary'),
-              fill: color('--color-primary-soft'),
+              // Keep the grid visible through the fill instead of tinting it with an opaque surface color.
+              fill: `color-mix(in srgb, ${color('--color-primary')} 8%, transparent)`,
               width: 2,
               spanGaps: false,
               points: { show: false },
@@ -119,7 +121,7 @@ export function TrendChart({
               ? [
                   {
                     label: t('dashboard.trend.upload'),
-                    stroke: '#2895A6',
+                    stroke: getComputedStyle(host!).getPropertyValue('--trend-upload').trim(),
                     width: 1.7,
                     spanGaps: false,
                     points: { show: false },
@@ -127,7 +129,19 @@ export function TrendChart({
                 ]
               : []),
           ],
-          hooks: { setCursor: [(plot) => setFocused(plot.cursor.idx ?? null)] },
+          hooks: {
+            setCursor: [(plot) => {
+              const { idx, left = -1, top = -1 } = plot.cursor;
+              setFocused(idx == null || left < 0 || top < 0
+                ? null
+                : {
+                    index: idx,
+                    // uPlot cursor coordinates exclude the axes around its plotting area.
+                    left: plot.over.offsetLeft + left,
+                    top: plot.over.offsetTop + top,
+                  });
+            }],
+          },
         },
         kind === 'traffic' ? [[], [], []] : [[], []],
         host!,
@@ -158,12 +172,33 @@ export function TrendChart({
   useEffect(() => {
     updatePlot();
   }, [data, history]);
-  const bucket = focused === null ? undefined : history?.buckets[focused];
-  const values = !bucket
-    ? ''
-    : kind === 'connections'
-      ? `${bucket.active_connections_avg ?? '—'}`
-      : `${t('dashboard.trend.download')} ${bucket.download_bytes === null ? '—' : (bucket.download_bytes / ((Date.parse(bucket.to) - Date.parse(bucket.from)) / 1000) / 1024).toFixed(1)} · ${t('dashboard.trend.upload')} ${bucket.upload_bytes === null ? '—' : (bucket.upload_bytes / ((Date.parse(bucket.to) - Date.parse(bucket.from)) / 1000) / 1024).toFixed(1)} KB/s`;
+  const bucket = focused === null ? undefined : history?.buckets[focused.index];
+  useLayoutEffect(() => {
+    const host = hostRef.current;
+    const tooltip = tooltipRef.current;
+    if (!focused || !bucket || !host || !tooltip) return;
+    const gap = 14;
+    const inset = 8;
+    const width = tooltip.offsetWidth;
+    const height = tooltip.offsetHeight;
+    const left = focused.left + gap + width > host.clientWidth - inset
+      ? focused.left - gap - width
+      : focused.left + gap;
+    const top = focused.top + gap + height > host.clientHeight - inset
+      ? focused.top - gap - height
+      : focused.top + gap;
+    tooltip.style.left = `${Math.max(inset, Math.min(left, host.clientWidth - width - inset))}px`;
+    tooltip.style.top = `${Math.max(inset, Math.min(top, host.clientHeight - height - inset))}px`;
+  }, [focused, bucket]);
+  const format = new Intl.NumberFormat(i18n.language, {
+    minimumFractionDigits: kind === 'traffic' ? 1 : 0,
+    maximumFractionDigits: 1,
+  });
+  const metrics = kind === 'traffic' ? ['download', 'upload'] as const : ['connections'] as const;
+  function clearCursor() {
+    plotRef.current?.setCursor({ left: -10, top: -10 });
+    setFocused(null);
+  }
   return (
     <div
       className='trend-chart'
@@ -171,20 +206,25 @@ export function TrendChart({
       aria-label={t(`dashboard.trend.${kind}`)}
       aria-describedby={descriptionId}
       tabIndex={0}
-      onBlur={() => setFocused(null)}
-      onMouseLeave={() => setFocused(null)}
+      onBlur={clearCursor}
+      onMouseLeave={clearCursor}
       onKeyDown={(event) => {
+        if (event.key === 'Escape') {
+          clearCursor();
+          return;
+        }
         if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
         event.preventDefault();
-        setFocused((value) =>
-          Math.max(
-            0,
-            Math.min(
-              (history?.buckets.length ?? 1) - 1,
-              (value ?? 0) + (event.key === 'ArrowRight' ? 1 : -1),
-            ),
-          ),
-        );
+        const plot = plotRef.current;
+        if (!plot || !data[0].length) return;
+        const direction = event.key === 'ArrowRight' ? 1 : -1;
+        const index = Math.max(0, Math.min(data[0].length - 1,
+          (focused?.index ?? (direction === 1 ? -1 : data[0].length)) + direction));
+        const value = data[1]?.[index];
+        plot.setCursor({
+          left: plot.valToPos(data[0][index]!, 'x'),
+          top: value == null ? plot.over.clientHeight / 2 : plot.valToPos(value, 'y'),
+        });
       }}
     >
       <div ref={hostRef} className='trend-chart__plot' />
@@ -194,9 +234,24 @@ export function TrendChart({
             ? item.active_connections_avg === null
             : item.upload_bytes === null && item.download_bytes === null,
         )) && <span className='trend-chart__empty'>{t('dashboard.empty.title')}</span>}
-      <output className={bucket ? 'trend-chart__tooltip' : 'sr-only'} id={descriptionId}>
-        {bucket
-          ? `${new Date(bucket.to).toLocaleTimeString(i18n.language)} · ${values}`
+      <output ref={tooltipRef} className={bucket ? 'trend-chart__tooltip' : 'sr-only'} id={descriptionId}>
+        {bucket && focused
+          ? metrics.map((metric, index) => {
+              const value = data[index + 1]?.[focused.index];
+              return (
+                <span className='trend-chart__tooltip-row' key={metric}>
+                  <span className='trend-chart__tooltip-label'>
+                    <i data-series={metric} aria-hidden='true' />
+                    {t(`dashboard.trend.${metric}`)}
+                  </span>
+                  <span className='trend-chart__tooltip-value'>
+                    {value == null ? '—' : format.format(value)}
+                    {' '}
+                    <small>{kind === 'traffic' ? 'KB/s' : t('dashboard.metric.countUnit')}</small>
+                  </span>
+                </span>
+              );
+            })
           : t('dashboard.chart.arrows')}
       </output>
     </div>

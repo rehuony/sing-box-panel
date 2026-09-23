@@ -1,8 +1,8 @@
 import type { RJSFSchema } from '@rjsf/utils';
 
 import { Link } from 'react-router-dom';
+import { Braces, Copy } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import { Braces, Copy, Eye, EyeOff } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPrecompiledValidator } from '@rjsf/validator-ajv8';
 
@@ -45,27 +45,6 @@ function formatJSON(raw: string): string {
   }
 }
 
-function maskedJSON(raw: string): string {
-  const value = parseCanonicalDraft(raw);
-  const mask = (item: unknown): unknown => {
-    if (Array.isArray(item)) return item.map(mask);
-    if (item && typeof item === 'object' && !('isLosslessNumber' in item)) {
-      return Object.fromEntries(
-        Object.entries(item).map(([key, child]) => [
-          key,
-          /password|private_key|uuid|token|secret|auth_str|auth$|pre_shared_key|^psk$|^userkey$|^key$|client_key/.test(
-            key,
-          )
-            ? '••••••••'
-            : mask(child),
-        ]),
-      );
-    }
-    return item;
-  };
-  return encodeCanonicalValue(mask(value), 2);
-}
-
 interface NodeEditorProps {
   onClose: () => void;
   onSaved: () => void;
@@ -91,7 +70,6 @@ export function SubscriptionNodeEditor({
   const [loading, setLoading] = useState(node !== null);
   const [schemaLoading, setSchemaLoading] = useState(true);
   const [busy, setBusy] = useState(false);
-  const [reveal, setReveal] = useState(false);
   const [importText, setImportText] = useState('');
   const [confirmDelete, setConfirmDelete] = useState(false);
   const activeRef = useRef(true);
@@ -206,7 +184,7 @@ export function SubscriptionNodeEditor({
   }
   async function copyJSON() {
     try {
-      await navigator.clipboard.writeText(editable || reveal ? raw : maskedJSON(raw));
+      await navigator.clipboard.writeText(raw);
       if (activeRef.current) toast.add({ title: t('subscriptions.keys.copied'), type: 'success' });
     } catch (reason) {
       if (activeRef.current) toast.add({ title: describeRequestError(reason), type: 'error' });
@@ -304,31 +282,18 @@ export function SubscriptionNodeEditor({
                                 <div className='subscription-node-code__toolbar'>
                                   <span className='subscription-node-code__label'>JSON</span>
                                   <div className='subscription-node-code__actions'>
-                                    {editable
-                                      ? (
-                                          <Button
-                                            aria-label={t('configuration.advanced.format')}
-                                            title={t('configuration.advanced.format')}
-                                            disabled={busy || !parsed}
-                                            onClick={() => setRaw(formatJSON(raw))}
-                                            size='icon-sm'
-                                            variant='ghost'
-                                          >
-                                            <Braces aria-hidden='true' />
-                                          </Button>
-                                        )
-                                      : (
-                                          <Button
-                                            aria-label={t(reveal ? 'subscriptions.nodes.mask' : 'subscriptions.nodes.reveal')}
-                                            aria-pressed={reveal}
-                                            title={t(reveal ? 'subscriptions.nodes.mask' : 'subscriptions.nodes.reveal')}
-                                            onClick={() => setReveal((value) => !value)}
-                                            size='icon-sm'
-                                            variant='ghost'
-                                          >
-                                            {reveal ? <EyeOff aria-hidden='true' /> : <Eye aria-hidden='true' />}
-                                          </Button>
-                                        )}
+                                    {editable && (
+                                      <Button
+                                        aria-label={t('configuration.advanced.format')}
+                                        title={t('configuration.advanced.format')}
+                                        disabled={busy || !parsed}
+                                        onClick={() => setRaw(formatJSON(raw))}
+                                        size='icon-sm'
+                                        variant='ghost'
+                                      >
+                                        <Braces aria-hidden='true' />
+                                      </Button>
+                                    )}
                                     <Button
                                       aria-label={t('subscriptions.nodes.copy')}
                                       title={t('subscriptions.nodes.copy')}
@@ -354,7 +319,7 @@ export function SubscriptionNodeEditor({
                                     )
                                   : (
                                       <pre aria-label={t('subscriptions.nodes.json')} className='subscription-code-input' role='region' tabIndex={0}>
-                                        {reveal ? raw : maskedJSON(raw)}
+                                        {raw}
                                       </pre>
                                     )}
                               </div>

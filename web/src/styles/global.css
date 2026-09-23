@@ -576,8 +576,9 @@ h3 {
 }
 
 ::selection {
-  background: var(--color-primary-soft);
-  color: var(--color-text);
+  background: var(--primary);
+  color: var(--primary-foreground);
+  text-shadow: none;
 }
 
 * {

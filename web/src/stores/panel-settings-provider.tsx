@@ -48,14 +48,20 @@ export function PanelSettingsProvider({ children }: { children: ReactNode }) {
     if (view !== null) setPreference(appearance.theme);
   }, [appearance.theme, setPreference, view]);
 
-  const save = useCallback(async (input: PanelSettingsWrite) => {
-    const result = await api.savePanelSettings(input);
+  const accept = useCallback(async (result: PanelSettingsView) => {
     setView(result);
     setDraftAppearance(null);
     setPreference(result.preferences.appearance.theme);
     await setAppLanguage(result.preferences.language);
+  }, [setPreference]);
+  const save = useCallback(async (input: PanelSettingsWrite) => {
+    const result = await api.savePanelSettings(input);
+    await accept(result);
     return result;
-  }, [api, setPreference]);
-  const value = useMemo(() => ({ view, error, reload, preview, save }), [view, error, reload, preview, save]);
+  }, [api, accept]);
+  const value = useMemo(
+    () => ({ view, error, reload, preview, save, accept }),
+    [view, error, reload, preview, save, accept],
+  );
   return <PanelSettingsContext value={value}>{children}</PanelSettingsContext>;
 }

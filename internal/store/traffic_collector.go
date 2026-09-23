@@ -73,8 +73,6 @@ func (s *Store) RecordTrafficSample(ctx context.Context, input TrafficSampleInpu
 	err = s.WithTx(ctx, func(tx *sql.Tx) error {
 		checkpoint, checkpointErr := getTrafficCheckpoint(ctx, tx)
 		hasCheckpoint := checkpointErr == nil
-		samePeriod := hasCheckpoint && checkpoint.PeriodStart.Equal(prepared.PeriodStart) &&
-			checkpoint.PeriodEnd.Equal(prepared.PeriodEnd)
 		sameProcess := hasCheckpoint && checkpoint.PID == prepared.PID &&
 			checkpoint.ProcessStartToken == prepared.ProcessStartToken
 		sameSegment := sameProcess && checkpoint.ActivationBundleID == prepared.ActivationBundleID
@@ -100,7 +98,7 @@ func (s *Store) RecordTrafficSample(ctx context.Context, input TrafficSampleInpu
 			uploadDelta, downloadDelta = &upload, &download
 			start, end := checkpoint.SampledAt, prepared.SampledAt
 			intervalStart, intervalEnd = &start, &end
-			if samePeriod && prepared.SampledAt.Sub(checkpoint.SampledAt) <= maximumCompleteSampleGap {
+			if monthStart(prepared.SampledAt).Equal(monthStart(checkpoint.SampledAt)) && prepared.SampledAt.Sub(checkpoint.SampledAt) <= maximumCompleteSampleGap {
 				coverage = CoverageComplete
 			}
 		}
@@ -122,19 +120,22 @@ func (s *Store) RecordTrafficSample(ctx context.Context, input TrafficSampleInpu
 			return periodErr
 		}
 
-		accumulatedUpload, accumulatedDownload := int64(0), int64(0)
-		if samePeriod {
-			accumulatedUpload = checkpoint.AccumulatedUpload
-			accumulatedDownload = checkpoint.AccumulatedDownload
+		if err := recordTrafficMonth(ctx, tx, sample); err != nil {
+			return err
 		}
-		if uploadDelta != nil && samePeriod {
-			accumulatedUpload += *uploadDelta
-			accumulatedDownload += *downloadDelta
+		aggregated, err := aggregateTrafficPeriod(ctx, tx, prepared.PeriodStart, prepared.PeriodEnd, prepared.SampledAt)
+		if err != nil {
+			return err
 		}
-		hasDelta := uploadDelta != nil && samePeriod
-		if samePeriod {
-			hasDelta = hasDelta || checkpoint.HasDelta
+		accumulatedUpload, accumulatedDownload := aggregated.OutboundBytes, aggregated.InboundBytes
+		var evidence struct {
+			Available bool           `json:"traffic_evidence_available"`
+			Coverage  CoverageStatus `json:"coverage"`
 		}
+		if err := json.Unmarshal(aggregated.Counters, &evidence); err != nil {
+			return err
+		}
+		hasDelta := evidence.Available
 		if err := upsertTrafficCheckpoint(
 			ctx, tx, prepared, accumulatedUpload, accumulatedDownload, hasDelta,
 		); err != nil {
@@ -142,7 +143,7 @@ func (s *Store) RecordTrafficSample(ctx context.Context, input TrafficSampleInpu
 		}
 		period, err := upsertCollectedTrafficPeriod(
 			ctx, tx, prepared, accumulatedUpload, accumulatedDownload,
-			uploadDelta, downloadDelta, coverage, hasDelta,
+			uploadDelta, downloadDelta, evidence.Coverage, hasDelta,
 		)
 		if err != nil {
 			return err
@@ -315,7 +316,7 @@ func upsertCollectedTrafficPeriod(
 }
 
 func trafficPeriodID(start, end time.Time) string {
-	return "traffic_" + start.UTC().Format("200601") + "_" + end.UTC().Format("200601")
+	return "traffic_monthly_" + start.UTC().Format("200601") + "_" + end.UTC().Format("200601")
 }
 
 func scanTrafficSample(row rowScanner) (TrafficSample, error) {

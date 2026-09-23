@@ -115,17 +115,6 @@ func Run(ctx context.Context, settingsPath string, build buildinfo.Info, assets 
 			Metadata: mustLogMetadata(map[string]any{"version": build.Version}),
 		})
 	}()
-	retention, err := commands.EnforceLogRetention(ctx)
-	if err != nil {
-		return startupError(ctx, "enforce operational log retention", err)
-	}
-	if retention.Deleted > 0 {
-		recordOperationalLog(commands, application.LogRecordRequest{
-			Source: store.LogSourcePanel, Level: store.LogLevelInfo, Code: "logs.retention_enforced",
-			Message:  "Expired operational log entries were deleted",
-			Metadata: mustLogMetadata(map[string]any{"deleted": retention.Deleted}),
-		})
-	}
 	trafficRetention, err := commands.EnforceTrafficSampleRetention(ctx)
 	if err != nil {
 		return startupError(ctx, "enforce traffic sample retention", err)
@@ -153,12 +142,6 @@ func Run(ctx context.Context, settingsPath string, build buildinfo.Info, assets 
 			Metadata: mustLogMetadata(map[string]any{"deleted": uploadGC.Deleted, "retained": uploadGC.Retained}),
 		})
 	}
-	retentionContext, stopRetention := context.WithCancel(ctx)
-	retentionDone := startLogRetention(retentionContext, commands)
-	defer func() {
-		stopRetention()
-		<-retentionDone
-	}()
 	sampleRetentionContext, stopSampleRetention := context.WithCancel(ctx)
 	sampleRetentionDone := startTrafficSampleRetention(sampleRetentionContext, commands)
 	defer func() {
@@ -178,6 +161,9 @@ func Run(ctx context.Context, settingsPath string, build buildinfo.Info, assets 
 	if err != nil {
 		return fmt.Errorf("construct sing-box runtime: %w", err)
 	}
+	coreRetentionCtx, stopCoreRetention := context.WithCancel(ctx)
+	coreRetentionDone := startCoreLogRetention(coreRetentionCtx, commands)
+	defer func() { stopCoreRetention(); <-coreRetentionDone }()
 	defer func() {
 		runErr = errors.Join(runErr, runtimeControl.Close())
 	}()
