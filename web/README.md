@@ -116,8 +116,41 @@ tooltip beside the label, available on hover or keyboard focus; validation
 errors remain visible beside the control.
 Panel settings use the same Tooltip and information icon for field help.
 Adding a record or choosing its Edit action opens a dialog; confirming updates
-the draft and cancelling discards
-the pending changes. Map fields keep keys separate from typed text, list or object
+the draft and cancelling discards the pending changes. Simple entry dialogs use a
+compact, content-height layout; node tag and protocol fields are stacked vertically.
+Simple entry fields omit row dividers, and user entries place the username before
+the password. Sections containing a single empty collection center their empty
+message in the detail area without a trailing divider. Optional settings keep
+their title and divider in place; Configure switches to a red Remove settings
+button in the same header position when the section is present.
+Configured optional objects share the connection-options group's left divider
+and inset, including nested settings; their headers stay outside this inset.
+Routine instructions are kept available to screen readers without occupying visual
+space, and tag guidance appears only when the value is invalid. Complex dialogs
+use a wide layout with a fixed header and footer, a vertical section list on the
+left, and detailed configuration on the right. This shared layout applies to node
+creation/editing and all schema array entry dialogs, including DNS and route rules.
+The sections group the
+available fields into basic settings, authentication, TLS, transport, connection
+and advanced settings; rule dialogs separate matching conditions from actions.
+Fields use a single column even in complex sections, leaving enough space for long
+labels beside their controls; narrow forms place labels above controls. A sole tab is hidden. On narrow screens
+the navigation rail becomes slimmer and long labels wrap. Navigation and the active
+configuration panel scroll independently. Up/down keys navigate sections. Switching tabs
+keeps the same form mounted, preserving pending edits and optional-object state.
+Scalar/list choices use Single value and List labels. Bare nested `anyOf` alternatives
+share one representation selector, with a distinct Byte sequence option where supported;
+existing strings, byte sequences and mixed lists retain their original representation.
+Sensitive-field widgets apply to values, never to the representation selector.
+Managed entry editors include their lossless JSON preview in the same tab bar.
+Node creation uses a searchable protocol input with keyboard completion and a
+separate dropdown button matching the input height. Focusing or clicking the input does not open suggestions; typing
+filters suggestions, and the dropdown button opens the full list. Clearing the
+input closes suggestions. Only protocols in the selected schema can proceed. Its popup
+always opens below the input, is capped at 18rem and the available viewport height,
+and scrolls internally. Cancel uses a secondary color and Continue is primary;
+both footer actions use text without icons.
+Map fields keep keys separate from typed text, list or object
 values, and referenced scalar lists are edited inline. Dialog content remains
 mounted through the synchronized closing transition. Navigation to another route,
 query or hash tab prompts before discarding unsaved edits, including incomplete

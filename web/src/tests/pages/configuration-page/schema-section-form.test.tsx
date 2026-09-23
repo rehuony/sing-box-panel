@@ -396,6 +396,7 @@ it('keeps nested additions inside the parent dialog until the parent is confirme
   await user.click(screen.getByRole('button', { name: 'Add' }));
   let parent = screen.getByRole('dialog');
   fireEvent.change(within(parent).getByRole('textbox', { name: 'Name' }), { target: { value: 'parent' } });
+  await user.click(within(parent).getByRole('tab', { name: 'Authentication' }));
   await user.click(within(parent).getAllByRole('button', { name: 'Add' })[0]);
   const child = screen.getByRole('dialog');
   fireEvent.change(within(child).getByRole('textbox', { name: 'Name' }), { target: { value: 'child' } });

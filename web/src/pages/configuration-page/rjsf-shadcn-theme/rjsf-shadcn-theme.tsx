@@ -62,6 +62,7 @@ import {
 } from '@/components/ui/select';
 
 import { resolvedSchema } from '../schema-ui';
+import { SchemaDialogContext } from './schema-dialog-context';
 import { PanelArrayField, PanelArrayFieldItemTemplate, PanelArrayFieldTemplate } from './array-field-templates';
 import './rjsf-shadcn-theme.css';
 
@@ -157,6 +158,7 @@ function PanelFieldTemplate(props: FieldTemplateProps) {
 
 function PanelObjectFieldTemplate(props: ObjectFieldTemplateProps) {
   const { i18n, t } = useTranslation();
+  const dialogLayout = use(SchemaDialogContext);
   const groupId = useId();
   const {
     description, fieldPathId, optionalDataControl, properties, schema, title,
@@ -183,6 +185,39 @@ function PanelObjectFieldTemplate(props: ObjectFieldTemplateProps) {
   });
   const objectValues = typeof schema.additionalProperties === 'object'
     && resolvedSchema(schema.additionalProperties, props.registry.rootSchema).type === 'object';
+  // RJSF appends a synthetic segment for the base object alongside a root union.
+  if (dialogLayout && fieldPathId.path.every((part) => part === 'XxxOf')) {
+    const activeFields = visible.filter((property) =>
+      dialogLayout.groupForField(property.name) === dialogLayout.active);
+    const singleField = activeFields.length === 1 ? activeFields[0].name : undefined;
+    const singleSchema = singleField === undefined ? undefined : schema.properties?.[singleField];
+    const singleValue = singleField === undefined ? undefined : props.formData?.[singleField];
+    const emptyArray = typeof singleSchema === 'object'
+      && resolvedSchema(singleSchema, props.registry.rootSchema).type === 'array'
+      && (singleValue === undefined || (Array.isArray(singleValue) && singleValue.length === 0));
+    return (
+      <fieldset className='schema-form__root schema-form__dialog-root' data-empty-array={emptyArray} id={`${fieldPathId.$id}-group-${groupId}`}>
+        {optionalDataControl}
+        <FieldGroup className='schema-form__grid'>
+          {visible.map((property) => (
+            <div key={property.name} className='schema-form__dialog-property'
+              hidden={dialogLayout.groupForField(property.name) !== dialogLayout.active}>
+              {property.content}
+            </div>
+          ))}
+        </FieldGroup>
+        {canExpand(schema, props.uiSchema, props.formData) && dialogLayout.active === dialogLayout.groupForField('')
+          ? (
+              <Button className='schema-form__add-property' disabled={props.disabled || props.readonly}
+                onClick={props.onAddProperty} size='sm' type='button' variant='outline'>
+                <Plus aria-hidden />
+                {t('configuration.general.addProperty')}
+              </Button>
+            )
+          : null}
+      </fieldset>
+    );
+  }
   return (
     <fieldset className={root ? 'schema-form__root' : 'schema-form__object'} id={`${fieldPathId.$id}-group-${groupId}`}>
       {!root && resolvedTitle !== '' && props.uiSchema?.['ui:options']?.label !== false
@@ -297,24 +332,20 @@ function PanelObjectField(props: FieldProps) {
     return content;
   }
   const present = formData !== undefined && formData !== null;
-  if (!present) {
-    return (
-      <div aria-labelledby={labelId} className='schema-form__object schema-form__object--empty' role='group'>
+  return (
+    <div aria-labelledby={labelId} className='schema-form__optional' role='group'>
+      <div className='schema-form__optional-header'>
         <span className='schema-form__object-label' id={labelId}>{localizedLabel(schema, name, i18n.language, t)}</span>
-        <Button disabled={disabled || readonly} onClick={() => onChange({}, fieldPathId.path)} size='sm' type='button' variant='outline'>
-          <Plus aria-hidden data-icon='inline-start' />
-          {t('configuration.general.configure')}
+        <Button disabled={disabled || readonly} onClick={() => onChange(present ? undefined : {}, fieldPathId.path)}
+          size='sm' type='button' variant={present ? 'destructive' : 'outline'}>
+          {present ? <X aria-hidden data-icon='inline-start' /> : <Plus aria-hidden data-icon='inline-start' />}
+          {t(present ? 'configuration.general.remove' : 'configuration.general.configure')}
         </Button>
       </div>
-    );
-  }
-  return (
-    <div className='schema-form__optional'>
-      {content}
-      <Button disabled={disabled || readonly} onClick={() => onChange(undefined, fieldPathId.path)} size='sm' type='button' variant='ghost'>
-        <X aria-hidden data-icon='inline-start' />
-        {t('configuration.general.remove')}
-      </Button>
+      {present && (
+        <DefaultObjectField {...props} schema={objectSchemaForForm(schema, props.registry)}
+          uiSchema={{ ...props.uiSchema, 'ui:options': { ...props.uiSchema?.['ui:options'], label: false } }} />
+      )}
     </div>
   );
 }
@@ -362,6 +393,10 @@ function PanelCheckboxWidget(props: WidgetProps) {
   );
 }
 
+function PanelPasswordWidget(props: WidgetProps) {
+  return <PanelBaseInputTemplate {...props} type='password' />;
+}
+
 function PanelSelectWidget(props: WidgetProps) {
   const { i18n, t } = useTranslation();
   const choice = use(SchemaChoiceContext);
@@ -395,7 +430,7 @@ function PanelSelectWidget(props: WidgetProps) {
       >
         <SelectValue />
       </SelectTrigger>
-      <SelectContent>
+      <SelectContent className='schema-form__select-popup'>
         <SelectGroup>
           {encodedItems.map((item) => (
             <SelectItem key={item.value} value={item.value}>{item.label}</SelectItem>
@@ -452,13 +487,16 @@ function iconButton(
 
 function PanelMultiSchemaFieldTemplate({ selector, optionSchemaField, schema }: MultiSchemaFieldTemplateProps) {
   const { t } = useTranslation();
+  const dialogLayout = use(SchemaDialogContext);
   const choiceId = `schema-choice-${useId()}`;
   const discriminator = (schema.discriminator as { propertyName?: string } | undefined)?.propertyName;
   const choice = <SchemaChoiceContext value={{ id: choiceId, label: discriminator }}>{selector}</SchemaChoiceContext>;
+  const rootChoice = isValidElement<{ fieldPathId: { path: unknown[] } }>(optionSchemaField)
+    && optionSchemaField.props.fieldPathId?.path.every((part) => part === 'XxxOf');
   if (discriminator) {
     return (
       <div className='schema-form__discriminated'>
-        <Field className='schema-form__field'>
+        <Field className='schema-form__field' hidden={rootChoice && dialogLayout !== null && dialogLayout.groupForField(discriminator) !== dialogLayout.active}>
           <FieldLabel htmlFor={`${choiceId}-variant`}>{t(`configuration.fields.${discriminator}`, { defaultValue: discriminator })}</FieldLabel>
           <div className='schema-form__control'>{choice}</div>
         </Field>
@@ -502,5 +540,5 @@ export const panelRJSFWidgets = {
   SelectWidget: PanelSelectWidget,
   TextareaWidget: PanelTextareaWidget,
   hidden: HiddenWidget,
-  password: PanelBaseInputTemplate,
+  password: PanelPasswordWidget,
 };

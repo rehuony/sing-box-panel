@@ -125,6 +125,24 @@ const schema: RJSFSchema = {
 };
 
 describe('schemaUi', () => {
+  it('flattens only unconstrained anyOf wrappers in the presentation schema', () => {
+    const wrapped: RJSFSchema = { anyOf: [{ type: 'string' }, { type: 'integer' }] };
+    const constrained: RJSFSchema = { ...wrapped, title: 'Keep this choice', minimum: 1 };
+    const source: RJSFSchema = {
+      type: 'object',
+      properties: {
+        flat: { anyOf: [wrapped, { type: 'array', items: wrapped }] },
+        constrained: { anyOf: [constrained, { type: 'null' }] },
+        exclusive: { oneOf: [{ oneOf: [{ type: 'number' }, { type: 'integer' }] }, { type: 'null' }] },
+      },
+    };
+    const result = selfContainedSchema(source, source);
+    expect(result.properties?.flat).toMatchObject({ anyOf: [{ type: 'string' }, { type: 'integer' }, { type: 'array' }] });
+    expect(result.properties?.constrained).toEqual(source.properties?.constrained);
+    expect(result.properties?.exclusive).toEqual(source.properties?.exclusive);
+    expect(source.properties?.flat).toEqual({ anyOf: [wrapped, { type: 'array', items: wrapped }] });
+  });
+
   it('resolves local item refs and enumerates discriminator constants from unions', () => {
     const inbounds = schemaProperties(schema).inbounds;
     const item = collectionItemSchema(inbounds, schema);

@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import type { IChangeEvent } from '@rjsf/core';
 import type { RJSFSchema, UiSchema, ValidationData, ValidatorType } from '@rjsf/utils';
 
@@ -10,9 +11,10 @@ import type { ReviewedSchemaResolution } from '@/schemas/resolve-reviewed-schema
 import type { CanonicalDraft } from './use-canonical-configuration';
 
 import { encodeCanonicalValue } from './use-canonical-configuration';
-import { panelRJSFFields, panelRJSFTemplates, panelRJSFWidgets } from './rjsf-shadcn-theme';
 import { documentWithoutValue, documentWithValue, valueAtPointer } from './canonical-document';
+import { panelRJSFFields, panelRJSFTemplates, panelRJSFWidgets, SchemaDialogLayout } from './rjsf-shadcn-theme';
 import {
+  isByteArraySchema,
   mergeSchemaKnownData,
   projectSchemaKnownData,
   resolvedSchema,
@@ -27,7 +29,10 @@ interface SchemaSectionFormProps {
   schema: RJSFSchema;
   basePointer: string;
   uiSchema?: UiSchema;
+  dialogLayout?: boolean;
   protectedPaths?: string[];
+  dialogJsonPreview?: ReactNode;
+  dialogPrimaryContent?: ReactNode;
   resolution: ReviewedSchemaResolution;
   onTouched?: (paths: string[]) => void;
   arrayLayout?: 'default' | 'standalone';
@@ -132,6 +137,23 @@ function valueMatchesSchema(schema: RJSFSchema, root: RJSFSchema, value: unknown
     });
     if (!matchesType) return false;
   }
+  // Representation matching must inspect array members as well as the outer type:
+  // a byte sequence and a list of strings/byte sequences are both JSON arrays.
+  for (const keyword of ['anyOf', 'oneOf'] as const) {
+    if (resolved[keyword] && !resolved[keyword].some((branch) => typeof branch === 'boolean'
+      ? branch
+      : valueMatchesSchema(branch, root, value))) {
+      return false;
+    }
+  }
+  if (Array.isArray(value) && resolved.items && typeof resolved.items === 'object' && !Array.isArray(resolved.items)) {
+    // Prefer the ordinary list editor for an ambiguous empty array. RJSF otherwise
+    // falls back to the first option (even if that is a string) when array scores tie.
+    // This is only UI matching; the reviewed root validator still accepts empty bytes.
+    if (value.length === 0 && isByteArraySchema(resolved, root)) return false;
+    const itemSchema = resolved.items;
+    if (!value.every((item) => valueMatchesSchema(itemSchema, root, item))) return false;
+  }
   return true;
 }
 
@@ -173,6 +195,9 @@ export function SchemaSectionForm({
   basePointer,
   data,
   disabled = false,
+  dialogLayout = false,
+  dialogPrimaryContent,
+  dialogJsonPreview,
   onChange,
   onTouched,
   protectedPaths = [],
@@ -234,7 +259,7 @@ export function SchemaSectionForm({
     });
   }
 
-  return (
+  const form = (
     <Form
       className='schema-form'
       disabled={disabled}
@@ -258,6 +283,14 @@ export function SchemaSectionForm({
       widgets={panelRJSFWidgets}
     />
   );
+  return dialogLayout
+    ? (
+        <SchemaDialogLayout schema={schema} root={resolution.schema} data={external}
+          primaryContent={dialogPrimaryContent} jsonPreview={dialogJsonPreview}>
+          {form}
+        </SchemaDialogLayout>
+      )
+    : form;
 }
 
 function valueAtDisplayPointer(value: unknown, pointer: string): unknown {

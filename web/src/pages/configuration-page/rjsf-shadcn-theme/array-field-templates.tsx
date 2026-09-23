@@ -11,6 +11,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 
+import { SchemaDialogLayout } from './schema-dialog-layout';
 import { resolvedSchema, schemaDiscriminatorValues, selfContainedSchema, uiSchemaFromPanel } from '../schema-ui';
 
 const DefaultArrayField = getDefaultRegistry().fields.ArrayField;
@@ -50,30 +51,32 @@ export function PanelArrayField(props: FieldProps) {
         <DialogContent className='configuration-entry-dialog'>
           <DialogHeader>
             <DialogTitle>{t(pending?.index == null ? 'configuration.general.addEntry' : 'configuration.general.editEntry')}</DialogTitle>
-            <DialogDescription>{t(pending?.index == null ? 'configuration.general.addDescription' : 'configuration.general.editDescription')}</DialogDescription>
+            <DialogDescription className='sr-only'>{t(pending?.index == null ? 'configuration.general.addDescription' : 'configuration.general.editDescription')}</DialogDescription>
           </DialogHeader>
           {pending !== null && (
             <div className='schema-form configuration-entry-dialog__body'>
-              <Form
-                tagName='div'
-                disabled={disabled || readonly}
-                schema={selfContainedSchema(itemSchema, registry.rootSchema)}
-                formData={pending.value}
-                idPrefix={`${fieldPathId.$id}-dialog`}
-                fields={registry.fields}
-                templates={registry.templates}
-                widgets={registry.widgets}
-                validator={registry.schemaUtils.getValidator()}
-                experimental_defaultFormStateBehavior={{ emptyObjectFields: 'populateRequiredDefaults' }}
-                noValidate
-                noHtml5Validate
-                uiSchema={{
-                  ...uiSchemaFromPanel(itemSchema, [], registry.rootSchema, pending.value),
-                  'ui:title': '', 'ui:description': '', 'ui:submitButtonOptions': { norender: true },
-                }}
-                onChange={({ formData: value }) => setPending((current) =>
-                  current === null ? null : { ...current, value })}
-              />
+              <SchemaDialogLayout schema={itemSchema} root={registry.rootSchema} data={pending.value}>
+                <Form
+                  tagName='div'
+                  disabled={disabled || readonly}
+                  schema={selfContainedSchema(itemSchema, registry.rootSchema)}
+                  formData={pending.value}
+                  idPrefix={`${fieldPathId.$id}-dialog`}
+                  fields={registry.fields}
+                  templates={registry.templates}
+                  widgets={registry.widgets}
+                  validator={registry.schemaUtils.getValidator()}
+                  experimental_defaultFormStateBehavior={{ emptyObjectFields: 'populateRequiredDefaults' }}
+                  noValidate
+                  noHtml5Validate
+                  uiSchema={{
+                    ...uiSchemaFromPanel(itemSchema, [], registry.rootSchema, pending.value),
+                    'ui:title': '', 'ui:description': '', 'ui:submitButtonOptions': { norender: true },
+                  }}
+                  onChange={({ formData: value }) => setPending((current) =>
+                    current === null ? null : { ...current, value })}
+                />
+              </SchemaDialogLayout>
             </div>
           )}
           <DialogFooter>

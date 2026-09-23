@@ -75,6 +75,8 @@ export const configuration = {
     panelID: '标签',
     panelIDHelp: '使用当前集合中唯一的非空标签。',
     protocol: '协议',
+    chooseProtocol: '选择协议',
+    noMatchingProtocol: '没有匹配的协议',
     repair: '修复标识',
     toggle: '切换 {{name}}',
     untyped: '未指定类型',
@@ -166,7 +168,13 @@ export const configuration = {
     boolean: '开关',
     object: '详细设置',
     array: '列表',
+    bytes: '字节序列',
     null: '空值',
+  },
+  dialog: {
+    sections: '条目配置', basic: '基础配置', match: '匹配条件',
+    more: '更多条件', action: '执行动作', authentication: '身份认证',
+    tls: 'TLS', transport: '传输配置', connection: '连接选项', advanced: '高级配置', json: 'JSON',
   },
   general: {
     fieldHelp: '{{field}}的说明',

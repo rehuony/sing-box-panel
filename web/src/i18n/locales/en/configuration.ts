@@ -75,6 +75,8 @@ export const configuration = {
     panelID: 'Tag',
     panelIDHelp: 'Use a non-empty tag that is unique in this collection.',
     protocol: 'Protocol',
+    chooseProtocol: 'Choose protocol',
+    noMatchingProtocol: 'No matching protocol',
     repair: 'Repair identity',
     toggle: 'Toggle {{name}}',
     untyped: 'Untyped',
@@ -166,7 +168,13 @@ export const configuration = {
     boolean: 'Switch',
     object: 'Detailed settings',
     array: 'List',
+    bytes: 'Byte sequence',
     null: 'None',
+  },
+  dialog: {
+    sections: 'Entry settings', basic: 'Basic settings', match: 'Match conditions',
+    more: 'More conditions', action: 'Action', authentication: 'Authentication',
+    tls: 'TLS', transport: 'Transport', connection: 'Connection options', advanced: 'Advanced settings', json: 'JSON',
   },
   general: {
     fieldHelp: 'Help for {{field}}',

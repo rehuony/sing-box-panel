@@ -6,9 +6,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowDown,
   ArrowUp,
-  Braces,
   CircleAlert,
-  Pencil,
   Plus,
   Trash2,
   Wrench,
@@ -23,17 +21,8 @@ import { Button } from '@/components/ui/button';
 import { toast } from '@/components/ui/toast-manager';
 import { useApiClient } from '@/api/api-client-context';
 import { describeRequestError } from '@/components/error-notice';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field';
+import { Field, FieldError, FieldGroup, FieldLabel } from '@/components/ui/field';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import {
-  Select,
-  SelectContent,
-  SelectGroup,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
 import {
   Dialog,
   DialogClose,
@@ -43,6 +32,16 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import {
+  Combobox,
+  ComboboxContent,
+  ComboboxEmpty,
+  ComboboxGroup,
+  ComboboxInput,
+  ComboboxItem,
+  ComboboxList,
+  ComboboxTrigger,
+} from '@/components/ui/combobox';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -56,6 +55,7 @@ import {
 
 import type { CanonicalDraft } from './use-canonical-configuration';
 
+import { SchemaDialogLayout } from './rjsf-shadcn-theme';
 import { SchemaSectionForm } from './schema-section-form';
 import { encodeCanonicalValue } from './use-canonical-configuration';
 import {
@@ -271,6 +271,8 @@ export function ManagedCollectionsEditor({
   const types = activeSchema === undefined ? [] : protocolTypes(activeSchema, resolution.schema);
   const [newID, setNewID] = useState('');
   const [newType, setNewType] = useState(() => defaultProtocolType(types));
+  const protocolAnchorRef = useRef<HTMLDivElement>(null);
+  const newTypeValid = types.includes(newType);
   const usedIDs = useMemo(() => new Set(views.map((entry) => entry.id)), [views]);
   const newIDValid = newID !== '' && newID.trim() === newID && !usedIDs.has(newID);
 
@@ -327,7 +329,7 @@ export function ManagedCollectionsEditor({
   }
 
   async function create() {
-    if (!newIDValid || newType === '' || creating || disabled) return;
+    if (!newIDValid || !newTypeValid || creating || disabled) return;
     const controller = new AbortController();
     createRequestRef.current = controller;
     setCreating(true);
@@ -344,6 +346,23 @@ export function ManagedCollectionsEditor({
       if (!controller.signal.aborted) setCreating(false);
     }
   }
+
+  const identityField = (
+    <Field className={pendingEntry === null ? undefined : 'schema-form__field'} data-invalid={createOpen && !newIDValid ? true : undefined}>
+      <FieldLabel htmlFor='managed-new-id'>{t('configuration.managed.panelID')}</FieldLabel>
+      <div className='schema-form__control'>
+        <Input
+          aria-invalid={createOpen && !newIDValid ? true : undefined}
+          aria-describedby={createOpen && !newIDValid ? 'managed-new-id-error' : undefined}
+          disabled={disabled || creating}
+          id='managed-new-id'
+          onChange={(event) => setNewID(event.currentTarget.value)}
+          value={newID}
+        />
+      </div>
+      {createOpen && !newIDValid ? <FieldError id='managed-new-id-error'>{t('configuration.managed.panelIDHelp')}</FieldError> : null}
+    </Field>
+  );
 
   return (
     <div className='managed-editor'>
@@ -415,43 +434,29 @@ export function ManagedCollectionsEditor({
         <DialogContent className='configuration-entry-dialog'>
           <DialogHeader>
             <DialogTitle>{t('configuration.general.editEntry')}</DialogTitle>
-            <DialogDescription>{t('configuration.general.editDescription')}</DialogDescription>
+            <DialogDescription className='sr-only'>{t('configuration.general.editDescription')}</DialogDescription>
           </DialogHeader>
           {editing !== null && itemSchema !== null && views[editing.index] !== undefined
             ? (
                 <div className='configuration-entry-dialog__body'>
-                  <Tabs defaultValue='form'>
-                    <TabsList>
-                      <TabsTrigger value='form'>
-                        <Pencil aria-hidden='true' />
-                        {t('configuration.managed.form')}
-                      </TabsTrigger>
-                      <TabsTrigger value='json'>
-                        <Braces aria-hidden='true' />
-                        {t('configuration.managed.json')}
-                      </TabsTrigger>
-                    </TabsList>
-                    <TabsContent value='form'>
-                      <SchemaSectionForm
-                        basePointer={`/${activeCollection}/0`}
-                        data={entries(editing.draft[activeCollection])[0]}
-                        disabled={disabled || !views[editing.index].valid}
-                        onChange={(change) => setEditing((current) => current === null
-                          ? null
-                          : { ...current, draft: change(current.draft) })}
-                        protectedPaths={[`/${activeCollection}/0/type`]}
-                        resolution={resolution}
-                        schema={itemSchema}
-                        uiSchema={{
-                          ...uiSchemaFromPanel(itemSchema, ['type'], resolution.schema, entries(editing.draft[activeCollection])[0]),
-                          type: { 'ui:readonly': true },
-                        }}
-                      />
-                    </TabsContent>
-                    <TabsContent value='json'>
-                      <pre className='configuration-entity-json'>{encodeCanonicalValue(entries(editing.draft[activeCollection])[0], 2)}</pre>
-                    </TabsContent>
-                  </Tabs>
+                  <SchemaSectionForm
+                    dialogLayout
+                    dialogJsonPreview={<pre className='configuration-entity-json'>{encodeCanonicalValue(entries(editing.draft[activeCollection])[0], 2)}</pre>}
+                    basePointer={`/${activeCollection}/0`}
+                    data={entries(editing.draft[activeCollection])[0]}
+                    disabled={disabled || !views[editing.index].valid}
+                    onChange={(change) => setEditing((current) => current === null
+                      ? null
+                      : { ...current, draft: change(current.draft) })}
+                    protectedPaths={[`/${activeCollection}/0/type`]}
+                    resolution={resolution}
+                    schema={itemSchema}
+                    uiSchema={{
+                      ...uiSchemaFromPanel(itemSchema, ['type'], resolution.schema, entries(editing.draft[activeCollection])[0]),
+                      type: { 'ui:readonly': true },
+                    }}
+                  />
+
                 </div>
               )
             : null}
@@ -487,73 +492,82 @@ export function ManagedCollectionsEditor({
         <DialogContent className='configuration-entry-dialog'>
           <DialogHeader>
             <DialogTitle>{t('configuration.managed.createTitle')}</DialogTitle>
-            <DialogDescription>{t('configuration.managed.createDescription')}</DialogDescription>
+            <DialogDescription className='sr-only'>{t('configuration.managed.createDescription')}</DialogDescription>
           </DialogHeader>
           <div className='configuration-entry-dialog__body'>
-            <FieldGroup>
-              <Field data-invalid={createOpen && newID !== '' && !newIDValid ? true : undefined}>
-                <FieldLabel htmlFor='managed-new-id'>{t('configuration.managed.panelID')}</FieldLabel>
-                <Input
-                  disabled={disabled || creating}
-                  id='managed-new-id'
-                  onChange={(event) => setNewID(event.currentTarget.value)}
-                  value={newID}
-                />
-                <FieldDescription>{t('configuration.managed.panelIDHelp')}</FieldDescription>
-              </Field>
-              {pendingEntry === null
+            {pendingEntry === null
+              ? (
+                  <SchemaDialogLayout schema={{ type: 'object' }} data={{}}>
+                    <FieldGroup className='configuration-entry-dialog__identity'>
+                      {identityField}
+                      <Field>
+                        <FieldLabel htmlFor='managed-new-type'>
+                          {t('configuration.managed.protocol')}
+                        </FieldLabel>
+                        <Combobox
+                          items={types}
+                          autoHighlight
+                          openOnInputClick={false}
+                          disabled={disabled || creating}
+                          onValueChange={(value) => setNewType(value ?? '')}
+                          onInputValueChange={setNewType}
+                          inputValue={newType}
+                          value={newTypeValid ? newType : null}
+                        >
+                          <div className='flex min-w-0 items-center gap-2' ref={protocolAnchorRef}>
+                            <ComboboxInput className='min-w-0 flex-1' id='managed-new-type'
+                              disabled={disabled || creating} showTrigger={false} />
+                            <Button aria-label={t('configuration.managed.chooseProtocol')}
+                              disabled={disabled || creating} size='icon' type='button'
+                              variant='secondary' render={<ComboboxTrigger />} />
+                          </div>
+                          <ComboboxContent anchor={protocolAnchorRef} side='bottom' collisionPadding={12}
+                            collisionAvoidance={{ side: 'none', align: 'shift', fallbackAxisSide: 'none' }}>
+                            <ComboboxEmpty>{t('configuration.managed.noMatchingProtocol')}</ComboboxEmpty>
+                            <ComboboxList>
+                              {(type: string) => (
+                                <ComboboxGroup key={type}>
+                                  <ComboboxItem value={type}>{type}</ComboboxItem>
+                                </ComboboxGroup>
+                              )}
+                            </ComboboxList>
+                          </ComboboxContent>
+                        </Combobox>
+                      </Field>
+                    </FieldGroup>
+                  </SchemaDialogLayout>
+                )
+              : itemSchema !== null
                 ? (
-                    <Field>
-                      <FieldLabel htmlFor='managed-new-type'>
-                        {t('configuration.managed.protocol')}
-                      </FieldLabel>
-                      <Select
-                        items={types.map((type) => ({ label: type, value: type }))}
-                        disabled={disabled || creating}
-                        onValueChange={(value) => setNewType(value ?? '')}
-                        value={newType}
-                      >
-                        <SelectTrigger className='w-full' id='managed-new-type'>
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectGroup>
-                            {types.map((type) => (
-                              <SelectItem key={type} value={type}>
-                                {type}
-                              </SelectItem>
-                            ))}
-                          </SelectGroup>
-                        </SelectContent>
-                      </Select>
-                    </Field>
+                    <SchemaSectionForm
+                      dialogLayout
+                      dialogPrimaryContent={(
+                        <FieldGroup className='schema-form configuration-entry-dialog__identity'>
+                          {identityField}
+                        </FieldGroup>
+                      )}
+                      basePointer={`/${activeCollection}/0`}
+                      data={entries(pendingEntry[activeCollection])[0]}
+                      disabled={disabled}
+                      onChange={(change) => setPendingEntry((current) => current === null ? null : change(current))}
+                      protectedPaths={[`/${activeCollection}/0/type`, `/${activeCollection}/0/tag`]}
+                      resolution={resolution}
+                      schema={itemSchema}
+                      uiSchema={{
+                        ...uiSchemaFromPanel(
+                          itemSchema, [], resolution.schema, entries(pendingEntry[activeCollection])[0],
+                        ),
+                        tag: { 'ui:widget': 'hidden' },
+                        type: { 'ui:readonly': true },
+                      }}
+                    />
                   )
-                : itemSchema !== null
-                  ? (
-                      <SchemaSectionForm
-                        basePointer={`/${activeCollection}/0`}
-                        data={entries(pendingEntry[activeCollection])[0]}
-                        disabled={disabled}
-                        onChange={(change) => setPendingEntry((current) => current === null ? null : change(current))}
-                        protectedPaths={[`/${activeCollection}/0/type`, `/${activeCollection}/0/tag`]}
-                        resolution={resolution}
-                        schema={itemSchema}
-                        uiSchema={{
-                          ...uiSchemaFromPanel(
-                            itemSchema, [], resolution.schema, entries(pendingEntry[activeCollection])[0],
-                          ),
-                          tag: { 'ui:widget': 'hidden' },
-                          type: { 'ui:readonly': true },
-                        }}
-                      />
-                    )
-                  : null}
-            </FieldGroup>
+                : null}
           </div>
           <DialogFooter>
-            <DialogClose render={<Button type='button' />}>{t('common.cancel')}</DialogClose>
+            <DialogClose render={<Button type='button' variant='secondary' />}>{t('common.cancel')}</DialogClose>
             <Button
-              disabled={disabled || creating || (createOpen && !newIDValid) || newType === ''}
+              disabled={disabled || creating || (createOpen && !newIDValid) || !newTypeValid}
               onClick={() => {
                 if (pendingEntry === null) {
                   void create();
@@ -564,7 +578,6 @@ export function ManagedCollectionsEditor({
               }}
               type='button'
             >
-              <Plus aria-hidden='true' data-icon='inline-start' />
               {t(pendingEntry === null ? 'configuration.general.continue' : 'common.create')}
             </Button>
           </DialogFooter>

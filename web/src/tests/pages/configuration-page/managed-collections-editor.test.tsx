@@ -148,7 +148,7 @@ describe.skipIf(reviewedEntry === undefined)('managedCollectionsEditor', () => {
     render(<Harness initial={{ inbounds: [] }} />);
     await user.click(screen.getByRole('tab', { name: /Inbounds/ }));
     await user.click(screen.getByRole('button', { name: 'Add node' }));
-    await user.click(screen.getByLabelText('Protocol'));
+    await user.click(screen.getByRole('button', { name: 'Choose protocol' }));
     await user.click(await screen.findByRole('option', { name: 'anytls' }));
     await user.click(screen.getByRole('button', { name: 'Continue' }));
     expect(screen.getByLabelText('Canonical draft')).not.toHaveTextContent('inbound-1');
@@ -162,10 +162,63 @@ describe.skipIf(reviewedEntry === undefined)('managedCollectionsEditor', () => {
 
     await user.click(screen.getByRole('tab', { name: /Inbounds/ }));
     await user.click(screen.getByRole('button', { name: 'Add node' }));
-    await user.click(screen.getByLabelText('Protocol'));
+    await user.click(screen.getByRole('button', { name: 'Choose protocol' }));
 
     expect(await screen.findByRole('option', { name: 'anytls' })).toBeInTheDocument();
     expect(screen.queryByRole('option', { name: 'selector' })).not.toBeInTheDocument();
+  });
+
+  it('filters protocols and completes the highlighted choice with the keyboard', async () => {
+    const user = userEvent.setup();
+    render(<Harness initial={{ inbounds: [] }} selectedCollection='inbounds' />);
+    await user.click(screen.getByRole('button', { name: 'Add node' }));
+    const input = screen.getByRole('combobox', { name: 'Protocol' });
+    const continueButton = screen.getByRole('button', { name: 'Continue' });
+    await user.click(screen.getByRole('textbox', { name: 'Tag' }));
+    await user.tab();
+    expect(input).toHaveFocus();
+    expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
+    await user.click(input);
+    expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
+    await user.clear(input);
+    expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
+    await user.type(input, 'ANY');
+    expect(await screen.findByRole('option', { name: 'anytls' })).toBeInTheDocument();
+    expect(screen.queryByRole('option', { name: 'mixed' })).not.toBeInTheDocument();
+    expect(continueButton).toBeDisabled();
+    await user.keyboard('{Enter}');
+    expect(input).toHaveValue('anytls');
+    expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
+    await user.click(input);
+    expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Continue' }));
+    await user.click(await screen.findByRole('button', { name: 'Create' }));
+    expect(screen.getByLabelText('Canonical draft')).toHaveTextContent('"type":"anytls"');
+    expect(screen.getByLabelText('Canonical draft')).toHaveTextContent('fixture-identity');
+  });
+
+  it('rejects an unknown protocol and opens the full list from the dropdown button', async () => {
+    const user = userEvent.setup();
+    render(<Harness initial={{ outbounds: [] }} selectedCollection='outbounds' />);
+    await user.click(screen.getByRole('button', { name: 'Add node' }));
+    const input = screen.getByRole('combobox', { name: 'Protocol' });
+    const continueButton = screen.getByRole('button', { name: 'Continue' });
+    await user.clear(input);
+    await user.type(input, 'unknown-protocol');
+    expect(await screen.findByText('No matching protocol')).toBeVisible();
+    expect(screen.queryByRole('option')).not.toBeInTheDocument();
+    expect(continueButton).toBeDisabled();
+    await user.clear(input);
+    expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
+    await user.type(input, 'unknown-protocol');
+    await user.keyboard('{Escape}');
+    expect(screen.getByRole('dialog', { name: 'Create node' })).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Choose protocol' }));
+    await user.click(await screen.findByRole('option', { name: 'direct' }));
+    expect(input).toHaveValue('direct');
+    expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled();
+    await user.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(screen.getByLabelText('Canonical draft')).toHaveTextContent('{"outbounds":[]}');
   });
 
   it('creates a raw sing-box entity without panel metadata', async () => {
