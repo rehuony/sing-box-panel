@@ -1,7 +1,7 @@
 import { EditorView } from '@codemirror/view';
 import userEvent from '@testing-library/user-event';
 import { Link, Route, Routes } from 'react-router-dom';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 
 import type { ApiClient, ConfigurationCompile, ConfigurationFile, ConfigurationSchemaContract } from '@/api/api-client';
@@ -24,6 +24,7 @@ import {
   testStartupArtifact,
 } from '@/tests/api/mock-api-client';
 
+const structuredVersions = ['1.14.0', '1.14.1'];
 const reviewedSchema = reviewedSchemaManifest['1.14.0'];
 const toastAdd = vi.spyOn(toast, 'add');
 const savedFile: ConfigurationFile = {
@@ -65,6 +66,11 @@ async function createStructuredClient(overrides: Partial<ApiClient> = {}, exactV
     ...overrides,
   });
 }
+
+beforeAll(async () => {
+  // Keep the large generated validators' first import out of interaction test timeouts.
+  await Promise.all(structuredVersions.map(version => reviewedSchemaManifest[version].load()));
+});
 
 beforeEach(() => {
   toastAdd.mockClear();
@@ -125,7 +131,7 @@ describe('configurationPage', () => {
     }));
   });
 
-  it.each(['1.14.0', '1.14.1'])('keeps %s visual modules and Advanced JSON synchronized without navigation prompts', async (exactVersion) => {
+  it.each(structuredVersions)('keeps %s visual modules and Advanced JSON synchronized without navigation prompts', async (exactVersion) => {
     const user = userEvent.setup();
     const client = await createStructuredClient({
       getConfigurationFile: vi.fn().mockResolvedValue({
