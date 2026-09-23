@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import { createDemoData, demoMetrics } from '@/api/demo/demo-data';
 import { createDemoApiClient } from '@/api/demo/create-demo-api-client';
 
 describe('createDemoApiClient', () => {
@@ -49,6 +50,51 @@ describe('createDemoApiClient', () => {
     controller.abort();
 
     await expect(request).rejects.toMatchObject({ name: 'AbortError' });
+  });
+
+  it('uses saved traffic quotas in metrics, traffic status and an already-open stream', async () => {
+    vi.useFakeTimers();
+    const client = createDemoApiClient();
+    const controller = new AbortController();
+    const stream = client.streamMetrics(controller.signal)[Symbol.asyncIterator]();
+    let settings = await client.getPanelSettings();
+    const initial = (await stream.next()).value!.metrics;
+    expect(initial.quota_bytes).toBe(settings.preferences.traffic_quota_gib! * 2 ** 30);
+
+    try {
+      for (const quotaGiB of [2, null, 0, 250]) {
+        const before = await client.getMetrics();
+        settings = await client.savePanelSettings({
+          revision: settings.revision,
+          preferences: { ...settings.preferences, traffic_quota_gib: quotaGiB },
+        });
+        const quotaBytes = quotaGiB ? quotaGiB * 2 ** 30 : undefined;
+        const metrics = await client.getMetrics();
+        expect(metrics.quota_bytes).toBe(quotaBytes);
+        expect(metrics.current_traffic_period).toEqual(before.current_traffic_period);
+        expect((await client.getTrafficStatus()).quota_bytes).toBe(quotaBytes);
+        const next = stream.next();
+        await vi.advanceTimersByTimeAsync(2000);
+        expect((await next).value!.metrics.quota_bytes).toBe(quotaBytes);
+        expect((await client.getPanelSettings()).preferences.traffic_quota_gib).toBe(quotaGiB);
+      }
+    } finally {
+      controller.abort();
+      await stream.return?.();
+    }
+  });
+
+  it('derives quota exhaustion from both traffic counters and preserves unlimited quotas', () => {
+    const data = createDemoData();
+    data.trafficPeriods[0].inbound_bytes = 768 * 2 ** 20;
+    data.trafficPeriods[0].outbound_bytes = 256 * 2 ** 20;
+    expect(demoMetrics(data, 1).quota_exceeded).toBe(true);
+    expect(demoMetrics(data, 2).quota_exceeded).toBe(false);
+    for (const quota of [0, null]) {
+      const snapshot = demoMetrics(data, quota);
+      expect(snapshot.quota_bytes).toBeUndefined();
+      expect(snapshot.quota_exceeded).toBe(false);
+    }
   });
 
   it('fills the full 24-hour chart and keeps overlapping samples stable as the window advances', async () => {

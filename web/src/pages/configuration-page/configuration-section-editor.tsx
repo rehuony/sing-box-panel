@@ -22,7 +22,7 @@ interface ConfigurationSectionEditorProps {
   onChange: (change: (draft: CanonicalDraft) => CanonicalDraft) => void;
 }
 
-const experimentalGroupOrder = ['debug', 'clash_api', 'v2ray_api', 'cache_file'];
+const experimentalGroupOrder = ['clash_api', 'v2ray_api', 'cache_file', 'debug'];
 
 /** Group native fields for navigation without changing the stored schema or data. */
 export function ConfigurationSectionEditor({

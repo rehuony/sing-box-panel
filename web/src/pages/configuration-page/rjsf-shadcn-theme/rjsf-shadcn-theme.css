@@ -52,6 +52,9 @@
   font-weight: inherit;
   color: inherit;
 }
+.schema-form__label > [data-slot='button'] {
+  flex: 0 0 auto;
+}
 .schema-form__control {
   grid-column: 2;
   min-width: 0;
@@ -514,17 +517,15 @@
 .schema-dialog-tabs[data-compact='true'] .schema-form__dialog-root > .schema-form__grid > * {
   border: 0;
 }
-.schema-dialog-tabs[data-compact='true'] .schema-form__dialog-root > .schema-form__grid > * > .schema-form__field {
-  grid-template-columns: minmax(0, 1fr);
-  gap: 8px;
-}
-.schema-dialog-tabs[data-compact='true']
-  .schema-form__dialog-root
-  > .schema-form__grid
-  > *
-  > .schema-form__field
-  > .schema-form__control {
-  grid-column: 1;
+@container schema-form (min-width: 320px) {
+  .schema-dialog-tabs[data-compact='true'] .schema-form__field {
+    grid-template-columns: minmax(136px, 1fr) minmax(160px, 2fr);
+    gap: 4px 16px;
+  }
+  .schema-dialog-tabs[data-compact='true'] .schema-form__field > .schema-form__control,
+  .schema-dialog-tabs[data-compact='true'] .schema-form__field > [data-slot='field-error'] {
+    grid-column: 2;
+  }
 }
 /* A section containing only an empty collection uses the available detail area. */
 .schema-form__dialog-root[data-empty-array='true'],

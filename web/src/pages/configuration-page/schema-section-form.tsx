@@ -207,8 +207,8 @@ export function SchemaSectionForm({
 }: SchemaSectionFormProps) {
   const formId = useId();
   const formSchema = useMemo(
-    () => selfContainedSchema(schema, resolution.schema, data),
-    [data, resolution.schema, schema],
+    () => selfContainedSchema(schema, resolution.schema, data, basePointer.split('/').filter(Boolean)),
+    [basePointer, data, resolution.schema, schema],
   );
   const external = useMemo(
     () => displayCopy(projectSchemaKnownData(schema, resolution.schema, data)

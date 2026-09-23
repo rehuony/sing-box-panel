@@ -1013,7 +1013,10 @@ export function createDemoApiClient(): ApiClient {
     },
     async* streamMetrics(signal) {
       while (!signal?.aborted) {
-        yield { metrics: demoMetrics(state), runtime: structuredClone(state.runtime) };
+        yield {
+          metrics: demoMetrics(state, panelSettings.preferences.traffic_quota_gib),
+          runtime: structuredClone(state.runtime),
+        };
         await new Promise<void>((resolve) => {
           const timer = setTimeout(done, 2000);
           function done() {
@@ -1057,7 +1060,7 @@ export function createDemoApiClient(): ApiClient {
         });
       }
     },
-    getMetrics: (signal) => respond(demoMetrics(state), signal),
+    getMetrics: (signal) => respond(demoMetrics(state, panelSettings.preferences.traffic_quota_gib), signal),
     getTrafficStatus(signal) {
       const period = state.trafficPeriods[0];
       if (period !== undefined && state.runtime.observation_state === 'running') {
@@ -1065,7 +1068,7 @@ export function createDemoApiClient(): ApiClient {
         period.outbound_bytes += 124_820;
         period.period_end = updatedAt();
       }
-      return respond(demoMetrics(state), signal);
+      return respond(demoMetrics(state, panelSettings.preferences.traffic_quota_gib), signal);
     },
     getMetricsHistory(filter, signal) {
       const result = demoMetricsHistory(filter.from, filter.to, filter.bucketSeconds);

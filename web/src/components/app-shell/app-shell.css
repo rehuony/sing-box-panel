@@ -229,7 +229,7 @@
 }
 
 .telemetry-banner__navigation-trigger {
-  border: var(--rule-thin) solid var(--color-border);
+  border: 0;
   display: none;
   flex: 0 0 auto;
 }
@@ -534,6 +534,10 @@
 
   .panel-sidebar__header {
     padding: var(--space-md);
+  }
+
+  .panel-sidebar__header .panel-logo__wordmark {
+    white-space: normal;
   }
 
   .panel-sidebar__footer {

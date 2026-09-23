@@ -377,9 +377,10 @@ export function demoDashboardContext(data: DemoData): DashboardContext {
   };
 }
 
-export function demoMetrics(data: DemoData, now = new Date()): MetricsSnapshot {
+export function demoMetrics(data: DemoData, quotaGiB: number | null, now = new Date()): MetricsSnapshot {
   const running = data.runtime.observation_state === 'running';
   const period = data.trafficPeriods[0];
+  const quotaBytes = quotaGiB !== null && quotaGiB > 0 ? quotaGiB * 2 ** 30 : undefined;
   return {
     host: {
       sampled_at: now.toISOString(), cpu_count: 4, cpu_percent: 12.8, load_one: 0.64,
@@ -409,8 +410,9 @@ export function demoMetrics(data: DemoData, now = new Date()): MetricsSnapshot {
         }
       : undefined,
     traffic_available: running,
-    quota_bytes: 1_099_511_627_776,
-    quota_exceeded: false,
+    quota_bytes: quotaBytes,
+    quota_exceeded: running && period !== undefined && quotaBytes !== undefined
+      && period.inbound_bytes + period.outbound_bytes >= quotaBytes,
   };
 }
 

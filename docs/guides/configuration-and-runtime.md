@@ -144,6 +144,46 @@ until the result arrives, so feedback describes the submitted file. Validation
 success is a Toast shown only after the binary check succeeds. Unknown fields and
 numeric lexemes are retained through visual edits.
 
+### Field names and inline help
+
+The Simplified Chinese visual editor uses reviewed Chinese names and descriptions
+for the fields declared by the five committed schemas. An information button
+beside scalar, list and optional-object labels shows a concise description after
+a brief hover or immediately on focus or click/tap. Enter or Space also opens it.
+Help uses the existing Tooltip component with click-to-dismiss disabled, so
+clicking before the hover delay opens the explanation instead of cancelling it.
+Moving into the tooltip keeps it readable; leaving it and the trigger, losing
+focus, Escape or clicking outside dismisses it. Opening another tooltip replaces
+the previous one. The tooltip fits the viewport and long descriptions can scroll.
+Descriptions include input formats, units and relevant restrictions. Protocol
+identifiers and enum values retain their original spelling. Map keys entered by
+the operator are not translated. English continues to use the existing labels
+and any descriptions supplied by the schema.
+
+The copy is maintained in
+[`configuration-fields.ts`](../../web/src/i18n/locales/zh-CN/configuration-fields.ts),
+with context-specific meanings in
+[`configuration-field-help.ts`](../../web/src/pages/configuration-page/configuration-field-help.ts).
+For example, `final` selects a DNS server in DNS settings and an outbound in
+route settings; `method` describes encryption for Shadowsocks and rejection
+behavior for a reject action. Presentation annotations are added only to a
+browser-side schema copy. Canonical schema assets, digests, validators, JSON
+property names and stored values remain unchanged.
+
+The terminology and summaries were checked against the official configuration
+documentation at tags
+[`v1.13.21`](https://github.com/SagerNet/sing-box/tree/v1.13.21/docs/configuration)
+and [`v1.14.1`](https://github.com/SagerNet/sing-box/tree/v1.14.1/docs/configuration),
+including [dial fields](https://sing-box.sagernet.org/zh/configuration/shared/dial/),
+[TLS](https://sing-box.sagernet.org/zh/configuration/shared/tls/),
+[DNS](https://sing-box.sagernet.org/zh/configuration/dns/),
+and [route actions](https://sing-box.sagernet.org/zh/configuration/route/rule_action/).
+This is authored UI copy, not a generated schema asset. When reviewing a new
+core version, review new field names and changed meanings against that exact
+tag's documentation before updating this catalog. The field-help test checks
+coverage against every committed schema; unknown future fields keep their
+original labels rather than receiving guessed explanations.
+
 ## Validate and load configuration
 
 A check snapshots immutable configuration bytes and runs

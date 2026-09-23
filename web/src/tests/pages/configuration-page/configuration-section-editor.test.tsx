@@ -127,10 +127,11 @@ it('orders experimental tabs explicitly while retaining fields from other groups
       resolution={{ schema: { type: 'object', properties: { experimental } }, createValidator: () => customizeValidator() }} />,
   );
   const tabs = within(screen.getByRole('tablist', { name: 'experimental' })).getAllByRole('tab');
-  expect(tabs.map(tab => tab.textContent)).toEqual(['Debug', 'Clash API', 'V2Ray API', 'Cache file']);
+  expect(tabs.map(tab => tab.textContent)).toEqual(['Clash API', 'V2Ray API', 'Cache file', 'Debug']);
   expect(tabs[0]).toHaveAttribute('aria-selected', 'true');
-  expect(screen.getByRole('switch', { name: 'Enabled' })).toBeChecked();
   await user.click(tabs[3]);
+  expect(screen.getByRole('switch', { name: 'Enabled' })).toBeChecked();
   await user.click(tabs[0]);
+  await user.click(tabs[3]);
   expect(screen.getByRole('switch', { name: 'Enabled' })).toBeChecked();
 });

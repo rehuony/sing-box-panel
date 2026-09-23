@@ -122,7 +122,7 @@ describe('panel settings', () => {
     expect(document.documentElement.style.getPropertyValue('--appearance-color')).toBe('#6D4ED1');
   });
 
-  it('shows shared field tooltips on hover and keyboard focus without changing settings', async () => {
+  it('shows shared field help on hover and keyboard activation without changing settings', async () => {
     const user = userEvent.setup();
     const client = setup();
     const help = await screen.findByRole('button', { name: 'Access origin' });
@@ -130,12 +130,13 @@ describe('panel settings', () => {
     expect(screen.queryByText(hint)).not.toBeInTheDocument();
     await user.hover(help);
     expect(await screen.findByText(hint)).toBeVisible();
-    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(screen.getByRole('tooltip')).toHaveTextContent(hint);
     await user.unhover(help);
     await waitFor(() => expect(screen.queryByText(hint)).not.toBeInTheDocument());
     await user.click(screen.getByRole('textbox', { name: 'Access origin' }));
     await user.tab({ shift: true });
     expect(help).toHaveFocus();
+    await user.keyboard('{Enter}');
     expect(await screen.findByText(hint)).toBeVisible();
     await user.keyboard('{Escape}');
     await waitFor(() => expect(screen.queryByText(hint)).not.toBeInTheDocument());

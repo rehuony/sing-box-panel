@@ -373,6 +373,10 @@ An absent or zero traffic quota is rendered as unlimited (`∞ GiB`) while keepi
 the observed used-byte value; unavailable traffic evidence remains unknown rather
 than being rendered as zero.
 
+The demo uses the saved panel traffic quota for both metrics responses and the
+live metrics stream. Saving a new quota updates the dashboard on the next stream
+sample, including the usage percentage; an empty or zero quota remains unlimited.
+
 ## Limited monitoring and traffic
 
 `process_only` reports child-process health without counters. `limited`

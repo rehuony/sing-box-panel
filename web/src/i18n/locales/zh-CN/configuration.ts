@@ -142,7 +142,7 @@ export const configuration = {
     auto_detect_interface: '自动检测默认网卡',
     default_interface: '默认网卡',
     default_domain_resolver: '默认域名解析器',
-    debug: 'Debug',
+    debug: '运行时调试',
     cache_file: '缓存文件',
     clash_api: 'Clash API',
     v2ray_api: 'V2Ray API',

@@ -1,19 +1,21 @@
 import type { RJSFSchema } from '@rjsf/utils';
 
 import { useState } from 'react';
-import { describe, expect, it, vi } from 'vitest';
 import userEvent from '@testing-library/user-event';
 import { customizeValidator } from '@rjsf/validator-ajv8';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 
 import type { ReviewedSchemaResolution } from '@/schemas/resolve-reviewed-schema';
 import type { CanonicalDraft } from '@/pages/configuration-page/use-canonical-configuration';
 
-import '@/i18n';
+import i18n from '@/i18n';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { uiSchemaFromPanel } from '@/pages/configuration-page/schema-ui';
 import { SchemaSectionForm } from '@/pages/configuration-page/schema-section-form';
 import { encodeCanonicalDraft, parseCanonicalDraft } from '@/pages/configuration-page/use-canonical-configuration';
+
+afterEach(() => i18n.changeLanguage('en'));
 
 const sectionSchema: RJSFSchema = {
   type: 'object',
@@ -108,7 +110,53 @@ function NumericHarness() {
 }
 
 describe('schemaSectionForm', () => {
-  it('shows field descriptions beside labels on hover and keyboard focus without changing values', async () => {
+  it('localizes scalar, list and optional-object help without translating map keys or changing the draft', async () => {
+    await i18n.changeLanguage('zh-CN');
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    const schema: RJSFSchema = {
+      type: 'object',
+      properties: {
+        final: { 'type': 'string', 'x-panel': { label: { en: 'Final' } } } as RJSFSchema,
+        disable_cache: { type: 'boolean' },
+        rules: { type: 'array', items: { type: 'string' } },
+        optimistic: { type: 'object', properties: { timeout: { type: 'string' } } },
+        headers: { type: 'object', additionalProperties: { type: 'string' } },
+      },
+    };
+    const data = { final: 'dns-local', disable_cache: false, rules: [], headers: { server: 'custom-header' } };
+    render(
+      <TooltipProvider delay={0}>
+        <SchemaSectionForm basePointer='/dns' data={data} onChange={onChange}
+          resolution={{ ...resolution, schema: { type: 'object', properties: { dns: schema } } }} schema={schema} />
+      </TooltipProvider>,
+    );
+    expect(screen.getByRole('textbox', { name: '默认 DNS 服务器' })).toHaveValue('dns-local');
+    expect(screen.getByRole('switch', { name: '禁用 DNS 缓存' })).not.toBeChecked();
+    expect(screen.getByRole('textbox', { name: '字段名称' })).toHaveValue('server');
+    const help = screen.getByRole('button', { name: '默认 DNS 服务器的说明' });
+    await user.hover(help);
+    const popup = await screen.findByRole('tooltip');
+    expect(popup.querySelector('code')).toBeNull();
+    expect(popup).toHaveTextContent('第一个 DNS 服务器');
+    await user.unhover(help);
+    await waitFor(() => expect(screen.queryByText(/DNS 规则未指定服务器时使用/)).not.toBeInTheDocument());
+    await user.click(screen.getByRole('textbox', { name: '默认 DNS 服务器' }));
+    await user.tab({ shift: true });
+    expect(help).toHaveFocus();
+    await user.keyboard('{Enter}');
+    expect(await screen.findByText(/DNS 规则未指定服务器时使用/)).toBeVisible();
+    await user.keyboard('{Escape}');
+    expect(screen.getByRole('button', { name: '规则列表的说明' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: '乐观 DNS 缓存的说明' })).toBeEnabled();
+    expect(onChange).not.toHaveBeenCalled();
+    await act(() => i18n.changeLanguage('en'));
+    expect(screen.getByRole('textbox', { name: 'Final' })).toHaveValue('dns-local');
+    expect(screen.queryByRole('button', { name: '默认 DNS 服务器的说明' })).not.toBeInTheDocument();
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it('shows field descriptions beside labels on hover and keyboard activation without changing values', async () => {
     const user = userEvent.setup();
     const onChange = vi.fn();
     const schema: RJSFSchema = {
@@ -138,6 +186,7 @@ describe('schemaSectionForm', () => {
     await user.click(screen.getByRole('textbox', { name: 'Sync interval' }));
     await user.tab({ shift: true });
     expect(intervalHelp).toHaveFocus();
+    await user.keyboard('{Enter}');
     expect(await screen.findByText('A Go duration such as 300ms or 5s.')).toBeVisible();
     await user.keyboard('{Escape}');
     await waitFor(() => expect(screen.queryByText('A Go duration such as 300ms or 5s.')).not.toBeInTheDocument());

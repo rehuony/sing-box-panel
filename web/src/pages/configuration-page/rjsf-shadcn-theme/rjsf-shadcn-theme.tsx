@@ -23,7 +23,6 @@ import {
   ArrowDown,
   ArrowUp,
   Copy,
-  Info,
   Plus,
   Trash2,
   X,
@@ -44,7 +43,6 @@ import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
 import { ErrorNotice } from '@/components/error-notice';
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import {
   Field,
   FieldDescription,
@@ -62,7 +60,9 @@ import {
 } from '@/components/ui/select';
 
 import { resolvedSchema } from '../schema-ui';
+import { SchemaFieldHelp } from './schema-field-help';
 import { SchemaDialogContext } from './schema-dialog-context';
+import { readConfigurationFieldHelp, withConfigurationFieldHelp } from '../configuration-field-help';
 import { PanelArrayField, PanelArrayFieldItemTemplate, PanelArrayFieldTemplate } from './array-field-templates';
 import './rjsf-shadcn-theme.css';
 
@@ -84,8 +84,10 @@ function metadata(schema: RJSFSchema): PanelMetadata {
 
 function localizedLabel(schema: RJSFSchema, fallback: string, language: string, t: TFunction): string {
   if (fallback.startsWith('configuration.valueTypes.')) return t(fallback);
+  const help = readConfigurationFieldHelp(schema);
+  if (language.startsWith('zh') && help) return help.label;
   const labels = metadata(schema).label;
-  return labels?.[language] ?? labels?.en ?? t(`configuration.fields.${fallback}`, { defaultValue: schema.title ?? fallback });
+  return labels?.[language] ?? t(`configuration.fields.${fallback}`, { defaultValue: labels?.en ?? schema.title ?? fallback });
 }
 
 function PanelFieldTemplate(props: FieldTemplateProps) {
@@ -135,19 +137,7 @@ function PanelFieldTemplate(props: FieldTemplateProps) {
                 {resolvedLabel}
                 {required ? <span aria-hidden='true'>*</span> : null}
               </FieldLabel>
-              {rawDescription
-                ? (
-                    <Tooltip>
-                      <TooltipTrigger
-                        aria-label={t('configuration.general.fieldHelp', { field: resolvedLabel })}
-                        render={<Button className='focus-visible:border-transparent focus-visible:ring-0' size='icon-xs' type='button' variant='ghost' />}
-                      >
-                        <Info aria-hidden />
-                      </TooltipTrigger>
-                      <TooltipContent>{rawDescription}</TooltipContent>
-                    </Tooltip>
-                  )
-                : null}
+              <SchemaFieldHelp schema={schema} label={resolvedLabel} description={rawDescription} />
             </div>
           )}
       <div className='schema-form__control'>{children}</div>
@@ -221,10 +211,17 @@ function PanelObjectFieldTemplate(props: ObjectFieldTemplateProps) {
   return (
     <fieldset className={root ? 'schema-form__root' : 'schema-form__object'} id={`${fieldPathId.$id}-group-${groupId}`}>
       {!root && resolvedTitle !== '' && props.uiSchema?.['ui:options']?.label !== false
-        ? <FieldLegend>{resolvedTitle}</FieldLegend>
+        ? (
+            <FieldLegend>
+              <span className='schema-form__label'>
+                {resolvedTitle}
+                <SchemaFieldHelp schema={schema} label={resolvedTitle} />
+              </span>
+            </FieldLegend>
+          )
         : null}
       {optionalDataControl}
-      {description ? <FieldDescription>{description}</FieldDescription> : null}
+      {root && description ? <FieldDescription>{description}</FieldDescription> : null}
       {map && !objectValues
         ? (
             <div aria-hidden className='schema-form__map-header'>
@@ -276,7 +273,14 @@ function PanelArrayTitleTemplate(props: ArrayFieldTitleProps) {
   return (
     <>
       {title && !title.startsWith('configuration.valueTypes.')
-        ? <FieldLegend>{localizedLabel(schema, title, i18n.language, t)}</FieldLegend>
+        ? (
+            <FieldLegend>
+              <span className='schema-form__label'>
+                {localizedLabel(schema, title, i18n.language, t)}
+                <SchemaFieldHelp schema={schema} label={localizedLabel(schema, title, i18n.language, t)} />
+              </span>
+            </FieldLegend>
+          )
         : null}
       {optionalDataControl}
     </>
@@ -335,7 +339,10 @@ function PanelObjectField(props: FieldProps) {
   return (
     <div aria-labelledby={labelId} className='schema-form__optional' role='group'>
       <div className='schema-form__optional-header'>
-        <span className='schema-form__object-label' id={labelId}>{localizedLabel(schema, name, i18n.language, t)}</span>
+        <div className='schema-form__label'>
+          <span className='schema-form__object-label' id={labelId}>{localizedLabel(schema, name, i18n.language, t)}</span>
+          <SchemaFieldHelp schema={schema} label={localizedLabel(schema, name, i18n.language, t)} />
+        </div>
         <Button disabled={disabled || readonly} onClick={() => onChange(present ? undefined : {}, fieldPathId.path)}
           size='sm' type='button' variant={present ? 'destructive' : 'outline'}>
           {present ? <X aria-hidden data-icon='inline-start' /> : <Plus aria-hidden data-icon='inline-start' />}
@@ -486,7 +493,7 @@ function iconButton(
 }
 
 function PanelMultiSchemaFieldTemplate({ selector, optionSchemaField, schema }: MultiSchemaFieldTemplateProps) {
-  const { t } = useTranslation();
+  const { i18n, t } = useTranslation();
   const dialogLayout = use(SchemaDialogContext);
   const choiceId = `schema-choice-${useId()}`;
   const discriminator = (schema.discriminator as { propertyName?: string } | undefined)?.propertyName;
@@ -494,10 +501,15 @@ function PanelMultiSchemaFieldTemplate({ selector, optionSchemaField, schema }: 
   const rootChoice = isValidElement<{ fieldPathId: { path: unknown[] } }>(optionSchemaField)
     && optionSchemaField.props.fieldPathId?.path.every((part) => part === 'XxxOf');
   if (discriminator) {
+    const discriminatorSchema = withConfigurationFieldHelp({}, discriminator, []);
+    const label = localizedLabel(discriminatorSchema, discriminator, i18n.language, t);
     return (
       <div className='schema-form__discriminated'>
         <Field className='schema-form__field' hidden={rootChoice && dialogLayout !== null && dialogLayout.groupForField(discriminator) !== dialogLayout.active}>
-          <FieldLabel htmlFor={`${choiceId}-variant`}>{t(`configuration.fields.${discriminator}`, { defaultValue: discriminator })}</FieldLabel>
+          <div className='schema-form__label'>
+            <FieldLabel htmlFor={`${choiceId}-variant`}>{label}</FieldLabel>
+            <SchemaFieldHelp schema={discriminatorSchema} label={label} />
+          </div>
           <div className='schema-form__control'>{choice}</div>
         </Field>
         {optionSchemaField}

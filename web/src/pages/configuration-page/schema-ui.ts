@@ -3,6 +3,8 @@ import type { RJSFSchema, UiSchema } from '@rjsf/utils';
 import { getSchemaType } from '@rjsf/utils';
 import { isLosslessNumber } from 'lossless-json';
 
+import { withConfigurationFieldHelp } from './configuration-field-help';
+
 interface PanelMetadata {
   order?: number;
   widget?: string;
@@ -277,32 +279,40 @@ function presentationAnyOf(schema: RJSFSchema, root: RJSFSchema, seen = new Set<
 // single-value enums. These presentation annotations never alter the reviewed
 // schema used by the precompiled validator or the canonical configuration.
 const annotatedSchemas = new WeakMap<RJSFSchema, RJSFSchema>();
-function withDiscriminators(schema: RJSFSchema, root: RJSFSchema): RJSFSchema {
+function withDiscriminators(schema: RJSFSchema, root: RJSFSchema, context: string[] = []): RJSFSchema {
   const result = { ...schema };
+  const scope = [...context, ...discriminatorKeys.flatMap((key) => {
+    const property = schema.properties?.[key];
+    return property && typeof property === 'object' ? allowedValues(property).filter((value): value is string => typeof value === 'string') : [];
+  })];
   const discriminator = unionDiscriminator(schema, root);
   if (discriminator !== undefined) result.discriminator = { propertyName: discriminator };
   for (const key of ['properties', 'definitions', '$defs', 'patternProperties'] as const) {
     const values = schema[key];
     if (values) {
-      result[key] = Object.fromEntries(Object.entries(values).map(([name, child]) =>
-        [name, typeof child === 'boolean' ? child : withDiscriminators(child, root)]));
+      result[key] = Object.fromEntries(Object.entries(values).map(([name, child]) => {
+        if (typeof child === 'boolean') return [name, child];
+        const childContext = key === '$defs' || key === 'definitions' ? [name] : [...scope, name];
+        const annotated = withDiscriminators(child, root, childContext);
+        return [name, key === 'properties' ? withConfigurationFieldHelp(annotated, name, scope) : annotated];
+      }));
     }
   }
   for (const key of ['allOf', 'anyOf', 'oneOf'] as const) {
     const branches = key === 'anyOf' ? presentationAnyOf(schema, root) : schema[key];
     if (branches) {
       result[key] = branches.map((child) =>
-        typeof child === 'boolean' ? child : withDiscriminators(child, root));
+        typeof child === 'boolean' ? child : withDiscriminators(child, root, scope));
     }
   }
   if (schema.items && typeof schema.items === 'object' && !Array.isArray(schema.items)) {
-    result.items = withDiscriminators(schema.items, root);
+    result.items = withDiscriminators(schema.items, root, scope);
     // An explicitly added byte starts at zero instead of undefined; otherwise the
     // union matcher can mistake the incomplete byte array for a different list.
     if (isByteArraySchema(schema, root) && result.items.default === undefined) result.items.default = 0;
   }
   if (schema.additionalProperties && typeof schema.additionalProperties === 'object') {
-    result.additionalProperties = withDiscriminators(schema.additionalProperties, root);
+    result.additionalProperties = withDiscriminators(schema.additionalProperties, root, scope);
   }
   return result;
 }
@@ -311,6 +321,7 @@ export function selfContainedSchema(
   schema: RJSFSchema,
   root: RJSFSchema,
   data?: unknown,
+  context: string[] = [],
 ): RJSFSchema {
   const resolved = resolvedSchema(schema, root, data);
   let annotated = annotatedSchemas.get(root);
@@ -319,7 +330,7 @@ export function selfContainedSchema(
     annotatedSchemas.set(root, annotated);
   }
   return {
-    ...withDiscriminators(resolved, root),
+    ...withDiscriminators(resolved, root, [...context, schema.$ref?.split('/').at(-1) ?? '']),
     ...(annotated.$defs === undefined ? {} : { $defs: annotated.$defs }),
     ...(annotated.definitions === undefined ? {} : { definitions: annotated.definitions }),
   };
