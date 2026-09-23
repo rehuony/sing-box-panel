@@ -102,6 +102,7 @@ var managementOperations = []managementOperation{
 	{Method: http.MethodGet, Path: "/dashboard/stream", OperationID: "streamDashboard"},
 	{Method: http.MethodGet, Path: "/core/logs/files", OperationID: "listCoreLogFiles"},
 	{Method: http.MethodDelete, Path: "/core/logs/files", OperationID: "deleteCoreLogFile"},
+	{Method: http.MethodDelete, Path: "/core/logs/content", OperationID: "clearCoreLog"},
 	{Method: http.MethodGet, Path: "/core/logs/content", OperationID: "readCoreLog"},
 	{Method: http.MethodGet, Path: "/core/logs/stream", OperationID: "streamCoreLog"},
 	{Method: http.MethodGet, Path: "/logs/panel", OperationID: "listPanelLogs"},

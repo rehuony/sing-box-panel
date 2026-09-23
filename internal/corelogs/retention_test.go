@@ -135,7 +135,7 @@ func TestConcurrentPolicyChangesWritesAndHistoricalDeletion(t *testing.T) {
 		}
 	}()
 	wg.Wait()
-	if _, err := logs.Read("2026-09-23-000.log", 0); err != nil {
+	if _, err := logs.Read("2026-09-23-000.log", 0, ""); err != nil {
 		t.Fatal(err)
 	}
 }

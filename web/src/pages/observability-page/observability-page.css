@@ -102,11 +102,18 @@
 .native-log__actions--connecting {
   background: color-mix(in srgb, var(--status-info-foreground) 5%, var(--color-surface));
 }
-.native-log__actions [data-slot='button'] {
-  width: 28px;
-  height: 28px;
-  min-height: 28px;
-  border-radius: 50%;
+/* Tooltip owns data-slot on these buttons; only hover changes their fill. */
+.native-log__actions > button {
+  background: inherit;
+}
+.native-log__actions > button:not(:disabled):hover {
+  color: var(--color-text);
+  background: color-mix(in srgb, var(--color-text) 8%, transparent);
+}
+.native-log__actions > button:focus-visible {
+  border-color: transparent;
+  outline: none;
+  box-shadow: none;
 }
 .native-log__status {
   display: inline-flex;

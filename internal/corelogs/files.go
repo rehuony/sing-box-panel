@@ -4,6 +4,7 @@ package corelogs
 
 import (
 	"bytes"
+	"crypto/rand"
 	"errors"
 	"fmt"
 	"io"
@@ -45,13 +46,17 @@ type Chunk struct {
 	Text       string `json:"text"`
 	NextOffset int64  `json:"next_offset"`
 	Size       int64  `json:"size"`
+	Generation string `json:"generation"`
+	Reset      bool   `json:"reset,omitempty"`
 }
 type Files struct {
-	dir    string
-	mu     sync.Mutex
-	now    func() time.Time
-	policy Policy
-	active string
+	dir         string
+	mu          sync.Mutex
+	now         func() time.Time
+	policy      Policy
+	active      string
+	epoch       string
+	generations map[string]string
 }
 
 func New(dataDir string) (*Files, error) {
@@ -62,7 +67,7 @@ func New(dataDir string) (*Files, error) {
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		return nil, err
 	}
-	return &Files{dir: dir, now: time.Now, policy: DefaultPolicy()}, nil
+	return &Files{dir: dir, now: time.Now, policy: DefaultPolicy(), epoch: rand.Text(), generations: make(map[string]string)}, nil
 }
 
 func logFileIndex(name string) (uint64, bool) {
@@ -139,10 +144,61 @@ func (f *Files) Delete(name string) error {
 	if !info.Mode().IsRegular() {
 		return ErrInvalidFile
 	}
-	return root.Remove(name)
+	if err := root.Remove(name); err != nil {
+		return err
+	}
+	delete(f.generations, name)
+	return nil
 }
 
-func (f *Files) Read(name string, offset int64) (Chunk, error) {
+// Clear truncates one managed capture, including today's active file. Keep the
+// inode: collectors use O_APPEND, so even an already-open writer continues at
+// the new end without holes or writing to an unlinked file. Clients must discard
+// pending reads and restart their byte cursor at zero after a successful clear.
+func (f *Files) Clear(name string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if _, valid := logFileIndex(name); !valid {
+		return ErrInvalidFile
+	}
+	root, err := os.OpenRoot(f.dir)
+	if err != nil {
+		return err
+	}
+	defer root.Close()
+	info, err := root.Lstat(name)
+	if err != nil {
+		return err
+	}
+	if !info.Mode().IsRegular() {
+		return ErrInvalidFile
+	}
+	// Validate the opened file before truncating, rather than using O_TRUNC.
+	file, err := root.OpenFile(name, os.O_WRONLY, 0)
+	if err != nil {
+		return err
+	}
+	opened, err := file.Stat()
+	if err != nil {
+		return errors.Join(err, file.Close())
+	}
+	if !opened.Mode().IsRegular() || !os.SameFile(info, opened) {
+		return errors.Join(ErrInvalidFile, file.Close())
+	}
+	truncateErr := file.Truncate(0)
+	if truncateErr == nil {
+		// Invalidate cursors even if Close reports an error after truncation.
+		f.generations[name] = rand.Text()
+	}
+	return errors.Join(truncateErr, file.Close())
+}
+
+// Read pairs a byte offset with its file generation. A stale generation restarts
+// at zero, even when new output has already grown beyond the previous offset.
+// The owner must share this Files instance between readers, clearers and writers.
+func (f *Files) Read(name string, offset int64, generation string) (Chunk, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	if _, valid := logFileIndex(name); !valid || offset < -1 {
 		return Chunk{}, ErrInvalidFile
 	}
@@ -168,6 +224,14 @@ func (f *Files) Read(name string, offset int64) (Chunk, error) {
 		return Chunk{}, ErrInvalidFile
 	}
 	size := info.Size()
+	currentGeneration := f.generations[name]
+	if currentGeneration == "" {
+		currentGeneration = f.epoch
+	}
+	reset := generation != "" && generation != currentGeneration
+	if reset {
+		offset = 0
+	}
 	tail := offset < 0
 	if tail {
 		offset = max(0, size-maxChunkBytes)
@@ -199,7 +263,7 @@ func (f *Files) Read(name string, offset int64) (Chunk, error) {
 			text = nil
 		}
 	}
-	return Chunk{File: name, Text: strings.ToValidUTF8(string(text), "�"), NextOffset: offset + int64(n), Size: size}, nil
+	return Chunk{File: name, Text: strings.ToValidUTF8(string(text), "�"), NextOffset: offset + int64(n), Size: size, Generation: currentGeneration, Reset: reset}, nil
 }
 func (f *Files) append(data []byte) error {
 	f.mu.Lock()

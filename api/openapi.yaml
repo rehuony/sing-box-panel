@@ -1040,6 +1040,22 @@ paths:
                   items: {type: array, items: {$ref: '#/components/schemas/CoreLogFile'}}
         default: {$ref: '#/components/responses/Problem'}
   /core/logs/content:
+    delete:
+      operationId: clearCoreLog
+      summary: Clear the persisted contents of one managed core output file
+      description: Truncates only the selected captured file, including an active file from today. The file remains available and new output continues to append. Other segments, dates, database events and the native log.output file are unchanged. Filters do not restrict clearing. Discard pending reads and streams before clearing; after success discard displayed contents and restart at offset 0. Byte offsets from before clearing are invalid. Cookie sessions require CSRF protection.
+      parameters:
+        - $ref: '#/components/parameters/CSRFToken'
+        - name: file
+          in: query
+          required: true
+          schema: {type: string, pattern: '^\d{4}-\d{2}-\d{2}-\d{3,20}\.log$'}
+      responses:
+        '204':
+          description: Existing captured contents were cleared. New output may already have been appended.
+        '400': {$ref: '#/components/responses/Problem'}
+        '404': {$ref: '#/components/responses/Problem'}
+        default: {$ref: '#/components/responses/Problem'}
     get:
       operationId: readCoreLog
       parameters:
@@ -1050,9 +1066,13 @@ paths:
         - name: offset
           in: query
           schema: {type: integer, format: int64, minimum: -1, default: -1}
+        - name: generation
+          in: query
+          description: Generation returned with the previous chunk. If stale, the read restarts at zero and returns reset=true.
+          schema: {type: string, maxLength: 128}
       responses:
         '200':
-          description: Sanitized native process output. Offset -1 starts at the last 64 KiB; reconnect using next_offset.
+          description: Sanitized native process output. Offset -1 starts at the last 64 KiB; reconnect using next_offset and generation. Clearing a file or restarting the server changes its generation; discard the previous display when reset is true. Offset-only clients remain supported but must discard their own pre-clear cursors.
           content:
             application/json:
               schema: {$ref: '#/components/schemas/CoreLogChunk'}
@@ -1068,9 +1088,13 @@ paths:
         - name: offset
           in: query
           schema: {type: integer, format: int64, minimum: -1, default: -1}
+        - name: generation
+          in: query
+          description: Generation returned with the previous chunk. If stale, the read restarts at zero and returns reset=true.
+          schema: {type: string, maxLength: 128}
       responses:
         '200':
-          description: Sanitized native process output. Offset -1 starts at the last 64 KiB; reconnect using next_offset.
+          description: Sanitized native process output. Offset -1 starts at the last 64 KiB; reconnect using next_offset and generation. Clearing a file or restarting the server changes its generation; discard the previous display when reset is true. Offset-only clients remain supported but must discard their own pre-clear cursors.
           content:
             text/event-stream:
               schema: {type: string}
@@ -2660,10 +2684,17 @@ components:
     CoreLogChunk:
       type: object
       additionalProperties: false
-      required: [file, text, next_offset, size]
+      required: [file, text, next_offset, size, generation]
       properties:
         file: {type: string}
         text: {type: string}
+        generation:
+          type: string
+          maxLength: 128
+          description: Opaque file generation. Send it with next_offset when resuming a read.
+        reset:
+          type: boolean
+          description: If true, discard the previous display; this chunk starts at byte zero of a new generation.
         next_offset: {type: integer, format: int64, minimum: 0}
         size: {type: integer, format: int64, minimum: 0}
     PanelLog:

@@ -141,28 +141,50 @@ func IsLogNotFound(err error) bool {
 	return errors.Is(err, store.ErrLogEntryNotFound)
 }
 
+func (application *Application) coreLogFiles() (*corelogs.Files, error) {
+	application.coreLogsMu.Lock()
+	defer application.coreLogsMu.Unlock()
+	if application.coreLogs == nil {
+		files, err := corelogs.New(application.settings.DataDir)
+		if err != nil {
+			return nil, err
+		}
+		application.coreLogs = files
+	}
+	return application.coreLogs, nil
+}
+
 func (application *Application) CoreLogFiles() ([]corelogs.File, error) {
-	files, err := corelogs.New(application.settings.DataDir)
+	files, err := application.coreLogFiles()
 	if err != nil {
 		return nil, err
 	}
 	return files.List()
 }
-func (application *Application) CoreLogContent(name string, offset int64) (corelogs.Chunk, error) {
-	files, err := corelogs.New(application.settings.DataDir)
+func (application *Application) CoreLogContent(name string, offset int64, generation string) (corelogs.Chunk, error) {
+	files, err := application.coreLogFiles()
 	if err != nil {
 		return corelogs.Chunk{}, err
 	}
-	return files.Read(name, offset)
+	return files.Read(name, offset, generation)
 }
 
 func (application *Application) DeleteCoreLogFile(ctx context.Context, name string) (err error) {
 	defer func() { application.RecordOperation(ctx, "core.log.delete", "Core log file deletion", err) }()
-	files, err := corelogs.New(application.settings.DataDir)
+	files, err := application.coreLogFiles()
 	if err != nil {
 		return err
 	}
 	return files.Delete(name)
+}
+
+func (application *Application) ClearCoreLog(ctx context.Context, name string) (err error) {
+	defer func() { application.RecordOperation(ctx, "core.log.clear", "Core log clearing", err) }()
+	files, err := application.coreLogFiles()
+	if err != nil {
+		return err
+	}
+	return files.Clear(name)
 }
 
 func (application *Application) PanelLogs(ctx context.Context, filter store.PanelLogFilter) (store.PanelLogPage, error) {

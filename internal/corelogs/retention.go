@@ -46,6 +46,7 @@ func (f *Files) pruneLocked() error {
 		}
 		info, err := root.Lstat(file.Name)
 		if errors.Is(err, os.ErrNotExist) {
+			delete(f.generations, file.Name)
 			remaining--
 			continue
 		}
@@ -58,6 +59,7 @@ func (f *Files) pruneLocked() error {
 		if err := root.Remove(file.Name); err != nil && !errors.Is(err, os.ErrNotExist) {
 			return err
 		}
+		delete(f.generations, file.Name)
 		remaining--
 	}
 	return nil

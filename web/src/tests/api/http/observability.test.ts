@@ -4,6 +4,21 @@ import { createHttpApiClient } from '@/api/http-api-client';
 import { testDashboardSnapshot } from '@/tests/api/mock-api-client';
 
 describe('createHttpApiClient observability domain', () => {
+  it('clears only the selected capture with CSRF protection and surfaces failures', async () => {
+    const fetcher = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ csrfToken: 'log-csrf-token' })))
+      .mockResolvedValueOnce(new Response(null, { status: 204 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ code: 'core_log_clear_failed' }), {
+        status: 503, headers: { 'Content-Type': 'application/problem+json' },
+      }));
+    const client = createHttpApiClient({ baseUrl: '/panel/api/v1', fetcher });
+    await client.getSession();
+    await client.clearCoreLog('2026-09-23-000.log');
+    expect(fetcher).toHaveBeenLastCalledWith('/panel/api/v1/core/logs/content?file=2026-09-23-000.log', expect.objectContaining({
+      method: 'DELETE', credentials: 'same-origin', headers: expect.objectContaining({ 'X-CSRF-Token': 'log-csrf-token' }),
+    }));
+    await expect(client.clearCoreLog('2026-09-23-000.log')).rejects.toMatchObject({ status: 503, code: 'core_log_clear_failed' });
+  });
   it('deletes a managed log by encoded name with the session CSRF token', async () => {
     const fetcher = vi.fn<typeof fetch>()
       .mockResolvedValueOnce(new Response(JSON.stringify({ csrfToken: 'log-csrf-token' })))
@@ -273,7 +288,7 @@ describe('createHttpApiClient observability domain', () => {
 
 describe('native output and panel activity', () => {
   it('passes selected file and resume offset and decodes native SSE', async () => {
-    const chunk = { file: '2026-09-19-000.log', text: 'INFO 节点\n', next_offset: 13, size: 13 };
+    const chunk = { file: '2026-09-19-000.log', text: 'INFO 节点\n', generation: 'generation-2', reset: true, next_offset: 13, size: 13 };
     const fetcher = vi
       .fn<typeof fetch>()
       .mockResolvedValue(
@@ -283,9 +298,9 @@ describe('native output and panel activity', () => {
       );
     const client = createHttpApiClient({ fetcher });
     const events = [];
-    for await (const event of client.streamCoreLog(chunk.file, 5)) events.push(event);
+    for await (const event of client.streamCoreLog(chunk.file, 5, 'generation-1')) events.push(event);
     expect(events).toEqual([chunk]);
-    expect(fetcher.mock.calls[0][0]).toContain('file=2026-09-19-000.log&offset=5');
+    expect(fetcher.mock.calls[0][0]).toContain('file=2026-09-19-000.log&offset=5&generation=generation-1');
   });
   it('encodes combined panel filters', async () => {
     const fetcher = vi
