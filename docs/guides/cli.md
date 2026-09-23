@@ -17,7 +17,7 @@ sing-box-panel
 │  ├─ catalog | refresh
 │  ├─ list | show | install | import | remove
 │  └─ enable | status | start | stop | restart | rollback
-├─ config init | show | set | unset | check | verify
+├─ config init | show | set | unset | verify
 ├─ channel list | show | create | update | delete | render
 ├─ source list | show | create | update | refresh | delete
 ├─ token list | create | rotate | revoke
@@ -99,9 +99,9 @@ Database identity restricts storage operations, but does not prevent confirmed
 full-directory cleanup. Metrics read and validate `traffic.quota_gib` only when needed,
 directly from the shared settings file.
 
-`config check/verify`, `server start`, and `systemd install --now` require the complete
+`config verify`, `server start`, and `systemd install --now` require the complete
 valid panel settings. Startup checks the runtime environment and database;
-`config check/verify` read the settings file alone. `server start` first creates default
+`config verify` reads the settings file alone. `server start` first creates default
 settings if the selected file is absent, including parent directories, the default data directory,
 and a random management token. The settings file uses mode `0600`; new directories
 use `0700`. This also applies to an explicit `--config` path. Concurrent first
@@ -154,7 +154,6 @@ secret-bearing output.
 ```sh
 sing-box-panel config init --config ./setting.json
 sing-box-panel config show --config ./setting.json
-sing-box-panel config check --config ./setting.json
 sing-box-panel config verify --config ./setting.json
 sing-box-panel config unset server.port /subscription/provider --config ./setting.json
 sing-box-panel config set --config ./setting.json --file ./new-setting.json
@@ -173,9 +172,8 @@ sing-box-panel config set --config ./setting.json --file - < ./new-setting.json
 - `show` returns exact file bytes, even when the JSON or settings are invalid.
   JSON/JSONL returns `settings_path` and a `content` string. The content includes
   credentials; the Web UI reads and writes this same file.
-- `check` and `verify` share the same implementation and validate strict JSON
-  and the complete panel settings contract.
-  They return `valid: true` and `settings_path` on success. Neither creates or
+- `verify` validates strict JSON and the complete panel settings contract.
+  It returns `valid: true` and `settings_path` on success. It never creates or
   migrates a database, checks directory availability, or runs sing-box.
 - `set --file FILE|-` replaces the complete document. Validation finishes before
   the destination is changed; invalid input leaves the existing file intact.
@@ -196,7 +194,7 @@ sing-box-panel config set --config ./setting.json --file - < ./new-setting.json
   Resetting `data_dir` selects the current effective user's default directory;
   the old directory remains active until the existing startup relocation runs.
 
-Settings documents are limited to 1 MiB. `set`, `unset`, `check`, and
+Settings documents are limited to 1 MiB. `set`, `unset`, and
 `verify` reject unknown fields, duplicate keys, trailing JSON, and invalid
 settings values.
 `set` can replace an invalid existing file or create a missing file; it does not
@@ -215,9 +213,10 @@ pending move. These sidecars appear in `system df`; cleanup removes idle metadat
 and refuses an unfinished relocation.
 Do not remove recovery material to bypass a conflict.
 
-The top-level `verify` command is removed; use `config verify` or `config check`.
+The top-level `verify` and duplicate `config check` commands are removed; use
+`config verify`. Update scripts that used `config check`.
 The former sing-box configuration interfaces and their revision and core
-flags remain removed. The current `config check`, `verify`, `set`, and `unset`
+flags remain removed. The current `config verify`, `set`, and `unset`
 operate only on panel settings. Move sing-box editing, validation, and Apply
 workflows to the Web UI, and regenerate shell completions after upgrading.
 The Web editor continues to
@@ -546,6 +545,16 @@ GitHub Release for the current architecture:
 ```sh
 sing-box-panel update
 ```
+
+Text mode reports version lookup, release signature verification, preparation,
+download, binary verification, and installation on stderr. Interactive terminals
+show a live download percentage bar and downloaded/total MiB; redirected output
+uses occasional plain progress lines. Unknown download sizes show transferred
+MiB until completion. The percentage measures the binary download only: a 100%
+download still needs verification and installation. Success is reported on
+stdout only after the update finishes; failures and cancellation end the progress
+line before the error is printed. `--output=json` and `--output=jsonl` suppress
+progress and preserve the existing structured result and error formats.
 
 It is available only to strict v-prefixed release builds on Linux amd64 and
 arm64. The selected release must attach both platform binaries, `SHA256SUMS`,

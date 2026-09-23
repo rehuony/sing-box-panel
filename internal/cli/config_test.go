@@ -102,9 +102,9 @@ func TestPanelConfigFileOperationsDoNotOpenStorage(t *testing.T) {
 				if format != "text" && !strings.Contains(out, `"saved":true`) {
 					t.Fatal(out)
 				}
-				out, err = runPanelConfig(t, t.Context(), path, nil, "check", "-o", format)
+				out, err = runPanelConfig(t, t.Context(), path, nil, "verify", "-o", format)
 				if err != nil {
-					t.Fatalf("check probed storage: %v", err)
+					t.Fatalf("verify probed storage: %v", err)
 				}
 				if format == "text" && out != "panel settings are valid\n" || format != "text" && !strings.Contains(out, `"valid":true`) {
 					t.Fatal(out)
@@ -179,12 +179,12 @@ func TestPanelConfigReadErrorsAndSetUsage(t *testing.T) {
 				t.Fatalf("%s show = %q, %v", name, out, err)
 			}
 		}
-		if out, err := runPanelConfig(t, t.Context(), path, nil, "check"); ExitCode(err) != 3 || out != "" {
-			t.Fatalf("%s check = %q, %v", name, out, err)
+		if out, err := runPanelConfig(t, t.Context(), path, nil, "verify"); ExitCode(err) != 3 || out != "" {
+			t.Fatalf("%s verify = %q, %v", name, out, err)
 		}
 	}
 	path := filepath.Join(t.TempDir(), "setting.json")
-	for _, args := range [][]string{{"set"}, {"set", "--file="}, {"set", "/log/level", "--file=-"}, {"check", "--core=x"}, {"set", "--revision=0"}} {
+	for _, args := range [][]string{{"set"}, {"set", "--file="}, {"set", "/log/level", "--file=-"}, {"verify", "--core=x"}, {"set", "--revision=0"}} {
 		if out, err := runPanelConfig(t, t.Context(), path, nil, args...); ExitCode(err) != 2 || out != "" {
 			t.Fatalf("usage %v = %q, %v", args, out, err)
 		}
@@ -212,20 +212,6 @@ func TestPanelConfigCancellationDoesNotWrite(t *testing.T) {
 	after, _ := os.ReadFile(path)
 	if !bytes.Equal(data, after) {
 		t.Fatal("cancelled set changed settings")
-	}
-}
-
-func TestPanelConfigVerifyMatchesCheck(t *testing.T) {
-	paths := unavailableSettingsFixtures(t)
-	paths["valid"] = commandSettingsFixture(t)
-	for name, path := range paths {
-		for _, format := range []string{"text", "json", "jsonl"} {
-			check, checkErr := runPanelConfig(t, t.Context(), path, nil, "check", "-o", format)
-			verify, verifyErr := runPanelConfig(t, t.Context(), path, nil, "verify", "-o", format)
-			if check != verify || ExitCode(checkErr) != ExitCode(verifyErr) {
-				t.Fatalf("%s/%s: check and verify differ", name, format)
-			}
-		}
 	}
 }
 

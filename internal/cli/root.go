@@ -25,7 +25,7 @@ type Dependencies struct {
 	Stdout          io.Writer
 	Stderr          io.Writer
 	Build           buildinfo.Info
-	Update          func(context.Context, string) (selfupdate.Result, error)
+	Update          func(context.Context, string, selfupdate.ProgressFunc) (selfupdate.Result, error)
 	RunServer       func(context.Context, string) error
 	OpenApplication func(context.Context, string) (*application.Application, error)
 	Systemd         panelSystemd.Service

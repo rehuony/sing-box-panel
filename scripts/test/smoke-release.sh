@@ -374,7 +374,7 @@ jq \
   "${settings_path}" >"${settings_temporary}"
 chmod 0600 "${settings_temporary}"
 mv -- "${settings_temporary}" "${settings_path}"
-run_installed config check >/dev/null
+run_installed config verify >/dev/null
 
 management_token="$(jq -er '.auth.token | select(type == "string" and length > 0)' "${settings_path}")"
 panel_origin="http://127.0.0.1:${panel_port}"
@@ -508,7 +508,7 @@ assert_json 'installed binary reports the release version and frozen commit' \
   --arg version "${release_version}" \
   --arg commit "${source_commit}" \
   '.version == $version and .commit == $commit' <<<"${updated_metadata}"
-run_installed config check >/dev/null
+run_installed config verify >/dev/null
 
 start_panel "${release_version}"
 updated_status="$(authenticated_get '/api/v1/system/status')"

@@ -147,7 +147,7 @@ Initialize an isolated development instance and start the server:
 
 ```sh
 ./bin/sing-box-panel init --config ./setting.json
-./bin/sing-box-panel config check --config ./setting.json
+./bin/sing-box-panel config verify --config ./setting.json
 ./bin/sing-box-panel server start --config ./setting.json
 ```
 

@@ -81,7 +81,9 @@ func (updater *Updater) downloadBytes(ctx context.Context, value asset, maximum 
 	return data, nil
 }
 
-func (updater *Updater) downloadFile(ctx context.Context, value asset, destination io.Writer, maximum int64) ([sha256.Size]byte, error) {
+func (updater *Updater) downloadFile(ctx context.Context, value asset, destination io.Writer, maximum int64, report ProgressFunc) ([sha256.Size]byte, error) {
+	progress := Progress{Stage: StageDownload, Total: value.Size}
+	report.emit(progress)
 	request, err := updater.request(ctx, value.BrowserDownloadURL, "application/octet-stream")
 	if err != nil {
 		return [sha256.Size]byte{}, err
@@ -102,7 +104,11 @@ func (updater *Updater) downloadFile(ctx context.Context, value asset, destinati
 	}
 
 	hash := sha256.New()
-	written, err := io.Copy(io.MultiWriter(destination, hash), io.LimitReader(response.Body, maximum+1))
+	if response.ContentLength > 0 {
+		progress.Total = response.ContentLength
+	}
+	writer := &downloadProgressWriter{writer: io.MultiWriter(destination, hash), report: report, progress: progress}
+	written, err := io.Copy(writer, io.LimitReader(response.Body, maximum+1))
 	if err != nil {
 		return [sha256.Size]byte{}, fmt.Errorf("%w: read asset: %w", ErrReleaseUnavailable, err)
 	}
@@ -112,6 +118,10 @@ func (updater *Updater) downloadFile(ctx context.Context, value asset, destinati
 	if written == 0 {
 		return [sha256.Size]byte{}, fmt.Errorf("%w: binary asset is empty", ErrReleaseInvalid)
 	}
+	progress.Downloaded = written
+	progress.Total = written
+	progress.Complete = true
+	report.emit(progress)
 	var digest [sha256.Size]byte
 	copy(digest[:], hash.Sum(nil))
 	return digest, nil
