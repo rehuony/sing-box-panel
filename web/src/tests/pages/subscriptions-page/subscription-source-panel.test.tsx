@@ -87,7 +87,8 @@ describe('subscription sources and nodes', () => {
         </ApiClientProvider>
       </MemoryRouter>,
     );
-    await user.click(await screen.findByRole('tab', { name: 'Advanced JSON' }, { timeout: 5000 }));
+    await act(() => vi.dynamicImportSettled());
+    await user.click(await screen.findByRole('tab', { name: 'Advanced JSON' }));
     const editor = screen.getByRole('textbox', { name: 'Advanced JSON' });
     expect(editor).toHaveValue('{\n  "type": "socks",\n  "tag": "",\n  "server": "",\n  "server_port": 1080\n}');
     const raw = '{"type":"socks","future":{"counter":900719925474099312345,"threshold":4.2000e+99}}';
@@ -123,6 +124,7 @@ describe('subscription sources and nodes', () => {
         </ApiClientProvider>
       </MemoryRouter>,
     );
+    await act(() => vi.dynamicImportSettled());
     await user.click(await screen.findByRole('tab', { name: 'Visual editor' }));
     await user.keyboard('{ArrowRight}');
     expect(screen.getByRole('tab', { name: 'Advanced JSON' })).toHaveFocus();

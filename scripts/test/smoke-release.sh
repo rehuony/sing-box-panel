@@ -21,7 +21,7 @@ assert_json() {
   if ! jq -e "$@" <<<"${payload}" >/dev/null; then
     printf 'assertion failed: %s\n' "${description}" >&2
     # Report only metadata; configuration text and settings can contain secrets.
-    jq -c '{version, commit, panel_version, status, sequence, schema_version, revision, syntax_valid, canonical_revision_id, updated, previous_version, code}' \
+    jq -c '{version, commit, panel_version, status, running, sequence, schema_version, revision, syntax_valid, canonical_revision, canonical_revision_id, updated, previous_version, code}' \
       <<<"${payload}" >&2 || true
     return 1
   fi
@@ -453,20 +453,20 @@ authenticated_put() {
 phase 'exercise the current editable configuration and settings APIs'
 start_panel "${probe_version}"
 status_payload="$(authenticated_get '/api/v1/system/status')"
-assert_json 'fresh instance has no configuration history or running core' --arg version "${probe_version}" \
-  '.panel_version == $version and .canonical_revision == 0 and .running == false' <<<"${status_payload}"
+assert_json 'fresh instance initializes configuration history without starting a core' --arg version "${probe_version}" \
+  '.panel_version == $version and .canonical_revision == 1 and .running == false' <<<"${status_payload}"
 curl --fail-with-body --silent --show-error --max-time 5 "${panel_origin}/" >"${smoke_root}/index.html"
 grep -qi '<html' "${smoke_root}/index.html"
 
 configuration_fixture="${workspace_root}/scripts/testdata/release-configuration.json"
 initial_file="$(authenticated_get '/api/v1/config/file')"
 assert_json 'fresh editable file' \
-  '.revision == 0 and .content == "{}" and .syntax_valid == true' <<<"${initial_file}"
-file_write="$(jq -n --rawfile content "${configuration_fixture}" '{revision: 0, content: $content}')"
+  '.revision == 1 and .content == "{}" and .syntax_valid == true and (.canonical_revision_id | length > 0)' <<<"${initial_file}"
+file_write="$(jq --rawfile content "${configuration_fixture}" '{revision, content: $content}' <<<"${initial_file}")"
 saved_file="$(authenticated_put '/api/v1/config/file' <<<"${file_write}")"
 assert_json 'valid file preserves exact text and links immutable history' \
-  --rawfile content "${configuration_fixture}" \
-  '.revision == 1 and .content == $content and .syntax_valid == true and (.canonical_revision_id | length > 0)' \
+  --argjson input "${file_write}" \
+  '.revision == ($input.revision + 1) and .content == $input.content and .syntax_valid == true and (.canonical_revision_id | length > 0)' \
   <<<"${saved_file}"
 stale_save="$(authenticated_put '/api/v1/config/file' 412 <<<"${file_write}")"
 assert_json 'stale editable-file writes are rejected' '.code == "configuration_file_conflict"' <<<"${stale_save}"
@@ -480,11 +480,11 @@ saved_settings="$(jq '{revision, preferences, github_token_configured, identity_
 settings_digest="$(sha256sum "${settings_path}" | cut -d ' ' -f 1)"
 
 # Unfinished text must survive an update without falling back to the valid head.
-draft_write="$(jq -n --arg content $'{\n  "log": ' '{revision: 1, content: $content}')"
+draft_write="$(jq --arg content $'{\n  "log": ' '{revision, content: $content}' <<<"${saved_file}")"
 saved_draft="$(authenticated_put '/api/v1/config/file' <<<"${draft_write}")"
 assert_json 'unfinished JSON remains editable without a usable canonical revision' \
   --argjson input "${draft_write}" \
-  '.revision == 2 and .content == $input.content and .syntax_valid == false and (.canonical_revision_id // "") == ""' \
+  '.revision == ($input.revision + 1) and .content == $input.content and .syntax_valid == false and (.canonical_revision_id // "") == ""' \
   <<<"${saved_draft}"
 
 phase 'authenticate and install the update while the probe keeps running'
@@ -513,7 +513,7 @@ run_installed config verify >/dev/null
 start_panel "${release_version}"
 updated_status="$(authenticated_get '/api/v1/system/status')"
 assert_json 'release retains history and does not start a core implicitly' --arg version "${release_version}" \
-  '.panel_version == $version and .canonical_revision == 1 and .running == false' <<<"${updated_status}"
+  '.panel_version == $version and .canonical_revision == 2 and .running == false' <<<"${updated_status}"
 persisted_file="$(authenticated_get '/api/v1/config/file')"
 assert_json 'unfinished configuration text and revision survive restart unchanged' \
   --argjson saved "${saved_draft}" '. == $saved' <<<"${persisted_file}"
@@ -524,11 +524,12 @@ assert_json 'panel preferences and credential-presence flags survive restart unc
 [[ "$(sha256sum "${settings_path}" | cut -d ' ' -f 1)" == "${settings_digest}" ]]
 
 phase 'correct the draft through the new binary and verify another restart'
-file_write="$(jq -n --rawfile content "${configuration_fixture}" '{revision: 2, content: $content}')"
+file_write="$(jq --rawfile content "${configuration_fixture}" '{revision, content: $content}' <<<"${persisted_file}")"
 corrected_file="$(authenticated_put '/api/v1/config/file' <<<"${file_write}")"
 assert_json 'corrected text reconnects to the existing valid history' \
   --argjson saved "${saved_file}" \
-  '.revision == 3 and .syntax_valid == true and .content == $saved.content and .canonical_revision_id == $saved.canonical_revision_id' \
+  --argjson input "${file_write}" \
+  '.revision == ($input.revision + 1) and .syntax_valid == true and .content == $saved.content and .canonical_revision_id == $saved.canonical_revision_id' \
   <<<"${corrected_file}"
 stale_save="$(authenticated_put '/api/v1/config/file' 412 <<<"${draft_write}")"
 assert_json 'CAS remains enforced after self-update' '.code == "configuration_file_conflict"' <<<"${stale_save}"
