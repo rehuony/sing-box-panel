@@ -29,10 +29,10 @@ export function SchemaDialogLayout({ schema, root = schema, data, children, prim
         <TabsList hidden={available.length === 1} aria-label={t('configuration.dialog.sections')} className='schema-dialog-tabs__nav'>
           {available.map((group) => <TabsTrigger key={group} value={group}>{t(`configuration.dialog.${group}`)}</TabsTrigger>)}
         </TabsList>
-        <TabsContent className='schema-dialog-tabs__panel' value={active}>
+        <TabsContent className='schema-dialog-tabs__panel' data-json={active === 'json'} value={active}>
           {primaryContent === undefined ? null : <div hidden={active !== primary}>{primaryContent}</div>}
           <div className='schema-dialog-tabs__form' hidden={active === 'json'}>{children}</div>
-          {jsonPreview === undefined ? null : <div hidden={active !== 'json'}>{jsonPreview}</div>}
+          {jsonPreview === undefined ? null : <div className='schema-dialog-tabs__json' hidden={active !== 'json'}>{jsonPreview}</div>}
         </TabsContent>
       </Tabs>
     </SchemaDialogContext>

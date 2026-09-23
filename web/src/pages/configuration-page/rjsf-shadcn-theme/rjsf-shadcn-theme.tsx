@@ -380,7 +380,8 @@ function PanelBaseInputTemplate(props: BaseInputTemplateProps) {
       onChange={onChangeOverride ?? ((event) => onChange(event.currentTarget.value === '' ? options.emptyValue : event.currentTarget.value))}
       onFocus={(event) => onFocus(id, event.currentTarget.value)}
       readOnly={readonly}
-      type={inputProps.type}
+      // Configuration credentials are already visible in the authenticated JSON editor.
+      type={inputProps.type === 'password' ? 'text' : inputProps.type}
       value={inputValue}
     />
   );
@@ -398,10 +399,6 @@ function PanelCheckboxWidget(props: WidgetProps) {
       onCheckedChange={(next) => props.onChange(next)}
     />
   );
-}
-
-function PanelPasswordWidget(props: WidgetProps) {
-  return <PanelBaseInputTemplate {...props} type='password' />;
 }
 
 function PanelSelectWidget(props: WidgetProps) {
@@ -552,5 +549,4 @@ export const panelRJSFWidgets = {
   SelectWidget: PanelSelectWidget,
   TextareaWidget: PanelTextareaWidget,
   hidden: HiddenWidget,
-  password: PanelPasswordWidget,
 };

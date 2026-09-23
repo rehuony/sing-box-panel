@@ -343,7 +343,7 @@ describe('subscription sources and nodes', () => {
     expect(screen.getAllByRole('article')).toHaveLength(2);
   });
 
-  it('copies only the currently displayed credentials from the node details toolbar', async () => {
+  it('displays and copies complete credentials directly from the node details toolbar', async () => {
     const user = userEvent.setup();
     const external = { ...node, origin: 'source' as const, source_id: remote.id };
     mount(
@@ -365,26 +365,14 @@ describe('subscription sources and nodes', () => {
     await user.click(within(sourceRow).getByRole('button', { name: 'Edit' }));
     await user.click(screen.getByRole('button', { name: 'View 香港' }));
     const dialog = await screen.findByRole('dialog', { name: '香港' });
-    await within(dialog).findByRole('button', { name: 'Show credentials' });
-    expect(dialog).not.toHaveTextContent('private-psk');
-    expect(dialog).not.toHaveTextContent('private-client-key');
-    await user.click(within(dialog).getByRole('button', { name: 'Copy displayed JSON' }));
-    expect(JSON.parse(await navigator.clipboard.readText())).toMatchObject({
-      psk: '••••••••', tls: { client_key: '••••••••' },
-    });
-    await user.click(within(dialog).getByRole('button', { name: 'Show credentials' }));
+    await within(dialog).findByText(/private-psk/);
     expect(dialog).toHaveTextContent('private-psk');
-    expect(within(dialog).getByRole('button', { name: 'Hide credentials' })).toHaveAttribute('aria-pressed', 'true');
+    expect(dialog).toHaveTextContent('private-client-key');
+    expect(within(dialog).queryByRole('button', { name: 'Show credentials' })).not.toBeInTheDocument();
+    expect(within(dialog).queryByRole('button', { name: 'Hide credentials' })).not.toBeInTheDocument();
     await user.click(within(dialog).getByRole('button', { name: 'Copy displayed JSON' }));
     expect(JSON.parse(await navigator.clipboard.readText())).toMatchObject({
       psk: 'private-psk', tls: { client_key: 'private-client-key' },
-    });
-    await user.click(within(dialog).getByRole('button', { name: 'Hide credentials' }));
-    expect(dialog).not.toHaveTextContent('private-psk');
-    expect(dialog).not.toHaveTextContent('private-client-key');
-    await user.click(within(dialog).getByRole('button', { name: 'Copy displayed JSON' }));
-    expect(JSON.parse(await navigator.clipboard.readText())).toMatchObject({
-      psk: '••••••••', tls: { client_key: '••••••••' },
     });
   });
 

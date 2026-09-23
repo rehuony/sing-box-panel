@@ -263,7 +263,8 @@ describe.skipIf(reviewedEntry === undefined)('managedCollectionsEditor', () => {
     const user = userEvent.setup();
     render(<Harness initial={{ [collection]: [] }} selectedCollection={collection} />);
     const table = screen.getByRole('table');
-    expect(within(table).getAllByRole('columnheader').map(header => header.textContent)).toEqual(['Tag', 'Type', 'Details', 'Actions']);
+    const addressHeader = collection === 'inbounds' ? 'Listen address' : collection === 'outbounds' ? 'Server address' : 'Details';
+    expect(within(table).getAllByRole('columnheader').map(header => header.textContent)).toEqual(['Tag', 'Type', addressHeader, 'Actions']);
     expect(within(table).getAllByRole('row')).toHaveLength(2);
     expect(screen.queryByRole('tablist')).not.toBeInTheDocument();
     const add = within(table).getByRole('button', { name: 'Add node' });
@@ -324,5 +325,38 @@ describe.skipIf(reviewedEntry === undefined)('managedCollectionsEditor', () => {
       ] }} />,
     );
     for (const button of within(screen.getByRole('table')).getAllByRole('button')) expect(button).toBeDisabled();
+  });
+
+  it.each([
+    { collection: 'inbounds', value: { type: 'mixed', listen: '0.0.0.0', listen_port: 2080, server: 'wrong.example', server_port: 443 }, expected: '0.0.0.0:2080' },
+    { collection: 'inbounds', value: { type: 'mixed', listen: '::', listen_port: 2080 }, expected: '[::]:2080' },
+    { collection: 'inbounds', value: { type: 'mixed', listen_port: 2080 }, expected: '—:2080' },
+    { collection: 'inbounds', value: { type: 'tun' }, expected: '—' },
+    { collection: 'outbounds', value: { type: 'trojan', server: 'proxy.example', server_port: 443, listen: 'wrong.example', listen_port: 2080, tls: { server_name: 'sni.example' }, transport: { type: 'ws' } }, expected: 'proxy.example:443' },
+    { collection: 'outbounds', value: { type: 'trojan', server: '2001:db8::1', server_port: 443 }, expected: '[2001:db8::1]:443' },
+    { collection: 'outbounds', value: { type: 'trojan', server: '[2001:db8::1]', server_port: '443' }, expected: '[2001:db8::1]:443' },
+    { collection: 'outbounds', value: { type: 'hysteria2', server: 'hop.example', server_port: 443, server_ports: ['2000:3000', '4000'] }, expected: 'hop.example:2000:3000, 4000' },
+    { collection: 'outbounds', value: { type: 'direct' }, expected: '—' },
+    { collection: 'outbounds', value: { type: 'selector', outbounds: ['proxy'] }, expected: '—' },
+    { collection: 'outbounds', value: { type: 'socks', server: 'proxy.example' }, expected: 'proxy.example:—' },
+  ] as const)('shows only the $collection address as $expected', ({ collection, value, expected }) => {
+    render(<Harness selectedCollection={collection} initial={parseCanonicalDraft(JSON.stringify({ [collection]: [{ tag: 'node', ...value }] }))} />);
+    const row = within(screen.getByRole('table')).getAllByRole('row')[1];
+    expect(within(row).getAllByRole('cell')[2].textContent).toBe(expected);
+  });
+
+  it('copies the current unsaved entry JSON without changing large numeric values', async () => {
+    const user = userEvent.setup();
+    render(<Harness selectedCollection='inbounds' initial={parseCanonicalDraft('{"inbounds":[{"type":"mixed","tag":"copy","listen":"::","listen_port":2080,"future":900719925474099312345}]}')} />);
+    await user.click(screen.getByRole('button', { name: 'Edit' }));
+    const dialog = screen.getByRole('dialog');
+    fireEvent.change(within(dialog).getByLabelText('Listen port'), { target: { value: '3080' } });
+    await user.click(within(dialog).getByRole('tab', { name: 'JSON' }));
+    const preview = within(dialog).getByLabelText('JSON', { selector: 'pre' });
+    expect(preview.textContent).toContain('"listen_port": 3080');
+    expect(preview.textContent).toContain('900719925474099312345');
+    await user.click(within(dialog).getByRole('button', { name: 'Copy JSON' }));
+    expect(await navigator.clipboard.readText()).toBe(preview.textContent);
+    expect(screen.getByLabelText('Canonical draft')).toHaveTextContent('"listen_port":2080');
   });
 });

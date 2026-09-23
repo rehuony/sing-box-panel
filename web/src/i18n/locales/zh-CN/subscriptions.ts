@@ -49,8 +49,6 @@ export const subscriptions = {
     import: '导入分享链接',
     parse: '解析',
     save: '保存节点',
-    reveal: '显示凭据',
-    mask: '隐藏凭据',
   },
   sources: {
     onDemand: '仅手动',

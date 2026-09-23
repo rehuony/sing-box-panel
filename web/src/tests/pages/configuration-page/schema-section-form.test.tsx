@@ -143,8 +143,8 @@ describe('schemaSectionForm', () => {
     await waitFor(() => expect(screen.queryByText(/DNS 规则未指定服务器时使用/)).not.toBeInTheDocument());
     await user.click(screen.getByRole('textbox', { name: '默认 DNS 服务器' }));
     await user.tab({ shift: true });
-    expect(help).toHaveFocus();
-    await user.keyboard('{Enter}');
+    expect(help).not.toHaveFocus();
+    await user.click(help);
     expect(await screen.findByText(/DNS 规则未指定服务器时使用/)).toBeVisible();
     await user.keyboard('{Escape}');
     expect(screen.getByRole('button', { name: '规则列表的说明' })).toBeEnabled();
@@ -156,7 +156,7 @@ describe('schemaSectionForm', () => {
     expect(onChange).not.toHaveBeenCalled();
   });
 
-  it('shows field descriptions beside labels on hover and keyboard activation without changing values', async () => {
+  it('shows field descriptions on hover and click while Tab skips help without changing values', async () => {
     const user = userEvent.setup();
     const onChange = vi.fn();
     const schema: RJSFSchema = {
@@ -185,8 +185,8 @@ describe('schemaSectionForm', () => {
     await waitFor(() => expect(screen.queryByText('A Go duration such as 300ms or 5s.')).not.toBeInTheDocument());
     await user.click(screen.getByRole('textbox', { name: 'Sync interval' }));
     await user.tab({ shift: true });
-    expect(intervalHelp).toHaveFocus();
-    await user.keyboard('{Enter}');
+    expect(screen.getByRole('textbox', { name: 'Server' })).toHaveFocus();
+    await user.click(intervalHelp);
     expect(await screen.findByText('A Go duration such as 300ms or 5s.')).toBeVisible();
     await user.keyboard('{Escape}');
     await waitFor(() => expect(screen.queryByText('A Go duration such as 300ms or 5s.')).not.toBeInTheDocument());

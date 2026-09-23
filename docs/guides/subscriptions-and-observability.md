@@ -253,6 +253,8 @@ unknown extension fields and large numeric lexemes survive unrelated edits.
 The advanced node JSON editor formats valid content on load, on entry and on
 blur and save, and provides a format button. Invalid or incomplete text is left intact;
 formatting preserves large numeric lexemes and unknown fields.
+Node detail JSON displays credentials directly and copies the complete displayed
+JSON. Configuration forms likewise show passwords, UUIDs, keys and tokens as text.
 HY2 supports a single port, port ranges or Realm, SSH supports password/key/key
 file, and Shadowsocks UDP-over-TCP and multiplexing are mutually exclusive.
 QUIC does not expose uTLS/Reality or TCP fragmentation. Detour references must

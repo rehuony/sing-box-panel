@@ -3,7 +3,7 @@ import type { RJSFSchema } from '@rjsf/utils';
 import { useState } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import userEvent from '@testing-library/user-event';
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { createPrecompiledValidator, customizeValidator } from '@rjsf/validator-ajv8';
 
 import '@/i18n';
@@ -23,6 +23,89 @@ const schema: RJSFSchema = {
 };
 
 describe('schema dialog layout', () => {
+  it.each([['username', 'password'], ['Username', 'Password'], ['name', 'password']])('shows %s and credential values after creating, editing and removing a user', async (usernameKey, passwordKey) => {
+    const user = userEvent.setup();
+    const authentication: RJSFSchema = {
+      type: 'object', properties: {
+        users: { type: 'array', items: { type: 'object', properties: {
+          [usernameKey]: { type: 'string' }, [passwordKey]: { type: 'string' },
+        } } },
+      },
+    };
+    function Harness() {
+      const [draft, setDraft] = useState(() => parseCanonicalDraft('{"entry":{"users":[]}}'));
+      return (
+        <SchemaSectionForm schema={authentication} basePointer='/entry' data={draft.entry} onChange={setDraft}
+          resolution={{ schema: authentication, createValidator: () => customizeValidator() }} />
+      );
+    }
+    render(<Harness />);
+    await user.click(screen.getByRole('button', { name: 'Add' }));
+    let dialog = within(screen.getByRole('dialog'));
+    const usernameLabel = usernameKey === 'name' ? 'Name' : 'Username';
+    fireEvent.change(dialog.getByLabelText(usernameLabel), { target: { value: 'alice' } });
+    fireEvent.change(dialog.getByLabelText('Password'), { target: { value: 'test-secret' } });
+    await user.click(dialog.getByRole('button', { name: 'Add' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    const list = within(screen.getByText('alice').closest('fieldset')!);
+    expect(list.getByText('Username')).toBeVisible();
+    expect(list.getByText('Password')).toBeVisible();
+    expect(list.queryByText('Authentication')).not.toBeInTheDocument();
+    expect(list.getByText('test-secret')).toBeVisible();
+    expect(list.queryByText('Type')).not.toBeInTheDocument();
+    expect(list.queryByText('Details')).not.toBeInTheDocument();
+    expect(list.queryByText('01')).not.toBeInTheDocument();
+    expect(list.queryByText('—')).not.toBeInTheDocument();
+
+    await user.click(list.getByRole('button', { name: 'Edit' }));
+    dialog = within(screen.getByRole('dialog'));
+    expect(dialog.getByLabelText('Password')).toHaveValue('test-secret');
+    fireEvent.change(dialog.getByLabelText(usernameLabel), { target: { value: 'renamed-user' } });
+    fireEvent.change(dialog.getByLabelText('Password'), { target: { value: '' } });
+    await user.click(dialog.getByRole('button', { name: 'Save changes' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    expect(list.getByText('renamed-user')).toBeVisible();
+    expect(list.getByText('—')).toBeVisible();
+    expect(list.queryByText('alice')).not.toBeInTheDocument();
+    await user.click(list.getByRole('button', { name: 'Remove' }));
+    expect(screen.getByText('No entries yet')).toBeVisible();
+  });
+
+  it.each([
+    ['AnyTLSUser', { name: 'anytls-user', password: 'secret' }, 'anytls-user', 'secret'],
+    ['User', { Username: 'http-user', Password: 'secret' }, 'http-user', 'secret'],
+    ['TUICUser', { name: 'tuic-user', uuid: 'secret-uuid' }, 'tuic-user', 'Password not set UUID: secret-uuid'],
+    ['VLESSUser', { uuid: 'secret-uuid' }, 'Unnamed user 1', 'secret-uuid'],
+    ['VMessUser', { name: 'vmess-user', uuid: '' }, 'vmess-user', '—'],
+    ['HysteriaUser', { name: 'hysteria-user', auth: [65, 66] }, 'hysteria-user', '[65,66]'],
+    ['HysteriaUser', { name: 'hysteria-user', auth_str: 'secret' }, 'hysteria-user', 'secret'],
+    ['HysteriaUser', { auth: [], auth_str: '' }, 'Unnamed user 1', '—'],
+    ['SnellUser', { name: 'snell-user', userkey: 'secret' }, 'snell-user', 'secret'],
+    ['CCMUser', { name: 'ccm-user', token: 'secret' }, 'ccm-user', 'secret'],
+  ])('displays reviewed %s credential values in the list and editor', async (definition, record, name, status) => {
+    const reviewed = await reviewedSchemaManifest['1.14.1'].load();
+    const authentication: RJSFSchema = {
+      type: 'object', $defs: reviewed.schema.$defs,
+      properties: { users: { type: 'array', items: { $ref: `#/$defs/${definition}` } } },
+    };
+    render(
+      <SchemaSectionForm schema={authentication} basePointer='/entry' data={{ users: [record] }} onChange={vi.fn()}
+        resolution={{ schema: authentication, createValidator: () => customizeValidator() }} />,
+    );
+    expect(screen.getByText(name)).toBeVisible();
+    expect(screen.getByText(status)).toBeVisible();
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('button', { name: 'Edit' }));
+    const dialog = within(screen.getByRole('dialog'));
+    for (const value of Object.values(record)) {
+      if (typeof value === 'string' && value !== '') {
+        expect(dialog.getByDisplayValue(value)).toHaveAttribute('type', 'text');
+      }
+    }
+    expect(screen.queryByText('Type')).not.toBeInTheDocument();
+    expect(screen.queryByText('Details')).not.toBeInTheDocument();
+  });
+
   it.each([['username', 'password'], ['Username', 'Password']])('orders %s before %s and leaves the empty collection unchanged when cancelled', async (usernameKey, passwordKey) => {
     const user = userEvent.setup();
     const authentication: RJSFSchema = {

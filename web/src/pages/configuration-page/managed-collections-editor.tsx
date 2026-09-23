@@ -58,6 +58,7 @@ import type { CanonicalDraft } from './use-canonical-configuration';
 import { SchemaDialogLayout } from './rjsf-shadcn-theme';
 import { SchemaSectionForm } from './schema-section-form';
 import { encodeCanonicalValue } from './use-canonical-configuration';
+import { ConfigurationJsonPreview } from './configuration-json-preview';
 import {
   collectionItemSchema,
   panelMetadata,
@@ -145,6 +146,24 @@ function schemaLabel(schema: RJSFSchema, language: string, fallback: string): st
   return fallback;
 }
 
+function addressParts(value: unknown): string[] {
+  if (Array.isArray(value)) return value.flatMap(addressParts);
+  return typeof value === 'string' || typeof value === 'number' || isLosslessNumber(value)
+    ? [String(value)].filter(Boolean)
+    : [];
+}
+
+function entryDetails(value: JsonObject, collection: ManagedCollection): string[] {
+  if (collection !== 'inbounds' && collection !== 'outbounds') return summaryBadges(value);
+  const host = collection === 'inbounds' ? value.listen : value.server;
+  const ports = collection === 'outbounds' ? addressParts(value.server_ports) : [];
+  const port = ports.length > 0 ? ports.join(', ') : addressParts(collection === 'inbounds' ? value.listen_port : value.server_port).join(', ');
+  const address = typeof host === 'string' ? host : '';
+  if (address === '' && port === '') return [];
+  const formatted = address.includes(':') && !address.startsWith('[') ? `[${address}]` : address;
+  return [`${formatted || '—'}:${port || '—'}`];
+}
+
 function protocolTypes(schema: RJSFSchema, root: RJSFSchema): string[] {
   const item = collectionItemSchema(schema, root);
   return item === null ? [] : schemaDiscriminatorValues(item, root, 'type');
@@ -178,11 +197,13 @@ interface EntryRowProps {
   onMoveUp: () => void;
   onRepair: () => void;
   onMoveDown: () => void;
+  collection: ManagedCollection;
 }
 
 function EntryRow({
   disabled,
   entry,
+  collection,
   canMoveUp,
   canMoveDown,
   onMoveUp,
@@ -192,6 +213,7 @@ function EntryRow({
   onRepair,
 }: EntryRowProps) {
   const { t } = useTranslation();
+  const details = entryDetails(entry.value, collection);
   return (
     <TableRow>
       <TableCell><span className='configuration-list__text' title={entry.tag}>{entry.tag}</span></TableCell>
@@ -203,10 +225,10 @@ function EntryRow({
                 <Badge variant='destructive'>{t('configuration.managed.needsRepair')}</Badge>
               )
             : null}
-          {summaryBadges(entry.value).map((badge) => (
+          {details.map((badge) => (
             <span className='configuration-list__text' key={badge} title={badge}>{badge}</span>
           ))}
-          {entry.valid && summaryBadges(entry.value).length === 0 ? '—' : null}
+          {entry.valid && details.length === 0 ? '—' : null}
         </div>
       </TableCell>
       <TableCell>
@@ -392,14 +414,14 @@ export function ManagedCollectionsEditor({
                 <TableRow>
                   <TableHead scope='col'>{t('configuration.fields.tag')}</TableHead>
                   <TableHead scope='col'>{t('configuration.fields.type')}</TableHead>
-                  <TableHead scope='col'>{t('configuration.general.summary')}</TableHead>
+                  <TableHead scope='col'>{t(activeCollection === 'inbounds' ? 'configuration.managed.listenAddress' : activeCollection === 'outbounds' ? 'configuration.managed.serverAddress' : 'configuration.general.summary')}</TableHead>
                   <TableHead scope='col'>{t('common.actions')}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {views.map((entry, index) => (
                   <EntryRow
-                    disabled={disabled} entry={entry}
+                    disabled={disabled} entry={entry} collection={activeCollection}
                     canMoveUp={index > 0} canMoveDown={index < views.length - 1}
                     onMoveUp={() => move(index, -1)} onMoveDown={() => move(index, 1)}
                     key={`${entry.id}:${encodeCanonicalValue(entry.value)}`}
@@ -441,7 +463,11 @@ export function ManagedCollectionsEditor({
                 <div className='configuration-entry-dialog__body'>
                   <SchemaSectionForm
                     dialogLayout
-                    dialogJsonPreview={<pre className='configuration-entity-json'>{encodeCanonicalValue(entries(editing.draft[activeCollection])[0], 2)}</pre>}
+                    dialogJsonPreview={(
+                      <ConfigurationJsonPreview
+                        value={encodeCanonicalValue(entries(editing.draft[activeCollection])[0], 2)}
+                      />
+                    )}
                     basePointer={`/${activeCollection}/0`}
                     data={entries(editing.draft[activeCollection])[0]}
                     disabled={disabled || !views[editing.index].valid}

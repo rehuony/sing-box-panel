@@ -54,6 +54,11 @@ export const configuration = {
   },
   loading: 'Loading configuration…',
   managed: {
+    listenAddress: 'Listen address',
+    serverAddress: 'Server address',
+    copyJson: 'Copy JSON',
+    jsonCopied: 'JSON copied',
+    jsonCopyFailed: 'Could not copy JSON. Select the text and copy it manually.',
     add: 'Add node',
     collection: {
       endpoints: 'Endpoints',
@@ -175,6 +180,11 @@ export const configuration = {
     sections: 'Entry settings', basic: 'Basic settings', match: 'Match conditions',
     more: 'More conditions', action: 'Action', authentication: 'Authentication',
     tls: 'TLS', transport: 'Transport', connection: 'Connection options', advanced: 'Advanced settings', json: 'JSON',
+  },
+  userList: {
+    credentials: 'Authentication', unnamed: 'Unnamed user {{number}}',
+    credentialValue: '{{credential}}: {{value}}', credentialMissing: '{{credential}} not set',
+    uuid: 'UUID', auth: 'Authentication key', userKey: 'User key', token: 'Token',
   },
   general: {
     fieldHelp: 'Help for {{field}}',

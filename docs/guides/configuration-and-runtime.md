@@ -149,7 +149,8 @@ numeric lexemes are retained through visual edits.
 The Simplified Chinese visual editor uses reviewed Chinese names and descriptions
 for the fields declared by the five committed schemas. An information button
 beside scalar, list and optional-object labels shows a concise description after
-a brief hover or immediately on focus or click/tap. Enter or Space also opens it.
+a brief hover or immediately on click/tap. Help icons are excluded from Tab
+navigation and do not display a focus border or ring.
 Help uses the existing Tooltip component with click-to-dismiss disabled, so
 clicking before the hover delay opens the explanation instead of cancelling it.
 Moving into the tooltip keeps it readable; leaving it and the trigger, losing
@@ -410,7 +411,7 @@ status colors and the logo stay independent. Card/dialog radius is R, controls
 R/2, and the shell min(32,7R/6). Saving persists preferences. Leaving the page with unsaved edits requires confirmation: Keep editing
 retains the current view and preview; Discard changes restores saved settings
 before navigating. Reset changes only theme color/radius and still requires
-saving. Help is in hover/focus tips.
+saving. Help is in hover/click tips.
 
 ### Backup and restore
 
