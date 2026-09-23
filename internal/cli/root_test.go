@@ -68,7 +68,6 @@ func TestHelpSectionOrder(t *testing.T) {
 		{name: "systemd group", args: []string{"systemd", "--help"}, usage: "systemd [flags] [command]", inherited: true, subcommands: true},
 		{name: "config group", args: []string{"config", "--help"}, usage: "config [flags] [command]", inherited: true, subcommands: true},
 		{name: "config set", args: []string{"config", "set", "--help"}, usage: "config set [flags]", inherited: true, examples: true},
-		{name: "config check", args: []string{"config", "check", "--help"}, usage: "config check [flags]", inherited: true, examples: true},
 		{name: "config verify", args: []string{"config", "verify", "--help"}, usage: "config verify [flags]", inherited: true, examples: true},
 		{name: "config init", args: []string{"config", "init", "--help"}, usage: "config init [flags]", inherited: true, examples: true},
 		{name: "config unset", args: []string{"config", "unset", "--help"}, usage: "config unset FIELD [FIELD...] [flags]", inherited: true, examples: true},
@@ -155,12 +154,12 @@ func TestHelpFlagsKeepStableOrder(t *testing.T) {
 
 func TestGlobalFlagsCombineWithSubcommands(t *testing.T) {
 	for _, args := range [][]string{
-		{"--output=json", "config", "check"},
-		{"config", "--output=json", "check"},
-		{"config", "check", "--output=json"},
-		{"-o", "json", "config", "check"},
-		{"config", "-o=json", "check"},
-		{"config", "check", "-o", "json"},
+		{"--output=json", "config", "verify"},
+		{"config", "--output=json", "verify"},
+		{"config", "verify", "--output=json"},
+		{"-o", "json", "config", "verify"},
+		{"config", "-o=json", "verify"},
+		{"config", "verify", "-o", "json"},
 	} {
 		t.Run(strings.Join(args, " "), func(t *testing.T) {
 			var stdout, stderr bytes.Buffer
@@ -262,7 +261,7 @@ func TestVersionOutput(t *testing.T) {
 	}
 }
 
-func TestInitAndConfigCheck(t *testing.T) {
+func TestInitAndConfigVerify(t *testing.T) {
 	root := t.TempDir()
 	t.Setenv("XDG_DATA_HOME", filepath.Join(root, "data-home"))
 	path := filepath.Join(root, "setting.json")
@@ -273,7 +272,7 @@ func TestInitAndConfigCheck(t *testing.T) {
 	if stderr != "" || !strings.Contains(stdout, "initialized") {
 		t.Fatalf("stdout=%q stderr=%q", stdout, stderr)
 	}
-	stdout, stderr, err = execute(t, "config", "check", "--config", path, "--output=json")
+	stdout, stderr, err = execute(t, "config", "verify", "--config", path, "--output=json")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -319,7 +318,7 @@ var visibleLeafCapabilities = []string{
 	"core catalog", "core refresh",
 	"core list", "core show", "core install", "core import", "core remove",
 	"core enable", "core status", "core start", "core stop", "core restart", "core rollback",
-	"config init", "config show", "config set", "config check", "config verify", "config unset",
+	"config init", "config show", "config set", "config verify", "config unset",
 	"channel list", "channel show", "channel create", "channel update", "channel delete", "channel render",
 	"source list", "source show", "source create", "source update", "source refresh", "source delete",
 	"token list", "token create", "token rotate", "token revoke",
@@ -331,8 +330,8 @@ var visibleLeafCapabilities = []string{
 }
 
 func TestCommandTreeIsAtMostTwoWordsDeepAndKeepsEveryCapability(t *testing.T) {
-	if len(visibleLeafCapabilities) != 62 {
-		t.Fatalf("inventory lists %d capabilities, want 62", len(visibleLeafCapabilities))
+	if len(visibleLeafCapabilities) != 61 {
+		t.Fatalf("inventory lists %d capabilities, want 61", len(visibleLeafCapabilities))
 	}
 	var stdout, stderr bytes.Buffer
 	root := NewRootCommand(Dependencies{Stdin: strings.NewReader(""), Stdout: &stdout, Stderr: &stderr})
@@ -421,7 +420,7 @@ func TestServerStartIsForegroundAndGroupDoesNotStart(t *testing.T) {
 
 func TestConfigCommandsOnlyExposePanelSettingsFlags(t *testing.T) {
 	root := NewRootCommand(Dependencies{})
-	for _, name := range []string{"init", "show", "set", "unset", "check", "verify"} {
+	for _, name := range []string{"init", "show", "set", "unset", "verify"} {
 		command, _, err := root.Find([]string{"config", name})
 		if err != nil {
 			t.Fatal(err)

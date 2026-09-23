@@ -182,6 +182,12 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ConfigurationPreview"
+        "409":
+          description: configuration_not_saved; save a configuration before previewing it.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
   /config/compile:
     post:
       operationId: compileConfiguration
@@ -205,6 +211,12 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ConfigurationCompile"
+        "409":
+          description: configuration_not_saved; save a configuration before checking it.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
   /config/artifacts:
     get:
       operationId: listStartupArtifacts
@@ -292,12 +304,18 @@ paths:
       - $ref: "#/components/parameters/ArtifactID"
     post:
       operationId: enableCoreArtifact
-      description: Validate and select this platform-matching binary. Preserve stopped state; replace a running core only after validation. The enabled version persists independently of process state.
+      description: Validate and select this platform-matching binary using the saved configuration. Panel startup initializes an absent configuration to an empty JSON object. Preserve stopped state; replace a running core only after validation. The enabled version persists independently of process state.
       parameters:
         - $ref: "#/components/parameters/CSRFToken"
       responses:
         "200":
           $ref: "#/components/responses/RuntimeStatus"
+        "409":
+          description: configuration_not_saved or core_enable_blocked; save a configuration and select a compatible core before retrying.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
   /core/artifacts/{artifactId}/disable:
     parameters:
       - $ref: "#/components/parameters/ArtifactID"
@@ -832,6 +850,7 @@ paths:
     get:
       operationId: listSubscriptionTokens
       parameters:
+        - $ref: "#/components/parameters/PageOffset"
         - $ref: "#/components/parameters/BeforeTime"
         - $ref: "#/components/parameters/BeforeID"
         - $ref: "#/components/parameters/Limit"
@@ -1009,6 +1028,7 @@ paths:
       operationId: listPanelLogs
       summary: Panel events and runtime transitions, newest first
       parameters:
+        - $ref: "#/components/parameters/PageOffset"
         - $ref: '#/components/parameters/LogLevel'
         - $ref: '#/components/parameters/Since'
         - $ref: '#/components/parameters/Until'
@@ -1263,6 +1283,11 @@ components:
       schema:
         type: string
         enum: [panel, core, security]
+    PageOffset:
+      name: offset
+      in: query
+      description: Zero-based row offset for numbered pages. Cannot be combined with before_time or before_id. Existing cursor pagination remains supported.
+      schema: {type: integer, minimum: 0, maximum: 2147483647, default: 0}
     LogLevel:
       name: level
       in: query
@@ -1653,6 +1678,7 @@ components:
           $ref: '#/components/schemas/AppearanceSettings'
     ConfigurationFile:
       type: object
+      description: The saved sing-box document. Panel startup initializes an absent document to {} at revision 1 and preserves existing saved text.
       additionalProperties: false
       required: [revision, content, syntax_valid]
       properties:
@@ -2462,8 +2488,9 @@ components:
     SubscriptionTokenPage:
       type: object
       additionalProperties: false
-      required: [items]
+      required: [items, total]
       properties:
+        total: {type: integer, minimum: 0, description: Total matching records before cursor or offset pagination.}
         items: {type: array, items: {$ref: "#/components/schemas/SubscriptionToken"}}
         next: {$ref: "#/components/schemas/SubscriptionCursor"}
     SubscriptionTokenSecret:
@@ -2551,8 +2578,9 @@ components:
     PanelLogPage:
       type: object
       additionalProperties: false
-      required: [items]
+      required: [items, total]
       properties:
+        total: {type: integer, minimum: 0, description: Total matching records before cursor or offset pagination.}
         items: {type: array, items: {$ref: '#/components/schemas/PanelLog'}}
         next: {$ref: '#/components/schemas/LogCursor'}
     LogEntry:

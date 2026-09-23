@@ -22,6 +22,7 @@ var runtimeErrorKinds = []struct {
 }{
 	{"canceled", context.Canceled},
 	{"deadline", context.DeadlineExceeded},
+	{"configuration_not_saved", ErrConfigurationNotSaved},
 	{"configuration_file_unparsed", store.ErrConfigurationFileUnparsed},
 	{"configuration_invalid", configuration.ErrInvalidDocument},
 	{"configuration_schema_validation", ErrConfigurationSchemaValidation},

@@ -94,10 +94,6 @@ export const subscriptions = {
     cancel: 'Cancel',
     done: 'Done',
     scope: 'Access scope',
-    pageSize: 'Rows per page',
-    perPage: '{{count}} per page',
-    previous: 'Previous page',
-    next: 'Next page',
   },
   channel: {
     actionFailed: 'Channel change failed',

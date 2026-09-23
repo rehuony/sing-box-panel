@@ -12,7 +12,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { useConfigurationSessionStore } from '@/stores/configuration-session.store';
 import { useOptionalSharedTelemetry } from '@/components/app-shell/telemetry-context';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 
 import { DynamicGeneralEditor } from './dynamic-general-editor';
 import { useConfigurationSchema } from './use-configuration-schema';
@@ -154,17 +154,21 @@ export function ConfigurationPage() {
               <TabsTrigger disabled={!fileReady} value='advanced'>{t('configuration.tab.advanced')}</TabsTrigger>
             </TabsList>
             <div className='configuration-schema-version'>
-              <label htmlFor='configuration-schema-version'>{t('configuration.schema.version')}</label>
               <Select
                 disabled={installed.status !== 'ready' || noInstalledVersions}
                 value={schemaVersion || null}
                 onValueChange={value => setSelectedSchemaVersion(value)}
               >
-                <SelectTrigger id='configuration-schema-version'>
+                <SelectTrigger id='configuration-schema-version' aria-labelledby='configuration-schema-version-label'>
+                  <span className='configuration-schema-version__label' id='configuration-schema-version-label'>{t('configuration.schema.version')}</span>
                   <SelectValue placeholder={t('configuration.schema.noInstalledOption')} />
                 </SelectTrigger>
-                <SelectContent>
-                  {installed.versions.map(version => <SelectItem key={version} value={version}>{version}</SelectItem>)}
+                <SelectContent align='end'>
+                  <SelectGroup>
+                    {installed.versions.map(version => (
+                      <SelectItem key={version} value={version}>{version}</SelectItem>
+                    ))}
+                  </SelectGroup>
                 </SelectContent>
               </Select>
             </div>

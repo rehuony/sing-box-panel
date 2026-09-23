@@ -104,11 +104,15 @@ func (handler *Handler) listPanelLogs(w http.ResponseWriter, r *http.Request) {
 	if !handler.requireCommands(w, r) {
 		return
 	}
-	query, ok := strictCoreQuery(w, r, "level", "since", "until", "before_time", "before_id", "limit", "search")
+	query, ok := strictCoreQuery(w, r, "level", "since", "until", "before_time", "before_id", "limit", "search", "offset")
 	if !ok {
 		return
 	}
 	limit, ok := optionalLimit(w, r)
+	if !ok {
+		return
+	}
+	offset, ok := optionalPageOffset(w, r)
 	if !ok {
 		return
 	}
@@ -132,7 +136,7 @@ func (handler *Handler) listPanelLogs(w http.ResponseWriter, r *http.Request) {
 		writeProblem(w, r, 400, "search_too_long", "Invalid search", "Search may contain at most 256 bytes.")
 		return
 	}
-	result, err := handler.commands.PanelLogs(r.Context(), store.PanelLogFilter{Cursor: cursor, Limit: limit, Level: query.Get("level"), Since: since, Until: until, Search: query.Get("search")})
+	result, err := handler.commands.PanelLogs(r.Context(), store.PanelLogFilter{Cursor: cursor, Limit: limit, Offset: offset, Level: query.Get("level"), Since: since, Until: until, Search: query.Get("search")})
 	if err != nil {
 		writeProblem(w, r, 503, "panel_logs_unavailable", "Panel logs unavailable", "The panel activity could not be read.")
 		return

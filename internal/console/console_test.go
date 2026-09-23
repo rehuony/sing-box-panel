@@ -15,9 +15,9 @@ func TestForegroundOutputUsesCompactReadyBanner(t *testing.T) {
 	output := FromContext(WithOutput(context.Background(), &buffer, false))
 	output.Ready("http://127.0.0.1:32123/panel/", "/config/setting.json", "/data/panel")
 	want := "\nsing-box-panel is running\n\n" +
-		"  Panel URL    http://127.0.0.1:32123/panel/\n" +
-		"  Data         /data/panel\n" +
-		"  Settings     /config/setting.json\n\n" +
+		"  Panel URL  http://127.0.0.1:32123/panel/\n" +
+		"  Settings   /config/setting.json\n" +
+		"  Data Dir   /data/panel\n\n" +
 		"  Press Ctrl+C to stop. View stored logs: sing-box-panel log list\n\n"
 	if buffer.String() != want {
 		t.Fatalf("ready banner mismatch:\nwant %q\n got %q", want, buffer.String())

@@ -70,9 +70,9 @@ func writeServerInitialization(cmd *cobra.Command, state *options, configuration
 		LoginToken   string `json:"login_token"`
 	}{"settings_initialized", path, configuration.DataDir, panelURL, configuration.Auth.Token}
 	style := newFileTreeStyle(cmd.ErrOrStderr(), state.format)
-	text := fmt.Sprintf("\n%s\n  %s\n\n  Settings     %s\n  Data         %s\n  Default URL  %s\n  Login token  %s\n\n  Defaults allow local access only; saved panel preferences still apply.\n  Starting server... Press Ctrl+C to stop.\n",
-		style.paint("1", "sing-box-panel"), style.paint("32", "Default settings created"),
-		style.path(path), style.path(configuration.DataDir), style.paint("36", panelURL), configuration.Auth.Token)
+	text := fmt.Sprintf("\n%s\n\n  Default URL       %s\n  Default Token     %s\n  Default Settings  %s\n  Default Data Dir  %s\n",
+		style.paint("1;32", "sing-box-panel settings is created"),
+		style.paint("36", panelURL), configuration.Auth.Token, style.path(path), style.path(configuration.DataDir))
 	return writeResult(cmd.ErrOrStderr(), state.format, result, text)
 }
 

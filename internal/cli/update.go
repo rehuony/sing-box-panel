@@ -16,17 +16,29 @@ import (
 func newUpdateCommand(
 	state *options,
 	build buildinfo.Info,
-	update func(context.Context, string) (selfupdate.Result, error),
+	update func(context.Context, string, selfupdate.ProgressFunc) (selfupdate.Result, error),
 ) *cobra.Command {
 	return &cobra.Command{
 		Use:   "update",
 		Short: "Update sing-box-panel to the latest published release",
-		Args:  cobra.NoArgs,
+		Long: `Download, verify, and atomically install the latest published release.
+Text output reports update stages and download progress on stderr, with a
+percentage bar in an interactive terminal. JSON and JSONL omit progress.`,
+		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if update == nil {
 				return &Error{Kind: ErrorUnavailable, Code: "update_unavailable", Message: "self-update is unavailable"}
 			}
-			result, err := update(cmd.Context(), build.Version)
+			var report selfupdate.ProgressFunc
+			var progress *updateProgress
+			if state.format == outputText {
+				progress = newUpdateProgress(cmd.ErrOrStderr())
+				report = progress.report
+			}
+			result, err := update(cmd.Context(), build.Version, report)
+			if progress != nil {
+				progress.finish()
+			}
 			if err != nil {
 				return classifyUpdateError(err)
 			}

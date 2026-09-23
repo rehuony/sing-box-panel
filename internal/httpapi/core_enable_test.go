@@ -63,3 +63,46 @@ func TestDisableCoreRejectsMissingOrUnselectedArtifacts(t *testing.T) {
 		t.Fatalf("rejected disable changed runtime intent: %+v %v", bootstrap.Hub, err)
 	}
 }
+
+func TestEnableCoreRequiresInitializedConfiguration(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("enabling installed cores requires Linux")
+	}
+	handler, db := newCoreHTTPFixture(t)
+	artifact := seedCoreHTTPArtifact(t, db)
+	artifact.ID = "native-core"
+	artifact.AssetID = 3002
+	artifact.Architecture = runtime.GOARCH
+	if _, err := db.UpsertCoreArtifact(t.Context(), artifact); err != nil {
+		t.Fatal(err)
+	}
+	response := authenticatedRequest(handler, http.MethodPost, "/api/v1/core/artifacts/"+artifact.ID+"/enable", "", "")
+	assertCoreHTTPProblem(t, response, http.StatusConflict, "configuration_not_saved")
+	file, err := db.ConfigurationFile(t.Context())
+	if err != nil || file.Revision != 0 {
+		t.Fatalf("enable created a configuration: %+v %v", file, err)
+	}
+	bootstrap, err := db.Bootstrap(t.Context())
+	if err != nil || bootstrap.Hub.TargetGeneration != 0 || bootstrap.Hub.AppliedBundleID != "" {
+		t.Fatalf("enable changed runtime state: %+v %v", bootstrap.Hub, err)
+	}
+	if err := handler.commands.InitializeConfigurationFile(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	response = authenticatedRequest(handler, http.MethodPost, "/api/v1/core/artifacts/"+artifact.ID+"/enable", "", "")
+	if response.Code != http.StatusOK {
+		t.Fatalf("enable after saving configuration: %d %s", response.Code, response.Body.String())
+	}
+}
+
+func TestConfigurationOperationsExplainMissingConfiguration(t *testing.T) {
+	for _, action := range []string{"preview", "compile"} {
+		t.Run(action, func(t *testing.T) {
+			handler, db := newCoreHTTPFixture(t)
+			artifact := seedCoreHTTPArtifact(t, db)
+			response := authenticatedRequest(handler, http.MethodPost, "/api/v1/config/"+action,
+				`{"core_artifact_id":"`+artifact.ID+`"}`, "")
+			assertCoreHTTPProblem(t, response, http.StatusConflict, "configuration_not_saved")
+		})
+	}
+}

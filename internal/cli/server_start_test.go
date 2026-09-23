@@ -31,6 +31,7 @@ func TestServerStartInitializesMissingSettings(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			directory := t.TempDir()
 			t.Chdir(directory)
+			t.Setenv("HOME", directory)
 			t.Setenv("XDG_CONFIG_HOME", filepath.Join(directory, "config"))
 			t.Setenv("XDG_DATA_HOME", filepath.Join(directory, "data"))
 			path := settings.DefaultPath()
@@ -66,11 +67,17 @@ func TestServerStartInitializesMissingSettings(t *testing.T) {
 				t.Fatal("redirected guidance contains terminal escapes")
 			}
 			if test.format == "text" {
-				for _, want := range []string{"sing-box-panel", "Default settings created", "Settings     ", "Data         ",
-					"Default URL  http://127.0.0.1:3000/", "Login token  " + configuration.Auth.Token, "local access only", "Ctrl+C", "Starting server..."} {
-					if !strings.Contains(stderr.String(), want) {
-						t.Errorf("guidance is missing %q", want)
-					}
+				settingsPath := "~/config/sing-box-panel/setting.json"
+				if test.explicit {
+					settingsPath = "~/custom/setting.json"
+				}
+				want := "\nsing-box-panel settings is created\n\n" +
+					"  Default URL       http://127.0.0.1:3000/\n" +
+					"  Default Token     " + configuration.Auth.Token + "\n" +
+					"  Default Settings  " + settingsPath + "\n" +
+					"  Default Data Dir  ~/data/sing-box-panel\n\n"
+				if stderr.String() != want {
+					t.Errorf("initialization banner mismatch:\nwant %q\n got %q", want, stderr.String())
 				}
 			} else {
 				var event map[string]string

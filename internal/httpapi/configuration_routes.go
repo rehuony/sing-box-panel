@@ -109,6 +109,8 @@ func configurationSchemaETag(contract application.ConfigurationSchema) string {
 
 func writeConfigurationProblem(w http.ResponseWriter, request *http.Request, code string, err error) {
 	switch {
+	case errors.Is(err, application.ErrConfigurationNotSaved):
+		writeProblem(w, request, http.StatusConflict, "configuration_not_saved", "Configuration not saved", "Save a sing-box configuration in Configuration before enabling or checking a core.")
 	case errors.Is(err, store.ErrConfigurationFileUnparsed):
 		writeProblem(w, request, http.StatusUnprocessableEntity, "configuration_file_unparsed", "Saved configuration invalid", "Correct the saved JSON before checking or running the configuration.")
 	case application.IsCoreArtifactNotFound(err):

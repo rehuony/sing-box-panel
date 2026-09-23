@@ -122,19 +122,25 @@ describe('panel settings', () => {
     expect(document.documentElement.style.getPropertyValue('--appearance-color')).toBe('#6D4ED1');
   });
 
-  it('opens help on hover and click, dismisses with Escape, and leaves settings untouched', async () => {
+  it('shows shared field help on hover and keyboard activation without changing settings', async () => {
     const user = userEvent.setup();
     const client = setup();
     const help = await screen.findByRole('button', { name: 'Access origin' });
+    const hint = /Enter the full origin/;
+    expect(screen.queryByText(hint)).not.toBeInTheDocument();
     await user.hover(help);
-    const info = await screen.findByRole('dialog', { name: 'Access origin' });
-    expect(info).not.toBeEmptyDOMElement();
+    expect(await screen.findByText(hint)).toBeVisible();
+    expect(screen.getByRole('tooltip')).toHaveTextContent(hint);
     await user.unhover(help);
-    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Access origin' })).not.toBeInTheDocument());
-    await user.click(help);
-    expect(await screen.findByRole('dialog', { name: 'Access origin' })).toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByText(hint)).not.toBeInTheDocument());
+    await user.click(screen.getByRole('textbox', { name: 'Access origin' }));
+    await user.tab({ shift: true });
+    expect(help).toHaveFocus();
+    await user.keyboard('{Enter}');
+    expect(await screen.findByText(hint)).toBeVisible();
     await user.keyboard('{Escape}');
-    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByText(hint)).not.toBeInTheDocument());
+    expect(screen.getByRole('button', { name: 'Save settings' })).toBeDisabled();
     expect(client.savePanelSettings).not.toHaveBeenCalled();
   });
 

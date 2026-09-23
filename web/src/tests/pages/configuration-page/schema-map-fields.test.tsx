@@ -59,11 +59,12 @@ describe.skipIf(!reviewedEntry)('native map and nested union fields', () => {
     expect(screen.getByLabelText('Map draft')).toHaveTextContent('"newKey":""');
     expect(screen.queryByDisplayValue('[object Object]')).not.toBeInTheDocument();
     expect(screen.queryByText('Option 1')).not.toBeInTheDocument();
-    expect(map.queryByRole('button', { name: 'Remove settings' })).not.toBeInTheDocument();
+    // The collection's header owns one removal control; individual map values have none.
+    expect(map.getAllByRole('button', { name: 'Remove settings' })).toHaveLength(1);
     const key = map.getAllByRole('textbox', { name: 'Field name' })[1];
     fireEvent.change(key, { target: { value: 'eth1' } });
     fireEvent.blur(key);
-    fireEvent.change(map.getAllByRole('textbox', { name: 'Text' })[1], { target: { value: '198.51.100.1' } });
+    fireEvent.change(map.getAllByRole('textbox', { name: 'Single value' })[1], { target: { value: '198.51.100.1' } });
     expect(JSON.parse(screen.getByLabelText('Map draft').textContent!)).toEqual({
       interface_address: { eth0: '192.0.2.1', eth1: '198.51.100.1' }, future: { keep: true },
     });
@@ -86,8 +87,8 @@ describe.skipIf(!reviewedEntry)('native map and nested union fields', () => {
       network_interface_address: { wifi: ['192.0.2.3'], newKey: ['198.51.100.2'] },
     });
     await user.click(map.getByRole('combobox', { name: 'newKey' }));
-    await user.click(await screen.findByRole('option', { name: 'Text' }));
-    expect(map.getByRole('textbox', { name: 'Text' })).toHaveValue('');
+    await user.click(await screen.findByRole('option', { name: 'Single value' }));
+    expect(map.getByRole('textbox', { name: 'Single value' })).toHaveValue('');
   });
 
   it('selects and labels nested scalar and list representations from saved data', () => {
@@ -113,7 +114,7 @@ describe.skipIf(!reviewedEntry)('native map and nested union fields', () => {
     const map = within(screen.getByRole('group', { name: 'fallback_for_alpn' }));
     expect(map.queryByText('h2')).not.toBeInTheDocument();
     expect(map.queryByRole('button', { name: 'Configure' })).not.toBeInTheDocument();
-    expect(map.queryByRole('button', { name: 'Remove settings' })).not.toBeInTheDocument();
+    expect(map.getAllByRole('button', { name: 'Remove settings' })).toHaveLength(1);
     fireEvent.change(map.getByDisplayValue('localhost'), { target: { value: '127.0.0.1' } });
     await user.click(map.getByRole('button', { name: 'Add field' }));
     expect(map.getAllByRole('textbox', { name: 'Server' })).toHaveLength(2);

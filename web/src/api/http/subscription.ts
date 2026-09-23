@@ -271,6 +271,7 @@ export function createSubscriptionHttpApi(context: HttpApiContext) {
     },
     listSubscriptionTokens(filter = {}, signal) {
       const query = buildQuery({
+        offset: filter.offset,
         limit: filter.limit ?? 50,
         before_time: filter.beforeTime,
         before_id: filter.beforeID,

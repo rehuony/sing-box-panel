@@ -3,6 +3,7 @@ package store
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -22,6 +23,7 @@ type PanelLog struct {
 type PanelLogFilter struct {
 	Cursor       *LogCursor
 	Limit        int
+	Offset       int
 	Level        string
 	Since, Until *time.Time
 	Search       string
@@ -29,6 +31,7 @@ type PanelLogFilter struct {
 type PanelLogPage struct {
 	Items []PanelLog `json:"items"`
 	Next  *LogCursor `json:"next,omitempty"`
+	Total int        `json:"total"`
 }
 
 func (s *Store) ListPanelLogs(ctx context.Context, filter PanelLogFilter) (PanelLogPage, error) {
@@ -36,12 +39,11 @@ func (s *Store) ListPanelLogs(ctx context.Context, filter PanelLogFilter) (Panel
 	if err != nil {
 		return PanelLogPage{}, err
 	}
+	if err := validatePageOffset(filter.Offset, filter.Cursor != nil); err != nil {
+		return PanelLogPage{}, err
+	}
 	clauses := []string{"1=1"}
 	args := []any{}
-	if filter.Cursor != nil {
-		clauses = append(clauses, "(occurred_at < ? OR (occurred_at = ? AND id < ?))")
-		args = append(args, formatTime(filter.Cursor.Time), formatTime(filter.Cursor.Time), filter.Cursor.ID)
-	}
 	if filter.Level != "" {
 		clauses = append(clauses, "level = ?")
 		args = append(args, filter.Level)
@@ -58,18 +60,31 @@ func (s *Store) ListPanelLogs(ctx context.Context, filter PanelLogFilter) (Panel
 		clauses = append(clauses, "(instr(lower(message), lower(?)) > 0 OR instr(lower(code), lower(?)) > 0)")
 		args = append(args, filter.Search, filter.Search)
 	}
-	args = append(args, limit+1)
-	rows, err := s.db.QueryContext(ctx, `WITH combined AS (
+	const combined = `WITH combined AS (
  SELECT 'log:'||id AS id,occurred_at,source,level,code,message,'' AS status,metadata_json FROM log_entries
  UNION ALL
  SELECT 'runtime:'||id,occurred_at,'runtime',CASE WHEN state='failed' THEN 'error' ELSE 'info' END,reason,reason,state,'{}' FROM runtime_transitions
- ) SELECT id,occurred_at,source,level,code,message,status,metadata_json FROM combined WHERE `+strings.Join(clauses, " AND ")+` ORDER BY occurred_at DESC,id DESC LIMIT ?`, args...)
+ ) `
+	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		return PanelLogPage{}, err
+	}
+	defer tx.Rollback()
+	result := PanelLogPage{Items: []PanelLog{}}
+	if err := tx.QueryRowContext(ctx, combined+`SELECT COUNT(*) FROM combined WHERE `+strings.Join(clauses, " AND "), args...).Scan(&result.Total); err != nil {
+		return PanelLogPage{}, fmt.Errorf("count panel logs: %w", err)
+	}
+	if filter.Cursor != nil {
+		clauses = append(clauses, "(occurred_at < ? OR (occurred_at = ? AND id < ?))")
+		args = append(args, formatTime(filter.Cursor.Time), formatTime(filter.Cursor.Time), filter.Cursor.ID)
+	}
+	args = append(args, limit+1, filter.Offset)
+	rows, err := tx.QueryContext(ctx, combined+`SELECT id,occurred_at,source,level,code,message,status,metadata_json FROM combined WHERE `+strings.Join(clauses, " AND ")+` ORDER BY occurred_at DESC,id DESC LIMIT ? OFFSET ?`, args...)
 
 	if err != nil {
 		return PanelLogPage{}, fmt.Errorf("query panel log: %w", err)
 	}
 	defer rows.Close()
-	result := PanelLogPage{Items: []PanelLog{}}
 	for rows.Next() {
 		var item PanelLog
 		var at, metadata string
@@ -91,5 +106,5 @@ func (s *Store) ListPanelLogs(ctx context.Context, filter PanelLogFilter) (Panel
 		last := result.Items[limit-1]
 		result.Next = &LogCursor{Time: last.Time, ID: last.ID}
 	}
-	return result, nil
+	return result, tx.Commit()
 }

@@ -75,7 +75,7 @@ describe('channel copies and shared links', () => {
   });
   it('does not export when no active bound key remains', async () => {
     const client = createMockApiClient({
-      listSubscriptionTokens: vi.fn().mockResolvedValue({ items: [{ ...key, active: false }] }),
+      listSubscriptionTokens: vi.fn().mockResolvedValue({ items: [{ ...key, active: false }], total: 1 }),
     });
     render(
       <ApiClientProvider client={client}>

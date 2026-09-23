@@ -241,10 +241,6 @@ export interface ApiClient {
     input: { coreArtifactID: string },
     signal?: AbortSignal,
   ) => Promise<ConfigurationPreview>;
-  listSubscriptionTokens: (
-    filter?: SubscriptionListFilter,
-    signal?: AbortSignal,
-  ) => Promise<SubscriptionTokenPage>;
   createSubscriptionChannel: (
     input: SubscriptionChannelWrite,
     signal?: AbortSignal,
@@ -277,6 +273,10 @@ export interface ApiClient {
     versionID: string,
     signal?: AbortSignal,
   ) => Promise<SubscriptionSourceVersion>;
+  listSubscriptionTokens: (
+    filter?: SubscriptionListFilter & { offset?: number },
+    signal?: AbortSignal,
+  ) => Promise<SubscriptionTokenPage>;
   updateSubscriptionNode: (
     id: string,
     outboundJSON: string,

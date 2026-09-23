@@ -19,7 +19,7 @@ export function App({ apiClient, router }: AppProps) {
   return (
     <ApiClientProvider client={apiClient}>
       <ThemeProvider>
-        <TooltipProvider delay={800}>
+        <TooltipProvider delay={200} closeDelay={100}>
           <Toaster>
             <AuthSessionProvider>
               <RouterProvider router={router} />

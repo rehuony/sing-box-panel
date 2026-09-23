@@ -308,7 +308,7 @@ func validMonitoringTier(value store.MonitoringTier, allowDefault bool) bool {
 
 func writeRuntimeProblem(w http.ResponseWriter, request *http.Request, code string, err error) {
 	switch {
-	case errors.Is(err, store.ErrConfigurationFileUnparsed), errors.Is(err, configuration.ErrInvalidDocument), errors.Is(err, application.ErrConfigurationSchemaValidation), errors.Is(err, store.ErrCompiledStartupEvidenceStale):
+	case errors.Is(err, application.ErrConfigurationNotSaved), errors.Is(err, store.ErrConfigurationFileUnparsed), errors.Is(err, configuration.ErrInvalidDocument), errors.Is(err, application.ErrConfigurationSchemaValidation), errors.Is(err, store.ErrCompiledStartupEvidenceStale):
 		writeConfigurationProblem(w, request, code, err)
 	case application.IsStartupArtifactNotFound(err):
 		writeProblem(w, request, http.StatusNotFound, "startup_artifact_not_found", "Startup artifact not found", "The requested startup artifact does not exist.")

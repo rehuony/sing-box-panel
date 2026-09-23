@@ -24,11 +24,16 @@ func (handler *Handler) subscriptionReadRequest(w http.ResponseWriter, request *
 func (handler *Handler) subscriptionListRequest(
 	w http.ResponseWriter,
 	request *http.Request,
+	additionalQuery ...string,
 ) (application.SubscriptionListRequest, bool) {
 	if !handler.requireCommands(w, request) {
 		return application.SubscriptionListRequest{}, false
 	}
-	query, ok := strictCoreQuery(w, request, "limit", "before_time", "before_id")
+	query, ok := strictCoreQuery(w, request, append([]string{"limit", "before_time", "before_id"}, additionalQuery...)...)
+	if !ok {
+		return application.SubscriptionListRequest{}, false
+	}
+	offset, ok := optionalPageOffset(w, request)
 	if !ok {
 		return application.SubscriptionListRequest{}, false
 	}
@@ -44,7 +49,7 @@ func (handler *Handler) subscriptionListRequest(
 	if cursor != nil {
 		subscriptionCursor = &application.SubscriptionCursor{CreatedAt: cursor.CreatedAt, ID: cursor.ID}
 	}
-	return application.SubscriptionListRequest{Cursor: subscriptionCursor, Limit: limit}, true
+	return application.SubscriptionListRequest{Cursor: subscriptionCursor, Limit: limit, Offset: offset}, true
 }
 
 func (handler *Handler) subscriptionMutationRequest(w http.ResponseWriter, request *http.Request) bool {

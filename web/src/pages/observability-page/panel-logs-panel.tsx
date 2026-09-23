@@ -1,14 +1,13 @@
 import { useTranslation } from 'react-i18next';
-import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { useDeferredValue, useEffect, useState } from 'react';
 
 import type { LogLevel, PanelLogPage } from '@/api/api-client';
 
 import { Input } from '@/components/ui/input';
-import { Button } from '@/components/ui/button';
 import { useApiClient } from '@/api/api-client-context';
 import { ErrorNotice } from '@/components/error-notice';
 import { SelectField } from '@/components/select-field';
+import { ListPagination } from '@/components/list-pagination';
 import { ToolbarActions } from '@/components/workspace-toolbar';
 
 export function PanelLogsPanel({ active = true, toolbarTarget }: {
@@ -21,11 +20,11 @@ export function PanelLogsPanel({ active = true, toolbarTarget }: {
   const query = useDeferredValue(search);
   const [level, setLevel] = useState('');
   const [limit, setLimit] = useState(10);
-  const [cursors, setCursors] = useState<NonNullable<PanelLogPage['next']>[]>([]);
-  const [result, setResult] = useState<PanelLogPage>({ items: [] });
+  const [page, setPage] = useState(1);
+  const [result, setResult] = useState<PanelLogPage>({ items: [], total: 0 });
   const [error, setError] = useState<unknown>(null);
   const [loading, setLoading] = useState(true);
-  const cursor = cursors.at(-1);
+  const pages = Math.max(1, Math.ceil(result.total / limit));
   useEffect(() => {
     const abort = new AbortController();
     let inFlight = false;
@@ -34,18 +33,18 @@ export function PanelLogsPanel({ active = true, toolbarTarget }: {
       if (inFlight) return;
       inFlight = true;
       try {
-        const page = await client.listPanelLogs(
+        const response = await client.listPanelLogs(
           {
             limit,
             level: level ? (level as LogLevel) : undefined,
             search: query || undefined,
-            beforeTime: cursor?.time,
-            beforeID: cursor?.id,
+            offset: (page - 1) * limit,
           },
           abort.signal,
         );
         if (!abort.signal.aborted) {
-          setResult(page);
+          setResult(response);
+          setPage(current => Math.min(current, Math.max(1, Math.ceil(response.total / limit))));
           setError(null);
         }
       } catch (reason) {
@@ -63,7 +62,7 @@ export function PanelLogsPanel({ active = true, toolbarTarget }: {
       abort.abort();
       clearInterval(timer);
     };
-  }, [client, limit, level, query, cursor]);
+  }, [client, limit, level, query, page]);
   return (
     <div className='log-workspace'>
       <ToolbarActions active={active} target={toolbarTarget}>
@@ -74,7 +73,7 @@ export function PanelLogsPanel({ active = true, toolbarTarget }: {
             value={search}
             onChange={(event) => {
               setSearch(event.target.value);
-              setCursors([]);
+              setPage(1);
             }}
           />
           <div className='log-toolbar__filters'>
@@ -83,7 +82,7 @@ export function PanelLogsPanel({ active = true, toolbarTarget }: {
               value={level}
               onValueChange={(value) => {
                 setLevel(value);
-                setCursors([]);
+                setPage(1);
               }}
               items={[{ value: '', label: 'ALL' }, ...['trace', 'debug', 'info', 'warn', 'error', 'fatal'].map((value) => ({ value, label: value.toUpperCase() }))]}
             />
@@ -123,40 +122,17 @@ export function PanelLogsPanel({ active = true, toolbarTarget }: {
           <p className='log-empty'>{t(loading ? 'productLogs.loading' : 'productLogs.empty')}</p>
         )}
       </div>
-      <div className='log-pagination'>
-        <SelectField
-          aria-label={t('productLogs.pageSize')}
-          value={limit}
-          onValueChange={(value) => {
-            setLimit(value);
-            setCursors([]);
-          }}
-          items={[5, 10, 50].map((value) => ({ value, label: t('productLogs.perPage', { count: value }) }))}
-        />
-        <div>
-          <Button
-            aria-label={t('pagination.previous')}
-            variant='ghost'
-            size='icon'
-            disabled={!cursors.length || loading}
-            onClick={() => setCursors((previous) => previous.slice(0, -1))}
-          >
-            <ChevronLeft />
-          </Button>
-          <span aria-current='page'>{cursors.length + 1}</span>
-          <Button
-            aria-label={t('pagination.next')}
-            variant='ghost'
-            size='icon'
-            disabled={!result.next || loading}
-            onClick={() => {
-              if (result.next) setCursors((previous) => [...previous, result.next!]);
-            }}
-          >
-            <ChevronRight />
-          </Button>
-        </div>
-      </div>
+      <ListPagination
+        page={page}
+        pages={pages}
+        pageSize={limit}
+        disabled={loading || result.total === 0}
+        onPageChange={setPage}
+        onPageSizeChange={value => {
+          setLimit(value);
+          setPage(1);
+        }}
+      />
     </div>
   );
 }

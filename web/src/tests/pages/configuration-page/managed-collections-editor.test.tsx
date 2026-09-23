@@ -14,6 +14,7 @@ import { ApiClientProvider } from '@/api/api-client-context';
 import { reviewedSchemaManifest } from '@/schemas/generated';
 import { createMockApiClient } from '@/tests/api/mock-api-client';
 import { ManagedCollectionsEditor } from '@/pages/configuration-page/managed-collections-editor';
+import { encodeCanonicalDraft, parseCanonicalDraft } from '@/pages/configuration-page/use-canonical-configuration';
 
 const reviewedEntry = reviewedSchemaManifest['1.14.0'];
 let resolution: ReviewedSchemaResolution | null = null;
@@ -28,7 +29,12 @@ beforeAll(async () => {
   };
 });
 
-function Harness({ initial, linkedTag }: { initial: CanonicalDraft; linkedTag?: string }) {
+function Harness({ initial, linkedTag, selectedCollection, disabled = false }: {
+  initial: CanonicalDraft;
+  linkedTag?: string;
+  selectedCollection?: 'inbounds' | 'outbounds' | 'endpoints' | 'services';
+  disabled?: boolean;
+}) {
   const [draft, setDraft] = useState(initial);
   const [client] = useState(() =>
     createMockApiClient({
@@ -46,12 +52,13 @@ function Harness({ initial, linkedTag }: { initial: CanonicalDraft; linkedTag?: 
     <ApiClientProvider client={client}>
       <ManagedCollectionsEditor
         draft={draft}
+        disabled={disabled}
         linkedTag={linkedTag}
-        selectedCollection={linkedTag === undefined ? undefined : 'inbounds'}
+        selectedCollection={selectedCollection ?? (linkedTag === undefined ? undefined : 'inbounds')}
         onChange={(change) => setDraft((current) => change(current))}
         resolution={resolution}
       />
-      <output aria-label='Canonical draft'>{JSON.stringify(draft)}</output>
+      <output aria-label='Canonical draft'>{encodeCanonicalDraft(draft)}</output>
     </ApiClientProvider>
   );
 }
@@ -141,7 +148,7 @@ describe.skipIf(reviewedEntry === undefined)('managedCollectionsEditor', () => {
     render(<Harness initial={{ inbounds: [] }} />);
     await user.click(screen.getByRole('tab', { name: /Inbounds/ }));
     await user.click(screen.getByRole('button', { name: 'Add node' }));
-    await user.click(screen.getByLabelText('Protocol'));
+    await user.click(screen.getByRole('button', { name: 'Choose protocol' }));
     await user.click(await screen.findByRole('option', { name: 'anytls' }));
     await user.click(screen.getByRole('button', { name: 'Continue' }));
     expect(screen.getByLabelText('Canonical draft')).not.toHaveTextContent('inbound-1');
@@ -155,10 +162,63 @@ describe.skipIf(reviewedEntry === undefined)('managedCollectionsEditor', () => {
 
     await user.click(screen.getByRole('tab', { name: /Inbounds/ }));
     await user.click(screen.getByRole('button', { name: 'Add node' }));
-    await user.click(screen.getByLabelText('Protocol'));
+    await user.click(screen.getByRole('button', { name: 'Choose protocol' }));
 
     expect(await screen.findByRole('option', { name: 'anytls' })).toBeInTheDocument();
     expect(screen.queryByRole('option', { name: 'selector' })).not.toBeInTheDocument();
+  });
+
+  it('filters protocols and completes the highlighted choice with the keyboard', async () => {
+    const user = userEvent.setup();
+    render(<Harness initial={{ inbounds: [] }} selectedCollection='inbounds' />);
+    await user.click(screen.getByRole('button', { name: 'Add node' }));
+    const input = screen.getByRole('combobox', { name: 'Protocol' });
+    const continueButton = screen.getByRole('button', { name: 'Continue' });
+    await user.click(screen.getByRole('textbox', { name: 'Tag' }));
+    await user.tab();
+    expect(input).toHaveFocus();
+    expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
+    await user.click(input);
+    expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
+    await user.clear(input);
+    expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
+    await user.type(input, 'ANY');
+    expect(await screen.findByRole('option', { name: 'anytls' })).toBeInTheDocument();
+    expect(screen.queryByRole('option', { name: 'mixed' })).not.toBeInTheDocument();
+    expect(continueButton).toBeDisabled();
+    await user.keyboard('{Enter}');
+    expect(input).toHaveValue('anytls');
+    expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
+    await user.click(input);
+    expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Continue' }));
+    await user.click(await screen.findByRole('button', { name: 'Create' }));
+    expect(screen.getByLabelText('Canonical draft')).toHaveTextContent('"type":"anytls"');
+    expect(screen.getByLabelText('Canonical draft')).toHaveTextContent('fixture-identity');
+  });
+
+  it('rejects an unknown protocol and opens the full list from the dropdown button', async () => {
+    const user = userEvent.setup();
+    render(<Harness initial={{ outbounds: [] }} selectedCollection='outbounds' />);
+    await user.click(screen.getByRole('button', { name: 'Add node' }));
+    const input = screen.getByRole('combobox', { name: 'Protocol' });
+    const continueButton = screen.getByRole('button', { name: 'Continue' });
+    await user.clear(input);
+    await user.type(input, 'unknown-protocol');
+    expect(await screen.findByText('No matching protocol')).toBeVisible();
+    expect(screen.queryByRole('option')).not.toBeInTheDocument();
+    expect(continueButton).toBeDisabled();
+    await user.clear(input);
+    expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
+    await user.type(input, 'unknown-protocol');
+    await user.keyboard('{Escape}');
+    expect(screen.getByRole('dialog', { name: 'Create node' })).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Choose protocol' }));
+    await user.click(await screen.findByRole('option', { name: 'direct' }));
+    expect(input).toHaveValue('direct');
+    expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled();
+    await user.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(screen.getByLabelText('Canonical draft')).toHaveTextContent('{"outbounds":[]}');
   });
 
   it('creates a raw sing-box entity without panel metadata', async () => {
@@ -191,8 +251,7 @@ describe.skipIf(reviewedEntry === undefined)('managedCollectionsEditor', () => {
 
     await user.click(screen.getByRole('tab', { name: /Inbounds/ }));
     expect(screen.getByText('Needs repair')).toBeInTheDocument();
-    await user.click(screen.getByRole('button', { name: 'Actions for broken' }));
-    await user.click(await screen.findByRole('menuitem', { name: 'Repair identity' }));
+    await user.click(screen.getByRole('button', { name: 'Repair identity' }));
 
     const encoded = screen.getByLabelText('Canonical draft').textContent ?? '';
     expect(encoded).toContain('"type":"mixed"');
@@ -200,40 +259,70 @@ describe.skipIf(reviewedEntry === undefined)('managedCollectionsEditor', () => {
     expect(encoded).not.toContain('_panel');
   });
 
-  it('reorders a collection with the keyboard drag handle', async () => {
+  it.each(['inbounds', 'outbounds', 'endpoints', 'services'] as const)('adds %s from an empty table and stages the dialog until confirmation', async (collection) => {
+    const user = userEvent.setup();
+    render(<Harness initial={{ [collection]: [] }} selectedCollection={collection} />);
+    const table = screen.getByRole('table');
+    expect(within(table).getAllByRole('columnheader').map(header => header.textContent)).toEqual(['Tag', 'Type', 'Details', 'Actions']);
+    expect(within(table).getAllByRole('row')).toHaveLength(2);
+    expect(screen.queryByRole('tablist')).not.toBeInTheDocument();
+    const add = within(table).getByRole('button', { name: 'Add node' });
+    add.focus();
+    await user.keyboard('{Enter}');
+    await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Cancel' }));
+    expect(screen.getByLabelText('Canonical draft')).toHaveTextContent(`"${collection}":[]`);
+    await user.click(add);
+    await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Continue' }));
+    await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Create' }));
+    expect(within(table).getAllByRole('row')).toHaveLength(3);
+    const entryRow = within(table).getAllByRole('row')[1];
+    expect(within(entryRow).getAllByRole('cell')).toHaveLength(4);
+    expect(within(entryRow).getAllByRole('button').map(button => button.getAttribute('aria-label') ?? button.textContent)).toEqual([
+      'Edit', expect.stringMatching(/^Move .+ up$/), expect.stringMatching(/^Move .+ down$/), 'Delete',
+    ]);
+    expect(within(table).getByRole('button', { name: /Move .+ up/ })).toBeDisabled();
+    expect(within(table).getByRole('button', { name: /Move .+ down/ })).toBeDisabled();
+  });
+
+  it('moves whole records by keyboard and edits and deletes the reordered entry', async () => {
     const user = userEvent.setup();
     render(
-      <Harness
-        initial={{
-          inbounds: [
-            { type: 'mixed', tag: 'first' },
-            { type: 'socks', tag: 'second' },
-          ],
-        }}
-      />,
+      <Harness selectedCollection='inbounds' initial={parseCanonicalDraft(
+        '{"inbounds":[{"type":"mixed","tag":"first","listen_port":2080,"future":900719925474099312345},{"type":"socks","tag":"second","listen_port":3080}]}',
+      )} />,
     );
-
-    await user.click(screen.getByRole('tab', { name: /Inbounds/ }));
-    screen.getAllByRole('article').forEach((card, index) => {
-      vi.spyOn(card, 'getBoundingClientRect').mockReturnValue({
-        bottom: 40 + index * 64,
-        height: 48,
-        left: 0,
-        right: 320,
-        top: index * 64,
-        width: 320,
-        x: 0,
-        y: index * 64,
-        toJSON: () => ({}),
-      });
+    expect(screen.getByRole('button', { name: 'Move first up' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Move second down' })).toBeDisabled();
+    screen.getByRole('button', { name: 'Move first down' }).focus();
+    await user.keyboard(' ');
+    const table = screen.getByRole('table');
+    expect(within(table).getAllByRole('row')[1]).toHaveTextContent('second');
+    expect(screen.getByRole('button', { name: 'Move first down' })).toBeDisabled();
+    expect(screen.getByLabelText('Canonical draft')).toHaveTextContent('"future":900719925474099312345');
+    await user.click(screen.getByRole('button', { name: 'Move first up' }));
+    expect(within(table).getAllByRole('row')[1]).toHaveTextContent('first');
+    await user.click(screen.getByRole('button', { name: 'Move first down' }));
+    const movedRow = within(table).getAllByRole('row')[2];
+    await user.click(within(movedRow).getByRole('button', { name: 'Edit' }));
+    const dialog = screen.getByRole('dialog');
+    expect(within(dialog).getByLabelText('Listen port')).toHaveValue(2080);
+    fireEvent.change(within(dialog).getByLabelText('Listen port'), { target: { value: '4080' } });
+    await user.click(within(dialog).getByRole('button', { name: 'Save changes' }));
+    expect(screen.getByLabelText('Canonical draft')).toHaveTextContent('"listen_port":4080');
+    expect(screen.getByLabelText('Canonical draft')).toHaveTextContent('"future":900719925474099312345');
+    await user.click(within(within(table).getAllByRole('row')[2]).getByRole('button', { name: 'Delete' }));
+    await user.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Delete' }));
+    expect(JSON.parse(screen.getByLabelText('Canonical draft').textContent ?? '{}')).toEqual({
+      inbounds: [{ type: 'socks', tag: 'second', listen_port: 3080 }],
     });
-    const handle = screen.getByRole('button', { name: 'Reorder first' });
-    handle.focus();
-    await user.keyboard(' ');
-    await user.keyboard('{ArrowDown}');
-    await user.keyboard(' ');
+  });
 
-    const encoded = screen.getByLabelText('Canonical draft').textContent ?? '';
-    expect(encoded.indexOf('"tag":"second"')).toBeLessThan(encoded.indexOf('"tag":"first"'));
+  it('disables adding and moving while the configuration is locked', () => {
+    render(
+      <Harness selectedCollection='inbounds' disabled initial={{ inbounds: [
+        { type: 'mixed', tag: 'first' }, { type: 'mixed', tag: 'second' },
+      ] }} />,
+    );
+    for (const button of within(screen.getByRole('table')).getAllByRole('button')) expect(button).toBeDisabled();
   });
 });

@@ -123,7 +123,7 @@ func New(options Options) *Updater {
 	}
 }
 
-func (updater *Updater) Update(ctx context.Context, currentVersion string) (Result, error) {
+func (updater *Updater) Update(ctx context.Context, currentVersion string, report ProgressFunc) (Result, error) {
 	if updater.goos != "linux" || updater.goarch != "amd64" && updater.goarch != "arm64" {
 		return Result{}, fmt.Errorf("%w: %s/%s", ErrUnsupportedPlatform, updater.goos, updater.goarch)
 	}
@@ -134,6 +134,7 @@ func (updater *Updater) Update(ctx context.Context, currentVersion string) (Resu
 		return Result{}, ErrVerificationKeyInvalid
 	}
 
+	report.emit(Progress{Stage: StageCheckRelease})
 	latest, err := updater.latest(ctx)
 	if err != nil {
 		return Result{}, err
@@ -157,6 +158,7 @@ func (updater *Updater) Update(ctx context.Context, currentVersion string) (Resu
 		return Result{}, err
 	}
 
+	report.emit(Progress{Stage: StageVerifyRelease, Version: latest.TagName})
 	checksums, err := updater.downloadBytes(ctx, checksumAsset, maxChecksumBytes)
 	if err != nil {
 		return Result{}, fmt.Errorf("download %s: %w", checksumAssetName, err)
@@ -173,6 +175,7 @@ func (updater *Updater) Update(ctx context.Context, currentVersion string) (Resu
 		return Result{}, err
 	}
 
+	report.emit(Progress{Stage: StagePrepare})
 	targetPath, targetMode, err := updater.executableTarget()
 	if err != nil {
 		return Result{}, err
@@ -216,10 +219,11 @@ func (updater *Updater) Update(ctx context.Context, currentVersion string) (Resu
 		_ = os.Remove(temporaryPath)
 	}()
 
-	actual, err := updater.downloadFile(ctx, binaryAsset, temporary, maxBinaryBytes)
+	actual, err := updater.downloadFile(ctx, binaryAsset, temporary, maxBinaryBytes, report)
 	if err != nil {
 		return Result{}, fmt.Errorf("download %s: %w", binaryName, err)
 	}
+	report.emit(Progress{Stage: StageVerifyBinary})
 	if actual != expected {
 		return Result{}, fmt.Errorf(
 			"%w: %s expected %x, got %x",
@@ -242,6 +246,7 @@ func (updater *Updater) Update(ctx context.Context, currentVersion string) (Resu
 	if err := requireExecutableDigest(targetPath, targetDigest); err != nil {
 		return Result{}, err
 	}
+	report.emit(Progress{Stage: StageInstall})
 	// Cancellation is honored until the atomic replacement commit point. Once
 	// Rename starts, the update is committed and only durability work remains.
 	if err := ctx.Err(); err != nil {

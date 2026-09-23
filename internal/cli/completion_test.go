@@ -123,7 +123,7 @@ func TestConfigCompletionIncludesVerifyAndUnset(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range []string{"init", "show", "set", "unset", "check", "verify"} {
+	for _, name := range []string{"init", "show", "set", "unset", "verify"} {
 		if !strings.Contains(stdout, name+"\t") {
 			t.Fatalf("missing config completion %s: %s", name, stdout)
 		}

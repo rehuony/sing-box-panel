@@ -1,6 +1,6 @@
 import { useTranslation } from 'react-i18next';
+import { CirclePlus, Search } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ChevronLeft, ChevronRight, CirclePlus, Search } from 'lucide-react';
 
 import type {
   SubscriptionChannel,
@@ -13,6 +13,7 @@ import { Button } from '@/components/ui/button';
 import { toast } from '@/components/ui/toast-manager';
 import { useApiClient } from '@/api/api-client-context';
 import { SelectField } from '@/components/select-field';
+import { ListPagination } from '@/components/list-pagination';
 import { ToolbarActions } from '@/components/workspace-toolbar';
 import { useUnsavedChanges } from '@/hooks/use-unsaved-changes';
 import { describeRequestError, ErrorNotice } from '@/components/error-notice';
@@ -188,6 +189,7 @@ export function SubscriptionChannelPanel({ active = true, toolbarTarget }: {
   );
   const pages = Math.max(1, Math.ceil(filtered.length / size));
   const current = Math.min(page, pages);
+  if (page !== current) setPage(current);
   return (
     <section className='subscription-source-workspace'>
       {linkChannel && (
@@ -248,7 +250,7 @@ export function SubscriptionChannelPanel({ active = true, toolbarTarget }: {
                 </div>
               </ToolbarActions>
               <div className='subscription-source-table-scroll'>
-                <table className='workspace-table subscription-source-table channel-list-table'>
+                <table className='workspace-table subscription-source-table'>
                   <thead>
                     <tr>
                       <th>{t('channels.name')}</th>
@@ -287,38 +289,17 @@ export function SubscriptionChannelPanel({ active = true, toolbarTarget }: {
                 </table>
                 {!filtered.length && <p className='subscription-empty'>{t('channels.empty')}</p>}
               </div>
-              <footer className='subscription-pagination'>
-                <SelectField
-                  aria-label={t('subscriptions.keys.pageSize')}
-                  value={size}
-                  onValueChange={(value) => {
-                    setSize(value);
-                    setPage(1);
-                  }}
-                  items={[5, 10, 50].map((value) => ({ value, label: t('subscriptions.keys.perPage', { count: value }) }))}
-                />
-                <div>
-                  <Button
-                    aria-label={t('subscriptions.keys.previous')}
-                    variant='outline'
-                    size='icon'
-                    disabled={current === 1}
-                    onClick={() => setPage(current - 1)}
-                  >
-                    <ChevronLeft />
-                  </Button>
-                  <span aria-current='page'>{current}</span>
-                  <Button
-                    aria-label={t('subscriptions.keys.next')}
-                    variant='outline'
-                    size='icon'
-                    disabled={current === pages}
-                    onClick={() => setPage(current + 1)}
-                  >
-                    <ChevronRight />
-                  </Button>
-                </div>
-              </footer>
+              <ListPagination
+                page={current}
+                pages={pages}
+                pageSize={size}
+                disabled={filtered.length === 0}
+                onPageChange={setPage}
+                onPageSizeChange={value => {
+                  setSize(value);
+                  setPage(1);
+                }}
+              />
             </>
           )}
       <Dialog open={creating} onOpenChange={(open) => !busy && setCreating(open)}>

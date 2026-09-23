@@ -312,6 +312,13 @@ file while paused and polls for rotation. Streaming uses write deadlines and
 closes within a minute to reauthenticate on reconnect. `/api/v1/logs/panel`
 provides the combined panel view. The legacy log API below remains available.
 
+Panel-log and subscription-key lists support `offset` with `limit` for numbered
+pages and return `total` before pagination. Panel-log totals include the active
+level, search, and time filters. Counts and rows come from one database snapshot;
+live inserts or deletions may shift rows between requests. Existing `before_time`
+and `before_id` cursors remain supported and cannot be combined with `offset`.
+The Web footer supports direct page entry and 5, 10, or 50 items per page.
+
 ## Durable logs
 
 The log CLI and authenticated API expose bounded, sanitized metadata for
@@ -365,6 +372,10 @@ segments and persisted transitions; unknown intervals are not guessed healthy.
 An absent or zero traffic quota is rendered as unlimited (`∞ GiB`) while keeping
 the observed used-byte value; unavailable traffic evidence remains unknown rather
 than being rendered as zero.
+
+The demo uses the saved panel traffic quota for both metrics responses and the
+live metrics stream. Saving a new quota updates the dashboard on the next stream
+sample, including the usage percentage; an empty or zero quota remains unlimited.
 
 ## Limited monitoring and traffic
 

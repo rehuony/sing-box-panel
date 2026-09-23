@@ -106,10 +106,32 @@ button.native-log__badge:hover {
 .native-log__output {
   flex: 1;
   min-height: 0;
+  display: flex;
+  flex-direction: column;
   overflow: auto;
   padding: 12px 18px 18px;
 }
+.native-log__output[data-empty] {
+  padding: 48px 24px;
+}
+.native-log__empty {
+  padding: 0;
+}
+.native-log__empty-icon {
+  width: 64px;
+  height: 64px;
+  margin-bottom: 12px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-window);
+  background: var(--color-surface);
+  color: var(--color-text-muted);
+}
+.native-log__empty-icon svg {
+  width: 32px;
+  height: 32px;
+}
 .native-log__output pre {
+  flex: none;
   font-family: var(--font-mono);
   font-size: 13px;
   line-height: 1.65;
@@ -194,32 +216,6 @@ button.native-log__badge:hover {
 }
 .panel-log-state--warn {
   color: var(--color-warning);
-}
-.log-pagination {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  flex: none;
-}
-.log-pagination [data-slot='select-trigger'] {
-  background: transparent;
-  border: 0;
-  color: var(--color-text-muted);
-  padding: 8px;
-}
-.log-pagination > div {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.log-pagination [aria-current] {
-  display: grid;
-  place-items: center;
-  width: 40px;
-  height: 40px;
-  color: var(--color-primary);
-  background: var(--color-primary-soft);
-  border-radius: var(--radius-control);
 }
 .panel-log-dialog {
   width: 640px;

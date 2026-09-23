@@ -17,7 +17,7 @@ func newConfigCommand(state *options) *cobra.Command {
 The Web UI, CLI, and manual edits share this same file. These commands do not
 open the database. Use the Web UI to manage sing-box configuration.`
 	root.AddCommand(newConfigInitCommand(state), newConfigShowCommand(state), newConfigSetCommand(state),
-		newConfigValidationCommand(state, "check"), newConfigValidationCommand(state, "verify"), newConfigUnsetCommand(state))
+		newConfigVerifyCommand(state), newConfigUnsetCommand(state))
 	return root
 }
 
@@ -140,14 +140,14 @@ Credentials and panel preferences use this same file at operation boundaries.`,
 	return command
 }
 
-func newConfigValidationCommand(state *options, name string) *cobra.Command {
+func newConfigVerifyCommand(state *options) *cobra.Command {
 	return &cobra.Command{
-		Use:   name,
+		Use:   "verify",
 		Short: "Validate the panel settings file without opening the database",
 		Long: `Validate JSON structure and panel settings values in the selected --config
 file. This reads only the file; database and environment checks run at server
 startup. It does not check the saved sing-box configuration.`,
-		Example: fmt.Sprintf("  sing-box-panel config %s\n  sing-box-panel config %s --config ./setting.json --output json", name, name),
+		Example: "  sing-box-panel config verify\n  sing-box-panel config verify --config ./setting.json --output json",
 		Args:    cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if err := cmd.Context().Err(); err != nil {

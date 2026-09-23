@@ -22,6 +22,8 @@ interface ConfigurationSectionEditorProps {
   onChange: (change: (draft: CanonicalDraft) => CanonicalDraft) => void;
 }
 
+const experimentalGroupOrder = ['clash_api', 'v2ray_api', 'cache_file', 'debug'];
+
 /** Group native fields for navigation without changing the stored schema or data. */
 export function ConfigurationSectionEditor({
   name, schema, draft, disabled, resolution, onChange,
@@ -33,25 +35,19 @@ export function ConfigurationSectionEditor({
     ? ['servers', 'rules']
     : name === 'route'
       ? ['rules', 'rule_set']
-      : name === 'experimental' ? Object.keys(properties) : [];
+      : name === 'experimental'
+        ? [...experimentalGroupOrder, ...Object.keys(properties).filter(key => !experimentalGroupOrder.includes(key))]
+        : [];
   const groups = grouped.filter((key) => properties[key] !== undefined);
   const remaining = Object.fromEntries(Object.entries(properties).filter(([key]) => !groups.includes(key)));
   const record = draft[name] !== null && typeof draft[name] === 'object' && !Array.isArray(draft[name]) ? draft[name] as Record<string, unknown> : {};
 
-  function form(value: RJSFSchema, data: unknown, pointer: string) {
-    return <SchemaSectionForm arrayActionContainer={actionContainer} basePointer={pointer} data={data} disabled={disabled} onChange={onChange} resolution={resolution} schema={value} uiSchema={{ ...uiSchemaFromPanel(value, [], resolution.schema, data), 'ui:title': '', 'ui:description': '' }} />;
+  function form(value: RJSFSchema, data: unknown, pointer: string, arrayLayout: 'default' | 'standalone' = 'default') {
+    return <SchemaSectionForm arrayActionContainer={actionContainer} arrayLayout={arrayLayout} basePointer={pointer} data={data} disabled={disabled} onChange={onChange} resolution={resolution} schema={value} uiSchema={{ ...uiSchemaFromPanel(value, [], resolution.schema, data), 'ui:title': '', 'ui:description': '' }} />;
   }
   if (groups.length === 0) {
-    const content = form(schema, draft[name], `/${name}`);
-    if (getSchemaType(resolvedSchema(schema, resolution.schema)) !== 'array') return content;
-    return (
-      <div className='configuration-section-tabs'>
-        <div className='configuration-section-toolbar'>
-          <div className='configuration-section-tabs__actions' ref={setActionContainer} />
-        </div>
-        {content}
-      </div>
-    );
+    const arrayLayout = getSchemaType(resolvedSchema(schema, resolution.schema)) === 'array' ? 'standalone' : 'default';
+    return form(schema, draft[name], `/${name}`, arrayLayout);
   }
   const settingsSchema = {
     ...resolvedSchema(schema, resolution.schema),

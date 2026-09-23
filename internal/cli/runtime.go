@@ -126,6 +126,8 @@ func newCoreRollbackCommand(state *options, open openApplicationFunc) *cobra.Com
 
 func classifyRuntimeError(code string, err error) error {
 	switch {
+	case errors.Is(err, application.ErrConfigurationNotSaved):
+		return &Error{Kind: ErrorValidation, Code: "configuration_not_saved", Message: err.Error(), Cause: err}
 	case errors.Is(err, panelprocess.ErrUnavailable):
 		return &Error{Kind: ErrorUnavailable, Code: "panel_unavailable", Message: err.Error(), Cause: err}
 	case errors.Is(err, store.ErrConfigurationFileUnparsed):
@@ -154,6 +156,8 @@ func emptyAsDash(value string) string {
 
 func classifyConfigurationRuntimeError(code string, err error) error {
 	switch {
+	case errors.Is(err, application.ErrConfigurationNotSaved):
+		return &Error{Kind: ErrorValidation, Code: "configuration_not_saved", Message: err.Error(), Cause: err}
 	case errors.Is(err, panelprocess.ErrUnavailable):
 		return &Error{Kind: ErrorUnavailable, Code: "panel_unavailable", Message: err.Error(), Cause: err}
 	case errors.Is(err, store.ErrConfigurationFileUnparsed):

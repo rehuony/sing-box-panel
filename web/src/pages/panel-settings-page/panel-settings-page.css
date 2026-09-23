@@ -93,32 +93,6 @@
 .settings-field[data-invalid='true'] .settings-field__label > [data-slot='field-label'] {
   color: var(--color-danger);
 }
-.settings-help {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex: 0 0 28px;
-  width: 28px;
-  height: 28px;
-  padding: 0;
-  color: var(--color-muted);
-  background: transparent;
-  border: 0;
-  border-radius: 50%;
-  cursor: help;
-}
-.settings-help:hover,
-.settings-help[data-popup-open] {
-  color: var(--color-ink);
-}
-.settings-help:focus-visible {
-  outline: 1px solid var(--input-focus);
-  outline-offset: -2px;
-}
-.settings-help-content {
-  max-width: calc(100vw - 32px);
-}
-
 .settings-field__control {
   min-width: 0;
 }

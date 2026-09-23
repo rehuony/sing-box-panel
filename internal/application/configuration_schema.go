@@ -5,7 +5,6 @@ package application
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"strings"
 
 	"github.com/rehuony/sing-box-panel/internal/configuration"
@@ -101,7 +100,7 @@ func (application *Application) PreviewConfiguration(
 		return ConfigurationPreview{}, err
 	}
 	if file.Revision == 0 {
-		return ConfigurationPreview{}, errors.New("no configuration has been saved")
+		return ConfigurationPreview{}, ErrConfigurationNotSaved
 	}
 	if file.CanonicalRevisionID == "" {
 		return ConfigurationPreview{}, store.ErrConfigurationFileUnparsed

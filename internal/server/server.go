@@ -99,6 +99,9 @@ func Run(ctx context.Context, settingsPath string, build buildinfo.Info, assets 
 		return errors.New("settings changed data directory during startup; restart with a stable settings file")
 	}
 	commands = application.FromStoreWithSettings(database, configuration)
+	if err := commands.InitializeConfigurationFile(ctx); err != nil {
+		return startupError(ctx, "initialize sing-box configuration", err)
+	}
 	output := console.FromContext(ctx)
 	commands.SetLogObserver(func(entry store.LogEntry) { output.Event(entry.Time, string(entry.Level), entry.Code, entry.Message) })
 	commands.SetPublicIPResolver(publicip.New().Resolve)

@@ -317,7 +317,7 @@ export const testDashboardSnapshot: DashboardStreamSnapshot = {
   history_1h: { ...testMetricsHistory, bucket_seconds: 60 },
   history_24h: testMetricsHistory,
   runtime_24h: testRuntimeHistory,
-  activity: { items: [] },
+  activity: { items: [], total: 0 },
 };
 
 export function createMockApiClient(overrides: Partial<ApiClient> = {}): Mocked<ApiClient> {
@@ -496,7 +496,9 @@ export function createMockApiClient(overrides: Partial<ApiClient> = {}): Mocked<
       version: testSubscriptionSourceVersion,
     }),
     restoreSubscriptionSourceVersion: vi.fn().mockResolvedValue(testSubscriptionSources[0]),
-    listSubscriptionTokens: vi.fn().mockResolvedValue({ items: testSubscriptionTokens }),
+    listSubscriptionTokens: vi.fn().mockResolvedValue({
+      items: testSubscriptionTokens, total: testSubscriptionTokens.length,
+    }),
     getSubscriptionTokenSecret: vi.fn().mockResolvedValue({ token: 'sample-subscription-token' }),
     getSubscriptionToken: vi.fn().mockResolvedValue(testSubscriptionTokens[0]),
     createSubscriptionToken: vi.fn().mockResolvedValue({
@@ -518,7 +520,7 @@ export function createMockApiClient(overrides: Partial<ApiClient> = {}): Mocked<
       .fn()
       .mockResolvedValue({ file: '2026-09-19-000.log', text: '', next_offset: 0, size: 0 }),
     streamCoreLog: vi.fn(async function* () {}),
-    listPanelLogs: vi.fn().mockResolvedValue({ items: [] }),
+    listPanelLogs: vi.fn().mockResolvedValue({ items: [], total: 0 }),
     listLogs: vi.fn().mockResolvedValue({ items: [testLogEntry] }),
     streamLogs: vi.fn(testLogStream),
     getLog: vi.fn().mockResolvedValue(testLogEntry),

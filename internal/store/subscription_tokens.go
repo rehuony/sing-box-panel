@@ -62,11 +62,13 @@ type SubscriptionTokenRotation struct {
 type SubscriptionTokenListFilter struct {
 	Cursor *CreatedAtCursor
 	Limit  int
+	Offset int
 }
 
 type SubscriptionTokenPage struct {
 	Items []SubscriptionToken
 	Next  *CreatedAtCursor
+	Total int
 }
 
 const subscriptionChannelColumns = `
@@ -129,6 +131,18 @@ func (s *Store) ListSubscriptionTokens(
 	if err := validateCreatedAtCursor(filter.Cursor); err != nil {
 		return SubscriptionTokenPage{}, err
 	}
+	if err := validatePageOffset(filter.Offset, filter.Cursor != nil); err != nil {
+		return SubscriptionTokenPage{}, err
+	}
+	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		return SubscriptionTokenPage{}, err
+	}
+	defer tx.Rollback()
+	var total int
+	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM subscription_tokens`).Scan(&total); err != nil {
+		return SubscriptionTokenPage{}, fmt.Errorf("count subscription tokens: %w", err)
+	}
 	query := `SELECT ` + subscriptionTokenColumns + ` FROM subscription_tokens`
 	args := make([]any, 0, 4)
 	if filter.Cursor != nil {
@@ -136,9 +150,9 @@ func (s *Store) ListSubscriptionTokens(
 		cursorTime := formatTime(filter.Cursor.CreatedAt)
 		args = append(args, cursorTime, cursorTime, filter.Cursor.ID)
 	}
-	query += ` ORDER BY created_at DESC, id DESC LIMIT ?`
-	args = append(args, limit+1)
-	rows, err := s.db.QueryContext(ctx, query, args...)
+	query += ` ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?`
+	args = append(args, limit+1, filter.Offset)
+	rows, err := tx.QueryContext(ctx, query, args...)
 	if err != nil {
 		return SubscriptionTokenPage{}, fmt.Errorf("list subscription tokens: %w", err)
 	}
@@ -154,13 +168,13 @@ func (s *Store) ListSubscriptionTokens(
 	if err := rows.Err(); err != nil {
 		return SubscriptionTokenPage{}, fmt.Errorf("iterate subscription tokens: %w", err)
 	}
-	page := SubscriptionTokenPage{Items: items}
+	page := SubscriptionTokenPage{Items: items, Total: total}
 	if len(items) > limit {
 		page.Items = items[:limit]
 		last := page.Items[len(page.Items)-1]
 		page.Next = &CreatedAtCursor{CreatedAt: last.CreatedAt, ID: last.ID}
 	}
-	return page, nil
+	return page, tx.Commit()
 }
 
 // FindActiveSubscriptionToken resolves a one-way digest and applies immediate

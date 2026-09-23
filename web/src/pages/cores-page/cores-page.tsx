@@ -1,6 +1,7 @@
 import { useTranslation } from 'react-i18next';
+import { useNavigate } from 'react-router-dom';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ChevronLeft, ChevronRight, ExternalLink, RefreshCw, Search, Upload } from 'lucide-react';
+import { ExternalLink, RefreshCw, Search, Upload } from 'lucide-react';
 
 import type { CoreArtifact } from '@/api/api-client';
 
@@ -8,9 +9,10 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Spinner } from '@/components/ui/spinner';
 import { useHashTab } from '@/hooks/use-hash-tab';
+import { ApiRequestError } from '@/api/api-client';
 import { toast } from '@/components/ui/toast-manager';
 import { useApiClient } from '@/api/api-client-context';
-import { SelectField } from '@/components/select-field';
+import { ListPagination } from '@/components/list-pagination';
 import { useControlPlane } from '@/stores/control-plane.store';
 import { WorkspaceToolbar } from '@/components/workspace-toolbar';
 import { describeRequestError, ErrorNotice } from '@/components/error-notice';
@@ -30,6 +32,7 @@ import './cores-page.css';
 
 export function CoresPage() {
   const { t } = useTranslation();
+  const navigate = useNavigate();
   const client = useApiClient();
   const control = useControlPlane();
   const library = useVersionLibrary();
@@ -72,6 +75,9 @@ export function CoresPage() {
       : 1,
     pages,
   );
+  if (pagination.tab !== tab || pagination.search !== search || pagination.size !== size || pagination.page !== page) {
+    setPagination({ tab, search, size, page });
+  }
   const start = (page - 1) * size;
   const arch = library.platform?.arch;
   const canImport = library.platform?.os === 'linux' && (arch === 'arm64' || arch === 'amd64');
@@ -89,7 +95,20 @@ export function CoresPage() {
       toast.add({ title: t('cores.library.completed'), type: 'success' });
       return true;
     } catch (reason) {
-      if (!signal.aborted) toast.add({ title: describeRequestError(reason), type: 'error' });
+      if (!signal.aborted) {
+        toast.add({
+          title: describeRequestError(reason),
+          type: 'error',
+          ...(reason instanceof ApiRequestError && reason.code === 'configuration_not_saved'
+            ? {
+                actionProps: {
+                  children: t('cores.action.configure'),
+                  onClick: () => void navigate('/configuration'),
+                },
+              }
+            : {}),
+        });
+      }
       return false;
     } finally {
       if (!signal.aborted) setPending(null);
@@ -313,37 +332,14 @@ export function CoresPage() {
               )
             : null}
         </TabsContent>
-        <footer className='core-pagination'>
-          <SelectField
-            aria-label={t('cores.library.pageSize')}
-            value={size}
-            onValueChange={(value) => {
-              setSize(value);
-            }}
-            items={[5, 10, 50].map((value) => ({ value, label: t('cores.library.perPage', { count: value }) }))}
-          />
-          <div>
-            <Button
-              variant='ghost'
-              size='icon'
-              aria-label={t('cores.library.previous')}
-              disabled={page === 1}
-              onClick={() => setPagination({ tab, search, size, page: page - 1 })}
-            >
-              <ChevronLeft />
-            </Button>
-            <span aria-current='page'>{page}</span>
-            <Button
-              variant='ghost'
-              size='icon'
-              aria-label={t('cores.library.next')}
-              disabled={page >= pages}
-              onClick={() => setPagination({ tab, search, size, page: page + 1 })}
-            >
-              <ChevronRight />
-            </Button>
-          </div>
-        </footer>
+        <ListPagination
+          page={page}
+          pages={pages}
+          pageSize={size}
+          disabled={listLoading || count === 0}
+          onPageChange={next => setPagination({ tab, search, size, page: next })}
+          onPageSizeChange={setSize}
+        />
       </Tabs>
       {importOpen && canImport && (
         <CoreImportDialog

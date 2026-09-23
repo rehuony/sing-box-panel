@@ -1,12 +1,14 @@
-import { MemoryRouter } from 'react-router-dom';
 import { describe, expect, it, vi } from 'vitest';
 import userEvent from '@testing-library/user-event';
+import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { act, render, screen, waitFor, within } from '@testing-library/react';
 
 import '@/i18n';
 
 import type { ApiClient } from '@/api/api-client';
 
+import { Toaster } from '@/components/ui/toast';
+import { ApiRequestError } from '@/api/api-client';
 import { CoresPage } from '@/pages/cores-page/cores-page';
 import { ApiClientProvider } from '@/api/api-client-context';
 import { ControlPlaneContext } from '@/stores/control-plane.store';
@@ -33,7 +35,10 @@ function renderCores(client: ApiClient) {
             viewVersion: testDashboardContext.view.exactVersion,
           }}
         >
-          <CoresPage />
+          <Routes>
+            <Route path='/' element={<CoresPage />} />
+            <Route path='/configuration' element={<p>Configuration editor</p>} />
+          </Routes>
         </ControlPlaneContext>
       </ApiClientProvider>
     </MemoryRouter>,
@@ -149,6 +154,23 @@ describe('inline version library', () => {
     await waitFor(() => expect(screen.getByRole('button', { name: 'Enable' })).toBeEnabled());
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
+
+  it('guides first-time enablement to configuration without claiming success', async () => {
+    const user = userEvent.setup();
+    render(<Toaster />);
+    const client = createMockApiClient({
+      enableCore: vi.fn().mockRejectedValue(new ApiRequestError('Configuration not saved', {
+        status: 409, code: 'configuration_not_saved',
+      })),
+    });
+    renderCores(client);
+    await user.click(await screen.findByRole('button', { name: 'Enable' }));
+    expect(await screen.findByText('Save a sing-box configuration in Configuration before enabling or checking a core.')).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Enable' })).toBeEnabled();
+    expect(screen.queryByRole('button', { name: 'Disable' })).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Open configuration' }));
+    expect(await screen.findByText('Configuration editor')).toBeVisible();
+  });
   it.each(['running', 'stopped'])('offers disable for the selected version while %s', async (observationState) => {
     const user = userEvent.setup();
     const client = createMockApiClient({
@@ -241,6 +263,90 @@ describe('inline version library', () => {
     expect(within(row).queryByText(testArtifacts.items[0].variant)).not.toBeInTheDocument();
     expect(within(row).queryByText(testArtifacts.items[0].binary_sha256)).not.toBeInTheDocument();
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
+  it('jumps to a page and keeps totals and boundary controls in sync with the page size', async () => {
+    const user = userEvent.setup();
+    const items = Array.from({ length: 12 }, (_, index) => ({
+      ...testArtifacts.items[0], id: `core_${index}`, exact_version: `1.13.${index}`,
+    }));
+    renderCores(createMockApiClient({ listCoreArtifacts: vi.fn().mockResolvedValue({ items }) }));
+    await screen.findByText('1.13.0');
+    const page = screen.getByRole('spinbutton', { name: 'Current page' });
+    expect(page).toHaveValue(1);
+    expect(page).toHaveAttribute('max', '2');
+    expect(page).toHaveAccessibleDescription('2 pages in total');
+    expect(screen.getByRole('button', { name: 'Previous page' })).toBeDisabled();
+    await user.clear(page);
+    await user.type(page, '2{Enter}');
+    expect(screen.getByText('1.13.10')).toBeVisible();
+    expect(screen.queryByText('1.13.0')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Next page' })).toBeDisabled();
+    await user.click(screen.getByRole('combobox', { name: 'Items per page' }));
+    await user.click(await screen.findByRole('option', { name: '5 per page' }));
+    expect(page).toHaveValue(1);
+    expect(page).toHaveAttribute('max', '3');
+    expect(page).toHaveAccessibleDescription('3 pages in total');
+    expect(screen.getByText('1.13.0')).toBeVisible();
+    await user.clear(page);
+    await user.type(page, '99');
+    await user.tab();
+    expect(page).toHaveValue(3);
+    expect(screen.getByText('1.13.10')).toBeVisible();
+    await user.clear(page);
+    await user.type(page, '0{Enter}');
+    expect(page).toHaveValue(1);
+    await user.clear(page);
+    await user.type(page, '2{Escape}');
+    await user.tab();
+    expect(page).toHaveValue(1);
+    await user.clear(page);
+    await user.tab();
+    expect(page).toHaveValue(1);
+  });
+
+  it('resets pagination when returning from a filter, tab or page size change', async () => {
+    const user = userEvent.setup();
+    const items = Array.from({ length: 12 }, (_, index) => ({
+      ...testArtifacts.items[0], id: `core_${index}`, exact_version: `1.13.${index}`,
+    }));
+    renderCores(createMockApiClient({ listCoreArtifacts: vi.fn().mockResolvedValue({ items }) }));
+    await screen.findByText('1.13.0');
+    await user.click(screen.getByRole('button', { name: 'Next page' }));
+    await user.type(screen.getByRole('textbox', { name: 'Filter artifacts' }), '1.13.0');
+    await user.clear(screen.getByRole('textbox', { name: 'Filter artifacts' }));
+    expect(screen.getByText('1.13.0')).toBeVisible();
+    await user.click(screen.getByRole('button', { name: 'Next page' }));
+    await user.click(screen.getByRole('tab', { name: 'Available' }));
+    await user.click(screen.getByRole('tab', { name: 'Installed' }));
+    expect(screen.getByText('1.13.0')).toBeVisible();
+    await user.click(screen.getByRole('button', { name: 'Next page' }));
+    for (const size of [5, 10]) {
+      await user.click(screen.getByRole('combobox', { name: 'Items per page' }));
+      await user.click(await screen.findByRole('option', { name: `${size} per page` }));
+      expect(screen.getByText('1.13.0')).toBeVisible();
+    }
+  });
+
+  it('paginates the available list and disables navigation for an empty search', async () => {
+    const user = userEvent.setup();
+    const assets = Array.from({ length: 12 }, (_, index) => ({
+      ...testCatalog.assets[0], asset_id: index + 2000, version: `1.14.${index}`,
+      name: `sing-box-1.14.${index}-linux-arm64-musl.tar.gz`,
+    }));
+    renderCores(createMockApiClient({ listCatalogAssets: vi.fn().mockResolvedValue({ ...testCatalog, assets }) }));
+    await screen.findByText(testArtifacts.items[0].exact_version);
+    await user.click(screen.getByRole('tab', { name: 'Available' }));
+    await user.click(screen.getByRole('button', { name: 'Next page' }));
+    expect(screen.getByText('1.14.10')).toBeVisible();
+    expect(screen.queryByText('1.14.0')).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Previous page' }));
+    expect(screen.getByText('1.14.0')).toBeVisible();
+    await user.type(screen.getByRole('textbox', { name: 'Filter artifacts' }), 'missing');
+    expect(screen.getByRole('spinbutton', { name: 'Current page' })).toHaveValue(1);
+    expect(screen.getByRole('spinbutton', { name: 'Current page' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Previous page' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Next page' })).toBeDisabled();
   });
   it('never defaults an unknown platform to ARM64', async () => {
     const client = createMockApiClient({

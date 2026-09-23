@@ -2,14 +2,16 @@ import type { ArrayFieldItemTemplateProps, ArrayFieldTemplateProps, FieldProps, 
 
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
-import { MoreHorizontal, Plus } from 'lucide-react';
 import { createContext, use, useState } from 'react';
 import Form, { getDefaultRegistry } from '@rjsf/core';
+import { ArrowDown, ArrowUp, MoreHorizontal, Plus } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 
+import { SchemaDialogLayout } from './schema-dialog-layout';
 import { resolvedSchema, schemaDiscriminatorValues, selfContainedSchema, uiSchemaFromPanel } from '../schema-ui';
 
 const DefaultArrayField = getDefaultRegistry().fields.ArrayField;
@@ -49,30 +51,32 @@ export function PanelArrayField(props: FieldProps) {
         <DialogContent className='configuration-entry-dialog'>
           <DialogHeader>
             <DialogTitle>{t(pending?.index == null ? 'configuration.general.addEntry' : 'configuration.general.editEntry')}</DialogTitle>
-            <DialogDescription>{t(pending?.index == null ? 'configuration.general.addDescription' : 'configuration.general.editDescription')}</DialogDescription>
+            <DialogDescription className='sr-only'>{t(pending?.index == null ? 'configuration.general.addDescription' : 'configuration.general.editDescription')}</DialogDescription>
           </DialogHeader>
           {pending !== null && (
             <div className='schema-form configuration-entry-dialog__body'>
-              <Form
-                tagName='div'
-                disabled={disabled || readonly}
-                schema={selfContainedSchema(itemSchema, registry.rootSchema)}
-                formData={pending.value}
-                idPrefix={`${fieldPathId.$id}-dialog`}
-                fields={registry.fields}
-                templates={registry.templates}
-                widgets={registry.widgets}
-                validator={registry.schemaUtils.getValidator()}
-                experimental_defaultFormStateBehavior={{ emptyObjectFields: 'populateRequiredDefaults' }}
-                noValidate
-                noHtml5Validate
-                uiSchema={{
-                  ...uiSchemaFromPanel(itemSchema, [], registry.rootSchema, pending.value),
-                  'ui:title': '', 'ui:description': '', 'ui:submitButtonOptions': { norender: true },
-                }}
-                onChange={({ formData: value }) => setPending((current) =>
-                  current === null ? null : { ...current, value })}
-              />
+              <SchemaDialogLayout schema={itemSchema} root={registry.rootSchema} data={pending.value}>
+                <Form
+                  tagName='div'
+                  disabled={disabled || readonly}
+                  schema={selfContainedSchema(itemSchema, registry.rootSchema)}
+                  formData={pending.value}
+                  idPrefix={`${fieldPathId.$id}-dialog`}
+                  fields={registry.fields}
+                  templates={registry.templates}
+                  widgets={registry.widgets}
+                  validator={registry.schemaUtils.getValidator()}
+                  experimental_defaultFormStateBehavior={{ emptyObjectFields: 'populateRequiredDefaults' }}
+                  noValidate
+                  noHtml5Validate
+                  uiSchema={{
+                    ...uiSchemaFromPanel(itemSchema, [], registry.rootSchema, pending.value),
+                    'ui:title': '', 'ui:description': '', 'ui:submitButtonOptions': { norender: true },
+                  }}
+                  onChange={({ formData: value }) => setPending((current) =>
+                    current === null ? null : { ...current, value })}
+                />
+              </SchemaDialogLayout>
             </div>
           )}
           <DialogFooter>
@@ -95,6 +99,7 @@ export function PanelArrayField(props: FieldProps) {
 }
 
 interface ArrayEditorState {
+  standalone?: boolean;
   edit: (index: number) => void;
   records: Record<string, unknown>[] | null;
 }
@@ -137,14 +142,41 @@ export function PanelArrayFieldTemplate(props: ArrayFieldTemplateProps) {
   const actionContainer = fieldPathId.path.length === 0
     ? registry.formContext?.arrayActionContainer as HTMLElement | null | undefined
     : null;
+  const standalone = records !== null && fieldPathId.path.length === 0 && registry.formContext?.arrayLayout === 'standalone';
   const addButton = canAdd
     ? (
-        <Button disabled={disabled || readonly} onClick={records !== null && actions !== null ? actions.create : onAddClick} size='sm' type='button' variant={records === null ? 'ghost' : 'outline'}>
+        <Button className={standalone ? 'configuration-list__add' : undefined} disabled={disabled || readonly} onClick={records !== null && actions !== null ? actions.create : onAddClick} size={standalone ? 'content' : 'sm'} type='button' variant={records === null ? 'ghost' : 'outline'}>
           <Plus aria-hidden data-icon='inline-start' />
           {t('common.add')}
         </Button>
       )
     : null;
+  if (standalone) {
+    return (
+      <fieldset className='schema-form__array schema-form__array--standalone' id={`${fieldPathId.$id}-group`}>
+        <ArrayEditorContext value={{ records, standalone, edit: (index) => actions?.edit(index) }}>
+          <Table className='configuration-list'>
+            <TableHeader>
+              <TableRow>
+                <TableHead scope='col'>{t('configuration.fields.tag')}</TableHead>
+                <TableHead scope='col'>{t('configuration.fields.type')}</TableHead>
+                <TableHead scope='col'>{t('configuration.general.summary')}</TableHead>
+                <TableHead scope='col'>{t('common.actions')}</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {items}
+              {addButton && (
+                <TableRow className='configuration-list__add-row'>
+                  <TableCell colSpan={4}>{addButton}</TableCell>
+                </TableRow>
+              )}
+            </TableBody>
+          </Table>
+        </ArrayEditorContext>
+      </fieldset>
+    );
+  }
   return (
     <fieldset className={`schema-form__array${records === null ? ' schema-form__array--values' : ''}`} id={`${fieldPathId.$id}-group`}>
       <div className='schema-form__array-toolbar' hidden={!!actionContainer}>
@@ -177,6 +209,24 @@ export function PanelArrayFieldItemTemplate({ buttonsProps, children, index, reg
   const { ArrayFieldItemButtonsTemplate } = registry.templates;
   const buttons = <div className='schema-form__item-actions'><ArrayFieldItemButtonsTemplate {...buttonsProps} /></div>;
   const record = state?.records?.[index];
+  if (record !== undefined && state?.standalone) {
+    const name = itemLabel(record, index);
+    return (
+      <TableRow>
+        <TableCell><span className='configuration-list__text' title={name}>{name}</span></TableCell>
+        <TableCell className='configuration-list__secondary'><span className='configuration-list__text'>{String(record.type ?? record.action ?? '—')}</span></TableCell>
+        <TableCell className='configuration-list__secondary'><span className='configuration-list__text' title={itemSummary(record)}>{itemSummary(record) || '—'}</span></TableCell>
+        <TableCell>
+          <div className='configuration-list__actions'>
+            <Button disabled={buttonsProps.disabled || buttonsProps.readonly} onClick={() => state.edit(index)} size='sm' type='button' variant='ghost'>{t('common.edit')}</Button>
+            <Button aria-label={t('configuration.general.moveUp', { name })} title={t('common.moveUp')} disabled={buttonsProps.disabled || buttonsProps.readonly || !buttonsProps.hasMoveUp} onClick={buttonsProps.onMoveUpItem} size='icon-sm' type='button' variant='ghost'><ArrowUp aria-hidden='true' /></Button>
+            <Button aria-label={t('configuration.general.moveDown', { name })} title={t('common.moveDown')} disabled={buttonsProps.disabled || buttonsProps.readonly || !buttonsProps.hasMoveDown} onClick={buttonsProps.onMoveDownItem} size='icon-sm' type='button' variant='ghost'><ArrowDown aria-hidden='true' /></Button>
+            <ArrayFieldItemButtonsTemplate {...buttonsProps} hasMoveUp={false} hasMoveDown={false} />
+          </div>
+        </TableCell>
+      </TableRow>
+    );
+  }
   if (record !== undefined) {
     return (
       <div className='schema-form__list-row'>

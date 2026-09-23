@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import type { IChangeEvent } from '@rjsf/core';
 import type { RJSFSchema, UiSchema, ValidationData, ValidatorType } from '@rjsf/utils';
 
@@ -10,9 +11,10 @@ import type { ReviewedSchemaResolution } from '@/schemas/resolve-reviewed-schema
 import type { CanonicalDraft } from './use-canonical-configuration';
 
 import { encodeCanonicalValue } from './use-canonical-configuration';
-import { panelRJSFFields, panelRJSFTemplates, panelRJSFWidgets } from './rjsf-shadcn-theme';
 import { documentWithoutValue, documentWithValue, valueAtPointer } from './canonical-document';
+import { panelRJSFFields, panelRJSFTemplates, panelRJSFWidgets, SchemaDialogLayout } from './rjsf-shadcn-theme';
 import {
+  isByteArraySchema,
   mergeSchemaKnownData,
   projectSchemaKnownData,
   resolvedSchema,
@@ -27,9 +29,13 @@ interface SchemaSectionFormProps {
   schema: RJSFSchema;
   basePointer: string;
   uiSchema?: UiSchema;
+  dialogLayout?: boolean;
   protectedPaths?: string[];
+  dialogJsonPreview?: ReactNode;
+  dialogPrimaryContent?: ReactNode;
   resolution: ReviewedSchemaResolution;
   onTouched?: (paths: string[]) => void;
+  arrayLayout?: 'default' | 'standalone';
   arrayActionContainer?: HTMLElement | null;
   onChange: (change: (draft: CanonicalDraft) => CanonicalDraft) => void;
 }
@@ -131,6 +137,23 @@ function valueMatchesSchema(schema: RJSFSchema, root: RJSFSchema, value: unknown
     });
     if (!matchesType) return false;
   }
+  // Representation matching must inspect array members as well as the outer type:
+  // a byte sequence and a list of strings/byte sequences are both JSON arrays.
+  for (const keyword of ['anyOf', 'oneOf'] as const) {
+    if (resolved[keyword] && !resolved[keyword].some((branch) => typeof branch === 'boolean'
+      ? branch
+      : valueMatchesSchema(branch, root, value))) {
+      return false;
+    }
+  }
+  if (Array.isArray(value) && resolved.items && typeof resolved.items === 'object' && !Array.isArray(resolved.items)) {
+    // Prefer the ordinary list editor for an ambiguous empty array. RJSF otherwise
+    // falls back to the first option (even if that is a string) when array scores tie.
+    // This is only UI matching; the reviewed root validator still accepts empty bytes.
+    if (value.length === 0 && isByteArraySchema(resolved, root)) return false;
+    const itemSchema = resolved.items;
+    if (!value.every((item) => valueMatchesSchema(itemSchema, root, item))) return false;
+  }
   return true;
 }
 
@@ -168,9 +191,13 @@ function sectionValidator(
 
 export function SchemaSectionForm({
   arrayActionContainer,
+  arrayLayout = 'default',
   basePointer,
   data,
   disabled = false,
+  dialogLayout = false,
+  dialogPrimaryContent,
+  dialogJsonPreview,
   onChange,
   onTouched,
   protectedPaths = [],
@@ -180,8 +207,8 @@ export function SchemaSectionForm({
 }: SchemaSectionFormProps) {
   const formId = useId();
   const formSchema = useMemo(
-    () => selfContainedSchema(schema, resolution.schema, data),
-    [data, resolution.schema, schema],
+    () => selfContainedSchema(schema, resolution.schema, data, basePointer.split('/').filter(Boolean)),
+    [basePointer, data, resolution.schema, schema],
   );
   const external = useMemo(
     () => displayCopy(projectSchemaKnownData(schema, resolution.schema, data)
@@ -232,14 +259,14 @@ export function SchemaSectionForm({
     });
   }
 
-  return (
+  const form = (
     <Form
       className='schema-form'
       disabled={disabled}
       experimental_defaultFormStateBehavior={{ emptyObjectFields: 'populateRequiredDefaults' }}
       fields={panelRJSFFields}
       formData={external}
-      formContext={{ arrayActionContainer }}
+      formContext={{ arrayActionContainer, arrayLayout }}
       idPrefix={`schema-${formId}`}
       liveValidate
       noHtml5Validate
@@ -256,6 +283,14 @@ export function SchemaSectionForm({
       widgets={panelRJSFWidgets}
     />
   );
+  return dialogLayout
+    ? (
+        <SchemaDialogLayout schema={schema} root={resolution.schema} data={external}
+          primaryContent={dialogPrimaryContent} jsonPreview={dialogJsonPreview}>
+          {form}
+        </SchemaDialogLayout>
+      )
+    : form;
 }
 
 function valueAtDisplayPointer(value: unknown, pointer: string): unknown {

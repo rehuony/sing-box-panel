@@ -33,7 +33,7 @@ To prepare and inspect settings before startup, initialize them explicitly:
 
 ```sh
 ./bin/sing-box-panel init --config ./setting.json
-./bin/sing-box-panel config check --config ./setting.json
+./bin/sing-box-panel config verify --config ./setting.json
 ```
 
 To generate only the default configuration file, use
@@ -80,7 +80,7 @@ user it is `$XDG_DATA_HOME/sing-box-panel`, or
 `data_dir` in an explicit settings file is resolved relative to that file.
 
 The settings file is the single source for all panel settings. The Web UI,
-`config init/show/set/unset/check/verify`, and manual edits use this same file. Shared fields retain
+`config init/show/set/unset/verify`, and manual edits use this same file. Shared fields retain
 their existing sections; `panel` adds the public node host, protocol identity,
 language and appearance. The Web form exposes all settings, including service paths, version check interval, retention and subscription source policy. Changing `data_dir` moves
 existing storage on the next explicit start, with interruption recovery.
@@ -90,7 +90,7 @@ New settings initialize `subscription.provider` to `"default"`; existing files
 retain their configured value.
 
 `traffic.sample_retention_days` defaults to 90. It is required for startup and
-`config check` and must be between 1 and 366;
+`config verify` and must be between 1 and 366;
 older settings without it are rejected instead of receiving a compatibility
 default. Commands that only locate instance files or data validate `data_dir`
 without validating unrelated runtime fields; see [CLI configuration dependencies](guides/cli.md#global-flags-and-output).
@@ -116,11 +116,12 @@ panel. The explicit `init` step is optional. Existing files are validated withou
 replacement; broken or unreadable settings still fail. The same behavior applies
 without `--config`, using the default path for the current user.
 
-First-run guidance lists the settings file, data directory, default URL, generated
-`Login token`, and stop shortcut. Open the default URL and use the printed token
+First-run guidance lists `Default URL`, the generated `Default Token`,
+`Default Settings`, and `Default Data Dir` in aligned columns.
+Open the default URL and use the printed token
 to log in to a new instance; the same value is saved as `auth.token` in settings.
 That initial summary confirms settings creation. After binding the listener, every
-start prints the actual panel URL, settings and data paths, log location and stop
+start prints the actual panel URL, settings and data paths, stored-log command and stop
 hint, then streams sanitized panel events. Redirected output omits ANSI color;
 `NO_COLOR` disables it in terminals and `--output json` emits structured events.
 
@@ -139,23 +140,27 @@ completed result; interrupting the caller cancels active work at a safe boundary
 Runtime recovery and configured source refresh keep their own bounded schedules.
 There is no generic operation queue or detached polling API.
 
-## Save the first sing-box configuration
+## Edit the sing-box configuration
 
 Log in to the Web UI and open Configuration. The panel keeps one sing-box
 document, logically named `config.json`, as text in the `configuration_file`
 table of `panel.db`. The Web editor manages it; there is no separately editable
-file on disk or CLI for its content. A minimal document is:
+file on disk or CLI for its content. Before accepting requests, startup creates
+and saves this minimal document if no configuration exists:
 
 ```json
 {}
 ```
 
-Save in the Web editor, install and enable a core, then use Validate configuration
-to check the saved text and Start or Restart to load it.
+You can install and enable a core immediately without first saving an empty
+configuration manually. Edit and save the configuration in the Web editor,
+then use Validate configuration to check the saved text and Start or Restart
+to load it. Repeated starts preserve existing configuration, including invalid
+or unfinished text.
 Concurrent saves use the current file revision and reject stale edits instead
 of merging implicitly. Invalid JSON can be saved as text but blocks validation,
 Enable, Start, and Restart until corrected. Core lifecycle and artifact commands remain
-available through the CLI. The separate `config init/show/set/unset/check/verify` commands manage
+available through the CLI. The separate `config init/show/set/unset/verify` commands manage
 only the panel's `setting.json`; see [Panel settings](guides/cli.md#panel-settings).
 
 Continue with [Core versions](guides/core-versions.md), then

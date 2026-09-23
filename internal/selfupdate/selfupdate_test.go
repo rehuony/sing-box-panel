@@ -15,6 +15,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime/debug"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -44,9 +45,27 @@ func TestUpdateDownloadsVerifiesAndAtomicallyReplacesExecutable(t *testing.T) {
 	})
 	updater.validateStagedExecutable = func(string, string, string) error { return nil }
 
-	result, err := updater.Update(context.Background(), "v1.2.3")
+	var stages []Stage
+	var downloaded int64
+	result, err := updater.Update(context.Background(), "v1.2.3", func(progress Progress) {
+		if len(stages) == 0 || stages[len(stages)-1] != progress.Stage {
+			stages = append(stages, progress.Stage)
+		}
+		if progress.Stage == StageDownload && progress.Complete {
+			downloaded = progress.Downloaded
+		}
+		if progress.Stage == StageInstall {
+			data, err := os.ReadFile(target)
+			if err != nil || string(data) != "old binary" {
+				t.Fatal("installation was reported after replacing the binary", err)
+			}
+		}
+	})
 	if err != nil {
 		t.Fatal(err)
+	}
+	if !slices.Equal(stages, []Stage{StageCheckRelease, StageVerifyRelease, StagePrepare, StageDownload, StageVerifyBinary, StageInstall}) || downloaded != int64(len(newBinary)) {
+		t.Fatalf("stages=%v downloaded=%d", stages, downloaded)
 	}
 	resolvedTarget, err := filepath.EvalSymlinks(target)
 	if err != nil {
@@ -100,7 +119,7 @@ func TestUpdateRejectsStagedFileWithoutPanelBuildIdentity(t *testing.T) {
 		PublicKey: publicKey,
 	})
 
-	_, err := updater.Update(context.Background(), "v1.2.3")
+	_, err := updater.Update(context.Background(), "v1.2.3", nil)
 	if !errors.Is(err, ErrStagedExecutableInvalid) {
 		t.Fatalf("error = %v, want ErrStagedExecutableInvalid", err)
 	}
@@ -140,7 +159,7 @@ func TestUpdateHonorsCancellationAtAtomicCommitBoundary(t *testing.T) {
 		return nil
 	}
 
-	_, err := updater.Update(ctx, "v1.2.3")
+	_, err := updater.Update(ctx, "v1.2.3", nil)
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("error = %v, want context.Canceled", err)
 	}
@@ -185,7 +204,7 @@ func TestUpdateRejectsExecutableChangedWhileWaitingForLock(t *testing.T) {
 	updater.afterTargetSnapshot = func() { close(snapshotTaken) }
 	result := make(chan error, 1)
 	go func() {
-		_, updateErr := updater.Update(context.Background(), "v1.2.3")
+		_, updateErr := updater.Update(context.Background(), "v1.2.3", nil)
 		result <- updateErr
 	}()
 
@@ -272,7 +291,7 @@ func TestUpdateRejectsLatestReleaseChangingInsideLock(t *testing.T) {
 		PublicKey: publicKey,
 	})
 
-	_, err = updater.Update(context.Background(), "v1.2.3")
+	_, err = updater.Update(context.Background(), "v1.2.3", nil)
 	if !errors.Is(err, ErrReleaseInvalid) {
 		t.Fatalf("error = %v, want ErrReleaseInvalid", err)
 	}
@@ -349,7 +368,7 @@ func TestUpdateChecksumFailureLeavesExecutableUntouched(t *testing.T) {
 		PublicKey: publicKey,
 	})
 
-	_, err := updater.Update(context.Background(), "v1.2.3")
+	_, err := updater.Update(context.Background(), "v1.2.3", nil)
 	if !errors.Is(err, ErrChecksumInvalid) {
 		t.Fatalf("error = %v", err)
 	}
@@ -379,7 +398,7 @@ func TestUpdateDoesNotDownloadAssetsOrDowngrade(t *testing.T) {
 		},
 	})
 
-	result, err := updater.Update(context.Background(), "v1.2.3")
+	result, err := updater.Update(context.Background(), "v1.2.3", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -409,7 +428,7 @@ func TestUpdateAcceptsStrictPrereleaseAndBuildMetadata(t *testing.T) {
 		},
 	})
 
-	result, err := updater.Update(context.Background(), version)
+	result, err := updater.Update(context.Background(), version, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -441,7 +460,7 @@ func TestUpdateRejectsUnsupportedAndDevelopmentBuildsBeforeNetwork(t *testing.T)
 				LatestReleaseURL: "http://127.0.0.1:1/latest",
 				GOOS:             testCase.goos, GOARCH: testCase.goarch,
 			})
-			_, err := updater.Update(context.Background(), testCase.version)
+			_, err := updater.Update(context.Background(), testCase.version, nil)
 			if !errors.Is(err, testCase.want) {
 				t.Fatalf("error = %v, want %v", err, testCase.want)
 			}
@@ -458,7 +477,7 @@ func TestUpdatePreservesContextCancellation(t *testing.T) {
 		LatestReleaseURL: "http://127.0.0.1:1/latest",
 		GOOS:             "linux", GOARCH: "amd64", PublicKey: newPublicKey(t),
 	})
-	_, err := updater.Update(ctx, "v1.2.3")
+	_, err := updater.Update(ctx, "v1.2.3", nil)
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("error = %v", err)
 	}
@@ -523,7 +542,7 @@ func TestUpdateRejectsIncompleteOrMalformedRelease(t *testing.T) {
 				HTTPClient: server.Client(), LatestReleaseURL: server.URL + "/latest",
 				GOOS: "linux", GOARCH: "amd64", PublicKey: newPublicKey(t),
 			})
-			_, err := updater.Update(context.Background(), "v1.2.3")
+			_, err := updater.Update(context.Background(), "v1.2.3", nil)
 			if !errors.Is(err, testCase.wantErr) {
 				t.Fatalf("error = %v, want %v", err, testCase.wantErr)
 			}
@@ -562,7 +581,7 @@ func TestUpdateRejectsUntrustedSignatureBeforeDownloadingBinary(t *testing.T) {
 		PublicKey: newPublicKey(t),
 	})
 
-	_, err = updater.Update(context.Background(), "v1.2.3")
+	_, err = updater.Update(context.Background(), "v1.2.3", nil)
 	if !errors.Is(err, ErrSignatureInvalid) {
 		t.Fatalf("error = %v", err)
 	}
@@ -585,7 +604,7 @@ func TestUpdateRejectsMissingVerificationKeyBeforeNetwork(t *testing.T) {
 		LatestReleaseURL: "http://127.0.0.1:1/latest",
 		GOOS:             "linux", GOARCH: "amd64",
 	})
-	_, err := updater.Update(context.Background(), "v1.2.3")
+	_, err := updater.Update(context.Background(), "v1.2.3", nil)
 	if !errors.Is(err, ErrVerificationKeyInvalid) {
 		t.Fatalf("error = %v", err)
 	}
@@ -620,7 +639,7 @@ func TestUpdateRejectsSignatureReplayedUnderDifferentVersion(t *testing.T) {
 		},
 	})
 
-	_, err = updater.Update(context.Background(), "v1.2.3")
+	_, err = updater.Update(context.Background(), "v1.2.3", nil)
 	if !errors.Is(err, ErrSignatureInvalid) {
 		t.Fatalf("error = %v", err)
 	}

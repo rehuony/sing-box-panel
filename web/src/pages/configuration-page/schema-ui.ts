@@ -3,6 +3,8 @@ import type { RJSFSchema, UiSchema } from '@rjsf/utils';
 import { getSchemaType } from '@rjsf/utils';
 import { isLosslessNumber } from 'lossless-json';
 
+import { withConfigurationFieldHelp } from './configuration-field-help';
+
 interface PanelMetadata {
   order?: number;
   widget?: string;
@@ -251,32 +253,66 @@ function unionDiscriminator(schema: RJSFSchema, root: RJSFSchema): string | unde
   });
 }
 
+export function isByteArraySchema(schema: RJSFSchema, root: RJSFSchema): boolean {
+  const item = collectionItemSchema(schema, root);
+  if (schema.type !== 'array' || item === null) return false;
+  const resolved = resolvedSchema(item, root);
+  return resolved.type === 'integer' && resolved.minimum === 0 && resolved.maximum === 255;
+}
+
+// A bare nested anyOf is equivalent to its alternatives at the parent level.
+// Keep constrained wrappers and oneOf intact: flattening those changes semantics.
+function presentationAnyOf(schema: RJSFSchema, root: RJSFSchema, seen = new Set<RJSFSchema>()): RJSFSchema['anyOf'] {
+  const options = schema.anyOf?.flatMap((branch) => {
+    if (typeof branch === 'boolean' || seen.has(branch)) return [branch];
+    const resolved = resolveReference(branch, root);
+    return Object.keys(resolved).length === 1 && resolved.anyOf
+      ? presentationAnyOf(resolved, root, new Set(seen).add(branch)) ?? [branch]
+      : [branch];
+  });
+  // Keep the ordinary list choice ahead of the less common byte representation.
+  return options?.sort((left, right) => Number(typeof left === 'object' && isByteArraySchema(left, root))
+    - Number(typeof right === 'object' && isByteArraySchema(right, root)));
+}
+
 // RJSF needs a discriminator hint for native unions whose branches differ by
 // single-value enums. These presentation annotations never alter the reviewed
 // schema used by the precompiled validator or the canonical configuration.
 const annotatedSchemas = new WeakMap<RJSFSchema, RJSFSchema>();
-function withDiscriminators(schema: RJSFSchema, root: RJSFSchema): RJSFSchema {
+function withDiscriminators(schema: RJSFSchema, root: RJSFSchema, context: string[] = []): RJSFSchema {
   const result = { ...schema };
+  const scope = [...context, ...discriminatorKeys.flatMap((key) => {
+    const property = schema.properties?.[key];
+    return property && typeof property === 'object' ? allowedValues(property).filter((value): value is string => typeof value === 'string') : [];
+  })];
   const discriminator = unionDiscriminator(schema, root);
   if (discriminator !== undefined) result.discriminator = { propertyName: discriminator };
   for (const key of ['properties', 'definitions', '$defs', 'patternProperties'] as const) {
     const values = schema[key];
     if (values) {
-      result[key] = Object.fromEntries(Object.entries(values).map(([name, child]) =>
-        [name, typeof child === 'boolean' ? child : withDiscriminators(child, root)]));
+      result[key] = Object.fromEntries(Object.entries(values).map(([name, child]) => {
+        if (typeof child === 'boolean') return [name, child];
+        const childContext = key === '$defs' || key === 'definitions' ? [name] : [...scope, name];
+        const annotated = withDiscriminators(child, root, childContext);
+        return [name, key === 'properties' ? withConfigurationFieldHelp(annotated, name, scope) : annotated];
+      }));
     }
   }
   for (const key of ['allOf', 'anyOf', 'oneOf'] as const) {
-    if (schema[key]) {
-      result[key] = schema[key].map((child) =>
-        typeof child === 'boolean' ? child : withDiscriminators(child, root));
+    const branches = key === 'anyOf' ? presentationAnyOf(schema, root) : schema[key];
+    if (branches) {
+      result[key] = branches.map((child) =>
+        typeof child === 'boolean' ? child : withDiscriminators(child, root, scope));
     }
   }
   if (schema.items && typeof schema.items === 'object' && !Array.isArray(schema.items)) {
-    result.items = withDiscriminators(schema.items, root);
+    result.items = withDiscriminators(schema.items, root, scope);
+    // An explicitly added byte starts at zero instead of undefined; otherwise the
+    // union matcher can mistake the incomplete byte array for a different list.
+    if (isByteArraySchema(schema, root) && result.items.default === undefined) result.items.default = 0;
   }
   if (schema.additionalProperties && typeof schema.additionalProperties === 'object') {
-    result.additionalProperties = withDiscriminators(schema.additionalProperties, root);
+    result.additionalProperties = withDiscriminators(schema.additionalProperties, root, scope);
   }
   return result;
 }
@@ -285,6 +321,7 @@ export function selfContainedSchema(
   schema: RJSFSchema,
   root: RJSFSchema,
   data?: unknown,
+  context: string[] = [],
 ): RJSFSchema {
   const resolved = resolvedSchema(schema, root, data);
   let annotated = annotatedSchemas.get(root);
@@ -293,7 +330,7 @@ export function selfContainedSchema(
     annotatedSchemas.set(root, annotated);
   }
   return {
-    ...withDiscriminators(resolved, root),
+    ...withDiscriminators(resolved, root, [...context, schema.$ref?.split('/').at(-1) ?? '']),
     ...(annotated.$defs === undefined ? {} : { $defs: annotated.$defs }),
     ...(annotated.definitions === undefined ? {} : { definitions: annotated.definitions }),
   };
@@ -401,8 +438,9 @@ export function mergeSchemaKnownData(
   if (Array.isArray(before) && Array.isArray(after)) {
     const itemSchema = collectionItemSchema(resolved, root);
     if (itemSchema === null || !Array.isArray(original)) return after;
-    const visible = original.map((raw) => ({
-      known: projectSchemaKnownData(itemSchema, root, raw),
+    const visible = original.map((raw, index) => ({
+      // Match the form's display projection, which may round lossless numbers.
+      known: before[index],
       raw,
     }));
     const used = new Set<number>();
@@ -460,11 +498,15 @@ export function uiSchemaFromPanel(
   readonlyPaths: string[] = [],
   root: RJSFSchema = schema,
   data?: unknown,
+  inheritedWidget?: string,
 ): UiSchema {
   const result: UiSchema = {};
   const resolved = resolvedSchema(schema, root, data);
   const metadata = panelMetadata(resolved);
-  if (metadata.widget !== undefined) result['ui:widget'] = metadata.widget;
+  const widget = metadata.widget ?? inheritedWidget;
+  if (widget !== undefined && !resolved.anyOf && !resolved.oneOf && getSchemaType(resolved) !== 'array') {
+    result['ui:widget'] = widget;
+  }
   const record = data !== null && typeof data === 'object' && !Array.isArray(data)
     ? data as Record<string, unknown>
     : {};
@@ -478,7 +520,7 @@ export function uiSchemaFromPanel(
   const itemSchema = collectionItemSchema(resolved, root);
   if (getSchemaType(resolved) === 'array' && itemSchema !== null) {
     // Build item UI lazily: recursive rule schemas must not recurse before an item exists.
-    result.items = (itemData: unknown) => uiSchemaFromPanel(itemSchema, [], root, itemData);
+    result.items = (itemData: unknown) => uiSchemaFromPanel(itemSchema, [], root, itemData, widget);
   }
   if (resolved.additionalProperties && typeof resolved.additionalProperties === 'object') {
     result.additionalProperties = {
@@ -487,7 +529,7 @@ export function uiSchemaFromPanel(
     };
   }
   const properties = schemaProperties(resolved, root, data);
-  const fieldOrder = ['type', 'tag', 'name', 'enabled', 'disabled', 'level', 'output', 'timestamp', 'listen', 'listen_port', 'server', 'server_port', 'path', 'final', 'strategy', 'timeout'];
+  const fieldOrder = ['type', 'tag', 'name', 'username', 'Username', 'password', 'Password', 'enabled', 'disabled', 'level', 'output', 'timestamp', 'listen', 'listen_port', 'server', 'server_port', 'path', 'final', 'strategy', 'timeout'];
   const order = Object.keys(properties).sort((left, right) => {
     const rank = (key: string) => panelMetadata(properties[key]).order
       ?? (fieldOrder.includes(key) ? fieldOrder.indexOf(key) : fieldOrder.length);
@@ -498,8 +540,11 @@ export function uiSchemaFromPanel(
   // including when the canonical data already selects a discriminator.
   const unionSchema = resolvedSchema(schema, root);
   for (const keyword of ['anyOf', 'oneOf'] as const) {
-    const branches = unionSchema[keyword];
+    const branches = keyword === 'anyOf' ? presentationAnyOf(unionSchema, root) : unionSchema[keyword];
     if (!Array.isArray(branches)) continue;
+    const options = branches.map((branch) => typeof branch === 'boolean' ? {} : resolvedSchema(branch, root));
+    const singleOrList = options.some((option) => option.type === 'array')
+      && options.filter((option) => option.type !== 'array').length === 1;
     result[keyword] = branches.map((branch) => {
       if (typeof branch === 'boolean') return {};
       const option = resolvedSchema(branch, root, data);
@@ -509,8 +554,10 @@ export function uiSchemaFromPanel(
         ? undefined
         : schemaDiscriminatorValues(option, root, discriminatorKey).find((value) => value !== '');
       const title = option.title ?? discriminatorTitle ?? (discriminator.length === 1 ? discriminator[0] : undefined)
-        ?? schemaValueTypeTitle(option, root);
-      const branchUI = uiSchemaFromPanel(branch, readonlyPaths, root, data);
+        ?? (singleOrList && ['string', 'number', 'integer', 'boolean'].includes(String(option.type))
+          ? 'configuration.valueTypes.value'
+          : schemaValueTypeTitle(option, root));
+      const branchUI = uiSchemaFromPanel(branch, readonlyPaths, root, data, widget);
       if (discriminatorKey !== undefined) branchUI[discriminatorKey] = { 'ui:widget': 'hidden' };
       return { ...branchUI, 'ui:title': title ?? '', 'ui:options': { label: false } };
     });
@@ -519,6 +566,7 @@ export function uiSchemaFromPanel(
 }
 
 function schemaValueTypeTitle(schema: RJSFSchema, root: RJSFSchema): string {
+  if (isByteArraySchema(schema, root)) return 'configuration.valueTypes.bytes';
   if (typeof schema.type === 'string') return `configuration.valueTypes.${schema.type}`;
   const branches = schema.anyOf ?? schema.oneOf;
   const titles = branches?.flatMap((branch) => typeof branch === 'boolean'

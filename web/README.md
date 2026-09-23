@@ -66,6 +66,19 @@ the running server handles periodic refresh using the configured interval.
 Panel logs display ordinary events with no operation tracking dialogs. Core logs
 and telemetry use authenticated streams with bounded buffering and reconnect.
 
+Version, subscription source, node, channel, key, and panel-log lists use the
+shared `components/list-pagination` footer. It combines the page-size selector,
+circular previous/next buttons, current-page input, and read-only total.
+Enter or blur commits a page; Escape cancels an edit.
+Page numbers are clamped to the filtered list, and changing the tab, search or
+page size resets to the first page. The total follows the selected page size;
+empty lists display 1 / 1 with navigation disabled.
+Key and panel-log lists request server offsets and matching totals; arbitrary
+page jumps do not load all records into the browser. Counts and list items are
+read from the same database snapshot, and shrinking lists return to a valid page.
+Enabled buttons, selectors, menu options, tabs, and choice controls use a pointer
+cursor. Disabled controls retain unavailable feedback; text inputs remain editable.
+
 Tests inject an `ApiClient`, keeping pages independent from `fetch` while the
 HTTP client has focused tests for base-path routing, CSRF, problem details, and
 revision preconditions. The first visit selects Simplified Chinese for a
@@ -85,11 +98,71 @@ replacing the process. Immutable snapshots support runtime verification and reco
 the editor has one current document with no historical selection or restoration.
 
 Configuration modules are edited individually, with optional object settings
-added on demand. Collection actions stay in a consistent, vertically centered
-toolbar beside the section tabs where present, without item counts. List cells
-are centered and entry names are display-only. Adding a record or choosing its
-Edit action opens a dialog; confirming updates the draft and cancelling discards
-the pending changes. Map fields keep keys separate from typed text, list or object
+added on demand. Sections with child tabs keep collection actions in the toolbar
+beside those tabs.
+Standalone top-level collections show identifier, type, details and actions
+columns after a small top inset. A full-width dashed Add row is the final row
+inside the table, including empty lists. Actions show Edit, up/down arrows and
+Delete together, with identity repair available for malformed nodes. Up/down
+buttons replace node dragging; node deletion retains its confirmation dialog.
+Narrow screens scroll these tables horizontally within the list. List cells are centered and entry names
+are display-only. Experimental tabs follow Clash API, V2Ray API, cache file and
+Debug order, showing only groups available in the selected Schema. The version
+selector contains its label and a compact empty-state value in the same control.
+The visual editor scrolls at the workspace edge, with an inset keeping controls
+clear of the scrollbar. The Add row has a small gap and its own dashed outline
+without a doubled divider. Scalar field descriptions appear in an information
+tooltip beside the label, available on hover, keyboard focus or click/tap; validation
+errors remain visible beside the control.
+Chinese field names and help cover the committed schema inventory, including
+list and optional-object headings. Help shows the description without a separate key heading and uses
+context-specific wording for DNS, routing and protocol options. See the
+[field-help contract and sources](../docs/guides/configuration-and-runtime.md#field-names-and-inline-help).
+Panel settings use the same `InfoTooltip` and information icon for field help.
+It reuses the existing `Tooltip` component, including its styling and shared
+provider: opening another tooltip dismisses the previous one. Hover previews
+open after 200 ms; focus or click/tap opens immediately. Clicking an open help
+trigger keeps its tooltip visible. Leaving the trigger and tooltip, losing
+focus, Escape or outside press dismisses it. Action-button tooltips retain their
+ordinary click-to-dismiss behavior.
+Adding a record or choosing its Edit action opens a dialog; confirming updates
+the draft and cancelling discards the pending changes. Simple entry dialogs use a
+compact, content-height layout with each label, help icon and control on one row
+when the form has enough space; narrower forms stack labels above their controls.
+Node tag and protocol fields are stacked vertically.
+Simple entry fields omit row dividers, and user entries place the username before
+the password. Sections containing a single empty collection center their empty
+message in the detail area without a trailing divider. Optional settings keep
+their title and divider in place; Configure switches to a red Remove settings
+button in the same header position when the section is present.
+Configured optional objects share the connection-options group's left divider
+and inset, including nested settings; their headers stay outside this inset.
+Routine instructions are kept available to screen readers without occupying visual
+space, and tag guidance appears only when the value is invalid. Complex dialogs
+use a wide layout with a fixed header and footer, a vertical section list on the
+left, and detailed configuration on the right. This shared layout applies to node
+creation/editing and all schema array entry dialogs, including DNS and route rules.
+The sections group the
+available fields into basic settings, authentication, TLS, transport, connection
+and advanced settings; rule dialogs separate matching conditions from actions.
+Fields use a single column even in complex sections, leaving enough space for long
+labels beside their controls; narrow forms place labels above controls. A sole tab is hidden. On narrow screens
+the navigation rail becomes slimmer and long labels wrap. Navigation and the active
+configuration panel scroll independently. Up/down keys navigate sections. Switching tabs
+keeps the same form mounted, preserving pending edits and optional-object state.
+Scalar/list choices use Single value and List labels. Bare nested `anyOf` alternatives
+share one representation selector, with a distinct Byte sequence option where supported;
+existing strings, byte sequences and mixed lists retain their original representation.
+Sensitive-field widgets apply to values, never to the representation selector.
+Managed entry editors include their lossless JSON preview in the same tab bar.
+Node creation uses a searchable protocol input with keyboard completion and a
+separate dropdown button matching the input height. Focusing or clicking the input does not open suggestions; typing
+filters suggestions, and the dropdown button opens the full list. Clearing the
+input closes suggestions. Only protocols in the selected schema can proceed. Its popup
+always opens below the input, is capped at 18rem and the available viewport height,
+and scrolls internally. Cancel uses a secondary color and Continue is primary;
+both footer actions use text without icons.
+Map fields keep keys separate from typed text, list or object
 values, and referenced scalar lists are edited inline. Dialog content remains
 mounted through the synchronized closing transition. Navigation to another route,
 query or hash tab prompts before discarding unsaved edits, including incomplete
@@ -98,8 +171,8 @@ Discard changes resets the draft and continues to the requested destination.
 Subscription areas return to their initial lists after leaving. Reloading or
 closing the page uses the browser's native unsaved-changes prompt, and signing
 out requires confirmation while edits are pending. No draft or embedded
-configuration secrets are written to browser storage. An uninitialized file opens an empty editor and creates its first
-file version. The file API uses its own numeric compare-and-swap revision;
+configuration secrets are written to browser storage. Server startup persists an
+empty configuration if none exists. The file API uses its own numeric compare-and-swap revision;
 immutable canonical revisions remain internal runtime evidence.
 
 The interface retains its violet identity with floating frosted navigation and

@@ -65,12 +65,12 @@ func (application *Application) ListSubscriptionTokens(
 ) (SubscriptionTokenPage, error) {
 	now := application.now().UTC()
 	stored, err := application.database.ListSubscriptionTokens(ctx, store.SubscriptionTokenListFilter{
-		Cursor: storeSubscriptionCursor(request.Cursor), Limit: request.Limit,
+		Cursor: storeSubscriptionCursor(request.Cursor), Limit: request.Limit, Offset: request.Offset,
 	})
 	if err != nil {
 		return SubscriptionTokenPage{}, err
 	}
-	page := SubscriptionTokenPage{Items: make([]SubscriptionToken, len(stored.Items))}
+	page := SubscriptionTokenPage{Items: make([]SubscriptionToken, len(stored.Items)), Total: stored.Total}
 	for index, token := range stored.Items {
 		page.Items[index] = applicationSubscriptionToken(token, now)
 	}

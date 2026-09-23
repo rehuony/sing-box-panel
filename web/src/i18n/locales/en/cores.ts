@@ -1,6 +1,6 @@
 export const cores = {
-  library: { officialLink: 'Official link', version: 'Version', source: 'Source', status: 'Status', actions: 'Actions', enable: 'Enable', disable: 'Disable', enabled: 'Enabled', disabled: 'Disabled', unknown: 'Status unknown', installed: 'Installed', notInstalled: 'Not installed', download: 'Download', operationFailed: 'Operation failed. See the panel log.', completed: 'Operation completed', running: 'Processing', succeeded: 'Completed', failed: 'Failed', canceled: 'Canceled', pageSize: 'Items per page', perPage: '{{count}} per page', previous: 'Previous page', next: 'Next page' },
-  action: { remove: 'Remove' },
+  library: { officialLink: 'Official link', version: 'Version', source: 'Source', status: 'Status', actions: 'Actions', enable: 'Enable', disable: 'Disable', enabled: 'Enabled', disabled: 'Disabled', unknown: 'Status unknown', installed: 'Installed', notInstalled: 'Not installed', download: 'Download', operationFailed: 'Operation failed. See the panel log.', completed: 'Operation completed', running: 'Processing', succeeded: 'Completed', failed: 'Failed', canceled: 'Canceled' },
+  action: { remove: 'Remove', configure: 'Open configuration' },
   artifact: { changed: 'Version removed.' },
   catalog: { short: 'catalog' },
   check: 'Run startup check',
@@ -12,6 +12,7 @@ export const cores = {
   },
   empty: { catalog: 'No catalog artifacts match.', installed: 'No installed artifacts match.' },
   error: {
+    configurationNotSaved: 'Save a sing-box configuration in Configuration before enabling or checking a core.',
     action: 'Core operation failed',
     catalog: 'Catalog is unavailable',
     detail: 'Artifact details are unavailable',

@@ -2,9 +2,17 @@ package store
 
 import (
 	"errors"
+	"math"
 	"strings"
 	"time"
 )
+
+func validatePageOffset(offset int, hasCursor bool) error {
+	if offset < 0 || offset > math.MaxInt32 || (offset > 0 && hasCursor) {
+		return errors.New("page offset must be between 0 and 2147483647 and cannot be combined with a cursor")
+	}
+	return nil
+}
 
 const (
 	defaultPageLimit = 50

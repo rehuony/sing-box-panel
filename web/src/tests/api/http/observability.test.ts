@@ -4,6 +4,16 @@ import { createHttpApiClient } from '@/api/http-api-client';
 import { testDashboardSnapshot } from '@/tests/api/mock-api-client';
 
 describe('createHttpApiClient observability domain', () => {
+  it('requests filtered numbered panel-log pages', async () => {
+    const page = { items: [], total: 27 };
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(new Response(JSON.stringify(page)));
+    const client = createHttpApiClient({ fetcher });
+    await expect(client.listPanelLogs({ offset: 20, limit: 10, search: 'refresh', level: 'info' })).resolves.toEqual(page);
+    expect(fetcher).toHaveBeenCalledWith(
+      '/api/v1/logs/panel?offset=20&limit=10&search=refresh&level=info', expect.objectContaining({ method: 'GET' }),
+    );
+  });
+
   it('centralizes observability filters on the stable read-only endpoints', async () => {
     const fetcher = vi.fn<typeof fetch>().mockResolvedValue(
       new Response(JSON.stringify({ items: [] }), {

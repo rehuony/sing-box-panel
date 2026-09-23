@@ -136,8 +136,8 @@ describe('unified product logs', () => {
       createMockApiClient({
         listPanelLogs: vi
           .fn()
-          .mockResolvedValueOnce({ items: [item], next: { time: item.time, id: item.id } })
-          .mockResolvedValue({ items: [item] }),
+          .mockResolvedValueOnce({ items: [item], total: 11 })
+          .mockResolvedValue({ items: [item], total: 11 }),
       }),
       '/observability?tab=panel',
     );
@@ -146,23 +146,46 @@ describe('unified product logs', () => {
       .toEqual(['Time', 'Message', 'Log level', 'Source']);
     expect(screen.queryByRole('button', { name: 'Details' })).not.toBeInTheDocument();
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
-    await userEvent.click(screen.getByRole('button', { name: 'Next' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Next page' }));
     await waitFor(() =>
       expect(client.listPanelLogs).toHaveBeenCalledWith(
-        expect.objectContaining({ beforeID: item.id }),
+        expect.objectContaining({ offset: 10 }),
         expect.any(AbortSignal),
       ),
     );
-    await userEvent.click(screen.getByRole('combobox', { name: 'Page size' }));
+    await userEvent.click(screen.getByRole('combobox', { name: 'Items per page' }));
     await userEvent.keyboard('[ArrowDown]');
     await userEvent.click(await screen.findByRole('option', { name: '50 per page' }));
     await waitFor(() =>
       expect(client.listPanelLogs).toHaveBeenLastCalledWith(
-        expect.objectContaining({ limit: 50, beforeID: undefined }),
+        expect.objectContaining({ limit: 50, offset: 0 }),
         expect.any(AbortSignal),
       ),
     );
   });
+  it('returns to the last valid log page when records disappear during a jump', async () => {
+    const item: PanelLog = {
+      id: 'retained', time: '2026-09-19T00:00:00Z', source: 'panel', level: 'info',
+      code: 'retained', message: 'Retained event', status: '', metadata: {},
+    };
+    const client = show(createMockApiClient({ listPanelLogs: vi.fn()
+      .mockResolvedValueOnce({ items: [item], total: 30 })
+      .mockResolvedValueOnce({ items: [], total: 12 })
+      .mockResolvedValue({ items: [item], total: 12 }),
+    }), '/observability?tab=panel');
+    await screen.findByText('Retained event');
+    const input = screen.getByRole('spinbutton', { name: 'Current page' });
+    fireEvent.change(input, { target: { value: '3' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    await waitFor(() => expect(client.listPanelLogs).toHaveBeenLastCalledWith(
+      expect.objectContaining({ offset: 10 }), expect.any(AbortSignal),
+    ));
+    expect(await screen.findByText('Retained event')).toBeVisible();
+    expect(input).toHaveValue(2);
+    expect(input).toHaveAccessibleDescription('2 pages in total');
+    expect(screen.getByRole('button', { name: 'Next page' })).toBeDisabled();
+  });
+
   it('uses the filtered log level for operation and security events', async () => {
     const items: PanelLog[] = [
       { id: 'operation:done', time: '2026-09-19T00:00:00Z', source: 'panel', level: 'info', status: 'succeeded', code: 'configuration-apply', message: 'Configuration applied', metadata: {} },
@@ -173,6 +196,7 @@ describe('unified product logs', () => {
     const client = show(
       createMockApiClient({ listPanelLogs: vi.fn(async (filter) => ({
         items: items.filter((item) => !filter?.level || item.level === filter.level),
+        total: items.filter((item) => !filter?.level || item.level === filter.level).length,
       })) }),
       '/observability?tab=panel',
     );

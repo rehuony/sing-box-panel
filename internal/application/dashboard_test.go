@@ -70,7 +70,12 @@ func TestDashboardSnapshotUsesStableRangesWithoutInventingEvidence(t *testing.T)
 	}
 	t.Cleanup(func() { _ = database.Close() })
 	app := newApplication(database)
-	now := time.Date(2026, time.September, 22, 12, 0, 0, 0, time.UTC)
+	initialized, err := database.LatestRuntimeTransition(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	// SQLite timestamps initialization; keep it inside the snapshot's time window.
+	now := initialized.OccurredAt.Add(time.Minute)
 	app.now = func() time.Time { return now }
 
 	snapshot, err := app.DashboardSnapshot(t.Context())

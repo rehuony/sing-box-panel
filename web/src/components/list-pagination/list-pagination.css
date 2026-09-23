@@ -1,0 +1,71 @@
+.list-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex: none;
+  gap: 16px;
+  padding-top: 8px;
+}
+.list-pagination__navigation {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: none;
+}
+.list-pagination__navigation > [data-slot='button'] {
+  border-radius: 50%;
+}
+.list-pagination [data-slot='select-trigger'] {
+  background: transparent;
+  border: 0;
+  color: var(--color-text-muted);
+  padding: 8px;
+}
+.list-pagination__field {
+  display: flex;
+  align-items: center;
+  height: var(--control-height-sm);
+  border: 1px solid transparent;
+  border-radius: var(--radius-control);
+  background: color-mix(in oklch, var(--foreground) 4%, var(--color-surface));
+  font-variant-numeric: tabular-nums;
+}
+.list-pagination__field:focus-within {
+  border-color: var(--input-focus);
+}
+.list-pagination__field[data-disabled] {
+  opacity: 0.5;
+}
+.list-pagination__field [data-slot='input'] {
+  width: 4ch;
+  min-width: 36px;
+  height: 100%;
+  padding: 0 4px;
+  border: 0;
+  border-radius: inherit;
+  background: transparent;
+  outline: none;
+  box-shadow: none;
+  text-align: center;
+  color: var(--color-text);
+  font-size: var(--text-sm);
+  font-weight: 500;
+  appearance: textfield;
+}
+.list-pagination__field input::-webkit-inner-spin-button,
+.list-pagination__field input::-webkit-outer-spin-button {
+  margin: 0;
+  appearance: none;
+}
+.list-pagination__total {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-right: 12px;
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+  white-space: nowrap;
+}
+.list-pagination__total > span {
+  color: color-mix(in oklch, var(--color-text-muted) 55%, transparent);
+}
