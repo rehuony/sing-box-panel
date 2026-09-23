@@ -53,12 +53,38 @@ func (handler *Handler) deleteCoreLogFile(w http.ResponseWriter, r *http.Request
 	w.WriteHeader(http.StatusNoContent)
 }
 
+func (handler *Handler) clearCoreLog(w http.ResponseWriter, r *http.Request) {
+	if !handler.requireCommands(w, r) {
+		return
+	}
+	query, ok := strictCoreQuery(w, r, "file")
+	if !ok || !requireEmptyCoreBody(w, r) {
+		return
+	}
+	if err := handler.commands.ClearCoreLog(r.Context(), query.Get("file")); err != nil {
+		switch {
+		case errors.Is(err, corelogs.ErrInvalidFile):
+			writeProblem(w, r, http.StatusBadRequest, "core_log_invalid", "Invalid log file", "Select a managed core log file.")
+		case errors.Is(err, os.ErrNotExist):
+			writeProblem(w, r, http.StatusNotFound, "core_log_not_found", "Log file not found", "The selected log file no longer exists.")
+		default:
+			writeProblem(w, r, http.StatusServiceUnavailable, "core_log_clear_failed", "Log clearing failed", "The selected log file could not be cleared.")
+		}
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func (handler *Handler) readCoreLog(w http.ResponseWriter, r *http.Request, stream bool) {
 	if !handler.requireCommands(w, r) {
 		return
 	}
-	query, ok := strictCoreQuery(w, r, "file", "offset")
+	query, ok := strictCoreQuery(w, r, "file", "offset", "generation")
 	if !ok {
+		return
+	}
+	if len(query.Get("generation")) > 128 {
+		writeProblem(w, r, 400, "log_generation_invalid", "Invalid generation", "Use the generation returned by the previous read.")
 		return
 	}
 	offset := int64(-1)
@@ -70,7 +96,7 @@ func (handler *Handler) readCoreLog(w http.ResponseWriter, r *http.Request, stre
 			return
 		}
 	}
-	chunk, err := handler.commands.CoreLogContent(query.Get("file"), offset)
+	chunk, err := handler.commands.CoreLogContent(query.Get("file"), offset, query.Get("generation"))
 	if err != nil {
 		status := 503
 		if errors.Is(err, corelogs.ErrInvalidFile) {
@@ -116,7 +142,7 @@ func (handler *Handler) readCoreLog(w http.ResponseWriter, r *http.Request, stre
 		case <-expiry.C:
 			return
 		case <-ticker.C:
-			chunk, err = handler.commands.CoreLogContent(chunk.File, chunk.NextOffset)
+			chunk, err = handler.commands.CoreLogContent(chunk.File, chunk.NextOffset, chunk.Generation)
 			if err != nil {
 				return
 			}

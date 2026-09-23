@@ -52,7 +52,7 @@ func TestFollowCopiesNewOutputOnlyAndFlushesOnClose(t *testing.T) {
 			if len(files) != 1 {
 				t.Fatal(files)
 			}
-			chunk, err := logs.Read(files[0].Name, 0)
+			chunk, err := logs.Read(files[0].Name, 0, "")
 			if err != nil || strings.Contains(chunk.Text, "preexisting") || strings.Contains(chunk.Text, "fixture-secret") || !strings.Contains(chunk.Text, "ERROR last partial line\n") {
 				t.Fatalf("chunk=%q err=%v", chunk.Text, err)
 			}
@@ -97,7 +97,7 @@ func TestFollowCreationRotationAndTruncation(t *testing.T) {
 		t.Fatal(err)
 	}
 	files, _ := logs.List()
-	chunk, _ := logs.Read(files[0].Name, 0)
+	chunk, _ := logs.Read(files[0].Name, 0, "")
 	if chunk.Text != "INFO first long log message\nINFO truncated\nINFO rotated\n" {
 		t.Fatalf("unexpected output %q", chunk.Text)
 	}

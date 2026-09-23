@@ -519,9 +519,10 @@ export function createMockApiClient(overrides: Partial<ApiClient> = {}): Mocked<
     deleteSubscriptionToken: vi.fn().mockResolvedValue(undefined),
     listCoreLogFiles: vi.fn().mockResolvedValue({ items: [] }),
     deleteCoreLogFile: vi.fn().mockResolvedValue(undefined),
+    clearCoreLog: vi.fn().mockResolvedValue(undefined),
     readCoreLog: vi
       .fn()
-      .mockResolvedValue({ file: '2026-09-19-000.log', text: '', next_offset: 0, size: 0 }),
+      .mockResolvedValue({ file: '2026-09-19-000.log', text: '', generation: 'test-generation', next_offset: 0, size: 0 }),
     streamCoreLog: vi.fn(async function* () {}),
     listPanelLogs: vi.fn().mockResolvedValue({ items: [], total: 0 }),
     listLogs: vi.fn().mockResolvedValue({ items: [testLogEntry] }),

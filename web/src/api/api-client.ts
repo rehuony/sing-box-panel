@@ -119,6 +119,7 @@ export interface ApiClient {
   subscribeSessionInvalidated: (listener: () => void) => () => void;
   getRuntimeStatus: (signal?: AbortSignal) => Promise<RuntimeStatus>;
 
+  clearCoreLog: (file: string, signal?: AbortSignal) => Promise<void>;
   getLog: (entryID: string, signal?: AbortSignal) => Promise<LogEntry>;
   getTrafficStatus: (signal?: AbortSignal) => Promise<MetricsSnapshot>;
   getPanelSettings: (signal?: AbortSignal) => Promise<PanelSettingsView>;
@@ -147,7 +148,6 @@ export interface ApiClient {
   ) => AsyncIterable<DashboardStreamSnapshot>;
   getSubscriptionToken: (tokenID: string, signal?: AbortSignal) => Promise<SubscriptionToken>;
   importCoreArchive: (input: CoreImportUpload, signal?: AbortSignal) => Promise<CoreArtifact>;
-  readCoreLog: (file: string, offset?: number, signal?: AbortSignal) => Promise<CoreLogChunk>;
   deleteLog: (entryID: string, signal?: AbortSignal) => Promise<{ id: string; deleted: true }>;
   deleteSubscriptionNode: (id: string, revision: number, signal?: AbortSignal) => Promise<void>;
   rollbackRuntime: (activationBundleID: string, signal?: AbortSignal) => Promise<RuntimeStatus>;
@@ -159,11 +159,11 @@ export interface ApiClient {
   parseSubscriptionNode: (text: string, signal?: AbortSignal) => Promise<{ outbound_json: string }>;
   checkStartupArtifact: (artifactID: string, signal?: AbortSignal) => Promise<StartupArtifactSummary>;
   restorePanelBackup: (input: PanelRestoreRequest, signal?: AbortSignal) => Promise<PanelRestoreResult>;
-
   getMetricsHistory: (
     filter: MetricsHistoryFilter,
     signal?: AbortSignal,
   ) => Promise<MetricsHistory>;
+
   refreshSubscriptionSource: (sourceID: string, signal?: AbortSignal) => Promise<SubscriptionSourceRefreshResult>;
   savePanelSettings: (
     input: PanelSettingsWrite,
@@ -177,6 +177,7 @@ export interface ApiClient {
     filter?: CoreArtifactFilter,
     signal?: AbortSignal,
   ) => Promise<CoreArtifactPage>;
+  readCoreLog: (file: string, offset?: number, generation?: string, signal?: AbortSignal) => Promise<CoreLogChunk>;
 
   getConfigurationSupport: (
     artifactID: string,
@@ -203,11 +204,6 @@ export interface ApiClient {
     filter?: RuntimeHistoryFilter,
     signal?: AbortSignal,
   ) => Promise<RuntimeHistoryPage>;
-  streamCoreLog: (
-    file: string,
-    offset?: number,
-    signal?: AbortSignal,
-  ) => AsyncIterable<CoreLogChunk>;
   streamMetrics: (
     signal?: AbortSignal,
   ) => AsyncIterable<{ metrics: MetricsSnapshot; runtime: RuntimeStatus }>;
@@ -220,11 +216,11 @@ export interface ApiClient {
     updatedAt: string,
     signal?: AbortSignal,
   ) => Promise<void>;
-
   getConfigurationSchema: (
     artifactID: string,
     signal?: AbortSignal,
   ) => Promise<ConfigurationSchemaContract>;
+
   saveConfigurationFile: (
     input: ConfigurationFileWrite,
     signal?: AbortSignal,
@@ -272,6 +268,12 @@ export interface ApiClient {
     expiresAt?: string,
     signal?: AbortSignal,
   ) => Promise<SubscriptionTokenRotation>;
+  streamCoreLog: (
+    file: string,
+    offset?: number,
+    generation?: string,
+    signal?: AbortSignal,
+  ) => AsyncIterable<CoreLogChunk>;
   activateStartupArtifact: (
     artifactID: string,
     monitoringTier: MonitoringTier,

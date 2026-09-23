@@ -18,7 +18,7 @@ func TestDeletingArchivesDoesNotInterruptCollection(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// HTTP operations and the process writer own separate Files instances.
+	// Separate file managers can also operate on persisted captures.
 	deleter, err := New(dataDir)
 	if err != nil {
 		t.Fatal(err)
@@ -53,7 +53,7 @@ func TestDeletingArchivesDoesNotInterruptCollection(t *testing.T) {
 	if err := <-done; err != nil {
 		t.Fatal(err)
 	}
-	chunk, err := writerFiles.Read("2026-09-23-000.log", 0)
+	chunk, err := writerFiles.Read("2026-09-23-000.log", 0, "")
 	if err != nil || chunk.Text != strings.Repeat("INFO uninterrupted\n", 100) {
 		t.Fatalf("collection was interrupted: %q, %v", chunk.Text, err)
 	}
@@ -99,7 +99,7 @@ func TestDeleteProtectsUTCDayAndOnlyRemovesManagedFiles(t *testing.T) {
 	if err := logs.Delete("2026-09-21-000.log"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := logs.Read("2026-09-21-000.log", 0); !errors.Is(err, os.ErrNotExist) {
+	if _, err := logs.Read("2026-09-21-000.log", 0, ""); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("deleted file is still readable: %v", err)
 	}
 	if err := logs.Delete("2026-09-21-000.log"); !errors.Is(err, os.ErrNotExist) {
@@ -150,7 +150,7 @@ func TestRotationRetainsNewOutputAfterPruningAndReopening(t *testing.T) {
 	if err != nil || len(files) != 32 {
 		t.Fatalf("retained files: count=%d error=%v", len(files), err)
 	}
-	chunk, err := logs.Read(files[0].Name, 0)
+	chunk, err := logs.Read(files[0].Name, 0, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -179,7 +179,7 @@ func TestOneWriterContinuesAcrossUTCDateChange(t *testing.T) {
 		"2026-09-19-000.log": "INFO before midnight\n",
 		"2026-09-20-000.log": "INFO split line\nINFO after midnight\n",
 	} {
-		chunk, err := logs.Read(name, 0)
+		chunk, err := logs.Read(name, 0, "")
 		if err != nil || chunk.Text != want {
 			t.Fatalf("output for %s: got %q, want %q; error=%v", name, chunk.Text, want, err)
 		}
@@ -204,7 +204,7 @@ func TestRotationContinuesBeyondThreeDigitSequence(t *testing.T) {
 	if err != nil || len(files) != 2 || files[0].Name != "2026-09-19-1000.log" {
 		t.Fatalf("numeric rotation order: %+v, %v", files, err)
 	}
-	chunk, err := logs.Read(files[0].Name, 0)
+	chunk, err := logs.Read(files[0].Name, 0, "")
 	if err != nil || chunk.Text != "INFO continued\nINFO continued\n" {
 		t.Fatalf("continued output: %+v, %v", chunk, err)
 	}
@@ -228,7 +228,7 @@ func TestRetentionKeepsActiveFileAfterClockMovesBackwards(t *testing.T) {
 	if err != nil || len(files) != 32 {
 		t.Fatalf("retention count: %d, %v", len(files), err)
 	}
-	chunk, err := logs.Read("2026-09-19-000.log", 0)
+	chunk, err := logs.Read("2026-09-19-000.log", 0, "")
 	if err != nil || chunk.Text != "INFO current output\n" {
 		t.Fatalf("active output: %+v, %v", chunk, err)
 	}
@@ -264,7 +264,7 @@ func TestCapturedOutputAndCursor(t *testing.T) {
 	if err != nil || len(files) != 1 {
 		t.Fatal(files, err)
 	}
-	chunk, err := logs.Read(files[0].Name, -1)
+	chunk, err := logs.Read(files[0].Name, -1, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -272,11 +272,11 @@ func TestCapturedOutputAndCursor(t *testing.T) {
 		t.Fatal(chunk.Text)
 	}
 	_, _ = out.Write([]byte("ERROR EOF\n"))
-	next, err := logs.Read(files[0].Name, chunk.NextOffset)
+	next, err := logs.Read(files[0].Name, chunk.NextOffset, "")
 	if err != nil || next.Text != "ERROR EOF\n" {
 		t.Fatal(next, err)
 	}
-	if _, err = logs.Read("../../secret", 0); err == nil {
+	if _, err = logs.Read("../../secret", 0, ""); err == nil {
 		t.Fatal("accepted traversal")
 	}
 }
@@ -288,7 +288,7 @@ func TestSymlinkAndOversizedOutput(t *testing.T) {
 	if err := os.Symlink(outside, filepath.Join(logs.dir, name)); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := logs.Read(name, 0); err == nil {
+	if _, err := logs.Read(name, 0, ""); err == nil {
 		t.Fatal("read symlink")
 	}
 	out := logs.Writer()
@@ -297,7 +297,7 @@ func TestSymlinkAndOversizedOutput(t *testing.T) {
 		t.Fatal(err)
 	}
 	files, _ := logs.List()
-	chunk, err := logs.Read(files[0].Name, -1)
+	chunk, err := logs.Read(files[0].Name, -1, "")
 	if err != nil || !strings.Contains(chunk.Text, "INFO recovered") || len(chunk.Text) > 200 {
 		t.Fatal(chunk, err)
 	}
@@ -314,7 +314,7 @@ func TestCursorChunksPreserveUnicodeAcrossBoundaries(t *testing.T) {
 	offset := int64(0)
 	got := ""
 	for offset < files[0].Size {
-		chunk, err := logs.Read(files[0].Name, offset)
+		chunk, err := logs.Read(files[0].Name, offset, "")
 		if err != nil || chunk.NextOffset <= offset {
 			t.Fatal(chunk, err)
 		}
@@ -335,7 +335,7 @@ func TestFlushSeparatesProcessOutputAndRedactsPartialLine(t *testing.T) {
 	}
 	_, _ = out.Write([]byte("INFO restarted\n"))
 	files, _ := logs.List()
-	chunk, err := logs.Read(files[0].Name, -1)
+	chunk, err := logs.Read(files[0].Name, -1, "")
 	if err != nil || strings.Contains(chunk.Text, "secret") || !strings.Contains(chunk.Text, "\nINFO restarted\n") {
 		t.Fatal(chunk, err)
 	}

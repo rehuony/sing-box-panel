@@ -105,17 +105,24 @@ export function createObservabilityHttpApi(context: HttpApiContext) {
         signal,
       });
     },
-    readCoreLog(file, offset = -1, signal) {
+    clearCoreLog(file, signal) {
+      return request<void>(fetcher, `${baseUrl}/core/logs/content${buildQuery({ file })}`, {
+        method: 'DELETE',
+        signal,
+        headers: writeHeaders(),
+      });
+    },
+    readCoreLog(file, offset = -1, generation, signal) {
       return request<CoreLogChunk>(
         fetcher,
-        `${baseUrl}/core/logs/content${buildQuery({ file, offset })}`,
+        `${baseUrl}/core/logs/content${buildQuery({ file, offset, generation: generation || undefined })}`,
         { method: 'GET', signal },
       );
     },
-    async* streamCoreLog(file, offset = -1, signal) {
+    async* streamCoreLog(file, offset = -1, generation, signal) {
       const response = await openEventStream(
         fetcher,
-        `${baseUrl}/core/logs/stream${buildQuery({ file, offset })}`,
+        `${baseUrl}/core/logs/stream${buildQuery({ file, offset, generation: generation || undefined })}`,
         { method: 'GET', signal },
       );
       yield* readJSONEvents<CoreLogChunk>(response, 'output');

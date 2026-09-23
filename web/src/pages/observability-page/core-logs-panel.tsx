@@ -25,6 +25,8 @@ export function CoreLogsPanel({ active = true, toolbarTarget }: {
   const [deleteTarget, setDeleteTarget] = useState('');
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<unknown>(null);
+  const [clearTarget, setClearTarget] = useState('');
+  const [clearError, setClearError] = useState<unknown>(null);
   const [clearedFile, setClearedFile] = useState('');
   const cleared = clearedFile === log.file && log.file !== '';
   const viewportRef = useRef<HTMLDivElement>(null);
@@ -53,6 +55,18 @@ export function CoreLogsPanel({ active = true, toolbarTarget }: {
         ? 'connecting'
         : 'archive';
   const canToggle = log.current || log.paused;
+  const mutating = deleting || log.clearing;
+  async function clearFile() {
+    setClearError(null);
+    try {
+      await log.clear(clearTarget);
+      setClearedFile(clearTarget);
+      setClearTarget('');
+      followRef.current = true;
+    } catch (reason) {
+      setClearError(reason);
+    }
+  }
   async function deleteFile() {
     setDeleting(true);
     setDeleteError(null);
@@ -79,7 +93,7 @@ export function CoreLogsPanel({ active = true, toolbarTarget }: {
             <SelectField
               aria-label={t('productLogs.file')}
               value={log.file}
-              disabled={deleting}
+              disabled={mutating}
               onValueChange={log.selectFile}
               items={log.files.length ? log.files.map((file) => ({ value: file.name, label: `${file.name.slice(0, 10)} · ${(file.size / 1048576).toFixed(1)} MB` })) : [{ value: '', label: t('productLogs.noFiles') }]}
             />
@@ -97,6 +111,23 @@ export function CoreLogsPanel({ active = true, toolbarTarget }: {
       </ToolbarActions>
       {log.error != null && <ErrorNotice error={log.error} title={t('productLogs.unavailable')} />}
       {deleteError != null && <ErrorNotice error={deleteError} title={t('productLogs.deleteFailed')} />}
+      {clearError != null && <ErrorNotice error={clearError} title={t('productLogs.clearFailed')} />}
+      <AlertDialog open={Boolean(clearTarget)} onOpenChange={(open) => {
+        if (!open && !log.clearing) setClearTarget('');
+      }}>
+        <AlertDialogContent showCloseButton={!log.clearing}>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t('productLogs.clear')}</AlertDialogTitle>
+            <AlertDialogDescription>{t('productLogs.clearConfirmation', { file: clearTarget })}</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={log.clearing}>{t('common.cancel')}</AlertDialogCancel>
+            <AlertDialogAction variant='destructive' disabled={log.clearing} onClick={() => void clearFile()}>
+              {t(log.clearing ? 'productLogs.clearing' : 'productLogs.clear')}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
       <AlertDialog open={Boolean(deleteTarget)} onOpenChange={(open) => {
         if (!open && !deleting) setDeleteTarget('');
       }}>
@@ -135,7 +166,7 @@ export function CoreLogsPanel({ active = true, toolbarTarget }: {
                 variant='ghost'
                 aria-label={t('productLogs.liveUpdates')}
                 aria-pressed={canToggle && !log.paused}
-                disabled={!canToggle || deleting}
+                disabled={!canToggle || mutating}
                 onClick={() => log.setPaused(!log.paused)}
               />
             )}>
@@ -167,11 +198,10 @@ export function CoreLogsPanel({ active = true, toolbarTarget }: {
                 size='icon'
                 variant='ghost'
                 aria-label={t('productLogs.clear')}
-                disabled={!log.text}
+                disabled={!log.file || mutating}
                 onClick={() => {
-                  log.clear();
-                  setClearedFile(log.file);
-                  followRef.current = true;
+                  setClearError(null);
+                  setClearTarget(log.file);
                 }}
               />
             )}>
@@ -186,7 +216,7 @@ export function CoreLogsPanel({ active = true, toolbarTarget }: {
                   size='icon'
                   variant='ghost'
                   aria-label={t('productLogs.deleteFile')}
-                  disabled={deleting}
+                  disabled={mutating}
                   onClick={() => setDeleteTarget(log.file)}
                 />
               )}>

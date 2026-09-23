@@ -22,6 +22,7 @@ import (
 type Application struct {
 	settingsListenersMu sync.Mutex
 	settingsListeners   map[chan struct{}]struct{}
+	coreLogsMu          sync.Mutex
 	coreLogs            *corelogs.Files
 	logObserver         func(store.LogEntry)
 	artifacts           ArtifactInstaller

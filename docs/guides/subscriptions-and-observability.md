@@ -288,14 +288,21 @@ The Web page has two tabs. **Real-time logs** shows sanitized sing-box output,
 with a muted timestamp and the entire remaining message colored by TRACE,
 DEBUG, INFO, WARN, ERROR, FATAL or PANIC. A file selector and level filter sit on
 the right. The toolbar also shows connection state and controls for live updates,
-scrolling to the bottom, clearing displayed output, and deleting a historical
+scrolling to the bottom, clearing saved output, and deleting a historical
 file. Pausing freezes the selected file and disconnects the browser stream;
 collection on the server continues. Resuming uses the last received byte cursor,
 or switches to the latest file after rotation. Scrolling up suspends automatic
 scrolling; the bottom button restores it without changing live-update state.
-Clearing removes only the displayed buffer and preserves its cursor, filters,
-and update state. It does not truncate or delete any file. Switching files reloads
-saved output. Historical deletion requires confirmation, removes only the
+Clearing requires confirmation and permanently truncates all saved contents of
+the selected file, including records hidden by search or level filters. It works
+for today's active file as well as historical files, preserving the file and
+continued collection. Other dates and rotated segments remain unchanged.
+The browser cancels pending reads before clearing and resets its buffer and byte
+cursor to zero after success, preserving filters and paused/live state. Refreshing
+or reselecting the file cannot restore cleared contents. Failures are shown without
+clearing the display. Readers send the file generation with their cursor, so a
+clear in another browser resets the display on the next chunk or after resuming.
+Historical deletion requires confirmation, removes only the
 selected managed file, and returns the view to the latest remaining file.
 **Panel logs** combines sanitized operation outcomes with panel, security and
 runtime events. The table shows time, message, log level and source, without an
@@ -330,6 +337,24 @@ only shows deletion for eligible files; the server rechecks the date and rejects
 all of today's segments with `409 core_log_current`, even after size rotation.
 Invalid names and non-regular files are rejected; missing files return 404.
 Deletion outcomes are recorded as panel activity.
+
+`DELETE /api/v1/core/logs/content?file=<managed-name>` clears the selected
+capture's contents with the same authentication, CSRF and file validation as
+deletion, but permits today's files. It truncates in place so append writers
+continue normally. Clients must discard pending reads and streams before this
+request and restart from offset zero after success; pre-clear byte cursors are
+invalid. New output may already exist when the response arrives. Clearing
+outcomes are recorded as panel activity; database events and native output are
+not cleared by this endpoint.
+
+Read and stream chunks include an opaque `generation`; send it alongside
+`next_offset` in subsequent requests. A clear changes that file's generation,
+and a server restart changes all generations. When a generation differs, the
+server restarts at byte zero and sets `reset: true`; replace the old displayed
+buffer before consuming this chunk. This also handles rapid regrowth past an
+old offset. Clients that omit `generation` retain offset-only behavior and are
+responsible for discarding pre-clear cursors. Capture operations share the
+server-owned file manager so reading a chunk cannot overlap truncation.
 
 Private core logs default to seven UTC dates including today, 32 MiB per file,
 and no file-count limit. Panel settings → Log management controls

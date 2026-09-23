@@ -24,7 +24,11 @@ func (app *Application) SettingsChanges() (<-chan struct{}, func()) {
 }
 
 // SetCoreLogs attaches the server-owned writer before requests are served.
-func (app *Application) SetCoreLogs(files *corelogs.Files) { app.coreLogs = files }
+func (app *Application) SetCoreLogs(files *corelogs.Files) {
+	app.coreLogsMu.Lock()
+	defer app.coreLogsMu.Unlock()
+	app.coreLogs = files
+}
 
 func coreLogPolicy(value settings.Settings) corelogs.Policy {
 	return corelogs.Policy{RetentionDays: value.Logs.CoreRetentionDays, MaxFiles: value.Logs.CoreMaxFiles, MaxFileBytes: int64(value.Logs.CoreMaxFileSizeMiB) << 20}
@@ -33,10 +37,13 @@ func coreLogPolicy(value settings.Settings) corelogs.Policy {
 // publishSettings is called under the settings-file lock after a successful
 // commit, preserving save order. Receivers do not run under this lock.
 func (app *Application) publishSettings(value settings.Settings) {
-	if app.coreLogs != nil {
+	app.coreLogsMu.Lock()
+	files := app.coreLogs
+	app.coreLogsMu.Unlock()
+	if files != nil {
 		// Cleanup is retried by the retention worker; the validated policy is
 		// installed even when removing an old file temporarily fails.
-		_ = app.coreLogs.SetPolicy(coreLogPolicy(value))
+		_ = files.SetPolicy(coreLogPolicy(value))
 	}
 	app.settingsListenersMu.Lock()
 	defer app.settingsListenersMu.Unlock()
@@ -49,6 +56,8 @@ func (app *Application) publishSettings(value settings.Settings) {
 }
 
 func (app *Application) PruneCoreLogs() error {
+	app.coreLogsMu.Lock()
+	defer app.coreLogsMu.Unlock()
 	if app.coreLogs == nil {
 		return nil
 	}

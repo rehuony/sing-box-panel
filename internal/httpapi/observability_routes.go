@@ -68,6 +68,8 @@ func (handler *Handler) observabilityHandler(method, resource, identifier string
 		return handler.deleteCoreLogFile
 	case resource == "core-log-content" && method == http.MethodGet:
 		return func(w http.ResponseWriter, r *http.Request) { handler.readCoreLog(w, r, false) }
+	case resource == "core-log-content" && method == http.MethodDelete:
+		return handler.clearCoreLog
 	case resource == "core-log-stream" && method == http.MethodGet:
 		return func(w http.ResponseWriter, r *http.Request) { handler.readCoreLog(w, r, true) }
 	case resource == "panel-logs" && method == http.MethodGet:

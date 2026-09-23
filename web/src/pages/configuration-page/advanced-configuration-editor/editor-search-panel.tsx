@@ -47,7 +47,7 @@ export function EditorSearchPanel({ host }: { host: SearchPanelHost }) {
         closeSearchPanel(host.view);
       }
     }}>
-      <Button className='editor-search__expand' size='icon-sm' variant='ghost' type='button' aria-label={t('configuration.advanced.toggleReplace')} aria-expanded={showReplace} onClick={() => setShowReplace(!showReplace)}>
+      <Button className='editor-search__expand' size='icon-xs' variant='ghost' type='button' aria-label={t('configuration.advanced.toggleReplace')} aria-expanded={showReplace} onClick={() => setShowReplace(!showReplace)}>
         {showReplace ? <ChevronDown /> : <ChevronRight />}
       </Button>
       <div className='editor-search__row'>
@@ -63,17 +63,17 @@ export function EditorSearchPanel({ host }: { host: SearchPanelHost }) {
             ['wholeWord', WholeWord, 'wholeWord'],
             ['regexp', Regex, 'regexp'],
           ] as const).map(([key, Icon, label]) => (
-            <Button key={key} size='icon-sm' variant='ghost' type='button' aria-label={t(`configuration.advanced.${label}`)} title={t(`configuration.advanced.${label}`)} aria-pressed={query[key]} onClick={() => update({ [key]: !query[key] })}><Icon /></Button>
+            <Button key={key} size='icon-xs' variant='ghost' type='button' aria-label={t(`configuration.advanced.${label}`)} title={t(`configuration.advanced.${label}`)} aria-pressed={query[key]} onClick={() => update({ [key]: !query[key] })}><Icon /></Button>
           ))}
         </div>
         <div className='editor-search__actions'>
           <span className='editor-search__count' role='status'>
             {invalid ? t('configuration.advanced.invalidRegex') : !query.search ? '' : matches.length === 0 ? t('configuration.advanced.noResults') : matches.length > 10_000 ? '10000+' : current ? `${current} / ${matches.length}` : t('configuration.advanced.matches', { count: matches.length })}
           </span>
-          <Button size='icon-sm' variant='ghost' type='button' aria-label={t('configuration.advanced.previous')} title={t('configuration.advanced.previous')} disabled={!actionable} onClick={() => findPrevious(host.view)}><ArrowUp /></Button>
-          <Button size='icon-sm' variant='ghost' type='button' aria-label={t('configuration.advanced.next')} title={t('configuration.advanced.next')} disabled={!actionable} onClick={() => findNext(host.view)}><ArrowDown /></Button>
-          <Button size='icon-sm' variant='ghost' type='button' aria-label={t('configuration.advanced.selectAll')} title={t('configuration.advanced.selectAll')} disabled={!actionable} onClick={() => selectMatches(host.view)}><ListFilter /></Button>
-          <Button size='icon-sm' variant='ghost' type='button' aria-label={t('common.close')} title={t('common.close')} onClick={() => closeSearchPanel(host.view)}><X /></Button>
+          <Button size='icon-xs' variant='ghost' type='button' aria-label={t('configuration.advanced.previous')} title={t('configuration.advanced.previous')} disabled={!actionable} onClick={() => findPrevious(host.view)}><ArrowUp /></Button>
+          <Button size='icon-xs' variant='ghost' type='button' aria-label={t('configuration.advanced.next')} title={t('configuration.advanced.next')} disabled={!actionable} onClick={() => findNext(host.view)}><ArrowDown /></Button>
+          <Button size='icon-xs' variant='ghost' type='button' aria-label={t('configuration.advanced.selectAll')} title={t('configuration.advanced.selectAll')} disabled={!actionable} onClick={() => selectMatches(host.view)}><ListFilter /></Button>
+          <Button size='icon-xs' variant='ghost' type='button' aria-label={t('common.close')} title={t('common.close')} onClick={() => closeSearchPanel(host.view)}><X /></Button>
         </div>
       </div>
       {showReplace && (
@@ -87,8 +87,8 @@ export function EditorSearchPanel({ host }: { host: SearchPanelHost }) {
             }} />
           </div>
           <div className='editor-search__actions'>
-            <Button size='icon-sm' variant='ghost' type='button' aria-label={t('configuration.advanced.replace')} title={t('configuration.advanced.replace')} disabled={!actionable || state.readOnly} onClick={() => replaceNext(host.view)}><Replace /></Button>
-            <Button size='icon-sm' variant='ghost' type='button' aria-label={t('configuration.advanced.replaceAll')} title={t('configuration.advanced.replaceAll')} disabled={!actionable || state.readOnly} onClick={() => replaceAll(host.view)}><ReplaceAll /></Button>
+            <Button size='icon-xs' variant='ghost' type='button' aria-label={t('configuration.advanced.replace')} title={t('configuration.advanced.replace')} disabled={!actionable || state.readOnly} onClick={() => replaceNext(host.view)}><Replace /></Button>
+            <Button size='icon-xs' variant='ghost' type='button' aria-label={t('configuration.advanced.replaceAll')} title={t('configuration.advanced.replaceAll')} disabled={!actionable || state.readOnly} onClick={() => replaceAll(host.view)}><ReplaceAll /></Button>
           </div>
         </div>
       )}
