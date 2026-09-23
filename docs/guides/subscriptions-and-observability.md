@@ -415,6 +415,9 @@ the omitted older interval is unknown, not inferred from the preceding state.
 The dashboard shows host summaries, transfer history and one-hour active
 connections. Graph gaps remain gaps. The 24-hour runtime strip uses 48 equal
 segments and persisted transitions; unknown intervals are not guessed healthy.
+Traffic and connection chart details follow the pointer and stay inside the chart,
+showing metric values and units without timestamps. Arrow keys inspect samples;
+Escape or leaving the chart dismisses the details.
 An absent or zero traffic quota is rendered as unlimited (`∞ GiB`) while keeping
 the observed used-byte value; unavailable traffic evidence remains unknown rather
 than being rendered as zero.
