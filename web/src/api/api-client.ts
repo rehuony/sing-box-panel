@@ -1,3 +1,4 @@
+import type { FilesystemPage, FilesystemQuery, FilesystemResolveInput, FilesystemSelection } from './contracts/filesystem';
 import type {
   CatalogRefresh,
   ConfigurationFile,
@@ -96,6 +97,8 @@ export type {
   SubscriptionSourceRefreshResult,
   SystemStatus,
 } from './generated';
+
+export type { FilesystemEntry, FilesystemMode, FilesystemPage, FilesystemQuery, FilesystemResolveInput, FilesystemSelection } from './contracts/filesystem';
 export * from './contracts/observability';
 export * from './contracts/subscription';
 export * from './contracts/canonical';
@@ -110,16 +113,16 @@ export interface ApiClient {
   stopRuntime: (signal?: AbortSignal) => Promise<RuntimeStatus>;
   getMetrics: (signal?: AbortSignal) => Promise<MetricsSnapshot>;
   startRuntime: (signal?: AbortSignal) => Promise<RuntimeStatus>;
-
   getSystemStatus: (signal?: AbortSignal) => Promise<SystemStatus>;
   login: (token: string, signal?: AbortSignal) => Promise<Session>;
+
   restartRuntime: (signal?: AbortSignal) => Promise<RuntimeStatus>;
   exportPanelBackup: (signal?: AbortSignal) => Promise<PanelBackup>;
   subscribeSessionInvalidated: (listener: () => void) => () => void;
   getRuntimeStatus: (signal?: AbortSignal) => Promise<RuntimeStatus>;
-
   clearCoreLog: (file: string, signal?: AbortSignal) => Promise<void>;
   getLog: (entryID: string, signal?: AbortSignal) => Promise<LogEntry>;
+
   getTrafficStatus: (signal?: AbortSignal) => Promise<MetricsSnapshot>;
   getPanelSettings: (signal?: AbortSignal) => Promise<PanelSettingsView>;
   deleteCoreLogFile: (file: string, signal?: AbortSignal) => Promise<void>;
@@ -133,9 +136,9 @@ export interface ApiClient {
   deleteSubscriptionToken: (tokenID: string, signal?: AbortSignal) => Promise<void>;
   disableCore: (artifactID: string, signal?: AbortSignal) => Promise<RuntimeStatus>;
   refreshCatalog: (force?: boolean, signal?: AbortSignal) => Promise<CatalogRefresh>;
-
   getCoreArtifact: (artifactID: string, signal?: AbortSignal) => Promise<CoreArtifact>;
   getTrafficPeriod: (periodID: string, signal?: AbortSignal) => Promise<TrafficPeriod>;
+
   getSubscriptionNodeCatalog: (signal?: AbortSignal) => Promise<SubscriptionNodeCatalog>;
   listPanelLogs: (filter?: PanelLogFilter, signal?: AbortSignal) => Promise<PanelLogPage>;
   getSubscriptionUser: (userID: string, signal?: AbortSignal) => Promise<SubscriptionUser>;
@@ -154,9 +157,11 @@ export interface ApiClient {
   revokeSubscriptionToken: (tokenID: string, signal?: AbortSignal) => Promise<SubscriptionToken>;
   getSubscriptionChannel: (channelID: string, signal?: AbortSignal) => Promise<SubscriptionChannel>;
   getSubscriptionTokenSecret: (tokenID: string, signal?: AbortSignal) => Promise<{ token: string }>;
+  listFilesystemEntries: (query?: FilesystemQuery, signal?: AbortSignal) => Promise<FilesystemPage>;
   parseSubscriptionNode: (text: string, signal?: AbortSignal) => Promise<{ outbound_json: string }>;
   checkStartupArtifact: (artifactID: string, signal?: AbortSignal) => Promise<StartupArtifactSummary>;
   restorePanelBackup: (input: PanelRestoreRequest, signal?: AbortSignal) => Promise<PanelRestoreResult>;
+  resolveFilesystemPath: (input: FilesystemResolveInput, signal?: AbortSignal) => Promise<FilesystemSelection>;
   getMetricsHistory: (
     filter: MetricsHistoryFilter,
     signal?: AbortSignal,

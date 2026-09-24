@@ -4,10 +4,13 @@ package systemd
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	panelsettings "github.com/rehuony/sing-box-panel/internal/settings"
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -26,6 +29,9 @@ func (runner *recordingRunner) Run(_ context.Context, name string, args ...strin
 	runner.calls = append(runner.calls, recordedCommand{name: name, args: append([]string(nil), args...)})
 	if runner.run != nil {
 		return runner.run(name, args)
+	}
+	if name == "systemctl" && slices.Contains(args, "--property=LoadState") {
+		return CommandResult{Stdout: []byte("LoadState=not-found\nActiveState=inactive\nSubState=dead\nUnitFileState=\nMainPID=0\nFragmentPath=\n")}, nil
 	}
 	return CommandResult{}, nil
 }
@@ -51,6 +57,7 @@ func TestUserInstallAndUninstallUseAuditedArguments(t *testing.T) {
 		t.Fatalf("Install() = %+v", result)
 	}
 	wantCalls := []recordedCommand{
+		{name: "systemctl", args: []string{"--no-ask-password", "--user", "show", "--property=Version", "--value"}},
 		{name: "systemctl", args: []string{"--no-ask-password", "--user", "daemon-reload"}},
 		{name: "systemctl", args: []string{"--no-ask-password", "--user", "enable", "--now", UnitName}},
 	}
@@ -66,7 +73,7 @@ func TestUserInstallAndUninstallUseAuditedArguments(t *testing.T) {
 		managedMark,
 		`ExecStart="` + escapedUnitPath(fixture.executable) + `" server start --config "` + escapedUnitPath(fixture.settings) + `"`,
 		`Environment=SING_BOX_PANEL_SUPERVISOR=systemd`,
-		`WorkingDirectory="` + escapedPathDirective(fixture.data) + `"`,
+		`WorkingDirectory=` + strings.ReplaceAll(fixture.data, "%", "%%"),
 		`ReadWritePaths="` + escapedPathDirective(fixture.data) + `" "` + escapedPathDirective(filepath.Dir(fixture.settings)) + `"`,
 	} {
 		if !strings.Contains(text, value) {
@@ -83,7 +90,8 @@ func TestUserInstallAndUninstallUseAuditedArguments(t *testing.T) {
 		t.Fatalf("Uninstall() = %+v", uninstalled)
 	}
 	wantCalls = []recordedCommand{
-		{name: "systemctl", args: []string{"--no-ask-password", "--user", "disable", "--now", UnitName}},
+		{name: "systemctl", args: testStatusArgs(true)},
+		{name: "systemctl", args: []string{"--no-ask-password", "--user", "disable", "--no-reload", UnitName}},
 		{name: "systemctl", args: []string{"--no-ask-password", "--user", "daemon-reload"}},
 	}
 	if !reflect.DeepEqual(fixture.runner.calls, wantCalls) {
@@ -177,6 +185,7 @@ func TestSystemInstallRequiresRootAndConventionalLayout(t *testing.T) {
 		t.Fatalf("Install() = %+v", result)
 	}
 	wantCalls := []recordedCommand{
+		{name: "systemctl", args: []string{"--no-ask-password", "show", "--property=Version", "--value"}},
 		{name: "systemd-sysusers", args: []string{fixture.layout.SystemSysusersPath}},
 		{name: "systemd-tmpfiles", args: []string{"--create", fixture.layout.SystemTmpfilesPath}},
 		{name: "chown", args: []string{serviceUser + ":" + serviceGroup, filepath.Dir(fixture.settings)}},
@@ -415,7 +424,7 @@ func newManagerFixture(t *testing.T, euid int) managerFixture {
 	if err := os.WriteFile(executable, []byte("test binary"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(settings, []byte("{}\n"), 0o600); err != nil {
+	if err := os.WriteFile(settings, validTestSettings(data), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	layout := Layout{
@@ -431,7 +440,7 @@ func newManagerFixture(t *testing.T, euid int) managerFixture {
 	manager, err := New(Options{
 		GOOS: "linux", EUID: func() int { return euid },
 		Executable: func() (string, error) { return executable, nil },
-		Runner:     runner, Layout: layout,
+		Runner:     runner, Layout: layout, LookPath: func(name string) (string, error) { return name, nil },
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -450,4 +459,19 @@ func escapedPathDirective(value string) string {
 	value = strings.ReplaceAll(value, "\\", "\\\\")
 	value = strings.ReplaceAll(value, `"`, `\"`)
 	return strings.ReplaceAll(value, "%", "%%")
+}
+
+func validTestSettings(data string) []byte {
+	config := panelsettings.Defaults()
+	config.DataDir = data
+	config.Auth.Token = "test-token"
+	raw, _ := json.Marshal(config)
+	return raw
+}
+func testStatusArgs(user bool) []string {
+	args := []string{"--no-ask-password"}
+	if user {
+		args = append(args, "--user")
+	}
+	return append(args, "show", UnitName, "--no-pager", "--property=LoadState", "--property=ActiveState", "--property=SubState", "--property=UnitFileState", "--property=MainPID", "--property=FragmentPath", "--property=DropInPaths", "--property=NeedDaemonReload")
 }

@@ -274,7 +274,7 @@ authentication boundary and invalidate existing sessions. API clients may send t
 current token as a Bearer credential. Browser login exchanges it for an HttpOnly,
 SameSite session cookie and a CSRF token.
 
-Replacement tokens must contain 32–8192 UTF-8 bytes, without leading or trailing
+Replacement tokens must contain 8–8192 UTF-8 bytes, without leading or trailing
 Unicode whitespace or BOM, NUL, CR, or LF. Invalid replacements leave the current
 credential and sessions intact. The login JSON body is bounded to 64 KiB so every
 accepted token fits even when JSON encoding escapes its characters.
@@ -292,6 +292,14 @@ checks use this explicit value and never trust `Forwarded` or
 subscription token.
 
 ### Request and download protections
+
+The authenticated filesystem browsing and resolution endpoints expose host path
+metadata within the panel process's OS permissions and filesystem namespace.
+They do not read file contents, create or modify paths, or use a separate directory
+allowlist. Responses are not cached; directory scans and page sizes are bounded.
+`internal/filesystem` owns these read-only effects, with application use cases and
+HTTP translation above it. See the configuration guide's
+[server path selection](../guides/configuration-and-runtime.md#selecting-server-paths).
 
 The server applies bounded request bodies, strict JSON decoding where the
 contract requires it, constant-time token comparison, security response

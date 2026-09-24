@@ -3,6 +3,7 @@
 package installation
 
 import (
+	"bytes"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -15,6 +16,53 @@ import (
 	"github.com/rehuony/sing-box-panel/internal/settings"
 	"github.com/rehuony/sing-box-panel/internal/store"
 )
+
+func TestDataMovePreservesFixedCleanupHistory(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("user history fixture requires XDG_STATE_HOME")
+	}
+	for _, historyIn := range []string{"source", "target"} {
+		t.Run(historyIn, func(t *testing.T) {
+			path, source := fixture(t)
+			target := filepath.Join(filepath.Dir(source), "moved-data")
+			stateRoot := source
+			if historyIn == "target" {
+				stateRoot = target
+			}
+			t.Setenv("XDG_STATE_HOME", filepath.Join(stateRoot, "state"))
+			history := DefaultHistoryPath()
+			record := CleanupHistory{SettingsPath: filepath.Join(t.TempDir(), "other.json"), Scope: "user", Outcome: "completed"}
+			if err := WriteCleanupHistory(t.Context(), history, record); err != nil {
+				t.Fatal(err)
+			}
+			before, err := os.ReadFile(history)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := settings.RememberDataLocation(path, source); err != nil {
+				t.Fatal(err)
+			}
+			selectMovedDataDir(t, path, target)
+			if _, err := PrepareDataLocation(t.Context(), path); err == nil || !strings.Contains(err.Error(), "cleanup history") {
+				t.Fatalf("migration did not protect history: %v", err)
+			}
+			after, err := os.ReadFile(history)
+			if err != nil || !bytes.Equal(before, after) {
+				t.Fatalf("independent history moved or changed: %v", err)
+			}
+			location, err := settings.ReadDataLocation(path)
+			if err != nil || location.DataDir != source || location.Move != nil {
+				t.Fatalf("migration started despite retained history: %+v %v", location, err)
+			}
+			if _, err := os.Stat(filepath.Join(source, "panel.db")); err != nil {
+				t.Fatal("source database was removed")
+			}
+			if _, err := os.Lstat(filepath.Join(target, "panel.db")); !os.IsNotExist(err) {
+				t.Fatal("migration copied data before validation")
+			}
+		})
+	}
+}
 
 func selectMovedDataDir(t *testing.T, path, target string) {
 	t.Helper()

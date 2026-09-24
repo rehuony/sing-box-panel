@@ -1,6 +1,6 @@
 # systemd templates
 
-These files are packaging inputs. CI validates source and build behavior only;
+These files are packaging inputs. CI validates source, build behavior, and generated units with `systemd-analyze verify`;
 it never copies units, creates users, enables services, or performs installation.
 
 The binary also exposes the same templates through `sing-box-panel systemd`.
@@ -16,12 +16,10 @@ environment; the service itself is stopped through `systemd stop`.
 
 ```sh
 # Dedicated system service, initially using the default data directory.
-sudo /usr/local/bin/sing-box-panel init
 sudo /usr/local/bin/sing-box-panel systemd install --scope=system --now
 
 # Ordinary per-user service. The current executable, settings path, and data
-# directory are rendered as separately quoted unit arguments.
-sing-box-panel init
+# directory are rendered according to each directive's parsing rules.
 sing-box-panel systemd install --scope=user --now
 ```
 
@@ -35,21 +33,48 @@ the dedicated account/directories, grants that account access only to the
 settings and data paths, reloads systemd, and enables the unit. User scope
 writes only the current user's XDG systemd unit.
 
+Before writing files, installation checks required commands, manager access,
+permissions, paths, pending migrations and conflicting service files. It creates
+missing settings (0600, random token) and directories (0700), without overwriting
+existing configuration or initializing the database. The server creates storage
+when it starts. Existing differing unit files still require `--force`.
+Configuration sidecars must be regular files when present; conflicts are rejected
+before resource creation or account preparation. Existing data directories need
+write access to the directory itself, not to an otherwise shared parent.
+`systemctl`, `systemd-sysusers`, `systemd-tmpfiles`, and `chown` are checked only
+when required; the CLI never runs a package manager. `systemd-analyze` is a test
+and CI dependency, not a runtime requirement.
+
+`WorkingDirectory` is a scalar path: quotes and backslashes are literal, while
+percent specifiers must be escaped. Execution arguments, path lists and tmpfiles
+fields use their respective quoted forms. Unrepresentable paths fail preflight.
+
 Installation without `--now` reads and validates only the configured data path;
 `--now` also requires valid runtime settings before any installation starts.
 Status uses only location fields for its optional settings report. Other
 service operations do not load the CLI settings file. Start/restart inspect the
-installed unit's settings when a data relocation is pending. A starting service
+installed unit's settings for data relocation and missing resources. Preparation
+requires an unambiguous generated unit and never uses the CLI-selected config
+in place of the installed one. Start/restart never installs a missing unit. A starting service
 validates its own runtime configuration.
+Start/restart read the exact managed destinations rather than the full resource
+inventory; inaccessible unrelated systemd directories do not block control.
+`system df` still reports inspection failures and the partial inventory.
 
 The ownership marker embedded in installed files remains stable across CLI
 renames so existing managed units stay recognizable.
 
-`systemd uninstall` stops and disables the exact scope and removes only files
+`systemd uninstall` verifies the loaded state, stops active services, then disables
+the exact scope and removes only files
 at the built-in installer's audited destinations. Settings, data, and the
 system account are retained. It refuses unmanaged or changed files unless the
 operator supplies `--force`; even with `--force`, it never deletes settings or
-data. `systemd status` reports systemd's fragment path, state, and
+data. Missing or broken inactive units can be removed; manager, permission and
+stop failures remain errors, with already removed paths preserved in results.
+Even when all installed files are missing, uninstall checks the manager: a cached
+running unit must have a matching fragment path and stop successfully before
+uninstall can succeed. An absent inactive unit requires no changes.
+`systemd status` reports systemd's fragment path, state, and
 `NeedDaemonReload`, plus two on-disk facts labeled as such: the `--config`
 path in the single effective `[Service] ExecStart` line of the unit file on
 disk, and the data directory, database, and configuration storage declared by

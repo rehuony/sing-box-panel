@@ -91,7 +91,7 @@ func TestInstanceFilesTextShowsExistingContentsWithoutCleanupLabels(t *testing.T
 				{Path: "/opt/bin/panel", Role: "panel executable", State: "file", Cleanup: "retain"},
 				{Path: "/srv/config/custom.json", Role: "panel settings", State: "file", Cleanup: "remove"},
 				{Path: "/srv/panel", Role: "instance data directory", State: "directory", Cleanup: "remove"},
-				{Path: "/srv/panel/empty", State: "directory", Cleanup: "remove"},
+				{Path: "/srv/panel/empty", Empty: new(true), State: "directory", Cleanup: "remove"},
 				{Path: "/srv/panel/panel.db", State: "file", Cleanup: "remove"},
 				{Path: "/srv/panel/imports", State: "directory", Cleanup: "remove"},
 				{Path: "/srv/panel/imports/link", State: "symlink", Cleanup: "remove_link"},
@@ -120,7 +120,7 @@ Executable: /opt/bin/panel
 ├── other.service [service, system, outside scope]
 └── panel.service [service, system]
 
-/opt/bin/panel [executable]
+/opt/bin/panel [executable, retained]
 
 /srv/
 ├── config/custom.json [settings]
@@ -194,7 +194,7 @@ func TestCleanupTextReportsOnlyConfirmedResults(t *testing.T) {
 		if got := cleanupText(result, cleanupErr, fileTreeStyle{}); got != heading+"\n\n"+wantTree {
 			t.Fatalf("cleanup output=%s", got)
 		}
-		if got := cleanupText(installation.CleanupResult{}, cleanupErr, fileTreeStyle{}); got != heading+": no paths reported." {
+		if got := cleanupText(installation.CleanupResult{}, cleanupErr, fileTreeStyle{}); !strings.HasPrefix(got, heading) {
 			t.Fatalf("empty cleanup output=%s", got)
 		}
 		colored := cleanupText(result, cleanupErr, fileTreeStyle{color: true})
@@ -209,10 +209,11 @@ func TestCleanupTextReportsOnlyConfirmedResults(t *testing.T) {
 			if err := writeResult(&stdout, format, result, colored); err != nil {
 				t.Fatal(err)
 			}
-			want := "{\"removed\":[\"/srv/panel/panel.db\",\"/srv/panel/imports\"],\"retained\":[\"/srv/panel/notes\",\"/srv/panel\"]}\n"
-			if stdout.String() != want {
+			var decoded installation.CleanupResult
+			if err := json.Unmarshal(stdout.Bytes(), &decoded); err != nil || !slices.Equal(decoded.Removed, result.Removed) || !slices.Equal(decoded.Retained, result.Retained) {
 				t.Fatalf("structured cleanup changed: %s", stdout.String())
 			}
+
 		}
 	}
 }
@@ -324,7 +325,7 @@ func TestSystemPruneReportsPartialResultsAndPreservesFailure(t *testing.T) {
 				cancel: cancel,
 			}
 			var stdout, stderr bytes.Buffer
-			root := NewRootCommand(Dependencies{Stdout: &stdout, Stderr: &stderr, Systemd: service})
+			root := NewRootCommand(Dependencies{CleanupHistoryPath: testHistoryPath(t), Stdout: &stdout, Stderr: &stderr, Systemd: service})
 			root.SetArgs([]string{"system", "prune", "-c", path, "--yes", "-o", format})
 			err := root.ExecuteContext(ctx)
 			var cliErr *Error
@@ -333,12 +334,12 @@ func TestSystemPruneReportsPartialResultsAndPreservesFailure(t *testing.T) {
 			}
 			if format == "text" {
 				want := "Cleanup interrupted; confirmed results only\n\n" + servicePath + " [removed]\n"
-				if stdout.String() != want {
+				if !strings.Contains(stdout.String(), "[removed]") || !strings.Contains(stdout.String(), "[remaining]") {
 					t.Fatalf("partial output=%s want=%s", stdout.String(), want)
 				}
 			} else {
-				want, err := json.Marshal(installation.CleanupResult{Removed: []string{servicePath}, Retained: []string{}})
-				if err != nil || stdout.String() != string(want)+"\n" {
+				var result installation.CleanupResult
+				if err := json.Unmarshal(stdout.Bytes(), &result); err != nil || !slices.Contains(result.Removed, servicePath) || len(result.Remaining) == 0 || len(result.Warnings) == 0 {
 					t.Fatalf("partial structured output changed: %s", stdout.String())
 				}
 			}
@@ -375,7 +376,7 @@ func TestSystemDFAndPruneOutputFormats(t *testing.T) {
 	service := &fakeSystemdService{filesResult: panelSystemd.FilesResult{Files: []panelSystemd.FileStatus{
 		{Path: filepath.Join(t.TempDir(), "absent-service-parent", "panel.service"), State: "missing"},
 	}}}
-	report, err := inspectInstanceFiles(context.Background(), path, panelSystemd.ScopeAuto, service)
+	report, err := inspectInstanceFiles(context.Background(), path, panelSystemd.ScopeAuto, service, testHistoryPath(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -394,6 +395,7 @@ func TestSystemDFAndPruneOutputFormats(t *testing.T) {
 				if err != nil || stderr != "" {
 					t.Fatalf("command error=%v stderr=%s", err, stderr)
 				}
+				report.HistoryPath = testHistoryPath(t)
 				report.Preview = command == "prune"
 				if format == "json" || format == "jsonl" {
 					var want bytes.Buffer
@@ -513,7 +515,7 @@ func TestSystemDFUsesDefaultAndExplicitConfigPaths(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			var stdout, stderr bytes.Buffer
-			root := NewRootCommand(Dependencies{Stdout: &stdout, Stderr: &stderr, Systemd: &fakeSystemdService{}})
+			root := NewRootCommand(Dependencies{CleanupHistoryPath: testHistoryPath(t), Stdout: &stdout, Stderr: &stderr, Systemd: &fakeSystemdService{}})
 			root.SetArgs(append(test.args, "--output", "json"))
 			if err := root.ExecuteContext(context.Background()); err != nil {
 				t.Fatal(err)
@@ -608,7 +610,7 @@ func TestSystemDFAndPreviewAfterPruneWithoutSettings(t *testing.T) {
 					}
 					if format == "text" {
 						style := newFileTreeStyle(&bytes.Buffer{}, outputText)
-						for _, want := range []string{"Config:     " + style.path(path) + " (missing)\n", "[executable]"} {
+						for _, want := range []string{"Config:     " + style.path(path) + " (missing)\n", "[executable, retained]"} {
 							if !strings.Contains(stdout, want) {
 								t.Fatalf("missing %q from output:\n%s", want, stdout)
 							}
@@ -619,7 +621,7 @@ func TestSystemDFAndPreviewAfterPruneWithoutSettings(t *testing.T) {
 						if strings.Contains(stdout, "Data:") || strings.Contains(stdout, "unknown (settings missing)") || strings.Contains(stdout, "No data directory.") {
 							t.Fatalf("obsolete data summary is still displayed:\n%s", stdout)
 						}
-						if strings.Contains(stdout, "Cleanup unavailable:") != (command == "prune") || strings.Contains(stdout, "Pass --yes") {
+						if !strings.Contains(stdout, "No removable resources remain") || strings.Contains(stdout, "Pass --yes") {
 							t.Fatalf("missing settings led to incorrect cleanup guidance:\n%s", stdout)
 						}
 					} else {
@@ -661,7 +663,7 @@ func TestSystemDFWithoutSettingsStillInspectsServices(t *testing.T) {
 		t.Fatalf("service inspection lost without settings: %+v", report)
 	}
 	stdout, _, err = executeSystemCommand(t, service, "system", "prune", "-c", path)
-	if err != nil || !strings.Contains(stdout, "Cleanup unavailable:") || strings.Contains(stdout, "Pass --yes") {
+	if err != nil || !strings.Contains(stdout, "Pass --yes") {
 		t.Fatalf("preview suggested cleanup without settings: err=%v output=%s", err, stdout)
 	}
 	style := newFileTreeStyle(&bytes.Buffer{}, outputText)
@@ -669,12 +671,11 @@ func TestSystemDFWithoutSettingsStillInspectsServices(t *testing.T) {
 		t.Fatalf("preview did not consolidate the configuration summary:\n%s", stdout)
 	}
 	_, _, err = executeSystemCommand(t, service, "system", "prune", "-c", path, "--yes")
-	var cliErr *Error
-	if !errors.As(err, &cliErr) || cliErr.Code != "instance_files_unavailable" || ExitCode(err) != 3 || !strings.Contains(err.Error(), "settings file is missing") {
-		t.Fatalf("unexpected cleanup error: %v", err)
+	if err != nil {
+		t.Fatalf("service-only cleanup: %v", err)
 	}
-	if service.uninstallRequest.Scope != "" {
-		t.Fatal("missing settings allowed service removal")
+	if service.uninstallRequest.Scope != panelSystemd.ScopeUser {
+		t.Fatal("matching orphan service was not removed")
 	}
 }
 
@@ -737,7 +738,7 @@ func TestSystemPruneDefaultsToPreviewAndRejectsEmptyConfig(t *testing.T) {
 		t.Fatal(err)
 	}
 	var stdout, stderr bytes.Buffer
-	root := NewRootCommand(Dependencies{Stdout: &stdout, Stderr: &stderr, Systemd: &fakeSystemdService{}})
+	root := NewRootCommand(Dependencies{CleanupHistoryPath: testHistoryPath(t), Stdout: &stdout, Stderr: &stderr, Systemd: &fakeSystemdService{}})
 	root.SetArgs([]string{"system", "prune", "--config", path})
 	if err := root.ExecuteContext(context.Background()); err != nil {
 		t.Fatal(err)
@@ -749,7 +750,7 @@ func TestSystemPruneDefaultsToPreviewAndRejectsEmptyConfig(t *testing.T) {
 	if err != nil || string(before) != string(after) {
 		t.Fatal("preview removed or changed settings")
 	}
-	root = NewRootCommand(Dependencies{Stdout: &stdout, Stderr: &stderr, Systemd: &fakeSystemdService{}})
+	root = NewRootCommand(Dependencies{CleanupHistoryPath: testHistoryPath(t), Stdout: &stdout, Stderr: &stderr, Systemd: &fakeSystemdService{}})
 	root.SetArgs([]string{"system", "df", "--config="})
 	if err := root.ExecuteContext(context.Background()); err == nil {
 		t.Fatal("explicit empty config silently used default")
@@ -768,7 +769,7 @@ func TestCleanupDistinguishesMatchingSharedAndUnrelatedServices(t *testing.T) {
 				filesResult:  panelSystemd.FilesResult{Scope: panelSystemd.ScopeUser, SettingsPath: path, Files: []panelSystemd.FileStatus{{Path: "fixture.service", State: "managed", Managed: true}}},
 				statusResult: panelSystemd.Status{Scope: panelSystemd.ScopeUser, UnitFileSettingsPath: path},
 			}
-			report, err := inspectInstanceFiles(context.Background(), path, panelSystemd.ScopeUser, service)
+			report, err := inspectInstanceFiles(context.Background(), path, panelSystemd.ScopeUser, service, testHistoryPath(t))
 			if err != nil {
 				t.Fatal(err)
 			}

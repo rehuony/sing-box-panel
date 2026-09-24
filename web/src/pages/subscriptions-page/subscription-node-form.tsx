@@ -132,10 +132,13 @@ export function SubscriptionNodeForm({
     ...primary.filter((key) => !['tag', 'server', 'server_port'].includes(key)),
   ];
   function fields(names: string[]) {
+    // Retain the discriminator for protocol-specific field rules and generators.
+    // The protocol selector above the sections remains the only visible control.
+    const sectionKeys = properties.type ? ['type', ...names] : names;
     const subset: RJSFSchema = {
       type: 'object',
-      properties: Object.fromEntries(names.map((key) => [key, properties[key]])),
-      required: resolved.required?.filter((key) => names.includes(key)),
+      properties: Object.fromEntries(sectionKeys.map((key) => [key, properties[key]])),
+      required: resolved.required?.filter((key) => sectionKeys.includes(key)),
     };
     const schemaUI = uiSchemaFromPanel(subset, [], resolution.schema, data);
     return (
@@ -151,7 +154,8 @@ export function SubscriptionNodeForm({
         schema={subset}
         uiSchema={{
           ...schemaUI,
-          'ui:order': names,
+          'ui:order': sectionKeys,
+          'type': { 'ui:widget': 'hidden' },
           ...(names.includes('tls') && tlsRequired
             ? {
                 tls: {

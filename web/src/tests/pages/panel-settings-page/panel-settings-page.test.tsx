@@ -11,6 +11,7 @@ import { ApiClientProvider } from '@/api/api-client-context';
 import { TestRouter as MemoryRouter } from '@/tests/test-router';
 import { demoBackupSettings } from '@/api/demo/demo-panel-backup';
 import { createMockApiClient } from '@/tests/api/mock-api-client';
+import { createDemoFilesystemApi } from '@/api/demo/demo-filesystem';
 import { PanelSettingsProvider } from '@/stores/panel-settings-provider';
 import { PanelSettingsPage } from '@/pages/panel-settings-page/panel-settings-page';
 
@@ -50,6 +51,21 @@ function setup(client = createMockApiClient(), initialEntry = '/panel') {
 }
 
 describe('panel settings', () => {
+  it('selects the data directory through the shared picker without saving settings', async () => {
+    const user = userEvent.setup();
+    const client = setup(createMockApiClient(createDemoFilesystemApi()));
+    await user.click(await screen.findByRole('tab', { name: 'System maintenance' }));
+    await user.click(screen.getByRole('button', { name: 'Browse server path: Data directory' }));
+    const dialog = within(screen.getByRole('dialog'));
+    await user.click(dialog.getByRole('button', { name: 'Edit path' }));
+    fireEvent.change(dialog.getByLabelText('Location'), { target: { value: '/etc/sing-box' } });
+    await user.click(dialog.getByRole('button', { name: 'Go' }));
+    await waitFor(() => expect(dialog.queryByText('Loading directory…')).not.toBeInTheDocument());
+    await user.click(dialog.getByRole('button', { name: 'Confirm' }));
+    await waitFor(() => expect(screen.getByLabelText('Data directory', { selector: 'input' })).toHaveValue('/etc/sing-box'));
+    expect(client.savePanelSettings).not.toHaveBeenCalled();
+  });
+
   it('shares one draft across topics and preserves hidden settings', async () => {
     const user = userEvent.setup();
     const client = setup();
@@ -263,15 +279,26 @@ describe('panel settings', () => {
     const token = dialog.getByLabelText('New token', { selector: 'input' });
     const confirm = dialog.getByLabelText('Confirm token', { selector: 'input' });
     const save = dialog.getByRole('button', { name: 'Save settings' });
-    for (const value of [`${'x'.repeat(32)} `, `\uFEFF${'x'.repeat(32)}`, 'x'.repeat(8193)]) {
+    for (const [value, message] of [
+      ['1234567', 'Token must be at least 8 bytes'],
+      ['ééé', 'Token must be at least 8 bytes'],
+      ['12345678 ', 'Token contains invalid characters'],
+      ['\uFEFF12345678', 'Token contains invalid characters'],
+      ['1234\0' + '5678', 'Token contains invalid characters'],
+      ['x'.repeat(8193), 'Token cannot exceed 8192 bytes'],
+    ]) {
       fireEvent.change(token, { target: { value } });
       fireEvent.change(confirm, { target: { value } });
       expect(token).toHaveAttribute('aria-invalid', 'true');
       expect(save).toBeDisabled();
+      expect(document.getElementById('token-error')).toHaveTextContent(message);
       await user.click(save);
     }
     expect(client.savePanelSettings).not.toHaveBeenCalled();
-    const value = 'é'.repeat(16);
+    fireEvent.change(token, { target: { value: '12345678' } });
+    fireEvent.change(confirm, { target: { value: '12345678' } });
+    expect(save).toBeEnabled();
+    const value = 'é'.repeat(4);
     fireEvent.change(token, { target: { value } });
     fireEvent.change(confirm, { target: { value } });
     expect(save).toBeEnabled();

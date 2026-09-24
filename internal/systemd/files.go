@@ -9,11 +9,29 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 )
 
 // Files inspects the installer's exact destinations without contacting systemd.
 func (manager *Manager) Files(ctx context.Context, requested Scope) (FilesResult, error) {
+	result, err := manager.managedFiles(ctx, requested)
+	if err != nil {
+		return result, err
+	}
+	if err := manager.relatedFiles(ctx, result.Scope, &result); err != nil {
+		return result, err
+	}
+	return result, nil
+}
+
+// Service preparation needs only exact installer destinations. Keep the broader
+// read-only inventory out of start/restart so unrelated directories cannot block
+// control; loaded fragments and drop-ins are verified separately before writes.
+func (manager *Manager) managedFiles(ctx context.Context, requested Scope) (FilesResult, error) {
+	if err := ctx.Err(); err != nil {
+		return FilesResult{}, err
+	}
 	if err := manager.requireLinux(); err != nil {
 		return FilesResult{}, err
 	}
@@ -49,7 +67,102 @@ func (manager *Manager) Files(ctx context.Context, requested Scope) (FilesResult
 		}
 		result.Files = append(result.Files, item)
 	}
+	if result.SettingsPath == "" && scope == ScopeSystem && result.Files[0].State == "missing" {
+		// System scope has one fixed configuration path. Auxiliary files remain
+		// discoverable after a failed installation or a manually removed unit.
+		for _, item := range result.Files[1:] {
+			if item.Managed {
+				result.SettingsPath = manager.layout.SystemSettingsPath
+			}
+		}
+	}
 	return result, nil
+}
+
+// Related artifacts are visible but never acquire removal authority merely by
+// appearing in the inventory. systemctl owns enablement links and runtime dirs.
+func (manager *Manager) relatedFiles(ctx context.Context, scope Scope, result *FilesResult) error {
+	unit := manager.unitPath(scope)
+	bases := []string{filepath.Dir(unit)}
+	if scope == ScopeSystem && unit == "/etc/systemd/system/"+UnitName {
+		bases = append(bases, "/run/systemd/system", "/usr/local/lib/systemd/system", "/usr/lib/systemd/system")
+	} else if scope == ScopeUser {
+		configHome, _ := os.UserConfigDir()
+		if unit == filepath.Join(configHome, "systemd", "user", UnitName) {
+			bases = append(bases, "/etc/systemd/user", "/usr/local/lib/systemd/user", "/usr/lib/systemd/user")
+			if runtimeHome := os.Getenv("XDG_RUNTIME_DIR"); filepath.IsAbs(runtimeHome) {
+				bases = append(bases, filepath.Join(runtimeHome, "systemd", "user"))
+			}
+		}
+	}
+	slices.Sort(bases)
+	for _, base := range slices.Compact(bases) {
+		if err := relatedFilesIn(ctx, unit, base, result); err != nil {
+			return err
+		}
+	}
+	if scope == ScopeSystem && unit == "/etc/systemd/system/"+UnitName {
+		path := "/run/sing-box-panel"
+		if info, err := os.Lstat(path); err == nil {
+			state := "runtime directory"
+			if !info.IsDir() {
+				state = "runtime path"
+			}
+			result.Files = append(result.Files, FileStatus{Path: path, State: state, Retained: true})
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+	}
+	return nil
+}
+
+func relatedFilesIn(ctx context.Context, unit, base string, result *FilesResult) error {
+	children, err := os.ReadDir(base)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	for _, child := range children {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if child.Name() == UnitName+".d" && child.Type()&os.ModeSymlink != 0 {
+			result.Files = append(result.Files, FileStatus{Path: filepath.Join(base, child.Name()), State: "linked drop-in directory", Retained: true})
+			continue
+		}
+		if !child.IsDir() {
+			continue
+		}
+		directory := filepath.Join(base, child.Name())
+		if child.Name() == UnitName+".d" {
+			entries, err := os.ReadDir(directory)
+			if err != nil {
+				return err
+			}
+			result.Files = append(result.Files, FileStatus{Path: directory, State: "directory", Retained: true})
+			for _, entry := range entries {
+				result.Files = append(result.Files, FileStatus{Path: filepath.Join(directory, entry.Name()), State: "custom", Retained: true})
+			}
+		} else if strings.HasSuffix(child.Name(), ".wants") || strings.HasSuffix(child.Name(), ".requires") {
+			path := filepath.Join(directory, UnitName)
+			target, err := os.Readlink(path)
+			if errors.Is(err, os.ErrNotExist) {
+				continue
+			}
+			if err != nil {
+				if info, e := os.Lstat(path); e == nil && info.Mode()&os.ModeSymlink == 0 {
+					continue
+				}
+				return err
+			}
+			if !filepath.IsAbs(target) {
+				target = filepath.Join(directory, target)
+			}
+			if filepath.Clean(target) == unit {
+				result.Files = append(result.Files, FileStatus{Path: path, State: "enablement link", Retained: true})
+			}
+		}
+	}
+	return nil
 }
 
 type managedFile struct {

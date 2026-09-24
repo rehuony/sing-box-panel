@@ -5,21 +5,25 @@ package systemd
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/rehuony/sing-box-panel/internal/installation"
-	"github.com/rehuony/sing-box-panel/internal/settings"
 	systemdassets "github.com/rehuony/sing-box-panel/systemd"
 )
 
 type execRunner struct{}
 
 func (execRunner) Run(ctx context.Context, name string, args ...string) (CommandResult, error) {
+	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+	defer cancel()
 	command := exec.CommandContext(ctx, name, args...)
+	command.WaitDelay = 5 * time.Second
 	var stdout, stderr bytes.Buffer
 	command.Stdout = &stdout
 	command.Stderr = &stderr
@@ -100,19 +104,35 @@ func (manager *Manager) validateInstallPaths(scope Scope, request InstallRequest
 	if err := requireRegularExecutable(executablePath); err != nil {
 		return "", "", "", err
 	}
-	if err := requireRegularFile(settingsPath, "settings"); err != nil {
+	if err := preflightSettingsPaths(settingsPath); err != nil {
 		return "", "", "", err
 	}
-	if err := installation.ValidateCleanup(installation.Report{DataDir: dataDir, SettingsPath: settingsPath, Entries: []installation.Entry{{Path: executablePath}}}); err != nil {
+	if err := installation.ValidateCleanup(installation.Report{HistoryPath: installation.DefaultHistoryPath(), DataDir: dataDir, SettingsPath: settingsPath, Entries: []installation.Entry{{Path: executablePath}}}); err != nil {
 		return "", "", "", fmt.Errorf("%w: %v", ErrInvalid, err)
 	}
-	if err := requireDirectory(dataDir); err != nil {
-		location, locationErr := settings.ReadDataLocation(settingsPath)
-		if locationErr != nil || location.DataDir == dataDir {
-			return "", "", "", fmt.Errorf("%w: %v", ErrInvalid, err)
-		}
+	if err := requireDirectory(dataDir); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return "", "", "", fmt.Errorf("%w: %v", ErrInvalid, err)
 	}
 	return executablePath, settingsPath, dataDir, nil
+}
+
+// Validate sidecars before initialization, migration, unit writes or account
+// preparation. The mutation paths retain their own checks for concurrent edits.
+func preflightSettingsPaths(path string) error {
+	directory := filepath.Dir(path)
+	if info, err := os.Lstat(directory); err == nil {
+		if !info.IsDir() {
+			return fmt.Errorf("%w: settings directory %q must be a physical directory", ErrInvalid, directory)
+		}
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	for _, suffix := range []string{"", ".lock", ".pending", ".location"} {
+		if err := requireRegularFile(path+suffix, "settings path"); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+	}
+	return nil
 }
 
 func (manager *Manager) installFiles(scope Scope, unit []byte, dataDir string) []managedFile {

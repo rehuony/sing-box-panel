@@ -36,6 +36,7 @@ export function ListPagination({ page, pages, pageSize, disabled = false, onPage
     <footer className='list-pagination'>
       <SelectField
         aria-label={t('pagination.pageSize')}
+        disabled={disabled}
         value={pageSize}
         onValueChange={onPageSizeChange}
         items={[5, 10, 50].map(value => ({ value, label: t('pagination.perPage', { count: value }) }))}

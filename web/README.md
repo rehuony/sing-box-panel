@@ -33,6 +33,15 @@ domain-specific query filters and derived types. Routes are assembled in
 around their companion files. Each locale groups navigation, account, language,
 and theme labels in `shell.ts`, with shared and startup messages in `common.ts`.
 
+`components/server-path-input` owns the shared server filesystem selector.
+Configuration and subscription-node forms use it through context-aware presentation
+annotations in `configuration-path-fields`, including scalar/list representations
+and nested dialogs. Filesystem reads go through the injected `ApiClient`; demo
+mode uses a fixed in-memory directory tree. The chooser preserves hand-entered
+values until confirmation and rechecks the selected path with the server.
+See [server path selection](../docs/guides/configuration-and-runtime.md#selecting-server-paths)
+for filesystem scope and path semantics.
+
 Configuration contracts under `src/schemas/generated/` are exported offline
 from the committed backend Schema assets by the Vite plugin. Its manifest binds
 each exact sing-box version to its native/reviewed source kind, file and SHA-256 digest, and the plugin
@@ -174,6 +183,14 @@ share one representation selector, with a distinct Byte sequence option where su
 existing strings, byte sequences and mixed lists retain their original representation.
 Credential fields use plain text in configuration and subscription-node forms,
 including private-key lists, consistently with the authenticated JSON editors.
+Supported credentials have a dice action at the right of the input. The
+presentation-only rules in `configuration-credentials` select the appropriate
+password, UUID or Base64 key format. Shadowsocks method context follows nested
+user and destination dialogs, including pending edits. Grouped subscription-node
+forms retain the protocol as a hidden discriminator so generation uses the current
+protocol and encryption method. See the
+[configuration guide](../docs/guides/configuration-and-runtime.md#reviewed-configuration-schemas)
+for the generated formats.
 Managed entry editors include their lossless JSON preview in the same tab bar.
 The preview follows the active theme, fills the available detail area and scrolls
 internally. Its upper-right Copy button copies the current entry draft without

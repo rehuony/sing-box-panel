@@ -158,11 +158,19 @@ func parse(path string, data []byte) (Settings, error) {
 // LoadOrInitialize loads settings, creating defaults only when the selected file
 // is absent. Concurrent callers use the same atomically published settings.
 func LoadOrInitialize(path string) (value Settings, created bool, err error) {
+	return LoadOrInitializeContext(context.Background(), path)
+}
+
+// LoadOrInitializeContext preserves startup recovery and cancellation.
+func LoadOrInitializeContext(ctx context.Context, path string) (value Settings, created bool, err error) {
+	if err := ctx.Err(); err != nil {
+		return Settings{}, false, err
+	}
 	value, err = LoadForStartup(path)
 	if !errors.Is(err, os.ErrNotExist) {
 		return value, false, err
 	}
-	value, err = Initialize(path, false)
+	value, err = initialize(ctx, path, false, true, "")
 	if errors.Is(err, os.ErrExist) {
 		value, err = Load(path)
 		return value, false, err
@@ -284,16 +292,34 @@ func NormalizeOrigin(raw string) (string, error) {
 
 // Initialize writes a new settings file and creates its data directory.
 func Initialize(path string, overwrite bool) (Settings, error) {
-	return initialize(context.Background(), path, overwrite, true)
+	return initialize(context.Background(), path, overwrite, true, "")
 }
 
 // InitializeFile creates default settings without creating the data directory
 // or opening its database. Existing files require an explicit overwrite.
 func InitializeFile(ctx context.Context, path string, overwrite bool) (Settings, error) {
-	return initialize(ctx, path, overwrite, false)
+	return initialize(ctx, path, overwrite, false, "")
 }
 
-func initialize(ctx context.Context, path string, overwrite, createDataDirectory bool) (Settings, error) {
+// EnsureFile initializes only an absent regular-file destination. The caller
+// validates existing settings according to the operation it intends to perform.
+func EnsureFile(ctx context.Context, path, defaultDataDir string) (bool, error) {
+	if info, err := os.Lstat(path); err == nil {
+		if !info.Mode().IsRegular() {
+			return false, fmt.Errorf("settings destination %q must be a regular file", path)
+		}
+		return false, nil
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return false, err
+	}
+	_, err := initialize(ctx, path, false, false, defaultDataDir)
+	if errors.Is(err, os.ErrExist) {
+		return false, nil
+	}
+	return err == nil, err
+}
+
+func initialize(ctx context.Context, path string, overwrite, createDataDirectory bool, defaultDataDir string) (Settings, error) {
 	if err := ctx.Err(); err != nil {
 		return Settings{}, err
 	}
@@ -324,6 +350,14 @@ func initialize(ctx context.Context, path string, overwrite, createDataDirectory
 		return Settings{}, fmt.Errorf("inspect settings %q: %w", path, err)
 	}
 	value := Defaults()
+	if defaultDataDir != "" {
+		value.DataDir = defaultDataDir
+	}
+	if !overwrite {
+		if location, err := ReadDataLocation(path); err == nil {
+			value.DataDir = location.DataDir
+		}
+	}
 	value.sourcePath, err = filepath.Abs(path)
 	if err != nil {
 		return Settings{}, err

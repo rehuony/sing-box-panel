@@ -167,6 +167,22 @@ until the result arrives, so feedback describes the submitted file. Validation
 success is a Toast shown only after the binary check succeeds. Unknown fields and
 numeric lexemes are retained through visual edits.
 
+Configuration credentials remain visible as plain text, matching the authenticated
+JSON editor. A dice button beside supported password, UUID and pre-shared-key
+inputs generates a value using the browser's cryptographic random source. Ordinary
+passwords use 24 URL-safe ASCII characters; UUID fields use UUID v4. The
+[Shadowsocks 2022 methods](https://sing-box.sagernet.org/configuration/inbound/shadowsocks/#method)
+use Base64-encoded keys of 16 bytes for AES-128 or 32 bytes for AES-256 and
+ChaCha20, including nested users and relay destinations. Other supported encrypted
+Shadowsocks methods use ordinary passwords; `none` and unselected methods have no
+generator. WireGuard pre-shared keys use 32 random bytes in Base64. Snell PSKs and
+user keys use the ordinary password format, which also fits the
+[Snell v6 PSK's 12–255 byte range](https://sing-box.sagernet.org/configuration/inbound/snell/#version).
+Generation changes only the selected field and remains part of the current draft;
+nested dialog changes still require confirmation. Changing a protocol or encryption
+method never silently replaces an existing credential. Certificates, asymmetric
+keys and externally issued access tokens do not receive generic random generators.
+
 ### Field names and inline help
 
 The Simplified Chinese visual editor uses reviewed Chinese names and descriptions
@@ -207,6 +223,50 @@ core version, review new field names and changed meanings against that exact
 tag's documentation before updating this catalog. The field-help test checks
 coverage against every committed schema; unknown future fields keep their
 original labels rather than receiving guessed explanations.
+
+### Selecting server paths
+
+Filesystem fields in configuration and subscription-node forms, and the panel's
+data directory setting, share a Browse control while remaining editable.
+The dialog browses the panel server's filesystem
+namespace (inside its container or service sandbox when applicable), subject to
+the panel process's OS permissions. It provides parent and breadcrumb navigation,
+direct path entry, name filtering, hidden-file visibility and pagination.
+
+Click an entry to select it, then use the toolbar's Confirm button to validate and
+use that path. Double-click a directory, or press Enter / Right Arrow on its row,
+to open it; Left Arrow returns to its parent. Keyboard navigation restores focus
+after loading, and parent/breadcrumb navigation remains available after errors.
+In directory mode, Confirm uses the current directory when no child is selected.
+For a new output file, enter its name and use the same Confirm button. The eye
+icon beside the navigation controls toggles hidden files. Closing the dialog or
+pressing Escape cancels without changing the field; Escape while editing the
+location only exits location editing.
+
+Input-file fields select existing regular files; directory fields select an
+existing directory; socket fields select Unix sockets. Output-file fields such
+as logs and caches can select an existing file or combine an existing directory
+with a new filename. Selection never creates a file or directory. Confirming checks
+the current target type and existence again and updates only the form draft.
+Manual paths and the ordinary Save / Validate / runtime workflows remain available.
+
+Relative paths are resolved against `data_dir/runtime`, the managed core's working
+directory, and selections fill in absolute paths. Missing initial paths open the
+nearest existing parent with a notice. Permission errors are reported directly.
+Symbolic links retain their selected path while their target determines the type.
+Dot components such as `link/..` are interpreted by the OS without lexical path
+cleaning that could change the target. Broken links cannot be selected.
+A successful selection does not validate file
+contents or guarantee access, write permission or continued existence at startup.
+
+HTTP request paths, URLs, regular expressions and namespace tags are not filesystem
+fields. Path annotations are frontend presentation metadata, never executable JSON
+or modifications to the reviewed/native Schema assets. The browser endpoints return
+only directory/path metadata, require management authentication and disable caching.
+Browsing is non-recursive, returns at most 200 entries per page, and rejects
+directories exceeding 20,000 entries; enter a subdirectory directly in that case.
+Unix filenames that are not valid UTF-8 cannot be represented by the API and are
+omitted from listings. The existing local-file upload controls remain uploads.
 
 ## Validate and load configuration
 

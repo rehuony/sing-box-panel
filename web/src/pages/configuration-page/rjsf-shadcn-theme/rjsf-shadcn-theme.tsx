@@ -23,6 +23,7 @@ import {
   ArrowDown,
   ArrowUp,
   Copy,
+  Dices,
   Plus,
   Trash2,
   X,
@@ -42,7 +43,10 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
+import { toast } from '@/components/ui/toast-manager';
 import { ErrorNotice } from '@/components/error-notice';
+import { ServerPathInput } from '@/components/server-path-input';
+import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupInput } from '@/components/ui/input-group';
 import {
   Field,
   FieldDescription,
@@ -62,11 +66,14 @@ import {
 import { resolvedSchema } from '../schema-ui';
 import { SchemaFieldHelp } from './schema-field-help';
 import { SchemaDialogContext } from './schema-dialog-context';
+import { readConfigurationPathMode } from '../configuration-path-fields';
+import { credentialGenerator, generateCredential } from '../configuration-credentials';
 import { readConfigurationFieldHelp, withConfigurationFieldHelp } from '../configuration-field-help';
 import { PanelArrayField, PanelArrayFieldItemTemplate, PanelArrayFieldTemplate } from './array-field-templates';
 import './rjsf-shadcn-theme.css';
 
 const SchemaChoiceContext = createContext<{ id: string; label?: string } | null>(null);
+const ShadowsocksMethodContext = createContext<string | undefined>(undefined);
 
 interface PanelMetadata {
   order?: number;
@@ -325,8 +332,15 @@ function objectSchemaForForm(schema: RJSFSchema, registry: Registry): RJSFSchema
   };
 }
 
-/** Explicitly configured empty objects must remain open, even before their first field is filled. */
 function PanelObjectField(props: FieldProps) {
+  const inheritedMethod = use(ShadowsocksMethodContext);
+  // React context follows nested array dialogs, including their uncommitted edits.
+  const method = props.formData?.type === 'shadowsocks' ? props.formData.method : inheritedMethod;
+  return <ShadowsocksMethodContext value={method}><PanelObjectFieldContent {...props} /></ShadowsocksMethodContext>;
+}
+
+/** Explicitly configured empty objects must remain open, even before their first field is filled. */
+function PanelObjectFieldContent(props: FieldProps) {
   const { i18n, t } = useTranslation();
   const labelId = useId();
   const { disabled, fieldPathId, formData, name, onChange, readonly, required, schema } = props;
@@ -361,14 +375,31 @@ export const panelRJSFFields = { ArrayField: PanelArrayField, ObjectField: Panel
 
 function PanelBaseInputTemplate(props: BaseInputTemplateProps) {
   const { i18n, t } = useTranslation();
+  const method = use(ShadowsocksMethodContext);
   const {
     autofocus, disabled, htmlName, id, onBlur, onChange, onChangeOverride, onFocus,
     options, readonly, schema, type, value,
   } = props;
   const inputProps = getInputProps(schema, type, options);
   const inputValue = value === undefined || value === null ? '' : String(value);
-  return (
-    <Input
+  const pathMode = readConfigurationPathMode(schema);
+  if (pathMode) {
+    return (
+      <ServerPathInput
+        mode={pathMode} value={inputValue}
+        aria-label={localizedLabel(schema, props.label, i18n.language, t)}
+        aria-invalid={props.rawErrors !== undefined && props.rawErrors.length > 0 ? true : undefined}
+        autoFocus={autofocus} disabled={disabled} readOnly={readonly} id={id} name={htmlName ?? id}
+        onBlur={event => onBlur(id, event.currentTarget.value)}
+        onFocus={event => onFocus(id, event.currentTarget.value)}
+        onValueChange={next => onChange(next === '' ? options.emptyValue : next)}
+      />
+    );
+  }
+  const generator = credentialGenerator(schema, method);
+  const InputComponent = generator ? InputGroupInput : Input;
+  const input = (
+    <InputComponent
       {...inputProps}
       aria-label={localizedLabel(schema, props.label, i18n.language, t)}
       aria-invalid={props.rawErrors !== undefined && props.rawErrors.length > 0 ? true : undefined}
@@ -383,7 +414,29 @@ function PanelBaseInputTemplate(props: BaseInputTemplateProps) {
       // Configuration credentials are already visible in the authenticated JSON editor.
       type={inputProps.type === 'password' ? 'text' : inputProps.type}
       value={inputValue}
+      autoComplete={generator ? 'off' : undefined}
+      spellCheck={generator ? false : undefined}
     />
+  );
+  if (!generator) return input;
+  return (
+    <InputGroup>
+      {input}
+      <InputGroupAddon align='inline-end'>
+        <InputGroupButton disabled={disabled || readonly} size='icon-sm'
+          aria-label={t('configuration.credentials.generate', { field: localizedLabel(schema, props.label, i18n.language, t) })}
+          title={t('configuration.credentials.generate', { field: localizedLabel(schema, props.label, i18n.language, t) })}
+          onClick={() => {
+            try {
+              onChange(generateCredential(generator));
+            } catch {
+              toast.add({ title: t('configuration.credentials.failed'), type: 'error' });
+            }
+          }}>
+          <Dices aria-hidden />
+        </InputGroupButton>
+      </InputGroupAddon>
+    </InputGroup>
   );
 }
 

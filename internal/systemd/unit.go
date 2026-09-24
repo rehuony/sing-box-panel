@@ -32,7 +32,11 @@ func renderUnit(scope Scope, executablePath, settingsPath, dataDir string) ([]by
 	if err != nil {
 		return nil, err
 	}
-	result, err = replaceDirective(result, "WorkingDirectory=", "WorkingDirectory="+data)
+	workingDirectory, err := workingDirectoryValue(dataDir)
+	if err != nil {
+		return nil, err
+	}
+	result, err = replaceDirective(result, "WorkingDirectory=", "WorkingDirectory="+workingDirectory)
 	if err != nil {
 		return nil, err
 	}
@@ -86,6 +90,15 @@ func renderUnit(scope Scope, executablePath, settingsPath, dataDir string) ([]by
 
 func quoteExecArgument(value string) (string, error) {
 	return quoteUnitValue(value, true)
+}
+
+// WorkingDirectory is a scalar path, not an unquoted word list. systemd keeps
+// quotes and backslashes literally here, but expands percent specifiers.
+func workingDirectoryValue(value string) (string, error) {
+	if !filepath.IsAbs(value) || hasControl(value) || strings.TrimSpace(value) != value || strings.HasSuffix(value, "\\") {
+		return "", fmt.Errorf("%w: working directory cannot be represented losslessly", ErrInvalid)
+	}
+	return strings.ReplaceAll(value, "%", "%%"), nil
 }
 
 func quotePathDirective(value string) (string, error) {

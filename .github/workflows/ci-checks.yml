@@ -95,6 +95,11 @@ jobs:
       - name: Install locked dependencies
         run: make bootstrap
 
+      - name: Verify generated units with the real systemd parser
+        run: |
+          command -v systemd-analyze
+          go test ./internal/systemd -run TestGeneratedUnitsWithSystemdAnalyze -v
+
       - name: Run Go and contract checks
         run: make check-go check-contracts
 

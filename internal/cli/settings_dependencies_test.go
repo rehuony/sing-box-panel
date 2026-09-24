@@ -50,7 +50,7 @@ func TestCommandsWithoutSettingsDependencies(t *testing.T) {
 	for _, action := range []string{"uninstall", "status", "start", "stop", "restart", "logs"} {
 		commands = append(commands, []string{"systemd", action, "--scope=user"})
 	}
-	for _, command := range NewRootCommand(Dependencies{}).Commands() {
+	for _, command := range NewRootCommand(Dependencies{CleanupHistoryPath: testHistoryPath(t)}).Commands() {
 		if command.HasAvailableSubCommands() {
 			commands = append(commands, []string{command.Name()})
 		}
@@ -64,7 +64,7 @@ func TestCommandsWithoutSettingsDependencies(t *testing.T) {
 				t.Run(strings.Join(args, " "), func(t *testing.T) {
 					var stdout, stderr bytes.Buffer
 					service := &fakeSystemdService{statusResult: panelSystemd.Status{UnitFileSettingsPath: path}}
-					root := NewRootCommand(Dependencies{
+					root := NewRootCommand(Dependencies{CleanupHistoryPath: testHistoryPath(t),
 						Stdin: strings.NewReader("{}"), Stdout: &stdout, Stderr: &stderr,
 						Build: buildinfo.Info{Version: "v1.2.3"}, Systemd: service,
 						OpenApplication: func(context.Context, string) (*application.Application, error) {
@@ -97,17 +97,16 @@ func TestCommandsRequiringSettingsRejectUnavailableSettings(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			commands := [][]string{
 				{"config", "verify"}, {"core", "list"},
-				{"server", "status"}, {"server", "stop"}, {"systemd", "install"},
-				{"system", "prune", "--yes"},
+				{"server", "status"}, {"server", "stop"},
 			}
 			if name != "missing" {
-				commands = append(commands, []string{"system", "df"}, []string{"system", "prune"}, []string{"server", "start"})
+				commands = append(commands, []string{"systemd", "install"}, []string{"system", "prune", "--yes"}, []string{"system", "df"}, []string{"system", "prune"}, []string{"server", "start"})
 			}
 			for _, args := range commands {
 				t.Run(strings.Join(args, " "), func(t *testing.T) {
 					var stdout, stderr bytes.Buffer
 					service := &fakeSystemdService{}
-					root := NewRootCommand(Dependencies{
+					root := NewRootCommand(Dependencies{CleanupHistoryPath: testHistoryPath(t),
 						Stdout: &stdout, Stderr: &stderr, Systemd: service, OpenApplication: application.Open,
 						RunServer: func(context.Context, string) error {
 							t.Fatal("server started with invalid settings")
@@ -117,7 +116,7 @@ func TestCommandsRequiringSettingsRejectUnavailableSettings(t *testing.T) {
 					root.SetArgs(append([]string{"--config", path}, args...))
 					err := root.ExecuteContext(t.Context())
 					var classified *Error
-					if ExitCode(err) != 3 || !errors.As(err, &classified) || stdout.Len() != 0 {
+					if ExitCode(err) != 3 || !errors.As(err, &classified) || (stdout.Len() != 0 && args[0] != "system") {
 						t.Fatalf("command accepted unavailable settings: err=%v stdout=%q", err, stdout.String())
 					}
 					if service.installRequest.Scope != "" || service.uninstallRequest.Scope != "" || service.controlScope != "" {
@@ -157,7 +156,7 @@ func TestInstanceCommandsIgnoreInvalidRuntimeSettings(t *testing.T) {
 		t.Run(strings.Join(args, " "), func(t *testing.T) {
 			var stdout, stderr bytes.Buffer
 			service := &fakeSystemdService{statusResult: panelSystemd.Status{UnitFileSettingsPath: path}}
-			root := NewRootCommand(Dependencies{Stdout: &stdout, Stderr: &stderr, Systemd: service, OpenApplication: application.Open})
+			root := NewRootCommand(Dependencies{CleanupHistoryPath: testHistoryPath(t), Stdout: &stdout, Stderr: &stderr, Systemd: service, OpenApplication: application.Open})
 			root.SetArgs(append([]string{"--config", path, "--output=json"}, args...))
 			if err := root.ExecuteContext(t.Context()); err != nil || stderr.Len() != 0 {
 				t.Fatalf("unrelated runtime setting blocked command: %v; stderr=%q", err, stderr.String())

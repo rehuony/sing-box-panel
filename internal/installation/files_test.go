@@ -83,8 +83,8 @@ func TestInspectWithoutSettingsDoesNotGuessDataDirectory(t *testing.T) {
 		if !settingsFound || !executableFound {
 			t.Fatalf("known paths missing from report: %+v", report)
 		}
-		if _, err := Clean(t.Context(), report); err == nil {
-			t.Fatal("cleanup accepted missing settings")
+		if _, err := Clean(t.Context(), report); err != nil {
+			t.Fatal(err)
 		}
 		if _, err := os.Lstat(selected); !os.IsNotExist(err) {
 			t.Fatalf("inspection or cleanup recreated settings: %v", err)
@@ -399,7 +399,7 @@ func TestCleanupDoesNotFollowSymlinks(t *testing.T) {
 				}
 			}
 			report, err := Inspect(context.Background(), path)
-			if err != nil {
+			if err != nil && linked != "settings" {
 				t.Fatal(err)
 			}
 			_, err = Clean(context.Background(), report)

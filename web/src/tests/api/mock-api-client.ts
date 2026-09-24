@@ -327,6 +327,8 @@ export function createMockApiClient(overrides: Partial<ApiClient> = {}): Mocked<
     reason: 'Native configuration Schema is unavailable before sing-box 1.14.',
   } satisfies ConfigurationSupport;
   const client: ApiClient = {
+    listFilesystemEntries: vi.fn().mockResolvedValue({ path: '/', parent: '/', requested_path: '/', fallback: false, items: [], total: 0, offset: 0, limit: 50 }),
+    resolveFilesystemPath: vi.fn().mockImplementation(async input => ({ path: input.path, parent: '/', kind: input.mode === 'output-file' ? 'file' : input.mode, exists: true, symlink: false })),
     enableCore: vi.fn().mockResolvedValue(testRuntimeStatus),
     disableCore: vi.fn().mockResolvedValue(testRuntimeStatus),
     getConfigurationFile: vi.fn().mockResolvedValue({

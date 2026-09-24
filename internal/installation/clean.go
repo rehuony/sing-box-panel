@@ -17,23 +17,29 @@ import (
 )
 
 type CleanupResult struct {
-	Removed  []string `json:"removed"`
-	Retained []string `json:"retained"`
+	Removed   []string `json:"removed"`
+	Retained  []string `json:"retained"`
+	Remaining []string `json:"remaining"`
+	Warnings  []string `json:"warnings"`
 }
 
 // Clean removes the selected settings and every entry in its data directory,
 // never arbitrary paths from a report. The caller must first stop the instance.
 func Clean(ctx context.Context, expected Report) (result CleanupResult, cleanErr error) {
-	result = CleanupResult{Removed: []string{}, Retained: []string{}}
+	result = CleanupResult{Removed: []string{}, Retained: []string{}, Remaining: []string{}, Warnings: []string{}}
 	current, err := Inspect(ctx, expected.SettingsPath)
 	if err != nil {
 		return result, err
 	}
+	current.HistoryPath = expected.HistoryPath
 	if current.DataDir != expected.DataDir {
 		return result, errors.New("settings changed data directory during cleanup; inspect again")
 	}
 	if err := ValidateCleanup(current); err != nil {
 		return result, err
+	}
+	if current.DataDir == "" {
+		return cleanWithoutData(ctx, current)
 	}
 	settingsLock, err := settings.TryLock(ctx, current.SettingsPath)
 	if err != nil {
@@ -51,26 +57,53 @@ func Clean(ctx context.Context, expected Report) (result CleanupResult, cleanErr
 	}
 	defer settingsRoot.Close()
 	settingsName := filepath.Base(current.SettingsPath)
-	settingsInfo, err := settingsRoot.Lstat(settingsName)
+	identityName := settingsName
+	settingsInfo, err := settingsRoot.Lstat(identityName)
+	if errors.Is(err, os.ErrNotExist) {
+		identityName += ".location"
+		settingsInfo, err = settingsRoot.Lstat(identityName)
+	}
 	if err != nil || !settingsInfo.Mode().IsRegular() {
 		return result, errors.New("settings path must remain a regular file")
 	}
+	defer func() {
+		if cleanErr == nil {
+			cleanErr = removeEmptySettingsDirectory(current, &result)
+		}
+	}()
+	validateSettingsIdentity := func() error {
+		if identityName != settingsName {
+			if _, err := settingsRoot.Lstat(settingsName); !errors.Is(err, os.ErrNotExist) {
+				return errors.New("settings appeared during cleanup; inspect again")
+			}
+		}
+		latest, err := settingsRoot.Lstat(identityName)
+		if err != nil || !os.SameFile(settingsInfo, latest) {
+			return errors.New("settings or location file was replaced before removal")
+		}
+		return nil
+	}
+	removeSettings := func() error {
+		if err := validateSettingsIdentity(); err != nil {
+			return err
+		}
+		for _, suffix := range []string{"", ".location", ".lock"} {
+			if err := settingsRoot.Remove(settingsName + suffix); err == nil {
+				result.Removed = append(result.Removed, current.SettingsPath+suffix)
+			} else if !errors.Is(err, os.ErrNotExist) {
+				return err
+			}
+		}
+		return nil
+	}
 	root, err := os.OpenRoot(current.DataDir)
 	if errors.Is(err, os.ErrNotExist) {
-		if err := settingsRoot.Remove(settingsName); err != nil {
-			return result, err
+		dataDir, readErr := selectedDataDir(current.SettingsPath)
+		if readErr != nil || dataDir != current.DataDir {
+			return result, errors.New("settings changed during cleanup; inspect again")
 		}
-		result.Removed = append(result.Removed, current.SettingsPath)
-		if err := settingsRoot.Remove(settingsName + ".lock"); err != nil {
-			return result, err
-		}
-		result.Removed = append(result.Removed, current.SettingsPath+".lock")
-		if err := settingsRoot.Remove(settingsName + ".location"); err == nil {
-			result.Removed = append(result.Removed, current.SettingsPath+".location")
-		} else if !errors.Is(err, os.ErrNotExist) {
-			return result, err
-		}
-		return result, nil
+		err := removeSettings()
+		return result, err
 	}
 	if err != nil {
 		return result, err
@@ -87,13 +120,12 @@ func Clean(ctx context.Context, expected Report) (result CleanupResult, cleanErr
 	}
 	defer func() { cleanErr = errors.Join(cleanErr, dataLock.Close()) }()
 	// Revalidate selection under the same locks used by the server and CLI.
-	dataDir, err := settings.LoadDataDir(current.SettingsPath)
+	dataDir, err := selectedDataDir(current.SettingsPath)
 	if err != nil || dataDir != current.DataDir {
 		return result, errors.New("settings changed during cleanup; inspect again")
 	}
-	latest, err := settingsRoot.Lstat(settingsName)
-	if err != nil || !os.SameFile(settingsInfo, latest) {
-		return result, errors.New("settings file was replaced during cleanup; inspect again")
+	if err := validateSettingsIdentity(); err != nil {
+		return result, err
 	}
 	rootInfo, err := root.Stat(".")
 	if err != nil {
@@ -151,23 +183,10 @@ func Clean(ctx context.Context, expected Report) (result CleanupResult, cleanErr
 	if err := ctx.Err(); err != nil {
 		return result, err
 	}
-	latest, err = settingsRoot.Lstat(settingsName)
-	if err != nil || !os.SameFile(settingsInfo, latest) {
-		return result, errors.New("settings file was replaced before removal")
-	}
-	if err := settingsRoot.Remove(settingsName); err == nil {
-		result.Removed = append(result.Removed, current.SettingsPath)
-	} else if !errors.Is(err, os.ErrNotExist) {
-		return result, err
-	}
-	if err := settingsRoot.Remove(settingsName + ".lock"); err != nil {
-		return result, err
-	}
-	result.Removed = append(result.Removed, current.SettingsPath+".lock")
-	if err := settingsRoot.Remove(settingsName + ".location"); err == nil {
-		result.Removed = append(result.Removed, current.SettingsPath+".location")
-	} else if !errors.Is(err, os.ErrNotExist) {
-		return result, err
+	if settingsRelative != "" {
+		if err := removeSettings(); err != nil {
+			return result, err
+		}
 	}
 	if err := tree.removeSettingsDirectories(); err != nil {
 		return result, err
@@ -194,24 +213,64 @@ func Clean(ctx context.Context, expected Report) (result CleanupResult, cleanErr
 	if err := parent.Remove(filepath.Base(current.DataDir)); err == nil {
 		result.Removed = append(result.Removed, current.DataDir)
 	} else {
-		result.Retained = append(result.Retained, current.DataDir)
+		result.Remaining = append(result.Remaining, current.DataDir)
 		return result, fmt.Errorf("remove data directory (new or inaccessible entries may remain): %w", err)
 	}
+	if settingsRelative == "" {
+		if err := removeSettings(); err != nil {
+			return result, err
+		}
+	}
+	return result, nil
+}
+
+func removeEmptySettingsDirectory(current Report, result *CleanupResult) error {
 	for _, entry := range current.Entries {
-		if entry.Role != "settings directory" || entry.Cleanup != "remove_if_empty" {
+		if entry.Role != "settings directory" || entry.State != "directory" || entry.Cleanup != "remove_if_empty" {
 			continue
 		}
-		parent, err := os.OpenRoot(filepath.Dir(entry.Path))
+		item, err := inspectEntry(entry.Path, entry.Role, entry.Cleanup)
+		if err != nil {
+			return err
+		}
+		if item.State == "missing" {
+			continue
+		}
+		if item.Empty == nil || !*item.Empty {
+			result.Retained = append(result.Retained, entry.Path)
+			continue
+		}
+		if err := os.Remove(entry.Path); err != nil {
+			return err
+		}
+		result.Removed = append(result.Removed, entry.Path)
+	}
+	return nil
+}
+
+// Only known orphan lock files and empty dedicated configuration directories
+// are removable without current location evidence. Historical roots are not.
+func cleanWithoutData(ctx context.Context, current Report) (CleanupResult, error) {
+	result := CleanupResult{Removed: []string{}, Retained: []string{}, Remaining: []string{}, Warnings: []string{}}
+	for _, entry := range current.Entries {
+		if entry.Role != "settings write lock" || entry.State == "missing" {
+			continue
+		}
+		lock, err := settings.TryLock(ctx, current.SettingsPath)
 		if err != nil {
 			return result, err
 		}
-		info, err := parent.Lstat(filepath.Base(entry.Path))
-		if err == nil && info.IsDir() && info.Mode()&os.ModeSymlink == 0 {
-			if err := parent.Remove(filepath.Base(entry.Path)); err == nil {
-				result.Removed = append(result.Removed, entry.Path)
-			}
+		if data, err := selectedDataDir(current.SettingsPath); err != nil || data != "" {
+			_ = lock.Close()
+			return result, errors.New("instance changed during cleanup; inspect again")
 		}
-		_ = parent.Close()
+		err = os.Remove(entry.Path)
+		_ = lock.Close()
+		if err != nil {
+			return result, err
+		}
+		result.Removed = append(result.Removed, entry.Path)
 	}
-	return result, nil
+	err := removeEmptySettingsDirectory(current, &result)
+	return result, err
 }

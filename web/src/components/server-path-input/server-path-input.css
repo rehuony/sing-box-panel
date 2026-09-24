@@ -1,0 +1,36 @@
+.server-path-input__browse,
+.server-path-input__browse:hover,
+.server-path-input__browse:focus-visible,
+.server-path-input__browse[aria-expanded='true'] {
+  border-color: transparent;
+  background: transparent;
+  color: var(--muted-foreground);
+  box-shadow: none;
+  outline: none;
+  transform: none;
+}
+
+.server-path-input__browse:focus-visible {
+  text-decoration: underline;
+  text-underline-offset: 4px;
+}
+
+.server-path-input:has(.server-path-input__browse:focus-visible) {
+  outline: none;
+}
+
+.server-path-picker__entry {
+  color: var(--foreground);
+  transition-property: background-color, border-color, color;
+}
+
+.server-path-picker__entry:active {
+  scale: 1;
+  transform: none;
+}
+
+.server-path-picker__entry[aria-pressed='true'] {
+  border-color: color-mix(in srgb, var(--primary) 30%, transparent);
+  background: var(--accent);
+  color: var(--accent-foreground);
+}
