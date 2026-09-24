@@ -167,6 +167,22 @@ until the result arrives, so feedback describes the submitted file. Validation
 success is a Toast shown only after the binary check succeeds. Unknown fields and
 numeric lexemes are retained through visual edits.
 
+Configuration credentials remain visible as plain text, matching the authenticated
+JSON editor. A dice button beside supported password, UUID and pre-shared-key
+inputs generates a value using the browser's cryptographic random source. Ordinary
+passwords use 24 URL-safe ASCII characters; UUID fields use UUID v4. The
+[Shadowsocks 2022 methods](https://sing-box.sagernet.org/configuration/inbound/shadowsocks/#method)
+use Base64-encoded keys of 16 bytes for AES-128 or 32 bytes for AES-256 and
+ChaCha20, including nested users and relay destinations. Other supported encrypted
+Shadowsocks methods use ordinary passwords; `none` and unselected methods have no
+generator. WireGuard pre-shared keys use 32 random bytes in Base64. Snell PSKs and
+user keys use the ordinary password format, which also fits the
+[Snell v6 PSK's 12–255 byte range](https://sing-box.sagernet.org/configuration/inbound/snell/#version).
+Generation changes only the selected field and remains part of the current draft;
+nested dialog changes still require confirmation. Changing a protocol or encryption
+method never silently replaces an existing credential. Certificates, asymmetric
+keys and externally issued access tokens do not receive generic random generators.
+
 ### Field names and inline help
 
 The Simplified Chinese visual editor uses reviewed Chinese names and descriptions

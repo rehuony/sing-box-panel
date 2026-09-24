@@ -279,15 +279,26 @@ describe('panel settings', () => {
     const token = dialog.getByLabelText('New token', { selector: 'input' });
     const confirm = dialog.getByLabelText('Confirm token', { selector: 'input' });
     const save = dialog.getByRole('button', { name: 'Save settings' });
-    for (const value of [`${'x'.repeat(32)} `, `\uFEFF${'x'.repeat(32)}`, 'x'.repeat(8193)]) {
+    for (const [value, message] of [
+      ['1234567', 'Token must be at least 8 bytes'],
+      ['ééé', 'Token must be at least 8 bytes'],
+      ['12345678 ', 'Token contains invalid characters'],
+      ['\uFEFF12345678', 'Token contains invalid characters'],
+      ['1234\0' + '5678', 'Token contains invalid characters'],
+      ['x'.repeat(8193), 'Token cannot exceed 8192 bytes'],
+    ]) {
       fireEvent.change(token, { target: { value } });
       fireEvent.change(confirm, { target: { value } });
       expect(token).toHaveAttribute('aria-invalid', 'true');
       expect(save).toBeDisabled();
+      expect(document.getElementById('token-error')).toHaveTextContent(message);
       await user.click(save);
     }
     expect(client.savePanelSettings).not.toHaveBeenCalled();
-    const value = 'é'.repeat(16);
+    fireEvent.change(token, { target: { value: '12345678' } });
+    fireEvent.change(confirm, { target: { value: '12345678' } });
+    expect(save).toBeEnabled();
+    const value = 'é'.repeat(4);
     fireEvent.change(token, { target: { value } });
     fireEvent.change(confirm, { target: { value } });
     expect(save).toBeEnabled();

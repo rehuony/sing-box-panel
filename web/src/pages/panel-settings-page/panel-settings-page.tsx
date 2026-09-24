@@ -66,9 +66,14 @@ function SettingsEditor({ initial }: { initial: PanelSettingsView }) {
     await accept(view);
   }
   const tokenBytes = new TextEncoder().encode(token).length;
-  const tokenValid = tokenBytes >= 32 && tokenBytes <= 8192
-    && !/^[\s\u0085]|[\s\u0085]$/u.test(token)
-    && !token.includes('\0') && !token.includes('\r') && !token.includes('\n');
+  const tokenError = tokenBytes < 8
+    ? 'panelSettings.tokenTooShort'
+    : tokenBytes > 8192
+      ? 'panelSettings.tokenTooLong'
+      : /^[\s\u0085]|[\s\u0085]$/u.test(token) || /[\0\r\n]/.test(token)
+        ? 'panelSettings.tokenInvalid'
+        : undefined;
+  const tokenValid = tokenError === undefined;
   const colorValid = /^#[\dA-F]{6}$/i.test(preferences.appearance.color);
   const dirty = JSON.stringify(preferences) !== JSON.stringify(initial.preferences) || JSON.stringify(service) !== JSON.stringify(initial.service) || github !== '' || clearGithub;
   useUnsavedChanges(dirty || token !== '' || tokenConfirm !== '', () => {
@@ -302,7 +307,7 @@ function SettingsEditor({ initial }: { initial: PanelSettingsView }) {
           <FieldGroup>
             <SettingsField id='new-token' label={t('panelSettings.newToken')} help={t('panelSettings.tokenHelp')} invalid={token !== '' && !tokenValid}>
               <Input id='new-token' type='password' autoComplete='new-password' value={token} aria-invalid={token !== '' && !tokenValid} aria-describedby={token !== '' && !tokenValid ? 'token-error' : undefined} onChange={e => setToken(e.target.value)} />
-              {token !== '' && !tokenValid && <ErrorNotice id='token-error' error={t('panelSettings.tokenInvalid')} />}
+              {token !== '' && tokenError && <ErrorNotice id='token-error' error={t(tokenError)} />}
             </SettingsField>
             <SettingsField id='confirm-token' invalid={invalidField === 'confirm-token'} label={t('panelSettings.confirmToken')}><Input id='confirm-token' type='password' autoComplete='new-password' value={tokenConfirm} aria-invalid={tokenConfirm !== '' && token !== tokenConfirm} onChange={e => setTokenConfirm(e.target.value)} /></SettingsField>
           </FieldGroup>

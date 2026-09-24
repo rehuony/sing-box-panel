@@ -374,15 +374,12 @@
 .schema-form__union--compact > .schema-form__union-selector {
   grid-column: 2;
   grid-row: 1;
-  padding-top: 5px;
 }
 .schema-form__union--compact > .schema-form__union-value {
   grid-column: 1;
   grid-row: 1;
 }
 .schema-form__union--compact .schema-form__variant-select {
-  height: 34px;
-  min-height: 34px;
   padding: 4px 8px;
   color: var(--color-text-muted);
   font-size: var(--text-xs);

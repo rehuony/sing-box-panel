@@ -2015,7 +2015,7 @@ components:
         management_token:
           type: string
           maxLength: 8192
-          description: Write-only. Empty or omitted retains the current token. A nonempty replacement must be 32–8192 UTF-8 bytes, without leading or trailing Unicode whitespace or BOM, NUL, CR, or LF. A valid replacement invalidates existing sessions; rejected writes retain the current token and sessions.
+          description: Write-only. Empty or omitted retains the current token. A nonempty replacement must be 8–8192 UTF-8 bytes, without leading or trailing Unicode whitespace or BOM, NUL, CR, or LF. A valid replacement invalidates existing sessions; rejected writes retain the current token and sessions.
     DynamicObject:
       type: object
       additionalProperties: true

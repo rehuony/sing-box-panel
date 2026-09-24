@@ -186,6 +186,10 @@ export const configuration = {
     credentialValue: '{{credential}}: {{value}}', credentialMissing: '{{credential}} not set',
     uuid: 'UUID', auth: 'Authentication key', userKey: 'User key', token: 'Token',
   },
+  credentials: {
+    generate: 'Generate random {{field}}', failed: 'Could not generate a credential. Try again.',
+  },
+
   general: {
     fieldHelp: 'Help for {{field}}',
     moveUp: 'Move {{name}} up', moveDown: 'Move {{name}} down',

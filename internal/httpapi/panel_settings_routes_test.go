@@ -185,6 +185,13 @@ func TestPanelSettingsTokenRotationRemainsUsable(t *testing.T) {
 		token string
 		valid bool
 	}{
+		{"minimum length", "12345678", true},
+		{"UTF-8 minimum length", "éééé", true},
+		{"below minimum length", "1234567", false},
+		{"below UTF-8 minimum length", "ééé", false},
+		{"above maximum length", strings.Repeat("x", 8193), false},
+		{"embedded newline", "1234\n5678", false},
+		{"embedded NUL", "1234\x005678", false},
 		{"maximum length", strings.Repeat("x", 8192), true},
 		{"maximum escaped length", strings.Repeat("<", 8192), true},
 		{"leading space", " " + strings.Repeat("x", 32), false},

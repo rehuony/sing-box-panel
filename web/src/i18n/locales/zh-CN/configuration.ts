@@ -186,6 +186,10 @@ export const configuration = {
     credentialValue: '{{credential}}：{{value}}', credentialMissing: '{{credential}}未设置',
     uuid: 'UUID', auth: '认证密钥', userKey: '用户密钥', token: '令牌',
   },
+  credentials: {
+    generate: '随机生成{{field}}', failed: '随机生成失败，请重试',
+  },
+
   general: {
     fieldHelp: '{{field}}的说明',
     moveUp: '上移 {{name}}', moveDown: '下移 {{name}}',

@@ -5,6 +5,7 @@ import { isLosslessNumber } from 'lossless-json';
 
 import { withConfigurationFieldHelp } from './configuration-field-help';
 import { configurationPathMode, withConfigurationPathMode } from './configuration-path-fields';
+import { configurationCredentialKind, withConfigurationCredential } from './configuration-credentials';
 
 interface PanelMetadata {
   order?: number;
@@ -297,7 +298,10 @@ function withDiscriminators(schema: RJSFSchema, root: RJSFSchema, context: strin
         const annotated = withDiscriminators(child, root, childContext);
         return [name, key === 'properties'
           ? withConfigurationPathMode(
-              withConfigurationFieldHelp(annotated, name, scope), configurationPathMode(name, scope),
+              withConfigurationCredential(
+                withConfigurationFieldHelp(annotated, name, scope), configurationCredentialKind(name, scope),
+              ),
+              configurationPathMode(name, scope),
             )
           : annotated];
       }));

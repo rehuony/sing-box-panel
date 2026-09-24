@@ -210,7 +210,7 @@ func validatePanelSettings(input PanelSettingsWrite) error {
 	// Reject ambiguous replacements before persisting or invalidating sessions.
 	token := input.ManagementToken
 	trimmedToken := strings.TrimFunc(token, func(r rune) bool { return unicode.IsSpace(r) || r == '\ufeff' })
-	if token != "" && (len(token) < 32 || token != trimmedToken) {
+	if token != "" && (len(token) < 8 || token != trimmedToken) {
 		return ErrPanelSettingsInvalid
 	}
 	if input.GitHubToken != "" && input.ClearGitHubToken {

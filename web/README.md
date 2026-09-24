@@ -183,6 +183,14 @@ share one representation selector, with a distinct Byte sequence option where su
 existing strings, byte sequences and mixed lists retain their original representation.
 Credential fields use plain text in configuration and subscription-node forms,
 including private-key lists, consistently with the authenticated JSON editors.
+Supported credentials have a dice action at the right of the input. The
+presentation-only rules in `configuration-credentials` select the appropriate
+password, UUID or Base64 key format. Shadowsocks method context follows nested
+user and destination dialogs, including pending edits. Grouped subscription-node
+forms retain the protocol as a hidden discriminator so generation uses the current
+protocol and encryption method. See the
+[configuration guide](../docs/guides/configuration-and-runtime.md#reviewed-configuration-schemas)
+for the generated formats.
 Managed entry editors include their lossless JSON preview in the same tab bar.
 The preview follows the active theme, fills the available detail area and scrolls
 internally. Its upper-right Copy button copies the current entry draft without
