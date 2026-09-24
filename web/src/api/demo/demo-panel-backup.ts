@@ -2,7 +2,7 @@ import type { PanelBackup, PanelSettingsView } from '../api-client';
 
 import { ApiRequestError } from '../api-client';
 
-export interface DemoPanelSecrets { github: string; identity: string; management: string }
+export interface DemoPanelSecrets { github: string; management: string }
 
 export function demoBackupSettings(view: PanelSettingsView, secrets: DemoPanelSecrets) {
   const p = view.preferences;
@@ -10,8 +10,6 @@ export function demoBackupSettings(view: PanelSettingsView, secrets: DemoPanelSe
   return {
     panel: {
       public_node_host: p.public_node_host,
-      identity_name: p.identity_name,
-      identity_key: secrets.identity,
       language: p.language,
       appearance: p.appearance,
     },
@@ -47,12 +45,13 @@ export function demoRestoreSettings(
   if (backup.format !== 'sing-box-panel-backup' || backup.version !== 1 || !native?.server || !native.auth || !native.panel || !native.traffic || !native.github || !native.subscription || !native.logs || typeof backup.sing_box_configuration !== 'string' || typeof native.auth.token !== 'string') {
     throw new ApiRequestError('Invalid configuration backup.', { status: 422, code: 'panel_backup_invalid' });
   }
-  if (!hasOnlyFields(native.subscription, ['private_source_cidrs'])
+  if (!hasOnlyFields(native.panel, ['public_node_host', 'language', 'appearance'])
+    || !hasOnlyFields(native.subscription, ['private_source_cidrs'])
     || !hasOnlyFields(native.logs, ['core_retention_days', 'core_max_files', 'core_max_file_size_mib'])) {
     throw new ApiRequestError('Invalid configuration backup.', { status: 422, code: 'panel_backup_invalid' });
   }
   return {
-    secrets: { management: native.auth.token, github: native.github.token, identity: native.panel.identity_key },
+    secrets: { management: native.auth.token, github: native.github.token },
     view: {
       revision,
       preferences: {
@@ -60,7 +59,6 @@ export function demoRestoreSettings(
         listen_port: native.server.port,
         external_origin: native.server.external_origin,
         public_node_host: native.panel.public_node_host,
-        identity_name: native.panel.identity_name,
         traffic_quota_gib: native.traffic.quota_gib,
         language: native.panel.language,
         appearance: native.panel.appearance,
@@ -78,7 +76,6 @@ export function demoRestoreSettings(
         core_log_max_file_size_mib: native.logs.core_max_file_size_mib ?? 32,
       },
       github_token_configured: Boolean(native.github.token),
-      identity_key_configured: Boolean(native.panel.identity_key),
       restart_required: false,
     },
   };

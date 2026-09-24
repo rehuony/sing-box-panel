@@ -12,8 +12,6 @@ import (
 // Panel contains preferences shared by the file, Web UI, and CLI.
 type Panel struct {
 	PublicNodeHost string     `json:"public_node_host"`
-	IdentityName   string     `json:"identity_name"`
-	IdentityKey    string     `json:"identity_key"`
 	Language       string     `json:"language"`
 	Appearance     Appearance `json:"appearance"`
 }
@@ -34,8 +32,7 @@ var hostnameLabel = regexp.MustCompile(`^[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z
 func (value Panel) Validate() error {
 	if !panelColor.MatchString(value.Appearance.Color) || value.Appearance.Radius < 0 || value.Appearance.Radius > 32 ||
 		(value.Appearance.Theme != "light" && value.Appearance.Theme != "dark" && value.Appearance.Theme != "system") ||
-		(value.Language != "zh-CN" && value.Language != "en") || len(value.IdentityName) > 128 || strings.ContainsAny(value.IdentityName, "\x00\r\n") ||
-		len(value.IdentityKey) > 8192 || strings.ContainsAny(value.IdentityKey, "\x00\r\n") {
+		(value.Language != "zh-CN" && value.Language != "en") {
 		return errors.New("panel preferences are invalid")
 	}
 	if value.PublicNodeHost != "" && !ValidPublishedHost(value.PublicNodeHost) {

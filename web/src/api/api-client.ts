@@ -3,7 +3,6 @@ import type {
   ConfigurationFile,
   ConfigurationFileWrite,
   DashboardContext,
-  DynamicObject as JsonObject,
   PanelBackup,
   PanelRestoreRequest,
   PanelRestoreResult,
@@ -129,7 +128,6 @@ export interface ApiClient {
   getConfigurationFile: (signal?: AbortSignal) => Promise<ConfigurationFile>;
   installCore: (assetID: number, signal?: AbortSignal) => Promise<CoreArtifact>;
   listCoreLogFiles: (signal?: AbortSignal) => Promise<{ items: CoreLogFile[] }>;
-  newInboundDefaults: (type: string, signal?: AbortSignal) => Promise<JsonObject>;
   removeCoreArtifact: (artifactID: string, signal?: AbortSignal) => Promise<void>;
   enableCore: (artifactID: string, signal?: AbortSignal) => Promise<RuntimeStatus>;
   deleteSubscriptionToken: (tokenID: string, signal?: AbortSignal) => Promise<void>;

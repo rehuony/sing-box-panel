@@ -16,27 +16,6 @@ import (
 	"github.com/rehuony/sing-box-panel/internal/store"
 )
 
-func TestNewInboundDefaultsRequireAuthenticationAndAreNotCached(t *testing.T) {
-	_, app, handler := newSubscriptionHTTPServices(t, "")
-	view, _ := app.PanelSettings(context.Background())
-	if _, err := app.SavePanelSettings(context.Background(), application.PanelSettingsWrite{Revision: view.Revision, Preferences: view.Preferences, IdentityKey: "fixture-identity"}); err != nil {
-		t.Fatal(err)
-	}
-	unauthorized := httptest.NewRecorder()
-	handler.ServeHTTP(unauthorized, httptest.NewRequest(http.MethodPost, "/api/v1/config/inbound-defaults", strings.NewReader(`{"type":"anytls"}`)))
-	if unauthorized.Code != 401 {
-		t.Fatal("unprotected credentials")
-	}
-	response := authenticatedRequest(handler, http.MethodPost, "/api/v1/config/inbound-defaults", `{"type":"anytls"}`, "")
-	if response.Code != 200 || response.Header().Get("Cache-Control") != "no-store" || !strings.Contains(response.Body.String(), "fixture-identity") {
-		t.Fatalf("defaults: %d", response.Code)
-	}
-	response = authenticatedRequest(handler, http.MethodPost, "/api/v1/config/inbound-defaults", `{"type":"anytls","unknown":true}`, "")
-	if response.Code == 200 {
-		t.Fatal("accepted unexpected fields")
-	}
-}
-
 func TestConfigurationFileHTTPPreservesIncompleteJSONAndRequiresCAS(t *testing.T) {
 	db, err := store.Open(context.Background(), filepath.Join(t.TempDir(), "panel.db"))
 	if err != nil {
@@ -79,5 +58,13 @@ func TestConfigurationFileHTTPPreservesIncompleteJSONAndRequiresCAS(t *testing.T
 	}
 	if response = request(http.MethodPut, `{"revision":1,"content":"{}","unexpected":true}`, config.Auth.Token); response.Code == 200 {
 		t.Fatal("unknown field accepted")
+	}
+}
+
+func TestInboundDefaultsRouteRemoved(t *testing.T) {
+	_, _, handler := newSubscriptionHTTPServices(t, "")
+	response := authenticatedRequest(handler, http.MethodPost, "/api/v1/config/inbound-defaults", `{"type":"anytls"}`, "")
+	if response.Code != http.StatusNotFound {
+		t.Fatalf("removed route returned %d", response.Code)
 	}
 }

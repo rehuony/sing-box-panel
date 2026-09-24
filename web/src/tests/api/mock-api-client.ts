@@ -327,7 +327,6 @@ export function createMockApiClient(overrides: Partial<ApiClient> = {}): Mocked<
     reason: 'Native configuration Schema is unavailable before sing-box 1.14.',
   } satisfies ConfigurationSupport;
   const client: ApiClient = {
-    newInboundDefaults: vi.fn().mockImplementation(async (type) => ({ type })),
     enableCore: vi.fn().mockResolvedValue(testRuntimeStatus),
     disableCore: vi.fn().mockResolvedValue(testRuntimeStatus),
     getConfigurationFile: vi.fn().mockResolvedValue({
@@ -357,14 +356,12 @@ export function createMockApiClient(overrides: Partial<ApiClient> = {}): Mocked<
       revision: 0,
       service: { data_dir: '/var/lib/sing-box-panel', base_path: '', secure_cookie: false, catalog_refresh_interval_hours: 12, traffic_period_months: 1, sample_retention_days: 90, private_source_cidrs: [] },
       github_token_configured: false,
-      identity_key_configured: false,
       restart_required: false,
       preferences: {
         listen_host: '127.0.0.1',
         listen_port: 3000,
         external_origin: '',
         public_node_host: '',
-        identity_name: '',
         traffic_quota_gib: null,
         language: 'en',
         appearance: { ...DEFAULT_APPEARANCE },
@@ -375,7 +372,6 @@ export function createMockApiClient(overrides: Partial<ApiClient> = {}): Mocked<
       preferences: input.preferences,
       service: input.service ?? { data_dir: '/var/lib/sing-box-panel', base_path: '', secure_cookie: false, catalog_refresh_interval_hours: 12, traffic_period_months: 1, sample_retention_days: 90, private_source_cidrs: [] },
       github_token_configured: Boolean(input.github_token),
-      identity_key_configured: Boolean(input.identity_key),
       restart_required: false,
     })),
     subscribeSessionInvalidated: vi.fn().mockReturnValue(() => undefined),

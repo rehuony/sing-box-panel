@@ -15,38 +15,6 @@ security:
   - bearerAuth: []
   - sessionCookie: []
 paths:
-  /config/inbound-defaults:
-    post:
-      operationId: newInboundDefaults
-      parameters:
-        - $ref: "#/components/parameters/CSRFToken"
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [type]
-              additionalProperties: false
-              properties:
-                type:
-                  type: string
-                  minLength: 1
-                  maxLength: 64
-      responses:
-        "200":
-          description: New editor entry with protocol identity. Contains credentials; no-store. Does not persist or launch.
-          content:
-            application/json:
-              schema:
-                type: object
-                required: [type]
-                properties:
-                  type:
-                    type: string
-                additionalProperties: true
-        "422":
-          $ref: "#/components/responses/Problem"
   /panel/settings:
     get:
       operationId: getPanelSettings
@@ -1736,7 +1704,7 @@ components:
     PanelPreferences:
       type: object
       additionalProperties: false
-      required: [listen_host, listen_port, external_origin, public_node_host, identity_name, traffic_quota_gib, language, appearance]
+      required: [listen_host, listen_port, external_origin, public_node_host, traffic_quota_gib, language, appearance]
       properties:
         listen_host:
           type: string
@@ -1751,9 +1719,6 @@ components:
         public_node_host:
           type: string
           maxLength: 253
-        identity_name:
-          type: string
-          maxLength: 128
         traffic_quota_gib:
           type: [integer, 'null']
           minimum: 0
@@ -1874,7 +1839,7 @@ components:
     PanelSettingsView:
       type: object
       additionalProperties: false
-      required: [revision, preferences, service, github_token_configured, identity_key_configured, restart_required]
+      required: [revision, preferences, service, github_token_configured, restart_required]
       properties:
         detected_public_ip:
           type: string
@@ -1890,8 +1855,6 @@ components:
         service:
           $ref: '#/components/schemas/PanelServiceSettings'
         github_token_configured:
-          type: boolean
-        identity_key_configured:
           type: boolean
         restart_required:
           type: boolean
@@ -1917,13 +1880,6 @@ components:
         clear_github_token:
           type: boolean
           description: Explicitly removes the persisted GitHub credential.
-        clear_identity_key:
-          type: boolean
-          description: Removes the identity key. Existing inbound credentials are preserved.
-        identity_key:
-          type: string
-          maxLength: 8192
-          description: Write-only. Empty or omitted retains the existing key.
         management_token:
           type: string
           maxLength: 8192

@@ -188,7 +188,7 @@ func TestSettingsFileRecoveryPreservesConflictingManualEdit(t *testing.T) {
 	}
 }
 
-func TestSettingsFilePermissionFailureDoesNotChangeIdentity(t *testing.T) {
+func TestSettingsFilePermissionFailureDoesNotChangeConfiguration(t *testing.T) {
 	if os.Geteuid() == 0 {
 		t.Skip("requires unprivileged permissions")
 	}
@@ -200,7 +200,7 @@ func TestSettingsFilePermissionFailureDoesNotChangeIdentity(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer os.Chmod(dir, 0700)
-	if _, err := app.SavePanelSettings(context.Background(), PanelSettingsWrite{Revision: view.Revision, Preferences: view.Preferences, IdentityKey: "not-saved"}); err == nil {
+	if _, err := app.SavePanelSettings(context.Background(), PanelSettingsWrite{Revision: view.Revision, Preferences: view.Preferences, GitHubToken: "not-saved"}); err == nil {
 		t.Fatal("read-only settings saved")
 	}
 	after, _ := app.ConfigurationFile(t.Context())
@@ -296,13 +296,13 @@ func TestPanelServiceSettingsRoundTripAndValidation(t *testing.T) {
 		PrivateSourceCIDRs: []string{"10.0.0.0/24", "fd00::/64"},
 	}
 	view.Preferences.ExternalOrigin = "https://panel.example.com"
-	input := PanelSettingsWrite{Revision: view.Revision, Preferences: view.Preferences, Service: &service, IdentityKey: "private-key"}
+	input := PanelSettingsWrite{Revision: view.Revision, Preferences: view.Preferences, Service: &service}
 	saved, err := app.SavePanelSettings(ctx, input)
 	if err != nil {
 		t.Fatal(err)
 	}
 	service.CoreLogRetentionDays, service.CoreLogMaxFiles, service.CoreLogMaxFileSizeMiB = view.Service.CoreLogRetentionDays, view.Service.CoreLogMaxFiles, view.Service.CoreLogMaxFileSizeMiB
-	if !reflect.DeepEqual(saved.Service, service) || !saved.RestartRequired || !saved.IdentityKeyConfigured {
+	if !reflect.DeepEqual(saved.Service, service) || !saved.RestartRequired {
 		t.Fatalf("service settings not exposed: %+v", saved)
 	}
 	loaded, err := settings.Load(app.settingsPath)
@@ -315,7 +315,7 @@ func TestPanelServiceSettingsRoundTripAndValidation(t *testing.T) {
 	before, _ := settings.Read(app.settingsPath)
 	invalid := service
 	invalid.PrivateSourceCIDRs = []string{"not-a-network"}
-	input.Revision, input.Service, input.IdentityKey = saved.Revision, &invalid, ""
+	input.Revision, input.Service = saved.Revision, &invalid
 	if _, err := app.SavePanelSettings(ctx, input); !errors.Is(err, ErrPanelSettingsInvalid) {
 		t.Fatalf("invalid network accepted: %v", err)
 	}
@@ -323,12 +323,7 @@ func TestPanelServiceSettingsRoundTripAndValidation(t *testing.T) {
 	if !bytes.Equal(before, after) {
 		t.Fatal("failed save changed settings file")
 	}
-	input.Service, input.ClearIdentityKey = &service, true
-	cleared, err := app.SavePanelSettings(ctx, input)
-	if err != nil || cleared.IdentityKeyConfigured {
-		t.Fatalf("clear identity: %+v %v", cleared, err)
-	}
-	input.Revision, input.Service, input.ClearIdentityKey = cleared.Revision, nil, false
+	input.Service = nil
 	input.Preferences.Appearance.Radius = 4
 	preserved, err := app.SavePanelSettings(ctx, input)
 	if err != nil || !reflect.DeepEqual(preserved.Service, service) {
@@ -353,5 +348,33 @@ func TestCatalogRefreshIntervalAppliesWithoutRestart(t *testing.T) {
 	}
 	if saved.RestartRequired || saved.Service.CatalogRefreshIntervalHours != 24 {
 		t.Fatalf("dynamic catalog refresh interval result=%+v", saved)
+	}
+}
+
+func TestPanelSettingsSavePreservesNativeConfiguration(t *testing.T) {
+	for _, content := range []string{
+		`{"inbounds":[{"type":"anytls","tag":"a","users":[{"name":"alice","password":"explicit-secret"}]},{"type":"vless","tag":"v","users":[{"name":"bob","uuid":"explicit-uuid"}]}]}`,
+		"{ unfinished native configuration",
+	} {
+		t.Run(content, func(t *testing.T) {
+			app := panelFileApp(t)
+			before, err := app.SaveConfigurationFile(t.Context(), ConfigurationFileWrite{Content: content})
+			if err != nil {
+				t.Fatal(err)
+			}
+			view, err := app.PanelSettings(t.Context())
+			if err != nil {
+				t.Fatal(err)
+			}
+			view.Preferences.PublicNodeHost = "nodes.example.com"
+			view.Preferences.Language = "en"
+			if _, err := app.SavePanelSettings(t.Context(), PanelSettingsWrite{Revision: view.Revision, Preferences: view.Preferences, GitHubToken: "updated-github-token"}); err != nil {
+				t.Fatal(err)
+			}
+			after, err := app.ConfigurationFile(t.Context())
+			if err != nil || !reflect.DeepEqual(before, after) {
+				t.Fatalf("settings save changed native configuration: %v", err)
+			}
+		})
 	}
 }

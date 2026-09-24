@@ -2,7 +2,7 @@ import type { RJSFSchema } from '@rjsf/utils';
 
 import { useState } from 'react';
 import userEvent from '@testing-library/user-event';
-import { beforeAll, describe, expect, it, vi } from 'vitest';
+import { beforeAll, describe, expect, it } from 'vitest';
 import { createPrecompiledValidator } from '@rjsf/validator-ajv8';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 
@@ -10,9 +10,7 @@ import type { ReviewedSchemaResolution } from '@/schemas/resolve-reviewed-schema
 import type { CanonicalDraft } from '@/pages/configuration-page/use-canonical-configuration';
 
 import '@/i18n';
-import { ApiClientProvider } from '@/api/api-client-context';
 import { reviewedSchemaManifest } from '@/schemas/generated';
-import { createMockApiClient } from '@/tests/api/mock-api-client';
 import { ManagedCollectionsEditor } from '@/pages/configuration-page/managed-collections-editor';
 import { encodeCanonicalDraft, parseCanonicalDraft } from '@/pages/configuration-page/use-canonical-configuration';
 
@@ -36,20 +34,9 @@ function Harness({ initial, linkedTag, selectedCollection, disabled = false }: {
   disabled?: boolean;
 }) {
   const [draft, setDraft] = useState(initial);
-  const [client] = useState(() =>
-    createMockApiClient({
-      newInboundDefaults: vi
-        .fn()
-        .mockImplementation(async (type) =>
-          type === 'anytls'
-            ? { type, users: [{ name: 'shared', password: 'fixture-identity' }] }
-            : { type },
-        ),
-    }),
-  );
   if (resolution === null) throw new Error('The exact reviewed schema fixture is unavailable.');
   return (
-    <ApiClientProvider client={client}>
+    <>
       <ManagedCollectionsEditor
         draft={draft}
         disabled={disabled}
@@ -59,7 +46,7 @@ function Harness({ initial, linkedTag, selectedCollection, disabled = false }: {
         resolution={resolution}
       />
       <output aria-label='Canonical draft'>{encodeCanonicalDraft(draft)}</output>
-    </ApiClientProvider>
+    </>
   );
 }
 
@@ -143,7 +130,7 @@ describe.skipIf(reviewedEntry === undefined)('managedCollectionsEditor', () => {
     expect(screen.queryByRole('button', { name: 'Back' })).not.toBeInTheDocument();
   });
 
-  it('adds the prepared identity to the editable entry without saving the file', async () => {
+  it('creates an inbound locally without adding credentials or changing the draft before confirmation', async () => {
     const user = userEvent.setup();
     render(<Harness initial={{ inbounds: [] }} />);
     await user.click(screen.getByRole('tab', { name: /Inbounds/ }));
@@ -153,7 +140,9 @@ describe.skipIf(reviewedEntry === undefined)('managedCollectionsEditor', () => {
     await user.click(screen.getByRole('button', { name: 'Continue' }));
     expect(screen.getByLabelText('Canonical draft')).not.toHaveTextContent('inbound-1');
     await user.click(await screen.findByRole('button', { name: 'Create' }));
-    expect(screen.getByLabelText('Canonical draft')).toHaveTextContent('fixture-identity');
+    expect(JSON.parse(screen.getByLabelText('Canonical draft').textContent ?? '{}')).toEqual({
+      inbounds: [{ type: 'anytls', tag: 'inbound-1' }],
+    });
     expect(screen.getByLabelText('Canonical draft')).toHaveTextContent('"tag":"inbound-1"');
   });
   it('uses only protocol types from the exact reviewed schema', async () => {
@@ -194,7 +183,9 @@ describe.skipIf(reviewedEntry === undefined)('managedCollectionsEditor', () => {
     await user.click(screen.getByRole('button', { name: 'Continue' }));
     await user.click(await screen.findByRole('button', { name: 'Create' }));
     expect(screen.getByLabelText('Canonical draft')).toHaveTextContent('"type":"anytls"');
-    expect(screen.getByLabelText('Canonical draft')).toHaveTextContent('fixture-identity');
+    expect(JSON.parse(screen.getByLabelText('Canonical draft').textContent ?? '{}')).toEqual({
+      inbounds: [{ type: 'anytls', tag: 'inbound-1' }],
+    });
   });
 
   it('rejects an unknown protocol and opens the full list from the dropdown button', async () => {

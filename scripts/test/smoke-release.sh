@@ -476,7 +476,7 @@ settings_write="$(jq '{revision, preferences: (.preferences | .language = "en" |
 saved_settings="$(authenticated_put '/api/v1/panel/settings' <<<"${settings_write}")"
 assert_json 'panel settings are saved through the current settings API' \
   '.preferences.language == "en" and .preferences.appearance.theme == "dark"' <<<"${saved_settings}"
-saved_settings="$(jq '{revision, preferences, github_token_configured, identity_key_configured}' <<<"${saved_settings}")"
+saved_settings="$(jq '{revision, preferences, github_token_configured}' <<<"${saved_settings}")"
 settings_digest="$(sha256sum "${settings_path}" | cut -d ' ' -f 1)"
 
 # Unfinished text must survive an update without falling back to the valid head.
@@ -520,7 +520,7 @@ assert_json 'unfinished configuration text and revision survive restart unchange
 persisted_settings="$(authenticated_get '/api/v1/panel/settings')"
 assert_json 'panel preferences and credential-presence flags survive restart unchanged' \
   --argjson saved "${saved_settings}" \
-  '{revision, preferences, github_token_configured, identity_key_configured} == $saved' <<<"${persisted_settings}"
+  '{revision, preferences, github_token_configured} == $saved' <<<"${persisted_settings}"
 [[ "$(sha256sum "${settings_path}" | cut -d ' ' -f 1)" == "${settings_digest}" ]]
 
 phase 'correct the draft through the new binary and verify another restart'

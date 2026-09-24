@@ -428,3 +428,55 @@ func TestCoreEnableReportsMissingArtifact(t *testing.T) {
 		t.Fatalf("core enable error = %v", err)
 	}
 }
+
+func TestPanelConfigRejectsRemovedIdentityFields(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "setting.json")
+	if _, err := runPanelConfig(t, t.Context(), path, nil, "init"); err != nil {
+		t.Fatal(err)
+	}
+	before, err := settings.Read(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, field := range []string{"identity_name", "identity_key"} {
+		t.Run(field, func(t *testing.T) {
+			var fields map[string]any
+			if err := json.Unmarshal(before, &fields); err != nil {
+				t.Fatal(err)
+			}
+			panel := fields["panel"].(map[string]any)
+			if _, exists := panel[field]; exists {
+				t.Fatalf("config init emitted %s", field)
+			}
+			panel[field] = "removed"
+			raw, err := json.Marshal(fields)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := runPanelConfig(t, t.Context(), path, bytes.NewReader(raw), "set", "--file", "-"); err == nil {
+				t.Fatal("removed field accepted")
+			}
+			if _, err := runPanelConfig(t, t.Context(), path, nil, "unset", "/panel/"+field); err == nil {
+				t.Fatal("removed field has a reset default")
+			}
+			after, err := settings.Read(path)
+			if err != nil || !bytes.Equal(before, after) {
+				t.Fatal("rejected input changed settings", err)
+			}
+			legacyPath := filepath.Join(t.TempDir(), "setting.json")
+			if err := os.WriteFile(legacyPath, raw, 0600); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := runPanelConfig(t, t.Context(), legacyPath, nil, "verify"); err == nil {
+				t.Fatal("verification accepted removed field")
+			}
+			if _, err := runPanelConfig(t, t.Context(), legacyPath, nil, "init", "--force"); err != nil {
+				t.Fatal(err)
+			}
+			initialized, err := settings.Read(legacyPath)
+			if err != nil || bytes.Contains(initialized, []byte(field)) {
+				t.Fatal("reinitialization retained removed field", err)
+			}
+		})
+	}
+}

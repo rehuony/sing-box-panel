@@ -35,8 +35,8 @@ A cohesive domain stays in one package and uses file prefixes to make ownership
 visible. File length alone is not a reason to create another package.
 
 - `internal/settings` owns the shared panel settings file, validation, defaults,
-  atomic replacement and writer locking. `application` owns recovery when a
-  Web save also updates sing-box protocol identity.
+  atomic replacement and writer locking. `application` owns recovery for Web
+  settings saves and atomic settings/configuration backup restoration.
 - `internal/configuration` owns strict, lossless sing-box JSON parsing and
   canonical serialization. `store` retains immutable
   snapshots as runtime evidence and initializes the current schema and transactionally upgrades version 11 with monthly totals.
@@ -151,7 +151,7 @@ below exercise the corresponding source, API and runtime boundaries.
 | TPL-01 | Per-channel native JSON/YAML template; true edit/dirty/validate/location/preview/save/cancel; generated nodes/auth/groups/rules/fallback reserved | New template storage/API/merge/validation; no shared library or DSL | Reject conflicts and invalid save; preserve other channel; preview equals delivery | implemented |
 | SET-01 | Six grouped categories; shared draft and save, same-path hash navigation, cross-category validation, backup preview and atomic restore | Panel settings API/storage/bootstrap separation | Authenticated update, optimistic concurrency, invalid inputs, secrets redacted | implemented |
 | SET-02 | Listen/address/domain, management token and optional GitHub token; blank token retains, explicit remove; server-only use | Bootstrap/security settings and catalog client | Restart semantics, session invalidation, no token in response/log/browser persistence | implemented |
-| SET-03 | Public node host auto placeholder/custom override; hidden identity and subscription source access values preserved; protocol obfuscation stays protocol-specific | Publication settings and protocol identity | IPv4/IPv6/domain, failed auto detection cannot export bind/loopback, imported credentials unchanged | implemented |
+| SET-03 | Public node host auto placeholder/custom override; hidden subscription source access values preserved; inbound credentials edited natively; protocol obfuscation stays protocol-specific | Publication settings and native configuration | IPv4/IPv6/domain, failed auto detection cannot export bind/loopback, imported credentials unchanged | implemented |
 | SET-04 | Traffic quota, language, theme, five presets/custom color picker with HEX and explicit apply/cancel after closing; default #6D4ED1, radius 0–32 default12 | Persisted preferences and preview transaction | Save/reload; unsaved category/route changes require confirmation; cancellation retains draft, confirmed departure restores saved; reset only color/radius | implemented |
 | SET-05 | Theme links accent/background/border/focus/charts; R cards/dialogs, R/2 controls, min(32,7R/6) shell; badges/logo/status independent | Shared CSS tokens and accessible color derivation | Text contrast ≥4.5 for arbitrary light/dark colors, radius bounds, all component states | implemented |
 | LOG-01 | Real-time core raw logs only; timestamp muted, full message matches level; all native levels, file/date/level selectors consistent and right aligned; one top-right status pill toggles live output and pause, without a separate icon or surrounding container | Core log file/tail API | Real file reading/stream/reconnect/pause/filter, independent scroll | implemented |
@@ -168,7 +168,7 @@ below exercise the corresponding source, API and runtime boundaries.
 | SUB-01, NODE-01–04 | Source/node services, `singbox/inbound_convert.go`, `subscription/manual_node.go`, node editor/grid | Source refresh tests; `httpapi/subscription_nodes_test.go`, `manual_node_validation_test.go`, 1.14 inbound/TLS tests; browser hide/restore and conditional node form |
 | KEY-01 | Store key accounting, public delivery and key panel; [subscription guide](../guides/subscriptions-and-observability.md) | 24-request concurrency tests, cross-channel quota HTTP tests, expiry/revocation/304/failure accounting, explicit secret-read authorization, persistence and UI tests |
 | CHAN-01–03, RULE-01–03, TPL-01 | `subscription/channel_*`, channel policy API, channel workspace and nested editors | Native renderer and URL tests; `httpapi/subscription_channel_policy_test.go`; browser persisted group/reference reload, nested return, preview/copy and source visibility |
-| SET-01–05 | `application/panel_settings.go`, `protocol_identity.go`, `store/panel_settings.go`, `pages/panel-settings-page`, `theme/appearance.ts` | CAS/redaction/validation/atomic identity tests; appearance contrast/bounds tests; browser preview, category retention, save/reload, leaving restores saved appearance |
+| SET-01–05 | `application/panel_settings.go`, `panel_backup.go`, `store/panel_settings.go`, `pages/panel-settings-page`, `theme/appearance.ts` | CAS/redaction/validation/atomic backup tests; appearance contrast/bounds tests; browser preview, category retention, save/reload, leaving restores saved appearance |
 | LOG-01/02 | `internal/corelogs`, runtime output observer, `store/panel_logs.go`, product log API and two log panels | File/rotation/custom-output tests; operation logs/cursors and authenticated file API tests; frontend pause/filter and log rendering tests |
 
 Paths in this table are relative to `internal/` or `web/src/` where the context is
@@ -189,8 +189,8 @@ Authenticated management, CSRF/origin controls, safe source acquisition,
 immutable checked startup artifacts and exact core-version checks remain in place.
 Core enable checks the deployed platform before selection; runtime preflight
 checks the selected file before replacing the current process. Settings and
-configuration writes use optimistic concurrency. Protocol identity updates and
-the corresponding managed inbound credentials commit atomically.
+configuration writes use optimistic concurrency. Backup restores commit settings and saved sing-box text atomically.
+Panel settings saves do not modify native inbound credentials.
 
 The obsolete Web user, deployment and history components have been removed.
 The CLI also removes configuration history, revision, diff and restore commands.

@@ -2,7 +2,7 @@ import type { RJSFSchema } from '@rjsf/utils';
 
 import { useTranslation } from 'react-i18next';
 import { isLosslessNumber } from 'lossless-json';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import {
   ArrowDown,
   ArrowUp,
@@ -18,9 +18,6 @@ import type { ReviewedSchemaResolution } from '@/schemas/resolve-reviewed-schema
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
-import { toast } from '@/components/ui/toast-manager';
-import { useApiClient } from '@/api/api-client-context';
-import { describeRequestError } from '@/components/error-notice';
 import { Field, FieldError, FieldGroup, FieldLabel } from '@/components/ui/field';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import {
@@ -255,10 +252,6 @@ export function ManagedCollectionsEditor({
   selectedCollection,
 }: ManagedCollectionsEditorProps) {
   const { i18n, t } = useTranslation();
-  const client = useApiClient();
-  const createRequestRef = useRef<AbortController | null>(null);
-  const [creating, setCreating] = useState(false);
-  useEffect(() => () => createRequestRef.current?.abort(), []);
   const collectionSchemas = Object.entries(schemaProperties(resolution.schema, resolution.schema))
     .filter(
       (entry): entry is [ManagedCollection, RJSFSchema] =>
@@ -345,28 +338,13 @@ export function ManagedCollectionsEditor({
       nextIdentifier(items, activeCollection, t('configuration.managed.noAvailableIdentifier')),
     );
     setNewType(defaultProtocolType(types));
-    setCreating(false);
     setPendingEntry(null);
     setCreateOpen(true);
   }
 
-  async function create() {
-    if (!newIDValid || !newTypeValid || creating || disabled) return;
-    const controller = new AbortController();
-    createRequestRef.current = controller;
-    setCreating(true);
-    try {
-      const initial
-        = activeCollection === 'inbounds'
-          ? await client.newInboundDefaults(newType, controller.signal)
-          : { type: newType };
-      if (controller.signal.aborted) return;
-      setPendingEntry({ [activeCollection]: [{ ...initial, tag: newID }] });
-    } catch (error) {
-      if (!controller.signal.aborted) toast.add({ title: describeRequestError(error), type: 'error' });
-    } finally {
-      if (!controller.signal.aborted) setCreating(false);
-    }
+  function create() {
+    if (!newIDValid || !newTypeValid || disabled) return;
+    setPendingEntry({ [activeCollection]: [{ type: newType, tag: newID }] });
   }
 
   const identityField = (
@@ -376,7 +354,7 @@ export function ManagedCollectionsEditor({
         <Input
           aria-invalid={createOpen && !newIDValid ? true : undefined}
           aria-describedby={createOpen && !newIDValid ? 'managed-new-id-error' : undefined}
-          disabled={disabled || creating}
+          disabled={disabled}
           id='managed-new-id'
           onChange={(event) => setNewID(event.currentTarget.value)}
           value={newID}
@@ -501,15 +479,9 @@ export function ManagedCollectionsEditor({
       </Dialog>
 
       <Dialog
-        onOpenChange={(open) => {
-          if (!open) {
-            createRequestRef.current?.abort();
-          }
-          setCreateOpen(open);
-        }}
+        onOpenChange={setCreateOpen}
         onOpenChangeComplete={(open) => {
           if (!open) {
-            setCreating(false);
             setPendingEntry(null);
           }
         }}
@@ -534,7 +506,7 @@ export function ManagedCollectionsEditor({
                           items={types}
                           autoHighlight
                           openOnInputClick={false}
-                          disabled={disabled || creating}
+                          disabled={disabled}
                           onValueChange={(value) => setNewType(value ?? '')}
                           onInputValueChange={setNewType}
                           inputValue={newType}
@@ -542,9 +514,9 @@ export function ManagedCollectionsEditor({
                         >
                           <div className='flex min-w-0 items-center gap-2' ref={protocolAnchorRef}>
                             <ComboboxInput className='min-w-0 flex-1' id='managed-new-type'
-                              disabled={disabled || creating} showTrigger={false} />
+                              disabled={disabled} showTrigger={false} />
                             <Button aria-label={t('configuration.managed.chooseProtocol')}
-                              disabled={disabled || creating} size='icon' type='button'
+                              disabled={disabled} size='icon' type='button'
                               variant='secondary' render={<ComboboxTrigger />} />
                           </div>
                           <ComboboxContent anchor={protocolAnchorRef} side='bottom' collisionPadding={12}
@@ -593,10 +565,10 @@ export function ManagedCollectionsEditor({
           <DialogFooter>
             <DialogClose render={<Button type='button' variant='secondary' />}>{t('common.cancel')}</DialogClose>
             <Button
-              disabled={disabled || creating || (createOpen && !newIDValid) || !newTypeValid}
+              disabled={disabled || (createOpen && !newIDValid) || !newTypeValid}
               onClick={() => {
                 if (pendingEntry === null) {
-                  void create();
+                  create();
                   return;
                 }
                 replace([...items, { ...entries(pendingEntry[activeCollection])[0], tag: newID }]);

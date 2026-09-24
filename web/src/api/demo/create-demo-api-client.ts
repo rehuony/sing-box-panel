@@ -260,19 +260,17 @@ export function createDemoApiClient(): ApiClient {
   const state = createState();
   const tokenSecrets = new Map(state.tokens.map((token) => [token.id, `sbp_demo_${token.id}_secret`]));
   const nodeApi = createDemoNodeApi([...demoManualNodes(), ...demoSourceNodeDetails(state)]);
-  let panelSecrets = { management: 'demo-management-token-for-config-backup', github: '', identity: '' };
+  let panelSecrets = { management: 'demo-management-token-for-config-backup', github: '' };
   let panelSettings: PanelSettingsView = {
     service: { data_dir: '/var/lib/sing-box-panel', base_path: '', secure_cookie: false, catalog_refresh_interval_hours: 12, traffic_period_months: 1, sample_retention_days: 90, private_source_cidrs: [], core_log_retention_days: 7, core_log_max_files: 0, core_log_max_file_size_mib: 32 },
     revision: 0,
     github_token_configured: false,
-    identity_key_configured: false,
     restart_required: false,
     preferences: {
       listen_host: '127.0.0.1',
       listen_port: 3000,
       external_origin: '',
       public_node_host: '',
-      identity_name: '',
       traffic_quota_gib: 500,
       language: 'zh-CN',
       appearance: { ...DEFAULT_APPEARANCE },
@@ -313,7 +311,6 @@ export function createDemoApiClient(): ApiClient {
     }
   }
   const client: ApiClient = {
-    newInboundDefaults: (type, signal) => respond({ type }, signal),
     getConfigurationFile: (signal) => respond(configurationFile, signal),
     async saveConfigurationFile(input, signal) {
       assertActive(signal);
@@ -337,8 +334,12 @@ export function createDemoApiClient(): ApiClient {
     getPanelSettings: (signal) => respond(panelSettings, signal),
     async savePanelSettings(input, signal) {
       assertActive(signal);
+      if (Object.keys(input).some(key => !['revision', 'preferences', 'service', 'github_token', 'clear_github_token', 'management_token'].includes(key))
+        || Object.keys(input.preferences).some(key => !Object.hasOwn(panelSettings.preferences, key))) {
+        throw new ApiRequestError('Invalid settings fields.', { status: 422, code: 'invalid_json' });
+      }
       if (input.revision !== panelSettings.revision) conflict('Panel settings');
-      panelSecrets = { management: input.management_token || panelSecrets.management, github: input.clear_github_token ? '' : input.github_token || panelSecrets.github, identity: input.clear_identity_key ? '' : input.identity_key || panelSecrets.identity };
+      panelSecrets = { management: input.management_token || panelSecrets.management, github: input.clear_github_token ? '' : input.github_token || panelSecrets.github };
       panelSettings = {
         revision: panelSettings.revision + 1,
         service: input.service ?? panelSettings.service,
@@ -346,8 +347,6 @@ export function createDemoApiClient(): ApiClient {
         github_token_configured: input.clear_github_token
           ? false
           : Boolean(input.github_token) || panelSettings.github_token_configured,
-        identity_key_configured:
-          !input.clear_identity_key && (Boolean(input.identity_key) || panelSettings.identity_key_configured),
         restart_required:
           input.preferences.listen_host !== '127.0.0.1'
           || input.preferences.listen_port !== 3000

@@ -18,23 +18,23 @@ import (
 )
 
 // The journal is temporary recovery material, never a second settings source.
-// A database marker decides whether an interrupted file/identity save committed.
+// A database marker decides whether an interrupted settings save or backup restore committed.
 type settingsJournal struct {
 	ID     string `json:"id"`
 	Before []byte `json:"before"`
 	After  []byte `json:"after"`
 }
 
-func panelFields(p PanelPreferences, key string) settings.Panel {
-	return settings.Panel{PublicNodeHost: p.PublicNodeHost, IdentityName: p.IdentityName, IdentityKey: key, Language: p.Language, Appearance: p.Appearance}
+func panelFields(p PanelPreferences) settings.Panel {
+	return settings.Panel{PublicNodeHost: p.PublicNodeHost, Language: p.Language, Appearance: p.Appearance}
 }
 
 func panelValues(value settings.Settings) storedPanelSettings {
 	return storedPanelSettings{
 		Preferences: PanelPreferences{ListenHost: value.Server.Host, ListenPort: value.Server.Port, ExternalOrigin: value.Server.ExternalOrigin,
-			PublicNodeHost: value.Panel.PublicNodeHost, IdentityName: value.Panel.IdentityName, TrafficQuotaGiB: value.Traffic.QuotaGiB,
+			PublicNodeHost: value.Panel.PublicNodeHost, TrafficQuotaGiB: value.Traffic.QuotaGiB,
 			Language: value.Panel.Language, Appearance: value.Panel.Appearance},
-		GitHubToken: value.GitHub.Token, IdentityKey: value.Panel.IdentityKey, ManagementToken: value.Auth.Token,
+		GitHubToken: value.GitHub.Token, ManagementToken: value.Auth.Token,
 	}
 }
 
@@ -43,7 +43,7 @@ func applyPanelValues(value *settings.Settings, panel storedPanelSettings) {
 	value.Auth.Token, value.Auth.SecureCookie = panel.ManagementToken, strings.HasPrefix(value.Server.ExternalOrigin, "https://")
 	value.GitHub.Token = panel.GitHubToken
 	value.Traffic.QuotaGiB = panel.Preferences.TrafficQuotaGiB
-	value.Panel = panelFields(panel.Preferences, panel.IdentityKey)
+	value.Panel = panelFields(panel.Preferences)
 }
 
 // encodeSettings retains a relative data_dir instead of rewriting it as the
