@@ -382,14 +382,19 @@ the data directory exists, is missing, or cannot be determined. Existing data
 contents still appear in the tree, and JSON/JSONL retain the `data_dir` field.
 `Config` includes the filename and adds `(missing)` when the file is absent;
 there is no separate `Settings` summary line. The `prune` preview uses the same format.
-The tree retains the actual filenames, groups real paths in sorted order, and
-compresses unlabeled parent chains. It shows no expected-but-missing data files
+The tree retains the actual filenames and groups real paths in sorted order
+under a visible filesystem root (`/` on Unix). Settings, service, executable and
+data paths share this root instead of appearing as separate trees. The root
+remains visible even for a single branch; unlabeled parent chains below it are
+compressed. Cleanup results use the same rooted layout.
+It shows no expected-but-missing data files
 and marks retained resources explicitly. Directories end in `/`; `empty` comes
 from actually reading the directory, never inferred from missing report children.
 Symlinks (including dangling links) show `link`. Link targets are never traversed.
 A missing data directory has no tree entry or separate status message. Parent
-grouping nodes are structural, not separately inspected entries. Only paths
+grouping nodes are structural, not separately inspected entries. Summary paths
 inside the current user's home may use `~`; similar prefixes remain unchanged.
+Tree paths retain their actual directory names beneath the filesystem root.
 
 Existing service files appear in the same tree, labeled with their resolved
 `user` or `system` scope. Inspection includes the installer's unit and auxiliary

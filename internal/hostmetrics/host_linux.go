@@ -4,19 +4,27 @@
 package hostmetrics
 
 import (
-	"golang.org/x/sys/unix"
 	"os"
+	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
+
+	"golang.org/x/sys/unix"
 )
 
 func readHost(path string) (*Snapshot, *cpuTimes) {
+	// The system service keeps ProcSubset=pid and bind-mounts only these
+	// counters outside /proc. Direct and user-service runs use the normal procfs.
+	procRoot := os.Getenv("SING_BOX_PANEL_HOST_PROC")
+	if procRoot == "" {
+		procRoot = "/proc"
+	}
 	result := &Snapshot{CPUCount: runtime.NumCPU()}
-	cpu, _ := os.ReadFile("/proc/stat")
-	memory, _ := os.ReadFile("/proc/meminfo")
+	cpu, _ := os.ReadFile(filepath.Join(procRoot, "stat"))
+	memory, _ := os.ReadFile(filepath.Join(procRoot, "meminfo"))
 	result.MemoryTotal, result.MemoryUsed = parseMemory(string(memory))
-	load, err := os.ReadFile("/proc/loadavg")
+	load, err := os.ReadFile(filepath.Join(procRoot, "loadavg"))
 	if fields := strings.Fields(string(load)); err == nil && len(fields) > 0 {
 		if n, err := strconv.ParseFloat(fields[0], 64); err == nil {
 			result.LoadOne = &n

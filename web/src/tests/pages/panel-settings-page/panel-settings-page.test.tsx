@@ -51,6 +51,51 @@ function setup(client = createMockApiClient(), initialEntry = '/panel') {
 }
 
 describe('panel settings', () => {
+  it('authorizes the color picker stylesheet with the page style nonce', async () => {
+    const nonce = document.createElement('meta');
+    nonce.name = 'sing-box-panel-style-nonce';
+    nonce.content = 'panel-color-picker-test-nonce';
+    document.head.append(nonce);
+    try {
+      const user = userEvent.setup();
+      setup();
+      await user.click(await screen.findByRole('tab', { name: 'Interface preferences' }));
+      await user.click(screen.getByRole('button', { name: 'Custom color' }));
+      await screen.findByRole('slider', { name: 'Color' });
+      const stylesheet = [...document.querySelectorAll('style')].find(style => style.textContent?.includes('.react-colorful__saturation'));
+      expect(stylesheet).toBeDefined();
+      expect(stylesheet!.nonce).toBe(nonce.content);
+    } finally {
+      nonce.remove();
+    }
+  });
+
+  it('masks a configured GitHub token without submitting the display mask as a replacement', async () => {
+    const user = userEvent.setup();
+    const client = createMockApiClient();
+    const view = await client.getPanelSettings();
+    vi.mocked(client.getPanelSettings).mockResolvedValue({ ...view, github_token_configured: true });
+    setup(client);
+    const management = await screen.findByLabelText('Management token', { selector: 'input' });
+    await user.click(screen.getByRole('tab', { name: 'System maintenance' }));
+    const github = screen.getByLabelText('GitHub Token', { selector: 'input' });
+    expect(github).toHaveAttribute('placeholder', (management as HTMLInputElement).value);
+    expect(github).toHaveValue('');
+    expect(github).toHaveAccessibleDescription('Configured; leave blank to retain');
+    expect(screen.getByRole('button', { name: 'Save settings' })).toBeDisabled();
+    await user.click(screen.getByRole('button', { name: 'Remove' }));
+    expect(github).toBeDisabled();
+    expect(github).toHaveAttribute('placeholder', 'Removed when saved');
+    await user.click(screen.getByRole('button', { name: 'Undo' }));
+    expect(github).toBeEnabled();
+    expect(github).toHaveAttribute('placeholder', (management as HTMLInputElement).value);
+    fireEvent.change(screen.getByLabelText('Version check interval (hours)'), { target: { value: '24' } });
+    await user.click(screen.getByRole('button', { name: 'Save settings' }));
+    await waitFor(() => expect(client.savePanelSettings).toHaveBeenCalledWith(expect.objectContaining({
+      github_token: '', clear_github_token: false,
+    })));
+  });
+
   it('selects the data directory through the shared picker without saving settings', async () => {
     const user = userEvent.setup();
     const client = setup(createMockApiClient(createDemoFilesystemApi()));

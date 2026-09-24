@@ -51,6 +51,29 @@ function show({
 }
 
 describe('dashboard evidence', () => {
+  it('explains process-only monitoring without hiding independently collected host metrics', () => {
+    show({ metrics: {
+      ...testMetrics,
+      available: false,
+      traffic_available: false,
+      reason_code: 'process_only',
+      monitoring_tier: 'process_only',
+      host: {
+        sampled_at: new Date().toISOString(), cpu_count: 2, cpu_percent: 12.8,
+        load_one: 0.1, memory_total: 1000, memory_used: 500, disk_total: 2000, disk_used: 500,
+      },
+    } });
+    expect(screen.getByText(/Only process health is monitored/)).toBeVisible();
+    expect(screen.getByRole('link', { name: 'Configuration' })).toHaveAttribute('href', '/configuration');
+    expect(screen.getByText('12.8%')).toBeVisible();
+    expect(screen.getByText('Usage unknown')).toBeVisible();
+  });
+
+  it.each(['no_collector_sample', 'stale_collector_sample'] as const)('makes %s diagnosable from runtime logs', reason => {
+    show({ metrics: { ...testMetrics, available: false, traffic_available: false, reason_code: reason } });
+    expect(screen.getByRole('link', { name: 'Runtime logs' })).toHaveAttribute('href', '/observability#logs-panel');
+  });
+
   it('selects one-hour and twenty-four-hour histories from the streamed snapshot', async () => {
     const client = show();
     expect(screen.getAllByRole('figure')).toHaveLength(2);

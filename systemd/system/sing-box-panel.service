@@ -9,6 +9,7 @@ After=network-online.target
 
 [Service]
 Environment=SING_BOX_PANEL_SUPERVISOR=systemd
+Environment=SING_BOX_PANEL_HOST_PROC=/run/sing-box-panel/host-proc
 Type=simple
 User=sing-box-panel
 Group=sing-box-panel
@@ -40,6 +41,8 @@ ProtectKernelLogs=true
 ProtectControlGroups=true
 ProtectProc=invisible
 ProcSubset=pid
+# Expose only the host counters needed by the dashboard, as read-only files.
+BindReadOnlyPaths=/proc/stat:/run/sing-box-panel/host-proc/stat /proc/meminfo:/run/sing-box-panel/host-proc/meminfo /proc/loadavg:/run/sing-box-panel/host-proc/loadavg
 LockPersonality=true
 MemoryDenyWriteExecute=true
 RestrictNamespaces=true

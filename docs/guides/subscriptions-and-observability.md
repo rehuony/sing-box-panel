@@ -457,6 +457,13 @@ valid event; it does not start a parallel polling loop. Repeated collector
 timestamps do not replace the last valid transfer rate with zero. Linux host
 CPU/memory/disk metrics are separate from sing-box process samples; unsupported
 hosts report unavailable values.
+The metrics stream reports an initial collection failure as a Problem response,
+rather than an empty successful stream. Its reconnect deadline also bounds
+collection, and each write deadline is cleared after flushing. The browser
+reports streams that close before the first snapshot as errors.
+System services read three narrowly scoped read-only host-counter mounts while
+retaining procfs isolation; see [systemd packaging](../../systemd/README.md#system-service)
+for the required unit refresh when upgrading an older installation.
 
 `GET /api/v1/dashboard/stream` sends an authenticated dashboard snapshot
 immediately, updates it every 30 seconds, and closes after one minute so the
@@ -496,6 +503,30 @@ updates use the existing stream, including the usage percentage; an empty or zer
 requires the final configuration to enable a
 Clash API on a numeric loopback address with a non-empty secret. The panel
 reads that configuration and never modifies startup bytes.
+
+`reason_code: process_only` and `monitoring_tier: process_only` explain missing
+core counters even while the child is running. This does not disable host CPU,
+memory, load, or disk collection. The dashboard displays the monitoring reason
+and links to configuration or runtime logs instead of leaving the cause implicit.
+To enable core sampling, merge a Clash API section into the existing core
+configuration, using an unused loopback port and a private randomly generated
+secret, then save and apply it (or start the stopped core):
+
+```json
+{
+  "experimental": {
+    "clash_api": {
+      "external_controller": "127.0.0.1:9090",
+      "secret": "REPLACE_WITH_A_PRIVATE_RANDOM_SECRET"
+    }
+  }
+}
+```
+
+Preserve other configuration fields. Saving alone does not change the running
+configuration. The normal configuration apply/start flow derives `limited` from
+the validated saved configuration. Allow two sampling intervals for a proven
+traffic delta; earlier missing history is not backfilled with invented values.
 
 Apply, start, and restart first pass process health, then wait up to five
 seconds for `/version` to report the exact selected core version. While the

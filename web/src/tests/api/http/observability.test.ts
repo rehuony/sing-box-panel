@@ -1,9 +1,37 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import { createHttpApiClient } from '@/api/http-api-client';
-import { testDashboardSnapshot } from '@/tests/api/mock-api-client';
+import { testDashboardSnapshot, testMetrics, testRuntimeStatus } from '@/tests/api/mock-api-client';
 
 describe('createHttpApiClient observability domain', () => {
+  it('decodes live metrics and rejects an empty successful stream', async () => {
+    const snapshot = { metrics: testMetrics, runtime: testRuntimeStatus };
+    const fetcher = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(new Response(`event: metrics\ndata: ${JSON.stringify(snapshot)}\n\n`, {
+        headers: { 'Content-Type': 'text/event-stream' },
+      }))
+      .mockResolvedValueOnce(new Response(': keepalive\n\n', {
+        headers: { 'Content-Type': 'text/event-stream' },
+      }));
+    const client = createHttpApiClient({ fetcher });
+    const snapshots = [];
+    for await (const event of client.streamMetrics()) snapshots.push(event);
+    expect(snapshots).toEqual([snapshot]);
+    await expect(client.streamMetrics()[Symbol.asyncIterator]().next()).rejects.toMatchObject({
+      code: 'stream_invalid', status: 200,
+    });
+  });
+
+  it('surfaces the initial metrics collection failure', async () => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(new Response(JSON.stringify({
+      code: 'metrics_snapshot_unavailable', detail: 'The metrics snapshot could not be collected.',
+    }), { status: 500, headers: { 'Content-Type': 'application/problem+json' } }));
+    const client = createHttpApiClient({ fetcher });
+    await expect(client.streamMetrics()[Symbol.asyncIterator]().next()).rejects.toMatchObject({
+      code: 'metrics_snapshot_unavailable', status: 500,
+    });
+  });
+
   it('clears only the selected capture with CSRF protection and surfaces failures', async () => {
     const fetcher = vi.fn<typeof fetch>()
       .mockResolvedValueOnce(new Response(JSON.stringify({ csrfToken: 'log-csrf-token' })))

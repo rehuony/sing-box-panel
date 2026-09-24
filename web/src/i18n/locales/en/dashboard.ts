@@ -41,9 +41,16 @@ export const dashboard = {
     title: 'No samples in this range',
   },
   error: {
+    metrics: 'Live metrics are unavailable',
     history: 'History is unavailable',
     activity: 'Activity is unavailable',
     timeline: 'Runtime history is unavailable',
+  },
+  monitoring: {
+    not_applied: 'No core configuration has been applied. Traffic and connection collection is not enabled.',
+    process_only: 'Only process health is monitored. To collect traffic and connections, enable a Clash API on a numeric loopback address with a secret in the core configuration, then apply it.',
+    no_collector_sample: 'No core sample has arrived. Samples are collected every 10 seconds while the core runs; check runtime logs if none arrive.',
+    stale_collector_sample: 'The core sample is stale or belongs to a previous configuration. Check that the core is running and inspect runtime logs for sampling errors.',
   },
   evidence: {
     bundle: 'Applied bundle',

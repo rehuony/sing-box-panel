@@ -1,6 +1,6 @@
 import { useTranslation } from 'react-i18next';
 import { useId, useRef, useState } from 'react';
-import { HexColorPicker } from 'react-colorful';
+import { HexColorPicker, setNonce } from 'react-colorful';
 
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -32,6 +32,8 @@ export function AppearanceColorPicker({ id, value, onChange }: {
   return (
     <Dialog open={open} onOpenChange={next => {
       if (next) {
+        // The picker injects its stylesheet on mount under the panel's CSP.
+        setNonce(document.querySelector<HTMLMetaElement>('meta[name="sing-box-panel-style-nonce"]')?.content ?? '');
         setDraft(value);
         setPickerColor(value);
       }

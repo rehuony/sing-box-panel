@@ -200,9 +200,22 @@
   flex: 0 0 auto;
   border-top: 1px solid var(--color-rule-2);
   display: flex;
+  align-items: center;
   justify-content: end;
+  gap: 8px 12px;
   padding-top: 8px;
   margin-top: 8px;
+}
+.panel-settings-status {
+  flex: 1;
+  min-width: 0;
+  margin-right: auto;
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+  overflow-wrap: anywhere;
+}
+.panel-settings-footer > [data-slot='button'] {
+  flex-shrink: 0;
 }
 .settings-token-dialog {
   width: min(680px, calc(100vw - 32px));
@@ -226,6 +239,12 @@
   .panel-settings-tabs {
     flex-direction: column;
     gap: 16px;
+  }
+  .panel-settings-footer {
+    flex-wrap: wrap;
+  }
+  .panel-settings-status {
+    flex-basis: 100%;
   }
 }
 

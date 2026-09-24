@@ -35,21 +35,25 @@ func TestFileTreeText(t *testing.T) {
 				{path: "/srv/panel/imports", label: "dir", directory: true},
 				{path: "/srv/panel/panel.db", label: "file"},
 			},
-			want: "/srv/panel/\n" +
-				"├── imports/ [dir]\n" +
-				"│   ├── nested/a.zip [file]\n" +
-				"│   └── z.zip [file]\n" +
-				"├── panel.db [file]\n" +
-				"└── runtime/current.json [file]",
+			want: "/\n" +
+				"└── srv/panel/\n" +
+				"    ├── imports/ [dir]\n" +
+				"    │   ├── nested/a.zip [file]\n" +
+				"    │   └── z.zip [file]\n" +
+				"    ├── panel.db [file]\n" +
+				"    └── runtime/current.json [file]",
 		},
 		{
-			name: "multiple roots",
+			name: "separate groups under one filesystem root",
 			entries: []fileTreeEntry{
 				{path: "/var/lib/panel/panel.db", label: "file"},
 				{path: "/opt/panel/bin/panel", label: "file"},
 				{path: "/etc/panel/setting.json", label: "file"},
 			},
-			want: "/etc/panel/setting.json [file]\n\n/opt/panel/bin/panel [file]\n\n/var/lib/panel/panel.db [file]",
+			want: "/\n" +
+				"├── etc/panel/setting.json [file]\n" +
+				"├── opt/panel/bin/panel [file]\n" +
+				"└── var/lib/panel/panel.db [file]",
 		},
 		{
 			name: "explicit root and overlapping reports",
@@ -63,7 +67,7 @@ func TestFileTreeText(t *testing.T) {
 		{
 			name:    "relative fixture paths",
 			entries: []fileTreeEntry{{path: "fixture.service", label: "service: managed"}},
-			want:    "fixture.service [service: managed]",
+			want:    "./\n└── fixture.service [service: managed]",
 		},
 		{name: "empty"},
 	}
@@ -116,20 +120,19 @@ func TestInstanceFilesTextShowsExistingContentsWithoutCleanupLabels(t *testing.T
 Config:     /srv/config/custom.json
 Executable: /opt/bin/panel
 
-/etc/systemd/
-├── other.service [service, system, outside scope]
-└── panel.service [service, system]
-
-/opt/bin/panel [executable, retained]
-
-/srv/
-├── config/custom.json [settings]
-└── panel/ [data]
-    ├── empty/ [empty]
-    ├── imports/
-    │   └── link [link]
-    ├── notes
-    └── panel.db`
+/
+├── etc/systemd/
+│   ├── other.service [service, system, outside scope]
+│   └── panel.service [service, system]
+├── opt/bin/panel [executable, retained]
+└── srv/
+    ├── config/custom.json [settings]
+    └── panel/ [data]
+        ├── empty/ [empty]
+        ├── imports/
+        │   └── link [link]
+        ├── notes
+        └── panel.db`
 	if got := instanceFilesText(report, fileTreeStyle{}); got != want {
 		t.Fatalf("output:\n%s\nwant:\n%s", got, want)
 	}
@@ -185,7 +188,7 @@ func TestCleanupTextReportsOnlyConfirmedResults(t *testing.T) {
 		Removed:  []string{"/srv/panel/panel.db", "/srv/panel/imports"},
 		Retained: []string{"/srv/panel/notes", "/srv/panel"},
 	}
-	wantTree := "/srv/panel [retained]\n├── imports [removed]\n├── notes [retained]\n└── panel.db [removed]"
+	wantTree := "/\n└── srv/panel [retained]\n    ├── imports [removed]\n    ├── notes [retained]\n    └── panel.db [removed]"
 	for _, cleanupErr := range []error{nil, errors.New("fixture failure")} {
 		heading := "Cleanup results"
 		if cleanupErr != nil {
@@ -237,9 +240,9 @@ func TestFileTreeHomeAbbreviation(t *testing.T) {
 		{path: "/home/alice/config/setting.json", label: "remove"},
 		{path: "/home/alice/data/panel.db", label: "removed"},
 	}
-	want := "~/\n├── config/setting.json [remove]\n└── data/panel.db [removed]"
+	want := "/\n└── home/alice/\n    ├── config/setting.json [remove]\n    └── data/panel.db [removed]"
 	if got := fileTreeText(entries, fileTreeStyle{home: "/home/alice"}); got != want {
-		t.Fatalf("compressed root was not abbreviated:\n%s", got)
+		t.Fatalf("home paths were not grouped under the filesystem root:\n%s", got)
 	}
 }
 
@@ -447,14 +450,14 @@ func TestSystemDFAndPruneShowServiceFiles(t *testing.T) {
 		files := []panelSystemd.FileStatus{
 			{Path: "/home/test/.config/systemd/user/sing-box-panel.service", State: "managed", Managed: true},
 		}
-		wantTree := "/home/test/.config/systemd/user/sing-box-panel.service [service, user]"
+		wantTree := "├── home/test/.config/systemd/user/sing-box-panel.service [service, user]"
 		if scope == panelSystemd.ScopeSystem {
 			files = []panelSystemd.FileStatus{
 				{Path: "/etc/systemd/system/sing-box-panel.service", State: "managed", Managed: true},
 				{Path: "/etc/sysusers.d/sing-box-panel.conf", State: "managed", Managed: true},
 				{Path: "/etc/tmpfiles.d/sing-box-panel.conf", State: "managed", Managed: true},
 			}
-			wantTree = "/etc/\n├── systemd/system/sing-box-panel.service [service, system]\n├── sysusers.d/sing-box-panel.conf [service, system]\n└── tmpfiles.d/sing-box-panel.conf [service, system]"
+			wantTree = "├── etc/\n│   ├── systemd/system/sing-box-panel.service [service, system]\n│   ├── sysusers.d/sing-box-panel.conf [service, system]\n│   └── tmpfiles.d/sing-box-panel.conf [service, system]"
 		}
 		files = append(files, panelSystemd.FileStatus{Path: "/absent-services/missing.service", State: "missing"})
 		for _, matches := range []bool{true, false} {
