@@ -8,14 +8,13 @@ import type { AppearanceSettings, PanelSettingsView, PanelSettingsWrite } from '
 import { setAppLanguage } from '@/i18n';
 import { useTheme } from '@/theme/theme-context';
 import { useApiClient } from '@/api/api-client-context';
-import { applyAppearance, DEFAULT_APPEARANCE } from '@/theme/appearance';
 
 import { PanelSettingsContext } from './panel-settings.store';
 
 export function PanelSettingsProvider({ children }: { children: ReactNode }) {
   const api = useApiClient();
   const { pathname } = useLocation();
-  const { resolvedTheme, setPreference } = useTheme();
+  const { setAppearance, previewAppearance } = useTheme();
   const [view, setView] = useState<PanelSettingsView | null>(null);
   const [draftAppearance, setDraftAppearance] = useState<AppearanceSettings | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -30,30 +29,27 @@ export function PanelSettingsProvider({ children }: { children: ReactNode }) {
     void api.getPanelSettings(controller.signal).then(result => {
       if (controller.signal.aborted) return;
       setView(result);
-      setPreference(result.preferences.appearance.theme);
+      setAppearance(result.preferences.appearance);
       void setAppLanguage(result.preferences.language);
     }).catch((cause: unknown) => {
       if (!controller.signal.aborted) setError(cause instanceof Error ? cause.message : 'Settings unavailable');
     });
     return () => controller.abort();
-  }, [api, reloadKey, setPreference]);
+  }, [api, reloadKey, setAppearance]);
 
   const preview = useCallback((value: AppearanceSettings | null) => setDraftAppearance(value), []);
   const isSettings = pathname === '/panel';
-  const appearance = (isSettings ? draftAppearance : null) ?? view?.preferences.appearance ?? DEFAULT_APPEARANCE;
   useLayoutEffect(() => {
-    applyAppearance(appearance, resolvedTheme === 'dark');
-  }, [appearance, resolvedTheme]);
-  useEffect(() => {
-    if (view !== null) setPreference(appearance.theme);
-  }, [appearance.theme, setPreference, view]);
+    previewAppearance(isSettings ? draftAppearance : null);
+    return () => previewAppearance(null);
+  }, [draftAppearance, isSettings, previewAppearance]);
 
   const accept = useCallback(async (result: PanelSettingsView) => {
     setView(result);
     setDraftAppearance(null);
-    setPreference(result.preferences.appearance.theme);
+    setAppearance(result.preferences.appearance);
     await setAppLanguage(result.preferences.language);
-  }, [setPreference]);
+  }, [setAppearance]);
   const save = useCallback(async (input: PanelSettingsWrite) => {
     const result = await api.savePanelSettings(input);
     await accept(result);

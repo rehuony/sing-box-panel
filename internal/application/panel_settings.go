@@ -95,6 +95,12 @@ type storedPanelSettings struct {
 
 var ErrPanelSettingsInvalid = errors.New("panel settings are invalid")
 
+// PanelAppearance returns only the public visual preferences needed before login.
+func (app *Application) PanelAppearance(ctx context.Context) (AppearanceSettings, error) {
+	value, _, err := app.currentSettings(ctx)
+	return value.Panel.Appearance, err
+}
+
 func (app *Application) PanelSettings(ctx context.Context) (PanelSettingsView, error) {
 	value, revision, err := app.currentSettings(ctx)
 	if err != nil {

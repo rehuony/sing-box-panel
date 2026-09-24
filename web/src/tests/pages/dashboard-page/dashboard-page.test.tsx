@@ -51,7 +51,7 @@ function show({
 }
 
 describe('dashboard evidence', () => {
-  it('explains process-only monitoring without hiding independently collected host metrics', () => {
+  it('shows host metrics and unknown usage without an extra monitoring instruction', () => {
     show({ metrics: {
       ...testMetrics,
       available: false,
@@ -63,15 +63,18 @@ describe('dashboard evidence', () => {
         load_one: 0.1, memory_total: 1000, memory_used: 500, disk_total: 2000, disk_used: 500,
       },
     } });
-    expect(screen.getByText(/Only process health is monitored/)).toBeVisible();
-    expect(screen.getByRole('link', { name: 'Configuration' })).toHaveAttribute('href', '/configuration');
+    expect(screen.queryByText(/Only process health is monitored/)).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Configuration' })).not.toBeInTheDocument();
     expect(screen.getByText('12.8%')).toBeVisible();
     expect(screen.getByText('Usage unknown')).toBeVisible();
   });
 
-  it.each(['no_collector_sample', 'stale_collector_sample'] as const)('makes %s diagnosable from runtime logs', reason => {
+  it.each(['not_applied', 'no_collector_sample', 'stale_collector_sample'] as const)('keeps %s free of monitoring instructions', reason => {
     show({ metrics: { ...testMetrics, available: false, traffic_available: false, reason_code: reason } });
-    expect(screen.getByRole('link', { name: 'Runtime logs' })).toHaveAttribute('href', '/observability#logs-panel');
+    expect(screen.queryByText(
+      /No core configuration has been applied|No core sample has arrived|The core sample is stale/,
+    )).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Runtime logs' })).not.toBeInTheDocument();
   });
 
   it('selects one-hour and twenty-four-hour histories from the streamed snapshot', async () => {

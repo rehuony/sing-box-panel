@@ -42,12 +42,6 @@ export function DashboardPage() {
     ? null
     : range === '1h' ? current.history_1h : current.history_24h;
   const host = snapshot?.host;
-  const reason = snapshot?.available === false ? snapshot.reason_code : undefined;
-  const metricsReason = reason === 'not_applied' || reason === 'process_only'
-    || reason === 'no_collector_sample' || reason === 'stale_collector_sample'
-    ? reason
-    : undefined;
-  const configureMonitoring = metricsReason === 'process_only' || metricsReason === 'not_applied';
   const traffic = snapshot?.traffic_available ? snapshot.current_traffic_period : undefined;
   const used = traffic ? traffic.inbound_bytes + traffic.outbound_bytes : undefined;
   const slots = useMemo(
@@ -123,15 +117,6 @@ export function DashboardPage() {
           </section>
         ))}
       </div>
-      {metricsReason && (
-        <p className='dashboard-stream-status' role='status'>
-          {t(`dashboard.monitoring.${metricsReason}`)}
-          {' '}
-          <Link to={configureMonitoring ? '/configuration' : '/observability#logs-panel'}>
-            {t(configureMonitoring ? 'nav.configuration' : 'nav.observability')}
-          </Link>
-        </p>
-      )}
       <div className='dashboard-charts'>
         <Tabs
           className='dashboard-card dashboard-traffic'

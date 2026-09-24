@@ -7,7 +7,6 @@ export const shell = {
     retry: 'Try again',
   },
   loading: {
-    description: 'Loading exact runtime identity and configuration evidence.',
     page: 'Loading workspace…',
     title: 'Reading panel context',
   },

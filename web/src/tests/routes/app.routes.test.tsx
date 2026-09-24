@@ -4,14 +4,15 @@ import userEvent from '@testing-library/user-event';
 import { act, render, screen, waitFor } from '@testing-library/react';
 
 import { ThemeProvider } from '@/theme';
-import '@/i18n';
 import { Toaster } from '@/components/ui/toast';
+import '@/i18n';
 import { AppRoutes } from '@/routes/app.routes';
+import { appearanceTokens } from '@/theme/appearance';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { ApiClientProvider } from '@/api/api-client-context';
 import { TestRouter as MemoryRouter } from '@/tests/test-router';
 import { AuthSessionProvider } from '@/stores/auth-session-provider';
-import { createMockApiClient, testSession } from '@/tests/api/mock-api-client';
+import { createMockApiClient, testDashboardContext, testSession } from '@/tests/api/mock-api-client';
 
 function LocationProbe() {
   const location = useLocation();
@@ -44,6 +45,80 @@ async function openSignOut(user: ReturnType<typeof userEvent.setup>) {
 }
 
 describe('application routes', () => {
+  it('uses the same breathing indicator through session checks and panel initialization', async () => {
+    let resolveSession!: (value: typeof testSession) => void;
+    let resolveContext!: (value: typeof testDashboardContext) => void;
+    const session = new Promise<typeof testSession>(resolve => {
+      resolveSession = resolve;
+    });
+    const context = new Promise<typeof testDashboardContext>(resolve => {
+      resolveContext = resolve;
+    });
+    const client = createMockApiClient({
+      getSession: vi.fn(() => session),
+      getDashboardContext: vi.fn(() => context),
+    });
+    renderRoutes('/', client);
+    const checking = await screen.findByText('Checking panel session…');
+    expect(checking.closest('main')).toHaveClass('loading-screen');
+    expect(checking.closest('main')).toHaveAttribute('aria-busy', 'true');
+    expect(document.querySelector('.loading-screen__mark')).toBeInTheDocument();
+    await act(async () => resolveSession(testSession));
+    const initializing = await screen.findByText('Reading panel context');
+    expect(initializing.closest('main')).toHaveClass('loading-screen');
+    expect(document.querySelector('.loading-screen__mark')).toBeInTheDocument();
+    expect(document.querySelector('[data-slot="skeleton"]')).not.toBeInTheDocument();
+    expect(document.querySelector('[data-slot="card"]')).not.toBeInTheDocument();
+    await act(async () => resolveContext(testDashboardContext));
+    await screen.findByRole('button', { name: 'Sign out' });
+    expect(screen.queryByText('Reading panel context')).not.toBeInTheDocument();
+  });
+
+  it('keeps the shared saved appearance when signing out and loading login again', async () => {
+    const user = userEvent.setup();
+    const client = createMockApiClient();
+    const view = await client.getPanelSettings();
+    const appearance = { theme: 'dark', color: '#C65B13', radius: 8 } as const;
+    vi.mocked(client.getPanelSettings).mockResolvedValue({
+      ...view, preferences: { ...view.preferences, appearance },
+    });
+    const assertTokens = () => {
+      for (const [name, value] of Object.entries(appearanceTokens(appearance, true))) {
+        expect(document.documentElement.style.getPropertyValue(name)).toBe(value);
+      }
+      expect(document.documentElement).toHaveClass('dark');
+    };
+    const panel = renderRoutes('/', client);
+    await screen.findByRole('button', { name: 'Sign out' });
+    await waitFor(assertTokens);
+    await openSignOut(user);
+    await screen.findByLabelText('Management token');
+    assertTokens();
+    panel.unmount();
+
+    const meta = document.createElement('meta');
+    meta.name = 'sing-box-panel-appearance';
+    meta.content = JSON.stringify(appearance);
+    document.head.append(meta);
+    window.localStorage.clear();
+    try {
+      const anonymous = createMockApiClient({ getSession: vi.fn().mockResolvedValue(null) });
+      renderRoutes('/login', anonymous);
+      await screen.findByLabelText('Management token');
+      assertTokens();
+      expect(anonymous.getPanelSettings).not.toHaveBeenCalled();
+      await user.type(screen.getByLabelText('Management token'), 'local-token');
+      vi.mocked(anonymous.getPanelSettings).mockResolvedValue({
+        ...view, preferences: { ...view.preferences, appearance },
+      });
+      await user.click(screen.getByRole('button', { name: 'Open panel' }));
+      await screen.findByRole('button', { name: 'Sign out' });
+      assertTokens();
+    } finally {
+      meta.remove();
+    }
+  });
+
   it('redirects anonymous users and establishes a local management session', async () => {
     const user = userEvent.setup();
     const client = createMockApiClient({

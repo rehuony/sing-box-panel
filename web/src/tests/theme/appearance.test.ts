@@ -1,6 +1,27 @@
 import { describe, expect, it } from 'vitest';
 
-import { appearanceTokens, contrastRatio, DEFAULT_APPEARANCE, THEME_PRESETS } from '@/theme/appearance';
+import { appearanceTokens, contrastRatio, DEFAULT_APPEARANCE, readInitialAppearance, THEME_PRESETS } from '@/theme/appearance';
+
+describe('initial appearance', () => {
+  it('ignores missing, development, and malformed metadata', () => {
+    expect(readInitialAppearance()).toBeNull();
+    const meta = document.createElement('meta');
+    meta.name = 'sing-box-panel-appearance';
+    document.head.append(meta);
+    try {
+      for (const content of ['__SBP_APPEARANCE__', 'null', 'invalid', '{}',
+        ...[{ theme: 'sepia' }, { color: 'red' }, { radius: -1 }, { radius: 33 }, { radius: 1.5 }]
+          .map(value => JSON.stringify({ ...DEFAULT_APPEARANCE, ...value }))]) {
+        meta.content = content;
+        expect(readInitialAppearance()).toBeNull();
+      }
+      meta.content = JSON.stringify({ theme: 'dark', color: '#C65B13', radius: 0, ignored: true });
+      expect(readInitialAppearance()).toEqual({ theme: 'dark', color: '#C65B13', radius: 0 });
+    } finally {
+      meta.remove();
+    }
+  });
+});
 
 describe('appearance tokens', () => {
   it('keeps accent text readable for arbitrary colors in both themes', () => {

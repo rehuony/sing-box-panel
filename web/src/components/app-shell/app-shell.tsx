@@ -10,26 +10,24 @@ import '@/i18n';
 import { Button } from '@/components/ui/button';
 import { Spinner } from '@/components/ui/spinner';
 import { PanelLogo } from '@/components/panel-logo';
-import { Skeleton } from '@/components/ui/skeleton';
 import { ErrorNotice } from '@/components/error-notice';
 import { AnimatedIcon } from '@/components/animated-icon';
+import { LoadingState } from '@/components/loading-state';
 import { useSidebar } from '@/components/ui/sidebar-context';
 import { useAuthSession } from '@/stores/auth-session.store';
 import { useControlPlane } from '@/stores/control-plane.store';
 import { useUnsavedChangesContext } from '@/stores/unsaved-changes.store';
 import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from '@/components/ui/tooltip';
-import {
   Card,
-  CardContent,
-  CardDescription,
   CardFooter,
   CardHeader,
   CardTitle,
 } from '@/components/ui/card';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
 import {
   Sidebar,
   SidebarContent,
@@ -116,23 +114,7 @@ function ShellNavigation({ pathname }: { pathname: string }) {
 
 function ShellLoadingState() {
   const { t } = useTranslation();
-
-  return (
-    <main className='shell-state' aria-busy='true' aria-live='polite'>
-      <Card className='shell-state__card'>
-        <CardHeader>
-          <PanelLogo />
-          <CardTitle>{t('shell.loading.title')}</CardTitle>
-          <CardDescription>{t('shell.loading.description')}</CardDescription>
-        </CardHeader>
-        <CardContent className='shell-state__skeletons'>
-          <Skeleton />
-          <Skeleton />
-          <Skeleton />
-        </CardContent>
-      </Card>
-    </main>
-  );
+  return <LoadingState label={t('shell.loading.title')} />;
 }
 
 function ShellErrorState({ message, onRetry }: { message: string; onRetry: () => void }) {
@@ -155,12 +137,7 @@ function ShellErrorState({ message, onRetry }: { message: string; onRetry: () =>
 
 function WorkspaceLoadingState() {
   const { t } = useTranslation();
-  return (
-    <div className='shell-route-loading' aria-busy='true' aria-live='polite'>
-      <Spinner />
-      <span>{t('shell.loading.page')}</span>
-    </div>
-  );
+  return <LoadingState label={t('shell.loading.page')} fullScreen={false} />;
 }
 
 export function AppShell() {
