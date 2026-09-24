@@ -5,11 +5,20 @@ package systemd
 import (
 	"context"
 	"fmt"
+	"os"
 	"strconv"
 	"strings"
 )
 
 func (manager *Manager) Status(ctx context.Context, requested Scope) (Status, error) {
+	status, err := manager.queryStatus(ctx, requested)
+	if err == nil && status.LoadState == "not-found" {
+		return status, ErrNotInstalled
+	}
+	return status, err
+}
+
+func (manager *Manager) queryStatus(ctx context.Context, requested Scope) (Status, error) {
 	if err := manager.requireLinux(); err != nil {
 		return Status{}, err
 	}
@@ -32,16 +41,15 @@ func (manager *Manager) Status(ctx context.Context, requested Scope) (Status, er
 	if err != nil {
 		return Status{}, err
 	}
-	if properties["LoadState"] == "not-found" {
-		return Status{}, ErrNotInstalled
-	}
 	pid, err := strconv.Atoi(properties["MainPID"])
 	if err != nil || pid < 0 {
 		return Status{}, fmt.Errorf("%w: systemctl returned invalid MainPID %q", ErrInvalid, properties["MainPID"])
 	}
 	unitPath := properties["FragmentPath"]
-	if _, err := cleanAbsolute(unitPath, "systemctl FragmentPath"); err != nil {
-		return Status{}, err
+	if unitPath != "" || properties["LoadState"] == "loaded" {
+		if _, err := cleanAbsolute(unitPath, "systemctl FragmentPath"); err != nil {
+			return Status{}, err
+		}
 	}
 	status := Status{
 		Scope: scope, Unit: UnitName, UnitPath: unitPath,
@@ -51,7 +59,7 @@ func (manager *Manager) Status(ctx context.Context, requested Scope) (Status, er
 	}
 	// Drop-ins may override ExecStart, so the fragment alone does not state
 	// the unit's command line; leave the path unknown in that case.
-	if strings.TrimSpace(properties["DropInPaths"]) == "" {
+	if inactiveDropIns(properties["DropInPaths"]) {
 		status.UnitFileSettingsPath, _ = unitFileSettingsPath(unitPath)
 	}
 	return status, nil
@@ -75,6 +83,11 @@ func (manager *Manager) Control(ctx context.Context, requested Scope, action Act
 	}
 	if err := manager.prepareDataMove(ctx, scope, action); err != nil {
 		return ControlResult{}, err
+	}
+	if action != ActionStop {
+		if err := manager.prepareInstalledResources(ctx, scope); err != nil {
+			return ControlResult{}, err
+		}
 	}
 	if err := manager.runSystemctl(ctx, scope, string(action), UnitName); err != nil {
 		return ControlResult{}, err
@@ -113,4 +126,22 @@ func (manager *Manager) Logs(ctx context.Context, request LogsRequest) (LogsResu
 		Scope: scope, Unit: UnitName, Lines: request.Lines, Since: request.Since,
 		Text: strings.TrimSuffix(string(result.Stdout), "\n"),
 	}, nil
+}
+
+// Empty/masked drop-ins have no directives and cannot override ExecStart.
+// Unknown quoting, unreadable paths and any nonempty customization stay ambiguous.
+func inactiveDropIns(value string) bool {
+	for _, path := range strings.Fields(value) {
+		if strings.ContainsAny(path, `\"`) {
+			return false
+		}
+		if target, err := os.Readlink(path); err == nil && target == "/dev/null" {
+			continue
+		}
+		info, err := os.Lstat(path)
+		if err != nil || !info.Mode().IsRegular() || info.Size() != 0 {
+			return false
+		}
+	}
+	return true
 }

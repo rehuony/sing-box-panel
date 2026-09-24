@@ -9,6 +9,7 @@ import (
 	"errors"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/rehuony/sing-box-panel/internal/settings"
@@ -268,10 +269,23 @@ func TestSystemdErrorsHaveStableExitClasses(t *testing.T) {
 func executeSystemCommand(t *testing.T, service panelSystemd.Service, args ...string) (string, string, error) {
 	t.Helper()
 	var stdout, stderr bytes.Buffer
-	command := NewRootCommand(Dependencies{
+	command := NewRootCommand(Dependencies{CleanupHistoryPath: testHistoryPath(t),
 		Stdin: strings.NewReader(""), Stdout: &stdout, Stderr: &stderr, Systemd: service,
 	})
 	command.SetArgs(args)
 	err := command.ExecuteContext(context.Background())
 	return stdout.String(), stderr.String(), err
+}
+
+var testHistoryPaths sync.Map
+
+func testHistoryPath(t *testing.T) string {
+	t.Helper()
+	if path, exists := testHistoryPaths.Load(t); exists {
+		return path.(string)
+	}
+	path := filepath.Join(t.TempDir(), "state", "cleanup-history.json")
+	testHistoryPaths.Store(t, path)
+	t.Cleanup(func() { testHistoryPaths.Delete(t) })
+	return path
 }

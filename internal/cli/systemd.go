@@ -5,6 +5,7 @@ package cli
 import (
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -58,13 +59,25 @@ func newSystemInstallCommand(state *options, service panelSystemd.Service) *cobr
 				dataDir, err = settings.ConfiguredDataDir(settingsPath)
 			}
 			if err != nil {
-				return &Error{Kind: ErrorValidation, Code: "system_settings_invalid", Message: err.Error(), Cause: err}
+				if !errors.Is(err, os.ErrNotExist) {
+					return &Error{Kind: ErrorValidation, Code: "system_settings_invalid", Message: err.Error(), Cause: err}
+				}
+				dataDir = ""
 			}
 			result, err := service.Install(cmd.Context(), panelSystemd.InstallRequest{
 				Scope: scope, SettingsPath: settingsPath, DataDir: dataDir, Force: force, Now: now,
 			})
 			if err != nil {
 				return classifySystemError("system_install_failed", err)
+			}
+			if result.SettingsCreated {
+				value, err := settings.Load(settingsPath)
+				if err != nil {
+					return err
+				}
+				if err := writeServerInitialization(cmd, state, value); err != nil {
+					return err
+				}
 			}
 			text := fmt.Sprintf("installed and enabled %s %s at %s", result.Scope, result.Unit, result.UnitPath)
 			if result.Started {
@@ -96,6 +109,15 @@ func newSystemUninstallCommand(state *options, service panelSystemd.Service) *co
 			}
 			result, err := service.Uninstall(cmd.Context(), panelSystemd.UninstallRequest{Scope: scope, Force: force})
 			if err != nil {
+				if result.Scope != "" {
+					text := fmt.Sprintf("Uninstall interrupted; %d service files removed; settings and data retained", len(result.RemovedPaths))
+					for _, path := range result.RemovedPaths {
+						text += "\n" + path + " [removed]"
+					}
+					if writeErr := writeResult(cmd.OutOrStdout(), state.format, result, text); writeErr != nil {
+						return errors.Join(err, writeErr)
+					}
+				}
 				return classifySystemError("system_uninstall_failed", err)
 			}
 			text := fmt.Sprintf("uninstalled %s %s; settings and data retained", result.Scope, result.Unit)

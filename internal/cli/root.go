@@ -21,25 +21,30 @@ import (
 )
 
 type Dependencies struct {
-	Stdin           io.Reader
-	Stdout          io.Writer
-	Stderr          io.Writer
-	Build           buildinfo.Info
-	Update          func(context.Context, string, selfupdate.ProgressFunc) (selfupdate.Result, error)
-	RunServer       func(context.Context, string) error
-	OpenApplication func(context.Context, string) (*application.Application, error)
-	Systemd         panelSystemd.Service
+	CleanupHistoryPath string
+	Stdin              io.Reader
+	Stdout             io.Writer
+	Stderr             io.Writer
+	Build              buildinfo.Info
+	Update             func(context.Context, string, selfupdate.ProgressFunc) (selfupdate.Result, error)
+	RunServer          func(context.Context, string) error
+	OpenApplication    func(context.Context, string) (*application.Application, error)
+	Systemd            panelSystemd.Service
 }
 
 type options struct {
 	settingsPath string
+	historyPath  string
 	format       outputFormat
 }
 
 func NewRootCommand(deps Dependencies) *cobra.Command {
 	// Building the command tree must not load settings or open storage. Only
 	// handlers that need instance data resolve these dependencies when executed.
-	state := &options{}
+	state := &options{historyPath: deps.CleanupHistoryPath}
+	if state.historyPath == "" {
+		state.historyPath = installation.DefaultHistoryPath()
+	}
 	systemdService := deps.Systemd
 	if systemdService == nil {
 		manager, err := panelSystemd.New(panelSystemd.Options{})

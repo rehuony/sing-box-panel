@@ -39,7 +39,7 @@ func newServerStartCommand(state *options, run func(context.Context, string) err
 			if err := cmd.Context().Err(); err != nil {
 				return err
 			}
-			configuration, created, err := settings.LoadOrInitialize(state.settingsPath)
+			configuration, created, err := settings.LoadOrInitializeContext(cmd.Context(), state.settingsPath)
 			if err != nil {
 				return &Error{Kind: ErrorValidation, Code: "settings_invalid", Message: err.Error(), Cause: err}
 			}

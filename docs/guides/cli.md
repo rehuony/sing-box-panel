@@ -68,10 +68,10 @@ commands that need settings load the default path: root uses
 `/etc/sing-box-panel/setting.json`; ordinary users use
 `$XDG_CONFIG_HOME/sing-box-panel/setting.json`, or
 `~/.config/sing-box-panel/setting.json` when XDG is unset. An explicit path
-overrides that default; commands never silently load another file. `server start`
-creates defaults at the selected path when it is missing. `config init` creates
+overrides that default; commands never silently load another file. `server start` and `systemd install`
+create defaults at the selected path when it is missing. `config init` creates
 only default settings explicitly. `config set --file`
-can also create a selected file from validated input. Commands that read settings
+can also create a selected file from validated input. Other commands that require settings
 reject missing files; `config show` can display invalid text.
 Repeated flags use the last supplied value.
 
@@ -80,20 +80,21 @@ Selecting a settings path does not load it. Help (including bare command groups)
 panel settings or open its database. `systemd uninstall`, `start`, `stop`,
 `restart`, and `logs` operate on the selected service scope without loading the
 CLI settings file. Start/restart can read the installed unit's own settings to
-prepare a requested data relocation. `systemd status` also works with unavailable settings; its
+prepare a requested data relocation or restore missing resources. `systemd status` also works with unavailable settings; its
 optional location report marks unreadable files or invalid `data_dir` fields as
 unavailable without hiding systemd's status.
 
 `system df`, `system prune`, `server status/stop`, `systemd install` without
 `--now`, and local database operations read only `data_dir` to locate the
-instance. They reject missing, empty, wrongly typed, or ambiguous paths and
+instance. When settings exist, these commands reject empty, wrongly typed, or ambiguous paths and
 malformed JSON; unrelated runtime fields such as `traffic.sample_retention_days`
 do not block them. Relative data paths resolve against the settings file. After a directory edit,
 status/stop and database commands keep using the recorded current location until
 the next explicit start completes relocation.
 If the settings file itself is missing, `system df` and the `system prune`
-preview still report known paths, with the data directory marked unknown.
-`system prune --yes` continues to require settings that identify the data directory.
+preview still report known paths. A valid `.location` record can identify current
+data when configuration is missing. Cleanup history only discovers old paths;
+it cannot authorize deleting them. Repeated cleanup with no current targets succeeds.
 Service ownership, symlink, locking, and cleanup-scope checks still apply.
 Database identity restricts storage operations, but does not prevent confirmed
 full-directory cleanup. Metrics read and validate `traffic.quota_gib` only when needed,
@@ -107,8 +108,11 @@ and a random management token. The settings file uses mode `0600`; new directori
 use `0700`. This also applies to an explicit `--config` path. Concurrent first
 starts cannot replace each other's settings. A damaged, unreadable, or dangling
 symlink file is never replaced. Database initialization remains part of startup.
-Starting an existing unit through `systemd start/restart` delegates to systemd;
-its `server start` command uses the same initialization and validation rules.
+Installing or starting an existing generated unit prepares missing settings and
+directories before systemd starts it. It validates required external commands and
+manager access before initialization, preserves existing settings and tokens, and
+never creates the database during installation. Customized or ambiguous units
+require explicit attention; start/restart does not install a missing unit.
 `init` explicitly creates settings and initializes storage. It refuses to overwrite an existing file
 unless `--force` is supplied. No command silently repairs a damaged file.
 
@@ -343,16 +347,33 @@ Database identity is diagnostic in JSON/JSONL; an unknown or older identity does
 not exclude data from confirmed cleanup. Inspection leaves incomplete WAL
 recovery state untouched. `--scope auto|user|system` selects the systemd files.
 
-After cleanup, or before initialization, `df` also works without the selected
-settings file. It reports the executable, settings path and available service
-files without creating anything. Text marks the settings as missing and omits
-the Data summary row. JSON/JSONL use `data_dir: ""`, `database_identity: "unknown"`,
-and a settings entry with `state: "missing"`. A former custom data directory
-cannot be inferred from a deleted settings file, so neither a default directory
-nor a directory beside the settings is substituted. Malformed or unreadable
-existing settings still produce an error. A preview with missing settings
-explains that cleanup is unavailable, and `prune --yes` refuses before stopping
-services or deleting files.
+After cleanup, or before initialization, `df` works without the selected settings
+file. It reports actual existing resources without creating anything. The config
+summary is marked missing; JSON retains a settings entry with `state: "missing"`.
+A valid `.location` supplies current data when settings are missing. Otherwise
+`data_dir` is empty, with no guessed default. Invalid or unreadable resources
+produce a nonzero exit status and a partial report with `warnings`.
+
+Before destructive cleanup, the CLI atomically saves private discovery history:
+root uses `/var/lib/sing-box-panel-state/cleanup-history.json`; other users use
+`$XDG_STATE_HOME/sing-box-panel/cleanup-history.json` (default
+`~/.local/state/sing-box-panel/cleanup-history.json`). Its directory is 0700 and
+file 0600. Writers lock the directory. Records contain normalized instance paths,
+deduplicated data/service roots, scope, time and outcome/counts, never tokens or
+configuration contents. Corrupt, linked or unwritable history blocks destruction;
+a failure to update the final outcome is reported as an incomplete operation.
+Data roots containing the history directory are rejected. This protection also
+applies to both ends of a data migration, so migration cannot move the fixed
+history location along with instance data.
+
+History and the binary are retained and displayed. `df` and previews never
+rewrite history; `prune --yes` with no targets also leaves it untouched and exits
+successfully. Text says `No removable resources remain for this instance.`
+Historical paths that reappear are labeled as requiring ownership confirmation,
+inspected without descending into them and retained. History alone never grants
+delete authority or influences initialization, migration or configuration choice.
+Continue selecting custom instances with the same `--config` path. Reinstallation
+uses normal initialization rules rather than restoring historical configuration.
 
 Text output starts with aligned `Config` and `Executable` paths:
 the selected settings file (including a custom `-c` path) and the full path of
@@ -363,15 +384,18 @@ contents still appear in the tree, and JSON/JSONL retain the `data_dir` field.
 there is no separate `Settings` summary line. The `prune` preview uses the same format.
 The tree retains the actual filenames, groups real paths in sorted order, and
 compresses unlabeled parent chains. It shows no expected-but-missing data files
-or cleanup policy labels. Directories end in `/`, empty directories show `empty`, and
-symlinks (including dangling links) show `link`. Link targets are never traversed.
+and marks retained resources explicitly. Directories end in `/`; `empty` comes
+from actually reading the directory, never inferred from missing report children.
+Symlinks (including dangling links) show `link`. Link targets are never traversed.
 A missing data directory has no tree entry or separate status message. Parent
 grouping nodes are structural, not separately inspected entries. Only paths
 inside the current user's home may use `~`; similar prefixes remain unchanged.
 
 Existing service files appear in the same tree, labeled with their resolved
-`user` or `system` scope. Inspection covers only the installer's exact paths:
-the user unit, or the system unit plus sysusers and tmpfiles configuration.
+`user` or `system` scope. Inspection includes the installer's unit and auxiliary
+files even when the unit is missing, matching enablement links, exact unit drop-in
+contents and the existing system runtime directory. Related custom content is
+retained; inventory does not expand deletion authority.
 Missing service files are hidden; files not both managed and matched to the
 selected settings are labeled `outside scope`. Unsupported platforms say that
 systemd is unsupported, rather than implying no service is installed.
@@ -380,7 +404,7 @@ The tree uses color only for terminal text output: blue directories, dim tree
 branches, cyan links or retained results, green completed removals, and red
 interrupted-cleanup headings. Only the `prune` preview ends with a blank line
 and a one-line yellow reminder to pass `--yes` to stop the instance and permanently
-delete its settings and all data, or an explanation when settings are missing.
+delete its settings and all data when removable resources exist.
 Pipes, redirected output, an unset or
 `dumb` `TERM`, and nonempty `NO_COLOR` disable all ANSI styling. JSON/JSONL remain
 uncolored and keep their report field names and absolute paths; `-o` is shorthand
@@ -423,8 +447,11 @@ OS accounts and journal records remain managed by the OS. The conventional
 `sing-box-panel` settings directory is removed only if empty; shared parent
 directories are never recursively removed.
 
-Execution results contain only confirmed `removed` and `retained` paths, also
-available as the existing JSON arrays. Deleted paths remain visible in results.
+Execution results preserve `removed` and `retained` arrays and add `remaining`
+and `warnings`. Remaining means a deletion target still exists; retained means
+policy intentionally preserves it. A final read-only inventory uses both current
+and pre-cleanup paths, even after configuration has been removed. Each command
+writes one complete result to stdout; diagnostics go to stderr. Deleted paths remain visible in results.
 On interruption, text says `Cleanup interrupted; confirmed results only`, and the
 command returns its error. The service may already be stopped or uninstalled and
 some files removed when a later operation fails. When settings are inside a
@@ -433,7 +460,7 @@ settings. A failure in those contents preserves the settings and database so the
 operator can fix the cause and retry. This is not a transactional rollback;
 failures during final removal can still leave partial results.
 Cleanup is irreversible; a new
-instance can be created with `init` afterward. Scope is limited to the selected
+instance can be created with `systemd install --now`, `server start`, or `init` afterward. Scope is limited to the selected
 settings and data directory, not every instance on the host.
 
 ## System service status

@@ -28,8 +28,9 @@ The installer chooses the existing application layout from the effective user:
 Installation only writes the binary. Settings and data are neither read nor
 validated nor initialized, so malformed leftovers do not block replacement. An
 existing binary requires interactive confirmation; use `--yes` for unattended
-replacement. Declining exits without download or replacement. `server start`
-initializes missing settings and storage later. Formatted logs use color on a
+replacement. Declining exits without download or replacement. `server start` initializes missing settings and storage later.
+`systemd install --now` also creates missing settings and service directories;
+there is no prerequisite `init` or foreground start. Formatted logs use color on a
 terminal unless `NO_COLOR` is set. The final summary lists installation and default
 settings/data paths plus Bash, Zsh and Fish completion commands. The installer does not
 modify shell profiles or configure, start, stop, or restart systemd; it prints

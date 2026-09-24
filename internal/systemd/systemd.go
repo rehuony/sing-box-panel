@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"runtime"
 	"strings"
 )
@@ -84,9 +85,10 @@ type Service interface {
 }
 
 type FileStatus struct {
-	Path    string `json:"path"`
-	State   string `json:"state"`
-	Managed bool   `json:"managed"`
+	Path     string `json:"path"`
+	State    string `json:"state"`
+	Managed  bool   `json:"managed"`
+	Retained bool   `json:"retained,omitempty"`
 }
 
 type FilesResult struct {
@@ -101,6 +103,7 @@ type Options struct {
 	Executable func() (string, error)
 	Runner     Runner
 	Layout     Layout
+	LookPath   func(string) (string, error)
 }
 
 type Manager struct {
@@ -109,6 +112,7 @@ type Manager struct {
 	executable func() (string, error)
 	runner     Runner
 	layout     Layout
+	lookPath   func(string) (string, error)
 }
 
 func New(options Options) (*Manager, error) {
@@ -124,13 +128,16 @@ func New(options Options) (*Manager, error) {
 	if options.Runner == nil {
 		options.Runner = execRunner{}
 	}
+	if options.LookPath == nil {
+		options.LookPath = exec.LookPath
+	}
 	layout, err := resolvedLayout(options.Layout)
 	if err != nil {
 		return nil, err
 	}
 	return &Manager{
 		goos: options.GOOS, euid: options.EUID, executable: options.Executable,
-		runner: options.Runner, layout: layout,
+		runner: options.Runner, layout: layout, lookPath: options.LookPath,
 	}, nil
 }
 
@@ -143,6 +150,7 @@ type InstallRequest struct {
 }
 
 type InstallResult struct {
+	SettingsCreated bool     `json:"settings_created"`
 	Scope           Scope    `json:"scope"`
 	Unit            string   `json:"unit"`
 	UnitPath        string   `json:"unit_path"`

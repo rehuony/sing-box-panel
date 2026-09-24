@@ -18,7 +18,7 @@ func (manager *Manager) prepareDataMove(ctx context.Context, scope Scope, action
 	if action == ActionStop {
 		return nil
 	}
-	files, err := manager.Files(ctx, scope)
+	files, err := manager.managedFiles(ctx, scope)
 	if err != nil {
 		return err
 	}
@@ -33,6 +33,11 @@ func (manager *Manager) prepareDataMove(ctx context.Context, scope Scope, action
 		return err
 	}
 	target, err := settings.ConfiguredDataDir(files.SettingsPath)
+	if errors.Is(err, os.ErrNotExist) {
+		if _, statErr := os.Lstat(files.SettingsPath); errors.Is(statErr, os.ErrNotExist) {
+			return nil
+		}
+	}
 	if err != nil {
 		return err
 	}

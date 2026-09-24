@@ -36,7 +36,7 @@ An explicit version may identify a stable release or a GitHub pre-release.
 
 The installer verifies the signed checksum manifest, installs the binary, and
 does not read, validate, or initialize settings or data. Start the panel with
-`sing-box-panel server start` to initialize missing settings. The installer does
+`sing-box-panel server start` or `sing-box-panel systemd install --now` to initialize missing settings. The installer does
 not install, start, stop, or restart a systemd service.
 EOF
 }
@@ -548,7 +548,7 @@ installer_print_next_steps() {
   printf '  zsh:  eval "$(sing-box-panel completion zsh)"\n'
   printf '  bash: source <(sing-box-panel completion bash)\n'
   printf '  fish: sing-box-panel completion fish | source\n'
-  printf '\nThe installer did not configure or start systemd. To install and start the service:\n  '
+  printf '\nThe installer did not configure or start systemd. To create missing resources, install and start the service:\n  '
   printf '%q systemd install --scope=%s --now\n' "${installer_binary_path}" "${installer_service_scope}"
   printf 'After a later binary upgrade, restart an existing service explicitly:\n  '
   printf '%q systemd restart --scope=%s\n' "${installer_binary_path}" "${installer_service_scope}"

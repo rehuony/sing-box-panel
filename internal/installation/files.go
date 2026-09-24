@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -24,14 +25,18 @@ type Entry struct {
 	State   string `json:"state"`
 	Bytes   int64  `json:"bytes"`
 	Cleanup string `json:"cleanup"`
+	Empty   *bool  `json:"empty,omitempty"`
 }
 
 type Report struct {
 	SettingsPath string `json:"settings_path"`
 	// DataDir is empty when the selected settings file is missing.
-	DataDir          string  `json:"data_dir"`
-	DatabaseIdentity string  `json:"database_identity"`
-	Entries          []Entry `json:"entries"`
+	DataDir          string          `json:"data_dir"`
+	DatabaseIdentity string          `json:"database_identity"`
+	Entries          []Entry         `json:"entries"`
+	HistoryPath      string          `json:"history_path,omitempty"`
+	History          *CleanupHistory `json:"history,omitempty"`
+	Warnings         []string        `json:"warnings,omitempty"`
 }
 
 // Known names provide descriptive roles; every entry inside DataDir is in scope.
@@ -56,19 +61,7 @@ func Inspect(ctx context.Context, settingsPath string) (Report, error) {
 	if err != nil {
 		return Report{}, err
 	}
-	settingsEntry, err := inspectEntry(abs, "panel settings", "remove")
-	if err != nil {
-		return Report{}, err
-	}
 	report := Report{SettingsPath: abs, Entries: []Entry{}, DatabaseIdentity: "unknown"}
-	if settingsEntry.State != "missing" {
-		report.DataDir, err = settings.LoadDataDir(abs)
-		if err != nil {
-			return report, err
-		}
-		report.DatabaseIdentity = "missing"
-	}
-	dataDir := report.DataDir
 	executable, err := os.Executable()
 	if err != nil {
 		return report, err
@@ -77,7 +70,15 @@ func Inspect(ctx context.Context, settingsPath string) (Report, error) {
 	if err != nil {
 		return report, err
 	}
-	report.Entries = append(report.Entries, executableEntry, settingsEntry)
+	report.Entries = append(report.Entries, executableEntry)
+	settingsEntry, err := inspectEntry(abs, "panel settings", "remove")
+	if err != nil {
+		settingsEntry.State = "unreadable"
+	}
+	report.Entries = append(report.Entries, settingsEntry)
+	if err != nil {
+		return report, err
+	}
 	for _, sidecar := range []struct{ suffix, role string }{{".lock", "settings write lock"}, {".pending", "settings recovery journal"}, {".location", "data location and migration state"}} {
 		entry, err := inspectEntry(abs+sidecar.suffix, sidecar.role, "remove")
 		if err != nil {
@@ -87,6 +88,14 @@ func Inspect(ctx context.Context, settingsPath string) (Report, error) {
 			report.Entries = append(report.Entries, entry)
 		}
 	}
+	report.DataDir, err = selectedDataDir(abs)
+	if err != nil {
+		return report, err
+	}
+	dataDir := report.DataDir
+	if dataDir != "" {
+		report.DatabaseIdentity = "missing"
+	}
 
 	if dataDir != "" {
 		entry, err := inspectEntry(dataDir, "instance data directory", "remove")
@@ -94,6 +103,7 @@ func Inspect(ctx context.Context, settingsPath string) (Report, error) {
 			return report, err
 		}
 		report.Entries = append(report.Entries, entry)
+
 	}
 	settingsDir := filepath.Dir(abs)
 	if filepath.Base(settingsDir) == "sing-box-panel" && (dataDir == "" || !pathWithin(dataDir, settingsDir)) {
@@ -105,8 +115,25 @@ func Inspect(ctx context.Context, settingsPath string) (Report, error) {
 			entry.Cleanup = "retain"
 		}
 		report.Entries = append(report.Entries, entry)
+		if entry.State == "directory" {
+			children, err := os.ReadDir(settingsDir)
+			if err != nil {
+				return report, err
+			}
+			for _, child := range children {
+				path := filepath.Join(settingsDir, child.Name())
+				if path == abs || path == abs+".lock" || path == abs+".location" || path == abs+".pending" || path == dataDir {
+					continue
+				}
+				item, err := inspectEntry(path, "other configuration directory content", "retain")
+				if err != nil {
+					return report, err
+				}
+				report.Entries = append(report.Entries, item)
+			}
+		}
 	}
-	// Without settings, a former custom data directory cannot be recovered.
+	// Without settings or a location record, do not guess a data directory.
 	// Return the paths we can inspect without guessing or initializing storage.
 	if dataDir == "" {
 		return report, nil
@@ -145,10 +172,6 @@ func Inspect(ctx context.Context, settingsPath string) (Report, error) {
 		if path == abs {
 			return nil
 		}
-		info, err := child.Info()
-		if err != nil {
-			return err
-		}
 		role := "instance data"
 		for _, item := range knownDataPaths {
 			if name == item.name || strings.HasPrefix(name, item.name+"/") {
@@ -156,12 +179,11 @@ func Inspect(ctx context.Context, settingsPath string) (Report, error) {
 				break
 			}
 		}
-		state := fileState(info)
-		cleanup := "remove"
-		if state == "symlink" {
-			cleanup = "remove_link"
+		entry, err := inspectEntry(path, role, "remove")
+		if err != nil {
+			return err
 		}
-		report.Entries = append(report.Entries, Entry{Path: path, Role: role, State: state, Bytes: info.Size(), Cleanup: cleanup})
+		report.Entries = append(report.Entries, entry)
 		return nil
 	})
 	if err != nil {
@@ -182,6 +204,19 @@ func inspectEntry(path, role, cleanup string) (Entry, error) {
 	}
 	entry.State = fileState(info)
 	entry.Bytes = info.Size()
+	if info.IsDir() {
+		directory, err := os.Open(path)
+		if err != nil {
+			return entry, err
+		}
+		_, readErr := directory.ReadDir(1)
+		_ = directory.Close()
+		if readErr != nil && !errors.Is(readErr, io.EOF) {
+			return entry, readErr
+		}
+		empty := errors.Is(readErr, io.EOF)
+		entry.Empty = &empty
+	}
 	if entry.State == "symlink" && cleanup != "retain" {
 		entry.Cleanup = "remove_link"
 	}
@@ -235,7 +270,12 @@ func databaseIdentity(ctx context.Context, root *os.Root) (string, error) {
 // remain protected even when the user confirms removal of all instance data.
 func ValidateCleanup(report Report) error {
 	if report.DataDir == "" {
-		return errors.New("settings file is missing; cannot determine the data directory for cleanup")
+		for _, entry := range report.Entries {
+			if entry.Role == "panel settings" && entry.State != "missing" {
+				return errors.New("cannot determine the data directory for cleanup")
+			}
+		}
+		return nil
 	}
 	if !filepath.IsAbs(report.DataDir) || strings.TrimSpace(report.SettingsPath) == "" {
 		return errors.New("absolute data directory and settings path are required")
@@ -246,6 +286,19 @@ func ValidateCleanup(report Report) error {
 	dataDir, err := cleanupPath(report.DataDir)
 	if err != nil {
 		return err
+	}
+	// Migration also uses this boundary, without an inventory from df. Protect
+	// the fixed history location even when the caller has no history to report.
+	historyPath := report.HistoryPath
+	if historyPath == "" {
+		historyPath = DefaultHistoryPath()
+	}
+	contains, err := DataDirectoryContainsPath(dataDir, filepath.Dir(historyPath))
+	if err != nil {
+		return err
+	}
+	if contains {
+		return errors.New("data directory contains the retained cleanup history directory; keep history outside the data directory before cleanup or migration")
 	}
 	home, _ := os.UserHomeDir()
 	configHome, _ := os.UserConfigDir()
@@ -276,7 +329,7 @@ func ValidateCleanup(report Report) error {
 	for _, entry := range report.Entries {
 		switch entry.Role {
 		case "panel settings":
-			if entry.State != "file" {
+			if entry.State != "file" && entry.State != "missing" {
 				return errors.New("settings path must be a regular file")
 			}
 		case "instance data directory":
@@ -286,6 +339,31 @@ func ValidateCleanup(report Report) error {
 		}
 	}
 	return nil
+}
+
+func selectedDataDir(path string) (string, error) {
+	if info, err := os.Lstat(path); err == nil {
+		if !info.Mode().IsRegular() {
+			return "", errors.New("settings path must be a regular file")
+		}
+		return settings.LoadDataDir(path)
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return "", err
+	}
+	if err := settings.CheckPending(path); err != nil {
+		return "", err
+	}
+	location, err := settings.ReadDataLocation(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	if location.Move != nil {
+		return "", errors.New("restore settings to finish the data directory migration before cleanup")
+	}
+	return location.DataDir, nil
 }
 
 func pathWithin(directory, path string) bool {

@@ -82,7 +82,7 @@ func TestSystemPruneWaitsForPanelAndCoreShutdown(t *testing.T) {
 			}()
 			control.Ready("fixture")
 			var stdout, stderr bytes.Buffer
-			root := NewRootCommand(Dependencies{Stdout: &stdout, Stderr: &stderr,
+			root := NewRootCommand(Dependencies{CleanupHistoryPath: testHistoryPath(t), Stdout: &stdout, Stderr: &stderr,
 				Systemd: &fakeSystemdService{err: panelSystemd.ErrUnsupportedOS}})
 			root.SetArgs([]string{"system", "prune", "-c", path, "--yes"})
 			ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)

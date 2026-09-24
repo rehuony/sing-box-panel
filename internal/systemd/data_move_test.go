@@ -106,6 +106,9 @@ func TestExplicitServiceRestartMovesDataAndUpdatesGeneratedPaths(t *testing.T) {
 func TestSystemServiceRejectsProtectedDataDirectory(t *testing.T) {
 	fixture := newManagerFixture(t, 0)
 	for _, path := range []string{"/home/panel-data", "/root/panel-data", "/run/user/1000/panel-data"} {
+		if err := os.WriteFile(fixture.settings, validTestSettings(path), 0600); err != nil {
+			t.Fatal(err)
+		}
 		_, err := fixture.manager.Install(t.Context(), InstallRequest{Scope: ScopeSystem, SettingsPath: fixture.settings, DataDir: path})
 		if err == nil || !strings.Contains(err.Error(), "protected home") {
 			t.Fatalf("protected destination accepted: %s %v", path, err)

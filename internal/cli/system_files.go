@@ -37,22 +37,25 @@ type instanceFilesReport struct {
 	Preview          bool                     `json:"preview"`
 }
 
-func inspectInstanceFiles(ctx context.Context, path string, scope panelSystemd.Scope, service panelSystemd.Service) (instanceFilesReport, error) {
-	files, err := installation.Inspect(ctx, path)
-	result := instanceFilesReport{Report: files, ServiceState: "unavailable"}
-	if err != nil {
-		return result, err
+func inspectInstanceFiles(ctx context.Context, path string, scope panelSystemd.Scope, service panelSystemd.Service, historyPaths ...string) (instanceFilesReport, error) {
+	historyPath := installation.DefaultHistoryPath()
+	if len(historyPaths) > 0 {
+		historyPath = historyPaths[0]
 	}
+	files, inspectErr := installation.InspectWithHistory(ctx, path, historyPath)
+	var err error
+	result := instanceFilesReport{Report: files, ServiceState: "unavailable"}
 	if service == nil {
-		return result, nil
+		return result, inspectErr
 	}
 	result.Service, err = service.Files(ctx, scope)
 	if errors.Is(err, panelSystemd.ErrUnsupportedOS) {
 		result.ServiceState = "unsupported"
-		return result, nil
+		return result, inspectErr
 	}
 	if err != nil {
-		return result, err
+		result.Warnings = append(result.Warnings, err.Error())
+		return result, errors.Join(inspectErr, err)
 	}
 	result.ServiceState = "inspected"
 	result.ServiceMatches = result.Service.SettingsPath != "" && filepath.Clean(result.Service.SettingsPath) == files.SettingsPath
@@ -63,7 +66,7 @@ func inspectInstanceFiles(ctx context.Context, path string, scope panelSystemd.S
 			result.ServiceDataKnown = true
 		}
 	}
-	return result, nil
+	return result, inspectErr
 }
 
 func newSystemDFCommand(state *options, service panelSystemd.Service) *cobra.Command {
@@ -74,8 +77,9 @@ func newSystemDFCommand(state *options, service panelSystemd.Service) *cobra.Com
 			if err != nil {
 				return err
 			}
-			report, err := inspectInstanceFiles(cmd.Context(), state.settingsPath, scope, service)
+			report, err := inspectInstanceFiles(cmd.Context(), state.settingsPath, scope, service, state.historyPath)
 			if err != nil {
+				_ = writeResult(cmd.OutOrStdout(), state.format, report, instanceFilesText(report, newFileTreeStyle(cmd.OutOrStdout(), state.format)))
 				return &Error{Kind: ErrorValidation, Code: "instance_files_unavailable", Message: err.Error(), Cause: err}
 			}
 			return writeResult(cmd.OutOrStdout(), state.format, report, instanceFilesText(report, newFileTreeStyle(cmd.OutOrStdout(), state.format)))
@@ -94,8 +98,9 @@ func newSystemPruneCommand(state *options, service panelSystemd.Service) *cobra.
 			if err != nil {
 				return err
 			}
-			report, err := inspectInstanceFiles(cmd.Context(), state.settingsPath, scope, service)
+			report, err := inspectInstanceFiles(cmd.Context(), state.settingsPath, scope, service, state.historyPath)
 			if err != nil {
+				_ = writeResult(cmd.OutOrStdout(), state.format, report, instanceFilesText(report, newFileTreeStyle(cmd.OutOrStdout(), state.format)))
 				return &Error{Kind: ErrorValidation, Code: "instance_files_unavailable", Message: err.Error(), Cause: err}
 			}
 			report.Preview = !yes
@@ -103,29 +108,14 @@ func newSystemPruneCommand(state *options, service panelSystemd.Service) *cobra.
 			if !yes {
 				return writeResult(cmd.OutOrStdout(), state.format, report, instanceFilesText(report, style))
 			}
-			if err := installation.ValidateCleanup(report.Report); err != nil {
-				if report.DataDir == "" {
-					return &Error{Kind: ErrorValidation, Code: "instance_files_unavailable", Message: err.Error(), Cause: err}
-				}
-				return classifyCleanupError(err)
+			result, cleanupErr := pruneInstance(cmd.Context(), report, service)
+			if err := writeResult(cmd.OutOrStdout(), state.format, result, cleanupText(result, cleanupErr, style)); err != nil {
+				return err
 			}
-			serviceRemoved, err := stopInstanceForCleanup(cmd.Context(), report, service)
-			if err != nil {
-				if len(serviceRemoved) > 0 {
-					result := installation.CleanupResult{Removed: serviceRemoved, Retained: []string{}}
-					_ = writeResult(cmd.OutOrStdout(), state.format, result, cleanupText(result, err, style))
-				}
-				return classifyCleanupError(err)
+			if cleanupErr != nil {
+				return classifyCleanupError(cleanupErr)
 			}
-			result, err := installation.Clean(cmd.Context(), report.Report)
-			result.Removed = append(serviceRemoved, result.Removed...)
-			if err != nil {
-				if len(result.Removed) > 0 {
-					_ = writeResult(cmd.OutOrStdout(), state.format, result, cleanupText(result, err, style))
-				}
-				return classifyCleanupError(err)
-			}
-			return writeResult(cmd.OutOrStdout(), state.format, result, cleanupText(result, nil, style))
+			return nil
 		},
 	}
 	addSystemScopeFlag(command, &rawScope)
@@ -161,7 +151,7 @@ func stopInstanceForCleanup(ctx context.Context, report instanceFilesReport, ser
 	}
 	if report.ServiceMatches {
 		for _, file := range report.Service.Files {
-			if file.State != "missing" && !file.Managed {
+			if file.State != "missing" && !file.Retained && !file.Managed {
 				return nil, fmt.Errorf("refusing cleanup of unmanaged service file %s", file.Path)
 			}
 		}
@@ -169,14 +159,17 @@ func stopInstanceForCleanup(ctx context.Context, report instanceFilesReport, ser
 		if err != nil && !errors.Is(err, panelSystemd.ErrNotInstalled) {
 			return nil, err
 		}
-		if err == nil && (status.NeedDaemonReload || filepath.Clean(status.UnitFileSettingsPath) != report.SettingsPath) {
+		if err == nil && status.LoadState == "loaded" && (status.NeedDaemonReload || filepath.Clean(status.UnitFileSettingsPath) != report.SettingsPath) {
 			return nil, errors.New("service settings are ambiguous or changed on disk; resolve the service configuration before cleanup")
 		}
 		result, err := service.Uninstall(ctx, panelSystemd.UninstallRequest{Scope: report.Service.Scope})
 		if err != nil && !errors.Is(err, panelSystemd.ErrNotInstalled) {
-			return nil, err
+			return result.RemovedPaths, err
 		}
 		removed = result.RemovedPaths
+	}
+	if report.DataDir == "" {
+		return removed, nil
 	}
 	for _, entry := range report.Entries {
 		if entry.Path == filepath.Join(report.DataDir, "panel-control.sock") && entry.State != "socket" && entry.State != "missing" {
@@ -222,12 +215,6 @@ func instanceFilesText(report instanceFilesReport, style fileTreeStyle) string {
 	case "unavailable":
 		text.WriteString(style.paint("2", "Systemd:    inspection unavailable") + "\n")
 	}
-	parents := make(map[string]bool)
-	for _, entry := range report.Entries {
-		if entry.State != "missing" {
-			parents[filepath.Dir(entry.Path)] = true
-		}
-	}
 	entries := make([]fileTreeEntry, 0, len(report.Entries)+len(report.Service.Files))
 	for _, entry := range report.Entries {
 		if entry.State == "missing" {
@@ -237,7 +224,7 @@ func instanceFilesText(report instanceFilesReport, style fileTreeStyle) string {
 		switch entry.State {
 		case "file":
 		case "directory":
-			if !parents[entry.Path] {
+			if entry.Empty != nil && *entry.Empty {
 				labels = append(labels, "empty")
 			}
 		case "symlink":
@@ -248,10 +235,17 @@ func instanceFilesText(report instanceFilesReport, style fileTreeStyle) string {
 		switch entry.Role {
 		case "panel executable":
 			labels = append(labels, "executable")
+		case "cleanup history":
+			labels = append(labels, "history")
+		case "historical path; ownership unconfirmed":
+			labels = append(labels, "historical; confirm ownership")
 		case "panel settings":
 			labels = append(labels, "settings")
 		case "instance data directory":
 			labels = append(labels, "data")
+		}
+		if entry.Cleanup == "retain" {
+			labels = append(labels, "retained")
 		}
 		entries = append(entries, fileTreeEntry{path: entry.Path, label: strings.Join(labels, ", "), directory: entry.State == "directory"})
 	}
@@ -263,19 +257,24 @@ func instanceFilesText(report instanceFilesReport, style fileTreeStyle) string {
 		if report.Service.Scope != "" {
 			label += ", " + string(report.Service.Scope)
 		}
-		if !report.ServiceMatches || !entry.Managed {
+		if entry.State == "enablement link" {
+			label += ", enablement link"
+		} else if entry.Retained {
+			label += ", retained"
+		} else if !report.ServiceMatches || !entry.Managed {
 			label += ", outside scope"
 		}
 		entries = append(entries, fileTreeEntry{path: entry.Path, label: label})
 	}
 	text.WriteByte('\n')
 	text.WriteString(fileTreeText(entries, style))
-	if report.Preview {
-		if report.DataDir == "" {
-			text.WriteString("\n\n" + style.paint("33", "Cleanup unavailable: restore the settings file to identify the data directory."))
-		} else {
-			text.WriteString("\n\n" + style.paint("33", "Pass --yes to stop this instance and permanently delete its settings and all data."))
-		}
+	if !hasCleanupTargets(report) {
+		text.WriteString("\n\nNo removable resources remain for this instance.")
+	} else if report.Preview {
+		text.WriteString("\n\n" + style.paint("33", "Pass --yes to stop this instance and permanently delete its settings and all data."))
+	}
+	for _, warning := range report.Warnings {
+		text.WriteString("\nInspection warning: " + warning)
 	}
 	return text.String()
 }
@@ -295,10 +294,17 @@ func cleanupText(result installation.CleanupResult, cleanupErr error, style file
 	for _, path := range result.Retained {
 		entries = append(entries, fileTreeEntry{path: path, label: "retained"})
 	}
-	if len(entries) == 0 {
-		return heading + ": no paths reported."
+	for _, path := range result.Remaining {
+		entries = append(entries, fileTreeEntry{path: path, label: "remaining"})
 	}
-	return heading + "\n\n" + fileTreeText(entries, style)
+	output := heading + "\n\n" + fileTreeText(entries, style)
+	if cleanupErr == nil && len(result.Removed) == 0 {
+		output += "\nNo removable resources remain for this instance."
+	}
+	for _, warning := range result.Warnings {
+		output += "\nWarning: " + warning
+	}
+	return output
 }
 
 type fileTreeEntry struct {
