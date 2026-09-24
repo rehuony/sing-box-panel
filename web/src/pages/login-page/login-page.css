@@ -1,11 +1,5 @@
 .login-page {
-  --color-accent: var(--appearance-color, #6d4ed1);
-  --color-accent-soft: color-mix(in srgb, var(--color-accent) 12%, white);
-  --primary: var(--color-accent);
-  --primary-foreground: #fff;
-  --ring: var(--color-accent);
   align-items: center;
-  background: var(--background-login-page);
   display: grid;
   justify-items: center;
   min-block-size: 100dvh;
@@ -13,10 +7,10 @@
 }
 
 .login-card {
-  background: var(--color-glass-strong);
-  border: 1px solid var(--color-glass-border);
-  border-radius: 28px;
-  box-shadow: 0 24px 64px -24px rgb(81 55 133 / 20%);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-panel);
+  box-shadow: var(--shadow-panel);
   display: grid;
   gap: 24px;
   max-width: 420px;
@@ -35,7 +29,7 @@
 .login-card__icon {
   align-items: center;
   background: var(--color-accent-soft);
-  border-radius: 24px;
+  border-radius: var(--radius-card);
   color: var(--color-accent);
   display: flex;
   height: 72px;
@@ -79,7 +73,7 @@
 }
 
 .login-card__token input {
-  border-radius: 12px;
+  border-radius: var(--radius-control);
   height: 48px;
   padding-inline: 12px 48px;
 }
@@ -92,7 +86,7 @@
 }
 
 .login-card__submit {
-  border-radius: 12px;
+  border-radius: var(--radius-control);
   height: 44px;
   width: 100%;
 }

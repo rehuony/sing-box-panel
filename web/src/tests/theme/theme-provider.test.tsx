@@ -2,6 +2,7 @@ import { act, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { ThemeProvider, useTheme } from '@/theme';
+import { appearanceTokens } from '@/theme/appearance';
 import {
   applyThemeToDocument,
   nextThemePreference,
@@ -60,7 +61,7 @@ beforeEach(() => {
   document.documentElement.className = '';
   document.documentElement.removeAttribute('data-theme');
   document.documentElement.removeAttribute('data-resolved-theme');
-  document.documentElement.style.removeProperty('color-scheme');
+  document.documentElement.removeAttribute('style');
   document.head.innerHTML = '<meta name="theme-color" content="#000000">';
 });
 
@@ -103,6 +104,28 @@ describe('theme contract', () => {
 });
 
 describe('themeProvider', () => {
+  it('applies the server appearance before login and follows system changes with the same palette', () => {
+    const colorScheme = installColorSchemePreference(false);
+    const appearance = { theme: 'system', color: '#C65B13', radius: 8 } as const;
+    const meta = document.createElement('meta');
+    meta.name = 'sing-box-panel-appearance';
+    meta.content = JSON.stringify(appearance);
+    document.head.append(meta);
+    window.localStorage.setItem(THEME_STORAGE_KEY, 'dark');
+    renderTheme();
+
+    const assertTokens = (dark: boolean) => {
+      for (const [name, value] of Object.entries(appearanceTokens(appearance, dark))) {
+        expect(document.documentElement.style.getPropertyValue(name)).toBe(value);
+      }
+    };
+    expect(screen.getByRole('button', { name: 'system' })).toHaveAttribute('data-resolved-theme', 'light');
+    assertTokens(false);
+    colorScheme.set(true);
+    expect(document.documentElement).toHaveClass('dark');
+    assertTokens(true);
+  });
+
   it('defaults to system, follows live system changes, and persists the preference', () => {
     const colorScheme = installColorSchemePreference(true);
     const { unmount } = renderTheme();

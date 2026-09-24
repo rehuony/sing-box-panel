@@ -506,8 +506,8 @@ reads that configuration and never modifies startup bytes.
 
 `reason_code: process_only` and `monitoring_tier: process_only` explain missing
 core counters even while the child is running. This does not disable host CPU,
-memory, load, or disk collection. The dashboard displays the monitoring reason
-and links to configuration or runtime logs instead of leaving the cause implicit.
+memory, load, or disk collection. The dashboard retains unknown values and empty
+chart states without an additional monitoring explanation or configuration link.
 To enable core sampling, merge a Clash API section into the existing core
 configuration, using an unused loopback port and a private randomly generated
 secret, then save and apply it (or start the stopped core):

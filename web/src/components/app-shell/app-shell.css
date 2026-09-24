@@ -404,17 +404,6 @@
   min-width: 0;
 }
 
-.shell-route-loading {
-  display: grid;
-  flex: 1;
-  place-content: center;
-  justify-items: center;
-  gap: var(--space-sm);
-  min-height: 12rem;
-  color: var(--color-text-muted);
-  font-size: var(--text-sm);
-}
-
 #main-content:focus {
   box-shadow: none;
   outline: none;
@@ -437,23 +426,6 @@
   box-shadow: var(--shadow-panel);
   max-width: 34rem;
   width: 100%;
-}
-
-.shell-state__skeletons {
-  display: grid;
-  gap: var(--space-sm);
-}
-
-.shell-state__skeletons > * {
-  height: 0.72rem;
-}
-
-.shell-state__skeletons > :nth-child(2) {
-  width: 82%;
-}
-
-.shell-state__skeletons > :nth-child(3) {
-  width: 64%;
 }
 
 @media (max-width: 1180px) {

@@ -9,6 +9,7 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { ApiRequestError } from '@/api/api-client';
 import { ErrorNotice } from '@/components/error-notice';
+import { LoadingState } from '@/components/loading-state';
 import { useAuthSession } from '@/stores/auth-session.store';
 
 import './login-page.css';
@@ -47,12 +48,7 @@ export function LoginPage() {
   if (status === 'authenticated') return <Navigate replace to={returnTarget} />;
 
   if (status === 'checking') {
-    return (
-      <main className='loading-screen' aria-busy='true' aria-live='polite'>
-        <span aria-hidden='true' className='loading-screen__mark' />
-        <p>{t('login.checking', { defaultValue: 'Checking panel session…' })}</p>
-      </main>
-    );
+    return <LoadingState label={t('login.checking')} />;
   }
 
   if (status === 'unavailable') {

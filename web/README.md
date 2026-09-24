@@ -62,6 +62,22 @@ exist before any Go package that embeds the Web application is loaded.
 `public/favicon.svg` is the single static icon source used by HTML, the React
 logo, release bundles, and the repository README.
 
+The HTML entry includes a `sing-box-panel-appearance` meta element containing
+only the saved `theme`, `color`, and `radius`. The server reads this public visual
+projection from the current settings for each document request, including login
+and deep links; if reading fails, it uses the startup appearance so login remains
+available. Full panel settings and credentials remain authenticated.
+The global `ThemeProvider` applies these values before the first interface paint
+and owns the shared color, contrast, and radius tokens for every route. Login
+inherits the same page background and surface tokens as the panel. Authenticated
+settings loads and saves update this shared state; unsaved appearance previews
+are cleared when leaving settings or ending the session. System mode follows
+live OS changes. Without server metadata (Vite/demo), the default palette and
+locally stored light/dark/system preference provide the initial appearance.
+Session checks, panel initialization, and route loading share `LoadingState`:
+a centered circular breathing indicator and a status label, without a card or
+skeleton bars. It uses the active theme and stays still under reduced motion.
+
 At runtime the browser client uses same-origin `/api/v1` endpoints for the
 session, live dashboard context, the single saved configuration, panel settings,
 subscription publication, persistent logs and exact core-artifact operations. Cookie-backed writes retain

@@ -7,7 +7,6 @@ export const shell = {
     retry: '重试',
   },
   loading: {
-    description: '正在载入准确的运行身份与配置证据。',
     page: '正在载入工作台…',
     title: '正在读取面板上下文',
   },

@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { AppShell } from '@/components/app-shell';
 import { NotFoundPage } from '@/pages/not-found-page';
 import { ErrorNotice } from '@/components/error-notice';
+import { LoadingState } from '@/components/loading-state';
 import { useAuthSession } from '@/stores/auth-session.store';
 import { ControlPlaneProvider } from '@/stores/control-plane-provider';
 import { PanelSettingsProvider } from '@/stores/panel-settings-provider';
@@ -38,12 +39,7 @@ const SubscriptionsPage = lazy(async () => {
 
 function RouteLoadingState() {
   const { t } = useTranslation();
-  return (
-    <main className='loading-screen' aria-busy='true' aria-live='polite'>
-      <span aria-hidden='true' className='loading-screen__mark' />
-      <p>{t('shell.loading.page')}</p>
-    </main>
-  );
+  return <LoadingState label={t('shell.loading.page')} />;
 }
 
 function ProtectedRoute() {
@@ -52,12 +48,7 @@ function ProtectedRoute() {
   const location = useLocation();
 
   if (status === 'checking') {
-    return (
-      <main className='loading-screen' aria-busy='true' aria-live='polite'>
-        <span aria-hidden='true' className='loading-screen__mark' />
-        <p>{t('login.checking')}</p>
-      </main>
-    );
+    return <LoadingState label={t('login.checking')} />;
   }
 
   if (status === 'anonymous') {

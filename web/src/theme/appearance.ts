@@ -1,7 +1,26 @@
 import type { AppearanceSettings } from '@/api/api-client';
 
+import { isThemePreference } from './theme';
+
 export const DEFAULT_APPEARANCE: AppearanceSettings = { theme: 'light', color: '#6D4ED1', radius: 12 };
 export const THEME_PRESETS = ['#6D4ED1', '#2563EB', '#0891B2', '#15803D', '#C65B13', '#BE185D'] as const;
+
+export function readInitialAppearance(): AppearanceSettings | null {
+  const content = document.querySelector<HTMLMetaElement>('meta[name="sing-box-panel-appearance"]')?.content;
+  if (!content || content === '__SBP_APPEARANCE__') return null;
+  try {
+    const value: unknown = JSON.parse(content);
+    if (typeof value !== 'object' || value === null) return null;
+    const { theme, color, radius } = value as Partial<AppearanceSettings>;
+    if (!isThemePreference(theme) || typeof color !== 'string' || !/^#[\dA-F]{6}$/i.test(color)
+      || typeof radius !== 'number' || !Number.isInteger(radius) || radius < 0 || radius > 32) {
+      return null;
+    }
+    return { theme, color, radius };
+  } catch {
+    return null;
+  }
+}
 
 type RGB = [number, number, number];
 const rgb = (hex: string): RGB => [1, 3, 5].map(start => Number.parseInt(hex.slice(start, start + 2), 16)) as RGB;
