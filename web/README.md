@@ -63,8 +63,16 @@ place and failures retain previous usable state. Runtime controls verify observe
 process identity before reporting success. Version management displays the cached
 catalog immediately, initializes a missing cache, and offers a forced refresh;
 the running server handles periodic refresh using the configured interval.
-Panel logs display ordinary events with no operation tracking dialogs. Core logs
-and telemetry use authenticated streams with bounded buffering and reconnect.
+Panel logs show five centered, single-line columns: occurrence time, level,
+event summary, event source, and a details action. Known event names follow the
+interface language; unknown events retain their original messages. The summary
+contains only the event name, with overflowing text truncated. A read-only modal
+shows the selected record's stable snapshot, recorded context, and collapsible
+JSON, with a Copy log action. Basic information and context sit
+side by side on desktop and stack on narrow screens; the header and actions stay
+visible while the details scroll. Closing it preserves list state and
+restores keyboard focus. Native process output and telemetry use authenticated
+streams with bounded buffering and reconnect.
 
 Version, subscription source, node, channel, key, and panel-log lists use the
 shared `components/list-pagination` footer. It combines the page-size selector,
@@ -76,6 +84,10 @@ empty lists display 1 / 1 with navigation disabled.
 Key and panel-log lists request server offsets and matching totals; arbitrary
 page jumps do not load all records into the browser. Counts and list items are
 read from the same database snapshot, and shrinking lists return to a valid page.
+Panel-log search matches both Chinese and English event names by passing exact
+`search_codes` alongside the original `search` text. The server unions those
+matches before applying other filters, counting, and pagination. The demo client
+uses the same semantics and includes runtime transitions with their saved context.
 Enabled buttons, selectors, menu options, tabs, and choice controls use a pointer
 cursor. Disabled controls retain unavailable feedback; text inputs remain editable.
 

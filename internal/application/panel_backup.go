@@ -67,7 +67,9 @@ func (app *Application) ExportPanelBackup(ctx context.Context) (PanelBackup, err
 }
 
 func (app *Application) RestorePanelBackup(ctx context.Context, input PanelRestoreRequest) (result PanelRestoreResult, operationErr error) {
-	defer func() { app.RecordOperation(ctx, "panel.backup.restore", "Panel configuration restore", operationErr) }()
+	defer func() {
+		app.RecordOperation(ctx, "panel.backup.restore", "Panel configuration restore", operationErr, OperationLogContext{})
+	}()
 	backup := input.Backup
 	if app.settingsPath == "" || backup.Format != PanelBackupFormat || backup.Version != PanelBackupVersion || backup.ExportedAt.IsZero() || input.SettingsRevision < 0 || input.ConfigurationRevision < 0 || len(backup.PanelSettings) > settings.MaximumBytes || len(backup.SingBoxConfiguration) > configuration.MaximumBytes || !utf8.ValidString(backup.SingBoxConfiguration) || strings.ContainsRune(backup.SingBoxConfiguration, '\x00') {
 		return result, ErrPanelBackupInvalid

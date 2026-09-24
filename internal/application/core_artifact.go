@@ -19,7 +19,9 @@ import (
 )
 
 func (application *Application) InstallCore(ctx context.Context, assetID int64) (result CoreArtifact, operationErr error) {
-	defer func() { application.RecordOperation(ctx, "core.install", "Core installation", operationErr) }()
+	defer func() {
+		application.RecordOperation(ctx, "core.install", "Core installation", operationErr, OperationLogContext{})
+	}()
 	asset, err := application.catalogAsset(ctx, assetID)
 	if err != nil {
 		return CoreArtifact{}, err
@@ -36,7 +38,9 @@ func (application *Application) InstallCore(ctx context.Context, assetID int64) 
 }
 
 func (application *Application) ImportCore(ctx context.Context, input CoreImportRequest) (result CoreArtifact, operationErr error) {
-	defer func() { application.RecordOperation(ctx, "core.import", "Core import", operationErr) }()
+	defer func() {
+		application.RecordOperation(ctx, "core.import", "Core import", operationErr, OperationLogContext{})
+	}()
 	if !filepath.IsAbs(input.SourcePath) || filepath.Clean(input.SourcePath) != input.SourcePath {
 		return CoreArtifact{}, errors.New("core import path must be absolute and clean")
 	}

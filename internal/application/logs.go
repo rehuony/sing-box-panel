@@ -170,7 +170,14 @@ func (application *Application) CoreLogContent(name string, offset int64, genera
 }
 
 func (application *Application) DeleteCoreLogFile(ctx context.Context, name string) (err error) {
-	defer func() { application.RecordOperation(ctx, "core.log.delete", "Core log file deletion", err) }()
+	started := time.Now()
+	defer func() {
+		details := OperationLogContext{StartedAt: started}
+		if !errors.Is(err, corelogs.ErrInvalidFile) {
+			details.File = name
+		}
+		application.RecordOperation(ctx, "core.log.delete", "Core log file deletion", err, details)
+	}()
 	files, err := application.coreLogFiles()
 	if err != nil {
 		return err
@@ -179,7 +186,14 @@ func (application *Application) DeleteCoreLogFile(ctx context.Context, name stri
 }
 
 func (application *Application) ClearCoreLog(ctx context.Context, name string) (err error) {
-	defer func() { application.RecordOperation(ctx, "core.log.clear", "Core log clearing", err) }()
+	started := time.Now()
+	defer func() {
+		details := OperationLogContext{StartedAt: started}
+		if !errors.Is(err, corelogs.ErrInvalidFile) {
+			details.File = name
+		}
+		application.RecordOperation(ctx, "core.log.clear", "Core log clearing", err, details)
+	}()
 	files, err := application.coreLogFiles()
 	if err != nil {
 		return err
@@ -192,7 +206,7 @@ func (application *Application) PanelLogs(ctx context.Context, filter store.Pane
 }
 
 // RecordOperation records a completed action without exposing inputs or credentials.
-func (application *Application) RecordOperation(ctx context.Context, code, message string, operationErr error) {
+func (application *Application) RecordOperation(ctx context.Context, code, message string, operationErr error, details OperationLogContext) {
 	level := store.LogLevelInfo
 	if operationErr != nil {
 		level = store.LogLevelError
@@ -204,5 +218,5 @@ func (application *Application) RecordOperation(ctx context.Context, code, messa
 	}
 	logCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
 	defer cancel()
-	_, _ = application.RecordLog(logCtx, LogRecordRequest{Source: store.LogSourcePanel, Level: level, Code: code, Message: message, Metadata: json.RawMessage(`{}`)})
+	_, _ = application.RecordLog(logCtx, LogRecordRequest{Source: store.LogSourcePanel, Level: level, Code: code, Message: message, Metadata: details.metadata(operationErr)})
 }

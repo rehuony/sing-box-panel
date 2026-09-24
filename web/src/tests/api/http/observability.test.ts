@@ -40,6 +40,19 @@ describe('createHttpApiClient observability domain', () => {
     );
   });
 
+  it('serializes translated search codes as one comma-separated query parameter', async () => {
+    const fetcher = vi.fn<typeof fetch>().mockImplementation(async () =>
+      new Response(JSON.stringify({ items: [], total: 0 })),
+    );
+    const client = createHttpApiClient({ fetcher });
+    await client.listPanelLogs({ search: '核心启动', searchCodes: ['runtime.start.completed', 'start_succeeded'] });
+    const url = new URL(String(fetcher.mock.calls[0]![0]), 'https://panel.test');
+    expect(url.searchParams.get('search')).toBe('核心启动');
+    expect(url.searchParams.getAll('search_codes')).toEqual(['runtime.start.completed,start_succeeded']);
+    await client.listPanelLogs({ searchCodes: [] });
+    expect(String(fetcher.mock.calls[1]![0])).not.toContain('search_codes');
+  });
+
   it('centralizes observability filters on the stable read-only endpoints', async () => {
     const fetcher = vi.fn<typeof fetch>().mockResolvedValue(
       new Response(JSON.stringify({ items: [] }), {

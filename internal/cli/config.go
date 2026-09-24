@@ -63,7 +63,7 @@ values without a default, such as auth.token, cannot be reset.
 Only the shared settings file changes. Startup settings take effect after a
 manual restart; resetting data_dir follows the existing data migration workflow.`,
 		Example: `  sing-box-panel config unset server.port
-  sing-box-panel config unset /subscription/provider
+  sing-box-panel config unset /github/catalog_refresh_interval_hours
   sing-box-panel config unset server.external_origin auth.secure_cookie`,
 		Args:              cobra.MinimumNArgs(1),
 		ValidArgsFunction: cobra.NoFileCompletions,

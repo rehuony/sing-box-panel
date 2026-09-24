@@ -57,8 +57,8 @@ func TestInitializeAndLoad(t *testing.T) {
 	if loaded.Auth.Token != value.Auth.Token {
 		t.Fatal("Load() did not preserve the token")
 	}
-	if loaded.Subscription.Provider != "default" {
-		t.Fatalf("initialized provider = %q, want default", loaded.Subscription.Provider)
+	if len(loaded.Subscription.PrivateSourceCIDRs) != 0 {
+		t.Fatal("initialized private source allowlist must be empty")
 	}
 	if loaded.Traffic.SampleRetentionDays != 90 {
 		t.Fatalf("initialized sample retention = %d, want 90", loaded.Traffic.SampleRetentionDays)
@@ -77,8 +77,8 @@ func TestLoadRejectsAmbiguousSettings(t *testing.T) {
   "auth":{"token":"one","token":"two","secure_cookie":false},
   "github":{"token":"","catalog_refresh_interval_hours":12},
   "traffic":{"quota_gib":null,"period_months":1},
-  "subscription":{"author":"a","provider":"p","private_source_cidrs":[]},
-  "logs":{"retention_days":7}
+  "subscription":{"private_source_cidrs":[]},
+  "logs":{"core_retention_days":7}
 }`
 	if err := os.WriteFile(path, []byte(input), 0o600); err != nil {
 		t.Fatal(err)
@@ -98,8 +98,8 @@ func TestLoadRejectsMissingOrInvalidTrafficSampleRetention(t *testing.T) {
   "auth":{"token":"token","secure_cookie":false},
   "github":{"token":"","catalog_refresh_interval_hours":12},
   "traffic":{"quota_gib":null,"period_months":1},
-  "subscription":{"author":"a","provider":"p","private_source_cidrs":[]},
-  "logs":{"retention_days":7}
+  "subscription":{"private_source_cidrs":[]},
+  "logs":{"core_retention_days":7}
 }`
 	if err := os.WriteFile(path, []byte(legacy), 0o600); err != nil {
 		t.Fatal(err)
@@ -190,27 +190,27 @@ func TestCoreLogPolicyDefaultsAndBounds(t *testing.T) {
 	if err := json.Unmarshal(raw, &legacy); err != nil {
 		t.Fatal(err)
 	}
-	if value.Logs.RetentionDays != 0 {
+	if _, exists := legacy["logs"].(map[string]any)["retention_days"]; exists {
 		t.Fatal("new settings should not specify panel event expiration")
 	}
 	legacy["logs"] = map[string]any{}
 	raw, _ = json.Marshal(legacy)
-	if _, err := Parse(filepath.Join(t.TempDir(), "setting.json"), raw); err != nil {
+	loaded, err := Parse(filepath.Join(t.TempDir(), "setting.json"), raw)
+	if err != nil || loaded.Logs != value.Logs {
 		t.Fatalf("panel event retention must not be required: %v", err)
 	}
 	legacy["logs"] = map[string]any{"retention_days": 30}
 	raw, _ = json.Marshal(legacy)
-	loaded, err := Parse(filepath.Join(t.TempDir(), "setting.json"), raw)
-	if err != nil || loaded.Logs.RetentionDays != 30 || loaded.Logs.CoreRetentionDays != 7 || loaded.Logs.CoreMaxFiles != 0 || loaded.Logs.CoreMaxFileSizeMiB != 32 {
-		t.Fatalf("legacy defaults: %+v %v", loaded.Logs, err)
+	if _, err := Parse(filepath.Join(t.TempDir(), "setting.json"), raw); err == nil || !strings.Contains(err.Error(), "unknown field") {
+		t.Fatalf("removed retention field accepted: %v", err)
 	}
 	for _, policy := range []Logs{
-		{RetentionDays: 7, CoreRetentionDays: 0, CoreMaxFileSizeMiB: 32},
-		{RetentionDays: 7, CoreRetentionDays: 3651, CoreMaxFileSizeMiB: 32},
-		{RetentionDays: 7, CoreRetentionDays: 7, CoreMaxFiles: -1, CoreMaxFileSizeMiB: 32},
-		{RetentionDays: 7, CoreRetentionDays: 7, CoreMaxFiles: 1025, CoreMaxFileSizeMiB: 32},
-		{RetentionDays: 7, CoreRetentionDays: 7, CoreMaxFileSizeMiB: 0},
-		{RetentionDays: 7, CoreRetentionDays: 7, CoreMaxFileSizeMiB: 1025},
+		{CoreRetentionDays: 0, CoreMaxFileSizeMiB: 32},
+		{CoreRetentionDays: 3651, CoreMaxFileSizeMiB: 32},
+		{CoreRetentionDays: 7, CoreMaxFiles: -1, CoreMaxFileSizeMiB: 32},
+		{CoreRetentionDays: 7, CoreMaxFiles: 1025, CoreMaxFileSizeMiB: 32},
+		{CoreRetentionDays: 7, CoreMaxFileSizeMiB: 0},
+		{CoreRetentionDays: 7, CoreMaxFileSizeMiB: 1025},
 	} {
 		value.Logs = policy
 		raw, _ := json.Marshal(value)

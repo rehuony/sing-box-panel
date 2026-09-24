@@ -29,7 +29,11 @@ func optionalPageOffset(w http.ResponseWriter, request *http.Request) (int, bool
 }
 
 func strictCoreQuery(w http.ResponseWriter, request *http.Request, allowed ...string) (url.Values, bool) {
-	if len(request.URL.RawQuery) > maximumCoreQueryBytes {
+	return strictQueryWithLimit(w, request, maximumCoreQueryBytes, allowed...)
+}
+
+func strictQueryWithLimit(w http.ResponseWriter, request *http.Request, maximumBytes int, allowed ...string) (url.Values, bool) {
+	if len(request.URL.RawQuery) > maximumBytes {
 		writeProblem(w, request, http.StatusBadRequest, "query_invalid", "Query invalid", "The query string is too large.")
 		return nil, false
 	}

@@ -39,23 +39,17 @@ type PanelServiceSettings struct {
 	CatalogRefreshIntervalHours int      `json:"catalog_refresh_interval_hours"`
 	TrafficPeriodMonths         int      `json:"traffic_period_months"`
 	SampleRetentionDays         int      `json:"sample_retention_days"`
-	SubscriptionAuthor          string   `json:"subscription_author"`
-	SubscriptionProvider        string   `json:"subscription_provider"`
 	PrivateSourceCIDRs          []string `json:"private_source_cidrs"`
-	// Deprecated: accepted for compatibility only; does not control event retention.
-	LogRetentionDays      int  `json:"log_retention_days"`
-	CoreLogRetentionDays  *int `json:"core_log_retention_days,omitempty"`
-	CoreLogMaxFiles       *int `json:"core_log_max_files,omitempty"`
-	CoreLogMaxFileSizeMiB *int `json:"core_log_max_file_size_mib,omitempty"`
+	CoreLogRetentionDays        *int     `json:"core_log_retention_days,omitempty"`
+	CoreLogMaxFiles             *int     `json:"core_log_max_files,omitempty"`
+	CoreLogMaxFileSizeMiB       *int     `json:"core_log_max_file_size_mib,omitempty"`
 }
 
 func serviceSettings(value settings.Settings) PanelServiceSettings {
 	return PanelServiceSettings{
 		DataDir: value.DataDir, BasePath: value.Server.BasePath, SecureCookie: value.Auth.SecureCookie,
 		CatalogRefreshIntervalHours: value.GitHub.CatalogRefreshIntervalHours, TrafficPeriodMonths: value.Traffic.PeriodMonths,
-		SampleRetentionDays: value.Traffic.SampleRetentionDays, SubscriptionAuthor: value.Subscription.Author,
-		SubscriptionProvider: value.Subscription.Provider, PrivateSourceCIDRs: append([]string{}, value.Subscription.PrivateSourceCIDRs...),
-		LogRetentionDays:     value.Logs.RetentionDays,
+		SampleRetentionDays: value.Traffic.SampleRetentionDays, PrivateSourceCIDRs: append([]string{}, value.Subscription.PrivateSourceCIDRs...),
 		CoreLogRetentionDays: &value.Logs.CoreRetentionDays, CoreLogMaxFiles: &value.Logs.CoreMaxFiles, CoreLogMaxFileSizeMiB: &value.Logs.CoreMaxFileSizeMiB,
 	}
 }
@@ -64,9 +58,7 @@ func (service PanelServiceSettings) apply(value *settings.Settings) {
 	value.DataDir, value.Server.BasePath, value.Auth.SecureCookie = service.DataDir, service.BasePath, service.SecureCookie
 	value.GitHub.CatalogRefreshIntervalHours = service.CatalogRefreshIntervalHours
 	value.Traffic.PeriodMonths, value.Traffic.SampleRetentionDays = service.TrafficPeriodMonths, service.SampleRetentionDays
-	value.Subscription.Author, value.Subscription.Provider = service.SubscriptionAuthor, service.SubscriptionProvider
 	value.Subscription.PrivateSourceCIDRs = slices.Clone(service.PrivateSourceCIDRs)
-	value.Logs.RetentionDays = service.LogRetentionDays
 	if service.CoreLogRetentionDays != nil {
 		value.Logs.CoreRetentionDays = *service.CoreLogRetentionDays
 	}

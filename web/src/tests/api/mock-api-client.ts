@@ -355,7 +355,7 @@ export function createMockApiClient(overrides: Partial<ApiClient> = {}): Mocked<
     restorePanelBackup: vi.fn(),
     getPanelSettings: vi.fn().mockResolvedValue({
       revision: 0,
-      service: { data_dir: '/var/lib/sing-box-panel', base_path: '', secure_cookie: false, catalog_refresh_interval_hours: 12, traffic_period_months: 1, sample_retention_days: 90, subscription_author: 'reagin', subscription_provider: 'default', private_source_cidrs: [], log_retention_days: 0 },
+      service: { data_dir: '/var/lib/sing-box-panel', base_path: '', secure_cookie: false, catalog_refresh_interval_hours: 12, traffic_period_months: 1, sample_retention_days: 90, private_source_cidrs: [] },
       github_token_configured: false,
       identity_key_configured: false,
       restart_required: false,
@@ -373,7 +373,7 @@ export function createMockApiClient(overrides: Partial<ApiClient> = {}): Mocked<
     savePanelSettings: vi.fn().mockImplementation(async (input) => ({
       revision: input.revision + 1,
       preferences: input.preferences,
-      service: input.service ?? { data_dir: '/var/lib/sing-box-panel', base_path: '', secure_cookie: false, catalog_refresh_interval_hours: 12, traffic_period_months: 1, sample_retention_days: 90, subscription_author: 'reagin', subscription_provider: 'default', private_source_cidrs: [], log_retention_days: 0 },
+      service: input.service ?? { data_dir: '/var/lib/sing-box-panel', base_path: '', secure_cookie: false, catalog_refresh_interval_hours: 12, traffic_period_months: 1, sample_retention_days: 90, private_source_cidrs: [] },
       github_token_configured: Boolean(input.github_token),
       identity_key_configured: Boolean(input.identity_key),
       restart_required: false,

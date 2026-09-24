@@ -229,8 +229,17 @@ func TestPanelConfigInitOnlyGeneratesSettings(t *testing.T) {
 				t.Fatal(err)
 			}
 			value, err := settings.Load(path)
-			if err != nil || value.Subscription.Provider != "default" || value.Auth.Token == "" {
+			if err != nil || len(value.Subscription.PrivateSourceCIDRs) != 0 || value.Auth.Token == "" {
 				t.Fatal("init did not generate valid defaults", err)
+			}
+			shown, err := runPanelConfig(t, t.Context(), path, nil, "show")
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, field := range []string{`"author"`, `"provider"`, `"retention_days"`} {
+				if strings.Contains(shown, field) {
+					t.Fatalf("initialization generated removed field %s", field)
+				}
 			}
 			if !strings.Contains(out, value.Auth.Token) || !strings.Contains(out, path) {
 				t.Fatal("initialization summary omitted the path or token")
@@ -273,6 +282,56 @@ func TestPanelConfigInitOnlyGeneratesSettings(t *testing.T) {
 	}
 }
 
+func TestPanelConfigRejectsRemovedFieldsAndForceInitDoesNotRegenerateThem(t *testing.T) {
+	for _, tc := range []struct{ section, field, value string }{
+		{"subscription", "author", `"old-author"`},
+		{"subscription", "provider", `"old-provider"`},
+		{"logs", "retention_days", `7`},
+	} {
+		t.Run(tc.section+"."+tc.field, func(t *testing.T) {
+			path := commandSettingsFixture(t)
+			before, err := settings.Read(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var root map[string]json.RawMessage
+			if err := json.Unmarshal(before, &root); err != nil {
+				t.Fatal(err)
+			}
+			var section map[string]json.RawMessage
+			if err := json.Unmarshal(root[tc.section], &section); err != nil {
+				t.Fatal(err)
+			}
+			section[tc.field] = json.RawMessage(tc.value)
+			root[tc.section], _ = json.Marshal(section)
+			legacy, _ := json.Marshal(root)
+			if _, err := runPanelConfig(t, t.Context(), path, bytes.NewReader(legacy), "set", "--file=-"); ExitCode(err) != 3 || !strings.Contains(err.Error(), "unknown field") {
+				t.Fatalf("removed field accepted by set: %v", err)
+			}
+			if _, err := runPanelConfig(t, t.Context(), path, nil, "unset", tc.section+"."+tc.field); ExitCode(err) != 3 {
+				t.Fatalf("removed field accepted by unset: %v", err)
+			}
+			after, _ := settings.Read(path)
+			if !bytes.Equal(before, after) {
+				t.Fatal("invalid edit changed settings")
+			}
+			if err := os.WriteFile(path, legacy, 0600); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := runPanelConfig(t, t.Context(), path, nil, "verify"); ExitCode(err) != 3 || !strings.Contains(err.Error(), "unknown field") {
+				t.Fatalf("removed field accepted by verify: %v", err)
+			}
+			if _, err := runPanelConfig(t, t.Context(), path, nil, "init", "--force"); err != nil {
+				t.Fatal(err)
+			}
+			shown, err := runPanelConfig(t, t.Context(), path, nil, "show")
+			if err != nil || strings.Contains(shown, `"`+tc.field+`"`) {
+				t.Fatal("force initialization regenerated removed field", err)
+			}
+		})
+	}
+}
+
 func TestPanelConfigInitCancellationDoesNotCreateFiles(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config", "setting.json")
 	ctx, cancel := context.WithCancel(t.Context())
@@ -292,23 +351,23 @@ func TestPanelConfigUnsetRestoresDefaultsWithoutOpeningStorage(t *testing.T) {
 		value.Auth.Token = "keep-token"
 		value.DataDir = "./absent-data"
 		value.Server.Port = 8181
-		value.Subscription.Provider = "custom"
+		value.GitHub.CatalogRefreshIntervalHours = 24
 		raw, _ := json.Marshal(value)
 		if err := os.WriteFile(path, raw, 0600); err != nil {
 			t.Fatal(err)
 		}
-		out, err := runPanelConfig(t, t.Context(), path, nil, "unset", "server.port", "/subscription/provider", "-o", format)
+		out, err := runPanelConfig(t, t.Context(), path, nil, "unset", "server.port", "/github/catalog_refresh_interval_hours", "-o", format)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if format != "text" && (!strings.Contains(out, `"saved":true`) || !strings.Contains(out, `"reset_fields":["server.port","/subscription/provider"]`)) {
+		if format != "text" && (!strings.Contains(out, `"saved":true`) || !strings.Contains(out, `"reset_fields":["server.port","/github/catalog_refresh_interval_hours"]`)) {
 			t.Fatal("invalid structured reset result", out)
 		}
 		if strings.Contains(out, value.Auth.Token) {
 			t.Fatal("reset result exposed a credential")
 		}
 		loaded, err := settings.Load(path)
-		if err != nil || loaded.Server.Port != 3000 || loaded.Subscription.Provider != "default" || loaded.Auth.Token != value.Auth.Token {
+		if err != nil || loaded.Server.Port != 3000 || loaded.GitHub.CatalogRefreshIntervalHours != 12 || loaded.Auth.Token != value.Auth.Token {
 			t.Fatal("unset did not restore selected defaults", err)
 		}
 		if _, err := os.Stat(loaded.DataDir); !errors.Is(err, os.ErrNotExist) {

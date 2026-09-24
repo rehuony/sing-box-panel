@@ -188,7 +188,7 @@ func (services *runtimeServices) ReconcileStartup(ctx context.Context) (reconcil
 	}
 	if recovery.Intent != nil {
 		recordRuntimeRecoveryAttempt(services.commands, recovery)
-		return services.executeIntent(ctx, *recovery.Intent)
+		return services.executeIntent(ctx, recovery.Intent)
 	}
 	if !recovery.Exhausted && recovery.EpisodeID != "" {
 		recordRuntimeRecoveryScheduled(services.commands, recovery)

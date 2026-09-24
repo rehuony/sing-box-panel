@@ -1118,6 +1118,17 @@ paths:
         - name: search
           in: query
           schema: {type: string, maxLength: 256}
+          description: Case-insensitive substring of the original message or event code. Combined with search_codes using OR.
+        - name: search_codes
+          in: query
+          description: Exact event codes matching translated event names. ORed with search, then intersected with other filters before counting and pagination. The complete encoded query is limited to 64 KiB, allowing the full code range even with percent encoding.
+          style: form
+          explode: false
+          schema:
+            type: array
+            minItems: 1
+            maxItems: 128
+            items: {type: string, maxLength: 128, pattern: '^[a-z][a-z0-9_.-]*$'}
       responses:
         '200':
           description: Panel activity and runtime transition history.
@@ -1819,7 +1830,7 @@ components:
     PanelServiceSettings:
       type: object
       additionalProperties: false
-      required: [data_dir, base_path, secure_cookie, catalog_refresh_interval_hours, traffic_period_months, sample_retention_days, subscription_author, subscription_provider, private_source_cidrs]
+      required: [data_dir, base_path, secure_cookie, catalog_refresh_interval_hours, traffic_period_months, sample_retention_days, private_source_cidrs]
       properties:
         data_dir:
           type: string
@@ -1840,20 +1851,9 @@ components:
           type: integer
           minimum: 1
           maximum: 366
-        subscription_author:
-          type: string
-          minLength: 1
-        subscription_provider:
-          type: string
-          minLength: 1
         private_source_cidrs:
           type: array
           items: {type: string}
-        log_retention_days:
-          type: integer
-          deprecated: true
-          default: 0
-          description: Legacy compatibility field with no retention effect. Panel events are stored indefinitely unless explicitly deleted.
         core_log_retention_days:
           type: integer
           minimum: 1
@@ -2709,7 +2709,9 @@ components:
         code: {type: string}
         message: {type: string}
         status: {type: string}
-        metadata: {$ref: '#/components/schemas/DynamicObject'}
+        metadata:
+          allOf: [{$ref: '#/components/schemas/DynamicObject'}]
+          description: Sanitized recorded context. Runtime transitions include available pid, process_started_at, generation, activation_bundle_id and uncertain_since; internal process identity tokens are excluded. Operation events may include duration_ms, target identifiers, error_code and a safe error description. Missing historical context is not reconstructed from current state.
     PanelLogPage:
       type: object
       additionalProperties: false

@@ -4,14 +4,17 @@ package httpapi
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/rehuony/sing-box-panel/internal/application"
 	"github.com/rehuony/sing-box-panel/internal/corelogs"
 	"github.com/rehuony/sing-box-panel/internal/store"
 )
@@ -139,7 +142,7 @@ func TestCoreLogFilesAreAuthenticatedAndCursorReadable(t *testing.T) {
 
 func TestPanelLogsIncludeCompletedOperations(t *testing.T) {
 	handler, _ := newCoreHTTPFixture(t)
-	handler.commands.RecordOperation(context.Background(), "catalog.refresh", "Catalog refresh", nil)
+	handler.commands.RecordOperation(context.Background(), "catalog.refresh", "Catalog refresh", nil, application.OperationLogContext{})
 	response := authenticatedRequest(handler, "GET", "/api/v1/logs/panel?limit=5", "", "")
 	var page store.PanelLogPage
 	if response.Code != 200 || json.Unmarshal(response.Body.Bytes(), &page) != nil {
@@ -159,6 +162,61 @@ func TestPanelLogsIncludeCompletedOperations(t *testing.T) {
 			t.Fatalf("removed endpoint: %s %d", path, response.Code)
 		}
 	}
+}
+
+func TestPanelLogSearchCodesValidationAndMatching(t *testing.T) {
+	handler, _ := newCoreHTTPFixture(t)
+	handler.commands.RecordOperation(t.Context(), "runtime.start", "Core start", nil, application.OperationLogContext{})
+	for _, query := range []string{
+		"search_codes=", "search_codes=runtime.start.completed,", "search_codes=INVALID",
+		"search_codes=a&search_codes=b", "search_codes=a%27OR1", "search_codes=" + strings.Repeat("a", 129),
+		"search_codes=" + strings.Repeat("a,", 128) + "a",
+		"search_codes=" + strings.Repeat("a", store.MaximumPanelLogSearchCodes*(store.MaximumLogCodeBytes+1)+1),
+	} {
+		response := authenticatedRequest(handler, http.MethodGet, "/api/v1/logs/panel?"+query, "", "")
+		if response.Code != http.StatusBadRequest {
+			t.Fatalf("invalid codes accepted: %d %s", response.Code, response.Body.String())
+		}
+	}
+	response := authenticatedRequest(handler, http.MethodGet, "/api/v1/logs/panel?search=%E6%A0%B8%E5%BF%83&search_codes=runtime.start.completed&level=info", "", "")
+	var page store.PanelLogPage
+	if response.Code != 200 || json.Unmarshal(response.Body.Bytes(), &page) != nil || page.Total != 1 || len(page.Items) != 1 || page.Items[0].Code != "runtime.start.completed" {
+		t.Fatalf("translated search: %d %s", response.Code, response.Body.String())
+	}
+	unauthenticated := httptest.NewRecorder()
+	handler.ServeHTTP(unauthenticated, httptest.NewRequest(http.MethodGet, "/api/v1/logs/panel?search_codes=runtime.start.completed", nil))
+	if unauthenticated.Code != http.StatusUnauthorized {
+		t.Fatal(unauthenticated.Code)
+	}
+}
+
+func TestPanelLogSearchCodesAcceptsFullDocumentedRange(t *testing.T) {
+	handler, _ := newCoreHTTPFixture(t)
+	codes := make([]string, store.MaximumPanelLogSearchCodes)
+	for i := range codes {
+		codes[i] = fmt.Sprintf("x%03d%s", i, strings.Repeat("a", store.MaximumLogCodeBytes-4))
+	}
+	_, err := handler.commands.RecordLog(t.Context(), application.LogRecordRequest{
+		Source: store.LogSourcePanel, Level: store.LogLevelInfo, Code: codes[len(codes)-1],
+		Message: "Boundary search event", Metadata: json.RawMessage(`{}`),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var fullyEscaped strings.Builder
+	for _, b := range []byte(strings.Join(codes, ",")) {
+		fmt.Fprintf(&fullyEscaped, "%%%02X", b)
+	}
+	for _, encoded := range []string{url.QueryEscape(strings.Join(codes, ",")), fullyEscaped.String()} {
+		query := url.Values{"search": {strings.Repeat("z", 256)}, "level": {"info"}, "limit": {"1"}, "offset": {"0"}}
+		response := authenticatedRequest(handler, http.MethodGet, "/api/v1/logs/panel?"+query.Encode()+"&search_codes="+encoded, "", "")
+		var page store.PanelLogPage
+		if response.Code != http.StatusOK || json.Unmarshal(response.Body.Bytes(), &page) != nil || page.Total != 1 || len(page.Items) != 1 {
+			t.Fatalf("documented search range rejected: %d %s", response.Code, response.Body.String())
+		}
+	}
+	response := authenticatedRequest(handler, http.MethodGet, "/api/v1/logs/panel?search_codes="+strings.Repeat("a", 64<<10), "", "")
+	assertCoreHTTPProblem(t, response, http.StatusBadRequest, "query_invalid")
 }
 
 type cancelingLogRecorder struct {

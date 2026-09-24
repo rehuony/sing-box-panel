@@ -42,8 +42,8 @@ func commandSettingsFixture(t *testing.T) string {
       "auth":{"token":"test-token","secure_cookie":false},
       "github":{"token":"","catalog_refresh_interval_hours":12},
       "traffic":{"quota_gib":null,"period_months":1,"sample_retention_days":90},
-      "subscription":{"author":"a","provider":"p","private_source_cidrs":[]},
-      "logs":{"retention_days":7}
+      "subscription":{"private_source_cidrs":[]},
+      "logs":{"core_retention_days":7}
     }`, dataDir)
 	if err := os.WriteFile(settingsPath, []byte(settingsJSON), 0o600); err != nil {
 		t.Fatal(err)

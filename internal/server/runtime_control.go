@@ -43,8 +43,21 @@ func (s *runtimeServices) ExecuteRuntime(ctx context.Context, input application.
 	if err := ctx.Err(); err != nil {
 		return result, err
 	}
-	defer func() { s.commands.RecordOperation(ctx, "runtime."+input.Action, "Core "+input.Action, runErr) }()
 	var intent store.RuntimeIntent
+	started := time.Now()
+	defer func() {
+		details := application.OperationLogContext{
+			StartedAt: started, CoreID: input.CoreID, StartupArtifactID: input.StartupArtifactID,
+			ActivationBundleID: input.BundleID, Generation: intent.Generation,
+		}
+		if intent.ActivationBundleID != "" {
+			details.ActivationBundleID = intent.ActivationBundleID
+		}
+		if intent.StartupArtifactID != "" {
+			details.StartupArtifactID = intent.StartupArtifactID
+		}
+		s.commands.RecordOperation(ctx, "runtime."+input.Action, "Core "+input.Action, runErr, details)
+	}()
 	var err error
 	switch input.Action {
 	case "enable":
@@ -77,7 +90,7 @@ func (s *runtimeServices) ExecuteRuntime(ctx context.Context, input application.
 	if err != nil {
 		return result, err
 	}
-	if err = s.executeIntent(ctx, intent); err != nil {
+	if err = s.executeIntent(ctx, &intent); err != nil {
 		return result, err
 	}
 	result.Status, err = s.commands.RuntimeStatus(ctx)
@@ -86,7 +99,8 @@ func (s *runtimeServices) ExecuteRuntime(ctx context.Context, input application.
 
 // executeIntent runs under the runtime mutex. Completion has its own short
 // deadline so cancellation cannot discard evidence of a process already changed.
-func (s *runtimeServices) executeIntent(ctx context.Context, intent store.RuntimeIntent) error {
+// The caller retains the checked target for operation logging, even on failure.
+func (s *runtimeServices) executeIntent(ctx context.Context, intent *store.RuntimeIntent) error {
 	guard := runtimeGuard{database: s.database, generation: intent.Generation}
 	if err := guard.SafePoint(ctx); err != nil {
 		return err
@@ -95,21 +109,21 @@ func (s *runtimeServices) executeIntent(ctx context.Context, intent store.Runtim
 		if intent.Kind == store.RuntimeIntentStart && s.manager.ObserveLiveIdentity().Running {
 			return errors.New("core is already running; restart to load saved configuration")
 		}
-		var err error
-		intent, err = s.checkConfigurationForIntent(ctx, intent, guard)
+		checked, err := s.checkConfigurationForIntent(ctx, *intent, guard)
 		if err != nil {
 			return err
 		}
+		*intent = checked
 	}
-	result, runErr := s.performRuntimeIntent(ctx, intent, guard)
+	result, runErr := s.performRuntimeIntent(ctx, *intent, guard)
 	completionCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), shutdownTimeout)
 	defer cancel()
-	completeErr := s.database.CompleteRuntimeIntent(completionCtx, intent, runErr == nil, result.Runtime, time.Now().UTC())
+	completeErr := s.database.CompleteRuntimeIntent(completionCtx, *intent, runErr == nil, result.Runtime, time.Now().UTC())
 	if completeErr != nil && runErr == nil && s.manager.ObserveLiveIdentity().Running {
 		observation, readErr := s.captureRuntimeObservation(completionCtx)
-		commit, stopErr := s.stopAfterLostIntent(observation, intent, intent.ActivationBundleID, store.RuntimeTransitionFailed, "runtime_commit_failed")
+		commit, stopErr := s.stopAfterLostIntent(observation, *intent, intent.ActivationBundleID, store.RuntimeTransitionFailed, "runtime_commit_failed")
 		if readErr == nil && stopErr == nil {
-			stopErr = s.database.CompleteRuntimeIntent(completionCtx, intent, false, commit, time.Now().UTC())
+			stopErr = s.database.CompleteRuntimeIntent(completionCtx, *intent, false, commit, time.Now().UTC())
 		}
 		completeErr = errors.Join(completeErr, readErr, stopErr)
 	}

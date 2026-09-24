@@ -82,7 +82,7 @@ func (reconciler *runtimeReconciler) reconcile(ctx context.Context) {
 	reconciler.recordUnexpectedExit(ctx, result)
 	reconciler.recordRecoveryDecision(result)
 	if result.Intent != nil {
-		if err := reconciler.services.executeIntent(ctx, *result.Intent); err != nil {
+		if err := reconciler.services.executeIntent(ctx, result.Intent); err != nil {
 			reconciler.recordReconcileError(err)
 		}
 	}

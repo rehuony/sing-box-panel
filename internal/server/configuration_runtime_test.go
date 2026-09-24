@@ -126,11 +126,15 @@ func TestInvalidSavedConfigurationCannotStartOrRestartFromOldHistory(t *testing.
 
 type configurationLaunchManager struct {
 	configurationCheckManager
-	launches int
+	launches    int
+	launchError error
 }
 
 func (manager *configurationLaunchManager) Start(_ context.Context, bundle coreruntime.AppliedBundle) error {
 	manager.launches++
+	if manager.launchError != nil {
+		return manager.launchError
+	}
 	manager.live = coreruntime.LiveIdentity{
 		Running: true, State: coreruntime.StateRunning, PID: 5151,
 		BundleID: bundle.ID, ArtifactID: bundle.ArtifactID, ExactVersion: bundle.ExactVersion,
@@ -162,7 +166,7 @@ func TestSavedConfigurationRestartCommitsCheckedBytesAndLoadedIdentity(t *testin
 	manager.live = coreruntime.LiveIdentity{Running: true, PID: previous.PID, BundleID: previous.ActivationBundleID}
 	resolver := &fakeRuntimeIdentityResolver{startToken: "new-incarnation"}
 	services := &runtimeServices{database: db, commands: commands, manager: manager, identity: resolver}
-	if err := services.executeIntent(ctx, queued); err != nil {
+	if err := services.executeIntent(ctx, &queued); err != nil {
 		t.Fatal(err)
 	}
 	if manager.launches != 1 || manager.checkedBundle == nil {
@@ -208,7 +212,7 @@ func TestStartDoesNotReloadAnAlreadyRunningProcess(t *testing.T) {
 	manager := &configurationLaunchManager{}
 	manager.live = coreruntime.LiveIdentity{Running: true, PID: previous.PID, BundleID: previous.ActivationBundleID}
 	services := &runtimeServices{database: db, commands: commands, manager: manager}
-	if err := services.executeIntent(ctx, intent); err == nil {
+	if err := services.executeIntent(ctx, &intent); err == nil {
 		t.Fatal("start silently reloaded a changed configuration")
 	}
 	if manager.launches != 0 || manager.stopCalls != 0 {
@@ -282,7 +286,7 @@ func TestStoppedCoreSelectionCommitsWithoutLaunchingAndRetainsVersion(t *testing
 					}
 				}
 			}
-			handleErr := services.executeIntent(actionContext, queued)
+			handleErr := services.executeIntent(actionContext, &queued)
 			if scenario == "success" && handleErr != nil {
 				t.Fatal(handleErr)
 			}

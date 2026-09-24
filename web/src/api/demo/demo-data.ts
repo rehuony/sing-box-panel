@@ -223,6 +223,14 @@ export function createDemoData(now = new Date()): DemoData {
     active: true,
   }];
   const logs: LogEntry[] = [{
+    id: 'log_demo_clear', time: ago(now, 1), source: 'panel', level: 'info',
+    code: 'core.log.clear.completed', message: 'Core log clearing completed',
+    metadata: { file: '2026-09-24-000.log', duration_ms: 0 },
+  }, {
+    id: 'log_demo_failure', time: ago(now, 2), source: 'panel', level: 'error',
+    code: 'runtime.start.failed', message: 'Core start failed',
+    metadata: { error_code: 'core_not_enabled', error: 'core is not enabled', duration_ms: 4 },
+  }, {
     id: 'log_demo_runtime', time: ago(now, 10), source: 'core', level: 'info',
     code: 'runtime.ready', message: 'sing-box 1.14.0 passed its health check.',
     metadata: { activation_bundle_id: 'bundle_demo_current', pid: 4281 },

@@ -141,13 +141,13 @@ func TestReadBoundsSettings(t *testing.T) {
 	}
 }
 
-func TestProviderDefaultAndCustomValue(t *testing.T) {
+func TestPrivateSourceDefaultsAndCustomValue(t *testing.T) {
 	value := Defaults()
-	if value.Subscription.Provider != "default" {
-		t.Fatalf("provider default = %q", value.Subscription.Provider)
+	if len(value.Subscription.PrivateSourceCIDRs) != 0 {
+		t.Fatal("private source allowlist should default to empty")
 	}
 	value.Auth.Token = "fixture-token"
-	value.Subscription.Provider = "custom-provider"
+	value.Subscription.PrivateSourceCIDRs = []string{"10.0.0.0/8"}
 	data, err := json.Marshal(value)
 	if err != nil {
 		t.Fatal(err)
@@ -157,8 +157,8 @@ func TestProviderDefaultAndCustomValue(t *testing.T) {
 		t.Fatal(err)
 	}
 	loaded, created, err := LoadOrInitialize(path)
-	if err != nil || created || loaded.Subscription.Provider != "custom-provider" {
-		t.Fatalf("custom provider not preserved: created=%t, error=%v", created, err)
+	if err != nil || created || len(loaded.Subscription.PrivateSourceCIDRs) != 1 || loaded.Subscription.PrivateSourceCIDRs[0] != "10.0.0.0/8" {
+		t.Fatalf("private source allowlist not preserved: created=%t, error=%v", created, err)
 	}
 }
 

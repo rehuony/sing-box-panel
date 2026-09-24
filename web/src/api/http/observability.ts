@@ -130,7 +130,7 @@ export function createObservabilityHttpApi(context: HttpApiContext) {
     listPanelLogs(filter = {}, signal) {
       return request<PanelLogPage>(
         fetcher,
-        `${baseUrl}/logs/panel${buildQuery({ offset: filter.offset, before_time: filter.beforeTime, before_id: filter.beforeID, limit: filter.limit ?? 10, search: filter.search, level: filter.level, since: filter.since, until: filter.until })}`,
+        `${baseUrl}/logs/panel${buildQuery({ offset: filter.offset, before_time: filter.beforeTime, before_id: filter.beforeID, limit: filter.limit ?? 10, search: filter.search, search_codes: filter.searchCodes?.length ? filter.searchCodes.join(',') : undefined, level: filter.level, since: filter.since, until: filter.until })}`,
         { method: 'GET', signal },
       );
     },

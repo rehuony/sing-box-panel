@@ -230,61 +230,153 @@
 .panel-log-table :is(td, th) {
   padding-inline: 12px;
   vertical-align: middle;
-  text-align: left;
-  overflow-wrap: anywhere;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .panel-log-table tbody tr {
   border-bottom: 1px solid var(--color-border);
 }
-.panel-log-table th:first-child {
-  width: 20%;
-}
-.panel-log-table th:nth-child(2) {
-  width: 50%;
-}
-.panel-log-table th:nth-child(n + 3) {
-  width: 15%;
-}
-.panel-log-state {
+.panel-log-table td {
   color: var(--color-text-muted);
 }
-.panel-log-state--info {
-  color: var(--color-success);
+.panel-log-table th:first-child {
+  width: 190px;
 }
-.panel-log-state--error,
-.panel-log-state--fatal {
-  color: var(--color-danger);
+.panel-log-table th:nth-child(2) {
+  width: 100px;
 }
-.panel-log-state--warn {
-  color: var(--color-warning);
+.panel-log-table th:nth-child(4) {
+  width: 130px;
+}
+.panel-log-table th:last-child {
+  width: 120px;
+}
+.panel-log-summary {
+  font-weight: 400;
 }
 .panel-log-dialog {
-  width: 640px;
-  max-width: calc(100vw - 32px) !important;
+  width: 880px;
+  max-width: calc(100vw - 32px);
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  padding: 0;
+  overflow: hidden;
+}
+.panel-log-dialog > :is([data-slot='dialog-header'], [data-slot='dialog-footer']) {
+  flex-shrink: 0;
+}
+.panel-log-dialog-header {
+  gap: 12px;
+  padding: 24px;
+  border-bottom: 1px solid var(--color-border);
+}
+.panel-log-dialog-summary {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  overflow-wrap: anywhere;
+}
+.panel-log-dialog-summary > [data-slot='badge'] {
+  flex-shrink: 0;
+}
+.panel-log-dialog-body {
+  min-height: 0;
+  overflow: auto;
+  display: grid;
+  gap: 24px;
+  padding: 24px;
+}
+.panel-log-detail-columns {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 24px;
+}
+.panel-log-detail-columns > section {
+  min-width: 0;
+}
+.panel-log-detail-columns > section + section {
+  padding-left: 24px;
+  border-left: 1px solid var(--color-border);
+}
+.panel-log-dialog-body h3 {
+  margin: 0 0 12px;
+  font-size: var(--text-sm);
+  font-weight: 600;
 }
 .panel-log-detail {
   display: grid;
-  gap: 16px;
+  gap: 12px;
   margin: 0;
 }
 .panel-log-detail > div {
   display: grid;
   grid-template-columns: 100px minmax(0, 1fr);
-  gap: 16px;
+  gap: 12px;
 }
-.panel-log-detail dt {
+.panel-log-detail dt,
+.panel-log-muted {
   color: var(--color-text-muted);
 }
 .panel-log-detail dd {
+  min-width: 0;
   margin: 0;
   overflow-wrap: anywhere;
 }
-.panel-log-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 12px;
+.panel-log-detail code {
+  font-size: var(--text-xs);
+}
+.panel-log-muted {
+  margin: 0;
+}
+.panel-log-value {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.panel-log-dialog-footer {
+  padding: 16px 24px;
+  border-top: 1px solid var(--color-border);
+}
+.panel-log-raw {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-control);
+  padding: 12px;
+  min-width: 0;
+}
+.panel-log-raw summary {
+  cursor: pointer;
+  font-weight: 500;
+}
+.panel-log-raw pre {
+  margin: 12px 0 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: var(--text-xs);
+}
+@media (max-width: 480px) {
+  .panel-log-detail > div {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 4px;
+  }
 }
 @media (max-width: 720px) {
+  .panel-log-dialog-header,
+  .panel-log-dialog-body,
+  .panel-log-dialog-footer {
+    padding: 16px;
+  }
+  .panel-log-detail-columns {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .panel-log-detail-columns > section + section {
+    padding-left: 0;
+    padding-top: 24px;
+    border-left: 0;
+    border-top: 1px solid var(--color-border);
+  }
   .product-logs {
     padding: 16px 16px 8px;
   }
@@ -303,6 +395,6 @@
     min-width: 0;
   }
   .panel-log-table {
-    min-width: 650px;
+    min-width: 780px;
   }
 }
