@@ -22,8 +22,6 @@ export const filesystem = {
   unavailable: 'Path unavailable',
   entries: 'Directory entries',
   symlink: 'Symbolic link',
-  filename: 'File name',
-  filenameHelp: 'Choose a directory and enter a file name without /. This selects a path without creating a file.',
   checking: 'Checking path…',
   confirm: 'Confirm',
   errors: {

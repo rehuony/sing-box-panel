@@ -42,6 +42,12 @@ values until confirmation and rechecks the selected path with the server.
 See [server path selection](../docs/guides/configuration-and-runtime.md#selecting-server-paths)
 for filesystem scope and path semantics.
 
+Path pickers and log-file filters reuse the shared Input, InputGroup and Select
+styles for control height, borders, spacing and focus feedback. Opening a Select
+with the mouse keeps options visually neutral, including the selected item;
+the checkmark still identifies the current value. Options highlight on hover or
+keyboard-visible focus, without changing the value until an option is chosen.
+
 Configuration contracts under `src/schemas/generated/` are exported offline
 from the committed backend Schema assets by the Vite plugin. Its manifest binds
 each exact sing-box version to its native/reviewed source kind, file and SHA-256 digest, and the plugin

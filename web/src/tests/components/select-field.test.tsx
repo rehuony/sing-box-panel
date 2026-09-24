@@ -6,6 +6,38 @@ import { render, screen } from '@testing-library/react';
 import { SelectField } from '@/components/select-field';
 
 describe('selectField', () => {
+  it('keeps selection separate from pointer and keyboard navigation until confirmation', async () => {
+    const user = userEvent.setup();
+    const onValueChange = vi.fn();
+    render(
+      <SelectField
+        aria-label='Log file'
+        value='current'
+        items={[{ value: 'current', label: 'Current log' }, { value: 'archive', label: 'Archived log' }]}
+        onValueChange={onValueChange}
+      />,
+    );
+    const trigger = screen.getByRole('combobox', { name: 'Log file' });
+    await user.click(trigger);
+    const current = await screen.findByRole('option', { name: 'Current log' });
+    const archive = screen.getByRole('option', { name: 'Archived log' });
+    expect(current).toHaveAttribute('aria-selected', 'true');
+    await user.hover(archive);
+    expect(archive).toHaveFocus();
+    expect(archive).toHaveAttribute('aria-selected', 'false');
+    expect(current).toHaveAttribute('aria-selected', 'true');
+    expect(onValueChange).not.toHaveBeenCalled();
+    await user.keyboard('{Home}');
+    expect(current).toHaveFocus();
+    await user.keyboard('{Escape}');
+    expect(trigger).toHaveFocus();
+    expect(trigger).toHaveTextContent('Current log');
+    expect(onValueChange).not.toHaveBeenCalled();
+    await user.click(trigger);
+    await user.click(await screen.findByRole('option', { name: 'Archived log' }));
+    expect(onValueChange).toHaveBeenCalledExactlyOnceWith('archive');
+  });
+
   it('keeps numeric values and skips disabled options during keyboard selection', async () => {
     const user = userEvent.setup();
     const onChange = vi.fn();

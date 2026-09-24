@@ -13,7 +13,7 @@ import { Field, FieldError, FieldLabel } from '@/components/ui/field';
 import { Empty, EmptyHeader, EmptyTitle } from '@/components/ui/empty';
 import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupInput } from '@/components/ui/input-group';
 
-import { useServerPathPicker, validOutputName } from './use-server-path-picker';
+import { useServerPathPicker } from './use-server-path-picker';
 
 export function ServerPathPicker({ initialValue, mode, open, onSelect }: {
   initialValue: string;
@@ -101,12 +101,12 @@ export function ServerPathPicker({ initialValue, mode, open, onSelect }: {
       </DialogHeader>
       <div className='flex min-h-0 min-w-0 flex-col gap-4 overflow-y-auto'>
         <div className='grid min-w-0 gap-3 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center'>
-          <div className='flex min-w-0 items-center gap-1 rounded-lg bg-muted/50 p-1.5'>
+          <div className='flex h-(--control-height) min-w-0 items-center gap-1'>
             {editingLocation
               ? (
-                  <InputGroup className='h-8 min-w-0 flex-1 border-transparent bg-background/80 dark:bg-background/40'>
+                  <InputGroup className='min-w-0 flex-1'>
                     <InputGroupInput ref={locationInputRef} aria-label={t('filesystem.location')}
-                      className='h-8 min-w-0 font-mono text-xs md:text-xs' value={locationDraft}
+                      value={locationDraft}
                       disabled={checking} autoComplete='off' spellCheck={false}
                       onChange={event => setLocationDraft(event.target.value)} onKeyDown={event => {
                         if (event.key === 'Enter' || event.key === 'Escape') {
@@ -186,7 +186,7 @@ export function ServerPathPicker({ initialValue, mode, open, onSelect }: {
           <div className='flex min-w-0 items-center gap-2 lg:gap-3'>
             <Field className='min-w-0 flex-1 lg:w-48 lg:flex-none'>
               <FieldLabel htmlFor={`${id}-search`} className='sr-only'>{t('filesystem.search')}</FieldLabel>
-              <InputGroup className='border-transparent bg-muted/40 dark:bg-muted/40'>
+              <InputGroup>
                 <InputGroupAddon><Search className='size-3.5' strokeWidth={1.75} aria-hidden='true' /></InputGroupAddon>
                 <InputGroupInput id={`${id}-search`} value={picker.search} placeholder={t('filesystem.search')} disabled={checking}
                   onChange={event => picker.setSearch(event.target.value)} onKeyDown={event => {
@@ -273,21 +273,6 @@ export function ServerPathPicker({ initialValue, mode, open, onSelect }: {
           onPageSizeChange={limit => picker.setQuery(current => ({
             ...current, path: pending ? current.path : data?.path ?? current.path, limit, offset: 0,
           }))} />
-        {mode === 'output-file' && (
-          <Field data-invalid={!!picker.filename && !validOutputName(picker.filename)}>
-            <FieldLabel htmlFor={`${id}-filename`}>{t('filesystem.filename')}</FieldLabel>
-            <InputGroup>
-              <InputGroupInput id={`${id}-filename`} value={picker.filename} disabled={checking} autoComplete='off' spellCheck={false}
-                aria-invalid={!!picker.filename && !validOutputName(picker.filename)} aria-describedby={`${id}-filename-help`}
-                onChange={event => picker.editFilename(event.target.value)} onKeyDown={event => {
-                  if (event.key === 'Enter') {
-                    event.preventDefault();
-                  }
-                }} />
-            </InputGroup>
-            <p id={`${id}-filename-help`} className='text-sm text-muted-foreground'>{t('filesystem.filenameHelp')}</p>
-          </Field>
-        )}
         <p className='sr-only' role='status'>{checking ? t('filesystem.checking') : ''}</p>
       </div>
     </>
