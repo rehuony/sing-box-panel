@@ -4,6 +4,7 @@ import type { HttpApiOptions } from './http/shared';
 import { createCoreHttpApi } from './http/core';
 import { createHttpApiContext } from './http/shared';
 import { createSessionHttpApi } from './http/session';
+import { createFilesystemHttpApi } from './http/filesystem';
 import { createSubscriptionHttpApi } from './http/subscription';
 import { createObservabilityHttpApi } from './http/observability';
 import { createPanelSettingsHttpApi } from './http/panel-settings';
@@ -15,6 +16,7 @@ export function createHttpApiClient(options: HttpApiClientOptions = {}): ApiClie
   const context = createHttpApiContext(options);
   return {
     ...createSessionHttpApi(context),
+    ...createFilesystemHttpApi(context),
     ...createPanelSettingsHttpApi(context),
     ...createConfigurationFileHttpApi(context),
     ...createCoreHttpApi(context),

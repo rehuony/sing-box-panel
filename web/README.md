@@ -33,6 +33,15 @@ domain-specific query filters and derived types. Routes are assembled in
 around their companion files. Each locale groups navigation, account, language,
 and theme labels in `shell.ts`, with shared and startup messages in `common.ts`.
 
+`components/server-path-input` owns the shared server filesystem selector.
+Configuration and subscription-node forms use it through context-aware presentation
+annotations in `configuration-path-fields`, including scalar/list representations
+and nested dialogs. Filesystem reads go through the injected `ApiClient`; demo
+mode uses a fixed in-memory directory tree. The chooser preserves hand-entered
+values until confirmation and rechecks the selected path with the server.
+See [server path selection](../docs/guides/configuration-and-runtime.md#selecting-server-paths)
+for filesystem scope and path semantics.
+
 Configuration contracts under `src/schemas/generated/` are exported offline
 from the committed backend Schema assets by the Vite plugin. Its manifest binds
 each exact sing-box version to its native/reviewed source kind, file and SHA-256 digest, and the plugin

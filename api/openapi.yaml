@@ -15,6 +15,97 @@ security:
   - bearerAuth: []
   - sessionCookie: []
 paths:
+  /filesystem/entries:
+    get:
+      operationId: listFilesystemEntries
+      description: >-
+        Read-only browsing within the panel process filesystem namespace and OS permissions.
+        Relative paths use data_dir/runtime. An existing file opens its parent;
+        missing paths ascend to the nearest existing directory with fallback=true.
+        Permission errors do not ascend. Symlinks and dot components retain their
+        selected spelling and are resolved by the OS, without lexical path cleaning.
+        No file content is read. Hidden names are excluded by default. Directories
+        precede other entries, then names sort by UTF-8 bytes. A scan is limited
+        to 20000 entries; larger directories return filesystem_directory_too_large.
+        Invalid UTF-8 names cannot be represented and are omitted. Responses are no-store.
+      parameters:
+        - name: path
+          in: query
+          description: Initial file or directory path; defaults to data_dir/runtime.
+          schema: {type: string, minLength: 1, maxLength: 4096}
+        - name: search
+          in: query
+          description: Case-insensitive filename substring within this directory.
+          schema: {type: string, minLength: 1, maxLength: 256}
+        - name: show_hidden
+          in: query
+          schema: {type: boolean, default: false}
+        - name: offset
+          in: query
+          schema: {type: integer, minimum: 0, maximum: 2147483647, default: 0}
+        - name: limit
+          in: query
+          schema: {type: integer, minimum: 1, maximum: 200, default: 50}
+      responses:
+        "200":
+          description: Directory metadata and one page; an out-of-range offset is clamped to the last page.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/FilesystemPage'}
+        "400":
+          $ref: '#/components/responses/Problem'
+        "401":
+          $ref: '#/components/responses/Problem'
+        "403":
+          $ref: '#/components/responses/Problem'
+        "404":
+          $ref: '#/components/responses/Problem'
+        "422":
+          $ref: '#/components/responses/Problem'
+        "500":
+          $ref: '#/components/responses/Problem'
+        "503":
+          $ref: '#/components/responses/Problem'
+  /filesystem/resolve:
+    get:
+      operationId: resolveFilesystemPath
+      description: >-
+        Check existence and target type immediately before selecting an absolute path.
+        Relative paths use data_dir/runtime. output-file accepts an existing regular
+        file or a missing file with an existing directory parent. Broken links are
+        rejected. Links are followed for type checks but their paths are preserved.
+        Dot components are resolved by the OS without lexical path cleaning.
+        Does not create files, read content, check content validity or guarantee
+        availability or write permission at core startup. Responses are no-store.
+      parameters:
+        - name: path
+          in: query
+          required: true
+          schema: {type: string, minLength: 1, maxLength: 4096}
+        - name: mode
+          in: query
+          required: true
+          schema: {$ref: '#/components/schemas/FilesystemMode'}
+      responses:
+        "200":
+          description: Checked absolute path and target metadata.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/FilesystemSelection'}
+        "400":
+          $ref: '#/components/responses/Problem'
+        "401":
+          $ref: '#/components/responses/Problem'
+        "403":
+          $ref: '#/components/responses/Problem'
+        "404":
+          $ref: '#/components/responses/Problem'
+        "422":
+          $ref: '#/components/responses/Problem'
+        "500":
+          $ref: '#/components/responses/Problem'
+        "503":
+          $ref: '#/components/responses/Problem'
   /panel/settings:
     get:
       operationId: getPanelSettings
@@ -1666,6 +1757,47 @@ components:
           schema:
             $ref: "#/components/schemas/Problem"
   schemas:
+    FilesystemMode:
+      type: string
+      enum: [file, directory, output-file, socket]
+    FilesystemEntry:
+      type: object
+      additionalProperties: false
+      required: [name, path, kind, symlink, available]
+      properties:
+        name: {type: string}
+        path: {type: string}
+        kind: {type: string, enum: [file, directory, socket, other]}
+        symlink: {type: boolean}
+        available:
+          type: boolean
+          description: Target metadata was accessible; false includes broken links and entries removed during listing.
+    FilesystemPage:
+      type: object
+      additionalProperties: false
+      required: [path, parent, requested_path, fallback, items, total, offset, limit]
+      properties:
+        path: {type: string}
+        parent: {type: string}
+        requested_path: {type: string}
+        fallback: {type: boolean}
+        items:
+          type: array
+          maxItems: 200
+          items: {$ref: '#/components/schemas/FilesystemEntry'}
+        total: {type: integer, minimum: 0}
+        offset: {type: integer, minimum: 0}
+        limit: {type: integer, minimum: 1, maximum: 200}
+    FilesystemSelection:
+      type: object
+      additionalProperties: false
+      required: [path, parent, kind, exists, symlink]
+      properties:
+        path: {type: string}
+        parent: {type: string}
+        kind: {type: string, enum: [file, directory, socket]}
+        exists: {type: boolean}
+        symlink: {type: boolean}
     CatalogRefresh:
       type: object
       additionalProperties: false

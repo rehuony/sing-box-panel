@@ -17,6 +17,8 @@ type managementOperation struct {
 }
 
 var managementOperations = []managementOperation{
+	{Method: http.MethodGet, Path: "/filesystem/entries", OperationID: "listFilesystemEntries"},
+	{Method: http.MethodGet, Path: "/filesystem/resolve", OperationID: "resolveFilesystemPath"},
 	{Method: http.MethodGet, Path: "/panel/settings", OperationID: "getPanelSettings"},
 	{Method: http.MethodPut, Path: "/panel/settings", OperationID: "savePanelSettings"},
 	{Method: http.MethodGet, Path: "/panel/backup", OperationID: "exportPanelBackup"},

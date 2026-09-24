@@ -13,6 +13,7 @@ import { useHashTab } from '@/hooks/use-hash-tab';
 import { Skeleton } from '@/components/ui/skeleton';
 import { toast } from '@/components/ui/toast-manager';
 import { useUnsavedChanges } from '@/hooks/use-unsaved-changes';
+import { ServerPathInput } from '@/components/server-path-input';
 import { usePanelSettings } from '@/stores/panel-settings.store';
 import { DEFAULT_APPEARANCE, THEME_PRESETS } from '@/theme/appearance';
 import { FieldGroup, FieldLegend, FieldSet } from '@/components/ui/field';
@@ -261,7 +262,9 @@ function SettingsEditor({ initial }: { initial: PanelSettingsView }) {
           <TabsContent value='maintenance'>
             <SettingsGroup title={t('panelSettings.storage')}>
               <SettingsField id='data-dir' invalid={invalidField === 'data-dir'} label={t('panelSettings.dataDir')} help={t('panelSettings.dataDirHelp')}>
-                <Input id='data-dir' aria-invalid={invalidField === 'data-dir' || undefined} required value={service.data_dir} onChange={e => updateService('data_dir', e.target.value)} />
+                <ServerPathInput id='data-dir' mode='directory' aria-label={t('panelSettings.dataDir')}
+                  aria-invalid={invalidField === 'data-dir' || undefined} required value={service.data_dir}
+                  onValueChange={value => updateService('data_dir', value)} />
               </SettingsField>
             </SettingsGroup>
             <SettingsGroup title={t('panelSettings.updates')}>

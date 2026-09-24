@@ -43,6 +43,7 @@ import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
 import { ErrorNotice } from '@/components/error-notice';
+import { ServerPathInput } from '@/components/server-path-input';
 import {
   Field,
   FieldDescription,
@@ -62,6 +63,7 @@ import {
 import { resolvedSchema } from '../schema-ui';
 import { SchemaFieldHelp } from './schema-field-help';
 import { SchemaDialogContext } from './schema-dialog-context';
+import { readConfigurationPathMode } from '../configuration-path-fields';
 import { readConfigurationFieldHelp, withConfigurationFieldHelp } from '../configuration-field-help';
 import { PanelArrayField, PanelArrayFieldItemTemplate, PanelArrayFieldTemplate } from './array-field-templates';
 import './rjsf-shadcn-theme.css';
@@ -367,6 +369,20 @@ function PanelBaseInputTemplate(props: BaseInputTemplateProps) {
   } = props;
   const inputProps = getInputProps(schema, type, options);
   const inputValue = value === undefined || value === null ? '' : String(value);
+  const pathMode = readConfigurationPathMode(schema);
+  if (pathMode) {
+    return (
+      <ServerPathInput
+        mode={pathMode} value={inputValue}
+        aria-label={localizedLabel(schema, props.label, i18n.language, t)}
+        aria-invalid={props.rawErrors !== undefined && props.rawErrors.length > 0 ? true : undefined}
+        autoFocus={autofocus} disabled={disabled} readOnly={readonly} id={id} name={htmlName ?? id}
+        onBlur={event => onBlur(id, event.currentTarget.value)}
+        onFocus={event => onFocus(id, event.currentTarget.value)}
+        onValueChange={next => onChange(next === '' ? options.emptyValue : next)}
+      />
+    );
+  }
   return (
     <Input
       {...inputProps}

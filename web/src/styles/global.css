@@ -1110,8 +1110,6 @@ h3 {
 
 /* Shared shape tokens also cover primitives rendered through portals. */
 [data-slot='button'],
-[data-slot='input'],
-[data-slot='select-trigger'],
 [data-slot='toggle-group-item'] {
   border-radius: var(--radius-control);
 }

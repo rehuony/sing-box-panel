@@ -25,6 +25,7 @@ import type {
 import { ApiRequestError } from '../api-client';
 import { createDemoCoreLogs } from './demo-core-logs';
 import { DEFAULT_APPEARANCE } from '../../theme/appearance';
+import { createDemoFilesystemApi } from './demo-filesystem';
 import { reviewedSchemaManifest } from '../../schemas/generated';
 import { demoBackupSettings, demoRestoreSettings } from './demo-panel-backup';
 import {
@@ -311,6 +312,7 @@ export function createDemoApiClient(): ApiClient {
     }
   }
   const client: ApiClient = {
+    ...createDemoFilesystemApi(),
     getConfigurationFile: (signal) => respond(configurationFile, signal),
     async saveConfigurationFile(input, signal) {
       assertActive(signal);

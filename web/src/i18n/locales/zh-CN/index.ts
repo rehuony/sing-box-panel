@@ -4,6 +4,7 @@ import { channels } from './channels';
 import { notFound } from './not-found';
 import { dashboard } from './dashboard';
 import { telemetry } from './telemetry';
+import { filesystem } from './filesystem';
 import { pagination } from './pagination';
 import { bootstrap, common } from './common';
 import { productLogs } from './product-logs';
@@ -15,6 +16,7 @@ import { account, app, language, nav, shell, sidebar, theme } from './shell';
 
 export const zhCN = {
   productLogs,
+  filesystem,
   account,
   channels,
   app,

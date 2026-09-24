@@ -293,6 +293,14 @@ subscription token.
 
 ### Request and download protections
 
+The authenticated filesystem browsing and resolution endpoints expose host path
+metadata within the panel process's OS permissions and filesystem namespace.
+They do not read file contents, create or modify paths, or use a separate directory
+allowlist. Responses are not cached; directory scans and page sizes are bounded.
+`internal/filesystem` owns these read-only effects, with application use cases and
+HTTP translation above it. See the configuration guide's
+[server path selection](../guides/configuration-and-runtime.md#selecting-server-paths).
+
 The server applies bounded request bodies, strict JSON decoding where the
 contract requires it, constant-time token comparison, security response
 headers, and secret-redacting event metadata.

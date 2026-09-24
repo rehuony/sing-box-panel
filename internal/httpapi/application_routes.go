@@ -18,7 +18,11 @@ const (
 
 func (handler *Handler) handleApplicationRoute(w http.ResponseWriter, request *http.Request, path string) bool {
 	var next http.HandlerFunc
-	if path == "/api/v1/panel/settings" {
+	if path == "/api/v1/filesystem/entries" {
+		next = handler.listFilesystemEntries
+	} else if path == "/api/v1/filesystem/resolve" {
+		next = handler.resolveFilesystemPath
+	} else if path == "/api/v1/panel/settings" {
 		if request.Method == http.MethodGet {
 			next = handler.getPanelSettings
 		} else if request.Method == http.MethodPut {

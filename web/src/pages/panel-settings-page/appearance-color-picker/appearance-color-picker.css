@@ -55,8 +55,6 @@
 }
 
 .appearance-color-hex [data-slot='input'] {
-  background: var(--color-paper-2);
-  border-color: transparent;
   font-family: var(--font-data);
 }
 

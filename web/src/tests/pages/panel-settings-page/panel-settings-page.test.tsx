@@ -11,6 +11,7 @@ import { ApiClientProvider } from '@/api/api-client-context';
 import { TestRouter as MemoryRouter } from '@/tests/test-router';
 import { demoBackupSettings } from '@/api/demo/demo-panel-backup';
 import { createMockApiClient } from '@/tests/api/mock-api-client';
+import { createDemoFilesystemApi } from '@/api/demo/demo-filesystem';
 import { PanelSettingsProvider } from '@/stores/panel-settings-provider';
 import { PanelSettingsPage } from '@/pages/panel-settings-page/panel-settings-page';
 
@@ -50,6 +51,21 @@ function setup(client = createMockApiClient(), initialEntry = '/panel') {
 }
 
 describe('panel settings', () => {
+  it('selects the data directory through the shared picker without saving settings', async () => {
+    const user = userEvent.setup();
+    const client = setup(createMockApiClient(createDemoFilesystemApi()));
+    await user.click(await screen.findByRole('tab', { name: 'System maintenance' }));
+    await user.click(screen.getByRole('button', { name: 'Browse server path: Data directory' }));
+    const dialog = within(screen.getByRole('dialog'));
+    await user.click(dialog.getByRole('button', { name: 'Edit path' }));
+    fireEvent.change(dialog.getByLabelText('Location'), { target: { value: '/etc/sing-box' } });
+    await user.click(dialog.getByRole('button', { name: 'Go' }));
+    await waitFor(() => expect(dialog.queryByText('Loading directory…')).not.toBeInTheDocument());
+    await user.click(dialog.getByRole('button', { name: 'Confirm' }));
+    await waitFor(() => expect(screen.getByLabelText('Data directory', { selector: 'input' })).toHaveValue('/etc/sing-box'));
+    expect(client.savePanelSettings).not.toHaveBeenCalled();
+  });
+
   it('shares one draft across topics and preserves hidden settings', async () => {
     const user = userEvent.setup();
     const client = setup();
