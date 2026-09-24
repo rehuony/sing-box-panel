@@ -129,25 +129,20 @@ describe('server path input', () => {
     expect(first).toHaveFocus();
   });
 
-  it('requires the confirm button for a new output filename and rejects path fragments', async () => {
+  it('accepts new output paths in the form field without a filename area in the picker', async () => {
     const { api, user } = setup('output-file');
+    const path = '/var/lib/sing-box-panel/runtime/logs/新 日志.log';
+    await user.type(screen.getByLabelText('Certificate path'), path);
     const dialog = await openPicker(user);
-    await user.dblClick(dialog.getByRole('button', { name: 'logs/' }));
-    await waitFor(() => expect(dialog.getByRole('navigation', { name: 'Directory breadcrumb' })).toHaveAttribute('title', '/var/lib/sing-box-panel/runtime/logs'));
-    for (const invalid of ['../escape', '.', '..']) {
-      fireEvent.change(dialog.getByLabelText('File name'), { target: { value: invalid } });
-      expect(dialog.getByRole('button', { name: 'Confirm' })).toBeDisabled();
-      await user.click(dialog.getByLabelText('File name'));
-      await user.keyboard('{Enter}');
-      expect(api.resolveFilesystemPath).not.toHaveBeenCalled();
-    }
-    fireEvent.change(dialog.getByLabelText('File name'), { target: { value: '新 日志.log' } });
-    await user.click(dialog.getByLabelText('File name'));
-    await user.keyboard('{Enter}');
+    expect(dialog.queryByText('File name')).not.toBeInTheDocument();
+    expect(dialog.queryByText('Choose a directory and enter a file name without /. This selects a path without creating a file.')).not.toBeInTheDocument();
+    expect(dialog.getAllByRole('textbox')).toEqual([dialog.getByLabelText('Filter names in this directory')]);
+    expect(dialog.getByRole('navigation', { name: 'Directory breadcrumb' })).toHaveAttribute('title', '/var/lib/sing-box-panel/runtime/logs');
+    expect(dialog.getByRole('button', { name: 'Confirm' })).toBeDisabled();
+    await user.click(dialog.getByRole('button', { name: 'Close' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    expect(screen.getByLabelText('Certificate path')).toHaveValue(path);
     expect(api.resolveFilesystemPath).not.toHaveBeenCalled();
-    await user.click(dialog.getByRole('button', { name: 'Confirm' }));
-    await waitFor(() => expect(screen.getByLabelText('Certificate path')).toHaveValue('/var/lib/sing-box-panel/runtime/logs/新 日志.log'));
-    expect(api.resolveFilesystemPath).toHaveBeenCalledWith({ path: '/var/lib/sing-box-panel/runtime/logs/新 日志.log', mode: 'output-file' }, expect.any(AbortSignal));
   });
 
   it('filters names and exposes hidden files', async () => {
@@ -157,8 +152,10 @@ describe('server path input', () => {
     await user.click(dialog.getByRole('button', { name: 'Show hidden' }));
     await waitFor(() => expect(dialog.getByRole('button', { name: '.hidden' })).toBeVisible());
     await user.type(dialog.getByLabelText('Filter names in this directory'), 'cache');
-    await waitFor(() => expect(dialog.queryByRole('button', { name: 'logs/' })).not.toBeInTheDocument());
-    expect(dialog.getByRole('button', { name: 'cache.db' })).toBeVisible();
+    await waitFor(() => {
+      expect(dialog.queryByRole('button', { name: 'logs/' })).not.toBeInTheDocument();
+      expect(dialog.getByRole('button', { name: 'cache.db' })).toBeVisible();
+    });
     expect(api.listFilesystemEntries).toHaveBeenLastCalledWith(expect.objectContaining({ search: 'cache', show_hidden: true, offset: 0 }), expect.any(AbortSignal));
   });
 
@@ -328,28 +325,27 @@ describe('server path input', () => {
     const { api, user } = setup('file', '/etc/sing-box/certificate.pem');
     const dialog = await openPicker(user);
     await user.type(dialog.getByLabelText('Filter names in this directory'), 'certificate');
-    await waitFor(() => expect(dialog.queryByRole('button', { name: 'private.key' })).not.toBeInTheDocument());
+    await waitFor(() => {
+      expect(dialog.queryByRole('button', { name: 'private.key' })).not.toBeInTheDocument();
+      expect(dialog.getByRole('button', { name: 'certificate.pem' })).toBeVisible();
+    });
     expect(api.resolveFilesystemPath).not.toHaveBeenCalled();
     await user.click(dialog.getByRole('button', { name: 'certificate.pem' }));
     await user.click(dialog.getByRole('button', { name: 'Confirm' }));
     expect(api.resolveFilesystemPath).toHaveBeenCalledWith({ path: '/etc/sing-box/certificate.pem', mode: 'file' }, expect.any(AbortSignal));
   });
 
-  it('preserves a filename typed while the first directory request is pending', async () => {
-    const { api, user } = setup('output-file');
-    let resolvePage!: (page: FilesystemPage) => void;
-    api.listFilesystemEntries.mockImplementationOnce(() => new Promise(resolve => {
-      resolvePage = resolve;
-    }));
-    await user.click(screen.getByRole('button', { name: 'Browse server path: Certificate path' }));
-    const dialog = within(screen.getByRole('dialog'));
-    await user.type(dialog.getByLabelText('File name'), 'new.log');
-    await act(async () => resolvePage({
-      path: '/runtime', parent: '/', requested_path: '/runtime', fallback: false,
-      items: [], total: 0, offset: 0, limit: 10,
-    }));
-    expect(dialog.getByLabelText('File name')).toHaveValue('new.log');
+  it('clears the selected output file when navigating to another directory', async () => {
+    const { api, user } = setup('output-file', '/var/lib/sing-box-panel/runtime/cache.db');
+    const dialog = await openPicker(user);
+    expect(dialog.getByRole('button', { name: 'Confirm' })).toBeDisabled();
+    await user.click(dialog.getByRole('button', { name: 'cache.db' }));
     expect(dialog.getByRole('button', { name: 'Confirm' })).toBeEnabled();
+    await user.dblClick(dialog.getByRole('button', { name: 'logs/' }));
+    await waitFor(() => expect(dialog.getByRole('navigation', { name: 'Directory breadcrumb' })).toHaveAttribute('title', '/var/lib/sing-box-panel/runtime/logs'));
+    expect(dialog.getByRole('button', { name: 'Confirm' })).toBeDisabled();
+    expect(screen.getByLabelText('Certificate path')).toHaveValue('/var/lib/sing-box-panel/runtime/cache.db');
+    expect(api.resolveFilesystemPath).not.toHaveBeenCalled();
   });
 
   it.each(['breadcrumb', 'parent'])('returns from an unreadable directory using the %s', async navigation => {
@@ -398,15 +394,18 @@ describe('server path input', () => {
     expect(dialog.getByRole('button', { name: 'Confirm' })).toBeEnabled();
   });
 
-  it('does not confirm on double-clicking a file and clears hidden selections after filtering', async () => {
-    const { api, user } = setup('file', '/etc/sing-box');
+  it.each(['file', 'output-file'] as const)('does not confirm on double-clicking a %s and clears hidden selections after filtering', async mode => {
+    const { api, user } = setup(mode, '/etc/sing-box');
     const dialog = await openPicker(user);
     await user.dblClick(dialog.getByRole('button', { name: 'private.key' }));
     expect(dialog.getByRole('button', { name: 'private.key' })).toHaveAttribute('aria-pressed', 'true');
     expect(api.resolveFilesystemPath).not.toHaveBeenCalled();
     expect(screen.getByLabelText('Certificate path')).toHaveValue('/etc/sing-box');
     await user.type(dialog.getByLabelText('Filter names in this directory'), 'certificate');
-    await waitFor(() => expect(dialog.queryByRole('button', { name: 'private.key' })).not.toBeInTheDocument());
+    await waitFor(() => {
+      expect(dialog.queryByRole('button', { name: 'private.key' })).not.toBeInTheDocument();
+      expect(dialog.getByRole('button', { name: 'certificate.pem' })).toBeVisible();
+    });
     expect(dialog.getByRole('button', { name: 'Confirm' })).toBeDisabled();
     await user.click(dialog.getByRole('button', { name: 'Close' }));
     expect(api.resolveFilesystemPath).not.toHaveBeenCalled();

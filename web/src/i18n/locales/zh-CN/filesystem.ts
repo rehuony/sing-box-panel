@@ -22,8 +22,6 @@ export const filesystem = {
   unavailable: '路径不可用',
   entries: '目录内容',
   symlink: '符号链接',
-  filename: '文件名',
-  filenameHelp: '选定目录后填写文件名，文件名不能包含 /。这里只选择路径，不创建文件。',
   checking: '正在检查路径…',
   confirm: '确认',
   errors: {

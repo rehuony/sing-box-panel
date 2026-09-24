@@ -238,15 +238,15 @@ use that path. Double-click a directory, or press Enter / Right Arrow on its row
 to open it; Left Arrow returns to its parent. Keyboard navigation restores focus
 after loading, and parent/breadcrumb navigation remains available after errors.
 In directory mode, Confirm uses the current directory when no child is selected.
-For a new output file, enter its name and use the same Confirm button. The eye
-icon beside the navigation controls toggles hidden files. Closing the dialog or
+For a new output file, enter the complete path directly in the form field. The
+eye icon beside the navigation controls toggles hidden files. Closing the dialog or
 pressing Escape cancels without changing the field; Escape while editing the
 location only exits location editing.
 
 Input-file fields select existing regular files; directory fields select an
 existing directory; socket fields select Unix sockets. Output-file fields such
-as logs and caches can select an existing file or combine an existing directory
-with a new filename. Selection never creates a file or directory. Confirming checks
+as logs and caches can select an existing file in the dialog or accept a new path
+typed into the form field. Selection never creates a file or directory. Confirming checks
 the current target type and existence again and updates only the form draft.
 Manual paths and the ordinary Save / Validate / runtime workflows remain available.
 
