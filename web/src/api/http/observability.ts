@@ -179,10 +179,20 @@ export function createObservabilityHttpApi(context: HttpApiContext) {
         method: 'GET',
         signal,
       });
-      yield* readJSONEvents<{
+      let receivedSnapshot = false;
+      for await (const snapshot of readJSONEvents<{
         metrics: MetricsSnapshot;
         runtime: import('../api-client').RuntimeStatus;
-      }>(response, 'metrics');
+      }>(response, 'metrics')) {
+        receivedSnapshot = true;
+        yield snapshot;
+      }
+      if (!receivedSnapshot && !signal?.aborted) {
+        throw new ApiRequestError('The metrics stream closed before its initial snapshot.', {
+          code: 'stream_invalid',
+          status: 200,
+        });
+      }
     },
     async* streamDashboard(signal) {
       const response = await openEventStream(fetcher, `${baseUrl}/dashboard/stream`, {

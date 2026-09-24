@@ -345,29 +345,18 @@ func fileTreeText(entries []fileTreeEntry, style fileTreeStyle) string {
 		node.labels = append(node.labels, entry.label)
 		node.directory = node.directory || entry.directory
 	}
-	// Avoid a redundant filesystem-root level while preserving explicit roots.
-	var visibleRoots []*fileTreeNode
-	for _, root := range roots {
-		if len(root.labels) == 0 {
-			visibleRoots = append(visibleRoots, root.children...)
-		} else {
-			visibleRoots = append(visibleRoots, root)
-		}
-	}
 	for _, node := range nodes {
 		slices.Sort(node.labels)
 		slices.SortFunc(node.children, func(a, b *fileTreeNode) int { return strings.Compare(a.path, b.path) })
 	}
-	slices.SortFunc(visibleRoots, func(a, b *fileTreeNode) int { return strings.Compare(a.path, b.path) })
+	slices.SortFunc(roots, func(a, b *fileTreeNode) int { return strings.Compare(a.path, b.path) })
 	var text strings.Builder
 	var writeNode func(*fileTreeNode, string, string, string)
 	writeNode = func(node *fileTreeNode, name, prefix, branch string) {
-		for len(node.labels) == 0 && len(node.children) == 1 {
+		// Keep the filesystem root visible; compact only the branches below it.
+		for branch != "" && len(node.labels) == 0 && len(node.children) == 1 {
 			node = node.children[0]
 			name = filepath.Join(name, filepath.Base(node.path))
-		}
-		if branch == "" {
-			name = style.path(name)
 		}
 		if node.directory || len(node.labels) == 0 {
 			if !strings.HasSuffix(name, string(filepath.Separator)) {
@@ -397,7 +386,7 @@ func fileTreeText(entries []fileTreeEntry, style fileTreeStyle) string {
 			writeNode(child, filepath.Base(child.path), prefix, childBranch)
 		}
 	}
-	for i, root := range visibleRoots {
+	for i, root := range roots {
 		if i > 0 {
 			text.WriteByte('\n')
 		}

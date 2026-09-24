@@ -145,7 +145,6 @@ function SettingsEditor({ initial }: { initial: PanelSettingsView }) {
         </TabsList>
         <div className='panel-settings-content'>
           {invalidField && <ErrorNotice error={t('panelSettings.invalidField')} />}
-          {initial.restart_required && <p className='settings-notice' role='status'>{t('panelSettings.restartPending')}</p>}
           <TabsContent value='service'>
             <SettingsGroup title={t('panelSettings.access')}>
               <SettingsField id='listen-host' invalid={invalidField === 'listen-host'} label={t('panelSettings.listenHost')}>
@@ -275,7 +274,7 @@ function SettingsEditor({ initial }: { initial: PanelSettingsView }) {
             <SettingsGroup title={t('panelSettings.updates')}>
               <SettingsField id='github-token' invalid={invalidField === 'github-token'} label={t('panelSettings.github')} help={t('panelSettings.githubHelp')}>
                 <div className='settings-inline'>
-                  <Input id='github-token' aria-invalid={invalidField === 'github-token' || undefined} type='password' autoComplete='new-password' maxLength={8192} disabled={clearGithub} value={github} placeholder={clearGithub ? t('panelSettings.removed') : initial.github_token_configured ? t('panelSettings.configured') : undefined} onChange={e => setGithub(e.target.value)} />
+                  <Input id='github-token' aria-invalid={invalidField === 'github-token' || undefined} aria-description={initial.github_token_configured && !clearGithub ? t('panelSettings.configured') : undefined} className={initial.github_token_configured && !clearGithub ? 'placeholder:text-foreground' : undefined} type='password' autoComplete='new-password' maxLength={8192} disabled={clearGithub} value={github} placeholder={clearGithub ? t('panelSettings.removed') : initial.github_token_configured ? '••••••••••••' : undefined} onChange={e => setGithub(e.target.value)} />
                   {initial.github_token_configured && (
                     <Button type='button' variant='ghost' onClick={() => {
                       setClearGithub(!clearGithub);
@@ -294,7 +293,10 @@ function SettingsEditor({ initial }: { initial: PanelSettingsView }) {
           <TabsContent value='backup'><PanelBackupSettings dirty={dirty} busy={saving} onBusyChange={setSaving} onRestored={restored} /></TabsContent>
         </div>
       </Tabs>
-      <footer className='panel-settings-footer'><Button disabled={saving || !dirty} type='submit'>{t(saving ? 'panelSettings.saving' : 'panelSettings.save')}</Button></footer>
+      <footer className='panel-settings-footer'>
+        {initial.restart_required && <p className='panel-settings-status' role='status'>{t('panelSettings.restartPending')}</p>}
+        <Button disabled={saving || !dirty} type='submit'>{t(saving ? 'panelSettings.saving' : 'panelSettings.save')}</Button>
+      </footer>
       <Dialog open={tokenOpen} onOpenChange={open => {
         setTokenOpen(open);
         if (!open) {

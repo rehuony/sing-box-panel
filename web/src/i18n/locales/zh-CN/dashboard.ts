@@ -41,9 +41,16 @@ export const dashboard = {
     title: '此区间没有样本',
   },
   error: {
+    metrics: '实时指标不可用',
     history: '历史指标不可用',
     activity: '活动记录不可用',
     timeline: '运行历史不可用',
+  },
+  monitoring: {
+    not_applied: '尚未应用核心配置，流量与连接数采集未启用。',
+    process_only: '当前仅监控进程状态。采集流量与连接数需要在核心配置中启用监听本机回环地址、设有密钥的 Clash API，并应用配置。',
+    no_collector_sample: '尚未收到核心采样。核心运行后每 10 秒采集一次；若持续为空，请查看运行日志。',
+    stale_collector_sample: '核心采样已过期或属于先前配置。请确认核心正在运行，并查看运行日志中的采样错误。',
   },
   evidence: {
     bundle: '已应用运行包',

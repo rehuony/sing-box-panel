@@ -112,6 +112,24 @@ proxy, raw sockets, and ports below 1024 require an explicit local review. The
 `examples/tun-override.conf` file shows the smallest expected capability and
 device override; it is deliberately outside the auto-loaded unit directory.
 
+Host metrics keep `ProtectProc=invisible` and `ProcSubset=pid`. The system unit
+bind-mounts only `/proc/stat`, `/proc/meminfo`, and `/proc/loadavg` read-only into
+`/run/sing-box-panel/host-proc`, and sets `SING_BOX_PANEL_HOST_PROC` so the sampler
+reads these live counters. Direct and user-service runs use `/proc` by default.
+Missing counters remain unavailable; disk sampling is independent. Older system
+units hide these files without providing the mounts, so upgrading the binary
+alone does not restore CPU, memory, or load readings. Refresh the installed unit
+using the upgraded binary, then restart the service. For an uncustomized generated
+system unit:
+
+```sh
+sudo /usr/local/bin/sing-box-panel systemd install --scope=system --force
+sudo /usr/local/bin/sing-box-panel systemd restart --scope=system
+```
+
+Review customized units before replacement. Keep all three bind mounts and the
+environment setting together; do not expose the whole host `/proc` tree.
+
 ## User service
 
 The static packaging user unit expects:

@@ -1265,7 +1265,7 @@ paths:
       summary: Stream current metrics and runtime evidence every two seconds
       responses:
         '200':
-          description: Server-sent metrics events, each containing metrics and runtime objects. Reconnect after stream closure.
+          description: Server-sent metrics events, each containing metrics and runtime objects. Initial snapshot failures return a Problem response before opening the stream. Reconnect after stream closure; the one-minute lifetime includes snapshot collection.
           content:
             text/event-stream:
               schema: {type: string}
