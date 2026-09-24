@@ -64,7 +64,7 @@ func (manager *Manager) CheckHealth(ctx context.Context) (HealthStatus, error) {
 	observation, err := manager.options.Probe.AwaitHealthy(ctx, ProcessInfo{
 		PID:       process.child.PID(),
 		StartedAt: startedAt,
-		Exited:    process.done,
+		Exited:    process.exited,
 	})
 	if err != nil {
 		if ctx.Err() != nil {
@@ -100,6 +100,12 @@ func (manager *Manager) CheckHealth(ctx context.Context) (HealthStatus, error) {
 	if manager.process != process {
 		manager.mu.Unlock()
 		return HealthStatus{}, fail("health_check", "process_exited", ErrProcessExited, process.waitError)
+	}
+	select {
+	case <-process.exited:
+		manager.mu.Unlock()
+		return HealthStatus{}, manager.startedProcessFailure(ctx, process, "health_check", "process_exited", ErrProcessExited, nil)
+	default:
 	}
 	manager.status.State = StateRunning
 	manager.status.Health = &health

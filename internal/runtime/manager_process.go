@@ -50,6 +50,11 @@ func (manager *Manager) recordActualVersion(generation uint64, version coreartif
 func (manager *Manager) reap(process *managedProcess) {
 	defer manager.waitGroup.Done()
 	waitError := process.child.Wait()
+	manager.mu.Lock()
+	process.waitError = waitError
+	close(process.exited)
+	manager.mu.Unlock()
+	cleanupError := process.config.Close()
 	if process.output != nil {
 		waitError = errors.Join(waitError, process.output.Close())
 	}
@@ -85,6 +90,10 @@ func (manager *Manager) reap(process *managedProcess) {
 	}
 	manager.mu.Unlock()
 	close(process.done)
+	// Logging must not hold up exit publication or callers waiting for cleanup.
+	if cleanupError != nil {
+		manager.reportConfigCleanupError(cleanupError)
+	}
 }
 
 func (manager *Manager) command(bundle AppliedBundle, arguments ...string) Command {

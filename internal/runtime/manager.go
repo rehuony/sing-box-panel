@@ -22,6 +22,7 @@ const (
 // operations are serialized, and every child has one owned reaper goroutine.
 type Manager struct {
 	options Options
+	configs *startupConfigFiles
 
 	operationMu sync.Mutex
 	mu          sync.Mutex
@@ -37,8 +38,10 @@ type Manager struct {
 type managedProcess struct {
 	child          ChildProcess
 	output         io.Closer
+	config         *startupConfigFile
 	generation     uint64
-	done           chan struct{}
+	exited         chan struct{} // Child Wait returned; health must no longer succeed.
+	done           chan struct{} // Output, config release, and exit status are complete.
 	desiredState   State
 	desiredFailure *FailureStatus
 	waitError      error
@@ -98,6 +101,7 @@ func NewManager(options Options) (*Manager, error) {
 	now := options.Clock.Now().UTC()
 	return &Manager{
 		options: options,
+		configs: &startupConfigFiles{runtimeDir: options.RuntimeDir, users: make(map[string]int)},
 		status: Snapshot{
 			State:          StateStopped,
 			TransitionedAt: now,

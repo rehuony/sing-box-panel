@@ -30,6 +30,7 @@ type runtimeServices struct {
 }
 
 type runtimeManager interface {
+	PruneStartupConfigs(context.Context)
 	Check(context.Context, coreruntime.AppliedBundle) error
 	Start(context.Context, coreruntime.AppliedBundle) error
 	Stop(context.Context) error
@@ -62,6 +63,13 @@ func newRuntimeServices(
 		RuntimeDir: filepath.Join(configuration.DataDir, "runtime"),
 		Stdout:     logs.Writer(), Stderr: logs.Writer(),
 		ObserveOutput: logs.Follow,
+		ObserveConfigCleanupError: func(err error) {
+			recordOperationalLog(commands, application.LogRecordRequest{
+				Source: store.LogSourcePanel, Level: store.LogLevelWarn,
+				Code: "runtime.config_cleanup_failed", Message: "Unused runtime configuration files could not be removed; cleanup will be retried",
+				Metadata: mustLogMetadata(map[string]any{"error": err.Error()}),
+			})
+		},
 	})
 	if err != nil {
 		return nil, err
@@ -75,7 +83,12 @@ func newRuntimeServices(
 // ReconcileStartup refuses to adopt a live unowned process and routes startup
 // convergence through the same fenced, bounded recovery history used at
 // runtime. An active durable intent remains the sole owner of convergence.
-func (services *runtimeServices) ReconcileStartup(ctx context.Context) error {
+func (services *runtimeServices) ReconcileStartup(ctx context.Context) (reconcileErr error) {
+	defer func() {
+		if reconcileErr == nil {
+			services.manager.PruneStartupConfigs(ctx)
+		}
+	}()
 	history, err := services.database.ListRuntimeTransitions(ctx, store.RuntimeHistoryFilter{Limit: 1})
 	if err != nil {
 		return err

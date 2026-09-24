@@ -92,17 +92,19 @@ func (manager *Manager) startLocked(ctx context.Context, bundle AppliedBundle) e
 	if err := contextError(operationContext); err != nil {
 		return manager.startFailure("start", "cancelled", err, err)
 	}
-	configPath, err := materializeStartupConfig(
-		manager.options.RuntimeDir,
-		bundle.StartupConfigDigest,
-		bundle.StartupConfig,
-	)
+	config, err := manager.configs.acquire(bundle.StartupConfigDigest, bundle.StartupConfig)
 	if err != nil {
 		return manager.startFailure("materialize_config", "write", ErrMaterialization, err)
 	}
+	configOwned := false
+	defer func() {
+		if !configOwned {
+			manager.releaseStartupConfig(config)
+		}
+	}()
 	if _, err := manager.options.Executor.Run(
 		operationContext,
-		manager.command(bundle, "check", "-c", configPath),
+		manager.command(bundle, "check", "-c", config.path),
 		manager.options.MaximumCommandOutput,
 	); err != nil {
 		if operationContext.Err() != nil {
@@ -138,14 +140,11 @@ func (manager *Manager) startLocked(ctx context.Context, bundle AppliedBundle) e
 			_ = output.Close()
 		}
 	}()
-	child, err := manager.options.Executor.Start(manager.command(bundle, "run", "-c", configPath))
+	child, err := manager.options.Executor.Start(manager.command(bundle, "run", "-c", config.path))
 	if err != nil {
 		return manager.startFailure("start_process", "execution", ErrProcessExited, err)
 	}
-	if child == nil || child.PID() <= 0 {
-		if child != nil {
-			_ = child.Kill()
-		}
+	if child == nil {
 		return manager.startFailure("start_process", "invalid_process", ErrProcessExited, nil)
 	}
 
@@ -153,7 +152,9 @@ func (manager *Manager) startLocked(ctx context.Context, bundle AppliedBundle) e
 	process := &managedProcess{
 		child:        child,
 		output:       output,
+		config:       config,
 		generation:   generation,
+		exited:       make(chan struct{}),
 		done:         make(chan struct{}),
 		desiredState: StateFailed,
 		desiredFailure: &FailureStatus{
@@ -169,12 +170,16 @@ func (manager *Manager) startLocked(ctx context.Context, bundle AppliedBundle) e
 	manager.mu.Unlock()
 	manager.waitGroup.Add(1)
 	outputOwned = true
+	configOwned = true
 	go manager.reap(process)
+	if child.PID() <= 0 {
+		return manager.startedProcessFailure(operationContext, process, "start_process", "invalid_process", ErrProcessExited, nil)
+	}
 
 	observation, err := manager.options.Probe.AwaitHealthy(operationContext, ProcessInfo{
 		PID:       child.PID(),
 		StartedAt: startedAt,
-		Exited:    process.done,
+		Exited:    process.exited,
 	})
 	if err != nil {
 		if operationContext.Err() != nil {
@@ -211,6 +216,12 @@ func (manager *Manager) startLocked(ctx context.Context, bundle AppliedBundle) e
 	if manager.process != process {
 		manager.mu.Unlock()
 		return fail("health_check", "process_exited", ErrProcessExited, process.waitError)
+	}
+	select {
+	case <-process.exited:
+		manager.mu.Unlock()
+		return manager.startedProcessFailure(operationContext, process, "health_check", "process_exited", ErrProcessExited, nil)
+	default:
 	}
 	now := manager.options.Clock.Now().UTC()
 	manager.status.State = StateRunning

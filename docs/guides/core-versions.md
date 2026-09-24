@@ -132,8 +132,7 @@ paths, deduplication and existing installation identifiers. They are recorded
 metadata. Official installation does not require or compare an upstream digest;
 local import does not accept an expected digest. Check, enable, start, restart,
 rollback, recovery, execution copies and current-link reconciliation do not compare
-core file contents with those recorded values. Existing IDs, `sha256/...` paths
-and database records continue to work. Hash folder names describe storage layout,
+core file contents with those recorded values. Hash folder names describe storage layout,
 not a runtime authenticity guarantee. Reused executables still undergo platform
 and exact-version inspection at installation.
 
@@ -149,6 +148,33 @@ they are not prerequisites for an operator installing or running a core.
 Official downloads rely on GitHub HTTPS and the fixed repository/release location.
 Imported cores rely on the administrator's choice. Recorded hashes do not provide
 publisher authenticity or ongoing tamper detection.
+
+## Installed file layout and upgrades
+
+Installed archives and executables share one content directory:
+
+```text
+artifacts/
+  current -> sha256/<archive-sha256>/sing-box
+  sha256/
+    <archive-sha256>/
+      artifact.tar.gz
+      sing-box
+```
+
+The full archive digest remains the content address; there is no two-character
+prefix directory. Different builds of the same version retain distinct installation
+identities, and identical archives reuse their content directory.
+
+The former `artifacts/sha256/<first-two-characters>/<archive-sha256>/` layout is
+unsupported. Opening or installing into such a store fails with an instruction to
+reinitialize the instance data directory and reinstall cores. This is an explicit
+incompatible storage change: there is no automatic migration, fallback lookup,
+or deletion of old files. Before upgrading an instance with that layout, export
+the configuration and any other state you need to retain, stop the panel, and
+reinitialize its data directory using the documented [instance cleanup](cli.md#instance-files-and-cleanup)
+and initialization workflows. Reinitialization discards the previous database
+history; merely moving the core files leaves stale paths in the database.
 
 ## Switching and runtime state
 

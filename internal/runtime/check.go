@@ -74,15 +74,14 @@ func (manager *Manager) checkLocked(ctx context.Context, bundle AppliedBundle) e
 	); err != nil {
 		return fail("verify_artifact", "changed_after_version", ErrArtifactFile, err)
 	}
-	configPath, err := materializeStartupConfig(
-		manager.options.RuntimeDir, bundle.StartupConfigDigest, bundle.StartupConfig,
-	)
+	config, err := manager.configs.acquire(bundle.StartupConfigDigest, bundle.StartupConfig)
 	if err != nil {
 		return fail("materialize_config", "write", ErrMaterialization, err)
 	}
+	defer manager.releaseStartupConfig(config)
 	if _, err := manager.options.Executor.Run(
 		ctx,
-		manager.command(bundle, "check", "-c", configPath),
+		manager.command(bundle, "check", "-c", config.path),
 		manager.options.MaximumCommandOutput,
 	); err != nil {
 		if ctx.Err() != nil {

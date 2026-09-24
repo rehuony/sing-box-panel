@@ -46,8 +46,9 @@ visible. File length alone is not a reason to create another package.
 - `internal/singbox` owns the reviewed support catalog, version-scoped native and reviewed
   Schema assets, inbound conversion, and behavior-family dispatch. Exact
   versions exist as catalog data rather than forwarding packages.
-- `internal/runtime` owns managed processes and its restricted Clash API
-  monitoring client.
+- `internal/runtime` owns managed processes, reference-counted disposable
+  configuration files and its restricted Clash API monitoring client. Durable
+  snapshot bytes remain in `store`; file cleanup follows check and child lifetimes.
 - `internal/application` owns use cases and runtime identity resolution backed
   by persistent state.
 - `internal/server` owns server composition, serialized runtime controls, bounded recovery,
