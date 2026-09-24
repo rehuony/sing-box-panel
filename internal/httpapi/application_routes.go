@@ -46,12 +46,6 @@ func (handler *Handler) handleApplicationRoute(w http.ResponseWriter, request *h
 		} else {
 			next = methodNotAllowed
 		}
-	} else if path == "/api/v1/config/inbound-defaults" {
-		if request.Method == http.MethodPost {
-			next = handler.newInboundDefaults
-		} else {
-			next = methodNotAllowed
-		}
 	} else if path == "/api/v1/config/apply" {
 		if request.Method == http.MethodPost {
 			next = handler.activateCore

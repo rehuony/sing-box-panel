@@ -312,7 +312,7 @@ Runtime recovery uses a dedicated persisted record: at most three attempts with
 continuously verified healthy runtime reset an episode; downtime alone does not.
 Explicit lifecycle requests supersede the old recovery episode.
 
-## Panel settings and protocol identity
+## Panel settings
 
 The panel settings API at authenticated `GET/PUT /api/v1/panel/settings` is a
 projection of the shared settings file selected by `--config`. The Web UI,
@@ -332,13 +332,13 @@ All topics share one draft and Save button. Hash navigation and browser history
 retain the draft; leaving `/panel` or closing the page warns about unsaved changes.
 Validation locates the offending category and field; failed saves retain drafts.
 Credential reads expose configured flags. Empty credentials preserve saved values;
-GitHub tokens have an explicit remove control. Protocol identity and subscription
-source access settings are hidden in this UI and preserved during ordinary saves.
+GitHub tokens have an explicit remove control. Subscription source access settings
+are hidden in this UI and preserved during ordinary saves.
 
 ### Shared settings file
 
 Existing file fields retain their paths. Web-only preferences are added under
-`panel`, with matching defaults. Hidden identity and subscription source access fields remain supported in the file and API. The `service` API projection covers non-secret service options and is optional on writes. Settings validation and revision checks cover the entire file. Changing service options that are captured at startup displays a restart notice.
+`panel`, with matching defaults. Hidden subscription source access fields remain supported in the file and API. The `service` API projection covers non-secret service options and is optional on writes. Settings validation and revision checks cover the entire file. Changing service options that are captured at startup displays a restart notice.
 
 Unused `subscription.author`, `subscription.provider`, and `logs.retention_days`
 have been removed, together with API fields `subscription_author`,
@@ -365,7 +365,6 @@ replace settings with current defaults (including a new management token).
 | `logs.core_max_files` | Maximum core capture files | `0` (unlimited) |
 | `logs.core_max_file_size_mib` | Maximum capture file size | `32` MiB |
 | `panel.public_node_host` | Public node host | Empty; automatic detection |
-| `panel.identity_name` / `panel.identity_key` | File/API only | Empty / empty |
 | `panel.language` | Language | `zh-CN` |
 | `panel.appearance.theme` | Theme | `light` |
 | `panel.appearance.color` | Color | `#6D4ED1` |
@@ -409,8 +408,8 @@ does not interrupt the service or change the running sing-box process.
 
 Writers use a private persistent `.lock` sidecar and atomic file replacement.
 Web saves use a temporary private `.pending` recovery journal and a SQLite commit
-marker so a file update and any protocol-identity update recover to the same
-outcome after interruption. The marker contains transaction identity, not a
+marker so settings saves and backup restores recover to a known outcome after
+interruption. Backup restoration coordinates the settings file and saved sing-box text. The marker contains transaction identity, not a
 second copy of settings. Startup recovers before serving requests. Incomplete
 updates block file commands; a conflicting external edit is never overwritten
 by automatic recovery. Keep the selected file and its directory writable by the
@@ -421,16 +420,18 @@ bounded public-IP detector provides the input placeholder and publication host.
 It never rewrites the actual listener, port, TLS server name or imported node
 address. Detection failure must not publish loopback or wildcard addresses.
 
-Explicit API writes of a changed common protocol name or its key update
-matching managed credentials in the saved configuration, coordinated with the
-settings file through the recoverable transaction above. It preserves other existing
-users, external client nodes and protocol-specific obfuscation secrets. UUID-
-based protocols receive a UUID; Shadowsocks 2022 receives a method-sized key.
-An invalid saved configuration or concurrent edit rejects the whole change.
-The running core keeps its existing bytes until a checked restart.
-`POST /api/v1/config/inbound-defaults` creates an authenticated, no-store editor
-entry using that identity. It does not save or launch anything; the user reviews
-and saves the new inbound through the normal configuration flow.
+New inbound entries are created locally from the selected protocol and tag.
+Credentials belong to each inbound's native configuration and are entered in its
+editor. Saving panel settings never generates or rewrites inbound credentials,
+and does not require the saved sing-box text to be syntactically complete.
+
+The former shared credential fields `panel.identity_name` and `panel.identity_key`,
+the API fields `identity_name`, `identity_key`, `clear_identity_key` and
+`identity_key_configured`, and `POST /api/v1/config/inbound-defaults` have been
+removed. This development-stage change has no compatibility fallback: settings
+files, API writes and backups containing the removed fields are rejected. Remove
+those panel fields before loading an existing file or backup. Existing native
+inbound usernames, passwords and UUIDs are preserved.
 
 Appearance offers five presets and a custom HEX picker, with radius 0–32px (default 12).
 Preview changes page, controls, charts and dialogs immediately while semantic
@@ -456,7 +457,7 @@ requires this backup plus both target `settings_revision` and
 content (1 MiB settings and 2 MiB sing-box text), or revision conflicts leave both
 sources unchanged. The existing settings journal and SQLite commit marker make
 restoration atomic and recover interrupted writes. Native sing-box text, including
-formatting and unfinished edits, is preserved without implicit identity rewrites.
+formatting and unfinished edits, is preserved exactly.
 
 Restore refreshes settings and the configuration editor. A changed management
 token requires signing in again; listener/path changes require a manual restart.

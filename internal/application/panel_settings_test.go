@@ -34,18 +34,18 @@ func TestPanelSettingsPersistCASAndRedact(t *testing.T) {
 	p.Appearance.Radius = 0
 	p.PublicNodeHost = "2001:db8::1"
 	p.ExternalOrigin = "https://panel.example.com"
-	input := PanelSettingsWrite{Preferences: p, Revision: view.Revision, IdentityKey: "identity-secret", ManagementToken: strings.Repeat("b", 32)}
+	input := PanelSettingsWrite{Preferences: p, Revision: view.Revision, ManagementToken: strings.Repeat("b", 32)}
 	saved, err := app.SavePanelSettings(ctx, input)
 	if err != nil {
 		t.Fatal(err)
 	}
 	data, _ := json.Marshal(saved)
-	for _, secret := range []string{"github-original-secret", "identity-secret", strings.Repeat("b", 32)} {
+	for _, secret := range []string{"github-original-secret", strings.Repeat("b", 32)} {
 		if strings.Contains(string(data), secret) {
 			t.Fatal("response contains secret")
 		}
 	}
-	if !saved.GitHubTokenConfigured || !saved.IdentityKeyConfigured || saved.Revision == view.Revision {
+	if !saved.GitHubTokenConfigured || saved.Revision == view.Revision {
 		t.Fatalf("save: %+v", saved)
 	}
 	if _, err := app.SavePanelSettings(ctx, input); !errors.Is(err, store.ErrPanelSettingsConflict) {

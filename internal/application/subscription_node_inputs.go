@@ -12,12 +12,12 @@ import (
 // A saved panel override wins over the legacy per-channel host. It only changes
 // generated client endpoints, never listener addresses, ports or explicit SNI.
 func (app *Application) publicationHost(ctx context.Context, _ store.SubscriptionNodeControls, fallback string) (string, error) {
-	value, _, err := app.storedPanelSettings(ctx)
+	value, _, err := app.currentSettings(ctx)
 	if err != nil {
 		return "", err
 	}
-	if value.Preferences.PublicNodeHost != "" {
-		return value.Preferences.PublicNodeHost, nil
+	if value.Panel.PublicNodeHost != "" {
+		return value.Panel.PublicNodeHost, nil
 	}
 	if fallback != "" {
 		return fallback, nil

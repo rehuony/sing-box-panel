@@ -1,6 +1,6 @@
 export const panelSettings = {
   title: 'Panel settings', security: 'Service & security', nodes: 'Nodes & subscriptions', appearance: 'Usage & appearance',
-  access: 'Service access', authentication: 'Authentication', updates: 'Version updates', publication: 'Node publication', identity: 'Protocol identity',
+  access: 'Service access', authentication: 'Authentication', updates: 'Version updates', publication: 'Node publication',
   service: 'Service settings', maintenance: 'System maintenance',
   traffic: 'Traffic usage', interface: 'Interface preferences', appearanceGroup: 'Appearance', languageGroup: 'Language',
   listenHost: 'Listen address', listenPort: 'Listen port', origin: 'Access origin', originHelp: 'Enter the full origin, such as https://panel.example.com. Listener and origin changes take effect after the panel restarts.',
@@ -9,8 +9,7 @@ export const panelSettings = {
   github: 'GitHub Token', githubHelp: 'Optional credential for official GitHub release requests. Authenticated requests can have higher rate limits; the response headers are authoritative. Leave blank to retain the current credential.',
   configured: 'Configured; leave blank to retain', remove: 'Remove', removed: 'Removed when saved', undo: 'Undo',
   publicHost: 'Published node address', publicHostHelp: 'Domain or public IP, without scheme or port. Only replaces the connection address of local published nodes; never changes listeners, SNI or certificates.',
-  autoHost: 'Automatically detect public IP', identityName: 'Identity name', identityKey: 'Identity key', identityHelp: 'Saving a changed identity updates the named default user in config.json; restart sing-box to load it. Blank name uses panel. Existing other users and unauthenticated listeners are preserved. Configure protocol obfuscation keys separately.',
-  identitySaved: 'Identity saved; restart sing-box to load updated node credentials',
+  autoHost: 'Automatically detect public IP',
   quota: 'Total traffic quota', unlimited: 'Unlimited', theme: 'Theme', light: 'Light', dark: 'Dark', system: 'System',
   color: 'Accent color', customColor: 'Custom color', customColorTitle: 'Custom theme color', applyColor: 'Apply color', invalidColor: 'Enter a six-digit HEX color, such as #6D4ED1.', hex: 'HEX color', colors: ['Purple', 'Blue', 'Cyan', 'Green', 'Orange', 'Rose'],
   radius: 'Corner radius', radiusHelp: 'Cards and dialogs use this value; controls use half. Status dots, pills and the brand mark retain their shape.',

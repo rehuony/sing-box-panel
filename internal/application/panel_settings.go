@@ -24,7 +24,6 @@ type PanelPreferences struct {
 	ListenPort      int                `json:"listen_port"`
 	ExternalOrigin  string             `json:"external_origin"`
 	PublicNodeHost  string             `json:"public_node_host"`
-	IdentityName    string             `json:"identity_name"`
 	TrafficQuotaGiB *int64             `json:"traffic_quota_gib"`
 	Language        string             `json:"language"`
 	Appearance      AppearanceSettings `json:"appearance"`
@@ -76,34 +75,25 @@ type PanelSettingsView struct {
 	Revision              int64                `json:"revision"`
 	Preferences           PanelPreferences     `json:"preferences"`
 	GitHubTokenConfigured bool                 `json:"github_token_configured"`
-	IdentityKeyConfigured bool                 `json:"identity_key_configured"`
 	RestartRequired       bool                 `json:"restart_required"`
 }
 
 type PanelSettingsWrite struct {
 	Service          *PanelServiceSettings `json:"service,omitempty"`
-	ClearIdentityKey bool                  `json:"clear_identity_key,omitempty"`
 	Revision         int64                 `json:"revision"`
 	Preferences      PanelPreferences      `json:"preferences"`
 	GitHubToken      string                `json:"github_token,omitempty"`
 	ClearGitHubToken bool                  `json:"clear_github_token,omitempty"`
-	IdentityKey      string                `json:"identity_key,omitempty"`
 	ManagementToken  string                `json:"management_token,omitempty"`
 }
 
 type storedPanelSettings struct {
 	Preferences     PanelPreferences `json:"preferences"`
 	GitHubToken     string           `json:"github_token"`
-	IdentityKey     string           `json:"identity_key"`
 	ManagementToken string           `json:"management_token"`
 }
 
 var ErrPanelSettingsInvalid = errors.New("panel settings are invalid")
-
-func (app *Application) storedPanelSettings(ctx context.Context) (storedPanelSettings, int64, error) {
-	value, revision, err := app.currentSettings(ctx)
-	return panelValues(value), revision, err
-}
 
 func (app *Application) PanelSettings(ctx context.Context) (PanelSettingsView, error) {
 	value, revision, err := app.currentSettings(ctx)
@@ -125,8 +115,8 @@ func (app *Application) panelSettingsView(configuration settings.Settings, revis
 		configuration.Auth.SecureCookie != loaded.Auth.SecureCookie
 	return PanelSettingsView{
 		Revision: revision, Preferences: p, Service: serviceSettings(configuration),
-		GitHubTokenConfigured: value.GitHubToken != "", IdentityKeyConfigured: value.IdentityKey != "",
-		RestartRequired: restartRequired,
+		GitHubTokenConfigured: value.GitHubToken != "",
+		RestartRequired:       restartRequired,
 	}
 }
 
@@ -158,7 +148,6 @@ func (app *Application) SavePanelSettings(ctx context.Context, input PanelSettin
 	if input.Revision != revision {
 		return PanelSettingsView{}, store.ErrPanelSettingsConflict
 	}
-	identityChanged := input.Preferences.IdentityName != value.Preferences.IdentityName || input.IdentityKey != "" || input.ClearIdentityKey
 	value.Preferences = input.Preferences
 	value.Preferences.Appearance.Color = strings.ToUpper(input.Preferences.Appearance.Color)
 	if input.GitHubToken != "" {
@@ -167,21 +156,8 @@ func (app *Application) SavePanelSettings(ctx context.Context, input PanelSettin
 	if input.ClearGitHubToken {
 		value.GitHubToken = ""
 	}
-	if input.IdentityKey != "" {
-		value.IdentityKey = input.IdentityKey
-	}
-	if input.ClearIdentityKey {
-		value.IdentityKey = ""
-	}
 	if input.ManagementToken != "" {
 		value.ManagementToken = input.ManagementToken
-	}
-	var configuration *store.ConfigurationFileUpdate
-	if identityChanged {
-		configuration, err = app.identityConfigurationUpdate(ctx, value)
-		if err != nil {
-			return PanelSettingsView{}, err
-		}
 	}
 	originalDataDir := configurationFile.DataDir
 	applyPanelValues(&configurationFile, value)
@@ -195,7 +171,7 @@ func (app *Application) SavePanelSettings(ctx context.Context, input PanelSettin
 	if err != nil {
 		return PanelSettingsView{}, err
 	}
-	if err := app.commitSettingsFile(ctx, before, after, configuration); err != nil {
+	if err := app.commitSettingsFile(ctx, before, after, nil); err != nil {
 		return PanelSettingsView{}, err
 	}
 	app.publishSettings(configurationFile)
@@ -209,7 +185,7 @@ func (app *Application) SavePanelSettings(ctx context.Context, input PanelSettin
 
 func validatePanelSettings(input PanelSettingsWrite) error {
 	p := input.Preferences
-	if err := panelFields(p, input.IdentityKey).Validate(); err != nil {
+	if err := panelFields(p).Validate(); err != nil {
 		return ErrPanelSettingsInvalid
 	}
 	if input.Revision < 0 || (net.ParseIP(p.ListenHost) == nil && p.ListenHost != "localhost") || p.ListenPort < 1 || p.ListenPort > 65535 ||
@@ -225,7 +201,7 @@ func validatePanelSettings(input PanelSettingsWrite) error {
 	if p.PublicNodeHost != "" && !settings.ValidPublishedHost(p.PublicNodeHost) {
 		return ErrPanelSettingsInvalid
 	}
-	for _, secret := range []string{input.GitHubToken, input.IdentityKey, input.ManagementToken} {
+	for _, secret := range []string{input.GitHubToken, input.ManagementToken} {
 		if len(secret) > 8192 || strings.ContainsAny(secret, "\x00\r\n") {
 			return ErrPanelSettingsInvalid
 		}
@@ -237,7 +213,7 @@ func validatePanelSettings(input PanelSettingsWrite) error {
 	if token != "" && (len(token) < 32 || token != trimmedToken) {
 		return ErrPanelSettingsInvalid
 	}
-	if (input.GitHubToken != "" && input.ClearGitHubToken) || (input.IdentityKey != "" && input.ClearIdentityKey) {
+	if input.GitHubToken != "" && input.ClearGitHubToken {
 		return ErrPanelSettingsInvalid
 	}
 	return nil

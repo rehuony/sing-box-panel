@@ -22,7 +22,7 @@ func TestPanelBackupRestoresBothSourcesAndExactConfigurationText(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, field := range []string{`"author"`, `"provider"`, `"retention_days"`} {
+	for _, field := range []string{`"author"`, `"provider"`, `"retention_days"`, `"identity_name"`, `"identity_key"`} {
 		if bytes.Contains(backup.PanelSettings, []byte(field)) {
 			t.Fatalf("backup contains removed field %s", field)
 		}
@@ -32,8 +32,7 @@ func TestPanelBackupRestoresBothSourcesAndExactConfigurationText(t *testing.T) {
 		t.Fatal(err)
 	}
 	native.Auth.Token = strings.Repeat("restored-token-", 3)
-	native.Panel.IdentityName = "restored-identity"
-	native.Panel.IdentityKey = "do-not-rewrite-inbounds"
+	native.Panel.PublicNodeHost = "restored.example.com"
 	native.Server.Port = 8080
 	backup.PanelSettings, _ = json.Marshal(native)
 	view, _ := target.PanelSettings(t.Context())
@@ -50,7 +49,7 @@ func TestPanelBackupRestoresBothSourcesAndExactConfigurationText(t *testing.T) {
 		t.Fatalf("configuration text changed: %+v %v", got, err)
 	}
 	loaded, err := settings.Load(target.settingsPath)
-	if err != nil || loaded.Auth.Token != native.Auth.Token || loaded.DataDir != native.DataDir || loaded.Panel.IdentityKey != native.Panel.IdentityKey {
+	if err != nil || loaded.Auth.Token != native.Auth.Token || loaded.DataDir != native.DataDir || loaded.Panel.PublicNodeHost != native.Panel.PublicNodeHost {
 		t.Fatal("incomplete settings restore", err)
 	}
 	state, err := target.database.Bootstrap(t.Context())
@@ -60,7 +59,7 @@ func TestPanelBackupRestoresBothSourcesAndExactConfigurationText(t *testing.T) {
 }
 
 func TestPanelBackupConflictsAndInvalidInputLeaveBothSourcesUntouched(t *testing.T) {
-	for _, kind := range []string{"settings_conflict", "configuration_conflict", "unsupported", "invalid_settings", "oversize", "removed_author", "removed_provider", "removed_retention"} {
+	for _, kind := range []string{"settings_conflict", "configuration_conflict", "unsupported", "invalid_settings", "identity_name", "identity_key", "oversize", "removed_author", "removed_provider", "removed_retention"} {
 		t.Run(kind, func(t *testing.T) {
 			app := panelFileApp(t)
 			original, err := app.SaveConfigurationFile(t.Context(), ConfigurationFileWrite{Content: `{"log":{"level":"info"}}`})
@@ -80,6 +79,13 @@ func TestPanelBackupConflictsAndInvalidInputLeaveBothSourcesUntouched(t *testing
 				request.Backup.Version = 999
 			case "invalid_settings":
 				request.Backup.PanelSettings = json.RawMessage(`{"data_dir":"bad"}`)
+			case "identity_name", "identity_key":
+				var fields map[string]any
+				if err := json.Unmarshal(request.Backup.PanelSettings, &fields); err != nil {
+					t.Fatal(err)
+				}
+				fields["panel"].(map[string]any)[kind] = "removed"
+				request.Backup.PanelSettings, _ = json.Marshal(fields)
 			case "oversize":
 				request.Backup.SingBoxConfiguration = strings.Repeat("x", 2<<20+1)
 			case "removed_author", "removed_provider", "removed_retention":
@@ -102,7 +108,7 @@ func TestPanelBackupConflictsAndInvalidInputLeaveBothSourcesUntouched(t *testing
 			if err == nil {
 				t.Fatal("invalid restore succeeded")
 			}
-			if strings.HasPrefix(kind, "removed_") && !errors.Is(err, ErrPanelBackupInvalid) {
+			if (strings.HasPrefix(kind, "removed_") || kind == "identity_name" || kind == "identity_key") && !errors.Is(err, ErrPanelBackupInvalid) {
 				t.Fatalf("removed field was not rejected as an invalid backup: %v", err)
 			}
 			if kind == "configuration_conflict" && !errors.Is(err, store.ErrConfigurationFileConflict) {

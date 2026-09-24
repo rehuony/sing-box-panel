@@ -48,10 +48,6 @@ func (handler *Handler) savePanelSettings(w http.ResponseWriter, request *http.R
 
 func writePanelSettingsProblem(w http.ResponseWriter, request *http.Request, err error) {
 	switch {
-	case errors.Is(err, application.ErrIdentityConfiguration):
-		writeProblem(w, request, http.StatusUnprocessableEntity, "identity_configuration_invalid", "Configuration needs attention", "Correct the saved configuration before changing the protocol identity.")
-	case errors.Is(err, store.ErrConfigurationFileConflict):
-		writeProblem(w, request, http.StatusPreconditionFailed, "identity_configuration_conflict", "Configuration changed", "The configuration changed while saving the identity. Review the configuration and retry.")
 	case errors.Is(err, application.ErrPanelSettingsInvalid):
 		writeProblem(w, request, http.StatusUnprocessableEntity, "panel_settings_invalid", "Invalid settings", "Check the settings values and try again.")
 	case errors.Is(err, store.ErrPanelSettingsConflict):

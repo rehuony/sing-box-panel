@@ -23,7 +23,6 @@ var managementOperations = []managementOperation{
 	{Method: http.MethodPost, Path: "/panel/restore", OperationID: "restorePanelBackup"},
 	{Method: http.MethodGet, Path: "/config/file", OperationID: "getConfigurationFile"},
 	{Method: http.MethodPut, Path: "/config/file", OperationID: "saveConfigurationFile"},
-	{Method: http.MethodPost, Path: "/config/inbound-defaults", OperationID: "newInboundDefaults"},
 	{Method: http.MethodGet, Path: "/health", OperationID: "getHealth"},
 	{Method: http.MethodGet, Path: "/auth/session", OperationID: "getSession"},
 	{Method: http.MethodPost, Path: "/auth/session", OperationID: "createSession"},

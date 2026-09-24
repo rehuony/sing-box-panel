@@ -11,32 +11,6 @@ import (
 	"github.com/rehuony/sing-box-panel/internal/store"
 )
 
-func (handler *Handler) newInboundDefaults(w http.ResponseWriter, request *http.Request) {
-	if !handler.requireCommands(w, request) {
-		return
-	}
-	if _, ok := strictCoreQuery(w, request); !ok {
-		return
-	}
-	var input struct {
-		Type string `json:"type"`
-	}
-	if !decodeStrictRequest(w, request, 1024, &input) {
-		return
-	}
-	result, err := handler.commands.NewInboundDefaults(request.Context(), input.Type)
-	if err != nil {
-		if errors.Is(err, application.ErrPanelSettingsInvalid) {
-			writeProblem(w, request, 422, "inbound_defaults_invalid", "Invalid inbound type", "A protocol type is required.")
-			return
-		}
-		writeConfigurationFileProblem(w, request, err)
-		return
-	}
-	w.Header().Set("Cache-Control", "no-store")
-	writeJSON(w, http.StatusOK, result)
-}
-
 func (handler *Handler) configurationFile(w http.ResponseWriter, request *http.Request) {
 	if !handler.requireCommands(w, request) {
 		return

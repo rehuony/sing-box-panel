@@ -84,7 +84,7 @@ describe('panel settings', () => {
     await user.click(screen.getByRole('button', { name: 'Save settings' }));
     await waitFor(() => expect(client.savePanelSettings).toHaveBeenCalledWith(expect.objectContaining({
       preferences: expect.objectContaining({
-        identity_name: original.preferences.identity_name, public_node_host: 'node.example.com', appearance: expect.objectContaining({ radius: 8 }),
+        public_node_host: 'node.example.com', appearance: expect.objectContaining({ radius: 8 }),
       }),
       service: expect.objectContaining({
         data_dir: '/srv/panel', base_path: '/control', secure_cookie: true, catalog_refresh_interval_hours: 24,
@@ -147,7 +147,7 @@ describe('panel settings', () => {
     const client = setup();
     const view = await client.getPanelSettings();
     const configuration = await client.getConfigurationFile();
-    const native = demoBackupSettings(view, { github: '', management: 'backup-secret', identity: '' });
+    const native = demoBackupSettings(view, { github: '', management: 'backup-secret' });
     native.data_dir = '/srv/other-machine';
     const backup = {
       format: 'sing-box-panel-backup', version: 1, exported_at: '2026-09-23T01:00:00Z',

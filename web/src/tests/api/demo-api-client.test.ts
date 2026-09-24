@@ -18,6 +18,8 @@ describe('createDemoApiClient', () => {
     expect(backup.panel_settings).not.toHaveProperty('subscription.author');
     expect(backup.panel_settings).not.toHaveProperty('subscription.provider');
     expect(backup.panel_settings).not.toHaveProperty('logs.retention_days');
+    expect(backup.panel_settings).not.toHaveProperty('panel.identity_name');
+    expect(backup.panel_settings).not.toHaveProperty('panel.identity_key');
     const settings = await target.getPanelSettings();
     expect(settings.service).not.toHaveProperty('subscription_author');
     expect(settings.service).not.toHaveProperty('subscription_provider');
@@ -32,6 +34,37 @@ describe('createDemoApiClient', () => {
     await target.restorePanelBackup(request);
     expect((await target.getConfigurationFile()).content).toBe(backup.sing_box_configuration);
     expect((await target.exportPanelBackup()).panel_settings).toEqual(backup.panel_settings);
+  });
+
+  it.each(['identity_name', 'identity_key'])('rejects removed backup field %s without changing state', async (field) => {
+    const client = createDemoApiClient();
+    const settings = await client.getPanelSettings();
+    const configuration = await client.getConfigurationFile();
+    const session = await client.getSession();
+    const backup = await client.exportPanelBackup();
+    const panel = backup.panel_settings.panel as Record<string, unknown>;
+    panel[field] = 'removed';
+    backup.sing_box_configuration = '{"inbounds":[]}';
+    await expect(client.restorePanelBackup({
+      backup, settings_revision: settings.revision, configuration_revision: configuration.revision,
+    })).rejects.toMatchObject({ status: 422, code: 'panel_backup_invalid' });
+    expect(await client.getPanelSettings()).toEqual(settings);
+    expect(await client.getConfigurationFile()).toEqual(configuration);
+    expect(await client.getSession()).toEqual(session);
+  });
+
+  it.each(['identity_name', 'identity_key', 'clear_identity_key'])('rejects removed settings field %s without changing state', async (field) => {
+    const client = createDemoApiClient();
+    const settings = await client.getPanelSettings();
+    const configuration = await client.getConfigurationFile();
+    const backup = await client.exportPanelBackup();
+    const input = { revision: settings.revision, preferences: structuredClone(settings.preferences) };
+    const target = field === 'identity_name' ? input.preferences : input;
+    Object.assign(target, { [field]: field === 'clear_identity_key' ? true : 'removed' });
+    await expect(client.savePanelSettings(input)).rejects.toMatchObject({ status: 422, code: 'invalid_json' });
+    expect(await client.getPanelSettings()).toEqual(settings);
+    expect(await client.getConfigurationFile()).toEqual(configuration);
+    expect((await client.exportPanelBackup()).panel_settings).toEqual(backup.panel_settings);
   });
 
   it('starts authenticated with representative 1.14 core and Schema data', async () => {

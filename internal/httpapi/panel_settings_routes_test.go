@@ -300,3 +300,44 @@ func TestManualSettingsTokenEditChangesAuthentication(t *testing.T) {
 		}
 	}
 }
+
+func TestPanelSettingsRejectsRemovedIdentityFields(t *testing.T) {
+	_, app, handler := newSubscriptionHTTPServices(t, "")
+	view, err := app.PanelSettings(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	response := authenticatedRequest(handler, http.MethodGet, "/api/v1/panel/settings", "", "")
+	for _, field := range []string{"identity_name", "identity_key", "identity_key_configured"} {
+		if strings.Contains(response.Body.String(), field) {
+			t.Fatalf("settings response retained %s", field)
+		}
+	}
+	for _, field := range []string{"identity_name", "identity_key", "clear_identity_key"} {
+		t.Run(field, func(t *testing.T) {
+			raw, err := json.Marshal(application.PanelSettingsWrite{Revision: view.Revision, Preferences: view.Preferences})
+			if err != nil {
+				t.Fatal(err)
+			}
+			var input map[string]any
+			if err := json.Unmarshal(raw, &input); err != nil {
+				t.Fatal(err)
+			}
+			switch field {
+			case "identity_name":
+				input["preferences"].(map[string]any)[field] = "removed"
+			case "clear_identity_key":
+				input[field] = true
+			default:
+				input[field] = "removed"
+			}
+			raw, _ = json.Marshal(input)
+			response := authenticatedRequest(handler, http.MethodPut, "/api/v1/panel/settings", string(raw), "")
+			assertCoreHTTPProblem(t, response, http.StatusUnprocessableEntity, "invalid_json")
+			after, err := app.PanelSettings(t.Context())
+			if err != nil || after.Revision != view.Revision {
+				t.Fatal("rejected input changed settings", err)
+			}
+		})
+	}
+}
