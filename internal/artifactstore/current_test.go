@@ -25,7 +25,7 @@ func TestCurrentLinkSwitchAndValidation(t *testing.T) {
 	var previous string
 	for _, content := range []string{"first binary", "second binary"} {
 		digest := fmt.Sprintf("%x", sha256.Sum256([]byte(content)))
-		binary := filepath.Join(artifacts.root, "sha256", digest[:2], digest, "sing-box")
+		binary := filepath.Join(artifacts.root, "sha256", digest, "sing-box")
 		if err := os.MkdirAll(filepath.Dir(binary), 0700); err != nil {
 			t.Fatal(err)
 		}

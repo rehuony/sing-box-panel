@@ -239,7 +239,7 @@ func TestStoppedCoreSelectionCommitsWithoutLaunchingAndRetainsVersion(t *testing
 			core.ID = "selected-core"
 			core.ArchiveSHA256 = strings.Repeat("c", 64)
 			core.BinarySHA256 = fmt.Sprintf("%x", sha256.Sum256([]byte("selected binary")))
-			core.BinaryPath = filepath.Join(root, "artifacts", "sha256", "cc", core.ArchiveSHA256, "sing-box")
+			core.BinaryPath = filepath.Join(root, "artifacts", "sha256", core.ArchiveSHA256, "sing-box")
 			if err := os.MkdirAll(filepath.Dir(core.BinaryPath), 0700); err != nil {
 				t.Fatal(err)
 			}

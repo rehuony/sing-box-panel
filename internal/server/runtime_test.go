@@ -56,6 +56,13 @@ func TestReconcileStartupClearsOnlyProvenStaleObservation(t *testing.T) {
 				database: database, commands: commands, manager: &fakeRuntimeManager{}, identity: resolver,
 			}
 			err := services.ReconcileStartup(ctx)
+			wantPrunes := 0
+			if test.wantCleared {
+				wantPrunes = 1
+			}
+			if got := services.manager.(*fakeRuntimeManager).pruneCalls; got != wantPrunes {
+				t.Fatalf("startup cleanup calls = %d, want %d", got, wantPrunes)
+			}
 			switch {
 			case test.wantCleared:
 				if err != nil {
@@ -888,6 +895,7 @@ func (resolver *fakeRuntimeIdentityResolver) ProcessStartToken(context.Context, 
 }
 
 type fakeRuntimeManager struct {
+	pruneCalls    int
 	stopCalls     int
 	stopErr       error
 	closeErr      error
@@ -896,6 +904,8 @@ type fakeRuntimeManager struct {
 	live          coreruntime.LiveIdentity
 	checkedBundle *coreruntime.AppliedBundle
 }
+
+func (manager *fakeRuntimeManager) PruneStartupConfigs(context.Context) { manager.pruneCalls++ }
 
 func (manager *fakeRuntimeManager) Check(_ context.Context, bundle coreruntime.AppliedBundle) error {
 	cloned := bundle

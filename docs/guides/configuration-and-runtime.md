@@ -64,6 +64,29 @@ immutable evidence remains for native checks, runtime identities, and recovery.
 The CLI's `config` group instead manages the panel settings file; see
 [Panel settings](cli.md#panel-settings).
 
+### Disposable execution files
+
+Saving updates SQLite; it does not write a separate sing-box JSON file. Checking
+or running a configuration materializes its exact snapshot bytes as
+`runtime/configs/<config-sha256>.json`, with private directory permissions and
+file mode `0600`. Identical bytes share the same file while in use. The hash is
+the configuration digest, independently of the installed core archive digest.
+
+A check releases its file when it finishes, including rejection or cancellation.
+A running child retains its file until its process wait completes, even if a
+stop request times out. When the last user releases a file, the panel removes
+it. Normally only the running configuration remains; checking a different
+configuration can temporarily add another file, and a completed stop leaves
+none. Restart, rollback and recovery reconstruct files from immutable SQLite
+startup records as needed. Cleanup does not remove the saved text or history.
+
+After successful startup reconciliation, while holding the runtime ownership
+lock, the panel also removes unused hash-named snapshots and abandoned writing
+temporary files. It does not clean when a prior core may still be alive. Symlinks,
+subdirectories and unrelated filenames are left untouched. Cleanup failures
+produce `runtime.config_cleanup_failed` panel warnings and are retried on later
+cleanup passes; they do not turn successful checks or starts into failures.
+
 Ordinary CI and signed releases exercise this same file API across a real
 self-update and restart. The release fixture includes whitespace and a number
 beyond JavaScript's safe integer range; the scenario also retains unfinished
@@ -354,7 +377,7 @@ are not duplicated as independent settings:
 data_dir/
   panel.db                # product state, metrics and panel logs
   artifacts/              # installed sing-box cores
-  runtime/configs/        # immutable execution snapshots
+  runtime/configs/        # disposable snapshots held by checks and processes
   imports/                # temporary core uploads
   logs/core/              # managed core log files
   panel-control.sock      # private process control

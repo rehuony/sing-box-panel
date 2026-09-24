@@ -10,11 +10,11 @@ import (
 
 func (store *Store) publish(stagedBinaryPath, stagedArchivePath string, digest coreartifact.SHA256) (string, string, error) {
 	digestText := digest.String()
-	parent := filepath.Join(store.root, "sha256", digestText[:2])
+	parent := filepath.Join(store.root, "sha256")
 	finalDirectory := filepath.Join(parent, digestText)
 	finalBinaryPath := filepath.Join(finalDirectory, "sing-box")
 	finalArchivePath := filepath.Join(finalDirectory, "artifact.tar.gz")
-	for _, directory := range []string{filepath.Join(store.root, "sha256"), parent, finalDirectory} {
+	for _, directory := range []string{parent, finalDirectory} {
 		if err := ensureStoreDirectory(directory, 0o700); err != nil {
 			return "", "", fail(StepPublish, "unsafe_directory", err)
 		}
@@ -35,9 +35,6 @@ func (store *Store) publish(stagedBinaryPath, stagedArchivePath string, digest c
 		return "", "", fail(StepPublish, "sync", err)
 	}
 	if err := syncDirectory(parent); err != nil {
-		return "", "", fail(StepPublish, "sync", err)
-	}
-	if err := syncDirectory(filepath.Join(store.root, "sha256")); err != nil {
 		return "", "", fail(StepPublish, "sync", err)
 	}
 	if err := syncDirectory(store.root); err != nil {

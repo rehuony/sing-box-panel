@@ -40,10 +40,10 @@ func (store *Store) SetCurrent(ctx context.Context, binaryPath string) error {
 	}
 	relative, err := filepath.Rel(store.root, binaryPath)
 	parts := strings.Split(relative, string(filepath.Separator))
-	if err != nil || len(parts) != 4 || parts[0] != "sha256" || len(parts[2]) != 64 || parts[1] != parts[2][:2] || parts[3] != "sing-box" {
+	if err != nil || len(parts) != 3 || parts[0] != "sha256" || len(parts[1]) != 64 || parts[2] != "sing-box" {
 		return ErrCorruptStore
 	}
-	if _, err := coreartifact.ParseSHA256(parts[2]); err != nil {
+	if _, err := coreartifact.ParseSHA256(parts[1]); err != nil {
 		return err
 	}
 	if err := verifyTrustedAncestors(filepath.Dir(binaryPath)); err != nil {

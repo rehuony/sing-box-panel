@@ -367,8 +367,11 @@ func TestManagerUnexpectedExitTransitionsToFailed(t *testing.T) {
 		t.Fatalf("Start: %v", err)
 	}
 
+	manager.mu.Lock()
+	done := manager.process.done
+	manager.mu.Unlock()
 	process.Exit(errors.New("unexpected child exit"))
-	waitSignal(t, process.waitFinished, "process reaper")
+	waitSignal(t, done, "process reaper")
 	status := manager.Status()
 	if status.State != StateFailed || status.PID != 0 || status.Failure == nil || status.Failure.Code != "unexpected_exit" {
 		t.Fatalf("status = %+v, want unexpected-exit failure", status)
@@ -401,6 +404,7 @@ func TestStopCancelsInProgressStartupAndJoinsChild(t *testing.T) {
 	if status := manager.Status(); status.State != StateStopped || status.PID != 0 {
 		t.Fatalf("status = %+v, want stopped", status)
 	}
+	assertConfigAbsent(t, snapshotPath(fixture))
 	if process.WaitCalls() != 1 {
 		t.Fatalf("Wait calls = %d, want exactly one", process.WaitCalls())
 	}

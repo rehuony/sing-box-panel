@@ -183,10 +183,13 @@ type Options struct {
 	Stderr     io.Writer
 	// ObserveOutput follows an explicitly configured log file without changing
 	// the immutable startup configuration. The handle lives with the child.
-	ObserveOutput        func(config []byte, workingDir string) (io.Closer, error)
-	ShutdownGrace        time.Duration
-	ProcessHealthWindow  time.Duration
-	MaximumBinaryBytes   int64
-	MaximumConfigBytes   int64
-	MaximumCommandOutput int64
+	ObserveOutput func(config []byte, workingDir string) (io.Closer, error)
+	// ObserveConfigCleanupError receives non-fatal cleanup warnings outside the
+	// file ownership lock. It may be called by a child reaper and must be bounded.
+	ObserveConfigCleanupError func(error)
+	ShutdownGrace             time.Duration
+	ProcessHealthWindow       time.Duration
+	MaximumBinaryBytes        int64
+	MaximumConfigBytes        int64
+	MaximumCommandOutput      int64
 }

@@ -101,6 +101,9 @@ func (store *Store) install(ctx context.Context, request installRequest) (Result
 	if err := verifyTrustedAncestors(store.root); err != nil {
 		return Result{}, fail(StepPrepare, "unsafe_root_ancestors", err)
 	}
+	if err := checkContentLayout(store.root); err != nil {
+		return Result{}, err
+	}
 	if err := ensureStoreDirectory(filepath.Join(store.root, "sha256"), 0o700); err != nil {
 		return Result{}, fail(StepPrepare, "unsafe_content_root", err)
 	}

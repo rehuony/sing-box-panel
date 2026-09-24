@@ -55,11 +55,11 @@ func TestInstallOfficialVerifiesAndPublishesContentAddressedBinary(t *testing.T)
 	if err != nil || string(featureJSON) != `{"status":"reported","features":["with_musl","with_quic","with_utls"]}` {
 		t.Fatalf("feature fingerprint = %s, err=%v", featureJSON, err)
 	}
-	wantPath := filepath.Join(store.Root(), "sha256", digest.String()[:2], digest.String(), "sing-box")
+	wantPath := filepath.Join(store.Root(), "sha256", digest.String(), "sing-box")
 	if result.BinaryPath != wantPath {
 		t.Fatalf("BinaryPath = %q, want %q", result.BinaryPath, wantPath)
 	}
-	wantArchivePath := filepath.Join(store.Root(), "sha256", digest.String()[:2], digest.String(), "artifact.tar.gz")
+	wantArchivePath := filepath.Join(store.Root(), "sha256", digest.String(), "artifact.tar.gz")
 	if result.ArchivePath != wantArchivePath {
 		t.Fatalf("ArchivePath = %q, want %q", result.ArchivePath, wantArchivePath)
 	}
@@ -161,9 +161,6 @@ func TestInstallRejectsSymlinkedContentStoreDirectory(t *testing.T) {
 	if err := os.Mkdir(outside, 0o700); err != nil {
 		t.Fatalf("Mkdir(outside): %v", err)
 	}
-	if err := os.Symlink(outside, filepath.Join(root, "sha256")); err != nil {
-		t.Fatalf("Symlink: %v", err)
-	}
 	version := artifactVersion(t, "1.13.19")
 	archive := makeArchive(t, tarEntry{name: "bundle/sing-box", data: minimalELF(coreartifact.ArchitectureAMD64), kind: tar.TypeReg})
 	store, err := New(Options{
@@ -172,6 +169,9 @@ func TestInstallRejectsSymlinkedContentStoreDirectory(t *testing.T) {
 	})
 	if err != nil {
 		t.Fatalf("New: %v", err)
+	}
+	if err := os.Symlink(outside, filepath.Join(root, "sha256")); err != nil {
+		t.Fatalf("Symlink: %v", err)
 	}
 	_, err = store.InstallOfficial(context.Background(), officialAsset(version, bytesDigest(archive), int64(len(archive))))
 	if !errors.Is(err, ErrCorruptStore) {
