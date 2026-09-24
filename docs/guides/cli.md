@@ -155,7 +155,7 @@ secret-bearing output.
 sing-box-panel config init --config ./setting.json
 sing-box-panel config show --config ./setting.json
 sing-box-panel config verify --config ./setting.json
-sing-box-panel config unset server.port /subscription/provider --config ./setting.json
+sing-box-panel config unset server.port /github/catalog_refresh_interval_hours --config ./setting.json
 sing-box-panel config set --config ./setting.json --file ./new-setting.json
 sing-box-panel config set --config ./setting.json --file - < ./new-setting.json
 ```

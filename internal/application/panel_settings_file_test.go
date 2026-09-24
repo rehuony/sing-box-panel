@@ -40,7 +40,7 @@ func TestPanelSettingsFileSharedWithManualAndCLIChanges(t *testing.T) {
 	value, _ := settings.Load(app.settingsPath)
 	value.Panel.Language = "en"
 	value.Panel.PublicNodeHost = "nodes.example.com"
-	value.Subscription.Provider = "custom"
+	value.Subscription.PrivateSourceCIDRs = []string{"10.0.0.0/8"}
 	value.Server.BasePath = "/panel"
 	quota := int64(8589934591)
 	value.Traffic.QuotaGiB = &quota
@@ -61,7 +61,7 @@ func TestPanelSettingsFileSharedWithManualAndCLIChanges(t *testing.T) {
 	}
 	after, _ := settings.Read(app.settingsPath)
 	loaded, err := settings.Load(app.settingsPath)
-	if err != nil || loaded.Panel.Appearance.Radius != 0 || loaded.Subscription.Provider != "custom" || loaded.Server.BasePath != "/panel" || bytes.Equal(before, after) {
+	if err != nil || loaded.Panel.Appearance.Radius != 0 || !reflect.DeepEqual(loaded.Subscription.PrivateSourceCIDRs, []string{"10.0.0.0/8"}) || loaded.Server.BasePath != "/panel" || bytes.Equal(before, after) {
 		t.Fatal("Web save did not preserve complete file", err)
 	}
 	// Formatting-only external edits also invalidate the opaque revision.
@@ -293,7 +293,7 @@ func TestPanelServiceSettingsRoundTripAndValidation(t *testing.T) {
 	service := PanelServiceSettings{
 		DataDir: filepath.Join(t.TempDir(), "panel-data"), BasePath: "/control", SecureCookie: true,
 		CatalogRefreshIntervalHours: 24, TrafficPeriodMonths: 3, SampleRetentionDays: 120,
-		SubscriptionAuthor: "Example", SubscriptionProvider: "Custom", PrivateSourceCIDRs: []string{"10.0.0.0/24", "fd00::/64"}, LogRetentionDays: 30,
+		PrivateSourceCIDRs: []string{"10.0.0.0/24", "fd00::/64"},
 	}
 	view.Preferences.ExternalOrigin = "https://panel.example.com"
 	input := PanelSettingsWrite{Revision: view.Revision, Preferences: view.Preferences, Service: &service, IdentityKey: "private-key"}

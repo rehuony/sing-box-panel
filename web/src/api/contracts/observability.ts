@@ -68,4 +68,5 @@ export interface PanelLogFilter {
   level?: LogLevel;
   beforeID?: string;
   beforeTime?: string;
+  searchCodes?: string[];
 }

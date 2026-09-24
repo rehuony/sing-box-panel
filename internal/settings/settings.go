@@ -64,14 +64,10 @@ type Traffic struct {
 }
 
 type Subscription struct {
-	Author             string   `json:"author"`
-	Provider           string   `json:"provider"`
 	PrivateSourceCIDRs []string `json:"private_source_cidrs"`
 }
 
 type Logs struct {
-	// Deprecated: retained for settings and backup compatibility; panel events never expire automatically.
-	RetentionDays      int `json:"retention_days"`
 	CoreRetentionDays  int `json:"core_retention_days"`
 	CoreMaxFiles       int `json:"core_max_files"`
 	CoreMaxFileSizeMiB int `json:"core_max_file_size_mib"`
@@ -87,8 +83,6 @@ func Defaults() Settings {
 		GitHub:  GitHub{CatalogRefreshIntervalHours: 12},
 		Traffic: Traffic{PeriodMonths: 1, SampleRetentionDays: 90},
 		Subscription: Subscription{
-			Author:             "reagin",
-			Provider:           "default",
 			PrivateSourceCIDRs: []string{},
 		},
 		Logs: Logs{CoreRetentionDays: 7, CoreMaxFileSizeMiB: 32},
@@ -227,9 +221,6 @@ func (value Settings) Validate() error {
 	}
 	if value.Traffic.SampleRetentionDays < 1 || value.Traffic.SampleRetentionDays > 366 {
 		return errors.New("traffic.sample_retention_days must be between 1 and 366")
-	}
-	if strings.TrimSpace(value.Subscription.Author) == "" || strings.TrimSpace(value.Subscription.Provider) == "" {
-		return errors.New("subscription.author and subscription.provider must not be empty")
 	}
 	for _, raw := range value.Subscription.PrivateSourceCIDRs {
 		if _, _, err := net.ParseCIDR(raw); err != nil {

@@ -89,8 +89,6 @@ describe('panel settings', () => {
       service: expect.objectContaining({
         data_dir: '/srv/panel', base_path: '/control', secure_cookie: true, catalog_refresh_interval_hours: 24,
         traffic_period_months: 3, sample_retention_days: 180, core_log_retention_days: 30, core_log_max_files: 20,
-        subscription_author: original.service.subscription_author,
-        subscription_provider: original.service.subscription_provider,
         private_source_cidrs: original.service.private_source_cidrs,
       }),
     })));

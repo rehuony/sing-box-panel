@@ -33,7 +33,9 @@ type SubscriptionSourceRefreshResult struct {
 }
 
 func (application *Application) RefreshSubscriptionSource(ctx context.Context, sourceID string) (result SubscriptionSourceRefreshResult, operationErr error) {
-	defer func() { application.RecordOperation(ctx, "subscription.refresh", "Subscription refresh", operationErr) }()
+	defer func() {
+		application.RecordOperation(ctx, "subscription.refresh", "Subscription refresh", operationErr, OperationLogContext{})
+	}()
 	source, err := application.database.GetSubscriptionSource(ctx, strings.TrimSpace(sourceID))
 	if err != nil {
 		return SubscriptionSourceRefreshResult{}, err
@@ -139,7 +141,7 @@ func (application *Application) RefreshDueSubscriptionSources(ctx context.Contex
 			continue
 		}
 		_, err = application.refreshSubscriptionSource(ctx, source)
-		application.RecordOperation(ctx, "subscription.refresh", "Subscription source refresh", err)
+		application.RecordOperation(ctx, "subscription.refresh", "Subscription source refresh", err, OperationLogContext{})
 	}
 	return nil
 }

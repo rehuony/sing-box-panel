@@ -27,7 +27,24 @@ type PanelLogFilter struct {
 	Level        string
 	Since, Until *time.Time
 	Search       string
+	SearchCodes  []string
 }
+
+const MaximumPanelLogSearchCodes = 128
+
+// ValidatePanelLogSearchCodes bounds the exact-code alternatives to a text search.
+func ValidatePanelLogSearchCodes(codes []string) error {
+	if len(codes) > MaximumPanelLogSearchCodes {
+		return fmt.Errorf("at most %d search codes are allowed", MaximumPanelLogSearchCodes)
+	}
+	for _, code := range codes {
+		if len(code) > MaximumLogCodeBytes || !logCodePattern.MatchString(code) {
+			return fmt.Errorf("invalid panel log search code")
+		}
+	}
+	return nil
+}
+
 type PanelLogPage struct {
 	Items []PanelLog `json:"items"`
 	Next  *LogCursor `json:"next,omitempty"`
@@ -40,6 +57,9 @@ func (s *Store) ListPanelLogs(ctx context.Context, filter PanelLogFilter) (Panel
 		return PanelLogPage{}, err
 	}
 	if err := validatePageOffset(filter.Offset, filter.Cursor != nil); err != nil {
+		return PanelLogPage{}, err
+	}
+	if err := ValidatePanelLogSearchCodes(filter.SearchCodes); err != nil {
 		return PanelLogPage{}, err
 	}
 	clauses := []string{"1=1"}
@@ -56,14 +76,29 @@ func (s *Store) ListPanelLogs(ctx context.Context, filter PanelLogFilter) (Panel
 		clauses = append(clauses, "occurred_at < ?")
 		args = append(args, formatTime(*filter.Until))
 	}
+	var searchClauses []string
 	if filter.Search != "" {
-		clauses = append(clauses, "(instr(lower(message), lower(?)) > 0 OR instr(lower(code), lower(?)) > 0)")
+		searchClauses = append(searchClauses, "instr(lower(message), lower(?)) > 0", "instr(lower(code), lower(?)) > 0")
 		args = append(args, filter.Search, filter.Search)
+	}
+	if len(filter.SearchCodes) > 0 {
+		placeholders := make([]string, len(filter.SearchCodes))
+		for i, code := range filter.SearchCodes {
+			placeholders[i] = "?"
+			args = append(args, code)
+		}
+		searchClauses = append(searchClauses, "code IN ("+strings.Join(placeholders, ",")+")")
+	}
+	if len(searchClauses) > 0 {
+		clauses = append(clauses, "("+strings.Join(searchClauses, " OR ")+")")
 	}
 	const combined = `WITH combined AS (
  SELECT 'log:'||id AS id,occurred_at,source,level,code,message,'' AS status,metadata_json FROM log_entries
  UNION ALL
- SELECT 'runtime:'||id,occurred_at,'runtime',CASE WHEN state='failed' THEN 'error' ELSE 'info' END,reason,reason,state,'{}' FROM runtime_transitions
+ SELECT 'runtime:'||id,occurred_at,'runtime',CASE WHEN state='failed' THEN 'error' ELSE 'info' END,reason,reason,state,
+ json_patch('{}', json_object('pid',pid,'process_started_at',process_started_at,
+ 'generation',generation,'activation_bundle_id',activation_bundle_id,'uncertain_since',uncertain_since))
+ FROM runtime_transitions
  ) `
 	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
 	if err != nil {

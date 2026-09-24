@@ -262,7 +262,7 @@ export function createDemoApiClient(): ApiClient {
   const nodeApi = createDemoNodeApi([...demoManualNodes(), ...demoSourceNodeDetails(state)]);
   let panelSecrets = { management: 'demo-management-token-for-config-backup', github: '', identity: '' };
   let panelSettings: PanelSettingsView = {
-    service: { data_dir: '/var/lib/sing-box-panel', base_path: '', secure_cookie: false, catalog_refresh_interval_hours: 12, traffic_period_months: 1, sample_retention_days: 90, subscription_author: 'reagin', subscription_provider: 'default', private_source_cidrs: [], log_retention_days: 0, core_log_retention_days: 7, core_log_max_files: 0, core_log_max_file_size_mib: 32 },
+    service: { data_dir: '/var/lib/sing-box-panel', base_path: '', secure_cookie: false, catalog_refresh_interval_hours: 12, traffic_period_months: 1, sample_retention_days: 90, private_source_cidrs: [], core_log_retention_days: 7, core_log_max_files: 0, core_log_max_file_size_mib: 32 },
     revision: 0,
     github_token_configured: false,
     identity_key_configured: false,
@@ -937,12 +937,25 @@ export function createDemoApiClient(): ApiClient {
     },
     ...createDemoCoreLogs(),
     listPanelLogs(filter = {}, signal) {
-      let entries: PanelLog[] = state.logs.map(log => ({ ...log, id: `log:${log.id}`, status: '' }));
+      let entries: PanelLog[] = [
+        ...state.logs.map(log => ({ ...log, id: `log:${log.id}`, status: '' })),
+        ...state.runtimeHistory.items.map((transition): PanelLog => ({
+          id: `runtime:${transition.id}`, time: transition.occurred_at, source: 'runtime',
+          level: transition.state === 'failed' ? 'error' : 'info', code: transition.reason,
+          message: transition.reason, status: transition.state,
+          metadata: Object.fromEntries(Object.entries({
+            pid: transition.pid, process_started_at: transition.process_started_at,
+            generation: transition.generation, activation_bundle_id: transition.activation_bundle_id,
+            uncertain_since: transition.uncertain_since,
+          }).filter(([, value]) => value !== undefined && value !== null && value !== '')),
+        })),
+      ];
       entries = entries.filter(
         (entry) =>
           (!filter.level || entry.level === filter.level)
-          && (!filter.search
-            || `${entry.message} ${entry.code}`.toLowerCase().includes(filter.search.toLowerCase()))
+          && ((!filter.search && !filter.searchCodes?.length)
+            || (Boolean(filter.search) && `${entry.message} ${entry.code}`.toLowerCase().includes(filter.search!.toLowerCase()))
+            || Boolean(filter.searchCodes?.includes(entry.code)))
           && (!filter.since || entry.time >= filter.since)
           && (!filter.until || entry.time < filter.until),
       );

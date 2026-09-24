@@ -333,12 +333,19 @@ retain the draft; leaving `/panel` or closing the page warns about unsaved chang
 Validation locates the offending category and field; failed saves retain drafts.
 Credential reads expose configured flags. Empty credentials preserve saved values;
 GitHub tokens have an explicit remove control. Protocol identity and subscription
-output/source settings are hidden in this UI and preserved during ordinary saves.
+source access settings are hidden in this UI and preserved during ordinary saves.
 
 ### Shared settings file
 
 Existing file fields retain their paths. Web-only preferences are added under
-`panel`, with matching defaults. Hidden identity/subscription fields remain supported in the file and API. The `service` API projection covers non-secret service options and is optional on writes so older clients preserve those values. Settings validation and revision checks cover the entire file. Changing service options that are captured at startup displays a restart notice.
+`panel`, with matching defaults. Hidden identity and subscription source access fields remain supported in the file and API. The `service` API projection covers non-secret service options and is optional on writes. Settings validation and revision checks cover the entire file. Changing service options that are captured at startup displays a restart notice.
+
+Unused `subscription.author`, `subscription.provider`, and `logs.retention_days`
+have been removed, together with API fields `subscription_author`,
+`subscription_provider`, and `log_retention_days`. This is a breaking development
+change: configuration validation, settings writes, and backup restore reject these
+fields. Remove them from existing files/backups, or use `config init --force` to
+replace settings with current defaults (including a new management token).
 
 | Settings field | Web field | Generated default |
 | --- | --- | --- |
@@ -353,10 +360,7 @@ Existing file fields retain their paths. Web-only preferences are added under
 | `traffic.quota_gib` | Traffic quota | `null`; `null` and `0` are unlimited |
 | `traffic.period_months` | Traffic period | `1` |
 | `traffic.sample_retention_days` | Metric retention | `90` |
-| `subscription.author` | File/API only | `reagin` |
-| `subscription.provider` | File/API only | `default`; editable, existing values retained |
 | `subscription.private_source_cidrs` | File/API only | `[]` |
-| `logs.retention_days` | Deprecated compatibility field; ignored | `0`; panel events are retained indefinitely |
 | `logs.core_retention_days` | Core capture retention (UTC dates including today) | `7` |
 | `logs.core_max_files` | Maximum core capture files | `0` (unlimited) |
 | `logs.core_max_file_size_mib` | Maximum capture file size | `32` MiB |

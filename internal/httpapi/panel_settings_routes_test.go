@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"net/http"
@@ -13,6 +14,64 @@ import (
 	"github.com/rehuony/sing-box-panel/internal/settings"
 	"github.com/rehuony/sing-box-panel/internal/store"
 )
+
+func TestPanelSettingsRemovedFieldsDoNotRoundTrip(t *testing.T) {
+	database, err := store.Open(t.Context(), filepath.Join(t.TempDir(), "panel.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = database.Close() })
+	configuration := settingsFileFixture(t, settings.Defaults())
+	app := application.FromStoreWithSettings(database, configuration)
+	handler := NewHandler(HandlerOptions{Settings: configuration, Commands: app})
+	request := func(method string, body []byte) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(method, "/api/v1/panel/settings", bytes.NewReader(body))
+		req.Header.Set("Authorization", "Bearer "+configuration.Auth.Token)
+		req.Header.Set("Content-Type", "application/json")
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, req)
+		return response
+	}
+	response := request(http.MethodGet, nil)
+	if response.Code != http.StatusOK {
+		t.Fatal(response.Body.String())
+	}
+	var view application.PanelSettingsView
+	if err := json.Unmarshal(response.Body.Bytes(), &view); err != nil {
+		t.Fatal(err)
+	}
+	for _, field := range []string{"subscription_author", "subscription_provider", "log_retention_days"} {
+		if strings.Contains(response.Body.String(), `"`+field+`"`) {
+			t.Fatalf("GET returned removed field %s", field)
+		}
+		body, _ := json.Marshal(application.PanelSettingsWrite{Revision: view.Revision, Preferences: view.Preferences, Service: &view.Service})
+		value := `"obsolete"`
+		if field == "log_retention_days" {
+			value = "7"
+		}
+		body = bytes.Replace(body, []byte(`"service":{`), []byte(`"service":{"`+field+`":`+value+`,`), 1)
+		assertCoreHTTPProblem(t, request(http.MethodPut, body), http.StatusUnprocessableEntity, "invalid_json")
+	}
+	unchanged, err := app.PanelSettings(t.Context())
+	if err != nil || unchanged.Revision != view.Revision {
+		t.Fatal("invalid writes changed settings", err)
+	}
+	view.Preferences.Language = "en"
+	body, _ := json.Marshal(application.PanelSettingsWrite{Revision: view.Revision, Preferences: view.Preferences, Service: &view.Service})
+	response = request(http.MethodPut, body)
+	if response.Code != http.StatusOK {
+		t.Fatal(response.Body.String())
+	}
+	backup, err := app.ExportPanelBackup(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, field := range []string{`"author"`, `"provider"`, `"retention_days"`} {
+		if bytes.Contains(backup.PanelSettings, []byte(field)) {
+			t.Fatalf("settings save regenerated %s", field)
+		}
+	}
+}
 
 func TestPanelSettingsAuthenticationPersistenceAndRotation(t *testing.T) {
 	db, err := store.Open(context.Background(), filepath.Join(t.TempDir(), "panel.db"))

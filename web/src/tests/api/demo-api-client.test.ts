@@ -15,7 +15,13 @@ describe('createDemoApiClient', () => {
     await source.saveConfigurationFile({ revision: saved.revision, content: '  { unfinished raw text' });
     const backup = await source.exportPanelBackup();
     expect(backup.panel_settings).toHaveProperty('auth.token');
+    expect(backup.panel_settings).not.toHaveProperty('subscription.author');
+    expect(backup.panel_settings).not.toHaveProperty('subscription.provider');
+    expect(backup.panel_settings).not.toHaveProperty('logs.retention_days');
     const settings = await target.getPanelSettings();
+    expect(settings.service).not.toHaveProperty('subscription_author');
+    expect(settings.service).not.toHaveProperty('subscription_provider');
+    expect(settings.service).not.toHaveProperty('log_retention_days');
     const file = await target.getConfigurationFile();
     const request = { backup, settings_revision: settings.revision, configuration_revision: file.revision };
     await expect(target.restorePanelBackup({
@@ -60,6 +66,31 @@ describe('createDemoApiClient', () => {
       },
     });
     expect(contract.schema_sha256).toMatch(/^[a-f\d]{64}$/u);
+  });
+
+  it.each([
+    ['subscription', 'author', 'old-author'],
+    ['subscription', 'provider', 'old-provider'],
+    ['logs', 'retention_days', 7],
+    ['subscription', 'unexpected', true],
+    ['logs', 'unexpected', true],
+  ])('rejects unsupported backup field %s.%s without changing state', async (section, field, value) => {
+    const client = createDemoApiClient();
+    const before = await client.exportPanelBackup();
+    const backup = structuredClone(before);
+    const native = backup.panel_settings as Record<string, Record<string, unknown>>;
+    native[String(section)][String(field)] = value;
+    backup.sing_box_configuration = '{"log":{"level":"debug"}}';
+    const settings = await client.getPanelSettings();
+    const configuration = await client.getConfigurationFile();
+    const session = await client.getSession();
+    await expect(client.restorePanelBackup({
+      backup, settings_revision: settings.revision, configuration_revision: configuration.revision,
+    })).rejects.toMatchObject({ status: 422, code: 'panel_backup_invalid' });
+    expect(await client.getPanelSettings()).toEqual(settings);
+    expect(await client.getConfigurationFile()).toEqual(configuration);
+    expect(await client.getSession()).toEqual(session);
+    expect((await client.exportPanelBackup()).panel_settings).toEqual(before.panel_settings);
   });
 
   it('honors an AbortSignal while a response is in flight', async () => {
@@ -250,13 +281,29 @@ describe('createDemoApiClient', () => {
     });
   });
 
+  it('combines translated event codes with original text before counting panel log pages', async () => {
+    const client = createDemoApiClient();
+    const filter = { search: 'Core log clearing', searchCodes: ['runtime.start.failed'], limit: 1 };
+    const first = await client.listPanelLogs(filter);
+    expect(first.total).toBe(2);
+    expect(first.items[0]?.code).toBe('core.log.clear.completed');
+    const second = await client.listPanelLogs({ ...filter, offset: 1 });
+    expect(second.total).toBe(2);
+    expect(second.items[0]?.code).toBe('runtime.start.failed');
+    const errors = await client.listPanelLogs({ ...filter, level: 'error' });
+    expect(errors.total).toBe(1);
+    expect(errors.items[0]?.metadata.error_code).toBe('core_not_enabled');
+    const runtime = await client.listPanelLogs({ search: '运行配置已应用', searchCodes: ['apply_succeeded'] });
+    expect(runtime.items[0]).toMatchObject({ source: 'runtime', status: 'running', metadata: { pid: 4281 } });
+  });
+
   it('uses the returned log cursor to load the next older page without overlap', async () => {
     const client = createDemoApiClient();
     const newestPage = await client.listLogs({ limit: 2 });
 
     expect(newestPage.items.map((item) => item.id)).toEqual([
-      'log_demo_runtime',
-      'log_demo_config',
+      'log_demo_clear',
+      'log_demo_failure',
     ]);
     expect(newestPage.next).toEqual({
       id: newestPage.items[1]!.id,
@@ -269,8 +316,11 @@ describe('createDemoApiClient', () => {
       limit: 2,
     });
 
-    expect(olderPage.items.map((item) => item.id)).toEqual(['log_demo_login', 'log_demo_catalog']);
-    expect(olderPage.next).toBeUndefined();
+    expect(olderPage.items.map((item) => item.id)).toEqual(['log_demo_runtime', 'log_demo_config']);
+    expect(olderPage.next).toBeDefined();
+    const lastPage = await client.listLogs({ afterID: olderPage.next!.id, afterTime: olderPage.next!.time, limit: 2 });
+    expect(lastPage.items.map(entry => entry.id)).toEqual(['log_demo_login', 'log_demo_catalog']);
+    expect(lastPage.next).toBeUndefined();
     expect(olderPage.items).not.toEqual(expect.arrayContaining(newestPage.items));
   });
 

@@ -6,10 +6,14 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/rehuony/sing-box-panel/internal/corelogs"
+	coreruntime "github.com/rehuony/sing-box-panel/internal/runtime"
 	"github.com/rehuony/sing-box-panel/internal/store"
 )
 
@@ -62,6 +66,113 @@ func TestLogApplicationRecordsListsTailsAndDeletes(t *testing.T) {
 	}
 }
 
+func TestOperationLogContextAndSafeFailureClassification(t *testing.T) {
+	ctx := t.Context()
+	database, err := store.Open(ctx, filepath.Join(t.TempDir(), "panel.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = database.Close() })
+	app := newApplication(database)
+	for _, test := range []struct {
+		name string
+		err  error
+		code string
+	}{
+		{"success", nil, ""},
+		{"known", fmt.Errorf("password=secret configuration payload: %w", store.ErrCoreNotEnabled), "core_not_enabled"},
+		{"unknown", errors.New("https://user:secret@example.com/private-subscription-token"), "operation_failed"},
+		{"canceled", context.Canceled, "canceled"},
+		{"file", corelogs.ErrCurrentFile, "core_log_current"},
+		{"check", fmt.Errorf("configuration payload password=secret: %w", coreruntime.ErrCheckFailed), "core_check_failed"},
+		{"health", errors.Join(coreruntime.ErrRuntime, coreruntime.ErrHealthFailed, errors.New("private-subscription-token")), "core_health_failed"},
+		{"version", fmt.Errorf("secret binary output: %w", coreruntime.ErrVersionMismatch), "core_version_mismatch"},
+		{"termination", errors.Join(coreruntime.ErrRuntime, coreruntime.ErrTermination), "core_termination_failed"},
+		{"check_canceled", errors.Join(coreruntime.ErrCheckFailed, context.Canceled), "canceled"},
+		{"health_deadline", errors.Join(coreruntime.ErrHealthFailed, context.DeadlineExceeded), "deadline"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			canceled, cancel := context.WithCancel(ctx)
+			cancel()
+			app.RecordOperation(canceled, "test."+test.name, "Test operation", test.err, OperationLogContext{
+				StartedAt: time.Now(), CoreID: "core-test", Generation: 3,
+				StartupArtifactID: "startup-test", ActivationBundleID: "bundle-test",
+			})
+			page, err := app.PanelLogs(ctx, store.PanelLogFilter{Search: "test." + test.name})
+			if err != nil || len(page.Items) != 1 {
+				t.Fatalf("operation log lost: %+v, %v", page, err)
+			}
+			var details map[string]any
+			if err := json.Unmarshal(page.Items[0].Metadata, &details); err != nil {
+				t.Fatal(err)
+			}
+			if details["core_id"] != "core-test" || details["generation"] != float64(3) || details["startup_artifact_id"] != "startup-test" || details["activation_bundle_id"] != "bundle-test" {
+				t.Fatalf("context: %v", details)
+			}
+			if duration, ok := details["duration_ms"].(float64); !ok || duration < 0 {
+				t.Fatalf("duration missing: %v", details)
+			}
+			if test.code == "" && details["error_code"] != nil || test.code != "" && details["error_code"] != test.code {
+				t.Fatalf("classification: %v", details)
+			}
+			if raw := string(page.Items[0].Metadata); strings.Contains(raw, "secret") || strings.Contains(raw, "payload") || strings.Contains(raw, "private-subscription") {
+				t.Fatalf("unsafe context: %s", raw)
+			}
+		})
+	}
+}
+
+func TestCoreLogActionsRecordOnlyManagedTargetAndDuration(t *testing.T) {
+	ctx := t.Context()
+	database, err := store.Open(ctx, filepath.Join(t.TempDir(), "panel.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = database.Close() })
+	app := newApplication(database)
+	app.settings.DataDir = t.TempDir()
+	files, err := app.coreLogFiles()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := files.Writer().Write([]byte("INFO sample\n")); err != nil {
+		t.Fatal(err)
+	}
+	listed, err := files.List()
+	if err != nil || len(listed) != 1 {
+		t.Fatalf("files: %v, %v", listed, err)
+	}
+	if err := app.ClearCoreLog(ctx, listed[0].Name); err != nil {
+		t.Fatal(err)
+	}
+	if err := app.DeleteCoreLogFile(ctx, listed[0].Name); !errors.Is(err, corelogs.ErrCurrentFile) {
+		t.Fatal(err)
+	}
+	if err := app.ClearCoreLog(ctx, "../../secret"); !errors.Is(err, corelogs.ErrInvalidFile) {
+		t.Fatal(err)
+	}
+	page, err := app.PanelLogs(ctx, store.PanelLogFilter{Search: "core.log."})
+	if err != nil || len(page.Items) != 3 {
+		t.Fatalf("logs: %+v, %v", page, err)
+	}
+	for _, item := range page.Items {
+		var details map[string]any
+		if err := json.Unmarshal(item.Metadata, &details); err != nil {
+			t.Fatal(err)
+		}
+		if details["duration_ms"] == nil {
+			t.Fatalf("missing duration: %v", details)
+		}
+		if details["error_code"] == "core_log_invalid" {
+			if details["file"] != nil {
+				t.Fatalf("invalid target persisted: %v", details)
+			}
+		} else if details["file"] != listed[0].Name {
+			t.Fatalf("target not recorded: %v", details)
+		}
+	}
+}
+
 func TestExplicitLogClearUsesStrictCutoff(t *testing.T) {
 	ctx := context.Background()
 	database, err := store.Open(ctx, filepath.Join(t.TempDir(), "panel.db"))
@@ -97,7 +208,7 @@ func TestExplicitLogClearUsesStrictCutoff(t *testing.T) {
 	}
 }
 
-func TestPanelEventsSurviveSettingsChangesAndLegacyBackupRestore(t *testing.T) {
+func TestPanelEventsSurviveSettingsChangesAndBackupRestore(t *testing.T) {
 	app := panelFileApp(t)
 	ctx := t.Context()
 	entry, err := app.database.AppendLogEntry(ctx, store.LogEntry{
@@ -112,7 +223,6 @@ func TestPanelEventsSurviveSettingsChangesAndLegacyBackupRestore(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	view.Service.LogRetentionDays = 1 // An old client can still send this ignored field.
 	view.Service.CoreLogRetentionDays = new(1)
 	saved, err := app.SavePanelSettings(ctx, PanelSettingsWrite{Revision: view.Revision, Preferences: view.Preferences, Service: &view.Service})
 	if err != nil {

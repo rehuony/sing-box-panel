@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -152,11 +153,16 @@ func (handler *Handler) readCoreLog(w http.ResponseWriter, r *http.Request, stre
 		}
 	}
 }
+
+// Covers all 128 codes of 128 bytes even when every byte is percent-encoded,
+// plus the other filters. Other endpoints retain their existing query limit.
+const maximumPanelLogQueryBytes = 64 << 10
+
 func (handler *Handler) listPanelLogs(w http.ResponseWriter, r *http.Request) {
 	if !handler.requireCommands(w, r) {
 		return
 	}
-	query, ok := strictCoreQuery(w, r, "level", "since", "until", "before_time", "before_id", "limit", "search", "offset")
+	query, ok := strictQueryWithLimit(w, r, maximumPanelLogQueryBytes, "level", "since", "until", "before_time", "before_id", "limit", "search", "search_codes", "offset")
 	if !ok {
 		return
 	}
@@ -188,7 +194,19 @@ func (handler *Handler) listPanelLogs(w http.ResponseWriter, r *http.Request) {
 		writeProblem(w, r, 400, "search_too_long", "Invalid search", "Search may contain at most 256 bytes.")
 		return
 	}
-	result, err := handler.commands.PanelLogs(r.Context(), store.PanelLogFilter{Cursor: cursor, Limit: limit, Offset: offset, Level: query.Get("level"), Since: since, Until: until, Search: query.Get("search")})
+	var searchCodes []string
+	if raw, present := query["search_codes"]; present {
+		if len(raw[0]) > store.MaximumPanelLogSearchCodes*(store.MaximumLogCodeBytes+1) {
+			writeProblem(w, r, 400, "search_codes_invalid", "Invalid search codes", "The event code alternatives exceed the search limit.")
+			return
+		}
+		searchCodes = strings.Split(raw[0], ",")
+		if err := store.ValidatePanelLogSearchCodes(searchCodes); err != nil {
+			writeProblem(w, r, 400, "search_codes_invalid", "Invalid search codes", err.Error())
+			return
+		}
+	}
+	result, err := handler.commands.PanelLogs(r.Context(), store.PanelLogFilter{Cursor: cursor, Limit: limit, Offset: offset, Level: query.Get("level"), Since: since, Until: until, Search: query.Get("search"), SearchCodes: searchCodes})
 	if err != nil {
 		writeProblem(w, r, 503, "panel_logs_unavailable", "Panel logs unavailable", "The panel activity could not be read.")
 		return

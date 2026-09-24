@@ -37,12 +37,12 @@ describe('unified product logs', () => {
     show();
     expect(screen.getByRole('textbox', { name: 'Search displayed output' })).toBeVisible();
     await user.click(screen.getByRole('tab', { name: 'Panel logs' }));
-    expect(screen.getByRole('textbox', { name: 'Search panel messages' })).toBeVisible();
+    expect(screen.getByRole('textbox', { name: 'Search event names, messages or codes' })).toBeVisible();
     expect(screen.getAllByRole('textbox')).toHaveLength(1);
     expect(screen.queryByRole('combobox', { name: 'Log file' })).not.toBeInTheDocument();
     await user.click(screen.getByRole('tab', { name: 'Live logs' }));
     expect(screen.getByRole('textbox', { name: 'Search displayed output' })).toBeVisible();
-    expect(screen.queryByRole('textbox', { name: 'Search panel messages' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('textbox', { name: 'Search event names, messages or codes' })).not.toBeInTheDocument();
     expect(screen.getByRole('combobox', { name: 'Log file' })).toBeVisible();
   });
   it('keeps paused output on file rotation and lets the toolbar toggle resume the latest file', async () => {
@@ -299,7 +299,7 @@ describe('unified product logs', () => {
     expect(screen.getByRole('button', { name: 'Live updates' })).toBeDisabled();
     expect(screen.getByRole('button', { name: 'Clear current log' })).toBeDisabled();
   });
-  it('lists panel activity in four columns without detail actions and paginates', async () => {
+  it('lists panel activity in five columns with details and paginates', async () => {
     const item: PanelLog = {
       id: 'log_1',
       time: '2026-09-19T00:00:00Z',
@@ -321,8 +321,8 @@ describe('unified product logs', () => {
     );
     expect(await screen.findByRole('cell', { name: 'INFO' })).toBeVisible();
     expect(screen.getAllByRole('columnheader').map((header) => header.textContent))
-      .toEqual(['Time', 'Message', 'Log level', 'Source']);
-    expect(screen.queryByRole('button', { name: 'Details' })).not.toBeInTheDocument();
+      .toEqual(['Occurred at', 'Level', 'Event summary', 'Event source', 'Actions']);
+    expect(screen.getByRole('button', { name: 'View details: Catalog refreshed' })).toBeVisible();
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     await userEvent.click(screen.getByRole('button', { name: 'Next page' }));
     await waitFor(() =>

@@ -1,23 +1,34 @@
 import { useTranslation } from 'react-i18next';
-import { useDeferredValue, useEffect, useState } from 'react';
+import { useDeferredValue, useEffect, useRef, useState } from 'react';
 
-import type { LogLevel, PanelLogPage } from '@/api/api-client';
+import type { LogLevel, PanelLog, PanelLogPage } from '@/api/api-client';
 
 import { Input } from '@/components/ui/input';
+import { Button } from '@/components/ui/button';
 import { useApiClient } from '@/api/api-client-context';
 import { ErrorNotice } from '@/components/error-notice';
 import { SelectField } from '@/components/select-field';
 import { ListPagination } from '@/components/list-pagination';
 import { ToolbarActions } from '@/components/workspace-toolbar';
+import { Empty, EmptyHeader, EmptyTitle } from '@/components/ui/empty';
+
+import { PanelLogLevel } from './panel-log-level';
+import { PanelLogDetails } from './panel-log-details';
+import { formatLogTime, logTitle, matchingEventCodes } from './panel-log-presentation';
 
 export function PanelLogsPanel({ active = true, toolbarTarget }: {
   active?: boolean;
   toolbarTarget?: HTMLElement | null;
 } = {}) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
+  const language = i18n.resolvedLanguage;
+  const [selected, setSelected] = useState<PanelLog | null>(null);
+  const [detailsOpen, setDetailsOpen] = useState(false);
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
+  const searchRef = useRef<HTMLInputElement>(null);
   const client = useApiClient();
   const [search, setSearch] = useState('');
-  const query = useDeferredValue(search);
+  const query = useDeferredValue(search.trim());
   const [level, setLevel] = useState('');
   const [limit, setLimit] = useState(10);
   const [page, setPage] = useState(1);
@@ -38,6 +49,7 @@ export function PanelLogsPanel({ active = true, toolbarTarget }: {
             limit,
             level: level ? (level as LogLevel) : undefined,
             search: query || undefined,
+            searchCodes: matchingEventCodes(query),
             offset: (page - 1) * limit,
           },
           abort.signal,
@@ -68,6 +80,7 @@ export function PanelLogsPanel({ active = true, toolbarTarget }: {
       <ToolbarActions active={active} target={toolbarTarget}>
         <div className='log-toolbar workspace-toolbar-content'>
           <Input
+            ref={searchRef}
             aria-label={t('productLogs.searchPanel')}
             placeholder={t('productLogs.searchPanel')}
             value={search}
@@ -84,7 +97,7 @@ export function PanelLogsPanel({ active = true, toolbarTarget }: {
                 setLevel(value);
                 setPage(1);
               }}
-              items={[{ value: '', label: 'ALL' }, ...['trace', 'debug', 'info', 'warn', 'error', 'fatal'].map((value) => ({ value, label: value.toUpperCase() }))]}
+              items={[{ value: '', label: t('productLogs.allLevels') }, ...['trace', 'debug', 'info', 'warn', 'error', 'fatal'].map((value) => ({ value, label: value.toUpperCase() }))]}
             />
           </div>
         </div>
@@ -94,34 +107,47 @@ export function PanelLogsPanel({ active = true, toolbarTarget }: {
         <table className='workspace-table panel-log-table'>
           <thead>
             <tr>
-              {['time', 'message', 'level', 'source'].map((key) => (
-                <th key={key}>{t(`productLogs.${key}`)}</th>
+              {['time', 'level', 'summary', 'source', 'actions'].map((key) => (
+                <th scope='col' key={key}>{t(`productLogs.columns.${key}`)}</th>
               ))}
             </tr>
           </thead>
           <tbody>
-            {result.items.map((item) => (
-              <tr key={item.id}>
-                <td>
-                  <time dateTime={item.time}>{new Date(item.time).toLocaleString()}</time>
-                </td>
-                <td>
-                  {item.message}
-                </td>
-                <td>
-                  <span className={`panel-log-state panel-log-state--${item.level}`}>
-                    {item.level.toUpperCase()}
-                  </span>
-                </td>
-                <td>{t(`productLogs.sources.${item.source}`)}</td>
-              </tr>
-            ))}
+            {result.items.map((item) => {
+              const title = logTitle(item, t);
+              return (
+                <tr key={item.id}>
+                  <td><time dateTime={item.time}>{formatLogTime(item.time, language)}</time></td>
+                  <td><PanelLogLevel level={item.level} /></td>
+                  <td>
+                    <div className='panel-log-summary truncate' title={title}>{title}</div>
+                  </td>
+                  <td>{t(`productLogs.sources.${item.source}`, { defaultValue: item.source })}</td>
+                  <td>
+                    <Button variant='ghost' size='sm' aria-label={`${t('productLogs.details')}: ${title}`} onClick={(event) => {
+                      triggerRef.current = event.currentTarget;
+                      setSelected(structuredClone(item));
+                      setDetailsOpen(true);
+                    }}>
+                      {t('productLogs.details')}
+                    </Button>
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
         {!result.items.length && (
-          <p className='log-empty'>{t(loading ? 'productLogs.loading' : 'productLogs.empty')}</p>
+          <Empty role='status'><EmptyHeader><EmptyTitle>{t(loading ? 'productLogs.loading' : 'productLogs.empty')}</EmptyTitle></EmptyHeader></Empty>
         )}
       </div>
+      <PanelLogDetails
+        item={selected}
+        open={detailsOpen}
+        onOpenChange={setDetailsOpen}
+        onClosed={() => setSelected(null)}
+        returnFocus={() => triggerRef.current?.isConnected ? triggerRef.current : searchRef.current}
+      />
       <ListPagination
         page={page}
         pages={pages}

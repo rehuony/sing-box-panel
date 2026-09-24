@@ -83,7 +83,7 @@ func TestOperationLoggingOmitsSensitiveErrorText(t *testing.T) {
 	ctx := context.Background()
 	database := openRunnerStore(t, ctx)
 	commands := application.FromStore(database)
-	commands.RecordOperation(ctx, "core.install", "Core installation", errors.New("token=must-not-be-persisted"))
+	commands.RecordOperation(ctx, "core.install", "Core installation", errors.New("token=must-not-be-persisted"), application.OperationLogContext{})
 	page, err := commands.ListLogs(ctx, application.LogListRequest{Source: store.LogSourcePanel, Limit: 10})
 	if err != nil || len(page.Items) != 1 || page.Items[0].Code != "core.install.failed" {
 		t.Fatalf("logs: %+v %v", page, err)

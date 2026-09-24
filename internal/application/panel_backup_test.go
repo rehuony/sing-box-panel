@@ -22,6 +22,11 @@ func TestPanelBackupRestoresBothSourcesAndExactConfigurationText(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	for _, field := range []string{`"author"`, `"provider"`, `"retention_days"`} {
+		if bytes.Contains(backup.PanelSettings, []byte(field)) {
+			t.Fatalf("backup contains removed field %s", field)
+		}
+	}
 	var native settings.Settings
 	if err := json.Unmarshal(backup.PanelSettings, &native); err != nil {
 		t.Fatal(err)
@@ -55,7 +60,7 @@ func TestPanelBackupRestoresBothSourcesAndExactConfigurationText(t *testing.T) {
 }
 
 func TestPanelBackupConflictsAndInvalidInputLeaveBothSourcesUntouched(t *testing.T) {
-	for _, kind := range []string{"settings_conflict", "configuration_conflict", "unsupported", "invalid_settings", "oversize"} {
+	for _, kind := range []string{"settings_conflict", "configuration_conflict", "unsupported", "invalid_settings", "oversize", "removed_author", "removed_provider", "removed_retention"} {
 		t.Run(kind, func(t *testing.T) {
 			app := panelFileApp(t)
 			original, err := app.SaveConfigurationFile(t.Context(), ConfigurationFileWrite{Content: `{"log":{"level":"info"}}`})
@@ -77,11 +82,28 @@ func TestPanelBackupConflictsAndInvalidInputLeaveBothSourcesUntouched(t *testing
 				request.Backup.PanelSettings = json.RawMessage(`{"data_dir":"bad"}`)
 			case "oversize":
 				request.Backup.SingBoxConfiguration = strings.Repeat("x", 2<<20+1)
+			case "removed_author", "removed_provider", "removed_retention":
+				var fields map[string]json.RawMessage
+				if err := json.Unmarshal(request.Backup.PanelSettings, &fields); err != nil {
+					t.Fatal(err)
+				}
+				switch kind {
+				case "removed_author":
+					fields["subscription"] = json.RawMessage(`{"author":"old","private_source_cidrs":[]}`)
+				case "removed_provider":
+					fields["subscription"] = json.RawMessage(`{"provider":"old","private_source_cidrs":[]}`)
+				case "removed_retention":
+					fields["logs"] = json.RawMessage(`{"retention_days":7}`)
+				}
+				request.Backup.PanelSettings, _ = json.Marshal(fields)
 			}
 			before, _ := settings.Read(app.settingsPath)
 			_, err = app.RestorePanelBackup(t.Context(), request)
 			if err == nil {
 				t.Fatal("invalid restore succeeded")
+			}
+			if strings.HasPrefix(kind, "removed_") && !errors.Is(err, ErrPanelBackupInvalid) {
+				t.Fatalf("removed field was not rejected as an invalid backup: %v", err)
 			}
 			if kind == "configuration_conflict" && !errors.Is(err, store.ErrConfigurationFileConflict) {
 				t.Fatal(err)
@@ -105,7 +127,6 @@ func TestQuotaVisibleWithoutAppliedCoreAndDynamicPoliciesDoNotRequireRestart(t *
 	view.Preferences.TrafficQuotaGiB = &quota
 	view.Service.TrafficPeriodMonths = 3
 	view.Service.SampleRetentionDays = 2
-	view.Service.LogRetentionDays = 2
 	changes, cancel := app.SettingsChanges()
 	defer cancel()
 	saved, err := app.SavePanelSettings(t.Context(), PanelSettingsWrite{Revision: view.Revision, Preferences: view.Preferences, Service: &view.Service})

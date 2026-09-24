@@ -28,7 +28,6 @@ import (
 func TestForegroundPanelCanBeStoppedFromAnotherClient(t *testing.T) {
 	t.Setenv("INVOCATION_ID", "")
 	value, path := processSettings(t)
-	value.Logs.RetentionDays = 1
 	raw, err := json.Marshal(value)
 	if err != nil {
 		t.Fatal(err)

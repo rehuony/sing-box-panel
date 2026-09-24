@@ -15,7 +15,7 @@ func startSubscriptionRefresh(ctx context.Context, commands *application.Applica
 		defer ticker.Stop()
 		for {
 			if err := commands.RefreshDueSubscriptionSources(ctx); err != nil && ctx.Err() == nil {
-				commands.RecordOperation(ctx, "subscription.refresh", "Automatic subscription refresh", err)
+				commands.RecordOperation(ctx, "subscription.refresh", "Automatic subscription refresh", err, application.OperationLogContext{})
 			}
 			select {
 			case <-ctx.Done():

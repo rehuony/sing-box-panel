@@ -387,6 +387,45 @@ live inserts or deletions may shift rows between requests. Existing `before_time
 and `before_id` cursors remain supported and cannot be combined with `offset`.
 The Web footer supports direct page entry and 5, 10, or 50 items per page.
 
+### Panel log details and search
+
+Panel logs use five centered, single-line columns: occurrence time, level, event
+summary, event source, and View details. Known events have Chinese and English
+names; the original message remains available in the collapsible JSON record. Action
+completion and observed runtime state changes remain separate records. The list
+shows only the event name; process IDs and other context are available in details.
+Long names are truncated in the list and readable in full in details.
+The modal contains the event identifiers, precise local time and timezone,
+recorded context and collapsible JSON. Basic information and
+context appear side by side on desktop and stack on narrow screens. Copy log copies the
+complete sanitized API record. Refreshing the list does not replace the record
+being inspected.
+
+`GET /api/v1/logs/panel` accepts `search_codes`, a comma-separated list of up to
+128 exact codes (each at most 128 ASCII characters matching `[a-z][a-z0-9_.-]*`).
+The complete encoded query may be up to 64 KiB, including percent-escaped codes
+and other filters; other endpoints retain their own query limits.
+These alternatives are ORed with the case-insensitive original message/code
+`search`, then intersected with level and time filters. Totals, cursors and offsets
+use the same match conditions. The Web client finds code alternatives from both
+Chinese and English event names, regardless of the current interface language.
+Omitting `search_codes` preserves the original text-search behavior.
+
+Runtime-transition metadata includes only recorded public evidence: `pid`,
+`process_started_at`, `generation`, `activation_bundle_id`, and `uncertain_since`
+when available. Internal process identity tokens are excluded. Runtime controls
+and core-log clear/delete actions also record bounded target identifiers and
+`duration_ms`. Failure events include `error_code` and a safe description from
+known error categories; arbitrary wrapped errors and request bodies are not
+persisted. Core configuration checks, health checks, version mismatches and
+termination failures have distinct error codes and localized descriptions.
+Start/restart operation logs retain the activation bundle selected during the
+check phase, including when execution subsequently fails. All operation context
+still passes through the durable log sanitizer.
+Historical events without additional context remain readable and explicitly show
+that no extra context was recorded; current runtime state is not used to fill
+historical gaps. This is an additive API change with no database migration.
+
 ## Durable logs
 
 The log CLI and authenticated API expose bounded, sanitized metadata for
@@ -402,9 +441,9 @@ sing-box-panel log delete LOG_ID
 
 `GET /api/v1/logs/stream` is a durable server-sent event stream and accepts
 `Last-Event-ID` for reconnection. Panel events and runtime history have no automatic
-expiration, including on startup, settings changes, or backup restore. The legacy
-`logs.retention_days` file field and `log_retention_days` API field are accepted for
-compatibility but have no retention effect. Explicit log clear/delete commands
+expiration, including on startup, settings changes, or backup restore. The unused
+`logs.retention_days` file field and `log_retention_days` API field have been
+removed and are rejected. Explicit log clear/delete commands
 remain available. Configuration bytes, subscription bodies, token
 plaintext, URL credentials, and known secret fields are not stored as log
 payloads.

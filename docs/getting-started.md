@@ -87,8 +87,9 @@ language and appearance. The Web form exposes service paths, version check inter
 existing storage on the next explicit start, with interruption recovery.
 Sing-box documents, subscriptions and runtime evidence remain in SQLite.
 See the [complete field mapping](guides/configuration-and-runtime.md#shared-settings-file).
-New settings initialize `subscription.provider` to `"default"`; existing files
-retain their configured value.
+Only active settings are generated. Removed subscription author/provider and
+panel event retention fields are rejected; see the field mapping above for the
+breaking development change.
 
 `traffic.sample_retention_days` defaults to 90. It is required for startup and
 `config verify` and must be between 1 and 366;

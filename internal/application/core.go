@@ -100,7 +100,9 @@ type CatalogRefreshOptions struct {
 }
 
 func (application *Application) RefreshCatalog(ctx context.Context, options CatalogRefreshOptions) (result CatalogSnapshot, operationErr error) {
-	defer func() { application.RecordOperation(ctx, "catalog.refresh", "Catalog refresh", operationErr) }()
+	defer func() {
+		application.RecordOperation(ctx, "catalog.refresh", "Catalog refresh", operationErr, OperationLogContext{})
+	}()
 	application.catalogMu.Lock()
 	defer application.catalogMu.Unlock()
 	currentSettings, err := application.EffectiveSettings(ctx)

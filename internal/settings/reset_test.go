@@ -20,9 +20,9 @@ func resetFixture(t *testing.T) (string, Settings) {
 	value.DataDir = "./private-data"
 	value.Auth.Token = "keep-required-token"
 	value.Server.Port = 8181
-	value.Subscription.Provider = "custom-provider"
+	value.GitHub.CatalogRefreshIntervalHours = 24
 	value.GitHub.Token = "clear-optional-token"
-	value.Logs.RetentionDays = 30
+	value.Logs.CoreRetentionDays = 30
 	raw, err := json.Marshal(value)
 	if err != nil {
 		t.Fatal(err)
@@ -35,14 +35,14 @@ func resetFixture(t *testing.T) (string, Settings) {
 
 func TestResetFieldsKeepsUnselectedValuesAndStorageUntouched(t *testing.T) {
 	path, original := resetFixture(t)
-	if err := ResetFields(t.Context(), path, []string{"server.port", "/subscription/provider", "github.token"}); err != nil {
+	if err := ResetFields(t.Context(), path, []string{"server.port", "/github/catalog_refresh_interval_hours", "github.token"}); err != nil {
 		t.Fatal(err)
 	}
 	loaded, err := Load(path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if loaded.Server.Port != Defaults().Server.Port || loaded.Subscription.Provider != "default" || loaded.GitHub.Token != "" || loaded.Auth.Token != original.Auth.Token || loaded.Logs != original.Logs {
+	if loaded.Server.Port != Defaults().Server.Port || loaded.GitHub.CatalogRefreshIntervalHours != 12 || loaded.GitHub.Token != "" || loaded.Auth.Token != original.Auth.Token || loaded.Logs != original.Logs {
 		t.Fatal("reset changed unselected fields or did not restore defaults")
 	}
 	raw, _ := Read(path)
@@ -148,7 +148,7 @@ func TestResetFieldsPreservesRecoveryAndCancellation(t *testing.T) {
 func TestConcurrentFieldResetsPreserveEveryEdit(t *testing.T) {
 	path, _ := resetFixture(t)
 	var group sync.WaitGroup
-	for _, field := range []string{"server.port", "subscription.provider", "github.token", "logs.retention_days"} {
+	for _, field := range []string{"server.port", "github.catalog_refresh_interval_hours", "github.token", "logs.core_retention_days"} {
 		group.Go(func() {
 			if err := ResetFields(t.Context(), path, []string{field}); err != nil {
 				t.Error(err)
@@ -157,7 +157,7 @@ func TestConcurrentFieldResetsPreserveEveryEdit(t *testing.T) {
 	}
 	group.Wait()
 	loaded, err := Load(path)
-	if err != nil || loaded.Server.Port != 3000 || loaded.Subscription.Provider != "default" || loaded.GitHub.Token != "" || loaded.Logs.RetentionDays != 0 {
+	if err != nil || loaded.Server.Port != 3000 || loaded.GitHub.CatalogRefreshIntervalHours != 12 || loaded.GitHub.Token != "" || loaded.Logs.CoreRetentionDays != 7 {
 		t.Fatal("concurrent reset lost a field", err)
 	}
 }
