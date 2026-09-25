@@ -95,6 +95,50 @@ func TestSystemdInstallLoadsSettingsAndReportsResolvedPaths(t *testing.T) {
 	}
 }
 
+func TestSystemdUninstallAccountOutput(t *testing.T) {
+	for _, scenario := range []string{"removed", "retained", "partial failure", "json"} {
+		t.Run(scenario, func(t *testing.T) {
+			service := &fakeSystemdService{uninstallResult: panelSystemd.UninstallResult{
+				Scope: panelSystemd.ScopeSystem, Unit: panelSystemd.UnitName,
+				ConfigRetained: true, DataRetained: true, AccountRemoved: true, GroupRemoved: true,
+			}}
+			args := []string{"systemd", "uninstall", "--scope=system"}
+			switch scenario {
+			case "retained":
+				args = append(args, "--keep-user")
+				service.uninstallResult.AccountRemoved, service.uninstallResult.GroupRemoved = false, false
+				service.uninstallResult.AccountRetained, service.uninstallResult.GroupRetained = true, true
+				service.uninstallResult.AccountNote = "account and ownership retained by --keep-user"
+			case "partial failure":
+				service.err = errors.New("groupdel failed")
+				service.uninstallResult.GroupRemoved, service.uninstallResult.GroupRetained = false, true
+			case "json":
+				args = append(args, "--output=json")
+			}
+			stdout, _, err := executeSystemCommand(t, service, args...)
+			if (err != nil) != (scenario == "partial failure") || service.uninstallRequest.KeepUser != (scenario == "retained") {
+				t.Fatalf("request=%+v, error=%v", service.uninstallRequest, err)
+			}
+			if scenario == "json" {
+				var result panelSystemd.UninstallResult
+				if err := json.Unmarshal([]byte(stdout), &result); err != nil || !result.AccountRemoved || !result.GroupRemoved || !result.DataRetained {
+					t.Fatalf("result=%+v, error=%v", result, err)
+				}
+				return
+			}
+			for _, want := range map[string][]string{
+				"removed":         {"service user removed", "service group removed"},
+				"retained":        {"service user retained", "service group retained", "--keep-user"},
+				"partial failure": {"Uninstall interrupted", "service user removed", "service group retained"},
+			}[scenario] {
+				if !strings.Contains(stdout, want) {
+					t.Fatalf("output missing %q: %s", want, stdout)
+				}
+			}
+		})
+	}
+}
+
 func TestSystemdStatusLabelsOnDiskSourcesAndNeverClaimsLiveSettings(t *testing.T) {
 	settingsPath := commandSettingsFixture(t)
 	absoluteSettings, _ := filepath.Abs(settingsPath)

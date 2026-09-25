@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/rehuony/sing-box-panel/internal/installation"
 	"github.com/rehuony/sing-box-panel/internal/settings"
 	panelSystemd "github.com/rehuony/sing-box-panel/internal/systemd"
 	"github.com/spf13/cobra"
@@ -94,10 +95,10 @@ func newSystemInstallCommand(state *options, service panelSystemd.Service) *cobr
 
 func newSystemUninstallCommand(state *options, service panelSystemd.Service) *cobra.Command {
 	var rawScope string
-	var force bool
+	var force, keepUser bool
 	command := &cobra.Command{
 		Use:   "uninstall",
-		Short: "Stop, disable, and remove files owned by the built-in installer",
+		Short: "Uninstall the service and, in system scope, its dedicated account",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if service == nil {
@@ -107,10 +108,11 @@ func newSystemUninstallCommand(state *options, service panelSystemd.Service) *co
 			if err != nil {
 				return err
 			}
-			result, err := service.Uninstall(cmd.Context(), panelSystemd.UninstallRequest{Scope: scope, Force: force})
+			result, err := service.Uninstall(cmd.Context(), panelSystemd.UninstallRequest{Scope: scope, Force: force, KeepUser: keepUser})
 			if err != nil {
 				if result.Scope != "" {
 					text := fmt.Sprintf("Uninstall interrupted; %d service files removed; settings and data retained", len(result.RemovedPaths))
+					text += uninstallAccountSummary(result)
 					for _, path := range result.RemovedPaths {
 						text += "\n" + path + " [removed]"
 					}
@@ -121,12 +123,52 @@ func newSystemUninstallCommand(state *options, service panelSystemd.Service) *co
 				return classifySystemError("system_uninstall_failed", err)
 			}
 			text := fmt.Sprintf("uninstalled %s %s; settings and data retained", result.Scope, result.Unit)
+			text += uninstallAccountSummary(result)
 			return writeResult(cmd.OutOrStdout(), state.format, result, text)
 		},
 	}
 	addSystemScopeFlag(command, &rawScope)
 	command.Flags().BoolVar(&force, "force", false, "remove conflicting regular destinations at the exact managed paths")
+	command.Flags().BoolVar(&keepUser, "keep-user", false, "retain the system service account and its file ownership")
 	return command
+}
+
+func uninstallAccountSummary(result panelSystemd.UninstallResult) string {
+	account := uninstallAccountResult(result)
+	if account == nil {
+		return ""
+	}
+	return "; " + accountCleanupSummary(*account)
+}
+
+func accountCleanupSummary(account installation.AccountCleanupResult) string {
+	text := fmt.Sprintf("service user %s; service group %s", account.User, account.Group)
+	if account.Note != "" {
+		text += " (" + account.Note + ")"
+	}
+	return text
+}
+
+func uninstallAccountResult(result panelSystemd.UninstallResult) *installation.AccountCleanupResult {
+	if result.Scope != panelSystemd.ScopeSystem {
+		return nil
+	}
+	state := func(retained, removed bool) string {
+		switch {
+		case retained:
+			return "retained"
+		case removed:
+			return "removed"
+		case result.AccountInspected:
+			return "absent"
+		default:
+			return "unknown"
+		}
+	}
+	return &installation.AccountCleanupResult{
+		User:  state(result.AccountRetained, result.AccountRemoved),
+		Group: state(result.GroupRetained, result.GroupRemoved), Note: result.AccountNote,
+	}
 }
 
 // systemStatusReport joins systemd's view of the unit with two facts read

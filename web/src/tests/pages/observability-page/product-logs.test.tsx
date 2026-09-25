@@ -32,6 +32,46 @@ const file = '2026-09-19-000.log';
 
 describe('unified product logs', () => {
   afterEach(() => vi.useRealTimers());
+  it('hides output actions when no log files exist', async () => {
+    show(createMockApiClient({ listCoreLogFiles: vi.fn().mockResolvedValue({ items: [] }) }));
+    await screen.findByText('No core output has been captured.');
+    expect(screen.queryByRole('group', { name: 'Log actions' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Live updates' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Clear current log' })).not.toBeInTheDocument();
+  });
+  it('shows output actions when logs arrive and hides them while filters match nothing', async () => {
+    let append = () => {};
+    const user = userEvent.setup();
+    const client = show(createMockApiClient({
+      listCoreLogFiles: vi.fn().mockResolvedValue({
+        items: [{ name: file, size: 0, deletable: false, updated_at: new Date().toISOString() }],
+      }),
+      streamCoreLog: vi.fn(async function* (name, _offset, _generation, signal) {
+        yield { file: name, text: '', generation: 'test-generation', next_offset: 0, size: 0 };
+        await new Promise<void>((resolve) => {
+          append = resolve;
+        });
+        yield { file: name, text: 'INFO arrived\n', generation: 'test-generation', next_offset: 13, size: 13 };
+        await waitForAbort(signal);
+      }),
+    }));
+    await waitFor(() => expect(client.streamCoreLog).toHaveBeenCalledTimes(1));
+    expect(screen.queryByRole('group', { name: 'Log actions' })).not.toBeInTheDocument();
+    await act(async () => append());
+    await screen.findByText('INFO arrived');
+    expect(screen.getByRole('group', { name: 'Log actions' })).toBeVisible();
+    const search = screen.getByRole('textbox', { name: 'Search displayed output' });
+    await user.type(search, 'no match');
+    expect(screen.queryByRole('group', { name: 'Log actions' })).not.toBeInTheDocument();
+    await user.clear(search);
+    expect(screen.getByRole('group', { name: 'Log actions' })).toBeVisible();
+    await user.click(screen.getByRole('combobox', { name: 'Log level' }));
+    await user.click(await screen.findByRole('option', { name: 'ERROR' }));
+    expect(screen.queryByRole('group', { name: 'Log actions' })).not.toBeInTheDocument();
+    await user.click(screen.getByRole('combobox', { name: 'Log level' }));
+    await user.click(await screen.findByRole('option', { name: 'ALL' }));
+    expect(screen.getByRole('group', { name: 'Log actions' })).toBeVisible();
+  });
   it('replaces toolbar controls when switching between live and panel logs', async () => {
     const user = userEvent.setup();
     show();
@@ -140,9 +180,9 @@ describe('unified product logs', () => {
     }));
     await screen.findByText('INFO before clear');
     await userEvent.click(screen.getByRole('button', { name: 'Live updates' }));
-    await userEvent.type(screen.getByRole('textbox', { name: 'Search displayed output' }), 'no match');
+    await userEvent.type(screen.getByRole('textbox', { name: 'Search displayed output' }), 'before clear');
     await userEvent.click(screen.getByRole('combobox', { name: 'Log level' }));
-    await userEvent.click(await screen.findByRole('option', { name: 'ERROR' }));
+    await userEvent.click(await screen.findByRole('option', { name: 'INFO' }));
     await userEvent.click(screen.getByRole('button', { name: 'Clear current log' }));
     expect(screen.getByRole('alertdialog')).toHaveTextContent(file);
     expect(screen.getByRole('alertdialog')).toHaveTextContent('including records hidden by filters');
@@ -154,16 +194,18 @@ describe('unified product logs', () => {
     expect(client.clearCoreLog).toHaveBeenCalledExactlyOnceWith(file);
     expect(client.deleteCoreLogFile).not.toHaveBeenCalled();
     expect(saved).toBe('');
-    expect(screen.getByRole('button', { name: 'Live updates', pressed: false })).toBeEnabled();
-    expect(screen.getByRole('textbox', { name: 'Search displayed output' })).toHaveValue('no match');
+    expect(screen.queryByRole('group', { name: 'Log actions' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Resume live output' })).toBeEnabled();
+    expect(screen.getByRole('textbox', { name: 'Search displayed output' })).toHaveValue('before clear');
     await userEvent.clear(screen.getByRole('textbox', { name: 'Search displayed output' }));
-    saved = 'ERROR after clear\n';
-    await userEvent.click(screen.getByRole('button', { name: 'Live updates' }));
-    await screen.findByText('ERROR after clear');
+    saved = 'INFO after clear\n';
+    await userEvent.click(screen.getByRole('button', { name: 'Resume live output' }));
+    await screen.findByText('INFO after clear');
+    expect(screen.getByRole('group', { name: 'Log actions' })).toBeVisible();
     expect(client.streamCoreLog).toHaveBeenLastCalledWith(file, 0, '', expect.any(AbortSignal));
     cleanup();
     show(client);
-    await screen.findByText('ERROR after clear');
+    await screen.findByText('INFO after clear');
     expect(screen.queryByText('INFO before clear')).not.toBeInTheDocument();
     expect(screen.queryByText('ERROR hidden output')).not.toBeInTheDocument();
   });
@@ -296,8 +338,9 @@ describe('unified product logs', () => {
     await userEvent.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Delete log file' }));
     await screen.findByText('No core output has been captured.');
     expect(screen.queryByText('INFO preserved')).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Live updates' })).toBeDisabled();
-    expect(screen.getByRole('button', { name: 'Clear current log' })).toBeDisabled();
+    expect(screen.queryByRole('group', { name: 'Log actions' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Live updates' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Clear current log' })).not.toBeInTheDocument();
   });
   it('lists panel activity in five columns with details and paginates', async () => {
     const item: PanelLog = {

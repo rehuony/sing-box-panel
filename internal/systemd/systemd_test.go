@@ -186,6 +186,14 @@ func TestSystemInstallRequiresRootAndConventionalLayout(t *testing.T) {
 	}
 	wantCalls := []recordedCommand{
 		{name: "systemctl", args: []string{"--no-ask-password", "show", "--property=Version", "--value"}},
+		{name: "getent", args: []string{"passwd"}},
+		{name: "getent", args: []string{"group"}},
+		{name: "getent", args: []string{"passwd", serviceUser}},
+		{name: "getent", args: []string{"group", serviceGroup}},
+		{name: "getent", args: []string{"passwd"}},
+		{name: "getent", args: []string{"group"}},
+		{name: "getent", args: []string{"passwd", serviceUser}},
+		{name: "getent", args: []string{"group", serviceGroup}},
 		{name: "systemd-sysusers", args: []string{fixture.layout.SystemSysusersPath}},
 		{name: "systemd-tmpfiles", args: []string{"--create", fixture.layout.SystemTmpfilesPath}},
 		{name: "chown", args: []string{serviceUser + ":" + serviceGroup, filepath.Dir(fixture.settings)}},
@@ -443,6 +451,14 @@ func newManagerFixture(t *testing.T, euid int) managerFixture {
 		Runner:     runner, Layout: layout, LookPath: func(name string) (string, error) { return name, nil },
 	})
 	if err != nil {
+		t.Fatal(err)
+	}
+	manager.procRoot = t.TempDir()
+	task := filepath.Join(manager.procRoot, "1", "task", "1")
+	if err := os.MkdirAll(task, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(task, "status"), []byte("Uid:\t0 0 0 0\nGid:\t0 0 0 0\nGroups:\t0\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
 	return managerFixture{manager: manager, runner: runner, layout: layout, executable: executable, settings: settings, data: data}

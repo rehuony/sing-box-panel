@@ -22,14 +22,15 @@ import (
 // CleanupHistory is discovery evidence, never authority to delete a path or
 // select storage at startup. Only root paths are retained, not their contents.
 type CleanupHistory struct {
-	SettingsPath   string    `json:"settings_path"`
-	DataDirs       []string  `json:"data_directories"`
-	ServicePaths   []string  `json:"service_paths"`
-	Scope          string    `json:"scope"`
-	Outcome        string    `json:"outcome"`
-	UpdatedAt      time.Time `json:"updated_at"`
-	RemovedCount   int       `json:"removed_count"`
-	RemainingCount int       `json:"remaining_count"`
+	SettingsPath   string                `json:"settings_path"`
+	DataDirs       []string              `json:"data_directories"`
+	ServicePaths   []string              `json:"service_paths"`
+	Scope          string                `json:"scope"`
+	Outcome        string                `json:"outcome"`
+	UpdatedAt      time.Time             `json:"updated_at"`
+	RemovedCount   int                   `json:"removed_count"`
+	RemainingCount int                   `json:"remaining_count"`
+	ServiceAccount *AccountCleanupResult `json:"service_account,omitempty"`
 }
 
 type historyDocument struct {
@@ -102,6 +103,15 @@ func readHistory(path string) (historyDocument, error) {
 }
 
 func validateHistory(record CleanupHistory) error {
+	if record.ServiceAccount != nil {
+		for _, state := range []string{record.ServiceAccount.User, record.ServiceAccount.Group} {
+			switch state {
+			case "absent", "retained", "removed", "unknown":
+			default:
+				return errors.New("cleanup history contains an invalid account outcome")
+			}
+		}
+	}
 	for _, path := range append(append([]string{record.SettingsPath}, record.DataDirs...), record.ServicePaths...) {
 		if !filepath.IsAbs(path) || filepath.Clean(path) != path || strings.ContainsRune(path, 0) {
 			return errors.New("cleanup history contains an invalid path")

@@ -17,10 +17,20 @@ import (
 )
 
 type CleanupResult struct {
-	Removed   []string `json:"removed"`
-	Retained  []string `json:"retained"`
-	Remaining []string `json:"remaining"`
-	Warnings  []string `json:"warnings"`
+	Removed        []string              `json:"removed"`
+	Retained       []string              `json:"retained"`
+	Remaining      []string              `json:"remaining"`
+	Warnings       []string              `json:"warnings"`
+	ServiceAccount *AccountCleanupResult `json:"service_account,omitempty"`
+}
+
+// AccountCleanupResult records confirmed lifecycle outcomes without granting
+// authority to remove an identity on a later cleanup. States are absent,
+// retained, removed, or unknown when inspection could not complete.
+type AccountCleanupResult struct {
+	User  string `json:"user"`
+	Group string `json:"group"`
+	Note  string `json:"note,omitempty"`
 }
 
 // Clean removes the selected settings and every entry in its data directory,

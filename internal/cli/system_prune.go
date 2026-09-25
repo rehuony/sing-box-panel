@@ -72,6 +72,7 @@ func pruneInstance(ctx context.Context, report instanceFilesReport, service pane
 		}
 		history.RemovedCount = len(result.Removed)
 		history.RemainingCount = len(result.Remaining)
+		history.ServiceAccount = result.ServiceAccount
 		history.Outcome = "completed"
 		if cleanupErr != nil {
 			history.Outcome = "interrupted"
@@ -83,8 +84,14 @@ func pruneInstance(ctx context.Context, report instanceFilesReport, service pane
 			cleanupErr = errors.Join(cleanupErr, err)
 		}
 	}()
-	removed, stopErr := stopInstanceForCleanup(ctx, report, service)
-	result.Removed = append(result.Removed, removed...)
+	uninstalled, stopErr := stopInstanceForCleanup(ctx, report, service)
+	if uninstalled != nil {
+		result.Removed = append(result.Removed, uninstalled.RemovedPaths...)
+		result.ServiceAccount = uninstallAccountResult(*uninstalled)
+		if account := result.ServiceAccount; account != nil && (account.User == "retained" || account.Group == "retained" || account.User == "unknown" || account.Group == "unknown") {
+			result.Warnings = append(result.Warnings, accountCleanupSummary(*account))
+		}
+	}
 	cleanupErr = stopErr
 	if cleanupErr != nil {
 		return result, cleanupErr

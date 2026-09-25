@@ -261,6 +261,7 @@
 }
 
 .configuration-json-preview {
+  position: relative;
   display: flex;
   flex: 1;
   flex-direction: column;
@@ -274,10 +275,11 @@
 }
 
 .configuration-json-preview__toolbar {
+  position: absolute;
+  top: var(--space-xs);
+  right: var(--space-xs);
+  z-index: 1;
   display: flex;
-  flex-shrink: 0;
-  justify-content: flex-end;
-  padding: var(--space-xs) var(--space-xs) 0;
 }
 
 .configuration-entity-json {

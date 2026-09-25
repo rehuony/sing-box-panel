@@ -56,7 +56,7 @@ func (manager *Manager) resolveInstallSettings(scope Scope, request InstallReque
 func (manager *Manager) preflightCommands(ctx context.Context, scope Scope, install bool) error {
 	names := []string{"systemctl"}
 	if install && scope == ScopeSystem {
-		names = append(names, "systemd-sysusers", "systemd-tmpfiles", "chown")
+		names = append(names, "systemd-sysusers", "systemd-tmpfiles", "chown", "getent")
 	}
 	for _, name := range names {
 		if _, err := manager.lookPath(name); err != nil {
