@@ -131,10 +131,6 @@
   position: relative;
   outline: none;
 }
-.trend-chart:focus-visible {
-  box-shadow: 0 0 0 2px var(--color-focus-ring);
-  border-radius: var(--radius-control);
-}
 .trend-chart__plot {
   position: absolute;
   inset: 0;

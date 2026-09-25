@@ -7,7 +7,7 @@ export interface PanelSettingsContextValue {
   error: string | null;
   view: PanelSettingsView | null;
   accept: (view: PanelSettingsView) => Promise<void>;
-  preview: (value: AppearanceSettings | null) => void;
+  preview: (value: Partial<AppearanceSettings> | null) => void;
   save: (input: PanelSettingsWrite) => Promise<PanelSettingsView>;
 }
 

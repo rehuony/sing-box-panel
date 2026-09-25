@@ -1,7 +1,7 @@
 import type { FormEvent, ReactNode } from 'react';
 
-import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useEffect, useLayoutEffect, useState } from 'react';
 
 import type { AppearanceSettings, PanelPreferences, PanelServiceSettings, PanelSettingsView } from '@/api/api-client';
 
@@ -9,6 +9,7 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Slider } from '@/components/ui/slider';
 import { Switch } from '@/components/ui/switch';
+import { useTheme } from '@/theme/theme-context';
 import { useHashTab } from '@/hooks/use-hash-tab';
 import { Skeleton } from '@/components/ui/skeleton';
 import { toast } from '@/components/ui/toast-manager';
@@ -41,7 +42,10 @@ function SettingsGroup({ title, children }: { title: string; children: ReactNode
 function SettingsEditor({ initial }: { initial: PanelSettingsView }) {
   const { t } = useTranslation();
   const { preview, save, accept } = usePanelSettings();
-  const [preferences, setPreferences] = useState(initial.preferences);
+  const { appearance: activeAppearance } = useTheme();
+  const { appearance: initialAppearance, ...initialPreferences } = initial.preferences;
+  const [preferencesDraft, setPreferencesDraft] = useState(initialPreferences);
+  const preferences = { ...preferencesDraft, appearance: activeAppearance };
   const [service, setService] = useState(initial.service);
   const [github, setGithub] = useState('');
   const [clearGithub, setClearGithub] = useState(false);
@@ -56,7 +60,8 @@ function SettingsEditor({ initial }: { initial: PanelSettingsView }) {
   const [token, setToken] = useState('');
   const [tokenConfirm, setTokenConfirm] = useState('');
   async function restored(view: PanelSettingsView) {
-    setPreferences(view.preferences);
+    const { appearance: _appearance, ...restoredPreferences } = view.preferences;
+    setPreferencesDraft(restoredPreferences);
     setService(view.service);
     setGithub('');
     setClearGithub(false);
@@ -75,9 +80,11 @@ function SettingsEditor({ initial }: { initial: PanelSettingsView }) {
         : undefined;
   const tokenValid = tokenError === undefined;
   const colorValid = /^#[\dA-F]{6}$/i.test(preferences.appearance.color);
-  const dirty = JSON.stringify(preferences) !== JSON.stringify(initial.preferences) || JSON.stringify(service) !== JSON.stringify(initial.service) || github !== '' || clearGithub;
+  const dirty = JSON.stringify(preferencesDraft) !== JSON.stringify(initialPreferences)
+    || JSON.stringify(activeAppearance) !== JSON.stringify(initialAppearance)
+    || JSON.stringify(service) !== JSON.stringify(initial.service) || github !== '' || clearGithub;
   useUnsavedChanges(dirty || token !== '' || tokenConfirm !== '', () => {
-    setPreferences(initial.preferences);
+    setPreferencesDraft(initialPreferences);
     setService(initial.service);
     setGithub('');
     setClearGithub(false);
@@ -87,17 +94,17 @@ function SettingsEditor({ initial }: { initial: PanelSettingsView }) {
     preview(null);
   }, saving, { allowSamePathNavigation: true });
 
-  useEffect(() => {
-    if (colorValid) preview(preferences.appearance);
-  }, [preferences.appearance, preview, colorValid]);
-  useEffect(() => () => preview(null), [preview]);
+  useLayoutEffect(() => {
+    preview({});
+    return () => preview(null);
+  }, [preview]);
 
-  const update = <K extends keyof PanelPreferences>(key: K, value: PanelPreferences[K]) =>
-    setPreferences(current => ({ ...current, [key]: value }));
+  const update = <K extends keyof typeof preferencesDraft>(key: K, value: PanelPreferences[K]) =>
+    setPreferencesDraft(current => ({ ...current, [key]: value }));
   const updateService = <K extends keyof PanelServiceSettings>(key: K, value: PanelServiceSettings[K]) =>
     setService(current => ({ ...current, [key]: value }));
   const appearance = (value: Partial<AppearanceSettings>) =>
-    setPreferences(current => ({ ...current, appearance: { ...current.appearance, ...value } }));
+    preview(value);
 
   async function submit(event?: FormEvent, managementToken?: string) {
     event?.preventDefault();
@@ -116,7 +123,8 @@ function SettingsEditor({ initial }: { initial: PanelSettingsView }) {
         service,
         management_token: managementToken,
       });
-      setPreferences(result.preferences);
+      const { appearance: _appearance, ...savedPreferences } = result.preferences;
+      setPreferencesDraft(savedPreferences);
       setService(result.service);
       setGithub('');
       setClearGithub(false);

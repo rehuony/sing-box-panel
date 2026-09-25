@@ -80,11 +80,6 @@
   border-radius: 50%;
   background: currentColor;
 }
-/* Keep keyboard focus visible without drawing a line across the log output. */
-.native-log__output:focus-visible:not([data-slot]) {
-  outline: none;
-  box-shadow: inset 3px 0 0 var(--color-primary);
-}
 .native-log__output {
   flex: 1;
   min-height: 0;

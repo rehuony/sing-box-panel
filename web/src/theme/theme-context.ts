@@ -9,9 +9,10 @@ export interface ThemeContextValue {
   cycleTheme: () => void;
   preference: ThemePreference;
   resolvedTheme: ResolvedTheme;
+  appearance: AppearanceSettings;
   setPreference: (preference: ThemePreference) => void;
   setAppearance: (appearance: AppearanceSettings) => void;
-  previewAppearance: (appearance: AppearanceSettings | null) => void;
+  previewAppearance: (appearance: Partial<AppearanceSettings> | null) => void;
 }
 
 export const ThemeContext = createContext<ThemeContextValue | null>(null);

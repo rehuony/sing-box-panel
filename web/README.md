@@ -103,7 +103,11 @@ The global `ThemeProvider` applies these values before the first interface paint
 and owns the shared color, contrast, and radius tokens for every route. Login
 inherits the same page background and surface tokens as the panel. Authenticated
 settings loads and saves update this shared state; unsaved appearance previews
-are cleared when leaving settings or ending the session. System mode follows
+are cleared when leaving settings or ending the session. The appearance selector
+and sidebar theme button read and update the same appearance state. While settings
+are open, either control edits the shared draft; saving persists it, and discarding
+restores the appearance from before editing. Outside settings, the sidebar shortcut
+updates the local theme preference, which the selector reflects on entry. System mode follows
 live OS changes. Without server metadata (Vite/demo), the default palette and
 locally stored light/dark/system preference provide the initial appearance.
 Session checks, panel initialization, and route loading share `LoadingState`:
@@ -155,6 +159,10 @@ matches before applying other filters, counting, and pagination. The demo client
 uses the same semantics and includes runtime transitions with their saved context.
 Enabled buttons, selectors, menu options, tabs, and choice controls use a pointer
 cursor. Disabled controls retain unavailable feedback; text inputs remain editable.
+Keyboard focus does not add accent-colored borders, outlines, or halos to controls
+or content regions. Neutral field focus borders, menu highlights, selection states,
+and validation feedback remain separate from this presentation rule; keyboard
+navigation and focus restoration are preserved.
 
 Tests inject an `ApiClient`, keeping pages independent from `fetch` while the
 HTTP client has focused tests for base-path routing, CSRF, problem details, and
