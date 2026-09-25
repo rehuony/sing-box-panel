@@ -68,6 +68,7 @@ func (handler *Handler) serveIndex(w http.ResponseWriter, request *http.Request)
 		return
 	}
 	data = bytes.ReplaceAll(data, []byte("__SBP_APPEARANCE__"), []byte(html.EscapeString(string(appearanceJSON))))
+	data = bytes.ReplaceAll(data, []byte("/*__SBP_APPEARANCE_CSS__*/"), []byte(initialAppearanceCSS(appearance)))
 	baseHref := handler.settings.Server.BasePath + "/"
 	if baseHref == "" {
 		baseHref = "/"

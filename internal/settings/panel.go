@@ -23,7 +23,7 @@ type Appearance struct {
 }
 
 func DefaultPanel() Panel {
-	return Panel{Language: "zh-CN", Appearance: Appearance{Theme: "light", Color: "#6D4ED1", Radius: 12}}
+	return Panel{Language: "zh-CN", Appearance: Appearance{Theme: "system", Color: "#6D4ED1", Radius: 12}}
 }
 
 var panelColor = regexp.MustCompile(`^#[a-fA-F0-9]{6}$`)

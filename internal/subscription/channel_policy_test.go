@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -31,6 +32,41 @@ func policyFixture(t *testing.T, format RenderFormat) ([]Node, *ChannelPolicy) {
 		p.Groups[0].Rules[3].Remote.Behavior = "domain"
 	}
 	return nodes, p
+}
+
+func TestChannelYAMLUsesBlockCollectionsWithoutChangingValues(t *testing.T) {
+	for _, content := range []string{
+		"{}",
+		`{custom-counter: 9007199254740993, custom-string: 'true', dns: {enable: true, nameserver: [1.1.1.1, 8.8.8.8]}}`,
+		"# retained comment\ncustom-text: |\n  first line\n  second line\ncustom-string: '00123'\ndns: {enable: true}\n",
+	} {
+		nodes, policy := policyFixture(t, RenderFormatMihomo)
+		policy.Template = &NativeTemplate{Format: RenderFormatMihomo, Content: content}
+		result, err := RenderPolicyNodes(nodes, RenderChannel{Format: RenderFormatMihomo}, policy)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var original, rendered map[string]any
+		if err := yaml.Unmarshal([]byte(content), &original); err != nil {
+			t.Fatal(err)
+		}
+		if err := yaml.Unmarshal(result.Content, &rendered); err != nil {
+			t.Fatal(err)
+		}
+		for key, want := range original {
+			if !reflect.DeepEqual(rendered[key], want) {
+				t.Fatalf("template value %s changed: %v != %v", key, rendered[key], want)
+			}
+		}
+		if !bytes.Contains(result.Content, []byte("proxies:\n  - ")) || !bytes.Contains(result.Content, []byte("\nproxy-groups:\n")) {
+			t.Fatalf("output was not formatted: %s", result.Content)
+		}
+		for _, preserved := range []string{"9007199254740993", "'true'", "'00123'", "# retained comment", "custom-text: |"} {
+			if strings.Contains(content, preserved) && !bytes.Contains(result.Content, []byte(preserved)) {
+				t.Fatalf("scalar/comment lost: %s in %s", preserved, result.Content)
+			}
+		}
+	}
 }
 
 func TestChannelNativeRenderingAndTemplatePreservation(t *testing.T) {

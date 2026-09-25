@@ -11,7 +11,7 @@ import { ApiClientProvider } from '@/api/api-client-context';
 import { TestRouter as MemoryRouter } from '@/tests/test-router';
 import { newRuleGroup } from '@/pages/subscriptions-page/channel-policy';
 import { ChannelWorkspace } from '@/pages/subscriptions-page/channel-workspace';
-import { createMockApiClient, testSubscriptionChannels, testSubscriptionTokens } from '@/tests/api/mock-api-client';
+import { createMockApiClient, testSubscriptionChannels } from '@/tests/api/mock-api-client';
 
 const node: SubscriptionNodeSummary = {
   id: 'node-one',
@@ -87,13 +87,6 @@ async function addNodes(user: ReturnType<typeof userEvent.setup>, names: (string
   for (const name of names) await user.click(within(dialog).getByRole('checkbox', { name }));
   await user.click(within(dialog).getByRole('button', { name: /^Add \d+ nodes?$/ }));
 }
-async function bindKey(user: ReturnType<typeof userEvent.setup>) {
-  const field = screen.getByRole('combobox', { name: 'Bound keys' });
-  await waitFor(() => expect(field).toBeEnabled());
-  await user.click(field);
-  await user.click(await screen.findByRole('option', { name: 'phone' }));
-  await user.keyboard('{Escape}');
-}
 describe('channel workspace', () => {
   it.each([true, false])('preserves channel enablement %s without a form toggle', async (enabled) => {
     const user = userEvent.setup();
@@ -124,7 +117,6 @@ describe('channel workspace', () => {
 
     await user.click(screen.getByRole('button', { name: 'Channel settings' }));
     expect(screen.getByLabelText('Channel name')).toHaveValue(channel.name);
-    await bindKey(user);
     await user.click(screen.getByRole('combobox', { name: 'Output client' }));
     await user.click(await screen.findByRole('option', { name: 'Mihomo' }));
     expect(screen.getByRole('button', { name: 'Copy subscription URL' })).toBeDisabled();
@@ -626,22 +618,20 @@ describe('channel workspace', () => {
     await user.click(screen.getByRole('button', { name: 'Cancel' }));
     expect(screen.getByRole('checkbox', { name: /Tokyo/ })).not.toBeChecked();
   });
-  it('binds key IDs locally and requires saving before exporting a link', async () => {
+  it('exports without binding and requires saving delivery changes first', async () => {
     const user = userEvent.setup();
     const client = mount();
     await user.click(screen.getByRole('button', { name: 'Channel settings' }));
-    await bindKey(user);
+    expect(screen.queryByRole('combobox', { name: 'Bound keys' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Copy subscription URL' })).toBeEnabled();
+    expect(client.listSubscriptionTokens).not.toHaveBeenCalled();
+    await user.type(screen.getByLabelText('Channel name'), ' renamed');
     expect(screen.getByRole('button', { name: 'Copy subscription URL' })).toBeDisabled();
-    await user.click(screen.getByRole('button', { name: 'Cancel' }));
-    expect(screen.getByRole('button', { name: /Save changes/ })).toBeDisabled();
-    await user.click(screen.getByRole('button', { name: 'Channel settings' }));
-    await bindKey(user);
     await user.click(screen.getByRole('button', { name: 'Done' }));
-    expect(client.updateSubscriptionChannel).not.toHaveBeenCalled();
     await user.click(screen.getByRole('button', { name: /Save changes/ }));
     await waitFor(() => expect(client.updateSubscriptionChannel).toHaveBeenCalledOnce());
     const savedConfig = vi.mocked(client.updateSubscriptionChannel).mock.calls[0][1].config;
-    expect(savedConfig?.export_token_ids).toEqual([testSubscriptionTokens[0].id]);
+    expect(savedConfig).not.toHaveProperty('export_token_ids');
     expect(client.getSubscriptionTokenSecret).not.toHaveBeenCalled();
     await user.click(screen.getByRole('button', { name: 'Channel settings' }));
     expect(screen.getByRole('button', { name: 'Copy subscription URL' })).toBeEnabled();
@@ -683,7 +673,6 @@ describe('channel workspace', () => {
     await user.click(await screen.findByRole('option', { name: 'Block generation' }));
     const organizer = screen.getByRole('dialog', { name: 'Organize nodes' });
     await user.click(within(organizer).getByRole('button', { name: 'Back' }));
-    await bindKey(user);
     expect(screen.getByRole('button', { name: 'Copy subscription URL' })).toBeDisabled();
     await user.click(screen.getByRole('button', { name: 'Organize nodes' }));
     expect(screen.getByRole('switch', { name: 'Deduplicate' })).toBeChecked();

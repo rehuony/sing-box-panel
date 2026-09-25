@@ -5,7 +5,17 @@
   min-height: 0;
   min-width: 0;
   container-type: inline-size;
-  overflow: auto;
+  overflow: visible;
+}
+
+/* Let the full-height shell scroll cards behind the floating runtime toolbar. */
+#main-content:has(> .dashboard-page) {
+  min-height: min-content;
+}
+
+#main-content > .dashboard-page {
+  flex-shrink: 0;
+  min-height: min-content;
 }
 .dashboard-metrics,
 .dashboard-bottom {

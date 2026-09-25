@@ -182,7 +182,8 @@ immutable runtime evidence, subscription state and operational records directly.
 Settings live in the selected `setting.json`; SQLite keeps only transaction
 markers for interrupted settings/identity updates and configuration restores.
 `traffic_months.sql` adds durable monthly traffic accounting. Version 11 of the
-same application identity upgrades transactionally to version 12; unknown and
+same application identity upgrades transactionally through version 12 (traffic months)
+and version 13 (removal of channel export-key bindings); unknown and
 newer storage formats remain rejected.
 
 Authenticated management, CSRF/origin controls, safe source acquisition,

@@ -199,7 +199,7 @@ export function SubscriptionChannelPanel({ active = true, toolbarTarget }: {
     <section className='subscription-source-workspace'>
       {linkChannel && (
         <ChannelLinkDialog
-          channelID={linkChannel.id} tokenIDs={linkChannel.config.export_token_ids ?? []}
+          channelID={linkChannel.id}
           onClose={() => setLinkChannel(null)}
         />
       )}

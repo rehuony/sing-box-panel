@@ -189,6 +189,18 @@ func TestChannelStrategyTypesPersistPreviewAndDeliver(t *testing.T) {
 			if public.Code != http.StatusOK || public.Body.String() != string(rendered.Result.Content) {
 				t.Fatal("preview/delivery mismatch", public.Code, public.Body.String())
 			}
+			if test.format == "mihomo" && !strings.HasPrefix(public.Body.String(), "proxies:\n  - ") {
+				t.Fatal("preview/delivery YAML is not formatted", public.Body.String())
+			}
 		})
+	}
+}
+
+func TestSubscriptionChannelAPIRejectsRemovedBindings(t *testing.T) {
+	_, _, handler := newSubscriptionHTTPServices(t, "")
+	response := authenticatedRequest(handler, http.MethodPost, "/api/v1/subscription/channels",
+		`{"name":"Removed binding","format":"mihomo","enabled":true,"config":{"export_token_ids":["token-old"]}}`, "")
+	if response.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("removed binding accepted: %d %s", response.Code, response.Body.String())
 	}
 }

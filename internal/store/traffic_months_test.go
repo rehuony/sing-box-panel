@@ -136,7 +136,7 @@ func TestVersion11UpgradePreservesSingleMonthTotalsAndBackfillsOnlyMissingMonths
 	if err != nil || preserved.OutboundBytes != 1000 {
 		t.Fatalf("legacy history changed: %+v %v", preserved, err)
 	}
-	if info, err := upgraded.SchemaInfo(ctx); err != nil || info.Version != 12 {
+	if info, err := upgraded.SchemaInfo(ctx); err != nil || info.Version != CurrentSchemaVersion {
 		t.Fatal(info, err)
 	}
 }

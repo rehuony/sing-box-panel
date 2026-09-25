@@ -8,7 +8,6 @@ import { toast } from '@/components/ui/toast-manager';
 import { useApiClient } from '@/api/api-client-context';
 import { SelectField } from '@/components/select-field';
 import { describeRequestError, ErrorNotice } from '@/components/error-notice';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 
 import { buildPublicSubscriptionURL } from './public-subscription-url';
@@ -42,37 +41,8 @@ function useSubscriptionTokens() {
   return result;
 }
 
-export function ChannelTokenBinding({ value, onChange }: { value: string[]; onChange: (value: string[]) => void }) {
-  const { t } = useTranslation();
-  const { tokens, loading, error } = useSubscriptionTokens();
-  const items = tokens.filter((token) => token.active || value.includes(token.id)).map((token) => ({
-    value: token.id,
-    label: `${token.label}${token.active ? '' : ` · ${t('channels.unavailable')}`}`,
-  }));
-  for (const id of value) {
-    if (!items.some((item) => item.value === id)) items.push({ value: id, label: t('channels.deletedKey') });
-  }
-  return (
-    <>
-      {error != null && <ErrorNotice error={error} />}
-      <Select<string, true>
-        multiple value={value} items={items} onValueChange={onChange} disabled={loading || error != null}
-      >
-        <SelectTrigger id='channel-bound-keys' className='w-full'>
-          <SelectValue placeholder={t('channels.chooseKeys')} />
-        </SelectTrigger>
-        <SelectContent>
-          {items.map((item) => <SelectItem key={item.value} value={item.value}>{item.label}</SelectItem>)}
-          {!items.length && <p className='p-3 text-sm text-muted-foreground'>{t('subscriptions.keys.empty')}</p>}
-        </SelectContent>
-      </Select>
-    </>
-  );
-}
-
-export function ChannelLinkDialog({ channelID, tokenIDs, onClose }: {
+export function ChannelLinkDialog({ channelID, onClose }: {
   channelID: string;
-  tokenIDs: string[];
   onClose: () => void;
 }) {
   const { t } = useTranslation();
@@ -86,7 +56,7 @@ export function ChannelLinkDialog({ channelID, tokenIDs, onClose }: {
     lifetimeRef.current = controller;
     return () => controller.abort();
   }, []);
-  const available = tokens.filter((token) => tokenIDs.includes(token.id) && token.active);
+  const available = tokens.filter((token) => token.active);
   const selectedID = available.some((token) => token.id === selected) ? selected : available[0]?.id ?? '';
   async function copy() {
     const controller = lifetimeRef.current;
@@ -99,7 +69,6 @@ export function ChannelLinkDialog({ channelID, tokenIDs, onClose }: {
       ]);
       if (!channel.enabled) throw new Error(t('channels.channelUnavailable'));
       if (!token.active) throw new Error(t('channels.keyUnavailable'));
-      if (!channel.config.export_token_ids?.includes(selectedID)) throw new Error(t('channels.noBoundKeys'));
       const secret = await client.getSubscriptionTokenSecret(selectedID, controller.signal);
       if (controller.signal.aborted) return;
       await navigator.clipboard.writeText(buildPublicSubscriptionURL(secret.token, channelID));
@@ -123,10 +92,10 @@ export function ChannelLinkDialog({ channelID, tokenIDs, onClose }: {
           <SelectField id='channel-link-key' value={selectedID} onValueChange={setSelected} disabled={loading || busy || !available.length}
             items={available.map((token) => ({ value: token.id, label: token.label }))} />
         </div>
-        {!loading && !error && !available.length && <p className='text-sm text-muted-foreground'>{t('channels.noBoundKeys')}</p>}
+        {!loading && !error && !available.length && <p className='text-sm text-muted-foreground'>{t('channels.noActiveKeys')}</p>}
         <DialogFooter>
-          <Button variant='outline' onClick={onClose}>{t('channels.done')}</Button>
           <Button disabled={busy || loading || !selectedID} onClick={() => void copy()}>{t('channels.copy')}</Button>
+          <Button variant='outline' onClick={onClose}>{t('channels.done')}</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

@@ -12,10 +12,7 @@ import { SubscriptionChannelPanel } from '@/pages/subscriptions-page/subscriptio
 import { createMockApiClient, testSubscriptionChannels, testSubscriptionTokens } from '@/tests/api/mock-api-client';
 
 const key = testSubscriptionTokens[0];
-const channel = {
-  ...testSubscriptionChannels[0],
-  config: { ...testSubscriptionChannels[0].config, export_token_ids: [key.id] },
-};
+const channel = testSubscriptionChannels[0];
 
 describe('channel copies and shared links', () => {
   it('duplicates the full stored channel without altering the source', async () => {
@@ -33,17 +30,19 @@ describe('channel copies and shared links', () => {
     }, expect.any(AbortSignal)));
     expect(client.updateSubscriptionChannel).not.toHaveBeenCalled();
   });
-  it('exports from a bound key on demand, including under StrictMode', async () => {
+  it('exports from any active key on demand, including under StrictMode', async () => {
     const user = userEvent.setup();
     const client = createMockApiClient({ getSubscriptionChannel: vi.fn().mockResolvedValue(channel) });
     render(
       <StrictMode>
         <ApiClientProvider client={client}>
-          <ChannelLinkDialog channelID={channel.id} tokenIDs={[key.id]} onClose={vi.fn()} />
+          <ChannelLinkDialog channelID={channel.id} onClose={vi.fn()} />
         </ApiClientProvider>
       </StrictMode>,
     );
     await waitFor(() => expect(screen.getByRole('button', { name: 'Copy' })).toBeEnabled());
+    const footer = screen.getByRole('button', { name: 'Copy' }).parentElement!;
+    expect(within(footer).getAllByRole('button').map(button => button.textContent)).toEqual(['Copy', 'Done']);
     expect(client.getSubscriptionTokenSecret).not.toHaveBeenCalled();
     await user.click(screen.getByRole('button', { name: 'Copy' }));
     await waitFor(() => {
@@ -53,18 +52,18 @@ describe('channel copies and shared links', () => {
     expect(await navigator.clipboard.readText()).toBe(expectedURL);
     expect(client.previewSubscriptionChannel).not.toHaveBeenCalled();
   });
-  it.each(['key', 'channel', 'binding'])('rechecks %s before accessing or copying a secret', async (changed) => {
+  it.each(['key', 'channel'])('rechecks %s before accessing or copying a secret', async (changed) => {
     const user = userEvent.setup();
     const feedback = vi.spyOn(toast, 'add');
     const client = createMockApiClient({
       getSubscriptionChannel: vi.fn().mockResolvedValue({ ...channel,
-        enabled: changed !== 'channel', config: changed === 'binding' ? {} : channel.config,
+        enabled: changed !== 'channel',
       }),
       getSubscriptionToken: vi.fn().mockResolvedValue({ ...key, active: changed !== 'key' }),
     });
     render(
       <ApiClientProvider client={client}>
-        <ChannelLinkDialog channelID={channel.id} tokenIDs={[key.id]} onClose={vi.fn()} />
+        <ChannelLinkDialog channelID={channel.id} onClose={vi.fn()} />
       </ApiClientProvider>,
     );
     await waitFor(() => expect(screen.getByRole('button', { name: 'Copy' })).toBeEnabled());
@@ -73,17 +72,48 @@ describe('channel copies and shared links', () => {
     expect(client.getSubscriptionTokenSecret).not.toHaveBeenCalled();
     feedback.mockRestore();
   });
-  it('does not export when no active bound key remains', async () => {
+  it('does not export when no active key remains', async () => {
     const client = createMockApiClient({
       listSubscriptionTokens: vi.fn().mockResolvedValue({ items: [{ ...key, active: false }], total: 1 }),
     });
     render(
       <ApiClientProvider client={client}>
-        <ChannelLinkDialog channelID={channel.id} tokenIDs={[key.id]} onClose={vi.fn()} />
+        <ChannelLinkDialog channelID={channel.id} onClose={vi.fn()} />
       </ApiClientProvider>,
     );
-    expect(await screen.findByText('Bind an active key in channel settings and save first.')).toBeVisible();
+    expect(await screen.findByText('No active keys. Create or enable a key in Key management.')).toBeVisible();
     expect(screen.getByRole('button', { name: 'Copy' })).toBeDisabled();
     expect(client.getSubscriptionTokenSecret).not.toHaveBeenCalled();
+  });
+
+  it('offers active keys from every page without reading their secrets', async () => {
+    const user = userEvent.setup();
+    const next = { id: 'last-first-page', created_at: key.created_at };
+    const second = { ...key, id: 'second-page-key', label: 'Second page' };
+    const client = createMockApiClient({
+      listSubscriptionTokens: vi.fn()
+        .mockResolvedValueOnce({ items: [{ ...key, active: false, label: 'Unavailable' }, key], next, total: 3 })
+        .mockResolvedValueOnce({ items: [second], total: 3 }),
+      getSubscriptionToken: vi.fn().mockResolvedValue(second),
+    });
+    render(
+      <ApiClientProvider client={client}>
+        <ChannelLinkDialog channelID={channel.id} onClose={vi.fn()} />
+      </ApiClientProvider>,
+    );
+    const selector = screen.getByRole('combobox', { name: 'Subscription key' });
+    await waitFor(() => expect(selector).toBeEnabled());
+    expect(client.listSubscriptionTokens).toHaveBeenLastCalledWith(
+      { limit: 100, beforeID: next.id, beforeTime: next.created_at }, expect.any(AbortSignal),
+    );
+    await user.click(selector);
+    expect(await screen.findByRole('option', { name: key.label })).toBeVisible();
+    expect(screen.queryByRole('option', { name: 'Unavailable' })).not.toBeInTheDocument();
+    await user.click(screen.getByRole('option', { name: 'Second page' }));
+    expect(client.getSubscriptionTokenSecret).not.toHaveBeenCalled();
+    await user.click(screen.getByRole('button', { name: 'Copy' }));
+    await waitFor(() => {
+      expect(client.getSubscriptionTokenSecret).toHaveBeenCalledWith(second.id, expect.any(AbortSignal));
+    });
   });
 });

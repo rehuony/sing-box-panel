@@ -379,7 +379,6 @@ export function ChannelWorkspace({ active = true, toolbarTarget, channel, nodes,
             }));
             setConfig((current) => ({
               ...current,
-              export_token_ids: c.export_token_ids,
               exclude_tags: c.exclude_tags,
               exclude_types: c.exclude_types,
             }));
