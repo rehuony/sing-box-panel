@@ -359,9 +359,6 @@ export function ChannelWorkspace({ active = true, toolbarTarget, channel, nodes,
         <ChannelOptions
           name={name}
           format={format}
-          channelID={channel.id}
-          needsSave={dirty}
-          enabled={channel.enabled}
           legacy={format === 'loon'}
           policy={policy}
           config={config}
