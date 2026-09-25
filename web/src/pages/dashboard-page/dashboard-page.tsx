@@ -93,9 +93,6 @@ export function DashboardPage() {
             <ErrorNotice error={telemetry.dashboardError} title={t('dashboard.error.history')} />
           )
         : null}
-      {telemetry?.dashboardStale && current !== null
-        ? <p className='dashboard-stream-status' role='status'>{t('dashboard.state.reconnecting')}</p>
-        : null}
       <div className='dashboard-metrics'>
         {metrics.map(({ key, icon: Icon, value, detail }) => (
           <section key={key} className='dashboard-metric'>

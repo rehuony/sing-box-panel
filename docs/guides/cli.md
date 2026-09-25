@@ -80,7 +80,11 @@ Selecting a settings path does not load it. Help (including bare command groups)
 panel settings or open its database. `systemd uninstall`, `start`, `stop`,
 `restart`, and `logs` operate on the selected service scope without loading the
 CLI settings file. Start/restart can read the installed unit's own settings to
-prepare a requested data relocation or restore missing resources. `systemd status` also works with unavailable settings; its
+prepare a requested data relocation or restore missing resources. System uninstall
+also reads that installation's data locations to protect retained data before
+removing its dedicated account; `--keep-user` preserves the account and ownership.
+See [service lifecycle and permissions](../../systemd/README.md).
+`systemd status` also works with unavailable settings; its
 optional location report marks unreadable files or invalid `data_dir` fields as
 unavailable without hiding systemd's status.
 
@@ -359,7 +363,8 @@ root uses `/var/lib/sing-box-panel-state/cleanup-history.json`; other users use
 `$XDG_STATE_HOME/sing-box-panel/cleanup-history.json` (default
 `~/.local/state/sing-box-panel/cleanup-history.json`). Its directory is 0700 and
 file 0600. Writers lock the directory. Records contain normalized instance paths,
-deduplicated data/service roots, scope, time and outcome/counts, never tokens or
+deduplicated data/service roots, scope, time, outcome/counts and service-account
+cleanup outcomes, never tokens or
 configuration contents. Corrupt, linked or unwritable history blocks destruction;
 a failure to update the final outcome is reported as an incomplete operation.
 Data roots containing the history directory are rejected. This protection also
@@ -448,13 +453,21 @@ stop aborts data cleanup; unrelated instances are never stopped to clear a lock.
 
 The executable and files outside the selected data directory remain outside the
 cleanup scope, except for the selected settings and matching managed service.
-OS accounts and journal records remain managed by the OS. The conventional
+Uninstalling a matching managed system service also cleans up its dedicated
+account under the [systemd lifecycle rules](../../systemd/README.md); unrelated
+OS accounts and journal records are retained. The conventional
 `sing-box-panel` settings directory is removed only if empty; shared parent
 directories are never recursively removed.
 
 Execution results preserve `removed` and `retained` arrays and add `remaining`
 and `warnings`. Remaining means a deletion target still exists; retained means
-policy intentionally preserves it. A final read-only inventory uses both current
+policy intentionally preserves it. When a system service is uninstalled,
+`service_account` records `user`, `group` and an optional `note` in JSON and cleanup
+history; text output reports the same outcome. Each identity is `removed`,
+`absent`, `retained`, or `unknown`. Retained or unverified identities produce a
+warning and a nonzero incomplete-cleanup exit status, even if file cleanup
+succeeds. This optional history field is additive; existing records without it
+remain readable and do not imply any account state. A final read-only inventory uses both current
 and pre-cleanup paths, even after configuration has been removed. Each command
 writes one complete result to stdout; diagnostics go to stderr. Deleted paths remain visible in results.
 On interruption, text says `Cleanup interrupted; confirmed results only`, and the

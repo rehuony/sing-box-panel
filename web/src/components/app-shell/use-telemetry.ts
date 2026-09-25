@@ -6,6 +6,7 @@ import { useApiClient } from '@/api/api-client-context';
 import { PanelSettingsContext } from '@/stores/panel-settings.store';
 
 const MAX_RECONNECT_DELAY_MS = 30_000;
+const DASHBOARD_RECONNECT_GRACE_MS = 5_000;
 
 type TrafficSample = NonNullable<MetricsSnapshot['latest_sample']>;
 
@@ -155,21 +156,30 @@ export function useTelemetry(): TelemetryState {
   useEffect(() => {
     const controller = new AbortController();
     let retry: ReturnType<typeof setTimeout> | undefined;
+    let staleTimer: ReturnType<typeof setTimeout> | undefined;
     let attempt = 0;
     async function connect() {
       try {
         for await (const next of client.streamDashboard(controller.signal)) {
           if (controller.signal.aborted) return;
           attempt = 0;
+          clearTimeout(staleTimer);
+          staleTimer = undefined;
           setDashboardSnapshot(next);
           setDashboardError(null);
           setDashboardStale(false);
         }
       } catch (error) {
-        if (!controller.signal.aborted) setDashboardError(error);
+        if (!controller.signal.aborted) {
+          setDashboardError(error);
+          setDashboardStale(true);
+        }
       }
       if (!controller.signal.aborted) {
-        setDashboardStale(true);
+        // The server closes healthy streams every minute to reauthenticate.
+        // Allow that reconnect to finish, but do not hide a stalled reconnect
+        // or extend the grace period when successive streams close early.
+        staleTimer ??= setTimeout(setDashboardStale, DASHBOARD_RECONNECT_GRACE_MS, true);
         const delay = Math.min(1_000 * 2 ** attempt++, MAX_RECONNECT_DELAY_MS);
         retry = setTimeout(() => void connect(), delay);
       }
@@ -178,6 +188,7 @@ export function useTelemetry(): TelemetryState {
     return () => {
       controller.abort();
       clearTimeout(retry);
+      clearTimeout(staleTimer);
     };
   }, [client]);
 

@@ -52,6 +52,11 @@ func (manager *Manager) Install(ctx context.Context, request InstallRequest) (In
 	if err := manager.preflightCommands(ctx, scope, true); err != nil {
 		return InstallResult{}, err
 	}
+	if scope == ScopeSystem {
+		if _, err := manager.inspectSystemAccount(ctx); err != nil {
+			return InstallResult{}, err
+		}
+	}
 	if location, err := settings.ReadDataLocation(settingsPath); err == nil && (location.DataDir != dataDir || location.Move != nil) {
 		prepared, err := installation.PrepareDataLocation(ctx, settingsPath)
 		if err != nil {
@@ -116,11 +121,11 @@ func (manager *Manager) Uninstall(ctx context.Context, request UninstallRequest)
 		return UninstallResult{}, err
 	}
 	result = UninstallResult{Scope: scope, Unit: UnitName, RemovedPaths: []string{},
-		ConfigRetained: true, DataRetained: true, AccountRetained: scope == ScopeSystem}
+		ConfigRetained: true, DataRetained: true}
 	paths := manager.managedPaths(scope)
 	existing, err := preflightUninstall(paths, request.Force)
 	if err != nil {
-		return UninstallResult{}, err
+		return result, err
 	}
 	files, err := manager.Files(ctx, scope)
 	if err != nil {
@@ -146,6 +151,21 @@ func (manager *Manager) Uninstall(ctx context.Context, request UninstallRequest)
 	}
 	if status.UnitPath != "" && status.UnitPath != manager.unitPath(scope) {
 		return result, fmt.Errorf("%w: loaded service belongs to another installation", ErrConflict)
+	}
+	var account systemAccount
+	if scope == ScopeSystem {
+		account, err = manager.preflightAccountRemoval(ctx, request.KeepUser, &result)
+		if err != nil {
+			return result, err
+		}
+		if account != (systemAccount{}) {
+			if err := manager.validateAccountRemovalStatus(status); err != nil {
+				return result, err
+			}
+			if _, err := manager.retainedAccountPaths(); err != nil {
+				return result, err
+			}
+		}
 	}
 	if len(existing) == 0 && len(links) == 0 && status.LoadState == "not-found" && unitStopped(status) {
 		result.Stopped = true
@@ -176,6 +196,22 @@ func (manager *Manager) Uninstall(ctx context.Context, request UninstallRequest)
 	for _, path := range links {
 		if _, err := os.Lstat(path); errors.Is(err, os.ErrNotExist) {
 			result.RemovedPaths = append(result.RemovedPaths, path)
+		}
+	}
+	if scope == ScopeSystem {
+		// Revalidate file identity before account removal as well as before
+		// unlinking. A concurrent replacement must not lose its service user.
+		for _, path := range existing {
+			info, err := os.Lstat(path)
+			if err != nil {
+				return result, err
+			}
+			if !os.SameFile(identities[path], info) {
+				return result, fmt.Errorf("service file changed during uninstall: %s", path)
+			}
+		}
+		if err := manager.removeSystemAccount(ctx, account, &result); err != nil {
+			return result, err
 		}
 	}
 	for _, path := range existing {
@@ -211,6 +247,9 @@ func unitStopped(status Status) bool {
 }
 
 func (manager *Manager) prepareSystemOwnership(ctx context.Context, settingsPath, dataDir string) error {
+	if _, err := manager.inspectSystemAccount(ctx); err != nil {
+		return err
+	}
 	if err := manager.run(ctx, "systemd-sysusers", manager.layout.SystemSysusersPath); err != nil {
 		return err
 	}

@@ -1,7 +1,7 @@
 import type { ComponentType } from 'react';
 
-import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useEffect, useId, useState } from 'react';
 import {
   ArrowDown,
   ArrowUp,
@@ -245,11 +245,37 @@ function MobileTelemetryMenu({
   );
 }
 
+function DashboardStreamStatus() {
+  const { t } = useTranslation();
+  const triggerId = useId();
+  const contentId = useId();
+  const [open, setOpen] = useState(false);
+
+  return (
+    <Tooltip open={open} onOpenChange={setOpen} triggerId={triggerId}>
+      <TooltipTrigger
+        id={triggerId}
+        aria-label={t('telemetry.stream.detail')}
+        aria-describedby={open ? contentId : undefined}
+        closeOnClick={false}
+        onClick={() => setOpen(true)}
+        render={<Badge className='telemetry-stream-status' variant='warning' render={<button type='button' />} />}
+      >
+        <Spinner aria-hidden='true' data-icon='inline-start' />
+        <span className='telemetry-stream-status__full' aria-hidden='true'>{t('telemetry.stream.reconnecting')}</span>
+        <span className='telemetry-stream-status__compact' aria-hidden='true'>{t('telemetry.stream.compact')}</span>
+      </TooltipTrigger>
+      <TooltipContent id={contentId} role='tooltip' side='bottom'>{t('telemetry.stream.detail')}</TooltipContent>
+    </Tooltip>
+  );
+}
+
 export function TelemetryBanner() {
   const { i18n, t } = useTranslation();
   const locale = i18n.resolvedLanguage ?? i18n.language ?? 'en';
   const { setOpenMobile } = useSidebar();
   const telemetry = useSharedTelemetry();
+  const reconnecting = telemetry.dashboardStale && telemetry.dashboardSnapshot !== null;
   const runtimeControl = useRuntimeControl({ onRuntimeStatus: telemetry.acceptRuntimeStatus });
   const [now, setNow] = useState(() => Date.now());
 
@@ -346,31 +372,36 @@ export function TelemetryBanner() {
         </div>
       </div>
 
-      <div className='telemetry-banner__metrics'>
-        <TelemetryMetric
-          icon={Clock3}
-          id='uptime'
-          label={t('telemetry.metric.uptime')}
-          title={startedAtTitle}
-          value={uptime}
-          compactValue={compactUptime}
-        />
-        <Separator orientation='vertical' />
-        <TelemetryMetric
-          icon={ArrowUp}
-          id='upload'
-          label={t('telemetry.metric.upload')}
-          value={formatRate(uploadRate, locale)}
-          compactValue={formatRate(uploadRate, locale).replace(/\s/g, '')}
-        />
-        <Separator orientation='vertical' />
-        <TelemetryMetric
-          icon={ArrowDown}
-          id='download'
-          label={t('telemetry.metric.download')}
-          value={formatRate(downloadRate, locale)}
-          compactValue={formatRate(downloadRate, locale).replace(/\s/g, '')}
-        />
+      <div className='telemetry-banner__center' data-reconnecting={reconnecting || undefined}>
+        <div className='telemetry-banner__metrics'>
+          <TelemetryMetric
+            icon={Clock3}
+            id='uptime'
+            label={t('telemetry.metric.uptime')}
+            title={startedAtTitle}
+            value={uptime}
+            compactValue={compactUptime}
+          />
+          <Separator orientation='vertical' />
+          <TelemetryMetric
+            icon={ArrowUp}
+            id='upload'
+            label={t('telemetry.metric.upload')}
+            value={formatRate(uploadRate, locale)}
+            compactValue={formatRate(uploadRate, locale).replace(/\s/g, '')}
+          />
+          <Separator orientation='vertical' />
+          <TelemetryMetric
+            icon={ArrowDown}
+            id='download'
+            label={t('telemetry.metric.download')}
+            value={formatRate(downloadRate, locale)}
+            compactValue={formatRate(downloadRate, locale).replace(/\s/g, '')}
+          />
+        </div>
+        <div className='telemetry-banner__notice' role='status' aria-atomic='true'>
+          {reconnecting ? <DashboardStreamStatus /> : null}
+        </div>
       </div>
 
       <div className='telemetry-banner__actions'>

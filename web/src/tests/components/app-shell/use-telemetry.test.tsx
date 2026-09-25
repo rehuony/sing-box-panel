@@ -90,7 +90,76 @@ describe('useTelemetry', () => {
     expect(client.streamMetrics).toHaveBeenCalledOnce();
   });
 
-  it('retains the last dashboard snapshot while reconnecting', async () => {
+  it('keeps normal dashboard stream rotation quiet when the next snapshot arrives promptly', async () => {
+    vi.useFakeTimers();
+    let calls = 0;
+    const client = createMockApiClient({
+      streamDashboard: vi.fn(async function* (signal) {
+        yield testDashboardSnapshot;
+        if (++calls > 1) await waitForAbort(signal);
+      }),
+    });
+    const { result } = renderHook(() => useTelemetry(), { wrapper: wrapper(client) });
+    await act(async () => Promise.resolve());
+    expect(result.current.dashboardStale).toBe(false);
+
+    await act(async () => vi.advanceTimersByTimeAsync(1_000));
+    expect(client.streamDashboard).toHaveBeenCalledTimes(2);
+    await act(async () => vi.advanceTimersByTimeAsync(5_000));
+    expect(result.current.dashboardStale).toBe(false);
+    expect(result.current.dashboardError).toBeNull();
+    expect(result.current.dashboardSnapshot).toBe(testDashboardSnapshot);
+  });
+
+  it('reports a stalled clean reconnect after the grace period and clears it on recovery', async () => {
+    vi.useFakeTimers();
+    let resume!: () => void;
+    const pending = new Promise<void>(resolve => {
+      resume = resolve;
+    });
+    let calls = 0;
+    const next = { ...testDashboardSnapshot, collected_at: '2026-09-25T00:00:00Z' };
+    const client = createMockApiClient({
+      streamDashboard: vi.fn(async function* (signal) {
+        if (++calls === 1) {
+          yield testDashboardSnapshot;
+          return;
+        }
+        await pending;
+        yield next;
+        await waitForAbort(signal);
+      }),
+    });
+    const { result } = renderHook(() => useTelemetry(), { wrapper: wrapper(client) });
+    await act(async () => Promise.resolve());
+    await act(async () => vi.advanceTimersByTimeAsync(4_999));
+    expect(result.current.dashboardStale).toBe(false);
+    await act(async () => vi.advanceTimersByTimeAsync(1));
+    expect(result.current.dashboardStale).toBe(true);
+    expect(result.current.dashboardSnapshot).toBe(testDashboardSnapshot);
+    expect(result.current.dashboardError).toBeNull();
+
+    await act(async () => resume());
+    expect(result.current.dashboardSnapshot).toBe(next);
+    expect(result.current.dashboardStale).toBe(false);
+  });
+
+  it('cancels the dashboard retry and grace timers on unmount', async () => {
+    vi.useFakeTimers();
+    const client = createMockApiClient({
+      streamDashboard: vi.fn(async function* () {
+        yield testDashboardSnapshot;
+      }),
+    });
+    const { unmount } = renderHook(() => useTelemetry(), { wrapper: wrapper(client) });
+    await act(async () => Promise.resolve());
+    unmount();
+    expect(vi.getTimerCount()).toBe(0);
+    await act(async () => vi.advanceTimersByTimeAsync(30_000));
+    expect(client.streamDashboard).toHaveBeenCalledOnce();
+  });
+
+  it('reports an interrupted stream immediately and retains the last dashboard snapshot while reconnecting', async () => {
     vi.useFakeTimers();
     let calls = 0;
     const streamDashboard = vi.fn(async function* (signal?: AbortSignal) {

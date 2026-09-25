@@ -185,8 +185,10 @@ directory, database, and configuration storage declared by that settings file
 as it exists now. Each value names its on-disk source; the settings of the
 running process are not inspected and are reported as unknown, and a unit file
 edited since systemd loaded it is flagged as stale.
-`--scope=auto` selects `system` for root and `user` otherwise. The default unit
-grants no Linux capabilities; TUN, transparent proxying, raw sockets, and
+`--scope=auto` selects `system` for root and `user` otherwise. The system unit
+grants `CAP_DAC_READ_SEARCH` for reading root-owned certificates without changing
+their ownership or permissions; the user unit grants no capabilities.
+TUN, transparent proxying, raw sockets, and
 privileged ports require a reviewed local override. See the authoritative
 [systemd packaging guide](../systemd/README.md) before deploying a
 system service.

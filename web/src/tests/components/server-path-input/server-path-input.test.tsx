@@ -202,7 +202,12 @@ describe('server path input', () => {
     const { api, user } = setup('file', '/etc/sing-box/certificate.pem');
     api.listFilesystemEntries.mockRejectedValueOnce(new ApiRequestError('denied', { code: 'filesystem_forbidden', status: 403 }));
     const dialog = await openPicker(user);
-    expect(dialog.getByRole('alert')).toHaveTextContent('permission');
+    const entries = dialog.getByRole('region', { name: 'Directory entries' });
+    const error = within(entries).getByRole('alert');
+    expect(error).toHaveTextContent('permission');
+    expect(error).toHaveClass('h-full', 'items-center', 'justify-center', 'text-center');
+    expect(dialog.getAllByRole('alert')).toHaveLength(1);
+    expect(dialog.queryByText('Path unavailable')).not.toBeInTheDocument();
     expect(screen.getByLabelText('Certificate path')).toHaveValue('/etc/sing-box/certificate.pem');
     await user.click(dialog.getByRole('button', { name: 'Refresh directory' }));
     expect(await dialog.findByRole('button', { name: 'private.key' })).toBeVisible();
@@ -222,7 +227,9 @@ describe('server path input', () => {
     await user.click(dialog.getByRole('button', { name: 'Confirm' }));
     expect(await dialog.findByRole('alert')).toHaveTextContent('no longer exists');
     expect(screen.getByLabelText('Certificate path')).toHaveValue(initial);
-    await user.click(dialog.getByRole('button', { name: button }));
+    expect(dialog.queryByRole('list', { name: 'Directory entries' })).not.toBeInTheDocument();
+    await user.click(dialog.getByRole('button', { name: 'Refresh directory' }));
+    await user.click(await dialog.findByRole('button', { name: button }));
     await user.click(dialog.getByRole('button', { name: 'Confirm' }));
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
     expect(api.resolveFilesystemPath).toHaveBeenCalledTimes(2);

@@ -474,6 +474,12 @@ shell owns this stream across route changes, keeps the last valid snapshot while
 reconnecting with bounded backoff, and does not fall back to periodic history,
 runtime, traffic, or log requests.
 
+Normal dashboard stream closure allows five seconds for reconnection before
+showing a reconnect status; transport errors are reported immediately. The status
+appears inside the shared top toolbar and clears when the next snapshot arrives,
+without moving the dashboard cards. On narrow screens it temporarily occupies
+the toolbar's metrics area. Hover, focus or tap the status to read its explanation.
+
 The one-minute lifetime includes snapshot collection, and cancels in-flight
 queries when it expires. Each write has a deadline of at most ten seconds, which
 is cleared after flushing so idle connections can close normally. An initial

@@ -123,8 +123,8 @@ func newSystemPruneCommand(state *options, service panelSystemd.Service) *cobra.
 	return command
 }
 
-func stopInstanceForCleanup(ctx context.Context, report instanceFilesReport, service panelSystemd.Service) ([]string, error) {
-	var removed []string
+func stopInstanceForCleanup(ctx context.Context, report instanceFilesReport, service panelSystemd.Service) (*panelSystemd.UninstallResult, error) {
+	var uninstalled *panelSystemd.UninstallResult
 	if report.ServiceState == "unavailable" {
 		return nil, errors.New("system service ownership could not be inspected")
 	}
@@ -163,25 +163,25 @@ func stopInstanceForCleanup(ctx context.Context, report instanceFilesReport, ser
 			return nil, errors.New("service settings are ambiguous or changed on disk; resolve the service configuration before cleanup")
 		}
 		result, err := service.Uninstall(ctx, panelSystemd.UninstallRequest{Scope: report.Service.Scope})
+		uninstalled = &result
 		if err != nil && !errors.Is(err, panelSystemd.ErrNotInstalled) {
-			return result.RemovedPaths, err
+			return uninstalled, err
 		}
-		removed = result.RemovedPaths
 	}
 	if report.DataDir == "" {
-		return removed, nil
+		return uninstalled, nil
 	}
 	for _, entry := range report.Entries {
 		if entry.Path == filepath.Join(report.DataDir, "panel-control.sock") && entry.State != "socket" && entry.State != "missing" {
 			// A leftover non-socket cannot answer stop requests. Clean still must
 			// acquire the runtime lease, so a live owner cannot be bypassed.
-			return removed, nil
+			return uninstalled, nil
 		}
 	}
 	stopCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	_, err := panelprocess.Stop(stopCtx, report.DataDir)
-	return removed, err
+	return uninstalled, err
 }
 
 func classifyCleanupError(err error) error {
@@ -298,6 +298,9 @@ func cleanupText(result installation.CleanupResult, cleanupErr error, style file
 		entries = append(entries, fileTreeEntry{path: path, label: "remaining"})
 	}
 	output := heading + "\n\n" + fileTreeText(entries, style)
+	if result.ServiceAccount != nil {
+		output += "\n" + accountCleanupSummary(*result.ServiceAccount)
+	}
 	if cleanupErr == nil && len(result.Removed) == 0 {
 		output += "\nNo removable resources remain for this instance."
 	}

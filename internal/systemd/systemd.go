@@ -113,6 +113,7 @@ type Manager struct {
 	runner     Runner
 	layout     Layout
 	lookPath   func(string) (string, error)
+	procRoot   string
 }
 
 func New(options Options) (*Manager, error) {
@@ -137,7 +138,7 @@ func New(options Options) (*Manager, error) {
 	}
 	return &Manager{
 		goos: options.GOOS, euid: options.EUID, executable: options.Executable,
-		runner: options.Runner, layout: layout, lookPath: options.LookPath,
+		runner: options.Runner, layout: layout, lookPath: options.LookPath, procRoot: "/proc",
 	}, nil
 }
 
@@ -164,19 +165,25 @@ type InstallResult struct {
 }
 
 type UninstallRequest struct {
-	Scope Scope `json:"scope"`
-	Force bool  `json:"force"`
+	Scope    Scope `json:"scope"`
+	Force    bool  `json:"force"`
+	KeepUser bool  `json:"keep_user"`
 }
 
 type UninstallResult struct {
-	Scope           Scope    `json:"scope"`
-	Unit            string   `json:"unit"`
-	RemovedPaths    []string `json:"removed_paths"`
-	Stopped         bool     `json:"stopped"`
-	Disabled        bool     `json:"disabled"`
-	ConfigRetained  bool     `json:"config_retained"`
-	DataRetained    bool     `json:"data_retained"`
-	AccountRetained bool     `json:"account_retained"`
+	Scope            Scope    `json:"scope"`
+	Unit             string   `json:"unit"`
+	RemovedPaths     []string `json:"removed_paths"`
+	Stopped          bool     `json:"stopped"`
+	Disabled         bool     `json:"disabled"`
+	ConfigRetained   bool     `json:"config_retained"`
+	DataRetained     bool     `json:"data_retained"`
+	AccountInspected bool     `json:"account_inspected"`
+	AccountRetained  bool     `json:"account_retained"`
+	GroupRetained    bool     `json:"group_retained"`
+	AccountRemoved   bool     `json:"account_removed"`
+	GroupRemoved     bool     `json:"group_removed"`
+	AccountNote      string   `json:"account_note,omitempty"`
 }
 
 // Status is systemd's own view of the unit plus one fact read from disk.

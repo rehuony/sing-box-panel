@@ -233,6 +233,14 @@ namespace (inside its container or service sandbox when applicable), subject to
 the panel process's OS permissions. It provides parent and breadcrumb navigation,
 direct path entry, name filtering, hidden-file visibility and pagination.
 
+The packaged systemd service runs as `sing-box-panel`, even when installed or
+started by root. Its default `CAP_DAC_READ_SEARCH` permits reading root-owned
+certificates and traversing their directories without changing file ownership
+or modes, including symlink targets. The capability covers the service's visible
+filesystem; service sandbox restrictions still apply. Older installed units need
+to be refreshed before this takes effect. Check the effective service identity,
+capabilities and drop-ins; see [systemd permissions](../../systemd/README.md#system-service).
+
 Click an entry to select it, then use the toolbar's Confirm button to validate and
 use that path. Double-click a directory, or press Enter / Right Arrow on its row,
 to open it; Left Arrow returns to its parent. Keyboard navigation restores focus
@@ -252,7 +260,8 @@ Manual paths and the ordinary Save / Validate / runtime workflows remain availab
 
 Relative paths are resolved against `data_dir/runtime`, the managed core's working
 directory, and selections fill in absolute paths. Missing initial paths open the
-nearest existing parent with a notice. Permission errors are reported directly.
+nearest existing parent with a notice. Errors appear once in the center of the
+directory area, replacing its entries until a retry or navigation clears the error.
 Symbolic links retain their selected path while their target determines the type.
 Dot components such as `link/..` are interpreted by the OS without lexical path
 cleaning that could change the target. Broken links cannot be selected.

@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"slices"
@@ -16,6 +17,88 @@ import (
 	"github.com/rehuony/sing-box-panel/internal/settings"
 	panelSystemd "github.com/rehuony/sing-box-panel/internal/systemd"
 )
+
+type accountCleanupService struct {
+	fakeSystemdService
+	uninstallErr error
+}
+
+func (service *accountCleanupService) Uninstall(ctx context.Context, request panelSystemd.UninstallRequest) (panelSystemd.UninstallResult, error) {
+	result, err := service.fakeSystemdService.Uninstall(ctx, request)
+	for _, path := range result.RemovedPaths {
+		if removeErr := os.Remove(path); removeErr != nil {
+			return result, removeErr
+		}
+	}
+	return result, errors.Join(err, service.uninstallErr)
+}
+
+func TestPrunePreservesAccountOutcomes(t *testing.T) {
+	for _, scenario := range []string{"removed", "retained", "partial failure", "absent", "unknown"} {
+		t.Run(scenario, func(t *testing.T) {
+			config := commandSettingsFixture(t)
+			unit := filepath.Join(t.TempDir(), "sing-box-panel.service")
+			if err := os.WriteFile(unit, []byte("fixture"), 0600); err != nil {
+				t.Fatal(err)
+			}
+			uninstalled := panelSystemd.UninstallResult{Scope: panelSystemd.ScopeSystem, RemovedPaths: []string{unit}, AccountInspected: true}
+			wantUser, wantGroup, outcome := "removed", "removed", "completed"
+			var uninstallErr error
+			switch scenario {
+			case "removed":
+				uninstalled.AccountRemoved, uninstalled.GroupRemoved = true, true
+			case "retained":
+				uninstalled.AccountRetained, uninstalled.GroupRetained = true, true
+				uninstalled.AccountNote = "no installer-owned sysusers declaration; account not modified"
+				wantUser, wantGroup, outcome = "retained", "retained", "interrupted"
+			case "partial failure":
+				uninstalled.AccountRemoved, uninstalled.GroupRetained = true, true
+				uninstallErr = errors.New("group deletion failed")
+				wantUser, wantGroup, outcome = "removed", "retained", "interrupted"
+			case "absent":
+				wantUser, wantGroup = "absent", "absent"
+			case "unknown":
+				uninstalled.AccountInspected = false
+				uninstallErr = errors.New("getent unavailable")
+				wantUser, wantGroup, outcome = "unknown", "unknown", "interrupted"
+			}
+			service := &accountCleanupService{fakeSystemdService: fakeSystemdService{
+				filesResult:     panelSystemd.FilesResult{Scope: panelSystemd.ScopeSystem, SettingsPath: config, Files: []panelSystemd.FileStatus{{Path: unit, State: "managed", Managed: true}}},
+				statusResult:    panelSystemd.Status{Scope: panelSystemd.ScopeSystem, LoadState: "loaded", UnitFileSettingsPath: config},
+				uninstallResult: uninstalled,
+			}}
+			// Inject uninstall failure alone: inventory and status still succeed.
+			report, err := inspectInstanceFiles(t.Context(), config, panelSystemd.ScopeSystem, service, testHistoryPath(t))
+			if err != nil {
+				t.Fatal(err)
+			}
+			service.uninstallErr = uninstallErr
+			result, err := pruneInstance(t.Context(), report, service)
+			if (err != nil) != (outcome == "interrupted") {
+				t.Fatalf("cleanup error = %v", err)
+			}
+			account := result.ServiceAccount
+			if account == nil || account.User != wantUser || account.Group != wantGroup || account.Note != uninstalled.AccountNote {
+				t.Fatalf("lost account result: %+v", account)
+			}
+			if outcome == "interrupted" && len(result.Warnings) == 0 {
+				t.Fatal("retained/unknown identity was silent")
+			}
+			text := cleanupText(result, err, fileTreeStyle{})
+			if !strings.Contains(text, "service user "+wantUser) || !strings.Contains(text, "service group "+wantGroup) {
+				t.Fatalf("text omitted account outcome: %s", text)
+			}
+			raw, marshalErr := json.Marshal(result)
+			if marshalErr != nil || !bytes.Contains(raw, []byte(`"service_account"`)) {
+				t.Fatalf("JSON omitted account outcome: %s, %v", raw, marshalErr)
+			}
+			after, inspectErr := installation.InspectWithHistory(t.Context(), config, testHistoryPath(t))
+			if inspectErr != nil || after.History == nil || after.History.Outcome != outcome || after.History.ServiceAccount == nil || *after.History.ServiceAccount != *account {
+				t.Fatalf("lost historical account result: %+v, %v", after.History, inspectErr)
+			}
+		})
+	}
+}
 
 func TestPruneDFRepeatAndReappearingHistory(t *testing.T) {
 	config := commandSettingsFixture(t)

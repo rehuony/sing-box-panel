@@ -206,10 +206,8 @@ export function ServerPathPicker({ initialValue, mode, open, onSelect }: {
           </div>
         </div>
         {data?.fallback && <p className='text-sm text-muted-foreground' role='status'>{t('filesystem.fallback')}</p>}
-        {error != null && (
-          <FieldError>{errorMessage}</FieldError>
-        )}
-        <div ref={entriesContainerRef} tabIndex={-1} className='h-[min(240px,35dvh)] shrink-0 overflow-y-auto border-y border-border/60 py-2 outline-none sm:h-[min(320px,45dvh)]' aria-busy={pending}>
+        <div ref={entriesContainerRef} tabIndex={-1} role='region' aria-label={t('filesystem.entries')}
+          className='h-[min(240px,35dvh)] shrink-0 overflow-y-auto border-y border-border/60 py-2 outline-none sm:h-[min(320px,45dvh)]' aria-busy={pending}>
           {pending
             ? (
                 <div className='flex h-full items-center justify-center gap-2' role='status'>
@@ -217,52 +215,54 @@ export function ServerPathPicker({ initialValue, mode, open, onSelect }: {
                   {t('filesystem.loading')}
                 </div>
               )
-            : !data || data.items.length === 0
-                ? <Empty><EmptyHeader><EmptyTitle>{t(error ? 'filesystem.unavailable' : 'filesystem.empty')}</EmptyTitle></EmptyHeader></Empty>
-                : (
-                    <ul ref={listRef} aria-label={t('filesystem.entries')} className='flex flex-col gap-1' onKeyDown={event => {
-                      if (event.key === 'ArrowLeft' && parentPath && parentPath !== currentPath) {
+            : error != null
+              ? <FieldError className='flex h-full items-center justify-center px-4 text-center'>{errorMessage}</FieldError>
+              : !data || data.items.length === 0
+                  ? <Empty className='h-full'><EmptyHeader><EmptyTitle>{t('filesystem.empty')}</EmptyTitle></EmptyHeader></Empty>
+                  : (
+                      <ul ref={listRef} aria-label={t('filesystem.entries')} className='flex flex-col gap-1' onKeyDown={event => {
+                        if (event.key === 'ArrowLeft' && parentPath && parentPath !== currentPath) {
+                          event.preventDefault();
+                          enterDirectory(parentPath);
+                          return;
+                        }
+                        if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return;
+                        const buttons = [...event.currentTarget.querySelectorAll<HTMLButtonElement>('button[data-path-entry]:not(:disabled)')];
+                        const current = (document.activeElement as HTMLElement)?.closest('li')?.querySelector<HTMLButtonElement>('button[data-path-entry]');
+                        const index = current ? buttons.indexOf(current) : -1;
+                        const next = event.key === 'Home' ? 0 : event.key === 'End' ? buttons.length - 1 : index + (event.key === 'ArrowDown' ? 1 : -1);
                         event.preventDefault();
-                        enterDirectory(parentPath);
-                        return;
-                      }
-                      if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return;
-                      const buttons = [...event.currentTarget.querySelectorAll<HTMLButtonElement>('button[data-path-entry]:not(:disabled)')];
-                      const current = (document.activeElement as HTMLElement)?.closest('li')?.querySelector<HTMLButtonElement>('button[data-path-entry]');
-                      const index = current ? buttons.indexOf(current) : -1;
-                      const next = event.key === 'Home' ? 0 : event.key === 'End' ? buttons.length - 1 : index + (event.key === 'ArrowDown' ? 1 : -1);
-                      event.preventDefault();
-                      buttons[Math.max(0, Math.min(buttons.length - 1, next))]?.focus();
-                    }}>
-                      {data.items.map(entry => {
-                        const selected = picker.selectedEntry?.path === entry.path;
-                        const Icon = entry.kind === 'directory' ? Folder : entry.kind === 'socket' ? Plug : File;
-                        return (
-                          <li key={entry.path} className='flex min-w-0 items-center gap-1'>
-                            <Button type='button' variant='ghost' data-path-entry className='server-path-picker__entry h-auto min-h-10 min-w-0 flex-1 justify-start gap-3 px-2.5 py-2' title={entry.path}
-                              aria-label={`${entry.name}${entry.kind === 'directory' ? '/' : ''}`} aria-pressed={selected}
-                              disabled={blocked || editingLocation || !canSelect(entry)}
-                              onClick={() => picker.select(entry)}
-                              onDoubleClick={() => {
-                                if (entry.kind === 'directory') enterDirectory(entry.path);
-                              }}
-                              onKeyDown={event => {
-                                if (entry.kind === 'directory' && (event.key === 'Enter' || event.key === 'ArrowRight')) {
-                                  event.preventDefault();
-                                  enterDirectory(entry.path);
-                                }
-                              }}>
-                              <Icon data-icon='inline-start' className={entry.kind === 'directory' ? 'text-primary/80' : 'text-muted-foreground'} aria-hidden='true' />
-                              <span className={entry.kind === 'directory' ? 'truncate font-medium' : 'truncate font-normal'}>{entry.name}</span>
-                              {entry.symlink && <Link data-icon='inline-end' aria-label={t('filesystem.symlink')} />}
-                              {entry.kind === 'directory' && <ChevronRight className='ml-auto text-muted-foreground/50' aria-hidden='true' />}
-                              {!entry.available && <span className='sr-only'>{t('filesystem.unavailable')}</span>}
-                            </Button>
-                          </li>
-                        );
-                      })}
-                    </ul>
-                  )}
+                        buttons[Math.max(0, Math.min(buttons.length - 1, next))]?.focus();
+                      }}>
+                        {data.items.map(entry => {
+                          const selected = picker.selectedEntry?.path === entry.path;
+                          const Icon = entry.kind === 'directory' ? Folder : entry.kind === 'socket' ? Plug : File;
+                          return (
+                            <li key={entry.path} className='flex min-w-0 items-center gap-1'>
+                              <Button type='button' variant='ghost' data-path-entry className='server-path-picker__entry h-auto min-h-10 min-w-0 flex-1 justify-start gap-3 px-2.5 py-2' title={entry.path}
+                                aria-label={`${entry.name}${entry.kind === 'directory' ? '/' : ''}`} aria-pressed={selected}
+                                disabled={blocked || editingLocation || !canSelect(entry)}
+                                onClick={() => picker.select(entry)}
+                                onDoubleClick={() => {
+                                  if (entry.kind === 'directory') enterDirectory(entry.path);
+                                }}
+                                onKeyDown={event => {
+                                  if (entry.kind === 'directory' && (event.key === 'Enter' || event.key === 'ArrowRight')) {
+                                    event.preventDefault();
+                                    enterDirectory(entry.path);
+                                  }
+                                }}>
+                                <Icon data-icon='inline-start' className={entry.kind === 'directory' ? 'text-primary/80' : 'text-muted-foreground'} aria-hidden='true' />
+                                <span className={entry.kind === 'directory' ? 'truncate font-medium' : 'truncate font-normal'}>{entry.name}</span>
+                                {entry.symlink && <Link data-icon='inline-end' aria-label={t('filesystem.symlink')} />}
+                                {entry.kind === 'directory' && <ChevronRight className='ml-auto text-muted-foreground/50' aria-hidden='true' />}
+                                {!entry.available && <span className='sr-only'>{t('filesystem.unavailable')}</span>}
+                              </Button>
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    )}
         </div>
         <ListPagination page={Math.floor((data?.offset ?? 0) / (query.limit ?? 10)) + 1}
           pages={Math.max(1, Math.ceil((data?.total ?? 0) / (query.limit ?? 10)))}

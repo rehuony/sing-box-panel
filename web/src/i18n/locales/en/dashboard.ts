@@ -73,7 +73,6 @@ export const dashboard = {
     snapshotStale: 'Runtime evidence is refreshing; the previous snapshot is hidden.',
     activityLoading: 'Loading recent activity…',
     activityStale: 'Recent activity is refreshing; the previous snapshot is hidden.',
-    reconnecting: 'The data stream was interrupted. Keeping the last snapshot while reconnecting.',
   },
   summary: {
     average: 'Average',
