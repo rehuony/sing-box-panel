@@ -8,7 +8,7 @@ nearest supported release.
 - [Install and select](#install-and-select-a-version), [choose a build](#multiple-installations-of-one-version), or [import](#import-a-local-archive)
 - [Catalog cache](#catalog-cache), [verification boundaries](#checks-and-recorded-hashes), and [runtime switching](#switching-and-runtime-state)
 - [Exact configuration support](#exact-configuration-support) and [CLI / HTTP migration](#cli-and-http-migration)
-- [Maintaining support](#maintaining-support) and [1.13 review evidence](#113-configuration-review)
+- [Maintaining support](#maintaining-support), [1.14.2 review evidence](#1142-configuration-review), and [1.13 review evidence](#113-configuration-review)
 
 ## Install and select a version
 
@@ -202,7 +202,7 @@ binary path and safe-file checks, not the convenience link as an authority.
 | Exact releases | Configuration Schema source | Inbound family |
 | --- | --- | --- |
 | 1.13.19, 1.13.20, 1.13.21 | Project-reviewed `reviewed-1.13` source definition | 1.13 |
-| 1.14.0, 1.14.1 | Official binary's native `schema` command | 1.14 |
+| 1.14.0, 1.14.1, 1.14.2 | Official binary's native `schema` command | 1.14 |
 
 Each exact release has a separate Schema asset, manifest entry and precompiled
 browser validator. The three 1.13 option type definitions are identical and share
@@ -223,6 +223,8 @@ Schema or inbound-conversion support does not prohibit raw runtime use. No nearb
 version's Schema or converter is substituted. The existing
 [1.14.1 review](https://github.com/SagerNet/sing-box/compare/v1.14.0...v1.14.1)
 retains family 1.14 and its independently generated asset.
+The [1.14.2 review](#1142-configuration-review) also retains family 1.14,
+with its own native Schema and browser validator.
 
 ## CLI and HTTP migration
 
@@ -258,6 +260,37 @@ native Linux as a non-root user. Emulation is supplementary evidence.
 The daily Core Version Monitor opens or updates one rolling issue when the latest
 stable upstream release exceeds the highest supported catalog entry. It requests
 manual review, never edits support code or backfills older release lines.
+
+## 1.14.2 configuration review
+
+The [1.14.2 release](https://github.com/SagerNet/sing-box/releases/tag/v1.14.2)
+is pinned to commit `af6e64c3b69e6132ebaee0e1a3d24e93903f6709`.
+The [36-commit comparison with 1.14.1](https://github.com/SagerNet/sing-box/compare/v1.14.1...v1.14.2)
+changes no serialized configuration fields, protocol registrations or native Schema
+generator code. The only option-source change adds `STUNServersIsDomain` to
+`Hysteria2Realm`; it does not change its JSON fields. The
+[tag's migration notes](https://github.com/SagerNet/sing-box/blob/v1.14.2/docs/migration.md)
+are unchanged. The existing 1.14 migration requirements still apply when upgrading
+from 1.13.
+
+Inbound conversion was reviewed separately against the input types and published
+client fields, including Hysteria2, Snell, credentials, TLS and transports. Their
+shapes remain unchanged, so 1.14.2 reuses inbound family `1.14`. Runtime fixes to
+DNS initialization, Hysteria2 STUN resolution, WireGuard peers, connection lifetimes
+and transports remain the exact core's responsibility; the panel does not rewrite
+configuration to emulate them. Documentation corrects the default minimum TLS
+version to 1.2 and clarifies that the API dashboard's HTTP client is unused when
+user-provided dashboard files exist; neither change adds a form field.
+
+Both official Linux amd64/arm64 **musl** archives were checked against their
+release asset sizes and SHA-256 digests. Their reported version, commit and build
+tags match the catalog, including `with_musl`. Exact artifact pins and Go module
+checksums are recorded in [`catalog.json`](../../internal/singbox/catalog.json).
+The official 1.14.2 binary independently generates its native Schema; the panel's
+presentation overlay and Web validator are produced by the normal generation
+workflow. Tests cover exact-version selection, application validation, inbound
+conversion and browser loading. The existing native Linux amd64/arm64 core
+contract matrix automatically includes the new catalog entry.
 
 ## 1.13 configuration review
 

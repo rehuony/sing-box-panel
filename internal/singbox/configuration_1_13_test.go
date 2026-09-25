@@ -89,7 +89,7 @@ func TestRuntimeCompatibilityEnvironmentIsExactVersionScoped(t *testing.T) {
 			t.Fatal("environment shares mutable backing storage")
 		}
 	}
-	for _, version := range []string{"1.13.18", "1.13.22", "1.14.0", "1.14.1", "v1.13.21", ""} {
+	for _, version := range []string{"1.13.18", "1.13.22", "1.14.0", "1.14.1", "1.14.2", "v1.13.21", ""} {
 		if env := RuntimeCompatibilityEnvironment(version); len(env) != 0 {
 			t.Fatalf("%s received legacy switches: %v", version, env)
 		}

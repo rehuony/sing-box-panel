@@ -30,6 +30,12 @@
       "exact_version": "1.14.1",
       "schema_sha256": "d57ce462cd6305f427aec339a3027840b0478ef3bcbcf699c5fcb5861827c641",
       "schema_file": "schema-1_14_1.json"
+    },
+    {
+      "source": "native",
+      "exact_version": "1.14.2",
+      "schema_sha256": "d57ce462cd6305f427aec339a3027840b0478ef3bcbcf699c5fcb5861827c641",
+      "schema_file": "schema-1_14_2.json"
     }
   ]
 }

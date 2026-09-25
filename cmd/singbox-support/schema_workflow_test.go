@@ -107,7 +107,7 @@ func TestCatalogDistinguishesNativeAndReviewedSchemaSources(t *testing.T) {
 	if !reflect.DeepEqual(reviewedVersions, []string{"1.13.19", "1.13.20", "1.13.21"}) {
 		t.Fatalf("reviewed versions = %v", reviewedVersions)
 	}
-	want := []string{"1.14.0", "1.14.1"}
+	want := []string{"1.14.0", "1.14.1", "1.14.2"}
 	if !reflect.DeepEqual(schemaVersions, want) {
 		t.Fatalf("native schema versions = %v, want %v", schemaVersions, want)
 	}

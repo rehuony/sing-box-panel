@@ -122,7 +122,7 @@ and the Schema. Its ETag binds the exact version and digest and supports
 `If-None-Match`.
 
 The panel commits reviewed Schema definitions for `1.13.19`, `1.13.20` and
-`1.13.21`, plus native Schema output for `1.14.0` and `1.14.1`. The Web
+`1.13.21`, plus native Schema output for `1.14.0`, `1.14.1` and `1.14.2`. The Web
 configuration selector lists compatible installed versions, defaults to the
 enabled core when available and otherwise uses the highest installed semantic
 version. Installed artifacts require the served schema to match the reviewed

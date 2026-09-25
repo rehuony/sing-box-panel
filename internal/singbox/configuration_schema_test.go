@@ -13,7 +13,7 @@ import (
 )
 
 func TestConfigurationSchemaIsSelectedOnlyByExactVersion(t *testing.T) {
-	for _, exactVersion := range []string{"1.13.19", "1.13.20", "1.13.21", "1.14.0", "1.14.1"} {
+	for _, exactVersion := range []string{"1.13.19", "1.13.20", "1.13.21", "1.14.0", "1.14.1", "1.14.2"} {
 		t.Run(exactVersion, func(t *testing.T) {
 			contract, err := ConfigurationSchema(exactVersion)
 			if err != nil {
@@ -30,7 +30,7 @@ func TestConfigurationSchemaIsSelectedOnlyByExactVersion(t *testing.T) {
 			assertLocalSchemaReferences(t, schema)
 		})
 	}
-	for _, exactVersion := range []string{"1.11.15", "1.12.25", "1.13.18", "1.13.22", "1.14.2", "1.14", "v1.14.1", "1.14.1-beta.1", "invalid"} {
+	for _, exactVersion := range []string{"1.11.15", "1.12.25", "1.13.18", "1.13.22", "1.14.3", "1.14", "v1.14.1", "1.14.1-beta.1", "invalid"} {
 		if _, err := ConfigurationSchema(exactVersion); !errors.Is(err, ErrConfigurationSchemaUnavailable) {
 			t.Fatalf("ConfigurationSchema(%s) error = %v, want ErrSchemaUnavailable", exactVersion, err)
 		}
@@ -42,12 +42,12 @@ func TestConfigurationSchemaWebAssetsContainOnlyManifestAndFormSchema(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range []string{"manifest.json", "schema-1_13_19.json", "schema-1_13_20.json", "schema-1_13_21.json", "schema-1_14_0.json", "schema-1_14_1.json"} {
+	for _, name := range []string{"manifest.json", "schema-1_13_19.json", "schema-1_13_20.json", "schema-1_13_21.json", "schema-1_14_0.json", "schema-1_14_1.json", "schema-1_14_2.json"} {
 		if len(assets[name]) == 0 {
 			t.Fatalf("missing Web schema asset %q", name)
 		}
 	}
-	if len(assets) != 6 {
+	if len(assets) != 7 {
 		t.Fatalf("Web schema assets = %v", mapsKeys(assets))
 	}
 }
@@ -91,7 +91,7 @@ func TestValidateConfigurationIsOptionalBeforeNativeSchema(t *testing.T) {
 	if err := ValidateConfiguration("1.13.18", []byte(`{}`)); !errors.Is(err, ErrConfigurationSchemaUnavailable) {
 		t.Fatalf("ValidateConfiguration(1.13.18) error = %v", err)
 	}
-	for _, exactVersion := range []string{"1.13.19", "1.13.20", "1.13.21", "1.14.0", "1.14.1"} {
+	for _, exactVersion := range []string{"1.13.19", "1.13.20", "1.13.21", "1.14.0", "1.14.1", "1.14.2"} {
 		t.Run(exactVersion, func(t *testing.T) {
 			if err := ValidateConfiguration(exactVersion, []byte(`{}`)); err != nil {
 				t.Fatalf("ValidateConfiguration(%s) error = %v", exactVersion, err)

@@ -2,6 +2,7 @@ import type { RJSFSchema } from '@rjsf/utils';
 
 import { describe, expect, it } from 'vitest';
 
+import schemaManifest from '@/schemas/generated/manifest.json';
 import { configurationFieldCopy } from '@/i18n/locales/zh-CN/configuration-fields';
 import { schemaProperties, selfContainedSchema } from '@/pages/configuration-page/schema-ui';
 import { configurationFieldHelp, readConfigurationFieldHelp } from '@/pages/configuration-page/configuration-field-help';
@@ -25,7 +26,9 @@ describe('configuration field help', () => {
         Object.values(record).forEach(visit);
       }
     }
-    expect(Object.keys(schemas)).toHaveLength(5);
+    expect(Object.keys(schemas).sort()).toEqual(
+      schemaManifest.entries.map(entry => `../../../schemas/generated/${entry.schema_file}`).sort(),
+    );
     Object.values(schemas).forEach(visit);
     expect([...missing]).toEqual([]);
     expect(new Set(Object.keys(configurationFieldCopy))).toEqual(keys);
