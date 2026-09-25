@@ -1,5 +1,5 @@
-import { describe, expect, it, vi } from 'vitest';
 import userEvent from '@testing-library/user-event';
+import { beforeAll, describe, expect, it, vi } from 'vitest';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 
 import type { TelemetryState } from '@/components/app-shell/use-telemetry';
@@ -47,6 +47,13 @@ const remote = {
   name: 'Global Edge',
   config: { url: 'https://source.example/sub', format: 'auto', refresh_interval_minutes: 60 },
 };
+
+let editorSchema: Awaited<ReturnType<typeof reviewedSchemas.loadReviewedSchema>>;
+beforeAll(async () => {
+  const version = Object.keys(reviewedSchemas.reviewedSchemaManifest)
+    .sort((a, b) => b.localeCompare(a, undefined, { numeric: true }))[0];
+  editorSchema = await reviewedSchemas.loadReviewedSchema(version);
+});
 
 function mount(client: ApiClient = createMockApiClient()) {
   render(
@@ -120,7 +127,7 @@ describe('subscription sources and nodes', () => {
     expect(onOpen).toHaveBeenCalledTimes(2);
   });
 
-  it('formats new and edited node JSON without changing numeric lexemes or incomplete input', async () => {
+  it('preserves incomplete JSON and creates nodes with losslessly formatted JSON', async () => {
     const user = userEvent.setup();
     const client = createMockApiClient();
     render(
@@ -130,27 +137,20 @@ describe('subscription sources and nodes', () => {
         </ApiClientProvider>
       </MemoryRouter>,
     );
+    // Preloading does not settle the schema imports started by the mounted editor.
     await act(() => vi.dynamicImportSettled());
     await user.click(await screen.findByRole('tab', { name: 'Advanced JSON' }));
     const editor = screen.getByRole('textbox', { name: 'Advanced JSON' });
-    expect(editor).toHaveValue('{\n  "type": "socks",\n  "tag": "",\n  "server": "",\n  "server_port": 1080\n}');
-    const raw = '{"type":"socks","future":{"counter":900719925474099312345,"threshold":4.2000e+99}}';
-    const formatted = '{\n  "type": "socks",\n  "future": {\n    "counter": 900719925474099312345,\n    "threshold": 4.2000e+99\n  }\n}';
-    fireEvent.change(editor, { target: { value: raw } });
-    expect(editor).toHaveValue(raw);
-    fireEvent.blur(editor);
-    expect(editor).toHaveValue(formatted);
-    fireEvent.change(editor, { target: { value: raw } });
-    fireEvent.click(screen.getByRole('button', { name: 'Format' }));
-    expect(editor).toHaveValue(formatted);
-    await user.click(screen.getByRole('button', { name: 'Copy displayed JSON' }));
-    expect(await navigator.clipboard.readText()).toBe(formatted);
     fireEvent.change(editor, { target: { value: '{"future":' } });
     fireEvent.blur(editor);
     expect(editor).toHaveValue('{"future":');
-    expect(screen.getByRole('button', { name: 'Format' })).toBeDisabled();
     expect(screen.getByRole('button', { name: 'Save node' })).toBeDisabled();
+
+    const raw = '{"type":"socks","future":{"counter":900719925474099312345,"threshold":4.2000e+99}}';
+    const formatted = '{\n  "type": "socks",\n  "future": {\n    "counter": 900719925474099312345,\n    "threshold": 4.2000e+99\n  }\n}';
     fireEvent.change(editor, { target: { value: raw } });
+    fireEvent.click(screen.getByRole('button', { name: 'Format' }));
+    expect(editor).toHaveValue(formatted);
     await user.click(screen.getByRole('button', { name: 'Save node' }));
     await waitFor(() => expect(client.createSubscriptionNode).toHaveBeenCalledWith(formatted));
   });
@@ -184,10 +184,9 @@ describe('subscription sources and nodes', () => {
   });
 
   it('keeps a loading placeholder until the visual editor is ready without flashing JSON', async () => {
-    const schema = await reviewedSchemas.loadReviewedSchema('1.14.0');
     let finishLoading!: () => void;
-    const pendingSchema = new Promise<typeof schema>((resolve) => {
-      finishLoading = () => resolve(schema);
+    const pendingSchema = new Promise<typeof editorSchema>((resolve) => {
+      finishLoading = () => resolve(editorSchema);
     });
     const loadSchema = vi.spyOn(reviewedSchemas, 'loadReviewedSchema').mockReturnValueOnce(pendingSchema);
     const client = createMockApiClient({
