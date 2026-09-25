@@ -1,6 +1,7 @@
 import { EditorView } from '@codemirror/view';
 import userEvent from '@testing-library/user-event';
 import { Link, Route, Routes } from 'react-router-dom';
+import { createPrecompiledValidator } from '@rjsf/validator-ajv8';
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 
@@ -76,6 +77,45 @@ beforeEach(() => {
 });
 
 describe('configurationPage', () => {
+  it.each(structuredVersions)('saves and reloads schema-valid Hysteria2 form edits for %s', async (version) => {
+    const user = userEvent.setup();
+    let file = { ...savedFile, content: JSON.stringify({ inbounds: [{
+      type: 'hysteria2', tag: 'hy2', listen: '127.0.0.1', listen_port: 18053,
+      users: [{ name: 'test', password: 'test-user-password' }],
+      tls: { enabled: true, certificate_path: '/tmp/test-cert.pem', key_path: '/tmp/test-key.pem' },
+    }] }) };
+    const client = await createStructuredClient({
+      getConfigurationFile: vi.fn(async () => file),
+      saveConfigurationFile: vi.fn(async (input) => {
+        file = { ...file, content: input.content, revision: input.revision + 1 };
+        return file;
+      }),
+    }, version);
+    const page = renderPage(client);
+    await user.click(await screen.findByRole('tab', { name: 'Inbounds' }));
+    await user.click(screen.getByRole('button', { name: 'Edit' }));
+    let dialog = within(screen.getByRole('dialog'));
+    await user.click(dialog.getByRole('tab', { name: 'Transport' }));
+    await user.click(dialog.getByRole('button', { name: 'Generate random Password' }));
+    const password = (dialog.getByRole('textbox', { name: 'Password' }) as HTMLInputElement).value;
+    expect(password).not.toBe('');
+    await user.click(dialog.getByRole('button', { name: 'Save changes' }));
+    await user.click(screen.getByRole('button', { name: 'Save configuration' }));
+    await waitFor(() => expect(client.saveConfigurationFile).toHaveBeenCalledTimes(1));
+    const saved = JSON.parse(file.content);
+    expect(saved.inbounds[0].obfs).toEqual({ type: 'salamander', password });
+    const reviewed = await reviewedSchemaManifest[version].load();
+    const validator = createPrecompiledValidator(reviewed.validateFns as never, reviewed.schema);
+    expect(validator.validateFormData(saved, reviewed.schema).errors).toEqual([]);
+    page.unmount();
+    renderPage(client);
+    await user.click(await screen.findByRole('tab', { name: 'Inbounds' }));
+    await user.click(screen.getByRole('button', { name: 'Edit' }));
+    dialog = within(screen.getByRole('dialog'));
+    await user.click(dialog.getByRole('tab', { name: 'Transport' }));
+    expect(dialog.getByRole('textbox', { name: 'Password' })).toHaveValue(password);
+  });
+
   it('explains an unsupported visual editor on hover and keyboard focus without an inline notice', async () => {
     const user = userEvent.setup();
     const unsupported = {

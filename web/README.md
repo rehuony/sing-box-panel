@@ -242,6 +242,9 @@ labels beside their controls; narrow forms place labels above controls. A sole t
 the navigation rail becomes slimmer and long labels wrap. Navigation and the active
 configuration panel scroll independently. Up/down keys navigate sections. Switching tabs
 keeps the same form mounted, preserving pending edits and optional-object state.
+Editing a discriminated object's fields also commits the displayed branch's required
+identity. Opening tabs alone does not enable optional settings. Existing branch
+fields remain visible when a missing discriminator needs repair.
 Scalar/list choices use Single value and List labels. Bare nested `anyOf` alternatives
 share one representation selector, with a distinct Byte sequence option where supported;
 existing strings, byte sequences and mixed lists retain their original representation.

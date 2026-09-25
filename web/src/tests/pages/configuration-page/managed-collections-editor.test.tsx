@@ -50,6 +50,67 @@ function Harness({ initial, linkedTag, selectedCollection, disabled = false }: {
 }
 
 describe('managedCollectionsEditor', () => {
+  it.each([
+    undefined,
+    { password: 'saved-obfs-password' },
+    { type: 'salamander', password: 'saved-obfs-password' },
+    { type: 'gecko', password: 'saved-obfs-password' },
+  ])('preserves Hysteria2 obfuscation through tabs and reopening: %j', async (obfs) => {
+    const user = userEvent.setup();
+    const inbound = { type: 'hysteria2', tag: 'hy2', listen: '127.0.0.1', listen_port: 18053, ...(obfs === undefined ? {} : { obfs }) };
+    render(<Harness initial={{ inbounds: [inbound] }} selectedCollection='inbounds' />);
+    await user.click(screen.getByRole('button', { name: 'Edit' }));
+    let dialog = within(screen.getByRole('dialog'));
+    await user.click(dialog.getByRole('tab', { name: 'Transport' }));
+    if (obfs !== undefined) expect(dialog.getByRole('textbox', { name: 'Password' })).toHaveValue(obfs.password);
+    fireEvent.change(dialog.getByRole('textbox', { name: 'Password' }), { target: { value: 'new-obfs-password' } });
+    await user.click(dialog.getByRole('tab', { name: 'TLS' }));
+    await user.click(dialog.getByRole('tab', { name: 'Transport' }));
+    expect(dialog.getByRole('textbox', { name: 'Password' })).toHaveValue('new-obfs-password');
+    await user.click(dialog.getByRole('button', { name: 'Save changes' }));
+    const saved = JSON.parse(screen.getByLabelText('Canonical draft').textContent ?? '{}');
+    expect(saved.inbounds[0].obfs).toEqual({ type: obfs?.type ?? 'salamander', password: 'new-obfs-password' });
+    const validator = resolution.createValidator(resolution.schema);
+    expect(validator.validateFormData(saved, resolution.schema).errors).toEqual([]);
+    await user.click(screen.getByRole('button', { name: 'Edit' }));
+    dialog = within(screen.getByRole('dialog'));
+    await user.click(dialog.getByRole('tab', { name: 'Transport' }));
+    expect(dialog.getByRole('textbox', { name: 'Password' })).toHaveValue('new-obfs-password');
+  });
+
+  it('does not enable obfuscation when browsing tabs or editing an unrelated field', async () => {
+    const user = userEvent.setup();
+    render(<Harness initial={{ inbounds: [{ type: 'hysteria2', tag: 'hy2' }] }} selectedCollection='inbounds' />);
+    await user.click(screen.getByRole('button', { name: 'Edit' }));
+    const dialog = within(screen.getByRole('dialog'));
+    await user.click(dialog.getByRole('tab', { name: 'Transport' }));
+    await user.click(dialog.getByRole('tab', { name: 'Basic settings' }));
+    fireEvent.change(dialog.getByLabelText('Listen port'), { target: { value: '18053' } });
+    await user.click(dialog.getByRole('button', { name: 'Save changes' }));
+    expect(JSON.parse(screen.getByLabelText('Canonical draft').textContent ?? '{}')).toEqual({
+      inbounds: [{ type: 'hysteria2', tag: 'hy2', listen_port: 18053 }],
+    });
+  });
+
+  it('switches obfuscation branches without losing the password or retaining incompatible fields', async () => {
+    const user = userEvent.setup();
+    render(
+      <Harness initial={{ inbounds: [{ type: 'hysteria2', tag: 'hy2',
+        obfs: { type: 'gecko', password: 'saved-obfs-password', min_packet_size: 100, max_packet_size: 1200 },
+      }] }} selectedCollection='inbounds' />,
+    );
+    await user.click(screen.getByRole('button', { name: 'Edit' }));
+    const dialog = within(screen.getByRole('dialog'));
+    await user.click(dialog.getByRole('tab', { name: 'Transport' }));
+    await user.click(dialog.getByRole('combobox', { name: 'Type' }));
+    await user.click(await screen.findByRole('option', { name: 'salamander' }));
+    await user.click(dialog.getByRole('button', { name: 'Save changes' }));
+    const saved = JSON.parse(screen.getByLabelText('Canonical draft').textContent ?? '{}');
+    expect(saved.inbounds[0].obfs).toEqual({ type: 'salamander', password: 'saved-obfs-password' });
+    const validator = resolution.createValidator(resolution.schema);
+    expect(validator.validateFormData(saved, resolution.schema).errors).toEqual([]);
+  });
+
   it.each(['create', 'edit'])('retains the %s form until its closing animation finishes', async (mode) => {
     const user = userEvent.setup();
     render(<Harness initial={{ inbounds: [{ type: 'mixed', tag: 'existing' }] }} />);

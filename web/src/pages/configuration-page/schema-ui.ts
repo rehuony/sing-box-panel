@@ -413,7 +413,9 @@ export function projectSchemaKnownData(
     return value.map((item) => projectSchemaKnownData(itemSchema, root, item));
   }
   if (value === null || typeof value !== 'object' || isLosslessNumber(value)) return value;
-  const properties = schemaProperties(resolved, root, value);
+  // An incomplete discriminated object still owns its branches' known fields.
+  // Do not hide saved values merely because its discriminator needs repair.
+  const properties = schemaProperties(resolved, root);
   const record = value as Record<string, unknown>;
   return Object.fromEntries(Object.entries(record).flatMap(([key, child]) => {
     const property = properties[key];
