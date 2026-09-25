@@ -2,14 +2,15 @@ import { describe, expect, it, vi } from 'vitest';
 import userEvent from '@testing-library/user-event';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 
-import type { SubscriptionNodeSummary } from '@/api/api-client';
+import type { TelemetryState } from '@/components/app-shell/use-telemetry';
 
 import '@/i18n';
 
-import type { TelemetryState } from '@/components/app-shell/use-telemetry';
+import type { ApiClient, SubscriptionNodeSummary, SubscriptionSourcePage } from '@/api/api-client';
 
 import { toast } from '@/components/ui/toast-manager';
 import * as reviewedSchemas from '@/schemas/generated';
+import { createHttpApiClient } from '@/api/http-api-client';
 import { ApiClientProvider } from '@/api/api-client-context';
 import { TestRouter as MemoryRouter } from '@/tests/test-router';
 import { TelemetryContext } from '@/components/app-shell/telemetry-context';
@@ -47,7 +48,7 @@ const remote = {
   config: { url: 'https://source.example/sub', format: 'auto', refresh_interval_minutes: 60 },
 };
 
-function mount(client = createMockApiClient()) {
+function mount(client: ApiClient = createMockApiClient()) {
   render(
     <MemoryRouter>
       <ApiClientProvider client={client}>
@@ -59,6 +60,48 @@ function mount(client = createMockApiClient()) {
 }
 
 describe('subscription sources and nodes', () => {
+  it.each(['manual row', 'manual toolbar', 'all sources'] as const)(
+    'bypasses cached reads when refreshing %s without remote sources', async target => {
+      const user = userEvent.setup();
+      let nodes = [node];
+      const fetcher = vi.fn<typeof fetch>(async url => new Response(JSON.stringify(
+        String(url).endsWith('/subscription/nodes') ? { nodes } : { items: [] },
+      ), { status: 200 }));
+      mount(createHttpApiClient({ fetcher }));
+      const manualRow = await screen.findByRole('row', { name: /Manual nodes/ });
+      if (target === 'manual toolbar') {
+        await user.click(within(manualRow).getByRole('button', { name: 'Edit' }));
+        await screen.findByRole('button', { name: 'View 香港' });
+      }
+      const before = fetcher.mock.calls.length;
+      nodes = [{ ...node, name: 'Updated node' }];
+      await user.click(target === 'manual row'
+        ? within(manualRow).getByRole('button', { name: 'Refresh' })
+        : screen.getAllByRole('button', { name: 'Refresh' })[0]);
+      await waitFor(() => expect(fetcher.mock.calls.filter(
+        ([url]) => String(url).endsWith('/subscription/nodes'),
+      )).toHaveLength(2));
+      expect(fetcher.mock.calls.slice(before).some(([url]) => String(url).includes('/subscription/sources'))).toBe(true);
+      if (target !== 'manual toolbar') {
+        await user.click(within(manualRow).getByRole('button', { name: 'Edit' }));
+      }
+      expect(await screen.findByRole('button', { name: 'View Updated node' })).toBeVisible();
+      expect(fetcher.mock.calls.every(([, init]) => init?.method === 'GET')).toBe(true);
+    },
+  );
+
+  it('requests nodes while the source list is still pending', async () => {
+    let finish!: (page: SubscriptionSourcePage) => void;
+    const client = createMockApiClient({
+      listSubscriptionSources: vi.fn(() => new Promise<SubscriptionSourcePage>(resolve => {
+        finish = resolve;
+      })),
+    });
+    mount(client);
+    await waitFor(() => expect(client.getSubscriptionNodeCatalog).toHaveBeenCalledOnce());
+    await act(async () => finish({ items: [] }));
+  });
+
   it('opens node configuration only from the corner details action', async () => {
     const user = userEvent.setup();
     const onOpen = vi.fn();

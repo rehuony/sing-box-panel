@@ -56,7 +56,7 @@ export function createSessionHttpApi(context: HttpApiContext) {
       return request<SystemStatus>(fetcher, `${baseUrl}/system/status`, {
         method: 'GET',
         signal,
-      });
+      }, 30_000);
     },
     getDashboardContext(signal) {
       return request<DashboardContext>(fetcher, `${baseUrl}/dashboard/context`, {

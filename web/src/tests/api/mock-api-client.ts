@@ -376,6 +376,7 @@ export function createMockApiClient(overrides: Partial<ApiClient> = {}): Mocked<
       github_token_configured: Boolean(input.github_token),
       restart_required: false,
     })),
+    invalidateReadCache: vi.fn(),
     subscribeSessionInvalidated: vi.fn().mockReturnValue(() => undefined),
     getSession: vi.fn().mockResolvedValue(testSession),
     getSystemStatus: vi.fn().mockResolvedValue(testSystemStatus),

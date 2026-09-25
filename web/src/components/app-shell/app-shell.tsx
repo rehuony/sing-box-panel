@@ -10,6 +10,7 @@ import '@/i18n';
 import { Button } from '@/components/ui/button';
 import { Spinner } from '@/components/ui/spinner';
 import { PanelLogo } from '@/components/panel-logo';
+import { preloadPage } from '@/routes/page-loaders';
 import { ErrorNotice } from '@/components/error-notice';
 import { AnimatedIcon } from '@/components/animated-icon';
 import { LoadingState } from '@/components/loading-state';
@@ -78,8 +79,15 @@ function ShellNavigationItem({
         isActive={isNavigationItemActive(pathname, item.to)}
         onBlur={() => setIconActive(false)}
         onClick={() => setOpenMobile(false)}
-        onFocus={() => setIconActive(true)}
-        onPointerEnter={() => setIconActive(true)}
+        onFocus={() => {
+          setIconActive(true);
+          preloadPage(item.to);
+        }}
+        onPointerEnter={() => {
+          setIconActive(true);
+          preloadPage(item.to);
+        }}
+        onPointerDown={() => preloadPage(item.to)}
         onPointerLeave={() => setIconActive(false)}
         render={<NavLink end={item.to === '/'} to={item.to} />}
         size='lg'
@@ -151,7 +159,7 @@ export function AppShell() {
   const [logoutError, setLogoutError] = useState<unknown | null>(null);
   const [loggingOut, setLoggingOut] = useState(false);
   useEffect(() => {
-    void import('@/pages/dashboard-page/dashboard-page');
+    preloadPage('/');
   }, []);
   useEffect(() => {
     if (scrollRef.current) scrollRef.current.scrollTop = 0;

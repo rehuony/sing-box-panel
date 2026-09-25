@@ -14,10 +14,15 @@ export interface ReviewedSchemaResolution {
 }
 
 export async function resolveReviewedSchema(
-  contract: ConfigurationSchemaContract,
+  pendingContract: ConfigurationSchemaContract | Promise<ConfigurationSchemaContract>,
   exactVersion: string,
 ): Promise<ReviewedSchemaResolution> {
   const manifestEntry = reviewedSchemaManifest[exactVersion];
+  // Start the reviewed browser modules while the authenticated contract is in flight.
+  const [contract, reviewed] = await Promise.all([
+    pendingContract,
+    loadReviewedSchema(exactVersion),
+  ]);
   if (
     contract.exact_version !== exactVersion
     || manifestEntry === undefined
@@ -25,7 +30,6 @@ export async function resolveReviewedSchema(
   ) {
     throw new Error(i18n.t('configuration.schema.error.notReviewed'));
   }
-  const reviewed = await loadReviewedSchema(exactVersion);
   if (reviewed === undefined) {
     throw new Error(i18n.t('configuration.schema.error.notReviewed'));
   }

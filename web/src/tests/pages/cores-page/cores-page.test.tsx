@@ -45,6 +45,18 @@ function renderCores(client: ApiClient) {
   );
 }
 describe('inline version library', () => {
+  it('reads runtime status once on entry and invalidates metadata for manual refresh', async () => {
+    const user = userEvent.setup();
+    const client = createMockApiClient();
+    renderCores(client);
+    await screen.findByText(testArtifacts.items[0].exact_version);
+    expect(client.getRuntimeStatus).toHaveBeenCalledTimes(1);
+    expect(client.invalidateReadCache).not.toHaveBeenCalled();
+    await user.click(screen.getByRole('button', { name: 'Refresh installed versions' }));
+    await waitFor(() => expect(client.getRuntimeStatus).toHaveBeenCalledTimes(2));
+    expect(client.invalidateReadCache).toHaveBeenCalledOnce();
+  });
+
   it('automatically initializes an empty catalog without blocking installed versions', async () => {
     const user = userEvent.setup();
     let finish!: () => void;

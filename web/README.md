@@ -26,6 +26,29 @@ them automatically; they are not committed or edited by hand. The custom HTTP
 client remains hand-written. `pnpm run api:generate` performs only this OpenAPI
 generation; configuration Schema export belongs to the Vite plugin.
 
+Navigation preloads route modules on sidebar hover, keyboard focus and pointer
+press, sharing each pending download with navigation. A failed speculative import
+does not interrupt the current page; the next unloaded route reloads the document
+to recover Vite's shared CSS/module preload state. Configuration downloads the
+reviewed Schema/validator modules in parallel with the authenticated Schema
+contract; version, digest and full-schema checks
+still gate structured editing. Subscription lists and their node catalog load
+concurrently, and the version library reads runtime status only once on entry.
+Runtime responses are published independently of artifact listings and discarded
+when newer shared runtime evidence arrives while the request is pending.
+
+The HTTP client owns a bounded, session-local memory cache for navigation reads:
+system metadata (30 seconds), installed core lists (15 seconds), release catalogs
+(60 seconds), subscription lists/node summaries (5 seconds), and artifact-bound
+Schema contracts (5 minutes). Identical in-flight reads share a request; cancelling
+one consumer does not cancel the others. Runtime status only shares in-flight
+requests, while configuration files, credentials, settings and filesystem reads
+are not retained by this cache. Writes invalidate reads before and after the
+request, including failed writes; session changes and authorization failures also
+clear it. Explicit installed-version and subscription-source/node refreshes also
+invalidate it, including refreshes without remote subscription sources. Changes
+made by another client become visible after the relevant short lifetime expires.
+
 `src/api/api-client.ts` exposes the client interface and simple generated
 transport types directly. Modules in `src/api/contracts/` own additional
 domain-specific query filters and derived types. Routes are assembled in
@@ -65,6 +88,9 @@ version management.
 Web package embeds that directory and uses `index.html` for client-side
 routes. `dist/` is generated output and is not a source of truth, but it must
 exist before any Go package that embeds the Web application is loaded.
+Content-hashed JavaScript and CSS assets are served with a one-year immutable
+cache lifetime. HTML and SPA fallback responses remain `no-store`, so new builds
+advertise their new asset hashes immediately.
 `public/favicon.svg` is the single static icon source used by HTML, the React
 logo, release bundles, and the repository README.
 

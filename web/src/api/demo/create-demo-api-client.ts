@@ -357,6 +357,7 @@ export function createDemoApiClient(): ApiClient {
       };
       return respond(panelSettings, signal);
     },
+    invalidateReadCache() {},
     subscribeSessionInvalidated(listener) {
       sessionListeners.add(listener);
       return () => sessionListeners.delete(listener);

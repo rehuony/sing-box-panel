@@ -22,6 +22,7 @@ export function createSubscriptionHttpApi(context: HttpApiContext) {
         fetcher,
         `${baseUrl}/subscription/channels${query}`,
         { method: 'GET', signal },
+        5_000,
       );
     },
     getSubscriptionChannel(channelID, signal) {
@@ -90,7 +91,7 @@ export function createSubscriptionHttpApi(context: HttpApiContext) {
       return request<SubscriptionUserPage>(fetcher, `${baseUrl}/subscription/users${query}`, {
         method: 'GET',
         signal,
-      });
+      }, 5_000);
     },
     getSubscriptionUser(userID, signal) {
       return request<SubscriptionUser>(fetcher, `${baseUrl}/subscription/users/${encodeURIComponent(userID)}`, {
@@ -154,7 +155,7 @@ export function createSubscriptionHttpApi(context: HttpApiContext) {
       return request<SubscriptionNodeCatalog>(fetcher, `${baseUrl}/subscription/nodes`, {
         method: 'GET',
         signal,
-      });
+      }, 5_000);
     },
     getSubscriptionUserGrants(userID, signal) {
       return request<SubscriptionUserGrants>(fetcher, `${baseUrl}/subscription/users/${encodeURIComponent(userID)}/grants`, {
@@ -180,6 +181,7 @@ export function createSubscriptionHttpApi(context: HttpApiContext) {
         fetcher,
         `${baseUrl}/subscription/sources${query}`,
         { method: 'GET', signal },
+        5_000,
       );
     },
     getSubscriptionSource(sourceID, signal) {

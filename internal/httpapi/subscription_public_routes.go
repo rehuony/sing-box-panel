@@ -61,7 +61,9 @@ func (handler *Handler) publicSubscription(w http.ResponseWriter, request *http.
 func publicSubscriptionETagMatches(header string, current string) bool {
 	for _, candidate := range strings.Split(header, ",") {
 		candidate = strings.TrimSpace(candidate)
-		if candidate == "*" || candidate == current {
+		// If-None-Match uses weak comparison, including ETags weakened by
+		// an intermediary when it compresses the response (RFC 9110 §13.1.2).
+		if candidate == "*" || strings.TrimPrefix(candidate, "W/") == strings.TrimPrefix(current, "W/") {
 			return true
 		}
 	}
