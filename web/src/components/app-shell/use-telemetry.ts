@@ -27,7 +27,7 @@ export interface TelemetryState {
   snapshot: MetricsSnapshot | null;
   runtimeStatus: RuntimeStatusEvidence | null;
   dashboardSnapshot: DashboardStreamSnapshot | null;
-  acceptRuntimeStatus: (status: RuntimeStatus) => void;
+  acceptRuntimeStatus: (status: RuntimeStatus, ifCurrent?: RuntimeStatusEvidence | null) => void;
 }
 
 const emptyRates: TrafficRates = {
@@ -103,9 +103,11 @@ export function useTelemetry(): TelemetryState {
     return () => controller.abort();
   }, [client, settingsRevision]);
 
-  const acceptRuntimeStatus = useCallback((status: RuntimeStatus) => {
+  const acceptRuntimeStatus = useCallback((status: RuntimeStatus, ifCurrent?: RuntimeStatusEvidence | null) => {
     setRuntimeError(null);
-    setRuntimeStatus(status as RuntimeStatusEvidence);
+    // Compare inside React's update queue as newer evidence can be batched with
+    // a pending HTTP response before consumers have rendered the new snapshot.
+    setRuntimeStatus(current => ifCurrent !== undefined && current !== ifCurrent ? current : status);
   }, []);
 
   useEffect(() => {

@@ -186,13 +186,15 @@ func TestCoreConfigurationSchemaUsesExactVersionContractAndETag(t *testing.T) {
 		t.Fatalf("configuration schema cache control = %q", response.Header().Get("Cache-Control"))
 	}
 
-	request := httptest.NewRequest(http.MethodGet, target, nil)
-	request.Header.Set("Authorization", "Bearer correct-management-token")
-	request.Header.Set("If-None-Match", etag)
-	notModified := httptest.NewRecorder()
-	handler.ServeHTTP(notModified, request)
-	if notModified.Code != http.StatusNotModified || notModified.Body.Len() != 0 {
-		t.Fatalf("conditional configuration schema status=%d body=%s", notModified.Code, notModified.Body.String())
+	for _, validator := range []string{etag, "W/" + etag, `"other", W/` + etag, "*"} {
+		request := httptest.NewRequest(http.MethodGet, target, nil)
+		request.Header.Set("Authorization", "Bearer correct-management-token")
+		request.Header.Set("If-None-Match", validator)
+		notModified := httptest.NewRecorder()
+		handler.ServeHTTP(notModified, request)
+		if notModified.Code != http.StatusNotModified || notModified.Body.Len() != 0 {
+			t.Fatalf("conditional configuration schema validator=%q status=%d body=%s", validator, notModified.Code, notModified.Body.String())
+		}
 	}
 }
 

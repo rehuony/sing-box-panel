@@ -20,13 +20,12 @@ export function useInstalledConfigurationVersions() {
     const controller = new AbortController();
     void (async () => {
       try {
-        const [system, runtime] = await Promise.all([
-          client.getSystemStatus(controller.signal),
+        const [artifacts, runtime] = await Promise.all([
+          client.getSystemStatus(controller.signal).then(system => system.platform === undefined
+            ? []
+            : listInstalledCoreArtifacts(client, system.platform, controller.signal)),
           client.getRuntimeStatus(controller.signal),
         ]);
-        const artifacts = system.platform === undefined
-          ? []
-          : await listInstalledCoreArtifacts(client, system.platform, controller.signal);
         if (!controller.signal.aborted) setState({ status: 'ready', artifacts, runtime, error: null });
       } catch (error) {
         if (!controller.signal.aborted) setState({ status: 'error', artifacts: [], runtime: null, error });

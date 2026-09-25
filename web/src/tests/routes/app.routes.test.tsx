@@ -7,6 +7,7 @@ import { ThemeProvider } from '@/theme';
 import { Toaster } from '@/components/ui/toast';
 import '@/i18n';
 import { AppRoutes } from '@/routes/app.routes';
+import { pageLoaders } from '@/routes/page-loaders';
 import { appearanceTokens } from '@/theme/appearance';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { ApiClientProvider } from '@/api/api-client-context';
@@ -45,6 +46,24 @@ async function openSignOut(user: ReturnType<typeof userEvent.setup>) {
 }
 
 describe('application routes', () => {
+  it('shares a speculative download across sidebar hover and focus without navigating', async () => {
+    const user = userEvent.setup();
+    renderRoutes('/');
+    const link = await screen.findByRole('link', { name: 'Versions' });
+    const load = vi.spyOn(pageLoaders, '/cores');
+    try {
+      await user.hover(link);
+      expect(load).toHaveBeenCalledTimes(1);
+      expect(screen.getByLabelText('Current route')).toHaveTextContent(/^\/$/);
+      act(() => link.focus());
+      expect(load).toHaveBeenCalledTimes(1);
+      await act(() => vi.dynamicImportSettled());
+      expect(screen.getByLabelText('Current route')).toHaveTextContent(/^\/$/);
+    } finally {
+      load.mockRestore();
+    }
+  });
+
   it('uses the same breathing indicator through session checks and panel initialization', async () => {
     let resolveSession!: (value: typeof testSession) => void;
     let resolveContext!: (value: typeof testDashboardContext) => void;

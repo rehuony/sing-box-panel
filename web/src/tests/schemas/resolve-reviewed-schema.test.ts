@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import type { ConfigurationSchemaContract } from '@/api/api-client';
 
@@ -6,6 +6,24 @@ import { reviewedSchemaManifest } from '@/schemas/generated';
 import { resolveReviewedSchema } from '@/schemas/resolve-reviewed-schema';
 
 const unavailableSHA256 = '0'.repeat(64);
+
+it('loads browser modules before the remote schema contract completes', async () => {
+  const exactVersion = '1.14.1';
+  const expected = await contract(exactVersion);
+  const load = vi.spyOn(reviewedSchemaManifest[exactVersion], 'load');
+  try {
+    let finish!: (value: ConfigurationSchemaContract) => void;
+    const pending = new Promise<ConfigurationSchemaContract>(resolve => {
+      finish = resolve;
+    });
+    const resolution = resolveReviewedSchema(pending, exactVersion);
+    expect(load).toHaveBeenCalledOnce();
+    finish(expected);
+    expect((await resolution).schema).toEqual(expected.schema);
+  } finally {
+    load.mockRestore();
+  }
+});
 
 async function contract(
   exactVersion: string,

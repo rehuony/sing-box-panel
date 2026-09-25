@@ -124,7 +124,7 @@ describe('credential inputs', () => {
     expect((input as HTMLInputElement).value).toMatch(/^[\w-]{24}$/);
     const original = (input as HTMLInputElement).value;
     await user.click(screen.getByRole('combobox', { name: 'Request method' }));
-    await user.click(screen.getByRole('option', { name: '2022-blake3-aes-256-gcm' }));
+    await user.click(await screen.findByRole('option', { name: '2022-blake3-aes-256-gcm' }));
     expect(input).toHaveValue(original);
     await user.click(screen.getByRole('button', { name: 'Generate random Password' }));
     expect(atob((input as HTMLInputElement).value)).toHaveLength(32);

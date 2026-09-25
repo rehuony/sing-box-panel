@@ -108,6 +108,7 @@ export * from './contracts/core';
 export type DashboardConfiguration = DashboardContext['configuration'];
 
 export interface ApiClient {
+  invalidateReadCache: () => void;
   logout: (signal?: AbortSignal) => Promise<void>;
   getSession: (signal?: AbortSignal) => Promise<Session | null>;
   stopRuntime: (signal?: AbortSignal) => Promise<RuntimeStatus>;

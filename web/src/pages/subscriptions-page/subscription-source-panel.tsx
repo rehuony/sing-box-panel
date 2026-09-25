@@ -107,21 +107,26 @@ export function SubscriptionSourcePanel({ active = true, toolbarTarget }: {
         // Keep the last confirmed start time when history is temporarily unavailable.
       });
       try {
-        const all: SubscriptionSourceSummary[] = [];
-        let cursor: { created_at: string; id: string } | undefined;
-        do {
-          const result = await client.listSubscriptionSources(
-            {
-              limit: 100,
-              beforeID: cursor?.id,
-              beforeTime: cursor?.created_at,
-            },
-            signal,
-          );
-          all.push(...result.items);
-          cursor = result.next;
-        } while (cursor && all.length < 10_000 && !signal?.aborted);
-        const catalog = await client.getSubscriptionNodeCatalog(signal);
+        const [all, catalog] = await Promise.all([
+          (async () => {
+            const all: SubscriptionSourceSummary[] = [];
+            let cursor: { created_at: string; id: string } | undefined;
+            do {
+              const result = await client.listSubscriptionSources(
+                {
+                  limit: 100,
+                  beforeID: cursor?.id,
+                  beforeTime: cursor?.created_at,
+                },
+                signal,
+              );
+              all.push(...result.items);
+              cursor = result.next;
+            } while (cursor && all.length < 10_000 && !signal?.aborted);
+            return all;
+          })(),
+          client.getSubscriptionNodeCatalog(signal),
+        ]);
         if (!signal?.aborted && generation === requestRef.current) {
           setSources(all);
           setNodes(catalog.nodes);
@@ -149,7 +154,10 @@ export function SubscriptionSourcePanel({ active = true, toolbarTarget }: {
     };
   }, [load]);
   const signal = () => lifetimeRef.current?.signal;
-  const reload = () => void load(signal());
+  const reload = () => {
+    client.invalidateReadCache();
+    void load(signal());
+  };
 
   function openSource(id: string) {
     setSelected(id);
@@ -192,6 +200,8 @@ export function SubscriptionSourcePanel({ active = true, toolbarTarget }: {
           : t('subscriptions.sources.refreshed'),
         type: failed ? 'error' : 'success',
       });
+      // Refresh must reach the server even when there are no remote sources.
+      client.invalidateReadCache();
       await load(signal());
     } finally {
       if (!signal()?.aborted) setBusy(false);

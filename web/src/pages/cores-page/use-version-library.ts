@@ -12,6 +12,10 @@ export function useVersionLibrary() {
   const client = useApiClient();
   const telemetry = useOptionalSharedTelemetry();
   const acceptRuntimeStatus = telemetry?.acceptRuntimeStatus;
+  const latestRuntimeRef = useRef(telemetry?.runtimeStatus);
+  useEffect(() => {
+    latestRuntimeRef.current = telemetry?.runtimeStatus;
+  }, [telemetry?.runtimeStatus]);
   const [platform, setPlatform] = useState<Platform>();
   const platformRef = useRef<Platform | undefined>(undefined);
   const [artifacts, setArtifacts] = useState<CoreArtifact[]>([]);
@@ -48,29 +52,37 @@ export function useVersionLibrary() {
     }
   }, [client]);
 
-  const refreshInstalled = useCallback(async () => {
+  const readRuntime = useCallback(async (signal: AbortSignal) => {
+    const previous = latestRuntimeRef.current;
+    const current = await client.getRuntimeStatus(signal);
+    // A stream event or completed control action is newer than this pending read.
+    if (signal.aborted || latestRuntimeRef.current !== previous) return;
+    setRuntime(current);
+    acceptRuntimeStatus?.(current, previous);
+  }, [acceptRuntimeStatus, client]);
+
+  const refreshInstalled = useCallback(async (refreshRuntime = true) => {
     const target = platformRef.current;
     if (!target) return;
+    if (refreshRuntime) client.invalidateReadCache();
     installedRef.current?.abort();
     const controller = new AbortController();
     installedRef.current = controller;
     setInstalledLoading(true);
     setError(null);
     try {
-      const [installed, current] = await Promise.all([
+      const [installed] = await Promise.all([
         listInstalledCoreArtifacts(client, target, controller.signal),
-        client.getRuntimeStatus(controller.signal),
+        refreshRuntime ? readRuntime(controller.signal) : undefined,
       ]);
       if (controller.signal.aborted) return;
       setArtifacts(installed);
-      setRuntime(current);
-      acceptRuntimeStatus?.(current);
     } catch (reason) {
       if (!controller.signal.aborted) setError(reason);
     } finally {
       if (!controller.signal.aborted) setInstalledLoading(false);
     }
-  }, [acceptRuntimeStatus, client]);
+  }, [client, readRuntime]);
 
   const refreshCatalog = useCallback(async (force = true) => {
     const target = platformRef.current;
@@ -94,22 +106,20 @@ export function useVersionLibrary() {
     const controller = new AbortController();
     void (async () => {
       try {
-        const [system, current] = await Promise.all([
+        const [system] = await Promise.all([
           client.getSystemStatus(controller.signal),
-          client.getRuntimeStatus(controller.signal),
+          readRuntime(controller.signal),
         ]);
         if (controller.signal.aborted) return;
         setPlatform(system.platform);
         platformRef.current = system.platform;
-        setRuntime(current);
-        acceptRuntimeStatus?.(current);
         setPlatformLoading(false);
         if (!system.platform) {
           setInstalledLoading(false);
           setCatalogLoading(false);
           return;
         }
-        void refreshInstalled();
+        void refreshInstalled(false);
         void refreshCatalog(false);
       } catch (reason) {
         if (!controller.signal.aborted) {
@@ -125,7 +135,7 @@ export function useVersionLibrary() {
       installedRef.current?.abort();
       catalogRef.current?.abort();
     };
-  }, [acceptRuntimeStatus, client, refreshCatalog, refreshInstalled]);
+  }, [client, readRuntime, refreshCatalog, refreshInstalled]);
 
   return {
     platform,

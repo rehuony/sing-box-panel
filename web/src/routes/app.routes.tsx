@@ -12,30 +12,14 @@ import { useAuthSession } from '@/stores/auth-session.store';
 import { ControlPlaneProvider } from '@/stores/control-plane-provider';
 import { PanelSettingsProvider } from '@/stores/panel-settings-provider';
 
-const PanelSettingsPage = lazy(async () => {
-  const page = await import('@/pages/panel-settings-page/panel-settings-page');
-  return { default: page.PanelSettingsPage };
-});
-const ConfigurationPage = lazy(async () => {
-  const page = await import('@/pages/configuration-page/configuration-page');
-  return { default: page.ConfigurationPage };
-});
-const CoresPage = lazy(async () => {
-  const page = await import('@/pages/cores-page/cores-page');
-  return { default: page.CoresPage };
-});
-const DashboardPage = lazy(async () => {
-  const page = await import('@/pages/dashboard-page/dashboard-page');
-  return { default: page.DashboardPage };
-});
-const ObservabilityPage = lazy(async () => {
-  const page = await import('@/pages/observability-page/observability-page');
-  return { default: page.ObservabilityPage };
-});
-const SubscriptionsPage = lazy(async () => {
-  const page = await import('@/pages/subscriptions-page/subscriptions-page');
-  return { default: page.SubscriptionsPage };
-});
+import { loadPage } from './page-loaders';
+
+const PanelSettingsPage = lazy(() => loadPage('/panel'));
+const ConfigurationPage = lazy(() => loadPage('/configuration'));
+const CoresPage = lazy(() => loadPage('/cores'));
+const DashboardPage = lazy(() => loadPage('/'));
+const ObservabilityPage = lazy(() => loadPage('/observability'));
+const SubscriptionsPage = lazy(() => loadPage('/subscriptions'));
 
 function RouteLoadingState() {
   const { t } = useTranslation();

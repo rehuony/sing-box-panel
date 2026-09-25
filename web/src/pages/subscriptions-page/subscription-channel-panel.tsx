@@ -61,17 +61,22 @@ export function SubscriptionChannelPanel({ active = true, toolbarTarget }: {
     async (signal?: AbortSignal) => {
       const request = ++generationRef.current;
       try {
-        const all: SubscriptionChannelSummary[] = [];
-        let cursor: { created_at: string; id: string } | undefined;
-        do {
-          const result = await client.listSubscriptionChannels(
-            { limit: 100, beforeID: cursor?.id, beforeTime: cursor?.created_at },
-            signal,
-          );
-          all.push(...result.items);
-          cursor = result.next;
-        } while (cursor && all.length < 10000 && !signal?.aborted);
-        const catalog = await client.getSubscriptionNodeCatalog(signal);
+        const [all, catalog] = await Promise.all([
+          (async () => {
+            const all: SubscriptionChannelSummary[] = [];
+            let cursor: { created_at: string; id: string } | undefined;
+            do {
+              const result = await client.listSubscriptionChannels(
+                { limit: 100, beforeID: cursor?.id, beforeTime: cursor?.created_at },
+                signal,
+              );
+              all.push(...result.items);
+              cursor = result.next;
+            } while (cursor && all.length < 10000 && !signal?.aborted);
+            return all;
+          })(),
+          client.getSubscriptionNodeCatalog(signal),
+        ]);
         if (signal?.aborted || request !== generationRef.current) return;
         setChannels(all);
         setNodes(catalog.nodes);

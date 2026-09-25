@@ -21,7 +21,7 @@ export function createCoreHttpApi(context: HttpApiContext) {
       });
       return request<CatalogAssetList>(fetcher, `${baseUrl}/core/catalog/assets${query}`, {
         method: 'GET', signal,
-      });
+      }, 60_000);
     },
     refreshCatalog(force = false, signal) {
       return request<CatalogRefresh>(fetcher, `${baseUrl}/core/catalog/refresh`, {
@@ -40,7 +40,7 @@ export function createCoreHttpApi(context: HttpApiContext) {
       });
       return request<CoreArtifactPage>(fetcher, `${baseUrl}/core/artifacts${query}`, {
         method: 'GET', signal,
-      });
+      }, 15_000);
     },
     getCoreArtifact(artifactID, signal) {
       return request<CoreArtifact>(fetcher, `${baseUrl}/core/artifacts/${encodeURIComponent(artifactID)}`, {
@@ -76,7 +76,7 @@ export function createCoreHttpApi(context: HttpApiContext) {
     getConfigurationSchema(artifactID, signal) {
       return request<ConfigurationSchemaContract>(fetcher, `${baseUrl}/core/artifacts/${encodeURIComponent(artifactID)}/configuration-schema`, {
         method: 'GET', signal,
-      });
+      }, 5 * 60_000);
     },
     previewConfiguration(input, signal) {
       return request<ConfigurationPreview>(fetcher, `${baseUrl}/config/preview`, {
@@ -123,7 +123,7 @@ export function createCoreHttpApi(context: HttpApiContext) {
       });
     },
     getRuntimeStatus(signal) {
-      return request<RuntimeStatus>(fetcher, `${baseUrl}/core/status`, { method: 'GET', signal });
+      return request<RuntimeStatus>(fetcher, `${baseUrl}/core/status`, { method: 'GET', signal }, 0);
     },
     getRuntimeHistory(filter = {}, signal) {
       const query = buildQuery({

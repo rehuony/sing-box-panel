@@ -13,8 +13,11 @@ import (
 	"io"
 	"io/fs"
 	"net/http"
+	"regexp"
 	"strings"
 )
+
+var hashedFrontendAsset = regexp.MustCompile(`^assets/[^/]+-[A-Za-z0-9_-]{8}\.(js|css)$`)
 
 func (handler *Handler) serveAsset(w http.ResponseWriter, request *http.Request, path string) {
 	clone := request.Clone(request.Context())
@@ -30,6 +33,9 @@ func (handler *Handler) serveAsset(w http.ResponseWriter, request *http.Request,
 		return
 	}
 	clone.URL.Path = "/" + assetPath
+	if hashedFrontendAsset.MatchString(assetPath) {
+		w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+	}
 	handler.assets.ServeHTTP(w, clone)
 }
 

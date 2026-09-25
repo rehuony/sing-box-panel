@@ -31,7 +31,7 @@ export function useConfigurationSchema(artifact: CoreArtifact | null): SchemaSta
     setState({ status: 'loading', artifactID: artifact.id, resolution: null, error: null });
     try {
       const resolution = await resolveReviewedSchema(
-        await client.getConfigurationSchema(artifact.id, signal),
+        client.getConfigurationSchema(artifact.id, signal),
         exactVersion,
       );
       if (signal?.aborted) return;
