@@ -563,6 +563,42 @@ h3 {
   text-shadow: none;
 }
 
+/* Floating actions share one quiet surface over code and log output. */
+.floating-toolbar {
+  position: absolute;
+  top: var(--space-xs);
+  right: var(--space-xs);
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2xs);
+  padding: var(--space-3xs);
+  border: 1px solid color-mix(in srgb, var(--color-text-muted) 16%, transparent);
+  border-radius: calc(var(--radius-control) + var(--space-2xs));
+  background: var(--color-glass);
+  box-shadow: 0 2px 8px color-mix(in srgb, var(--color-text) 4%, transparent);
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+}
+
+/* Tooltip triggers replace data-slot, so style the shared buttons directly. */
+.floating-toolbar > button {
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--color-text-muted);
+}
+
+.floating-toolbar > button:not(:disabled):hover {
+  background: color-mix(in srgb, var(--color-text) 6%, transparent);
+  color: var(--color-text);
+}
+
+@media (prefers-contrast: more) {
+  .floating-toolbar {
+    border-color: var(--color-border-strong);
+  }
+}
+
 * {
   scrollbar-color: var(--color-border-strong) transparent;
   scrollbar-width: thin;
@@ -1080,6 +1116,7 @@ h3 {
   [data-slot='popover-content'],
   [data-slot='select-content'],
   [data-slot='sheet-content'],
+  .floating-toolbar,
   [data-sidebar='sidebar'][data-mobile='true'] {
     -webkit-backdrop-filter: none !important;
     backdrop-filter: none !important;

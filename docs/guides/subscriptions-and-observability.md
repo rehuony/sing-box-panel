@@ -376,9 +376,16 @@ Each initial file read loads the last 64 KiB; the browser retains at most 2,000
 lines and searches/filters only this buffer. File lists refresh every 10 seconds;
 the output stream checks for appended content every second. Core capture
 retention applies only to sing-box capture files. Panel events are retained indefinitely.
-The status dot and icon buttons share an absolutely positioned capsule over the
-output. Pause freezes updates, bottom resumes scroll following, and clear only
-clears the visible buffer. Historical deletion requires confirmation.
+The neutral status dot and icon buttons float over the output in the same softly
+bordered, translucent toolbar used by the Advanced JSON editor. Status tooltips
+and the pause/resume icon identify the current state without changing the toolbar's
+color. Pause freezes updates, bottom resumes scroll following, and clear truncates
+the selected persisted capture after confirmation. Historical deletion also
+requires confirmation.
+The floating toolbar is hidden whenever the output area is empty, including
+search and level filters with no matches. It returns when output is visible.
+Clearing while paused preserves that state and offers Resume live output in the
+empty message so streaming can continue without the floating controls.
 
 Panel-log and subscription-key lists support `offset` with `limit` for numbered
 pages and return `total` before pagination. Panel-log totals include the active

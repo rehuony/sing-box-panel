@@ -8,7 +8,7 @@ import { ErrorNotice } from '@/components/error-notice';
 import { SelectField } from '@/components/select-field';
 import { ToolbarActions } from '@/components/workspace-toolbar';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
-import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty';
+import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 
 import { useCoreLogs } from './use-core-logs';
@@ -145,87 +145,89 @@ export function CoreLogsPanel({ active = true, toolbarTarget }: {
         </AlertDialogContent>
       </AlertDialog>
       <div className='native-log'>
-        <div className={`native-log__actions native-log__actions--${state}`} role='group' aria-label={t('productLogs.actions')}>
-          <Tooltip>
-            <TooltipTrigger render={(
-              <span
-                className={`native-log__status native-log__status--${state}`}
-                role='status'
-                aria-label={t(`productLogs.${state}`)}
-                tabIndex={0}
-              />
-            )}>
-              <i aria-hidden='true' />
-            </TooltipTrigger>
-            <TooltipContent>{t(`productLogs.${state}`)}</TooltipContent>
-          </Tooltip>
-          <Tooltip>
-            <TooltipTrigger render={(
-              <Button
-                size='icon'
-                variant='ghost'
-                aria-label={t('productLogs.liveUpdates')}
-                aria-pressed={canToggle && !log.paused}
-                disabled={!canToggle || mutating}
-                onClick={() => log.setPaused(!log.paused)}
-              />
-            )}>
-              {canToggle && !log.paused ? <Pause aria-hidden='true' /> : <Play aria-hidden='true' />}
-            </TooltipTrigger>
-            <TooltipContent>{t(log.paused || !canToggle ? 'productLogs.resume' : 'productLogs.pause')}</TooltipContent>
-          </Tooltip>
-          <Tooltip>
-            <TooltipTrigger render={(
-              <Button
-                size='icon'
-                variant='ghost'
-                aria-label={t('productLogs.scrollToBottom')}
-                disabled={!lines.length}
-                onClick={() => {
-                  followRef.current = true;
-                  const target = viewportRef.current;
-                  if (target) target.scrollTop = target.scrollHeight;
-                }}
-              />
-            )}>
-              <ArrowDownToLine aria-hidden='true' />
-            </TooltipTrigger>
-            <TooltipContent>{t('productLogs.scrollToBottom')}</TooltipContent>
-          </Tooltip>
-          <Tooltip>
-            <TooltipTrigger render={(
-              <Button
-                size='icon'
-                variant='ghost'
-                aria-label={t('productLogs.clear')}
-                disabled={!log.file || mutating}
-                onClick={() => {
-                  setClearError(null);
-                  setClearTarget(log.file);
-                }}
-              />
-            )}>
-              <Eraser aria-hidden='true' />
-            </TooltipTrigger>
-            <TooltipContent>{t('productLogs.clearDescription')}</TooltipContent>
-          </Tooltip>
-          {log.deletable && (
+        {lines.length > 0 && (
+          <div className='floating-toolbar' role='group' aria-label={t('productLogs.actions')}>
+            <Tooltip>
+              <TooltipTrigger render={(
+                <span
+                  className='native-log__status'
+                  role='status'
+                  aria-label={t(`productLogs.${state}`)}
+                  tabIndex={0}
+                />
+              )}>
+                <i aria-hidden='true' />
+              </TooltipTrigger>
+              <TooltipContent>{t(`productLogs.${state}`)}</TooltipContent>
+            </Tooltip>
             <Tooltip>
               <TooltipTrigger render={(
                 <Button
-                  size='icon'
+                  size='icon-sm'
                   variant='ghost'
-                  aria-label={t('productLogs.deleteFile')}
-                  disabled={mutating}
-                  onClick={() => setDeleteTarget(log.file)}
+                  aria-label={t('productLogs.liveUpdates')}
+                  aria-pressed={canToggle && !log.paused}
+                  disabled={!canToggle || mutating}
+                  onClick={() => log.setPaused(!log.paused)}
                 />
               )}>
-                <Trash2 aria-hidden='true' />
+                {canToggle && !log.paused ? <Pause aria-hidden='true' /> : <Play aria-hidden='true' />}
               </TooltipTrigger>
-              <TooltipContent>{t('productLogs.deleteFile')}</TooltipContent>
+              <TooltipContent>{t(log.paused || !canToggle ? 'productLogs.resume' : 'productLogs.pause')}</TooltipContent>
             </Tooltip>
-          )}
-        </div>
+            <Tooltip>
+              <TooltipTrigger render={(
+                <Button
+                  size='icon-sm'
+                  variant='ghost'
+                  aria-label={t('productLogs.scrollToBottom')}
+                  disabled={!lines.length}
+                  onClick={() => {
+                    followRef.current = true;
+                    const target = viewportRef.current;
+                    if (target) target.scrollTop = target.scrollHeight;
+                  }}
+                />
+              )}>
+                <ArrowDownToLine aria-hidden='true' />
+              </TooltipTrigger>
+              <TooltipContent>{t('productLogs.scrollToBottom')}</TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger render={(
+                <Button
+                  size='icon-sm'
+                  variant='ghost'
+                  aria-label={t('productLogs.clear')}
+                  disabled={!log.file || mutating}
+                  onClick={() => {
+                    setClearError(null);
+                    setClearTarget(log.file);
+                  }}
+                />
+              )}>
+                <Eraser aria-hidden='true' />
+              </TooltipTrigger>
+              <TooltipContent>{t('productLogs.clearDescription')}</TooltipContent>
+            </Tooltip>
+            {log.deletable && (
+              <Tooltip>
+                <TooltipTrigger render={(
+                  <Button
+                    size='icon-sm'
+                    variant='ghost'
+                    aria-label={t('productLogs.deleteFile')}
+                    disabled={mutating}
+                    onClick={() => setDeleteTarget(log.file)}
+                  />
+                )}>
+                  <Trash2 aria-hidden='true' />
+                </TooltipTrigger>
+                <TooltipContent>{t('productLogs.deleteFile')}</TooltipContent>
+              </Tooltip>
+            )}
+          </div>
+        )}
         <div
           ref={viewportRef}
           className='native-log__output'
@@ -258,6 +260,14 @@ export function CoreLogsPanel({ active = true, toolbarTarget }: {
                       </EmptyDescription>
                     )}
                   </EmptyHeader>
+                  {log.paused && !log.text.trim() && (
+                    <EmptyContent>
+                      <Button size='sm' variant='ghost' disabled={mutating} onClick={() => log.setPaused(false)}>
+                        <Play aria-hidden='true' data-icon='inline-start' />
+                        {t('productLogs.resume')}
+                      </Button>
+                    </EmptyContent>
+                  )}
                 </Empty>
               )
             : (

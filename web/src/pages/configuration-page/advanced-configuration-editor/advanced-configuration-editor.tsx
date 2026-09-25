@@ -120,7 +120,7 @@ export function AdvancedConfigurationEditor({ disabled, text, error, onChange }:
 
   return (
     <div className='advanced-configuration-editor'>
-      <div className='advanced-configuration-editor__tools'>
+      <div className='floating-toolbar'>
         <Button aria-label={t('configuration.advanced.search')} title={t('configuration.advanced.search')} onClick={() => run(openSearchPanel)} size='icon-sm' type='button' variant='ghost'><Search aria-hidden='true' /></Button>
         <Button aria-label={t('configuration.advanced.format')} title={t('configuration.advanced.format')} disabled={disabled || error !== null} onClick={() => run(formatDocument)} size='icon-sm' type='button' variant='ghost'>
           <Braces aria-hidden='true' />
