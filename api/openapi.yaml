@@ -2455,7 +2455,6 @@ components:
       type: object
       additionalProperties: false
       properties:
-        export_token_ids: {type: array, maxItems: 100, uniqueItems: true, items: {type: string}, description: "Keys selected for sharing this channel. Does not change key authorization."}
         exclude_tags: {type: array, items: {type: string}, uniqueItems: true}
         exclude_types: {type: array, items: {type: string}, uniqueItems: true}
         policy: {$ref: "#/components/schemas/ChannelPolicy"}

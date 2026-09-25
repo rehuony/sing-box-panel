@@ -33,7 +33,7 @@ func TestAnonymousHTMLSharesCurrentPanelAppearance(t *testing.T) {
 	t.Cleanup(func() { _ = database.Close() })
 	app := application.FromStoreWithSettings(database, value)
 	assets := fstest.MapFS{
-		"index.html": &fstest.MapFile{Data: []byte(`<meta name="sing-box-panel-appearance" content="__SBP_APPEARANCE__" />`)},
+		"index.html": &fstest.MapFile{Data: []byte(`<meta name="sing-box-panel-appearance" content="__SBP_APPEARANCE__" /><style nonce="__SBP_STYLE_NONCE__">/*__SBP_APPEARANCE_CSS__*/</style>`)},
 	}
 	handler := NewHandler(HandlerOptions{Settings: value, Commands: app, Assets: assets})
 	assertAppearance := func(want settings.Appearance) {
@@ -60,6 +60,11 @@ func TestAnonymousHTMLSharesCurrentPanelAppearance(t *testing.T) {
 				}
 			}
 			policy := response.Header().Get("Content-Security-Policy")
+			_, nonce, _ := strings.Cut(policy, "'nonce-")
+			nonce, _, _ = strings.Cut(nonce, "'")
+			if nonce == "" || !strings.Contains(body, `<style nonce="`+nonce+`">`+initialAppearanceCSS(want)+`</style>`) {
+				t.Fatal("initial palette is missing or not authorized by the style policy")
+			}
 			if !strings.Contains(policy, "script-src 'self'") || strings.Contains(policy, "'unsafe-inline'") {
 				t.Fatalf("appearance weakened the script policy: %s", policy)
 			}
@@ -83,4 +88,24 @@ func TestAnonymousHTMLSharesCurrentPanelAppearance(t *testing.T) {
 		t.Fatal(err)
 	}
 	assertAppearance(value.Panel.Appearance)
+}
+
+func TestInitialAppearancePalette(t *testing.T) {
+	// These values also appear in the frontend appearance tests to guard the
+	// first-paint/React handoff against changes to either side's blend rules.
+	light := "color-scheme:light;--color-paper:#fefcfa;--color-paper-2:#fdf8f6;--color-paper-3:#faf2ec;--color-accent-soft:#faf0ea;--color-canvas:var(--color-paper-2);--color-canvas-deep:var(--color-paper-3);"
+	dark := "color-scheme:dark;--color-paper:#1b181e;--color-paper-2:#1f1a1e;--color-paper-3:#261c1d;--color-accent-soft:#34221c;--color-canvas:var(--color-paper);--color-canvas-deep:oklch(13% 0.014 274);"
+	for _, theme := range []string{"light", "dark", "system"} {
+		css := initialAppearanceCSS(settings.Appearance{Theme: theme, Color: "#C65B13", Radius: 12})
+		if (theme != "dark" && !strings.Contains(css, light)) || (theme != "light" && !strings.Contains(css, dark)) {
+			t.Fatalf("%s palette = %s", theme, css)
+		}
+		if strings.Contains(css, "@media(prefers-color-scheme:dark)") != (theme == "system") {
+			t.Fatalf("unexpected system theme override: %s", css)
+		}
+	}
+	unsafe := initialAppearanceCSS(settings.Appearance{Theme: "system", Color: "</style><script>bad</script>"})
+	if strings.Contains(unsafe, "<") || !strings.Contains(unsafe, "color-scheme:dark") {
+		t.Fatalf("invalid appearance did not fall back safely: %s", unsafe)
+	}
 }

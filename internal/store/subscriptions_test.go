@@ -409,30 +409,10 @@ func TestSubscriptionDigestOnlySecretIsUnavailable(t *testing.T) {
 	}
 }
 
-func TestSubscriptionExportKeyBindingsRoundTrip(t *testing.T) {
-	ctx := testContext(t)
-	database := openTestStore(t, ctx)
-	created, err := database.CreateSubscriptionChannel(ctx, SubscriptionChannel{
-		ID: "channel-bindings", Name: "bindings", Format: SubscriptionFormatMihomo,
-		Config: json.RawMessage(`{"export_token_ids":["token-first","token-second"]}`), Enabled: true,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	reloaded, err := database.GetSubscriptionChannel(ctx, created.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var config SubscriptionChannelConfig
-	if err := json.Unmarshal(reloaded.Config, &config); err != nil {
-		t.Fatal(err)
-	}
-	if len(config.ExportTokenIDs) != 2 || config.ExportTokenIDs[0] != "token-first" || config.ExportTokenIDs[1] != "token-second" {
-		t.Fatalf("key bindings changed: %v", config.ExportTokenIDs)
-	}
-	for _, invalid := range []string{`{"export_token_ids":["token-first","token-first"]}`, `{"export_token_ids":[""]}`, `{"export_token_ids":null}`} {
-		if _, err := DecodeSubscriptionChannelConfig(json.RawMessage(invalid)); err == nil {
-			t.Fatalf("invalid bindings accepted: %s", invalid)
+func TestSubscriptionChannelRejectsRemovedExportKeyBindings(t *testing.T) {
+	for _, config := range []string{`{"export_token_ids":["token-first"]}`, `{"export_token_ids":[]}`, `{"export_token_ids":null}`} {
+		if _, err := DecodeSubscriptionChannelConfig(json.RawMessage(config)); err == nil {
+			t.Fatalf("removed field accepted: %s", config)
 		}
 	}
 }

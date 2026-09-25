@@ -2,7 +2,7 @@ import type { AppearanceSettings } from '@/api/api-client';
 
 import { isThemePreference } from './theme';
 
-export const DEFAULT_APPEARANCE: AppearanceSettings = { theme: 'light', color: '#6D4ED1', radius: 12 };
+export const DEFAULT_APPEARANCE: AppearanceSettings = { theme: 'system', color: '#6D4ED1', radius: 12 };
 export const THEME_PRESETS = ['#6D4ED1', '#2563EB', '#0891B2', '#15803D', '#C65B13', '#BE185D'] as const;
 
 export function readInitialAppearance(): AppearanceSettings | null {

@@ -5,6 +5,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { CreatedSubscriptionToken, SubscriptionToken } from '@/api/api-client';
 
 import { Button } from '@/components/ui/button';
+import { Spinner } from '@/components/ui/spinner';
 import { toast } from '@/components/ui/toast-manager';
 import { useApiClient } from '@/api/api-client-context';
 import { ListPagination } from '@/components/list-pagination';
@@ -13,20 +14,18 @@ import { useUnsavedChanges } from '@/hooks/use-unsaved-changes';
 import { describeRequestError, ErrorNotice } from '@/components/error-notice';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 
+import type { useSubscriptionTokenPage } from './use-subscription-token-page';
+
 type KeyAction = 'rotate' | 'delete';
 
-export function SubscriptionTokenPanel({ active = true, toolbarTarget }: {
+export function SubscriptionTokenPanel({ list, active = true, toolbarTarget }: {
+  list: ReturnType<typeof useSubscriptionTokenPage>;
   active?: boolean;
   toolbarTarget?: HTMLElement | null;
-} = {}) {
+}) {
   const { t, i18n } = useTranslation();
   const client = useApiClient();
-  const [items, setItems] = useState<SubscriptionToken[]>([]);
-  const [total, setTotal] = useState(0);
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(10);
-  const [reload, setReload] = useState(0);
-  const [completedRequest, setCompletedRequest] = useState<{ key: string; error: unknown } | null>(null);
+  const { items, total, page, pageSize, pages, loading, error, refresh, setPage, setPageSize } = list;
   const [creating, setCreating] = useState(false);
   const [label, setLabel] = useState('');
   const [expiry, setExpiry] = useState('');
@@ -40,41 +39,15 @@ export function SubscriptionTokenPanel({ active = true, toolbarTarget }: {
     setExpiry('');
     setLimit('');
   }, busy);
-  const pages = Math.max(1, Math.ceil(total / pageSize));
-  const requestKey = `${pageSize}:${page}:${reload}`;
-  const loading = completedRequest?.key !== requestKey;
-  const error = loading ? null : completedRequest?.error;
   const operationRef = useRef(0);
   useEffect(() => () => {
     operationRef.current++;
   }, []);
-  useEffect(() => {
-    const controller = new AbortController();
-    void client.listSubscriptionTokens({
-      limit: pageSize, offset: (page - 1) * pageSize,
-    }, controller.signal)
-      .then(result => {
-        if (!controller.signal.aborted) {
-          setItems(result.items);
-          setTotal(result.total);
-          setPage(current => Math.min(current, Math.max(1, Math.ceil(result.total / pageSize))));
-          setCompletedRequest({ key: requestKey, error: null });
-        }
-      })
-      .catch(reason => {
-        if (!controller.signal.aborted) setCompletedRequest({ key: requestKey, error: reason });
-      });
-    return () => controller.abort();
-  }, [client, page, pageSize, requestKey]);
 
   const report = useCallback((reason: unknown) => {
     toast.add({ title: describeRequestError(reason), type: 'error' });
   }, []);
 
-  function refresh() {
-    setPage(1);
-    setReload(value => value + 1);
-  }
   function keyState(key: SubscriptionToken) {
     if (key.revoked_at) return t('subscriptions.token.state.revoked');
     if (!key.enabled) return t('subscriptions.token.state.disabled');
@@ -127,8 +100,7 @@ export function SubscriptionTokenPanel({ active = true, toolbarTarget }: {
       } else if (action === 'delete') {
         await client.deleteSubscriptionToken(key.id);
       } else {
-        const updated = await client.setSubscriptionTokenEnabled(key.id, !key.enabled);
-        setItems(current => current.map(item => item.id === updated.id ? updated : item));
+        await client.setSubscriptionTokenEnabled(key.id, !key.enabled);
       }
       setConfirmation(null);
       refresh();
@@ -204,7 +176,7 @@ export function SubscriptionTokenPanel({ active = true, toolbarTarget }: {
           </tbody>
         </table>
         {!loading && items.length === 0 && !error ? <p className='subscription-empty'>{t('subscriptions.keys.empty')}</p> : null}
-        {loading ? <p role='status'>{t('subscriptions.common.loading')}</p> : null}
+        {loading ? <div className='subscription-keys__loading'><Spinner /></div> : null}
       </div>
       <ListPagination
         page={page}
@@ -212,10 +184,7 @@ export function SubscriptionTokenPanel({ active = true, toolbarTarget }: {
         pageSize={pageSize}
         disabled={loading || total === 0}
         onPageChange={setPage}
-        onPageSizeChange={value => {
-          setPageSize(value);
-          refresh();
-        }}
+        onPageSizeChange={setPageSize}
       />
 
       <Dialog open={creating} onOpenChange={open => {

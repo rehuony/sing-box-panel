@@ -8,12 +8,14 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { SubscriptionTokenPanel } from './subscription-token-panel';
 import { SubscriptionSourcePanel } from './subscription-source-panel';
 import { SubscriptionChannelPanel } from './subscription-channel-panel';
+import { useSubscriptionTokenPage } from './use-subscription-token-page';
 import './subscriptions-page.css';
 
 export function SubscriptionsPage() {
   const { t } = useTranslation();
   const [area, selectArea] = useHashTab('subscription-', ['sources', 'tokens', 'channels'], 'sources');
   const [toolbarTarget, setToolbarTarget] = useState<HTMLDivElement | null>(null);
+  const tokenPage = useSubscriptionTokenPage(area === 'tokens');
 
   return (
     <div className='subscriptions-page panel-page'>
@@ -29,7 +31,7 @@ export function SubscriptionsPage() {
         </WorkspaceToolbar>
         <TabsContent className='subscriptions-tab-panel' value='channels'><SubscriptionChannelPanel active={area === 'channels'} toolbarTarget={toolbarTarget} /></TabsContent>
         <TabsContent className='subscriptions-tab-panel' value='sources'><SubscriptionSourcePanel active={area === 'sources'} toolbarTarget={toolbarTarget} /></TabsContent>
-        <TabsContent className='subscriptions-tab-panel' value='tokens'><SubscriptionTokenPanel active={area === 'tokens'} toolbarTarget={toolbarTarget} /></TabsContent>
+        <TabsContent className='subscriptions-tab-panel' value='tokens'><SubscriptionTokenPanel list={tokenPage} active={area === 'tokens'} toolbarTarget={toolbarTarget} /></TabsContent>
       </Tabs>
     </div>
   );

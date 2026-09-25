@@ -27,10 +27,9 @@ const (
 
 // SubscriptionChannelConfig is the strict, renderer-owned channel policy.
 type SubscriptionChannelConfig struct {
-	ExportTokenIDs []string                    `json:"export_token_ids,omitempty"`
-	Policy         *subscription.ChannelPolicy `json:"policy,omitempty"`
-	ExcludeTags    []string                    `json:"exclude_tags,omitempty"`
-	ExcludeTypes   []string                    `json:"exclude_types,omitempty"`
+	Policy       *subscription.ChannelPolicy `json:"policy,omitempty"`
+	ExcludeTags  []string                    `json:"exclude_tags,omitempty"`
+	ExcludeTypes []string                    `json:"exclude_types,omitempty"`
 }
 
 type SubscriptionChannel struct {
@@ -277,12 +276,6 @@ func DecodeSubscriptionChannelConfig(raw json.RawMessage) (SubscriptionChannelCo
 	}
 	if config.ExcludeTags == nil {
 		config.ExcludeTags = []string{}
-	}
-	if len(config.ExportTokenIDs) > 100 {
-		return SubscriptionChannelConfig{}, errors.New("too many export keys")
-	}
-	if err := validateUniqueSubscriptionStrings(config.ExportTokenIDs, func(id string) bool { return validateSubscriptionID(id, "token") == nil }, "export key"); err != nil {
-		return SubscriptionChannelConfig{}, err
 	}
 	if config.ExcludeTypes == nil {
 		config.ExcludeTypes = []string{}

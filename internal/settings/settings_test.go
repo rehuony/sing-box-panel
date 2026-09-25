@@ -57,6 +57,9 @@ func TestInitializeAndLoad(t *testing.T) {
 	if loaded.Auth.Token != value.Auth.Token {
 		t.Fatal("Load() did not preserve the token")
 	}
+	if loaded.Panel.Appearance.Theme != "system" {
+		t.Fatalf("initialized theme = %q, want system", loaded.Panel.Appearance.Theme)
+	}
 	if len(loaded.Subscription.PrivateSourceCIDRs) != 0 {
 		t.Fatal("initialized private source allowlist must be empty")
 	}

@@ -273,16 +273,20 @@ configuration secrets are written to browser storage. Server startup persists an
 empty configuration if none exists. The file API uses its own numeric compare-and-swap revision;
 immutable canonical revisions remain internal runtime evidence.
 
-The interface retains its violet identity with floating frosted navigation and
-runtime controls. Larger material surfaces use blur and translucent fills;
+The interface uses the saved accent color with floating frosted navigation and
+runtime controls. New configurations default to the system color scheme. The
+server embeds nonce-authorized background styles so the saved palette also
+appears before JavaScript starts. Explicit light/dark preferences remain supported. Larger material surfaces use blur and translucent fills;
 content stays on readable surfaces. Navigation selection uses a non-bouncing
 spring, and controls respond on press. Reduced motion, reduced transparency,
 and increased contrast preferences are respected.
 
 The six main pages omit the visible page-title band while retaining a screen
 reader heading. Their content fills the space below the runtime toolbar and
-ends at the same bottom inset as the sidebar. Tables, forms, and the dashboard
-scroll within that space when needed, keeping panel actions reachable.
+ends at the same bottom inset as the sidebar. Tables and forms scroll within
+that space when needed, keeping panel actions reachable. The dashboard scrolls
+in the full-height shell behind the floating runtime toolbar; the toolbar
+surroundings remain transparent and the scrollbar sits at the viewport edge.
 
 Workspace tables share a 16px toolbar-to-header gap, 44px headers, and a 65px
 minimum row height including the divider. Headers have no bottom divider;

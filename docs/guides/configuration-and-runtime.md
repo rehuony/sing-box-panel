@@ -435,7 +435,7 @@ replace settings with current defaults (including a new management token).
 | `logs.core_max_file_size_mib` | Maximum capture file size | `32` MiB |
 | `panel.public_node_host` | Public node host | Empty; automatic detection |
 | `panel.language` | Language | `zh-CN` |
-| `panel.appearance.theme` | Theme | `light` |
+| `panel.appearance.theme` | Theme | `system` |
 | `panel.appearance.color` | Color | `#6D4ED1` |
 | `panel.appearance.radius` | Radius | `12` |
 

@@ -24,6 +24,17 @@ describe('initial appearance', () => {
 });
 
 describe('appearance tokens', () => {
+  it('defaults to system and matches the server first-paint palette', () => {
+    expect(DEFAULT_APPEARANCE.theme).toBe('system');
+    const names = ['--color-paper', '--color-paper-2', '--color-paper-3', '--color-accent-soft'];
+    for (const [dark, expected] of [
+      [false, ['#fefcfa', '#fdf8f6', '#faf2ec', '#faf0ea']],
+      [true, ['#1b181e', '#1f1a1e', '#261c1d', '#34221c']],
+    ] as const) {
+      const tokens = appearanceTokens({ ...DEFAULT_APPEARANCE, color: '#C65B13' }, dark);
+      expect(names.map(name => tokens[name])).toEqual(expected);
+    }
+  });
   it('keeps accent text readable for arbitrary colors in both themes', () => {
     for (const color of [...THEME_PRESETS, '#FFFFFF', '#FFFF00', '#00FF00', '#000000', '#AAAAAA']) {
       for (const dark of [false, true]) {

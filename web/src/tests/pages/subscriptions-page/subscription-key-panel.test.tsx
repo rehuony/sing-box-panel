@@ -8,7 +8,13 @@ import { toast } from '@/components/ui/toast-manager';
 import { ApiClientProvider } from '@/api/api-client-context';
 import { SubscriptionsPage } from '@/pages/subscriptions-page/subscriptions-page';
 import { createMockApiClient, testSubscriptionTokens } from '@/tests/api/mock-api-client';
-import { SubscriptionTokenPanel } from '@/pages/subscriptions-page/subscription-token-panel';
+import { useSubscriptionTokenPage } from '@/pages/subscriptions-page/use-subscription-token-page';
+import { SubscriptionTokenPanel as TokenPanel } from '@/pages/subscriptions-page/subscription-token-panel';
+
+function SubscriptionTokenPanel() {
+  const list = useSubscriptionTokenPage(true);
+  return <TokenPanel list={list} />;
+}
 
 const feedback = vi.spyOn(toast, 'add');
 
@@ -48,6 +54,57 @@ it('shows the three accepted tabs without fetching users', () => {
   render(<TestRouter><ApiClientProvider client={client}><SubscriptionsPage /></ApiClientProvider></TestRouter>);
   expect(screen.getAllByRole('tab').map(tab => tab.textContent)).toEqual(['Sources', 'Key management', 'Channels']);
   expect(client.listSubscriptionUsers).not.toHaveBeenCalled();
+  expect(client.listSubscriptionTokens).not.toHaveBeenCalled();
+});
+
+it('reuses pending and completed list requests across tab switches', async () => {
+  const user = userEvent.setup();
+  let resolve!: (value: { items: typeof testSubscriptionTokens; total: number }) => void;
+  const pending = new Promise<{ items: typeof testSubscriptionTokens; total: number }>(accept => {
+    resolve = accept;
+  });
+  const client = createMockApiClient({ listSubscriptionTokens: vi.fn(() => pending) });
+  const view = render(
+    <TestRouter><ApiClientProvider client={client}><SubscriptionsPage /></ApiClientProvider></TestRouter>,
+  );
+  await user.click(screen.getByRole('tab', { name: 'Key management' }));
+  const signal = vi.mocked(client.listSubscriptionTokens).mock.calls[0][1]!;
+  expect(screen.getByRole('status', { name: 'Loading' })).toHaveAttribute('data-slot', 'spinner');
+  expect(screen.queryByText('Loading…')).not.toBeInTheDocument();
+  await user.click(screen.getByRole('tab', { name: 'Sources' }));
+  expect(signal.aborted).toBe(false);
+  await user.click(screen.getByRole('tab', { name: 'Key management' }));
+  expect(client.listSubscriptionTokens).toHaveBeenCalledTimes(1);
+  await act(async () => resolve({ items: testSubscriptionTokens, total: testSubscriptionTokens.length }));
+  await screen.findByText(testSubscriptionTokens[0].label);
+  for (let i = 0; i < 3; i++) {
+    await user.click(screen.getByRole('tab', { name: 'Sources' }));
+    await user.click(screen.getByRole('tab', { name: 'Key management' }));
+    expect(screen.getByText(testSubscriptionTokens[0].label)).toBeVisible();
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+  }
+  expect(client.listSubscriptionTokens).toHaveBeenCalledTimes(1);
+  view.unmount();
+  expect(signal.aborted).toBe(true);
+});
+
+it('retries a failed list when returning and refreshes after a mutation', async () => {
+  const user = userEvent.setup();
+  const client = createMockApiClient();
+  vi.mocked(client.listSubscriptionTokens).mockRejectedValueOnce(new Error('list failed'));
+  render(<TestRouter><ApiClientProvider client={client}><SubscriptionsPage /></ApiClientProvider></TestRouter>);
+  await user.click(screen.getByRole('tab', { name: 'Key management' }));
+  await waitFor(() => expect(feedback).toHaveBeenCalledWith(expect.objectContaining({ description: 'list failed' })));
+  await user.click(screen.getByRole('tab', { name: 'Sources' }));
+  await user.click(screen.getByRole('tab', { name: 'Key management' }));
+  await screen.findByText(testSubscriptionTokens[0].label);
+  expect(client.listSubscriptionTokens).toHaveBeenCalledTimes(2);
+  const toggle = screen.getByRole('button', { name: 'Disable' });
+  await user.click(toggle);
+  await waitFor(() => expect(client.listSubscriptionTokens).toHaveBeenCalledTimes(3));
+  await user.click(screen.getByRole('tab', { name: 'Sources' }));
+  await user.click(screen.getByRole('tab', { name: 'Key management' }));
+  expect(client.listSubscriptionTokens).toHaveBeenCalledTimes(3);
 });
 
 it('creates a key without a user, with an independent shared quota, then clears its secret', async () => {

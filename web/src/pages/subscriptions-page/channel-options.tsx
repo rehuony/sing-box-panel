@@ -20,7 +20,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 
-import { ChannelLinkDialog, ChannelTokenBinding } from './channel-token-links';
+import { ChannelLinkDialog } from './channel-token-links';
 
 interface Props {
   name: string;
@@ -46,7 +46,6 @@ export function ChannelOptions({
   const [kind, setKind] = useState<'organizer' | 'distribution'>('distribution');
   const [draftName, setDraftName] = useState(name);
   const [draftFormat, setDraftFormat] = useState(format);
-  const [tokenIDs, setTokenIDs] = useState(config.export_token_ids ?? []);
   const [linkOpen, setLinkOpen] = useState(false);
   const [draft, setDraft] = useState(() => structuredClone(policy));
   const [exclusions, setExclusions] = useState(policy.organizer.exclude_names.join('\n'));
@@ -68,13 +67,12 @@ export function ChannelOptions({
   const typesChanged = types !== (config.exclude_types?.join('\n') ?? '');
   const dirty = draftName !== name || draftFormat !== format
     || draft.selection.new_node_policy !== policy.selection.new_node_policy
-    || organizerChanged || tagsChanged || typesChanged
-    || JSON.stringify(tokenIDs) !== JSON.stringify(config.export_token_ids ?? []);
+    || organizerChanged || tagsChanged || typesChanged;
   const deliveryChanged = needsSave || dirty;
   useUnsavedChanges(dirty, onClose);
   return (
     <>
-      {linkOpen && <ChannelLinkDialog channelID={channelID} tokenIDs={tokenIDs} onClose={() => setLinkOpen(false)} />}
+      {linkOpen && <ChannelLinkDialog channelID={channelID} onClose={() => setLinkOpen(false)} />}
       <Dialog open onOpenChange={(open) => !open && onClose()}>
         <DialogContent className={`channel-rule-dialog${kind === 'organizer' ? ' channel-organizer-dialog' : ''}`}>
           <DialogHeader>
@@ -210,9 +208,7 @@ export function ChannelOptions({
             )}
             {kind === 'distribution' && (
               <Field className='channel-delivery'>
-                <FieldLabel htmlFor='channel-bound-keys'>{t('channels.boundKeys')}</FieldLabel>
-                <ChannelTokenBinding value={tokenIDs} onChange={setTokenIDs} />
-                <Button variant='outline' disabled={!tokenIDs.length || !enabled || deliveryChanged}
+                <Button variant='outline' disabled={!enabled || deliveryChanged}
                   title={deliveryChanged ? t('channels.saveBeforeCopy') : undefined}
                   onClick={() => setLinkOpen(true)}>
                   {t('channels.copyURL')}
@@ -232,7 +228,6 @@ export function ChannelOptions({
                   { ...draft, organizer: { ...draft.organizer, exclude_names: split(exclusions) } },
                   {
                     ...config,
-                    export_token_ids: tokenIDs,
                     ...(tagsChanged ? { exclude_tags: split(tags) } : {}),
                     ...(typesChanged ? { exclude_types: split(types) } : {}),
                   },

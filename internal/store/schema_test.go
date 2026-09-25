@@ -2,9 +2,11 @@ package store
 
 import (
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"path/filepath"
+	"reflect"
 	"testing"
 )
 
@@ -57,6 +59,93 @@ func TestOpenRejectsUnsupportedFormatsWithoutConvertingData(t *testing.T) {
 			assertPragmaInt(t, ctx, db, 0, "user_version", tc.version)
 			assertPragmaInt(t, ctx, db, 0, "application_id", tc.id)
 		})
+	}
+}
+
+func TestRemoveExportBindingsMigration(t *testing.T) {
+	for _, version := range []int{11, 12} {
+		for _, fail := range []bool{false, true} {
+			t.Run(fmt.Sprintf("version-%d/fail-%t", version, fail), func(t *testing.T) {
+				ctx := t.Context()
+				db := openTestStore(t, ctx)
+				var before []SubscriptionChannel
+				for _, id := range []string{"channel-first", "channel-second", "channel-unbound"} {
+					channel, err := db.CreateSubscriptionChannel(ctx, SubscriptionChannel{
+						ID: id, Name: id, Format: SubscriptionFormatMihomo, Enabled: id != "channel-second",
+						Config: json.RawMessage(`{"exclude_tags":["private"],"exclude_types":["http"]}`),
+					})
+					if err != nil {
+						t.Fatal(err)
+					}
+					before = append(before, channel)
+					if id != "channel-unbound" {
+						if _, err := db.db.ExecContext(ctx, `UPDATE subscription_channels SET config_json = json_set(config_json, '$.export_token_ids', json('["token-old"]')) WHERE id = ?`, id); err != nil {
+							t.Fatal(err)
+						}
+					}
+				}
+				if version == 11 {
+					if _, err := db.db.ExecContext(ctx, "DROP TABLE traffic_months"); err != nil {
+						t.Fatal(err)
+					}
+				}
+				if fail {
+					if _, err := db.db.ExecContext(ctx, `CREATE TRIGGER reject_cleanup BEFORE UPDATE OF config_json ON subscription_channels
+						WHEN OLD.id = 'channel-second' BEGIN SELECT RAISE(ABORT, 'reject cleanup'); END`); err != nil {
+						t.Fatal(err)
+					}
+				}
+				if _, err := db.db.ExecContext(ctx, fmt.Sprintf("PRAGMA user_version = %d", version)); err != nil {
+					t.Fatal(err)
+				}
+				path := db.Path()
+				if err := db.Close(); err != nil {
+					t.Fatal(err)
+				}
+				upgraded, err := Open(ctx, path)
+				if fail {
+					if err == nil {
+						upgraded.Close()
+						t.Fatal("failed cleanup was accepted")
+					}
+					raw, err := sql.Open("sqlite", path)
+					if err != nil {
+						t.Fatal(err)
+					}
+					defer raw.Close()
+					assertPragmaInt(t, ctx, raw, 0, "user_version", version)
+					var count int
+					if err := raw.QueryRowContext(ctx, `SELECT count(*) FROM subscription_channels WHERE json_type(config_json, '$.export_token_ids') IS NOT NULL`).Scan(&count); err != nil || count != 2 {
+						t.Fatalf("partial cleanup persisted: %d %v", count, err)
+					}
+					if version == 11 {
+						if err := raw.QueryRowContext(ctx, `SELECT count(*) FROM sqlite_schema WHERE name = 'traffic_months'`).Scan(&count); err != nil || count != 0 {
+							t.Fatal("earlier migration was not rolled back", count, err)
+						}
+					}
+					return
+				}
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer upgraded.Close()
+				// A second initialization must not change the upgraded data.
+				for range 2 {
+					for _, want := range before {
+						got, err := upgraded.GetSubscriptionChannel(ctx, want.ID)
+						if err != nil || !reflect.DeepEqual(got, want) {
+							t.Fatalf("channel changed beyond bindings: got %+v want %+v error %v", got, want, err)
+						}
+					}
+					if info, err := upgraded.SchemaInfo(ctx); err != nil || info.Version != 13 {
+						t.Fatal(info, err)
+					}
+					if err := upgraded.initializeSchema(ctx); err != nil {
+						t.Fatal(err)
+					}
+				}
+			})
+		}
 	}
 }
 

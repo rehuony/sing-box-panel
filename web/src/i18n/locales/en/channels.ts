@@ -2,7 +2,7 @@ export const channels = {
   selectedNodes: '{{count}} selected', clearNodes: 'Clear selection', removeNodes: 'Remove selected nodes',
   nodeDragInstructions: 'Press Space or Enter to select. Press F2 to start reordering, arrow keys to move, F2 to finish, or Escape to cancel.',
   nodeDragStart: 'Moving {{name}}.', nodeDragPosition: 'Position {{position}} of {{count}}.', nodeDragEnd: 'Node order updated.', nodeDragCancel: 'Reordering canceled.',
-  boundKeys: 'Bound keys', chooseKeys: 'Select keys', deletedKey: 'Deleted key', keyUnavailable: 'This key is currently unavailable.', noBoundKeys: 'Bind an active key in channel settings and save first.', link: 'Link', duplicateSuffix: 'copy', duplicated: 'Channel duplicated',
+  noActiveKeys: 'No active keys. Create or enable a key in Key management.', keyUnavailable: 'This key is currently unavailable.', link: 'Link', duplicateSuffix: 'copy', duplicated: 'Channel duplicated',
 
   addNodes: 'Add nodes', addSelectedNodes: 'Add {{count}} nodes', pickNodesHint: 'Choose nodes to add to this group.',
   emptyCandidates: 'No candidate nodes yet', emptyCandidatesHint: 'Use the plus button above to add nodes to this group.',

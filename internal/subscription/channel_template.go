@@ -119,6 +119,7 @@ func (template channelTemplate) render(format RenderFormat, generated map[string
 	var output bytes.Buffer
 	encoder := yaml.NewEncoder(&output)
 	encoder.SetIndent(2)
+	formatTemplateCollections(template.yaml)
 	if err := encoder.Encode(template.yaml); err != nil {
 		return nil, err
 	}
@@ -126,4 +127,15 @@ func (template channelTemplate) render(format RenderFormat, generated map[string
 		return nil, err
 	}
 	return output.Bytes(), nil
+}
+
+// Change collection layout without decoding scalar values or discarding comments.
+// In particular, the default {} template must not force the entire output inline.
+func formatTemplateCollections(node *yaml.Node) {
+	if node.Kind == yaml.MappingNode || node.Kind == yaml.SequenceNode {
+		node.Style &^= yaml.FlowStyle
+	}
+	for _, child := range node.Content {
+		formatTemplateCollections(child)
+	}
 }

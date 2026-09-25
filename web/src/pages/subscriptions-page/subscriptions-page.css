@@ -820,9 +820,18 @@
   min-height: 40px;
 }
 .subscription-keys__scroll {
+  position: relative;
   flex: 1;
   min-height: 0;
   overflow: auto;
+}
+.subscription-keys__loading {
+  position: absolute;
+  inset: 44px 0 0;
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+  color: var(--color-text-muted);
 }
 .subscription-keys .subscription-table {
   width: 100%;

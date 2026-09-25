@@ -2,7 +2,7 @@ export const channels = {
   selectedNodes: '已选 {{count}} 项', clearNodes: '清除选择', removeNodes: '删除选中节点',
   nodeDragInstructions: '空格或回车选择卡片。按 F2 开始排序，方向键移动，再按 F2 完成，Escape 取消。',
   nodeDragStart: '正在移动 {{name}}。', nodeDragPosition: '第 {{position}} 项，共 {{count}} 项。', nodeDragEnd: '节点顺序已更新。', nodeDragCancel: '已取消排序。',
-  boundKeys: '绑定密钥', chooseKeys: '选择密钥', deletedKey: '已删除的密钥', keyUnavailable: '此密钥当前不可用。', noBoundKeys: '请在渠道设置中绑定可用密钥并保存。', link: '链接', duplicateSuffix: '副本', duplicated: '渠道已复制',
+  noActiveKeys: '暂无可用密钥，请在密钥管理中创建或启用密钥。', keyUnavailable: '此密钥当前不可用。', link: '链接', duplicateSuffix: '副本', duplicated: '渠道已复制',
 
   addNodes: '添加节点', addSelectedNodes: '添加 {{count}} 个节点', pickNodesHint: '选择要添加到当前策略组的节点。',
   emptyCandidates: '尚未添加候选节点', emptyCandidatesHint: '点击上方加号，为当前策略组添加节点。',
