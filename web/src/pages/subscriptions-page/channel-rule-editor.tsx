@@ -60,9 +60,10 @@ export function ChannelRuleEditor({ rule, format, onClose, onSave }: Props) {
           || url.username
           || url.password
           || url.hash
-          || !Number.isInteger(remote.update_interval)
-          || remote.update_interval < 60
-          || remote.update_interval > 2592000
+          || (format !== 'loon' && (remote.update_interval === undefined
+            || !Number.isInteger(remote.update_interval)
+            || remote.update_interval < 60
+            || remote.update_interval > 2592000))
         ) {
           throw new Error(t('channels.invalidRule'));
         }
@@ -87,7 +88,8 @@ export function ChannelRuleEditor({ rule, format, onClose, onSave }: Props) {
                 name: remote.name.trim(),
                 url: directRuleURL(remote.url),
                 format: sourceFormat as ChannelRemoteRuleSet['format'],
-                behavior: format === 'sing-box' ? undefined : (remote.behavior ?? 'domain'),
+                behavior: format === 'mihomo' ? (remote.behavior ?? 'domain') : undefined,
+                update_interval: format === 'loon' ? undefined : remote.update_interval,
               },
             }
           : { ...value, value: draft.value!.trim() },
@@ -172,6 +174,7 @@ export function ChannelRuleEditor({ rule, format, onClose, onSave }: Props) {
                             yaml: 'YAML / YML',
                             text: 'TEXT',
                             mrs: 'MRS',
+                            loon: 'Loon',
                           }[value],
                         })),
                       ]}
@@ -198,18 +201,22 @@ export function ChannelRuleEditor({ rule, format, onClose, onSave }: Props) {
                         />
                       </>
                     )}
-                    <label htmlFor='rule-interval'>{t('channels.interval')}</label>
-                    <input
-                      id='rule-interval'
-                      type='number'
-                      min={60}
-                      max={2592000}
-                      step={1}
-                      value={remote.update_interval}
-                      onChange={(event) =>
-                        updateRemote({ update_interval: Number(event.target.value) })
-                      }
-                    />
+                    {format !== 'loon' && (
+                      <>
+                        <label htmlFor='rule-interval'>{t('channels.interval')}</label>
+                        <input
+                          id='rule-interval'
+                          type='number'
+                          min={60}
+                          max={2592000}
+                          step={1}
+                          value={remote.update_interval ?? ''}
+                          onChange={(event) =>
+                            updateRemote({ update_interval: Number(event.target.value) })
+                          }
+                        />
+                      </>
+                    )}
                   </>
                 )
               : (

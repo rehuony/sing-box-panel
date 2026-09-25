@@ -22,7 +22,6 @@ import {
 
 interface Props {
   name: string;
-  legacy: boolean;
   onClose: () => void;
   policy: ChannelPolicy;
   onTemplate: () => void;
@@ -35,7 +34,7 @@ interface Props {
   ) => void;
 }
 export function ChannelOptions({
-  policy, config, legacy, name, format, onClose, onSave, onTemplate,
+  policy, config, name, format, onClose, onSave, onTemplate,
 }: Props) {
   const { t } = useTranslation();
   const [kind, setKind] = useState<'organizer' | 'distribution'>('distribution');
@@ -163,19 +162,18 @@ export function ChannelOptions({
                       items={[
                         { value: 'sing-box', label: t('subscriptions.channel.format.singBox') },
                         { value: 'mihomo', label: t('subscriptions.channel.format.mihomo') },
-                        ...(format === 'loon' ? [{ value: 'loon' as const, label: t('subscriptions.channel.format.loon') }] : []),
+                        { value: 'loon', label: t('subscriptions.channel.format.loon') },
                       ]}
                     />
                     <span>{t('channels.organizer')}</span>
-                    <Button variant='outline' disabled={legacy} onClick={() => setKind('organizer')}>{t('channels.organizer')}</Button>
+                    <Button variant='outline' onClick={() => setKind('organizer')}>{t('channels.organizer')}</Button>
                     <span>{t('channels.template')}</span>
-                    <Button variant='outline' disabled={legacy || draftFormat !== format} onClick={onTemplate}>
-                      {t(draft.template ? 'channels.customTemplate' : 'channels.defaultTemplate')}
+                    <Button variant='outline' disabled={draftFormat !== format} onClick={onTemplate}>
+                      {t(policy.template ? 'channels.customTemplate' : 'channels.defaultTemplate')}
                     </Button>
                     <label htmlFor='channel-new-nodes'>{t('channels.newNodes')}</label>
                     <SelectField<'include' | 'exclude'>
                       id='channel-new-nodes'
-                      disabled={legacy}
                       value={draft.selection.new_node_policy}
                       onValueChange={(value) =>
                         setDraft({
@@ -195,7 +193,7 @@ export function ChannelOptions({
                 )}
           </div>
           {kind === 'distribution' && draftFormat !== format && (
-            <p role='status' className='channel-delivery-hint'>{t('channels.applyClientFirst')}</p>
+            <p role='status' className='channel-delivery-hint'>{t(policy.template ? 'channels.replaceTemplateHint' : 'channels.applyClientFirst')}</p>
           )}
         </div>
         <DialogFooter>
@@ -218,7 +216,7 @@ export function ChannelOptions({
               onClose();
             }}
           >
-            {t('channels.done')}
+            {t(draftFormat !== format && policy.template ? 'channels.switchTemplate' : 'channels.done')}
           </Button>
         </DialogFooter>
       </DialogContent>

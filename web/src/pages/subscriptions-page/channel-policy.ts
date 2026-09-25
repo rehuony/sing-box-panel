@@ -56,6 +56,7 @@ export function newRuleGroup(nodeIDs: string[]): ChannelRuleGroup {
 }
 export const defaultGroupHealthCheck = { url: 'https://www.gstatic.com/generate_204', interval: 300, tolerance: 50 };
 export function ruleFormats(format: SubscriptionFormat): readonly ChannelRemoteRuleSet['format'][] {
+  if (format === 'loon') return ['loon'];
   return format === 'sing-box' ? (['source', 'binary'] as const) : (['yaml', 'text', 'mrs'] as const);
 }
 export function incompatiblePolicy(policy: ChannelPolicy, format: SubscriptionFormat): boolean {
@@ -63,6 +64,7 @@ export function incompatiblePolicy(policy: ChannelPolicy, format: SubscriptionFo
     (Boolean(policy.template) && policy.template!.format !== format)
     || policy.groups.some((group) =>
       (format === 'sing-box' && (group.type === 'fallback' || group.builtin_nodes.includes('reject')))
+      || (format === 'loon' && group.type !== 'select' && group.builtin_nodes.length > 0)
       || group.rules.some(
         (rule) =>
           rule.remote

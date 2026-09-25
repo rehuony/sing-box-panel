@@ -96,7 +96,7 @@ type RemoteRuleSet struct {
 	Format         string `json:"format"`
 	Behavior       string `json:"behavior,omitempty"`
 	Accelerated    bool   `json:"accelerated"`
-	UpdateInterval int    `json:"update_interval"`
+	UpdateInterval int    `json:"update_interval,omitempty"`
 }
 
 type NativeTemplate struct {
@@ -121,7 +121,7 @@ func ValidateChannelPolicy(p *ChannelPolicy, format RenderFormat) error {
 	if p == nil {
 		return nil
 	}
-	if format != RenderFormatSingBox && format != RenderFormatMihomo {
+	if format != RenderFormatSingBox && format != RenderFormatMihomo && format != RenderFormatLoon {
 		return policyError("policy", "unsupported_client")
 	}
 	if !oneOf(p.Selection.NewNodePolicy, "include", "exclude") {
@@ -161,6 +161,9 @@ func ValidateChannelPolicy(p *ChannelPolicy, format RenderFormat) error {
 		if !policyName(group.Name) || names[group.Name] || oneOf(group.Name, "direct", "DIRECT", "REJECT", "GLOBAL") {
 			return policyError(path+".name", "invalid_or_duplicate_name")
 		}
+		if format == RenderFormatLoon && (!validLoonPolicyName(group.Name) || group.Name == "PROXY") {
+			return policyError(path+".name", "invalid_or_duplicate_name")
+		}
 		names[group.Name] = true
 		if err := validateGroupOptions(group, format, path); err != nil {
 			return err
@@ -193,7 +196,7 @@ func ValidateChannelPolicy(p *ChannelPolicy, format RenderFormat) error {
 			}
 			switch rule.Kind {
 			case "domain", "domain_suffix", "domain_keyword":
-				if !policyName(rule.Value) || strings.ContainsAny(rule.Value, " /:@") || rule.Remote != nil {
+				if !policyName(rule.Value) || strings.ContainsAny(rule.Value, " /:@") || rule.Remote != nil || (format == RenderFormatLoon && !validLoonAtom(rule.Value)) {
 					return policyError(rp+".value", "invalid_domain")
 				}
 			case "ip_cidr":
@@ -265,6 +268,9 @@ func validateGroupOptions(group RuleGroup, format RenderFormat, path string) err
 		if format == RenderFormatSingBox && kind == "reject" {
 			return policyError(path+".builtin_nodes", "unsupported_client")
 		}
+		if format == RenderFormatLoon && group.Type != "select" {
+			return policyError(path+".builtin_nodes", "unsupported_client")
+		}
 		seen[kind] = true
 	}
 	if group.Type == "select" && group.DefaultExit.Kind == "direct" && !seen["direct"] {
@@ -274,6 +280,9 @@ func validateGroupOptions(group RuleGroup, format RenderFormat, path string) err
 		h := group.HealthCheck
 		u, err := url.Parse(h.URL)
 		if err != nil || len(h.URL) > 4096 || u.Hostname() == "" || !oneOf(u.Scheme, "http", "https") || u.User != nil || u.Fragment != "" || strings.ContainsAny(h.URL, "\r\n\t ") {
+			return policyError(path+".health_check.url", "invalid_url")
+		}
+		if format == RenderFormatLoon && !validLoonAtom(h.URL) {
 			return policyError(path+".health_check.url", "invalid_url")
 		}
 		if h.Interval < 60 || h.Interval > 86400 || h.Tolerance < 0 || h.Tolerance > 65535 {
@@ -344,6 +353,18 @@ func validateRemoteRuleSet(r RemoteRuleSet, format RenderFormat, path string) er
 	}
 	if r.Accelerated && !CanAccelerateRuleURL(r.URL) {
 		return policyError(path+".accelerated", "unsupported_url")
+	}
+	if format == RenderFormatLoon {
+		if !validLoonAtom(r.URL) {
+			return policyError(path+".url", "invalid_url")
+		}
+		if r.Format != "loon" || r.Behavior != "" {
+			return policyError(path+".format", "incompatible_format")
+		}
+		if r.UpdateInterval != 0 {
+			return policyError(path+".update_interval", "unsupported_client")
+		}
+		return nil
 	}
 	if r.UpdateInterval < 60 || r.UpdateInterval > 2592000 {
 		return policyError(path+".update_interval", "out_of_range")

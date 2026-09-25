@@ -1,0 +1,31 @@
+{
+  "log": {
+    "level": "info"
+  },
+  "inbounds": [
+    {
+      "type": "mixed",
+      "tag": "mixed-in",
+      "listen": "127.0.0.1",
+      "listen_port": 7893
+    }
+  ],
+  "dns": {
+    "servers": [
+      {
+        "type": "https",
+        "tag": "dns-default",
+        "server": "223.5.5.5",
+        "path": "/dns-query"
+      }
+    ],
+    "final": "dns-default",
+    "strategy": "ipv4_only"
+  },
+  "route": {
+    "default_domain_resolver": {
+      "server": "dns-default",
+      "strategy": "ipv4_only"
+    }
+  }
+}

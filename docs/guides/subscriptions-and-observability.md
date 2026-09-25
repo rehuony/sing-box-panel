@@ -212,7 +212,8 @@ from publication IDs. Remove selected nodes removes either kind of selected
 candidate; Clear selection leaves both kinds in the group. Built-in candidates
 are never automatically injected into a nonempty group. An unavailable fixed manual exit still rejects
 traffic; the renderer may add a rejection target to enforce that behavior.
-Mihomo supports all three types and both built-ins. Current sing-box supports
+Mihomo and Loon support all three types. Mihomo supports both built-ins;
+Loon supports them in manual groups only. Loon auto groups require proxy nodes. Current sing-box supports
 select/url-test and direct; fallback and reject candidates are rejected during
 validation and disabled in the editor. Sing-box rejection remains a route action,
 not an obsolete block outbound.
@@ -224,7 +225,7 @@ the subscribing client, never on the panel. Auto groups retain candidate order
 using optional `candidate_order`, an exact permutation of `node:<publication ID>`
 and `builtin:<kind>` references. Missing, duplicate or unknown entries are rejected.
 When omitted, publication IDs precede built-ins. Manual initial-exit behavior is
-preserved (Mihomo promotes that exit to the first position). Fallback picks the
+preserved (Mihomo and Loon promote that exit to the first position). Fallback picks the
 first available candidate, whereas URL-test chooses by latency. An unavailable
 manual initial candidate does not suppress remaining auto-group candidates.
 An empty group is omitted and its routes reject traffic instead of becoming
@@ -232,6 +233,13 @@ implicit direct connections. Preview and delivery use the same rendering path.
 
 Remote rule sets store metadata only. Sing-box uses source JSON or binary SRS;
 Mihomo uses YAML, TEXT or MRS with native behavior (MRS excludes classical).
+Loon uses the distinct `loon` format containing native rule statements, not
+Mihomo domain/IP lists. Loon manages remote refresh in the client; omit
+`update_interval` and `behavior`. Both other clients still require an interval.
+Switching clients retains rules and flags incompatible formats for explicit
+source review. No format conversion is implied. Loon evaluates local rules
+before remote rules, domain matches before IP matches, and FINAL last; ordering
+within each category is retained.
 The client fetches the final URL; the panel never fetches, counts, uploads or
 converts rule content. GitHub acceleration unwraps known proxies and prefixes
 eligible original URLs with `https://gh-proxy.com/`, without a GitHub credential.
@@ -239,16 +247,60 @@ The Link field contains a borderless acceleration icon. Clicking it toggles
 supported links; empty or unsupported links receive a Toast explanation instead
 of leaving the action disabled without feedback.
 
-Per-channel templates use native JSON/YAML and cannot replace generated nodes,
-groups, routing rules, providers or fallback. Sing-box templates and final output
-are schema-checked against reviewed 1.14.0, independently of the server's selected
-core; the subscriber still owns runtime validation. Mihomo checks YAML structure
-and reserved fields; it does not execute a Mihomo runtime check. Diagnostics
-report field paths and fixed error codes without reflecting submitted secrets.
+Per-channel templates contain one complete native base configuration: JSON for
+sing-box, YAML for Mihomo, or Loon's `[General]`, `[Host]` and `[MITM]` sections.
+There is no separate override layer or deep merge with defaults. The panel owns
+nodes, groups, rules, providers and final exits; templates containing these
+reserved fields are rejected. Sing-box's other `route` options are preserved.
+Loon rejects other sections, duplicate sections/keys and malformed lines while
+preserving original comments and values. JSON numeric values and YAML comments
+and scalar values are also preserved.
 
-Authenticated preview can accept an unsaved draft without persisting it. Preview
-and public delivery share the renderer. JSON preview responses preserve the
-existing byte/Base64 contract; the Web adapter decodes before display/copy.
+Defaults are editor seeds only, drawn from the native files in
+`web/src/constants/channel-templates`. They use ordinary DNS without geographic
+splitting, IPv4, local proxy listeners, and no default-enabled TUN or MITM.
+Mihomo includes DNS caching and HTTP/TLS/QUIC sniffing without overriding the
+request destination; Loon retains local bypass and rejects unsupported UDP.
+The defaults follow the [Mihomo configuration reference](https://wiki.metacubex.one/config/),
+[sing-box DNS reference](https://sing-box.sagernet.org/configuration/dns/), and
+[Loon general configuration reference](https://nsloon.app/docs/General/).
+A missing template uses an empty base for delivery until the seed is applied and
+saved. Existing templates, including explicitly empty bases (`{}` for JSON/YAML,
+empty text for Loon), are never upgraded or replaced automatically. Deleting a
+field removes it; invalid content fails validation instead of loading defaults.
+
+In the template dialog, Validate and Preview send the current draft without
+persisting it. Validate is available again after every request, including
+failures; editing is locked only while that request is pending. Apply closes the
+dialog and updates the channel draft, including unfinished content. Save changes
+is the sole persistence action: it previews the exact proposed policy, then
+saves with the channel revision. Validation errors and revision conflicts retain
+the draft. Cancelling the template dialog leaves the channel draft unchanged.
+Switching output client with an existing template explicitly replaces it with
+the target client's seed in the draft; cancelling settings preserves the old
+format and template. Without a template, switching leaves it absent.
+
+The standalone Demo client saves channel drafts in memory without native
+validation. Explicit Validate and Preview requests for policies still report
+that a connected panel server is required. Connected clients always validate
+before saving; a failed preview never falls back to an unvalidated save.
+
+Existing channels without `policy` retain their original node-only output on
+metadata-only edits. Saving actual strategy/template changes or an intentional
+client switch activates full configuration generation. New Loon channels support
+the same editing workflow as sing-box and Mihomo, even without a saved template.
+
+Sing-box templates and final output are schema-checked against reviewed 1.14.0,
+independently of the server's selected core. Mihomo and Loon check native
+structure and reserved fields; client runtime validation remains the subscriber's
+responsibility. Diagnostics report field paths and fixed error codes without
+reflecting submitted secrets.
+
+Authenticated preview can validate an unsaved draft with an empty node catalog
+before the first publication source exists. Public delivery retains its source
+availability and authorization checks. Both use the same renderer. JSON preview
+responses preserve the existing byte/Base64 contract; the Web adapter decodes
+before display/copy.
 
 The native single-node editor uses reviewed 1.14 fields, with basic address and
 credentials first and optional protocol, TLS, transport, multiplexing and dial

@@ -31,6 +31,10 @@ func policyFixture(t *testing.T, format RenderFormat) ([]Node, *ChannelPolicy) {
 		p.Groups[0].Rules[3].Remote.Format = "mrs"
 		p.Groups[0].Rules[3].Remote.Behavior = "domain"
 	}
+	if format == RenderFormatLoon {
+		p.Groups[0].Rules[3].Remote.Format = "loon"
+		p.Groups[0].Rules[3].Remote.UpdateInterval = 0
+	}
 	return nodes, p
 }
 

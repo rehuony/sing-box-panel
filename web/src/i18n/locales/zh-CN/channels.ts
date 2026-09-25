@@ -1,4 +1,10 @@
 export const channels = {
+  templateDraftHint: '应用后更新渠道草稿，点击渠道的“保存更改”后生效。',
+  applyTemplate: '应用',
+  replaceTemplateHint: '切换客户端会用目标客户端的默认配置替换当前模板。保存前请检查不兼容的规则。',
+  switchTemplate: '切换并替换模板',
+  loonRuleOrder: 'Loon 优先匹配本地规则，再匹配远程规则；域名规则优先于 IP 规则，未匹配流量使用最终出口。',
+
   selectedNodes: '已选 {{count}} 项', clearNodes: '清除选择', removeNodes: '删除选中节点',
   nodeDragInstructions: '空格或回车选择卡片。按 F2 开始排序，方向键移动，再按 F2 完成，Escape 取消。',
   nodeDragStart: '正在移动 {{name}}。', nodeDragPosition: '第 {{position}} 项，共 {{count}} 项。', nodeDragEnd: '节点顺序已更新。', nodeDragCancel: '已取消排序。',
@@ -10,7 +16,7 @@ export const channels = {
   groupType: '策略类型', groupTypes: { 'select': '手动选择', 'url-test': '自动测速', 'fallback': '故障转移' },
   testURL: '检测链接', testInterval: '检测间隔（秒）', testTolerance: '容差（毫秒）',
   addBuiltin: '添加内置节点', builtinNode: '内置节点', mihomoOnly: '仅 Mihomo',
-  rejectSupport: '拒绝连接候选节点仅适用于 Mihomo。',
+  rejectSupport: '拒绝连接候选节点适用于 Mihomo 和 Loon 手动策略组。',
   singBoxGroupSupport: 'sing-box 支持手动选择和自动测速。',
 
   accelerationUnavailable: '请先填写 GitHub 文件链接，再启用加速。',
@@ -23,8 +29,8 @@ export const channels = {
   disabled: '停用',
   title: '分发渠道', search: '搜索渠道', add: '添加渠道', name: '渠道名称', client: '输出客户端', edit: '编辑', remove: '删除', deletePrompt: '删除“{{name}}”？该渠道的订阅地址将不再可用。', save: '保存更改', saved: '渠道已保存', empty: '暂无渠道', back: '返回', organizer: '节点整理', distribution: '渠道设置', preview: '订阅预览', enabled: '启用', nameRequired: '请输入名称', cancel: '取消', done: '完成', refresh: '刷新节点',
   prefix: '名称前缀', exclusions: '排除名称', exclusionsHint: '每行一项', sort: '节点排序', original: '原始顺序', byName: '按名称', deduplicate: '去重', incompatible: '不兼容节点', skip: '跳过并记录', stop: '阻止生成', legacyTags: '排除标签', legacyTypes: '排除协议',
-  newNodes: '新增节点策略', include: '自动选入渠道', exclude: '手动选入', template: '当前模板', defaultTemplate: '默认配置', customTemplate: '自定义配置', editTemplate: '编辑模板', templateCode: '原生配置', validate: '校验', valid: '模板结构校验通过', templateSaved: '模板已保存', saveTemplate: '保存模板', formatConflict: '输出客户端已更改，请检查策略类型、内置节点、规则集格式及模板。', copy: '复制', copied: '已复制', failedNodes: '{{count}} 个节点未生成，请查看诊断。', diagnostics: '生成诊断',
+  newNodes: '新增节点策略', include: '自动选入渠道', exclude: '手动选入', template: '当前模板', defaultTemplate: '默认配置', customTemplate: '自定义配置', editTemplate: '编辑模板', templateCode: '原生配置', validate: '校验', valid: '模板结构校验通过', formatConflict: '输出客户端已更改，请检查策略类型、内置节点、规则集格式及模板。', copy: '复制', copied: '已复制', failedNodes: '{{count}} 个节点未生成，请查看诊断。', diagnostics: '生成诊断',
   groups: '策略组', addGroup: '添加策略组', editGroup: '编辑策略组', groupName: '组名称', matches: '出口规则', manualCount: '{{count}} 条规则', remoteCount: '{{count}} 个规则集', state: '状态', actions: '操作', candidates: '候选节点', defaultExit: '默认出口', direct: '直连', reject: '拒绝', follow: '本组节点', missingNode: '不可用节点', moveUp: '上移', moveDown: '下移', deleteGroup: '删除策略组', deleteRule: '删除规则',
   addRule: '添加规则', addRemote: '添加规则集', editRule: '编辑规则', editRemote: '编辑规则集', ruleKind: '匹配类型', domain: '域名', domain_suffix: '域名后缀', domain_keyword: '域名关键字', ip_cidr: 'IP / CIDR', matchValue: '匹配内容', exit: '流量出口', ruleName: '名称', url: '链接', acceleration: 'GitHub 文件加速', sourceFormat: '源格式', chooseFormat: '选择格式', behavior: '规则类型', interval: '更新间隔（秒）', selectAll: '全选', unavailable: '当前不可用', invalidRule: '请检查匹配内容、来源网址或更新间隔。', formatPending: '待选择格式',
-  legacy: '此渠道保留 Loon 输出。切换客户端并保存后可使用规则与模板。', publicHost: '原渠道对外地址', enabledLabel: '渠道启用', legacyFilters: '已有排除条件',
+  publicHost: '原渠道对外地址', enabledLabel: '渠道启用', legacyFilters: '已有排除条件',
 } as const;

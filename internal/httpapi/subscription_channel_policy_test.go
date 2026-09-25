@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"os"
 	"slices"
 	"strings"
 	"testing"
@@ -140,6 +141,9 @@ func TestChannelStrategyTypesPersistPreviewAndDeliver(t *testing.T) {
 		{"mihomo", "select", []string{"direct", "reject"}},
 		{"mihomo", "url-test", []string{}},
 		{"mihomo", "fallback", []string{"direct"}},
+		{"loon", "select", []string{"direct", "reject"}},
+		{"loon", "url-test", []string{}},
+		{"loon", "fallback", []string{}},
 	} {
 		t.Run(test.format+" "+test.kind, func(t *testing.T) {
 			policy := &subscription.ChannelPolicy{
@@ -202,5 +206,86 @@ func TestSubscriptionChannelAPIRejectsRemovedBindings(t *testing.T) {
 		`{"name":"Removed binding","format":"mihomo","enabled":true,"config":{"export_token_ids":["token-old"]}}`, "")
 	if response.Code != http.StatusUnprocessableEntity {
 		t.Fatalf("removed binding accepted: %d %s", response.Code, response.Body.String())
+	}
+}
+
+// Read the editor's actual seed files so frontend defaults and server validation
+// cannot silently drift. Saving a smaller base must not resurrect removed fields.
+func TestChannelDefaultTemplatesAndWholeReplacement(t *testing.T) {
+	ctx := context.Background()
+	_, app, handler := newSubscriptionHTTPServices(t, "")
+	key, err := app.CreateSubscriptionToken(ctx, application.CreateSubscriptionTokenRequest{Label: "Default checks"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct{ format, file, empty string }{
+		{"sing-box", "sing-box.json", "{}"},
+		{"mihomo", "mihomo.yaml", "{}"},
+		{"loon", "loon.conf", ""},
+	} {
+		t.Run(test.format, func(t *testing.T) {
+			content, err := os.ReadFile("../../web/src/constants/channel-templates/" + test.file)
+			if err != nil {
+				t.Fatal(err)
+			}
+			p := &subscription.ChannelPolicy{
+				Selection: subscription.NodeSelection{IDs: []string{}, ExcludedIDs: []string{}, NewNodePolicy: "exclude"},
+				Organizer: subscription.NodeOrganizer{Sort: "none", ExcludeNames: []string{}, Incompatible: "error"},
+				Groups:    []subscription.RuleGroup{}, DefaultExit: subscription.RouteExit{Kind: "direct"},
+				Template: &subscription.NativeTemplate{Format: subscription.RenderFormat(test.format), Content: string(content)},
+			}
+			input := map[string]any{"name": test.format, "format": test.format, "enabled": true, "config": store.SubscriptionChannelConfig{Policy: p}}
+			raw, _ := json.Marshal(input)
+			created := authenticatedRequest(handler, http.MethodPost, "/api/v1/subscription/channels", string(raw), "")
+			if created.Code != http.StatusCreated {
+				t.Fatal(created.Code, created.Body.String())
+			}
+			var channel application.SubscriptionChannel
+			if err := json.Unmarshal(created.Body.Bytes(), &channel); err != nil {
+				t.Fatal(err)
+			}
+			url := "/api/v1/subscription/channels/" + channel.ID
+			publicURL := "/sub/" + key.Token + "/" + channel.ID
+			for _, empty := range []bool{false, true} {
+				if empty {
+					p.Template.Content = test.empty
+					raw, _ = json.Marshal(input)
+					saved := authenticatedRequest(handler, http.MethodPut, url, string(raw), subscriptionETag(channel.UpdatedAt))
+					if saved.Code != http.StatusOK {
+						t.Fatal(saved.Code, saved.Body.String())
+					}
+				}
+				preview := authenticatedRequest(handler, http.MethodPost, url+"/preview", "{}", "")
+				if preview.Code != http.StatusOK {
+					t.Fatal(preview.Code, preview.Body.String())
+				}
+				var rendered application.SubscriptionPreview
+				if err := json.Unmarshal(preview.Body.Bytes(), &rendered); err != nil {
+					t.Fatal(err)
+				}
+				// Exercise draft validation on a brand-new instance before adding a
+				// publication source; public delivery still requires one.
+				if test.format == "sing-box" && !empty {
+					if _, err := app.CreateSubscriptionNode(ctx, []byte(`{"type":"socks","tag":"Unselected","server":"node.example.com","server_port":1080}`)); err != nil {
+						t.Fatal(err)
+					}
+				}
+				public := publicSubscriptionRequest(handler, publicURL)
+				if public.Code != http.StatusOK || public.Body.String() != string(rendered.Result.Content) {
+					t.Fatal("preview/delivery mismatch", public.Code, public.Body.String())
+				}
+				if strings.Contains(public.Body.String(), "223.5.5.5") == empty {
+					t.Fatal("base was not replaced", public.Body.String())
+				}
+				stored, err := app.SubscriptionChannel(ctx, channel.ID)
+				if err != nil {
+					t.Fatal(err)
+				}
+				config, err := store.DecodeSubscriptionChannelConfig(stored.Config)
+				if err != nil || config.Policy.Template.Content != p.Template.Content {
+					t.Fatal("template bytes changed", err)
+				}
+			}
+		})
 	}
 }

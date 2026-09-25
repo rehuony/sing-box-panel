@@ -1,4 +1,10 @@
 export const channels = {
+  templateDraftHint: 'Apply updates the channel draft. Save changes in the channel to publish it.',
+  applyTemplate: 'Apply',
+  replaceTemplateHint: 'Switching clients replaces the current template with the target client’s defaults. Review incompatible rules before saving.',
+  switchTemplate: 'Switch and replace template',
+  loonRuleOrder: 'Loon prioritizes local rules over remote rules and domain matches over IP matches. FINAL handles unmatched traffic.',
+
   selectedNodes: '{{count}} selected', clearNodes: 'Clear selection', removeNodes: 'Remove selected nodes',
   nodeDragInstructions: 'Press Space or Enter to select. Press F2 to start reordering, arrow keys to move, F2 to finish, or Escape to cancel.',
   nodeDragStart: 'Moving {{name}}.', nodeDragPosition: 'Position {{position}} of {{count}}.', nodeDragEnd: 'Node order updated.', nodeDragCancel: 'Reordering canceled.',
@@ -10,7 +16,7 @@ export const channels = {
   groupType: 'Group type', groupTypes: { 'select': 'Manual selection', 'url-test': 'Automatic latency test', 'fallback': 'Fallback' },
   testURL: 'Test link', testInterval: 'Interval (s)', testTolerance: 'Tolerance (ms)',
   addBuiltin: 'Add built-in node', builtinNode: 'Built-in node', mihomoOnly: 'Mihomo only',
-  rejectSupport: 'REJECT candidates are supported by Mihomo.',
+  rejectSupport: 'REJECT candidates are supported by Mihomo and Loon manual groups.',
   singBoxGroupSupport: 'sing-box supports manual selection and automatic latency tests.',
 
   accelerationUnavailable: 'Enter a GitHub file link to enable acceleration.',
@@ -23,8 +29,8 @@ export const channels = {
   disabled: 'Disabled',
   title: 'Channels', search: 'Search channels', add: 'Add channel', name: 'Channel name', client: 'Output client', edit: 'Edit', remove: 'Delete channel', deletePrompt: 'Delete “{{name}}”? Its subscription URL will become unavailable.', save: 'Save changes', saved: 'Channel saved', empty: 'No channels', back: 'Back', organizer: 'Organize nodes', distribution: 'Channel settings', preview: 'Subscription preview', enabled: 'Enabled', nameRequired: 'Enter a name', cancel: 'Cancel', done: 'Done', refresh: 'Refresh nodes',
   prefix: 'Name prefix', exclusions: 'Exclude names', exclusionsHint: 'One per line', sort: 'Node order', original: 'Original order', byName: 'By name', deduplicate: 'Deduplicate', incompatible: 'Incompatible nodes', skip: 'Skip with diagnostic', stop: 'Block generation', legacyTags: 'Exclude tags', legacyTypes: 'Exclude protocols',
-  newNodes: 'New-node policy', include: 'Include automatically', exclude: 'Select manually', template: 'Current template', defaultTemplate: 'Default configuration', customTemplate: 'Custom configuration', editTemplate: 'Edit template', templateCode: 'Native configuration', validate: 'Validate', valid: 'Template structure is valid', templateSaved: 'Template saved', saveTemplate: 'Save template', formatConflict: 'Output client changed. Review strategy types, built-in nodes, rule-set formats and template.', copy: 'Copy', copied: 'Copied', failedNodes: '{{count}} nodes were omitted. See diagnostics.', diagnostics: 'Generation diagnostics',
+  newNodes: 'New-node policy', include: 'Include automatically', exclude: 'Select manually', template: 'Current template', defaultTemplate: 'Default configuration', customTemplate: 'Custom configuration', editTemplate: 'Edit template', templateCode: 'Native configuration', validate: 'Validate', valid: 'Template structure is valid', formatConflict: 'Output client changed. Review strategy types, built-in nodes, rule-set formats and template.', copy: 'Copy', copied: 'Copied', failedNodes: '{{count}} nodes were omitted. See diagnostics.', diagnostics: 'Generation diagnostics',
   groups: 'Strategy groups', addGroup: 'Add strategy group', editGroup: 'Edit strategy group', groupName: 'Group name', matches: 'Exit rules', manualCount: '{{count}} rules', remoteCount: '{{count}} rule sets', state: 'State', actions: 'Actions', candidates: 'Candidate nodes', defaultExit: 'Default exit', direct: 'Direct', reject: 'Reject', follow: 'Group nodes', missingNode: 'Unavailable node', moveUp: 'Move up', moveDown: 'Move down', deleteGroup: 'Delete strategy group', deleteRule: 'Delete rule',
   addRule: 'Add rule', addRemote: 'Add rule set', editRule: 'Edit rule', editRemote: 'Edit rule set', ruleKind: 'Match type', domain: 'Domain', domain_suffix: 'Domain suffix', domain_keyword: 'Domain keyword', ip_cidr: 'IP / CIDR', matchValue: 'Match value', exit: 'Traffic exit', ruleName: 'Name', url: 'Link', acceleration: 'Accelerate GitHub file', sourceFormat: 'Source format', chooseFormat: 'Choose format', behavior: 'Rule behavior', interval: 'Update interval (seconds)', selectAll: 'Select all', unavailable: 'Currently unavailable', invalidRule: 'Check the match value, source URL or update interval.', formatPending: 'Choose a compatible format',
-  legacy: 'This channel retains Loon output. Switch client and save to use rules and templates.', publicHost: 'Existing channel public host', enabledLabel: 'Channel enabled', legacyFilters: 'Existing exclusions',
+  publicHost: 'Existing channel public host', enabledLabel: 'Channel enabled', legacyFilters: 'Existing exclusions',
 } as const;

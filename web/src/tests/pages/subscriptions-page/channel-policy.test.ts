@@ -30,6 +30,9 @@ describe('channel editing policy', () => {
     const p = { ...policy, groups: [group] };
     expect(incompatiblePolicy(p, 'sing-box')).toBe(true);
     expect(incompatiblePolicy(p, 'mihomo')).toBe(false);
+    expect(incompatiblePolicy(p, 'loon')).toBe(true);
+    group.rules[0].remote!.format = 'text';
+    expect(incompatiblePolicy(p, 'loon')).toBe(true);
     expect(group.rules[0].remote?.url).toBe('https://example.com/native');
   });
   it('flags unsupported strategies and built-in nodes when changing clients', () => {
@@ -38,10 +41,14 @@ describe('channel editing policy', () => {
     group.type = 'fallback';
     expect(incompatiblePolicy(p, 'sing-box')).toBe(true);
     expect(incompatiblePolicy(p, 'mihomo')).toBe(false);
+    expect(incompatiblePolicy(p, 'loon')).toBe(false);
     group.type = 'url-test';
     expect(incompatiblePolicy(p, 'sing-box')).toBe(false);
     group.builtin_nodes = ['direct', 'reject'];
     expect(incompatiblePolicy(p, 'sing-box')).toBe(true);
     expect(incompatiblePolicy(p, 'mihomo')).toBe(false);
+    expect(incompatiblePolicy(p, 'loon')).toBe(true);
+    group.type = 'select';
+    expect(incompatiblePolicy(p, 'loon')).toBe(false);
   });
 });

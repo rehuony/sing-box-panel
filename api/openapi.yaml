@@ -2508,12 +2508,12 @@ components:
         id: {type: string, maxLength: 128}
         name: {type: string, maxLength: 128}
         enabled: {type: boolean}
-        type: {type: string, enum: [select, url-test, fallback], description: "Fallback is supported only by Mihomo."}
+        type: {type: string, enum: [select, url-test, fallback], description: "Fallback is supported by Mihomo and Loon."}
         builtin_nodes:
           type: array
           maxItems: 2
           uniqueItems: true
-          description: "Explicit built-in candidates; an empty array selects none. Reject candidates require Mihomo."
+          description: "Explicit built-in candidates; an empty array selects none. Reject candidates require Mihomo or Loon. Loon auto groups accept proxy nodes only."
           items: {type: string, enum: [direct, reject]}
         health_check: {$ref: "#/components/schemas/ChannelGroupHealthCheck"}
         node_ids: {type: array, maxItems: 10000, uniqueItems: true, items: {type: string}}
@@ -2546,22 +2546,24 @@ components:
         remote: {$ref: "#/components/schemas/ChannelRemoteRuleSet"}
         exit: {$ref: "#/components/schemas/ChannelRouteExit"}
     ChannelRemoteRuleSet:
+      description: "Metadata only; remote content is fetched by the subscriber. The loon format requires native Loon rules and is distinct from Mihomo text lists."
       type: object
       additionalProperties: false
-      required: [name, url, format, accelerated, update_interval]
+      required: [name, url, format, accelerated]
       properties:
         name: {type: string, maxLength: 128}
         url: {type: string, maxLength: 4096}
-        format: {type: string, enum: [source, binary, yaml, text, mrs]}
+        format: {type: string, enum: [source, binary, yaml, text, mrs, loon]}
         behavior: {type: string, enum: [domain, ipcidr, classical]}
         accelerated: {type: boolean}
-        update_interval: {type: integer, minimum: 60, maximum: 2592000}
+        update_interval: {type: integer, minimum: 60, maximum: 2592000, description: "Required for sing-box/Mihomo; omit for Loon, which manages refresh in the client."}
     ChannelNativeTemplate:
+      description: "Complete channel base configuration, never deep-merged with defaults. Native JSON for sing-box, YAML for Mihomo, General/Host/MITM sections for Loon. Generated nodes, groups and routing fields are reserved. Omission uses an empty base."
       type: object
       additionalProperties: false
       required: [format, content]
       properties:
-        format: {type: string, enum: [sing-box, mihomo]}
+        format: {type: string, enum: [sing-box, mihomo, loon]}
         content: {type: string, maxLength: 262144}
     SubscriptionChannelPage:
       type: object

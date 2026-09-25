@@ -16,10 +16,14 @@ import (
 type channelTemplate struct {
 	json map[string]any
 	yaml *yaml.Node
+	loon string
 }
 
 func parseChannelTemplate(template *NativeTemplate, format RenderFormat) (channelTemplate, error) {
 	content := "{}"
+	if format == RenderFormatLoon {
+		content = ""
+	}
 	if template != nil {
 		if template.Format != format {
 			return channelTemplate{}, policyError("policy.template.format", "incompatible_format")
@@ -28,6 +32,9 @@ func parseChannelTemplate(template *NativeTemplate, format RenderFormat) (channe
 	}
 	if len(content) > 256<<10 {
 		return channelTemplate{}, policyError("policy.template.content", "too_large")
+	}
+	if format == RenderFormatLoon {
+		return parseLoonChannelTemplate(content)
 	}
 	if format == RenderFormatSingBox {
 		root, err := DecodeDocumentObject([]byte(content))

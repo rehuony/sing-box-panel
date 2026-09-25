@@ -15,6 +15,7 @@ export interface HttpApiClientOptions extends HttpApiOptions {}
 export function createHttpApiClient(options: HttpApiClientOptions = {}): ApiClient {
   const context = createHttpApiContext(options);
   return {
+    supportsNativeChannelValidation: true,
     invalidateReadCache: context.invalidateReadCache,
     ...createSessionHttpApi(context),
     ...createFilesystemHttpApi(context),
