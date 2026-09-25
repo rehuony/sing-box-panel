@@ -10,8 +10,6 @@ import type {
   CoreArtifactPage,
   DashboardContext,
   DashboardStreamSnapshot,
-  LogEntry,
-  LogStreamEvent,
   MetricsHistory,
   MetricsSnapshot,
   RuntimeHistoryPage,
@@ -20,7 +18,6 @@ import type {
   StartupArtifactSummary,
   SubscriptionChannel,
   SubscriptionSource,
-  SubscriptionSourceVersion,
   SubscriptionToken,
   SystemStatus,
   TrafficPeriod,
@@ -28,9 +25,6 @@ import type {
 
 import { DEFAULT_APPEARANCE } from '@/theme/appearance';
 import { reviewedSchemaManifest } from '@/schemas/generated';
-
-const testSchemaVersion = '1.14.0';
-const unavailableSchemaSHA256 = '0'.repeat(64);
 
 export const testSession: Session = { displayName: 'Panel administrator' };
 
@@ -185,17 +179,6 @@ export const testSubscriptionSources: SubscriptionSource[] = [
   },
 ];
 
-export const testSubscriptionSourceVersion: SubscriptionSourceVersion = {
-  id: 'version_1',
-  source_id: 'source_local',
-  format: 'sing-box-json',
-  normalized_nodes: [],
-  diagnostics: [],
-  sha256: 'a'.repeat(64),
-  fetched_at: '2026-08-26T07:00:00Z',
-  created_at: '2026-08-26T07:00:00Z',
-};
-
 export const testSubscriptionTokens: SubscriptionToken[] = [
   {
     id: 'token_primary',
@@ -210,32 +193,7 @@ export const testSubscriptionTokens: SubscriptionToken[] = [
   },
 ];
 
-export const testSubscriptionUsers = [
-  {
-    id: 'user_1',
-    name: 'Primary user',
-    description: 'Personal devices',
-    enabled: true,
-    created_at: '2026-08-26T07:00:00Z',
-    updated_at: '2026-08-26T07:00:00Z',
-  },
-];
-
-export const testLogEntry: LogEntry = {
-  id: 'log_runtime_ready',
-  time: '2026-08-26T07:32:00Z',
-  source: 'core',
-  level: 'info',
-  code: 'runtime.ready',
-  message: 'The exact core process passed its health check.',
-  metadata: { exact_version: '1.13.19', activation_bundle_id: 'bundle_18' },
-};
-
-async function* testLogStream(): AsyncGenerator<LogStreamEvent> {
-  yield { id: `${testLogEntry.time}|${testLogEntry.id}`, entry: testLogEntry };
-}
-
-export const testTrafficPeriod: TrafficPeriod = {
+const testTrafficPeriod: TrafficPeriod = {
   id: 'traffic_20260826_0730',
   activation_bundle_id: 'bundle_18',
   period_start: '2026-08-26T07:30:00Z',
@@ -322,23 +280,22 @@ export const testDashboardSnapshot: DashboardStreamSnapshot = {
 
 export function createMockApiClient(overrides: Partial<ApiClient> = {}): Mocked<ApiClient> {
   const support = {
-    structured: false,
-    exact_version: '1.13.19',
-    reason: 'Native configuration Schema is unavailable before sing-box 1.14.',
+    structured: true,
+    exact_version: testArtifacts.items[0].exact_version,
   } satisfies ConfigurationSupport;
   const client: ApiClient = {
     supportsNativeChannelValidation: true,
-    listFilesystemEntries: vi.fn().mockResolvedValue({ path: '/', parent: '/', requested_path: '/', fallback: false, items: [], total: 0, offset: 0, limit: 50 }),
-    resolveFilesystemPath: vi.fn().mockImplementation(async input => ({ path: input.path, parent: '/', kind: input.mode === 'output-file' ? 'file' : input.mode, exists: true, symlink: false })),
-    enableCore: vi.fn().mockResolvedValue(testRuntimeStatus),
-    disableCore: vi.fn().mockResolvedValue(testRuntimeStatus),
-    getConfigurationFile: vi.fn().mockResolvedValue({
+    listFilesystemEntries: vi.fn<ApiClient['listFilesystemEntries']>().mockResolvedValue({ path: '/', parent: '/', requested_path: '/', fallback: false, items: [], total: 0, offset: 0, limit: 50 }),
+    resolveFilesystemPath: vi.fn<ApiClient['resolveFilesystemPath']>().mockImplementation(async input => ({ path: input.path, parent: '/', kind: input.mode === 'output-file' ? 'file' : input.mode, exists: true, symlink: false })),
+    enableCore: vi.fn<ApiClient['enableCore']>().mockResolvedValue(testRuntimeStatus),
+    disableCore: vi.fn<ApiClient['disableCore']>().mockResolvedValue(testRuntimeStatus),
+    getConfigurationFile: vi.fn<ApiClient['getConfigurationFile']>().mockResolvedValue({
       revision: 1,
       content: testRevision.document_json,
       canonical_revision_id: testRevision.id,
       syntax_valid: true,
     }),
-    saveConfigurationFile: vi.fn().mockImplementation(async (input) => {
+    saveConfigurationFile: vi.fn<ApiClient['saveConfigurationFile']>().mockImplementation(async (input) => {
       let syntaxValid = false;
       try {
         const parsed: unknown = JSON.parse(input.content);
@@ -353,9 +310,9 @@ export function createMockApiClient(overrides: Partial<ApiClient> = {}): Mocked<
         canonical_revision_id: syntaxValid ? testRevision.id : undefined,
       };
     }),
-    exportPanelBackup: vi.fn(),
-    restorePanelBackup: vi.fn(),
-    getPanelSettings: vi.fn().mockResolvedValue({
+    exportPanelBackup: vi.fn<ApiClient['exportPanelBackup']>(),
+    restorePanelBackup: vi.fn<ApiClient['restorePanelBackup']>(),
+    getPanelSettings: vi.fn<ApiClient['getPanelSettings']>().mockResolvedValue({
       revision: 0,
       service: { data_dir: '/var/lib/sing-box-panel', base_path: '', secure_cookie: false, catalog_refresh_interval_hours: 12, traffic_period_months: 1, sample_retention_days: 90, private_source_cidrs: [] },
       github_token_configured: false,
@@ -370,76 +327,60 @@ export function createMockApiClient(overrides: Partial<ApiClient> = {}): Mocked<
         appearance: { ...DEFAULT_APPEARANCE },
       },
     }),
-    savePanelSettings: vi.fn().mockImplementation(async (input) => ({
+    savePanelSettings: vi.fn<ApiClient['savePanelSettings']>().mockImplementation(async (input) => ({
       revision: input.revision + 1,
       preferences: input.preferences,
       service: input.service ?? { data_dir: '/var/lib/sing-box-panel', base_path: '', secure_cookie: false, catalog_refresh_interval_hours: 12, traffic_period_months: 1, sample_retention_days: 90, private_source_cidrs: [] },
       github_token_configured: Boolean(input.github_token),
       restart_required: false,
     })),
-    invalidateReadCache: vi.fn(),
-    subscribeSessionInvalidated: vi.fn().mockReturnValue(() => undefined),
-    getSession: vi.fn().mockResolvedValue(testSession),
-    getSystemStatus: vi.fn().mockResolvedValue(testSystemStatus),
-    login: vi.fn().mockResolvedValue(testSession),
-    logout: vi.fn().mockResolvedValue(undefined),
-    getDashboardContext: vi.fn().mockResolvedValue(testDashboardContext),
+    invalidateReadCache: vi.fn<ApiClient['invalidateReadCache']>(),
+    subscribeSessionInvalidated: vi.fn<ApiClient['subscribeSessionInvalidated']>().mockReturnValue(() => undefined),
+    getSession: vi.fn<ApiClient['getSession']>().mockResolvedValue(testSession),
+    getSystemStatus: vi.fn<ApiClient['getSystemStatus']>().mockResolvedValue(testSystemStatus),
+    login: vi.fn<ApiClient['login']>().mockResolvedValue(testSession),
+    logout: vi.fn<ApiClient['logout']>().mockResolvedValue(undefined),
+    getDashboardContext: vi.fn<ApiClient['getDashboardContext']>().mockResolvedValue(testDashboardContext),
 
-    listCatalogAssets: vi.fn().mockResolvedValue(testCatalog),
-    refreshCatalog: vi.fn().mockResolvedValue({
+    listCatalogAssets: vi.fn<ApiClient['listCatalogAssets']>().mockResolvedValue(testCatalog),
+    refreshCatalog: vi.fn<ApiClient['refreshCatalog']>().mockResolvedValue({
       refreshed_at: testCatalog.refreshed_at, not_modified: false, releases: 1, assets: 1,
     }),
-    listCoreArtifacts: vi.fn().mockResolvedValue(testArtifacts),
-    getCoreArtifact: vi.fn().mockResolvedValue(testArtifacts.items[0]),
-    installCore: vi.fn().mockResolvedValue(testArtifacts.items[0]),
-    importCoreArchive: vi.fn().mockResolvedValue(testArtifacts.items[0]),
-    removeCoreArtifact: vi.fn().mockResolvedValue(undefined),
-    getConfigurationSupport: vi.fn().mockResolvedValue(support),
-    getConfigurationSchema: vi.fn(async () => {
-      const reviewed = await reviewedSchemaManifest[testSchemaVersion]?.load();
+    listCoreArtifacts: vi.fn<ApiClient['listCoreArtifacts']>().mockResolvedValue(testArtifacts),
+    getCoreArtifact: vi.fn<ApiClient['getCoreArtifact']>(),
+    installCore: vi.fn<ApiClient['installCore']>().mockResolvedValue(testArtifacts.items[0]),
+    importCoreArchive: vi.fn<ApiClient['importCoreArchive']>().mockResolvedValue(testArtifacts.items[0]),
+    removeCoreArtifact: vi.fn<ApiClient['removeCoreArtifact']>().mockResolvedValue(undefined),
+    getConfigurationSupport: vi.fn<ApiClient['getConfigurationSupport']>(),
+    getConfigurationSchema: vi.fn<ApiClient['getConfigurationSchema']>(async () => {
+      const exactVersion = testArtifacts.items[0].exact_version;
+      const reviewed = await reviewedSchemaManifest[exactVersion].load();
       return {
-        exact_version: testSchemaVersion,
-        schema_sha256: reviewed?.schemaSHA256 ?? unavailableSchemaSHA256,
-        schema: reviewed?.schema ?? {},
+        exact_version: exactVersion,
+        schema_sha256: reviewed.schemaSHA256,
+        schema: reviewed.schema,
       };
     }),
-    previewConfiguration: vi.fn().mockResolvedValue({
-      canonical_revision: testRevision,
-      core_artifact: testArtifacts.items[0],
-      support,
-      config: { log: { level: 'info' } },
-    }),
-    compileConfiguration: vi.fn().mockResolvedValue({
+    previewConfiguration: vi.fn<ApiClient['previewConfiguration']>(),
+    compileConfiguration: vi.fn<ApiClient['compileConfiguration']>().mockResolvedValue({
       support,
       artifact: testStartupArtifact,
     }),
-    listStartupArtifacts: vi.fn().mockResolvedValue({ items: [testStartupArtifact] }),
-    checkStartupArtifact: vi.fn().mockResolvedValue(testStartupArtifact),
-    activateStartupArtifact: vi.fn().mockResolvedValue({
-      status: testRuntimeStatus,
-      activation: {
-        startup_artifact_id: testStartupArtifact.id,
-        canonical_revision_id: testRevision.id,
-        exact_core_version: '1.13.19',
-        core_artifact_id: 'core_1',
-        config_sha256: testStartupArtifact.config_sha256,
-        activation_bundle_id: 'bundle_19',
-        activation_sha256: '2'.repeat(64),
-        monitoring_tier: 'process_only',
-      },
-    }),
-    getRuntimeStatus: vi.fn().mockResolvedValue(testRuntimeStatus),
-    getRuntimeHistory: vi.fn().mockResolvedValue(testRuntimeHistory),
-    startRuntime: vi.fn().mockResolvedValue(testRuntimeStatus),
-    stopRuntime: vi.fn().mockResolvedValue({ desired_running: false, target_generation: 2, observation_state: 'stopped' }),
-    restartRuntime: vi.fn().mockResolvedValue(testRuntimeStatus),
-    rollbackRuntime: vi.fn().mockResolvedValue(testRuntimeStatus),
-    listSubscriptionChannels: vi.fn().mockResolvedValue({ items: testSubscriptionChannels }),
-    getSubscriptionChannel: vi.fn().mockResolvedValue(testSubscriptionChannels[0]),
-    createSubscriptionChannel: vi.fn().mockResolvedValue(testSubscriptionChannels[0]),
-    updateSubscriptionChannel: vi.fn().mockResolvedValue(testSubscriptionChannels[0]),
-    deleteSubscriptionChannel: vi.fn().mockResolvedValue(undefined),
-    previewSubscriptionChannel: vi.fn().mockResolvedValue({
+    listStartupArtifacts: vi.fn<ApiClient['listStartupArtifacts']>(),
+    checkStartupArtifact: vi.fn<ApiClient['checkStartupArtifact']>(),
+    activateStartupArtifact: vi.fn<ApiClient['activateStartupArtifact']>(),
+    getRuntimeStatus: vi.fn<ApiClient['getRuntimeStatus']>().mockResolvedValue(testRuntimeStatus),
+    getRuntimeHistory: vi.fn<ApiClient['getRuntimeHistory']>().mockResolvedValue(testRuntimeHistory),
+    startRuntime: vi.fn<ApiClient['startRuntime']>().mockResolvedValue(testRuntimeStatus),
+    stopRuntime: vi.fn<ApiClient['stopRuntime']>().mockResolvedValue({ desired_running: false, target_generation: 2, observation_state: 'stopped' }),
+    restartRuntime: vi.fn<ApiClient['restartRuntime']>().mockResolvedValue(testRuntimeStatus),
+    rollbackRuntime: vi.fn<ApiClient['rollbackRuntime']>(),
+    listSubscriptionChannels: vi.fn<ApiClient['listSubscriptionChannels']>().mockResolvedValue({ items: testSubscriptionChannels }),
+    getSubscriptionChannel: vi.fn<ApiClient['getSubscriptionChannel']>().mockResolvedValue(testSubscriptionChannels[0]),
+    createSubscriptionChannel: vi.fn<ApiClient['createSubscriptionChannel']>().mockResolvedValue(testSubscriptionChannels[0]),
+    updateSubscriptionChannel: vi.fn<ApiClient['updateSubscriptionChannel']>().mockResolvedValue(testSubscriptionChannels[0]),
+    deleteSubscriptionChannel: vi.fn<ApiClient['deleteSubscriptionChannel']>().mockResolvedValue(undefined),
+    previewSubscriptionChannel: vi.fn<ApiClient['previewSubscriptionChannel']>().mockResolvedValue({
       user_id: 'user_1',
       applied_bundle_id: 'bundle_19',
       channel: testSubscriptionChannels[0],
@@ -455,101 +396,86 @@ export function createMockApiClient(overrides: Partial<ApiClient> = {}): Mocked<
         diagnostics: [],
       },
     }),
-    listSubscriptionUsers: vi.fn().mockResolvedValue({ items: testSubscriptionUsers }),
-    getSubscriptionUser: vi.fn().mockResolvedValue(testSubscriptionUsers[0]),
-    createSubscriptionUser: vi.fn().mockResolvedValue(testSubscriptionUsers[0]),
-    updateSubscriptionUser: vi.fn().mockResolvedValue(testSubscriptionUsers[0]),
-    deleteSubscriptionUser: vi.fn().mockResolvedValue(undefined),
-    getSubscriptionNode: vi.fn(),
-    createSubscriptionNode: vi.fn(),
-    updateSubscriptionNode: vi.fn(),
-    deleteSubscriptionNode: vi.fn(),
-    setSubscriptionNodeVisibility: vi.fn(),
-    parseSubscriptionNode: vi.fn(),
-    getSubscriptionNodeCatalog: vi.fn().mockResolvedValue({
+    listSubscriptionUsers: vi.fn<ApiClient['listSubscriptionUsers']>(),
+    getSubscriptionUser: vi.fn<ApiClient['getSubscriptionUser']>(),
+    createSubscriptionUser: vi.fn<ApiClient['createSubscriptionUser']>(),
+    updateSubscriptionUser: vi.fn<ApiClient['updateSubscriptionUser']>(),
+    deleteSubscriptionUser: vi.fn<ApiClient['deleteSubscriptionUser']>(),
+    getSubscriptionNode: vi.fn<ApiClient['getSubscriptionNode']>(),
+    createSubscriptionNode: vi.fn<ApiClient['createSubscriptionNode']>(),
+    updateSubscriptionNode: vi.fn<ApiClient['updateSubscriptionNode']>(),
+    deleteSubscriptionNode: vi.fn<ApiClient['deleteSubscriptionNode']>(),
+    setSubscriptionNodeVisibility: vi.fn<ApiClient['setSubscriptionNodeVisibility']>(),
+    parseSubscriptionNode: vi.fn<ApiClient['parseSubscriptionNode']>(),
+    getSubscriptionNodeCatalog: vi.fn<ApiClient['getSubscriptionNodeCatalog']>().mockResolvedValue({
       applied_bundle_id: 'bundle_19',
       nodes: [],
       diagnostics: [],
     }),
-    getSubscriptionUserGrants: vi
-      .fn()
-      .mockResolvedValue({ user: testSubscriptionUsers[0], grants: [] }),
-    replaceSubscriptionUserGrants: vi.fn().mockResolvedValue({
-      user: testSubscriptionUsers[0],
-      grants: [],
-    }),
-    listSubscriptionSources: vi.fn().mockResolvedValue({
+    getSubscriptionUserGrants: vi.fn<ApiClient['getSubscriptionUserGrants']>(),
+    replaceSubscriptionUserGrants: vi.fn<ApiClient['replaceSubscriptionUserGrants']>(),
+    listSubscriptionSources: vi.fn<ApiClient['listSubscriptionSources']>().mockResolvedValue({
       items: testSubscriptionSources.map(({ config: _config, ...source }) => ({
         ...source,
         has_version: true,
       })),
     }),
-    getSubscriptionSource: vi.fn().mockResolvedValue(testSubscriptionSources[0]),
-    createSubscriptionSource: vi.fn().mockResolvedValue(testSubscriptionSources[0]),
-    updateSubscriptionSource: vi.fn().mockResolvedValue(testSubscriptionSources[0]),
-    deleteSubscriptionSource: vi.fn().mockResolvedValue(undefined),
-    refreshSubscriptionSource: vi.fn().mockResolvedValue({ source_id: testSubscriptionSources[0].id, version_id: testSubscriptionSourceVersion.id, format: 'sing-box', sha256: 'a'.repeat(64), node_count: 0, fetched_at: '2026-09-21T00:00:00Z' }),
-    listSubscriptionSourceVersions: vi
-      .fn()
-      .mockResolvedValue({ items: [testSubscriptionSourceVersion] }),
-    getSubscriptionSourceVersion: vi.fn().mockResolvedValue(testSubscriptionSourceVersion),
-    createSubscriptionSourceVersion: vi.fn().mockResolvedValue({
-      source: testSubscriptionSources[0],
-      version: testSubscriptionSourceVersion,
-    }),
-    restoreSubscriptionSourceVersion: vi.fn().mockResolvedValue(testSubscriptionSources[0]),
-    listSubscriptionTokens: vi.fn().mockResolvedValue({
+    getSubscriptionSource: vi.fn<ApiClient['getSubscriptionSource']>().mockResolvedValue(testSubscriptionSources[0]),
+    createSubscriptionSource: vi.fn<ApiClient['createSubscriptionSource']>().mockResolvedValue(testSubscriptionSources[0]),
+    updateSubscriptionSource: vi.fn<ApiClient['updateSubscriptionSource']>().mockResolvedValue(testSubscriptionSources[0]),
+    deleteSubscriptionSource: vi.fn<ApiClient['deleteSubscriptionSource']>().mockResolvedValue(undefined),
+    refreshSubscriptionSource: vi.fn<ApiClient['refreshSubscriptionSource']>().mockResolvedValue({ source_id: testSubscriptionSources[0].id, version_id: testSubscriptionSources[0].current_version_id!, format: 'sing-box', sha256: 'a'.repeat(64), node_count: 0, fetched_at: '2026-09-21T00:00:00Z' }),
+    listSubscriptionSourceVersions: vi.fn<ApiClient['listSubscriptionSourceVersions']>(),
+    getSubscriptionSourceVersion: vi.fn<ApiClient['getSubscriptionSourceVersion']>(),
+    createSubscriptionSourceVersion: vi.fn<ApiClient['createSubscriptionSourceVersion']>(),
+    restoreSubscriptionSourceVersion: vi.fn<ApiClient['restoreSubscriptionSourceVersion']>(),
+    listSubscriptionTokens: vi.fn<ApiClient['listSubscriptionTokens']>().mockResolvedValue({
       items: testSubscriptionTokens, total: testSubscriptionTokens.length,
     }),
-    getSubscriptionTokenSecret: vi.fn().mockResolvedValue({ token: 'sample-subscription-token' }),
-    getSubscriptionToken: vi.fn().mockResolvedValue(testSubscriptionTokens[0]),
-    createSubscriptionToken: vi.fn().mockResolvedValue({
+    getSubscriptionTokenSecret: vi.fn<ApiClient['getSubscriptionTokenSecret']>().mockResolvedValue({ token: 'sample-subscription-token' }),
+    getSubscriptionToken: vi.fn<ApiClient['getSubscriptionToken']>().mockResolvedValue(testSubscriptionTokens[0]),
+    createSubscriptionToken: vi.fn<ApiClient['createSubscriptionToken']>().mockResolvedValue({
       metadata: { ...testSubscriptionTokens[0], id: 'token_new' },
       token: 'one-time-public-token',
     }),
-    rotateSubscriptionToken: vi.fn().mockResolvedValue({
+    rotateSubscriptionToken: vi.fn<ApiClient['rotateSubscriptionToken']>().mockResolvedValue({
       revoked: { ...testSubscriptionTokens[0], active: false },
       created: { ...testSubscriptionTokens[0], id: 'token_rotated' },
       token: 'one-time-rotated-token',
     }),
-    revokeSubscriptionToken: vi
-      .fn()
+    revokeSubscriptionToken: vi.fn<ApiClient['revokeSubscriptionToken']>()
       .mockResolvedValue({ ...testSubscriptionTokens[0], active: false }),
-    setSubscriptionTokenEnabled: vi.fn().mockResolvedValue(testSubscriptionTokens[0]),
-    deleteSubscriptionToken: vi.fn().mockResolvedValue(undefined),
-    listCoreLogFiles: vi.fn().mockResolvedValue({ items: [] }),
-    deleteCoreLogFile: vi.fn().mockResolvedValue(undefined),
-    clearCoreLog: vi.fn().mockResolvedValue(undefined),
-    readCoreLog: vi
-      .fn()
+    setSubscriptionTokenEnabled: vi.fn<ApiClient['setSubscriptionTokenEnabled']>().mockResolvedValue(testSubscriptionTokens[0]),
+    deleteSubscriptionToken: vi.fn<ApiClient['deleteSubscriptionToken']>().mockResolvedValue(undefined),
+    listCoreLogFiles: vi.fn<ApiClient['listCoreLogFiles']>().mockResolvedValue({ items: [] }),
+    deleteCoreLogFile: vi.fn<ApiClient['deleteCoreLogFile']>().mockResolvedValue(undefined),
+    clearCoreLog: vi.fn<ApiClient['clearCoreLog']>().mockResolvedValue(undefined),
+    readCoreLog: vi.fn<ApiClient['readCoreLog']>()
       .mockResolvedValue({ file: '2026-09-19-000.log', text: '', generation: 'test-generation', next_offset: 0, size: 0 }),
-    streamCoreLog: vi.fn(async function* () {}),
-    listPanelLogs: vi.fn().mockResolvedValue({ items: [], total: 0 }),
-    listLogs: vi.fn().mockResolvedValue({ items: [testLogEntry] }),
-    streamLogs: vi.fn(testLogStream),
-    getLog: vi.fn().mockResolvedValue(testLogEntry),
-    clearLogs: vi.fn().mockResolvedValue({ deleted: 1 }),
-    deleteLog: vi.fn().mockImplementation(async (entryID: string) => ({
-      id: entryID,
-      deleted: true as const,
-    })),
-    streamMetrics: vi.fn(async function* (signal) {
+    streamCoreLog: vi.fn<ApiClient['streamCoreLog']>(async function* () {}),
+    listPanelLogs: vi.fn<ApiClient['listPanelLogs']>().mockResolvedValue({ items: [], total: 0 }),
+    listLogs: vi.fn<ApiClient['listLogs']>(),
+    streamLogs: vi.fn<ApiClient['streamLogs']>(),
+    getLog: vi.fn<ApiClient['getLog']>(),
+    clearLogs: vi.fn<ApiClient['clearLogs']>(),
+    deleteLog: vi.fn<ApiClient['deleteLog']>(),
+    streamMetrics: vi.fn<ApiClient['streamMetrics']>(async function* (signal) {
       await new Promise<void>((resolve) => {
         if (signal?.aborted) resolve();
         else signal?.addEventListener('abort', () => resolve(), { once: true });
       });
     }),
-    streamDashboard: vi.fn(async function* (signal) {
+    streamDashboard: vi.fn<ApiClient['streamDashboard']>(async function* (signal) {
       await new Promise<void>((resolve) => {
         if (signal?.aborted) resolve();
         else signal?.addEventListener('abort', () => resolve(), { once: true });
       });
     }),
-    getMetrics: vi.fn().mockResolvedValue(testMetrics),
-    getMetricsHistory: vi.fn().mockResolvedValue(testMetricsHistory),
-    getTrafficStatus: vi.fn().mockResolvedValue(testMetrics),
-    listTrafficPeriods: vi.fn().mockResolvedValue({ items: [testTrafficPeriod] }),
-    getTrafficPeriod: vi.fn().mockResolvedValue(testTrafficPeriod),
+    getMetrics: vi.fn<ApiClient['getMetrics']>().mockResolvedValue(testMetrics),
+    getMetricsHistory: vi.fn<ApiClient['getMetricsHistory']>().mockResolvedValue(testMetricsHistory),
+    getTrafficStatus: vi.fn<ApiClient['getTrafficStatus']>().mockResolvedValue(testMetrics),
+    listTrafficPeriods: vi.fn<ApiClient['listTrafficPeriods']>(),
+    getTrafficPeriod: vi.fn<ApiClient['getTrafficPeriod']>(),
   };
   return { ...client, ...overrides } as Mocked<ApiClient>;
 }

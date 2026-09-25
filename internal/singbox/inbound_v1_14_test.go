@@ -13,7 +13,11 @@ import (
 )
 
 func TestInbound114NativeClientConversion(t *testing.T) {
-	for _, exactVersion := range []string{"1.14.0", "1.14.1", "1.14.2"} {
+	for _, version := range Versions() {
+		if version.InboundFamily != "1.14" {
+			continue
+		}
+		exactVersion := version.ExactVersion
 		t.Run(exactVersion, func(t *testing.T) {
 			for _, test := range []struct {
 				name, inbound string

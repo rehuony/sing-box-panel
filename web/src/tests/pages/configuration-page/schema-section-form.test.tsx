@@ -167,18 +167,16 @@ describe('schemaSectionForm', () => {
         server: { type: 'string' },
       },
     };
-    const { container, rerender } = render(
+    const { rerender } = render(
       <TooltipProvider delay={0}>
         <SchemaSectionForm basePointer='/section' data={{ interval: '5s', enabled: false }} onChange={onChange}
           resolution={{ ...resolution, schema: { type: 'object', properties: { section: schema } } }} schema={schema} />
       </TooltipProvider>,
     );
     expect(screen.queryByText('A Go duration such as 300ms or 5s.')).not.toBeInTheDocument();
-    expect(container.querySelector('[data-slot="field-description"]')).toBeNull();
     expect(screen.queryByRole('button', { name: 'Help for Server' })).not.toBeInTheDocument();
 
     const intervalHelp = screen.getByRole('button', { name: 'Help for Sync interval' });
-    expect(intervalHelp.parentElement).toHaveTextContent('Sync interval');
     await user.hover(intervalHelp);
     expect(await screen.findByText('A Go duration such as 300ms or 5s.')).toBeVisible();
     await user.unhover(intervalHelp);

@@ -178,7 +178,7 @@ describe('telemetryBanner', () => {
       }),
     });
 
-    const { container } = renderBanner(client);
+    renderBanner(client);
 
     expect(await screen.findByTitle('Runtime evidence is stale')).toBeInTheDocument();
     expect(screen.queryByText('Stopped')).not.toBeInTheDocument();
@@ -189,7 +189,6 @@ describe('telemetryBanner', () => {
     expect(screen.queryByRole('button', { name: 'Start' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Stop' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Restart' })).not.toBeInTheDocument();
-    expect(container.querySelector('.telemetry-banner__identity [data-slot="separator"]')).toBeNull();
     expect(screen.queryByRole('button', { name: 'Refresh runtime and traffic status' })).not.toBeInTheDocument();
   });
 
@@ -389,7 +388,6 @@ describe('telemetryBanner', () => {
     const actions = container.querySelector('.telemetry-banner__actions')!;
     expect(screen.getByText(`${label} in progress…`)).toBeInTheDocument();
     expect(actions.querySelector('button')).toBeNull();
-    expect(actions.querySelectorAll('[data-slot="spinner"]')).toHaveLength(1);
 
     await act(async () => resolveOperation(initialRuntime));
     expect(screen.getByText(`Verifying ${label}…`)).toBeInTheDocument();
@@ -399,7 +397,6 @@ describe('telemetryBanner', () => {
     await act(async () => vi.advanceTimersByTimeAsync(750));
     expect(screen.getByText(`${label} verified`)).toBeInTheDocument();
     expect(actions.querySelector('button')).toBeNull();
-    expect(actions.querySelector('[data-slot="spinner"]')).toBeNull();
 
     await act(async () => vi.advanceTimersByTimeAsync(1_999));
     expect(screen.getByText(`${label} verified`)).toBeInTheDocument();

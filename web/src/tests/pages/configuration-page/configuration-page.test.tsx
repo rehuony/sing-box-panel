@@ -14,6 +14,7 @@ import { ApiClientProvider } from '@/api/api-client-context';
 import { reviewedSchemaManifest } from '@/schemas/generated';
 import { TestRouter as MemoryRouter } from '@/tests/test-router';
 import { ControlPlaneProvider } from '@/stores/control-plane-provider';
+import { representativeSchemaVersions } from '@/tests/schemas/schema-fixtures';
 import { ConfigurationPage } from '@/pages/configuration-page/configuration-page';
 import { visibleStructuredConfiguration } from '@/pages/configuration-page/structured-validation';
 import {
@@ -24,8 +25,7 @@ import {
   testStartupArtifact,
 } from '@/tests/api/mock-api-client';
 
-const structuredVersions = ['1.14.0', '1.14.1', '1.14.2'];
-const reviewedSchema = reviewedSchemaManifest['1.14.0'];
+const structuredVersions = representativeSchemaVersions('native');
 const toastAdd = vi.spyOn(toast, 'add');
 const savedFile: ConfigurationFile = {
   revision: 1, content: testRevision.document_json, syntax_valid: true, canonical_revision_id: testRevision.id,
@@ -39,9 +39,9 @@ function changeEditor(element: HTMLElement, text: string) {
   act(() => view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: text } }));
 }
 
-function renderPage(client: ApiClient) {
+function renderPage(client: ApiClient, initialEntry = '/configuration') {
   return render(
-    <MemoryRouter>
+    <MemoryRouter initialEntries={[initialEntry]}>
       <ApiClientProvider client={client}>
         <TooltipProvider delay={0}>
           <ControlPlaneProvider><ConfigurationPage /></ControlPlaneProvider>
@@ -52,8 +52,7 @@ function renderPage(client: ApiClient) {
 }
 
 async function createStructuredClient(overrides: Partial<ApiClient> = {}, exactVersion = '1.14.0') {
-  const reviewed = await reviewedSchemaManifest[exactVersion]?.load();
-  if (reviewed === undefined) throw new Error(`The reviewed ${exactVersion} Schema fixture is unavailable.`);
+  const reviewed = await reviewedSchemaManifest[exactVersion].load();
   const artifact = {
     ...testArtifacts.items[0], id: 'core_114', exact_version: exactVersion, reported_version: exactVersion,
   };
@@ -157,7 +156,7 @@ describe('configurationPage', () => {
     expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
   });
 
-  it.skipIf(reviewedSchema === undefined)('prefers the enabled version and remembers an explicit version across route changes', async () => {
+  it('prefers the enabled version and remembers an explicit version across route changes', async () => {
     const user = userEvent.setup();
     const current = {
       ...testArtifacts.items[0], id: 'core_114', exact_version: '1.14.0', reported_version: '1.14.0',
@@ -199,7 +198,7 @@ describe('configurationPage', () => {
     expect(await screen.findByRole('combobox', { name: 'Configuration version' })).toHaveTextContent('1.14.0');
   });
 
-  it.skipIf(reviewedSchema === undefined).each(['file', 'schema'])(
+  it.each(['file', 'schema'])(
     'keeps the workspace mounted without a JSON flash when %s loads first',
     async first => {
       const client = await createStructuredClient();
@@ -237,7 +236,7 @@ describe('configurationPage', () => {
     },
   );
 
-  it.skipIf(reviewedSchema === undefined)('preserves an explicit JSON choice while the schema is loading', async () => {
+  it('preserves an explicit JSON choice while the schema is loading', async () => {
     const user = userEvent.setup();
     const client = await createStructuredClient();
     const contract = await client.getConfigurationSchema('core_114');
@@ -255,7 +254,7 @@ describe('configurationPage', () => {
     expect(screen.getByLabelText('sing-box configuration JSON')).toBe(editor);
   });
 
-  it.skipIf(reviewedSchema === undefined)('adds from the active section toolbar without navigating away', async () => {
+  it('adds from the active section toolbar without navigating away', async () => {
     const user = userEvent.setup();
     const client = await createStructuredClient({
       getConfigurationFile: vi.fn().mockResolvedValue({ ...savedFile, content: '{"dns":{"servers":[],"rules":[]}}' }),
@@ -286,7 +285,7 @@ describe('configurationPage', () => {
     expect(JSON.parse(saved.content)).toEqual({ dns: { servers: [{ type: 'dhcp', tag: 'dns-new' }], rules: [] } });
   });
 
-  it.skipIf(reviewedSchema === undefined).each([
+  it.each([
     ['Certificate providers', 'certificate_providers'],
     ['HTTP clients', 'http_clients'],
     ['Network namespaces', 'network_namespaces'],
@@ -320,11 +319,11 @@ describe('configurationPage', () => {
     const user = userEvent.setup();
     const client = createMockApiClient();
     render(
-      <MemoryRouter initialEntries={['/configuration']}>
+      <MemoryRouter initialEntries={['/configuration#configuration-advanced']}>
         <ApiClientProvider client={client}>
           <ControlPlaneProvider>
             <Link to='/other'>Other page</Link>
-            <Link to='/configuration'>Configuration page</Link>
+            <Link to='/configuration#configuration-advanced'>Configuration page</Link>
             <Routes>
               <Route path='/configuration' element={<ConfigurationPage />} />
               <Route path='/other' element={<p>Another page</p>} />
@@ -359,7 +358,7 @@ describe('configurationPage', () => {
       getConfigurationFile: vi.fn().mockResolvedValue({ revision: 0, content: '{}', syntax_valid: true }),
     });
     const user = userEvent.setup();
-    renderPage(client);
+    renderPage(client, '/configuration#configuration-advanced');
     expect(editorView(await screen.findByLabelText('sing-box configuration JSON')).state.doc.toString()).toBe('{}');
     expect(screen.getByRole('button', { name: 'Validate configuration' })).toBeDisabled();
     await user.click(screen.getByRole('button', { name: 'Save configuration' }));
@@ -372,11 +371,11 @@ describe('configurationPage', () => {
     const user = userEvent.setup();
     const client = createMockApiClient();
     render(
-      <MemoryRouter initialEntries={['/configuration']}>
+      <MemoryRouter initialEntries={['/configuration#configuration-advanced']}>
         <ApiClientProvider client={client}>
           <ControlPlaneProvider>
             <Link to='/other'>Other page</Link>
-            <Link to='/configuration'>Configuration page</Link>
+            <Link to='/configuration#configuration-advanced'>Configuration page</Link>
             <Routes>
               <Route path='/configuration' element={<ConfigurationPage />} />
               <Route path='/other' element={<p>Another page</p>} />
@@ -415,7 +414,7 @@ describe('configurationPage', () => {
       finishSave = resolve;
     });
     const client = createMockApiClient({ saveConfigurationFile: vi.fn().mockReturnValue(pending) });
-    renderPage(client);
+    renderPage(client, '/configuration#configuration-advanced');
     const editor = await screen.findByLabelText('sing-box configuration JSON');
     const content = '{\n  "future": { "large": 900719925474099312345678901234567890, "threshold": 4.2000e+99 }\n}';
     changeEditor(editor, content);
@@ -427,7 +426,7 @@ describe('configurationPage', () => {
     expect(editorView(editor).state.doc.toString()).toBe(content);
   });
 
-  it.skipIf(reviewedSchema === undefined)('defaults to native visual fields and preserves unknown values', async () => {
+  it('defaults to native visual fields and preserves unknown values', async () => {
     const user = userEvent.setup();
     const client = await createStructuredClient({
       getConfigurationFile: vi.fn().mockResolvedValue({
@@ -448,7 +447,7 @@ describe('configurationPage', () => {
     expect(input.content).not.toContain('_panel');
   }, 20_000);
 
-  it.skipIf(reviewedSchema === undefined)('keeps raw editing and binary checks available after Schema verification fails', async () => {
+  it('keeps raw editing and binary checks available after Schema verification fails', async () => {
     const base = await createStructuredClient();
     const contract = await base.getConfigurationSchema('core_114');
     const client = await createStructuredClient({
@@ -466,7 +465,7 @@ describe('configurationPage', () => {
     const client = createMockApiClient({
       saveConfigurationFile: vi.fn().mockRejectedValue(new ApiRequestError('Configuration changed elsewhere.', { status: 412, code: 'configuration_file_conflict' })),
     });
-    renderPage(client);
+    renderPage(client, '/configuration#configuration-advanced');
     const editor = await screen.findByLabelText('sing-box configuration JSON');
     const content = '{"future_feature":{"enabled":true}}';
     changeEditor(editor, content);
@@ -485,12 +484,12 @@ describe('configurationPage', () => {
         finish = resolve;
       })),
     });
-    renderPage(client);
+    renderPage(client, '/configuration#configuration-advanced');
     await screen.findByLabelText('sing-box configuration JSON');
     await user.click(screen.getByRole('button', { name: 'Validate configuration' }));
     expect(screen.getByLabelText('sing-box configuration JSON')).toHaveAttribute('contenteditable', 'false');
     expect(toastAdd).not.toHaveBeenCalled();
-    await act(async () => finish({ support: { structured: false, exact_version: '1.13.19' }, artifact: { ...testStartupArtifact, state } }));
+    await act(async () => finish({ support: { structured: true, exact_version: '1.13.19' }, artifact: { ...testStartupArtifact, state } }));
     await waitFor(() => expect(toastAdd).toHaveBeenCalledWith(expect.objectContaining({
       type: state === 'ready' ? 'success' : 'error',
     })));

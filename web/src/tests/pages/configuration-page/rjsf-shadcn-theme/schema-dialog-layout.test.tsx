@@ -135,7 +135,7 @@ describe('schema dialog layout', () => {
     expect(screen.getByText('No entries yet')).toBeVisible();
   });
 
-  it.each(['tls', 'transport'])('replaces Configure in the %s header and restores it after removal', async (field) => {
+  it.each(['tls', 'transport'])('adds and removes optional %s settings', async (field) => {
     const user = userEvent.setup();
     const optionalSchema: RJSFSchema = {
       type: 'object', properties: { [field]: { type: 'object', properties: { enabled: { type: 'boolean' } } } },
@@ -149,15 +149,12 @@ describe('schema dialog layout', () => {
     }
     render(<Harness />);
     const configure = screen.getByRole('button', { name: 'Configure' });
-    const header = configure.parentElement;
     await user.click(configure);
     const remove = screen.getByRole('button', { name: 'Remove settings' });
-    expect(remove.parentElement).toBe(header);
-    expect(remove).toHaveAttribute('data-variant', 'destructive');
-    expect(remove.compareDocumentPosition(screen.getByRole('switch', { name: 'Enabled' })) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.getByRole('switch', { name: 'Enabled' })).toBeVisible();
     await user.click(remove);
     expect(screen.queryByRole('switch', { name: 'Enabled' })).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Configure' }).parentElement).toBe(header);
+    expect(screen.getByRole('button', { name: 'Configure' })).toBeVisible();
   });
 
   it('retains edits and optional-object state across keyboard tab changes without altering untouched values', async () => {

@@ -13,7 +13,11 @@ import (
 )
 
 func TestConfigurationSchemaIsSelectedOnlyByExactVersion(t *testing.T) {
-	for _, exactVersion := range []string{"1.13.19", "1.13.20", "1.13.21", "1.14.0", "1.14.1", "1.14.2"} {
+	for _, version := range Versions() {
+		if version.SchemaSource == "" {
+			continue
+		}
+		exactVersion := version.ExactVersion
 		t.Run(exactVersion, func(t *testing.T) {
 			contract, err := ConfigurationSchema(exactVersion)
 			if err != nil {
@@ -30,7 +34,7 @@ func TestConfigurationSchemaIsSelectedOnlyByExactVersion(t *testing.T) {
 			assertLocalSchemaReferences(t, schema)
 		})
 	}
-	for _, exactVersion := range []string{"1.11.15", "1.12.25", "1.13.18", "1.13.22", "1.14.3", "1.14", "v1.14.1", "1.14.1-beta.1", "invalid"} {
+	for _, exactVersion := range []string{"1.11.15", "1.12.25", "1.13.18", "1.13.22", "99.0.0", "1.14", "v1.14.1", "1.14.1-beta.1", "invalid"} {
 		if _, err := ConfigurationSchema(exactVersion); !errors.Is(err, ErrConfigurationSchemaUnavailable) {
 			t.Fatalf("ConfigurationSchema(%s) error = %v, want ErrSchemaUnavailable", exactVersion, err)
 		}
@@ -42,22 +46,18 @@ func TestConfigurationSchemaWebAssetsContainOnlyManifestAndFormSchema(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range []string{"manifest.json", "schema-1_13_19.json", "schema-1_13_20.json", "schema-1_13_21.json", "schema-1_14_0.json", "schema-1_14_1.json", "schema-1_14_2.json"} {
-		if len(assets[name]) == 0 {
-			t.Fatalf("missing Web schema asset %q", name)
+	var manifest schemaManifest
+	if err := json.Unmarshal(assets["manifest.json"], &manifest); err != nil {
+		t.Fatal(err)
+	}
+	if len(manifest.Entries) == 0 || len(assets) != len(manifest.Entries)+1 {
+		t.Fatalf("Web schema assets = %d, manifest entries = %d", len(assets), len(manifest.Entries))
+	}
+	for _, entry := range manifest.Entries {
+		if len(assets[entry.SchemaFile]) == 0 {
+			t.Fatalf("missing Web schema asset %q", entry.SchemaFile)
 		}
 	}
-	if len(assets) != 7 {
-		t.Fatalf("Web schema assets = %v", mapsKeys(assets))
-	}
-}
-
-func mapsKeys(values map[string][]byte) []string {
-	keys := make([]string, 0, len(values))
-	for key := range values {
-		keys = append(keys, key)
-	}
-	return keys
 }
 
 func TestConfigurationSchemaManifestFailsClosed(t *testing.T) {
@@ -91,7 +91,11 @@ func TestValidateConfigurationIsOptionalBeforeNativeSchema(t *testing.T) {
 	if err := ValidateConfiguration("1.13.18", []byte(`{}`)); !errors.Is(err, ErrConfigurationSchemaUnavailable) {
 		t.Fatalf("ValidateConfiguration(1.13.18) error = %v", err)
 	}
-	for _, exactVersion := range []string{"1.13.19", "1.13.20", "1.13.21", "1.14.0", "1.14.1", "1.14.2"} {
+	for _, version := range Versions() {
+		if version.SchemaSource == "" {
+			continue
+		}
+		exactVersion := version.ExactVersion
 		t.Run(exactVersion, func(t *testing.T) {
 			if err := ValidateConfiguration(exactVersion, []byte(`{}`)); err != nil {
 				t.Fatalf("ValidateConfiguration(%s) error = %v", exactVersion, err)

@@ -15,11 +15,11 @@ import { ManagedCollectionsEditor } from '@/pages/configuration-page/managed-col
 import { encodeCanonicalDraft, parseCanonicalDraft } from '@/pages/configuration-page/use-canonical-configuration';
 
 const reviewedEntry = reviewedSchemaManifest['1.14.0'];
-let resolution: ReviewedSchemaResolution | null = null;
+let resolution: ReviewedSchemaResolution;
 
 beforeAll(async () => {
-  const reviewed = await reviewedEntry?.load();
-  if (reviewed === undefined) return;
+  expect(reviewedEntry, 'Missing committed 1.14.0 Schema fixture').toBeDefined();
+  const reviewed = await reviewedEntry.load();
   resolution = {
     schema: reviewed.schema,
     createValidator: (sectionSchema: RJSFSchema) =>
@@ -34,7 +34,6 @@ function Harness({ initial, linkedTag, selectedCollection, disabled = false }: {
   disabled?: boolean;
 }) {
   const [draft, setDraft] = useState(initial);
-  if (resolution === null) throw new Error('The exact reviewed schema fixture is unavailable.');
   return (
     <>
       <ManagedCollectionsEditor
@@ -50,7 +49,7 @@ function Harness({ initial, linkedTag, selectedCollection, disabled = false }: {
   );
 }
 
-describe.skipIf(reviewedEntry === undefined)('managedCollectionsEditor', () => {
+describe('managedCollectionsEditor', () => {
   it.each(['create', 'edit'])('retains the %s form until its closing animation finishes', async (mode) => {
     const user = userEvent.setup();
     render(<Harness initial={{ inbounds: [{ type: 'mixed', tag: 'existing' }] }} />);

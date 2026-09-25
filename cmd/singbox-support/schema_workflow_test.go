@@ -9,8 +9,6 @@ import (
 	"reflect"
 	"strings"
 	"testing"
-
-	"github.com/rehuony/sing-box-panel/internal/singbox"
 )
 
 func TestCanonicalJSONFilePreservesLargeIntegers(t *testing.T) {
@@ -83,32 +81,5 @@ func stripXPanel(value any) any {
 		return result
 	default:
 		return value
-	}
-}
-
-func TestCatalogDistinguishesNativeAndReviewedSchemaSources(t *testing.T) {
-	root, err := repositoryRoot()
-	if err != nil {
-		t.Fatal(err)
-	}
-	catalog, err := loadCatalog(filepath.Join(root, catalogPath))
-	if err != nil {
-		t.Fatal(err)
-	}
-	var schemaVersions, reviewedVersions []string
-	for _, version := range catalog.Versions {
-		if version.SchemaSource == singbox.SchemaSourceReviewed113 {
-			reviewedVersions = append(reviewedVersions, version.ExactVersion)
-		}
-		if singbox.SupportsNativeConfigurationSchema(version.ExactVersion) {
-			schemaVersions = append(schemaVersions, version.ExactVersion)
-		}
-	}
-	if !reflect.DeepEqual(reviewedVersions, []string{"1.13.19", "1.13.20", "1.13.21"}) {
-		t.Fatalf("reviewed versions = %v", reviewedVersions)
-	}
-	want := []string{"1.14.0", "1.14.1", "1.14.2"}
-	if !reflect.DeepEqual(schemaVersions, want) {
-		t.Fatalf("native schema versions = %v, want %v", schemaVersions, want)
 	}
 }

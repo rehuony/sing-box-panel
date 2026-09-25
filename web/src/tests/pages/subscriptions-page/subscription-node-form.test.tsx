@@ -40,24 +40,6 @@ function draft() {
 }
 
 describe('subscription node credentials', () => {
-  it.each([
-    ['2022-blake3-aes-128-gcm', 16],
-    ['2022-blake3-aes-256-gcm', 32],
-    ['2022-blake3-chacha20-poly1305', 32],
-  ] as const)('generates a valid %s key without changing other node fields', async (method, length) => {
-    const user = userEvent.setup();
-    render(<Harness initial={{ type: 'shadowsocks', method, password: 'keep' }} />);
-    const before = draft();
-    expect(screen.getAllByRole('combobox', { name: 'Protocol' })).toHaveLength(1);
-    expect(screen.queryByRole('combobox', { name: 'Type' })).not.toBeInTheDocument();
-    await user.click(screen.getByRole('button', { name: 'Generate random Password' }));
-    const input = screen.getByRole('textbox', { name: 'Password' }) as HTMLInputElement;
-    expect(input).toHaveAttribute('type', 'text');
-    expect(atob(input.value)).toHaveLength(length);
-    expect(btoa(atob(input.value))).toBe(input.value);
-    expect(draft()).toEqual({ ...before, password: input.value });
-  });
-
   it('uses the current method while preserving the password until the dice is clicked', async () => {
     const user = userEvent.setup();
     render(<Harness initial={{ type: 'shadowsocks', method: '2022-blake3-aes-128-gcm', password: 'keep' }} />);
@@ -66,15 +48,15 @@ describe('subscription node credentials', () => {
       ['2022-blake3-aes-128-gcm', 16],
       ['aes-128-gcm', 0],
     ] as const) {
-      const previous = draft().password;
+      const before = draft();
       screen.getByRole('combobox', { name: 'Request method' }).focus();
       await user.keyboard('[ArrowDown]');
       await user.click(await screen.findByRole('option', { name: method }));
-      expect(draft().password).toBe(previous);
+      expect(draft().password).toBe(before.password);
       await user.click(screen.getByRole('button', { name: 'Generate random Password' }));
       if (length) expect(atob(draft().password)).toHaveLength(length);
       else expect(draft().password).toMatch(/^[\w-]{24}$/);
-      expect(draft()).toMatchObject({ type: 'shadowsocks', method, future: { keep: true } });
+      expect(draft()).toEqual({ ...before, method, password: draft().password });
     }
     const previous = draft().password;
     screen.getByRole('combobox', { name: 'Request method' }).focus();

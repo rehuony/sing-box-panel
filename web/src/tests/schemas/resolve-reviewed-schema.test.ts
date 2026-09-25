@@ -5,6 +5,8 @@ import type { ConfigurationSchemaContract } from '@/api/api-client';
 import { reviewedSchemaManifest } from '@/schemas/generated';
 import { resolveReviewedSchema } from '@/schemas/resolve-reviewed-schema';
 
+import { representativeSchemaVersions } from './schema-fixtures';
+
 const unavailableSHA256 = '0'.repeat(64);
 
 it('loads browser modules before the remote schema contract completes', async () => {
@@ -38,20 +40,20 @@ async function contract(
   };
 }
 
-describe.each(['1.13.19', '1.13.20', '1.13.21', '1.14.0', '1.14.1', '1.14.2'])('resolveReviewedSchema %s', (exactVersion) => {
+it.each(Object.keys(reviewedSchemaManifest))('loads the precompiled contract for exact version %s', async (exactVersion) => {
+  const expected = await reviewedSchemaManifest[exactVersion].load();
+  const resolution = await resolveReviewedSchema(await contract(exactVersion), exactVersion);
+
+  expect(resolution.schema).toEqual(expected.schema);
+  expect(resolution.createValidator(resolution.schema)).toBeDefined();
+}, 30_000);
+
+describe.each(representativeSchemaVersions())('resolveReviewedSchema %s', (exactVersion) => {
   it('fails closed for a version without a reviewed manifest entry', async () => {
-    await expect(resolveReviewedSchema(await contract(exactVersion, { exact_version: '1.14.3' }), '1.14.3'))
+    await expect(resolveReviewedSchema(await contract(exactVersion, { exact_version: '99.0.0' }), '99.0.0'))
       .rejects
       .toThrow('reviewed browser manifest');
   });
-
-  it('loads the precompiled contract for the exact version', async () => {
-    const expected = await reviewedSchemaManifest[exactVersion].load();
-    const resolution = await resolveReviewedSchema(await contract(exactVersion), exactVersion);
-
-    expect(resolution.schema).toEqual(expected.schema);
-    expect(resolution.createValidator(resolution.schema)).toBeDefined();
-  }, 30_000);
 
   it('fails closed for an unreviewed digest', async () => {
     await expect(resolveReviewedSchema(

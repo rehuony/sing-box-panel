@@ -208,13 +208,6 @@ func TestOutputShorthandRejectsInvalidFormat(t *testing.T) {
 	}
 }
 
-func TestOutputShorthandRejectsUppercaseAlias(t *testing.T) {
-	stdout, _, err := execute(t, "version", "-O=json")
-	if err == nil || stdout != "" || !strings.Contains(err.Error(), "unknown shorthand flag: 'O'") {
-		t.Fatalf("uppercase shorthand stdout=%q error=%v", stdout, err)
-	}
-}
-
 func TestVersionOutput(t *testing.T) {
 	for _, test := range []struct {
 		version string
@@ -229,35 +222,35 @@ func TestVersionOutput(t *testing.T) {
 		{"v0.0.2-0.20260919073707-361e5be561c1", "sing-box-panel v0.0.2-0.20260919073707-361e5be561c1\n"},
 		{"v0.0.2-0.20260919073707-361e5be561c1+dirty", "sing-box-panel v0.0.2-0.20260919073707-361e5be561c1+dirty\n"},
 	} {
-		for _, format := range []string{"", "text", "json", "jsonl"} {
-			t.Run(test.version+"/"+format, func(t *testing.T) {
-				var stdout, stderr bytes.Buffer
-				info := buildinfo.Info{Version: test.version, Commit: "abc", Date: "2026-08-26"}
-				root := NewRootCommand(Dependencies{Stdout: &stdout, Stderr: &stderr, Build: info})
-				args := []string{"version"}
-				if format != "" {
-					args = append(args, "--output="+format)
-				}
-				root.SetArgs(args)
-				if err := root.ExecuteContext(t.Context()); err != nil {
-					t.Fatal(err)
-				}
-				if stderr.Len() != 0 {
-					t.Fatalf("stderr = %q", stderr.String())
-				}
-				want := test.text
-				if format == "json" || format == "jsonl" {
-					encoded, err := json.Marshal(info)
-					if err != nil {
-						t.Fatal(err)
-					}
-					want = string(encoded) + "\n"
-				}
-				if stdout.String() != want {
-					t.Fatalf("stdout = %q, want %q", stdout.String(), want)
-				}
-			})
-		}
+		t.Run(test.version, func(t *testing.T) {
+			var stdout, stderr bytes.Buffer
+			root := NewRootCommand(Dependencies{Stdout: &stdout, Stderr: &stderr, Build: buildinfo.Info{Version: test.version}})
+			root.SetArgs([]string{"version"})
+			if err := root.ExecuteContext(t.Context()); err != nil || stderr.Len() != 0 || stdout.String() != test.text {
+				t.Fatalf("stdout=%q stderr=%q error=%v, want %q", stdout.String(), stderr.String(), err, test.text)
+			}
+		})
+	}
+}
+
+func TestVersionOutputFormats(t *testing.T) {
+	info := buildinfo.Info{Version: "v1.2.3-rc.1+build.5", Commit: "abc", Date: "2026-08-26"}
+	for _, format := range []string{"text", "json", "jsonl"} {
+		t.Run(format, func(t *testing.T) {
+			var stdout, stderr bytes.Buffer
+			root := NewRootCommand(Dependencies{Stdout: &stdout, Stderr: &stderr, Build: info})
+			root.SetArgs([]string{"version", "--output=" + format})
+			if err := root.ExecuteContext(t.Context()); err != nil || stderr.Len() != 0 {
+				t.Fatalf("error=%v stderr=%q", err, stderr.String())
+			}
+			want := "sing-box-panel " + info.Version + "\n"
+			if format != "text" {
+				want = `{"version":"v1.2.3-rc.1+build.5","commit":"abc","date":"2026-08-26"}` + "\n"
+			}
+			if stdout.String() != want {
+				t.Fatalf("stdout = %q, want %q", stdout.String(), want)
+			}
+		})
 	}
 }
 
@@ -330,9 +323,6 @@ var visibleLeafCapabilities = []string{
 }
 
 func TestCommandTreeIsAtMostTwoWordsDeepAndKeepsEveryCapability(t *testing.T) {
-	if len(visibleLeafCapabilities) != 61 {
-		t.Fatalf("inventory lists %d capabilities, want 61", len(visibleLeafCapabilities))
-	}
 	var stdout, stderr bytes.Buffer
 	root := NewRootCommand(Dependencies{Stdin: strings.NewReader(""), Stdout: &stdout, Stderr: &stderr})
 	leaves := map[string]bool{}

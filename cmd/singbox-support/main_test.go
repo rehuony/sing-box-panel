@@ -39,6 +39,15 @@ func TestCatalogValidationRejectsInvalidMetadata(t *testing.T) {
 		mutate func(*sourceCatalog)
 		match  string
 	}{
+		{name: "unknown schema source", match: "unknown schema source", mutate: func(value *sourceCatalog) {
+			value.Versions[0].SchemaSource = "unknown"
+		}},
+		{name: "native schema before 1.14", match: "no native schema command", mutate: func(value *sourceCatalog) {
+			value.Versions[0].SchemaSource = singbox.SchemaSourceNative
+		}},
+		{name: "reviewed schema outside 1.13", match: "outside the reviewed 1.13 schema contract", mutate: func(value *sourceCatalog) {
+			value.Versions[len(value.Versions)-1].SchemaSource = singbox.SchemaSourceReviewed113
+		}},
 		{name: "duplicate version", match: "strictly ascending", mutate: func(value *sourceCatalog) {
 			value.Versions = append(value.Versions, value.Versions[len(value.Versions)-1])
 		}},
