@@ -12,12 +12,12 @@ export function isThemePreference(value: unknown): value is ThemePreference {
   return value === 'light' || value === 'system' || value === 'dark';
 }
 
-export function readThemePreference(storage: Pick<Storage, 'getItem'> | null = null): ThemePreference {
+export function readThemePreference(storage: Pick<Storage, 'getItem'> | null = null): ThemePreference | null {
   try {
     const value = storage?.getItem(THEME_STORAGE_KEY);
-    return isThemePreference(value) ? value : 'system';
+    return isThemePreference(value) ? value : null;
   } catch {
-    return 'system';
+    return null;
   }
 }
 

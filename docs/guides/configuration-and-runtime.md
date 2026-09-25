@@ -510,6 +510,13 @@ retains the current view and preview; Discard changes restores saved settings
 before navigating. Reset changes only theme color/radius and still requires
 saving. Help is in hover/click tips.
 
+The theme selected in panel settings is the server default. The sidebar theme
+button applies and persists a browser-only override immediately, without making
+requests or changing the settings form. On page load, a valid local choice takes
+precedence over the server theme, including an explicit `system` choice. Saving
+or discarding panel settings leaves this local override intact; color and radius
+continue to follow panel settings and their previews.
+
 ### Backup and restore
 
 Panel settings → Backup and restore exports the **saved** panel settings and

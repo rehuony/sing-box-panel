@@ -344,7 +344,23 @@ function PanelObjectFieldContent(props: FieldProps) {
   const { i18n, t } = useTranslation();
   const labelId = useId();
   const { disabled, fieldPathId, formData, name, onChange, readonly, required, schema } = props;
-  const content = <DefaultObjectField {...props} schema={objectSchemaForForm(schema, props.registry)} />;
+  const handleChange: FieldProps['onChange'] = (value, path, errors, id) => {
+    // RJSF displays an optional union's first branch without materializing its
+    // constants. Commit the selected branch's required identity on an edit,
+    // before the leaf change; merely opening the form must not enable options.
+    if (value !== undefined) {
+      for (const key of schema.required ?? []) {
+        const property = schema.properties?.[key];
+        if (!property || typeof property !== 'object' || formData?.[key] !== undefined) continue;
+        const constant = property.const ?? (property.enum?.length === 1 ? property.enum[0] : undefined);
+        if (constant !== undefined) onChange(constant, [...fieldPathId.path, key]);
+      }
+    }
+    onChange(value, path, errors, id);
+  };
+  const content = (
+    <DefaultObjectField {...props} onChange={handleChange} schema={objectSchemaForForm(schema, props.registry)} />
+  );
   if (fieldPathId.path.length === 0 || typeof fieldPathId.path.at(-1) === 'number' || required
     || props.uiSchema?.['ui:options']?.label === false) {
     return content;
@@ -364,7 +380,7 @@ function PanelObjectFieldContent(props: FieldProps) {
         </Button>
       </div>
       {present && (
-        <DefaultObjectField {...props} schema={objectSchemaForForm(schema, props.registry)}
+        <DefaultObjectField {...props} onChange={handleChange} schema={objectSchemaForForm(schema, props.registry)}
           uiSchema={{ ...props.uiSchema, 'ui:options': { ...props.uiSchema?.['ui:options'], label: false } }} />
       )}
     </div>

@@ -1,5 +1,5 @@
-import { describe, expect, it, vi } from 'vitest';
 import userEvent from '@testing-library/user-event';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { Link, Route, Routes, useNavigate } from 'react-router-dom';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 
@@ -53,81 +53,81 @@ function setup(client = createMockApiClient(), initialEntry = '/panel') {
 }
 
 describe('panel settings', () => {
-  it('shares theme changes in both directions without losing other appearance edits', async () => {
+  beforeEach(() => window.localStorage.removeItem('sing-box-panel.theme'));
+
+  it('switches the sidebar theme locally without requests or settings edits', async () => {
     const user = userEvent.setup();
     const client = setup(createMockApiClient(), '/panel#panel-interface');
     const theme = await screen.findByRole('combobox', { name: 'Theme' });
+    const apiCalls = () => Object.values(client).filter(vi.isMockFunction).map(fn => fn.mock.calls.length);
+    const callsBeforeSwitch = apiCalls();
+
     await user.click(screen.getByRole('button', { name: 'Theme: System. Switch to Dark' }));
-    expect(theme).toHaveTextContent('Dark');
     expect(document.documentElement).toHaveAttribute('data-theme', 'dark');
-    expect(screen.getByRole('button', { name: 'Save settings' })).toBeEnabled();
-    expect(window.localStorage.getItem('sing-box-panel.theme')).toBe('system');
+    expect(window.localStorage.getItem('sing-box-panel.theme')).toBe('dark');
+    expect(theme).toHaveTextContent('System');
+    expect(screen.getByRole('button', { name: 'Save settings' })).toBeDisabled();
+    expect(apiCalls()).toEqual(callsBeforeSwitch);
+
+    await user.click(screen.getByRole('link', { name: 'Leave settings' }));
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+    await user.click(screen.getByRole('link', { name: 'Open settings' }));
+    await user.click(await screen.findByRole('tab', { name: 'Interface preferences' }));
+    expect(screen.getByRole('combobox', { name: 'Theme' })).toHaveTextContent('System');
+    expect(document.documentElement).toHaveAttribute('data-theme', 'dark');
+    expect(screen.getByRole('button', { name: 'Save settings' })).toBeDisabled();
+  });
+
+  it('loads and saves server defaults independently of the persisted sidebar choice', async () => {
+    window.localStorage.setItem('sing-box-panel.theme', 'dark');
+    const user = userEvent.setup();
+    const client = setup(createMockApiClient(), '/panel#panel-interface');
+    const theme = await screen.findByRole('combobox', { name: 'Theme' });
+    expect(theme).toHaveTextContent('System');
+    expect(document.documentElement).toHaveAttribute('data-theme', 'dark');
+    expect(screen.getByRole('button', { name: 'Save settings' })).toBeDisabled();
 
     await user.click(theme);
     await user.click(await screen.findByRole('option', { name: 'Light' }));
-    expect(screen.getByRole('button', { name: 'Theme: Light. Switch to System' })).toBeVisible();
     await user.click(screen.getByRole('button', { name: 'Blue' }));
     fireEvent.change(screen.getByRole('spinbutton', { name: 'Corner radius' }), { target: { value: '8' } });
+    expect(document.documentElement).toHaveAttribute('data-theme', 'dark');
+    await user.click(screen.getByRole('button', { name: 'Theme: Dark. Switch to Light' }));
     await user.click(screen.getByRole('button', { name: 'Theme: Light. Switch to System' }));
-    expect(theme).toHaveTextContent('System');
-    await user.click(screen.getByRole('button', { name: 'Theme: System. Switch to Dark' }));
     await user.click(screen.getByRole('tab', { name: 'Service settings' }));
     await user.click(screen.getByRole('tab', { name: 'Interface preferences' }));
-    expect(screen.getByRole('combobox', { name: 'Theme' })).toHaveTextContent('Dark');
+    expect(screen.getByRole('combobox', { name: 'Theme' })).toHaveTextContent('Light');
     expect(screen.getByRole('spinbutton', { name: 'Corner radius' })).toHaveValue(8);
     expect(document.documentElement.style.getPropertyValue('--appearance-color')).toBe('#2563EB');
     expect(client.savePanelSettings).not.toHaveBeenCalled();
 
     await user.click(screen.getByRole('button', { name: 'Save settings' }));
-    await waitFor(() => expect(client.savePanelSettings).toHaveBeenCalledWith(expect.objectContaining({
-      preferences: expect.objectContaining({ appearance: { theme: 'dark', color: '#2563EB', radius: 8 } }),
+    await waitFor(() => expect(client.savePanelSettings).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
+      preferences: expect.objectContaining({ appearance: { theme: 'light', color: '#2563EB', radius: 8 } }),
     })));
     await waitFor(() => expect(screen.getByRole('button', { name: 'Save settings' })).toBeDisabled());
-    expect(window.localStorage.getItem('sing-box-panel.theme')).toBe('dark');
-    await user.click(screen.getByRole('button', { name: 'Theme: Dark. Switch to Light' }));
     expect(screen.getByRole('combobox', { name: 'Theme' })).toHaveTextContent('Light');
-    expect(window.localStorage.getItem('sing-box-panel.theme')).toBe('dark');
-    await user.click(screen.getByRole('button', { name: 'Theme: Light. Switch to System' }));
-    await user.click(screen.getByRole('button', { name: 'Theme: System. Switch to Dark' }));
-    expect(screen.getByRole('button', { name: 'Save settings' })).toBeDisabled();
-    await user.click(screen.getByRole('link', { name: 'Leave settings' }));
-    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
-    await user.click(screen.getByRole('link', { name: 'Open settings' }));
-    await user.click(await screen.findByRole('tab', { name: 'Interface preferences' }));
-    expect(screen.getByRole('combobox', { name: 'Theme' })).toHaveTextContent('Dark');
-    expect(screen.getByRole('button', { name: 'Save settings' })).toBeDisabled();
+    expect(document.documentElement).toHaveAttribute('data-theme', 'system');
+    expect(window.localStorage.getItem('sing-box-panel.theme')).toBe('system');
   });
 
-  it('opens settings with the active sidebar theme instead of reverting to the server theme', async () => {
-    const user = userEvent.setup();
-    const client = setup(createMockApiClient(), '/');
-    await user.click(await screen.findByRole('button', { name: 'Theme: System. Switch to Dark' }));
-    expect(window.localStorage.getItem('sing-box-panel.theme')).toBe('dark');
-    await user.click(screen.getByRole('link', { name: 'Open settings' }));
-    await user.click(await screen.findByRole('tab', { name: 'Interface preferences' }));
-    expect(screen.getByRole('combobox', { name: 'Theme' })).toHaveTextContent('Dark');
-    expect(screen.getByRole('button', { name: 'Theme: Dark. Switch to Light' })).toBeVisible();
-    expect(document.documentElement).toHaveAttribute('data-theme', 'dark');
-    expect(client.savePanelSettings).not.toHaveBeenCalled();
-  });
-
-  it('keeps a failed theme save in the shared draft and restores both controls on discard', async () => {
+  it('retains failed settings edits and discards them without changing the local theme', async () => {
     const user = userEvent.setup();
     const client = setup(createMockApiClient({ savePanelSettings: vi.fn().mockRejectedValue(new Error('Conflict')) }), '/panel#panel-interface');
-    await screen.findByRole('combobox', { name: 'Theme' });
+    const theme = await screen.findByRole('combobox', { name: 'Theme' });
     await user.click(screen.getByRole('button', { name: 'Theme: System. Switch to Dark' }));
+    await user.click(theme);
+    await user.click(await screen.findByRole('option', { name: 'Light' }));
     await user.click(screen.getByRole('button', { name: 'Save settings' }));
     await waitFor(() => expect(client.savePanelSettings).toHaveBeenCalledOnce());
-    expect(screen.getByRole('combobox', { name: 'Theme' })).toHaveTextContent('Dark');
-    expect(screen.getByRole('button', { name: 'Theme: Dark. Switch to Light' })).toBeVisible();
-    expect(window.localStorage.getItem('sing-box-panel.theme')).toBe('system');
+    expect(theme).toHaveTextContent('Light');
     await user.click(screen.getByRole('link', { name: 'Leave settings' }));
     await user.click(screen.getByRole('button', { name: 'Keep editing' }));
-    expect(document.documentElement).toHaveAttribute('data-theme', 'dark');
+    expect(theme).toHaveTextContent('Light');
     await user.click(screen.getByRole('link', { name: 'Leave settings' }));
     await user.click(screen.getByRole('button', { name: 'Discard changes' }));
-    await waitFor(() => expect(document.documentElement).toHaveAttribute('data-theme', 'system'));
-    expect(screen.getByRole('button', { name: 'Theme: System. Switch to Dark' })).toBeVisible();
+    expect(document.documentElement).toHaveAttribute('data-theme', 'dark');
+    expect(window.localStorage.getItem('sing-box-panel.theme')).toBe('dark');
     await user.click(screen.getByRole('link', { name: 'Open settings' }));
     await user.click(await screen.findByRole('tab', { name: 'Interface preferences' }));
     expect(screen.getByRole('combobox', { name: 'Theme' })).toHaveTextContent('System');

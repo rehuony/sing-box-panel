@@ -104,12 +104,17 @@ and owns the shared color, contrast, and radius tokens for every route. Login
 inherits the same page background and surface tokens as the panel. Authenticated
 settings loads and saves update this shared state; unsaved appearance previews
 are cleared when leaving settings or ending the session. The appearance selector
-and sidebar theme button read and update the same appearance state. While settings
-are open, either control edits the shared draft; saving persists it, and discarding
-restores the appearance from before editing. Outside settings, the sidebar shortcut
-updates the local theme preference, which the selector reflects on entry. System mode follows
-live OS changes. Without server metadata (Vite/demo), the default palette and
-locally stored light/dark/system preference provide the initial appearance.
+edits the server default in the settings draft; only saving settings writes it to
+the backend. The sidebar shortcut immediately changes a separate browser preference
+through a Zustand store with `persist`, using the existing `sing-box-panel.theme`
+localStorage key and raw light/dark/system values. It makes no API requests and
+never edits or dirties the settings draft. The store synchronously restores that
+choice on page load, overriding the server theme even after settings load, save,
+or discard. Missing, invalid, or inaccessible local values leave the server default
+in effect; loading a server default does not write a browser override. Color and
+radius still follow the server settings and their previews. An explicit local
+system choice follows live OS changes. Without server metadata (Vite/demo), the
+default palette provides the initial appearance beneath any local theme override.
 Session checks, panel initialization, and route loading share `LoadingState`:
 a centered circular breathing indicator and a status label, without a card or
 skeleton bars. It uses the active theme and stays still under reduced motion.
@@ -242,6 +247,9 @@ labels beside their controls; narrow forms place labels above controls. A sole t
 the navigation rail becomes slimmer and long labels wrap. Navigation and the active
 configuration panel scroll independently. Up/down keys navigate sections. Switching tabs
 keeps the same form mounted, preserving pending edits and optional-object state.
+Editing a discriminated object's fields also commits the displayed branch's required
+identity. Opening tabs alone does not enable optional settings. Existing branch
+fields remain visible when a missing discriminator needs repair.
 Scalar/list choices use Single value and List labels. Bare nested `anyOf` alternatives
 share one representation selector, with a distinct Byte sequence option where supported;
 existing strings, byte sequences and mixed lists retain their original representation.

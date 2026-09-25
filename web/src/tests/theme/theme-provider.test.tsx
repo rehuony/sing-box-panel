@@ -68,13 +68,13 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllGlobals());
 
 describe('theme contract', () => {
-  it('falls back to system for missing, invalid, or inaccessible preferences', () => {
-    expect(readThemePreference(window.localStorage)).toBe('system');
+  it('leaves the server default available for missing, invalid, or inaccessible preferences', () => {
+    expect(readThemePreference(window.localStorage)).toBeNull();
     window.localStorage.setItem(THEME_STORAGE_KEY, 'sepia');
-    expect(readThemePreference(window.localStorage)).toBe('system');
+    expect(readThemePreference(window.localStorage)).toBeNull();
     expect(readThemePreference({ getItem: () => {
       throw new Error('blocked');
-    } })).toBe('system');
+    } })).toBeNull();
   });
 
   it('resolves system appearance and cycles light, system, dark, then light', () => {
@@ -111,7 +111,6 @@ describe('themeProvider', () => {
     meta.name = 'sing-box-panel-appearance';
     meta.content = JSON.stringify(appearance);
     document.head.append(meta);
-    window.localStorage.setItem(THEME_STORAGE_KEY, 'dark');
     renderTheme();
 
     const assertTokens = (dark: boolean) => {
@@ -126,14 +125,14 @@ describe('themeProvider', () => {
     assertTokens(true);
   });
 
-  it('defaults to system, follows live system changes, and persists the preference', () => {
+  it('follows the system default without persisting it as a local override', () => {
     const colorScheme = installColorSchemePreference(true);
     const { unmount } = renderTheme();
 
     const trigger = screen.getByRole('button', { name: 'system' });
     expect(trigger).toHaveAttribute('data-resolved-theme', 'dark');
     expect(document.documentElement).toHaveClass('dark');
-    expect(window.localStorage.getItem(THEME_STORAGE_KEY)).toBe('system');
+    expect(window.localStorage.getItem(THEME_STORAGE_KEY)).toBeNull();
 
     colorScheme.set(false);
     expect(trigger).toHaveAttribute('data-resolved-theme', 'light');
@@ -163,12 +162,50 @@ describe('themeProvider', () => {
     expect(document.documentElement).not.toHaveClass('dark');
   });
 
-  it('restores invalid saved state as system', () => {
+  it('rehydrates the local choice ahead of server metadata after a reload', () => {
     installColorSchemePreference(false);
-    window.localStorage.setItem(THEME_STORAGE_KEY, 'invalid');
+    document.head.insertAdjacentHTML('beforeend', `<meta name="sing-box-panel-appearance" content='${JSON.stringify({ theme: 'dark', color: '#C65B13', radius: 8 })}'>`);
+    const { unmount } = renderTheme();
+    fireEvent.click(screen.getByRole('button', { name: 'dark' }));
+    expect(window.localStorage.getItem(THEME_STORAGE_KEY)).toBe('light');
+    unmount();
     renderTheme();
 
-    expect(screen.getByRole('button', { name: 'system' })).toBeInTheDocument();
-    expect(window.localStorage.getItem(THEME_STORAGE_KEY)).toBe('system');
+    expect(screen.getByRole('button', { name: 'light' })).toHaveAttribute('data-resolved-theme', 'light');
+    expect(document.documentElement.style.getPropertyValue('--appearance-color')).toBe('#C65B13');
+  });
+
+  it('treats an explicit local system choice as an override and follows OS changes', () => {
+    const colorScheme = installColorSchemePreference(false);
+    document.head.insertAdjacentHTML('beforeend', `<meta name="sing-box-panel-appearance" content='${JSON.stringify({ theme: 'dark', color: '#6D4ED1', radius: 12 })}'>`);
+    window.localStorage.setItem(THEME_STORAGE_KEY, 'system');
+    renderTheme();
+    expect(screen.getByRole('button', { name: 'system' })).toHaveAttribute('data-resolved-theme', 'light');
+    colorScheme.set(true);
+    expect(document.documentElement).toHaveClass('dark');
+  });
+
+  it('keeps theme switching functional when local storage is blocked', () => {
+    installColorSchemePreference(false);
+    const storage = vi.spyOn(window, 'localStorage', 'get').mockImplementation(() => {
+      throw new Error('blocked');
+    });
+    try {
+      renderTheme();
+      fireEvent.click(screen.getByRole('button', { name: 'system' }));
+      expect(document.documentElement).toHaveAttribute('data-theme', 'dark');
+    } finally {
+      storage.mockRestore();
+    }
+  });
+
+  it('ignores invalid local state and preserves the server default', () => {
+    installColorSchemePreference(false);
+    window.localStorage.setItem(THEME_STORAGE_KEY, 'invalid');
+    document.head.insertAdjacentHTML('beforeend', `<meta name="sing-box-panel-appearance" content='${JSON.stringify({ theme: 'dark', color: '#6D4ED1', radius: 12 })}'>`);
+    renderTheme();
+
+    expect(screen.getByRole('button', { name: 'dark' })).toBeInTheDocument();
+    expect(window.localStorage.getItem(THEME_STORAGE_KEY)).toBe('invalid');
   });
 });
