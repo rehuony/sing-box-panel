@@ -239,7 +239,7 @@ export function ServerPathPicker({ initialValue, mode, open, onSelect }: {
                           const Icon = entry.kind === 'directory' ? Folder : entry.kind === 'socket' ? Plug : File;
                           return (
                             <li key={entry.path} className='flex min-w-0 items-center gap-1'>
-                              <Button type='button' variant='ghost' data-path-entry className='server-path-picker__entry h-auto min-h-10 min-w-0 flex-1 justify-start gap-3 px-2.5 py-2' title={entry.path}
+                              <Button type='button' variant='ghost' data-path-entry className='server-path-picker__entry h-auto min-h-10 min-w-0 flex-1 justify-start gap-3 px-2.5 py-2 active:scale-100' title={entry.path}
                                 aria-label={`${entry.name}${entry.kind === 'directory' ? '/' : ''}`} aria-pressed={selected}
                                 disabled={blocked || editingLocation || !canSelect(entry)}
                                 onClick={() => picker.select(entry)}

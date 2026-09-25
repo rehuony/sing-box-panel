@@ -13,7 +13,7 @@ import (
 )
 
 func TestInbound114NativeClientConversion(t *testing.T) {
-	for _, exactVersion := range []string{"1.14.0", "1.14.1"} {
+	for _, exactVersion := range []string{"1.14.0", "1.14.1", "1.14.2"} {
 		t.Run(exactVersion, func(t *testing.T) {
 			for _, test := range []struct {
 				name, inbound string
@@ -37,6 +37,15 @@ func TestInbound114NativeClientConversion(t *testing.T) {
 				{"shadowsocks 2022", `{"type":"shadowsocks","method":"2022-blake3-aes-128-gcm","password":"server-key","users":[{"name":"alice","password":"user-key"}]}`, func(t *testing.T, out map[string]any) {
 					if out["password"] != "server-key:user-key" {
 						t.Fatal(out)
+					}
+				}},
+				{"hysteria2 realm stays server-side", `{"type":"hysteria2","users":[{"name":"alice","password":"test-password"}],"obfs":{"type":"salamander","password":"test-obfs"},"tls":{"enabled":true},"realm":{"server_url":"https://realm.example.com","token":"server-token","realm_id":"server-realm","stun_servers":["stun.example.com:3478"],"stun_domain_resolver":"server-dns"}}`, func(t *testing.T, out map[string]any) {
+					if out["type"] != "hysteria2" || out["password"] != "test-password" || out["realm"] != nil {
+						t.Fatal(out)
+					}
+					obfs := out["obfs"].(map[string]any)
+					if obfs["type"] != "salamander" || obfs["password"] != "test-obfs" {
+						t.Fatal(obfs)
 					}
 				}},
 				{"explicit SNI", `{"type":"anytls","users":[{"password":"test-password"}],"tls":{"enabled":true,"server_name":"tls.example.com","alpn":"h2","key_path":"/never/publish/private","certificate_path":"/never/publish/certificate"}}`, func(t *testing.T, out map[string]any) {

@@ -106,7 +106,7 @@ func TestPreviewAndCompileUseRawRevisionWithoutSchema(t *testing.T) {
 }
 
 func TestCompileUsesNativeSchemaByExactVersionBeforeBinaryCheck(t *testing.T) {
-	for _, exactVersion := range []string{"1.13.19", "1.13.20", "1.13.21", "1.14.0", "1.14.1"} {
+	for _, exactVersion := range []string{"1.13.19", "1.13.20", "1.13.21", "1.14.0", "1.14.1", "1.14.2"} {
 		t.Run(exactVersion, func(t *testing.T) {
 			ctx := context.Background()
 			database, err := store.Open(ctx, filepath.Join(t.TempDir(), "panel.db"))

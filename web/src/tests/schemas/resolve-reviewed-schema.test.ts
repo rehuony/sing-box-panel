@@ -38,9 +38,9 @@ async function contract(
   };
 }
 
-describe.each(['1.13.19', '1.13.20', '1.13.21', '1.14.0', '1.14.1'])('resolveReviewedSchema %s', (exactVersion) => {
+describe.each(['1.13.19', '1.13.20', '1.13.21', '1.14.0', '1.14.1', '1.14.2'])('resolveReviewedSchema %s', (exactVersion) => {
   it('fails closed for a version without a reviewed manifest entry', async () => {
-    await expect(resolveReviewedSchema(await contract(exactVersion, { exact_version: '1.14.2' }), '1.14.2'))
+    await expect(resolveReviewedSchema(await contract(exactVersion, { exact_version: '1.14.3' }), '1.14.3'))
       .rejects
       .toThrow('reviewed browser manifest');
   });

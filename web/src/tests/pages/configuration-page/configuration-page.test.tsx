@@ -24,7 +24,7 @@ import {
   testStartupArtifact,
 } from '@/tests/api/mock-api-client';
 
-const structuredVersions = ['1.14.0', '1.14.1'];
+const structuredVersions = ['1.14.0', '1.14.1', '1.14.2'];
 const reviewedSchema = reviewedSchemaManifest['1.14.0'];
 const toastAdd = vi.spyOn(toast, 'add');
 const savedFile: ConfigurationFile = {
@@ -80,7 +80,7 @@ describe('configurationPage', () => {
   it('explains an unsupported visual editor on hover and keyboard focus without an inline notice', async () => {
     const user = userEvent.setup();
     const unsupported = {
-      ...testArtifacts.items[0], exact_version: '1.14.2', reported_version: '1.14.2',
+      ...testArtifacts.items[0], exact_version: '1.14.3', reported_version: '1.14.3',
     };
     const client = createMockApiClient({
       listCoreArtifacts: vi.fn().mockResolvedValue({ items: [unsupported] }),
@@ -94,15 +94,15 @@ describe('configurationPage', () => {
     });
     const visualTab = screen.getByRole('tab', { name: 'Visual editor' });
     const trigger = visualTab.parentElement!;
-    expect(screen.queryByText(/No visual editor schema for 1\.14\.2/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/No visual editor schema for 1\.14\.3/)).not.toBeInTheDocument();
 
     await user.hover(trigger);
-    expect(await screen.findByText(/No visual editor schema for 1\.14\.2/)).toBeVisible();
+    expect(await screen.findByText(/No visual editor schema for 1\.14\.3/)).toBeVisible();
     await user.unhover(trigger);
-    await waitFor(() => expect(screen.queryByText(/No visual editor schema for 1\.14\.2/)).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByText(/No visual editor schema for 1\.14\.3/)).not.toBeInTheDocument());
 
     trigger.focus();
-    expect(await screen.findByText(/No visual editor schema for 1\.14\.2/)).toBeVisible();
+    expect(await screen.findByText(/No visual editor schema for 1\.14\.3/)).toBeVisible();
   });
 
   it('guides users to version management without blocking Advanced JSON when no core is installed', async () => {

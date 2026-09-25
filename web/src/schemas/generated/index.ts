@@ -99,6 +99,22 @@ export const reviewedSchemaManifest: Readonly<Record<string, ReviewedSchemaManif
       };
     },
   },
+  "1.14.2": {
+    exactVersion: "1.14.2",
+    schemaSHA256: "d57ce462cd6305f427aec339a3027840b0478ef3bcbcf699c5fcb5861827c641",
+    async load() {
+      const [schemaModule, validatorModule] = await Promise.all([
+        import("./schema-1_14_2.json"),
+        import("./validator-1_14_2"),
+      ]);
+      return {
+        exactVersion: "1.14.2",
+        schemaSHA256: "d57ce462cd6305f427aec339a3027840b0478ef3bcbcf699c5fcb5861827c641",
+        schema: schemaModule.default as unknown as RJSFSchema,
+        validateFns: validatorModule.default as unknown as ReviewedValidatorFunctions,
+      };
+    },
+  },
 };
 
 export function hasReviewedSchemaVersion(exactVersion: string): boolean {

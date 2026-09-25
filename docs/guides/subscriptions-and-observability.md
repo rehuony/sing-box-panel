@@ -80,7 +80,7 @@ configuration is never published. Rollback changes the applied bundle pointer
 and therefore restores the matching local-node input without re-projecting the
 current revision.
 
-The inbound registry accepts only the exact reviewed releases `1.13.19`, `1.13.20`, `1.13.21`, `1.14.0` and `1.14.1`; other versions fail closed. Each converter publishes
+The inbound registry accepts only the exact reviewed releases `1.13.19`, `1.13.20`, `1.13.21`, `1.14.0`, `1.14.1` and `1.14.2`; other versions fail closed. Each converter publishes
 only the client-usable inbound types available in that release and reports
 stable diagnostics for server-only or unsupported types. Multi-user inbounds
 become separate grantable credentials for user-scoped access. The panel public-host override, existing channel `public_host`, or detected
@@ -92,7 +92,7 @@ The current exact inbound contracts are:
 | Core | Convertible local inbound types |
 | --- | --- |
 | `1.13.19`, `1.13.20`, `1.13.21` | `mixed`, `socks`, `http`, `shadowsocks`, `vmess`, `trojan`, `hysteria`, `shadowtls`, `vless`, `tuic`, `hysteria2`, `anytls`, `naive` |
-| `1.14.0`, `1.14.1` | All 1.13.19 types plus `snell` |
+| `1.14.0`, `1.14.1`, `1.14.2` | All 1.13.19 types plus `snell` |
 
 For these versions, `direct`, `tun`, `redirect`, `tproxy`, and
 `cloudflared` are explicitly unpublishable. Any other inbound type currently
@@ -464,6 +464,10 @@ valid event; it does not start a parallel polling loop. Repeated collector
 timestamps do not replace the last valid transfer rate with zero. Linux host
 CPU/memory/disk metrics are separate from sing-box process samples; unsupported
 hosts report unavailable values.
+The top toolbar keeps uptime and transfer rates visible with their units when
+values are missing: `0s` (localized) and `0 B/s`, including compact layouts.
+These are display defaults; the runtime badge still reflects the observed state,
+and missing monitoring evidence remains unavailable in the underlying data.
 The metrics stream reports an initial collection failure as a Problem response,
 rather than an empty successful stream. Its reconnect deadline also bounds
 collection, and each write deadline is cleared after flushing. The browser

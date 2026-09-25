@@ -16,7 +16,8 @@ export function formatBytes(value: number | null | undefined, locale = 'en'): st
 }
 
 export function formatRate(value: number | null, locale = 'en', perSecond = '/s'): string {
-  return value === null ? EM_DASH : `${formatBytes(value, locale)}${perSecond}`;
+  const rate = value !== null && Number.isFinite(value) && value >= 0 ? value : 0;
+  return `${formatBytes(rate, locale)}${perSecond}`;
 }
 
 interface DurationLabels {
@@ -31,9 +32,9 @@ export function formatUptime(
   now: number,
   labels: DurationLabels,
 ): string {
-  if (startedAt === undefined) return EM_DASH;
+  if (startedAt === undefined) return `0${labels.second}`;
   const started = new Date(startedAt).getTime();
-  if (!Number.isFinite(started) || started > now) return EM_DASH;
+  if (!Number.isFinite(started) || started > now) return `0${labels.second}`;
   const seconds = Math.floor((now - started) / 1_000);
   const days = Math.floor(seconds / 86_400);
   const hours = Math.floor((seconds % 86_400) / 3_600);

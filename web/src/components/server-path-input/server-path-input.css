@@ -24,11 +24,6 @@
   transition-property: background-color, border-color, color;
 }
 
-.server-path-picker__entry:active {
-  scale: 1;
-  transform: none;
-}
-
 .server-path-picker__entry[aria-pressed='true'] {
   border-color: color-mix(in srgb, var(--primary) 30%, transparent);
   background: var(--accent);
