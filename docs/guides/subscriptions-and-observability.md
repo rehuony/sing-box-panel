@@ -464,6 +464,10 @@ valid event; it does not start a parallel polling loop. Repeated collector
 timestamps do not replace the last valid transfer rate with zero. Linux host
 CPU/memory/disk metrics are separate from sing-box process samples; unsupported
 hosts report unavailable values.
+The top toolbar keeps uptime and transfer rates visible with their units when
+values are missing: `0s` (localized) and `0 B/s`, including compact layouts.
+These are display defaults; the runtime badge still reflects the observed state,
+and missing monitoring evidence remains unavailable in the underlying data.
 The metrics stream reports an initial collection failure as a Problem response,
 rather than an empty successful stream. Its reconnect deadline also bounds
 collection, and each write deadline is cleared after flushing. The browser

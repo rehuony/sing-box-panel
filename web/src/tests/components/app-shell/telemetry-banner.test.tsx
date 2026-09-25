@@ -183,12 +183,54 @@ describe('telemetryBanner', () => {
     expect(await screen.findByTitle('Runtime evidence is stale')).toBeInTheDocument();
     expect(screen.queryByText('Stopped')).not.toBeInTheDocument();
     expect(screen.queryByText('6 KB')).not.toBeInTheDocument();
-    expect(screen.getAllByText('—').length).toBeGreaterThanOrEqual(3);
+    expect(screen.getByRole('group', { name: 'Uptime: 0s. Runtime evidence is stale' })).toBeInTheDocument();
+    expect(screen.getByRole('group', { name: 'Upload: 0 B/s' })).toBeInTheDocument();
+    expect(screen.getByRole('group', { name: 'Download: 0 B/s' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Start' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Stop' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Restart' })).not.toBeInTheDocument();
     expect(container.querySelector('.telemetry-banner__identity [data-slot="separator"]')).toBeNull();
     expect(screen.queryByRole('button', { name: 'Refresh runtime and traffic status' })).not.toBeInTheDocument();
+  });
+
+  it.each(['en', 'zh-CN'] as const)('keeps units in full and compact metrics before telemetry is available in %s', async language => {
+    await setAppLanguage(language);
+    const client = createMockApiClient();
+    const telemetry: TelemetryState = {
+      acceptRuntimeStatus: vi.fn(),
+      dashboardSnapshot: null,
+      dashboardStale: true,
+      dashboardError: null,
+      runtimeError: null,
+      trafficError: null,
+      runtimeStatus: null,
+      snapshot: null,
+      rates: { uploadBytesPerSecond: null, downloadBytesPerSecond: null },
+    };
+    const view = (value: TelemetryState) => (
+      <ApiClientProvider client={client}>
+        <TooltipProvider>
+          <SidebarProvider>
+            <TelemetryContext value={value}><TelemetryBanner /></TelemetryContext>
+          </SidebarProvider>
+        </TooltipProvider>
+      </ApiClientProvider>
+    );
+    const { rerender } = render(view(telemetry));
+    const uptime = screen.getByRole('group', { name: language === 'en' ? /^Uptime: 0s/ : /^运行时长: 0秒/ });
+    expect(uptime.querySelector('.telemetry-metric__full')).toHaveTextContent(language === 'en' ? '0s' : '0秒');
+    expect(uptime.querySelector('.telemetry-metric__compact')).toHaveTextContent('0s');
+    const upload = screen.getByRole('group', { name: language === 'en' ? 'Upload: 0 B/s' : '上行: 0 B/s' });
+    const download = screen.getByRole('group', { name: language === 'en' ? 'Download: 0 B/s' : '下行: 0 B/s' });
+    for (const metric of [upload, download]) {
+      expect(metric.querySelector('.telemetry-metric__full')).toHaveTextContent('0 B/s');
+      expect(metric.querySelector('.telemetry-metric__compact')).toHaveTextContent('0B/s');
+    }
+
+    // The first valid sample still has no rate until a second sample arrives.
+    rerender(view({ ...telemetry, runtimeStatus: runningStatus(), snapshot: testMetrics }));
+    expect(upload).toHaveAccessibleName(language === 'en' ? 'Upload: 0 B/s' : '上行: 0 B/s');
+    expect(download).toHaveAccessibleName(language === 'en' ? 'Download: 0 B/s' : '下行: 0 B/s');
   });
 
   it('shows verified identity, uptime and fresh rates', async () => {

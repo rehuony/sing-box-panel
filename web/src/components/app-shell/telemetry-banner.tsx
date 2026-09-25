@@ -313,12 +313,10 @@ export function TelemetryBanner() {
     minute: t('telemetry.unit.minute'),
     second: t('telemetry.unit.second'),
   };
-  const uptime = verifiedStopped ? `0${durationLabels.second}` : formatUptime(runningIdentity?.started_at, now, durationLabels);
-  const compactUptime = verifiedStopped
-    ? '0s'
-    : formatUptime(runningIdentity?.started_at, now, {
-      day: 'd', hour: 'h', minute: 'm', second: 's',
-    }).split(' ')[0];
+  const uptime = formatUptime(runningIdentity?.started_at, now, durationLabels);
+  const compactUptime = formatUptime(runningIdentity?.started_at, now, {
+    day: 'd', hour: 'h', minute: 'm', second: 's',
+  }).split(' ')[0];
   const parsedStartedAt = runningIdentity?.started_at === undefined
     ? Number.NaN
     : new Date(runningIdentity.started_at).getTime();
@@ -331,7 +329,7 @@ export function TelemetryBanner() {
             timeStyle: 'medium',
           }).format(new Date(parsedStartedAt)),
         })
-      : EM_DASH;
+      : runtimeDetail;
   const action = runtimeControl.state.action;
   const actionLabel = action === null ? '' : t(`telemetry.control.${action}`);
   const actionMessage = action === null || runtimeControl.state.phase === 'idle'
