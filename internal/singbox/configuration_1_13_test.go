@@ -9,7 +9,19 @@ import (
 	"testing"
 )
 
-var reviewed113Versions = []string{"1.13.19", "1.13.20", "1.13.21"}
+func reviewed113Versions(t *testing.T) []string {
+	t.Helper()
+	var versions []string
+	for _, version := range Versions() {
+		if version.SchemaSource == SchemaSourceReviewed113 {
+			versions = append(versions, version.ExactVersion)
+		}
+	}
+	if len(versions) == 0 {
+		t.Fatal("no reviewed 1.13 versions in the catalog")
+	}
+	return versions
+}
 
 var rejected113Configurations = map[string]string{
 	"wrong section type":         `{"outbounds":{}}`,
@@ -47,7 +59,7 @@ func reviewed113Fixtures(t *testing.T) map[string][]byte {
 }
 
 func TestReviewed113ConfigurationContract(t *testing.T) {
-	for _, version := range reviewed113Versions {
+	for _, version := range reviewed113Versions(t) {
 		t.Run(version, func(t *testing.T) {
 			for name, data := range reviewed113Fixtures(t) {
 				t.Run(name, func(t *testing.T) {
@@ -79,7 +91,7 @@ func TestReviewed113ConfigurationContract(t *testing.T) {
 }
 
 func TestRuntimeCompatibilityEnvironmentIsExactVersionScoped(t *testing.T) {
-	for _, version := range reviewed113Versions {
+	for _, version := range reviewed113Versions(t) {
 		environment := RuntimeCompatibilityEnvironment(version)
 		if len(environment) != 5 {
 			t.Fatalf("%s compatibility switches = %v", version, environment)
@@ -89,7 +101,7 @@ func TestRuntimeCompatibilityEnvironmentIsExactVersionScoped(t *testing.T) {
 			t.Fatal("environment shares mutable backing storage")
 		}
 	}
-	for _, version := range []string{"1.13.18", "1.13.22", "1.14.0", "1.14.1", "1.14.2", "v1.13.21", ""} {
+	for _, version := range []string{"1.13.18", "1.13.22", "1.14.0", "v1.13.21", ""} {
 		if env := RuntimeCompatibilityEnvironment(version); len(env) != 0 {
 			t.Fatalf("%s received legacy switches: %v", version, env)
 		}

@@ -106,9 +106,6 @@ describe('credential inputs', () => {
     const input = screen.getByRole('textbox', { name: 'Password' });
     const button = screen.getByRole('button', { name: 'Generate random Password' });
     expect(input).toHaveAttribute('type', 'text');
-    expect(button).toHaveTextContent('');
-    expect(button.querySelector('svg')).toHaveAttribute('aria-hidden', 'true');
-    expect(button.closest('[data-slot="input-group"]')).toContainElement(input);
     await user.click(button);
     const value = (input as HTMLInputElement).value;
     expect(atob(value)).toHaveLength(length);

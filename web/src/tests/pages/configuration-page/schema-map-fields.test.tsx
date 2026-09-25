@@ -20,8 +20,8 @@ let resolution: ReviewedSchemaResolution;
 let schema: RJSFSchema;
 
 beforeAll(async () => {
-  const reviewed = await reviewedEntry?.load();
-  if (!reviewed) return;
+  expect(reviewedEntry, 'Missing committed 1.14.0 Schema fixture').toBeDefined();
+  const reviewed = await reviewedEntry.load();
   resolution = {
     schema: reviewed.schema,
     createValidator: (root) => createPrecompiledValidator(reviewed.validateFns as never, root),
@@ -50,7 +50,7 @@ function Harness({ initial }: { initial: Record<string, unknown> }) {
   );
 }
 
-describe.skipIf(!reviewedEntry)('native map and nested union fields', () => {
+describe('native map and nested union fields', () => {
   it('creates text values, renames keys and removes entries without object placeholders', async () => {
     const user = userEvent.setup();
     render(<Harness initial={{ interface_address: { eth0: '192.0.2.1' }, future: { keep: true } }} />);

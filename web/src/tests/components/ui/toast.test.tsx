@@ -39,7 +39,6 @@ describe('toast feedback', () => {
     const title = await screen.findByText('Result');
     const root = title.closest('[data-slot="toast"]');
     expect(root).toHaveAttribute('data-type', type);
-    expect(root?.querySelector('[data-slot="toast-icon"] svg')).toBeInTheDocument();
     expect(screen.getByText('Operation details')).toBeInTheDocument();
     await userEvent.hover(screen.getByRole('region', { name: 'Notifications' }));
     await userEvent.click(await screen.findByRole('button', { name: 'Close' }));

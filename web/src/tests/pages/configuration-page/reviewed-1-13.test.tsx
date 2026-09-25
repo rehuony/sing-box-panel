@@ -13,6 +13,7 @@ import type { CanonicalDraft } from '@/pages/configuration-page/use-canonical-co
 import '@/i18n';
 import { reviewedSchemaManifest } from '@/schemas/generated';
 import { resolveReviewedSchema } from '@/schemas/resolve-reviewed-schema';
+import { representativeSchemaVersions } from '@/tests/schemas/schema-fixtures';
 import { SchemaSectionForm } from '@/pages/configuration-page/schema-section-form';
 import { mergeSchemaKnownData, projectSchemaKnownData } from '@/pages/configuration-page/schema-ui';
 import { ConfigurationSectionEditor } from '@/pages/configuration-page/configuration-section-editor';
@@ -61,7 +62,7 @@ function CollectionHarness({ resolution, text }: { resolution: ReviewedSchemaRes
   );
 }
 
-describe.each(['1.13.19', '1.13.20', '1.13.21'])('reviewed 1.13 editor %s', (version) => {
+describe.each(representativeSchemaVersions('reviewed-1.13'))('reviewed 1.13 editor %s', (version) => {
   it('validates every section and preserves DNS, TLS, rules and protocols through form projection', async () => {
     const loaded = await reviewedSchemaManifest[version].load();
     const resolution = await resolveReviewedSchema({

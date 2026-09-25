@@ -105,8 +105,33 @@ func TestPreviewAndCompileUseRawRevisionWithoutSchema(t *testing.T) {
 
 }
 
-func TestCompileUsesNativeSchemaByExactVersionBeforeBinaryCheck(t *testing.T) {
-	for _, exactVersion := range []string{"1.13.19", "1.13.20", "1.13.21", "1.14.0", "1.14.1", "1.14.2"} {
+// Exact-version dispatch is covered in singbox; these workflows depend on schema content.
+func representativeSchemaVersions(t *testing.T, source string) []string {
+	t.Helper()
+	seen := make(map[string]bool)
+	var versions []string
+	for _, version := range singbox.Versions() {
+		if version.SchemaSource == "" || source != "" && version.SchemaSource != source {
+			continue
+		}
+		contract, err := singbox.ConfigurationSchema(version.ExactVersion)
+		if err != nil {
+			t.Fatal(err)
+		}
+		key := version.SchemaSource + ":" + contract.SchemaSHA256
+		if !seen[key] {
+			seen[key] = true
+			versions = append(versions, version.ExactVersion)
+		}
+	}
+	if len(versions) == 0 {
+		t.Fatalf("no configuration schemas for source %q", source)
+	}
+	return versions
+}
+
+func TestCompileValidatesSchemaBeforeBinaryCheck(t *testing.T) {
+	for _, exactVersion := range representativeSchemaVersions(t, "") {
 		t.Run(exactVersion, func(t *testing.T) {
 			ctx := context.Background()
 			database, err := store.Open(ctx, filepath.Join(t.TempDir(), "panel.db"))
@@ -158,7 +183,7 @@ func TestCompileUsesNativeSchemaByExactVersionBeforeBinaryCheck(t *testing.T) {
 }
 
 func TestReviewed113CompileAndRestartPreserveNullsAndDefaults(t *testing.T) {
-	for _, version := range []string{"1.13.19", "1.13.20", "1.13.21"} {
+	for _, version := range representativeSchemaVersions(t, singbox.SchemaSourceReviewed113) {
 		for _, fixture := range []string{"null-sections.json", "log-defaults.json", "log-null-fields.json"} {
 			t.Run(version+"/"+fixture, func(t *testing.T) {
 				ctx := context.Background()

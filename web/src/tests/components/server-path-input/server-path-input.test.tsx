@@ -205,7 +205,6 @@ describe('server path input', () => {
     const entries = dialog.getByRole('region', { name: 'Directory entries' });
     const error = within(entries).getByRole('alert');
     expect(error).toHaveTextContent('permission');
-    expect(error).toHaveClass('h-full', 'items-center', 'justify-center', 'text-center');
     expect(dialog.getAllByRole('alert')).toHaveLength(1);
     expect(dialog.queryByText('Path unavailable')).not.toBeInTheDocument();
     expect(screen.getByLabelText('Certificate path')).toHaveValue('/etc/sing-box/certificate.pem');

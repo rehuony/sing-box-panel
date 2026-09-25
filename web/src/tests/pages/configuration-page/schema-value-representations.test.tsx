@@ -20,8 +20,8 @@ let resolution: ReviewedSchemaResolution;
 let tlsFields: Record<string, RJSFSchema>;
 
 beforeAll(async () => {
-  const reviewed = await reviewedEntry?.load();
-  if (!reviewed) return;
+  expect(reviewedEntry, 'Missing committed 1.14.0 Schema fixture').toBeDefined();
+  const reviewed = await reviewedEntry.load();
   resolution = {
     schema: reviewed.schema,
     createValidator: (root) => createPrecompiledValidator(reviewed.validateFns as never, root),
@@ -43,7 +43,7 @@ function Harness({ field, initial, disabled = false }: { field: string; initial:
   );
 }
 
-describe.skipIf(!reviewedEntry)('schema value representations', () => {
+describe('schema value representations', () => {
   it.each(['alpn', 'certificate', 'client_certificate', 'client_certificate_path', 'cipher_suites'])(
     'uses a single Single value / List selector for %s', async (field) => {
       const user = userEvent.setup();

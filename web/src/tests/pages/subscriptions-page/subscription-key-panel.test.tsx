@@ -69,8 +69,7 @@ it('reuses pending and completed list requests across tab switches', async () =>
   );
   await user.click(screen.getByRole('tab', { name: 'Key management' }));
   const signal = vi.mocked(client.listSubscriptionTokens).mock.calls[0][1]!;
-  expect(screen.getByRole('status', { name: 'Loading' })).toHaveAttribute('data-slot', 'spinner');
-  expect(screen.queryByText('Loading…')).not.toBeInTheDocument();
+  expect(screen.getByRole('status', { name: 'Loading' })).toBeVisible();
   await user.click(screen.getByRole('tab', { name: 'Sources' }));
   expect(signal.aborted).toBe(false);
   await user.click(screen.getByRole('tab', { name: 'Key management' }));

@@ -40,7 +40,7 @@ func TestInbound113ContractRegistry(t *testing.T) {
 		{typeID: "hysteria2", extra: `,"users":[{"name":"one","password":"pass"}],"tls":{"enabled":true}`},
 		{typeID: "anytls", extra: `,"users":[{"name":"one","password":"pass"}],"tls":{"enabled":true}`},
 	}
-	for _, version := range reviewed113Versions {
+	for _, version := range reviewed113Versions(t) {
 		for _, test := range tests {
 			t.Run(version+"/"+test.typeID, func(t *testing.T) {
 				document := []byte(fmt.Sprintf(`{"inbounds":[{"type":%q,"tag":%q,"listen":"::","listen_port":443%s}]}`,

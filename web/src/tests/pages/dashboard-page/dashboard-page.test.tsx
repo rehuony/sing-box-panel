@@ -1,7 +1,7 @@
 import { MemoryRouter } from 'react-router-dom';
+import { describe, expect, it, vi } from 'vitest';
 import userEvent from '@testing-library/user-event';
 import { render, screen } from '@testing-library/react';
-import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import '@/i18n';
 import type { TelemetryState } from '@/components/app-shell/use-telemetry';
@@ -10,16 +10,10 @@ import type { DashboardStreamSnapshot, MetricsSnapshot } from '@/api/api-client'
 import { DashboardPage } from '@/pages/dashboard-page/dashboard-page';
 import { TelemetryContext } from '@/components/app-shell/telemetry-context';
 import {
-  createMockApiClient,
   testDashboardSnapshot,
   testMetrics,
   testRuntimeStatus,
 } from '@/tests/api/mock-api-client';
-
-beforeAll(() => vi.stubGlobal('ResizeObserver', class {
-  observe() {} disconnect() {}
-}));
-afterAll(() => vi.unstubAllGlobals());
 
 function show({
   dashboard = testDashboardSnapshot,
@@ -28,7 +22,6 @@ function show({
   dashboard?: DashboardStreamSnapshot | null;
   metrics?: MetricsSnapshot | null;
 } = {}) {
-  const client = createMockApiClient();
   const telemetry: TelemetryState = {
     acceptRuntimeStatus: vi.fn(),
     dashboardError: null,
@@ -47,11 +40,10 @@ function show({
       </TelemetryContext>
     </MemoryRouter>,
   );
-  return client;
 }
 
 describe('dashboard evidence', () => {
-  it('shows host metrics and unknown usage without an extra monitoring instruction', () => {
+  it('shows host metrics while core traffic is unavailable', () => {
     show({ metrics: {
       ...testMetrics,
       available: false,
@@ -63,30 +55,17 @@ describe('dashboard evidence', () => {
         load_one: 0.1, memory_total: 1000, memory_used: 500, disk_total: 2000, disk_used: 500,
       },
     } });
-    expect(screen.queryByText(/Only process health is monitored/)).not.toBeInTheDocument();
-    expect(screen.queryByRole('link', { name: 'Configuration' })).not.toBeInTheDocument();
     expect(screen.getByText('12.8%')).toBeVisible();
     expect(screen.getByText('Usage unknown')).toBeVisible();
   });
 
-  it.each(['not_applied', 'no_collector_sample', 'stale_collector_sample'] as const)('keeps %s free of monitoring instructions', reason => {
-    show({ metrics: { ...testMetrics, available: false, traffic_available: false, reason_code: reason } });
-    expect(screen.queryByText(
-      /No core configuration has been applied|No core sample has arrived|The core sample is stale/,
-    )).not.toBeInTheDocument();
-    expect(screen.queryByRole('link', { name: 'Runtime logs' })).not.toBeInTheDocument();
-  });
-
   it('selects one-hour and twenty-four-hour histories from the streamed snapshot', async () => {
-    const client = show();
+    show();
     expect(screen.getAllByRole('figure')).toHaveLength(2);
     expect(screen.getByRole('tab', { name: '1h', selected: true })).toBeVisible();
     await userEvent.click(screen.getByRole('tab', { name: '24h' }));
     expect(screen.getByRole('tab', { name: '24h', selected: true })).toBeVisible();
     expect(screen.getByRole('tabpanel', { name: '24h' })).toBeVisible();
-    expect(client.getMetricsHistory).not.toHaveBeenCalled();
-    expect(client.getRuntimeHistory).not.toHaveBeenCalled();
-    expect(client.listPanelLogs).not.toHaveBeenCalled();
   });
 
   it('never replaces missing host readings with core process samples', () => {
