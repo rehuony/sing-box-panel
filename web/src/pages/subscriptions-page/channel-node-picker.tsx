@@ -37,7 +37,8 @@ export function ChannelNodePicker({ nodes, group, format, onClose, onAdd }: Prop
     const builtin = id === 'builtin:direct' ? 'direct' : id === 'builtin:reject' ? 'reject' : undefined;
     const node = catalog.get(id);
     if (!builtin && !node) return [];
-    const unsupported = builtin === 'reject' && format !== 'mihomo';
+    const unsupported = (builtin === 'reject' && format === 'sing-box')
+      || (Boolean(builtin) && format === 'loon' && group.type !== 'select');
     const label = builtin ? builtin.toUpperCase() : `${node!.name} ${node!.source_name}`;
     if (!matches(builtin ? `${builtin} ${t(`channels.${builtin}`)}` : `${label} ${node!.type}`)) return [];
     return [{

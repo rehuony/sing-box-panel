@@ -328,6 +328,7 @@ export function SubscriptionChannelPanel({ active = true, toolbarTarget }: {
               items={[
                 { value: 'sing-box', label: t('subscriptions.channel.format.singBox') },
                 { value: 'mihomo', label: t('subscriptions.channel.format.mihomo') },
+                { value: 'loon', label: t('subscriptions.channel.format.loon') },
               ]}
             />
           </div>

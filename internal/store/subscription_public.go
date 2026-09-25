@@ -208,11 +208,11 @@ func loadSubscriptionPublicationState(
 	tx *sql.Tx,
 	state *PublicSubscriptionState,
 	channelID string,
-	requireEnabledChannel bool,
+	publicDelivery bool,
 ) error {
 	var err error
 	state.Channel, err = getSubscriptionChannel(ctx, tx, channelID)
-	if err != nil || requireEnabledChannel && !state.Channel.Enabled {
+	if err != nil || publicDelivery && !state.Channel.Enabled {
 		return ErrSubscriptionChannelNotFound
 	}
 	state.AppliedBundleID, state.Startup, state.Core, err = loadAppliedSubscriptionCore(ctx, tx)
@@ -247,7 +247,9 @@ func loadSubscriptionPublicationState(
 	if err != nil {
 		return err
 	}
-	if state.AppliedBundleID == "" && len(state.Sources) == 0 && len(state.ManualNodes) == 0 {
+	// Management preview can validate a draft before the first source exists.
+	// Public delivery retains its existing publication availability boundary.
+	if publicDelivery && state.AppliedBundleID == "" && len(state.Sources) == 0 && len(state.ManualNodes) == 0 {
 		return ErrNoAppliedBundle
 	}
 	return nil

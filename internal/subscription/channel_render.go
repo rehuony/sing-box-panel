@@ -32,6 +32,7 @@ func RenderPolicyNodes(nodes []Node, channel RenderChannel, policy *ChannelPolic
 	}
 	diagnostics := []RenderDiagnostic{}
 	native := []map[string]any{}
+	loonNodes := []loonNode{}
 	available := map[string]string{}
 	if channel.Format == RenderFormatSingBox {
 		result, issues := renderSingBox(startupNodes{values: values}, nil)
@@ -42,6 +43,15 @@ func RenderPolicyNodes(nodes []Node, channel RenderChannel, policy *ChannelPolic
 		}
 		for _, value := range root["outbounds"].([]any) {
 			native = append(native, value.(map[string]any))
+		}
+	} else if channel.Format == RenderFormatLoon {
+		for _, value := range values {
+			converted, code := convertLoon(value)
+			if code != "" {
+				diagnostics = append(diagnostics, diagnostic(channel.Format, CollectionOutbounds, value.index, code))
+				continue
+			}
+			loonNodes = append(loonNodes, converted)
 		}
 	} else {
 		for _, value := range values {
@@ -67,6 +77,9 @@ func RenderPolicyNodes(nodes []Node, channel RenderChannel, policy *ChannelPolic
 	survivors := map[string]bool{}
 	for _, node := range native {
 		survivors[node[nameKey].(string)] = true
+	}
+	for _, node := range loonNodes {
+		survivors[node.name] = true
 	}
 	for id, name := range ids {
 		if survivors[name] {
@@ -106,11 +119,16 @@ func RenderPolicyNodes(nodes []Node, channel RenderChannel, policy *ChannelPolic
 		}
 		generated["outbounds"] = outbounds
 		generated["route"] = map[string]any{"rules": builder.rules, "rule_set": builder.sets, "final": final}
-	} else {
+	} else if channel.Format == RenderFormatMihomo {
 		builder.rules = append(builder.rules, "MATCH,"+final)
 		generated = map[string]any{"proxies": native, "proxy-groups": groupNodes, "rule-providers": builder.providers, "rules": builder.rules}
 	}
-	content, err := template.render(channel.Format, generated)
+	var content []byte
+	if channel.Format == RenderFormatLoon {
+		content = renderLoonChannel(template.loon, loonNodes, groupNodes, builder.rules, builder.loonRemote, final)
+	} else {
+		content, err = template.render(channel.Format, generated)
+	}
 	if err != nil {
 		return RenderResult{}, err
 	}
@@ -120,8 +138,10 @@ func RenderPolicyNodes(nodes []Node, channel RenderChannel, policy *ChannelPolic
 	media := "application/json"
 	if channel.Format == RenderFormatMihomo {
 		media = "application/yaml; charset=utf-8"
+	} else if channel.Format == RenderFormatLoon {
+		media = "text/plain; charset=utf-8"
 	}
-	return RenderResult{Format: channel.Format, MediaType: media, Content: content, NodeCount: len(native), Diagnostics: diagnostics}, nil
+	return RenderResult{Format: channel.Format, MediaType: media, Content: content, NodeCount: len(native) + len(loonNodes), Diagnostics: diagnostics}, nil
 }
 
 func prepareChannelNodes(nodes []Node, channel RenderChannel, p *ChannelPolicy) ([]outbound, map[string]string, error) {
@@ -173,6 +193,9 @@ func prepareChannelNodes(nodes []Node, channel RenderChannel, p *ChannelPolicy) 
 		})
 	}
 	used := map[string]bool{"direct": true, "DIRECT": true, "REJECT": true, "GLOBAL": true}
+	if channel.Format == RenderFormatLoon {
+		used["PROXY"] = true
+	}
 	for _, g := range p.Groups {
 		used[g.Name] = true
 	}
@@ -201,6 +224,9 @@ func prepareChannelNodes(nodes []Node, channel RenderChannel, p *ChannelPolicy) 
 		}
 		name := p.Organizer.Prefix + channelNodeName(node)
 		if strings.ContainsAny(name, "\r\n,\x00") || len(name) > 512 {
+			return nil, nil, policyError("policy.selection", "invalid_node_name")
+		}
+		if channel.Format == RenderFormatLoon && !validLoonPolicyName(name) {
 			return nil, nil, policyError("policy.selection", "invalid_node_name")
 		}
 		if used[name] {
@@ -240,6 +266,7 @@ type channelRuleBuilder struct {
 	rules      []any
 	providers  map[string]any
 	sets       []any
+	loonRemote []string
 }
 
 func (b *channelRuleBuilder) exitName(exit RouteExit, group *RuleGroup) string {
@@ -359,6 +386,10 @@ func (b *channelRuleBuilder) addRule(rule ChannelRule, group *RuleGroup) {
 	}
 	if kind == "remote" {
 		remote := rule.Remote
+		if b.format == RenderFormatLoon {
+			b.loonRemote = append(b.loonRemote, EffectiveRuleURL(remote.URL, remote.Accelerated)+",policy="+target+",enabled=true")
+			return
+		}
 		name := "rules-" + group.ID + "-" + rule.ID
 		if b.format == RenderFormatSingBox {
 			b.sets = append(b.sets, map[string]any{"type": "remote", "tag": name, "format": remote.Format, "url": EffectiveRuleURL(remote.URL, remote.Accelerated), "update_interval": fmt.Sprintf("%ds", remote.UpdateInterval), "download_detour": "direct"})

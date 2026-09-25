@@ -22,6 +22,7 @@ import { SelectField } from '@/components/select-field';
 import { ToolbarActions } from '@/components/workspace-toolbar';
 import { useUnsavedChanges } from '@/hooks/use-unsaved-changes';
 import { Field, FieldGroup, FieldLabel } from '@/components/ui/field';
+import { channelTemplateDefaults } from '@/constants/channel-templates';
 import { describeRequestError, ErrorNotice } from '@/components/error-notice';
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty';
 import {
@@ -55,7 +56,8 @@ interface Props {
 export function ChannelWorkspace({ active = true, toolbarTarget, channel, nodes, onBack, onSaved }: Props) {
   const { t } = useTranslation();
   const client = useApiClient();
-  const [policy, setPolicy] = useState(() => initialChannelPolicy(channel, nodes));
+  const [initialPolicy] = useState(() => initialChannelPolicy(channel, nodes));
+  const [policy, setPolicy] = useState(initialPolicy);
   const [config, setConfig] = useState(channel.config);
   const [format, setFormat] = useState<SubscriptionFormat>(channel.format);
   const [name, setName] = useState(channel.name);
@@ -80,7 +82,7 @@ export function ChannelWorkspace({ active = true, toolbarTarget, channel, nodes,
   const settingsDirty = groupSettings !== null
     && JSON.stringify(groupSettings) !== JSON.stringify(policy.groups.find(value => value.id === groupSettings.id));
   const confirmNavigation = useUnsavedChanges(dirty || settingsDirty, () => {
-    const restoredPolicy = initialChannelPolicy(channel, nodes);
+    const restoredPolicy = structuredClone(channel.config.policy ?? initialPolicy);
     setPolicy(restoredPolicy);
     setConfig(channel.config);
     setFormat(channel.format);
@@ -98,19 +100,24 @@ export function ChannelWorkspace({ active = true, toolbarTarget, channel, nodes,
   const group = policy.groups.find((value) => value.id === groupID) ?? policy.groups[0];
   const groupIndex = group ? policy.groups.indexOf(group) : -1;
   const finalGroup = policy.default_exit.kind === 'group' && policy.default_exit.id === group?.id;
-  const conflict = format !== 'loon' && incompatiblePolicy(policy, format);
+  const conflict = incompatiblePolicy(policy, format);
   function policyConfig(p: ChannelPolicy) {
-    return { ...config, ...(format === 'loon' ? {} : { policy: p }) };
+    // Metadata-only edits must not upgrade persisted legacy channels.
+    const unchangedLegacy = !channel.config.policy && format === channel.format
+      && JSON.stringify(p) === JSON.stringify(initialPolicy);
+    return { ...config, policy: unchangedLegacy ? undefined : p };
   }
-  async function render(p: ChannelPolicy = policy) {
-    return client.previewSubscriptionChannel(channel.id, '', lifeRef.current?.signal, {
+  async function render(p: ChannelPolicy = policy, signal = lifeRef.current?.signal) {
+    return client.previewSubscriptionChannel(channel.id, '', signal, {
       format,
       config: policyConfig(p),
     });
   }
   async function persist(p: ChannelPolicy = policy) {
-    if (!name.trim() || (format !== 'loon' && p.groups.some((value) => !value.name.trim()))) throw new Error(t('channels.nameRequired'));
+    if (!name.trim() || p.groups.some((value) => !value.name.trim())) throw new Error(t('channels.nameRequired'));
     p = { ...p, groups: p.groups.map((value) => ({ ...value, name: value.name.trim() })) };
+    if (client.supportsNativeChannelValidation) await render(p);
+    if (lifeRef.current?.signal.aborted) return;
     const result = await client.updateSubscriptionChannel(
       channel.id,
       {
@@ -199,103 +206,99 @@ export function ChannelWorkspace({ active = true, toolbarTarget, channel, nodes,
       </ToolbarActions>
       <div className='channel-rules-workspace'>
         {conflict && <ErrorNotice error={t('channels.formatConflict')} />}
-        {format === 'loon'
-          ? <p>{t('channels.legacy')}</p>
-          : (
-              <div className='channel-policy-layout'>
-                <aside className='channel-group-sidebar' aria-label={t('channels.groups')}>
-                  <div className='channel-group-sidebar-heading'>
-                    <h2>{t('channels.groups')}</h2>
-                    <Badge variant='secondary'>{policy.groups.length}</Badge>
-                    <Button size='icon-sm' variant='ghost' aria-label={t('channels.addGroup')} title={t('channels.addGroup')} disabled={busy} onClick={addGroup}><CirclePlus /></Button>
-                  </div>
-                  <div className='channel-group-list'>
-                    {policy.groups.map((value) => (
-                      <div className='channel-group-card' key={value.id}>
-                        <Button
-                          variant='ghost'
-                          className='channel-group-item'
-                          size='content'
-                          aria-pressed={group?.id === value.id}
-                          disabled={busy}
-                          onClick={() => setGroupID(value.id)}
-                        >
-                          <span className='channel-group-item-name' title={`${value.name} · ${t(`channels.groupTypes.${value.type}`)}`}>
-                            {value.type === 'url-test' ? <Gauge aria-hidden='true' /> : value.type === 'fallback' ? <ListRestart aria-hidden='true' /> : <MousePointer2 aria-hidden='true' />}
-                            {value.name || t('channels.groupName')}
-                          </span>
-                          <span className='channel-group-metadata'>
-                            <span className='channel-group-summary' title={t('channels.groupSummary', { nodes: value.node_ids.length + value.builtin_nodes.length, rules: value.rules.length })}>
-                              {t('channels.groupSummary', { nodes: value.node_ids.length + value.builtin_nodes.length, rules: value.rules.length })}
-                            </span>
-                            <span className='channel-group-badges'>
-                              {!value.enabled && <Badge variant='secondary'>{t('channels.disabled')}</Badge>}
-                              {policy.default_exit.kind === 'group' && policy.default_exit.id === value.id && <Badge variant='success'>{t('channels.finalExit')}</Badge>}
-                            </span>
-                          </span>
-                        </Button>
-                        <Button
-                          size='icon-sm' variant='ghost' className='channel-group-settings'
-                          aria-label={t('channels.groupSettings', { name: value.name })}
-                          title={t('channels.groupSettings', { name: value.name })}
-                          aria-haspopup='dialog' disabled={busy}
-                          onClick={() => setGroupSettings(structuredClone(value))}
-                        >
-                          <Settings2 />
-                        </Button>
-                      </div>
-                    ))}
-                  </div>
-                  {group && (
-                    <div className='channel-group-actions'>
-                      <Button size='icon-sm' variant='ghost' aria-label={t('channels.moveGroupUp')} title={t('channels.moveGroupUp')} disabled={busy || groupIndex === 0} onClick={() => reorder(groupIndex, -1)}><ArrowUp /></Button>
-                      <Button size='icon-sm' variant='ghost' aria-label={t('channels.moveGroupDown')} title={t('channels.moveGroupDown')} disabled={busy || groupIndex === policy.groups.length - 1} onClick={() => reorder(groupIndex, 1)}><ArrowDown /></Button>
-                      <Button
-                        size='icon-sm' variant='ghost' className='channel-group-final-exit'
-                        aria-label={t(finalGroup ? 'channels.clearFinalExit' : 'channels.setFinalExit')}
-                        title={t(finalGroup ? 'channels.clearFinalExit' : 'channels.setFinalExit')}
-                        aria-pressed={finalGroup} disabled={busy}
-                        onClick={() => setPolicy((current) => ({
-                          ...current,
-                          groups: current.groups.map((item) =>
-                            item.id === group.id ? { ...item, enabled: true } : item),
-                          default_exit: current.default_exit.kind === 'group' && current.default_exit.id === group.id
-                            ? { kind: 'direct' }
-                            : { kind: 'group', id: group.id },
-                        }))}
-                      >
-                        <Flag fill={finalGroup ? 'currentColor' : 'none'} />
-                      </Button>
-                      <Button variant='ghost' size='icon-sm' className='channel-delete-action' aria-label={t('channels.deleteGroup')} title={t('channels.deleteGroup')} disabled={busy} onClick={() => {
-                        if (policy.default_exit.kind === 'group' && policy.default_exit.id === group.id) {
-                          toast.add({ title: t('channels.groupExitInUse'), type: 'error' });
-                          return;
-                        }
-                        setRemoveGroup(group.id);
-                      }}>
-                        <Trash2 />
-                      </Button>
-                    </div>
-                  )}
-                </aside>
-                {group
-                  ? (
-                      <ChannelGroupEditor
-                        key={group.id} group={group} nodes={nodes}
-                        format={format} busy={busy} onChange={updateGroup}
-                      />
-                    )
-                  : (
-                      <Empty className='channel-group-empty'>
-                        <EmptyHeader>
-                          <EmptyMedia variant='icon'><Layers3 /></EmptyMedia>
-                          <EmptyTitle>{t('channels.noGroups')}</EmptyTitle>
-                          <EmptyDescription>{t('channels.noGroupsHint')}</EmptyDescription>
-                        </EmptyHeader>
-                      </Empty>
-                    )}
+        <div className='channel-policy-layout'>
+          <aside className='channel-group-sidebar' aria-label={t('channels.groups')}>
+            <div className='channel-group-sidebar-heading'>
+              <h2>{t('channels.groups')}</h2>
+              <Badge variant='secondary'>{policy.groups.length}</Badge>
+              <Button size='icon-sm' variant='ghost' aria-label={t('channels.addGroup')} title={t('channels.addGroup')} disabled={busy} onClick={addGroup}><CirclePlus /></Button>
+            </div>
+            <div className='channel-group-list'>
+              {policy.groups.map((value) => (
+                <div className='channel-group-card' key={value.id}>
+                  <Button
+                    variant='ghost'
+                    className='channel-group-item'
+                    size='content'
+                    aria-pressed={group?.id === value.id}
+                    disabled={busy}
+                    onClick={() => setGroupID(value.id)}
+                  >
+                    <span className='channel-group-item-name' title={`${value.name} · ${t(`channels.groupTypes.${value.type}`)}`}>
+                      {value.type === 'url-test' ? <Gauge aria-hidden='true' /> : value.type === 'fallback' ? <ListRestart aria-hidden='true' /> : <MousePointer2 aria-hidden='true' />}
+                      {value.name || t('channels.groupName')}
+                    </span>
+                    <span className='channel-group-metadata'>
+                      <span className='channel-group-summary' title={t('channels.groupSummary', { nodes: value.node_ids.length + value.builtin_nodes.length, rules: value.rules.length })}>
+                        {t('channels.groupSummary', { nodes: value.node_ids.length + value.builtin_nodes.length, rules: value.rules.length })}
+                      </span>
+                      <span className='channel-group-badges'>
+                        {!value.enabled && <Badge variant='secondary'>{t('channels.disabled')}</Badge>}
+                        {policy.default_exit.kind === 'group' && policy.default_exit.id === value.id && <Badge variant='success'>{t('channels.finalExit')}</Badge>}
+                      </span>
+                    </span>
+                  </Button>
+                  <Button
+                    size='icon-sm' variant='ghost' className='channel-group-settings'
+                    aria-label={t('channels.groupSettings', { name: value.name })}
+                    title={t('channels.groupSettings', { name: value.name })}
+                    aria-haspopup='dialog' disabled={busy}
+                    onClick={() => setGroupSettings(structuredClone(value))}
+                  >
+                    <Settings2 />
+                  </Button>
+                </div>
+              ))}
+            </div>
+            {group && (
+              <div className='channel-group-actions'>
+                <Button size='icon-sm' variant='ghost' aria-label={t('channels.moveGroupUp')} title={t('channels.moveGroupUp')} disabled={busy || groupIndex === 0} onClick={() => reorder(groupIndex, -1)}><ArrowUp /></Button>
+                <Button size='icon-sm' variant='ghost' aria-label={t('channels.moveGroupDown')} title={t('channels.moveGroupDown')} disabled={busy || groupIndex === policy.groups.length - 1} onClick={() => reorder(groupIndex, 1)}><ArrowDown /></Button>
+                <Button
+                  size='icon-sm' variant='ghost' className='channel-group-final-exit'
+                  aria-label={t(finalGroup ? 'channels.clearFinalExit' : 'channels.setFinalExit')}
+                  title={t(finalGroup ? 'channels.clearFinalExit' : 'channels.setFinalExit')}
+                  aria-pressed={finalGroup} disabled={busy}
+                  onClick={() => setPolicy((current) => ({
+                    ...current,
+                    groups: current.groups.map((item) =>
+                      item.id === group.id ? { ...item, enabled: true } : item),
+                    default_exit: current.default_exit.kind === 'group' && current.default_exit.id === group.id
+                      ? { kind: 'direct' }
+                      : { kind: 'group', id: group.id },
+                  }))}
+                >
+                  <Flag fill={finalGroup ? 'currentColor' : 'none'} />
+                </Button>
+                <Button variant='ghost' size='icon-sm' className='channel-delete-action' aria-label={t('channels.deleteGroup')} title={t('channels.deleteGroup')} disabled={busy} onClick={() => {
+                  if (policy.default_exit.kind === 'group' && policy.default_exit.id === group.id) {
+                    toast.add({ title: t('channels.groupExitInUse'), type: 'error' });
+                    return;
+                  }
+                  setRemoveGroup(group.id);
+                }}>
+                  <Trash2 />
+                </Button>
               </div>
             )}
+          </aside>
+          {group
+            ? (
+                <ChannelGroupEditor
+                  key={group.id} group={group} nodes={nodes}
+                  format={format} busy={busy} onChange={updateGroup}
+                />
+              )
+            : (
+                <Empty className='channel-group-empty'>
+                  <EmptyHeader>
+                    <EmptyMedia variant='icon'><Layers3 /></EmptyMedia>
+                    <EmptyTitle>{t('channels.noGroups')}</EmptyTitle>
+                    <EmptyDescription>{t('channels.noGroupsHint')}</EmptyDescription>
+                  </EmptyHeader>
+                </Empty>
+              )}
+        </div>
       </div>
       {groupSettings && (
         <Dialog open onOpenChange={(open) => !open && setGroupSettings(null)}>
@@ -359,7 +362,6 @@ export function ChannelWorkspace({ active = true, toolbarTarget, channel, nodes,
         <ChannelOptions
           name={name}
           format={format}
-          legacy={format === 'loon'}
           policy={policy}
           config={config}
           onClose={() => setOptionsOpen(false)}
@@ -368,6 +370,9 @@ export function ChannelWorkspace({ active = true, toolbarTarget, channel, nodes,
             setFormat(identity.format);
             setPolicy((current) => ({
               ...current,
+              template: identity.format !== format && current.template
+                ? { format: identity.format, content: channelTemplateDefaults[identity.format] }
+                : current.template,
               organizer: p.organizer,
               selection: {
                 ...current.selection,
@@ -383,13 +388,13 @@ export function ChannelWorkspace({ active = true, toolbarTarget, channel, nodes,
           onTemplate={() => setTemplateOpen(true)}
         />
       )}
-      {templateOpen && format !== 'loon' && (
+      {templateOpen && (
         <ChannelTemplateEditor
           template={policy.template}
           format={format}
           onClose={() => setTemplateOpen(false)}
-          onPreview={(template: ChannelNativeTemplate) => render({ ...policy, template })}
-          onSave={(template) => persist({ ...policy, template })}
+          onPreview={(template: ChannelNativeTemplate, signal) => render({ ...policy, template }, signal)}
+          onApply={(template) => setPolicy((current) => ({ ...current, template }))}
         />
       )}
       {preview && <ChannelPreview preview={preview} onClose={() => setPreview(null)} />}

@@ -52,7 +52,9 @@ export function ChannelGroupEditor({ group, nodes, format, busy, onChange }: Pro
     if (!matches(builtin ? `${label} ${t(`channels.${builtin}`)}` : `${label} ${node?.type ?? id}`)) return [];
     return [{
       id, label, node, builtin, selected: selectedIDs.has(id), disabled: busy,
-      unavailable: !builtin && (!node || node.hidden || !node.available),
+      unavailable: builtin
+        ? (format === 'sing-box' && builtin === 'reject') || (format === 'loon' && group.type !== 'select')
+        : !node || node.hidden || !node.available,
     }];
   });
   function updateCandidates(node_ids: string[], builtin_nodes = builtins, candidate_order = order) {
@@ -99,7 +101,7 @@ export function ChannelGroupEditor({ group, nodes, format, busy, onChange }: Pro
               format: ruleFormats(format)[0],
               behavior: format === 'mihomo' ? 'domain' : undefined,
               accelerated: false,
-              update_interval: 86400,
+              update_interval: format === 'loon' ? undefined : 86400,
             },
           }
         : { value: '' }),
@@ -186,6 +188,7 @@ export function ChannelGroupEditor({ group, nodes, format, busy, onChange }: Pro
             )}
           </TabsContent>
           <TabsContent value='rules' className='channel-group-content'>
+            {format === 'loon' && <p className='channel-delivery-hint'>{t('channels.loonRuleOrder')}</p>}
             <div className='channel-rule-rows'>
               {group.rules.map((item, index) => (
                 <div className='channel-rule-row' key={item.id}>

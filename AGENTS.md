@@ -27,9 +27,10 @@
 
 - Follow nearby conventions and the repository's current toolchain configuration unless the task intentionally changes them.
 - Keep responsibilities focused and ownership explicit. Introduce shared abstractions or interfaces only for a current, concrete need.
-- Keep interface work consistent, responsive, and accessible. Reuse established foundations for routine changes while allowing coherent interface or design-system migrations.
+- Follow approved visual references and shared design tokens and components. Keep interface work consistent, responsive, and accessible, while allowing deliberate design-system migrations.
+- Keep layout stable across loading and feedback states. Use restrained motion, and verify affected themes, floating layers, and scrolling in the browser when available.
 - Evaluate dependency changes for security, maintenance, compatibility, licensing, and fit with existing capabilities. Keep manifests, lockfiles, generated metadata, and required notices consistent.
-- Add or update focused tests with behavioral changes, following the testing style of the affected area.
+- Reuse existing tests first. Add coverage only for important behavior at risk from the change and not protected by existing checks, including during behavior-preserving refactors; new code does not automatically need a matching test file.
 - For non-trivial upgrades, review the relevant upstream release, migration, compatibility, and security guidance before implementation.
 
 ## Working Tree and Git
@@ -44,6 +45,8 @@
 ## Verification
 
 - Scale verification to the changed behavior, dependencies, blast radius, and risk. Start with focused checks and broaden them whenever the change warrants it.
+- Purely visual changes normally need browser inspection and relevant existing checks, not new automated tests. Report any unverified visual states.
+- When editing tests, remove redundant or incidental assertions within scope. Judge them by the contract they protect, not matcher syntax; retain meaningful coverage, synchronization, isolation, and cleanup. Do not add production abstractions or fixture frameworks solely for test convenience.
 - Prefer repository-provided verification workflows over ad hoc substitutes.
 - For toolchain, framework, or dependency upgrades, verify all affected build, test, generation, integration, and packaging paths, including supported targets when relevant.
 - Run `git diff --check` after changes and report the exact checks and tests performed.

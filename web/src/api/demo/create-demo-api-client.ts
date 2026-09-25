@@ -312,6 +312,7 @@ export function createDemoApiClient(): ApiClient {
     }
   }
   const client: ApiClient = {
+    supportsNativeChannelValidation: false,
     ...createDemoFilesystemApi(),
     getConfigurationFile: (signal) => respond(configurationFile, signal),
     async saveConfigurationFile(input, signal) {

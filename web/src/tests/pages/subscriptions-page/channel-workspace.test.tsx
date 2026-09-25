@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import userEvent from '@testing-library/user-event';
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 
 import type { SubscriptionChannel, SubscriptionNodeSummary } from '@/api/api-client';
 
@@ -9,6 +9,7 @@ import '@/i18n';
 import { toast } from '@/components/ui/toast-manager';
 import { ApiClientProvider } from '@/api/api-client-context';
 import { TestRouter as MemoryRouter } from '@/tests/test-router';
+import { createDemoApiClient } from '@/api/demo/create-demo-api-client';
 import { newRuleGroup } from '@/pages/subscriptions-page/channel-policy';
 import { ChannelWorkspace } from '@/pages/subscriptions-page/channel-workspace';
 import { createMockApiClient, testSubscriptionChannels } from '@/tests/api/mock-api-client';
@@ -88,6 +89,40 @@ async function addNodes(user: ReturnType<typeof userEvent.setup>, names: (string
   await user.click(within(dialog).getByRole('button', { name: /^Add \d+ nodes?$/ }));
 }
 describe('channel workspace', () => {
+  it.each([false, true])('saves demo strategies with a template: %s without native validation', async (withTemplate) => {
+    const user = userEvent.setup();
+    const client = createDemoApiClient();
+    const value = await client.getSubscriptionChannel('channel_demo_singbox');
+    const { nodes } = await client.getSubscriptionNodeCatalog();
+    function Workspace() {
+      const [saved, setSaved] = useState(value);
+      return <ChannelWorkspace channel={saved} nodes={nodes} onBack={vi.fn()} onSaved={setSaved} />;
+    }
+    render(
+      <MemoryRouter>
+        <ApiClientProvider client={client}><Workspace /></ApiClientProvider>
+      </MemoryRouter>,
+    );
+    await user.click(screen.getByRole('button', { name: 'Add strategy group' }));
+    const content = '{"log":{"level":"error"}}';
+    if (withTemplate) {
+      await user.click(screen.getByRole('button', { name: 'Channel settings' }));
+      await user.click(screen.getByRole('button', { name: 'Default configuration' }));
+      const modal = screen.getByRole('dialog', { name: 'Edit template' });
+      fireEvent.change(within(modal).getByRole('textbox', { name: 'Native configuration' }), { target: { value: content } });
+      await user.click(within(modal).getByRole('button', { name: 'Apply' }));
+      await user.click(screen.getByRole('button', { name: 'Done' }));
+    }
+    await user.click(screen.getByRole('button', { name: /Save changes/ }));
+    await waitFor(async () => {
+      const saved = await client.getSubscriptionChannel(value.id);
+      expect(saved.config.policy?.groups).toHaveLength(1);
+      expect(saved.config.policy?.template).toEqual(withTemplate ? { format: value.format, content } : undefined);
+    });
+    expect(screen.getByRole('button', { name: /Save changes/ })).toBeDisabled();
+    // Saving demo state must not turn unsupported native preview into a false success.
+    await expect(client.previewSubscriptionChannel(value.id, '')).rejects.toThrow('require a connected panel server');
+  });
   it.each([true, false])('preserves channel enablement %s without a form toggle', async (enabled) => {
     const user = userEvent.setup();
     const client = mount({ ...channel, enabled });
@@ -131,11 +166,25 @@ describe('channel workspace', () => {
       channel.id, expect.objectContaining({ format: 'mihomo' }), channel.updated_at, expect.any(AbortSignal),
     ));
   });
-  it('does not offer edits that cannot be persisted for legacy Loon output', () => {
-    mount({ ...channel, format: 'loon', config: {} });
-    expect(screen.queryByRole('button', { name: 'Add strategy group' })).not.toBeInTheDocument();
-    expect(screen.getByText(/This channel retains Loon output/)).toBeVisible();
-    expect(screen.getByRole('button', { name: /Save changes/ })).toBeDisabled();
+  it('preserves legacy Loon output on rename and enables policy editing explicitly', async () => {
+    const user = userEvent.setup();
+    const client = mount({ ...channel, format: 'loon', config: {} });
+    await user.click(screen.getByRole('button', { name: 'Channel settings' }));
+    await user.clear(screen.getByLabelText('Channel name'));
+    await user.type(screen.getByLabelText('Channel name'), 'Renamed Loon');
+    await user.click(screen.getByRole('button', { name: 'Done' }));
+    await user.click(screen.getByRole('button', { name: /Save changes/ }));
+    await waitFor(() => expect(client.updateSubscriptionChannel).toHaveBeenCalledWith(
+      channel.id, expect.objectContaining({ config: { policy: undefined } }),
+      channel.updated_at, expect.any(AbortSignal),
+    ));
+    await user.click(screen.getByRole('button', { name: 'Add strategy group' }));
+    await user.click(screen.getByRole('button', { name: /Save changes/ }));
+    await waitFor(() => expect(client.updateSubscriptionChannel).toHaveBeenLastCalledWith(
+      channel.id,
+      expect.objectContaining({ config: { policy: expect.objectContaining({ groups: [expect.anything()] }) } }),
+      expect.any(String), expect.any(AbortSignal),
+    ));
   });
   it('selects nodes inside a group without a separate channel selection step', async () => {
     const user = userEvent.setup();
@@ -337,6 +386,34 @@ describe('channel workspace', () => {
     expect(screen.getByRole('region', { name: 'Edit strategy group' })).toBeInTheDocument();
     expect(within(parent).getByText('Domains')).toBeInTheDocument();
     addToast.mockRestore();
+  });
+  it('requires native Loon rule format after a switch and drops inapplicable source options', async () => {
+    const user = userEvent.setup();
+    const group = { ...newRuleGroup([node.id]), name: 'Selected', rules: [{
+      id: 'remote', enabled: true, kind: 'remote' as const, exit: { kind: 'group-default' as const },
+      remote: {
+        name: 'Domains', url: 'https://example.com/rules.txt', format: 'text' as const,
+        behavior: 'domain' as const, accelerated: false, update_interval: 3600,
+      },
+    }] };
+    const client = mount({ ...channel, format: 'loon', config: { policy: { ...channel.config.policy!, groups: [group] } } });
+    expect(screen.getByRole('button', { name: /Save changes/ })).toBeDisabled();
+    await user.click(screen.getByRole('tab', { name: 'Exit rules' }));
+    await user.click(screen.getByRole('button', { name: 'Edit rule' }));
+    const dialog = screen.getByRole('dialog', { name: 'Edit rule set' });
+    expect(within(dialog).queryByLabelText('Update interval (seconds)')).not.toBeInTheDocument();
+    await user.click(within(dialog).getByRole('button', { name: 'Done' }));
+    expect(within(dialog).getByLabelText('Source format')).toHaveAttribute('aria-invalid', 'true');
+    await user.click(within(dialog).getByRole('combobox', { name: 'Source format' }));
+    await user.click(await screen.findByRole('option', { name: 'Loon' }));
+    await user.click(within(dialog).getByRole('button', { name: 'Done' }));
+    await user.click(screen.getByRole('button', { name: /Save changes/ }));
+    await waitFor(() => expect(client.updateSubscriptionChannel).toHaveBeenCalledOnce());
+    const saved = vi.mocked(client.updateSubscriptionChannel).mock.calls[0][1].config?.policy;
+    expect(saved?.groups[0].rules[0].remote).toEqual({
+      name: 'Domains', url: 'https://example.com/rules.txt', format: 'loon', accelerated: false,
+      behavior: undefined, update_interval: undefined,
+    });
   });
   it.each([false, true])('applies implicit enablement and group routing only after confirming a rule (remote: %s)', async (remote) => {
     const user = userEvent.setup();
@@ -687,32 +764,84 @@ describe('channel workspace', () => {
       channel.updated_at, expect.any(AbortSignal),
     ));
   });
-  it('sends unsaved native template bytes to the server and saves only after successful validation', async () => {
+  it('validates repeatedly, keeps failed drafts and persists only through channel save', async () => {
     const user = userEvent.setup();
     const client = mount();
     await user.click(screen.getByRole('button', { name: 'Channel settings' }));
     await user.click(screen.getByRole('button', { name: 'Default configuration' }));
     const modal = screen.getByRole('dialog', { name: 'Edit template' });
-    await user.clear(within(modal).getByRole('textbox', { name: 'Native configuration' }));
-    await user.type(
-      within(modal).getByRole('textbox', { name: 'Native configuration' }),
-      '{{"log":{{"level":"error"}}',
+    const editor = within(modal).getByRole('textbox', { name: 'Native configuration' });
+    const content = '{"log":{"level":"error"}}';
+    fireEvent.change(editor, { target: { value: content } });
+    const validate = within(modal).getByRole('button', { name: 'Validate' });
+    const preview = await client.previewSubscriptionChannel(channel.id, '');
+    vi.mocked(client.previewSubscriptionChannel).mockClear();
+    let resolve!: () => void;
+    vi.mocked(client.previewSubscriptionChannel).mockImplementationOnce(() => new Promise((done) => {
+      resolve = () => done(preview);
+    }));
+    await user.click(validate);
+    expect(validate).toBeDisabled();
+    expect(editor).toBeDisabled();
+    await act(async () => resolve());
+    expect(validate).toBeEnabled();
+    vi.mocked(client.previewSubscriptionChannel).mockRejectedValueOnce(new Error('Validation failed'));
+    await user.click(validate);
+    await waitFor(() => expect(validate).toBeEnabled());
+    expect(editor).toHaveValue(content);
+    await user.click(validate);
+    await waitFor(() => expect(client.previewSubscriptionChannel).toHaveBeenCalledTimes(3));
+    expect(client.updateSubscriptionChannel).not.toHaveBeenCalled();
+    await user.click(within(modal).getByRole('button', { name: 'Apply' }));
+    await user.click(screen.getByRole('button', { name: 'Done' }));
+    expect(client.updateSubscriptionChannel).not.toHaveBeenCalled();
+    vi.mocked(client.previewSubscriptionChannel).mockRejectedValueOnce(new Error('Validation failed'));
+    await user.click(screen.getByRole('button', { name: /Save changes/ }));
+    await waitFor(() => expect(screen.getByRole('button', { name: /Save changes/ })).toBeEnabled());
+    expect(client.updateSubscriptionChannel).not.toHaveBeenCalled();
+    vi.mocked(client.updateSubscriptionChannel).mockRejectedValueOnce(new Error('Revision conflict'));
+    await user.click(screen.getByRole('button', { name: /Save changes/ }));
+    await waitFor(() => expect(screen.getByRole('button', { name: /Save changes/ })).toBeEnabled());
+    await user.click(screen.getByRole('button', { name: 'Channel settings' }));
+    await user.click(screen.getByRole('button', { name: 'Custom configuration' }));
+    expect(screen.getByRole('textbox', { name: 'Native configuration' })).toHaveValue(content);
+    await user.click(within(screen.getByRole('dialog', { name: 'Edit template' })).getByRole('button', { name: 'Cancel' }));
+    await user.click(screen.getByRole('button', { name: 'Done' }));
+    await user.click(screen.getByRole('button', { name: /Save changes/ }));
+    await waitFor(() => expect(screen.getByRole('button', { name: /Save changes/ })).toBeDisabled());
+    expect(client.updateSubscriptionChannel).toHaveBeenLastCalledWith(
+      channel.id, expect.objectContaining({ config: expect.objectContaining({ policy: expect.objectContaining({
+        template: { format: 'sing-box', content },
+      }) }) }), channel.updated_at, expect.any(AbortSignal),
     );
-    await user.click(within(modal).getByRole('button', { name: 'Save template' }));
-    await waitFor(() =>
-      expect(client.previewSubscriptionChannel).toHaveBeenCalledWith(
-        channel.id,
-        '',
-        expect.any(AbortSignal),
-        expect.objectContaining({
-          config: expect.objectContaining({
-            policy: expect.objectContaining({
-              template: { format: 'sing-box', content: '{"log":{"level":"error"}}' },
-            }),
-          }),
-        }),
-      ),
+    expect(client.previewSubscriptionChannel).toHaveBeenLastCalledWith(
+      channel.id, '', expect.any(AbortSignal), expect.objectContaining({ config: expect.objectContaining({ policy: expect.objectContaining({
+        template: { format: 'sing-box', content },
+      }) }) }),
     );
-    await waitFor(() => expect(client.updateSubscriptionChannel).toHaveBeenCalled());
+  });
+  it('replaces a saved template atomically on client switch and preserves it on cancel', async () => {
+    const user = userEvent.setup();
+    const content = '{"log":{"level":"error"}}';
+    const client = mount({ ...channel, config: { policy: { ...channel.config.policy!, template: { format: 'sing-box', content } } } });
+    for (const cancel of [true, false]) {
+      await user.click(screen.getByRole('button', { name: 'Channel settings' }));
+      await user.click(screen.getByRole('combobox', { name: 'Output client' }));
+      await user.click(await screen.findByRole('option', { name: 'Loon' }));
+      await user.click(screen.getByRole('button', { name: cancel ? 'Cancel' : 'Switch and replace template' }));
+      await user.click(screen.getByRole('button', { name: 'Channel settings' }));
+      await user.click(screen.getByRole('button', { name: 'Custom configuration' }));
+      const editor = screen.getByRole('textbox', { name: 'Native configuration' });
+      if (cancel) expect(editor).toHaveValue(content);
+      else expect((editor as HTMLTextAreaElement).value).toContain('[General]');
+      await user.click(within(screen.getByRole('dialog', { name: 'Edit template' })).getByRole('button', { name: 'Cancel' }));
+      await user.click(screen.getByRole('button', { name: 'Done' }));
+    }
+    await user.click(screen.getByRole('button', { name: /Save changes/ }));
+    await waitFor(() => expect(client.updateSubscriptionChannel).toHaveBeenCalledWith(
+      channel.id, expect.objectContaining({ format: 'loon', config: expect.objectContaining({ policy: expect.objectContaining({
+        template: { format: 'loon', content: expect.stringContaining('[General]') },
+      }) }) }), channel.updated_at, expect.any(AbortSignal),
+    ));
   });
 });
