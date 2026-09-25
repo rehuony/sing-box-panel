@@ -119,7 +119,6 @@ describe('channel workspace', () => {
     expect(screen.getByLabelText('Channel name')).toHaveValue(channel.name);
     await user.click(screen.getByRole('combobox', { name: 'Output client' }));
     await user.click(await screen.findByRole('option', { name: 'Mihomo' }));
-    expect(screen.getByRole('button', { name: 'Copy subscription URL' })).toBeDisabled();
     expect(screen.getByRole('button', { name: 'Default configuration' })).toBeDisabled();
     await user.click(screen.getByRole('button', { name: 'Done' }));
     expect(client.updateSubscriptionChannel).not.toHaveBeenCalled();
@@ -618,15 +617,14 @@ describe('channel workspace', () => {
     await user.click(screen.getByRole('button', { name: 'Cancel' }));
     expect(screen.getByRole('checkbox', { name: /Tokyo/ })).not.toBeChecked();
   });
-  it('exports without binding and requires saving delivery changes first', async () => {
+  it('keeps link distribution out of channel settings while preserving channel edits', async () => {
     const user = userEvent.setup();
     const client = mount();
     await user.click(screen.getByRole('button', { name: 'Channel settings' }));
     expect(screen.queryByRole('combobox', { name: 'Bound keys' })).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Copy subscription URL' })).toBeEnabled();
+    expect(screen.queryByRole('button', { name: 'Copy subscription URL' })).not.toBeInTheDocument();
     expect(client.listSubscriptionTokens).not.toHaveBeenCalled();
     await user.type(screen.getByLabelText('Channel name'), ' renamed');
-    expect(screen.getByRole('button', { name: 'Copy subscription URL' })).toBeDisabled();
     await user.click(screen.getByRole('button', { name: 'Done' }));
     await user.click(screen.getByRole('button', { name: /Save changes/ }));
     await waitFor(() => expect(client.updateSubscriptionChannel).toHaveBeenCalledOnce());
@@ -634,7 +632,7 @@ describe('channel workspace', () => {
     expect(savedConfig).not.toHaveProperty('export_token_ids');
     expect(client.getSubscriptionTokenSecret).not.toHaveBeenCalled();
     await user.click(screen.getByRole('button', { name: 'Channel settings' }));
-    expect(screen.getByRole('button', { name: 'Copy subscription URL' })).toBeEnabled();
+    expect(screen.queryByRole('button', { name: 'Copy subscription URL' })).not.toBeInTheDocument();
   });
   it('starts empty and adds only confirmed selections from the picker', async () => {
     const user = userEvent.setup();
@@ -673,7 +671,6 @@ describe('channel workspace', () => {
     await user.click(await screen.findByRole('option', { name: 'Block generation' }));
     const organizer = screen.getByRole('dialog', { name: 'Organize nodes' });
     await user.click(within(organizer).getByRole('button', { name: 'Back' }));
-    expect(screen.getByRole('button', { name: 'Copy subscription URL' })).toBeDisabled();
     await user.click(screen.getByRole('button', { name: 'Organize nodes' }));
     expect(screen.getByRole('switch', { name: 'Deduplicate' })).toBeChecked();
     expect(screen.getByLabelText('Name prefix')).toHaveValue('Office ');

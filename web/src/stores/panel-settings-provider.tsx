@@ -3,7 +3,7 @@ import type { ReactNode } from 'react';
 import { useLocation } from 'react-router-dom';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useState } from 'react';
 
-import type { AppearanceSettings, PanelSettingsView, PanelSettingsWrite } from '@/api/api-client';
+import type { PanelSettingsView, PanelSettingsWrite } from '@/api/api-client';
 
 import { setAppLanguage } from '@/i18n';
 import { useTheme } from '@/theme/theme-context';
@@ -14,9 +14,8 @@ import { PanelSettingsContext } from './panel-settings.store';
 export function PanelSettingsProvider({ children }: { children: ReactNode }) {
   const api = useApiClient();
   const { pathname } = useLocation();
-  const { setAppearance, previewAppearance } = useTheme();
+  const { setAppearance, previewAppearance: preview } = useTheme();
   const [view, setView] = useState<PanelSettingsView | null>(null);
-  const [draftAppearance, setDraftAppearance] = useState<AppearanceSettings | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
   const reload = useCallback(() => {
@@ -37,16 +36,14 @@ export function PanelSettingsProvider({ children }: { children: ReactNode }) {
     return () => controller.abort();
   }, [api, reloadKey, setAppearance]);
 
-  const preview = useCallback((value: AppearanceSettings | null) => setDraftAppearance(value), []);
   const isSettings = pathname === '/panel';
   useLayoutEffect(() => {
-    previewAppearance(isSettings ? draftAppearance : null);
-    return () => previewAppearance(null);
-  }, [draftAppearance, isSettings, previewAppearance]);
+    if (!isSettings) preview(null);
+    return () => preview(null);
+  }, [isSettings, preview]);
 
   const accept = useCallback(async (result: PanelSettingsView) => {
     setView(result);
-    setDraftAppearance(null);
     setAppearance(result.preferences.appearance);
     await setAppLanguage(result.preferences.language);
   }, [setAppearance]);

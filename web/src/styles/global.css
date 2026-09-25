@@ -193,8 +193,6 @@
   --color-danger-text: oklch(43% 0.14 20);
   --color-danger-surface: var(--color-danger-soft);
   --color-danger-border: oklch(82% 0.07 20);
-  --color-focus-ring: var(--color-focus);
-  --color-focus-soft: oklch(85% 0.08 293 / 45%);
   --duration-press: var(--dur-micro);
   --duration-fast: var(--dur-short);
   --duration-medium: 0.28s;
@@ -314,8 +312,6 @@
   --color-warning-border: oklch(48% 0.08 72);
   --color-danger-text: oklch(83% 0.105 20);
   --color-danger-border: oklch(48% 0.08 20);
-  --color-focus-ring: var(--color-focus);
-  --color-focus-soft: oklch(70% 0.16 293 / 30%);
 }
 
 @media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
@@ -340,8 +336,6 @@
     --input-focus: color-mix(in oklch, var(--foreground) 55%, var(--background));
     --color-border: #2a374c47;
     --color-border-strong: #2a374c7a;
-    --color-focus-ring: #3536a8;
-    --color-focus-soft: #3536a847;
     --color-text-muted: #4c586a;
   }
 }
@@ -542,10 +536,9 @@ h3 {
   overflow-wrap: anywhere;
 }
 
+/* Keyboard focus must not add an accent outline or halo to content regions. */
 :focus-visible:not([data-slot]) {
-  box-shadow: 0 0 0 3px var(--color-focus-soft);
-  outline: 2px solid var(--color-focus-ring);
-  outline-offset: 1px;
+  outline: none;
 }
 
 :where(input:not([type='checkbox'], [type='radio'], [type='range'], [type='color']), textarea):not(
@@ -1126,7 +1119,7 @@ h3 {
 
 @layer base {
   * {
-    @apply border-border outline-ring/50;
+    @apply border-border;
   }
   body {
     @apply bg-background text-foreground;

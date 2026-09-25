@@ -22,7 +22,7 @@ export function InfoTooltip({ label, children }: { label: string; children: Reac
         onClick={() => setOpen(true)}
         delay={200}
         closeDelay={100}
-        render={<Button className='focus-visible:border-transparent focus-visible:ring-0' size='icon-xs' type='button' variant='ghost' />}
+        render={<Button size='icon-xs' type='button' variant='ghost' />}
       >
         <Info aria-hidden />
       </TooltipTrigger>

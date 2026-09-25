@@ -19,7 +19,7 @@ export const channels = {
   applyClientFirst: '先点击“完成”应用客户端选择，再编辑对应模板。',
   members: '组内节点', membersCount: '{{count}} 个节点', finalExit: '最终出口', searchNodes: '搜索节点、来源或协议', noMatchingNodes: '没有匹配的节点', searchNodesHint: '尝试其他节点名称、来源或协议。', ruleSet: '规则集',
   newGroupName: '策略组 {{number}}', groupSummary: '{{nodes}} 个节点 · {{rules}} 条规则', noGroups: '暂无策略组', noGroupsHint: '从左侧添加策略组，然后选择节点并配置流量出口。', noNodes: '暂无可用节点，请先在订阅来源中添加。', noRules: '添加匹配规则，命中的流量使用本组节点，规则按顺序生效。', nodeExitInUse: '此节点仍被出口引用，请先调整默认出口或相关匹配规则。', groupExitInUse: '此策略组是最终出口，请先取消最终出口设置或改选其他策略组，再删除或停用。', moveGroupUp: '上移策略组', moveGroupDown: '下移策略组',
-  subscriptionKey: '订阅密钥', keyPlaceholder: '粘贴已创建的密钥', keyHint: '请在密钥管理中创建密钥。同一密钥可用于多个渠道，此处不会保存密钥。', copyURL: '复制订阅链接', saveBeforeCopy: '请先保存渠道更改，再复制订阅 URL。', channelUnavailable: '此渠道已停用，无法分发订阅。',
+  subscriptionKey: '订阅密钥', keyPlaceholder: '粘贴已创建的密钥', keyHint: '请在密钥管理中创建密钥。同一密钥可用于多个渠道，此处不会保存密钥。', copyURL: '复制订阅链接', channelUnavailable: '此渠道已停用，无法分发订阅。',
   disabled: '停用',
   title: '分发渠道', search: '搜索渠道', add: '添加渠道', name: '渠道名称', client: '输出客户端', edit: '编辑', remove: '删除', deletePrompt: '删除“{{name}}”？该渠道的订阅地址将不再可用。', save: '保存更改', saved: '渠道已保存', empty: '暂无渠道', back: '返回', organizer: '节点整理', distribution: '渠道设置', preview: '订阅预览', enabled: '启用', nameRequired: '请输入名称', cancel: '取消', done: '完成', refresh: '刷新节点',
   prefix: '名称前缀', exclusions: '排除名称', exclusionsHint: '每行一项', sort: '节点排序', original: '原始顺序', byName: '按名称', deduplicate: '去重', incompatible: '不兼容节点', skip: '跳过并记录', stop: '阻止生成', legacyTags: '排除标签', legacyTypes: '排除协议',

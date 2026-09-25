@@ -37,25 +37,34 @@ function getStoredPreference(): ThemePreference {
 }
 
 export function ThemeProvider({ children }: ThemeProviderProps) {
-  const [initialAppearance] = useState(readInitialAppearance);
-  const [savedAppearance, setSavedAppearance] = useState(initialAppearance ?? DEFAULT_APPEARANCE);
-  const [draftAppearance, setDraftAppearance] = useState<AppearanceSettings | null>(null);
-  const [savedPreference, setSavedPreference] = useState<ThemePreference>(
-    () => initialAppearance?.theme ?? getStoredPreference(),
-  );
+  const [appearanceState, setAppearanceState] = useState<{
+    saved: AppearanceSettings;
+    draft: AppearanceSettings | null;
+  }>(() => ({
+    saved: readInitialAppearance() ?? { ...DEFAULT_APPEARANCE, theme: getStoredPreference() },
+    draft: null,
+  }));
+  const { saved, draft } = appearanceState;
   const [systemPrefersDark, setSystemPrefersDark] = useState(getSystemPreference);
-  const preference = draftAppearance?.theme ?? savedPreference;
+  const appearance = draft ?? saved;
+  const preference = appearance.theme;
   const resolvedTheme = resolveTheme(preference, systemPrefersDark);
-  const activeAppearance = draftAppearance ?? savedAppearance;
 
   const setPreference = useCallback((value: ThemePreference) => {
-    setSavedPreference(value);
-    setDraftAppearance(current => current === null ? null : { ...current, theme: value });
+    setAppearanceState(current => current.draft === null
+      ? { ...current, saved: { ...current.saved, theme: value } }
+      : { ...current, draft: { ...current.draft, theme: value } });
   }, []);
 
   const setAppearance = useCallback((value: AppearanceSettings) => {
-    setSavedAppearance(value);
-    setSavedPreference(value.theme);
+    setAppearanceState(current => ({ saved: value, draft: current.draft === null ? null : value }));
+  }, []);
+
+  const previewAppearance = useCallback((value: Partial<AppearanceSettings> | null) => {
+    setAppearanceState(current => ({
+      ...current,
+      draft: value === null ? null : { ...(current.draft ?? current.saved), ...value },
+    }));
   }, []);
 
   useEffect(() => {
@@ -71,27 +80,28 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
     const root = document.documentElement;
     const themeColorMeta = document.querySelector<HTMLMetaElement>('meta[name="theme-color"]');
     applyThemeToDocument(root, preference, resolvedTheme, themeColorMeta);
-    applyAppearance(activeAppearance, resolvedTheme === 'dark');
+    applyAppearance(appearance, resolvedTheme === 'dark');
 
     try {
-      window.localStorage.setItem(THEME_STORAGE_KEY, savedPreference);
+      window.localStorage.setItem(THEME_STORAGE_KEY, saved.theme);
     } catch {
       // The selected theme still applies when storage is unavailable.
     }
-  }, [activeAppearance, preference, resolvedTheme, savedPreference]);
+  }, [appearance, preference, resolvedTheme, saved.theme]);
 
   const cycleTheme = useCallback(() => {
     setPreference(nextThemePreference(preference));
   }, [preference, setPreference]);
 
   const value = useMemo<ThemeContextValue>(() => ({
+    appearance,
     preference,
     resolvedTheme,
     setPreference,
     setAppearance,
-    previewAppearance: setDraftAppearance,
+    previewAppearance,
     cycleTheme,
-  }), [cycleTheme, preference, resolvedTheme, setAppearance, setPreference]);
+  }), [appearance, cycleTheme, preference, previewAppearance, resolvedTheme, setAppearance, setPreference]);
 
   return <ThemeContext value={value}>{children}</ThemeContext>;
 }

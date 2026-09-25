@@ -348,11 +348,6 @@
   display: none;
 }
 
-.telemetry-metric:focus-visible {
-  border-radius: var(--radius-control);
-  box-shadow: 0 0 0 3px var(--color-primary-soft);
-}
-
 .telemetry-metric[data-metric='upload'] svg {
   color: var(--color-success-text);
 }
@@ -520,9 +515,6 @@
     display: block;
     font-size: 11px;
     line-height: 1.4;
-  }
-  .telemetry-metric:focus-visible {
-    border-radius: var(--radius-pill);
   }
   .telemetry-banner__actions {
     justify-content: flex-end;
