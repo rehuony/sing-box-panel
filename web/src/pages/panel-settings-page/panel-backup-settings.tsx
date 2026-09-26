@@ -14,15 +14,10 @@ import { ControlPlaneContext } from '@/stores/control-plane.store';
 import { ConfigurationSessionContext } from '@/stores/configuration-session.store';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 
+import { backupFile } from './panel-backup';
+
 function record(value: unknown): Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
-}
-
-function backupFile(value: unknown): PanelBackup | null {
-  const file = record(value);
-  const settings = record(file.panel_settings);
-  if (file.format !== 'sing-box-panel-backup' || file.version !== 1 || typeof file.exported_at !== 'string' || !Number.isFinite(Date.parse(file.exported_at)) || typeof file.sing_box_configuration !== 'string' || typeof settings.data_dir !== 'string' || typeof record(settings.auth).token !== 'string' || typeof record(settings.server).host !== 'string' || typeof record(settings.server).port !== 'number') return null;
-  return file as PanelBackup;
 }
 
 export function PanelBackupSettings({ dirty, busy, onBusyChange, onRestored }: {
@@ -71,7 +66,7 @@ export function PanelBackupSettings({ dirty, busy, onBusyChange, onRestored }: {
     try {
       if (file.size > 13 * 1024 * 1024 + 4096) throw new Error(t('panelSettings.backupInvalid'));
       const backup = backupFile(JSON.parse(await file.text()));
-      if (!backup || new TextEncoder().encode(backup.sing_box_configuration).length > 2 * 1024 * 1024 || new TextEncoder().encode(JSON.stringify(backup.panel_settings)).length > 1024 * 1024) throw new Error(t('panelSettings.backupInvalid'));
+      if (!backup) throw new Error(t('panelSettings.backupInvalid'));
       const [settings, configuration] = await Promise.all([api.getPanelSettings(), api.getConfigurationFile()]);
       setPending({ backup, settingsRevision: settings.revision, configurationRevision: configuration.revision });
     } catch (cause) {

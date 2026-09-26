@@ -1,11 +1,37 @@
 import type {
   ChannelPolicy,
   ChannelRemoteRuleSet,
+  ChannelRouteExit,
   ChannelRuleGroup,
   SubscriptionChannel,
   SubscriptionFormat,
   SubscriptionNodeSummary,
 } from '@/api/api-client';
+
+import { candidateOrder } from './channel-node-order';
+
+export function updateGroupCandidates(
+  group: ChannelRuleGroup,
+  node_ids: string[],
+  builtin_nodes = group.builtin_nodes,
+  candidate_order = candidateOrder(group),
+): ChannelRuleGroup {
+  const default_exit: ChannelRouteExit = group.default_exit.kind === 'node' && node_ids.includes(group.default_exit.id!)
+    ? group.default_exit
+    : group.default_exit.kind === 'direct' && builtin_nodes.includes('direct')
+      ? group.default_exit
+      : node_ids.length
+        ? { kind: 'node', id: node_ids[0] }
+        : { kind: builtin_nodes[0] ?? 'reject' };
+  return {
+    ...group, node_ids, builtin_nodes,
+    candidate_order: candidateOrder({ node_ids, builtin_nodes, candidate_order }),
+    default_exit,
+    rules: group.rules.map(item => item.exit.kind === 'node' && !node_ids.includes(item.exit.id!)
+      ? { ...item, exit: { kind: 'group-default' } }
+      : item),
+  };
+}
 
 export function initialChannelPolicy(
   channel: Pick<SubscriptionChannel, 'config'>,

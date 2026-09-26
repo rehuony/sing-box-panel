@@ -3,6 +3,17 @@ import type { PanelPreferences, PanelServiceSettings } from '@/api/api-client';
 export const settingsCategories = ['service', 'traffic', 'logs', 'interface', 'maintenance', 'backup'] as const;
 export type SettingsCategory = typeof settingsCategories[number];
 
+export function managementTokenError(token: string) {
+  const bytes = new TextEncoder().encode(token).length;
+  return bytes < 8
+    ? 'panelSettings.tokenTooShort'
+    : bytes > 8192
+      ? 'panelSettings.tokenTooLong'
+      : /^[\s\u0085]|[\s\u0085]$/u.test(token) || /[\0\r\n]/.test(token)
+        ? 'panelSettings.tokenInvalid'
+        : undefined;
+}
+
 // Preserve links to sections that now belong to a broader category.
 export const settingsHashValues = [...settingsCategories, 'access', 'authentication', 'publication', 'storage', 'updates', 'languageGroup'] as const;
 

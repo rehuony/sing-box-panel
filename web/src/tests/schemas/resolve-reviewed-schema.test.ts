@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { beforeAll, describe, expect, it, vi } from 'vitest';
 
 import type { ConfigurationSchemaContract } from '@/api/api-client';
 
@@ -6,8 +6,13 @@ import { reviewedSchemaManifest } from '@/schemas/generated';
 import { resolveReviewedSchema } from '@/schemas/resolve-reviewed-schema';
 
 import { representativeSchemaVersions } from './schema-fixtures';
+import { parseConfigurationSchemaManifest } from '../../../plugins/configuration-schema';
 
 const unavailableSHA256 = '0'.repeat(64);
+
+beforeAll(async () => {
+  await Promise.all(Object.values(reviewedSchemaManifest).map(entry => entry.load()));
+});
 
 it('loads browser modules before the remote schema contract completes', async () => {
   const exactVersion = '1.14.1';
@@ -46,7 +51,7 @@ it.each(Object.keys(reviewedSchemaManifest))('loads the precompiled contract for
 
   expect(resolution.schema).toEqual(expected.schema);
   expect(resolution.createValidator(resolution.schema)).toBeDefined();
-}, 30_000);
+});
 
 describe.each(representativeSchemaVersions())('resolveReviewedSchema %s', (exactVersion) => {
   it('fails closed for a version without a reviewed manifest entry', async () => {
@@ -75,5 +80,39 @@ describe.each(representativeSchemaVersions())('resolveReviewedSchema %s', (exact
       await contract(exactVersion, { exact_version: exactVersion === '1.14.0' ? '1.14.1' : '1.14.0' }),
       exactVersion,
     )).rejects.toThrow('reviewed browser manifest');
+  });
+});
+
+describe('configuration Schema manifest', () => {
+  it('accepts the minimal exact-version manifest', () => {
+    const manifest = parseConfigurationSchemaManifest(JSON.stringify({
+      schema_version: 1,
+      entries: [{
+        exact_version: '1.14.0',
+        source: 'native',
+        schema_file: 'schema.json',
+        schema_sha256: 'b'.repeat(64),
+      }],
+    }));
+    expect(manifest.entries).toEqual([{
+      exact_version: '1.14.0',
+      source: 'native',
+      schema_file: 'schema.json',
+      schema_sha256: 'b'.repeat(64),
+    }]);
+  });
+
+  it('rejects a manifest entry missing a version-owned schema digest', () => {
+    const manifest = {
+      schema_version: 1,
+      entries: [{
+        exact_version: '1.14.0',
+        source: 'native',
+        schema_file: 'schema.json',
+        schema_sha256: 'b'.repeat(64),
+      }],
+    };
+    delete (manifest.entries[0] as Partial<typeof manifest.entries[0]>).schema_sha256;
+    expect(() => parseConfigurationSchemaManifest(JSON.stringify(manifest))).toThrow('manifest entry');
   });
 });

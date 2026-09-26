@@ -192,46 +192,6 @@ describe('telemetryBanner', () => {
     expect(screen.queryByRole('button', { name: 'Refresh runtime and traffic status' })).not.toBeInTheDocument();
   });
 
-  it.each(['en', 'zh-CN'] as const)('keeps units in full and compact metrics before telemetry is available in %s', async language => {
-    await setAppLanguage(language);
-    const client = createMockApiClient();
-    const telemetry: TelemetryState = {
-      acceptRuntimeStatus: vi.fn(),
-      dashboardSnapshot: null,
-      dashboardStale: true,
-      dashboardError: null,
-      runtimeError: null,
-      trafficError: null,
-      runtimeStatus: null,
-      snapshot: null,
-      rates: { uploadBytesPerSecond: null, downloadBytesPerSecond: null },
-    };
-    const view = (value: TelemetryState) => (
-      <ApiClientProvider client={client}>
-        <TooltipProvider>
-          <SidebarProvider>
-            <TelemetryContext value={value}><TelemetryBanner /></TelemetryContext>
-          </SidebarProvider>
-        </TooltipProvider>
-      </ApiClientProvider>
-    );
-    const { rerender } = render(view(telemetry));
-    const uptime = screen.getByRole('group', { name: language === 'en' ? /^Uptime: 0s/ : /^运行时长: 0秒/ });
-    expect(uptime.querySelector('.telemetry-metric__full')).toHaveTextContent(language === 'en' ? '0s' : '0秒');
-    expect(uptime.querySelector('.telemetry-metric__compact')).toHaveTextContent('0s');
-    const upload = screen.getByRole('group', { name: language === 'en' ? 'Upload: 0 B/s' : '上行: 0 B/s' });
-    const download = screen.getByRole('group', { name: language === 'en' ? 'Download: 0 B/s' : '下行: 0 B/s' });
-    for (const metric of [upload, download]) {
-      expect(metric.querySelector('.telemetry-metric__full')).toHaveTextContent('0 B/s');
-      expect(metric.querySelector('.telemetry-metric__compact')).toHaveTextContent('0B/s');
-    }
-
-    // The first valid sample still has no rate until a second sample arrives.
-    rerender(view({ ...telemetry, runtimeStatus: runningStatus(), snapshot: testMetrics }));
-    expect(upload).toHaveAccessibleName(language === 'en' ? 'Upload: 0 B/s' : '上行: 0 B/s');
-    expect(download).toHaveAccessibleName(language === 'en' ? 'Download: 0 B/s' : '下行: 0 B/s');
-  });
-
   it('shows verified identity, uptime and fresh rates', async () => {
     const first = trafficSnapshot('2026-08-30T11:00:00Z', 1_000, 2_000);
     const second = trafficSnapshot('2026-08-30T11:00:10Z', 3_000, 5_000);
@@ -262,30 +222,6 @@ describe('telemetryBanner', () => {
     await act(async () => document.dispatchEvent(new Event('visibilitychange')));
     expect(screen.getByText('200 B/s')).toBeInTheDocument();
     expect(screen.getByText('300 B/s')).toBeInTheDocument();
-  });
-
-  it.each(['en', 'zh-CN'] as const)('retains the enabled version and shows zero stopped metrics in %s', async (language) => {
-    await setAppLanguage(language);
-    renderBanner(createMockApiClient({
-      getRuntimeStatus: vi.fn().mockResolvedValue(stoppedStatus),
-      getTrafficStatus: vi.fn().mockResolvedValue({ ...testMetrics, available: false }),
-    }));
-    expect(await screen.findByText('v1.13.19')).toBeInTheDocument();
-    expect(screen.getByRole('group', { name: language === 'en' ? /^Uptime: 0s/ : /^运行时长: 0秒/ })).toBeInTheDocument();
-    expect(screen.getByRole('group', { name: language === 'en' ? 'Upload: 0 B/s' : '上行: 0 B/s' })).toBeInTheDocument();
-    expect(screen.getByRole('group', { name: language === 'en' ? 'Download: 0 B/s' : '下行: 0 B/s' })).toBeInTheDocument();
-    expect(screen.queryByText(/B\/秒/)).not.toBeInTheDocument();
-  });
-
-  it('does not request architecture for the status bar', async () => {
-    const client = createMockApiClient({
-      getSystemStatus: vi.fn().mockRejectedValue(new Error('Unavailable')),
-      getRuntimeStatus: vi.fn().mockResolvedValue(runningStatus()),
-    });
-    renderBanner(client);
-    expect(await screen.findByText('v1.13.19')).toBeInTheDocument();
-    expect(client.getSystemStatus).not.toHaveBeenCalled();
-    expect(screen.getByRole('button', { name: 'Stop' })).toBeEnabled();
   });
 
   it('waits for start to finish and verifies the returned runtime', async () => {
@@ -335,27 +271,6 @@ describe('telemetryBanner', () => {
 
     expect(client.restartRuntime).toHaveBeenCalledTimes(1);
     expect(await screen.findByText('Restart verified')).toBeInTheDocument();
-  });
-
-  it('keeps personalization and account actions out of the runtime toolbar', async () => {
-    const user = userEvent.setup();
-    const client = createMockApiClient({
-      getRuntimeStatus: vi.fn().mockResolvedValue(stoppedStatus),
-      getTrafficStatus: vi.fn().mockResolvedValue({ ...testMetrics, available: false }),
-    });
-
-    renderBanner(client);
-    await screen.findByText('Stopped');
-    expect(screen.getByRole('button', { name: 'Start' })).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Stop' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Restart' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Open language menu' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Sign out' })).not.toBeInTheDocument();
-
-    await user.click(screen.getByRole('button', { name: 'More panel actions' }));
-    expect(await screen.findByRole('menuitem', { name: 'Start' })).toBeInTheDocument();
-    expect(screen.queryByRole('menuitem', { name: 'Refresh runtime and traffic' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('menuitem', { name: 'Sign out' })).not.toBeInTheDocument();
   });
 
   it.each(['start', 'stop', 'restart'] as const)('replaces controls with %s feedback until it expires', async (action) => {

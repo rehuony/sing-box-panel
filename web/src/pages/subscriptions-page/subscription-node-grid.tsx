@@ -14,7 +14,7 @@ import { ListPagination } from '@/components/list-pagination';
 
 import { SubscriptionNodeCardContent } from './subscription-node-card';
 import { SubscriptionNodeSortContext } from './subscription-node-sort-context';
-import { readSourceNodeOrder, reorderVisibleNodes, saveSourceNodeOrder } from './subscription-node-order';
+import { filterSourceNodes, orderSourceNodes, readSourceNodeOrder, reorderVisibleNodes, saveSourceNodeOrder } from './subscription-node-order';
 
 interface NodeGridProps {
   busy?: boolean;
@@ -129,18 +129,14 @@ export function SubscriptionNodeGrid({
 }: NodeGridProps) {
   const { t } = useTranslation();
   const [savedOrder, setSavedOrder] = useState(() => readSourceNodeOrder(sourceID));
-  const byID = new Map(nodes.map((node) => [node.id, node]));
-  const order = [...new Set([...savedOrder.filter((id) => byID.has(id)), ...byID.keys()])];
-  const ordered = order.map((id) => byID.get(id)!);
+  const ordered = orderSourceNodes(nodes, savedOrder);
+  const byID = new Map(ordered.map(node => [node.id, node]));
+  const order = ordered.map(node => node.id);
   const [size, setSize] = useState(10);
   const [pagination, setPagination] = useState({ search, size, page: 1 });
   const page = pagination.search === search && pagination.size === size ? pagination.page : 1;
   const setPage = (value: number) => setPagination({ search, size, page: value });
-  const filtered = ordered.filter(
-    (node) =>
-      (!selected || (!node.hidden && node.available))
-      && `${node.name} ${node.source_name} ${node.type}`.toLowerCase().includes(search.toLowerCase()),
-  );
+  const filtered = filterSourceNodes(ordered, search, Boolean(selected));
   const pages = Math.max(1, Math.ceil(filtered.length / size));
   const current = Math.min(page, pages);
   if (pagination.search !== search || pagination.size !== size || pagination.page !== current) setPage(current);

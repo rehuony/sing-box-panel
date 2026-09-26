@@ -1,8 +1,17 @@
 import type { RJSFSchema } from '@rjsf/utils';
 
-import { describe, expect, it } from 'vitest';
+import { resolve } from 'node:path';
+import { readFileSync } from 'node:fs';
 import { parse, stringify } from 'lossless-json';
+import { beforeAll, describe, expect, it } from 'vitest';
 
+import type { CanonicalDraft } from '@/pages/configuration-page/use-canonical-configuration';
+
+import { reviewedSchemaManifest } from '@/schemas/generated';
+import { resolveReviewedSchema } from '@/schemas/resolve-reviewed-schema';
+import { representativeSchemaVersions } from '@/tests/schemas/schema-fixtures';
+import { visibleStructuredConfiguration } from '@/pages/configuration-page/structured-validation';
+import { encodeCanonicalDraft, parseCanonicalDraft } from '@/pages/configuration-page/use-canonical-configuration';
 import {
   collectionItemSchema,
   mergeSchemaKnownData,
@@ -248,5 +257,54 @@ describe('schemaUi', () => {
         ],
       }],
     });
+  });
+});
+
+it('validates only fields declared by the version schema', () => {
+  expect(visibleStructuredConfiguration({
+    type: 'object', properties: { log: { type: 'object', properties: { level: { type: 'string' } } } },
+  }, { future: true, log: { future: 'retained', level: 'info' } })).toEqual({ log: { level: 'info' } });
+});
+
+const fixtures = [
+  'dns-actions.json', 'dns-legacy.json', 'tls-transport.json', 'endpoints-services.json',
+  'null-sections.json', 'log-defaults.json', 'log-null-fields.json',
+].map((name) => ({
+  name,
+  text: readFileSync(resolve(process.cwd(), `../internal/singbox/testdata/configuration-1.13/${name}`), 'utf8'),
+}));
+
+beforeAll(async () => {
+  await Promise.all(representativeSchemaVersions('reviewed-1.13').map(version => reviewedSchemaManifest[version].load()));
+});
+
+describe.each(representativeSchemaVersions('reviewed-1.13'))('reviewed 1.13 projection %s', version => {
+  it('validates every section and preserves DNS, TLS, rules and protocols through form projection', async () => {
+    const loaded = await reviewedSchemaManifest[version].load();
+    const resolution = await resolveReviewedSchema({
+      exact_version: version, schema_sha256: loaded.schemaSHA256, schema: loaded.schema,
+    }, version);
+    const validate = Object.values(loaded.validateFns)[0];
+    for (const fixture of fixtures) {
+      const draft = parseCanonicalDraft(fixture.text);
+      expect(validate(JSON.parse(fixture.text)), fixture.name).toBe(true);
+      const projected = projectSchemaKnownData(resolution.schema, resolution.schema, draft);
+      const merged = mergeSchemaKnownData(
+        resolution.schema, resolution.schema, draft, projected, structuredClone(projected),
+      );
+      expect(JSON.parse(encodeCanonicalDraft(merged as CanonicalDraft)), fixture.name)
+        .toEqual(JSON.parse(fixture.text));
+    }
+    for (const value of [
+      { outbounds: {} },
+      { log: [] },
+      { log: { disabled: 'false' } },
+      { log: { level: 'verbose' } },
+      { log: { colour: true } },
+      { certificate: { providers: [{ type: 'acme', tag: 'cert' }] } },
+      { inbounds: [{ type: 'snell', listen_port: 2080, psk: 'secret' }] },
+      { endpoints: [{ type: 'openvpn', tag: 'vpn' }] },
+      { dns: { servers: [{ type: 'mdns' }] } },
+    ]) expect(validate(value)).toBe(false);
   });
 });

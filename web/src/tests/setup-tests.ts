@@ -1,5 +1,5 @@
 import '@testing-library/jest-dom/vitest';
-import { afterEach } from 'vitest';
+import { afterEach, vi } from 'vitest';
 import { cleanup } from '@testing-library/react';
 
 if (typeof window.matchMedia !== 'function') {
@@ -18,7 +18,13 @@ if (typeof window.matchMedia !== 'function') {
   });
 }
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  if (vi.isFakeTimers()) {
+    vi.clearAllTimers();
+    vi.useRealTimers();
+  }
+});
 
 // Layout observers are supplied by the browser, but not by jsdom.
 if (typeof ResizeObserver === 'undefined') {

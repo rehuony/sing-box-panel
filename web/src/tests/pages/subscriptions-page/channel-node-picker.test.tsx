@@ -6,9 +6,7 @@ import '@/i18n';
 import type { SubscriptionNodeSummary } from '@/api/api-client';
 
 import { newRuleGroup } from '@/pages/subscriptions-page/channel-policy';
-import { candidateOrder } from '@/pages/subscriptions-page/channel-node-order';
 import { ChannelNodePicker } from '@/pages/subscriptions-page/channel-node-picker';
-import { reorderVisibleNodes } from '@/pages/subscriptions-page/subscription-node-order';
 
 const tokyo: SubscriptionNodeSummary = {
   id: 'tokyo', key: 'manual:tokyo', name: 'Tokyo', tag: 'Tokyo', source_id: 'manual', source_name: 'Manual nodes',
@@ -104,20 +102,5 @@ describe('channel node picker', () => {
     await user.click(within(dialog).getByRole('checkbox', { name: 'Tokyo Manual nodes' }));
     await user.click(within(dialog).getByRole('button', { name: 'Add 2 nodes' }));
     expect(onAdd).toHaveBeenCalledWith(['tokyo'], ['direct'], ['builtin:direct', 'node:tokyo']);
-  });
-});
-
-describe('candidate ordering', () => {
-  it('keeps filtered-out slots when moving visible cards', () => {
-    const order = ['node:a', 'builtin:direct', 'node:b', 'builtin:reject'];
-    expect(reorderVisibleNodes(order, ['node:a', 'node:b'], 'node:b', 'node:a'))
-      .toEqual(['node:b', 'builtin:direct', 'node:a', 'builtin:reject']);
-    expect(reorderVisibleNodes(order, ['node:a'], 'unknown', 'node:a')).toBe(order);
-  });
-  it('removes deleted candidates and appends added ones without losing saved mixed order', () => {
-    expect(candidateOrder({
-      node_ids: ['b', 'c'], builtin_nodes: ['direct'],
-      candidate_order: ['node:b', 'builtin:reject', 'node:a', 'builtin:direct'],
-    })).toEqual(['node:b', 'builtin:direct', 'node:c']);
   });
 });

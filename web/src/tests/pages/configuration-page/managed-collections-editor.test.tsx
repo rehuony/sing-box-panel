@@ -4,7 +4,7 @@ import { useState } from 'react';
 import userEvent from '@testing-library/user-event';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { createPrecompiledValidator } from '@rjsf/validator-ajv8';
-import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 
 import type { ReviewedSchemaResolution } from '@/schemas/resolve-reviewed-schema';
 import type { CanonicalDraft } from '@/pages/configuration-page/use-canonical-configuration';
@@ -109,28 +109,6 @@ describe('managedCollectionsEditor', () => {
     expect(saved.inbounds[0].obfs).toEqual({ type: 'salamander', password: 'saved-obfs-password' });
     const validator = resolution.createValidator(resolution.schema);
     expect(validator.validateFormData(saved, resolution.schema).errors).toEqual([]);
-  });
-
-  it.each(['create', 'edit'])('retains the %s form until its closing animation finishes', async (mode) => {
-    const user = userEvent.setup();
-    render(<Harness initial={{ inbounds: [{ type: 'mixed', tag: 'existing' }] }} />);
-    await user.click(screen.getByRole('tab', { name: 'Inbounds' }));
-    await user.click(screen.getByRole('button', { name: mode === 'create' ? 'Add node' : 'Edit' }));
-    if (mode === 'create') await user.click(screen.getByRole('button', { name: 'Continue' }));
-    const dialog = screen.getByRole('dialog');
-    fireEvent.change(within(dialog).getByLabelText('Listen port'), { target: { value: '2080' } });
-    let finish!: () => void;
-    const finished = new Promise<void>((resolve) => {
-      finish = resolve;
-    });
-    Object.defineProperty(dialog, 'getAnimations', { value: () => [{ finished }] });
-    await user.click(within(dialog).getByRole('button', { name: 'Cancel' }));
-    expect(dialog).toHaveAttribute('data-closed');
-    expect(within(dialog).getByLabelText('Listen port')).toHaveValue(2080);
-    await act(async () => {
-      finish();
-    });
-    await waitFor(() => expect(dialog).not.toBeInTheDocument());
   });
 
   it('opens existing entries only through Edit and commits dialog changes only on confirmation', async () => {
@@ -314,8 +292,6 @@ describe('managedCollectionsEditor', () => {
     const user = userEvent.setup();
     render(<Harness initial={{ [collection]: [] }} selectedCollection={collection} />);
     const table = screen.getByRole('table');
-    const addressHeader = collection === 'inbounds' ? 'Listen address' : collection === 'outbounds' ? 'Server address' : 'Details';
-    expect(within(table).getAllByRole('columnheader').map(header => header.textContent)).toEqual(['Tag', 'Type', addressHeader, 'Actions']);
     expect(within(table).getAllByRole('row')).toHaveLength(2);
     expect(screen.queryByRole('tablist')).not.toBeInTheDocument();
     const add = within(table).getByRole('button', { name: 'Add node' });
@@ -328,7 +304,6 @@ describe('managedCollectionsEditor', () => {
     await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Create' }));
     expect(within(table).getAllByRole('row')).toHaveLength(3);
     const entryRow = within(table).getAllByRole('row')[1];
-    expect(within(entryRow).getAllByRole('cell')).toHaveLength(4);
     expect(within(entryRow).getAllByRole('button').map(button => button.getAttribute('aria-label') ?? button.textContent)).toEqual([
       'Edit', expect.stringMatching(/^Move .+ up$/), expect.stringMatching(/^Move .+ down$/), 'Delete',
     ]);

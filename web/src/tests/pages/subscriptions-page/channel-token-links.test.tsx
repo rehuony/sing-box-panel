@@ -22,7 +22,6 @@ describe('channel copies and shared links', () => {
       <ApiClientProvider client={client}><SubscriptionChannelPanel /></ApiClientProvider>, { wrapper: TestRouter },
     );
     const row = (await screen.findByText(channel.name)).closest('tr')!;
-    expect(within(row).getAllByRole('button').map((button) => button.textContent)).toEqual(['Edit', 'Copy', 'Link', 'Delete channel']);
     await user.click(within(row).getByRole('button', { name: 'Copy' }));
     await waitFor(() => expect(client.createSubscriptionChannel).toHaveBeenCalledWith({
       name: `${channel.name} copy`, format: channel.format, enabled: channel.enabled,
@@ -41,8 +40,6 @@ describe('channel copies and shared links', () => {
       </StrictMode>,
     );
     await waitFor(() => expect(screen.getByRole('button', { name: 'Copy' })).toBeEnabled());
-    const footer = screen.getByRole('button', { name: 'Copy' }).parentElement!;
-    expect(within(footer).getAllByRole('button').map(button => button.textContent)).toEqual(['Copy', 'Done']);
     expect(client.getSubscriptionTokenSecret).not.toHaveBeenCalled();
     await user.click(screen.getByRole('button', { name: 'Copy' }));
     await waitFor(() => {

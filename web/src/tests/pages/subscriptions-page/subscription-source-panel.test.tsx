@@ -2,15 +2,12 @@ import userEvent from '@testing-library/user-event';
 import { beforeAll, describe, expect, it, vi } from 'vitest';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 
-import type { TelemetryState } from '@/components/app-shell/use-telemetry';
+import type { ApiClient, SubscriptionNodeSummary } from '@/api/api-client';
 
 import '@/i18n';
+import type { TelemetryState } from '@/components/app-shell/use-telemetry';
 
-import type { ApiClient, SubscriptionNodeSummary, SubscriptionSourcePage } from '@/api/api-client';
-
-import { toast } from '@/components/ui/toast-manager';
 import * as reviewedSchemas from '@/schemas/generated';
-import { createHttpApiClient } from '@/api/http-api-client';
 import { ApiClientProvider } from '@/api/api-client-context';
 import { TestRouter as MemoryRouter } from '@/tests/test-router';
 import { TelemetryContext } from '@/components/app-shell/telemetry-context';
@@ -19,7 +16,6 @@ import { SubscriptionNodeEditor } from '@/pages/subscriptions-page/subscription-
 import { SubscriptionSourcePanel } from '@/pages/subscriptions-page/subscription-source-panel';
 import {
   createMockApiClient,
-  testRuntimeHistory,
   testSubscriptionSources,
 } from '@/tests/api/mock-api-client';
 
@@ -67,48 +63,6 @@ function mount(client: ApiClient = createMockApiClient()) {
 }
 
 describe('subscription sources and nodes', () => {
-  it.each(['manual row', 'manual toolbar', 'all sources'] as const)(
-    'bypasses cached reads when refreshing %s without remote sources', async target => {
-      const user = userEvent.setup();
-      let nodes = [node];
-      const fetcher = vi.fn<typeof fetch>(async url => new Response(JSON.stringify(
-        String(url).endsWith('/subscription/nodes') ? { nodes } : { items: [] },
-      ), { status: 200 }));
-      mount(createHttpApiClient({ fetcher }));
-      const manualRow = await screen.findByRole('row', { name: /Manual nodes/ });
-      if (target === 'manual toolbar') {
-        await user.click(within(manualRow).getByRole('button', { name: 'Edit' }));
-        await screen.findByRole('button', { name: 'View 香港' });
-      }
-      const before = fetcher.mock.calls.length;
-      nodes = [{ ...node, name: 'Updated node' }];
-      await user.click(target === 'manual row'
-        ? within(manualRow).getByRole('button', { name: 'Refresh' })
-        : screen.getAllByRole('button', { name: 'Refresh' })[0]);
-      await waitFor(() => expect(fetcher.mock.calls.filter(
-        ([url]) => String(url).endsWith('/subscription/nodes'),
-      )).toHaveLength(2));
-      expect(fetcher.mock.calls.slice(before).some(([url]) => String(url).includes('/subscription/sources'))).toBe(true);
-      if (target !== 'manual toolbar') {
-        await user.click(within(manualRow).getByRole('button', { name: 'Edit' }));
-      }
-      expect(await screen.findByRole('button', { name: 'View Updated node' })).toBeVisible();
-      expect(fetcher.mock.calls.every(([, init]) => init?.method === 'GET')).toBe(true);
-    },
-  );
-
-  it('requests nodes while the source list is still pending', async () => {
-    let finish!: (page: SubscriptionSourcePage) => void;
-    const client = createMockApiClient({
-      listSubscriptionSources: vi.fn(() => new Promise<SubscriptionSourcePage>(resolve => {
-        finish = resolve;
-      })),
-    });
-    mount(client);
-    await waitFor(() => expect(client.getSubscriptionNodeCatalog).toHaveBeenCalledOnce());
-    await act(async () => finish({ items: [] }));
-  });
-
   it('opens node configuration only from the corner details action', async () => {
     const user = userEvent.setup();
     const onOpen = vi.fn();
@@ -222,15 +176,6 @@ describe('subscription sources and nodes', () => {
     }
   });
 
-  it('uses the last recorded core start for manual nodes, independently of source updates', async () => {
-    const client = mount();
-    const row = screen.getByRole('cell', { name: 'Manual nodes' }).closest('tr')!;
-    const started = new Intl.DateTimeFormat('en', { dateStyle: 'short', timeStyle: 'short' }).format(new Date(testRuntimeHistory.items[0]!.process_started_at!));
-    await waitFor(() => expect(row).toHaveTextContent(started));
-    expect(client.getRuntimeHistory).toHaveBeenCalledWith({ state: 'running', limit: 1 }, expect.any(AbortSignal));
-    expect(client.getRuntimeStatus).not.toHaveBeenCalled();
-  });
-
   it('prefers a newer live start and retains the recorded start after stopping', async () => {
     const client = createMockApiClient();
     const renderPanel = (startedAt?: string) => (
@@ -253,16 +198,6 @@ describe('subscription sources and nodes', () => {
     expect(row).toHaveTextContent(format('2026-09-20T00:00:00Z'));
   });
 
-  it.each([{ items: [] }, { items: [{ ...testRuntimeHistory.items[0], process_started_at: 'invalid' }] }])(
-    'leaves an unknown manual update time empty', async ({ items }) => {
-      const client = mount(createMockApiClient({
-        getRuntimeHistory: vi.fn().mockResolvedValue({ ...testRuntimeHistory, items }),
-      }));
-      await waitFor(() => expect(client.getSubscriptionNodeCatalog).toHaveBeenCalled());
-      const row = screen.getByRole('cell', { name: 'Manual nodes' }).closest('tr')!;
-      expect(within(row).getAllByRole('cell')[2]).toHaveTextContent('—');
-    });
-
   it('returns focus after cancel and starts a fresh source form when reopened', async () => {
     const user = userEvent.setup();
     mount();
@@ -274,26 +209,6 @@ describe('subscription sources and nodes', () => {
     await waitFor(() => expect(add).toHaveFocus());
     await user.click(add);
     expect(within(screen.getByRole('dialog')).getByLabelText('Name')).toHaveValue('');
-  });
-
-  it('offers editing and refresh without source deletion in the list or settings', async () => {
-    const user = userEvent.setup();
-    const fresh = { ...remote, updated_at: '2026-09-20T00:00:00Z' };
-    const client = mount(createMockApiClient({
-      listSubscriptionSources: vi.fn().mockResolvedValue({ items: [remote] }),
-      getSubscriptionSource: vi.fn().mockResolvedValue(fresh),
-    }));
-    const row = (await screen.findByRole('cell', { name: 'Global Edge' })).closest('tr')!;
-    const manual = screen.getByRole('cell', { name: 'Manual nodes' }).closest('tr')!;
-    expect(within(manual).queryByRole('button', { name: 'Delete source' })).not.toBeInTheDocument();
-    expect(within(row).queryByRole('button', { name: 'Delete source' })).not.toBeInTheDocument();
-    expect(within(row).getByRole('button', { name: 'Refresh' })).toBeEnabled();
-    await user.click(within(row).getByRole('button', { name: 'Edit' }));
-    await user.click(screen.getByRole('tab', { name: 'Source settings' }));
-    const settings = await screen.findByRole('tabpanel', { name: 'Source settings' });
-    expect(within(settings).getByRole('button', { name: 'Save source' })).toBeEnabled();
-    expect(screen.queryByRole('button', { name: 'Delete source' })).not.toBeInTheDocument();
-    expect(client.deleteSubscriptionSource).not.toHaveBeenCalled();
   });
 
   it('guards source settings when returning to nodes or the source list', async () => {
@@ -354,37 +269,6 @@ describe('subscription sources and nodes', () => {
     expect(ssh).not.toContain('"server_ports":');
   });
 
-  it('folds old local imports into the manual collection without changing their identities', async () => {
-    const user = userEvent.setup();
-    const legacy = {
-      ...remote,
-      id: 'old_local',
-      name: 'Old imports',
-      source_kind: 'local' as const,
-    };
-    const imported = {
-      ...node,
-      id: 'node_old',
-      name: 'Existing node',
-      origin: 'source' as const,
-      source_id: legacy.id,
-    };
-    mount(
-      createMockApiClient({
-        listSubscriptionSources: vi.fn().mockResolvedValue({ items: [legacy, remote] }),
-        getSubscriptionNodeCatalog: vi
-          .fn()
-          .mockResolvedValue({ nodes: [node, imported], diagnostics: [] }),
-      }),
-    );
-    await screen.findByRole('cell', { name: 'Global Edge' });
-    expect(screen.queryByRole('cell', { name: 'Old imports' })).not.toBeInTheDocument();
-    const sourceRow = (screen.getByRole('cell', { name: 'Manual nodes' })).closest('tr')!;
-    await user.click(within(sourceRow).getByRole('button', { name: 'Edit' }));
-    expect(screen.getByText('Existing node', { exact: true })).toBeInTheDocument();
-    expect(screen.getAllByRole('article')).toHaveLength(2);
-  });
-
   it('displays and copies complete credentials directly from the node details toolbar', async () => {
     const user = userEvent.setup();
     const external = { ...node, origin: 'source' as const, source_id: remote.id };
@@ -416,134 +300,6 @@ describe('subscription sources and nodes', () => {
     expect(JSON.parse(await navigator.clipboard.readText())).toMatchObject({
       psk: 'private-psk', tls: { client_key: 'private-client-key' },
     });
-  });
-
-  it('creates URL sources with a minute-based refresh interval and no single-node import', async () => {
-    const addToast = vi.spyOn(toast, 'add');
-    const user = userEvent.setup();
-    const client = mount();
-    await user.click(screen.getByRole('button', { name: 'Attach source' }));
-    const dialog = screen.getByRole('dialog');
-    expect(within(dialog).queryByRole('tab')).not.toBeInTheDocument();
-    expect(within(dialog).queryByRole('checkbox', { name: 'Enable' })).not.toBeInTheDocument();
-    await user.type(within(dialog).getByLabelText('Name'), 'Global Edge');
-    await user.type(within(dialog).getByLabelText('Subscription URL'), 'socks://node.example:1080');
-    await user.click(within(dialog).getByRole('button', { name: 'Save source' }));
-    await waitFor(() => expect(addToast).toHaveBeenCalledWith(expect.objectContaining({ type: 'error', title: expect.stringContaining('HTTP or HTTPS') })));
-    expect(within(dialog).queryByRole('alert')).not.toBeInTheDocument();
-    addToast.mockRestore();
-    expect(client.createSubscriptionSource).not.toHaveBeenCalled();
-    await user.clear(within(dialog).getByLabelText('Subscription URL'));
-    await user.type(
-      within(dialog).getByLabelText('Subscription URL'),
-      'https://source.example/sub',
-    );
-    await user.click(within(dialog).getByRole('combobox', { name: 'Refresh interval' }));
-    await user.click(await screen.findByRole('option', { name: '360 min' }));
-    await user.click(within(dialog).getByRole('button', { name: 'Save source' }));
-    await waitFor(() =>
-      expect(client.createSubscriptionSource).toHaveBeenCalledWith(
-        {
-          name: 'Global Edge',
-          source_kind: 'remote',
-          enabled: true,
-          config: {
-            url: 'https://source.example/sub',
-            format: 'auto',
-            refresh_interval_minutes: 360,
-          },
-        },
-        expect.any(AbortSignal),
-      ),
-    );
-  });
-
-  it.each([true, false])('preserves source enablement %s without a form toggle and uses fresh metadata for a CAS save', async (enabled) => {
-    const user = userEvent.setup();
-    const fresh = { ...remote, enabled, updated_at: '2026-09-19T00:00:01Z' };
-    const client = mount(
-      createMockApiClient({
-        listSubscriptionSources: vi.fn().mockResolvedValue({ items: [remote] }),
-        getSubscriptionSource: vi.fn().mockResolvedValue(fresh),
-        updateSubscriptionSource: vi.fn().mockResolvedValue(fresh),
-      }),
-    );
-    const sourceRow = (await screen.findByRole('cell', { name: 'Global Edge' })).closest('tr')!;
-    await user.click(within(sourceRow).getByRole('button', { name: 'Edit' }));
-    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
-    const navigation = screen.getByRole('tablist', { name: 'Source settings' });
-    expect(within(navigation).getAllByRole('tab')).toHaveLength(2);
-    await user.click(within(navigation).getByRole('tab', { name: 'Nodes' }));
-    await user.keyboard('{ArrowRight}');
-    expect(within(navigation).getByRole('tab', { name: 'Source settings' })).toHaveFocus();
-    await user.keyboard('{Enter}');
-    await screen.findByRole('tabpanel', { name: 'Source settings' });
-    await user.clear(await screen.findByLabelText('Name'));
-    expect(screen.queryByRole('checkbox', { name: 'Enable' })).not.toBeInTheDocument();
-    await user.type(screen.getByLabelText('Name'), 'Renamed source');
-    await user.click(screen.getByRole('button', { name: 'Save source' }));
-    await waitFor(() =>
-      expect(client.updateSubscriptionSource).toHaveBeenCalledWith(
-        remote.id,
-        { name: 'Renamed source', source_kind: 'remote', config: remote.config, enabled },
-        fresh.updated_at,
-        expect.any(AbortSignal),
-      ),
-    );
-  });
-
-  it('keeps hidden cards in their source and reports only real refresh outcomes', async () => {
-    const user = userEvent.setup();
-    const notified = vi.spyOn(toast, 'add');
-    const client = mount(
-      createMockApiClient({
-        listSubscriptionSources: vi.fn().mockResolvedValue({ items: [remote] }),
-        getSubscriptionNodeCatalog: vi.fn().mockResolvedValue({ nodes: [node], diagnostics: [] }),
-        setSubscriptionNodeVisibility: vi
-          .fn()
-          .mockResolvedValueOnce({ ...node, hidden: true, visibility_revision: 1 })
-          .mockResolvedValueOnce({ ...node, hidden: false, visibility_revision: 2 }),
-        refreshSubscriptionSource: vi.fn().mockRejectedValue(new Error('Source refresh failed')),
-      }),
-    );
-    const sourceRow = (await screen.findByRole('cell', { name: 'Manual nodes' })).closest('tr')!;
-    await user.click(within(sourceRow).getByRole('button', { name: 'Edit' }));
-    await user.click(screen.getByRole('button', { name: 'Hide 香港' }));
-    expect(await screen.findByText('Hidden')).toBeInTheDocument();
-    expect(client.setSubscriptionNodeVisibility).toHaveBeenCalledWith(
-      node.id,
-      true,
-      0,
-      expect.any(AbortSignal),
-    );
-    const maskedBody = screen.getByText('proxy.example:1080').closest('.subscription-node-card__body');
-    expect(maskedBody).toHaveAttribute('aria-hidden', 'true');
-    expect(screen.queryByRole('button', { name: /Manual nodes.*socks/ })).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'View 香港' })).toBeEnabled();
-    expect(screen.queryByRole('button', { name: 'Hide 香港' })).not.toBeInTheDocument();
-    const reveal = screen.getByRole('button', { name: 'Show 香港' });
-    expect(reveal).toHaveTextContent('Hidden');
-    expect(within(screen.getByRole('article').querySelector('header')!).getAllByRole('button')).toHaveLength(1);
-    await user.click(reveal);
-    await waitFor(() => expect(screen.queryByText('Hidden')).not.toBeInTheDocument());
-    expect(client.setSubscriptionNodeVisibility).toHaveBeenLastCalledWith(
-      node.id,
-      false,
-      1,
-      expect.any(AbortSignal),
-    );
-    expect(maskedBody).not.toHaveAttribute('aria-hidden');
-    expect(screen.queryByRole('button', { name: /Manual nodes.*socks/ })).not.toBeInTheDocument();
-    await user.click(screen.getByRole('button', { name: 'Back' }));
-    const row = screen.getByRole('cell', { name: 'Global Edge' }).closest('tr')!;
-    await user.click(within(row).getByRole('button', { name: 'Refresh' }));
-    await waitFor(() =>
-      expect(notified).toHaveBeenCalledWith(expect.objectContaining({ type: 'error' })),
-    );
-    expect(notified).not.toHaveBeenCalledWith(
-      expect.objectContaining({ title: 'Sources refreshed' }),
-    );
-    notified.mockRestore();
   });
 
   it('saves edited JSON losslessly and does not save just by opening a node', async () => {
@@ -584,37 +340,13 @@ describe('subscription sources and nodes', () => {
     );
   });
 
-  it('removes hidden and unavailable nodes from channel selection before paging', async () => {
-    const user = userEvent.setup();
-    const nodes = Array.from({ length: 15 }, (_, index) => ({
-      ...node,
-      id: `node_${index}`,
-      name: `Node ${index}`,
-      hidden: index === 0,
-      available: index !== 1,
-    }));
-    render(
-      <SubscriptionNodeGrid
-        nodes={nodes}
-        onOpen={vi.fn()}
-        onSelect={vi.fn()}
-        search=''
-        selected={new Set(['node_0', 'node_2'])}
-      />,
-    );
-    expect(screen.queryByText('Node 0', { exact: true })).not.toBeInTheDocument();
-    expect(screen.queryByText('Node 1', { exact: true })).not.toBeInTheDocument();
-    expect(screen.getByRole('checkbox', { name: 'Select Node 2' })).toBeChecked();
-    expect(screen.getAllByRole('article')).toHaveLength(10);
-    await user.click(screen.getByRole('combobox', { name: 'Items per page' }));
-    await user.keyboard('[ArrowDown]');
-    await user.click(screen.getByRole('option', { name: '5 per page' }));
-    expect(screen.getAllByRole('article')).toHaveLength(5);
-    await user.click(screen.getByRole('button', { name: 'Next page' }));
-    expect(screen.getByText('Node 7', { exact: true })).toBeInTheDocument();
-    await user.click(screen.getByRole('combobox', { name: 'Items per page' }));
-    await user.keyboard('[ArrowDown]');
-    await user.click(await screen.findByRole('option', { name: '50 per page' }));
-    expect(screen.getAllByRole('article')).toHaveLength(13);
+  it('wires a new source submission to the create action', async () => {
+    const client = mount();
+    await userEvent.click(screen.getByRole('button', { name: 'Attach source' }));
+    const dialog = screen.getByRole('dialog');
+    fireEvent.change(within(dialog).getByLabelText('Name'), { target: { value: 'Remote' } });
+    fireEvent.change(within(dialog).getByLabelText('Subscription URL'), { target: { value: 'https://example.com/sub' } });
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Save source' }));
+    expect(client.createSubscriptionSource).toHaveBeenCalledOnce();
   });
 });

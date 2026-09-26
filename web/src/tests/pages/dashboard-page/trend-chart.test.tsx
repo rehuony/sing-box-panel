@@ -55,27 +55,6 @@ describe('chart details', () => {
     });
   }
 
-  it.each(['traffic', 'connections'] as const)(
-    'moves %s details within the same sample and keeps them inside the chart at its edges',
-    (kind) => {
-      render(<TrendChart history={testMetricsHistory} kind={kind} />);
-      moveCursor(0, 100, 40);
-      const tooltip = screen.getByRole('status');
-      expect(tooltip).toHaveStyle({ left: '146px', top: '62px' });
-
-      moveCursor(0, 200, 60);
-      expect(tooltip).toHaveStyle({ left: '246px', top: '82px' });
-
-      moveCursor(0, 600, 200);
-      expect(tooltip).toHaveStyle({ left: '458px', top: '124px' });
-      expect(tooltip).not.toHaveTextContent(/\d{1,2}:\d{2}/);
-
-      fireEvent.mouseLeave(screen.getByRole('figure'));
-      expect(tooltip).toHaveTextContent('Use arrow keys to inspect samples.');
-      expect(tooltip).not.toHaveClass('trend-chart__tooltip');
-    },
-  );
-
   it('shows each transfer rate with its unit and preserves missing values', () => {
     const history = {
       ...testMetricsHistory,

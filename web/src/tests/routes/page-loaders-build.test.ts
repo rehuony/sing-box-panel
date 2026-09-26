@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { build } from 'vite';
 import { resolve } from 'node:path';
 import { runInNewContext } from 'node:vm';

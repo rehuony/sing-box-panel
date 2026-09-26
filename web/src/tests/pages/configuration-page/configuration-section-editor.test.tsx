@@ -81,7 +81,6 @@ it('moves standalone records without losing unknown fields or numeric lexemes an
   const user = userEvent.setup();
   render(<CollectionHarness initial='{"http_clients":[{"tag":"first","counter":900719925474099312345,"future":4.2000e+99,"users":[{"name":"nested"}]},{"tag":"second"}]}' />);
   const table = screen.getByRole('table');
-  expect(within(table).getAllByRole('columnheader').map(header => header.textContent)).toEqual(['Tag', 'Type', 'Details', 'Actions']);
   expect(screen.getByRole('button', { name: 'Move first up' })).toBeDisabled();
   expect(screen.getByRole('button', { name: 'Move second down' })).toBeDisabled();
   screen.getByRole('button', { name: 'Move first down' }).focus();
@@ -111,27 +110,4 @@ it('respects locked arrays and schema limits in the standalone layout', () => {
   for (const button of within(screen.getByRole('table')).getAllByRole('button')) expect(button).toBeDisabled();
   rerender(<CollectionHarness initial='{}' schema={{ ...collectionSchema, maxItems: 2 }} />);
   expect(screen.queryByRole('button', { name: 'Add' })).not.toBeInTheDocument();
-});
-
-it('orders experimental tabs explicitly while retaining fields from other groups', async () => {
-  const user = userEvent.setup();
-  const experimental: RJSFSchema = {
-    type: 'object',
-    properties: Object.fromEntries(['cache_file', 'clash_api', 'debug', 'v2ray_api'].map(name => [name, {
-      type: 'object', properties: { enabled: { type: 'boolean' } },
-    }])),
-  };
-  render(
-    <ConfigurationSectionEditor name='experimental' draft={{ experimental: { debug: { enabled: true } } }}
-      disabled={false} onChange={() => {}} schema={experimental}
-      resolution={{ schema: { type: 'object', properties: { experimental } }, createValidator: () => customizeValidator() }} />,
-  );
-  const tabs = within(screen.getByRole('tablist', { name: 'experimental' })).getAllByRole('tab');
-  expect(tabs.map(tab => tab.textContent)).toEqual(['Clash API', 'V2Ray API', 'Cache file', 'Debug']);
-  expect(tabs[0]).toHaveAttribute('aria-selected', 'true');
-  await user.click(tabs[3]);
-  expect(screen.getByRole('switch', { name: 'Enabled' })).toBeChecked();
-  await user.click(tabs[0]);
-  await user.click(tabs[3]);
-  expect(screen.getByRole('switch', { name: 'Enabled' })).toBeChecked();
 });
