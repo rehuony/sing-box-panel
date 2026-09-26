@@ -10,6 +10,9 @@ import (
 	"io"
 	"strings"
 
+	apiassets "github.com/rehuony/sing-box-panel/api"
+	"github.com/rehuony/sing-box-panel/internal/configuration"
+
 	"go.yaml.in/yaml/v3"
 )
 
@@ -20,9 +23,11 @@ type channelTemplate struct {
 }
 
 func parseChannelTemplate(template *NativeTemplate, format RenderFormat) (channelTemplate, error) {
-	content := "{}"
+	content := apiassets.SingBoxTemplate
 	if format == RenderFormatLoon {
-		content = ""
+		content = apiassets.LoonTemplate
+	} else if format == RenderFormatMihomo {
+		content = apiassets.MihomoTemplate
 	}
 	if template != nil {
 		if template.Format != format {
@@ -106,7 +111,11 @@ func (template channelTemplate) render(format RenderFormat, generated map[string
 				template.json[key] = value
 			}
 		}
-		content, err := json.MarshalIndent(template.json, "", "  ")
+		raw, err := json.Marshal(template.json)
+		if err != nil {
+			return nil, err
+		}
+		content, err := configuration.FormatJSON(raw)
 		return append(content, '\n'), err
 	}
 	root := template.yaml.Content[0]

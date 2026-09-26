@@ -13,6 +13,7 @@ import type { ConfigurationFile } from '@/api/api-client';
 import { toast } from '@/components/ui/toast-manager';
 import { useApiClient } from '@/api/api-client-context';
 import { useUnsavedChanges } from '@/hooks/use-unsaved-changes';
+import { orderConfigurationValue } from '@/utils/configuration-order';
 import {
   useConfigurationSessionStore,
   useConfigurationSessionStoreApi,
@@ -45,14 +46,14 @@ export function parseCanonicalDraft(documentJSON: string): CanonicalDraft {
   return parsed as CanonicalDraft;
 }
 
-export function encodeCanonicalValue(value: unknown, indentation?: number): string {
-  const encoded = stringifyLosslessJSON(value, null, indentation);
+export function encodeCanonicalValue(value: unknown, indentation?: number, root = false): string {
+  const encoded = stringifyLosslessJSON(orderConfigurationValue(value, root), null, indentation);
   if (encoded === undefined) throw new CanonicalDraftError('notEncoded');
   return encoded;
 }
 
 export function encodeCanonicalDraft(draft: CanonicalDraft, indentation?: number): string {
-  return encodeCanonicalValue(draft, indentation);
+  return encodeCanonicalValue(draft, indentation, true);
 }
 
 type FileState

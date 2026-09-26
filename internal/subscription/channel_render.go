@@ -5,7 +5,6 @@ package subscription
 import (
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"fmt"
 	"net/netip"
 	"sort"
@@ -18,6 +17,9 @@ import (
 func RenderPolicyNodes(nodes []Node, channel RenderChannel, policy *ChannelPolicy) (RenderResult, error) {
 	if policy == nil {
 		return RenderNodes(nodes, channel)
+	}
+	if len(channel.ExcludeTags) > 0 || len(channel.ExcludeTypes) > 0 {
+		return RenderResult{}, policyError("policy.selection", "legacy_filters_not_supported")
 	}
 	if err := ValidateChannelPolicy(policy, channel.Format); err != nil {
 		return RenderResult{}, err
@@ -67,8 +69,8 @@ func RenderPolicyNodes(nodes []Node, channel RenderChannel, policy *ChannelPolic
 			native = append(native, item)
 		}
 	}
-	if len(diagnostics) > 0 && policy.Organizer.Incompatible == "error" {
-		return RenderResult{}, policyError("policy.organizer.incompatible", "incompatible_nodes")
+	if len(diagnostics) > 0 && policy.IncompatibleNodes == "error" {
+		return RenderResult{}, policyError("policy.incompatible_nodes", "incompatible_nodes")
 	}
 	nameKey := "tag"
 	if channel.Format == RenderFormatMihomo {
@@ -94,18 +96,36 @@ func RenderPolicyNodes(nodes []Node, channel RenderChannel, policy *ChannelPolic
 			builder.candidates[group.ID] = builder.groupCandidates(group)
 		}
 	}
+	orderedRules := []orderedChannelRule{}
+	position := 0
 	for _, group := range policy.Groups {
 		if !group.Enabled {
+			position += len(group.Rules)
 			continue
 		}
 		if nativeGroup := builder.renderGroup(group); nativeGroup != nil {
 			groupNodes = append(groupNodes, nativeGroup)
 		}
 		for _, rule := range group.Rules {
+			position++
 			if rule.Enabled {
-				builder.addRule(rule, &group)
+				index := rule.SortIndex
+				if index == 0 {
+					index = position * 10
+				}
+				orderedRules = append(orderedRules, orderedChannelRule{rule: rule, group: group, index: index})
 			}
 		}
+	}
+	sort.SliceStable(orderedRules, func(i, j int) bool {
+		a, b := orderedRules[i], orderedRules[j]
+		if a.index != b.index {
+			return a.index < b.index
+		}
+		return a.rule.sortName() < b.rule.sortName()
+	})
+	for _, item := range orderedRules {
+		builder.addRule(item.rule, &item.group)
 	}
 	final := builder.exitName(policy.DefaultExit, nil)
 	generated := map[string]any{}
@@ -165,33 +185,20 @@ func prepareChannelNodes(nodes []Node, channel RenderChannel, p *ChannelPolicy) 
 		if _, skip := filter.types[node.Type]; skip {
 			continue
 		}
-		omit := false
-		for _, part := range p.Organizer.ExcludeNames {
-			if strings.Contains(strings.ToLower(channelNodeName(node)), strings.ToLower(part)) {
-				omit = true
-				break
-			}
-		}
-		if !omit {
-			chosen = append(chosen, node)
-		}
+		chosen = append(chosen, node)
 	}
-	if p.Organizer.Sort == "name" {
-		sort.SliceStable(chosen, func(i, j int) bool { return channelNodeName(chosen[i]) < channelNodeName(chosen[j]) })
-	} else {
-		positions := map[string]int{}
-		for i, id := range p.Selection.IDs {
-			positions[id] = i
-		}
-		sort.SliceStable(chosen, func(i, j int) bool {
-			a, okA := positions[PublicationID(chosen[i])]
-			b, okB := positions[PublicationID(chosen[j])]
-			if okA != okB {
-				return okA
-			}
-			return okA && a < b
-		})
+	positions := map[string]int{}
+	for i, id := range p.Selection.IDs {
+		positions[id] = i
 	}
+	sort.SliceStable(chosen, func(i, j int) bool {
+		a, okA := positions[PublicationID(chosen[i])]
+		b, okB := positions[PublicationID(chosen[j])]
+		if okA != okB {
+			return okA
+		}
+		return okA && a < b
+	})
 	used := map[string]bool{"direct": true, "DIRECT": true, "REJECT": true, "GLOBAL": true}
 	if channel.Format == RenderFormatLoon {
 		used["PROXY"] = true
@@ -200,7 +207,6 @@ func prepareChannelNodes(nodes []Node, channel RenderChannel, p *ChannelPolicy) 
 		used[g.Name] = true
 	}
 	names := map[string]string{}
-	identical := map[string]string{}
 	sourceNames := map[string]string{}
 	values := []outbound{}
 	sourceIDs := []string{}
@@ -214,15 +220,7 @@ func prepareChannelNodes(nodes []Node, channel RenderChannel, p *ChannelPolicy) 
 		}
 		id := PublicationID(node)
 		delete(value, "tag")
-		if p.Organizer.Deduplicate {
-			key := channelNodeFingerprint(node, value)
-			if name := identical[key]; name != "" {
-				names[id] = name
-				sourceNames[node.SourceID+"\x00"+node.Tag] = name
-				continue
-			}
-		}
-		name := p.Organizer.Prefix + channelNodeName(node)
+		name := channelNodeName(node)
 		if strings.ContainsAny(name, "\r\n,\x00") || len(name) > 512 {
 			return nil, nil, policyError("policy.selection", "invalid_node_name")
 		}
@@ -239,9 +237,6 @@ func prepareChannelNodes(nodes []Node, channel RenderChannel, p *ChannelPolicy) 
 		used[name] = true
 		names[id] = name
 		sourceNames[node.SourceID+"\x00"+node.Tag] = name
-		if p.Organizer.Deduplicate {
-			identical[channelNodeFingerprint(node, value)] = name
-		}
 		value["tag"] = name
 		values = append(values, outbound{collection: CollectionOutbounds, index: index, tag: name, typeID: node.Type, value: value})
 		sourceIDs = append(sourceIDs, node.SourceID)
@@ -322,27 +317,11 @@ func (b *channelRuleBuilder) renderGroup(group RuleGroup) map[string]any {
 		result = map[string]any{"tag": group.Name, "outbounds": candidates}
 		if kind == "select" {
 			result["type"] = "selector"
-			defaultName := b.exitName(group.DefaultExit, nil)
-			if defaultName == "REJECT" {
-				// Rejection is a route action in current sing-box. groupExit
-				// rejects references to this group until its fixed exit returns.
-				defaultName = candidates[0]
-			}
-			result["default"] = defaultName
+			result["default"] = candidates[0]
 		} else {
 			result["type"] = "urltest"
 		}
 	} else {
-		if kind == "select" {
-			defaultName := b.exitName(group.DefaultExit, nil)
-			ordered := []string{defaultName}
-			for _, name := range candidates {
-				if name != defaultName {
-					ordered = append(ordered, name)
-				}
-			}
-			candidates = ordered
-		}
 		result = map[string]any{"name": group.Name, "type": kind, "proxies": candidates}
 	}
 	if kind != "select" {
@@ -368,10 +347,15 @@ func (b *channelRuleBuilder) groupExit(group RuleGroup) string {
 	if len(b.candidates[group.ID]) == 0 {
 		return "REJECT"
 	}
-	// Auto groups may use remaining candidates. An unavailable manual fixed
-	// default must retain the existing fail-closed routing behavior.
-	if group.Type == "select" && b.format == RenderFormatSingBox && (group.DefaultExit.Kind == "reject" || (group.DefaultExit.Kind == "node" && b.names[group.DefaultExit.ID] == "")) {
-		return "REJECT"
+	// A missing first manual candidate must not silently select another path.
+	// Keep routing fail-closed without inserting or reordering candidates.
+	if group.Type == "select" {
+		order := group.candidateOrder()
+		if len(order) > 0 {
+			if id, ok := strings.CutPrefix(order[0], "node:"); ok && b.names[id] == "" {
+				return "REJECT"
+			}
+		}
 	}
 	return group.Name
 }
@@ -426,13 +410,15 @@ func channelNodeName(node Node) string {
 	return node.Tag
 }
 
-func channelNodeFingerprint(node Node, value map[string]any) string {
-	raw, _ := json.Marshal(value)
-	// A detour name is scoped to its source. Identical spellings in different
-	// subscriptions can resolve to entirely different proxy chains.
-	if _, exists := value["detour"]; exists {
-		raw = append([]byte(node.SourceID+"\x00"), raw...)
+type orderedChannelRule struct {
+	rule  ChannelRule
+	group RuleGroup
+	index int
+}
+
+func (rule ChannelRule) sortName() string {
+	if rule.Remote != nil {
+		return rule.Remote.Name
 	}
-	sum := sha256.Sum256(raw)
-	return hex.EncodeToString(sum[:])
+	return rule.Value
 }

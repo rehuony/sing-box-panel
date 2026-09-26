@@ -21,7 +21,7 @@ type SchemaInfo struct {
 }
 
 // initializeSchema creates an empty database or transactionally upgrades versions
-// 11 and 12 of this storage epoch. Unrelated and newer formats remain rejected.
+// 11–13 of this storage epoch. Unrelated and newer formats remain rejected.
 func (s *Store) initializeSchema(ctx context.Context) error {
 	return s.WithTx(ctx, func(tx *sql.Tx) error {
 		applicationID, err := pragmaInt(ctx, tx, "application_id")
@@ -47,7 +47,13 @@ func (s *Store) initializeSchema(ctx context.Context) error {
 				WHERE json_type(config_json, '$.export_token_ids') IS NOT NULL`); err != nil {
 				return fmt.Errorf("remove subscription export key bindings: %w", err)
 			}
-			_, err := tx.ExecContext(ctx, "PRAGMA user_version = 13")
+			version = 13
+		}
+		if applicationID == ApplicationID && version == 13 {
+			if err := migrateSubscriptionPolicies(ctx, tx); err != nil {
+				return fmt.Errorf("migrate subscription policy ordering: %w", err)
+			}
+			_, err := tx.ExecContext(ctx, "PRAGMA user_version = 14")
 			return err
 		}
 		if applicationID != 0 {

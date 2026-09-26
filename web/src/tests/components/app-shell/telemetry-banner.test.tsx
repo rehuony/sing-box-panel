@@ -1,12 +1,13 @@
 import userEvent from '@testing-library/user-event';
-import { act, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 
 import type { TelemetryState } from '@/components/app-shell/use-telemetry';
 import type { ApiClient, MetricsSnapshot, RuntimeStatus } from '@/api/api-client';
 
 import { setAppLanguage } from '@/i18n';
 import { ThemeProvider } from '@/theme';
+import { toast } from '@/components/ui/toast-manager';
 import { SidebarProvider } from '@/components/ui/sidebar';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { ApiClientProvider } from '@/api/api-client-context';
@@ -119,7 +120,7 @@ describe('telemetryBanner', () => {
     window.localStorage.removeItem('sing-box-panel.language');
   });
 
-  it.each(['en', 'zh-CN'] as const)('shows dashboard reconnect feedback inside the shared toolbar and clears it on recovery in %s', async (language) => {
+  it.each(['en', 'zh-CN'] as const)('shows one reconnect toast per outage and closes it on recovery in %s', async (language) => {
     await setAppLanguage(language);
     const client = createMockApiClient();
     const telemetry: TelemetryState = {
@@ -142,26 +143,25 @@ describe('telemetryBanner', () => {
         </TooltipProvider>
       </ApiClientProvider>
     );
+    const addToast = vi.spyOn(toast, 'add');
+    const closeToast = vi.spyOn(toast, 'close');
     const { rerender } = render(view(telemetry));
     const message = language === 'en'
       ? 'Dashboard updates are interrupted. Keeping the last snapshot while reconnecting.'
       : '仪表盘数据暂时中断，正在保留现有数据并重新连接。';
-    const notice = screen.getByRole('status');
-    const trigger = screen.getByRole('button', { name: message });
-    expect(screen.getByRole('banner')).toContainElement(notice);
-    expect(notice).toContainElement(trigger);
-    expect(screen.getByRole('button', { name: language === 'en' ? 'Start' : '启动' })).toBeEnabled();
-    await userEvent.click(trigger);
-    expect(await screen.findByRole('tooltip')).toHaveTextContent(message);
-    await userEvent.keyboard('{Escape}');
-
-    rerender(view({ ...telemetry, dashboardStale: false }));
-    expect(screen.getByRole('status')).toBe(notice);
-    expect(notice).toBeEmptyDOMElement();
+    await waitFor(() => expect(addToast).toHaveBeenCalledOnce());
+    expect(addToast).toHaveBeenCalledWith(expect.objectContaining({ description: message, type: 'warning', timeout: 0 }));
+    const id = addToast.mock.calls[0][0].id;
     expect(screen.queryByRole('button', { name: message })).not.toBeInTheDocument();
-
+    expect(screen.getByRole('button', { name: language === 'en' ? 'Start' : '启动' })).toBeEnabled();
+    rerender(view({ ...telemetry }));
+    expect(addToast).toHaveBeenCalledOnce();
+    rerender(view({ ...telemetry, dashboardStale: false }));
+    expect(closeToast).toHaveBeenCalledWith(id);
     rerender(view({ ...telemetry, dashboardSnapshot: null }));
-    expect(notice).toBeEmptyDOMElement();
+    expect(addToast).toHaveBeenCalledOnce();
+    addToast.mockRestore();
+    closeToast.mockRestore();
   });
 
   it('renders stale runtime and traffic evidence as unknown instead of stopped', async () => {

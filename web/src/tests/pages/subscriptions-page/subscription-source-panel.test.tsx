@@ -332,10 +332,10 @@ describe('subscription sources and nodes', () => {
   "tag": "香港",
   "server": "new.example",
   "server_port": 1080,
-  "udp_fragment": false,
   "future": {
     "large": 9007199254740993
-  }
+  },
+  "udp_fragment": false
 }`, 1),
     );
   });

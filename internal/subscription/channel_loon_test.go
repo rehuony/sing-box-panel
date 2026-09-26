@@ -33,8 +33,8 @@ func TestChannelLoonRenderingAndMissingExits(t *testing.T) {
 			if err != nil || bytes.Contains(result.Content, []byte("tokyo.example.com")) {
 				t.Fatal("unavailable node leaked", err)
 			}
-			if kind == "select" && !bytes.Contains(result.Content, []byte("Selected = select,REJECT,Hong Kong")) {
-				t.Fatal("missing fixed exit did not reject", string(result.Content))
+			if kind == "select" && (!bytes.Contains(result.Content, []byte("Selected = select,Hong Kong")) || !bytes.Contains(result.Content, []byte("FINAL,REJECT"))) {
+				t.Fatal("missing first candidate did not reject", string(result.Content))
 			}
 			result, err = RenderPolicyNodes(nil, RenderChannel{Format: RenderFormatLoon}, policy)
 			if err != nil || bytes.Contains(result.Content, []byte("[Proxy Group]")) || !bytes.Contains(result.Content, []byte("FINAL,REJECT\n")) || !bytes.Contains(result.Content, []byte("policy=REJECT,enabled=true")) {

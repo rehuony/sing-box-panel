@@ -90,12 +90,12 @@ describe('subscriptionsPage', () => {
     )).toBe('https://panel.example/panel/sub/secret%2Ftoken/channel%20main');
   });
 
-  it('returns to the list after leaving a channel with no changes', async () => {
+  it('leaves an unedited legacy channel without treating its available upgrade as unsaved edits', async () => {
     const user = userEvent.setup();
     render(<TestRouter initialEntries={['/subscriptions#subscription-channels']}><ApiClientProvider client={createMockApiClient()}><SubscriptionsPage /></ApiClientProvider></TestRouter>);
     const row = (await screen.findByRole('cell', { name: testSubscriptionChannels[0].name })).closest('tr')!;
     await user.click(within(row).getByRole('button', { name: 'Edit' }));
-    expect(await screen.findByRole('button', { name: 'Save changes' })).toBeDisabled();
+    expect(await screen.findByRole('button', { name: 'Save changes' })).toBeEnabled();
     await user.click(screen.getByRole('tab', { name: 'Sources' }));
     expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
     await user.click(screen.getByRole('tab', { name: 'Channels' }));
@@ -134,7 +134,6 @@ describe('subscriptionsPage', () => {
     expect(client.createSubscriptionChannel).toHaveBeenCalledWith({
       name: 'Mobile clients', format: 'mihomo', public_host: '', enabled: true,
       config: { policy: { selection: { ids: [], excluded_ids: [], new_node_policy: 'exclude' },
-        organizer: { prefix: '', exclude_names: [], sort: 'none', deduplicate: false, incompatible: 'skip' },
         groups: [], default_exit: { kind: 'direct' } } },
     }, expect.any(AbortSignal));
     expect(await screen.findByRole('button', { name: 'Add strategy group' })).toBeVisible();

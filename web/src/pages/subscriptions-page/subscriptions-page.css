@@ -1672,67 +1672,6 @@
   padding: 2px 1.5rem;
   overscroll-behavior: contain;
 }
-.channel-organizer-dialog[data-slot='dialog-content'] {
-  width: 560px;
-  max-width: calc(100vw - 32px);
-}
-.channel-options-heading {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.channel-organizer-fields {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-  padding: 2px 0;
-}
-.channel-organizer-fields > [data-slot='field'] {
-  min-width: 0;
-  gap: 8px;
-}
-.channel-organizer-fields > .channel-organizer-row {
-  display: grid;
-  grid-template-columns: 112px minmax(0, 1fr);
-  align-items: center;
-  gap: 16px;
-  min-height: var(--control-height-sm);
-}
-.channel-organizer-row [data-slot='switch'] {
-  justify-self: end;
-  height: var(--control-height-sm);
-}
-.channel-organizer-row [data-slot='select-trigger'] {
-  width: 100%;
-  min-width: 0;
-}
-.channel-organizer-label {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-.channel-organizer-fields [data-slot='field-label'] {
-  font-weight: 400;
-}
-.channel-organizer-label [data-slot='field-description'] {
-  margin: 0;
-  font-size: var(--text-xs);
-}
-.channel-organizer-fields :is([data-slot='input'], [data-slot='textarea'], [data-slot='select-trigger']) {
-  font-size: var(--text-sm);
-}
-.channel-organizer-fields :is([data-slot='input'], [data-slot='select-trigger']) {
-  height: var(--control-height-sm);
-  min-height: var(--control-height-sm);
-  padding-block: 0;
-}
-.channel-organizer-fields [data-slot='textarea'] {
-  field-sizing: fixed;
-  resize: vertical;
-  min-height: 80px;
-  max-height: 160px;
-}
 .channel-rule-dialog > :is([data-slot='dialog-header'], [data-slot='dialog-footer']) {
   flex: none;
 }
@@ -1991,6 +1930,12 @@
   .channel-rule-row {
     flex-wrap: wrap;
   }
+  .channel-rule-label {
+    flex-wrap: wrap;
+  }
+  .channel-rule-label > span:first-child {
+    flex: 1 0 100%;
+  }
   .channel-rule-row > .subscription-toolbar-actions {
     flex-basis: 100%;
     justify-content: flex-end;
@@ -2005,10 +1950,6 @@
 }
 
 @media (max-width: 480px) {
-  .channel-organizer-fields > .channel-organizer-row {
-    grid-template-columns: 100px minmax(0, 1fr);
-    gap: 12px;
-  }
   .channel-rule-dialog .subscription-settings-fields,
   .channel-workspace .subscription-settings-fields,
   .subscription-source-settings .subscription-settings-fields {

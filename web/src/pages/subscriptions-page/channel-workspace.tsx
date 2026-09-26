@@ -30,10 +30,9 @@ import { ChannelOptions } from './channel-options';
 import { ChannelPreview } from './channel-preview';
 import { useChannelDraft } from './use-channel-draft';
 import { ChannelGroupEditor } from './channel-group-editor';
-import {
-  defaultGroupHealthCheck,
-} from './channel-policy';
 import { ChannelTemplateEditor } from './channel-template-editor';
+import { defaultGroupHealthCheck,
+  nextRuleIndex } from './channel-policy';
 
 interface Props {
   active?: boolean;
@@ -48,7 +47,6 @@ export function ChannelWorkspace({ active = true, toolbarTarget, channel, nodes,
   const {
     policy,
     setPolicy,
-    config,
     format,
     name,
     busy,
@@ -65,8 +63,11 @@ export function ChannelWorkspace({ active = true, toolbarTarget, channel, nodes,
     removeGroup,
     setRemoveGroup,
     preview,
+    previewError,
+    setPreviewError,
     setPreview,
     dirty,
+    needsUpgrade,
     conflict,
     confirmNavigation,
     render,
@@ -84,13 +85,14 @@ export function ChannelWorkspace({ active = true, toolbarTarget, channel, nodes,
           <Button size='icon-sm' variant='ghost' aria-label={t('channels.back')} title={t('channels.back')} disabled={busy} onClick={() => confirmNavigation(onBack)}><ArrowLeft /></Button>
           <Button size='icon-sm' variant='ghost' aria-label={t('channels.distribution')} title={t('channels.distribution')} disabled={busy} onClick={() => setOptionsOpen(true)}><Settings2 /></Button>
           <Button size='icon-sm' variant='ghost' aria-label={t('channels.preview')} title={t('channels.preview')} disabled={busy} onClick={() => void showPreview()}><Eye /></Button>
-          <Button size='sm' disabled={busy || conflict || !dirty} onClick={() => void save()}>
+          <Button size='sm' disabled={busy || conflict || (!dirty && !needsUpgrade)} onClick={() => void save()}>
             <Save data-icon='inline-start' />
             {t('channels.save')}
           </Button>
         </div>
       </ToolbarActions>
       <div className='channel-rules-workspace'>
+        {needsUpgrade && <p role='status' className='channel-delivery-hint'>{t('channels.legacyUpgradeHint')}</p>}
         {conflict && <ErrorNotice error={t('channels.formatConflict')} />}
         <div className='channel-policy-layout'>
           <aside className='channel-group-sidebar' aria-label={t('channels.groups')}>
@@ -172,7 +174,7 @@ export function ChannelWorkspace({ active = true, toolbarTarget, channel, nodes,
             ? (
                 <ChannelGroupEditor
                   key={group.id} group={group} nodes={nodes}
-                  format={format} busy={busy} onChange={updateGroup}
+                  format={format} busy={busy} onChange={updateGroup} nextSortIndex={nextRuleIndex(policy)}
                 />
               )
             : (
@@ -249,7 +251,6 @@ export function ChannelWorkspace({ active = true, toolbarTarget, channel, nodes,
           name={name}
           format={format}
           policy={policy}
-          config={config}
           onClose={() => setOptionsOpen(false)}
           onSave={applyOptions}
           onTemplate={() => setTemplateOpen(true)}
@@ -264,7 +265,12 @@ export function ChannelWorkspace({ active = true, toolbarTarget, channel, nodes,
           onApply={(template) => setPolicy((current) => ({ ...current, template }))}
         />
       )}
-      {preview && <ChannelPreview preview={preview} onClose={() => setPreview(null)} />}
+      {(preview || previewError != null) && (
+        <ChannelPreview preview={preview} error={previewError} onClose={() => {
+          setPreview(null);
+          setPreviewError(null);
+        }} />
+      )}
       <Dialog open={removeGroup != null} onOpenChange={(open) => !open && setRemoveGroup(null)}>
         <DialogContent>
           <DialogHeader>

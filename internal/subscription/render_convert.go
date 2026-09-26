@@ -192,6 +192,11 @@ func stringList(value map[string]any, key string, maximum int) ([]string, bool) 
 		return nil, true
 	}
 	values, ok := raw.([]any)
+	// sing-box Listable fields accept either a scalar or a list. Normalize at
+	// the consumer boundary too: imported and older saved nodes may use either.
+	if scalar, scalarOK := raw.(string); scalarOK {
+		values, ok = []any{scalar}, true
+	}
 	if !ok || len(values) > maximum {
 		return nil, false
 	}

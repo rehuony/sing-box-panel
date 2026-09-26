@@ -1,7 +1,7 @@
 .DEFAULT_GOAL := build
 
 WEB_PNPM := cd web && corepack pnpm
-GO_SOURCE_DIRS := cmd internal systemd web
+GO_SOURCE_DIRS := api cmd internal systemd web
 RELEASE_SCRIPT := scripts/build.sh
 
 .PHONY: \

@@ -97,6 +97,7 @@ describe('channel node picker', () => {
     await waitFor(() => expect(screen.getByText('Position 2 of 4.')).toBeInTheDocument());
     fireEvent.keyDown(direct, { key: 'F2', code: 'F2' });
     await waitFor(() => expect(cardNames().slice(0, 2)).toEqual(['REJECT', 'DIRECT']));
+    fireEvent.click(direct); // A delayed click from the completed drag must not toggle selection.
     expect(direct).toBeChecked();
     expect(within(dialog).getByRole('checkbox', { name: 'REJECT' })).not.toBeChecked();
     await user.click(within(dialog).getByRole('checkbox', { name: 'Tokyo Manual nodes' }));

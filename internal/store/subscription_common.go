@@ -23,9 +23,10 @@ import (
 const (
 	maximumSubscriptionNameBytes   = 128
 	maximumSubscriptionConfigBytes = 64 << 10
-	maximumChannelConfigBytes      = 512 << 10
-	maximumSourceSnapshotBytes     = 4 << 20
-	maximumChannelExclusions       = 10_000
+	// Leave room for up to 5,000 sort indices added to a legacy 512 KiB config.
+	maximumChannelConfigBytes  = 640 << 10
+	maximumSourceSnapshotBytes = 4 << 20
+	maximumChannelExclusions   = 10_000
 
 	MaximumEnabledSubscriptionChannels       = 256
 	MaximumEnabledSubscriptionSources        = 256
@@ -79,6 +80,9 @@ func canonicalChannelConfig(raw json.RawMessage, format SubscriptionFormat) (jso
 	encoded, err := json.Marshal(config)
 	if err != nil {
 		return nil, fmt.Errorf("encode subscription channel config: %w", err)
+	}
+	if len(encoded) > maximumChannelConfigBytes {
+		return nil, errors.New("subscription channel config exceeds size limit")
 	}
 	return encoded, nil
 }

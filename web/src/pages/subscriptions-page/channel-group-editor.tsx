@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { ArrowDown, ArrowRight, ArrowUp, CirclePlus, Pencil, Route, Search, Trash2 } from 'lucide-react';
+import { ArrowRight, CirclePlus, Pencil, Route, Search, Trash2 } from 'lucide-react';
 
 import type {
   ChannelRouteExit,
@@ -24,16 +24,17 @@ import { ChannelNodePicker } from './channel-node-picker';
 import { ChannelRuleEditor } from './channel-rule-editor';
 import { ChannelNodeActions } from './channel-node-actions';
 import { reorderVisibleNodes } from './subscription-node-order';
-import { ruleFormats, updateGroupCandidates } from './channel-policy';
+import { compareChannelRules, ruleFormats, updateGroupCandidates } from './channel-policy';
 
 interface Props {
   busy: boolean;
+  nextSortIndex: number;
   group: ChannelRuleGroup;
   format: SubscriptionFormat;
   nodes: SubscriptionNodeSummary[];
   onChange: (group: ChannelRuleGroup) => void;
 }
-export function ChannelGroupEditor({ group, nodes, format, busy, onChange }: Props) {
+export function ChannelGroupEditor({ group, nodes, format, busy, onChange, nextSortIndex }: Props) {
   const { t } = useTranslation();
   const [addingNodes, setAddingNodes] = useState(false);
   const [rule, setRule] = useState<ChannelRule | null>(null);
@@ -65,15 +66,11 @@ export function ChannelGroupEditor({ group, nodes, format, busy, onChange }: Pro
     if (exit.kind === 'node') return nodes.find((node) => node.id === exit.id)?.name ?? t('channels.missingNode');
     return t(exit.kind === 'group-default' ? 'channels.follow' : exit.kind === 'reject' ? 'channels.reject' : 'channels.direct');
   }
-  function move(index: number, delta: number) {
-    const rules = [...group.rules];
-    [rules[index], rules[index + delta]] = [rules[index + delta], rules[index]];
-    onChange({ ...group, rules });
-  }
   function newRule(remote: boolean) {
     setRule({
       id: crypto.randomUUID(),
       enabled: true,
+      sort_index: nextSortIndex,
       kind: remote ? 'remote' : 'domain_suffix',
       exit: { kind: 'group-default' },
       ...(remote
@@ -173,7 +170,7 @@ export function ChannelGroupEditor({ group, nodes, format, busy, onChange }: Pro
           <TabsContent value='rules' className='channel-group-content'>
             {format === 'loon' && <p className='channel-delivery-hint'>{t('channels.loonRuleOrder')}</p>}
             <div className='channel-rule-rows'>
-              {group.rules.map((item, index) => (
+              {[...group.rules].sort(compareChannelRules).map((item) => (
                 <div className='channel-rule-row' key={item.id}>
                   <input
                     aria-label={`${t('channels.enabled')} ${item.remote?.name ?? item.value}`}
@@ -187,6 +184,12 @@ export function ChannelGroupEditor({ group, nodes, format, busy, onChange }: Pro
                   />
                   <div className='channel-rule-label' title={item.remote?.url ?? item.value}>
                     <span>{item.remote?.name ?? item.value}</span>
+                    <Badge variant='secondary'>
+                      {t('channels.sortIndex')}
+                      :
+                      {' '}
+                      {item.sort_index}
+                    </Badge>
                     <span className='channel-rule-summary'>
                       <Badge variant='outline'>{t(item.kind === 'remote' ? 'channels.ruleSet' : `channels.${item.kind}`)}</Badge>
                       <ArrowRight aria-hidden='true' />
@@ -197,8 +200,6 @@ export function ChannelGroupEditor({ group, nodes, format, busy, onChange }: Pro
                     )}
                   </div>
                   <div className='subscription-toolbar-actions'>
-                    <Button variant='ghost' size='icon-sm' aria-label={t('channels.moveUp')} title={t('channels.moveUp')} disabled={index === 0} onClick={() => move(index, -1)}><ArrowUp /></Button>
-                    <Button variant='ghost' size='icon-sm' aria-label={t('channels.moveDown')} title={t('channels.moveDown')} disabled={index === group.rules.length - 1} onClick={() => move(index, 1)}><ArrowDown /></Button>
                     <Button variant='ghost' size='icon-sm' aria-label={t('channels.editRule')} title={t('channels.editRule')} onClick={() => setRule(item)}><Pencil /></Button>
                     <Button variant='ghost' size='icon-sm' className='channel-delete-action' aria-label={t('channels.deleteRule')} title={t('channels.deleteRule')} onClick={() => onChange({ ...group, rules: group.rules.filter((value) => value.id !== item.id) })}><Trash2 /></Button>
                   </div>

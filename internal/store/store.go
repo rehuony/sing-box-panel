@@ -20,7 +20,7 @@ const (
 	ApplicationID = 0x53425034
 
 	// CurrentSchemaVersion is the only schema this package can open.
-	CurrentSchemaVersion = 13
+	CurrentSchemaVersion = 14
 
 	defaultBusyTimeoutMillis  = 5_000
 	defaultMaxOpenConnections = 4

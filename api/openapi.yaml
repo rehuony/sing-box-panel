@@ -2455,6 +2455,7 @@ components:
     SubscriptionChannelConfig:
       type: object
       additionalProperties: false
+      description: "Serialized configuration is limited to 640 KiB. Nonempty exclude_tags/exclude_types are supported only without policy; policy channels use explicit node selection."
       properties:
         exclude_tags: {type: array, items: {type: string}, uniqueItems: true}
         exclude_types: {type: array, items: {type: string}, uniqueItems: true}
@@ -2469,10 +2470,10 @@ components:
     ChannelPolicy:
       type: object
       additionalProperties: false
-      required: [selection, organizer, groups, default_exit]
+      required: [selection, groups, default_exit]
       properties:
         selection: {$ref: "#/components/schemas/ChannelNodeSelection"}
-        organizer: {$ref: "#/components/schemas/ChannelNodeOrganizer"}
+        incompatible_nodes: {type: string, enum: [skip, error], default: skip, description: "Conversion failure handling; omitted nodes are reported in diagnostics."}
         groups: {type: array, maxItems: 256, items: {$ref: "#/components/schemas/ChannelRuleGroup"}}
         default_exit: {$ref: "#/components/schemas/ChannelRouteExit"}
         template: {$ref: "#/components/schemas/ChannelNativeTemplate"}
@@ -2484,16 +2485,6 @@ components:
         ids: {type: array, maxItems: 10000, uniqueItems: true, items: {type: string}}
         excluded_ids: {type: array, maxItems: 10000, uniqueItems: true, items: {type: string}}
         new_node_policy: {type: string, enum: [include, exclude]}
-    ChannelNodeOrganizer:
-      type: object
-      additionalProperties: false
-      required: [prefix, exclude_names, sort, deduplicate, incompatible]
-      properties:
-        prefix: {type: string, maxLength: 128}
-        exclude_names: {type: array, maxItems: 100, items: {type: string}}
-        sort: {type: string, enum: [none, name]}
-        deduplicate: {type: boolean}
-        incompatible: {type: string, enum: [skip, error]}
     ChannelRouteExit:
       type: object
       additionalProperties: false
@@ -2504,7 +2495,7 @@ components:
     ChannelRuleGroup:
       type: object
       additionalProperties: false
-      required: [id, name, enabled, type, builtin_nodes, node_ids, default_exit, rules]
+      required: [id, name, enabled, type, builtin_nodes, node_ids, rules]
       properties:
         id: {type: string, maxLength: 128}
         name: {type: string, maxLength: 128}
@@ -2522,9 +2513,8 @@ components:
           type: array
           maxItems: 10002
           uniqueItems: true
-          description: "Display and output order. When provided, must contain each node:<id> and builtin:<kind> candidate exactly once. When omitted, node_ids precede builtin_nodes. Manual client defaults retain their existing priority."
+          description: "Display and output order. When provided, must contain each node:<id> and builtin:<kind> candidate exactly once. When omitted, node_ids precede builtin_nodes. The first candidate is the initial manual selection."
           items: {type: string, maxLength: 136}
-        default_exit: {$ref: "#/components/schemas/ChannelRouteExit"}
         rules: {type: array, maxItems: 5000, items: {$ref: "#/components/schemas/ChannelRule"}}
     ChannelGroupHealthCheck:
       type: object
@@ -2542,6 +2532,7 @@ components:
       properties:
         id: {type: string, maxLength: 128}
         enabled: {type: boolean}
+        sort_index: {type: integer, minimum: 1, maximum: 2147483647, description: "Channel-wide ascending priority. Ties use rule name (remote name or match value), ascending Unicode scalar order, then stable original order. Omission preserves legacy flattened position."}
         kind: {type: string, enum: [domain, domain_suffix, domain_keyword, ip_cidr, remote]}
         value: {type: string}
         remote: {$ref: "#/components/schemas/ChannelRemoteRuleSet"}
@@ -2559,7 +2550,7 @@ components:
         accelerated: {type: boolean}
         update_interval: {type: integer, minimum: 60, maximum: 2592000, description: "Required for sing-box/Mihomo; omit for Loon, which manages refresh in the client."}
     ChannelNativeTemplate:
-      description: "Complete channel base configuration, never deep-merged with defaults. Native JSON for sing-box, YAML for Mihomo, General/Host/MITM sections for Loon. Generated nodes, groups and routing fields are reserved. Omission uses an empty base."
+      description: "Complete channel base configuration, never deep-merged with defaults. Native JSON for sing-box, YAML for Mihomo, General/Host/MITM sections for Loon. Generated nodes, groups and routing fields are reserved. Omission uses the shared client default template; explicit empty templates remain empty."
       type: object
       additionalProperties: false
       required: [format, content]

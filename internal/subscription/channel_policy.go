@@ -13,25 +13,17 @@ import (
 // ChannelPolicy is owned by one channel. Node IDs are stable publication IDs,
 // not names, protocols or the content digests used by legacy user grants.
 type ChannelPolicy struct {
-	Selection   NodeSelection   `json:"selection"`
-	Organizer   NodeOrganizer   `json:"organizer"`
-	Groups      []RuleGroup     `json:"groups"`
-	DefaultExit RouteExit       `json:"default_exit"`
-	Template    *NativeTemplate `json:"template,omitempty"`
+	Selection         NodeSelection   `json:"selection"`
+	IncompatibleNodes string          `json:"incompatible_nodes,omitempty"`
+	Groups            []RuleGroup     `json:"groups"`
+	DefaultExit       RouteExit       `json:"default_exit"`
+	Template          *NativeTemplate `json:"template,omitempty"`
 }
 
 type NodeSelection struct {
 	IDs           []string `json:"ids"`
 	ExcludedIDs   []string `json:"excluded_ids"`
 	NewNodePolicy string   `json:"new_node_policy"`
-}
-
-type NodeOrganizer struct {
-	Prefix       string   `json:"prefix"`
-	ExcludeNames []string `json:"exclude_names"`
-	Sort         string   `json:"sort"`
-	Deduplicate  bool     `json:"deduplicate"`
-	Incompatible string   `json:"incompatible"`
 }
 
 type RouteExit struct {
@@ -44,7 +36,6 @@ type RuleGroup struct {
 	Name           string            `json:"name"`
 	Enabled        bool              `json:"enabled"`
 	NodeIDs        []string          `json:"node_ids"`
-	DefaultExit    RouteExit         `json:"default_exit"`
 	Rules          []ChannelRule     `json:"rules"`
 	Type           string            `json:"type"`
 	BuiltinNodes   []string          `json:"builtin_nodes"`
@@ -82,12 +73,13 @@ func (g RuleGroup) candidateOrder() []string {
 // Rules and remote references share one ordered list. A disabled entry retains
 // its metadata, but is not emitted. Nothing here fetches remote rule contents.
 type ChannelRule struct {
-	ID      string         `json:"id"`
-	Enabled bool           `json:"enabled"`
-	Kind    string         `json:"kind"`
-	Value   string         `json:"value,omitempty"`
-	Remote  *RemoteRuleSet `json:"remote,omitempty"`
-	Exit    RouteExit      `json:"exit"`
+	SortIndex int            `json:"sort_index,omitempty"`
+	ID        string         `json:"id"`
+	Enabled   bool           `json:"enabled"`
+	Kind      string         `json:"kind"`
+	Value     string         `json:"value,omitempty"`
+	Remote    *RemoteRuleSet `json:"remote,omitempty"`
+	Exit      RouteExit      `json:"exit"`
 }
 
 type RemoteRuleSet struct {
@@ -139,13 +131,8 @@ func ValidateChannelPolicy(p *ChannelPolicy, format RenderFormat) error {
 			return policyError("policy.selection", "conflicting_selection")
 		}
 	}
-	if len(p.Organizer.Prefix) > 128 || strings.ContainsAny(p.Organizer.Prefix, "\x00\r\n,") || !oneOf(p.Organizer.Sort, "none", "name") || !oneOf(p.Organizer.Incompatible, "skip", "error") || len(p.Organizer.ExcludeNames) > 100 {
-		return policyError("policy.organizer", "invalid_value")
-	}
-	for _, name := range p.Organizer.ExcludeNames {
-		if name == "" || len(name) > 512 {
-			return policyError("policy.organizer.exclude_names", "invalid_value")
-		}
+	if p.IncompatibleNodes != "" && !oneOf(p.IncompatibleNodes, "skip", "error") {
+		return policyError("policy.incompatible_nodes", "invalid_value")
 	}
 	if len(p.Groups) > 256 {
 		return policyError("policy.groups", "too_many_groups")
@@ -177,9 +164,7 @@ func ValidateChannelPolicy(p *ChannelPolicy, format RenderFormat) error {
 				return policyError(path+".node_ids", "node_not_selected")
 			}
 		}
-		if err := validateExit(group.DefaultExit, candidates, nil, false, path+".default_exit"); err != nil {
-			return err
-		}
+
 		rules := map[string]bool{}
 		for j, rule := range group.Rules {
 			ruleCount++
@@ -191,6 +176,9 @@ func ValidateChannelPolicy(p *ChannelPolicy, format RenderFormat) error {
 				return policyError(rp+".id", "invalid_or_duplicate_id")
 			}
 			rules[rule.ID] = true
+			if rule.SortIndex < 0 || rule.SortIndex > 2147483647 {
+				return policyError(rp+".sort_index", "invalid_value")
+			}
 			if err := validateExit(rule.Exit, candidates, nil, true, rp+".exit"); err != nil {
 				return err
 			}
@@ -272,9 +260,6 @@ func validateGroupOptions(group RuleGroup, format RenderFormat, path string) err
 			return policyError(path+".builtin_nodes", "unsupported_client")
 		}
 		seen[kind] = true
-	}
-	if group.Type == "select" && group.DefaultExit.Kind == "direct" && !seen["direct"] {
-		return policyError(path+".default_exit", "builtin_not_selected")
 	}
 	if group.HealthCheck != nil {
 		h := group.HealthCheck
