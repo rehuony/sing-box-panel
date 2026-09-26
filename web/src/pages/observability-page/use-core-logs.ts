@@ -28,7 +28,11 @@ export function useCoreLogs() {
 
   useEffect(() => {
     const abort = new AbortController();
+    let refreshing = false;
     async function refresh() {
+      // A slow poll must not overlap the next one and overwrite a newer list.
+      if (refreshing) return;
+      refreshing = true;
       const version = listVersionRef.current;
       try {
         const result = await client.listCoreLogFiles(abort.signal);
@@ -39,16 +43,22 @@ export function useCoreLogs() {
       } catch (reason) {
         if (!abort.signal.aborted && version === listVersionRef.current) setListError(reason);
       } finally {
+        refreshing = false;
         if (!abort.signal.aborted && version === listVersionRef.current) setLoading(false);
       }
     }
+    function refreshWhenVisible() {
+      if (document.visibilityState === 'visible') void refresh();
+    }
     void refresh();
+    document.addEventListener('visibilitychange', refreshWhenVisible);
     const timer = setInterval(() => {
       void refresh();
     }, 10_000);
     return () => {
       abort.abort();
       clearInterval(timer);
+      document.removeEventListener('visibilitychange', refreshWhenVisible);
     };
   }, [client, filesVersion]);
 

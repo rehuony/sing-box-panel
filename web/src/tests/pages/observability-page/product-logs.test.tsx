@@ -85,7 +85,7 @@ describe('unified product logs', () => {
     expect(screen.queryByRole('textbox', { name: 'Search event names, messages or codes' })).not.toBeInTheDocument();
     expect(screen.getByRole('combobox', { name: 'Log file' })).toBeVisible();
   });
-  it('keeps paused output on file rotation and lets the toolbar toggle resume the latest file', async () => {
+  it.each(['2026-09-19-001.log', '2026-09-20-000.log'])('keeps paused output on rotation to %s and resumes the latest file', async (rotatedFile) => {
     vi.useFakeTimers();
     let latest = file;
     const client = createMockApiClient({
@@ -100,7 +100,7 @@ describe('unified product logs', () => {
     show(client);
     await act(async () => {});
     fireEvent.click(screen.getByRole('button', { name: 'Live updates', pressed: true }));
-    latest = '2026-09-19-001.log';
+    latest = rotatedFile;
     await act(() => vi.advanceTimersByTimeAsync(10_000));
     expect(screen.getByText(`INFO ${file}`)).toBeVisible();
     expect(client.streamCoreLog).toHaveBeenCalledTimes(1);
@@ -110,6 +110,46 @@ describe('unified product logs', () => {
     expect(screen.getByText(`INFO ${latest}`)).toBeVisible();
     expect(screen.queryByText(`INFO ${file}`)).not.toBeInTheDocument();
     expect(client.streamCoreLog).toHaveBeenLastCalledWith(latest, -1, '', expect.any(AbortSignal));
+  });
+  it('follows an empty new day and displays its first output without reloading', async () => {
+    vi.useFakeTimers();
+    const next = '2026-09-20-000.log';
+    let latest = file;
+    let append = () => {};
+    const client = createMockApiClient({
+      listCoreLogFiles: vi.fn(async () => ({ items: [
+        ...(latest === next ? [{ name: next, size: 0, deletable: false, updated_at: '2026-09-20T00:00:00Z' }] : []),
+        { name: file, size: 32, deletable: latest !== file, updated_at: '2026-09-19T23:59:59Z' },
+      ] })),
+      readCoreLog: vi.fn(async (name) => ({ file: name, text: 'INFO yesterday\n', generation: 'old', next_offset: 15, size: 15 })),
+      streamCoreLog: vi.fn(async function* (name, _offset, _generation, signal) {
+        yield { file: name, text: name === file ? 'INFO yesterday\n' : '', generation: name, next_offset: name === file ? 15 : 0, size: name === file ? 15 : 0 };
+        if (name === next) {
+          await new Promise<void>((resolve) => {
+            append = resolve;
+          });
+          yield { file: name, text: 'INFO today\n', generation: name, next_offset: 11, size: 11 };
+        }
+        await waitForAbort(signal);
+      }),
+    });
+    show(client);
+    await act(async () => {});
+    expect(screen.getByText('INFO yesterday')).toBeVisible();
+    latest = next;
+    await act(() => vi.advanceTimersByTimeAsync(10_000));
+    expect(screen.getByRole('combobox', { name: 'Log file' })).toHaveTextContent('2026-09-20 · 0.0 MB');
+    expect(screen.queryByText('INFO yesterday')).not.toBeInTheDocument();
+    expect(vi.mocked(client.streamCoreLog).mock.calls[0][3]?.aborted).toBe(true);
+    expect(client.streamCoreLog).toHaveBeenLastCalledWith(next, -1, '', expect.any(AbortSignal));
+    await act(async () => append());
+    expect(screen.getByText('INFO today')).toBeVisible();
+    // Rotation retains yesterday's contents for explicit historical viewing.
+    vi.useRealTimers();
+    await userEvent.click(screen.getByRole('combobox', { name: 'Log file' }));
+    await userEvent.click(await screen.findByRole('option', { name: /2026-09-19/ }));
+    expect(await screen.findByText('INFO yesterday')).toBeVisible();
+    expect(client.readCoreLog).toHaveBeenCalledWith(file, -1, '', expect.any(AbortSignal));
   });
   it('keeps message colors with levels, including multiline errors, and bounds the buffer', () => {
     const lines = parseCoreLines(

@@ -19,6 +19,36 @@ function show(client: ApiClient) {
   });
 }
 
+describe('core log file refresh', () => {
+  it('does not overlap slow polls and refreshes immediately when the page becomes visible', async () => {
+    vi.useFakeTimers();
+    try {
+      let finishList = (_page: { items: CoreLogFile[] }) => {};
+      const next = { ...files[0], name: '2026-09-24-000.log', size: 0 };
+      const client = createMockApiClient({
+        listCoreLogFiles: vi.fn()
+          .mockImplementationOnce(() => new Promise<{ items: CoreLogFile[] }>((resolve) => {
+            finishList = resolve;
+          }))
+          .mockResolvedValue({ items: [next, ...files] }),
+      });
+      const { result, unmount } = show(client);
+      await act(() => vi.advanceTimersByTimeAsync(20_000));
+      expect(client.listCoreLogFiles).toHaveBeenCalledTimes(1);
+      await act(async () => finishList({ items: files }));
+      expect(result.current.file).toBe(current);
+      await act(async () => document.dispatchEvent(new Event('visibilitychange')));
+      expect(result.current.file).toBe(next.name);
+      expect(client.listCoreLogFiles).toHaveBeenCalledTimes(2);
+      unmount();
+      document.dispatchEvent(new Event('visibilitychange'));
+      expect(client.listCoreLogFiles).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
 describe('core log clear requests', () => {
   it('replaces buffered output when an active stream observes another reader clearing the file', async () => {
     let release = () => {};

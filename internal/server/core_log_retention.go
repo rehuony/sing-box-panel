@@ -16,9 +16,24 @@ func startCoreLogRetention(ctx context.Context, commands *application.Applicatio
 		defer close(done)
 		defer unsubscribe()
 		for {
+			if ctx.Err() != nil {
+				return
+			}
 			now := time.Now().UTC()
 			midnight := time.Date(now.Year(), now.Month(), now.Day()+1, 0, 0, 0, 0, time.UTC)
-			timer := time.NewTimer(time.Until(midnight))
+			// Run at startup as well as midnight: daily captures must exist even
+			// when the core is stopped or has emitted no new output.
+			err := commands.MaintainCoreLogs()
+			if err != nil {
+				recordOperationalLog(commands, application.LogRecordRequest{Source: store.LogSourcePanel, Level: store.LogLevelError, Code: "core.log.maintenance_failed", Message: "Core log daily rotation or retention failed"})
+			}
+			// If maintenance crossed midnight, run again immediately rather
+			// than postponing the new day's file until the following midnight.
+			wait := time.Until(midnight)
+			if err != nil {
+				wait = min(wait, time.Minute)
+			}
+			timer := time.NewTimer(wait)
 			select {
 			case <-ctx.Done():
 				timer.Stop()
@@ -26,9 +41,6 @@ func startCoreLogRetention(ctx context.Context, commands *application.Applicatio
 			case <-changes:
 				timer.Stop()
 			case <-timer.C:
-			}
-			if err := commands.PruneCoreLogs(); err != nil {
-				recordOperationalLog(commands, application.LogRecordRequest{Source: store.LogSourcePanel, Level: store.LogLevelError, Code: "core.log.retention_failed", Message: "Core log retention failed"})
 			}
 		}
 	}()

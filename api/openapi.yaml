@@ -1086,6 +1086,7 @@ paths:
     get:
       operationId: listCoreLogFiles
       summary: List bounded captured core output files
+      description: The panel service creates a capture for the current UTC date at startup and UTC midnight, even without core output. Existing daily segments are preserved. Empty files are listed and follow the same retention policy. Offline dates are not backfilled.
       responses:
         '200':
           description: Most recent files first.

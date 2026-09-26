@@ -55,11 +55,11 @@ func (app *Application) publishSettings(value settings.Settings) {
 	}
 }
 
-func (app *Application) PruneCoreLogs() error {
+func (app *Application) MaintainCoreLogs() error {
 	app.coreLogsMu.Lock()
 	defer app.coreLogsMu.Unlock()
 	if app.coreLogs == nil {
 		return nil
 	}
-	return app.coreLogs.Prune()
+	return app.coreLogs.EnsureCurrentFile()
 }
