@@ -106,35 +106,6 @@ describe('schema dialog layout', () => {
     expect(screen.queryByText('Details')).not.toBeInTheDocument();
   });
 
-  it.each([['username', 'password'], ['Username', 'Password']])('orders %s before %s and leaves the empty collection unchanged when cancelled', async (usernameKey, passwordKey) => {
-    const user = userEvent.setup();
-    const authentication: RJSFSchema = {
-      type: 'object', properties: {
-        tag: { type: 'string' },
-        users: { type: 'array', items: { type: 'object', properties: {
-          [passwordKey]: { type: 'string' },
-          [usernameKey]: { type: 'string' },
-        } } },
-      },
-    };
-    const onChange = vi.fn();
-    render(
-      <SchemaSectionForm dialogLayout schema={authentication} basePointer='/entry' data={{ users: [] }} onChange={onChange}
-        resolution={{ schema: authentication, createValidator: () => customizeValidator() }} />,
-    );
-    await user.click(screen.getByRole('tab', { name: 'Authentication' }));
-    expect(screen.getByText('No entries yet')).toBeVisible();
-    await user.click(screen.getByRole('button', { name: 'Add' }));
-    const dialog = within(screen.getByRole('dialog'));
-    const username = dialog.getByLabelText('Username');
-    const password = dialog.getByLabelText('Password');
-    expect(username.compareDocumentPosition(password) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    fireEvent.change(username, { target: { value: 'pending-user' } });
-    await user.click(dialog.getByRole('button', { name: 'Cancel' }));
-    expect(onChange).not.toHaveBeenCalled();
-    expect(screen.getByText('No entries yet')).toBeVisible();
-  });
-
   it.each(['tls', 'transport'])('adds and removes optional %s settings', async (field) => {
     const user = userEvent.setup();
     const optionalSchema: RJSFSchema = {

@@ -19,6 +19,7 @@ Schema and packaging contracts remain beside their owning components.
 | --- | --- |
 | Understand package ownership and dependency direction | [Architecture](development/architecture.md) |
 | Review product behavior and its verification coverage | [Product contract](development/architecture.md#product-contract) |
+| Run test layers and maintain deterministic coverage | [Testing](development/testing.md) |
 | Integrate HTTP clients and understand authentication and trust boundaries | [HTTP API and security](development/architecture.md#http-api-and-security) |
 | Review a new sing-box release and regenerate support assets | [Maintaining support](guides/core-versions.md#maintaining-support) |
 | Build, sign, verify and publish a panel release | [Release process](development/release.md) |

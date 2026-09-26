@@ -1,6 +1,6 @@
 import { useLocation } from 'react-router-dom';
-import { describe, expect, it, vi } from 'vitest';
 import userEvent from '@testing-library/user-event';
+import { beforeAll, describe, expect, it, vi } from 'vitest';
 import { act, render, screen, waitFor } from '@testing-library/react';
 
 import { ThemeProvider } from '@/theme';
@@ -10,6 +10,7 @@ import { AppRoutes } from '@/routes/app.routes';
 import { pageLoaders } from '@/routes/page-loaders';
 import { appearanceTokens } from '@/theme/appearance';
 import { TooltipProvider } from '@/components/ui/tooltip';
+import * as pageLoaderModule from '@/routes/page-loaders';
 import { ApiClientProvider } from '@/api/api-client-context';
 import { TestRouter as MemoryRouter } from '@/tests/test-router';
 import { AuthSessionProvider } from '@/stores/auth-session-provider';
@@ -45,18 +46,23 @@ async function openSignOut(user: ReturnType<typeof userEvent.setup>) {
   return user.click(await screen.findByRole('button', { name: 'Sign out' }));
 }
 
+beforeAll(async () => {
+  // Import modules without populating the prefetch cache exercised below.
+  await Promise.all(Object.values(pageLoaders).map(load => load()));
+});
+
 describe('application routes', () => {
-  it('shares a speculative download across sidebar hover and focus without navigating', async () => {
+  it('requests preloading on sidebar hover and focus without navigating', async () => {
     const user = userEvent.setup();
     renderRoutes('/');
     const link = await screen.findByRole('link', { name: 'Versions' });
-    const load = vi.spyOn(pageLoaders, '/cores');
+    const load = vi.spyOn(pageLoaderModule, 'preloadPage');
     try {
       await user.hover(link);
-      expect(load).toHaveBeenCalledTimes(1);
+      expect(load).toHaveBeenLastCalledWith('/cores');
       expect(screen.getByLabelText('Current route')).toHaveTextContent(/^\/$/);
       act(() => link.focus());
-      expect(load).toHaveBeenCalledTimes(1);
+      expect(load).toHaveBeenLastCalledWith('/cores');
       await act(() => vi.dynamicImportSettled());
       expect(screen.getByLabelText('Current route')).toHaveTextContent(/^\/$/);
     } finally {
@@ -147,10 +153,9 @@ describe('application routes', () => {
         expect(screen.getByLabelText('Current route')).toHaveTextContent(
           '/configuration?editor=advanced#deploy',
         ),
-      { timeout: 10_000 },
     );
     expect(
-      await screen.findByRole('heading', { name: 'Configuration' }, { timeout: 10_000 }),
+      await screen.findByRole('heading', { name: 'Configuration' }),
     ).toBeInTheDocument();
     expect(await screen.findByRole('tab', { name: 'Advanced JSON' })).toBeInTheDocument();
   });
@@ -161,7 +166,6 @@ describe('application routes', () => {
     const coreVersions = await screen.findByRole(
       'link',
       { name: 'Versions' },
-      { timeout: 10_000 },
     );
     const scroller = document.querySelector<HTMLDivElement>('.panel-content-scroll')!;
     scroller.scrollTop = 400;

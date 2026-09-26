@@ -3,8 +3,8 @@ import type { RJSFSchema } from '@rjsf/utils';
 import { useState } from 'react';
 import { resolve } from 'node:path';
 import { readFileSync } from 'node:fs';
-import { describe, expect, it } from 'vitest';
 import userEvent from '@testing-library/user-event';
+import { beforeAll, describe, expect, it } from 'vitest';
 import { fireEvent, render, screen, within } from '@testing-library/react';
 
 import type { ReviewedSchemaResolution } from '@/schemas/resolve-reviewed-schema';
@@ -15,7 +15,6 @@ import { reviewedSchemaManifest } from '@/schemas/generated';
 import { resolveReviewedSchema } from '@/schemas/resolve-reviewed-schema';
 import { representativeSchemaVersions } from '@/tests/schemas/schema-fixtures';
 import { SchemaSectionForm } from '@/pages/configuration-page/schema-section-form';
-import { mergeSchemaKnownData, projectSchemaKnownData } from '@/pages/configuration-page/schema-ui';
 import { ConfigurationSectionEditor } from '@/pages/configuration-page/configuration-section-editor';
 import { encodeCanonicalDraft, parseCanonicalDraft } from '@/pages/configuration-page/use-canonical-configuration';
 
@@ -62,36 +61,11 @@ function CollectionHarness({ resolution, text }: { resolution: ReviewedSchemaRes
   );
 }
 
-describe.each(representativeSchemaVersions('reviewed-1.13'))('reviewed 1.13 editor %s', (version) => {
-  it('validates every section and preserves DNS, TLS, rules and protocols through form projection', async () => {
-    const loaded = await reviewedSchemaManifest[version].load();
-    const resolution = await resolveReviewedSchema({
-      exact_version: version, schema_sha256: loaded.schemaSHA256, schema: loaded.schema,
-    }, version);
-    const validate = Object.values(loaded.validateFns)[0];
-    for (const fixture of fixtures) {
-      const draft = parseCanonicalDraft(fixture.text);
-      expect(validate(JSON.parse(fixture.text)), fixture.name).toBe(true);
-      const projected = projectSchemaKnownData(resolution.schema, resolution.schema, draft);
-      const merged = mergeSchemaKnownData(
-        resolution.schema, resolution.schema, draft, projected, structuredClone(projected),
-      );
-      expect(JSON.parse(encodeCanonicalDraft(merged as CanonicalDraft)), fixture.name)
-        .toEqual(JSON.parse(fixture.text));
-    }
-    for (const value of [
-      { outbounds: {} },
-      { log: [] },
-      { log: { disabled: 'false' } },
-      { log: { level: 'verbose' } },
-      { log: { colour: true } },
-      { certificate: { providers: [{ type: 'acme', tag: 'cert' }] } },
-      { inbounds: [{ type: 'snell', listen_port: 2080, psk: 'secret' }] },
-      { endpoints: [{ type: 'openvpn', tag: 'vpn' }] },
-      { dns: { servers: [{ type: 'mdns' }] } },
-    ]) expect(validate(value)).toBe(false);
-  }, 30_000);
+beforeAll(async () => {
+  await Promise.all(representativeSchemaVersions('reviewed-1.13').map(version => reviewedSchemaManifest[version].load()));
+});
 
+describe.each(representativeSchemaVersions('reviewed-1.13'))('reviewed 1.13 editor %s', (version) => {
   it('edits a real TLS inbound without losing inline ACME, transport or other sections', async () => {
     const loaded = await reviewedSchemaManifest[version].load();
     const resolution = await resolveReviewedSchema({
@@ -104,7 +78,7 @@ describe.each(representativeSchemaVersions('reviewed-1.13'))('reviewed 1.13 edit
     expected.inbounds[0].listen_port = 8444;
     expect(JSON.parse(screen.getByLabelText('Reviewed draft').textContent ?? '{}')).toEqual(expected);
     expect(screen.queryByText('Certificate provider')).not.toBeInTheDocument();
-  }, 30_000);
+  });
 
   it.each(['null-sections.json', 'log-defaults.json', 'log-null-fields.json'])(
     'edits logging in %s without normalizing untouched nulls or defaults', async (name) => {

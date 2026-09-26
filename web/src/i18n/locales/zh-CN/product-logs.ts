@@ -86,6 +86,7 @@ export const productLogs = {
     'runtime.recovery_scheduled': '已安排核心自动恢复',
     'runtime.unexpected_exit': '核心进程意外退出',
     'core.log.retention_failed': '核心日志保留清理失败',
+    'core.log.maintenance_failed': '核心日志每日轮转或保留清理失败',
     'core_upload.gc_aborted': '暂存上传清理已中止',
     'core_upload.gc_completed': '暂存上传清理已完成',
     'core_upload.gc_inspection_failed': '暂存上传检查失败',

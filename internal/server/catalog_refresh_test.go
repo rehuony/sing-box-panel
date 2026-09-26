@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/rehuony/sing-box-panel/internal/application"
@@ -73,25 +74,29 @@ func TestCatalogRefreshStepInitializesMissingStateAndRetriesFailure(t *testing.T
 }
 
 func TestCatalogRefreshWorkerDoesNotBlockServerStartup(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	fake := &blockingCatalogRefreshCommands{
-		fakeCatalogRefreshCommands: fakeCatalogRefreshCommands{
-			configuration: settings.Defaults(),
-			catalogErr:    errors.New("catalog missing"),
-		},
-		started: make(chan struct{}),
-	}
-	done := startCatalogRefresh(ctx, fake)
-	select {
-	case <-fake.started:
-	case <-time.After(time.Second):
+	synctest.Test(t, func(t *testing.T) {
+		ctx, cancel := context.WithCancel(t.Context())
+		defer cancel()
+		fake := &blockingCatalogRefreshCommands{
+			fakeCatalogRefreshCommands: fakeCatalogRefreshCommands{
+				configuration: settings.Defaults(),
+				catalogErr:    errors.New("catalog missing"),
+			},
+			started: make(chan struct{}),
+		}
+		done := startCatalogRefresh(ctx, fake)
+		synctest.Wait()
+		select {
+		case <-fake.started:
+		default:
+			t.Fatal("background catalog refresh did not start")
+		}
 		cancel()
-		t.Fatal("background catalog refresh did not start")
-	}
-	cancel()
-	select {
-	case <-done:
-	case <-time.After(time.Second):
-		t.Fatal("background catalog refresh did not stop after cancellation")
-	}
+		synctest.Wait()
+		select {
+		case <-done:
+		default:
+			t.Fatal("background catalog refresh did not stop after cancellation")
+		}
+	})
 }

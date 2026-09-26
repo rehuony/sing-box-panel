@@ -18,13 +18,13 @@ import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/
 
 import type { ChannelNodeCard } from './channel-node-cards';
 
-import { ruleFormats } from './channel-policy';
 import { candidateOrder } from './channel-node-order';
 import { ChannelNodeCards } from './channel-node-cards';
 import { ChannelNodePicker } from './channel-node-picker';
 import { ChannelRuleEditor } from './channel-rule-editor';
 import { ChannelNodeActions } from './channel-node-actions';
 import { reorderVisibleNodes } from './subscription-node-order';
+import { ruleFormats, updateGroupCandidates } from './channel-policy';
 
 interface Props {
   busy: boolean;
@@ -58,24 +58,7 @@ export function ChannelGroupEditor({ group, nodes, format, busy, onChange }: Pro
     }];
   });
   function updateCandidates(node_ids: string[], builtin_nodes = builtins, candidate_order = order) {
-    // Keep the current candidate when possible; an empty group must not leak to direct.
-    const default_exit: ChannelRouteExit = group.default_exit.kind === 'node' && node_ids.includes(group.default_exit.id!)
-      ? group.default_exit
-      : group.default_exit.kind === 'direct' && builtin_nodes.includes('direct')
-        ? group.default_exit
-        : node_ids.length
-          ? { kind: 'node', id: node_ids[0] }
-          : { kind: builtin_nodes[0] ?? 'reject' };
-    onChange({
-      ...group,
-      node_ids,
-      builtin_nodes,
-      candidate_order: candidateOrder({ node_ids, builtin_nodes, candidate_order }),
-      default_exit,
-      rules: group.rules.map((item) => item.exit.kind === 'node' && !node_ids.includes(item.exit.id!)
-        ? { ...item, exit: { kind: 'group-default' } }
-        : item),
-    });
+    onChange(updateGroupCandidates(group, node_ids, builtin_nodes, candidate_order));
   }
 
   function exitLabel(exit: ChannelRouteExit) {

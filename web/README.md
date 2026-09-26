@@ -8,11 +8,18 @@ corepack enable pnpm
 pnpm install --frozen-lockfile --ignore-scripts --verify-store-integrity
 pnpm run lint
 pnpm test
+pnpm test:logic
+pnpm test:react
+pnpm test:contracts
 pnpm run build
 ```
 
 Run `pnpm run lint:fix` to apply the configured TypeScript, React, CSS, and HTML
 formatting rules before checking the remaining code-quality diagnostics.
+`pnpm test` includes all three test projects. Their environments, timeout bounds,
+coverage ownership and CI execution order are documented in
+[Testing](../docs/development/testing.md). `make check-web` runs the complete web
+pipeline from the repository root and reports each phase's duration.
 
 Run `pnpm demo` to start the complete interface with an in-memory API client.
 Demo mode never contacts the backend, so it is suitable for working on pages,

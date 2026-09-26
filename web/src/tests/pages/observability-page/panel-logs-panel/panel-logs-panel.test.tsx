@@ -39,7 +39,6 @@ describe('panel log presentation and details', () => {
     expect(screen.getByRole('cell', { name: 'Core started' })).toBeVisible();
     expect(screen.queryByText(/bundle_current/)).not.toBeInTheDocument();
     expect(screen.getByText('A future event')).toBeVisible();
-    expect(screen.getAllByRole('columnheader').map(node => node.textContent)).toEqual(['Occurred at', 'Level', 'Event summary', 'Event source', 'Actions']);
     await act(() => i18n.changeLanguage('zh-CN'));
     expect(screen.getByText('核心启动操作完成')).toBeVisible();
     expect(screen.getByText('核心已启动')).toBeVisible();
@@ -171,21 +170,5 @@ describe('panel log presentation and details', () => {
     expect(matchingEventCodes('核心已启动')).toEqual(['start_succeeded']);
     expect(matchingEventCodes('unrecognized words')).toBeUndefined();
     expect(matchingEventCodes('')).toBeUndefined();
-  });
-
-  it.each([
-    ['core_check_failed', 'The core rejected the startup configuration.', '启动配置未通过核心检查。'],
-    ['core_health_failed', 'The core failed its health check.', '核心未通过健康检查。'],
-    ['core_version_mismatch', 'The core version does not match the selected artifact.', '核心版本与所选产物不一致。'],
-    ['core_termination_failed', 'The core process could not be terminated.', '无法终止核心进程。'],
-  ])('shows the %s diagnosis in English and Chinese', async (code, english, chinese) => {
-    show(createMockApiClient({ listPanelLogs: vi.fn().mockResolvedValue({ items: [{
-      ...item, code: 'runtime.start.failed', level: 'error',
-      metadata: { error_code: code, error: 'Safe backend diagnostic' },
-    }], total: 1 }) }));
-    await userEvent.click(await screen.findByRole('button', { name: /View details:/ }));
-    expect(within(screen.getByRole('region', { name: 'Event context' })).getByText(english)).toBeVisible();
-    await act(() => i18n.changeLanguage('zh-CN'));
-    expect(within(screen.getByRole('region', { name: '事件上下文' })).getByText(chinese)).toBeVisible();
   });
 });

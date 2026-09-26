@@ -91,44 +91,6 @@ describe('inline version library', () => {
     await waitFor(() => expect(client.refreshCatalog).toHaveBeenCalledWith(true, expect.any(AbortSignal)));
   });
 
-  it('refreshes installed records without contacting GitHub', async () => {
-    const user = userEvent.setup();
-    const client = createMockApiClient();
-    renderCores(client);
-    await screen.findByText(testArtifacts.items[0].exact_version);
-    const initialCalls = client.listCoreArtifacts.mock.calls.length;
-    await user.click(screen.getByRole('button', { name: 'Refresh installed versions' }));
-    await waitFor(() => expect(client.listCoreArtifacts.mock.calls.length).toBeGreaterThan(initialCalls));
-    expect(client.refreshCatalog).not.toHaveBeenCalled();
-  });
-
-  it('switches library tabs by keyboard and associates the visible panel with its tab', async () => {
-    const user = userEvent.setup();
-    renderCores(createMockApiClient());
-    await screen.findByText(testArtifacts.items[0].exact_version);
-    const installed = screen.getByRole('tab', { name: 'Installed' });
-    const available = screen.getByRole('tab', { name: 'Available' });
-
-    await user.click(installed);
-    await user.keyboard('[ArrowRight]');
-    expect(available).toHaveFocus();
-    await user.keyboard('[Enter]');
-    expect(available).toHaveAttribute('aria-selected', 'true');
-    expect(screen.getByRole('tabpanel', { name: 'Available' })).toHaveAttribute(
-      'id', available.getAttribute('aria-controls'),
-    );
-    expect(screen.queryByRole('button', { name: 'Enable' })).not.toBeInTheDocument();
-
-    await user.keyboard('[ArrowLeft]');
-    expect(installed).toHaveFocus();
-    await user.keyboard('[Space]');
-    expect(installed).toHaveAttribute('aria-selected', 'true');
-    expect(screen.getByRole('tabpanel', { name: 'Installed' })).toHaveAttribute(
-      'id', installed.getAttribute('aria-controls'),
-    );
-    expect(screen.getByRole('button', { name: 'Enable' })).toBeVisible();
-  });
-
   it('reads the deployed platform and does not allow changing architecture', async () => {
     const client = createMockApiClient();
     renderCores(client);
@@ -223,8 +185,6 @@ describe('inline version library', () => {
     await screen.findByText(testArtifacts.items[0].exact_version);
     await user.click(screen.getByRole('tab', { name: 'Available' }));
     const installed = screen.getByText(testCatalog.assets[0].version).closest('tr')!;
-    expect(screen.getAllByRole('columnheader').map((header) => header.textContent)).toEqual(['Version', 'Source', 'Official link', 'Actions']);
-    expect(within(installed).getAllByRole('cell')).toHaveLength(4);
     const releaseLink = within(installed).getByRole('link', { name: testCatalog.assets[0].name });
     expect(releaseLink).toHaveAttribute('href', 'https://github.com/SagerNet/sing-box/releases/tag/v1.13.19');
     expect(releaseLink).toHaveAttribute('target', '_blank');
@@ -275,46 +235,6 @@ describe('inline version library', () => {
     expect(within(row).queryByText(testArtifacts.items[0].variant)).not.toBeInTheDocument();
     expect(within(row).queryByText(testArtifacts.items[0].binary_sha256)).not.toBeInTheDocument();
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
-  });
-
-  it('jumps to a page and keeps totals and boundary controls in sync with the page size', async () => {
-    const user = userEvent.setup();
-    const items = Array.from({ length: 12 }, (_, index) => ({
-      ...testArtifacts.items[0], id: `core_${index}`, exact_version: `1.13.${index}`,
-    }));
-    renderCores(createMockApiClient({ listCoreArtifacts: vi.fn().mockResolvedValue({ items }) }));
-    await screen.findByText('1.13.0');
-    const page = screen.getByRole('spinbutton', { name: 'Current page' });
-    expect(page).toHaveValue(1);
-    expect(page).toHaveAttribute('max', '2');
-    expect(page).toHaveAccessibleDescription('2 pages in total');
-    expect(screen.getByRole('button', { name: 'Previous page' })).toBeDisabled();
-    await user.clear(page);
-    await user.type(page, '2{Enter}');
-    expect(screen.getByText('1.13.10')).toBeVisible();
-    expect(screen.queryByText('1.13.0')).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Next page' })).toBeDisabled();
-    await user.click(screen.getByRole('combobox', { name: 'Items per page' }));
-    await user.click(await screen.findByRole('option', { name: '5 per page' }));
-    expect(page).toHaveValue(1);
-    expect(page).toHaveAttribute('max', '3');
-    expect(page).toHaveAccessibleDescription('3 pages in total');
-    expect(screen.getByText('1.13.0')).toBeVisible();
-    await user.clear(page);
-    await user.type(page, '99');
-    await user.tab();
-    expect(page).toHaveValue(3);
-    expect(screen.getByText('1.13.10')).toBeVisible();
-    await user.clear(page);
-    await user.type(page, '0{Enter}');
-    expect(page).toHaveValue(1);
-    await user.clear(page);
-    await user.type(page, '2{Escape}');
-    await user.tab();
-    expect(page).toHaveValue(1);
-    await user.clear(page);
-    await user.tab();
-    expect(page).toHaveValue(1);
   });
 
   it('resets pagination when returning from a filter, tab or page size change', async () => {

@@ -13,6 +13,9 @@
     "lint:fix": "eslint . --fix",
     "preview": "vite preview",
     "test": "pnpm run api:generate && vitest run",
+    "test:logic": "vitest run --project logic",
+    "test:react": "vitest run --project react",
+    "test:contracts": "vitest run --project contracts",
     "test:watch": "pnpm run api:generate && vitest",
     "typecheck": "pnpm run api:generate && tsc --noEmit"
   },

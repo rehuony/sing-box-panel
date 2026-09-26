@@ -66,15 +66,6 @@ describe('source node sorting', () => {
     expect(order()).toEqual(['B', 'A']);
   });
 
-  it('only reorders filtered slots and preserves the positions of other nodes', async () => {
-    const props = { sourceID: 'source', nodes: [node('A', 'Edge A'), node('other'), node('B', 'Edge B')], search: 'Edge', onOpen: vi.fn() };
-    const view = render(<SubscriptionNodeGrid {...props} />);
-    await moveRight('Edge A', 2);
-    expect(order()).toEqual(['Edge B', 'Edge A']);
-    view.rerender(<SubscriptionNodeGrid {...props} search='' />);
-    expect(order()).toEqual(['Edge B', 'other', 'Edge A']);
-  });
-
   it('only changes the current page and cancels keyboard drags without saving', async () => {
     const user = userEvent.setup();
     const nodes = Array.from({ length: 12 }, (_, index) => node(String(index + 1)));

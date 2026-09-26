@@ -1,6 +1,6 @@
+import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
-import { defineConfig } from 'vitest/config';
 
 import { configurationSchemaPlugin } from './plugins/configuration-schema.ts';
 
@@ -14,10 +14,5 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     emptyOutDir: true,
-  },
-  test: {
-    environment: 'jsdom',
-    setupFiles: ['./src/tests/setup-tests.ts'],
-    clearMocks: true,
   },
 });

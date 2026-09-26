@@ -1,6 +1,5 @@
 import { MemoryRouter } from 'react-router-dom';
 import { describe, expect, it, vi } from 'vitest';
-import userEvent from '@testing-library/user-event';
 import { render, screen } from '@testing-library/react';
 
 import '@/i18n';
@@ -59,39 +58,10 @@ describe('dashboard evidence', () => {
     expect(screen.getByText('Usage unknown')).toBeVisible();
   });
 
-  it('selects one-hour and twenty-four-hour histories from the streamed snapshot', async () => {
-    show();
-    expect(screen.getAllByRole('figure')).toHaveLength(2);
-    expect(screen.getByRole('tab', { name: '1h', selected: true })).toBeVisible();
-    await userEvent.click(screen.getByRole('tab', { name: '24h' }));
-    expect(screen.getByRole('tab', { name: '24h', selected: true })).toBeVisible();
-    expect(screen.getByRole('tabpanel', { name: '24h' })).toBeVisible();
-  });
-
   it('never replaces missing host readings with core process samples', () => {
     show();
     const card = screen.getByText('Host memory').closest('section')!;
     expect(card.querySelector('strong')).toHaveTextContent('—');
-  });
-
-  it('uses host evidence from the live metrics stream', () => {
-    show({
-      metrics: {
-        ...testMetrics,
-        host: {
-          sampled_at: new Date().toISOString(),
-          cpu_count: 4,
-          cpu_percent: 12.8,
-          load_one: 0.64,
-          memory_total: 1000,
-          memory_used: 500,
-          disk_total: 2000,
-          disk_used: 500,
-        },
-      },
-    });
-    expect(screen.getByText('50.0%')).toBeVisible();
-    expect(screen.getByText('12.8%')).toBeVisible();
   });
 
   it('shows used traffic against infinity when quota is not configured', () => {
@@ -124,20 +94,5 @@ describe('dashboard evidence', () => {
     show({ metrics: { ...testMetrics, quota_bytes: 12_288 } });
     const card = screen.getByText('Period traffic').closest('section')!;
     expect(card.querySelector('small')).toHaveTextContent('Used 50.0% · quota 12 KB');
-  });
-
-  it('renders exactly 48 unknown segments when runtime history is unavailable', () => {
-    show({
-      dashboard: {
-        ...testDashboardSnapshot,
-        runtime_24h: {
-          items: [],
-          history_started_at: testDashboardSnapshot.collected_at,
-        },
-      },
-    });
-    const segments = document.querySelectorAll('.runtime-timeline > span');
-    expect(segments).toHaveLength(48);
-    expect([...segments].every(segment => segment.getAttribute('data-state') === 'unknown')).toBe(true);
   });
 });

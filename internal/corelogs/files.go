@@ -265,6 +265,12 @@ func (f *Files) Read(name string, offset int64, generation string) (Chunk, error
 	}
 	return Chunk{File: name, Text: strings.ToValidUTF8(string(text), "�"), NextOffset: offset + int64(n), Size: size, Generation: currentGeneration, Reset: reset}, nil
 }
+
+// EnsureCurrentFile creates today's UTC capture even without process output,
+// reuses the newest existing segment, and applies retention to empty files too.
+// It never truncates output or triggers size rotation without a write.
+func (f *Files) EnsureCurrentFile() error { return f.append(nil) }
+
 func (f *Files) append(data []byte) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -286,7 +292,7 @@ func (f *Files) append(data []byte) error {
 			continue
 		}
 		index, _ = logFileIndex(file.Name)
-		if file.Size+int64(len(data)) > f.policy.MaxFileBytes {
+		if len(data) > 0 && file.Size+int64(len(data)) > f.policy.MaxFileBytes {
 			if index == ^uint64(0) {
 				return errors.New("core log sequence exhausted")
 			}

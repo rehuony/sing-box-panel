@@ -2,10 +2,32 @@ import { describe, expect, it } from 'vitest';
 
 import type { ChannelPolicy } from '@/api/api-client';
 
-import { canAccelerateRuleURL, directRuleURL, effectiveRuleURL, incompatiblePolicy, newRuleGroup } from '@/pages/subscriptions-page/channel-policy';
+import { canAccelerateRuleURL, directRuleURL, effectiveRuleURL, incompatiblePolicy, newRuleGroup, updateGroupCandidates } from '@/pages/subscriptions-page/channel-policy';
 
 const policy: ChannelPolicy = { selection: { ids: ['one'], excluded_ids: [], new_node_policy: 'include' }, organizer: { prefix: '', exclude_names: [], deduplicate: false, sort: 'none', incompatible: 'error' }, groups: [], default_exit: { kind: 'direct' } };
 describe('channel editing policy', () => {
+  it('repairs exits after removing members and preserves remaining candidate order', () => {
+    const group = {
+      ...newRuleGroup(['one', 'two']),
+      candidate_order: ['node:two', 'node:one'],
+      rules: [{ id: 'rule', kind: 'domain_suffix' as const, value: 'example.com', enabled: true, exit: { kind: 'node' as const, id: 'one' } }],
+    };
+    const next = updateGroupCandidates(group, ['two']);
+    expect(next.node_ids).toEqual(['two']);
+    expect(next.candidate_order).toEqual(['node:two']);
+    expect(next.default_exit).toEqual({ kind: 'node', id: 'two' });
+    expect(next.rules[0].exit).toEqual({ kind: 'group-default' });
+    expect(group.node_ids).toEqual(['one', 'two']);
+    expect(updateGroupCandidates(next, []).default_exit).toEqual({ kind: 'reject' });
+  });
+  it('preserves a surviving default and handles built-ins without publication IDs', () => {
+    const group = { ...newRuleGroup(['one']), builtin_nodes: ['direct' as const], default_exit: { kind: 'direct' as const } };
+    expect(updateGroupCandidates(group, ['one', 'two']).default_exit).toEqual({ kind: 'direct' });
+    const next = updateGroupCandidates(group, [], ['reject'], ['node:one', 'builtin:reject']);
+    expect(next.node_ids).toEqual([]);
+    expect(next.candidate_order).toEqual(['builtin:reject']);
+    expect(next.default_exit).toEqual({ kind: 'reject' });
+  });
   it('normalizes known wrappers and preserves escaped URLs when toggling acceleration', () => {
     const origin = 'https://raw.githubusercontent.com/a/r/main/a%20b.json?x=%2F';
     const wrapped = `https://ghproxy.net/https://gh-proxy.com/${origin}`;

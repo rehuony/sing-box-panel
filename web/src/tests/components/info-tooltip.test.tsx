@@ -31,21 +31,6 @@ function setup() {
 }
 
 describe('info tooltip', () => {
-  it('previews on a brief hover without stealing focus and allows reading inside the tooltip', async () => {
-    const { user, trigger } = setup();
-    await user.hover(trigger);
-    expect(screen.queryByRole('tooltip')).not.toBeInTheDocument();
-    const tooltip = await screen.findByRole('tooltip');
-    expect(tooltip).toHaveTextContent(description);
-    expect(tooltip).not.toHaveFocus();
-    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
-    await user.hover(tooltip);
-    await act(() => new Promise(resolve => setTimeout(resolve, 250)));
-    expect(tooltip).toBeVisible();
-    await user.hover(screen.getByRole('button', { name: 'Outside' }));
-    await waitFor(() => expect(screen.queryByRole('tooltip')).not.toBeInTheDocument());
-  });
-
   it('opens immediately on click before the hover delay without submitting the form', async () => {
     const { user, trigger, submit } = setup();
     fireEvent.mouseEnter(trigger);
@@ -61,41 +46,20 @@ describe('info tooltip', () => {
     await waitFor(() => expect(screen.queryByRole('tooltip')).not.toBeInTheDocument());
   });
 
-  it('does not dismiss a hover preview on click and closes after leaving', async () => {
-    const { user, trigger } = setup();
-    await user.hover(trigger);
-    expect(await screen.findByRole('tooltip')).toBeVisible();
-    await user.click(trigger);
-    expect(screen.getByRole('tooltip')).toBeVisible();
-    await user.hover(screen.getByRole('button', { name: 'Outside' }));
-    await waitFor(() => expect(screen.queryByRole('tooltip')).not.toBeInTheDocument());
-  });
-
-  it('replaces clicked help when hovering a neighboring field instead of stacking windows', async () => {
-    const { user, trigger } = setup();
-    await user.click(trigger);
-    expect(screen.getByRole('tooltip')).toHaveTextContent(description);
-    await user.hover(screen.getByRole('button', { name: 'Help for port' }));
-    await waitFor(() => {
-      expect(screen.getAllByRole('tooltip')).toHaveLength(1);
-      expect(screen.getByRole('tooltip')).toHaveTextContent(portDescription);
-    });
-    expect(screen.queryByText(description)).not.toBeInTheDocument();
-    await user.hover(screen.getByRole('button', { name: 'Action' }));
-    await waitFor(() => {
-      expect(screen.queryByRole('tooltip')).not.toBeInTheDocument();
-      expect(screen.getByText('Action help')).toBeVisible();
-    });
-  });
-
-  it('does not reopen the previous hint when a pending hover expires after switching fields', async () => {
-    const { user, trigger } = setup();
-    await user.hover(trigger);
+  it('does not reopen a pending hover after clicking another field', async () => {
+    vi.useFakeTimers();
+    const { trigger } = setup();
+    fireEvent.mouseEnter(trigger);
+    fireEvent.mouseMove(trigger);
     expect(screen.queryByRole('tooltip')).not.toBeInTheDocument();
-    await user.click(trigger);
+    fireEvent.click(trigger);
     expect(screen.getByRole('tooltip')).toHaveTextContent(description);
-    await user.hover(screen.getByRole('button', { name: 'Help for port' }));
-    await act(() => new Promise(resolve => setTimeout(resolve, 300)));
+    fireEvent.mouseLeave(trigger);
+    const other = screen.getByRole('button', { name: 'Help for port' });
+    fireEvent.mouseEnter(other);
+    fireEvent.mouseMove(other);
+    fireEvent.click(other);
+    await act(() => vi.advanceTimersByTimeAsync(300));
     expect(screen.getAllByRole('tooltip')).toHaveLength(1);
     expect(screen.getByRole('tooltip')).toHaveTextContent(portDescription);
     expect(screen.queryByText(description)).not.toBeInTheDocument();

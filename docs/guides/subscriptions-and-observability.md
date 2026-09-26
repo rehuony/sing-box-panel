@@ -417,8 +417,15 @@ and no file-count limit. Panel settings → Log management controls
 `logs.core_retention_days` (1–3650), `logs.core_max_files` (0–1024, zero means
 unlimited), and `logs.core_max_file_size_mib` (1–1024). A count cap can shorten
 the effective retention window. Old settings without these fields use the defaults.
-Saving installs the policy immediately and runs cleanup; startup and UTC midnight
-also run cleanup. Shrinking the size limit rotates before the next write without
+Saving installs the policy immediately and runs cleanup. At panel service startup,
+UTC midnight, and settings changes, background maintenance ensures the current
+UTC date has a capture file, even when the core is stopped or emits no output,
+then runs cleanup. A missing day's file starts at `000` with zero bytes; an
+existing day's newest segment is reused without truncation or size rotation.
+Empty files follow the same retention and count limits as other captures.
+Maintenance failures record `core.log.maintenance_failed` and retry within a
+minute. Days when the panel service was offline are not backfilled.
+Shrinking the size limit rotates before the next write without
 truncating existing content. Files rotate by UTC date and size. Rotation switches only the destination file; the process output pipes and
 file follower remain connected. Each day's sequence advances from its newest
 retained file, including after a panel restart, and extends beyond three digits
@@ -429,7 +436,8 @@ file while paused and polls for rotation. Streaming uses write deadlines and
 closes within a minute to reauthenticate on reconnect. `/api/v1/logs/panel`
 provides the combined panel view. The legacy log API below remains available.
 Each initial file read loads the last 64 KiB; the browser retains at most 2,000
-lines and searches/filters only this buffer. File lists refresh every 10 seconds;
+lines and searches/filters only this buffer. File lists refresh every 10 seconds
+without overlapping requests and refresh when the page becomes visible again;
 the output stream checks for appended content every second. Core capture
 retention applies only to sing-box capture files. Panel events are retained indefinitely.
 The neutral status dot and icon buttons float over the output in the same softly

@@ -36,10 +36,8 @@ check-go: web-build
 	go vet ./...
 	go test ./...
 
-check-web: web-build
-	$(WEB_PNPM) run lint
-	$(WEB_PNPM) run test
-	go tool third-party-notices --check
+check-web:
+	bash scripts/test/check-web.sh
 
 check-contracts: web-build support-check
 	@for script in $$(find scripts -type f -name '*.sh'); do bash -n "$$script" || exit; done

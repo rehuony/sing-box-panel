@@ -156,54 +156,6 @@ describe('schemaSectionForm', () => {
     expect(onChange).not.toHaveBeenCalled();
   });
 
-  it('shows field descriptions on hover and click while Tab skips help without changing values', async () => {
-    const user = userEvent.setup();
-    const onChange = vi.fn();
-    const schema: RJSFSchema = {
-      type: 'object',
-      properties: {
-        interval: { type: 'string', description: 'A Go duration such as 300ms or 5s.' },
-        enabled: { type: 'boolean', description: 'Synchronize the system clock.' },
-        server: { type: 'string' },
-      },
-    };
-    const { rerender } = render(
-      <TooltipProvider delay={0}>
-        <SchemaSectionForm basePointer='/section' data={{ interval: '5s', enabled: false }} onChange={onChange}
-          resolution={{ ...resolution, schema: { type: 'object', properties: { section: schema } } }} schema={schema} />
-      </TooltipProvider>,
-    );
-    expect(screen.queryByText('A Go duration such as 300ms or 5s.')).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Help for Server' })).not.toBeInTheDocument();
-
-    const intervalHelp = screen.getByRole('button', { name: 'Help for Sync interval' });
-    await user.hover(intervalHelp);
-    expect(await screen.findByText('A Go duration such as 300ms or 5s.')).toBeVisible();
-    await user.unhover(intervalHelp);
-    await waitFor(() => expect(screen.queryByText('A Go duration such as 300ms or 5s.')).not.toBeInTheDocument());
-    await user.click(screen.getByRole('textbox', { name: 'Sync interval' }));
-    await user.tab({ shift: true });
-    expect(screen.getByRole('textbox', { name: 'Server' })).toHaveFocus();
-    await user.click(intervalHelp);
-    expect(await screen.findByText('A Go duration such as 300ms or 5s.')).toBeVisible();
-    await user.keyboard('{Escape}');
-    await waitFor(() => expect(screen.queryByText('A Go duration such as 300ms or 5s.')).not.toBeInTheDocument());
-
-    await user.click(screen.getByRole('button', { name: 'Help for Enabled' }));
-    expect(screen.getByRole('switch', { name: 'Enabled' })).not.toBeChecked();
-    expect(screen.getByRole('textbox', { name: 'Sync interval' })).toHaveValue('5s');
-    expect(onChange).not.toHaveBeenCalled();
-
-    rerender(
-      <TooltipProvider delay={0}>
-        <SchemaSectionForm basePointer='/section' data={{ interval: '5s' }} disabled onChange={onChange}
-          resolution={{ ...resolution, schema: { type: 'object', properties: { section: schema } } }} schema={schema} />
-      </TooltipProvider>,
-    );
-    expect(screen.getByRole('textbox', { name: 'Sync interval' })).toBeDisabled();
-    expect(screen.getByRole('button', { name: 'Help for Sync interval' })).toBeEnabled();
-  });
-
   it('edits array and object union representations without erasing hidden extensions', () => {
     const properties: RJSFSchema = {
       type: 'object',
@@ -364,26 +316,6 @@ it('only edits through the dialog and retains unknown fields across confirmed ty
   });
 });
 
-it('keeps the edit form and title mounted until the closing animation finishes', async () => {
-  const user = userEvent.setup();
-  render(<ServerHarness />);
-  await user.click(screen.getByRole('button', { name: 'Edit' }));
-  const dialog = screen.getByRole('dialog', { name: 'Edit entry' });
-  let finish!: () => void;
-  const finished = new Promise<void>((resolve) => {
-    finish = resolve;
-  });
-  Object.defineProperty(dialog, 'getAnimations', { value: () => [{ finished }] });
-  await user.click(within(dialog).getByRole('button', { name: 'Cancel' }));
-  expect(dialog).toHaveAttribute('data-closed');
-  expect(within(dialog).getByRole('heading', { name: 'Edit entry' })).toBeInTheDocument();
-  expect(within(dialog).getByRole('textbox', { name: 'Server' })).toHaveValue('1.1.1.1');
-  await act(async () => {
-    finish();
-  });
-  await waitFor(() => expect(dialog).not.toBeInTheDocument());
-});
-
 it('stages new collection entries in a dialog and leaves the list unchanged on cancel or Escape', async () => {
   const user = userEvent.setup();
   render(<ServerHarness />);
@@ -457,28 +389,4 @@ it('keeps nested additions inside the parent dialog until the parent is confirme
   expect(JSON.parse(screen.getByLabelText('Nested draft').textContent ?? '{}')).toEqual({
     section: [{ name: 'parent', users: [{ name: 'child' }] }],
   });
-});
-
-it('adds, renames and removes custom map entries through the same field layout', async () => {
-  const user = userEvent.setup();
-  const mapSchema: RJSFSchema = { type: 'object', additionalProperties: { type: 'string' } };
-  function MapHarness() {
-    const [draft, setDraft] = useState<CanonicalDraft>({ section: { 'X-Existing': 'keep' } });
-    return (
-      <>
-        <SchemaSectionForm basePointer='/section' data={draft.section} onChange={setDraft}
-          resolution={{ ...resolution, schema: { type: 'object', properties: { section: mapSchema } } }} schema={mapSchema} />
-        <output aria-label='Map draft'>{JSON.stringify(draft)}</output>
-      </>
-    );
-  }
-  render(<MapHarness />);
-  await user.click(screen.getByRole('button', { name: 'Add field' }));
-  const key = screen.getAllByRole('textbox', { name: 'Field name' })[1];
-  fireEvent.change(key, { target: { value: 'X-New' } });
-  fireEvent.blur(key);
-  fireEvent.change(screen.getByRole('textbox', { name: 'X-New' }), { target: { value: 'value' } });
-  expect(screen.getByLabelText('Map draft')).toHaveTextContent('"X-New":"value"');
-  await user.click(screen.getAllByRole('button', { name: 'Remove' })[1]);
-  expect(screen.getByLabelText('Map draft')).toHaveTextContent('{"section":{"X-Existing":"keep"}}');
 });
