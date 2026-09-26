@@ -7,7 +7,11 @@ import (
 	"fmt"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
+	"time"
+
+	"github.com/rehuony/sing-box-panel/internal/subscription"
 )
 
 func TestOpenRejectsUnsupportedFormatsWithoutConvertingData(t *testing.T) {
@@ -137,7 +141,7 @@ func TestRemoveExportBindingsMigration(t *testing.T) {
 							t.Fatalf("channel changed beyond bindings: got %+v want %+v error %v", got, want, err)
 						}
 					}
-					if info, err := upgraded.SchemaInfo(ctx); err != nil || info.Version != 13 {
+					if info, err := upgraded.SchemaInfo(ctx); err != nil || info.Version != CurrentSchemaVersion {
 						t.Fatal(info, err)
 					}
 					if err := upgraded.initializeSchema(ctx); err != nil {
@@ -193,5 +197,185 @@ func TestFailedVersion11UpgradeRollsBackSchemaAndVersion(t *testing.T) {
 	var value string
 	if err := db.QueryRowContext(t.Context(), "SELECT value FROM preserved").Scan(&value); err != nil || value != "untouched" {
 		t.Fatal("existing data changed", err)
+	}
+}
+
+func TestSubscriptionOrderingMigrationIsAtomic(t *testing.T) {
+	for _, fail := range []bool{false, true} {
+		t.Run(fmt.Sprint(fail), func(t *testing.T) {
+			ctx := t.Context()
+			db := openTestStore(t, ctx)
+			legacy := `{"policy":{"selection":{"ids":["one"],"excluded_ids":[],"new_node_policy":"exclude"},"organizer":{"prefix":"Old ","exclude_names":["hidden"],"sort":"name","deduplicate":true,"incompatible":"error"},"default_exit":{"kind":"group","id":"main"},"groups":[{"id":"main","name":"Main","enabled":true,"type":"select","node_ids":["one"],"builtin_nodes":["direct","reject"],"candidate_order":["builtin:direct","node:one","builtin:reject"],"default_exit":{"kind":"reject"},"rules":[{"id":"first","kind":"domain","enabled":false,"value":"z.example","exit":{"kind":"group-default"}},{"id":"second","kind":"domain","enabled":true,"value":"a.example","exit":{"kind":"direct"}}]}],"template":{"format":"mihomo","content":"future: 900719925474099312345\n"}}}`
+			for _, id := range []string{"a", "b"} {
+				_, err := db.CreateSubscriptionChannel(ctx, SubscriptionChannel{ID: id, Name: id, Format: SubscriptionFormatMihomo, Enabled: true, Config: json.RawMessage(`{}`)})
+				if err != nil {
+					t.Fatal(err)
+				}
+				if _, err := db.db.ExecContext(ctx, `UPDATE subscription_channels SET config_json=? WHERE id=?`, legacy, id); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if fail {
+				if _, err := db.db.ExecContext(ctx, `CREATE TRIGGER reject_policy BEFORE UPDATE OF config_json ON subscription_channels WHEN OLD.id='b' BEGIN SELECT RAISE(ABORT,'test failure'); END`); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if _, err := db.db.ExecContext(ctx, `PRAGMA user_version=13`); err != nil {
+				t.Fatal(err)
+			}
+			path := db.Path()
+			if err := db.Close(); err != nil {
+				t.Fatal(err)
+			}
+			upgraded, err := Open(ctx, path)
+			if fail {
+				if err == nil {
+					upgraded.Close()
+					t.Fatal("migration failure ignored")
+				}
+				raw, err := sql.Open("sqlite", path)
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer raw.Close()
+				assertPragmaInt(t, ctx, raw, 0, "user_version", 13)
+				var unchanged string
+				if err := raw.QueryRowContext(ctx, `SELECT config_json FROM subscription_channels WHERE id='a'`).Scan(&unchanged); err != nil || unchanged != legacy {
+					t.Fatal("partially persisted migration", unchanged, err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer upgraded.Close()
+			channel, err := upgraded.GetSubscriptionChannel(ctx, "a")
+			if err != nil {
+				t.Fatal(err)
+			}
+			var config SubscriptionChannelConfig
+			if err := json.Unmarshal(channel.Config, &config); err != nil {
+				t.Fatal(err)
+			}
+			p := config.Policy
+			g := p.Groups[0]
+			if p.IncompatibleNodes != "error" || p.DefaultExit.ID != "main" || g.Rules[0].SortIndex != 10 || g.Rules[1].SortIndex != 20 || !reflect.DeepEqual(g.CandidateOrder, []string{"builtin:direct", "node:one", "builtin:reject"}) || p.Template.Content != "future: 900719925474099312345\n" {
+				t.Fatalf("migration lost semantics: %+v", config)
+			}
+			var raw map[string]any
+			json.Unmarshal(channel.Config, &raw)
+			policy := raw["policy"].(map[string]any)
+			if _, exists := policy["organizer"]; exists {
+				t.Fatal("organizer survived")
+			}
+			group := policy["groups"].([]any)[0].(map[string]any)
+			if _, exists := group["default_exit"]; exists {
+				t.Fatal("default override survived")
+			}
+			if err := upgraded.initializeSchema(ctx); err != nil {
+				t.Fatal(err)
+			}
+			again, err := upgraded.GetSubscriptionChannel(ctx, "a")
+			if err != nil || !reflect.DeepEqual(channel, again) {
+				t.Fatal("migration repeated", err)
+			}
+		})
+	}
+}
+
+func TestSubscriptionPolicyMigrationRemovesLegacyFilters(t *testing.T) {
+	db := openTestStore(t, t.Context())
+	nodes, _, err := subscription.ParseSource(subscription.SourceFormatSingBoxJSON, []byte(`{"outbounds":[{"type":"socks","tag":"Tokyo","server":"tokyo.example.com","server_port":1080}]}`), "test-source")
+	if err != nil {
+		t.Fatal(err)
+	}
+	id := subscription.PublicationID(nodes[0])
+	policy := &subscription.ChannelPolicy{Selection: subscription.NodeSelection{IDs: []string{id}, NewNodePolicy: "exclude"}, DefaultExit: subscription.RouteExit{Kind: "group", ID: "main"}, Groups: []subscription.RuleGroup{{ID: "main", Name: "Main", Enabled: true, Type: "select", NodeIDs: []string{id}, BuiltinNodes: []string{}, Rules: []subscription.ChannelRule{{ID: "rule", Enabled: true, Kind: "domain", Value: "example.com", Exit: subscription.RouteExit{Kind: "group-default"}}}}}}
+	raw, _ := json.Marshal(SubscriptionChannelConfig{Policy: policy, ExcludeTypes: []string{"socks"}})
+	legacy := strings.Replace(string(raw), `"groups":`, `"organizer":{"prefix":"","exclude_names":[],"sort":"none","deduplicate":false,"incompatible":"skip"},"groups":`, 1)
+	legacy = strings.Replace(legacy, `"rules":`, `"default_exit":{"kind":"node","id":"`+id+`"},"rules":`, 1)
+	_, err = db.CreateSubscriptionChannel(t.Context(), SubscriptionChannel{ID: "test", Name: "Test", Format: SubscriptionFormatMihomo, Enabled: true, Config: json.RawMessage(`{}`)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = db.db.ExecContext(t.Context(), `UPDATE subscription_channels SET config_json=? WHERE id='test'`, legacy); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = db.db.ExecContext(t.Context(), `PRAGMA user_version=13`); err != nil {
+		t.Fatal(err)
+	}
+	if err = db.initializeSchema(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	channel, err := db.GetSubscriptionChannel(t.Context(), "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	config, err := DecodeSubscriptionChannelConfig(channel.Config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := subscription.RenderPolicyNodes(nodes, subscription.RenderChannel{Format: subscription.RenderFormatMihomo, ExcludeTags: config.ExcludeTags, ExcludeTypes: config.ExcludeTypes}, config.Policy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("selected=%d exported=%d diagnostics=%d contains_reject=%t", len(config.Policy.Selection.IDs), result.NodeCount, len(result.Diagnostics), strings.Contains(string(result.Content), "DOMAIN,example.com,REJECT"))
+	if result.NodeCount != 1 {
+		t.Errorf("selected visible node was silently filtered after migration")
+	}
+}
+
+func TestSubscriptionPolicyMigrationPreservesLargeConfig(t *testing.T) {
+	db := openTestStore(t, t.Context())
+	policy := &subscription.ChannelPolicy{Selection: subscription.NodeSelection{NewNodePolicy: "exclude"}, DefaultExit: subscription.RouteExit{Kind: "direct"}, Groups: []subscription.RuleGroup{{ID: "main", Name: "Main", Enabled: true, Type: "select", NodeIDs: []string{}, BuiltinNodes: []string{"direct"}, Rules: []subscription.ChannelRule{}}}}
+	var legacy []byte
+	var validCurrent []byte
+	for i := 0; i < 5000; i++ {
+		rule := subscription.ChannelRule{ID: fmt.Sprint("r", i), Enabled: true, Kind: "domain", Value: strings.Repeat("a", 60) + "." + strings.Repeat("b", 50) + ".example", Exit: subscription.RouteExit{Kind: "group-default"}}
+		policy.Groups[0].Rules = append(policy.Groups[0].Rules, rule)
+		raw, _ := json.Marshal(SubscriptionChannelConfig{Policy: policy})
+		old := strings.Replace(string(raw), `"groups":`, `"organizer":{"prefix":"","exclude_names":[],"sort":"none","deduplicate":false,"incompatible":"skip"},"groups":`, 1)
+		old = strings.Replace(old, `"rules":`, `"default_exit":{"kind":"direct"},"rules":`, 1)
+		if len(old) > 512<<10 {
+			policy.Groups[0].Rules = policy.Groups[0].Rules[:len(policy.Groups[0].Rules)-1]
+			break
+		}
+		legacy = []byte(old)
+		validCurrent = raw
+	}
+	if _, err := canonicalChannelConfig(validCurrent, SubscriptionFormatMihomo); err != nil {
+		t.Fatal("fixture invalid", err)
+	}
+	_, err := db.CreateSubscriptionChannel(t.Context(), SubscriptionChannel{ID: "large", Name: "Large", Format: SubscriptionFormatMihomo, Enabled: true, Config: json.RawMessage(`{}`)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = db.db.ExecContext(t.Context(), `UPDATE subscription_channels SET config_json=? WHERE id='large'`, string(legacy)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = db.db.ExecContext(t.Context(), `PRAGMA user_version=13`); err != nil {
+		t.Fatal(err)
+	}
+	if err = db.initializeSchema(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	var after string
+	if err = db.db.QueryRowContext(t.Context(), `SELECT config_json FROM subscription_channels WHERE id='large'`).Scan(&after); err != nil {
+		t.Fatal(err)
+	}
+	_, err = DecodeSubscriptionChannelConfig(json.RawMessage(after))
+	t.Logf("rules=%d before=%d after=%d limit=%d decode_error=%v", len(policy.Groups[0].Rules), len(legacy), len(after), maximumChannelConfigBytes, err)
+	if err != nil {
+		t.Fatal("migration committed an unreadable channel", err)
+	}
+	if len(after) <= 512<<10 {
+		t.Fatal("fixture did not exercise migration growth")
+	}
+	channel, err := db.GetSubscriptionChannel(t.Context(), "large")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = db.UpdateSubscriptionChannel(t.Context(), UpdateSubscriptionChannelInput{ID: channel.ID, Name: channel.Name, Format: channel.Format, Enabled: channel.Enabled, Config: channel.Config, ExpectedUpdatedAt: channel.UpdatedAt, UpdatedAt: channel.UpdatedAt.Add(time.Second)}); err != nil {
+		t.Fatal("migrated config cannot be saved", err)
 	}
 }

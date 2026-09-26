@@ -27,7 +27,10 @@ func sanitizedClientTLS(raw any, publicHost string) (map[string]any, error) {
 	if alpn, exists := value["alpn"]; exists {
 		switch list := alpn.(type) {
 		case string:
-			result["alpn"] = list
+			if len(list) == 0 || len(list) > 256 {
+				return nil, errors.New("invalid TLS ALPN")
+			}
+			result["alpn"] = []any{list}
 		case []any:
 			if len(list) > 16 {
 				return nil, errors.New("invalid TLS ALPN")

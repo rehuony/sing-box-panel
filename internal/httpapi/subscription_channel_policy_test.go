@@ -3,6 +3,7 @@
 package httpapi
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"net/http"
@@ -24,9 +25,9 @@ func TestChannelPolicyPreviewDeliveryAndVisibility(t *testing.T) {
 		t.Fatal(err)
 	}
 	policy := &subscription.ChannelPolicy{
-		Selection:   subscription.NodeSelection{IDs: []string{node.ID}, ExcludedIDs: []string{}, NewNodePolicy: "exclude"},
-		Organizer:   subscription.NodeOrganizer{Sort: "none", ExcludeNames: []string{}, Incompatible: "error"},
-		DefaultExit: subscription.RouteExit{Kind: "node", ID: node.ID}, Groups: []subscription.RuleGroup{},
+		Selection:         subscription.NodeSelection{IDs: []string{node.ID}, ExcludedIDs: []string{}, NewNodePolicy: "exclude"},
+		IncompatibleNodes: "error",
+		DefaultExit:       subscription.RouteExit{Kind: "node", ID: node.ID}, Groups: []subscription.RuleGroup{},
 		Template: &subscription.NativeTemplate{Format: subscription.RenderFormatSingBox, Content: `{"log":{"level":"warn"}}`},
 	}
 	config, _ := json.Marshal(store.SubscriptionChannelConfig{Policy: policy})
@@ -147,10 +148,10 @@ func TestChannelStrategyTypesPersistPreviewAndDeliver(t *testing.T) {
 	} {
 		t.Run(test.format+" "+test.kind, func(t *testing.T) {
 			policy := &subscription.ChannelPolicy{
-				Selection:   subscription.NodeSelection{IDs: []string{node.ID}, ExcludedIDs: []string{}, NewNodePolicy: "exclude"},
-				Organizer:   subscription.NodeOrganizer{ExcludeNames: []string{}, Sort: "none", Incompatible: "error"},
-				DefaultExit: subscription.RouteExit{Kind: "group", ID: "group"},
-				Groups:      []subscription.RuleGroup{{ID: "group", Name: "Main", Enabled: true, Type: test.kind, BuiltinNodes: test.builtins, NodeIDs: []string{node.ID}, DefaultExit: subscription.RouteExit{Kind: "node", ID: node.ID}, Rules: []subscription.ChannelRule{}, HealthCheck: &subscription.GroupHealthCheck{URL: "https://probe.example/check", Interval: 3600, Tolerance: 0}}},
+				Selection:         subscription.NodeSelection{IDs: []string{node.ID}, ExcludedIDs: []string{}, NewNodePolicy: "exclude"},
+				IncompatibleNodes: "error",
+				DefaultExit:       subscription.RouteExit{Kind: "group", ID: "group"},
+				Groups:            []subscription.RuleGroup{{ID: "group", Name: "Main", Enabled: true, Type: test.kind, BuiltinNodes: test.builtins, NodeIDs: []string{node.ID}, Rules: []subscription.ChannelRule{}, HealthCheck: &subscription.GroupHealthCheck{URL: "https://probe.example/check", Interval: 3600, Tolerance: 0}}},
 			}
 			for _, kind := range test.builtins {
 				policy.Groups[0].CandidateOrder = append(policy.Groups[0].CandidateOrder, "builtin:"+kind)
@@ -193,7 +194,7 @@ func TestChannelStrategyTypesPersistPreviewAndDeliver(t *testing.T) {
 			if public.Code != http.StatusOK || public.Body.String() != string(rendered.Result.Content) {
 				t.Fatal("preview/delivery mismatch", public.Code, public.Body.String())
 			}
-			if test.format == "mihomo" && !strings.HasPrefix(public.Body.String(), "proxies:\n  - ") {
+			if test.format == "mihomo" && !strings.Contains(public.Body.String(), "proxies:\n  - ") {
 				t.Fatal("preview/delivery YAML is not formatted", public.Body.String())
 			}
 		})
@@ -224,15 +225,14 @@ func TestChannelDefaultTemplatesAndWholeReplacement(t *testing.T) {
 		{"loon", "loon.conf", ""},
 	} {
 		t.Run(test.format, func(t *testing.T) {
-			content, err := os.ReadFile("../../web/src/constants/channel-templates/" + test.file)
+			content, err := os.ReadFile("../../api/templates/" + test.file)
 			if err != nil {
 				t.Fatal(err)
 			}
 			p := &subscription.ChannelPolicy{
-				Selection: subscription.NodeSelection{IDs: []string{}, ExcludedIDs: []string{}, NewNodePolicy: "exclude"},
-				Organizer: subscription.NodeOrganizer{Sort: "none", ExcludeNames: []string{}, Incompatible: "error"},
-				Groups:    []subscription.RuleGroup{}, DefaultExit: subscription.RouteExit{Kind: "direct"},
-				Template: &subscription.NativeTemplate{Format: subscription.RenderFormat(test.format), Content: string(content)},
+				Selection:         subscription.NodeSelection{IDs: []string{}, ExcludedIDs: []string{}, NewNodePolicy: "exclude"},
+				IncompatibleNodes: "error",
+				Groups:            []subscription.RuleGroup{}, DefaultExit: subscription.RouteExit{Kind: "direct"},
 			}
 			input := map[string]any{"name": test.format, "format": test.format, "enabled": true, "config": store.SubscriptionChannelConfig{Policy: p}}
 			raw, _ := json.Marshal(input)
@@ -248,7 +248,7 @@ func TestChannelDefaultTemplatesAndWholeReplacement(t *testing.T) {
 			publicURL := "/sub/" + key.Token + "/" + channel.ID
 			for _, empty := range []bool{false, true} {
 				if empty {
-					p.Template.Content = test.empty
+					p.Template = &subscription.NativeTemplate{Format: subscription.RenderFormat(test.format), Content: test.empty}
 					raw, _ = json.Marshal(input)
 					saved := authenticatedRequest(handler, http.MethodPut, url, string(raw), subscriptionETag(channel.UpdatedAt))
 					if saved.Code != http.StatusOK {
@@ -262,6 +262,16 @@ func TestChannelDefaultTemplatesAndWholeReplacement(t *testing.T) {
 				var rendered application.SubscriptionPreview
 				if err := json.Unmarshal(preview.Body.Bytes(), &rendered); err != nil {
 					t.Fatal(err)
+				}
+				if !empty {
+					draftPolicy := *p
+					draftPolicy.Template = &subscription.NativeTemplate{Format: subscription.RenderFormat(test.format), Content: string(content)}
+					draftRaw, _ := json.Marshal(map[string]any{"draft": map[string]any{"format": test.format, "config": store.SubscriptionChannelConfig{Policy: &draftPolicy}}})
+					draft := authenticatedRequest(handler, http.MethodPost, url+"/preview", string(draftRaw), "")
+					var explicit application.SubscriptionPreview
+					if draft.Code != http.StatusOK || json.Unmarshal(draft.Body.Bytes(), &explicit) != nil || string(explicit.Result.Content) != string(rendered.Result.Content) {
+						t.Fatal("missing/default template preview diverged", draft.Code, draft.Body.String())
+					}
 				}
 				// Exercise draft validation on a brand-new instance before adding a
 				// publication source; public delivery still requires one.
@@ -282,10 +292,76 @@ func TestChannelDefaultTemplatesAndWholeReplacement(t *testing.T) {
 					t.Fatal(err)
 				}
 				config, err := store.DecodeSubscriptionChannelConfig(stored.Config)
-				if err != nil || config.Policy.Template.Content != p.Template.Content {
+				if err != nil || (empty && config.Policy.Template.Content != p.Template.Content) || (!empty && config.Policy.Template != nil) {
 					t.Fatal("template bytes changed", err)
 				}
 			}
 		})
+	}
+}
+
+func TestLegacyChannelUpgradePublishesPreview(t *testing.T) {
+	ctx := t.Context()
+	_, app, handler := newSubscriptionHTTPServices(t, "")
+	node, err := app.CreateSubscriptionNode(ctx, []byte(`{"type":"socks","tag":"Example","server":"node.example.com","server_port":1080}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := json.Marshal(application.CreateSubscriptionChannelRequest{Name: "Legacy", Format: store.SubscriptionFormatSingBox, Config: json.RawMessage(`{}`), Enabled: true})
+	created := authenticatedRequest(handler, http.MethodPost, "/api/v1/subscription/channels", string(raw), "")
+	if created.Code != 201 {
+		t.Fatal(created.Code, created.Body.String())
+	}
+	var channel application.SubscriptionChannel
+	if err = json.Unmarshal(created.Body.Bytes(), &channel); err != nil {
+		t.Fatal(err)
+	}
+	token, err := app.CreateSubscriptionToken(ctx, application.CreateSubscriptionTokenRequest{Label: "Review"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// This is the unchanged initialChannelPolicy generated by useChannelDraft.
+	config, _ := json.Marshal(store.SubscriptionChannelConfig{Policy: &subscription.ChannelPolicy{Selection: subscription.NodeSelection{IDs: []string{node.ID}, ExcludedIDs: []string{}, NewNodePolicy: "include"}, Groups: []subscription.RuleGroup{}, DefaultExit: subscription.RouteExit{Kind: "direct"}}})
+	raw, _ = json.Marshal(map[string]any{"draft": application.SubscriptionDraftPreview{Format: store.SubscriptionFormatSingBox, Config: config}})
+	preview := authenticatedRequest(handler, http.MethodPost, "/api/v1/subscription/channels/"+channel.ID+"/preview", string(raw), "")
+	if preview.Code != 200 {
+		t.Fatal(preview.Code, preview.Body.String())
+	}
+	var rendered application.SubscriptionPreview
+	if err = json.Unmarshal(preview.Body.Bytes(), &rendered); err != nil {
+		t.Fatal(err)
+	}
+	public := publicSubscriptionRequest(handler, "/sub/"+token.Token+"/"+channel.ID)
+	if public.Code != 200 {
+		t.Fatal(public.Code, public.Body.String())
+	}
+	t.Logf("preview_has_dns=%t delivery_has_dns=%t", bytes.Contains(rendered.Result.Content, []byte(`"dns"`)), bytes.Contains(public.Body.Bytes(), []byte(`"dns"`)))
+	if bytes.Contains(public.Body.Bytes(), []byte(`"dns"`)) {
+		t.Fatal("preview upgraded the saved channel")
+	}
+	raw, _ = json.Marshal(map[string]any{"name": channel.Name, "format": channel.Format, "config": json.RawMessage(config), "enabled": channel.Enabled})
+	saved := authenticatedRequest(handler, http.MethodPut, "/api/v1/subscription/channels/"+channel.ID, string(raw), subscriptionETag(channel.UpdatedAt))
+	if saved.Code != http.StatusOK {
+		t.Fatal(saved.Code, saved.Body.String())
+	}
+	public = publicSubscriptionRequest(handler, "/sub/"+token.Token+"/"+channel.ID)
+	if public.Code != http.StatusOK || !bytes.Equal(rendered.Result.Content, public.Body.Bytes()) {
+		t.Fatal("saved upgrade differs from preview")
+	}
+	// Modern channels cannot reintroduce invisible filters through either endpoint.
+	filtered := store.SubscriptionChannelConfig{ExcludeTypes: []string{"socks"}}
+	if err = json.Unmarshal(config, &filtered); err != nil {
+		t.Fatal(err)
+	}
+	invalid, _ := json.Marshal(filtered)
+	raw, _ = json.Marshal(map[string]any{"draft": application.SubscriptionDraftPreview{Format: channel.Format, Config: invalid}})
+	rejected := authenticatedRequest(handler, http.MethodPost, "/api/v1/subscription/channels/"+channel.ID+"/preview", string(raw), "")
+	if rejected.Code != http.StatusUnprocessableEntity {
+		t.Fatal("preview accepted legacy filters", rejected.Code)
+	}
+	raw, _ = json.Marshal(application.CreateSubscriptionChannelRequest{Name: "Invalid", Format: channel.Format, Config: invalid, Enabled: true})
+	rejected = authenticatedRequest(handler, http.MethodPost, "/api/v1/subscription/channels", string(raw), "")
+	if rejected.Code != http.StatusUnprocessableEntity {
+		t.Fatal("create accepted legacy filters", rejected.Code)
 	}
 }

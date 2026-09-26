@@ -74,6 +74,21 @@ describe('canonical configuration lifecycle', () => {
     expect(client.saveConfigurationFile.mock.calls[0][0].content).toBe(result.current.state.content);
   });
 
+  it('stabilizes object keys after visual edits while preserving rule and candidate array order', async () => {
+    const content = '{"route":{"rules":[{"domain":["z","a"],"outbound":"second"},{"domain":["a"],"outbound":"first"}]},"outbounds":[{"server_port":443,"server":"host","tag":"second","type":"socks"}],"log":{"level":"info"},"future":{"z":false,"a":null}}';
+    const client = createMockApiClient({ getConfigurationFile: vi.fn().mockResolvedValue({ ...initial, content }) });
+    const { result } = await mount(client);
+    act(() => result.current.update(draft => ({ ...draft, log: { level: 'debug' } })));
+    const first = result.current.state.content;
+    const ordered = JSON.parse(first);
+    expect(Object.keys(ordered)).toEqual(['log', 'outbounds', 'route', 'future']);
+    expect(Object.keys(ordered.outbounds[0])).toEqual(['type', 'tag', 'server', 'server_port']);
+    expect(ordered.route.rules).toEqual(JSON.parse(content).route.rules);
+    expect(ordered.future).toEqual({ a: null, z: false });
+    act(() => result.current.update(draft => ({ ...draft, log: { level: 'debug' } })));
+    expect(result.current.state.content).toBe(first);
+  });
+
   it.each([
     new Error('offline'),
     new ApiRequestError('Changed elsewhere', { status: 412, code: 'configuration_file_conflict' }),

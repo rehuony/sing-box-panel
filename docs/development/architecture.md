@@ -147,7 +147,7 @@ below exercise the corresponding source, API and runtime boundaries.
 | RULE-01 | Remote metadata only, client fetches; Mihomo YAML/YML/TEXT/MRS + behavior; MRS excludes classical; sing-box source JSON/binary SRS | Remote-reference validation and native output | No server content fetch/upload/conversion; incompatible format cleared and blocked without URL loss | implemented |
 | RULE-02 | Group context inherited; smaller child modal returns to correct parent; missing format red border only; anchored menus | Modal state, accessible invalid controls | Nested save/cancel/focus; short viewport sticky actions and complete menus | implemented |
 | RULE-03 | Single-line full URL; lightning toggles gh-proxy.com for eligible GitHub/raw/gist; unwrap known proxy, no duplicates; off restores origin | URL normalization and effective render URL | Empty/non-GitHub disabled; preview/delivery uses effective URL; no credential forwarding | implemented |
-| CHAN-03 | Distribution: current template + new-node policy; node organizer owns prefix/exclusion/sort/dedup/incompatibility | Channel data separation | Renderer applies each saved option | implemented |
+| CHAN-03 | Distribution: name/client/template/new-node policy; direct node editing and card order; global rule indices | Channel data separation | Preview and delivery share defaults; card/index order preserved | implemented |
 | TPL-01 | Per-channel native JSON/YAML template; true edit/dirty/validate/location/preview/save/cancel; generated nodes/auth/groups/rules/fallback reserved | New template storage/API/merge/validation; no shared library or DSL | Reject conflicts and invalid save; preserve other channel; preview equals delivery | implemented |
 | SET-01 | Six grouped categories; shared draft and save, same-path hash navigation, cross-category validation, backup preview and atomic restore | Panel settings API/storage/bootstrap separation | Authenticated update, optimistic concurrency, invalid inputs, secrets redacted | implemented |
 | SET-02 | Listen/address/domain, management token and optional GitHub token; blank token retains, explicit remove; server-only use | Bootstrap/security settings and catalog client | Restart semantics, session invalidation, no token in response/log/browser persistence | implemented |
@@ -182,8 +182,9 @@ immutable runtime evidence, subscription state and operational records directly.
 Settings live in the selected `setting.json`; SQLite keeps only transaction
 markers for interrupted settings/identity updates and configuration restores.
 `traffic_months.sql` adds durable monthly traffic accounting. Version 11 of the
-same application identity upgrades transactionally through version 12 (traffic months)
-and version 13 (removal of channel export-key bindings); unknown and
+same application identity upgrades transactionally through version 12 (traffic months),
+version 13 (removal of channel export-key bindings), and version 14 (subscription
+policy ordering and removal of retired overrides); unknown and
 newer storage formats remain rejected.
 
 Authenticated management, CSRF/origin controls, safe source acquisition,

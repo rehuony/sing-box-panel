@@ -1,0 +1,4 @@
+{
+  "root": ["log", "dns", "inbounds", "outbounds", "route", "endpoints", "services", "ntp", "certificate", "certificate_providers", "http_clients", "network_namespaces", "experimental"],
+  "fields": ["type", "tag", "name", "enabled", "disabled", "level", "output", "timestamp", "listen", "listen_port", "server", "server_port", "username", "Username", "password", "Password", "uuid", "method", "flow", "network", "tls", "transport", "multiplex", "detour", "domain_resolver", "rules", "rule_set", "outbounds", "default", "final", "strategy", "timeout", "path"]
+}

@@ -72,12 +72,12 @@ describe('channel draft', () => {
     expect(onSaved).toHaveBeenCalledOnce();
     expect(result.current.dirty).toBe(false);
   });
-  it('preserves legacy output on rename and upgrades only after a policy edit', async () => {
+  it('saves the same complete policy used by preview when editing a legacy channel', async () => {
     const legacy = { ...channel, format: 'loon' as const, enabled: false, config: {} };
     const { result, client } = mount(legacy);
-    act(() => result.current.applyOptions(result.current.policy, {}, { name: '  Renamed  ', format: 'loon' }));
+    act(() => result.current.applyOptions(result.current.policy, { name: '  Renamed  ', format: 'loon' }));
     await act(() => result.current.save());
-    expect(client.updateSubscriptionChannel.mock.calls[0][1]).toMatchObject({ name: 'Renamed', enabled: false, config: { policy: undefined } });
+    expect(client.updateSubscriptionChannel.mock.calls[0][1]).toMatchObject({ name: 'Renamed', enabled: false, config: { policy: result.current.policy } });
     act(() => result.current.addGroup());
     await act(() => result.current.save());
     expect(client.updateSubscriptionChannel.mock.calls[1][1].config.policy?.groups).toHaveLength(1);
@@ -135,11 +135,9 @@ describe('channel draft', () => {
     });
     act(() => result.current.setPolicy(p => ({ ...p, template: { format: 'sing-box', content: '{}' } })));
     const group = result.current.group;
-    act(() => result.current.applyOptions({ ...result.current.policy, organizer: { ...result.current.policy.organizer, prefix: 'test-' } }, { exclude_tags: ['hidden'] }, { name: 'Loon', format: 'loon' }));
+    act(() => result.current.applyOptions(result.current.policy, { name: 'Loon', format: 'loon' }));
     expect(result.current.policy.groups).toEqual([group]);
     expect(result.current.policy.template).toEqual({ format: 'loon', content: channelTemplateDefaults.loon });
-    expect(result.current.policy.organizer.prefix).toBe('test-');
-    expect(result.current.config.exclude_tags).toEqual(['hidden']);
   });
   it('merges group members into selection without losing unrelated exclusions or changing the fallback', () => {
     const group = { ...newRuleGroup([]), name: 'Group' };

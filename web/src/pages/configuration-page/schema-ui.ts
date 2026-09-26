@@ -3,6 +3,9 @@ import type { RJSFSchema, UiSchema } from '@rjsf/utils';
 import { getSchemaType } from '@rjsf/utils';
 import { isLosslessNumber } from 'lossless-json';
 
+import { compareText } from '@/utils/compare-text';
+import { configurationFieldOrder } from '@/utils/configuration-order';
+
 import { withConfigurationFieldHelp } from './configuration-field-help';
 import { configurationPathMode, withConfigurationPathMode } from './configuration-path-fields';
 import { configurationCredentialKind, withConfigurationCredential } from './configuration-credentials';
@@ -540,11 +543,11 @@ export function uiSchemaFromPanel(
     };
   }
   const properties = schemaProperties(resolved, root, data);
-  const fieldOrder = ['type', 'tag', 'name', 'username', 'Username', 'password', 'Password', 'enabled', 'disabled', 'level', 'output', 'timestamp', 'listen', 'listen_port', 'server', 'server_port', 'path', 'final', 'strategy', 'timeout'];
+  const fieldOrder = configurationFieldOrder;
   const order = Object.keys(properties).sort((left, right) => {
     const rank = (key: string) => panelMetadata(properties[key]).order
       ?? (fieldOrder.includes(key) ? fieldOrder.indexOf(key) : fieldOrder.length);
-    return rank(left) - rank(right);
+    return rank(left) - rank(right) || compareText(left, right);
   });
   if (order.length > 0) result['ui:order'] = [...order, '*'];
   // RJSF resolves nested union choices itself. Retain labels for every branch,

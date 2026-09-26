@@ -1,12 +1,14 @@
 import type {
   ChannelPolicy,
   ChannelRemoteRuleSet,
-  ChannelRouteExit,
+  ChannelRule,
   ChannelRuleGroup,
   SubscriptionChannel,
   SubscriptionFormat,
   SubscriptionNodeSummary,
 } from '@/api/api-client';
+
+import { compareText } from '@/utils/compare-text';
 
 import { candidateOrder } from './channel-node-order';
 
@@ -16,17 +18,9 @@ export function updateGroupCandidates(
   builtin_nodes = group.builtin_nodes,
   candidate_order = candidateOrder(group),
 ): ChannelRuleGroup {
-  const default_exit: ChannelRouteExit = group.default_exit.kind === 'node' && node_ids.includes(group.default_exit.id!)
-    ? group.default_exit
-    : group.default_exit.kind === 'direct' && builtin_nodes.includes('direct')
-      ? group.default_exit
-      : node_ids.length
-        ? { kind: 'node', id: node_ids[0] }
-        : { kind: builtin_nodes[0] ?? 'reject' };
   return {
     ...group, node_ids, builtin_nodes,
     candidate_order: candidateOrder({ node_ids, builtin_nodes, candidate_order }),
-    default_exit,
     rules: group.rules.map(item => item.exit.kind === 'node' && !node_ids.includes(item.exit.id!)
       ? { ...item, exit: { kind: 'group-default' } }
       : item),
@@ -37,7 +31,17 @@ export function initialChannelPolicy(
   channel: Pick<SubscriptionChannel, 'config'>,
   nodes: SubscriptionNodeSummary[],
 ): ChannelPolicy {
-  if (channel.config.policy) return structuredClone(channel.config.policy);
+  if (channel.config.policy) {
+    const policy = structuredClone(channel.config.policy);
+    let index = 0;
+    policy.groups.forEach(group => group.rules.forEach(rule => {
+      index += 10;
+      rule.sort_index ??= index;
+    }));
+    return policy;
+  }
+  const excluded = nodes.filter(node => channel.config.exclude_tags?.includes(node.tag)
+    || channel.config.exclude_types?.includes(node.type)).map(node => node.id);
   return {
     selection: {
       ids: nodes
@@ -45,14 +49,12 @@ export function initialChannelPolicy(
           (node) =>
             node.available
             && !node.hidden
-            && !channel.config.exclude_tags?.includes(node.tag)
-            && !channel.config.exclude_types?.includes(node.type),
+            && !excluded.includes(node.id),
         )
         .map((node) => node.id),
-      excluded_ids: [],
+      excluded_ids: excluded,
       new_node_policy: 'include',
     },
-    organizer: { prefix: '', exclude_names: [], sort: 'none', deduplicate: false, incompatible: 'skip' },
     groups: [],
     default_exit: { kind: 'direct' },
   };
@@ -76,7 +78,7 @@ export function newRuleGroup(nodeIDs: string[]): ChannelRuleGroup {
     type: 'select',
     builtin_nodes: [],
     node_ids: [...nodeIDs],
-    default_exit: nodeIDs.length ? { kind: 'node', id: nodeIDs[0] } : { kind: 'reject' },
+    candidate_order: nodeIDs.map(id => `node:${id}`),
     rules: [],
   };
 }
@@ -151,4 +153,14 @@ export function canAccelerateRuleURL(raw: string): boolean {
 export function effectiveRuleURL(raw: string, accelerated: boolean): string {
   const direct = directRuleURL(raw);
   return accelerated && canAccelerateRuleURL(direct) ? `https://gh-proxy.com/${direct}` : direct;
+}
+
+export function compareChannelRules(left: ChannelRule, right: ChannelRule): number {
+  return (left.sort_index ?? 0) - (right.sort_index ?? 0)
+    || compareText(left.remote?.name ?? left.value ?? '', right.remote?.name ?? right.value ?? '');
+}
+
+export function nextRuleIndex(policy: ChannelPolicy): number {
+  const indices = policy.groups.flatMap(group => group.rules.map(rule => rule.sort_index ?? 0));
+  return Math.min(2147483647, Math.max(0, ...indices) + 10);
 }

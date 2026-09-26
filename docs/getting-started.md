@@ -54,12 +54,14 @@ configuration, or subscription data.
 ### Database compatibility
 
 The current application uses SQLite `application_id = 0x53425034` and storage
-schema version 13, defined in `internal/store/schema.sql` and
+schema version 14, defined in `internal/store/schema.sql` and
 `internal/store/traffic_months.sql`. Empty databases are initialized directly.
-Versions 11 and 12 of the same application identity upgrade transactionally to
-version 13. Version 11 first adds durable monthly traffic totals; version 13
+Versions 11–13 of the same application identity upgrade transactionally to
+version 14. Version 11 first adds durable monthly traffic totals; version 13
 removes obsolete `export_token_ids` from channel configuration while preserving
-all other channel data. API clients must stop submitting that field. Unidentified
+all other channel data. Version 14 removes the retired channel organizer and
+independent group defaults, retains card order and assigns global rule indices.
+API clients must stop submitting retired fields. Unidentified
 databases, other application identities, and unsupported older or newer schemas
 are rejected without changing their data. The panel never deletes an unsupported database.
 Panel settings are read from the selected `setting.json` only.

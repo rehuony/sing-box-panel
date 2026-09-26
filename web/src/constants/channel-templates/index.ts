@@ -1,10 +1,10 @@
 import type { SubscriptionFormat } from '@/api/api-client';
 
-import loon from './loon.conf?raw';
-import mihomo from './mihomo.yaml?raw';
-import singBox from './sing-box.json?raw';
+import loon from '../../../../api/templates/loon.conf?raw';
+import mihomo from '../../../../api/templates/mihomo.yaml?raw';
+import singBox from '../../../../api/templates/sing-box.json?raw';
 
-// Seeds for the editor only. Saved configurations are always used as-is.
+// Shared with the server: missing templates use these complete bases.
 export const channelTemplateDefaults: Record<SubscriptionFormat, string> = {
   'sing-box': singBox,
   mihomo,

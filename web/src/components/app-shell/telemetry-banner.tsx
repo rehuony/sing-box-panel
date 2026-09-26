@@ -19,6 +19,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Spinner } from '@/components/ui/spinner';
 import { Separator } from '@/components/ui/separator';
+import { toast } from '@/components/ui/toast-manager';
 import { useSidebar } from '@/components/ui/sidebar-context';
 import {
   Tooltip,
@@ -245,29 +246,21 @@ function MobileTelemetryMenu({
   );
 }
 
-function DashboardStreamStatus() {
+function DashboardStreamStatus({ reconnecting }: { reconnecting: boolean }) {
   const { t } = useTranslation();
-  const triggerId = useId();
-  const contentId = useId();
-  const [open, setOpen] = useState(false);
-
-  return (
-    <Tooltip open={open} onOpenChange={setOpen} triggerId={triggerId}>
-      <TooltipTrigger
-        id={triggerId}
-        aria-label={t('telemetry.stream.detail')}
-        aria-describedby={open ? contentId : undefined}
-        closeOnClick={false}
-        onClick={() => setOpen(true)}
-        render={<Badge className='telemetry-stream-status' variant='warning' render={<button type='button' />} />}
-      >
-        <Spinner aria-hidden='true' data-icon='inline-start' />
-        <span className='telemetry-stream-status__full' aria-hidden='true'>{t('telemetry.stream.reconnecting')}</span>
-        <span className='telemetry-stream-status__compact' aria-hidden='true'>{t('telemetry.stream.compact')}</span>
-      </TooltipTrigger>
-      <TooltipContent id={contentId} role='tooltip' side='bottom'>{t('telemetry.stream.detail')}</TooltipContent>
-    </Tooltip>
-  );
+  const id = useId();
+  useEffect(() => {
+    if (!reconnecting) return;
+    let cancelled = false;
+    queueMicrotask(() => {
+      if (!cancelled) toast.add({ id, title: t('telemetry.stream.reconnecting'), description: t('telemetry.stream.detail'), type: 'warning', timeout: 0 });
+    });
+    return () => {
+      cancelled = true;
+      toast.close(id);
+    };
+  }, [reconnecting, id, t]);
+  return null;
 }
 
 export function TelemetryBanner() {
@@ -370,7 +363,7 @@ export function TelemetryBanner() {
         </div>
       </div>
 
-      <div className='telemetry-banner__center' data-reconnecting={reconnecting || undefined}>
+      <div className='telemetry-banner__center'>
         <div className='telemetry-banner__metrics'>
           <TelemetryMetric
             icon={Clock3}
@@ -397,9 +390,7 @@ export function TelemetryBanner() {
             compactValue={formatRate(downloadRate, locale).replace(/\s/g, '')}
           />
         </div>
-        <div className='telemetry-banner__notice' role='status' aria-atomic='true'>
-          {reconnecting ? <DashboardStreamStatus /> : null}
-        </div>
+        <DashboardStreamStatus reconnecting={reconnecting} />
       </div>
 
       <div className='telemetry-banner__actions'>

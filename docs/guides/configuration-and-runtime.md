@@ -575,3 +575,14 @@ of an empty old root may leave only a private relocation marker there.
 Upgrade once with the original settings and data directory before manually
 changing that path. Without an existing location record or the previous file
 seen by `config set`, an arbitrary former custom directory cannot be inferred.
+
+### Stable JSON presentation
+
+Visual configuration edits, explicit formatting, and sing-box channel output use
+the shared field priorities in `api/configuration-order.json`. Known fields have
+a fixed reading order and remaining fields are ordered by name. Object formatting
+preserves unknown fields, exact numeric spelling, null/false values, and all array
+orders, including route rules and strategy candidates. Editing raw JSON does not
+reformat each keystroke; saving the configuration file still preserves exact text,
+including incomplete drafts. Runtime canonicalization and content digests are
+separate and unchanged.

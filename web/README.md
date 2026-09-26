@@ -147,13 +147,11 @@ visible while the details scroll. Closing it preserves list state and
 restores keyboard focus. Native process output and telemetry use authenticated
 streams with bounded buffering and reconnect.
 
-Dashboard reconnect feedback stays centered inside the shared runtime toolbar,
-using the existing status Badge and Tooltip styles. Narrow toolbars temporarily
-show the message in the metrics slot without resizing the header or page content;
-the full explanation is available on hover, keyboard focus, or tap. Normal
-authenticated stream rotation has a five-second reconnect grace period; transport
-errors are reported immediately and the last snapshot remains visible until a
-new one arrives. Reconnect feedback does not insert a row above the dashboard.
+Dashboard reconnect feedback uses one persistent lower-right Toast per outage,
+closed on recovery. Retries do not stack notices or hide toolbar metrics. Normal
+authenticated stream rotation has a five-second grace period; transport errors
+are reported immediately and the last snapshot remains visible.
+
 
 Version, subscription source, node, channel, key, and panel-log lists use the
 shared `components/list-pagination` footer. It combines the page-size selector,

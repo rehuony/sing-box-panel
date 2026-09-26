@@ -179,6 +179,13 @@ func TestSupportedRendererProtocolMatrix(t *testing.T) {
 			if result.NodeCount != 1 || len(result.Diagnostics) != 0 {
 				t.Fatalf("result = %#v, content %s", result, result.Content)
 			}
+			scalar := strings.ReplaceAll(test.outbound, `"alpn":["h2"]`, `"alpn":"h2"`)
+			if scalar != test.outbound {
+				same, err := Render([]byte(`{"outbounds":[`+scalar+`]}`), RenderChannel{Format: test.format})
+				if err != nil || string(same.Content) != string(result.Content) || same.NodeCount != result.NodeCount || len(same.Diagnostics) != 0 {
+					t.Fatalf("scalar/list ALPN contract differs: %+v %v", same, err)
+				}
+			}
 			for _, want := range test.contains {
 				if !strings.Contains(string(result.Content), want) {
 					t.Fatalf("content missing %q:\n%s", want, result.Content)

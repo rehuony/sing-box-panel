@@ -45,11 +45,13 @@ export function ChannelRuleEditor({ rule, format, onClose, onSave }: Props) {
   const originalFormat = rule.remote?.url && ruleFormats(format).includes(rule.remote.format) ? rule.remote.format : '';
   useUnsavedChanges(JSON.stringify(draft) !== JSON.stringify(rule) || sourceFormat !== originalFormat, onClose, busy);
   const remote = draft.remote;
+  const validIndex = Number.isInteger(draft.sort_index) && draft.sort_index! >= 1 && draft.sort_index! <= 2147483647;
   function updateRemote(value: Partial<ChannelRemoteRuleSet>) {
     setDraft((current) => ({ ...current, remote: { ...current.remote!, ...value } }));
   }
   async function save() {
     setAttempted(true);
+    if (!validIndex) return;
     if (remote && !sourceFormat) return;
     if (remote) {
       try {
@@ -78,11 +80,10 @@ export function ChannelRuleEditor({ rule, format, onClose, onSave }: Props) {
     }
     setBusy(true);
     try {
-      const value: ChannelRule = { ...draft, enabled: true, exit: { kind: 'group-default' } };
       await onSave(
         remote
           ? {
-              ...value,
+              ...draft,
               remote: {
                 ...remote,
                 name: remote.name.trim(),
@@ -92,7 +93,7 @@ export function ChannelRuleEditor({ rule, format, onClose, onSave }: Props) {
                 update_interval: format === 'loon' ? undefined : remote.update_interval,
               },
             }
-          : { ...value, value: draft.value!.trim() },
+          : { ...draft, value: draft.value!.trim() },
       );
       onClose();
     } catch (reason) {
@@ -110,6 +111,12 @@ export function ChannelRuleEditor({ rule, format, onClose, onSave }: Props) {
         </DialogHeader>
         <div className='channel-dialog-scroll'>
           <div className='subscription-settings-fields'>
+            <label htmlFor='rule-sort-index'>{t('channels.sortIndex')}</label>
+            <input id='rule-sort-index' type='number' min={1} max={2147483647} step={1}
+              aria-invalid={attempted && !validIndex}
+              value={draft.sort_index ?? ''}
+              onChange={event => setDraft({ ...draft, sort_index: event.target.value === '' ? undefined : Number(event.target.value) })} />
+            <p className='channel-delivery-hint col-span-full'>{t('channels.sortIndexHint')}</p>
             {remote
               ? (
                   <>

@@ -7,6 +7,7 @@ import (
 	"crypto/ecdh"
 	"encoding/base64"
 	"encoding/json"
+	"reflect"
 	"testing"
 
 	"github.com/rehuony/sing-box-panel/internal/subscription"
@@ -43,7 +44,7 @@ func TestInbound114NativeClientConversion(t *testing.T) {
 						t.Fatal(out)
 					}
 				}},
-				{"hysteria2 realm stays server-side", `{"type":"hysteria2","users":[{"name":"alice","password":"test-password"}],"obfs":{"type":"salamander","password":"test-obfs"},"tls":{"enabled":true},"realm":{"server_url":"https://realm.example.com","token":"server-token","realm_id":"server-realm","stun_servers":["stun.example.com:3478"],"stun_domain_resolver":"server-dns"}}`, func(t *testing.T, out map[string]any) {
+				{"hysteria2 realm stays server-side", `{"type":"hysteria2","users":[{"name":"alice","password":"test-password"}],"obfs":{"type":"salamander","password":"test-obfs"},"tls":{"enabled":true,"alpn":"h3"},"realm":{"server_url":"https://realm.example.com","token":"server-token","realm_id":"server-realm","stun_servers":["stun.example.com:3478"],"stun_domain_resolver":"server-dns"}}`, func(t *testing.T, out map[string]any) {
 					if out["type"] != "hysteria2" || out["password"] != "test-password" || out["realm"] != nil {
 						t.Fatal(out)
 					}
@@ -54,7 +55,7 @@ func TestInbound114NativeClientConversion(t *testing.T) {
 				}},
 				{"explicit SNI", `{"type":"anytls","users":[{"password":"test-password"}],"tls":{"enabled":true,"server_name":"tls.example.com","alpn":"h2","key_path":"/never/publish/private","certificate_path":"/never/publish/certificate"}}`, func(t *testing.T, out map[string]any) {
 					tls := out["tls"].(map[string]any)
-					if tls["server_name"] != "tls.example.com" || tls["alpn"] != "h2" || tls["insecure"] != false {
+					if tls["server_name"] != "tls.example.com" || !reflect.DeepEqual(tls["alpn"], []any{"h2"}) || tls["insecure"] != false {
 						t.Fatal(tls)
 					}
 				}},
@@ -77,6 +78,14 @@ func TestInbound114NativeClientConversion(t *testing.T) {
 					out, err := subscription.DecodeDocumentObject(node.Outbound)
 					if err != nil {
 						t.Fatal(err)
+					}
+					if node.Type == "hysteria2" || node.Type == "anytls" {
+						for _, format := range []subscription.RenderFormat{subscription.RenderFormatMihomo, subscription.RenderFormatLoon} {
+							rendered, err := subscription.RenderNodes([]subscription.Node{node}, subscription.RenderChannel{Format: format})
+							if err != nil || rendered.NodeCount != 1 || len(rendered.Diagnostics) != 0 {
+								t.Fatalf("producer/consumer %s: %+v %v", format, rendered, err)
+							}
+						}
 					}
 					test.check(t, out)
 					document, _ := json.Marshal(map[string]any{"outbounds": []json.RawMessage{node.Outbound}})

@@ -1,5 +1,6 @@
 import process from 'node:process';
 import react from '@vitejs/plugin-react';
+import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'vitest/config';
 
 const contracts = [
@@ -13,6 +14,7 @@ const browserLogic = [
 
 // Tests consume committed schemas. Generation is checked by the production build.
 export default defineConfig({
+  server: { fs: { allow: [fileURLToPath(new URL('.', import.meta.url)), fileURLToPath(new URL('../api', import.meta.url))] } },
   plugins: [react()],
   resolve: { tsconfigPaths: true },
   test: {

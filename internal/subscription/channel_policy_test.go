@@ -21,7 +21,7 @@ func policyFixture(t *testing.T, format RenderFormat) ([]Node, *ChannelPolicy) {
 		t.Fatal(err)
 	}
 	a, b := PublicationID(nodes[0]), PublicationID(nodes[1])
-	p := &ChannelPolicy{Selection: NodeSelection{IDs: []string{a, b}, NewNodePolicy: "exclude"}, Organizer: NodeOrganizer{Sort: "none", Incompatible: "error"}, DefaultExit: RouteExit{Kind: "group", ID: "main"}, Groups: []RuleGroup{{Type: "select", BuiltinNodes: []string{}, ID: "main", Name: "Selected", Enabled: true, NodeIDs: []string{a, b}, DefaultExit: RouteExit{Kind: "node", ID: a}, Rules: []ChannelRule{
+	p := &ChannelPolicy{Selection: NodeSelection{IDs: []string{a, b}, NewNodePolicy: "exclude"}, IncompatibleNodes: "error", DefaultExit: RouteExit{Kind: "group", ID: "main"}, Groups: []RuleGroup{{Type: "select", BuiltinNodes: []string{}, ID: "main", Name: "Selected", Enabled: true, NodeIDs: []string{a, b}, Rules: []ChannelRule{
 		{ID: "domain", Enabled: true, Kind: "domain_suffix", Value: "example.org", Exit: RouteExit{Kind: "group-default"}},
 		{ID: "ipv6", Enabled: true, Kind: "ip_cidr", Value: "2001:db8::/32", Exit: RouteExit{Kind: "direct"}},
 		{ID: "disabled", Enabled: false, Kind: "domain", Value: "disabled.example", Exit: RouteExit{Kind: "reject"}},
@@ -155,20 +155,18 @@ func TestChannelUnavailableNodesNeverLeakOrFallbackDirect(t *testing.T) {
 	}
 }
 
-func TestChannelSelectionOrganizerAndFixedGroupCandidates(t *testing.T) {
+func TestChannelSelectionOrderAndFixedGroupCandidates(t *testing.T) {
 	nodes, p := policyFixture(t, RenderFormatSingBox)
 	more, _, _ := ParseSource(SourceFormatSingBoxJSON, []byte(`{"type":"socks","tag":"Amsterdam","server":"ams.example.com","server_port":1080}`), "new-source")
 	nodes = append(nodes, more...)
 	p.Selection.NewNodePolicy = "include"
-	p.Organizer.Prefix = "Travel · "
-	p.Organizer.Sort = "name"
 	result, err := RenderPolicyNodes(nodes, RenderChannel{Format: RenderFormatSingBox}, p)
 	if err != nil {
 		t.Fatal(err)
 	}
 	root, _ := DecodeDocumentObject(result.Content)
 	out := root["outbounds"].([]any)
-	if out[0].(map[string]any)["tag"] != "Travel · Amsterdam" {
+	if out[0].(map[string]any)["tag"] != "Tokyo" {
 		t.Fatal(out)
 	}
 	group := out[len(out)-1].(map[string]any)
@@ -240,7 +238,7 @@ func TestChannelDependencyCyclesAndMissingDetoursFailClosed(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	p := &ChannelPolicy{Selection: NodeSelection{NewNodePolicy: "include"}, Organizer: NodeOrganizer{Sort: "none", Incompatible: "skip"}, DefaultExit: RouteExit{Kind: "direct"}}
+	p := &ChannelPolicy{Selection: NodeSelection{NewNodePolicy: "include"}, IncompatibleNodes: "skip", DefaultExit: RouteExit{Kind: "direct"}}
 	result, err := RenderPolicyNodes(nodes, RenderChannel{Format: RenderFormatSingBox}, p)
 	if err != nil || result.NodeCount != 1 || len(result.Diagnostics) != 4 {
 		t.Fatalf("result=%+v err=%v", result, err)
@@ -250,7 +248,7 @@ func TestChannelDependencyCyclesAndMissingDetoursFailClosed(t *testing.T) {
 	}
 }
 
-func TestChannelNamesAndDedupKeepSourceDependencies(t *testing.T) {
+func TestChannelNamesKeepDistinctSourceDependencies(t *testing.T) {
 	var nodes []Node
 	for _, source := range []string{"first", "second"} {
 		part, _, err := ParseSource(SourceFormatSingBoxJSON, []byte(`{"outbounds":[{"type":"socks","tag":"entry","server":"same.example","server_port":1080,"detour":"hop"},{"type":"socks","tag":"hop","server":"`+source+`.example","server_port":1080}]}`), source)
@@ -260,7 +258,7 @@ func TestChannelNamesAndDedupKeepSourceDependencies(t *testing.T) {
 		nodes = append(nodes, part...)
 	}
 	nodes[0].OriginTag = "Real name"
-	p := &ChannelPolicy{Selection: NodeSelection{NewNodePolicy: "include"}, Organizer: NodeOrganizer{Sort: "none", Incompatible: "error", Deduplicate: true}, DefaultExit: RouteExit{Kind: "direct"}}
+	p := &ChannelPolicy{Selection: NodeSelection{NewNodePolicy: "include"}, IncompatibleNodes: "error", DefaultExit: RouteExit{Kind: "direct"}}
 	result, err := RenderPolicyNodes(nodes, RenderChannel{Format: RenderFormatSingBox}, p)
 	if err != nil || result.NodeCount != 4 {
 		t.Fatalf("%+v %v", result, err)
@@ -293,8 +291,6 @@ func TestStrategyGroupTypesAndExplicitBuiltinCandidates(t *testing.T) {
 			group.Type = test.kind
 			group.BuiltinNodes = test.builtins
 			group.HealthCheck = &GroupHealthCheck{URL: "https://probe.example/check", Interval: 3600, Tolerance: 0}
-			// Auto groups must keep candidate order rather than promoting a manual default.
-			group.DefaultExit = RouteExit{Kind: "node", ID: group.NodeIDs[1]}
 			before, _ := json.Marshal(policy)
 			result, err := RenderPolicyNodes(nodes, RenderChannel{Format: test.format}, policy)
 			if err != nil {
@@ -352,7 +348,6 @@ func TestStrategyGroupCompatibilityAndHealthValidation(t *testing.T) {
 	for name, change := range map[string]func(*RuleGroup){
 		"missing type":       func(g *RuleGroup) { g.Type = "" },
 		"missing builtins":   func(g *RuleGroup) { g.BuiltinNodes = nil },
-		"unselected direct":  func(g *RuleGroup) { g.DefaultExit = RouteExit{Kind: "direct"} },
 		"unknown type":       func(g *RuleGroup) { g.Type = "invalid" },
 		"sing-box fallback":  func(g *RuleGroup) { g.Type = "fallback" },
 		"sing-box reject":    func(g *RuleGroup) { g.BuiltinNodes = []string{"reject"} },
@@ -388,7 +383,6 @@ func TestBuiltinOnlyStrategyGroups(t *testing.T) {
 			group.NodeIDs = []string{}
 			group.Rules = []ChannelRule{}
 			group.BuiltinNodes = []string{kind}
-			group.DefaultExit = RouteExit{Kind: kind}
 			result, err := RenderPolicyNodes(nil, RenderChannel{Format: format}, policy)
 			if err != nil {
 				t.Fatal(err)
@@ -485,6 +479,104 @@ func TestChannelCandidateOrder(t *testing.T) {
 				if err := ValidateChannelPolicy(policy, format); !errors.As(err, &problem) || problem.Path != "policy.groups[0].candidate_order" {
 					t.Fatalf("invalid candidate order %v: %v", order, err)
 				}
+			}
+		})
+	}
+}
+
+func TestManualGroupFirstCardIsInitialDefault(t *testing.T) {
+	for _, format := range []RenderFormat{RenderFormatSingBox, RenderFormatMihomo, RenderFormatLoon} {
+		t.Run(string(format), func(t *testing.T) {
+			nodes, policy := policyFixture(t, format)
+			group := &policy.Groups[0]
+			group.BuiltinNodes = []string{"direct"}
+			group.CandidateOrder = []string{"builtin:direct", "node:" + group.NodeIDs[1], "node:" + group.NodeIDs[0]}
+			rendered, err := RenderPolicyNodes(nodes, RenderChannel{Format: format}, policy)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if format == RenderFormatLoon {
+				if !strings.Contains(string(rendered.Content), "Selected = select,DIRECT,Hong Kong,Tokyo") {
+					t.Fatal(string(rendered.Content))
+				}
+				return
+			}
+			var root map[string]any
+			if err := yaml.Unmarshal(rendered.Content, &root); err != nil {
+				t.Fatal(err)
+			}
+			groupKey, candidateKey, direct := "proxy-groups", "proxies", "DIRECT"
+			if format == RenderFormatSingBox {
+				groupKey, candidateKey, direct = "outbounds", "outbounds", "direct"
+			}
+			groups := root[groupKey].([]any)
+			got := groups[len(groups)-1].(map[string]any)
+			if !slices.Equal(got[candidateKey].([]any), []any{direct, "Hong Kong", "Tokyo"}) {
+				t.Fatal(got)
+			}
+			if format == RenderFormatSingBox && got["default"] != direct {
+				t.Fatal(got)
+			}
+		})
+	}
+}
+
+func TestChannelGlobalRuleOrderAllowsDuplicates(t *testing.T) {
+	for _, format := range []RenderFormat{RenderFormatSingBox, RenderFormatMihomo, RenderFormatLoon} {
+		t.Run(string(format), func(t *testing.T) {
+			nodes, p := policyFixture(t, format)
+			makeRule := func(id, value string, index int, exit string) ChannelRule {
+				return ChannelRule{ID: id, Kind: "domain", Value: value, SortIndex: index, Enabled: true, Exit: RouteExit{Kind: exit}}
+			}
+			first := p.Groups[0]
+			first.Rules = []ChannelRule{makeRule("late", "last.example", 90, "direct"), makeRule("same-a", "a.example", 10, "direct")}
+			second := first
+			second.ID = "second"
+			second.Name = "Second"
+			second.Rules = []ChannelRule{makeRule("z", "z.example", 10, "direct"), makeRule("same-b", "a.example", 10, "reject"), makeRule("middle", "middle.example", 20, "direct")}
+			p.Groups = []RuleGroup{first, second}
+			rendered, err := RenderPolicyNodes(nodes, RenderChannel{Format: format}, p)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var got []string
+			if format == RenderFormatSingBox {
+				root, _ := DecodeDocumentObject(rendered.Content)
+				for _, value := range root["route"].(map[string]any)["rules"].([]any) {
+					rule := value.(map[string]any)
+					got = append(got, rule["domain"].([]any)[0].(string)+":"+rule["action"].(string))
+				}
+			} else {
+				var rules []any
+				if format == RenderFormatMihomo {
+					var root map[string]any
+					if err := yaml.Unmarshal(rendered.Content, &root); err != nil {
+						t.Fatal(err)
+					}
+					rules = root["rules"].([]any)
+				} else {
+					for _, line := range strings.Split(string(rendered.Content), "\n") {
+						rules = append(rules, line)
+					}
+				}
+				for _, value := range rules {
+					line := value.(string)
+					if strings.HasPrefix(line, "DOMAIN,") {
+						parts := strings.Split(line, ",")
+						action := "route"
+						if parts[2] == "REJECT" {
+							action = "reject"
+						}
+						got = append(got, parts[1]+":"+action)
+					}
+				}
+			}
+			want := []string{"a.example:route", "a.example:reject", "z.example:route", "middle.example:route", "last.example:route"}
+			if !slices.Equal(got, want) {
+				t.Fatalf("global rule order %v, want %v", got, want)
+			}
+			if bytes.Contains(rendered.Content, []byte("sort_index")) {
+				t.Fatal("management field leaked")
 			}
 		})
 	}

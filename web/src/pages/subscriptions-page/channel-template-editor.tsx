@@ -31,6 +31,7 @@ export function ChannelTemplateEditor({ template, format, onClose, onPreview, on
   const baseline = template?.content ?? channelTemplateDefaults[format];
   const [content, setContent] = useState(baseline);
   const [busy, setBusy] = useState(false);
+  const [previewError, setPreviewError] = useState<unknown>(null);
   const [preview, setPreview] = useState<SubscriptionPreview | null>(null);
   const requestRef = useRef<AbortController | null>(null);
   useEffect(() => () => requestRef.current?.abort(), []);
@@ -40,6 +41,7 @@ export function ChannelTemplateEditor({ template, format, onClose, onPreview, on
     const controller = new AbortController();
     requestRef.current = controller;
     setBusy(true);
+    setPreviewError(null);
     try {
       const draft = { format, content };
       const result = await onPreview(draft, controller.signal);
@@ -50,7 +52,14 @@ export function ChannelTemplateEditor({ template, format, onClose, onPreview, on
         toast.add({ title: t('channels.valid'), type: 'success' });
       }
     } catch (reason) {
-      if (!controller.signal.aborted) toast.add({ title: describeRequestError(reason), type: 'error' });
+      if (!controller.signal.aborted) {
+        if (kind === 'preview') {
+          setPreview(null);
+          setPreviewError(reason);
+        } else {
+          toast.add({ title: describeRequestError(reason), type: 'error' });
+        }
+      }
     } finally {
       requestRef.current = null;
       if (!controller.signal.aborted) setBusy(false);
@@ -96,7 +105,12 @@ export function ChannelTemplateEditor({ template, format, onClose, onPreview, on
             {t('channels.applyTemplate')}
           </Button>
         </DialogFooter>
-        {preview && <ChannelPreview preview={preview} onClose={() => setPreview(null)} />}
+        {(preview || previewError != null) && (
+          <ChannelPreview preview={preview} error={previewError} onClose={() => {
+            setPreview(null);
+            setPreviewError(null);
+          }} />
+        )}
       </DialogContent>
     </Dialog>
   );

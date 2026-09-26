@@ -90,7 +90,7 @@ describe('configurationPage', () => {
     });
     await renderReadyPage(client);
     await user.click(screen.getByRole('combobox', { name: 'Log level' }));
-    await user.click(screen.getByRole('option', { name: 'debug' }));
+    await user.click(await screen.findByRole('option', { name: 'debug' }));
     await user.click(screen.getByRole('button', { name: 'Save configuration' }));
     await waitFor(() => expect(client.saveConfigurationFile).toHaveBeenCalledOnce());
     expect(JSON.parse(client.saveConfigurationFile.mock.calls[0][0].content)).toEqual({ log: { level: 'debug' } });

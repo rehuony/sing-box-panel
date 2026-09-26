@@ -29,6 +29,7 @@ export function useChannelDraft(
   const [groupID, setGroupID] = useState<string | null>(channel.config.policy?.groups[0]?.id ?? null);
   const [removeGroup, setRemoveGroup] = useState<string | null>(null);
   const [groupSettings, setGroupSettings] = useState<ChannelRuleGroup | null>(null);
+  const [previewError, setPreviewError] = useState<unknown>(null);
   const [preview, setPreview] = useState<SubscriptionPreview | null>(null);
   const lifeRef = useRef<AbortController | null>(null);
   const signature = (
@@ -41,10 +42,11 @@ export function useChannelDraft(
     signature(policy, format, config, name),
   );
   const dirty = signature(policy, format, config, name) !== savedSignature;
+  const needsUpgrade = !config.policy;
   const settingsDirty = groupSettings !== null
     && JSON.stringify(groupSettings) !== JSON.stringify(policy.groups.find(value => value.id === groupSettings.id));
   const confirmNavigation = useUnsavedChanges(dirty || settingsDirty, () => {
-    const restoredPolicy = structuredClone(channel.config.policy ?? initialPolicy);
+    const restoredPolicy = initialChannelPolicy(channel, nodes);
     setPolicy(restoredPolicy);
     setConfig(channel.config);
     setFormat(channel.format);
@@ -64,10 +66,7 @@ export function useChannelDraft(
   const finalGroup = policy.default_exit.kind === 'group' && policy.default_exit.id === group?.id;
   const conflict = incompatiblePolicy(policy, format);
   function policyConfig(p: ChannelPolicy) {
-    // Metadata-only edits must not upgrade persisted legacy channels.
-    const unchangedLegacy = !channel.config.policy && format === channel.format
-      && JSON.stringify(p) === JSON.stringify(initialPolicy);
-    return { ...config, policy: unchangedLegacy ? undefined : p };
+    return { policy: p };
   }
   async function render(p: ChannelPolicy = policy, signal = lifeRef.current?.signal) {
     return client.previewSubscriptionChannel(channel.id, '', signal, {
@@ -113,11 +112,15 @@ export function useChannelDraft(
   }
   async function showPreview() {
     setBusy(true);
+    setPreviewError(null);
     try {
       const value = await render();
       if (!lifeRef.current?.signal.aborted) setPreview(value);
     } catch (reason) {
-      if (!lifeRef.current?.signal.aborted) toast.add({ title: describeRequestError(reason), type: 'error' });
+      if (!lifeRef.current?.signal.aborted) {
+        setPreview(null);
+        setPreviewError(reason);
+      }
     } finally {
       if (!lifeRef.current?.signal.aborted) setBusy(false);
     }
@@ -155,7 +158,6 @@ export function useChannelDraft(
   }
   function applyOptions(
     p: ChannelPolicy,
-    c: SubscriptionChannelConfig,
     identity: { name: string; format: SubscriptionFormat },
   ) {
     setName(identity.name);
@@ -165,16 +167,10 @@ export function useChannelDraft(
       template: identity.format !== format && current.template
         ? { format: identity.format, content: channelTemplateDefaults[identity.format] }
         : current.template,
-      organizer: p.organizer,
       selection: {
         ...current.selection,
         new_node_policy: p.selection.new_node_policy,
       },
-    }));
-    setConfig((current) => ({
-      ...current,
-      exclude_tags: c.exclude_tags,
-      exclude_types: c.exclude_types,
     }));
   }
   return {
@@ -197,8 +193,11 @@ export function useChannelDraft(
     removeGroup,
     setRemoveGroup,
     preview,
+    previewError,
+    setPreviewError,
     setPreview,
     dirty,
+    needsUpgrade,
     conflict,
     confirmNavigation,
     render,

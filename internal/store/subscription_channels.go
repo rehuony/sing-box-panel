@@ -290,9 +290,11 @@ func DecodeSubscriptionChannelConfig(raw json.RawMessage) (SubscriptionChannelCo
 		return SubscriptionChannelConfig{}, err
 	}
 	if p := config.Policy; p != nil {
+		if len(config.ExcludeTags) > 0 || len(config.ExcludeTypes) > 0 {
+			return SubscriptionChannelConfig{}, &subscription.PolicyError{Path: "policy.selection", Code: "legacy_filters_not_supported"}
+		}
 		p.Selection.IDs = append([]string{}, p.Selection.IDs...)
 		p.Selection.ExcludedIDs = append([]string{}, p.Selection.ExcludedIDs...)
-		p.Organizer.ExcludeNames = append([]string{}, p.Organizer.ExcludeNames...)
 		p.Groups = append([]subscription.RuleGroup{}, p.Groups...)
 		for i := range p.Groups {
 			p.Groups[i].NodeIDs = append([]string{}, p.Groups[i].NodeIDs...)

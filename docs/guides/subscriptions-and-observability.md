@@ -141,7 +141,7 @@ omits it from channel selection views and downloads. It does not delete the
 inbound, channel membership, or user-scoped grants.
 
 Channel configuration accepts a typed policy: selected/excluded publication IDs,
-new-node include/exclude policy, organizer options, ordered rule groups and a
+new-node include/exclude policy, rule groups and a
 final exit. Creating or opening a channel goes directly to the strategy-group
 workspace, without a separate channel-level node-selection screen. The editor
 lists strategy groups in a left sidebar and edits
@@ -153,8 +153,9 @@ automatic latency tests and fallback. Done applies the draft; Cancel or closing
 it discards those edits. Groups created, configured or selected as the final exit are enabled; there is no separate
 group enablement control. Opening the page or cancelling the dialog preserves
 previously stored disabled groups. The top-level toolbar
-contains back, channel settings, preview and save; node organization is available
-inside channel settings. Candidate cards show
+contains back, channel settings, preview and save. Channel settings contain name,
+client, template and new-node policy; node names, membership and order are managed
+directly through nodes and candidate cards. Candidate cards show
 the node name and a compact source/protocol summary; addresses remain available
 on hover. A flag beside the sidebar's delete action toggles the selected group's
 optional final-exit status; its badge shares the counts row without wrapping or
@@ -167,13 +168,14 @@ channel through Back, a subscription tab or another panel route prompts to keep
 editing or discard the changes. Confirmed departure clears the detail workspace;
 returning to Channels opens the channel list. Source settings and node edits use
 the same navigation protection. Adding a node to a
-group also selects it for the channel. Changing group membership maintains the current group
-exit while that node remains a member, otherwise selecting the first remaining
-candidate; an empty group rejects traffic. Removing a node also redirects any
+group also selects it for the channel. Card order is the sole source of each manual group's initial selection: the first
+candidate is selected, and an empty group rejects traffic. Removing a node also redirects any
 rules explicitly referencing that node to their group. The final group must be
 cleared before deletion. Existing exits remain unchanged until explicitly edited.
 Rule and rule-set actions sit beside the node/rule tabs. Their dialogs omit exit
-and enablement fields: confirmed rules are enabled and route through their group.
+and enablement fields: new rules start enabled and route through their group.
+Editing existing rules, including their priority, preserves their enabled state
+and explicit exit.
 Existing groups retain their candidate snapshot when new nodes arrive.
 Unavailable, hidden or cyclic node dependencies cannot silently become direct
 traffic: unavailable designated exits become reject actions. Group and native
@@ -210,8 +212,8 @@ reorders visible slots. Confirmed additions retain their mixed node/builtin orde
 and Save changes persists it. Built-ins remain separate
 from publication IDs. Remove selected nodes removes either kind of selected
 candidate; Clear selection leaves both kinds in the group. Built-in candidates
-are never automatically injected into a nonempty group. An unavailable fixed manual exit still rejects
-traffic; the renderer may add a rejection target to enforce that behavior.
+are never automatically injected into a nonempty group. An unavailable first manual candidate still rejects
+traffic through rules referencing that group; no hidden candidate is inserted.
 Mihomo and Loon support all three types. Mihomo supports both built-ins;
 Loon supports them in manual groups only. Loon auto groups require proxy nodes. Current sing-box supports
 select/url-test and direct; fallback and reject candidates are rejected during
@@ -221,15 +223,34 @@ not an obsolete block outbound.
 Automatic groups may configure `health_check` with an HTTP(S) URL, an interval
 of 60–86400 seconds and URL-test tolerance of 0–65535 milliseconds. Defaults are
 `https://www.gstatic.com/generate_204`, 300 seconds and 50 ms. These checks run on
-the subscribing client, never on the panel. Auto groups retain candidate order
+the subscribing client, never on the panel. All groups retain candidate order
 using optional `candidate_order`, an exact permutation of `node:<publication ID>`
 and `builtin:<kind>` references. Missing, duplicate or unknown entries are rejected.
-When omitted, publication IDs precede built-ins. Manual initial-exit behavior is
-preserved (Mihomo and Loon promote that exit to the first position). Fallback picks the
+When omitted, publication IDs precede built-ins. Manual groups use the first card as their initial exit; no independently saved
+group default can reorder it. Fallback picks the
 first available candidate, whereas URL-test chooses by latency. An unavailable
 manual initial candidate does not suppress remaining auto-group candidates.
 An empty group is omitted and its routes reject traffic instead of becoming
 implicit direct connections. Preview and delivery use the same rendering path.
+
+Each exit rule has a positive channel-wide `sort_index`. Generation gathers rules
+across enabled groups, sorts by index ascending, then by rule name ascending
+(remote-set name or ordinary match value, Unicode scalar order). Equal index/name
+pairs preserve their original relative order. Duplicate indices are allowed;
+new rules start after the current maximum. The final fallback remains last.
+Indices are panel metadata and never appear in client configuration. Loon's
+native category precedence still applies.
+
+Database schema 14 removes the retired organizer options and group `default_exit`
+without changing candidate order or the channel's final exit. It preserves the
+incompatible-node skip/error policy separately and assigns old rules indices in
+their former flattened order, including disabled rules. For policy channels it
+also removes the retired `exclude_tags`/`exclude_types` overrides: explicit node
+selection and candidate cards take precedence. Nonempty legacy filters cannot
+be combined with a policy in new API requests. The migration is atomic and
+checks that each rewritten configuration is readable before committing. The
+configuration limit is 640 KiB, reserving room for up to 5,000 indices added to
+formerly valid 512 KiB configurations; normalized saves enforce the same limit.
 
 Remote rule sets store metadata only. Sing-box uses source JSON or binary SRS;
 Mihomo uses YAML, TEXT or MRS with native behavior (MRS excludes classical).
@@ -256,18 +277,24 @@ Loon rejects other sections, duplicate sections/keys and malformed lines while
 preserving original comments and values. JSON numeric values and YAML comments
 and scalar values are also preserved.
 
-Defaults are editor seeds only, drawn from the native files in
-`web/src/constants/channel-templates`. They use ordinary DNS without geographic
+Defaults are shared by the editor and renderer from the native files in
+`api/templates`. They use ordinary DNS without geographic
 splitting, IPv4, local proxy listeners, and no default-enabled TUN or MITM.
 Mihomo includes DNS caching and HTTP/TLS/QUIC sniffing without overriding the
 request destination; Loon retains local bypass and rejects unsupported UDP.
 The defaults follow the [Mihomo configuration reference](https://wiki.metacubex.one/config/),
 [sing-box DNS reference](https://sing-box.sagernet.org/configuration/dns/), and
 [Loon general configuration reference](https://nsloon.app/docs/General/).
-A missing template uses an empty base for delivery until the seed is applied and
-saved. Existing templates, including explicitly empty bases (`{}` for JSON/YAML,
+A missing template uses the same complete default base in both preview entry
+points and public delivery. Existing templates, including explicitly empty bases (`{}` for JSON/YAML,
 empty text for Loon), are never upgraded or replaced automatically. Deleting a
 field removes it; invalid content fails validation instead of loading defaults.
+
+Preview diagnostics and request failures appear behind an issue button beside
+the preview title. Successful previews have no issue indicator; the code area
+contains only generated configuration. Both preview entry points use the same
+renderer; an unapplied template draft can intentionally differ from the saved
+channel. After Apply, the toolbar preview uses that same draft.
 
 In the template dialog, Validate and Preview send the current draft without
 persisting it. Validate is available again after every request, including
@@ -285,9 +312,12 @@ validation. Explicit Validate and Preview requests for policies still report
 that a connected panel server is required. Connected clients always validate
 before saving; a failed preview never falls back to an unvalidated save.
 
-Existing channels without `policy` retain their original node-only output on
-metadata-only edits. Saving actual strategy/template changes or an intentional
-client switch activates full configuration generation. New Loon channels support
+Existing channels without `policy` retain their original node-only public output
+until saved in the channel workspace. The workspace explicitly identifies this
+upgrade draft and enables Save changes even before any edits. Both previews show
+the complete policy that Save changes will publish. Legacy filters become explicit
+excluded IDs for matching catalog nodes; after the upgrade, future nodes follow
+the new-node policy instead of hidden tag/type filters. New Loon channels support
 the same editing workflow as sing-box and Mihomo, even without a saved template.
 
 Sing-box templates and final output are schema-checked against reviewed 1.14.0,
@@ -550,10 +580,10 @@ reconnecting with bounded backoff, and does not fall back to periodic history,
 runtime, traffic, or log requests.
 
 Normal dashboard stream closure allows five seconds for reconnection before
-showing a reconnect status; transport errors are reported immediately. The status
-appears inside the shared top toolbar and clears when the next snapshot arrives,
-without moving the dashboard cards. On narrow screens it temporarily occupies
-the toolbar's metrics area. Hover, focus or tap the status to read its explanation.
+showing reconnect feedback; transport errors are reported immediately. A single
+persistent Toast appears in the lower-right corner for each interruption and
+closes on recovery. Retries do not stack notifications, and the toolbar metrics
+remain visible.
 
 The one-minute lifetime includes snapshot collection, and cancels in-flight
 queries when it expires. Each write has a deadline of at most ten seconds, which

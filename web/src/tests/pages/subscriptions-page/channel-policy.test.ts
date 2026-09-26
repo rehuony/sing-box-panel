@@ -2,9 +2,9 @@ import { describe, expect, it } from 'vitest';
 
 import type { ChannelPolicy } from '@/api/api-client';
 
-import { canAccelerateRuleURL, directRuleURL, effectiveRuleURL, incompatiblePolicy, newRuleGroup, updateGroupCandidates } from '@/pages/subscriptions-page/channel-policy';
+import { canAccelerateRuleURL, compareChannelRules, directRuleURL, effectiveRuleURL, incompatiblePolicy, initialChannelPolicy, newRuleGroup, nextRuleIndex, updateGroupCandidates } from '@/pages/subscriptions-page/channel-policy';
 
-const policy: ChannelPolicy = { selection: { ids: ['one'], excluded_ids: [], new_node_policy: 'include' }, organizer: { prefix: '', exclude_names: [], deduplicate: false, sort: 'none', incompatible: 'error' }, groups: [], default_exit: { kind: 'direct' } };
+const policy: ChannelPolicy = { selection: { ids: ['one'], excluded_ids: [], new_node_policy: 'include' }, groups: [], default_exit: { kind: 'direct' } };
 describe('channel editing policy', () => {
   it('repairs exits after removing members and preserves remaining candidate order', () => {
     const group = {
@@ -15,18 +15,27 @@ describe('channel editing policy', () => {
     const next = updateGroupCandidates(group, ['two']);
     expect(next.node_ids).toEqual(['two']);
     expect(next.candidate_order).toEqual(['node:two']);
-    expect(next.default_exit).toEqual({ kind: 'node', id: 'two' });
+    expect(next).not.toHaveProperty('default_exit');
     expect(next.rules[0].exit).toEqual({ kind: 'group-default' });
     expect(group.node_ids).toEqual(['one', 'two']);
-    expect(updateGroupCandidates(next, []).default_exit).toEqual({ kind: 'reject' });
+    expect(updateGroupCandidates(next, []).candidate_order).toEqual([]);
   });
-  it('preserves a surviving default and handles built-ins without publication IDs', () => {
-    const group = { ...newRuleGroup(['one']), builtin_nodes: ['direct' as const], default_exit: { kind: 'direct' as const } };
-    expect(updateGroupCandidates(group, ['one', 'two']).default_exit).toEqual({ kind: 'direct' });
+  it('preserves built-in candidate order without an independent default', () => {
+    const group = { ...newRuleGroup(['one']), builtin_nodes: ['direct' as const] };
+    expect(updateGroupCandidates(group, ['one', 'two']).candidate_order).toEqual(['node:one', 'builtin:direct', 'node:two']);
     const next = updateGroupCandidates(group, [], ['reject'], ['node:one', 'builtin:reject']);
     expect(next.node_ids).toEqual([]);
     expect(next.candidate_order).toEqual(['builtin:reject']);
-    expect(next.default_exit).toEqual({ kind: 'reject' });
+  });
+  it('assigns legacy priorities without mutating saved data and allows stable name ties', () => {
+    const rule = { id: 'old', kind: 'domain' as const, enabled: true, value: 'z.example', exit: { kind: 'group-default' as const } };
+    const group = { ...newRuleGroup([]), rules: [rule, { ...rule, id: 'early', value: 'a.example', sort_index: 10 }] };
+    const initial = initialChannelPolicy({ config: { policy: { ...policy, groups: [group] } } }, []);
+    expect(initial.groups[0].rules[0].sort_index).toBe(10);
+    expect(rule).not.toHaveProperty('sort_index');
+    expect(nextRuleIndex(initial)).toBe(20);
+    const duplicate = { ...initial.groups[0].rules[1], id: 'duplicate' };
+    expect([...initial.groups[0].rules, duplicate].sort(compareChannelRules).map(value => value.id)).toEqual(['early', 'duplicate', 'old']);
   });
   it('normalizes known wrappers and preserves escaped URLs when toggling acceleration', () => {
     const origin = 'https://raw.githubusercontent.com/a/r/main/a%20b.json?x=%2F';
@@ -43,8 +52,8 @@ describe('channel editing policy', () => {
     expect(group.type).toBe('select');
     expect(group.builtin_nodes).toEqual([]);
     expect(group.node_ids).toEqual(['one', 'two']);
-    expect(group.default_exit).toEqual({ kind: 'node', id: 'one' });
-    expect(newRuleGroup([]).default_exit).toEqual({ kind: 'reject' });
+    expect(group.candidate_order).toEqual(['node:one', 'node:two']);
+    expect(newRuleGroup([]).candidate_order).toEqual([]);
   });
   it('flags incompatible metadata without converting or discarding its URL', () => {
     const group = newRuleGroup(['one']);

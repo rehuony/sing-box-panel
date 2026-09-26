@@ -7,7 +7,6 @@ import type {
 
 export type {
   ChannelNativeTemplate,
-  ChannelNodeOrganizer,
   ChannelNodeSelection,
   ChannelPolicy,
   ChannelRemoteRuleSet,

@@ -37,13 +37,6 @@ const channel: SubscriptionChannel = {
   config: {
     policy: {
       selection: { ids: ['node-one'], excluded_ids: [], new_node_policy: 'exclude' },
-      organizer: {
-        prefix: '',
-        exclude_names: [],
-        sort: 'none',
-        deduplicate: false,
-        incompatible: 'skip',
-      },
       groups: [],
       default_exit: { kind: 'direct' },
     },
@@ -82,6 +75,39 @@ async function openGroupSettings(user: ReturnType<typeof userEvent.setup>) {
   await user.click(within(selected.parentElement!).getByRole('button', { name: /^Configure / }));
 }
 describe('channel workspace', () => {
+  it('explains a legacy upgrade and allows saving the previewed policy without unrelated edits', async () => {
+    const user = userEvent.setup();
+    const client = mount({ ...channel, config: { exclude_tags: [node.tag] } }, [node]);
+    expect(screen.getByRole('status')).toHaveTextContent('This channel still delivers nodes only');
+    expect(screen.getByRole('button', { name: /Save changes/ })).toBeEnabled();
+    await user.click(screen.getByRole('button', { name: 'Subscription preview' }));
+    const draft = vi.mocked(client.previewSubscriptionChannel).mock.calls[0][3]?.config;
+    expect(draft).not.toHaveProperty('exclude_tags');
+    expect(draft?.policy?.selection).toEqual({ ids: [], excluded_ids: [node.id], new_node_policy: 'include' });
+    expect(client.updateSubscriptionChannel).not.toHaveBeenCalled();
+    await user.keyboard('{Escape}');
+    await user.click(screen.getByRole('button', { name: /Save changes/ }));
+    await waitFor(() => expect(client.updateSubscriptionChannel).toHaveBeenCalledOnce());
+    expect(vi.mocked(client.updateSubscriptionChannel).mock.calls[0][1].config).toEqual(draft);
+    expect(screen.queryByText(/This channel still delivers nodes only/)).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Save changes/ })).toBeDisabled();
+  });
+  it('shows preview failures only through the title issues popover', async () => {
+    const user = userEvent.setup();
+    const client = mount();
+    vi.mocked(client.previewSubscriptionChannel).mockRejectedValueOnce(new Error('Preview failed'));
+    await user.click(screen.getByRole('button', { name: 'Subscription preview' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Subscription preview' });
+    expect(within(dialog).queryByText('Preview failed')).not.toBeInTheDocument();
+    expect(within(dialog).getByRole('button', { name: 'Copy' })).toBeDisabled();
+    await user.click(within(dialog).getByRole('button', { name: 'Issues (1)' }));
+    expect(await screen.findByText('Preview failed')).toBeVisible();
+    await user.keyboard('{Escape}');
+    await user.keyboard('{Escape}');
+    await user.click(screen.getByRole('button', { name: 'Subscription preview' }));
+    const success = await screen.findByRole('dialog', { name: 'Subscription preview' });
+    expect(within(success).queryByRole('button', { name: /Issues/ })).not.toBeInTheDocument();
+  });
   it('submits confirmed channel settings through the save action', async () => {
     const user = userEvent.setup();
     const client = mount();
@@ -235,7 +261,7 @@ describe('channel workspace', () => {
       behavior: undefined, update_interval: undefined,
     });
   });
-  it.each([false, true])('applies implicit enablement and group routing only after confirming a rule (remote: %s)', async (remote) => {
+  it.each([false, true])('preserves disabled state and explicit exits when changing rule priority (remote: %s)', async (remote) => {
     const user = userEvent.setup();
     const rule = {
       id: 'stored-rule', enabled: false, exit: { kind: 'node' as const, id: node.id },
@@ -256,12 +282,15 @@ describe('channel workspace', () => {
     await user.click(within(dialog).getByRole('button', { name: 'Cancel' }));
     expect(screen.getByRole('button', { name: /Save changes/ })).toBeDisabled();
     await user.click(screen.getByRole('button', { name: 'Edit rule' }));
+    const index = within(screen.getByRole('dialog')).getByRole('spinbutton', { name: 'Sort index' });
+    await user.clear(index);
+    await user.type(index, '20');
     await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Done' }));
     await user.click(screen.getByRole('button', { name: /Save changes/ }));
     await waitFor(() => expect(client.updateSubscriptionChannel).toHaveBeenCalledOnce());
     const saved = vi.mocked(client.updateSubscriptionChannel).mock.calls[0][1].config?.policy;
     expect(saved?.groups[0].rules[0]).toMatchObject({
-      id: rule.id, enabled: true, exit: { kind: 'group-default' },
+      ...rule, sort_index: 20,
     });
   });
   it('resets card selection when switching groups without changing either membership', async () => {
@@ -320,40 +349,19 @@ describe('channel workspace', () => {
     expect(screen.queryByRole('button', { name: /^Strategy group 2/ })).not.toBeInTheDocument();
     addToast.mockRestore();
   });
-  it('keeps organizer changes local and saves the custom controls through the existing policy', async () => {
+  it('keeps channel settings local and exposes no secondary node organization', async () => {
     const user = userEvent.setup();
     const client = mount();
     await user.click(screen.getByRole('button', { name: 'Channel settings' }));
-    await user.click(screen.getByRole('button', { name: 'Organize nodes' }));
-    await user.click(screen.getByRole('switch', { name: 'Deduplicate' }));
-    await user.click(screen.getByRole('button', { name: 'Cancel' }));
-    expect(screen.getByRole('button', { name: /Save changes/ })).toBeDisabled();
-    await user.click(screen.getByRole('button', { name: 'Channel settings' }));
-    await user.click(screen.getByRole('button', { name: 'Organize nodes' }));
-    expect(screen.getByRole('switch', { name: 'Deduplicate' })).not.toBeChecked();
-    await user.type(screen.getByLabelText('Name prefix'), 'Office ');
-    await user.type(screen.getByLabelText('Exclude names'), 'Tokyo\nTokyo\nSeattle');
-    await user.click(screen.getByRole('switch', { name: 'Deduplicate' }));
-    await user.click(screen.getByRole('combobox', { name: 'Node order' }));
-    await user.click(await screen.findByRole('option', { name: 'By name' }));
-    await user.click(screen.getByRole('combobox', { name: 'Incompatible nodes' }));
-    await user.click(await screen.findByRole('option', { name: 'Block generation' }));
-    const organizer = screen.getByRole('dialog', { name: 'Organize nodes' });
-    await user.click(within(organizer).getByRole('button', { name: 'Back' }));
-    await user.click(screen.getByRole('button', { name: 'Organize nodes' }));
-    expect(screen.getByRole('switch', { name: 'Deduplicate' })).toBeChecked();
-    expect(screen.getByLabelText('Name prefix')).toHaveValue('Office ');
+    expect(screen.queryByRole('button', { name: 'Organize nodes' })).not.toBeInTheDocument();
+    await user.clear(screen.getByLabelText('Channel name'));
+    await user.type(screen.getByLabelText('Channel name'), 'Office');
     await user.click(screen.getByRole('button', { name: 'Done' }));
     expect(client.updateSubscriptionChannel).not.toHaveBeenCalled();
     await user.click(screen.getByRole('button', { name: /Save changes/ }));
-    await waitFor(() => expect(client.updateSubscriptionChannel).toHaveBeenCalledWith(
-      channel.id,
-      expect.objectContaining({ config: expect.objectContaining({ policy: expect.objectContaining({
-        organizer: {
-          prefix: 'Office ', exclude_names: ['Tokyo', 'Seattle'], sort: 'name', deduplicate: true, incompatible: 'error',
-        },
-      }) }) }),
-      channel.updated_at, expect.any(AbortSignal),
-    ));
+    await waitFor(() => expect(client.updateSubscriptionChannel).toHaveBeenCalled());
+    const saved = vi.mocked(client.updateSubscriptionChannel).mock.calls[0][1];
+    expect(saved.name).toBe('Office');
+    expect(saved.config?.policy).not.toHaveProperty('organizer');
   });
 });
