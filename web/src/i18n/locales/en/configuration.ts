@@ -18,7 +18,7 @@ export const configuration = {
     matchCase: 'Match case', wholeWord: 'Whole word', regexp: 'Regular expression',
     previous: 'Previous match', next: 'Next match', selectAll: 'Select all matches',
     noResults: 'No results', invalidRegex: 'Invalid regex', matches_one: '{{count}} match', matches_other: '{{count}} matches',
-    format: 'Format',
+    format: 'Format and order fields',
     search: 'Find / replace',
     fold: 'Fold all',
     unfold: 'Unfold all',

@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { parse } from 'lossless-json';
 import { undo } from '@codemirror/commands';
 import { EditorView } from '@codemirror/view';
 import { describe, expect, it, vi } from 'vitest';
@@ -9,7 +10,10 @@ import '@/i18n';
 import { toast } from '@/components/ui/toast-manager';
 import { AdvancedConfigurationEditor } from '@/pages/configuration-page/advanced-configuration-editor';
 
-const original = '{"large":90071992547409931234567890,"threshold":4.2000e+99,"future":{"enabled":true}}';
+const original = `{"large":90071992547409931234567890,"threshold":4.2000e+99,"future":{"enabled":true},"inbounds":[
+  {"type":"hysteria2","tag":"hy2-in","listen":"0.0.0.0","listen_port":18053,"tls":{"enabled":true,"alpn":"h3","certificate_path":"cert.pem","key_path":"key.pem","min_version":"1.2","server_name":"example.com"},"ignore_client_bandwidth":true,"obfs":{"password":"test-obfs","type":"salamander"},"tcp_fast_open":false,"users":[{"password":"test-b","name":"b"},{"name":"a","password":"test-a"}]},
+  {"users":[{"password":"test-anytls","name":"a"}],"tcp_fast_open":true,"reuse_addr":true,"tls":{"key_path":"key.pem","server_name":"example.com","alpn":["h2","http/1.1"],"enabled":true,"min_version":"1.2","certificate_path":"cert.pem"},"listen_port":18443,"listen":"0.0.0.0","tag":"anytls-in","type":"anytls"}
+]}`;
 function Harness() {
   const [text, setText] = useState(original);
   return <AdvancedConfigurationEditor text={text} error={null} disabled={false} onChange={setText} />;
@@ -71,20 +75,33 @@ describe('advanced JSON editor', () => {
     expect(document.querySelector('.cm-search')).not.toBeInTheDocument();
   });
 
-  it('formats losslessly in one undo step, folds and opens search', async () => {
+  it('orders protocol and TLS fields losslessly via the button and shortcut in one undo step', async () => {
     const user = userEvent.setup();
     render(<Harness />);
     const editor = screen.getByRole('textbox', { name: 'sing-box configuration JSON' });
     const view = EditorView.findFromDOM(editor)!;
     expect(view.state.doc.toString()).toBe(original);
-    await user.click(screen.getByRole('button', { name: 'Format' }));
-    expect(view.state.doc.toString()).toContain('\n  "large": 90071992547409931234567890,');
-    expect(view.state.doc.toString()).toContain('4.2000e+99');
+    await user.click(screen.getByRole('button', { name: 'Format and order fields' }));
+    const formatted = view.state.doc.toString();
+    expect(formatted).toContain('\n  "large": 90071992547409931234567890,');
+    expect(formatted).toContain('4.2000e+99');
+    expect(parse(formatted)).toEqual(parse(original));
+    const { inbounds } = JSON.parse(formatted);
+    expect(Object.keys(inbounds[0])).toEqual(['type', 'tag', 'listen', 'listen_port', 'tcp_fast_open', 'users', 'ignore_client_bandwidth', 'obfs', 'tls']);
+    expect(Object.keys(inbounds[1])).toEqual(['type', 'tag', 'listen', 'listen_port', 'reuse_addr', 'tcp_fast_open', 'users', 'tls']);
+    for (const inbound of inbounds) {
+      expect(Object.keys(inbound.tls)).toEqual(['enabled', 'server_name', 'alpn', 'min_version', 'certificate_path', 'key_path']);
+      expect(Object.keys(inbound.users[0])).toEqual(['name', 'password']);
+    }
+    expect(Object.keys(inbounds[0].obfs)).toEqual(['type', 'password']);
     act(() => {
       undo(view);
     });
     expect(view.state.doc.toString()).toBe(original);
-    await user.click(screen.getByRole('button', { name: 'Format' }));
+    fireEvent.keyDown(editor, { key: 'F', code: 'KeyF', keyCode: 70, ctrlKey: true, shiftKey: true });
+    expect(view.state.doc.toString()).toBe(formatted);
+    await user.click(screen.getByRole('button', { name: 'Format and order fields' }));
+    expect(view.state.doc.toString()).toBe(formatted);
     await user.click(screen.getByRole('button', { name: 'Fold all' }));
     expect(view.dom.querySelector('.cm-foldPlaceholder')).not.toBeNull();
     await user.click(screen.getByRole('button', { name: 'Unfold all' }));
@@ -97,7 +114,7 @@ describe('advanced JSON editor', () => {
     const addToast = vi.spyOn(toast, 'add');
     const onChange = vi.fn();
     const { rerender } = render(<AdvancedConfigurationEditor text='{"log":' error={new Error('Incomplete JSON')} disabled={false} onChange={onChange} />);
-    expect(screen.getByRole('button', { name: 'Format' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Format and order fields' })).toBeDisabled();
     await waitFor(() => expect(addToast).toHaveBeenCalledWith(expect.objectContaining({ type: 'error', title: 'Incomplete JSON' })));
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
     addToast.mockRestore();

@@ -19,6 +19,7 @@ import {
   schemaDiscriminatorValues,
   schemaProperties,
   selfContainedSchema,
+  uiSchemaFromPanel,
 } from '@/pages/configuration-page/schema-ui';
 
 it('preserves numeric lexemes when records without identities are reordered through a rounded display projection', () => {
@@ -275,7 +276,19 @@ const fixtures = [
 }));
 
 beforeAll(async () => {
-  await Promise.all(representativeSchemaVersions('reviewed-1.13').map(version => reviewedSchemaManifest[version].load()));
+  await Promise.all(representativeSchemaVersions().map(version => reviewedSchemaManifest[version].load()));
+});
+
+describe.each(representativeSchemaVersions())('configuration field presentation %s', version => {
+  it.each(['hysteria2', 'anytls'])('groups shared %s form fields and nested TLS fields consistently', async type => {
+    const { schema: root } = await reviewedSchemaManifest[version].load();
+    const inbound = collectionItemSchema(schemaProperties(root, root).inbounds, root)!;
+    const ui = uiSchemaFromPanel(inbound, [], root, { type });
+    const fields = ['type', 'tag', 'listen', 'listen_port', 'reuse_addr', 'tcp_fast_open', 'users', 'tls'];
+    expect(ui['ui:order']?.filter(key => fields.includes(key))).toEqual(fields);
+    const tlsFields = ['enabled', 'server_name', 'alpn', 'min_version', 'max_version', 'certificate_path', 'key_path'];
+    expect(ui.tls['ui:order'].filter((key: string) => tlsFields.includes(key))).toEqual(tlsFields);
+  });
 });
 
 describe.each(representativeSchemaVersions('reviewed-1.13'))('reviewed 1.13 projection %s', version => {

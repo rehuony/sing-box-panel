@@ -18,7 +18,7 @@ export const configuration = {
     matchCase: '区分大小写', wholeWord: '全词匹配', regexp: '正则表达式',
     previous: '上一个匹配', next: '下一个匹配', selectAll: '选中全部匹配',
     noResults: '无结果', invalidRegex: '正则无效', matches_one: '{{count}} 个结果', matches_other: '{{count}} 个结果',
-    format: '格式化',
+    format: '格式化并优化字段顺序',
     search: '查找 / 替换',
     fold: '全部折叠',
     unfold: '全部展开',
