@@ -3,6 +3,7 @@
 package systemd
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -138,12 +139,17 @@ func (manager *Manager) Uninstall(ctx context.Context, request UninstallRequest)
 		}
 	}
 	identities := make(map[string]os.FileInfo, len(existing))
+	contents := make(map[string][]byte, len(existing))
 	for _, path := range existing {
 		info, err := os.Lstat(path)
 		if err != nil {
 			return result, err
 		}
 		identities[path] = info
+		contents[path], err = os.ReadFile(path)
+		if err != nil {
+			return result, err
+		}
 	}
 	status, err := manager.queryStatus(ctx, scope)
 	if err != nil {
@@ -185,28 +191,49 @@ func (manager *Manager) Uninstall(ctx context.Context, request UninstallRequest)
 		if !unitStopped(status) {
 			return result, errors.New("service has not stopped; retained managed files")
 		}
+		if account != (systemAccount{}) {
+			if err := manager.validateAccountRemovalStatus(status); err != nil {
+				return result, err
+			}
+		}
 	}
 	result.Stopped = true
 	if fileExists(manager.unitPath(scope)) || len(links) > 0 {
-		if err := manager.runSystemctl(ctx, scope, "disable", "--no-reload", UnitName); err != nil {
-			return result, err
+		args := []string{"disable", "--no-reload", UnitName}
+		if account != (systemAccount{}) {
+			// Account removal rechecks NeedDaemonReload. Let systemctl refresh
+			// its own enablement changes before that check; stale configuration
+			// present before disable is still rejected above.
+			args = []string{"disable", UnitName}
+		}
+		disableErr := manager.runSystemctl(ctx, scope, args...)
+		// Disable can remove links before its implicit reload fails.
+		for _, path := range links {
+			if _, err := os.Lstat(path); errors.Is(err, os.ErrNotExist) {
+				result.RemovedPaths = append(result.RemovedPaths, path)
+			}
+		}
+		if disableErr != nil {
+			return result, disableErr
 		}
 		result.Disabled = true
 	}
-	for _, path := range links {
-		if _, err := os.Lstat(path); errors.Is(err, os.ErrNotExist) {
-			result.RemovedPaths = append(result.RemovedPaths, path)
-		}
-	}
 	if scope == ScopeSystem {
-		// Revalidate file identity before account removal as well as before
-		// unlinking. A concurrent replacement must not lose its service user.
+		// The reload must not hide a concurrent replacement or in-place edit.
+		// Revalidate both identity and content before changing account ownership.
 		for _, path := range existing {
 			info, err := os.Lstat(path)
 			if err != nil {
 				return result, err
 			}
 			if !os.SameFile(identities[path], info) {
+				return result, fmt.Errorf("service file changed during uninstall: %s", path)
+			}
+			content, err := os.ReadFile(path)
+			if err != nil {
+				return result, err
+			}
+			if !bytes.Equal(contents[path], content) {
 				return result, fmt.Errorf("service file changed during uninstall: %s", path)
 			}
 		}

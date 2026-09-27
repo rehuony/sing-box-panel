@@ -104,8 +104,18 @@ Before stopping the service, it verifies that the loaded settings are known and
 match the installed configuration. Nonempty drop-ins, unresolved settings, and
 `NeedDaemonReload=yes` block account removal; resolve them first or use
 `--keep-user`. The effective configuration and stopped state are checked again
-before ownership transfer. Inactive orphaned installer files can still be removed
+before ownership transfer. Disabling a unit refreshes systemd's enablement state
+before that account check, so uninstall does not reject its own changes as stale.
+Files are checked for replacement and in-place edits before account removal;
+concurrent changes still interrupt uninstall. If disable removes enablement links
+but its reload fails, those completed removals remain in the result.
+Inactive orphaned installer files can still be removed
 when their retained paths can be determined.
+
+For a pre-existing `NeedDaemonReload=yes`, inspect the unit with
+`systemctl cat sing-box-panel.service`, review its configuration, then run
+`systemctl daemon-reload` before retrying. Diagnostics include these commands
+and distinguish stale state from an unknown or mismatched settings path.
 
 Settings writers and database owners are excluded with the existing locks. Before
 any ownership transfer, the installer checks `/proc` thread credentials for the

@@ -85,7 +85,7 @@ func TestPrunePreservesAccountOutcomes(t *testing.T) {
 				t.Fatal("retained/unknown identity was silent")
 			}
 			text := cleanupText(result, err, fileTreeStyle{})
-			if !strings.Contains(text, "service user "+wantUser) || !strings.Contains(text, "service group "+wantGroup) {
+			if !strings.Contains(text, "Service user: ["+wantUser+"]") || !strings.Contains(text, "Service group: ["+wantGroup+"]") {
 				t.Fatalf("text omitted account outcome: %s", text)
 			}
 			raw, marshalErr := json.Marshal(result)
@@ -95,6 +95,53 @@ func TestPrunePreservesAccountOutcomes(t *testing.T) {
 			after, inspectErr := installation.InspectWithHistory(t.Context(), config, testHistoryPath(t))
 			if inspectErr != nil || after.History == nil || after.History.Outcome != outcome || after.History.ServiceAccount == nil || *after.History.ServiceAccount != *account {
 				t.Fatalf("lost historical account result: %+v, %v", after.History, inspectErr)
+			}
+		})
+	}
+}
+
+func TestPruneFailureDiagnosticsAcrossStreams(t *testing.T) {
+	for _, format := range []string{"text", "json", "jsonl"} {
+		t.Run(format, func(t *testing.T) {
+			config := commandSettingsFixture(t)
+			unit := filepath.Join(t.TempDir(), panelSystemd.UnitName)
+			if err := os.WriteFile(unit, []byte("fixture"), 0600); err != nil {
+				t.Fatal(err)
+			}
+			service := &fakeSystemdService{
+				filesResult: panelSystemd.FilesResult{Scope: panelSystemd.ScopeSystem, SettingsPath: config,
+					Files: []panelSystemd.FileStatus{{Path: unit, State: "managed", Managed: true}}},
+				statusResult: panelSystemd.Status{Scope: panelSystemd.ScopeSystem, LoadState: "loaded", UnitFileSettingsPath: config, NeedDaemonReload: true},
+			}
+			var stdout, stderr bytes.Buffer
+			root := NewRootCommand(Dependencies{Stdout: &stdout, Stderr: &stderr, Systemd: service, CleanupHistoryPath: testHistoryPath(t)})
+			root.SetArgs([]string{"system", "prune", "--yes", "-c", config, "-o", format})
+			err := root.ExecuteContext(t.Context())
+			if !errors.Is(err, panelSystemd.ErrConflict) || ExitCode(err) != 4 {
+				t.Fatalf("lost failure classification: %v", err)
+			}
+			if writeErr := WriteError(&stderr, root, err); writeErr != nil {
+				t.Fatal(writeErr)
+			}
+			if format == "text" {
+				if strings.Contains(stdout.String(), "NeedDaemonReload") || strings.Count(stderr.String(), "NeedDaemonReload=yes") != 1 ||
+					!strings.Contains(stdout.String(), "Files: 0 removed") ||
+					!strings.Contains(stderr.String(), "\n  - Inspect: systemctl cat") ||
+					!strings.Contains(stderr.String(), "`systemctl daemon-reload`") {
+					t.Fatalf("unclear or repeated diagnostics:\nstdout=%s\nstderr=%s", stdout.String(), stderr.String())
+				}
+			} else {
+				var result installation.CleanupResult
+				var problem errorOutput
+				if err := json.Unmarshal(stdout.Bytes(), &result); err != nil || len(result.Remaining) == 0 || len(result.Warnings) == 0 {
+					t.Fatalf("lost structured partial result: %s", stdout.String())
+				}
+				if err := json.Unmarshal(stderr.Bytes(), &problem); err != nil || problem.Code != "instance_cleanup_failed" || problem.ExitCode != 4 || !strings.Contains(problem.Message, "NeedDaemonReload=yes") {
+					t.Fatalf("lost structured failure: %s", stderr.String())
+				}
+			}
+			if _, err := os.Stat(config); err != nil {
+				t.Fatal("cleanup removed settings despite stale service")
 			}
 		})
 	}

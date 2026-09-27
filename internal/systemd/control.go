@@ -6,9 +6,33 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 )
+
+// ValidateSettingsPath checks the on-disk settings identity without treating
+// stale or customized unit definitions as evidence of the effective settings.
+func (status Status) ValidateSettingsPath(expected string) error {
+	command := "systemctl"
+	if status.Scope == ScopeUser {
+		command += " --user"
+	}
+	inspect := command + " cat " + UnitName
+	if status.NeedDaemonReload {
+		return fmt.Errorf("%w: systemd reports NeedDaemonReload=yes\nInspect: %s\nNext: after reviewing the unit, run `%s daemon-reload` and retry", ErrConflict, inspect, command)
+	}
+	if status.LoadState == "not-found" {
+		return nil
+	}
+	if status.UnitFileSettingsPath == "" {
+		return fmt.Errorf("%w: service settings path is unknown (check ExecStart and drop-ins)\nInspect: %s", ErrConflict, inspect)
+	}
+	if filepath.Clean(status.UnitFileSettingsPath) != filepath.Clean(expected) {
+		return fmt.Errorf("%w: service uses different settings\nExpected: %s\nUnit file: %s\nInspect: %s", ErrConflict, expected, status.UnitFileSettingsPath, inspect)
+	}
+	return nil
+}
 
 func (manager *Manager) Status(ctx context.Context, requested Scope) (Status, error) {
 	status, err := manager.queryStatus(ctx, requested)

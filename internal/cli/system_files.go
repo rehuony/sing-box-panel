@@ -112,6 +112,9 @@ func newSystemPruneCommand(state *options, service panelSystemd.Service) *cobra.
 			if err := writeResult(cmd.OutOrStdout(), state.format, result, cleanupText(result, cleanupErr, style)); err != nil {
 				return err
 			}
+			if err := writeCleanupWarnings(cmd.ErrOrStderr(), state.format, result, cleanupErr); err != nil {
+				cleanupErr = errors.Join(cleanupErr, err)
+			}
 			if cleanupErr != nil {
 				return classifyCleanupError(cleanupErr)
 			}
@@ -159,8 +162,10 @@ func stopInstanceForCleanup(ctx context.Context, report instanceFilesReport, ser
 		if err != nil && !errors.Is(err, panelSystemd.ErrNotInstalled) {
 			return nil, err
 		}
-		if err == nil && status.LoadState == "loaded" && (status.NeedDaemonReload || filepath.Clean(status.UnitFileSettingsPath) != report.SettingsPath) {
-			return nil, errors.New("service settings are ambiguous or changed on disk; resolve the service configuration before cleanup")
+		if err == nil && status.LoadState == "loaded" {
+			if err := status.ValidateSettingsPath(report.SettingsPath); err != nil {
+				return nil, err
+			}
 		}
 		result, err := service.Uninstall(ctx, panelSystemd.UninstallRequest{Scope: report.Service.Scope})
 		uninstalled = &result
@@ -297,15 +302,18 @@ func cleanupText(result installation.CleanupResult, cleanupErr error, style file
 	for _, path := range result.Remaining {
 		entries = append(entries, fileTreeEntry{path: path, label: "remaining"})
 	}
-	output := heading + "\n\n" + fileTreeText(entries, style)
+	output := fmt.Sprintf("%s\n  Files: %s removed, %s remaining, %s retained", heading,
+		style.paint("32", fmt.Sprint(len(result.Removed))),
+		style.paint("33", fmt.Sprint(len(result.Remaining))),
+		style.paint("36", fmt.Sprint(len(result.Retained))))
 	if result.ServiceAccount != nil {
-		output += "\n" + accountCleanupSummary(*result.ServiceAccount)
+		output += "\n" + accountCleanupText(*result.ServiceAccount, style)
+	}
+	if len(entries) > 0 {
+		output += "\n\n" + fileTreeText(entries, style)
 	}
 	if cleanupErr == nil && len(result.Removed) == 0 {
 		output += "\nNo removable resources remain for this instance."
-	}
-	for _, warning := range result.Warnings {
-		output += "\nWarning: " + warning
 	}
 	return output
 }
@@ -432,6 +440,8 @@ func (style fileTreeStyle) label(label string) string {
 			code = "36"
 		case "removed":
 			code = "32"
+		case "remaining", "unknown":
+			code = "33"
 		}
 		parts[i] = style.paint(code, part)
 	}

@@ -109,22 +109,16 @@ func newSystemUninstallCommand(state *options, service panelSystemd.Service) *co
 				return err
 			}
 			result, err := service.Uninstall(cmd.Context(), panelSystemd.UninstallRequest{Scope: scope, Force: force, KeepUser: keepUser})
+			style := newFileTreeStyle(cmd.OutOrStdout(), state.format)
 			if err != nil {
 				if result.Scope != "" {
-					text := fmt.Sprintf("Uninstall interrupted; %d service files removed; settings and data retained", len(result.RemovedPaths))
-					text += uninstallAccountSummary(result)
-					for _, path := range result.RemovedPaths {
-						text += "\n" + path + " [removed]"
-					}
-					if writeErr := writeResult(cmd.OutOrStdout(), state.format, result, text); writeErr != nil {
+					if writeErr := writeResult(cmd.OutOrStdout(), state.format, result, uninstallText(result, err, style)); writeErr != nil {
 						return errors.Join(err, writeErr)
 					}
 				}
 				return classifySystemError("system_uninstall_failed", err)
 			}
-			text := fmt.Sprintf("uninstalled %s %s; settings and data retained", result.Scope, result.Unit)
-			text += uninstallAccountSummary(result)
-			return writeResult(cmd.OutOrStdout(), state.format, result, text)
+			return writeResult(cmd.OutOrStdout(), state.format, result, uninstallText(result, nil, style))
 		},
 	}
 	addSystemScopeFlag(command, &rawScope)
@@ -133,12 +127,31 @@ func newSystemUninstallCommand(state *options, service panelSystemd.Service) *co
 	return command
 }
 
-func uninstallAccountSummary(result panelSystemd.UninstallResult) string {
-	account := uninstallAccountResult(result)
-	if account == nil {
-		return ""
+func uninstallText(result panelSystemd.UninstallResult, uninstallErr error, style fileTreeStyle) string {
+	heading := style.paint("1;32", "Service uninstalled")
+	if uninstallErr != nil {
+		heading = style.paint("1;31", "Uninstall interrupted; confirmed results only")
 	}
-	return "; " + accountCleanupSummary(*account)
+	text := fmt.Sprintf("%s\n  Unit: %s (%s)\n  Service files removed: %d\n  Settings and data: retained", heading, result.Unit, result.Scope, len(result.RemovedPaths))
+	if account := uninstallAccountResult(result); account != nil {
+		text += "\n" + accountCleanupText(*account, style)
+	}
+	if len(result.RemovedPaths) > 0 {
+		entries := make([]fileTreeEntry, 0, len(result.RemovedPaths))
+		for _, path := range result.RemovedPaths {
+			entries = append(entries, fileTreeEntry{path: path, label: "removed"})
+		}
+		text += "\n\n" + fileTreeText(entries, style)
+	}
+	return text
+}
+
+func accountCleanupText(account installation.AccountCleanupResult, style fileTreeStyle) string {
+	text := "  Service user: " + style.label(account.User) + "\n  Service group: " + style.label(account.Group)
+	if account.Note != "" {
+		text += diagnosticText(style.paint("1", "Account note"), []string{account.Note}, style)
+	}
+	return text
 }
 
 func accountCleanupSummary(account installation.AccountCleanupResult) string {

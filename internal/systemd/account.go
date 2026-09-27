@@ -207,11 +207,11 @@ func (manager *Manager) preflightAccountRemoval(ctx context.Context, keepUser bo
 }
 
 func (manager *Manager) validateAccountRemovalStatus(status Status) error {
-	if status.NeedDaemonReload || (status.LoadState != "not-found" &&
-		(status.LoadState != "loaded" || status.UnitPath != manager.layout.SystemUnitPath || status.UnitFileSettingsPath != manager.layout.SystemSettingsPath)) {
-		return accountConflict("service settings are ambiguous or changed on disk; resolve the effective service configuration before account removal")
+	if status.LoadState != "not-found" &&
+		(status.LoadState != "loaded" || status.UnitPath != manager.layout.SystemUnitPath) {
+		return accountConflict("loaded service identity does not match the installed unit")
 	}
-	return nil
+	return status.ValidateSettingsPath(manager.layout.SystemSettingsPath)
 }
 
 // Called only after systemd confirms termination and disable succeeds. Account

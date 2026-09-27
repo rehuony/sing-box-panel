@@ -104,7 +104,9 @@ func WriteError(writer io.Writer, root *cobra.Command, err error) error {
 		encoder.SetEscapeHTML(false)
 		return encoder.Encode(output)
 	}
-	_, writeErr := fmt.Fprintln(writer, output.Message)
+	style := newFileTreeStyle(writer, outputText)
+	heading := style.paint("1;31", "Error ["+output.Code+"]")
+	_, writeErr := fmt.Fprintln(writer, diagnosticText(heading, diagnosticLines([]string{output.Message}), style))
 	return writeErr
 }
 

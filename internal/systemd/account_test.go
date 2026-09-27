@@ -522,6 +522,78 @@ func TestAccountRemovalRechecksEffectiveConfigurationAfterStop(t *testing.T) {
 	}
 }
 
+func TestAccountRemovalAfterDisableReload(t *testing.T) {
+	for _, scenario := range []string{"disabled", "reload failure", "unit edited during disable"} {
+		t.Run(scenario, func(t *testing.T) {
+			f := newAccountFixture(t)
+			f.install(t)
+			link := filepath.Join(filepath.Dir(f.layout.SystemUnitPath), "multi-user.target.wants", UnitName)
+			if err := os.MkdirAll(filepath.Dir(link), 0755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Symlink(f.layout.SystemUnitPath, link); err != nil {
+				t.Fatal(err)
+			}
+			base := f.runner.run
+			needsReload := false
+			f.runner.run = func(name string, args []string) (CommandResult, error) {
+				if name == "systemctl" && slices.Contains(args, "disable") {
+					if err := os.Remove(link); err != nil {
+						t.Fatal(err)
+					}
+					needsReload = true
+					if scenario == "unit edited during disable" {
+						content, err := os.ReadFile(f.layout.SystemUnitPath)
+						if err != nil {
+							t.Fatal(err)
+						}
+						if err := os.WriteFile(f.layout.SystemUnitPath, append(content, []byte("\n# concurrent edit\n")...), 0644); err != nil {
+							t.Fatal(err)
+						}
+					}
+					// systemctl normally reloads after disable; --no-reload leaves
+					// the manager's unit-file state outdated.
+					if !slices.Contains(args, "--no-reload") {
+						if scenario == "reload failure" {
+							return CommandResult{}, errors.New("reload failed after disable")
+						}
+						needsReload = false
+					}
+				}
+				if name == "systemctl" && slices.Contains(args, "daemon-reload") {
+					if needsReload && scenario == "reload failure" {
+						return CommandResult{}, errors.New("reload failed after disable")
+					}
+					needsReload = false
+				}
+				result, err := base(name, args)
+				if needsReload && name == "systemctl" && slices.Contains(args, "--property=LoadState") {
+					result.Stdout = append(result.Stdout, []byte("NeedDaemonReload=yes\n")...)
+				}
+				return result, err
+			}
+			result, err := f.manager.Uninstall(t.Context(), UninstallRequest{Scope: ScopeSystem})
+			if !slices.Contains(result.RemovedPaths, link) {
+				t.Fatalf("lost completed link removal: %+v", result)
+			}
+			if scenario == "disabled" {
+				if err != nil || !result.AccountRemoved || !result.GroupRemoved || fileExists(f.layout.SystemUnitPath) {
+					t.Fatalf("uninstall rejected its own enablement change: %+v, %v", result, err)
+				}
+				return
+			}
+			if err == nil || !fileExists(f.layout.SystemUnitPath) || !result.AccountRetained || !result.GroupRetained {
+				t.Fatalf("unsafe or unreported partial failure: %+v, %v", result, err)
+			}
+			for _, call := range f.runner.calls {
+				if call.name == "chown" || call.name == "userdel" || call.name == "groupdel" {
+					t.Fatalf("changed account after failed revalidation: %+v", call)
+				}
+			}
+		})
+	}
+}
+
 func TestAccountRemovalRejectsUnknownEffectiveSettings(t *testing.T) {
 	for _, scenario := range []string{"drop-in", "unresolved ExecStart", "stale unit"} {
 		t.Run(scenario, func(t *testing.T) {

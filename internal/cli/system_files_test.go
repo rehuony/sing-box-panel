@@ -194,14 +194,15 @@ func TestCleanupTextReportsOnlyConfirmedResults(t *testing.T) {
 		if cleanupErr != nil {
 			heading = "Cleanup interrupted; confirmed results only"
 		}
-		if got := cleanupText(result, cleanupErr, fileTreeStyle{}); got != heading+"\n\n"+wantTree {
+		want := heading + "\n  Files: 2 removed, 0 remaining, 2 retained\n\n" + wantTree
+		if got := cleanupText(result, cleanupErr, fileTreeStyle{}); got != want {
 			t.Fatalf("cleanup output=%s", got)
 		}
 		if got := cleanupText(installation.CleanupResult{}, cleanupErr, fileTreeStyle{}); !strings.HasPrefix(got, heading) {
 			t.Fatalf("empty cleanup output=%s", got)
 		}
 		colored := cleanupText(result, cleanupErr, fileTreeStyle{color: true})
-		if got := regexp.MustCompile(`\x1b\[[0-9;]*m`).ReplaceAllString(colored, ""); got != heading+"\n\n"+wantTree {
+		if got := regexp.MustCompile(`\x1b\[[0-9;]*m`).ReplaceAllString(colored, ""); got != want {
 			t.Fatalf("color changed cleanup results:\n%s", got)
 		}
 		if !strings.Contains(colored, "\x1b[32mremoved") || !strings.Contains(colored, "\x1b[36mretained") {
@@ -336,9 +337,8 @@ func TestSystemPruneReportsPartialResultsAndPreservesFailure(t *testing.T) {
 				t.Fatalf("cleanup failure changed: %v", err)
 			}
 			if format == "text" {
-				want := "Cleanup interrupted; confirmed results only\n\n" + servicePath + " [removed]\n"
 				if !strings.Contains(stdout.String(), "[removed]") || !strings.Contains(stdout.String(), "[remaining]") {
-					t.Fatalf("partial output=%s want=%s", stdout.String(), want)
+					t.Fatalf("partial output=%s", stdout.String())
 				}
 			} else {
 				var result installation.CleanupResult

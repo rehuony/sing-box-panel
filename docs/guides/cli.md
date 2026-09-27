@@ -134,7 +134,10 @@ First-run output contains the newly generated token in both terminal and redirec
 output, including JSON/JSONL.
 
 Results are written to stdout. Progress, warnings, and terminal errors are
-written to stderr, allowing scripts to redirect them independently. JSON and
+written to stderr, allowing scripts to redirect them independently. Text errors
+use an `Error [code]` heading with indented, wrapped details. Repeated diagnostic
+lines appear once; inspection commands and recovery guidance are highlighted
+when color is enabled. JSON and
 JSONL errors contain `code`, `message`, and `exit_code`; underlying causes are
 not serialized because they may expose filesystem or upstream details.
 
@@ -412,7 +415,8 @@ systemd is unsupported, rather than implying no service is installed.
 
 The tree uses color only for terminal text output: blue directories, dim tree
 branches, cyan links or retained results, green completed removals, and red
-interrupted-cleanup headings. Only the `prune` preview ends with a blank line
+interrupted-cleanup headings. Remaining resources and unknown outcomes use yellow.
+Only the `prune` preview ends with a blank line
 and a one-line yellow reminder to pass `--yes` to stop the instance and permanently
 delete its settings and all data when removable resources exist.
 Pipes, redirected output, an unset or
@@ -471,7 +475,13 @@ remain readable and do not imply any account state. A final read-only inventory 
 and pre-cleanup paths, even after configuration has been removed. Each command
 writes one complete result to stdout; diagnostics go to stderr. Deleted paths remain visible in results.
 On interruption, text says `Cleanup interrupted; confirmed results only`, and the
-command returns its error. The service may already be stopped or uninstalled and
+command returns its error. Text begins with removal, remaining and retention counts
+and separate service user/group outcomes, followed by the file tree. Warnings and
+the terminal error appear in separate stderr blocks without repeating the same
+cause or account summary. JSON/JSONL retain the complete `warnings` array.
+`systemd uninstall` likewise separates its result summary, account outcomes and
+removed-path tree from the error details.
+The service may already be stopped or uninstalled and
 some files removed when a later operation fails. When settings are inside a
 subdirectory, other contents of that branch are removed before the database and
 settings. A failure in those contents preserves the settings and database so the
