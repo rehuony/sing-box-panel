@@ -9,6 +9,7 @@ import { getSchemaType } from '@rjsf/utils';
 import type { ReviewedSchemaResolution } from '@/schemas/resolve-reviewed-schema';
 
 import type { CanonicalDraft } from './use-canonical-configuration';
+import type { SchemaDialogGroup } from './rjsf-shadcn-theme/schema-dialog-groups';
 
 import { encodeCanonicalValue } from './use-canonical-configuration';
 import { documentWithoutValue, documentWithValue, valueAtPointer } from './canonical-document';
@@ -32,11 +33,11 @@ interface SchemaSectionFormProps {
   dialogLayout?: boolean;
   protectedPaths?: string[];
   dialogJsonPreview?: ReactNode;
-  dialogPrimaryContent?: ReactNode;
   resolution: ReviewedSchemaResolution;
   onTouched?: (paths: string[]) => void;
   arrayLayout?: 'default' | 'standalone';
   arrayActionContainer?: HTMLElement | null;
+  dialogSectionContent?: Partial<Record<SchemaDialogGroup, ReactNode>>;
   onChange: (change: (draft: CanonicalDraft) => CanonicalDraft) => void;
 }
 
@@ -196,7 +197,7 @@ export function SchemaSectionForm({
   data,
   disabled = false,
   dialogLayout = false,
-  dialogPrimaryContent,
+  dialogSectionContent,
   dialogJsonPreview,
   onChange,
   onTouched,
@@ -286,7 +287,7 @@ export function SchemaSectionForm({
   return dialogLayout
     ? (
         <SchemaDialogLayout schema={schema} root={resolution.schema} data={external}
-          primaryContent={dialogPrimaryContent} jsonPreview={dialogJsonPreview}>
+          sectionContent={dialogSectionContent} jsonPreview={dialogJsonPreview}>
           {form}
         </SchemaDialogLayout>
       )

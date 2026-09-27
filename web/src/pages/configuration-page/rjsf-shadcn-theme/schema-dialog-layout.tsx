@@ -6,16 +6,18 @@ import { useTranslation } from 'react-i18next';
 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
+import type { SchemaDialogGroup } from './schema-dialog-groups';
+
 import { schemaDialogGroups } from './schema-dialog-groups';
 import { SchemaDialogContext } from './schema-dialog-context';
 
 // The same form stays mounted while tabs change: optional fields and nested drafts keep their state.
-export function SchemaDialogLayout({ schema, root = schema, data, children, primaryContent, jsonPreview }: {
+export function SchemaDialogLayout({ schema, root = schema, data, children, sectionContent, jsonPreview }: {
   schema: RJSFSchema;
   root?: RJSFSchema;
   data: unknown;
   children: ReactNode;
-  primaryContent?: ReactNode;
+  sectionContent?: Partial<Record<SchemaDialogGroup, ReactNode>>;
   jsonPreview?: ReactNode;
 }) {
   const { t } = useTranslation();
@@ -30,7 +32,11 @@ export function SchemaDialogLayout({ schema, root = schema, data, children, prim
           {available.map((group) => <TabsTrigger key={group} value={group}>{t(`configuration.dialog.${group}`)}</TabsTrigger>)}
         </TabsList>
         <TabsContent className='schema-dialog-tabs__panel' data-json={active === 'json'} value={active}>
-          {primaryContent === undefined ? null : <div hidden={active !== primary}>{primaryContent}</div>}
+          {groups.map((group) => sectionContent?.[group] === undefined
+            ? null
+            : (
+                <div key={group} hidden={active !== group}>{sectionContent[group]}</div>
+              ))}
           <div className='schema-dialog-tabs__form' hidden={active === 'json'}>{children}</div>
           {jsonPreview === undefined ? null : <div className='schema-dialog-tabs__json' hidden={active !== 'json'}>{jsonPreview}</div>}
         </TabsContent>

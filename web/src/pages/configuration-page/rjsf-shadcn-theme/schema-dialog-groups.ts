@@ -7,7 +7,7 @@ const connectionFields = new Set([
   'connect_timeout', 'disable_tcp_keep_alive', 'fallback_delay', 'fallback_network_type',
   'inet4_bind_address', 'inet6_bind_address', 'netns', 'network_strategy', 'network_type',
   'protect_path', 'reuse_addr', 'routing_mark', 'tcp_fast_open', 'tcp_keep_alive',
-  'tcp_keep_alive_interval', 'tcp_multi_path', 'udp_fragment',
+  'tcp_keep_alive_interval', 'tcp_keep_alive_idle', 'tcp_multi_path', 'udp_fragment', 'network',
 ]);
 const commonMatchFields = new Set([
   'type', 'inbound', 'domain', 'domain_suffix', 'ip_cidr', 'ip_is_private', 'network',
@@ -16,9 +16,9 @@ const commonMatchFields = new Set([
 const basicFields = new Set([
   'type', 'tag', 'name', 'server', 'server_port', 'server_ports', 'listen', 'listen_port',
   'address', 'interface', 'interface_name', 'path', 'url', 'format', 'method', 'version',
-  'outbounds', 'default', 'interrupt_exist_connections',
+  'outbounds', 'default', 'interrupt_exist_connections', 'realm',
 ]);
-const authenticationFields = new Set(['users', 'username', 'password', 'uuid', 'auth', 'auth_str', 'private_key', 'private_key_path', 'private_key_passphrase', 'public_key', 'pre_shared_key']);
+const authenticationFields = new Set(['users', 'user', 'username', 'password', 'uuid', 'auth', 'auth_str', 'private_key', 'private_key_path', 'private_key_passphrase', 'public_key', 'pre_shared_key', 'psk']);
 const transportFields = new Set(['transport', 'multiplex', 'obfs', 'udp_over_tcp']);
 
 export type SchemaDialogGroup = 'basic' | 'match' | 'more' | 'action' | 'authentication' | 'tls' | 'transport' | 'connection' | 'advanced';

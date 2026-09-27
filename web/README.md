@@ -263,9 +263,14 @@ including private-key lists, consistently with the authenticated JSON editors.
 Supported credentials have a dice action at the right of the input. The
 presentation-only rules in `configuration-credentials` select the appropriate
 password, UUID or Base64 key format. Shadowsocks method context follows nested
-user and destination dialogs, including pending edits. Grouped subscription-node
-forms retain the protocol as a hidden discriminator so generation uses the current
-protocol and encryption method. See the
+user and destination dialogs, including pending edits. Subscription-node forms
+use the same vertical section navigation and single-column field rows as configuration
+entry dialogs, with fixed headers and footers. The top-level Visual editor,
+Advanced JSON and Import share link modes remain separate. Protocol and endpoint
+choices appear in Basic settings, SSH authentication in Authentication, and detour
+selection in Connection options. One mounted schema form preserves pending fields
+across section changes and retains the protocol as a hidden discriminator so
+generation uses the current protocol and encryption method. See the
 [configuration guide](../docs/guides/configuration-and-runtime.md#reviewed-configuration-schemas)
 for the generated formats.
 Managed entry editors include their lossless JSON preview in the same tab bar.

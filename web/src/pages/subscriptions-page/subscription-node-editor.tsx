@@ -9,6 +9,7 @@ import { createPrecompiledValidator } from '@rjsf/validator-ajv8';
 import type { ReviewedSchemaResolution } from '@/schemas/resolve-reviewed-schema';
 import type { SubscriptionNodeDetail, SubscriptionNodeSummary } from '@/api/api-client';
 
+import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { toast } from '@/components/ui/toast-manager';
@@ -197,7 +198,7 @@ export function SubscriptionNodeEditor({
       }}
       open
     >
-      <DialogContent className='subscription-node-dialog' data-read-only={!editable || undefined}>
+      <DialogContent className={cn('subscription-node-dialog', editable && 'configuration-entry-dialog')} data-read-only={!editable || undefined}>
         <DialogHeader>
           <DialogTitle>
             {confirmDelete
@@ -229,7 +230,7 @@ export function SubscriptionNodeEditor({
             ? null
             : confirmDelete
               ? (
-                  <p>{t('subscriptions.nodes.deletePrompt', { name: node?.name })}</p>
+                  <p className='px-6'>{t('subscriptions.nodes.deletePrompt', { name: node?.name })}</p>
                 )
               : (
                   <Tabs
@@ -251,6 +252,7 @@ export function SubscriptionNodeEditor({
                     )}
                     <TabsContent
                       className='subscription-node-editor__scroll'
+                      data-visual={(mode === 'form' && Boolean(parsed && itemSchema && resolution)) || undefined}
                       key={mode}
                       value={mode}
                       role={editable ? 'tabpanel' : 'presentation'}
@@ -349,7 +351,7 @@ export function SubscriptionNodeEditor({
                       {t('nav.configuration')}
                     </Button>
                   )}
-                  <Button disabled={busy} onClick={onClose} variant='outline'>
+                  <Button disabled={busy} onClick={onClose} variant={editable ? 'secondary' : 'outline'}>
                     {t(editable ? 'common.cancel' : 'common.close')}
                   </Button>
                   {editable && (

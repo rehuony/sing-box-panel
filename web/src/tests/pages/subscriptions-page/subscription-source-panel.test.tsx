@@ -138,6 +138,32 @@ describe('subscription sources and nodes', () => {
     expect(client.updateSubscriptionNode).not.toHaveBeenCalled();
   });
 
+  it('opens imported nodes in the grouped editor and saves subsequent visual edits', async () => {
+    const user = userEvent.setup();
+    const imported = { type: 'socks', tag: 'Imported', server: 'proxy.example', server_port: 1080, future: { enabled: true } };
+    const client = createMockApiClient({
+      parseSubscriptionNode: vi.fn().mockResolvedValue({ outbound_json: JSON.stringify(imported) }),
+    });
+    render(
+      <MemoryRouter>
+        <ApiClientProvider client={client}>
+          <SubscriptionNodeEditor node={null} onClose={vi.fn()} onSaved={vi.fn()} />
+        </ApiClientProvider>
+      </MemoryRouter>,
+    );
+    await act(() => vi.dynamicImportSettled());
+    await user.click(await screen.findByRole('tab', { name: 'Import share link' }));
+    await user.type(screen.getByRole('textbox', { name: 'Import share link' }), 'socks://proxy.example:1080');
+    await user.click(screen.getByRole('button', { name: 'Parse' }));
+
+    expect(await screen.findByRole('tab', { name: 'Visual editor', selected: true })).toBeVisible();
+    expect(client.parseSubscriptionNode).toHaveBeenCalledWith('socks://proxy.example:1080');
+    fireEvent.change(screen.getByRole('textbox', { name: 'Tag' }), { target: { value: 'Edited import' } });
+    await user.click(screen.getByRole('tab', { name: 'Connection options' }));
+    await user.click(screen.getByRole('button', { name: 'Save node' }));
+    await waitFor(() => expect(client.createSubscriptionNode).toHaveBeenCalledWith(JSON.stringify({ ...imported, tag: 'Edited import' }, null, 2)));
+  });
+
   it('keeps a loading placeholder until the visual editor is ready without flashing JSON', async () => {
     let finishLoading!: () => void;
     const pendingSchema = new Promise<typeof editorSchema>((resolve) => {
@@ -260,6 +286,7 @@ describe('subscription sources and nodes', () => {
     await user.click(within(dialog).getByRole('tab', { name: 'Visual editor' }));
     await user.click(within(dialog).getByRole('combobox', { name: 'Protocol' }));
     await user.click(await screen.findByRole('option', { name: 'ssh' }));
+    await user.click(within(dialog).getByRole('tab', { name: 'Authentication' }));
     await user.click(within(dialog).getByRole('combobox', { name: 'Authentication' }));
     await user.click(await screen.findByRole('option', { name: 'Private key file' }));
     await user.click(within(dialog).getByRole('tab', { name: 'Advanced JSON' }));

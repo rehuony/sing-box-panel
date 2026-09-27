@@ -1,10 +1,14 @@
+import type { ComponentProps } from 'react';
 import type { RJSFSchema } from '@rjsf/utils';
 
+import { useId } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import type { ReviewedSchemaResolution } from '@/schemas/resolve-reviewed-schema';
 
+import { InfoTooltip } from '@/components/info-tooltip';
 import { SelectField } from '@/components/select-field';
+import { Field, FieldGroup, FieldLabel } from '@/components/ui/field';
 
 import { SchemaSectionForm } from '../configuration-page/schema-section-form';
 import { encodeCanonicalValue } from '../configuration-page/use-canonical-configuration';
@@ -40,12 +44,6 @@ const dialFields = new Set([
   'tcp_keep_alive_idle',
   'disable_tcp_keep_alive',
 ]);
-const mainFields = new Set([
-  'tag', 'server', 'server_port', 'server_ports', 'realm', 'username', 'password', 'uuid',
-  'method', 'security', 'flow', 'version', 'alter_id', 'private_key', 'private_key_path',
-  'private_key_passphrase', 'psk', 'plugin', 'plugin_opts',
-]);
-const associatedFields = new Set(['tls', 'transport', 'multiplex', 'obfs', 'udp_over_tcp']);
 const nonNodeTypes = new Set(['direct', 'block', 'dns', 'selector', 'urltest', 'bridge', 'tor']);
 
 interface NodeFormProps {
@@ -124,211 +122,186 @@ export function SubscriptionNodeForm({
       ),
     );
   }
-  const basic = keys.filter((key) => !dialFields.has(key) && !associatedFields.has(key));
-  const primary = basic.filter((key) => mainFields.has(key) || resolved.required?.includes(key));
-  const advanced = basic.filter((key) => !primary.includes(key));
-  const ordered = [
-    ...['tag', 'server', 'server_port'].filter((key) => primary.includes(key)),
-    ...primary.filter((key) => !['tag', 'server', 'server_port'].includes(key)),
-  ];
-  function fields(names: string[]) {
-    // Retain the discriminator for protocol-specific field rules and generators.
-    // The protocol selector above the sections remains the only visible control.
-    const sectionKeys = properties.type ? ['type', ...names] : names;
-    const subset: RJSFSchema = {
-      type: 'object',
-      properties: Object.fromEntries(sectionKeys.map((key) => [key, properties[key]])),
-      required: resolved.required?.filter((key) => sectionKeys.includes(key)),
-    };
-    const schemaUI = uiSchemaFromPanel(subset, [], resolution.schema, data);
-    return (
-      <SchemaSectionForm
-        basePointer='/outbounds/0'
-        data={data}
-        disabled={disabled}
-        onChange={(change) => {
-          const changed = change({ outbounds: [data] });
-          update((changed.outbounds as Record<string, unknown>[])[0]);
-        }}
-        resolution={resolution}
-        schema={subset}
-        uiSchema={{
-          ...schemaUI,
-          'ui:order': sectionKeys,
-          'type': { 'ui:widget': 'hidden' },
-          ...(names.includes('tls') && tlsRequired
-            ? {
-                tls: {
-                  ...schemaUI.tls,
-                  'ui:order': ['enabled', 'server_name', 'insecure', 'alpn', '*'],
-                  'enabled': { 'ui:disabled': true, 'ui:help': t('subscriptions.nodes.tlsRequired') },
-                },
-              }
-            : {}),
-          ...(names.includes('udp_over_tcp') && optionEnabled(data.multiplex)
-            ? { udp_over_tcp: { 'ui:disabled': true } }
-            : {}),
-          ...(names.includes('multiplex')
-            && protocol === 'shadowsocks'
-            && optionEnabled(data.udp_over_tcp)
-            ? { multiplex: { 'ui:disabled': true } }
-            : {}),
-        }}
-      />
-    );
-  }
+  // Keep the protocol in the schema for protocol-specific rules and generators.
+  const sectionKeys = properties.type ? ['type', ...keys] : keys;
+  const formSchema: RJSFSchema = {
+    type: 'object',
+    properties: Object.fromEntries(sectionKeys.map((key) => [key, properties[key]])),
+    required: resolved.required?.filter((key) => sectionKeys.includes(key)),
+  };
+  const schemaUI = uiSchemaFromPanel(formSchema, [], resolution.schema, data);
   return (
-    <div className='subscription-node-form'>
-      <label className='subscription-node-protocol'>
-        <span>{t('subscriptions.nodes.protocol')}</span>
-        <SelectField
-          aria-label={t('subscriptions.nodes.protocol')}
-          disabled={disabled}
-          onValueChange={(type) => {
-            const updated: Record<string, unknown> = { ...data, type };
-            const nextProperties = schemaProperties(schema, resolution.schema, updated);
-            for (const key of Object.keys(properties)) {
-              if (!nextProperties[key]) delete updated[key];
+    <SchemaSectionForm
+      dialogLayout
+      basePointer='/outbounds/0'
+      data={data}
+      disabled={disabled}
+      onChange={(change) => {
+        const changed = change({ outbounds: [data] });
+        update((changed.outbounds as Record<string, unknown>[])[0]);
+      }}
+      resolution={resolution}
+      schema={formSchema}
+      uiSchema={{
+        ...schemaUI,
+        ...Object.fromEntries(keys
+          .filter((key) => dialFields.has(key) && key !== 'detour' && key !== 'network')
+          .map((key) => [key, { ...schemaUI[key], 'ui:disabled': disabled || Boolean(data.detour) }])),
+        type: { 'ui:widget': 'hidden' },
+        detour: { 'ui:widget': 'hidden' },
+        ...(tlsRequired && properties.tls
+          ? {
+              tls: {
+                ...schemaUI.tls,
+                'ui:order': ['enabled', 'server_name', 'insecure', 'alpn', '*'],
+                'enabled': { 'ui:disabled': true, 'ui:help': t('subscriptions.nodes.tlsRequired') },
+              },
             }
-            if (['hysteria', 'hysteria2', 'tuic', 'anytls', 'naive'].includes(type)) {
-              const nextTLS: Record<string, unknown> = { ...tls, enabled: true };
-              if (['hysteria', 'hysteria2', 'tuic'].includes(type)) {
-                for (const key of [
-                  'reality',
-                  'utls',
-                  'fragment',
-                  'fragment_fallback_delay',
-                  'record_fragment',
-                ]) delete nextTLS[key];
-              }
-              updated.tls = nextTLS;
-            }
-            onChange(encodeCanonicalValue(updated, 2));
-          }}
-          value={String(data.type ?? '')}
-          items={[
-            ...(!types.includes(String(data.type)) ? [String(data.type ?? '')] : []),
-            ...types,
-          ].map((value) => ({ value, label: value }))}
-        />
-      </label>
-      {protocol === 'hysteria2' && (
-        <label className='subscription-node-protocol'>
-          <span>{t('subscriptions.nodes.endpointMode')}</span>
-          <SelectField
-            aria-label={t('subscriptions.nodes.endpointMode')}
-            disabled={disabled}
-            value={endpointMode}
-            onValueChange={(mode) => {
-              const value = { ...data };
-              delete value.server_port;
-              delete value.server_ports;
-              delete value.realm;
-              if (mode === 'realm') {
-                delete value.server;
-                value.realm = {};
-              } else if (mode === 'range') {
-                value.server_ports = ['443:8443'];
-              } else {
-                value.server_port = 443;
-              }
-              update(value);
-            }}
-            items={[
-              { value: 'single', label: t('subscriptions.nodes.singlePort') },
-              { value: 'range', label: t('subscriptions.nodes.portHopping') },
-              { value: 'realm', label: 'Realm' },
-            ]}
-          />
-        </label>
-      )}
-      {protocol === 'ssh' && (
-        <label className='subscription-node-protocol'>
-          <span>{t('subscriptions.nodes.authentication')}</span>
-          <SelectField
-            aria-label={t('subscriptions.nodes.authentication')}
-            disabled={disabled}
-            value={sshMode}
-            onValueChange={(mode) => {
-              const value = { ...data };
-              delete value.password;
-              delete value.private_key;
-              delete value.private_key_path;
-              if (mode === 'key') {
-                value.private_key = [''];
-              } else if (mode === 'file') {
-                value.private_key_path = '';
-              } else {
-                value.password = '';
-                delete value.private_key_passphrase;
-              }
-              update(value);
-            }}
-            items={[
-              { value: 'password', label: t('subscriptions.nodes.passwordAuth') },
-              { value: 'key', label: t('subscriptions.nodes.privateKeyAuth') },
-              { value: 'file', label: t('subscriptions.nodes.privateKeyFile') },
-            ]}
-          />
-        </label>
-      )}
-      {fields(ordered)}
-      {advanced.length > 0 && (
-        <details className='subscription-node-options'>
-          <summary>{t('subscriptions.nodes.options.advanced')}</summary>
-          {fields(advanced)}
-        </details>
-      )}
-      {[...associatedFields]
-        .filter((key) => keys.includes(key))
-        .map((key) => (
-          <details
-            className='subscription-node-options'
-            key={key}
-            open={data[key] !== undefined || undefined}
-          >
-            <summary>{t(`subscriptions.nodes.options.${key}`)}</summary>
-            {fields([key])}
-          </details>
-        ))}
-      {keys.some((key) => dialFields.has(key)) && (
-        <details className='subscription-node-options'>
-          <summary>{t('subscriptions.nodes.options.dial')}</summary>
-          <label className='subscription-node-protocol'>
-            <span title={t('subscriptions.nodes.detourHelp')}>
-              {t('subscriptions.nodes.detour')}
-            </span>
-            <SelectField
-              aria-label={t('subscriptions.nodes.detour')}
+          : {}),
+        ...(optionEnabled(data.multiplex) ? { udp_over_tcp: { 'ui:disabled': true } } : {}),
+        ...(protocol === 'shadowsocks' && optionEnabled(data.udp_over_tcp)
+          ? { multiplex: { 'ui:disabled': true } }
+          : {}),
+      }}
+      dialogSectionContent={{
+        basic: (
+          <FieldGroup className='schema-form schema-form__grid subscription-node-form__controls'>
+            <NodeSelectField
+              label={t('subscriptions.nodes.protocol')}
               disabled={disabled}
-              value={String(data.detour ?? '')}
-              onValueChange={(value) => {
-                const updated = { ...data };
-                if (value) updated.detour = value;
-                else delete updated.detour;
+              onValueChange={(type) => {
+                const updated: Record<string, unknown> = { ...data, type };
+                const nextProperties = schemaProperties(schema, resolution.schema, updated);
+                for (const key of Object.keys(properties)) {
+                  if (!nextProperties[key]) delete updated[key];
+                }
+                if (['hysteria', 'hysteria2', 'tuic', 'anytls', 'naive'].includes(type)) {
+                  const nextTLS: Record<string, unknown> = { ...tls, enabled: true };
+                  if (['hysteria', 'hysteria2', 'tuic'].includes(type)) {
+                    for (const key of [
+                      'reality',
+                      'utls',
+                      'fragment',
+                      'fragment_fallback_delay',
+                      'record_fragment',
+                    ]) delete nextTLS[key];
+                  }
+                  updated.tls = nextTLS;
+                }
                 onChange(encodeCanonicalValue(updated, 2));
               }}
+              value={String(data.type ?? '')}
               items={[
-                { value: '', label: t('subscriptions.nodes.noDetour') },
-                ...(data.detour && !candidates.includes(String(data.detour))
-                  ? [{ value: String(data.detour), label: String(data.detour) }]
-                  : []),
-                ...candidates.filter((value) => value !== data.tag).map((value) => ({ value, label: value })),
-              ]}
+                ...(!types.includes(String(data.type)) ? [String(data.type ?? '')] : []),
+                ...types,
+              ].map((value) => ({ value, label: value }))}
             />
-          </label>
-          <fieldset
-            disabled={disabled || Boolean(data.detour)}
-            title={data.detour ? t('subscriptions.nodes.detourHelp') : undefined}
-          >
-            {fields(
-              keys.filter((key) => key !== 'detour' && key !== 'network' && dialFields.has(key)),
+            {protocol === 'hysteria2' && (
+              <NodeSelectField
+                label={t('subscriptions.nodes.endpointMode')}
+                disabled={disabled}
+                value={endpointMode}
+                onValueChange={(mode) => {
+                  const value = { ...data };
+                  delete value.server_port;
+                  delete value.server_ports;
+                  delete value.realm;
+                  if (mode === 'realm') {
+                    delete value.server;
+                    value.realm = {};
+                  } else if (mode === 'range') {
+                    value.server_ports = ['443:8443'];
+                  } else {
+                    value.server_port = 443;
+                  }
+                  update(value);
+                }}
+                items={[
+                  { value: 'single', label: t('subscriptions.nodes.singlePort') },
+                  { value: 'range', label: t('subscriptions.nodes.portHopping') },
+                  { value: 'realm', label: 'Realm' },
+                ]}
+              />
             )}
-          </fieldset>
-          {keys.includes('network') && fields(['network'])}
-        </details>
-      )}
-    </div>
+          </FieldGroup>
+        ),
+        authentication: protocol === 'ssh'
+          ? (
+              <FieldGroup className='schema-form schema-form__grid subscription-node-form__controls'>
+                <NodeSelectField
+                  label={t('subscriptions.nodes.authentication')}
+                  disabled={disabled}
+                  value={sshMode}
+                  onValueChange={(mode) => {
+                    const value = { ...data };
+                    delete value.password;
+                    delete value.private_key;
+                    delete value.private_key_path;
+                    if (mode === 'key') {
+                      value.private_key = [''];
+                    } else if (mode === 'file') {
+                      value.private_key_path = '';
+                    } else {
+                      value.password = '';
+                      delete value.private_key_passphrase;
+                    }
+                    update(value);
+                  }}
+                  items={[
+                    { value: 'password', label: t('subscriptions.nodes.passwordAuth') },
+                    { value: 'key', label: t('subscriptions.nodes.privateKeyAuth') },
+                    { value: 'file', label: t('subscriptions.nodes.privateKeyFile') },
+                  ]}
+                />
+              </FieldGroup>
+            )
+          : undefined,
+        connection: keys.includes('detour')
+          ? (
+              <FieldGroup className='schema-form schema-form__grid subscription-node-form__controls'>
+                <NodeSelectField
+                  label={t('subscriptions.nodes.detour')}
+                  help={t('subscriptions.nodes.detourHelp')}
+                  disabled={disabled}
+                  value={String(data.detour ?? '')}
+                  onValueChange={(value) => {
+                    const updated = { ...data };
+                    if (value) updated.detour = value;
+                    else delete updated.detour;
+                    onChange(encodeCanonicalValue(updated, 2));
+                  }}
+                  items={[
+                    { value: '', label: t('subscriptions.nodes.noDetour') },
+                    ...(data.detour && !candidates.includes(String(data.detour))
+                      ? [{ value: String(data.detour), label: String(data.detour) }]
+                      : []),
+                    ...candidates.filter((value) => value !== data.tag).map((value) => ({ value, label: value })),
+                  ]}
+                />
+              </FieldGroup>
+            )
+          : undefined,
+      }}
+    />
+  );
+}
+
+function NodeSelectField({ label, help, ...props }: ComponentProps<typeof SelectField<string>> & {
+  label: string;
+  help?: string;
+}) {
+  const id = useId();
+  const { t } = useTranslation();
+  return (
+    <Field className='schema-form__field' data-disabled={props.disabled || undefined}>
+      <div className='schema-form__label'>
+        <FieldLabel htmlFor={id}>{label}</FieldLabel>
+        {help && <InfoTooltip label={t('configuration.general.fieldHelp', { field: label })}>{help}</InfoTooltip>}
+      </div>
+      <div className='schema-form__control'>
+        <SelectField {...props} className='w-full' id={id} aria-label={label} />
+      </div>
+    </Field>
   );
 }
 

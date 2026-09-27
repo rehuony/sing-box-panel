@@ -118,6 +118,7 @@ describe('configuration path presentation', () => {
       </ApiClientProvider>,
     );
     const user = userEvent.setup();
+    await user.click(screen.getByRole('tab', { name: 'Authentication' }));
     await user.click(screen.getByRole('button', { name: /Browse server path: private_key_path/i }));
     const dialog = within(screen.getByRole('dialog'));
     await user.click(await dialog.findByRole('button', { name: 'private.key' }));
