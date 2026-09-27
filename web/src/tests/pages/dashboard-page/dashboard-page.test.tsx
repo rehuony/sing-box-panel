@@ -1,6 +1,6 @@
 import { MemoryRouter } from 'react-router-dom';
 import { describe, expect, it, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 
 import type { TelemetryState } from '@/components/app-shell/use-telemetry';
 
@@ -34,16 +34,39 @@ function show({
     snapshot: metrics,
     trafficError: null,
   };
+  const store = createTelemetryStore(telemetry);
   render(
     <MemoryRouter>
-      <TelemetryContext value={createTelemetryStore(telemetry)}>
+      <TelemetryContext value={store}>
         <DashboardPage />
       </TelemetryContext>
     </MemoryRouter>,
   );
+  return store;
 }
 
 describe('dashboard evidence', () => {
+  it('updates the traffic heading from live peaks and the selected history range', () => {
+    const store = show({ dashboard: {
+      ...testDashboardSnapshot,
+      history_24h: {
+        ...testDashboardSnapshot.history_24h,
+        buckets: [{ ...testDashboardSnapshot.history_24h.buckets[0]!, download_bytes: 300 * 1024 ** 3 }],
+      },
+    } });
+    expect(screen.getByRole('heading', { name: 'Traffic（B/s）' })).toBeVisible();
+    act(() => store.setState({ liveTail: [{
+      at: Date.parse(testDashboardSnapshot.collected_at) + 2000,
+      downloadBytesPerSecond: 1024 ** 2, uploadBytesPerSecond: 0, connections: 10,
+    }] }));
+    expect(screen.getByRole('heading', { name: 'Traffic（MB/s）' })).toBeVisible();
+    fireEvent.click(screen.getByRole('tab', { name: '24h' }));
+    expect(screen.getByRole('heading', { name: 'Traffic（GB/s）' })).toBeVisible();
+    act(() => store.setState({ liveTail: [] }));
+    fireEvent.click(screen.getByRole('tab', { name: '1h' }));
+    expect(screen.getByRole('heading', { name: 'Traffic（B/s）' })).toBeVisible();
+  });
+
   it('shows host metrics while core traffic is unavailable', () => {
     show({ metrics: {
       ...testMetrics,

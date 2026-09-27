@@ -9,8 +9,11 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useDashboardSubscription, useOptionalSharedTelemetry } from '@/components/app-shell/telemetry-context';
 
 import { TrendChart } from './trend-chart';
+import { trendChartData } from './trend-chart-data';
 import { buildRuntimeSlots } from './runtime-timeline';
 import './dashboard-page.css';
+
+const emptyTail: import('@/components/app-shell/use-telemetry').LivePoint[] = [];
 
 function bytes(value: number | null | undefined, locale: string): string {
   if (value == null) return '—';
@@ -130,8 +133,12 @@ function DashboardMetrics() {
 function DashboardCharts() {
   const { t } = useTranslation();
   const current = useOptionalSharedTelemetry(s => s.dashboardSnapshot);
+  const tail = useOptionalSharedTelemetry(s => s.liveTail) ?? emptyTail;
   const [range, setRange] = useState<'1h' | '24h'>('1h');
   const trafficHistory = current ? range === '1h' ? current.history_1h : current.history_24h : null;
+  const watermark = current?.persisted_through;
+  const traffic = useMemo(() => trendChartData(trafficHistory, 'traffic', tail, watermark), [trafficHistory, tail, watermark]);
+  const connections = useMemo(() => trendChartData(current?.history_1h ?? null, 'connections', tail, watermark), [current?.history_1h, tail, watermark]);
   return (
     <div className='dashboard-charts'>
       <Tabs
@@ -143,7 +150,9 @@ function DashboardCharts() {
         <header>
           <h2>
             {t('dashboard.trend.traffic')}
-            （KB/s）
+            （
+            {traffic.unit}
+            ）
           </h2>
           <TabsList className='dashboard-range' aria-label={t('dashboard.range.label')}>
             {(['1h', '24h'] as const).map((value) => (
@@ -155,7 +164,7 @@ function DashboardCharts() {
         </header>
         {(['1h', '24h'] as const).map((value) => (
           <TabsContent key={value} value={value} className='dashboard-traffic__chart'>
-            <TrendChart history={trafficHistory} watermark={current?.persisted_through} kind='traffic' />
+            <TrendChart chart={traffic} kind='traffic' />
             {current === null
               ? (
                   <div className='dashboard-stream-loading'>
@@ -178,8 +187,7 @@ function DashboardCharts() {
           <small>{t('dashboard.metric.lastHour')}</small>
         </header>
         <TrendChart
-          history={current?.history_1h ?? null}
-          watermark={current?.persisted_through}
+          chart={connections}
           kind='connections'
         />
         {current === null

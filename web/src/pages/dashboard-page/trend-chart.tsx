@@ -1,24 +1,16 @@
 import UPlot from 'uplot';
 import { useTranslation } from 'react-i18next';
-import { useEffect, useEffectEvent, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useEffectEvent, useId, useLayoutEffect, useRef, useState } from 'react';
 
-import type { MetricsHistory } from '@/api/api-client';
-
-import { useOptionalSharedTelemetry } from '@/components/app-shell/telemetry-context';
-
-import { trendChartData } from './trend-chart-data';
+import type { TrendChartData } from './trend-chart-data';
 import 'uplot/dist/uPlot.min.css';
 
-const emptyTail: import('@/components/app-shell/use-telemetry').LivePoint[] = [];
-
 export function TrendChart({
-  history,
+  chart,
   kind,
-  watermark,
 }: {
-  history: MetricsHistory | null;
+  chart: TrendChartData;
   kind: 'traffic' | 'connections';
-  watermark?: string | null;
 }) {
   const { t, i18n } = useTranslation();
   const hostRef = useRef<HTMLDivElement>(null);
@@ -26,8 +18,7 @@ export function TrendChart({
   const plotRef = useRef<UPlot | null>(null);
   const [focused, setFocused] = useState<{ index: number; left: number; top: number } | null>(null);
   const descriptionId = useId();
-  const tail = useOptionalSharedTelemetry(s => s.liveTail) ?? emptyTail;
-  const data = useMemo(() => trendChartData(history, kind, tail, watermark), [history, kind, tail, watermark]);
+  const { data, from, to, unit, live } = chart;
   const frameRef = useRef<number | null>(null);
   const pendingFocusRef = useRef<typeof focused>(null);
   const updatePlot = useEffectEvent(() => {
@@ -35,8 +26,8 @@ export function TrendChart({
     if (!plot) return;
     plot.batch(() => {
       plot.setData(data);
-      if (history) {
-        plot.setScale('x', { min: Date.parse(history.from), max: Math.max(Date.parse(history.to), data[0].at(-1) ?? 0) });
+      if (from !== undefined && to !== undefined) {
+        plot.setScale('x', { min: from, max: to });
       }
     });
   });
@@ -62,7 +53,9 @@ export function TrendChart({
           cursor: { drag: { x: false, y: false }, points: { size: 6 } },
           scales: {
             x: { time: true, auto: false },
-            y: { range: (_plot, _min, max) => [0, Math.max(1, max ?? 1) * 1.08] },
+            y: { range: (_plot, _min, max) => UPlot.rangeNum(0, Math.max(1, max ?? 1), {
+              min: { hard: 0 }, max: { pad: 0.08 },
+            }) },
           },
           axes: [
             {
@@ -76,7 +69,7 @@ export function TrendChart({
               values: (_plot, splits) => splits.map((value) => time.format(new Date(value))),
             },
             {
-              size: 32,
+              size: 44,
               gap: 4,
               space: 55,
               stroke: color('--color-text-muted'),
@@ -86,7 +79,7 @@ export function TrendChart({
               values: (_plot, splits) =>
                 splits.map((value) =>
                   new Intl.NumberFormat(i18n.language, {
-                    maximumFractionDigits: 1,
+                    maximumFractionDigits: 3,
                     notation: 'compact',
                   }).format(value),
                 ),
@@ -165,7 +158,7 @@ export function TrendChart({
   }, [kind, i18n.language, t]);
   useEffect(() => {
     updatePlot();
-  }, [data, history]);
+  }, [data, from, to]);
   const bucket = focused === null ? undefined : data[0][focused.index];
   useLayoutEffect(() => {
     const host = hostRef.current;
@@ -183,11 +176,10 @@ export function TrendChart({
       : focused.top + gap;
     tooltip.style.left = `${Math.max(inset, Math.min(left, host.clientWidth - width - inset))}px`;
     tooltip.style.top = `${Math.max(inset, Math.min(top, host.clientHeight - height - inset))}px`;
-  }, [focused, bucket]);
-  const format = new Intl.NumberFormat(i18n.language, {
-    minimumFractionDigits: kind === 'traffic' ? 1 : 0,
-    maximumFractionDigits: 1,
-  });
+  }, [focused, bucket, data, unit, i18n.language]);
+  const format = new Intl.NumberFormat(i18n.language, kind === 'traffic'
+    ? { minimumSignificantDigits: 2, maximumSignificantDigits: 3 }
+    : { maximumFractionDigits: 1 });
   const metrics = kind === 'traffic' ? ['download', 'upload'] as const : ['connections'] as const;
   function clearCursor() {
     plotRef.current?.setCursor({ left: -10, top: -10 });
@@ -225,8 +217,7 @@ export function TrendChart({
       }}
     >
       <div ref={hostRef} className='trend-chart__plot' />
-      {tail.some(p => p.at > (watermark ? Date.parse(watermark) : -Infinity)
-        && (kind === 'connections' ? p.connections !== null : p.downloadBytesPerSecond !== null))
+      {live
         ? <small className='trend-chart__live'>{t('dashboard.chart.live')}</small>
         : null}
       {data.slice(1).every(series => Array.from(series as (number | null | undefined)[]).every(value => value == null)) && <span className='trend-chart__empty'>{t('dashboard.empty.title')}</span>}
@@ -243,7 +234,7 @@ export function TrendChart({
                   <span className='trend-chart__tooltip-value'>
                     {value == null ? '—' : format.format(value)}
                     {' '}
-                    <small>{kind === 'traffic' ? 'KB/s' : t('dashboard.metric.countUnit')}</small>
+                    <small>{unit ?? t('dashboard.metric.countUnit')}</small>
                   </span>
                 </span>
               );
