@@ -42,6 +42,21 @@ func TestChannelYAMLUsesBlockCollectionsWithoutChangingValues(t *testing.T) {
 		"{}",
 		`{custom-counter: 9007199254740993, custom-string: 'true', dns: {enable: true, nameserver: [1.1.1.1, 8.8.8.8]}}`,
 		"# retained comment\ncustom-text: |\n  first line\n  second line\ncustom-string: '00123'\ndns: {enable: true}\n",
+		`# "\U0001F680" is literal comment text 🚀
+说明: "🏠 \"quoted\" \\U0001F511\nnext line\tend"
+escaped: "\\U0001F3E0"
+single-quoted: '\U0001F3E0'
+plain: \U0001F3E0
+custom-text: |
+  "\U0001F3E0" is literal block text
+unicode-block: |
+  🏠 first line
+  🐟 second line
+tagged: !!str "🔑 加密货币"
+custom-tag: !label "🚀 全球服务"
+"🏠 key": "🐟 value" # "\U0001F41F" is literal
+supplementary: "𠮷 👩🏽‍💻 🇯🇵"
+`,
 	} {
 		nodes, policy := policyFixture(t, RenderFormatMihomo)
 		policy.Template = &NativeTemplate{Format: RenderFormatMihomo, Content: content}
@@ -64,11 +79,54 @@ func TestChannelYAMLUsesBlockCollectionsWithoutChangingValues(t *testing.T) {
 		if !bytes.Contains(result.Content, []byte("proxies:\n  - ")) || !bytes.Contains(result.Content, []byte("\nproxy-groups:\n")) {
 			t.Fatalf("output was not formatted: %s", result.Content)
 		}
-		for _, preserved := range []string{"9007199254740993", "'true'", "'00123'", "# retained comment", "custom-text: |"} {
+		for _, preserved := range []string{"9007199254740993", "'true'", "'00123'", "# retained comment", "custom-text: |", `# "\U0001F680" is literal comment text 🚀`, `# "\U0001F41F" is literal`} {
 			if strings.Contains(content, preserved) && !bytes.Contains(result.Content, []byte(preserved)) {
 				t.Fatalf("scalar/comment lost: %s in %s", preserved, result.Content)
 			}
 		}
+	}
+}
+
+func TestChannelYAMLEmitsUnicodeLiterally(t *testing.T) {
+	nodes, policy := policyFixture(t, RenderFormatMihomo)
+	nodes[0].OriginTag = "🇯🇵 Tokyo 👩🏽‍💻"
+	policy.Groups[0].Name = "🏠 国内服务"
+	policy.Groups[0].Rules[3].Remote.Name = "🚀 全球服务"
+	policy.Groups = append(policy.Groups,
+		RuleGroup{ID: "crypto", Name: "🔑 加密货币", Type: "select", Enabled: true, BuiltinNodes: []string{}, GroupIDs: []string{"main"}},
+		RuleGroup{ID: "final", Name: "🐟 漏网之鱼", Type: "select", Enabled: true, BuiltinNodes: []string{}, GroupIDs: []string{"main"}},
+		RuleGroup{ID: "selector", Name: "✨ 节点选择", Type: "select", Enabled: true, BuiltinNodes: []string{}, GroupIDs: []string{"main"}},
+	)
+	result, err := RenderPolicyNodes(nodes, RenderChannel{Format: RenderFormatMihomo}, policy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{nodes[0].OriginTag, "🏠 国内服务", "🚀 全球服务", "🔑 加密货币", "🐟 漏网之鱼", "✨ 节点选择"} {
+		if !bytes.Contains(result.Content, []byte(name)) {
+			t.Errorf("export does not contain literal %q", name)
+		}
+	}
+	var root map[string]any
+	if err := yaml.Unmarshal(result.Content, &root); err != nil {
+		t.Fatal(err)
+	}
+	groups := root["proxy-groups"].([]any)
+	for i, group := range policy.Groups {
+		got := groups[i].(map[string]any)
+		if got["name"] != group.Name {
+			t.Fatalf("group name changed: %v", got)
+		}
+		wantCandidate := "🏠 国内服务"
+		if i == 0 {
+			wantCandidate = nodes[0].OriginTag
+		}
+		if got["proxies"].([]any)[0] != wantCandidate {
+			t.Fatalf("group reference changed: %v", got)
+		}
+	}
+	wantRules := []any{"DOMAIN-SUFFIX,example.org,🏠 国内服务", "IP-CIDR6,2001:db8::/32,DIRECT", "RULE-SET,🚀 全球服务,Hong Kong", "MATCH,🏠 国内服务"}
+	if !reflect.DeepEqual(root["rules"], wantRules) || root["rule-providers"].(map[string]any)["🚀 全球服务"] == nil {
+		t.Fatalf("rule references changed: %s", result.Content)
 	}
 }
 

@@ -6,7 +6,44 @@ import (
 	"bytes"
 	"reflect"
 	"testing"
+	"unicode/utf8"
+
+	"go.yaml.in/yaml/v3"
 )
+
+func FuzzChannelYAMLUnicodeRoundTrip(f *testing.F) {
+	for _, value := range []string{"", "🏠 🔑 🚀 🐟 ✨", "𠮷 👩🏽‍💻 🇯🇵", `"\U0001F3E0" \\U0001F511`, "line\nnext\t\"quoted\"\x00\r\n", "\U00010000\U0010FFFF"} {
+		f.Add(value)
+	}
+	f.Fuzz(func(t *testing.T, value string) {
+		if len(value) > 1024 || !utf8.ValidString(value) {
+			t.Skip()
+		}
+		original := map[string]map[string]string{"strings": {"说明 " + value: "🏠 " + value, "literal": `\U0001F3E0`}}
+		input, err := yaml.Marshal(original)
+		if err != nil {
+			t.Fatal(err)
+		}
+		template, err := parseChannelTemplate(&NativeTemplate{Format: RenderFormatMihomo, Content: string(input)}, RenderFormatMihomo)
+		if err != nil {
+			t.Fatal(err)
+		}
+		content, err := template.render(RenderFormatMihomo, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var restored map[string]map[string]string
+		if err := yaml.Unmarshal(content, &restored); err != nil {
+			t.Fatal(err)
+		}
+		if !reflect.DeepEqual(original, restored) {
+			t.Fatalf("YAML changed strings: got %q, want %q", restored, original)
+		}
+		if !bytes.Contains(content, []byte("🏠")) {
+			t.Fatal("emoji was escaped")
+		}
+	})
+}
 
 func FuzzRenderIsPureAndDeterministic(f *testing.F) {
 	f.Add([]byte(`{"outbounds":[]}`))

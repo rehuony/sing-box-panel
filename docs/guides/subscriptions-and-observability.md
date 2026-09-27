@@ -343,7 +343,10 @@ nodes, groups, rules, providers and final exits; templates containing these
 reserved fields are rejected. Sing-box's other `route` options are preserved.
 Loon rejects other sections, duplicate sections/keys and malformed lines while
 preserving original comments and values. JSON numeric values and YAML comments
-and scalar values are also preserved.
+and scalar values are also preserved. Mihomo YAML exports retain Unicode text,
+including emoji in node names, strategy groups and rule references, as UTF-8
+characters. Literal backslash sequences and required YAML escaping keep their
+original meaning.
 
 Defaults are shared by the editor and renderer from the native files in
 `api/templates`. They use ordinary DNS without geographic
