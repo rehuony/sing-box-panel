@@ -23,10 +23,9 @@ import (
 const (
 	maximumSubscriptionNameBytes   = 128
 	maximumSubscriptionConfigBytes = 64 << 10
-	// Leave room for up to 5,000 sort indices added to a legacy 512 KiB config.
-	maximumChannelConfigBytes  = 640 << 10
-	maximumSourceSnapshotBytes = 4 << 20
-	maximumChannelExclusions   = 10_000
+	maximumChannelConfigBytes      = 640 << 10
+	maximumSourceSnapshotBytes     = 4 << 20
+	maximumChannelExclusions       = 10_000
 
 	MaximumEnabledSubscriptionChannels       = 256
 	MaximumEnabledSubscriptionSources        = 256

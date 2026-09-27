@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { ArrowRight, CirclePlus, Pencil, Route, Search, Trash2 } from 'lucide-react';
+import { CirclePlus, Pencil, Route, Search, Trash2 } from 'lucide-react';
 
 import type {
   ChannelRouteExit,
@@ -10,7 +10,6 @@ import type {
   SubscriptionNodeSummary,
 } from '@/api/api-client';
 
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { ErrorNotice } from '@/components/error-notice';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -31,10 +30,11 @@ interface Props {
   nextSortIndex: number;
   group: ChannelRuleGroup;
   format: SubscriptionFormat;
+  groups: ChannelRuleGroup[];
   nodes: SubscriptionNodeSummary[];
   onChange: (group: ChannelRuleGroup) => void;
 }
-export function ChannelGroupEditor({ group, nodes, format, busy, onChange, nextSortIndex }: Props) {
+export function ChannelGroupEditor({ group, groups, nodes, format, busy, onChange, nextSortIndex }: Props) {
   const { t } = useTranslation();
   const [addingNodes, setAddingNodes] = useState(false);
   const [rule, setRule] = useState<ChannelRule | null>(null);
@@ -45,21 +45,25 @@ export function ChannelGroupEditor({ group, nodes, format, busy, onChange, nextS
   const builtins = group.builtin_nodes;
   const order = candidateOrder(group);
   const selectedIDs = new Set(order.filter((id) => selected.includes(id)));
+  const groupCatalog = new Map(groups.map(value => [value.id, value]));
   const catalog = new Map(nodes.map((node) => [node.id, node]));
   const cards: ChannelNodeCard[] = order.flatMap((id) => {
     const builtin = id === 'builtin:direct' ? 'direct' : id === 'builtin:reject' ? 'reject' : undefined;
-    const node = builtin ? undefined : catalog.get(id.slice(5));
-    const label = builtin ? builtin.toUpperCase() : node ? `${node.name} ${node.source_name}` : t('channels.missingNode');
-    if (!matches(builtin ? `${label} ${t(`channels.${builtin}`)}` : `${label} ${node?.type ?? id}`)) return [];
+    const node = id.startsWith('node:') ? catalog.get(id.slice(5)) : undefined;
+    const candidate = id.startsWith('group:') ? groupCatalog.get(id.slice(6)) : undefined;
+    const label = builtin ? builtin.toUpperCase() : candidate ? candidate.name : node ? `${node.name} ${node.source_name}` : t('channels.missingNode');
+    if (!matches(builtin ? `${label} ${t(`channels.${builtin}`)}` : `${label} ${candidate ? `${t('channels.strategyGroup')} ${t(`channels.groupTypes.${candidate.type}`)}` : node?.type ?? id}`)) return [];
     return [{
-      id, label, node, builtin, selected: selectedIDs.has(id), disabled: busy,
+      id, label, node, builtin, group: candidate, selected: selectedIDs.has(id), disabled: busy,
       unavailable: builtin
         ? (format === 'sing-box' && builtin === 'reject') || (format === 'loon' && group.type !== 'select')
-        : !node || node.hidden || !node.available,
+        : candidate ? !candidate.enabled : !node || node.hidden || !node.available,
     }];
   });
-  function updateCandidates(node_ids: string[], builtin_nodes = builtins, candidate_order = order) {
-    onChange(updateGroupCandidates(group, node_ids, builtin_nodes, candidate_order));
+  function updateCandidates(
+    node_ids: string[], builtin_nodes = builtins, candidate_order = order, group_ids = group.group_ids ?? [],
+  ) {
+    onChange(updateGroupCandidates(group, node_ids, builtin_nodes, candidate_order, group_ids));
   }
 
   function exitLabel(exit: ChannelRouteExit) {
@@ -81,7 +85,6 @@ export function ChannelGroupEditor({ group, nodes, format, busy, onChange, nextS
               format: ruleFormats(format)[0],
               behavior: format === 'mihomo' ? 'domain' : undefined,
               accelerated: false,
-              update_interval: format === 'loon' ? undefined : 86400,
             },
           }
         : { value: '' }),
@@ -93,13 +96,15 @@ export function ChannelGroupEditor({ group, nodes, format, busy, onChange, nextS
         <ChannelNodePicker
           nodes={nodes}
           group={group}
+          groups={groups}
           format={format}
           onClose={() => setAddingNodes(false)}
-          onAdd={(ids, builtinNodes, addedOrder) => {
+          onAdd={(ids, builtinNodes, addedOrder, groupIDs) => {
             updateCandidates(
               [...new Set([...group.node_ids, ...ids])],
               [...new Set([...builtins, ...builtinNodes])],
               [...order, ...addedOrder],
+              [...new Set([...(group.group_ids ?? []), ...groupIDs])],
             );
             setAddingNodes(false);
           }} />
@@ -137,6 +142,8 @@ export function ChannelGroupEditor({ group, nodes, format, busy, onChange, nextS
                     updateCandidates(
                       group.node_ids.filter((id) => !selectedIDs.has(`node:${id}`)),
                       builtins.filter((kind) => !selectedIDs.has(`builtin:${kind}`)),
+                      order,
+                      (group.group_ids ?? []).filter(id => !selectedIDs.has(`group:${id}`)),
                     );
                     setSelected([]);
                   }}
@@ -169,31 +176,26 @@ export function ChannelGroupEditor({ group, nodes, format, busy, onChange, nextS
           </TabsContent>
           <TabsContent value='rules' className='channel-group-content'>
             {format === 'loon' && <p className='channel-delivery-hint'>{t('channels.loonRuleOrder')}</p>}
-            <div className='channel-rule-rows'>
+            <ul className='channel-rule-rows' aria-label={t('channels.matches')}>
               {[...group.rules].sort(compareChannelRules).map((item) => (
-                <div className='channel-rule-row' key={item.id}>
-                  <input
-                    aria-label={`${t('channels.enabled')} ${item.remote?.name ?? item.value}`}
-                    type='checkbox'
-                    checked={item.enabled}
-                    onChange={(event) => onChange({
-                      ...group,
-                      rules: group.rules.map((value) =>
-                        value.id === item.id ? { ...value, enabled: event.target.checked } : value),
-                    })}
-                  />
+                <li className='channel-rule-row' key={item.id} data-disabled={!item.enabled || undefined}>
                   <div className='channel-rule-label' title={item.remote?.url ?? item.value}>
-                    <span>{item.remote?.name ?? item.value}</span>
-                    <Badge variant='secondary'>
-                      {t('channels.sortIndex')}
-                      :
-                      {' '}
-                      {item.sort_index}
-                    </Badge>
-                    <span className='channel-rule-summary'>
-                      <Badge variant='outline'>{t(item.kind === 'remote' ? 'channels.ruleSet' : `channels.${item.kind}`)}</Badge>
-                      <ArrowRight aria-hidden='true' />
-                      <Badge variant='info'>{exitLabel(item.exit)}</Badge>
+                    <span className='channel-rule-name' title={item.remote?.name ?? item.value}>{item.remote?.name ?? item.value}</span>
+                    <span className='channel-rule-summary' title={[
+                      `${t('channels.sortIndex')}: ${item.sort_index ?? 0}`,
+                      t(item.kind === 'remote' ? 'channels.ruleSet' : `channels.${item.kind}`),
+                      exitLabel(item.exit),
+                      ...(!item.enabled ? [t('channels.disabled')] : []),
+                    ].join(' · ')}>
+                      <span>
+                        {t('channels.sortIndex')}
+                        :
+                        {' '}
+                        {item.sort_index ?? 0}
+                      </span>
+                      <span>{t(item.kind === 'remote' ? 'channels.ruleSet' : `channels.${item.kind}`)}</span>
+                      <span>{exitLabel(item.exit)}</span>
+                      {!item.enabled && <span>{t('channels.disabled')}</span>}
                     </span>
                     {item.remote && !ruleFormats(format).includes(item.remote.format) && (
                       <ErrorNotice error={t('channels.formatPending')} />
@@ -203,9 +205,9 @@ export function ChannelGroupEditor({ group, nodes, format, busy, onChange, nextS
                     <Button variant='ghost' size='icon-sm' aria-label={t('channels.editRule')} title={t('channels.editRule')} onClick={() => setRule(item)}><Pencil /></Button>
                     <Button variant='ghost' size='icon-sm' className='channel-delete-action' aria-label={t('channels.deleteRule')} title={t('channels.deleteRule')} onClick={() => onChange({ ...group, rules: group.rules.filter((value) => value.id !== item.id) })}><Trash2 /></Button>
                   </div>
-                </div>
+                </li>
               ))}
-            </div>
+            </ul>
             {!group.rules.length && (
               <Empty>
                 <EmptyHeader>
@@ -221,6 +223,9 @@ export function ChannelGroupEditor({ group, nodes, format, busy, onChange, nextS
       {rule && (
         <ChannelRuleEditor
           rule={rule}
+          otherRuleNames={groups.flatMap(value => value.rules
+            .filter(item => item.remote && !(value.id === group.id && item.id === rule.id))
+            .map(item => item.remote!.name.trim()))}
           format={format}
           onClose={() => setRule(null)}
           onSave={async (value) => onChange({

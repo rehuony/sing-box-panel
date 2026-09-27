@@ -36,6 +36,7 @@ type RuleGroup struct {
 	Name           string            `json:"name"`
 	Enabled        bool              `json:"enabled"`
 	NodeIDs        []string          `json:"node_ids"`
+	GroupIDs       []string          `json:"group_ids,omitempty"`
 	Rules          []ChannelRule     `json:"rules"`
 	Type           string            `json:"type"`
 	BuiltinNodes   []string          `json:"builtin_nodes"`
@@ -60,12 +61,15 @@ func (g RuleGroup) candidateOrder() []string {
 	if g.CandidateOrder != nil {
 		return g.CandidateOrder
 	}
-	order := make([]string, 0, len(g.NodeIDs)+len(g.BuiltinNodes))
+	order := make([]string, 0, len(g.NodeIDs)+len(g.BuiltinNodes)+len(g.GroupIDs))
 	for _, id := range g.NodeIDs {
 		order = append(order, "node:"+id)
 	}
 	for _, kind := range g.BuiltinNodes {
 		order = append(order, "builtin:"+kind)
+	}
+	for _, id := range g.GroupIDs {
+		order = append(order, "group:"+id)
 	}
 	return order
 }
@@ -73,7 +77,7 @@ func (g RuleGroup) candidateOrder() []string {
 // Rules and remote references share one ordered list. A disabled entry retains
 // its metadata, but is not emitted. Nothing here fetches remote rule contents.
 type ChannelRule struct {
-	SortIndex int            `json:"sort_index,omitempty"`
+	SortIndex int64          `json:"sort_index"`
 	ID        string         `json:"id"`
 	Enabled   bool           `json:"enabled"`
 	Kind      string         `json:"kind"`
@@ -83,12 +87,11 @@ type ChannelRule struct {
 }
 
 type RemoteRuleSet struct {
-	Name           string `json:"name"`
-	URL            string `json:"url"`
-	Format         string `json:"format"`
-	Behavior       string `json:"behavior,omitempty"`
-	Accelerated    bool   `json:"accelerated"`
-	UpdateInterval int    `json:"update_interval,omitempty"`
+	Name        string `json:"name"`
+	URL         string `json:"url"`
+	Format      string `json:"format"`
+	Behavior    string `json:"behavior,omitempty"`
+	Accelerated bool   `json:"accelerated"`
 }
 
 type NativeTemplate struct {
@@ -138,6 +141,7 @@ func ValidateChannelPolicy(p *ChannelPolicy, format RenderFormat) error {
 		return policyError("policy.groups", "too_many_groups")
 	}
 	groups, names := map[string]bool{}, map[string]bool{}
+	remoteNames := map[string]bool{}
 	ruleCount := 0
 	for i, group := range p.Groups {
 		path := fmt.Sprintf("policy.groups[%d]", i)
@@ -176,7 +180,7 @@ func ValidateChannelPolicy(p *ChannelPolicy, format RenderFormat) error {
 				return policyError(rp+".id", "invalid_or_duplicate_id")
 			}
 			rules[rule.ID] = true
-			if rule.SortIndex < 0 || rule.SortIndex > 2147483647 {
+			if rule.SortIndex < -9007199254740991 || rule.SortIndex > 9007199254740991 {
 				return policyError(rp+".sort_index", "invalid_value")
 			}
 			if err := validateExit(rule.Exit, candidates, nil, true, rp+".exit"); err != nil {
@@ -203,10 +207,17 @@ func ValidateChannelPolicy(p *ChannelPolicy, format RenderFormat) error {
 				if err := validateRemoteRuleSet(*rule.Remote, format, rp+".remote"); err != nil {
 					return err
 				}
+				if remoteNames[rule.Remote.Name] {
+					return policyError(rp+".remote.name", "duplicate_name")
+				}
+				remoteNames[rule.Remote.Name] = true
 			default:
 				return policyError(rp+".kind", "unsupported_rule")
 			}
 		}
+	}
+	if err := validateGroupReferences(p.Groups); err != nil {
+		return err
 	}
 	for _, g := range p.Groups {
 		if !g.Enabled {
@@ -221,13 +232,22 @@ func ValidateChannelPolicy(p *ChannelPolicy, format RenderFormat) error {
 }
 
 func validateGroupOptions(group RuleGroup, format RenderFormat, path string) error {
+	if len(group.GroupIDs) > 255 {
+		return policyError(path+".group_ids", "too_many_groups")
+	}
+	if err := policyIDs(group.GroupIDs, path+".group_ids"); err != nil {
+		return err
+	}
 	if group.CandidateOrder != nil {
-		members := make(map[string]bool, len(group.NodeIDs)+len(group.BuiltinNodes))
+		members := make(map[string]bool, len(group.NodeIDs)+len(group.BuiltinNodes)+len(group.GroupIDs))
 		for _, id := range group.NodeIDs {
 			members["node:"+id] = true
 		}
 		for _, kind := range group.BuiltinNodes {
 			members["builtin:"+kind] = true
+		}
+		for _, id := range group.GroupIDs {
+			members["group:"+id] = true
 		}
 		for _, key := range group.CandidateOrder {
 			if !members[key] {
@@ -272,6 +292,46 @@ func validateGroupOptions(group RuleGroup, format RenderFormat, path string) err
 		}
 		if h.Interval < 60 || h.Interval > 86400 || h.Tolerance < 0 || h.Tolerance > 65535 {
 			return policyError(path+".health_check", "invalid_value")
+		}
+	}
+	return nil
+}
+
+// Check the entire graph, including disabled groups, so enabling a group cannot
+// introduce a latent cycle. References must always target an enabled group.
+func validateGroupReferences(groups []RuleGroup) error {
+	indices := make(map[string]int, len(groups))
+	for i, group := range groups {
+		indices[group.ID] = i
+	}
+	visiting, visited := map[string]bool{}, map[string]bool{}
+	var visit func(int) error
+	visit = func(i int) error {
+		group := groups[i]
+		if visited[group.ID] {
+			return nil
+		}
+		visiting[group.ID] = true
+		for j, id := range group.GroupIDs {
+			path := fmt.Sprintf("policy.groups[%d].group_ids[%d]", i, j)
+			index, ok := indices[id]
+			if !ok || !groups[index].Enabled {
+				return policyError(path, "group_not_enabled")
+			}
+			if visiting[id] {
+				return policyError(path, "cyclic_group_reference")
+			}
+			if err := visit(index); err != nil {
+				return err
+			}
+		}
+		delete(visiting, group.ID)
+		visited[group.ID] = true
+		return nil
+	}
+	for i := range groups {
+		if err := visit(i); err != nil {
+			return err
 		}
 	}
 	return nil
@@ -346,13 +406,7 @@ func validateRemoteRuleSet(r RemoteRuleSet, format RenderFormat, path string) er
 		if r.Format != "loon" || r.Behavior != "" {
 			return policyError(path+".format", "incompatible_format")
 		}
-		if r.UpdateInterval != 0 {
-			return policyError(path+".update_interval", "unsupported_client")
-		}
 		return nil
-	}
-	if r.UpdateInterval < 60 || r.UpdateInterval > 2592000 {
-		return policyError(path+".update_interval", "out_of_range")
 	}
 	if format == RenderFormatSingBox {
 		if !oneOf(r.Format, "source", "binary") || r.Behavior != "" {

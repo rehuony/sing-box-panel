@@ -159,3 +159,15 @@ describe('channel draft', () => {
     expect(result.current.policy.groups).toEqual([second, first]);
   });
 });
+
+it('removes references in the same draft update when disabling a group, while protecting the final exit', () => {
+  const child = { ...newRuleGroup([]), id: 'child', name: 'Child' };
+  const parent = { ...newRuleGroup([]), id: 'parent', name: 'Parent', group_ids: ['child'], candidate_order: ['group:child'] };
+  const { result } = mount({ ...channel, config: { policy: { ...channel.config.policy!, groups: [parent, child], default_exit: { kind: 'group', id: 'parent' } } } });
+  act(() => result.current.updateGroup({ ...parent, enabled: false }));
+  expect(result.current.policy.groups[0].enabled).toBe(true);
+  act(() => result.current.updateGroup({ ...child, enabled: false }));
+  expect(result.current.policy.groups[1].enabled).toBe(false);
+  expect(result.current.policy.groups[0].group_ids).toEqual([]);
+  expect(result.current.policy.groups[0].candidate_order).toEqual([]);
+});

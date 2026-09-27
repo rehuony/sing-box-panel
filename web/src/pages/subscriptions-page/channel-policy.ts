@@ -17,10 +17,11 @@ export function updateGroupCandidates(
   node_ids: string[],
   builtin_nodes = group.builtin_nodes,
   candidate_order = candidateOrder(group),
+  group_ids = group.group_ids ?? [],
 ): ChannelRuleGroup {
   return {
-    ...group, node_ids, builtin_nodes,
-    candidate_order: candidateOrder({ node_ids, builtin_nodes, candidate_order }),
+    ...group, node_ids, builtin_nodes, group_ids,
+    candidate_order: candidateOrder({ node_ids, builtin_nodes, group_ids, candidate_order }),
     rules: group.rules.map(item => item.exit.kind === 'node' && !node_ids.includes(item.exit.id!)
       ? { ...item, exit: { kind: 'group-default' } }
       : item),
@@ -32,13 +33,7 @@ export function initialChannelPolicy(
   nodes: SubscriptionNodeSummary[],
 ): ChannelPolicy {
   if (channel.config.policy) {
-    const policy = structuredClone(channel.config.policy);
-    let index = 0;
-    policy.groups.forEach(group => group.rules.forEach(rule => {
-      index += 10;
-      rule.sort_index ??= index;
-    }));
-    return policy;
+    return structuredClone(channel.config.policy);
   }
   const excluded = nodes.filter(node => channel.config.exclude_tags?.includes(node.tag)
     || channel.config.exclude_types?.includes(node.type)).map(node => node.id);
@@ -78,6 +73,7 @@ export function newRuleGroup(nodeIDs: string[]): ChannelRuleGroup {
     type: 'select',
     builtin_nodes: [],
     node_ids: [...nodeIDs],
+    group_ids: [],
     candidate_order: nodeIDs.map(id => `node:${id}`),
     rules: [],
   };
@@ -162,5 +158,41 @@ export function compareChannelRules(left: ChannelRule, right: ChannelRule): numb
 
 export function nextRuleIndex(policy: ChannelPolicy): number {
   const indices = policy.groups.flatMap(group => group.rules.map(rule => rule.sort_index ?? 0));
-  return Math.min(2147483647, Math.max(0, ...indices) + 10);
+  return indices.length ? Math.min(Number.MAX_SAFE_INTEGER, Math.max(...indices) + 10) : 10;
+}
+
+export function detectRuleFormat(raw: string, client: SubscriptionFormat): ChannelRemoteRuleSet['format'] | '' {
+  try {
+    const url = new URL(directRuleURL(raw));
+    if (!['https:', 'http:'].includes(url.protocol)) return '';
+    const extension = decodeURIComponent(url.pathname).match(/\.([^/.]+)$/)?.[1].toLowerCase();
+    if (client === 'loon') return ['loon', 'list', 'txt'].includes(extension ?? '') ? 'loon' : '';
+    const formats: Record<string, ChannelRemoteRuleSet['format']> = client === 'sing-box'
+      ? { json: 'source', srs: 'binary' }
+      : { yaml: 'yaml', yml: 'yaml', txt: 'text', list: 'text', mrs: 'mrs' };
+    return extension && Object.hasOwn(formats, extension) ? formats[extension] : '';
+  } catch {
+    return '';
+  }
+}
+
+export function createsGroupCycle(groups: ChannelRuleGroup[], ownerID: string, candidateID: string): boolean {
+  const catalog = new Map(groups.map(group => [group.id, group]));
+  const visited = new Set<string>();
+  function reachesOwner(id: string): boolean {
+    if (id === ownerID) return true;
+    if (visited.has(id)) return false;
+    visited.add(id);
+    return (catalog.get(id)?.group_ids ?? []).some(reachesOwner);
+  }
+  return reachesOwner(candidateID);
+}
+
+export function removeGroupReferences(groups: ChannelRuleGroup[], id: string): ChannelRuleGroup[] {
+  return groups.map(group => (group.group_ids ?? []).includes(id)
+    ? updateGroupCandidates(
+        group, group.node_ids, group.builtin_nodes, candidateOrder(group),
+        group.group_ids!.filter(value => value !== id),
+      )
+    : group);
 }

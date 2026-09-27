@@ -159,8 +159,10 @@ with `unsafe-eval`.
 Structured controls edit and validate only fields known to the reviewed form
 contract while preserving unshown JSON properties. The Advanced editor owns
 the complete effective configuration, with JSON syntax highlighting, line numbers,
-folding, search/replace, and lossless formatting (also available with Ctrl/Cmd+Shift+F).
-Formatting preserves numeric literals and remains undoable; incomplete input is left intact.
+folding, search/replace, and lossless formatting. The top-right **Format and order
+fields** button (also available with Ctrl/Cmd+Shift+F) indents JSON and recursively
+applies the shared field order described below. Formatting preserves numeric
+literals and remains undoable in one step; incomplete input is left intact.
 The editor loads on demand. The browser can save invalid JSON; it disables visual editing and binary
 validation until the text is a valid object. Saving and checking lock editing
 until the result arrives, so feedback describes the submitted file. Validation
@@ -578,9 +580,14 @@ seen by `config set`, an arbitrary former custom directory cannot be inferred.
 
 ### Stable JSON presentation
 
-Visual configuration edits, explicit formatting, and sing-box channel output use
-the shared field priorities in `api/configuration-order.json`. Known fields have
-a fixed reading order and remaining fields are ordered by name. Object formatting
+Visual configuration forms and edits, node JSON previews, explicit formatting,
+and sing-box channel output use the shared field priorities in
+`api/configuration-order.json`. Nodes place identity first, then listen/server
+addresses and socket options, authentication, protocol options, and TLS/transport
+blocks. Common fields retain the same relative order across protocols. TLS blocks
+group enablement and server identity, negotiation (ALPN and versions), certificates
+and keys, then advanced options. Explicit Schema presentation priorities still
+take precedence in forms. Remaining fields are ordered by name. Object formatting
 preserves unknown fields, exact numeric spelling, null/false values, and all array
 orders, including route rules and strategy candidates. Editing raw JSON does not
 reformat each keystroke; saving the configuration file still preserves exact text,

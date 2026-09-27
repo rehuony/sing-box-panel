@@ -1,3 +1,4 @@
+import { parse } from 'lossless-json';
 import userEvent from '@testing-library/user-event';
 import { beforeAll, describe, expect, it, vi } from 'vitest';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
@@ -103,7 +104,7 @@ describe('subscription sources and nodes', () => {
     const raw = '{"type":"socks","future":{"counter":900719925474099312345,"threshold":4.2000e+99}}';
     const formatted = '{\n  "type": "socks",\n  "future": {\n    "counter": 900719925474099312345,\n    "threshold": 4.2000e+99\n  }\n}';
     fireEvent.change(editor, { target: { value: raw } });
-    fireEvent.click(screen.getByRole('button', { name: 'Format' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Format and order fields' }));
     expect(editor).toHaveValue(formatted);
     await user.click(screen.getByRole('button', { name: 'Save node' }));
     await waitFor(() => expect(client.createSubscriptionNode).toHaveBeenCalledWith(formatted));
@@ -327,17 +328,9 @@ describe('subscription sources and nodes', () => {
     });
     await user.click(within(dialog).getByRole('button', { name: 'Save node' }));
     await waitFor(() =>
-      expect(client.updateSubscriptionNode).toHaveBeenCalledWith(node.id, `{
-  "type": "socks",
-  "tag": "香港",
-  "server": "new.example",
-  "server_port": 1080,
-  "future": {
-    "large": 9007199254740993
-  },
-  "udp_fragment": false
-}`, 1),
+      expect(client.updateSubscriptionNode).toHaveBeenCalledExactlyOnceWith(node.id, expect.any(String), 1),
     );
+    expect(parse(vi.mocked(client.updateSubscriptionNode).mock.calls[0][1])).toEqual(parse(changed));
   });
 
   it('wires a new source submission to the create action', async () => {

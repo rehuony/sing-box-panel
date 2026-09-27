@@ -27,7 +27,7 @@ export function ChannelPreview({ preview, error, onClose }: Props) {
   const failure = error ? describeRequestError(error) : '';
   const issueCount = issues.length + (failure ? 1 : 0);
   async function copy() {
-    if (!preview) return;
+    if (!preview?.result.content) return;
     try {
       await navigator.clipboard.writeText(preview.result.content);
       toast.add({ title: t('channels.copied'), type: 'success' });
@@ -76,11 +76,11 @@ export function ChannelPreview({ preview, error, onClose }: Props) {
 
         </div>
         <DialogFooter>
-          <Button variant='outline' disabled={!preview} onClick={() => void copy()}>
-            {t('channels.copy')}
-          </Button>
           <Button variant='outline' onClick={onClose}>
             {t('common.close')}
+          </Button>
+          <Button disabled={!preview?.result.content} onClick={() => void copy()}>
+            {t('channels.copy')}
           </Button>
         </DialogFooter>
       </DialogContent>

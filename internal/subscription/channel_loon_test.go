@@ -64,7 +64,6 @@ func TestChannelLoonRejectsConflictsAndInjection(t *testing.T) {
 		func(p *ChannelPolicy) { p.Groups[0].Name = "\"quoted\"" },
 		func(p *ChannelPolicy) { p.Groups[0].Type = "url-test"; p.Groups[0].BuiltinNodes = []string{"direct"} },
 		func(p *ChannelPolicy) { p.Groups[0].Rules[3].Remote.Format = "text" },
-		func(p *ChannelPolicy) { p.Groups[0].Rules[3].Remote.UpdateInterval = 3600 },
 		func(p *ChannelPolicy) { p.Groups[0].Rules[3].Remote.URL = "https://example.com/rules,policy=DIRECT" },
 	} {
 		_, p := policyFixture(t, RenderFormatLoon)

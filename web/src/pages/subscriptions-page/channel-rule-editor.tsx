@@ -10,6 +10,7 @@ import type {
 
 import { Button } from '@/components/ui/button';
 import { toast } from '@/components/ui/toast-manager';
+import { InfoTooltip } from '@/components/info-tooltip';
 import { SelectField } from '@/components/select-field';
 import { useUnsavedChanges } from '@/hooks/use-unsaved-changes';
 import {
@@ -23,6 +24,7 @@ import {
 
 import {
   canAccelerateRuleURL,
+  detectRuleFormat,
   directRuleURL,
   effectiveRuleURL,
   ruleFormats,
@@ -31,27 +33,32 @@ import {
 interface Props {
   rule: ChannelRule;
   onClose: () => void;
+  otherRuleNames: string[];
   format: SubscriptionFormat;
   onSave: (value: ChannelRule) => Promise<void>;
 }
-export function ChannelRuleEditor({ rule, format, onClose, onSave }: Props) {
+export function ChannelRuleEditor({ rule, format, onClose, onSave, otherRuleNames }: Props) {
   const { t } = useTranslation();
   const [draft, setDraft] = useState(() => structuredClone(rule));
   const [sourceFormat, setSourceFormat] = useState<string>(() =>
     rule.remote?.url && ruleFormats(format).includes(rule.remote!.format) ? rule.remote.format : '',
   );
+  const [sortIndex, setSortIndex] = useState(String(rule.sort_index ?? 0));
   const [busy, setBusy] = useState(false);
   const [attempted, setAttempted] = useState(false);
   const originalFormat = rule.remote?.url && ruleFormats(format).includes(rule.remote.format) ? rule.remote.format : '';
-  useUnsavedChanges(JSON.stringify(draft) !== JSON.stringify(rule) || sourceFormat !== originalFormat, onClose, busy);
+  const dirty = JSON.stringify(draft) !== JSON.stringify(rule)
+    || sourceFormat !== originalFormat || sortIndex !== String(rule.sort_index ?? 0);
+  useUnsavedChanges(dirty, onClose, busy);
   const remote = draft.remote;
-  const validIndex = Number.isInteger(draft.sort_index) && draft.sort_index! >= 1 && draft.sort_index! <= 2147483647;
+  const validIndex = /^-?\d+$/.test(sortIndex) && Number.isSafeInteger(Number(sortIndex));
+  const duplicateName = Boolean(remote && otherRuleNames.includes(remote.name.trim()));
   function updateRemote(value: Partial<ChannelRemoteRuleSet>) {
     setDraft((current) => ({ ...current, remote: { ...current.remote!, ...value } }));
   }
   async function save() {
     setAttempted(true);
-    if (!validIndex) return;
+    if (!validIndex || duplicateName) return;
     if (remote && !sourceFormat) return;
     if (remote) {
       try {
@@ -62,10 +69,6 @@ export function ChannelRuleEditor({ rule, format, onClose, onSave }: Props) {
           || url.username
           || url.password
           || url.hash
-          || (format !== 'loon' && (remote.update_interval === undefined
-            || !Number.isInteger(remote.update_interval)
-            || remote.update_interval < 60
-            || remote.update_interval > 2592000))
         ) {
           throw new Error(t('channels.invalidRule'));
         }
@@ -84,16 +87,16 @@ export function ChannelRuleEditor({ rule, format, onClose, onSave }: Props) {
         remote
           ? {
               ...draft,
+              sort_index: Number(sortIndex),
               remote: {
                 ...remote,
                 name: remote.name.trim(),
                 url: directRuleURL(remote.url),
                 format: sourceFormat as ChannelRemoteRuleSet['format'],
                 behavior: format === 'mihomo' ? (remote.behavior ?? 'domain') : undefined,
-                update_interval: format === 'loon' ? undefined : remote.update_interval,
               },
             }
-          : { ...draft, value: draft.value!.trim() },
+          : { ...draft, sort_index: Number(sortIndex), value: draft.value!.trim() },
       );
       onClose();
     } catch (reason) {
@@ -111,21 +114,26 @@ export function ChannelRuleEditor({ rule, format, onClose, onSave }: Props) {
         </DialogHeader>
         <div className='channel-dialog-scroll'>
           <div className='subscription-settings-fields'>
-            <label htmlFor='rule-sort-index'>{t('channels.sortIndex')}</label>
-            <input id='rule-sort-index' type='number' min={1} max={2147483647} step={1}
+            <div className='flex items-center gap-1'>
+              <label htmlFor='rule-sort-index'>{t('channels.sortIndex')}</label>
+              <InfoTooltip label={t('channels.sortIndexHelp')}>{t('channels.sortIndexHint')}</InfoTooltip>
+            </div>
+            <input id='rule-sort-index' type='text'
               aria-invalid={attempted && !validIndex}
-              value={draft.sort_index ?? ''}
-              onChange={event => setDraft({ ...draft, sort_index: event.target.value === '' ? undefined : Number(event.target.value) })} />
-            <p className='channel-delivery-hint col-span-full'>{t('channels.sortIndexHint')}</p>
+              value={sortIndex}
+              onChange={event => setSortIndex(event.target.value)} />
             {remote
               ? (
                   <>
                     <label htmlFor='rule-name'>{t('channels.ruleName')}</label>
                     <input
                       id='rule-name'
+                      aria-invalid={duplicateName}
+                      aria-describedby={duplicateName ? 'rule-name-error' : undefined}
                       value={remote.name}
                       onChange={(event) => updateRemote({ name: event.target.value })}
                     />
+                    {duplicateName && <p id='rule-name-error' role='alert' className='col-span-full text-sm text-destructive'>{t('channels.duplicateRuleName')}</p>}
                     <label htmlFor='rule-url'>{t('channels.url')}</label>
                     <div className='channel-rule-url'>
                       <input
@@ -135,8 +143,10 @@ export function ChannelRuleEditor({ rule, format, onClose, onSave }: Props) {
                         value={effectiveRuleURL(remote.url, remote.accelerated)}
                         onChange={(event) => {
                           const raw = event.target.value;
+                          const url = directRuleURL(raw);
+                          if (url !== directRuleURL(remote.url)) setSourceFormat(detectRuleFormat(url, format));
                           updateRemote({
-                            url: directRuleURL(raw),
+                            url,
                             accelerated:
                           directRuleURL(raw) !== raw
                           || (remote.accelerated && canAccelerateRuleURL(raw)),
@@ -205,22 +215,6 @@ export function ChannelRuleEditor({ rule, format, onClose, onSave }: Props) {
                             { value: 'ipcidr', label: 'IP CIDR' },
                             { value: 'classical', label: 'Classical', disabled: sourceFormat === 'mrs' },
                           ]}
-                        />
-                      </>
-                    )}
-                    {format !== 'loon' && (
-                      <>
-                        <label htmlFor='rule-interval'>{t('channels.interval')}</label>
-                        <input
-                          id='rule-interval'
-                          type='number'
-                          min={60}
-                          max={2592000}
-                          step={1}
-                          value={remote.update_interval ?? ''}
-                          onChange={(event) =>
-                            updateRemote({ update_interval: Number(event.target.value) })
-                          }
                         />
                       </>
                     )}

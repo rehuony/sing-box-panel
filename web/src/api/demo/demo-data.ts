@@ -1,6 +1,7 @@
 import type {
   CanonicalSnapshot,
   CatalogAssetList,
+  ChannelPolicy,
   CoreArtifact,
   DashboardContext,
   LogEntry,
@@ -72,6 +73,35 @@ function ago(now: Date, minutes: number): string {
   return new Date(now.getTime() - minutes * 60_000).toISOString();
 }
 
+function demoChannelPolicy(format: 'sing-box' | 'mihomo'): ChannelPolicy {
+  return {
+    selection: { ids: ['node_demo_manual'], excluded_ids: [], new_node_policy: 'exclude' },
+    incompatible_nodes: 'skip',
+    default_exit: { kind: 'group', id: 'main' },
+    groups: [{
+      id: 'main', name: 'Proxy', enabled: true, type: 'select', node_ids: [],
+      builtin_nodes: ['direct'], group_ids: ['automatic'],
+      candidate_order: ['group:automatic', 'builtin:direct'],
+      rules: [{
+        id: 'private', enabled: true, sort_index: -10, kind: 'ip_cidr',
+        value: '192.168.0.0/16', exit: { kind: 'direct' },
+      }, {
+        id: 'domains', enabled: true, sort_index: 0, kind: 'remote', exit: { kind: 'group-default' },
+        remote: {
+          name: 'Example domains', accelerated: false,
+          url: `https://rules.example/domains.${format === 'sing-box' ? 'srs' : 'mrs'}`,
+          format: format === 'sing-box' ? 'binary' : 'mrs',
+          ...(format === 'mihomo' ? { behavior: 'domain' as const } : {}),
+        },
+      }],
+    }, {
+      id: 'automatic', name: 'Auto select', enabled: true, type: 'url-test',
+      node_ids: ['node_demo_manual'], builtin_nodes: [], group_ids: [],
+      candidate_order: ['node:node_demo_manual'], rules: [],
+    }],
+  };
+}
+
 export function createDemoData(now = new Date()): DemoData {
   const canonicalJSON = JSON.stringify(demoCanonicalDocument);
   const canonical: CanonicalSnapshot = {
@@ -141,7 +171,7 @@ export function createDemoData(now = new Date()): DemoData {
     name: 'sing-box devices',
     format: 'sing-box',
     public_host: 'panel.demo.local',
-    config: { exclude_tags: ['block'] },
+    config: { policy: demoChannelPolicy('sing-box') },
     enabled: true,
     created_at: ago(now, 4_320),
     updated_at: ago(now, 80),
@@ -150,7 +180,7 @@ export function createDemoData(now = new Date()): DemoData {
     name: 'Mihomo clients',
     format: 'mihomo',
     public_host: 'panel.demo.local',
-    config: {},
+    config: { policy: demoChannelPolicy('mihomo') },
     enabled: true,
     created_at: ago(now, 2_880),
     updated_at: ago(now, 65),

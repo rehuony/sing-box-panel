@@ -1,7 +1,7 @@
 import type { ChannelRuleGroup } from '@/api/api-client';
 
-export function candidateOrder(group: Pick<ChannelRuleGroup, 'node_ids' | 'builtin_nodes' | 'candidate_order'>): string[] {
-  const members = [...group.node_ids.map((id) => `node:${id}`), ...group.builtin_nodes.map((kind) => `builtin:${kind}`)];
+export function candidateOrder(group: Pick<ChannelRuleGroup, 'node_ids' | 'builtin_nodes' | 'candidate_order' | 'group_ids'>): string[] {
+  const members = [...group.node_ids.map((id) => `node:${id}`), ...group.builtin_nodes.map((kind) => `builtin:${kind}`), ...(group.group_ids ?? []).map(id => `group:${id}`)];
   const selected = new Set(members);
   return [...new Set([...(group.candidate_order ?? []).filter((id) => selected.has(id)), ...members])];
 }

@@ -1,4 +1,10 @@
 export const channels = {
+  sortIndexHelp: '排序索引说明',
+  duplicateRuleName: '同一订阅内的规则集名称不能重复。',
+  strategyGroup: '策略组',
+  alreadyAdded: '已添加',
+  cyclicGroupReference: '会产生循环引用',
+  deleteGroupPrompt: '删除“{{name}}”？其他策略组中对它的引用也将一并移除。',
   legacyUpgradeHint: '此渠道仍仅分发节点。两个预览均展示升级后的完整配置，点击“保存更改”后生效。旧过滤会转为对当前节点的排除，后续节点按新节点策略处理。',
   sortIndex: '排序索引',
   sortIndexHint: '数字越小越优先；允许重复，同序号按名称升序排列。',
@@ -16,7 +22,7 @@ export const channels = {
   nodeDragStart: '正在移动 {{name}}。', nodeDragPosition: '第 {{position}} 项，共 {{count}} 项。', nodeDragEnd: '节点顺序已更新。', nodeDragCancel: '已取消排序。',
   noActiveKeys: '暂无可用密钥，请在密钥管理中创建或启用密钥。', keyUnavailable: '此密钥当前不可用。', link: '链接', duplicateSuffix: '副本', duplicated: '渠道已复制',
 
-  addNodes: '添加节点', addSelectedNodes: '添加 {{count}} 个节点', pickNodesHint: '选择要添加到当前策略组的节点。',
+  addNodes: '添加节点', addSelectedNodes: '添加 {{count}} 个节点', pickNodesHint: '选择要添加到当前策略组的节点或策略组。',
   emptyCandidates: '尚未添加候选节点', emptyCandidatesHint: '点击上方加号，为当前策略组添加节点。',
 
   groupType: '策略类型', groupTypes: { 'select': '手动选择', 'url-test': '自动测速', 'fallback': '故障转移' },
@@ -29,7 +35,7 @@ export const channels = {
   groupSettings: '配置 {{name}}', groupSettingsTitle: '策略组设置', clearFinalExit: '取消最终出口',
   setFinalExit: '设为最终出口', finalExitHint: '使用此策略组处理未匹配的流量，可不设置最终策略组。',
   applyClientFirst: '先点击“完成”应用客户端选择，再编辑对应模板。',
-  members: '组内节点', membersCount: '{{count}} 个节点', finalExit: '最终出口', searchNodes: '搜索节点、来源或协议', noMatchingNodes: '没有匹配的节点', searchNodesHint: '尝试其他节点名称、来源或协议。', ruleSet: '规则集',
+  members: '组内节点', membersCount: '{{count}} 个节点', finalExit: '最终出口', searchNodes: '搜索节点、策略组、来源或协议', noMatchingNodes: '没有匹配的节点', searchNodesHint: '尝试其他节点名称、策略组、来源或协议。', ruleSet: '规则集',
   newGroupName: '策略组 {{number}}', groupSummary: '{{nodes}} 个节点 · {{rules}} 条规则', noGroups: '暂无策略组', noGroupsHint: '从左侧添加策略组，然后选择节点并配置流量出口。', noNodes: '暂无可用节点，请先在订阅来源中添加。', noRules: '添加匹配规则，命中的流量使用本组节点，规则按顺序生效。', groupExitInUse: '此策略组是最终出口，请先取消最终出口设置或改选其他策略组，再删除或停用。', moveGroupUp: '上移策略组', moveGroupDown: '下移策略组',
   subscriptionKey: '订阅密钥', keyPlaceholder: '粘贴已创建的密钥', keyHint: '请在密钥管理中创建密钥。同一密钥可用于多个渠道，此处不会保存密钥。', copyURL: '复制订阅链接', channelUnavailable: '此渠道已停用，无法分发订阅。',
   disabled: '停用',
@@ -37,6 +43,6 @@ export const channels = {
 
   newNodes: '新增节点策略', include: '自动选入渠道', exclude: '手动选入', template: '当前模板', defaultTemplate: '默认配置', customTemplate: '自定义配置', editTemplate: '编辑模板', templateCode: '原生配置', validate: '校验', valid: '模板结构校验通过', formatConflict: '输出客户端已更改，请检查策略类型、内置节点、规则集格式及模板。', copy: '复制', copied: '已复制',
   groups: '策略组', addGroup: '添加策略组', editGroup: '编辑策略组', groupName: '组名称', matches: '出口规则', manualCount: '{{count}} 条规则', remoteCount: '{{count}} 个规则集', state: '状态', actions: '操作', candidates: '候选节点', direct: '直连', reject: '拒绝', follow: '本组节点', missingNode: '不可用节点', deleteGroup: '删除策略组', deleteRule: '删除规则',
-  addRule: '添加规则', addRemote: '添加规则集', editRule: '编辑规则', editRemote: '编辑规则集', ruleKind: '匹配类型', domain: '域名', domain_suffix: '域名后缀', domain_keyword: '域名关键字', ip_cidr: 'IP / CIDR', matchValue: '匹配内容', exit: '流量出口', ruleName: '名称', url: '链接', acceleration: 'GitHub 文件加速', sourceFormat: '源格式', chooseFormat: '选择格式', behavior: '规则类型', interval: '更新间隔（秒）', selectAll: '全选', unavailable: '当前不可用', invalidRule: '请检查匹配内容、来源网址或更新间隔。', formatPending: '待选择格式',
+  addRule: '添加规则', addRemote: '添加规则集', editRule: '编辑规则', editRemote: '编辑规则集', ruleKind: '匹配类型', domain: '域名', domain_suffix: '域名后缀', domain_keyword: '域名关键字', ip_cidr: 'IP / CIDR', matchValue: '匹配内容', exit: '流量出口', ruleName: '名称', url: '链接', acceleration: 'GitHub 文件加速', sourceFormat: '源格式', chooseFormat: '选择格式', behavior: '规则类型', selectAll: '全选', unavailable: '当前不可用', invalidRule: '请检查匹配内容、规则集名称或来源网址。', formatPending: '待选择格式',
   publicHost: '原渠道对外地址', enabledLabel: '渠道启用',
 } as const;
