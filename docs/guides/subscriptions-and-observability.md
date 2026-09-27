@@ -76,6 +76,44 @@ only; create, rotate and the explicit authenticated secret endpoint return plain
 No request address, user agent, plaintext key or response content is recorded in
 usage statistics.
 
+### Subscription traffic metadata
+
+Every successful public subscription response, including `304 Not Modified`,
+includes an HTTP response header in the following format:
+
+```http
+Subscription-Userinfo: upload=123; download=456; total=107374182400
+```
+
+Values are integer bytes, separated by a semicolon and a space. `upload` is the
+current period's recorded outbound traffic, and `download` is its recorded
+inbound traffic. `total` uses the shared `traffic.quota_gib` setting multiplied
+by 1024³; an absent or zero quota produces `total=0` (unlimited). These are
+instance-wide counters shared by all keys and channels, including user-scoped
+keys. They do not represent individual user/node usage, subscription file sizes,
+or the key's download limit.
+
+Each request reads the current accounting settings and aggregates the current
+`traffic.period_months` period, using the existing UTC natural-month boundaries
+aligned from January 1970. At the next period boundary, only the new period's
+recorded usage is returned; no records means `upload=0; download=0`. Historical
+totals remain intact, and no reset job or running collector is required.
+Quota and period changes take effect on the next request.
+
+The header reports recorded usage even when sampling is stale, stopped, or
+incomplete. Zero means no recorded usage, not proof that no traffic occurred.
+The header format cannot communicate sampling coverage; dashboard metrics keep
+their existing unknown/partial evidence semantics. Configuration read or traffic
+storage failures return `503` instead of fabricated counters. Failed requests
+do not consume download quota or expose the traffic header; final authorization
+is rechecked before either a `200` or `304` response is committed.
+
+Traffic changes leave the subscription body and its ETag unchanged. Conditional
+requests still receive refreshed traffic metadata. The response adds no expiry
+or refresh-interval field: a period boundary is not a subscription expiration.
+Clients display the new usage on their next successful subscription refresh,
+so manually refresh an existing subscription to see it immediately.
+
 ## Applied local nodes and versioned sources
 
 Local nodes are derived only from the immutable startup bytes referenced by

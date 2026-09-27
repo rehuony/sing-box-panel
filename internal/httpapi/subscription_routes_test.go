@@ -288,12 +288,18 @@ func TestPublicSubscriptionHTTPFrozenPublicationAndTokenLifecycle(t *testing.T) 
 	}
 
 	served := publicSubscriptionRequest(handler, publicPath)
+	if got := served.Header().Get("Subscription-Userinfo"); got != "upload=0; download=0; total=0" {
+		t.Fatalf("subscription traffic header = %q", got)
+	}
 	if served.Code != http.StatusOK || served.Header().Get("Content-Type") != "application/json" ||
 		!strings.Contains(served.Body.String(), "publish.example") || served.Header().Get("Cache-Control") != "no-store" ||
 		served.Header().Get("ETag") == "" {
 		t.Fatalf("served status=%d content-type=%q body=%s", served.Code, served.Header().Get("Content-Type"), served.Body.String())
 	}
 	notModified := publicSubscriptionConditionalRequest(handler, publicPath, served.Header().Get("ETag"))
+	if got := notModified.Header().Get("Subscription-Userinfo"); got != "upload=0; download=0; total=0" {
+		t.Fatalf("conditional subscription traffic header = %q", got)
+	}
 	if notModified.Code != http.StatusNotModified || notModified.Body.Len() != 0 ||
 		notModified.Header().Get("ETag") != served.Header().Get("ETag") {
 		t.Fatalf("not modified status=%d etag=%q body=%s", notModified.Code, notModified.Header().Get("ETag"), notModified.Body.String())
