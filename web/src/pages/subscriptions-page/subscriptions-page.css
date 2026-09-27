@@ -1795,42 +1795,52 @@
   box-shadow: var(--shadow-panel);
 }
 .channel-rule-rows {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
+  display: grid;
+  margin: 0;
+  padding: 0;
+  list-style: none;
 }
 .channel-rule-row {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   gap: 12px;
-  border-bottom: 1px solid var(--color-rule-2);
-  padding: 12px 0;
+  padding: 14px 0;
+}
+.channel-rule-row + .channel-rule-row {
+  border-top: 1px solid var(--color-rule-2);
 }
 .channel-rule-label {
   display: flex;
-  flex: 1;
-  min-width: 0;
   align-items: center;
-  gap: 8px;
+  min-width: 0;
+  gap: 12px;
   text-align: left;
 }
-.channel-rule-label > span:first-child {
+.channel-rule-name {
+  flex: 0 0 auto;
+  min-width: 0;
+  max-width: 50%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 500;
+}
+.channel-rule-row[data-disabled='true'] .channel-rule-name {
+  color: var(--color-text-muted);
+}
+.channel-rule-summary {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-weight: 400;
-}
-.channel-rule-summary {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex: none;
-}
-.channel-rule-summary > svg {
-  width: 14px;
-  height: 14px;
+  font-size: 12px;
   color: var(--color-text-muted);
+}
+.channel-rule-summary > span + span {
+  border-inline-start: 1px solid var(--color-rule-2);
+  margin-inline-start: 12px;
+  padding-inline-start: 12px;
 }
 .channel-rule-url {
   position: relative;
@@ -1926,20 +1936,6 @@
   }
   .channel-group-node-tools .subscription-search {
     flex: 1;
-  }
-  .channel-rule-row {
-    flex-wrap: wrap;
-  }
-  .channel-rule-label {
-    flex-wrap: wrap;
-  }
-  .channel-rule-label > span:first-child {
-    flex: 1 0 100%;
-  }
-  .channel-rule-row > .subscription-toolbar-actions {
-    flex-basis: 100%;
-    justify-content: flex-end;
-    margin-inline-start: auto;
   }
   .channel-rule-dialog .subscription-settings-fields,
   .channel-workspace .subscription-settings-fields,

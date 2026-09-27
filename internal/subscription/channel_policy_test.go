@@ -22,10 +22,10 @@ func policyFixture(t *testing.T, format RenderFormat) ([]Node, *ChannelPolicy) {
 	}
 	a, b := PublicationID(nodes[0]), PublicationID(nodes[1])
 	p := &ChannelPolicy{Selection: NodeSelection{IDs: []string{a, b}, NewNodePolicy: "exclude"}, IncompatibleNodes: "error", DefaultExit: RouteExit{Kind: "group", ID: "main"}, Groups: []RuleGroup{{Type: "select", BuiltinNodes: []string{}, ID: "main", Name: "Selected", Enabled: true, NodeIDs: []string{a, b}, Rules: []ChannelRule{
-		{ID: "domain", Enabled: true, Kind: "domain_suffix", Value: "example.org", Exit: RouteExit{Kind: "group-default"}},
-		{ID: "ipv6", Enabled: true, Kind: "ip_cidr", Value: "2001:db8::/32", Exit: RouteExit{Kind: "direct"}},
+		{SortIndex: 10, ID: "domain", Enabled: true, Kind: "domain_suffix", Value: "example.org", Exit: RouteExit{Kind: "group-default"}},
+		{SortIndex: 20, ID: "ipv6", Enabled: true, Kind: "ip_cidr", Value: "2001:db8::/32", Exit: RouteExit{Kind: "direct"}},
 		{ID: "disabled", Enabled: false, Kind: "domain", Value: "disabled.example", Exit: RouteExit{Kind: "reject"}},
-		{ID: "remote", Enabled: true, Kind: "remote", Exit: RouteExit{Kind: "node", ID: b}, Remote: &RemoteRuleSet{Name: "Remote rules", URL: "https://raw.githubusercontent.com/example/rules/main/proxy.rules", Format: "source", Accelerated: true, UpdateInterval: 3600}},
+		{SortIndex: 30, ID: "remote", Enabled: true, Kind: "remote", Exit: RouteExit{Kind: "node", ID: b}, Remote: &RemoteRuleSet{Name: "Remote rules", URL: "https://raw.githubusercontent.com/example/rules/main/proxy.rules", Format: "source", Accelerated: true}},
 	}}}}
 	if format == RenderFormatMihomo {
 		p.Groups[0].Rules[3].Remote.Format = "mrs"
@@ -33,7 +33,6 @@ func policyFixture(t *testing.T, format RenderFormat) ([]Node, *ChannelPolicy) {
 	}
 	if format == RenderFormatLoon {
 		p.Groups[0].Rules[3].Remote.Format = "loon"
-		p.Groups[0].Rules[3].Remote.UpdateInterval = 0
 	}
 	return nodes, p
 }
@@ -107,7 +106,7 @@ func TestChannelNativeRenderingAndTemplatePreservation(t *testing.T) {
 					t.Fatal(rules)
 				}
 				set := route["rule_set"].([]any)[0].(map[string]any)
-				if set["format"] != "source" || set["download_detour"] != "direct" {
+				if set["format"] != "source" || set["tag"] != "Remote rules" || set["update_interval"] != nil || !reflect.DeepEqual(set["http_client"], map[string]any{"detour": "direct"}) {
 					t.Fatal(set)
 				}
 			} else {
@@ -121,8 +120,8 @@ func TestChannelNativeRenderingAndTemplatePreservation(t *testing.T) {
 				if len(rules) != 4 || rules[1] != "IP-CIDR6,2001:db8::/32,DIRECT" || rules[3] != "MATCH,Selected" {
 					t.Fatal(rules)
 				}
-				provider := root["rule-providers"].(map[string]any)["rules-main-remote"].(map[string]any)
-				if provider["format"] != "mrs" || provider["behavior"] != "domain" {
+				provider := root["rule-providers"].(map[string]any)["Remote rules"].(map[string]any)
+				if provider["format"] != "mrs" || provider["behavior"] != "domain" || provider["interval"] != nil || rules[2] != "RULE-SET,Remote rules,Hong Kong" {
 					t.Fatal(provider)
 				}
 			}
@@ -525,15 +524,15 @@ func TestChannelGlobalRuleOrderAllowsDuplicates(t *testing.T) {
 	for _, format := range []RenderFormat{RenderFormatSingBox, RenderFormatMihomo, RenderFormatLoon} {
 		t.Run(string(format), func(t *testing.T) {
 			nodes, p := policyFixture(t, format)
-			makeRule := func(id, value string, index int, exit string) ChannelRule {
+			makeRule := func(id, value string, index int64, exit string) ChannelRule {
 				return ChannelRule{ID: id, Kind: "domain", Value: value, SortIndex: index, Enabled: true, Exit: RouteExit{Kind: exit}}
 			}
 			first := p.Groups[0]
-			first.Rules = []ChannelRule{makeRule("late", "last.example", 90, "direct"), makeRule("same-a", "a.example", 10, "direct")}
+			first.Rules = []ChannelRule{makeRule("late", "last.example", 90, "direct"), makeRule("same-a", "a.example", -10, "direct"), makeRule("zero", "zero.example", 0, "direct")}
 			second := first
 			second.ID = "second"
 			second.Name = "Second"
-			second.Rules = []ChannelRule{makeRule("z", "z.example", 10, "direct"), makeRule("same-b", "a.example", 10, "reject"), makeRule("middle", "middle.example", 20, "direct")}
+			second.Rules = []ChannelRule{makeRule("z", "z.example", -10, "direct"), makeRule("same-b", "a.example", -10, "reject"), makeRule("middle", "middle.example", 20, "direct"), {ID: "omitted", Enabled: true, Kind: "domain", Value: "omitted.example", Exit: RouteExit{Kind: "direct"}}}
 			p.Groups = []RuleGroup{first, second}
 			rendered, err := RenderPolicyNodes(nodes, RenderChannel{Format: format}, p)
 			if err != nil {
@@ -571,7 +570,7 @@ func TestChannelGlobalRuleOrderAllowsDuplicates(t *testing.T) {
 					}
 				}
 			}
-			want := []string{"a.example:route", "a.example:reject", "z.example:route", "middle.example:route", "last.example:route"}
+			want := []string{"a.example:route", "a.example:reject", "z.example:route", "omitted.example:route", "zero.example:route", "middle.example:route", "last.example:route"}
 			if !slices.Equal(got, want) {
 				t.Fatalf("global rule order %v, want %v", got, want)
 			}
@@ -579,5 +578,157 @@ func TestChannelGlobalRuleOrderAllowsDuplicates(t *testing.T) {
 				t.Fatal("management field leaked")
 			}
 		})
+	}
+}
+
+func TestChannelGroupReferencesRenderInDependencyOrder(t *testing.T) {
+	for _, format := range []RenderFormat{RenderFormatSingBox, RenderFormatMihomo, RenderFormatLoon} {
+		t.Run(string(format), func(t *testing.T) {
+			nodes, p := policyFixture(t, format)
+			leaf := p.Groups[0]
+			leaf.ID, leaf.Name, leaf.Rules = "leaf", "Leaf", nil
+			middle := RuleGroup{ID: "middle", Name: "Middle", Enabled: true, Type: "select", BuiltinNodes: []string{}, GroupIDs: []string{"leaf"}}
+			parent := RuleGroup{ID: "main", Name: "Parent", Enabled: true, Type: "select", BuiltinNodes: []string{"direct"}, NodeIDs: []string{leaf.NodeIDs[1]}, GroupIDs: []string{"middle", "leaf"}, CandidateOrder: []string{"group:middle", "builtin:direct", "group:leaf", "node:" + leaf.NodeIDs[1]}}
+			p.Groups = []RuleGroup{parent, middle, leaf}
+			result, err := RenderPolicyNodes(nodes, RenderChannel{Format: format}, p)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if format == RenderFormatLoon {
+				content := string(result.Content)
+				if strings.Index(content, "Leaf =") > strings.Index(content, "Middle =") || strings.Index(content, "Middle =") > strings.Index(content, "Parent =") || !strings.Contains(content, "Parent = select,Middle,DIRECT,Leaf,Hong Kong") {
+					t.Fatal(content)
+				}
+				return
+			}
+			var root map[string]any
+			if err := yaml.Unmarshal(result.Content, &root); err != nil {
+				t.Fatal(err)
+			}
+			key, names, candidates, direct := "proxy-groups", "name", "proxies", "DIRECT"
+			if format == RenderFormatSingBox {
+				key, names, candidates, direct = "outbounds", "tag", "outbounds", "direct"
+			}
+			groups := root[key].([]any)
+			groups = groups[len(groups)-3:]
+			if groups[0].(map[string]any)[names] != "Leaf" || groups[1].(map[string]any)[names] != "Middle" {
+				t.Fatal(groups)
+			}
+			got := groups[2].(map[string]any)
+			if got[names] != "Parent" || !reflect.DeepEqual(got[candidates], []any{"Middle", direct, "Leaf", "Hong Kong"}) {
+				t.Fatal(got)
+			}
+		})
+	}
+}
+
+func TestChannelUnavailableNestedGroupDoesNotChangeManualExit(t *testing.T) {
+	for _, format := range []RenderFormat{RenderFormatSingBox, RenderFormatMihomo, RenderFormatLoon} {
+		for _, kind := range []string{"select", "url-test"} {
+			t.Run(string(format)+"/"+kind, func(t *testing.T) {
+				nodes, p := policyFixture(t, format)
+				leaf := p.Groups[0]
+				leaf.ID, leaf.Name, leaf.Rules = "leaf", "Leaf", nil
+				parent := RuleGroup{ID: "main", Name: "Parent", Enabled: true, Type: kind, BuiltinNodes: []string{}, NodeIDs: []string{leaf.NodeIDs[1]}, GroupIDs: []string{"leaf"}, CandidateOrder: []string{"group:leaf", "node:" + leaf.NodeIDs[1]}, Rules: []ChannelRule{{ID: "rule", Enabled: true, Kind: "domain", Value: "example.org", Exit: RouteExit{Kind: "group-default"}}}}
+				p.Groups = []RuleGroup{parent, leaf}
+				result, err := RenderPolicyNodes(nodes[1:], RenderChannel{Format: format}, p)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if format == RenderFormatLoon {
+					target := "Parent"
+					if kind == "select" {
+						target = "REJECT"
+					}
+					if !strings.Contains(string(result.Content), "DOMAIN,example.org,"+target) || !strings.Contains(string(result.Content), "Parent = "+kind+",Hong Kong") {
+						t.Fatal(string(result.Content))
+					}
+					return
+				}
+				var root map[string]any
+				if err := yaml.Unmarshal(result.Content, &root); err != nil {
+					t.Fatal(err)
+				}
+				if format == RenderFormatSingBox {
+					rule := root["route"].(map[string]any)["rules"].([]any)[0].(map[string]any)
+					if (kind == "select" && rule["action"] != "reject") || (kind == "url-test" && rule["outbound"] != "Parent") {
+						t.Fatal(rule)
+					}
+				} else {
+					target := "Parent"
+					if kind == "select" {
+						target = "REJECT"
+					}
+					if root["rules"].([]any)[0] != "DOMAIN,example.org,"+target {
+						t.Fatal(root)
+					}
+				}
+			})
+		}
+	}
+}
+
+func TestChannelGroupReferenceValidation(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		change func(*ChannelPolicy)
+		code   string
+	}{
+		{"missing", func(p *ChannelPolicy) { p.Groups[0].GroupIDs = []string{"missing"} }, "group_not_enabled"},
+		{"disabled", func(p *ChannelPolicy) { p.Groups[0].GroupIDs = []string{"child"}; p.Groups[1].Enabled = false }, "group_not_enabled"},
+		{"self", func(p *ChannelPolicy) { p.Groups[0].GroupIDs = []string{"main"} }, "cyclic_group_reference"},
+		{"duplicate", func(p *ChannelPolicy) { p.Groups[0].GroupIDs = []string{"child", "child"} }, "invalid_or_duplicate_id"},
+		{"cycle", func(p *ChannelPolicy) {
+			p.Groups[0].GroupIDs = []string{"child"}
+			p.Groups[1].GroupIDs = []string{"main"}
+		}, "cyclic_group_reference"},
+		{"indirect cycle", func(p *ChannelPolicy) {
+			p.Groups[0].GroupIDs = []string{"child"}
+			p.Groups[1].GroupIDs = []string{"last"}
+			p.Groups = append(p.Groups, RuleGroup{ID: "last", Name: "Last", Enabled: true, Type: "select", BuiltinNodes: []string{}, GroupIDs: []string{"main"}})
+		}, "cyclic_group_reference"},
+		{"missing order", func(p *ChannelPolicy) {
+			p.Groups[0].CandidateOrder = p.Groups[0].candidateOrder()
+			p.Groups[0].GroupIDs = []string{"child"}
+		}, "missing_candidates"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			_, p := policyFixture(t, RenderFormatMihomo)
+			p.Groups = append(p.Groups, RuleGroup{ID: "child", Name: "Child", Type: "select", Enabled: true, BuiltinNodes: []string{}})
+			test.change(p)
+			var problem *PolicyError
+			if err := ValidateChannelPolicy(p, RenderFormatMihomo); !errors.As(err, &problem) || problem.Code != test.code {
+				t.Fatalf("got %v, want %s", err, test.code)
+			}
+		})
+	}
+}
+
+func TestChannelRuleSetNamesAreUniqueIncludingDisabledRules(t *testing.T) {
+	_, p := policyFixture(t, RenderFormatMihomo)
+	rule := p.Groups[0].Rules[3]
+	rule.Enabled = false
+	rule.Exit = RouteExit{Kind: "group-default"}
+	p.Groups = append(p.Groups, RuleGroup{ID: "other", Name: "Other", Type: "select", BuiltinNodes: []string{}, Rules: []ChannelRule{rule}})
+	var problem *PolicyError
+	if err := ValidateChannelPolicy(p, RenderFormatMihomo); !errors.As(err, &problem) || problem.Path != "policy.groups[1].rules[0].remote.name" || problem.Code != "duplicate_name" {
+		t.Fatal(err)
+	}
+	remote := *rule.Remote
+	remote.Name = "remote rules"
+	p.Groups[1].Rules[0].Remote = &remote
+	if err := ValidateChannelPolicy(p, RenderFormatMihomo); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestChannelSortIndexUsesSafeSignedIntegers(t *testing.T) {
+	for _, index := range []int64{-9007199254740991, -1, 0, 9007199254740991, -9007199254740992, 9007199254740992} {
+		_, p := policyFixture(t, RenderFormatMihomo)
+		p.Groups[0].Rules[0].SortIndex = index
+		err := ValidateChannelPolicy(p, RenderFormatMihomo)
+		if valid := index >= -9007199254740991 && index <= 9007199254740991; (err == nil) != valid {
+			t.Fatalf("index %d: %v", index, err)
+		}
 	}
 }

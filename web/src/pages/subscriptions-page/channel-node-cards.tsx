@@ -1,10 +1,10 @@
-import { useRef } from 'react';
+import { useId, useRef } from 'react';
 import { CSS } from '@dnd-kit/utilities';
 import { useTranslation } from 'react-i18next';
 import { useSortable } from '@dnd-kit/sortable';
 import { useReducedMotion } from 'motion/react';
 
-import type { SubscriptionNodeSummary } from '@/api/api-client';
+import type { ChannelRuleGroup, SubscriptionNodeSummary } from '@/api/api-client';
 
 import { SubscriptionNodeCardContent } from './subscription-node-card';
 import { SubscriptionNodeSortContext } from './subscription-node-sort-context';
@@ -15,6 +15,8 @@ export interface ChannelNodeCard {
   selected: boolean;
   disabled?: boolean;
   unavailable?: boolean;
+  disabledReason?: string;
+  group?: ChannelRuleGroup;
   builtin?: 'direct' | 'reject';
   node?: SubscriptionNodeSummary;
 }
@@ -27,6 +29,7 @@ interface Props {
 }
 
 function SortableCard({ item, onToggle }: { item: ChannelNodeCard; onToggle: Props['onToggle'] }) {
+  const reasonId = useId();
   const reducedMotion = useReducedMotion();
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: item.id, disabled: item.disabled,
@@ -42,6 +45,7 @@ function SortableCard({ item, onToggle }: { item: ChannelNodeCard; onToggle: Pro
       aria-disabled={item.disabled || undefined}
       aria-roledescription={undefined}
       aria-label={item.label}
+      aria-describedby={item.disabledReason ? reasonId : attributes['aria-describedby']}
       aria-keyshortcuts='F2'
       tabIndex={item.disabled ? -1 : 0}
       className='subscription-node-card channel-node-card select-none'
@@ -60,7 +64,11 @@ function SortableCard({ item, onToggle }: { item: ChannelNodeCard; onToggle: Pro
         }
       }}
     >
-      <SubscriptionNodeCardContent node={item.node} builtin={item.builtin} unavailable={item.unavailable} />
+      {item.disabledReason && <span id={reasonId} className='sr-only'>{item.disabledReason}</span>}
+      <SubscriptionNodeCardContent
+        node={item.node} builtin={item.builtin} group={item.group}
+        unavailable={item.unavailable} disabledReason={item.disabledReason}
+      />
     </div>
   );
 }
@@ -85,6 +93,8 @@ export function ChannelNodeCards({ items, onToggle, onMove, onDraggingChange }: 
           <div className='subscription-node-card channel-node-card channel-node-card-overlay' data-selected={dragged.selected} aria-hidden='true'>
             <SubscriptionNodeCardContent
               node={dragged.node}
+              group={dragged.group}
+              disabledReason={dragged.disabledReason}
               builtin={dragged.builtin}
               unavailable={dragged.unavailable}
             />

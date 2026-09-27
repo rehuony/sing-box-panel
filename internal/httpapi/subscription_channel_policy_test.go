@@ -153,6 +153,14 @@ func TestChannelStrategyTypesPersistPreviewAndDeliver(t *testing.T) {
 				DefaultExit:       subscription.RouteExit{Kind: "group", ID: "group"},
 				Groups:            []subscription.RuleGroup{{ID: "group", Name: "Main", Enabled: true, Type: test.kind, BuiltinNodes: test.builtins, NodeIDs: []string{node.ID}, Rules: []subscription.ChannelRule{}, HealthCheck: &subscription.GroupHealthCheck{URL: "https://probe.example/check", Interval: 3600, Tolerance: 0}}},
 			}
+			policy.Groups[0].GroupIDs = []string{"child"}
+			policy.Groups[0].CandidateOrder = []string{"group:child"}
+			policy.Groups = append(policy.Groups, subscription.RuleGroup{ID: "child", Name: "Child", Enabled: true, Type: "select", BuiltinNodes: []string{}, NodeIDs: []string{node.ID}, Rules: []subscription.ChannelRule{}})
+			remote := &subscription.RemoteRuleSet{Name: "Named rules", URL: "https://rules.example/list", Format: map[string]string{"sing-box": "source", "mihomo": "yaml", "loon": "loon"}[test.format]}
+			if test.format == "mihomo" {
+				remote.Behavior = "domain"
+			}
+			policy.Groups[0].Rules = []subscription.ChannelRule{{ID: "remote", Enabled: true, Kind: "remote", SortIndex: -5, Remote: remote, Exit: subscription.RouteExit{Kind: "group-default"}}}
 			for _, kind := range test.builtins {
 				policy.Groups[0].CandidateOrder = append(policy.Groups[0].CandidateOrder, "builtin:"+kind)
 			}
@@ -176,11 +184,25 @@ func TestChannelStrategyTypesPersistPreviewAndDeliver(t *testing.T) {
 				t.Fatal(err)
 			}
 			actual := restored.Policy.Groups[0]
-			if !slices.Equal(actual.CandidateOrder, policy.Groups[0].CandidateOrder) {
+			if !slices.Equal(actual.CandidateOrder, policy.Groups[0].CandidateOrder) || !slices.Equal(actual.GroupIDs, []string{"child"}) || actual.Rules[0].SortIndex != -5 {
 				t.Fatalf("lost candidate order: %v", actual.CandidateOrder)
 			}
 			if actual.Type != test.kind || actual.BuiltinNodes == nil || len(actual.BuiltinNodes) != len(test.builtins) || actual.HealthCheck.Tolerance != 0 {
 				t.Fatalf("lost group settings: %+v", actual)
+			}
+			// Renaming a group preserves its stable references through a real save.
+			policy.Groups[1].Name = "Renamed child"
+			config, _ = json.Marshal(store.SubscriptionChannelConfig{Policy: policy})
+			raw, _ = json.Marshal(map[string]any{"name": channel.Name, "format": test.format, "config": json.RawMessage(config), "enabled": true})
+			saved := authenticatedRequest(handler, http.MethodPut, "/api/v1/subscription/channels/"+channel.ID, string(raw), subscriptionETag(channel.UpdatedAt))
+			if saved.Code != http.StatusOK {
+				t.Fatal(saved.Code, saved.Body.String())
+			}
+			invalidConfig := strings.Replace(string(config), `"remote":{`, `"remote":{"update_interval":3600,`, 1)
+			invalidRaw, _ := json.Marshal(map[string]any{"name": "Removed interval", "format": test.format, "config": json.RawMessage(invalidConfig), "enabled": true})
+			invalid := authenticatedRequest(handler, http.MethodPost, "/api/v1/subscription/channels", string(invalidRaw), "")
+			if invalid.Code != http.StatusUnprocessableEntity {
+				t.Fatal("removed interval accepted", invalid.Code, invalid.Body.String())
 			}
 			preview := authenticatedRequest(handler, http.MethodPost, "/api/v1/subscription/channels/"+channel.ID+"/preview", "{}", "")
 			if preview.Code != http.StatusOK {
@@ -193,6 +215,9 @@ func TestChannelStrategyTypesPersistPreviewAndDeliver(t *testing.T) {
 			public := publicSubscriptionRequest(handler, "/sub/"+key.Token+"/"+channel.ID)
 			if public.Code != http.StatusOK || public.Body.String() != string(rendered.Result.Content) {
 				t.Fatal("preview/delivery mismatch", public.Code, public.Body.String())
+			}
+			if !strings.Contains(public.Body.String(), "Renamed child") || (test.format != "loon" && !strings.Contains(public.Body.String(), "Named rules")) || strings.Contains(public.Body.String(), "update_interval") {
+				t.Fatal(public.Body.String())
 			}
 			if test.format == "mihomo" && !strings.Contains(public.Body.String(), "proxies:\n  - ") {
 				t.Fatal("preview/delivery YAML is not formatted", public.Body.String())

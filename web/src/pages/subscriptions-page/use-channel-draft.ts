@@ -9,7 +9,7 @@ import { useUnsavedChanges } from '@/hooks/use-unsaved-changes';
 import { describeRequestError } from '@/components/error-notice';
 import { channelTemplateDefaults } from '@/constants/channel-templates';
 
-import { incompatiblePolicy, initialChannelPolicy, newRuleGroup } from './channel-policy';
+import { incompatiblePolicy, initialChannelPolicy, newRuleGroup, removeGroupReferences } from './channel-policy';
 
 export function useChannelDraft(
   channel: SubscriptionChannel,
@@ -142,7 +142,8 @@ export function useChannelDraft(
         ids: [...new Set([...current.selection.ids, ...value.node_ids])],
         excluded_ids: current.selection.excluded_ids.filter((id) => !value.node_ids.includes(id)),
       },
-      groups: current.groups.map((item) => item.id === value.id ? value : item),
+      groups: (value.enabled ? current.groups : removeGroupReferences(current.groups, value.id))
+        .map((item) => item.id === value.id ? value : item),
     }));
   }
   function addGroup() {

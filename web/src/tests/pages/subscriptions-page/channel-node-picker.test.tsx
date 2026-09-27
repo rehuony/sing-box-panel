@@ -17,7 +17,9 @@ function mount(group = newRuleGroup([]), format: 'mihomo' | 'sing-box' = 'mihomo
   const onAdd = vi.fn();
   const onClose = vi.fn();
   const nodes = [tokyo, { ...tokyo, id: 'seattle', name: 'Seattle' }];
-  render(<ChannelNodePicker nodes={nodes} group={group} format={format} onAdd={onAdd} onClose={onClose} />);
+  render(
+    <ChannelNodePicker nodes={nodes} group={group} groups={[group]} format={format} onAdd={onAdd} onClose={onClose} />,
+  );
   return { onAdd, onClose, dialog: screen.getByRole('dialog', { name: 'Add nodes' }) };
 }
 const cardNames = () => within(screen.getByRole('dialog')).getAllByRole('checkbox').map(card => card.getAttribute('aria-label'));
@@ -62,7 +64,7 @@ describe('channel node picker', () => {
     expect(within(dialog).getByRole('checkbox', { name: 'Seattle Manual nodes' })).toBeChecked();
     expect(within(dialog).getByRole('checkbox', { name: 'REJECT' })).not.toBeChecked();
     await user.click(within(dialog).getByRole('button', { name: 'Add 1 nodes' }));
-    expect(onAdd).toHaveBeenCalledWith(['seattle'], [], ['node:seattle']);
+    expect(onAdd).toHaveBeenCalledWith(['seattle'], [], ['node:seattle'], []);
   });
   it('cancels without applying selections', async () => {
     const user = userEvent.setup();
@@ -102,6 +104,29 @@ describe('channel node picker', () => {
     expect(within(dialog).getByRole('checkbox', { name: 'REJECT' })).not.toBeChecked();
     await user.click(within(dialog).getByRole('checkbox', { name: 'Tokyo Manual nodes' }));
     await user.click(within(dialog).getByRole('button', { name: 'Add 2 nodes' }));
-    expect(onAdd).toHaveBeenCalledWith(['tokyo'], ['direct'], ['builtin:direct', 'node:tokyo']);
+    expect(onAdd).toHaveBeenCalledWith(['tokyo'], ['direct'], ['builtin:direct', 'node:tokyo'], []);
   });
+});
+
+it('appends strategy groups, searches their type, and prevents disabled, existing and cyclic references', async () => {
+  const user = userEvent.setup();
+  const current = { ...newRuleGroup([]), id: 'current', name: 'Current', group_ids: ['added'] };
+  const groups = [current,
+    { ...newRuleGroup([]), id: 'added', name: 'Added' },
+    { ...newRuleGroup([]), id: 'off', name: 'Off', enabled: false },
+    { ...newRuleGroup([]), id: 'cycle', name: 'Cycle', group_ids: ['current'] },
+    { ...newRuleGroup([]), id: 'auto', name: 'Auto', type: 'url-test' as const },
+  ];
+  const onAdd = vi.fn();
+  render(<ChannelNodePicker nodes={[tokyo]} group={current} groups={groups} format='mihomo' onAdd={onAdd} onClose={vi.fn()} />);
+  const dialog = screen.getByRole('dialog');
+  expect(cardNames()).toEqual(['DIRECT', 'REJECT', 'Tokyo Manual nodes', 'Added', 'Off', 'Cycle', 'Auto']);
+  for (const name of ['Added', 'Off', 'Cycle']) expect(within(dialog).getByRole('checkbox', { name })).toHaveAttribute('aria-disabled', 'true');
+  expect(within(dialog).getByRole('checkbox', { name: 'Cycle' })).toHaveAccessibleDescription('Would create a circular reference');
+  await user.type(within(dialog).getByRole('textbox'), 'latency');
+  expect(cardNames()).toEqual(['Auto']);
+  await user.click(within(dialog).getByRole('button', { name: 'Select all' }));
+  await user.clear(within(dialog).getByRole('textbox'));
+  await user.click(within(dialog).getByRole('button', { name: 'Add 1 nodes' }));
+  expect(onAdd).toHaveBeenCalledWith([], [], ['group:auto'], ['auto']);
 });

@@ -32,7 +32,7 @@ import { useChannelDraft } from './use-channel-draft';
 import { ChannelGroupEditor } from './channel-group-editor';
 import { ChannelTemplateEditor } from './channel-template-editor';
 import { defaultGroupHealthCheck,
-  nextRuleIndex } from './channel-policy';
+  nextRuleIndex, removeGroupReferences } from './channel-policy';
 
 interface Props {
   active?: boolean;
@@ -117,8 +117,8 @@ export function ChannelWorkspace({ active = true, toolbarTarget, channel, nodes,
                       {value.name || t('channels.groupName')}
                     </span>
                     <span className='channel-group-metadata'>
-                      <span className='channel-group-summary' title={t('channels.groupSummary', { nodes: value.node_ids.length + value.builtin_nodes.length, rules: value.rules.length })}>
-                        {t('channels.groupSummary', { nodes: value.node_ids.length + value.builtin_nodes.length, rules: value.rules.length })}
+                      <span className='channel-group-summary' title={t('channels.groupSummary', { nodes: value.node_ids.length + value.builtin_nodes.length + (value.group_ids?.length ?? 0), rules: value.rules.length })}>
+                        {t('channels.groupSummary', { nodes: value.node_ids.length + value.builtin_nodes.length + (value.group_ids?.length ?? 0), rules: value.rules.length })}
                       </span>
                       <span className='channel-group-badges'>
                         {!value.enabled && <Badge variant='secondary'>{t('channels.disabled')}</Badge>}
@@ -173,7 +173,7 @@ export function ChannelWorkspace({ active = true, toolbarTarget, channel, nodes,
           {group
             ? (
                 <ChannelGroupEditor
-                  key={group.id} group={group} nodes={nodes}
+                  key={group.id} group={group} groups={policy.groups} nodes={nodes}
                   format={format} busy={busy} onChange={updateGroup} nextSortIndex={nextRuleIndex(policy)}
                 />
               )
@@ -276,7 +276,7 @@ export function ChannelWorkspace({ active = true, toolbarTarget, channel, nodes,
           <DialogHeader>
             <DialogTitle>{t('channels.deleteGroup')}</DialogTitle>
             <DialogDescription>
-              {policy.groups.find((value) => value.id === removeGroup)?.name}
+              {t('channels.deleteGroupPrompt', { name: policy.groups.find((value) => value.id === removeGroup)?.name })}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
@@ -288,7 +288,9 @@ export function ChannelWorkspace({ active = true, toolbarTarget, channel, nodes,
               onClick={() => {
                 setPolicy({
                   ...policy,
-                  groups: policy.groups.filter((value) => value.id !== removeGroup),
+                  groups: removeGroupReferences(
+                    policy.groups.filter((value) => value.id !== removeGroup), removeGroup!,
+                  ),
                 });
                 setRemoveGroup(null);
               }}

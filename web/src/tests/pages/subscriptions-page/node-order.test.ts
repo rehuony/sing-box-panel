@@ -20,9 +20,9 @@ describe('candidate ordering', () => {
   });
   it('removes deleted candidates and appends added ones without losing saved mixed order', () => {
     expect(candidateOrder({
-      node_ids: ['b', 'c'], builtin_nodes: ['direct'],
-      candidate_order: ['node:b', 'builtin:reject', 'node:a', 'builtin:direct'],
-    })).toEqual(['node:b', 'builtin:direct', 'node:c']);
+      node_ids: ['b', 'c'], builtin_nodes: ['direct'], group_ids: ['other'],
+      candidate_order: ['node:b', 'group:deleted', 'group:other', 'builtin:reject', 'node:a', 'builtin:direct'],
+    })).toEqual(['node:b', 'group:other', 'builtin:direct', 'node:c']);
   });
 });
 

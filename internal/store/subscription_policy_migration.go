@@ -10,7 +10,7 @@ import (
 )
 
 // migrateSubscriptionPolicies removes retired overrides without decoding native
-// template numbers, and assigns priorities in the previous flattened rule order.
+// template numbers.
 func migrateSubscriptionPolicies(ctx context.Context, tx *sql.Tx) error {
 	rows, err := tx.QueryContext(ctx, `SELECT id, config_json FROM subscription_channels WHERE json_type(config_json, '$.policy') = 'object'`)
 	if err != nil {
@@ -56,25 +56,8 @@ func migrateSubscriptionPolicies(ctx context.Context, tx *sql.Tx) error {
 		if err := json.Unmarshal(policy["groups"], &groups); err != nil {
 			return err
 		}
-		position := 0
 		for _, group := range groups {
 			delete(group, "default_exit")
-			var rules []map[string]json.RawMessage
-			if value := group["rules"]; len(value) > 0 {
-				if err := json.Unmarshal(value, &rules); err != nil {
-					return err
-				}
-			}
-			for _, rule := range rules {
-				position += 10
-				if _, present := rule["sort_index"]; !present {
-					rule["sort_index"] = json.RawMessage(fmt.Sprint(position))
-				}
-			}
-			group["rules"], err = json.Marshal(rules)
-			if err != nil {
-				return err
-			}
 		}
 		policy["groups"], err = json.Marshal(groups)
 		if err != nil {

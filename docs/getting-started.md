@@ -60,7 +60,7 @@ Versions 11–13 of the same application identity upgrade transactionally to
 version 14. Version 11 first adds durable monthly traffic totals; version 13
 removes obsolete `export_token_ids` from channel configuration while preserving
 all other channel data. Version 14 removes the retired channel organizer and
-independent group defaults, retains card order and assigns global rule indices.
+independent group defaults and retains card order. Rule indices default to zero.
 API clients must stop submitting retired fields. Unidentified
 databases, other application identities, and unsupported older or newer schemas
 are rejected without changing their data. The panel never deletes an unsupported database.

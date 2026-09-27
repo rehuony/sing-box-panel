@@ -2,7 +2,7 @@ import type { ReactNode } from 'react';
 
 import { useTranslation } from 'react-i18next';
 
-import type { SubscriptionNodeSummary } from '@/api/api-client';
+import type { ChannelRuleGroup, SubscriptionNodeSummary } from '@/api/api-client';
 
 import { Badge } from '@/components/ui/badge';
 
@@ -11,13 +11,15 @@ import { subscriptionNodeAddress } from './subscription-node-address';
 interface Props {
   actions?: ReactNode;
   unavailable?: boolean;
+  disabledReason?: string;
   builtin?: 'direct' | 'reject';
   node?: SubscriptionNodeSummary;
+  group?: Pick<ChannelRuleGroup, 'name' | 'type'>;
 }
 
-export function SubscriptionNodeCardContent({ node, builtin, actions, unavailable }: Props) {
+export function SubscriptionNodeCardContent({ node, builtin, group, actions, unavailable, disabledReason }: Props) {
   const { t } = useTranslation();
-  const name = node?.name ?? builtin?.toUpperCase() ?? t('channels.missingNode');
+  const name = node?.name ?? group?.name ?? builtin?.toUpperCase() ?? t('channels.missingNode');
   return (
     <>
       <header>
@@ -57,7 +59,14 @@ export function SubscriptionNodeCardContent({ node, builtin, actions, unavailabl
             <Badge className='subscription-node-card__badge' variant={builtin === 'direct' ? 'success' : 'warning'}>{t(`channels.${builtin}`)}</Badge>
           </>
         )}
-        {unavailable && <Badge className='subscription-node-card__badge' variant='warning'>{t('channels.unavailable')}</Badge>}
+        {group && (
+          <>
+            <Badge className='subscription-node-card__badge' variant='secondary'>{t('channels.strategyGroup')}</Badge>
+            <Badge className='subscription-node-card__badge' variant='info'>{t(`channels.groupTypes.${group.type}`)}</Badge>
+          </>
+        )}
+        {disabledReason && <Badge className='subscription-node-card__badge' variant='secondary'>{disabledReason}</Badge>}
+        {unavailable && !disabledReason && <Badge className='subscription-node-card__badge' variant='warning'>{t('channels.unavailable')}</Badge>}
       </div>
     </>
   );

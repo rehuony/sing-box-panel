@@ -2505,15 +2505,16 @@ components:
           type: array
           maxItems: 2
           uniqueItems: true
-          description: "Explicit built-in candidates; an empty array selects none. Reject candidates require Mihomo or Loon. Loon auto groups accept proxy nodes only."
+          description: "Explicit built-in candidates; an empty array selects none. Reject candidates require Mihomo or Loon. Loon auto groups do not accept built-in candidates."
           items: {type: string, enum: [direct, reject]}
         health_check: {$ref: "#/components/schemas/ChannelGroupHealthCheck"}
         node_ids: {type: array, maxItems: 10000, uniqueItems: true, items: {type: string}}
+        group_ids: {type: array, maxItems: 255, uniqueItems: true, description: "References to enabled strategy groups in this channel. Self references and cycles are rejected.", items: {type: string}}
         candidate_order:
           type: array
-          maxItems: 10002
+          maxItems: 10257
           uniqueItems: true
-          description: "Display and output order. When provided, must contain each node:<id> and builtin:<kind> candidate exactly once. When omitted, node_ids precede builtin_nodes. The first candidate is the initial manual selection."
+          description: "Display and output order. When provided, must contain each node:<id>, builtin:<kind> and group:<id> candidate exactly once. When omitted, node_ids precede builtin_nodes, followed by group_ids. The first candidate is the initial manual selection."
           items: {type: string, maxLength: 136}
         rules: {type: array, maxItems: 5000, items: {$ref: "#/components/schemas/ChannelRule"}}
     ChannelGroupHealthCheck:
@@ -2532,13 +2533,13 @@ components:
       properties:
         id: {type: string, maxLength: 128}
         enabled: {type: boolean}
-        sort_index: {type: integer, minimum: 1, maximum: 2147483647, description: "Channel-wide ascending priority. Ties use rule name (remote name or match value), ascending Unicode scalar order, then stable original order. Omission preserves legacy flattened position."}
+        sort_index: {type: integer, minimum: -9007199254740991, maximum: 9007199254740991, default: 0, description: "Channel-wide ascending integer priority. Ties use rule name (remote name or match value), ascending Unicode scalar order, then stable original order. Omission means zero."}
         kind: {type: string, enum: [domain, domain_suffix, domain_keyword, ip_cidr, remote]}
         value: {type: string}
         remote: {$ref: "#/components/schemas/ChannelRemoteRuleSet"}
         exit: {$ref: "#/components/schemas/ChannelRouteExit"}
     ChannelRemoteRuleSet:
-      description: "Metadata only; remote content is fetched by the subscriber. The loon format requires native Loon rules and is distinct from Mihomo text lists."
+      description: "Names must be unique across all rules in the channel, including disabled entries. Metadata only; remote content is fetched and refreshed by the subscriber. The loon format requires native Loon rules and is distinct from Mihomo text lists."
       type: object
       additionalProperties: false
       required: [name, url, format, accelerated]
@@ -2548,7 +2549,6 @@ components:
         format: {type: string, enum: [source, binary, yaml, text, mrs, loon]}
         behavior: {type: string, enum: [domain, ipcidr, classical]}
         accelerated: {type: boolean}
-        update_interval: {type: integer, minimum: 60, maximum: 2592000, description: "Required for sing-box/Mihomo; omit for Loon, which manages refresh in the client."}
     ChannelNativeTemplate:
       description: "Complete channel base configuration, never deep-merged with defaults. Native JSON for sing-box, YAML for Mihomo, General/Host/MITM sections for Loon. Generated nodes, groups and routing fields are reserved. Omission uses the shared client default template; explicit empty templates remain empty."
       type: object

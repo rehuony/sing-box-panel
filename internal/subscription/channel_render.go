@@ -89,38 +89,22 @@ func RenderPolicyNodes(nodes []Node, channel RenderChannel, policy *ChannelPolic
 		}
 	}
 	builder := channelRuleBuilder{format: channel.Format, names: available, groups: map[string]RuleGroup{}, candidates: map[string][]string{}, rules: []any{}, providers: map[string]any{}, sets: []any{}}
-	groupNodes := []map[string]any{}
-	for _, group := range policy.Groups {
-		if group.Enabled {
-			builder.groups[group.ID] = group
-			builder.candidates[group.ID] = builder.groupCandidates(group)
-		}
-	}
+	groupNodes := builder.renderGroups(policy.Groups)
 	orderedRules := []orderedChannelRule{}
-	position := 0
 	for _, group := range policy.Groups {
 		if !group.Enabled {
-			position += len(group.Rules)
 			continue
 		}
-		if nativeGroup := builder.renderGroup(group); nativeGroup != nil {
-			groupNodes = append(groupNodes, nativeGroup)
-		}
 		for _, rule := range group.Rules {
-			position++
 			if rule.Enabled {
-				index := rule.SortIndex
-				if index == 0 {
-					index = position * 10
-				}
-				orderedRules = append(orderedRules, orderedChannelRule{rule: rule, group: group, index: index})
+				orderedRules = append(orderedRules, orderedChannelRule{rule: rule, group: group})
 			}
 		}
 	}
 	sort.SliceStable(orderedRules, func(i, j int) bool {
 		a, b := orderedRules[i], orderedRules[j]
-		if a.index != b.index {
-			return a.index < b.index
+		if a.rule.SortIndex != b.rule.SortIndex {
+			return a.rule.SortIndex < b.rule.SortIndex
 		}
 		return a.rule.sortName() < b.rule.sortName()
 	})
@@ -286,16 +270,57 @@ func (b *channelRuleBuilder) exitName(exit RouteExit, group *RuleGroup) string {
 	}
 	return "REJECT"
 }
+
+// Validation establishes an acyclic graph before generation. Resolve children
+// before parents, independently of the editing order, and emit each group once.
+func (b *channelRuleBuilder) renderGroups(groups []RuleGroup) []map[string]any {
+	for _, group := range groups {
+		if group.Enabled {
+			b.groups[group.ID] = group
+		}
+	}
+	result := []map[string]any{}
+	var visit func(RuleGroup)
+	visit = func(group RuleGroup) {
+		if _, done := b.candidates[group.ID]; done {
+			return
+		}
+		for _, id := range group.GroupIDs {
+			visit(b.groups[id])
+		}
+		b.candidates[group.ID] = b.groupCandidates(group)
+		if value := b.renderGroup(group); value != nil {
+			result = append(result, value)
+		}
+	}
+	for _, group := range groups {
+		if group.Enabled {
+			visit(group)
+		}
+	}
+	return result
+}
+
+func (b *channelRuleBuilder) candidateName(key string) string {
+	if id, ok := strings.CutPrefix(key, "node:"); ok {
+		return b.names[id]
+	}
+	if kind, ok := strings.CutPrefix(key, "builtin:"); ok {
+		return b.exitName(RouteExit{Kind: kind}, nil)
+	}
+	if id, ok := strings.CutPrefix(key, "group:"); ok {
+		if group, exists := b.groups[id]; exists && b.groupExit(group) != "REJECT" {
+			return group.Name
+		}
+	}
+	return ""
+}
+
 func (b *channelRuleBuilder) groupCandidates(group RuleGroup) []string {
 	candidates := []string{}
 	seen := map[string]bool{}
 	for _, key := range group.candidateOrder() {
-		var name string
-		if id, ok := strings.CutPrefix(key, "node:"); ok {
-			name = b.names[id]
-		} else if kind, ok := strings.CutPrefix(key, "builtin:"); ok {
-			name = b.exitName(RouteExit{Kind: kind}, nil)
-		}
+		name := b.candidateName(key)
 		if name != "" && !seen[name] {
 			candidates = append(candidates, name)
 			seen[name] = true
@@ -352,7 +377,7 @@ func (b *channelRuleBuilder) groupExit(group RuleGroup) string {
 	if group.Type == "select" {
 		order := group.candidateOrder()
 		if len(order) > 0 {
-			if id, ok := strings.CutPrefix(order[0], "node:"); ok && b.names[id] == "" {
+			if b.candidateName(order[0]) == "" {
 				return "REJECT"
 			}
 		}
@@ -374,11 +399,11 @@ func (b *channelRuleBuilder) addRule(rule ChannelRule, group *RuleGroup) {
 			b.loonRemote = append(b.loonRemote, EffectiveRuleURL(remote.URL, remote.Accelerated)+",policy="+target+",enabled=true")
 			return
 		}
-		name := "rules-" + group.ID + "-" + rule.ID
+		name := remote.Name
 		if b.format == RenderFormatSingBox {
-			b.sets = append(b.sets, map[string]any{"type": "remote", "tag": name, "format": remote.Format, "url": EffectiveRuleURL(remote.URL, remote.Accelerated), "update_interval": fmt.Sprintf("%ds", remote.UpdateInterval), "download_detour": "direct"})
+			b.sets = append(b.sets, map[string]any{"type": "remote", "tag": name, "format": remote.Format, "url": EffectiveRuleURL(remote.URL, remote.Accelerated), "http_client": map[string]any{"detour": "direct"}})
 		} else {
-			b.providers[name] = map[string]any{"type": "http", "behavior": remote.Behavior, "format": remote.Format, "url": EffectiveRuleURL(remote.URL, remote.Accelerated), "interval": remote.UpdateInterval}
+			b.providers[name] = map[string]any{"type": "http", "behavior": remote.Behavior, "format": remote.Format, "url": EffectiveRuleURL(remote.URL, remote.Accelerated)}
 		}
 		value = name
 	}
@@ -413,7 +438,6 @@ func channelNodeName(node Node) string {
 type orderedChannelRule struct {
 	rule  ChannelRule
 	group RuleGroup
-	index int
 }
 
 func (rule ChannelRule) sortName() string {

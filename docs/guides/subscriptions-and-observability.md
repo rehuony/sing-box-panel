@@ -196,7 +196,7 @@ clears all selections. Only Remove selected nodes removes the selected candidate
 from the group, including selections hidden by search, and clears the selection.
 Switching groups resets card selection without changing either group's members.
 Add opens
-a selection dialog containing available catalog nodes and both built-in cards;
+a selection dialog containing available catalog nodes, both built-in cards and other strategy groups;
 unsupported client options are disabled. Only confirmed additions appear in the
 group; cancelling the dialog discards its selection and sorting. Its title, compact
 selection actions and search share a header; there is no corner close button.
@@ -208,14 +208,14 @@ DND-KIT sorts whole cards in both the picker and the candidate list; a short mou
 movement threshold distinguishes dragging from selection, and touch uses a long
 press. Space/Enter toggle selection; F2 starts/finishes keyboard sorting, arrow
 keys move, and Escape cancels the drag without closing the picker. Filtering only
-reorders visible slots. Confirmed additions retain their mixed node/builtin order,
+reorders visible slots. Confirmed additions retain their mixed node/builtin/group order,
 and Save changes persists it. Built-ins remain separate
-from publication IDs. Remove selected nodes removes either kind of selected
-candidate; Clear selection leaves both kinds in the group. Built-in candidates
+from publication IDs. Remove selected nodes removes all selected candidate kinds;
+Clear selection leaves group membership unchanged. Built-in candidates
 are never automatically injected into a nonempty group. An unavailable first manual candidate still rejects
 traffic through rules referencing that group; no hidden candidate is inserted.
 Mihomo and Loon support all three types. Mihomo supports both built-ins;
-Loon supports them in manual groups only. Loon auto groups require proxy nodes. Current sing-box supports
+Loon supports them in manual groups only; auto groups reject built-in candidates. Current sing-box supports
 select/url-test and direct; fallback and reject candidates are rejected during
 validation and disabled in the editor. Sing-box rejection remains a route action,
 not an obsolete block outbound.
@@ -224,39 +224,69 @@ Automatic groups may configure `health_check` with an HTTP(S) URL, an interval
 of 60–86400 seconds and URL-test tolerance of 0–65535 milliseconds. Defaults are
 `https://www.gstatic.com/generate_204`, 300 seconds and 50 ms. These checks run on
 the subscribing client, never on the panel. All groups retain candidate order
-using optional `candidate_order`, an exact permutation of `node:<publication ID>`
-and `builtin:<kind>` references. Missing, duplicate or unknown entries are rejected.
-When omitted, publication IDs precede built-ins. Manual groups use the first card as their initial exit; no independently saved
+using optional `candidate_order`, an exact permutation of `node:<publication ID>`,
+`builtin:<kind>` and `group:<strategy group ID>` references. Optional `group_ids`
+contains references to enabled groups in the same channel. The picker appends other
+strategy groups after the ordinary nodes, in sidebar order, and supports the same
+selection, search and reordering interactions. Self references, duplicate references
+and cycles are rejected; disabled groups cannot be selected. Renaming a group
+retains its identity. Deleting or disabling it in the editor removes all incoming
+candidate references; the final exit must be changed first if it uses that group. Missing, duplicate or unknown entries are rejected.
+When omitted, publication IDs precede built-ins, followed by strategy group IDs.
+Generation emits dependencies before their parents without flattening them.
+Unavailable child groups are skipped as candidates; a missing first manual
+dependency still makes routes through the parent reject traffic. Manual groups use the first card as their initial exit; no independently saved
 group default can reorder it. Fallback picks the
 first available candidate, whereas URL-test chooses by latency. An unavailable
 manual initial candidate does not suppress remaining auto-group candidates.
 An empty group is omitted and its routes reject traffic instead of becoming
 implicit direct connections. Preview and delivery use the same rendering path.
 
-Each exit rule has a positive channel-wide `sort_index`. Generation gathers rules
+Each exit rule has a channel-wide integer `sort_index`, including negative values
+and zero. Omission means zero; the value must be a JavaScript-safe integer. The
+editor keeps ordering help in the information tooltip beside the field label. Generation gathers rules
 across enabled groups, sorts by index ascending, then by rule name ascending
 (remote-set name or ordinary match value, Unicode scalar order). Equal index/name
 pairs preserve their original relative order. Duplicate indices are allowed;
-new rules start after the current maximum. The final fallback remains last.
+new rules start ten after the current maximum (or ten for an empty channel),
+capped at the largest safe integer. The final fallback remains last.
 Indices are panel metadata and never appear in client configuration. Loon's
 native category precedence still applies.
+Each rule occupies one line with its name, compact priority/type/exit summary and
+edit/delete actions. Overflowing text is truncated with its full value available on hover.
+The list has no enable checkbox; stored disabled rules are labelled as disabled
+in the list, and editing preserves their state.
 
 Database schema 14 removes the retired organizer options and group `default_exit`
 without changing candidate order or the channel's final exit. It preserves the
-incompatible-node skip/error policy separately and assigns old rules indices in
-their former flattened order, including disabled rules. For policy channels it
+incompatible-node skip/error policy separately. For policy channels it
 also removes the retired `exclude_tags`/`exclude_types` overrides: explicit node
 selection and candidate cards take precedence. Nonempty legacy filters cannot
 be combined with a policy in new API requests. The migration is atomic and
 checks that each rewritten configuration is readable before committing. The
-configuration limit is 640 KiB, reserving room for up to 5,000 indices added to
-formerly valid 512 KiB configurations; normalized saves enforce the same limit.
+configuration limit is 640 KiB; normalized saves enforce the same limit.
 
 Remote rule sets store metadata only. Sing-box uses source JSON or binary SRS;
 Mihomo uses YAML, TEXT or MRS with native behavior (MRS excludes classical).
 Loon uses the distinct `loon` format containing native rule statements, not
-Mihomo domain/IP lists. Loon manages remote refresh in the client; omit
-`update_interval` and `behavior`. Both other clients still require an interval.
+Mihomo domain/IP lists. Loon omits `behavior`. Rule-set update intervals are not stored, accepted by the
+channel API or emitted into client configuration. Refresh belongs to the client:
+[sing-box defaults to one day](https://sing-box.sagernet.org/configuration/rule-set/#update_interval),
+while [Mihomo does not start its periodic provider refresh loop without an interval](https://github.com/MetaCubeX/mihomo/blob/Meta/component/resource/fetcher.go).
+Group health-check intervals are independent and remain configurable.
+Rule-set names must be unique across the channel, including disabled rules/groups;
+comparison is case-sensitive and names must have no surrounding whitespace.
+Mihomo provider keys and sing-box rule-set tags use these names verbatim, as do
+all generated references. Sing-box remote sets use an inline `http_client` with
+`detour: direct`, matching the native 1.14 Schema. Loon continues to use its native URL-based remote rules.
+This development contract change has no legacy interval migration or compatibility
+reader; requests containing the removed field are rejected.
+The editor infers source format from the original URL's case-insensitive path
+extension, ignoring query strings and fragments: Mihomo YAML/YML, TXT/LIST or MRS;
+sing-box JSON or SRS; and Loon LOON/LIST/TXT. Unknown or incompatible extensions
+require manual selection. Manual choices survive reopening the editor and toggling
+GitHub acceleration; changing the original link runs detection again. Detection is
+only a suggestion and does not inspect the remote content or infer rule behavior.
 Switching clients retains rules and flags incompatible formats for explicit
 source review. No format conversion is implied. Loon evaluates local rules
 before remote rules, domain matches before IP matches, and FINAL last; ordering
