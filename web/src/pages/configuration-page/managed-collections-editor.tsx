@@ -539,11 +539,11 @@ export function ManagedCollectionsEditor({
                 ? (
                     <SchemaSectionForm
                       dialogLayout
-                      dialogPrimaryContent={(
+                      dialogSectionContent={{ basic: (
                         <FieldGroup className='schema-form configuration-entry-dialog__identity'>
                           {identityField}
                         </FieldGroup>
-                      )}
+                      ) }}
                       basePointer={`/${activeCollection}/0`}
                       data={entries(pendingEntry[activeCollection])[0]}
                       disabled={disabled}

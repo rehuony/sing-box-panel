@@ -4,11 +4,13 @@ package server
 
 import (
 	"context"
+	"fmt"
 	"net"
 	"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"testing"
 	"time"
 
@@ -41,10 +43,17 @@ func TestBrowserReview(t *testing.T) {
 	configuration.Server.ExternalOrigin = "http://127.0.0.1:3337"
 	configuration.Auth.SecureCookie = false
 	commands := application.FromStoreWithSettings(db, configuration)
-	for _, value := range []string{
-		`{"type":"socks","tag":"Tokyo","server":"tokyo.example.com","server_port":1080}`,
-		`{"type":"socks","tag":"Hong Kong","server":"hk.example.com","server_port":1080}`,
-	} {
+	commands.SetTelemetryContext(ctx)
+	nodeCount := 2
+	if raw := os.Getenv("SBP_BROWSER_NODES"); raw != "" {
+		count, err := strconv.Atoi(raw)
+		if err != nil || count < 1 || count > 500 {
+			t.Fatal("SBP_BROWSER_NODES must be in 1..500")
+		}
+		nodeCount = count
+	}
+	for index := range nodeCount {
+		value := fmt.Sprintf(`{"type":"socks","tag":"Review node %03d","server":"node-%03d.example.com","server_port":1080}`, index+1, index+1)
 		if _, err := commands.CreateSubscriptionNode(ctx, []byte(value)); err != nil {
 			t.Fatal(err)
 		}

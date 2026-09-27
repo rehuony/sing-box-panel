@@ -212,21 +212,17 @@ func (application *Application) RequestRuntimeRecovery(
 }
 
 func (application *Application) RuntimeStatus(ctx context.Context) (RuntimeStatus, error) {
-	bootstrap, err := application.database.Bootstrap(ctx)
+	hub, err := application.database.RuntimeHubState(ctx)
 	if err != nil {
 		return RuntimeStatus{}, err
 	}
 	result := RuntimeStatus{
-		DesiredRunning: bootstrap.Hub.DesiredRunning, DesiredBundleID: bootstrap.Hub.DesiredBundleID,
-		AppliedBundleID: bootstrap.Hub.AppliedBundleID, RollbackBundleID: bootstrap.Hub.RollbackBundleID,
-		TargetGeneration: bootstrap.Hub.TargetGeneration, ObservationState: "stopped",
+		DesiredRunning: hub.DesiredRunning, DesiredBundleID: hub.DesiredBundleID,
+		AppliedBundleID: hub.AppliedBundleID, RollbackBundleID: hub.RollbackBundleID,
+		TargetGeneration: hub.TargetGeneration, ObservationState: "stopped",
 	}
-	if bootstrap.Hub.AppliedBundleID != "" {
-		bundle, err := application.database.GetActivationBundle(ctx, bootstrap.Hub.AppliedBundleID)
-		if err != nil {
-			return RuntimeStatus{}, err
-		}
-		startup, err := application.database.GetStartupArtifact(ctx, bundle.StartupArtifactID)
+	if hub.AppliedBundleID != "" {
+		startup, err := application.database.RuntimeCore(ctx, hub.AppliedBundleID)
 		if err != nil {
 			return RuntimeStatus{}, err
 		}
@@ -237,11 +233,7 @@ func (application *Application) RuntimeStatus(ctx context.Context) (RuntimeStatu
 	case err == nil:
 		result.ObservationState = "running"
 		result.Running = &identity
-		bundle, err := application.database.GetActivationBundle(ctx, identity.ActivationBundleID)
-		if err != nil {
-			return RuntimeStatus{}, err
-		}
-		startup, err := application.database.GetStartupArtifact(ctx, bundle.StartupArtifactID)
+		startup, err := application.database.RuntimeCore(ctx, identity.ActivationBundleID)
 		if err != nil {
 			return RuntimeStatus{}, err
 		}

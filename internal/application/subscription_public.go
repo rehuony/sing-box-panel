@@ -9,6 +9,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"time"
 	"unicode"
 	"unicode/utf8"
 
@@ -33,6 +34,15 @@ type PublicSubscriptionResult struct {
 	ETag        string                          `json:"etag"`
 	NodeCount   int                             `json:"node_count"`
 	Diagnostics []subscription.RenderDiagnostic `json:"diagnostics"`
+	Traffic     PublicSubscriptionTraffic       `json:"-"`
+}
+
+// PublicSubscriptionTraffic reports the instance's recorded period usage,
+// including incomplete or stale totals. A zero TotalBytes means unlimited.
+type PublicSubscriptionTraffic struct {
+	UploadBytes   int64
+	DownloadBytes int64
+	TotalBytes    int64
 }
 
 // PublicSubscription authenticates the current token/user state and renders
@@ -47,11 +57,12 @@ func (application *Application) PublicSubscription(
 		return PublicSubscriptionResult{}, ErrPublicSubscriptionAccessDenied
 	}
 	digest := sha256.Sum256([]byte(plaintextToken))
+	now := application.now().UTC()
 	state, err := application.database.LoadPublicSubscriptionState(
 		ctx,
 		hex.EncodeToString(digest[:]),
 		channelID,
-		application.now().UTC(),
+		now,
 	)
 	if err != nil {
 		switch {
@@ -65,7 +76,40 @@ func (application *Application) PublicSubscription(
 		}
 	}
 
-	return application.renderSubscriptionState(ctx, state)
+	result, err := application.renderSubscriptionState(ctx, state)
+	if err != nil {
+		return PublicSubscriptionResult{}, err
+	}
+	result.Traffic, err = application.publicSubscriptionTraffic(ctx, now)
+	if err != nil {
+		return PublicSubscriptionResult{}, err
+	}
+	return result, nil
+}
+
+func (application *Application) publicSubscriptionTraffic(ctx context.Context, at time.Time) (PublicSubscriptionTraffic, error) {
+	policy, err := application.trafficAccounting(ctx)
+	if err != nil {
+		return PublicSubscriptionTraffic{}, err
+	}
+	var result PublicSubscriptionTraffic
+	if policy.QuotaGiB != nil {
+		result.TotalBytes = *policy.QuotaGiB * gibibyte
+	}
+	start, end, err := naturalTrafficPeriod(at, policy.PeriodMonths)
+	if err != nil {
+		return PublicSubscriptionTraffic{}, err
+	}
+	period, err := application.database.AggregateTrafficPeriod(ctx, start, end, at)
+	if errors.Is(err, store.ErrTrafficPeriodNotFound) {
+		// The current period starts at zero even before its first sample arrives.
+		return result, nil
+	}
+	if err != nil {
+		return PublicSubscriptionTraffic{}, err
+	}
+	result.UploadBytes, result.DownloadBytes = period.OutboundBytes, period.InboundBytes
+	return result, nil
 }
 
 func (application *Application) renderSubscriptionState(ctx context.Context, state store.PublicSubscriptionState) (PublicSubscriptionResult, error) {

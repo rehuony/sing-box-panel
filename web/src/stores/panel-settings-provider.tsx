@@ -1,10 +1,12 @@
 import type { ReactNode } from 'react';
 
 import { useLocation } from 'react-router-dom';
-import { useCallback, useEffect, useLayoutEffect, useMemo, useState } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useCallback, useEffect, useLayoutEffect, useMemo } from 'react';
 
 import type { PanelSettingsView, PanelSettingsWrite } from '@/api/api-client';
 
+import { queries } from '@/api/queries';
 import { setAppLanguage } from '@/i18n';
 import { useTheme } from '@/theme/theme-context';
 import { useApiClient } from '@/api/api-client-context';
@@ -15,26 +17,18 @@ export function PanelSettingsProvider({ children }: { children: ReactNode }) {
   const api = useApiClient();
   const { pathname } = useLocation();
   const { setAppearance, previewAppearance: preview } = useTheme();
-  const [view, setView] = useState<PanelSettingsView | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [reloadKey, setReloadKey] = useState(0);
+  const cache = useQueryClient();
+  const query = useQuery(queries.settings(api));
+  const view = query.data ?? null;
+  const error = query.error?.message ?? null;
   const reload = useCallback(() => {
-    setError(null);
-    setReloadKey(key => key + 1);
-  }, []);
-
+    void cache.invalidateQueries({ queryKey: ['settings'] });
+  }, [cache]);
   useEffect(() => {
-    const controller = new AbortController();
-    void api.getPanelSettings(controller.signal).then(result => {
-      if (controller.signal.aborted) return;
-      setView(result);
-      setAppearance(result.preferences.appearance);
-      void setAppLanguage(result.preferences.language);
-    }).catch((cause: unknown) => {
-      if (!controller.signal.aborted) setError(cause instanceof Error ? cause.message : 'Settings unavailable');
-    });
-    return () => controller.abort();
-  }, [api, reloadKey, setAppearance]);
+    if (!view) return;
+    setAppearance(view.preferences.appearance, true);
+    void setAppLanguage(view.preferences.language);
+  }, [view, setAppearance]);
 
   const isSettings = pathname === '/panel';
   useLayoutEffect(() => {
@@ -43,10 +37,10 @@ export function PanelSettingsProvider({ children }: { children: ReactNode }) {
   }, [isSettings, preview]);
 
   const accept = useCallback(async (result: PanelSettingsView) => {
-    setView(result);
+    cache.setQueryData(queries.settings(api).queryKey, result);
     setAppearance(result.preferences.appearance);
     await setAppLanguage(result.preferences.language);
-  }, [setAppearance]);
+  }, [setAppearance, cache, api]);
   const save = useCallback(async (input: PanelSettingsWrite) => {
     const result = await api.savePanelSettings(input);
     await accept(result);

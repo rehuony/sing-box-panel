@@ -16,7 +16,6 @@ export function createHttpApiClient(options: HttpApiClientOptions = {}): ApiClie
   const context = createHttpApiContext(options);
   return {
     supportsNativeChannelValidation: true,
-    invalidateReadCache: context.invalidateReadCache,
     ...createSessionHttpApi(context),
     ...createFilesystemHttpApi(context),
     ...createPanelSettingsHttpApi(context),

@@ -44,8 +44,13 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
   const preference = localPreference ?? appearance.theme;
   const resolvedTheme = resolveTheme(preference, systemPrefersDark);
 
-  const setAppearance = useCallback((value: AppearanceSettings) => {
-    setAppearanceState(current => ({ saved: value, draft: current.draft === null ? null : value }));
+  const setAppearance = useCallback((value: AppearanceSettings, preserveDraft = false) => {
+    setAppearanceState(current => ({
+      saved: value,
+      draft: current.draft === null
+        ? null
+        : preserveDraft && JSON.stringify(current.draft) !== JSON.stringify(current.saved) ? current.draft : value,
+    }));
   }, []);
 
   const previewAppearance = useCallback((value: Partial<AppearanceSettings> | null) => {

@@ -24,6 +24,7 @@ export const dashboard = {
     placeholder: '全部运行包',
   },
   chart: {
+    live: '实时 · 最近 120 秒',
     arrows: '使用左右方向键查看采样。',
     interactionHint: 'Ctrl + 滚动缩放 · Shift + 滚动平移 · +/− 缩放 · Shift + ←/→ 平移',
     keyboardLabel:
@@ -66,8 +67,9 @@ export const dashboard = {
     },
   },
   state: {
+    liveStale: '实时数据延迟 · 上次更新 {{time}}',
+    historyStale: '历史数据延迟 · 上次更新 {{time}}',
     historyLoading: '正在加载匹配的历史数据…',
-    historyStale: '历史筛选条件已变更，正在等待匹配的样本。',
     runtimeLoading: '正在加载运行历史…',
     runtimeStale: '时间范围已变更，正在等待匹配的运行历史。',
     snapshotStale: '正在刷新运行证据，旧快照已隐藏。',

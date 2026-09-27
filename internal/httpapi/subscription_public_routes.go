@@ -4,6 +4,7 @@ package httpapi
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 
@@ -39,18 +40,21 @@ func (handler *Handler) publicSubscription(w http.ResponseWriter, request *http.
 		return
 	}
 	etag := quoteETag(result.ETag)
-	w.Header().Set("ETag", etag)
-	w.Header().Set("Cache-Control", "no-store")
-	if publicSubscriptionETagMatches(request.Header.Get("If-None-Match"), etag) {
-		if err := handler.commands.RecordPublicSubscriptionUse(request.Context(), result.TokenID, 0); err != nil {
-			writePublicSubscriptionProblem(w, request, err)
-			return
-		}
-		w.WriteHeader(http.StatusNotModified)
+	notModified := publicSubscriptionETagMatches(request.Header.Get("If-None-Match"), etag)
+	bodyBytes := int64(len(result.Body))
+	if notModified {
+		bodyBytes = 0
+	}
+	if err := handler.commands.RecordPublicSubscriptionUse(request.Context(), result.TokenID, bodyBytes); err != nil {
+		writePublicSubscriptionProblem(w, request, err)
 		return
 	}
-	if err := handler.commands.RecordPublicSubscriptionUse(request.Context(), result.TokenID, int64(len(result.Body))); err != nil {
-		writePublicSubscriptionProblem(w, request, err)
+	w.Header().Set("ETag", etag)
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Subscription-Userinfo", fmt.Sprintf("upload=%d; download=%d; total=%d",
+		result.Traffic.UploadBytes, result.Traffic.DownloadBytes, result.Traffic.TotalBytes))
+	if notModified {
+		w.WriteHeader(http.StatusNotModified)
 		return
 	}
 	w.Header().Set("Content-Type", result.MediaType)

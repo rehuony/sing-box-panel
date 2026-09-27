@@ -51,17 +51,15 @@ describe('inline version library', () => {
     renderCores(client);
     await screen.findByText(testArtifacts.items[0].exact_version);
     expect(client.getRuntimeStatus).toHaveBeenCalledTimes(1);
-    expect(client.invalidateReadCache).not.toHaveBeenCalled();
     await user.click(screen.getByRole('button', { name: 'Refresh installed versions' }));
     await waitFor(() => expect(client.getRuntimeStatus).toHaveBeenCalledTimes(2));
-    expect(client.invalidateReadCache).toHaveBeenCalledOnce();
   });
 
   it('automatically initializes an empty catalog without blocking installed versions', async () => {
     const user = userEvent.setup();
     let finish!: () => void;
     const client = createMockApiClient({
-      listCatalogAssets: vi.fn().mockRejectedValueOnce(new Error('Catalog not initialized')).mockResolvedValue(testCatalog),
+      listCatalogAssets: vi.fn().mockRejectedValueOnce(new ApiRequestError('Catalog not initialized', { status: 409, code: 'catalog_not_initialized' })).mockResolvedValue(testCatalog),
       refreshCatalog: vi.fn().mockImplementation(() => new Promise(resolve => {
         finish = () => resolve({ refreshed_at: testCatalog.refreshed_at, releases: 1, assets: 1, not_modified: false });
       })),

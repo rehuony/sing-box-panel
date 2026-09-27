@@ -1,39 +1,25 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo } from 'react';
+import { useQuery } from '@tanstack/react-query';
 
-import type { CoreArtifact, RuntimeStatus } from '@/api/api-client';
+import type { CoreArtifact } from '@/api/api-client';
 
+import { queries } from '@/api/queries';
 import { useApiClient } from '@/api/api-client-context';
-import { installedCoreVersions, listInstalledCoreArtifacts } from '@/utils/installed-core-artifacts';
-
-type InstalledVersionState
-  = | { status: 'loading'; artifacts: CoreArtifact[]; runtime: null; error: null }
-    | { status: 'error'; artifacts: CoreArtifact[]; runtime: null; error: unknown }
-    | { status: 'ready'; artifacts: CoreArtifact[]; runtime: RuntimeStatus; error: null };
+import { installedCoreVersions } from '@/utils/installed-core-artifacts';
 
 export function useInstalledConfigurationVersions() {
   const client = useApiClient();
-  const [state, setState] = useState<InstalledVersionState>({
-    status: 'loading', artifacts: [], runtime: null, error: null,
-  });
-
-  useEffect(() => {
-    const controller = new AbortController();
-    void (async () => {
-      try {
-        const [artifacts, runtime] = await Promise.all([
-          client.getSystemStatus(controller.signal).then(system => system.platform === undefined
-            ? []
-            : listInstalledCoreArtifacts(client, system.platform, controller.signal)),
-          client.getRuntimeStatus(controller.signal),
-        ]);
-        if (!controller.signal.aborted) setState({ status: 'ready', artifacts, runtime, error: null });
-      } catch (error) {
-        if (!controller.signal.aborted) setState({ status: 'error', artifacts: [], runtime: null, error });
-      }
-    })();
-    return () => controller.abort();
-  }, [client]);
-
+  const system = useQuery(queries.system(client));
+  const installed = useQuery(queries.installed(client, system.data?.platform));
+  const runtime = useQuery(queries.runtime(client));
+  const state = {
+    status: system.isPending || (system.data?.platform && installed.isPending) || runtime.isPending
+      ? 'loading' as const
+      : system.error || installed.error || runtime.error ? 'error' as const : 'ready' as const,
+    artifacts: installed.data ?? [],
+    runtime: runtime.data ?? null,
+    error: system.error ?? installed.error ?? runtime.error,
+  };
   const versions = useMemo(() => installedCoreVersions(state.artifacts), [state.artifacts]);
   const artifactsByVersion = useMemo(() => {
     const result = new Map<string, CoreArtifact>();

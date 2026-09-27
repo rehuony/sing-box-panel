@@ -1,10 +1,13 @@
 import { useTranslation } from 'react-i18next';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useCallback, useDeferredValue, useEffect, useRef, useState } from 'react';
 
-import type { SubscriptionNodeSummary, SubscriptionSource, SubscriptionSourceSummary } from '@/api/api-client';
+import type { SubscriptionNodeSummary, SubscriptionSource } from '@/api/api-client';
 
+import { queries } from '@/api/queries';
 import { toast } from '@/components/ui/toast-manager';
 import { useApiClient } from '@/api/api-client-context';
+import { usePageVisible } from '@/hooks/use-page-visible';
 import { useUnsavedChanges } from '@/hooks/use-unsaved-changes';
 import { describeRequestError } from '@/components/error-notice';
 import { useOptionalSharedTelemetry } from '@/components/app-shell/telemetry-context';
@@ -40,22 +43,26 @@ function latestStart(...values: (string | undefined)[]): string | undefined {
     .sort((a, b) => Date.parse(b) - Date.parse(a))[0];
 }
 
-export function useSubscriptionSources() {
+export function useSubscriptionSources(active = true) {
   const { t } = useTranslation();
   const client = useApiClient();
-  const telemetry = useOptionalSharedTelemetry();
+  const cache = useQueryClient();
+  const visible = usePageVisible();
+  const enabled = active && visible;
+  const sourceQuery = useQuery({ ...queries.sources(client), enabled, refetchInterval: enabled ? 15_000 : false });
+  const nodeQuery = useQuery({ ...queries.nodes(client), enabled, refetchInterval: enabled ? 15_000 : false });
+  const sources = sourceQuery.data ?? [];
+  const nodes = nodeQuery.data?.nodes ?? [];
+  const runningStartedAt = useOptionalSharedTelemetry(s => s.runtimeStatus?.running?.started_at);
   const [lastStartedAt, setLastStartedAt] = useState<string>();
-  const runningStartedAt = telemetry?.runtimeStatus?.running?.started_at;
-  const latestStartedAt = latestStart(runningStartedAt, lastStartedAt);
+  const latestStartedAt = latestStart(runningStartedAt ?? undefined, lastStartedAt);
   if (latestStartedAt !== lastStartedAt) setLastStartedAt(latestStartedAt);
-  const [sources, setSources] = useState<SubscriptionSourceSummary[]>([]);
-  const [nodes, setNodes] = useState<SubscriptionNodeSummary[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
   const [tab, setTab] = useState<'nodes' | 'settings'>('nodes');
   const [search, setSearch] = useState('');
   const [size, setSize] = useState(10);
   const [page, setPage] = useState(1);
-  const [error, setError] = useState<unknown>(null);
+  const error = sourceQuery.error ?? nodeQuery.error;
   const [busy, setBusy] = useState(false);
   const [editor, setEditor] = useState<{ node: SubscriptionNodeSummary | null } | null>(null);
   const [form, setForm] = useState<SourceForm | null>(null);
@@ -70,69 +77,32 @@ export function useSubscriptionSources() {
     setFormError('');
   }, busy);
   const lifetimeRef = useRef<AbortController | null>(null);
-  const requestRef = useRef(0);
-  const load = useCallback(
-    async (signal?: AbortSignal) => {
-      const generation = ++requestRef.current;
-      void client.getRuntimeHistory({ state: 'running', limit: 1 }, signal).then((history) => {
-        if (!signal?.aborted && generation === requestRef.current) {
-          setLastStartedAt(current => latestStart(current, history.items[0]?.process_started_at));
-        }
-      }).catch(() => {
-        // Keep the last confirmed start time when history is temporarily unavailable.
-      });
-      try {
-        const [all, catalog] = await Promise.all([
-          (async () => {
-            const all: SubscriptionSourceSummary[] = [];
-            let cursor: { created_at: string; id: string } | undefined;
-            do {
-              const result = await client.listSubscriptionSources(
-                {
-                  limit: 100,
-                  beforeID: cursor?.id,
-                  beforeTime: cursor?.created_at,
-                },
-                signal,
-              );
-              all.push(...result.items);
-              cursor = result.next;
-            } while (cursor && all.length < 10_000 && !signal?.aborted);
-            return all;
-          })(),
-          client.getSubscriptionNodeCatalog(signal),
-        ]);
-        if (!signal?.aborted && generation === requestRef.current) {
-          setSources(all);
-          setNodes(catalog.nodes);
-          setError(null);
-        }
-      } catch (reason) {
-        if (!signal?.aborted && generation === requestRef.current) setError(reason);
-      }
-    },
-    [client],
-  );
+  const load = useCallback(async () => {
+    await cache.invalidateQueries({ queryKey: ['sources'], refetchType: 'none' });
+    await cache.invalidateQueries({ queryKey: ['nodes'], refetchType: 'none' });
+    await Promise.all([cache.fetchQuery(queries.sources(client)), cache.fetchQuery(queries.nodes(client))]);
+  }, [cache, client]);
   useEffect(() => {
     const controller = new AbortController();
     lifetimeRef.current = controller;
-    let timer: ReturnType<typeof setTimeout>;
-    const poll = async () => {
-      await load(controller.signal);
-      if (!controller.signal.aborted) timer = setTimeout(() => void poll(), 15000);
-    };
-    void poll();
-    return () => {
-      clearTimeout(timer);
-      controller.abort();
-      requestRef.current += 1;
-    };
-  }, [load]);
+    return () => controller.abort();
+  }, []);
+  useEffect(() => {
+    if (!enabled) return;
+    const controller = new AbortController();
+    void client.getRuntimeHistory({ state: 'running', limit: 1 }, controller.signal).then(history => {
+      if (!controller.signal.aborted) {
+        setLastStartedAt(current => latestStart(current, history.items[0]?.process_started_at));
+      }
+    }).catch(() => undefined);
+    return () => controller.abort();
+  }, [client, enabled]);
   const signal = () => lifetimeRef.current?.signal;
   const reload = () => {
-    client.invalidateReadCache();
-    void load(signal());
+    void load().catch(reason => toast.add({ title: describeRequestError(reason), type: 'error' }));
   };
+  const refreshingRef = useRef(false);
+  const [refreshingSources, setRefreshingSources] = useState<Record<string, 'pending' | 'success' | 'error'>>({});
 
   function openSource(id: string) {
     setSelected(id);
@@ -157,18 +127,25 @@ export function useSubscriptionSources() {
     }
   }
   async function refresh(sourceIDs: string[]) {
-    if (busy) return;
-    setBusy(true);
+    if (refreshingRef.current) return;
+    refreshingRef.current = true;
     try {
-      const results = await Promise.allSettled(
-        sourceIDs.map(async (id) => {
-          const currentSignal = signal();
-          if (!currentSignal) return;
-          await client.refreshSubscriptionSource(id, currentSignal);
-        }),
-      );
+      let failed = 0;
+      const pending = [...new Set(sourceIDs)];
+      setRefreshingSources(Object.fromEntries(pending.map(id => [id, 'pending' as const])));
+      await Promise.all(Array.from({ length: Math.min(3, pending.length) }, async () => {
+        while (pending.length && !signal()?.aborted) {
+          const id = pending.shift()!;
+          try {
+            await client.refreshSubscriptionSource(id, signal());
+            if (!signal()?.aborted) setRefreshingSources(current => ({ ...current, [id]: 'success' }));
+          } catch {
+            failed++;
+            if (!signal()?.aborted) setRefreshingSources(current => ({ ...current, [id]: 'error' }));
+          }
+        }
+      }));
       if (signal()?.aborted) return;
-      const failed = results.filter((value) => value.status === 'rejected').length;
       toast.add({
         title: failed
           ? t('subscriptions.sources.refreshFailed')
@@ -176,10 +153,11 @@ export function useSubscriptionSources() {
         type: failed ? 'error' : 'success',
       });
       // Refresh must reach the server even when there are no remote sources.
-      client.invalidateReadCache();
-      await load(signal());
+      await load();
+    } catch (reason) {
+      if (!signal()?.aborted) toast.add({ title: describeRequestError(reason), type: 'error' });
     } finally {
-      if (!signal()?.aborted) setBusy(false);
+      refreshingRef.current = false;
     }
   }
   async function saveSource() {
@@ -220,7 +198,7 @@ export function useSubscriptionSources() {
       }
       if (!signal()?.aborted) {
         toast.add({ title: t('subscriptions.sources.saved'), type: 'success' });
-        await load(signal());
+        await load();
       }
     } catch (reason) {
       if (!signal()?.aborted) setFormError(describeRequestError(reason));
@@ -228,28 +206,32 @@ export function useSubscriptionSources() {
       if (!signal()?.aborted) setBusy(false);
     }
   }
-  async function toggle(node: SubscriptionNodeSummary) {
-    if (busy) return;
-    setBusy(true);
+  const [busyNodes, setBusyNodes] = useState<Set<string>>(() => new Set());
+  const busyNodesRef = useRef(new Set<string>());
+  const toggle = useCallback(async (node: SubscriptionNodeSummary) => {
+    if (busyNodesRef.current.has(node.id)) return;
+    busyNodesRef.current.add(node.id);
+    setBusyNodes(new Set(busyNodesRef.current));
     try {
-      const updated = await client.setSubscriptionNodeVisibility(
+      await client.setSubscriptionNodeVisibility(
         node.id,
         !node.hidden,
         node.visibility_revision,
         signal(),
       );
-      if (!signal()?.aborted) setNodes((values) => values.map((value) => (value.id === node.id ? updated : value)));
     } catch (reason) {
       if (!signal()?.aborted) toast.add({ title: describeRequestError(reason), type: 'error' });
     } finally {
-      if (!signal()?.aborted) setBusy(false);
+      busyNodesRef.current.delete(node.id);
+      if (!signal()?.aborted) setBusyNodes(new Set(busyNodesRef.current));
     }
-  }
+  }, [client]);
   const localSourceIDs = new Set(
     sources.filter((source) => source.source_kind === 'local').map((source) => source.id),
   );
   const inManualCollection = (node: SubscriptionNodeSummary) =>
     node.origin !== 'source' || localSourceIDs.has(node.source_id);
+  const deferredSearch = useDeferredValue(search);
   const displayedSources = [
     {
       id: 'manual',
@@ -259,12 +241,18 @@ export function useSubscriptionSources() {
       enabled: true,
     },
     ...sources.filter((source) => source.source_kind === 'remote'),
-  ].filter((source) => source.name.toLowerCase().includes(search.toLowerCase()));
+  ].filter((source) => source.name.toLowerCase().includes(deferredSearch.toLowerCase()));
   const pages = Math.max(1, Math.ceil(displayedSources.length / size));
   const current = Math.min(page, pages);
   if (page !== current) setPage(current);
   return {
     sources,
+    refreshingSources,
+    busyNodes,
+    loading: sourceQuery.isPending || nodeQuery.isPending,
+    sourceLoading: sourceQuery.isPending,
+    nodeLoading: nodeQuery.isPending,
+    refreshing: sourceQuery.isFetching || nodeQuery.isFetching,
     nodes,
     selected,
     setSelected,

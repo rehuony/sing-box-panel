@@ -171,3 +171,6 @@ func (client *ClashClient) get(ctx context.Context, path string, destination any
 	}
 	return nil
 }
+
+// CloseIdleConnections releases the transport when the process incarnation changes.
+func (client *ClashClient) CloseIdleConnections() { client.client.CloseIdleConnections() }

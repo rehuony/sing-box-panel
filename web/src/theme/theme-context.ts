@@ -11,8 +11,8 @@ export interface ThemeContextValue {
   resolvedTheme: ResolvedTheme;
   appearance: AppearanceSettings;
   setPreference: (preference: ThemePreference) => void;
-  setAppearance: (appearance: AppearanceSettings) => void;
   previewAppearance: (appearance: Partial<AppearanceSettings> | null) => void;
+  setAppearance: (appearance: AppearanceSettings, preserveDraft?: boolean) => void;
 }
 
 export const ThemeContext = createContext<ThemeContextValue | null>(null);

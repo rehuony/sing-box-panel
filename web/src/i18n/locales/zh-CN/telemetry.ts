@@ -54,9 +54,9 @@ export const telemetry = {
   },
   startedAt: '启动于 {{value}}',
   stream: {
-    reconnecting: '仪表盘正在重连…',
+    reconnecting: '实时数据正在重连…',
     compact: '重连中…',
-    detail: '仪表盘数据暂时中断，正在保留现有数据并重新连接。',
+    detail: '实时数据暂时中断，正在保留上次观测并重新连接。',
   },
   toggleNavigation: '打开导航',
   unit: {

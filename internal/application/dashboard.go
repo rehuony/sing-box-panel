@@ -14,27 +14,18 @@ const dashboardRuntimeHistoryLimit = 4096
 // DashboardStreamSnapshot is the complete, cacheable dashboard projection.
 // Live host and traffic evidence continue to arrive through the metrics stream.
 type DashboardStreamSnapshot struct {
-	CollectedAt time.Time            `json:"collected_at"`
-	History1H   store.MetricsHistory `json:"history_1h"`
-	History24H  store.MetricsHistory `json:"history_24h"`
-	Runtime24H  RuntimeHistoryPage   `json:"runtime_24h"`
-	Activity    store.PanelLogPage   `json:"activity"`
+	PersistedThrough *time.Time           `json:"persisted_through"`
+	CollectedAt      time.Time            `json:"collected_at"`
+	History1H        store.MetricsHistory `json:"history_1h"`
+	History24H       store.MetricsHistory `json:"history_24h"`
+	Runtime24H       RuntimeHistoryPage   `json:"runtime_24h"`
+	Activity         store.PanelLogPage   `json:"activity"`
 }
 
 func (application *Application) DashboardSnapshot(ctx context.Context) (DashboardStreamSnapshot, error) {
 	collectedAt := application.now().UTC()
-	oneHourAgo := collectedAt.Add(-time.Hour)
 	oneDayAgo := collectedAt.Add(-24 * time.Hour)
-
-	history1H, err := application.MetricsHistory(ctx, store.MetricsHistoryFilter{
-		From: oneHourAgo, To: collectedAt, BucketSeconds: 60,
-	})
-	if err != nil {
-		return DashboardStreamSnapshot{}, err
-	}
-	history24H, err := application.MetricsHistory(ctx, store.MetricsHistoryFilter{
-		From: oneDayAgo, To: collectedAt, BucketSeconds: 300,
-	})
+	history1H, history24H, watermark, err := application.database.DashboardMetricsHistory(ctx, collectedAt)
 	if err != nil {
 		return DashboardStreamSnapshot{}, err
 	}
@@ -47,11 +38,12 @@ func (application *Application) DashboardSnapshot(ctx context.Context) (Dashboar
 		return DashboardStreamSnapshot{}, err
 	}
 	return DashboardStreamSnapshot{
-		CollectedAt: collectedAt,
-		History1H:   history1H,
-		History24H:  history24H,
-		Runtime24H:  runtime24H,
-		Activity:    activity,
+		CollectedAt:      collectedAt,
+		PersistedThrough: watermark,
+		History1H:        history1H,
+		History24H:       history24H,
+		Runtime24H:       runtime24H,
+		Activity:         activity,
 	}, nil
 }
 

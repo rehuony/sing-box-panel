@@ -12,6 +12,10 @@ import (
 // A saved panel override wins over the legacy per-channel host. It only changes
 // generated client endpoints, never listener addresses, ports or explicit SNI.
 func (app *Application) publicationHost(ctx context.Context, _ store.SubscriptionNodeControls, fallback string) (string, error) {
+	return app.publicationHostWithResolver(ctx, fallback, app.publicIP)
+}
+
+func (app *Application) publicationHostWithResolver(ctx context.Context, fallback string, resolve func(context.Context) string) (string, error) {
 	value, _, err := app.currentSettings(ctx)
 	if err != nil {
 		return "", err
@@ -22,8 +26,8 @@ func (app *Application) publicationHost(ctx context.Context, _ store.Subscriptio
 	if fallback != "" {
 		return fallback, nil
 	}
-	if app.publicIP != nil {
-		return app.publicIP(ctx), nil
+	if resolve != nil {
+		return resolve(ctx), nil
 	}
 	return "", nil
 }

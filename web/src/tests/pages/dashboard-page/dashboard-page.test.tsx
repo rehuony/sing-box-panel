@@ -2,12 +2,14 @@ import { MemoryRouter } from 'react-router-dom';
 import { describe, expect, it, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 
-import '@/i18n';
 import type { TelemetryState } from '@/components/app-shell/use-telemetry';
+
+import '@/i18n';
 import type { DashboardStreamSnapshot, MetricsSnapshot } from '@/api/api-client';
 
 import { DashboardPage } from '@/pages/dashboard-page/dashboard-page';
 import { TelemetryContext } from '@/components/app-shell/telemetry-context';
+import { createTelemetryStore } from '@/components/app-shell/use-telemetry';
 import {
   testDashboardSnapshot,
   testMetrics,
@@ -21,11 +23,11 @@ function show({
   dashboard?: DashboardStreamSnapshot | null;
   metrics?: MetricsSnapshot | null;
 } = {}) {
-  const telemetry: TelemetryState = {
+  const telemetry: Partial<TelemetryState> = {
     acceptRuntimeStatus: vi.fn(),
     dashboardError: null,
     dashboardSnapshot: dashboard,
-    dashboardStale: false,
+    liveStale: false,
     rates: { downloadBytesPerSecond: null, uploadBytesPerSecond: null },
     runtimeError: null,
     runtimeStatus: testRuntimeStatus,
@@ -34,7 +36,7 @@ function show({
   };
   render(
     <MemoryRouter>
-      <TelemetryContext value={telemetry}>
+      <TelemetryContext value={createTelemetryStore(telemetry)}>
         <DashboardPage />
       </TelemetryContext>
     </MemoryRouter>,

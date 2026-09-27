@@ -751,8 +751,9 @@ func startTrafficSampler(ctx context.Context, services *runtimeServices) <-chan 
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		ticker := time.NewTicker(10 * time.Second)
+		ticker := time.NewTicker(2 * time.Second)
 		defer ticker.Stop()
+		defer services.commands.CloseTrafficCollector()
 		for {
 			select {
 			case <-ctx.Done():
@@ -768,15 +769,22 @@ func startTrafficSampler(ctx context.Context, services *runtimeServices) <-chan 
 func (services *runtimeServices) collectTrafficSample(ctx context.Context) {
 	observation, err := services.database.RuntimeObservation(ctx)
 	if err != nil {
+		services.commands.ClearLiveTrafficSample()
+		return
+	}
+	token, err := services.identity.ProcessStartToken(ctx, observation.PID)
+	if err != nil || token != observation.ProcessStartToken {
+		services.commands.ClearLiveTrafficSample()
 		return
 	}
 	bundle, err := services.database.GetActivationBundle(ctx, observation.ActivationBundleID)
 	if err != nil || bundle.MonitoringTier != store.MonitoringLimited {
+		services.commands.ClearLiveTrafficSample()
 		return
 	}
-	sampleContext, cancel := context.WithTimeout(ctx, 5*time.Second)
+	sampleContext, cancel := context.WithTimeout(ctx, 2*time.Second)
 	defer cancel()
-	result, err := services.commands.CollectLimitedTrafficSample(sampleContext, observation)
+	result, err := services.commands.SampleLimitedTraffic(sampleContext, observation, false)
 	if err != nil {
 		recordOperationalLog(services.commands, application.LogRecordRequest{
 			Source: store.LogSourceCore, Level: store.LogLevelWarn, Code: "traffic.sample_failed",
@@ -784,7 +792,7 @@ func (services *runtimeServices) collectTrafficSample(ctx context.Context) {
 		})
 		return
 	}
-	if !result.Sample.Accepted {
+	if result.Sample.ID != 0 && !result.Sample.Accepted {
 		recordOperationalLog(services.commands, application.LogRecordRequest{
 			Source: store.LogSourceCore, Level: store.LogLevelWarn, Code: "traffic.counter_decreased",
 			Message:  "Clash API counters decreased within one process; sample rejected",

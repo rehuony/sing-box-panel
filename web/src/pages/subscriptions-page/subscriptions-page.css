@@ -1275,18 +1275,14 @@
     margin-top: 8px;
   }
 }
-.subscription-node-dialog[data-slot='dialog-content'] {
+.subscription-node-dialog[data-read-only] {
   display: flex;
   flex-direction: column;
-  width: 880px;
+  width: 760px;
   max-width: calc(100vw - 32px);
-  height: min(640px, calc(100dvh - 32px));
+  height: min(440px, calc(100dvh - 32px));
   overflow: hidden;
   border-radius: var(--radius-card);
-}
-.subscription-node-dialog[data-read-only] {
-  width: 760px;
-  height: min(440px, calc(100dvh - 32px));
 }
 .subscription-node-editor__loading {
   display: flex;
@@ -1294,6 +1290,7 @@
   min-height: 0;
   flex-direction: column;
   gap: 16px;
+  margin-inline: 24px;
 }
 .subscription-node-editor__modes {
   flex: 1;
@@ -1303,7 +1300,8 @@
 .subscription-node-editor__tabs {
   --tabs-inset: 4px;
   flex: none;
-  max-width: 100%;
+  max-width: calc(100% - 48px);
+  margin-inline: 24px;
   background: var(--color-surface-raised);
 }
 .subscription-node-editor__tabs [data-active] {
@@ -1316,9 +1314,15 @@
   overflow: auto;
   min-width: 0;
   flex: 1;
-  margin-inline: -1.5rem;
   padding: 4px 1.5rem;
   overscroll-behavior: contain;
+}
+.subscription-node-editor__scroll[data-visual] {
+  overflow: hidden;
+  padding: 0;
+}
+.subscription-node-dialog[data-read-only] .subscription-node-editor__scroll {
+  margin-inline: -1.5rem;
 }
 .subscription-node-code {
   display: flex;
@@ -1397,60 +1401,11 @@
   }
 }
 
-.subscription-node-protocol {
-  display: grid;
-  grid-template-columns: minmax(120px, 1fr) minmax(240px, 1fr);
-  align-items: center;
-  gap: 16px;
-  padding: 0 0 16px;
-}
-.subscription-node-protocol [data-slot='select-trigger'],
 .subscription-settings-fields [data-slot='select-trigger'] {
   width: 100%;
 }
-.subscription-node-options {
-  border-top: 1px solid var(--color-border);
-  padding: 12px 0;
-}
-.subscription-node-options > summary {
-  cursor: pointer;
-  color: var(--color-text-muted);
-  font-weight: 500;
-  padding: 4px 0;
-}
-.subscription-node-options[open] > summary {
-  margin-bottom: 16px;
-}
-
-.subscription-node-form .schema-form__grid {
-  grid-template-columns: minmax(0, 1fr);
-  gap: var(--form-field-gap);
-}
-.subscription-node-form .schema-form__field {
-  display: grid;
-  grid-template-columns: minmax(120px, 1fr) minmax(240px, 1fr);
-  align-items: center;
-  gap: var(--form-label-gap) 16px;
-}
-.subscription-node-form .schema-form__field > :not([data-slot='field-label']) {
-  grid-column: 2;
-}
-.subscription-node-form .schema-form__field > [data-slot='field-label'] {
-  margin: 0;
-}
-.subscription-node-form .schema-form__field > [data-slot='switch'] {
-  justify-self: start;
-  grid-row: 1;
-}
-@media (max-width: 600px) {
-  .subscription-node-form .schema-form__field,
-  .subscription-node-protocol {
-    grid-template-columns: minmax(0, 1fr);
-    gap: var(--form-label-gap);
-  }
-  .subscription-node-form .schema-form__field > :not([data-slot='field-label']) {
-    grid-column: 1;
-  }
+.subscription-node-form__controls {
+  border-bottom: 1px solid var(--color-rule-2);
 }
 
 /* Channel policy stays in the workspace; only focused editors use dialogs. */

@@ -1,6 +1,6 @@
-import { useState } from 'react';
 import { Search } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import { useDeferredValue, useMemo, useState } from 'react';
 
 import type { ChannelRuleGroup, SubscriptionFormat, SubscriptionNodeSummary } from '@/api/api-client';
 
@@ -27,16 +27,17 @@ interface Props {
 export function ChannelNodePicker({ nodes, group, groups, format, onClose, onAdd }: Props) {
   const { t } = useTranslation();
   const [search, setSearch] = useState('');
+  const deferredSearch = useDeferredValue(search);
   const [selected, setSelected] = useState<string[]>([]);
   const [dragging, setDragging] = useState(false);
   const [order, setOrder] = useState(() => [
     'builtin:direct', 'builtin:reject', ...nodes.filter((node) => !node.hidden && node.available).map((node) => `node:${node.id}`),
     ...groups.filter(value => value.id !== group.id).map(value => `group:${value.id}`),
   ]);
-  const matches = (text: string) => text.toLowerCase().includes(search.trim().toLowerCase());
+  const matches = (text: string) => text.toLowerCase().includes(deferredSearch.trim().toLowerCase());
   const added = new Set(candidateOrder(group));
-  const catalog = new Map(nodes.filter((node) => !node.hidden && node.available).map((node) => [`node:${node.id}`, node]));
-  const groupCatalog = new Map(groups.map(value => [`group:${value.id}`, value]));
+  const catalog = useMemo(() => new Map(nodes.filter((node) => !node.hidden && node.available).map((node) => [`node:${node.id}`, node])), [nodes]);
+  const groupCatalog = useMemo(() => new Map(groups.map(value => [`group:${value.id}`, value])), [groups]);
   const items: ChannelNodeCard[] = order.flatMap((id) => {
     const builtin = id === 'builtin:direct' ? 'direct' : id === 'builtin:reject' ? 'reject' : undefined;
     const node = catalog.get(id);

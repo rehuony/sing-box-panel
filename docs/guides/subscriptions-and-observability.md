@@ -76,6 +76,44 @@ only; create, rotate and the explicit authenticated secret endpoint return plain
 No request address, user agent, plaintext key or response content is recorded in
 usage statistics.
 
+### Subscription traffic metadata
+
+Every successful public subscription response, including `304 Not Modified`,
+includes an HTTP response header in the following format:
+
+```http
+Subscription-Userinfo: upload=123; download=456; total=107374182400
+```
+
+Values are integer bytes, separated by a semicolon and a space. `upload` is the
+current period's recorded outbound traffic, and `download` is its recorded
+inbound traffic. `total` uses the shared `traffic.quota_gib` setting multiplied
+by 1024³; an absent or zero quota produces `total=0` (unlimited). These are
+instance-wide counters shared by all keys and channels, including user-scoped
+keys. They do not represent individual user/node usage, subscription file sizes,
+or the key's download limit.
+
+Each request reads the current accounting settings and aggregates the current
+`traffic.period_months` period, using the existing UTC natural-month boundaries
+aligned from January 1970. At the next period boundary, only the new period's
+recorded usage is returned; no records means `upload=0; download=0`. Historical
+totals remain intact, and no reset job or running collector is required.
+Quota and period changes take effect on the next request.
+
+The header reports recorded usage even when sampling is stale, stopped, or
+incomplete. Zero means no recorded usage, not proof that no traffic occurred.
+The header format cannot communicate sampling coverage; dashboard metrics keep
+their existing unknown/partial evidence semantics. Configuration read or traffic
+storage failures return `503` instead of fabricated counters. Failed requests
+do not consume download quota or expose the traffic header; final authorization
+is rechecked before either a `200` or `304` response is committed.
+
+Traffic changes leave the subscription body and its ETag unchanged. Conditional
+requests still receive refreshed traffic metadata. The response adds no expiry
+or refresh-interval field: a period boundary is not a subscription expiration.
+Clients display the new usage on their next successful subscription refresh,
+so manually refresh an existing subscription to see it immediately.
+
 ## Applied local nodes and versioned sources
 
 Local nodes are derived only from the immutable startup bytes referenced by
@@ -581,44 +619,49 @@ payloads.
 
 ## Dashboard delivery and host metrics
 
-`GET /api/v1/metrics/stream` pushes runtime and metric snapshots every two seconds,
-with bounded writes and a one-minute authenticated reconnect. The application
-shell reconnects with bounded backoff after interruptions and retains the last
-valid event; it does not start a parallel polling loop. Repeated collector
-timestamps do not replace the last valid transfer rate with zero. Linux host
-CPU/memory/disk metrics are separate from sing-box process samples; unsupported
-hosts report unavailable values.
-The top toolbar keeps uptime and transfer rates visible with their units when
-values are missing: `0s` (localized) and `0 B/s`, including compact layouts.
-These are display defaults; the runtime badge still reflects the observed state,
-and missing monitoring evidence remains unavailable in the underlying data.
-The metrics stream reports an initial collection failure as a Problem response,
-rather than an empty successful stream. Its reconnect deadline also bounds
-collection, and each write deadline is cleared after flushing. The browser
-reports streams that close before the first snapshot as errors.
+`GET /api/v1/metrics/stream` shares runtime and metric snapshots across clients
+on a two-second cadence. The lifecycle-owned collector reads the running core
+every two seconds with a reused, incarnation-bound Clash client. The optional
+`metrics.live_sample` is process-local evidence with its own `sampled_at`, PID
+and start token. It does not change the existing `latest_sample`, availability,
+coverage or persisted period-total semantics. Snapshots use narrow runtime
+projections rather than loading complete saved configurations.
+
+Live, history and log streams have independent browser ownership. Hidden tabs
+stop streams and polling; visible pages reconnect. Normal rotation sends
+`event: control` with `{"type":"reconnect"}` before the one-minute authentication
+limit. Older clients may ignore that event. The client reconnects immediately;
+unexpected failures use jittered exponential backoff capped at 30 seconds.
+Metrics and dashboard streams send heartbeat comments every ten seconds. A
+25-second idle watchdog reconnects half-open responses, and 401 ends the session.
+Live data is stale after ten seconds without a snapshot; history after 45 seconds.
+Error feedback has a five-second grace period. Last observations remain visible;
+a history delay is shown locally with its update time, not as a panel disconnect.
+Linux host CPU/memory/disk metrics remain separate from sing-box process samples;
+unsupported hosts report unavailable values. The toolbar retains localized
+`0s` / `0 B/s` display defaults while missing evidence remains unavailable.
+
 System services read three narrowly scoped read-only host-counter mounts while
 retaining procfs isolation; see [systemd packaging](../../systemd/README.md#system-service)
 for the required unit refresh when upgrading an older installation.
 
-`GET /api/v1/dashboard/stream` sends an authenticated dashboard snapshot
-immediately, updates it every 30 seconds, and closes after one minute so the
-next connection revalidates authentication. Each `dashboard` event contains its
-collection time, one-hour traffic and connection history, 24-hour traffic and
-runtime history, and the latest two panel activity records. The application
-shell owns this stream across route changes, keeps the last valid snapshot while
-reconnecting with bounded backoff, and does not fall back to periodic history,
-runtime, traffic, or log requests.
+`GET /api/v1/dashboard/stream` sends a shared projection immediately (or a fresh
+cached value) and refreshes every 30 seconds only while subscribers exist.
+Assembly runs independently of live collection. A slow client retains just the
+latest pending snapshot, and cannot stall collection or grow an event backlog.
+The Dashboard owns this subscription; other routes do not query historical data.
+Each event includes one-hour / 24-hour histories, runtime transitions, two recent
+activity records and `persisted_through`. Both metric ranges and that accepted
+sample watermark come from one database read transaction. The watermark replaces
+overlapping live tails when history catches up. Live tails are labelled, bounded
+to 120 seconds, and break at missing samples, process changes, counter regression
+or reconnects. They never enter period totals or interpolate missing evidence.
 
-Normal dashboard stream closure allows five seconds for reconnection before
-showing reconnect feedback; transport errors are reported immediately. A single
-persistent Toast appears in the lower-right corner for each interruption and
-closes on recovery. Retries do not stack notifications, and the toolbar metrics
-remain visible.
-
-The one-minute lifetime includes snapshot collection, and cancels in-flight
-queries when it expires. Each write has a deadline of at most ten seconds, which
-is cleared after flushing so idle connections can close normally. An initial
-snapshot failure returns a non-success Problem response before opening SSE.
+Each connection is authenticated again within one minute. Collection belongs to
+the server lifetime, with pending reads canceled when the final subscriber leaves.
+Each write is bounded by ten seconds and the remaining connection lifetime, then
+its deadline is cleared after Flush. Initial collection failure returns a Problem
+response before opening SSE; later failure terminates only that stream.
 Each complete UTF-8 event frame is limited to 1 MiB. Runtime history keeps at
 most 4096 newest transitions, or fewer when necessary to fit the frame limit.
 Any truncation retains a `runtime_24h.next` cursor at the last included transition;
@@ -671,9 +714,12 @@ traffic delta; earlier missing history is not backfilled with invented values.
 
 Apply, start, and restart first pass process health, then wait up to five
 seconds for `/version` to report the exact selected core version. While the
-process runs, the panel reads `/connections` every ten seconds and persists
-memory, active connections, `uploadTotal`, and `downloadTotal`. A sample older
-than 30 seconds is stale.
+process runs, the panel reads `/connections` every two seconds into memory and
+persists checkpoints every ten seconds. Incarnation changes and rejected evidence
+may persist immediately: an intervening high-water observation is flushed before
+a counter regression so decimation cannot conceal it. Sampling failure clears
+live evidence without changing accounting. Persisted samples older than 30 seconds
+retain the existing stale accounting semantics.
 
 Counters are checkpointed by PID and OS start token. A restart opens a new
 segment and preserves the UTC natural-month period total. A decrease inside
@@ -751,3 +797,31 @@ directory; it never asks a browser to submit a server-local path.
 See [Configuration and runtime](configuration-and-runtime.md) for activation
 semantics and [HTTP API and security](../development/architecture.md#http-api-and-security) for management
 authentication and request boundaries.
+
+### Reverse proxy streaming
+
+Nginx must pass the event stream without response buffering (see the
+[official buffering documentation](https://nginx.org/en/docs/http/ngx_http_proxy_module.html#proxy_buffering)).
+The application emits `X-Accel-Buffering: no`; avoid configurations that ignore
+that header. A dedicated API location can also set:
+
+```nginx
+location /api/v1/ {
+    proxy_pass http://127.0.0.1:3000;
+    proxy_http_version 1.1;
+    proxy_buffering off;
+    proxy_cache off;
+    proxy_read_timeout 75s;
+}
+```
+
+Keep the existing forwarded-host/TLS and authentication configuration. Validate
+through the deployed chain using an authenticated SSE client: the initial event
+must arrive before closure, heartbeats must arrive about every ten seconds, and
+a control event/renewal must occur before one minute. A successful direct local
+connection alone does not establish CDN or reverse-proxy buffering behavior.
+
+Management node lists read only the public-address detector cache. The server
+refreshes it in the background; expired or missing addresses are unavailable.
+Explicit panel/channel addresses retain precedence, and actual public
+subscription publication still resolves and validates its endpoint.

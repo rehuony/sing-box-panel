@@ -56,3 +56,37 @@ func TestDetectionIsBoundedAndCached(t *testing.T) {
 		now = now.Add(time.Minute)
 	}
 }
+
+func TestCachedDoesNotWaitForPublicNetwork(t *testing.T) {
+	d := New()
+	entered, release := make(chan struct{}), make(chan struct{})
+	d.client.Transport = transportFunc(func(r *http.Request) (*http.Response, error) {
+		close(entered)
+		select {
+		case <-release:
+		case <-r.Context().Done():
+			return nil, r.Context().Err()
+		}
+		return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader("1.1.1.1")), Header: make(http.Header)}, nil
+	})
+	done := make(chan struct{})
+	go func() { defer close(done); d.Resolve(t.Context()) }()
+	<-entered
+	cached := make(chan string, 1)
+	go func() { cached <- d.Cached(t.Context()) }()
+	select {
+	case value := <-cached:
+		if value != "" {
+			t.Fatal(value)
+		}
+	case <-time.After(time.Second):
+		close(release)
+		<-done
+		t.Fatal("management cache blocked behind detection")
+	}
+	close(release)
+	<-done
+	if got := d.Cached(t.Context()); got != "1.1.1.1" {
+		t.Fatal(got)
+	}
+}

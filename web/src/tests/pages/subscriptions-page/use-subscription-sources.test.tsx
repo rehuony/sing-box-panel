@@ -1,7 +1,7 @@
 import type { PropsWithChildren } from 'react';
 
 import { describe, expect, it, vi } from 'vitest';
-import { act, renderHook } from '@testing-library/react';
+import { act, renderHook, waitFor } from '@testing-library/react';
 
 import type { ApiClient } from '@/api/api-client';
 
@@ -40,10 +40,11 @@ describe('subscription sources', () => {
   it('polls on virtual time and aborts reads on unmount', async () => {
     vi.useFakeTimers();
     const { client, unmount } = await mount();
+    client.listSubscriptionSources.mockImplementationOnce(() => new Promise(() => {}));
     await act(() => vi.advanceTimersByTimeAsync(15_000));
     expect(client.listSubscriptionSources).toHaveBeenCalledTimes(2);
     unmount();
-    expect(client.listSubscriptionSources.mock.calls[0][1]?.aborted).toBe(true);
+    expect(client.listSubscriptionSources.mock.calls[1][1]?.aborted).toBe(true);
     await vi.advanceTimersByTimeAsync(30_000);
     expect(client.listSubscriptionSources).toHaveBeenCalledTimes(2);
   });
@@ -74,6 +75,7 @@ describe('subscription sources', () => {
     const local = { ...testSubscriptionSources[0], source_kind: 'local' as const };
     const { result } = await mount({ listSubscriptionSources: vi.fn().mockResolvedValue({ items: [local] }) });
     expect(result.current.displayedSources.map(source => source.id)).toEqual(['manual']);
+    await waitFor(() => expect(result.current.sources).toHaveLength(1));
     const node = { ...result.current.nodes[0], source_id: local.id, origin: 'source' as const };
     expect(result.current.inManualCollection(node)).toBe(true);
     expect(result.current.inManualCollection({ ...node, source_id: 'remote' })).toBe(false);
@@ -84,7 +86,7 @@ describe('subscription sources', () => {
     expect(result.current.displayedSources[0].updated_at).toBe(started);
     await act(async () => result.current.reload());
     expect(result.current.displayedSources[0].updated_at).toBe(started);
-    expect(client.getRuntimeHistory).toHaveBeenCalledTimes(2);
+    expect(client.getRuntimeHistory).toHaveBeenCalledOnce();
   });
   it.each([{ items: [] }, { items: [{ process_started_at: 'invalid' }] }])('does not invent a manual update time from %j', async ({ items }) => {
     const { result } = await mount({ getRuntimeHistory: vi.fn().mockResolvedValue({ items }) });
@@ -96,11 +98,37 @@ describe('subscription sources', () => {
     const initialNodes = result.current.nodes;
     await act(() => result.current.refresh(['first', 'second']));
     expect(client.refreshSubscriptionSource).toHaveBeenCalledTimes(2);
-    expect(client.invalidateReadCache).toHaveBeenCalledOnce();
     expect(client.getSubscriptionNodeCatalog).toHaveBeenCalledTimes(2);
     expect(result.current.nodes).toEqual(initialNodes);
     expect(result.current.busy).toBe(false);
     expect(notice).toHaveBeenCalledWith(expect.objectContaining({ type: 'error' }));
     notice.mockRestore();
+  });
+  it('limits a batch to three remote operations and merges the final list refresh', async () => {
+    let active = 0;
+    let peak = 0;
+    const releases: (() => void)[] = [];
+    const { result, client } = await mount({ refreshSubscriptionSource: vi.fn(async () => {
+      active++;
+      peak = Math.max(peak, active);
+      await new Promise<void>(resolve => releases.push(resolve));
+      active--;
+      return {} as Awaited<ReturnType<ApiClient['refreshSubscriptionSource']>>;
+    }) });
+    let batch!: Promise<void>;
+    act(() => {
+      batch = result.current.refresh(['a', 'b', 'c', 'd', 'e']);
+    });
+    await waitFor(() => expect(releases).toHaveLength(3));
+    expect(result.current.busy).toBe(false);
+    await act(async () => releases.splice(0).forEach(release => release()));
+    await waitFor(() => expect(releases).toHaveLength(2));
+    await act(async () => {
+      releases.splice(0).forEach(release => release());
+      await batch;
+    });
+    expect(peak).toBe(3);
+    expect(Object.values(result.current.refreshingSources)).toEqual(Array.from({ length: 5 }).fill('success'));
+    expect(client.getSubscriptionNodeCatalog).toHaveBeenCalledTimes(2);
   });
 });

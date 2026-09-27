@@ -25,14 +25,14 @@ const AdvancedConfigurationEditor = lazy(() => import('./advanced-configuration-
 export function ConfigurationPage() {
   const { t } = useTranslation();
   const client = useApiClient();
-  const telemetry = useOptionalSharedTelemetry();
+  const runtime = useOptionalSharedTelemetry(s => s.runtimeStatus);
   const canonical = useCanonicalConfiguration();
   const installed = useInstalledConfigurationVersions();
   const selectedSchemaVersion = useConfigurationSessionStore(state => state.selectedVersion);
   const reconcileVersion = useConfigurationSessionStore(state => state.reconcileVersion);
   const setSelectedSchemaVersion = useConfigurationSessionStore(state => state.setSelectedVersion);
   const enabledVersion = installed.status === 'ready'
-    ? installed.runtime.enabled_core?.exact_core_version
+    ? installed.runtime?.enabled_core?.exact_core_version
     : undefined;
   const schemaVersion = installed.status === 'ready'
     ? selectedSchemaVersion !== null && installed.versions.includes(selectedSchemaVersion)
@@ -100,7 +100,6 @@ export function ConfigurationPage() {
     && (installed.status === 'loading' || (!noInstalledVersions && schema.status === 'loading'))
   );
   const locked = !fileReady || canonical.saving || checking;
-  const runtime = telemetry?.runtimeStatus;
   const file = canonical.state.file;
   const fileStatus = !fileReady
     ? ''

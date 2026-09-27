@@ -1,18 +1,20 @@
 import { useTranslation } from 'react-i18next';
 import { CirclePlus, Search } from 'lucide-react';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useCallback, useDeferredValue, useEffect, useRef, useState } from 'react';
 
 import type {
   SubscriptionChannel,
-  SubscriptionChannelSummary,
   SubscriptionFormat,
-  SubscriptionNodeSummary,
 } from '@/api/api-client';
 
+import { queries } from '@/api/queries';
 import { Button } from '@/components/ui/button';
+import { Spinner } from '@/components/ui/spinner';
 import { toast } from '@/components/ui/toast-manager';
 import { useApiClient } from '@/api/api-client-context';
 import { SelectField } from '@/components/select-field';
+import { usePageVisible } from '@/hooks/use-page-visible';
 import { ListPagination } from '@/components/list-pagination';
 import { ToolbarActions } from '@/components/workspace-toolbar';
 import { useUnsavedChanges } from '@/hooks/use-unsaved-changes';
@@ -36,68 +38,41 @@ export function SubscriptionChannelPanel({ active = true, toolbarTarget }: {
 } = {}) {
   const { t } = useTranslation();
   const client = useApiClient();
-  const [channels, setChannels] = useState<SubscriptionChannelSummary[]>([]);
-  const [nodes, setNodes] = useState<SubscriptionNodeSummary[]>([]);
+  const cache = useQueryClient();
+  const visible = usePageVisible();
+  const list = useQuery({ ...queries.channels(client), enabled: active && visible });
+  const catalog = useQuery({ ...queries.nodes(client), enabled: active && visible });
+  const channels = list.data ?? [];
+  const nodes = catalog.data?.nodes ?? [];
   const [channel, setChannel] = useState<SubscriptionChannel | null>(null);
   const [search, setSearch] = useState('');
+  const deferredSearch = useDeferredValue(search);
   const [size, setSize] = useState(10);
   const [page, setPage] = useState(1);
-  const [error, setError] = useState<unknown>(null);
+  const error = list.error ?? catalog.error;
   const [busy, setBusy] = useState(false);
   const [creating, setCreating] = useState(false);
   const [linkChannel, setLinkChannel] = useState<SubscriptionChannel | null>(null);
   const [name, setName] = useState('');
   const [format, setFormat] = useState<SubscriptionFormat>('sing-box');
   const [formError, setFormError] = useState('');
-  const [deleting, setDeleting] = useState<SubscriptionChannelSummary | null>(null);
+  const [deleting, setDeleting] = useState<import('@/api/api-client').SubscriptionChannelSummary | null>(null);
   useUnsavedChanges(creating && (name !== '' || format !== 'sing-box'), () => {
     setCreating(false);
     setName('');
     setFormat('sing-box');
   }, busy);
   const lifetimeRef = useRef<AbortController | null>(null);
-  const generationRef = useRef(0);
-  const load = useCallback(
-    async (signal?: AbortSignal) => {
-      const request = ++generationRef.current;
-      try {
-        const [all, catalog] = await Promise.all([
-          (async () => {
-            const all: SubscriptionChannelSummary[] = [];
-            let cursor: { created_at: string; id: string } | undefined;
-            do {
-              const result = await client.listSubscriptionChannels(
-                { limit: 100, beforeID: cursor?.id, beforeTime: cursor?.created_at },
-                signal,
-              );
-              all.push(...result.items);
-              cursor = result.next;
-            } while (cursor && all.length < 10000 && !signal?.aborted);
-            return all;
-          })(),
-          client.getSubscriptionNodeCatalog(signal),
-        ]);
-        if (signal?.aborted || request !== generationRef.current) return;
-        setChannels(all);
-        setNodes(catalog.nodes);
-        setError(null);
-      } catch (reason) {
-        if (!signal?.aborted && request === generationRef.current) setError(reason);
-      }
-    },
-    [client],
-  );
+  const load = useCallback(async (_signal?: AbortSignal) => {
+    await cache.invalidateQueries({ queryKey: ['channels'], refetchType: 'none' });
+    await cache.invalidateQueries({ queryKey: ['nodes'], refetchType: 'none' });
+    await Promise.all([cache.fetchQuery(queries.channels(client)), cache.fetchQuery(queries.nodes(client))]);
+  }, [client, cache]);
   useEffect(() => {
     const controller = new AbortController();
     lifetimeRef.current = controller;
-    return () => {
-      controller.abort();
-      generationRef.current += 1;
-    };
+    return () => controller.abort();
   }, []);
-  useEffect(() => {
-    if (active) void load(lifetimeRef.current?.signal);
-  }, [active, load]);
   async function open(id: string) {
     if (busy) return;
     setBusy(true);
@@ -190,7 +165,7 @@ export function SubscriptionChannelPanel({ active = true, toolbarTarget }: {
     }
   }
   const filtered = channels.filter((value) =>
-    value.name.toLowerCase().includes(search.toLowerCase()),
+    value.name.toLowerCase().includes(deferredSearch.toLowerCase()),
   );
   const pages = Math.max(1, Math.ceil(filtered.length / size));
   const current = Math.min(page, pages);
@@ -292,7 +267,14 @@ export function SubscriptionChannelPanel({ active = true, toolbarTarget }: {
                     ))}
                   </tbody>
                 </table>
-                {!filtered.length && <p className='subscription-empty'>{t('channels.empty')}</p>}
+                {list.isPending
+                  ? (
+                      <span role='status'>
+                        <Spinner />
+                        {t('common.loading')}
+                      </span>
+                    )
+                  : !filtered.length && <p className='subscription-empty'>{t('channels.empty')}</p>}
               </div>
               <ListPagination
                 page={current}

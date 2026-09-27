@@ -447,6 +447,16 @@ export function demoMetrics(data: DemoData, quotaGiB: number | null, now = new D
           accepted: true,
         }
       : undefined,
+    live_sample: running
+      ? {
+          activation_bundle_id: data.runtime.applied_bundle_id ?? 'bundle_demo_current',
+          pid: data.runtime.running?.pid ?? 0,
+          process_start_token: data.runtime.running?.process_start_token ?? 'demo-stopped',
+          sampled_at: now.toISOString(), memory_bytes: 68_157_440, active_connections: 18,
+          upload_total: Math.floor(now.getTime() / 1000) * 12482,
+          download_total: Math.floor(now.getTime() / 1000) * 48621, accepted: true,
+        }
+      : undefined,
     traffic_available: running,
     quota_bytes: quotaBytes,
     quota_exceeded: running && period !== undefined && quotaBytes !== undefined

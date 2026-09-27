@@ -127,9 +127,9 @@ func TestSystemdUninstallAccountOutput(t *testing.T) {
 				return
 			}
 			for _, want := range map[string][]string{
-				"removed":         {"service user removed", "service group removed"},
-				"retained":        {"service user retained", "service group retained", "--keep-user"},
-				"partial failure": {"Uninstall interrupted", "service user removed", "service group retained"},
+				"removed":         {"Service user: [removed]", "Service group: [removed]"},
+				"retained":        {"Service user: [retained]", "Service group: [retained]", "--keep-user"},
+				"partial failure": {"Uninstall interrupted", "Service user: [removed]", "Service group: [retained]"},
 			}[scenario] {
 				if !strings.Contains(stdout, want) {
 					t.Fatalf("output missing %q: %s", want, stdout)

@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/rehuony/sing-box-panel/internal/hostmetrics"
-	coreruntime "github.com/rehuony/sing-box-panel/internal/runtime"
 	"github.com/rehuony/sing-box-panel/internal/settings"
 	"github.com/rehuony/sing-box-panel/internal/store"
 )
@@ -23,6 +22,7 @@ const gibibyte = int64(1 << 30)
 // proves that at least one process-local counter delta contributes to the
 // current period, so an unproven first lifetime counter is not exposed as zero.
 type MetricsSnapshot struct {
+	LiveSample         *LiveTrafficSample    `json:"live_sample,omitempty"`
 	Host               *hostmetrics.Snapshot `json:"host,omitempty"`
 	Available          bool                  `json:"available"`
 	ReasonCode         string                `json:"reason_code,omitempty"`
@@ -44,7 +44,7 @@ type TrafficSampleRetentionResult struct {
 
 func (application *Application) Metrics(ctx context.Context) (MetricsSnapshot, error) {
 	now := application.now().UTC()
-	result := MetricsSnapshot{CollectedAt: now, Host: application.hostSampler.Sample(application.settings.DataDir)}
+	result := MetricsSnapshot{CollectedAt: now, Host: application.hostSampler.Sample(application.settings.DataDir), LiveSample: application.collector.live.Load()}
 	policy, err := application.trafficAccounting(ctx)
 	if err != nil {
 		return MetricsSnapshot{}, err
@@ -53,11 +53,11 @@ func (application *Application) Metrics(ctx context.Context) (MetricsSnapshot, e
 		quota := *quotaGiB * gibibyte
 		result.QuotaBytes = &quota
 	}
-	bootstrap, err := application.database.Bootstrap(ctx)
+	hub, err := application.database.RuntimeHubState(ctx)
 	if err != nil {
 		return MetricsSnapshot{}, err
 	}
-	result.AppliedBundleID = bootstrap.Hub.AppliedBundleID
+	result.AppliedBundleID = hub.AppliedBundleID
 	if result.AppliedBundleID == "" {
 		result.ReasonCode = "not_applied"
 		return result, nil
@@ -145,49 +145,6 @@ func (application *Application) trafficAccounting(ctx context.Context) (settings
 		return settings.Traffic{}, err
 	}
 	return settings.LoadTrafficAccounting(application.settingsPath)
-}
-
-// CollectLimitedTrafficSample reads the configured loopback API for the exact
-// observed process and persists a monotonic UTC-period sample.
-func (application *Application) CollectLimitedTrafficSample(
-	ctx context.Context,
-	observation store.RuntimeObservation,
-) (store.TrafficSampleResult, error) {
-	material, err := application.LoadRuntimeMaterial(ctx, observation.ActivationBundleID)
-	if err != nil {
-		return store.TrafficSampleResult{}, err
-	}
-	if material.Activation.MonitoringTier != store.MonitoringLimited {
-		return store.TrafficSampleResult{}, ErrMonitoringTierUnavailable
-	}
-	endpoint, err := coreruntime.ParseClashEndpoint(material.Bundle.StartupConfig)
-	if err != nil {
-		return store.TrafficSampleResult{}, err
-	}
-	client, err := coreruntime.NewClashClient(endpoint)
-	if err != nil {
-		return store.TrafficSampleResult{}, err
-	}
-	sample, err := client.Connections(ctx)
-	if err != nil {
-		return store.TrafficSampleResult{}, err
-	}
-	now := application.now().UTC()
-	effective, err := application.EffectiveSettings(ctx)
-	if err != nil {
-		return store.TrafficSampleResult{}, err
-	}
-	periodStart, periodEnd, err := naturalTrafficPeriod(now, effective.Traffic.PeriodMonths)
-	if err != nil {
-		return store.TrafficSampleResult{}, err
-	}
-	return application.database.RecordTrafficSample(ctx, store.TrafficSampleInput{
-		ActivationBundleID: observation.ActivationBundleID,
-		PID:                observation.PID, ProcessStartToken: observation.ProcessStartToken,
-		SampledAt: now, PeriodStart: periodStart, PeriodEnd: periodEnd,
-		MemoryBytes: sample.Memory, ActiveConnections: sample.Connections,
-		UploadTotal: sample.UploadTotal, DownloadTotal: sample.DownloadTotal,
-	})
 }
 
 func naturalTrafficPeriod(at time.Time, months int) (time.Time, time.Time, error) {

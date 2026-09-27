@@ -19,7 +19,7 @@ export function CoreLogsPanel({ active = true, toolbarTarget }: {
   toolbarTarget?: HTMLElement | null;
 } = {}) {
   const { t } = useTranslation();
-  const log = useCoreLogs();
+  const log = useCoreLogs(active);
   const [level, setLevel] = useState('');
   const [search, setSearch] = useState('');
   const [deleteTarget, setDeleteTarget] = useState('');

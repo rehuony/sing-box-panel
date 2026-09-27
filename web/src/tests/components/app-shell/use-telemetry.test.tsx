@@ -1,20 +1,28 @@
 import type { PropsWithChildren } from 'react';
 
-import { useState } from 'react';
+import { useStore } from 'zustand';
+import { useEffect, useState } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { act, renderHook, waitFor } from '@testing-library/react';
 
 import type { ApiClient, RuntimeStatus } from '@/api/api-client';
 
+import { StreamRotation } from '@/api/http/event-stream';
 import { ApiClientProvider } from '@/api/api-client-context';
-import { useTelemetry } from '@/components/app-shell/use-telemetry';
 import { PanelSettingsContext } from '@/stores/panel-settings.store';
+import { useTelemetryStore } from '@/components/app-shell/use-telemetry';
 import {
   createMockApiClient,
   testDashboardSnapshot,
   testMetrics,
   testRuntimeStatus,
 } from '@/tests/api/mock-api-client';
+
+function useTelemetry() {
+  const store = useTelemetryStore();
+  useEffect(() => store.getState().retainDashboard(), [store]);
+  return useStore(store);
+}
 
 function wrapper(client: ApiClient) {
   return function ApiWrapper({ children }: PropsWithChildren) {
@@ -97,6 +105,7 @@ describe('useTelemetry', () => {
       streamDashboard: vi.fn(async function* (signal) {
         yield testDashboardSnapshot;
         if (++calls > 1) await waitForAbort(signal);
+        else throw new StreamRotation();
       }),
     });
     const { result } = renderHook(() => useTelemetry(), { wrapper: wrapper(client) });
@@ -111,7 +120,7 @@ describe('useTelemetry', () => {
     expect(result.current.dashboardSnapshot).toBe(testDashboardSnapshot);
   });
 
-  it('reports a stalled clean reconnect after the grace period and clears it on recovery', async () => {
+  it('separates a failed reconnect from data freshness and clears both on recovery', async () => {
     vi.useFakeTimers();
     let resume!: () => void;
     const pending = new Promise<void>(resolve => {
@@ -135,9 +144,11 @@ describe('useTelemetry', () => {
     await act(async () => vi.advanceTimersByTimeAsync(4_999));
     expect(result.current.dashboardStale).toBe(false);
     await act(async () => vi.advanceTimersByTimeAsync(1));
-    expect(result.current.dashboardStale).toBe(true);
+    expect(result.current.dashboardStale).toBe(false);
     expect(result.current.dashboardSnapshot).toBe(testDashboardSnapshot);
-    expect(result.current.dashboardError).toBeNull();
+    expect(result.current.dashboardError).toBeInstanceOf(Error);
+    await act(async () => vi.advanceTimersByTimeAsync(41_000));
+    expect(result.current.dashboardStale).toBe(true);
 
     await act(async () => resume());
     expect(result.current.dashboardSnapshot).toBe(next);
@@ -159,7 +170,7 @@ describe('useTelemetry', () => {
     expect(client.streamDashboard).toHaveBeenCalledOnce();
   });
 
-  it('reports an interrupted stream immediately and retains the last dashboard snapshot while reconnecting', async () => {
+  it('reports an interrupted stream after the grace period and retains the last dashboard snapshot while reconnecting', async () => {
     vi.useFakeTimers();
     let calls = 0;
     const streamDashboard = vi.fn(async function* (signal?: AbortSignal) {
@@ -178,14 +189,16 @@ describe('useTelemetry', () => {
       await Promise.resolve();
     });
     expect(result.current.dashboardSnapshot).toBe(testDashboardSnapshot);
-    expect(result.current.dashboardStale).toBe(true);
+    expect(result.current.dashboardStale).toBe(false);
+    expect(result.current.dashboardError).toBeNull();
+    await act(async () => vi.advanceTimersByTimeAsync(5_000));
     expect(result.current.dashboardError).toBeInstanceOf(Error);
     await act(async () => vi.advanceTimersByTimeAsync(1_000));
     expect(streamDashboard).toHaveBeenCalledTimes(2);
     expect(result.current.dashboardSnapshot).toBe(testDashboardSnapshot);
   });
 
-  it('reports initial dashboard failures and clears the error after a successful reconnect', async () => {
+  it('suppresses a transient initial dashboard failure and clears the error after a successful reconnect', async () => {
     vi.useFakeTimers();
     let calls = 0;
     const failure = new Error('The dashboard snapshot could not be collected.');
@@ -200,7 +213,7 @@ describe('useTelemetry', () => {
 
     await act(async () => Promise.resolve());
     expect(result.current.dashboardSnapshot).toBeNull();
-    expect(result.current.dashboardError).toBe(failure);
+    expect(result.current.dashboardError).toBeNull();
     expect(result.current.dashboardStale).toBe(true);
 
     await act(async () => vi.advanceTimersByTimeAsync(1_000));
@@ -238,5 +251,26 @@ describe('useTelemetry', () => {
 
     expect(metricsSignal?.aborted).toBe(true);
     expect(dashboardSignal?.aborted).toBe(true);
+  });
+  it('acquires history only on demand and suspends both channels while hidden', async () => {
+    const client = createMockApiClient();
+    const { result } = renderHook(() => useTelemetryStore(), { wrapper: wrapper(client) });
+    await act(async () => {});
+    expect(client.streamDashboard).not.toHaveBeenCalled();
+    let release!: () => void;
+    act(() => {
+      release = result.current.getState().retainDashboard();
+    });
+    await waitFor(() => expect(client.streamDashboard).toHaveBeenCalledOnce());
+    const visibility = vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('hidden');
+    act(() => document.dispatchEvent(new Event('visibilitychange')));
+    expect(client.streamMetrics.mock.calls[0][0]?.aborted).toBe(true);
+    expect(client.streamDashboard.mock.calls[0][0]?.aborted).toBe(true);
+    visibility.mockReturnValue('visible');
+    act(() => document.dispatchEvent(new Event('visibilitychange')));
+    await waitFor(() => expect(client.streamMetrics).toHaveBeenCalledTimes(2));
+    act(() => release());
+    expect(client.streamDashboard.mock.calls[1][0]?.aborted).toBe(true);
+    visibility.mockRestore();
   });
 });

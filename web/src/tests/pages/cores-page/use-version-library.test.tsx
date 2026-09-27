@@ -61,6 +61,7 @@ describe('version library runtime ordering', () => {
       act(() => {
         void result.current.library.refreshInstalled();
       });
+      await waitFor(() => expect(client.getRuntimeStatus).toHaveBeenCalledTimes(2));
     }
     await act(async () => {
       result.current.telemetry.acceptRuntimeStatus(stopped);

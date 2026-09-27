@@ -70,7 +70,7 @@ describe('application routes', () => {
     }
   });
 
-  it('keeps loading until the session and panel context are ready', async () => {
+  it('renders the workspace as soon as the session is ready while context loads independently', async () => {
     let resolveSession!: (value: typeof testSession) => void;
     let resolveContext!: (value: typeof testDashboardContext) => void;
     const session = new Promise<typeof testSession>(resolve => {
@@ -87,7 +87,7 @@ describe('application routes', () => {
     const checking = await screen.findByText('Checking panel session…');
     expect(checking.closest('main')).toHaveAttribute('aria-busy', 'true');
     await act(async () => resolveSession(testSession));
-    expect(await screen.findByText('Reading panel context')).toBeVisible();
+    expect(await screen.findByRole('button', { name: 'Sign out' })).toBeVisible();
     await act(async () => resolveContext(testDashboardContext));
     await screen.findByRole('button', { name: 'Sign out' });
     expect(screen.queryByText('Reading panel context')).not.toBeInTheDocument();
@@ -225,11 +225,14 @@ describe('application routes', () => {
   });
 
   it('moves to anonymous when the HTTP client invalidates the session', async () => {
-    let invalidate = () => undefined;
+    const listeners = new Set<() => void>();
+    const invalidate = () => listeners.forEach(listener => listener());
     const client = createMockApiClient({
       subscribeSessionInvalidated: vi.fn((listener) => {
-        invalidate = listener;
-        return () => undefined;
+        listeners.add(listener);
+        return () => {
+          listeners.delete(listener);
+        };
       }),
     });
     renderRoutes('/', client);

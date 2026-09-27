@@ -1,8 +1,9 @@
-import { useRef } from 'react';
+import { useCallback, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ArrowLeft, CirclePlus, RefreshCw, Search } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
+import { Spinner } from '@/components/ui/spinner';
 import { ErrorNotice } from '@/components/error-notice';
 import { SelectField } from '@/components/select-field';
 import { ListPagination } from '@/components/list-pagination';
@@ -29,6 +30,11 @@ export function SubscriptionSourcePanel({ active = true, toolbarTarget }: {
   const addSourceRef = useRef<HTMLButtonElement>(null);
   const {
     sources,
+    refreshingSources,
+    busyNodes,
+    refreshing,
+    sourceLoading,
+    nodeLoading,
     nodes,
     selected,
     setSelected,
@@ -61,7 +67,8 @@ export function SubscriptionSourcePanel({ active = true, toolbarTarget }: {
     current,
     pages,
     newSource,
-  } = useSubscriptionSources();
+  } = useSubscriptionSources(active);
+  const openNode = useCallback((node: import('@/api/api-client').SubscriptionNodeSummary) => setEditor({ node }), [setEditor]);
   const fields = form && (
     <div className='subscription-settings-fields'>
       <label htmlFor='source-name'>{t('subscriptions.common.name')}</label>
@@ -157,7 +164,7 @@ export function SubscriptionSourcePanel({ active = true, toolbarTarget }: {
                 <Button
                   aria-label={t('subscriptions.sources.refresh')}
                   title={t('subscriptions.sources.refresh')}
-                  disabled={busy}
+                  disabled={refreshing || Object.values(refreshingSources).includes('pending')}
                   onClick={() =>
                     selected === 'manual'
                       ? reload()
@@ -172,7 +179,7 @@ export function SubscriptionSourcePanel({ active = true, toolbarTarget }: {
                   size='icon-sm'
                   variant='ghost'
                 >
-                  <RefreshCw aria-hidden='true' className={busy ? 'animate-spin' : ''} />
+                  <RefreshCw aria-hidden='true' className={refreshing || Object.values(refreshingSources).includes('pending') ? 'animate-spin' : ''} />
                 </Button>
                 {(!selected || selected === 'manual') && (
                   <Button
@@ -230,15 +237,22 @@ export function SubscriptionSourcePanel({ active = true, toolbarTarget }: {
                 )
               : (
                   <TabsContent value='nodes' className='subscription-node-list'>
+                    {nodeLoading && (
+                      <span role='status'>
+                        <Spinner />
+                        {t('common.loading')}
+                      </span>
+                    )}
                     <SubscriptionNodeGrid
                       key={selected}
                       sourceID={selected}
                       busy={busy}
+                      busyNodes={busyNodes}
                       nodes={nodes.filter((node) =>
                         selected === 'manual' ? inManualCollection(node) : node.source_id === selected,
                       )}
-                      onOpen={(node) => setEditor({ node })}
-                      onVisibility={(node) => void toggle(node)}
+                      onOpen={openNode}
+                      onVisibility={toggle}
                       search={search}
                     />
                   </TabsContent>
@@ -257,6 +271,16 @@ export function SubscriptionSourcePanel({ active = true, toolbarTarget }: {
                     </tr>
                   </thead>
                   <tbody>
+                    {sourceLoading && (
+                      <tr>
+                        <td colSpan={4}>
+                          <span role='status'>
+                            <Spinner />
+                            {t('common.loading')}
+                          </span>
+                        </td>
+                      </tr>
+                    )}
                     {displayedSources.slice((current - 1) * size, current * size).map((source) => (
                       <tr key={source.id}>
                         <td>
@@ -266,11 +290,13 @@ export function SubscriptionSourcePanel({ active = true, toolbarTarget }: {
                         </td>
                         <td>
                           {
-                            nodes.filter((node) =>
-                              source.id === 'manual'
-                                ? inManualCollection(node)
-                                : node.source_id === source.id,
-                            ).length
+                            nodeLoading
+                              ? '—'
+                              : nodes.filter((node) =>
+                                source.id === 'manual'
+                                  ? inManualCollection(node)
+                                  : node.source_id === source.id,
+                              ).length
                           }
                         </td>
                         <td>
@@ -288,14 +314,14 @@ export function SubscriptionSourcePanel({ active = true, toolbarTarget }: {
                           <Button
                             size='sm'
                             disabled={
-                              busy || (source.id !== 'manual' && source.source_kind !== 'remote')
+                              refreshingSources[source.id] === 'pending' || (source.id !== 'manual' && source.source_kind !== 'remote')
                             }
                             onClick={() =>
                               source.id === 'manual' ? reload() : void refresh([source.id])
                             }
                             variant='outline'
                           >
-                            {t('subscriptions.sources.refresh')}
+                            {refreshingSources[source.id] === 'success' ? t('subscriptions.sources.refreshed') : refreshingSources[source.id] === 'error' ? t('subscriptions.sources.refreshFailed') : t('subscriptions.sources.refresh')}
                           </Button>
                         </td>
                       </tr>

@@ -1,7 +1,7 @@
 import type { PropsWithChildren } from 'react';
 
 import { describe, expect, it, vi } from 'vitest';
-import { act, renderHook } from '@testing-library/react';
+import { act, renderHook, waitFor } from '@testing-library/react';
 
 import type { ApiClient, PanelSettingsView } from '@/api/api-client';
 
@@ -18,9 +18,10 @@ import { usePanelSettingsDraft } from '@/pages/panel-settings-page/use-panel-set
 
 async function mount(client: ApiClient = createMockApiClient()) {
   const initial = await client.getPanelSettings();
-  const hook = renderHook(() => ({
-    draft: usePanelSettingsDraft(initial), settings: usePanelSettings(), theme: useTheme(),
-  }), {
+  const hook = renderHook(() => {
+    const settings = usePanelSettings();
+    return { draft: usePanelSettingsDraft(settings.view ?? initial), settings, theme: useTheme() };
+  }, {
     wrapper: ({ children }: PropsWithChildren) => (
       <TestRouter initialEntries={['/panel']}>
         <ApiClientProvider client={client}>
@@ -29,11 +30,39 @@ async function mount(client: ApiClient = createMockApiClient()) {
       </TestRouter>
     ),
   });
-  await act(async () => {});
+  await waitFor(() => expect(hook.result.current.settings.view).not.toBeNull());
   return { ...hook, initial, client };
 }
 
 describe('panel settings draft', () => {
+  it('adopts a background revision while clean and preserves dirty fields and their conflict revision', async () => {
+    const client = createMockApiClient({ savePanelSettings: vi.fn().mockRejectedValue(new Error('conflict')) });
+    const { result, initial } = await mount(client);
+    const next = { ...initial, revision: initial.revision + 1,
+      preferences: { ...initial.preferences, appearance: { ...initial.preferences.appearance, color: '#135791' } },
+      service: { ...initial.service, base_path: '/remote' } };
+    client.getPanelSettings.mockResolvedValue(next);
+    act(() => result.current.settings.reload());
+    await waitFor(() => {
+      expect(result.current.draft.service.base_path).toBe('/remote');
+      expect(result.current.draft.preferences.appearance.color).toBe('#135791');
+      expect(result.current.draft.dirty).toBe(false);
+    });
+    act(() => {
+      result.current.draft.updateService('base_path', '/local');
+      result.current.draft.appearance({ color: '#246802' });
+    });
+    client.getPanelSettings.mockResolvedValue({ ...next, revision: next.revision + 1,
+      preferences: { ...next.preferences, appearance: { ...next.preferences.appearance, color: '#aaaaaa' } } });
+    act(() => result.current.settings.reload());
+    await waitFor(() => expect(result.current.settings.view?.revision).toBe(next.revision + 1));
+    expect(result.current.draft.service.base_path).toBe('/local');
+    expect(result.current.draft.preferences.appearance.color).toBe('#246802');
+    await act(() => result.current.draft.submit());
+    expect(client.savePanelSettings).toHaveBeenCalledWith(expect.objectContaining({ revision: next.revision }));
+    expect(result.current.draft.dirty).toBe(true);
+  });
+
   it('submits the revision and hidden fields without ever treating the token display mask as input', async () => {
     const { result, initial, client } = await mount();
     act(() => result.current.draft.updateService('catalog_refresh_interval_hours', 24));
@@ -102,7 +131,7 @@ describe('panel settings draft', () => {
     expect(result.current.draft.service.base_path).toBe('/draft');
     const restored = { ...initial, revision: initial.revision + 1, service: { ...initial.service, base_path: '/restored' } };
     await act(() => result.current.draft.restored(restored));
-    expect(result.current.settings.view).toEqual(restored);
+    await waitFor(() => expect(result.current.settings.view).toEqual(restored));
     expect(result.current.draft.service).toEqual(restored.service);
     expect(result.current.draft.github).toBe('');
   });

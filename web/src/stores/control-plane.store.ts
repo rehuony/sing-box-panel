@@ -7,7 +7,7 @@ import i18n from '@/i18n';
 export type ControlPlaneState
   = | { status: 'loading'; context: null; message: null }
     | { status: 'error'; context: null; message: string }
-    | { status: 'ready'; context: DashboardContext; message: null };
+    | { status: 'ready'; context: DashboardContext; message: string | null };
 
 export type ControlPlaneValue = ControlPlaneState & {
   refresh: (signal?: AbortSignal) => Promise<void>;
