@@ -14,7 +14,8 @@ import { usePanelSettings } from '@/stores/panel-settings.store';
 
 import { invalidSettingsField, managementTokenError, resolveSettingsCategory, settingsHashValues } from './settings-categories';
 
-export function usePanelSettingsDraft(initial: PanelSettingsView) {
+export function usePanelSettingsDraft(incoming: PanelSettingsView) {
+  const [initial, setInitial] = useState(incoming);
   const { t } = useTranslation();
   const { preview, save, accept } = usePanelSettings();
   const { appearance: activeAppearance } = useTheme();
@@ -35,6 +36,7 @@ export function usePanelSettingsDraft(initial: PanelSettingsView) {
   const [token, setToken] = useState('');
   const [tokenConfirm, setTokenConfirm] = useState('');
   async function restored(view: PanelSettingsView) {
+    setInitial(view);
     const { appearance: _appearance, ...restoredPreferences } = view.preferences;
     setPreferencesDraft(restoredPreferences);
     setService(view.service);
@@ -51,6 +53,12 @@ export function usePanelSettingsDraft(initial: PanelSettingsView) {
   const dirty = JSON.stringify(preferencesDraft) !== JSON.stringify(initialPreferences)
     || JSON.stringify(activeAppearance) !== JSON.stringify(initialAppearance)
     || JSON.stringify(service) !== JSON.stringify(initial.service) || github !== '' || clearGithub;
+  if (!dirty && !saving && incoming.revision > initial.revision) {
+    setInitial(incoming);
+    const { appearance: _appearance, ...nextPreferences } = incoming.preferences;
+    setPreferencesDraft(nextPreferences);
+    setService(incoming.service);
+  }
   useUnsavedChanges(dirty || token !== '' || tokenConfirm !== '', () => {
     setPreferencesDraft(initialPreferences);
     setService(initial.service);
@@ -91,6 +99,7 @@ export function usePanelSettingsDraft(initial: PanelSettingsView) {
         service,
         management_token: managementToken,
       });
+      setInitial(result);
       const { appearance: _appearance, ...savedPreferences } = result.preferences;
       setPreferencesDraft(savedPreferences);
       setService(result.service);

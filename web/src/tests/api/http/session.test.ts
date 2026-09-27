@@ -49,7 +49,7 @@ describe('createHttpApiClient session domain', () => {
   });
 
   it('preserves problem codes and recovery detail from the API', async () => {
-    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(
+    const fetcher = vi.fn<typeof fetch>().mockImplementation(async () =>
       new Response(
         JSON.stringify({
           code: 'runtime_unavailable',

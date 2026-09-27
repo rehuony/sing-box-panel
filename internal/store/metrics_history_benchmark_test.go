@@ -44,18 +44,26 @@ func BenchmarkMetricsHistoryNinetyDays(b *testing.B) {
 		 ORDER BY n`, bundle.ID, from.Unix(), from.Unix(), from.Unix()); err != nil {
 		b.Fatal(err)
 	}
-	filter := MetricsHistoryFilter{
-		From: from, To: from.Add(90 * 24 * time.Hour), BucketSeconds: 15188,
-		ActivationBundleID: bundle.ID,
-	}
-	b.ResetTimer()
-	for range b.N {
-		history, err := database.MetricsHistory(ctx, filter)
-		if err != nil {
-			b.Fatal(err)
-		}
-		if len(history.Buckets) != 512 {
-			b.Fatalf("bucket count = %d, want 512", len(history.Buckets))
-		}
+	for _, test := range []struct {
+		name   string
+		span   time.Duration
+		bucket int64
+		count  int
+	}{
+		{"1h", time.Hour, 60, 60}, {"24h", 24 * time.Hour, 300, 288}, {"90d", 90 * 24 * time.Hour, 15188, 512},
+	} {
+		b.Run(test.name, func(b *testing.B) {
+			end := from.Add(90 * 24 * time.Hour)
+			filter := MetricsHistoryFilter{From: end.Add(-test.span), To: end, BucketSeconds: test.bucket, ActivationBundleID: bundle.ID}
+			for range b.N {
+				history, err := database.MetricsHistory(ctx, filter)
+				if err != nil {
+					b.Fatal(err)
+				}
+				if len(history.Buckets) != test.count {
+					b.Fatalf("bucket count=%d, want %d", len(history.Buckets), test.count)
+				}
+			}
+		})
 	}
 }

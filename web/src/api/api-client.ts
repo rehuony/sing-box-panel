@@ -108,7 +108,6 @@ export * from './contracts/core';
 export type DashboardConfiguration = DashboardContext['configuration'];
 
 export interface ApiClient {
-  invalidateReadCache: () => void;
   logout: (signal?: AbortSignal) => Promise<void>;
   /** Whether channel drafts can be validated by the native renderer before saving. */
   readonly supportsNativeChannelValidation: boolean;

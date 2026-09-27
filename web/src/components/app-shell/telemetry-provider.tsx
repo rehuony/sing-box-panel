@@ -1,9 +1,9 @@
 import type { ReactNode } from 'react';
 
-import { useTelemetry } from './use-telemetry';
+import { useTelemetryStore } from './use-telemetry';
 import { TelemetryContext } from './telemetry-context';
 
 export function TelemetryProvider({ children }: { children: ReactNode }) {
-  const telemetry = useTelemetry();
+  const telemetry = useTelemetryStore();
   return <TelemetryContext value={telemetry}>{children}</TelemetryContext>;
 }

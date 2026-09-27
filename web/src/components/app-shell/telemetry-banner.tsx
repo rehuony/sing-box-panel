@@ -2,6 +2,7 @@ import type { ComponentType } from 'react';
 
 import { useTranslation } from 'react-i18next';
 import { useEffect, useId, useState } from 'react';
+import { useShallow } from 'zustand/react/shallow';
 import {
   ArrowDown,
   ArrowUp,
@@ -267,8 +268,11 @@ export function TelemetryBanner() {
   const { i18n, t } = useTranslation();
   const locale = i18n.resolvedLanguage ?? i18n.language ?? 'en';
   const { setOpenMobile } = useSidebar();
-  const telemetry = useSharedTelemetry();
-  const reconnecting = telemetry.dashboardStale && telemetry.dashboardSnapshot !== null;
+  const telemetry = useSharedTelemetry(useShallow(s => ({
+    runtimeStatus: s.runtimeStatus, snapshot: s.snapshot, rates: s.rates,
+    liveStale: s.liveStale, trafficError: s.trafficError, acceptRuntimeStatus: s.acceptRuntimeStatus,
+  })));
+  const reconnecting = telemetry.trafficError !== null || (telemetry.liveStale && telemetry.snapshot !== null);
   const runtimeControl = useRuntimeControl({ onRuntimeStatus: telemetry.acceptRuntimeStatus });
   const [now, setNow] = useState(() => Date.now());
 
@@ -297,7 +301,7 @@ export function TelemetryBanner() {
           : t('telemetry.runtime.evidenceUnavailable');
   const runningIdentity = verifiedRunning ? runtimeStatus.running : undefined;
   const enabledVersion = runtimeStatus?.enabled_core?.exact_core_version;
-  const trafficAvailable = telemetry.snapshot?.available === true;
+  const trafficAvailable = telemetry.snapshot?.live_sample?.accepted === true && !telemetry.liveStale;
   const uploadRate = verifiedStopped ? 0 : trafficAvailable ? telemetry.rates.uploadBytesPerSecond : null;
   const downloadRate = verifiedStopped ? 0 : trafficAvailable ? telemetry.rates.downloadBytesPerSecond : null;
   const durationLabels = {

@@ -358,7 +358,6 @@ export function createDemoApiClient(): ApiClient {
       };
       return respond(panelSettings, signal);
     },
-    invalidateReadCache() {},
     subscribeSessionInvalidated(listener) {
       sessionListeners.add(listener);
       return () => sessionListeners.delete(listener);
@@ -1083,6 +1082,7 @@ export function createDemoApiClient(): ApiClient {
         const activity = await client.listPanelLogs({ limit: 2 }, signal);
         yield {
           collected_at: collectedAt,
+          persisted_through: new Date(Math.floor(Date.parse(collectedAt) / 10_000) * 10_000).toISOString(),
           history_1h: history1H,
           history_24h: history24H,
           runtime_24h: structuredClone(state.runtimeHistory),

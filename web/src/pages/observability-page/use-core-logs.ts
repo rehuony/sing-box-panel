@@ -1,129 +1,79 @@
 import { useEffect, useRef, useState } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 
-import type { CoreLogFile } from '@/api/api-client';
-
+import { queries } from '@/api/queries';
+import { followStream } from '@/api/stream-connection';
 import { useApiClient } from '@/api/api-client-context';
+import { usePageVisible } from '@/hooks/use-page-visible';
 
 import { appendCoreText } from './core-log-lines';
 
-export function useCoreLogs() {
+export function useCoreLogs(active = true) {
   const client = useApiClient();
-  const [files, setFiles] = useState<CoreLogFile[]>([]);
+  const cache = useQueryClient();
+  const visible = usePageVisible();
+  const enabled = active && visible;
+  const filesQuery = useQuery({ ...queries.coreLogFiles(client), enabled, refetchInterval: enabled ? 10_000 : false });
+  const files = filesQuery.data?.items ?? [];
+  const refetchFiles = filesQuery.refetch;
+  useEffect(() => {
+    if (enabled) void refetchFiles({ cancelRefetch: false });
+  }, [enabled, refetchFiles]);
+  const loading = filesQuery.isPending;
+  const listError = filesQuery.error;
   const [selection, setSelection] = useState('');
   const [paused, setPaused] = useState(false);
   const [pausedFile, setPausedFile] = useState('');
   const [text, setText] = useState('');
   const [connected, setConnected] = useState(false);
   const [error, setError] = useState<unknown>(null);
-  const [listError, setListError] = useState<unknown>(null);
-  const [loading, setLoading] = useState(true);
-  const [filesVersion, setFilesVersion] = useState(0);
   const [clearing, setClearing] = useState(false);
   const [readVersion, setReadVersion] = useState(0);
-  const readerRef = useRef<AbortController | null>(null);
-  const listVersionRef = useRef(0);
+  const stopReaderRef = useRef<(() => void) | null>(null);
   const offsetRef = useRef({ file: '', value: -1, generation: '' });
   const file = paused ? pausedFile : selection || files[0]?.name || '';
   const current = file !== '' && file === files[0]?.name;
 
   useEffect(() => {
-    const abort = new AbortController();
-    let refreshing = false;
-    async function refresh() {
-      // A slow poll must not overlap the next one and overwrite a newer list.
-      if (refreshing) return;
-      refreshing = true;
-      const version = listVersionRef.current;
-      try {
-        const result = await client.listCoreLogFiles(abort.signal);
-        if (!abort.signal.aborted && version === listVersionRef.current) {
-          setFiles(result.items);
-          setListError(null);
-        }
-      } catch (reason) {
-        if (!abort.signal.aborted && version === listVersionRef.current) setListError(reason);
-      } finally {
-        refreshing = false;
-        if (!abort.signal.aborted && version === listVersionRef.current) setLoading(false);
-      }
+    if (paused || clearing || !enabled) return;
+    if (offsetRef.current.file !== file) {
+      offsetRef.current = { file, value: -1, generation: '' };
+      setText('');
+      setError(null);
     }
-    function refreshWhenVisible() {
-      if (document.visibilityState === 'visible') void refresh();
-    }
-    void refresh();
-    document.addEventListener('visibilitychange', refreshWhenVisible);
-    const timer = setInterval(() => {
-      void refresh();
-    }, 10_000);
-    return () => {
-      abort.abort();
-      clearInterval(timer);
-      document.removeEventListener('visibilitychange', refreshWhenVisible);
+    if (!file) return;
+    const receive = (chunk: import('@/api/api-client').CoreLogChunk) => {
+      offsetRef.current = { file, value: chunk.next_offset, generation: chunk.generation };
+      setText(previous => appendCoreText(chunk.reset ? '' : previous, chunk.text));
+      setError(null);
+      setConnected(current);
     };
-  }, [client, filesVersion]);
-
-  useEffect(() => {
-    if (paused || clearing) return;
-    const abort = new AbortController();
-    readerRef.current = abort;
-    let timer: ReturnType<typeof setTimeout>;
-    async function connect() {
-      if (abort.signal.aborted) return;
-      setConnected(false);
-      if (offsetRef.current.file !== file) {
-        offsetRef.current = { file, value: -1, generation: '' };
-        setText('');
-        setError(null);
-      }
-      if (!file) return;
-      try {
-        if (!current) {
-          const chunk = await client.readCoreLog(
-            file, offsetRef.current.value, offsetRef.current.generation, abort.signal,
-          );
-          if (!abort.signal.aborted) {
-            offsetRef.current = { file, value: chunk.next_offset, generation: chunk.generation };
-            setText((previous) => appendCoreText(chunk.reset ? '' : previous, chunk.text));
-            setError(null);
-          }
-          return;
-        }
-        for await (const chunk of client.streamCoreLog(
-          file,
-          offsetRef.current.value,
-          offsetRef.current.generation,
-          abort.signal,
-        )) {
-          if (abort.signal.aborted) return;
-          offsetRef.current = { file, value: chunk.next_offset, generation: chunk.generation };
-          setText((previous) => appendCoreText(chunk.reset ? '' : previous, chunk.text));
-          setConnected(true);
-          setError(null);
-        }
-      } catch (reason) {
-        if (!abort.signal.aborted) setError(reason);
-      } finally {
-        if (!abort.signal.aborted && current) {
-          setConnected(false);
-          timer = setTimeout(() => {
-            void connect();
-          }, 2000);
-        }
-      }
+    if (!current) {
+      const abort = new AbortController();
+      stopReaderRef.current = () => abort.abort();
+      void client.readCoreLog(file, offsetRef.current.value, offsetRef.current.generation, abort.signal)
+        .then(chunk => {
+          if (!abort.signal.aborted) receive(chunk);
+        })
+        .catch(reason => {
+          if (!abort.signal.aborted) setError(reason);
+        });
+      return () => abort.abort();
     }
-    void connect();
-    return () => {
-      abort.abort();
-      clearTimeout(timer);
-    };
-  }, [client, file, current, paused, clearing, readVersion]);
+    const stop = followStream(
+      signal => client.streamCoreLog(file, offsetRef.current.value, offsetRef.current.generation, signal),
+      receive, reason => setError(reason), () => setConnected(false),
+    );
+    stopReaderRef.current = stop;
+    return stop;
+  }, [client, file, current, paused, clearing, readVersion, enabled]);
 
   return {
     files,
     file,
     current,
     text,
-    connected: connected && !paused && !clearing,
+    connected: connected && !paused && !clearing && enabled,
     loading,
     error: error ?? listError,
     paused,
@@ -131,9 +81,9 @@ export function useCoreLogs() {
     clearing,
     clear: async (name: string) => {
       // Abort synchronously: already-buffered chunks must not replay after clear.
-      readerRef.current?.abort();
+      stopReaderRef.current?.();
       setClearing(true);
-      listVersionRef.current++;
+      await cache.cancelQueries({ queryKey: ['coreLogFiles'] });
       try {
         await client.clearCoreLog(name);
         if (offsetRef.current.file === name) {
@@ -141,9 +91,11 @@ export function useCoreLogs() {
           setText('');
           setError(null);
         }
-        listVersionRef.current++;
-        setFiles((previous) => previous.map((item) => item.name === name ? { ...item, size: 0 } : item));
-        setFilesVersion((version) => version + 1);
+        await cache.cancelQueries({ queryKey: ['coreLogFiles'] });
+        cache.setQueryData(queries.coreLogFiles(client).queryKey, previous => previous && ({
+          ...previous, items: previous.items.map(item => item.name === name ? { ...item, size: 0 } : item),
+        }));
+        await cache.invalidateQueries({ queryKey: ['coreLogFiles'] });
       } finally {
         setClearing(false);
         // Restart even if the mutation settled before React rendered its state.
@@ -154,9 +106,11 @@ export function useCoreLogs() {
     deleteFile: async (name: string) => {
       await client.deleteCoreLogFile(name);
       // Ignore list requests started before deletion, then fetch a fresh list.
-      listVersionRef.current++;
-      setFilesVersion((version) => version + 1);
-      setFiles((previous) => previous.filter((item) => item.name !== name));
+      await cache.cancelQueries({ queryKey: ['coreLogFiles'] });
+      await cache.invalidateQueries({ queryKey: ['coreLogFiles'] });
+      cache.setQueryData(queries.coreLogFiles(client).queryKey, previous => previous && ({
+        ...previous, items: previous.items.filter(item => item.name !== name),
+      }));
       setSelection('');
       setPaused(false);
     },

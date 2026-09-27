@@ -3,14 +3,22 @@ import { useTranslation } from 'react-i18next';
 import { useEffect, useEffectEvent, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
 import type { MetricsHistory } from '@/api/api-client';
+
+import { useOptionalSharedTelemetry } from '@/components/app-shell/telemetry-context';
+
+import { trendChartData } from './trend-chart-data';
 import 'uplot/dist/uPlot.min.css';
+
+const emptyTail: import('@/components/app-shell/use-telemetry').LivePoint[] = [];
 
 export function TrendChart({
   history,
   kind,
+  watermark,
 }: {
   history: MetricsHistory | null;
   kind: 'traffic' | 'connections';
+  watermark?: string | null;
 }) {
   const { t, i18n } = useTranslation();
   const hostRef = useRef<HTMLDivElement>(null);
@@ -18,37 +26,17 @@ export function TrendChart({
   const plotRef = useRef<UPlot | null>(null);
   const [focused, setFocused] = useState<{ index: number; left: number; top: number } | null>(null);
   const descriptionId = useId();
-  const data = useMemo<UPlot.AlignedData>(() => {
-    const buckets = history?.buckets ?? [];
-    // A bucket's aggregate becomes available at its end, including the newest point at the right edge.
-    const times = buckets.map((bucket) => Date.parse(bucket.to));
-    return kind === 'traffic'
-      ? [
-          times,
-          buckets.map((bucket) =>
-            bucket.download_bytes === null
-              ? null
-              : bucket.download_bytes
-                / ((Date.parse(bucket.to) - Date.parse(bucket.from)) / 1000)
-                / 1024,
-          ),
-          buckets.map((bucket) =>
-            bucket.upload_bytes === null
-              ? null
-              : bucket.upload_bytes
-                / ((Date.parse(bucket.to) - Date.parse(bucket.from)) / 1000)
-                / 1024,
-          ),
-        ]
-      : [times, buckets.map((bucket) => bucket.active_connections_avg)];
-  }, [history, kind]);
+  const tail = useOptionalSharedTelemetry(s => s.liveTail) ?? emptyTail;
+  const data = useMemo(() => trendChartData(history, kind, tail, watermark), [history, kind, tail, watermark]);
+  const frameRef = useRef<number | null>(null);
+  const pendingFocusRef = useRef<typeof focused>(null);
   const updatePlot = useEffectEvent(() => {
     const plot = plotRef.current;
     if (!plot) return;
     plot.batch(() => {
       plot.setData(data);
       if (history) {
-        plot.setScale('x', { min: Date.parse(history.from), max: Date.parse(history.to) });
+        plot.setScale('x', { min: Date.parse(history.from), max: Math.max(Date.parse(history.to), data[0].at(-1) ?? 0) });
       }
     });
   });
@@ -132,14 +120,18 @@ export function TrendChart({
           hooks: {
             setCursor: [(plot) => {
               const { idx, left = -1, top = -1 } = plot.cursor;
-              setFocused(idx == null || left < 0 || top < 0
+              pendingFocusRef.current = idx == null || left < 0 || top < 0
                 ? null
                 : {
                     index: idx,
                     // uPlot cursor coordinates exclude the axes around its plotting area.
                     left: plot.over.offsetLeft + left,
                     top: plot.over.offsetTop + top,
-                  });
+                  };
+              frameRef.current ??= requestAnimationFrame(() => {
+                frameRef.current = null;
+                setFocused(pendingFocusRef.current);
+              });
             }],
           },
         },
@@ -163,6 +155,8 @@ export function TrendChart({
       attributeFilter: ['style', 'class', 'data-theme'],
     });
     return () => {
+      if (frameRef.current !== null) cancelAnimationFrame(frameRef.current);
+      frameRef.current = null;
       resize.disconnect();
       theme.disconnect();
       plotRef.current?.destroy();
@@ -172,7 +166,7 @@ export function TrendChart({
   useEffect(() => {
     updatePlot();
   }, [data, history]);
-  const bucket = focused === null ? undefined : history?.buckets[focused.index];
+  const bucket = focused === null ? undefined : data[0][focused.index];
   useLayoutEffect(() => {
     const host = hostRef.current;
     const tooltip = tooltipRef.current;
@@ -197,6 +191,9 @@ export function TrendChart({
   const metrics = kind === 'traffic' ? ['download', 'upload'] as const : ['connections'] as const;
   function clearCursor() {
     plotRef.current?.setCursor({ left: -10, top: -10 });
+    if (frameRef.current !== null) cancelAnimationFrame(frameRef.current);
+    frameRef.current = null;
+    pendingFocusRef.current = null;
     setFocused(null);
   }
   return (
@@ -228,12 +225,11 @@ export function TrendChart({
       }}
     >
       <div ref={hostRef} className='trend-chart__plot' />
-      {(!history
-        || history.buckets.every((item) =>
-          kind === 'connections'
-            ? item.active_connections_avg === null
-            : item.upload_bytes === null && item.download_bytes === null,
-        )) && <span className='trend-chart__empty'>{t('dashboard.empty.title')}</span>}
+      {tail.some(p => p.at > (watermark ? Date.parse(watermark) : -Infinity)
+        && (kind === 'connections' ? p.connections !== null : p.downloadBytesPerSecond !== null))
+        ? <small className='trend-chart__live'>{t('dashboard.chart.live')}</small>
+        : null}
+      {data.slice(1).every(series => Array.from(series as (number | null | undefined)[]).every(value => value == null)) && <span className='trend-chart__empty'>{t('dashboard.empty.title')}</span>}
       <output ref={tooltipRef} className={bucket ? 'trend-chart__tooltip' : 'sr-only'} id={descriptionId}>
         {bucket && focused
           ? metrics.map((metric, index) => {

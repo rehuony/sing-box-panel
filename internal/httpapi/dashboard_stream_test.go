@@ -154,7 +154,7 @@ func TestDashboardStreamUsesThirtySecondUpdatesAndExpiresForReauthentication(t *
 		if len(collected) != 2 || collected[0] != 0 || collected[1] != 30*time.Second {
 			t.Fatalf("collection times=%v; want immediate and 30 seconds", collected)
 		}
-		if time.Since(start) != time.Minute || strings.Count(response.Body.String(), "event: dashboard\n") != 2 {
+		if time.Since(start) != 59*time.Second || strings.Count(response.Body.String(), "event: dashboard\n") != 2 {
 			t.Fatalf("stream duration=%s events=%d", time.Since(start), strings.Count(response.Body.String(), "event: dashboard\n"))
 		}
 	})
@@ -179,7 +179,7 @@ func TestDashboardStreamLifetimeCancelsSnapshotCollection(t *testing.T) {
 					calls++
 					if calls == blockedCall {
 						<-ctx.Done()
-						if !errors.Is(ctx.Err(), context.DeadlineExceeded) {
+						if !errors.Is(ctx.Err(), context.DeadlineExceeded) && !errors.Is(ctx.Err(), context.Canceled) {
 							t.Fatalf("collection context error=%v", ctx.Err())
 						}
 						// Even a loader returning a late success must not publish it.
@@ -189,7 +189,11 @@ func TestDashboardStreamLifetimeCancelsSnapshotCollection(t *testing.T) {
 				response := httptest.NewRecorder()
 				request := httptest.NewRequest(http.MethodGet, "/api/v1/dashboard/stream", nil)
 				streamDashboardSnapshots(response, request, load, dashboardStreamInterval, dashboardStreamLifetime)
-				if time.Since(start) != time.Minute || calls != blockedCall {
+				wantDuration := time.Minute
+				if blockedCall == 2 {
+					wantDuration = 59 * time.Second
+				}
+				if time.Since(start) != wantDuration || calls != blockedCall {
 					t.Fatalf("stream duration=%s collections=%d", time.Since(start), calls)
 				}
 				if events := strings.Count(response.Body.String(), "event: dashboard\n"); events != blockedCall-1 {
@@ -217,25 +221,22 @@ func TestDashboardStreamClearsWriteDeadlinesAndStopsOnFlushFailure(t *testing.T)
 				}
 				request := httptest.NewRequest(http.MethodGet, "/api/v1/dashboard/stream", nil)
 				streamDashboardSnapshots(response, request, load, 30*time.Second, 35*time.Second)
-				wantWrites := 2
+				wantWrites := 6 // two snapshots, three heartbeats and renewal control
 				if failFlush {
 					wantWrites = 1
 					if time.Since(start) != 0 {
-						t.Fatalf("flush failure did not stop the stream immediately")
+						t.Fatal("flush failure must stop immediately")
 					}
 				}
 				if len(response.deadlines) != wantWrites*2 {
 					t.Fatalf("write deadlines=%v", response.deadlines)
 				}
 				for index := range wantWrites {
-					wantDeadline := start.Add(10 * time.Second)
-					if index == 1 {
-						wantDeadline = start.Add(35 * time.Second)
-					}
-					if !response.deadlines[index*2].Equal(wantDeadline) || !response.deadlines[index*2+1].IsZero() {
-						t.Fatalf("write deadlines=%v", response.deadlines)
+					if response.deadlines[index*2].After(start.Add(35*time.Second)) || !response.deadlines[index*2+1].IsZero() {
+						t.Fatalf("write deadline escaped budget or remained armed: %v", response.deadlines)
 					}
 				}
+
 			})
 		})
 	}

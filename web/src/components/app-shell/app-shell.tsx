@@ -19,12 +19,6 @@ import { useAuthSession } from '@/stores/auth-session.store';
 import { useControlPlane } from '@/stores/control-plane.store';
 import { useUnsavedChangesContext } from '@/stores/unsaved-changes.store';
 import {
-  Card,
-  CardFooter,
-  CardHeader,
-  CardTitle,
-} from '@/components/ui/card';
-import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
@@ -120,29 +114,6 @@ function ShellNavigation({ pathname }: { pathname: string }) {
   );
 }
 
-function ShellLoadingState() {
-  const { t } = useTranslation();
-  return <LoadingState label={t('shell.loading.title')} />;
-}
-
-function ShellErrorState({ message, onRetry }: { message: string; onRetry: () => void }) {
-  const { t } = useTranslation();
-
-  return (
-    <main className='shell-state'>
-      <Card className='shell-state__card'>
-        <CardHeader>
-          <CardTitle>Sing-Box Panel</CardTitle>
-          <ErrorNotice error={message} title={t('shell.error.description')} />
-        </CardHeader>
-        <CardFooter>
-          <Button onClick={onRetry}>{t('shell.error.retry')}</Button>
-        </CardFooter>
-      </Card>
-    </main>
-  );
-}
-
 function WorkspaceLoadingState() {
   const { t } = useTranslation();
   return <LoadingState label={t('shell.loading.page')} fullScreen={false} />;
@@ -188,15 +159,6 @@ export function AppShell() {
   }
 
   if (session === null) return null;
-  if (controlPlane.status === 'loading') return <ShellLoadingState />;
-  if (controlPlane.status === 'error') {
-    return (
-      <ShellErrorState
-        message={controlPlane.message}
-        onRetry={() => void controlPlane.refresh()}
-      />
-    );
-  }
 
   return (
     <TelemetryProvider>
@@ -258,6 +220,7 @@ export function AppShell() {
                     title={t('shell.error.logout')}
                   />
                 )}
+            {controlPlane.message && <ErrorNotice title={t('shell.error.description')} error={controlPlane.message} />}
             <main id='main-content' ref={mainRef} tabIndex={-1}>
               <Suspense fallback={<WorkspaceLoadingState />}>
                 <Outlet />

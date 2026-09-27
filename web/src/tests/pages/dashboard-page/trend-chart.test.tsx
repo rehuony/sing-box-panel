@@ -1,6 +1,6 @@
 import UPlot from 'uplot';
-import { act, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 
 import '@/i18n';
 import { TrendChart } from '@/pages/dashboard-page/trend-chart';
@@ -55,7 +55,7 @@ describe('chart details', () => {
     });
   }
 
-  it('shows each transfer rate with its unit and preserves missing values', () => {
+  it('shows each transfer rate with its unit and preserves missing values', async () => {
     const history = {
       ...testMetricsHistory,
       buckets: [
@@ -65,26 +65,26 @@ describe('chart details', () => {
     };
     render(<TrendChart history={history} kind='traffic' />);
     moveCursor(0, 100, 40);
-    expect(screen.getByRole('status')).toHaveTextContent('Download1.0 KB/sUpload2.0 KB/s');
+    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('Download1.0 KB/sUpload2.0 KB/s'));
 
     moveCursor(1, 200, 40);
-    expect(screen.getByRole('status')).toHaveTextContent('Download— KB/sUpload— KB/s');
+    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('Download— KB/sUpload— KB/s'));
   });
 
-  it('anchors keyboard details to the sample, respects bounds, and dismisses on Escape or blur', () => {
+  it('anchors keyboard details to the sample, respects bounds, and dismisses on Escape or blur', async () => {
     render(<TrendChart history={testMetricsHistory} kind='connections' />);
     const chart = screen.getByRole('figure');
     const tooltip = screen.getByRole('status');
     const plot = vi.mocked(UPlot).mock.results[0]!.value as UPlot;
     fireEvent.keyDown(chart, { key: 'ArrowRight' });
-    expect(tooltip).toHaveTextContent('Connections12.5 count');
+    await waitFor(() => expect(tooltip).toHaveTextContent('Connections12.5 count'));
     expect(plot.valToPos).toHaveBeenCalledWith(Date.parse(testMetricsHistory.buckets[0]!.to), 'x');
 
     fireEvent.keyDown(chart, { key: 'ArrowRight' });
     fireEvent.keyDown(chart, { key: 'ArrowRight' });
-    expect(tooltip).toHaveTextContent('Connections— count');
+    await waitFor(() => expect(tooltip).toHaveTextContent('Connections— count'));
     fireEvent.keyDown(chart, { key: 'ArrowLeft' });
-    expect(tooltip).toHaveTextContent('Connections12.5 count');
+    await waitFor(() => expect(tooltip).toHaveTextContent('Connections12.5 count'));
 
     fireEvent.keyDown(chart, { key: 'Escape' });
     expect(tooltip).not.toHaveClass('trend-chart__tooltip');

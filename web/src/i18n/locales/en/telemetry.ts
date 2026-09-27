@@ -54,9 +54,9 @@ export const telemetry = {
   },
   startedAt: 'Started {{value}}',
   stream: {
-    reconnecting: 'Dashboard reconnecting…',
+    reconnecting: 'Live updates reconnecting…',
     compact: 'Reconnecting…',
-    detail: 'Dashboard updates are interrupted. Keeping the last snapshot while reconnecting.',
+    detail: 'Live updates are interrupted. Keeping the last observation while reconnecting.',
   },
   toggleNavigation: 'Open navigation',
   unit: {

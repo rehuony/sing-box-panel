@@ -104,7 +104,14 @@ func Run(ctx context.Context, settingsPath string, build buildinfo.Info, assets 
 	}
 	output := console.FromContext(ctx)
 	commands.SetLogObserver(func(entry store.LogEntry) { output.Event(entry.Time, string(entry.Level), entry.Code, entry.Message) })
-	commands.SetPublicIPResolver(publicip.New().Resolve)
+	detector := publicip.New()
+	commands.SetPublicIPResolver(detector.Resolve)
+	commands.SetPublicIPCache(detector.Cached)
+	publicIPContext, stopPublicIP := context.WithCancel(ctx)
+	publicIPDone := make(chan struct{})
+	go func() { defer close(publicIPDone); detector.Run(publicIPContext) }()
+	defer func() { stopPublicIP(); <-publicIPDone }()
+	commands.SetTelemetryContext(ctx)
 	defer func() {
 		level, code, message := store.LogLevelInfo, "panel.stopped", "Panel server stopped"
 		if runErr != nil {

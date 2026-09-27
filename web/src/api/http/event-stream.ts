@@ -1,5 +1,7 @@
 import { ApiRequestError } from '../api-client';
 
+export class StreamRotation extends Error {}
+
 const frameByteLimit = 1_048_576;
 
 /** Bounded SSE decoder shared by telemetry and raw-output transports. */
@@ -19,7 +21,19 @@ export async function* readJSONEvents<T>(
   let buffer = '';
   try {
     while (true) {
-      const { done, value } = await reader.read();
+      let idle = false;
+      const timer = setTimeout(() => {
+        idle = true;
+        void reader.cancel();
+      }, 25_000);
+      let chunk: ReadableStreamReadResult<Uint8Array>;
+      try {
+        chunk = await reader.read();
+      } finally {
+        clearTimeout(timer);
+      }
+      if (idle) throw new ApiRequestError('The event stream stopped responding.', { code: 'stream_idle', status: 0 });
+      const { done, value } = chunk;
       buffer += decoder.decode(value, { stream: !done });
       let boundary = /\r?\n\r?\n/.exec(buffer);
       while (boundary) {
@@ -34,6 +48,10 @@ export async function* readJSONEvents<T>(
           .find((line) => line.startsWith('event:'))
           ?.slice(6)
           .trim();
+        if (event === 'control') {
+          const data = lines.filter(line => line.startsWith('data:')).map(line => line.slice(5)).join('\n');
+          if (JSON.parse(data).type === 'reconnect') throw new StreamRotation();
+        }
         if (event === expectedType) {
           const data = lines
             .filter((line) => line.startsWith('data:'))

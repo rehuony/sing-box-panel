@@ -1,7 +1,7 @@
 import type { PropsWithChildren } from 'react';
 
-import { act, renderHook } from '@testing-library/react';
 import { beforeAll, describe, expect, it, vi } from 'vitest';
+import { act, renderHook, waitFor } from '@testing-library/react';
 
 import type { ConfigurationSchemaContract, CoreArtifact } from '@/api/api-client';
 
@@ -45,9 +45,9 @@ describe('configuration Schema lifecycle', () => {
     expect(result.current).toMatchObject({ status: 'loading', artifactID: 'next' });
     await act(async () => next.resolve(contract));
     await act(() => vi.dynamicImportSettled());
-    expect(result.current).toMatchObject({ status: 'ready', artifactID: 'next' });
+    await waitFor(() => expect(result.current).toMatchObject({ status: 'ready', artifactID: 'next' }));
     await act(async () => old.reject(new Error('late failure')));
-    expect(result.current).toMatchObject({ status: 'ready', artifactID: 'next' });
+    await waitFor(() => expect(result.current).toMatchObject({ status: 'ready', artifactID: 'next' }));
   });
 
   it('exposes a rejected contract as an error', async () => {

@@ -1,13 +1,15 @@
 import { useTranslation } from 'react-i18next';
-import { useDeferredValue, useEffect, useRef, useState } from 'react';
+import { useDeferredValue, useRef, useState } from 'react';
+import { keepPreviousData, useQuery } from '@tanstack/react-query';
 
-import type { LogLevel, PanelLog, PanelLogPage } from '@/api/api-client';
+import type { LogLevel, PanelLog } from '@/api/api-client';
 
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { useApiClient } from '@/api/api-client-context';
 import { ErrorNotice } from '@/components/error-notice';
 import { SelectField } from '@/components/select-field';
+import { usePageVisible } from '@/hooks/use-page-visible';
 import { ListPagination } from '@/components/list-pagination';
 import { ToolbarActions } from '@/components/workspace-toolbar';
 import { Empty, EmptyHeader, EmptyTitle } from '@/components/ui/empty';
@@ -32,49 +34,19 @@ export function PanelLogsPanel({ active = true, toolbarTarget }: {
   const [level, setLevel] = useState('');
   const [limit, setLimit] = useState(10);
   const [page, setPage] = useState(1);
-  const [result, setResult] = useState<PanelLogPage>({ items: [], total: 0 });
-  const [error, setError] = useState<unknown>(null);
-  const [loading, setLoading] = useState(true);
+  const visible = usePageVisible();
+  const enabled = active && visible;
+  const logs = useQuery({
+    queryKey: ['panelLogs', limit, level, query, page],
+    queryFn: ({ signal }) => client.listPanelLogs({ limit, level: level ? level as LogLevel : undefined,
+      search: query || undefined, searchCodes: matchingEventCodes(query), offset: (page - 1) * limit }, signal),
+    enabled, staleTime: 5000, refetchInterval: enabled ? 5000 : false, placeholderData: keepPreviousData,
+  });
+  const result = logs.data ?? { items: [], total: 0 };
+  const error = logs.error;
+  const loading = logs.isPending || logs.isPlaceholderData;
   const pages = Math.max(1, Math.ceil(result.total / limit));
-  useEffect(() => {
-    const abort = new AbortController();
-    let inFlight = false;
-    async function load(initial = false) {
-      if (initial) setLoading(true);
-      if (inFlight) return;
-      inFlight = true;
-      try {
-        const response = await client.listPanelLogs(
-          {
-            limit,
-            level: level ? (level as LogLevel) : undefined,
-            search: query || undefined,
-            searchCodes: matchingEventCodes(query),
-            offset: (page - 1) * limit,
-          },
-          abort.signal,
-        );
-        if (!abort.signal.aborted) {
-          setResult(response);
-          setPage(current => Math.min(current, Math.max(1, Math.ceil(response.total / limit))));
-          setError(null);
-        }
-      } catch (reason) {
-        if (!abort.signal.aborted) setError(reason);
-      } finally {
-        inFlight = false;
-        if (!abort.signal.aborted) setLoading(false);
-      }
-    }
-    void load(true);
-    const timer = setInterval(() => {
-      void load();
-    }, 5000);
-    return () => {
-      abort.abort();
-      clearInterval(timer);
-    };
-  }, [client, limit, level, query, page]);
+  if (!logs.isPlaceholderData && logs.data && page > pages) setPage(pages);
   return (
     <div className='log-workspace'>
       <ToolbarActions active={active} target={toolbarTarget}>

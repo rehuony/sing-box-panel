@@ -15,11 +15,12 @@ import (
 )
 
 type Detector struct {
-	mu      sync.Mutex
-	client  *http.Client
-	now     func() time.Time
-	value   string
-	expires time.Time
+	mu       sync.Mutex
+	client   *http.Client
+	now      func() time.Time
+	value    string
+	expires  time.Time
+	inflight chan struct{}
 }
 
 func New() *Detector {
@@ -32,16 +33,68 @@ func New() *Detector {
 // Resolve coalesces simultaneous requests and negatively caches failures. No
 // credentials, panel URL, node information or user-supplied URL are sent.
 func (d *Detector) Resolve(ctx context.Context) string {
+	for {
+		d.mu.Lock()
+		if ctx.Err() != nil {
+			d.mu.Unlock()
+			return ""
+		}
+		if d.now().Before(d.expires) {
+			value := d.value
+			d.mu.Unlock()
+			return value
+		}
+		if pending := d.inflight; pending != nil {
+			d.mu.Unlock()
+			select {
+			case <-ctx.Done():
+				return ""
+			case <-pending:
+				continue
+			}
+		}
+		d.inflight = make(chan struct{})
+		d.mu.Unlock()
+		value := d.detect(ctx)
+		d.mu.Lock()
+		d.value = value
+		ttl := 30 * time.Second
+		if value != "" {
+			ttl = 5 * time.Minute
+		}
+		d.expires = d.now().Add(ttl)
+		close(d.inflight)
+		d.inflight = nil
+		d.mu.Unlock()
+		return value
+	}
+}
+
+// Cached never waits for network I/O and never returns expired evidence.
+func (d *Detector) Cached(context.Context) string {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	if ctx.Err() != nil {
-		return ""
-	}
 	if d.now().Before(d.expires) {
 		return d.value
 	}
-	d.value = ""
-	d.expires = d.now().Add(30 * time.Second)
+	return ""
+}
+
+// Run owns proactive refreshes for the server lifetime.
+func (d *Detector) Run(ctx context.Context) {
+	ticker := time.NewTicker(30 * time.Second)
+	defer ticker.Stop()
+	for {
+		d.Resolve(ctx)
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
+	}
+}
+
+func (d *Detector) detect(ctx context.Context) string {
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://api.ipify.org", nil)
 	if err != nil {
 		return ""
@@ -72,7 +125,5 @@ func (d *Detector) Resolve(ctx context.Context) string {
 			return ""
 		}
 	}
-	d.value = address.String()
-	d.expires = d.now().Add(5 * time.Minute)
-	return d.value
+	return address.String()
 }

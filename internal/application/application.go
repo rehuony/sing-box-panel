@@ -20,6 +20,10 @@ import (
 )
 
 type Application struct {
+	metricsFeed         *snapshotFeed[MetricsStreamSnapshot]
+	dashboardFeed       *snapshotFeed[DashboardStreamSnapshot]
+	collector           trafficCollector
+	refreshSlots        chan struct{}
 	settingsListenersMu sync.Mutex
 	settingsListeners   map[chan struct{}]struct{}
 	coreLogsMu          sync.Mutex
@@ -38,6 +42,7 @@ type Application struct {
 	settings            settings.Settings
 	settingsPath        string
 	publicIP            func(context.Context) string
+	publicIPCache       func(context.Context) string
 }
 
 type RuntimeResolver interface {
@@ -77,16 +82,21 @@ func Open(ctx context.Context, settingsPath string) (*Application, error) {
 // SetPublicIPResolver injects server-owned detection before requests are served.
 func (application *Application) SetPublicIPResolver(resolve func(context.Context) string) {
 	application.publicIP = resolve
+	application.publicIPCache = resolve
 }
 
 func newApplication(database *store.Store) *Application {
-	return &Application{
-		database:   database,
-		now:        time.Now,
-		random:     rand.Read,
-		removeFile: os.Remove,
-		runtime:    NewRuntimeIdentityResolver(database),
+	app := &Application{
+		database:     database,
+		refreshSlots: make(chan struct{}, 3),
+		now:          time.Now,
+		random:       rand.Read,
+		removeFile:   os.Remove,
+		runtime:      NewRuntimeIdentityResolver(database),
 	}
+	app.metricsFeed = newSnapshotFeed(2*time.Second, app.metricsSnapshot)
+	app.dashboardFeed = newSnapshotFeed(30*time.Second, app.DashboardSnapshot)
+	return app
 }
 
 // FromStore exposes application use cases over a server-owned Store. Closing
@@ -126,4 +136,9 @@ func (application *Application) Close() error {
 // SetLogObserver attaches a sink before the application begins serving requests.
 func (application *Application) SetLogObserver(observer func(store.LogEntry)) {
 	application.logObserver = observer
+}
+
+// SetPublicIPCache supplies the nonblocking management-list view.
+func (application *Application) SetPublicIPCache(resolve func(context.Context) string) {
+	application.publicIPCache = resolve
 }

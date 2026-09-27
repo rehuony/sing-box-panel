@@ -29,7 +29,7 @@ func (app *Application) subscriptionCatalog(ctx context.Context) (SubscriptionNo
 	if err != nil {
 		return SubscriptionNodeCatalog{}, nil, err
 	}
-	host, err := app.publicationHost(ctx, state.SubscriptionNodeControls, "")
+	host, err := app.publicationHostWithResolver(ctx, "", app.publicIPCache)
 	if err != nil {
 		return SubscriptionNodeCatalog{}, nil, err
 	}

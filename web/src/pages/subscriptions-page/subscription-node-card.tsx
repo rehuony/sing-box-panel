@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
 
+import { memo } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import type { ChannelRuleGroup, SubscriptionNodeSummary } from '@/api/api-client';
@@ -17,7 +18,9 @@ interface Props {
   group?: Pick<ChannelRuleGroup, 'name' | 'type'>;
 }
 
-export function SubscriptionNodeCardContent({ node, builtin, group, actions, unavailable, disabledReason }: Props) {
+export const SubscriptionNodeCardContent = memo(({
+  node, builtin, group, actions, unavailable, disabledReason,
+}: Props) => {
   const { t } = useTranslation();
   const name = node?.name ?? group?.name ?? builtin?.toUpperCase() ?? t('channels.missingNode');
   return (
@@ -70,4 +73,4 @@ export function SubscriptionNodeCardContent({ node, builtin, group, actions, una
       </div>
     </>
   );
-}
+});

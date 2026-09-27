@@ -33,6 +33,13 @@ type SubscriptionSourceRefreshResult struct {
 }
 
 func (application *Application) RefreshSubscriptionSource(ctx context.Context, sourceID string) (result SubscriptionSourceRefreshResult, operationErr error) {
+	select {
+	case application.refreshSlots <- struct{}{}:
+	case <-ctx.Done():
+		return result, ctx.Err()
+	}
+	defer func() { <-application.refreshSlots }()
+
 	defer func() {
 		application.RecordOperation(ctx, "subscription.refresh", "Subscription refresh", operationErr, OperationLogContext{})
 	}()

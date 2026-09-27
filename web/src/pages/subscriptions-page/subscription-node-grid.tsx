@@ -1,9 +1,9 @@
-import { useState } from 'react';
 import { CSS } from '@dnd-kit/utilities';
 import { useTranslation } from 'react-i18next';
 import { useSortable } from '@dnd-kit/sortable';
 import { useReducedMotion } from 'motion/react';
 import { Eye, EyeOff, MoreHorizontal } from 'lucide-react';
+import { memo, useDeferredValue, useMemo, useState } from 'react';
 
 import type { SubscriptionNodeSummary } from '@/api/api-client';
 
@@ -22,14 +22,15 @@ interface NodeGridProps {
   sourceID?: string;
   readOnly?: boolean;
   selected?: Set<string>;
+  busyNodes?: Set<string>;
   onSelect?: (id: string) => void;
   nodes: SubscriptionNodeSummary[];
   onOpen: (node: SubscriptionNodeSummary) => void;
   onVisibility?: (node: SubscriptionNodeSummary) => void;
 }
 
-function SourceNodeCard({ node, busy, readOnly, selected, onSelect, onOpen, onVisibility }: Pick<NodeGridProps,
-  'busy' | 'readOnly' | 'selected' | 'onSelect' | 'onOpen' | 'onVisibility'> & { node: SubscriptionNodeSummary }) {
+const SourceNodeCard = memo(({ node, busy, readOnly, selected, onSelect, onOpen, onVisibility }: Pick<NodeGridProps,
+  'busy' | 'readOnly' | 'selected' | 'onSelect' | 'onOpen' | 'onVisibility'> & { node: SubscriptionNodeSummary }) => {
   const { t } = useTranslation();
   const reducedMotion = useReducedMotion();
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
@@ -114,13 +115,14 @@ function SourceNodeCard({ node, busy, readOnly, selected, onSelect, onOpen, onVi
       )}
     </article>
   );
-}
+});
 
 export function SubscriptionNodeGrid({
   sourceID,
   nodes,
   search,
   busy,
+  busyNodes,
   readOnly,
   selected,
   onSelect,
@@ -129,14 +131,18 @@ export function SubscriptionNodeGrid({
 }: NodeGridProps) {
   const { t } = useTranslation();
   const [savedOrder, setSavedOrder] = useState(() => readSourceNodeOrder(sourceID));
-  const ordered = orderSourceNodes(nodes, savedOrder);
+  const deferredSearch = useDeferredValue(search);
+  const ordered = useMemo(() => orderSourceNodes(nodes, savedOrder), [nodes, savedOrder]);
   const byID = new Map(ordered.map(node => [node.id, node]));
   const order = ordered.map(node => node.id);
   const [size, setSize] = useState(10);
   const [pagination, setPagination] = useState({ search, size, page: 1 });
   const page = pagination.search === search && pagination.size === size ? pagination.page : 1;
   const setPage = (value: number) => setPagination({ search, size, page: value });
-  const filtered = filterSourceNodes(ordered, search, Boolean(selected));
+  const filtered = useMemo(
+    () => filterSourceNodes(ordered, deferredSearch, Boolean(selected)),
+    [ordered, deferredSearch, selected],
+  );
   const pages = Math.max(1, Math.ceil(filtered.length / size));
   const current = Math.min(page, pages);
   if (pagination.search !== search || pagination.size !== size || pagination.page !== current) setPage(current);
@@ -185,7 +191,7 @@ export function SubscriptionNodeGrid({
                     <SourceNodeCard
                       key={node.id}
                       node={node}
-                      busy={busy}
+                      busy={busy || busyNodes?.has(node.id)}
                       readOnly={readOnly}
                       selected={selected}
                       onSelect={onSelect}

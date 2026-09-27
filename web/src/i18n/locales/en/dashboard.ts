@@ -24,6 +24,7 @@ export const dashboard = {
     placeholder: 'All bundles',
   },
   chart: {
+    live: 'Live · last 120 seconds',
     arrows: 'Use arrow keys to inspect samples.',
     interactionHint: 'Ctrl + scroll to zoom · Shift + scroll to pan · +/− zoom · Shift + ←/→ pan',
     keyboardLabel:
@@ -66,8 +67,9 @@ export const dashboard = {
     },
   },
   state: {
+    liveStale: 'Live data delayed · last updated {{time}}',
+    historyStale: 'History delayed · last updated {{time}}',
     historyLoading: 'Loading matching history…',
-    historyStale: 'History filters changed. Waiting for matching samples.',
     runtimeLoading: 'Loading runtime history…',
     runtimeStale: 'The time range changed. Waiting for matching runtime history.',
     snapshotStale: 'Runtime evidence is refreshing; the previous snapshot is hidden.',

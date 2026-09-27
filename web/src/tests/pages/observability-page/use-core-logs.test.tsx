@@ -39,7 +39,8 @@ describe('core log file lifecycle', () => {
       }),
     });
     const { result } = show(client);
-    await act(async () => {});
+    if (vi.isFakeTimers()) await act(() => vi.advanceTimersByTimeAsync(1));
+    else await waitFor(() => expect(result.current.file).not.toBe(''));
     act(() => result.current.setPaused(true));
     latest = next;
     await act(() => vi.advanceTimersByTimeAsync(10_000));
@@ -71,7 +72,8 @@ describe('core log file lifecycle', () => {
       }),
     });
     const { result } = show(client);
-    await act(async () => {});
+    if (vi.isFakeTimers()) await act(() => vi.advanceTimersByTimeAsync(1));
+    else await waitFor(() => expect(result.current.file).not.toBe(''));
     latest = next;
     await act(() => vi.advanceTimersByTimeAsync(10_000));
     expect(result.current.file).toBe(next);
@@ -100,7 +102,8 @@ describe('core log file lifecycle', () => {
       }),
     });
     const { result } = show(client);
-    await act(async () => {});
+    if (vi.isFakeTimers()) await act(() => vi.advanceTimersByTimeAsync(1));
+    else await waitFor(() => expect(result.current.file).not.toBe(''));
     let clearing!: Promise<void>;
     act(() => {
       clearing = result.current.clear(current);
@@ -126,7 +129,8 @@ describe('core log file lifecycle', () => {
       }),
     });
     const { result } = show(client);
-    await act(async () => {});
+    if (vi.isFakeTimers()) await act(() => vi.advanceTimersByTimeAsync(1));
+    else await waitFor(() => expect(result.current.file).not.toBe(''));
     await act(async () => {
       await expect(result.current.clear(current)).rejects.toThrow('clear failed');
     });
@@ -147,14 +151,16 @@ describe('core log file lifecycle', () => {
       }),
     });
     const first = show(client);
-    await act(async () => {});
+    if (vi.isFakeTimers()) await act(() => vi.advanceTimersByTimeAsync(1));
+    else await waitFor(() => expect(first.result.current.file).not.toBe(''));
     act(() => first.result.current.setPaused(true));
     await act(() => first.result.current.clear(current));
     expect(first.result.current.text).toBe('');
     expect(first.result.current.paused).toBe(true);
     first.unmount();
     const second = show(client);
-    await act(async () => {});
+    if (vi.isFakeTimers()) await act(() => vi.advanceTimersByTimeAsync(1));
+    else await waitFor(() => expect(second.result.current.file).not.toBe(''));
     expect(second.result.current.text).toBe('');
   });
 
@@ -167,13 +173,14 @@ describe('core log file lifecycle', () => {
       }),
     });
     const { result } = show(client);
-    await act(async () => {});
+    if (vi.isFakeTimers()) await act(() => vi.advanceTimersByTimeAsync(1));
+    else await waitFor(() => expect(result.current.file).not.toBe(''));
     await act(async () => {
       await expect(result.current.deleteFile(archive)).rejects.toThrow('delete failed');
     });
     expect(result.current.file).toBe(archive);
     await act(() => result.current.deleteFile(archive));
-    expect(result.current.files).toEqual([]);
+    await waitFor(() => expect(result.current.files).toEqual([]));
     expect(result.current.file).toBe('');
   });
 });
@@ -195,8 +202,14 @@ describe('core log file refresh', () => {
       await act(() => vi.advanceTimersByTimeAsync(20_000));
       expect(client.listCoreLogFiles).toHaveBeenCalledTimes(1);
       await act(async () => finishList({ items: files }));
+      await act(() => vi.advanceTimersByTimeAsync(1));
       expect(result.current.file).toBe(current);
-      await act(async () => document.dispatchEvent(new Event('visibilitychange')));
+      const visibility = vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('hidden');
+      act(() => document.dispatchEvent(new Event('visibilitychange')));
+      visibility.mockReturnValue('visible');
+      act(() => document.dispatchEvent(new Event('visibilitychange')));
+      await act(() => vi.advanceTimersByTimeAsync(1));
+      visibility.mockRestore();
       expect(result.current.file).toBe(next.name);
       expect(client.listCoreLogFiles).toHaveBeenCalledTimes(2);
       unmount();
@@ -246,7 +259,8 @@ describe('core log clear requests', () => {
         }),
       });
       const { result, unmount } = show(client);
-      await act(async () => {});
+      if (vi.isFakeTimers()) await act(() => vi.advanceTimersByTimeAsync(1));
+      else await waitFor(() => expect(result.current.file).not.toBe(''));
       expect(result.current.text).toBe('INFO old\n');
       if (mode === 'resume') {
         act(() => result.current.setPaused(true));
@@ -308,12 +322,14 @@ describe('core log clear requests', () => {
           .mockResolvedValue({ items: files.map((file) => ({ ...file, size: file.name === current ? 0 : 32 })) }),
       });
       const { result, unmount } = show(client);
-      await act(async () => {});
+      if (vi.isFakeTimers()) await act(() => vi.advanceTimersByTimeAsync(1));
+      else await waitFor(() => expect(result.current.file).not.toBe(''));
       await act(() => vi.advanceTimersByTimeAsync(10_000));
       expect(client.listCoreLogFiles).toHaveBeenCalledTimes(2);
       await act(() => result.current.clear(current));
       expect(result.current.files[0].size).toBe(0);
       await act(async () => finishList({ items: files }));
+      await act(() => vi.advanceTimersByTimeAsync(1));
       expect(result.current.files.map((file) => file.size)).toEqual([0, 32]);
       unmount();
     } finally {

@@ -58,6 +58,14 @@ type MetricsHistory struct {
 // are emitted explicitly and byte deltas remain null when no proven delta was
 // persisted; missing evidence is never drawn as zero traffic.
 func (s *Store) MetricsHistory(ctx context.Context, filter MetricsHistoryFilter) (MetricsHistory, error) {
+	return metricsHistory(ctx, s.db, filter)
+}
+
+type metricsHistoryQuery interface {
+	QueryContext(context.Context, string, ...any) (*sql.Rows, error)
+}
+
+func metricsHistory(ctx context.Context, db metricsHistoryQuery, filter MetricsHistoryFilter) (MetricsHistory, error) {
 	prepared, bucketCount, err := prepareMetricsHistoryFilter(filter)
 	if err != nil {
 		return MetricsHistory{}, err
@@ -86,7 +94,7 @@ func (s *Store) MetricsHistory(ctx context.Context, filter MetricsHistoryFilter)
 		clauses = append(clauses, "activation_bundle_id = ?")
 		args = append(args, prepared.ActivationBundleID)
 	}
-	rows, err := s.db.QueryContext(ctx, `
+	rows, err := db.QueryContext(ctx, `
 		SELECT CAST((unixepoch(sampled_at, 'subsec') - unixepoch(?, 'subsec')) / ? AS INTEGER) AS bucket_index,
 		       AVG(memory_bytes), MAX(memory_bytes),
 		       AVG(active_connections), MAX(active_connections), COUNT(*)
@@ -152,7 +160,7 @@ func (s *Store) MetricsHistory(ctx context.Context, filter MetricsHistoryFilter)
 		evidenceClauses = append(evidenceClauses, "sample.activation_bundle_id = ?")
 		evidenceArgs = append(evidenceArgs, prepared.ActivationBundleID)
 	}
-	evidenceRows, err := s.db.QueryContext(ctx, `
+	evidenceRows, err := db.QueryContext(ctx, `
 		WITH RECURSIVE parameters AS (
 			SELECT unixepoch(?, 'subsec') AS range_start,
 			       unixepoch(?, 'subsec') AS range_end,
@@ -322,4 +330,36 @@ func (s *Store) DeleteTrafficSamplesBefore(ctx context.Context, cutoff time.Time
 		return 0, fmt.Errorf("read deleted traffic sample count: %w", err)
 	}
 	return deleted, nil
+}
+
+// DashboardMetricsHistory reads both ranges and their accepted persistence
+// watermark from one SQLite snapshot, so clients can replace overlapping tails.
+func (s *Store) DashboardMetricsHistory(ctx context.Context, at time.Time) (MetricsHistory, MetricsHistory, *time.Time, error) {
+	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		return MetricsHistory{}, MetricsHistory{}, nil, err
+	}
+	defer tx.Rollback()
+	var raw sql.NullString
+	err = tx.QueryRowContext(ctx, `SELECT MAX(sampled_at) FROM traffic_samples WHERE accepted=1 AND sampled_at <= ?`, formatTime(at)).Scan(&raw)
+	if err != nil {
+		return MetricsHistory{}, MetricsHistory{}, nil, err
+	}
+	var watermark *time.Time
+	if raw.Valid {
+		parsed, parseErr := parseTime(raw.String)
+		if parseErr != nil {
+			return MetricsHistory{}, MetricsHistory{}, nil, parseErr
+		}
+		watermark = &parsed
+	}
+	hour, err := metricsHistory(ctx, tx, MetricsHistoryFilter{From: at.Add(-time.Hour), To: at, BucketSeconds: 60})
+	if err != nil {
+		return MetricsHistory{}, MetricsHistory{}, nil, err
+	}
+	day, err := metricsHistory(ctx, tx, MetricsHistoryFilter{From: at.Add(-24 * time.Hour), To: at, BucketSeconds: 300})
+	if err != nil {
+		return MetricsHistory{}, MetricsHistory{}, nil, err
+	}
+	return hour, day, watermark, tx.Commit()
 }

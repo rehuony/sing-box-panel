@@ -1286,7 +1286,7 @@ paths:
       summary: Stream current metrics and runtime evidence every two seconds
       responses:
         '200':
-          description: Server-sent metrics events, each containing metrics and runtime objects. Initial snapshot failures return a Problem response before opening the stream. Reconnect after stream closure; the one-minute lifetime includes snapshot collection.
+          description: Server-sent metrics events, each containing metrics and runtime objects. Initial snapshot failures return a Problem response before opening the stream. Heartbeat comments arrive every ten seconds. A control event with type reconnect precedes normal rotation within one minute; clients should immediately renew authentication. Shared collection is independent of client writes, and the last subscriber cancels pending collection.
           content:
             text/event-stream:
               schema: {type: string}
@@ -1297,7 +1297,7 @@ paths:
       summary: Stream the cached dashboard projection every thirty seconds
       responses:
         '200':
-          description: Server-sent dashboard events, each limited to 1 MiB including UTF-8 framing. Each data field is a DashboardStreamSnapshot. Runtime history includes at most 4096 newest transitions, or fewer to fit the byte limit, with a next cursor whenever older records are omitted. Initial snapshot failures return a Problem response. Reconnect after stream closure; the one-minute lifetime includes snapshot collection.
+          description: Server-sent dashboard events, each limited to 1 MiB including UTF-8 framing. Each data field is a DashboardStreamSnapshot. Runtime history includes at most 4096 newest transitions, or fewer to fit the byte limit, with a next cursor whenever older records are omitted. Initial snapshot failures return a Problem response. Heartbeat comments arrive every ten seconds. A control event with type reconnect precedes normal rotation within one minute; clients should immediately renew authentication. Shared collection is independent of client writes, and the last subscriber cancels pending collection.
           content:
             text/event-stream:
               schema: {type: string}
@@ -2912,6 +2912,21 @@ components:
         coverage: {$ref: "#/components/schemas/CoverageStatus"}
         accepted: {type: boolean}
         diagnostic_code: {type: string}
+    LiveTrafficSample:
+      type: object
+      additionalProperties: false
+      description: Process-local live observation. Never included in persisted accounting totals.
+      required: [activation_bundle_id, pid, process_start_token, sampled_at, memory_bytes, active_connections, upload_total, download_total, accepted]
+      properties:
+        activation_bundle_id: {type: string}
+        pid: {type: integer, minimum: 1}
+        process_start_token: {type: string}
+        sampled_at: {type: string, format: date-time}
+        memory_bytes: {type: integer, format: int64, minimum: 0}
+        active_connections: {type: integer, format: int64, minimum: 0}
+        upload_total: {type: integer, format: int64, minimum: 0}
+        download_total: {type: integer, format: int64, minimum: 0}
+        accepted: {type: boolean}
     MetricsSnapshot:
       type: object
       additionalProperties: false
@@ -2937,6 +2952,7 @@ components:
         collected_at: {type: string, format: date-time}
         current_traffic_period: {$ref: "#/components/schemas/TrafficPeriod"}
         latest_sample: {$ref: "#/components/schemas/TrafficSample"}
+        live_sample: {$ref: "#/components/schemas/LiveTrafficSample"}
         traffic_coverage: {$ref: "#/components/schemas/CoverageStatus"}
         traffic_available: {type: boolean}
         quota_bytes: {type: integer, format: int64, minimum: 0}
@@ -2993,6 +3009,10 @@ components:
       additionalProperties: false
       required: [collected_at, history_1h, history_24h, runtime_24h, activity]
       properties:
+        persisted_through:
+          type: [string, "null"]
+          format: date-time
+          description: Latest accepted sample in the same database read snapshot as both histories.
         collected_at: {type: string, format: date-time}
         history_1h: {$ref: '#/components/schemas/MetricsHistory'}
         history_24h: {$ref: '#/components/schemas/MetricsHistory'}

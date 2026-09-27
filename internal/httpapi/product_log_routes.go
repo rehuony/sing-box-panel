@@ -112,35 +112,48 @@ func (handler *Handler) readCoreLog(w http.ResponseWriter, r *http.Request, stre
 		writeJSON(w, 200, chunk)
 		return
 	}
-	flusher, ok := w.(http.Flusher)
+	_, ok = w.(http.Flusher)
 	if !ok {
 		return
 	}
 	w.Header().Set("Content-Type", "text/event-stream; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("X-Accel-Buffering", "no")
+	deadline := time.Now().Add(time.Minute)
+	controller := http.NewResponseController(w)
+	writeFrame := func(frame string) error {
+		if len(frame) > maximumSnapshotFrameBytes {
+			return errors.New("log frame exceeds limit")
+		}
+		if err := controller.SetWriteDeadline(minTime(time.Now().Add(10*time.Second), deadline)); err != nil && !errors.Is(err, http.ErrNotSupported) {
+			return err
+		}
+		defer controller.SetWriteDeadline(time.Time{})
+		if _, err := fmt.Fprint(w, frame); err != nil {
+			return err
+		}
+		return controller.Flush()
+	}
 	send := func() error {
 		data, err := json.Marshal(chunk)
 		if err != nil {
 			return err
 		}
-		_ = http.NewResponseController(w).SetWriteDeadline(time.Now().Add(10 * time.Second))
-		_, err = fmt.Fprintf(w, "event: output\ndata: %s\n\n", data)
-		flusher.Flush()
-		return err
+		return writeFrame(fmt.Sprintf("event: output\ndata: %s\n\n", data))
 	}
 	if err := send(); err != nil {
 		return
 	}
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
-	expiry := time.NewTimer(time.Minute)
+	expiry := time.NewTimer(time.Until(deadline) - time.Second)
 	defer expiry.Stop()
 	for {
 		select {
 		case <-r.Context().Done():
 			return
 		case <-expiry.C:
+			_ = writeFrame("event: control\ndata: {\"type\":\"reconnect\"}\n\n")
 			return
 		case <-ticker.C:
 			chunk, err = handler.commands.CoreLogContent(chunk.File, chunk.NextOffset, chunk.Generation)

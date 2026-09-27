@@ -13,6 +13,7 @@ import { TooltipProvider } from '@/components/ui/tooltip';
 import { ApiClientProvider } from '@/api/api-client-context';
 import { TelemetryBanner } from '@/components/app-shell/telemetry-banner';
 import { TelemetryContext } from '@/components/app-shell/telemetry-context';
+import { createTelemetryStore } from '@/components/app-shell/use-telemetry';
 import { TelemetryProvider } from '@/components/app-shell/telemetry-provider';
 import {
   createMockApiClient,
@@ -59,8 +60,7 @@ function trafficSnapshot(
 ): MetricsSnapshot {
   return {
     ...testMetrics,
-    latest_sample: {
-      id: uploadTotal,
+    live_sample: {
       activation_bundle_id: 'bundle_18',
       pid: 8124,
       process_start_token: 'process-8124',
@@ -69,9 +69,6 @@ function trafficSnapshot(
       active_connections: 37,
       upload_total: uploadTotal,
       download_total: downloadTotal,
-      upload_delta: uploadTotal,
-      download_delta: downloadTotal,
-      coverage: 'complete',
       accepted: true,
     },
   };
@@ -123,10 +120,10 @@ describe('telemetryBanner', () => {
   it.each(['en', 'zh-CN'] as const)('shows one reconnect toast per outage and closes it on recovery in %s', async (language) => {
     await setAppLanguage(language);
     const client = createMockApiClient();
-    const telemetry: TelemetryState = {
+    const telemetry: Partial<TelemetryState> = {
       acceptRuntimeStatus: vi.fn(),
       dashboardSnapshot: testDashboardSnapshot,
-      dashboardStale: true,
+      liveStale: true,
       dashboardError: null,
       runtimeError: null,
       trafficError: null,
@@ -134,11 +131,11 @@ describe('telemetryBanner', () => {
       snapshot: testMetrics,
       rates: { uploadBytesPerSecond: 0, downloadBytesPerSecond: 0 },
     };
-    const view = (value: TelemetryState) => (
+    const view = (value: Partial<TelemetryState>) => (
       <ApiClientProvider client={client}>
         <TooltipProvider>
           <SidebarProvider>
-            <TelemetryContext value={value}><TelemetryBanner /></TelemetryContext>
+            <TelemetryContext value={createTelemetryStore(value)}><TelemetryBanner /></TelemetryContext>
           </SidebarProvider>
         </TooltipProvider>
       </ApiClientProvider>
@@ -147,8 +144,8 @@ describe('telemetryBanner', () => {
     const closeToast = vi.spyOn(toast, 'close');
     const { rerender } = render(view(telemetry));
     const message = language === 'en'
-      ? 'Dashboard updates are interrupted. Keeping the last snapshot while reconnecting.'
-      : '仪表盘数据暂时中断，正在保留现有数据并重新连接。';
+      ? 'Live updates are interrupted. Keeping the last observation while reconnecting.'
+      : '实时数据暂时中断，正在保留上次观测并重新连接。';
     await waitFor(() => expect(addToast).toHaveBeenCalledOnce());
     expect(addToast).toHaveBeenCalledWith(expect.objectContaining({ description: message, type: 'warning', timeout: 0 }));
     const id = addToast.mock.calls[0][0].id;
@@ -156,7 +153,7 @@ describe('telemetryBanner', () => {
     expect(screen.getByRole('button', { name: language === 'en' ? 'Start' : '启动' })).toBeEnabled();
     rerender(view({ ...telemetry }));
     expect(addToast).toHaveBeenCalledOnce();
-    rerender(view({ ...telemetry, dashboardStale: false }));
+    rerender(view({ ...telemetry, liveStale: false }));
     expect(closeToast).toHaveBeenCalledWith(id);
     rerender(view({ ...telemetry, dashboardSnapshot: null }));
     expect(addToast).toHaveBeenCalledOnce();
@@ -194,7 +191,7 @@ describe('telemetryBanner', () => {
 
   it('shows verified identity, uptime and fresh rates', async () => {
     const first = trafficSnapshot('2026-08-30T11:00:00Z', 1_000, 2_000);
-    const second = trafficSnapshot('2026-08-30T11:00:10Z', 3_000, 5_000);
+    const second = trafficSnapshot('2026-08-30T11:00:02Z', 1_400, 2_600);
     const client = createMockApiClient({
       getRuntimeStatus: vi.fn().mockResolvedValue(runningStatus()),
       getTrafficStatus: vi.fn()

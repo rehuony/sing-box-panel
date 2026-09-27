@@ -44,17 +44,26 @@ concurrently, and the version library reads runtime status only once on entry.
 Runtime responses are published independently of artifact listings and discarded
 when newer shared runtime evidence arrives while the request is pending.
 
-The HTTP client owns a bounded, session-local memory cache for navigation reads:
-system metadata (30 seconds), installed core lists (15 seconds), release catalogs
-(60 seconds), subscription lists/node summaries (5 seconds), and artifact-bound
-Schema contracts (5 minutes). Identical in-flight reads share a request; cancelling
-one consumer does not cancel the others. Runtime status only shares in-flight
-requests, while configuration files, credentials, settings and filesystem reads
-are not retained by this cache. Writes invalidate reads before and after the
-request, including failed writes; session changes and authorization failures also
-clear it. Explicit installed-version and subscription-source/node refreshes also
-invalidate it, including refreshes without remote subscription sources. Changes
-made by another client become visible after the relevant short lifetime expires.
+TanStack Query v5 owns session-local query state: system metadata (30 seconds),
+installed core lists (15 seconds), release catalogs (60 seconds), subscription
+summaries and node catalogs (5 seconds), and resolved artifact-bound Schema
+contracts (5 minutes). Inactive queries expire after 5 minutes. Configuration,
+credentials and file content are read on demand; settings are retained only by
+an active provider. Nothing is persisted in browser storage. Shared query keys
+coalesce pending reads and preserve unchanged object references. Background
+refresh retains content, pagination, selection and scroll position. GET requests
+have a 15-second total budget and retry a network/temporary service failure once;
+writes are never automatically retried. Writes invalidate related resources,
+apply returned evidence, and reconcile ambiguous failures. Session changes cancel
+queries, clear the cache and reject responses from earlier sessions.
+
+The shell renders after authentication while context, settings and page queries
+load independently. Failed context refresh preserves the workspace and drafts.
+Sources poll every 15 seconds only while their page and browser tab are visible;
+sources and channels share the node catalog. Batch source refresh uses at most
+three concurrent operations and one final list refresh. The backend also limits
+remote refresh concurrency to three across callers. Drafts retain their revision
+until explicitly saved/restored so background reads cannot bypass conflict checks.
 
 `src/api/api-client.ts` exposes the client interface and simple generated
 transport types directly. Modules in `src/api/contracts/` own additional
@@ -147,11 +156,17 @@ visible while the details scroll. Closing it preserves list state and
 restores keyboard focus. Native process output and telemetry use authenticated
 streams with bounded buffering and reconnect.
 
-Dashboard reconnect feedback uses one persistent lower-right Toast per outage,
-closed on recovery. Retries do not stack notices or hide toolbar metrics. Normal
-authenticated stream rotation has a five-second grace period; transport errors
-are reported immediately and the last snapshot remains visible.
-
+Telemetry uses a stable Zustand store with separate subscriptions for runtime,
+metrics, history and connection health. History is subscribed only by the
+Dashboard; logs only by the visible log page. Hidden tabs stop streams and polls.
+Normal server rotation sends a control event and reconnects immediately. Other
+failures use jittered exponential backoff (at most 30 seconds) and a five-second
+notification grace period. A 25-second idle watchdog detects half-open streams.
+Live snapshots become stale after 10 seconds, history after 45 seconds. History
+delays stay in the dashboard and do not trigger the global live-connection Toast.
+Chart updates reuse uPlot instances and batch cursor feedback per animation frame.
+Live chart tails cover at most 120 seconds beyond the consistent persisted
+watermark, preserve gaps and never contribute to accounted traffic totals.
 
 Version, subscription source, node, channel, key, and panel-log lists use the
 shared `components/list-pagination` footer. It combines the page-size selector,
