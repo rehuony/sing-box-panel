@@ -61,6 +61,7 @@ var managementOperations = []managementOperation{
 	{Method: http.MethodPut, Path: "/subscription/nodes/{nodeId}", OperationID: "updateSubscriptionNode"},
 	{Method: http.MethodDelete, Path: "/subscription/nodes/{nodeId}", OperationID: "deleteSubscriptionNode"},
 	{Method: http.MethodPut, Path: "/subscription/nodes/{nodeId}/visibility", OperationID: "setSubscriptionNodeVisibility"},
+	{Method: http.MethodPut, Path: "/subscription/node-orders/{collectionId}", OperationID: "setSubscriptionNodeOrder"},
 	{Method: http.MethodGet, Path: "/subscription/users", OperationID: "listSubscriptionUsers"},
 	{Method: http.MethodPost, Path: "/subscription/users", OperationID: "createSubscriptionUser"},
 	{Method: http.MethodGet, Path: "/subscription/users/{userId}", OperationID: "getSubscriptionUser"},

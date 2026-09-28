@@ -8,6 +8,35 @@ describe('createDemoApiClient', () => {
     vi.useRealTimers();
   });
 
+  it('updates node order collections after source creation, kind changes and deletion', async () => {
+    const client = createDemoApiClient();
+    let source = await client.getSubscriptionSource('source_demo_remote');
+    let catalog = await client.getSubscriptionNodeCatalog();
+    const ids = catalog.nodes.filter(node => node.source_id === source.id).map(node => node.id).reverse();
+    expect(ids).toHaveLength(2);
+    await client.setSubscriptionNodeOrder(source.id, ids, 0);
+    source = await client.updateSubscriptionSource(source.id, {
+      name: source.name, source_kind: 'local', enabled: true, config: {},
+    }, source.updated_at);
+    await client.setSubscriptionNodeOrder('manual', ids, 0);
+    catalog = await client.getSubscriptionNodeCatalog();
+    expect(catalog.nodes.slice(0, 2).map(node => node.id)).toEqual(ids);
+    await expect(client.setSubscriptionNodeOrder(source.id, ids, 1)).rejects.toMatchObject({ status: 422 });
+
+    const added = await client.createSubscriptionSource({
+      name: 'New source', source_kind: 'remote', enabled: true,
+      config: { url: 'https://example.com/sub', format: 'auto' },
+    });
+    await expect(client.setSubscriptionNodeOrder(added.id, [], 0)).resolves.toEqual({ ids: [], revision: 1 });
+    await client.deleteSubscriptionSource(source.id, source.updated_at);
+    await client.deleteSubscriptionSource(added.id, added.updated_at);
+    catalog = await client.getSubscriptionNodeCatalog();
+    expect(catalog.nodes.some(node => node.source_id === source.id)).toBe(false);
+    expect(catalog.node_orders[source.id]).toBeUndefined();
+    expect(catalog.node_orders[added.id]).toBeUndefined();
+    await expect(client.getSubscriptionNode(ids[0])).rejects.toMatchObject({ status: 404 });
+  });
+
   it('round trips complete backup settings and exact text and rejects revision conflicts atomically', async () => {
     const source = createDemoApiClient();
     const target = createDemoApiClient();

@@ -24,21 +24,3 @@ export function reorderVisibleNodes(order: string[], visible: string[], active: 
   let index = 0;
   return order.map((id) => shown.has(id) ? moved[index++] : id);
 }
-
-const storagePrefix = 'sing-box-panel.source-node-order.';
-
-export function readSourceNodeOrder(sourceID?: string): string[] {
-  if (!sourceID) return [];
-  try {
-    const value: unknown = JSON.parse(window.localStorage.getItem(storagePrefix + sourceID) ?? '[]');
-    return Array.isArray(value) && value.length <= 10_000 && value.every((id) => typeof id === 'string')
-      ? [...new Set(value as string[])]
-      : [];
-  } catch {
-    return [];
-  }
-}
-
-export function saveSourceNodeOrder(sourceID: string, order: string[]): void {
-  window.localStorage.setItem(storagePrefix + sourceID, JSON.stringify(order));
-}

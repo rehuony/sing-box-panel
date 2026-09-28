@@ -790,3 +790,72 @@ func TestChannelSortIndexUsesSafeSignedIntegers(t *testing.T) {
 		}
 	}
 }
+
+func TestChannelPresentationOrderPreservesNamesGroupsAndReferences(t *testing.T) {
+	for _, format := range []RenderFormat{RenderFormatSingBox, RenderFormatMihomo, RenderFormatLoon} {
+		t.Run(string(format), func(t *testing.T) {
+			nodes, policy := policyFixture(t, format)
+			// Two sources can have the same visible name. Reordering must not transfer
+			// the unsuffixed name (and a client's saved selection) to another node.
+			other, _, err := ParseSource(SourceFormatSingBoxJSON, []byte(`{"type":"socks","tag":"Tokyo","server":"other.example.com","server_port":1080}`), "other")
+			if err != nil {
+				t.Fatal(err)
+			}
+			nodes = append(nodes, other...)
+			policy.Selection.NewNodePolicy = "include"
+			if format == RenderFormatSingBox {
+				value, _ := DecodeDocumentObject(nodes[1].Outbound)
+				value["detour"] = "Tokyo"
+				nodes[1].Outbound, _ = json.Marshal(value)
+			}
+			channel := RenderChannel{Format: format}
+			before, err := RenderPolicyNodes(nodes, channel, policy)
+			if err != nil {
+				t.Fatal(err)
+			}
+			channel.NodeOrder = []string{PublicationID(nodes[2]), PublicationID(nodes[1]), PublicationID(nodes[0])}
+			after, err := RenderPolicyNodes(nodes, channel, policy)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if strings.Index(string(after.Content), "other.example.com") >= strings.Index(string(after.Content), "tokyo.example.com") {
+				t.Fatal("presentation order ignored")
+			}
+			if format == RenderFormatLoon {
+				first := strings.SplitN(string(before.Content), "[Proxy Group]", 2)
+				second := strings.SplitN(string(after.Content), "[Proxy Group]", 2)
+				if first[1] != second[1] {
+					t.Fatal("group or rule references changed")
+				}
+				lines := strings.Split(first[0], "\n")
+				for _, line := range lines {
+					if strings.Contains(line, " = ") && !strings.Contains(second[0], line+"\n") {
+						t.Fatalf("node definition changed: %s", line)
+					}
+				}
+				return
+			}
+			var a, b map[string]any
+			if err := yaml.Unmarshal(before.Content, &a); err != nil {
+				t.Fatal(err)
+			}
+			if err := yaml.Unmarshal(after.Content, &b); err != nil {
+				t.Fatal(err)
+			}
+			key := "proxies"
+			if format == RenderFormatSingBox {
+				key = "outbounds"
+			}
+			initial, reordered := a[key].([]any), b[key].([]any)
+			reordered[0], reordered[2] = reordered[2], reordered[0]
+			if !reflect.DeepEqual(initial, reordered) {
+				t.Fatalf("node/group definitions changed: %v != %v", initial, reordered)
+			}
+			delete(a, key)
+			delete(b, key)
+			if !reflect.DeepEqual(a, b) {
+				t.Fatal("routing changed")
+			}
+		})
+	}
+}

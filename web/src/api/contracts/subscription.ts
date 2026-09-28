@@ -23,6 +23,7 @@ export type {
   SubscriptionDraftPreview,
   SubscriptionNodeCatalog,
   SubscriptionNodeDetail,
+  SubscriptionNodeOrder,
   SubscriptionNodeSummary,
   SubscriptionPreview,
   SubscriptionSource,

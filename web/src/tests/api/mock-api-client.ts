@@ -404,9 +404,11 @@ export function createMockApiClient(overrides: Partial<ApiClient> = {}): Mocked<
     updateSubscriptionNode: vi.fn<ApiClient['updateSubscriptionNode']>(),
     deleteSubscriptionNode: vi.fn<ApiClient['deleteSubscriptionNode']>(),
     setSubscriptionNodeVisibility: vi.fn<ApiClient['setSubscriptionNodeVisibility']>(),
+    setSubscriptionNodeOrder: vi.fn<ApiClient['setSubscriptionNodeOrder']>(),
     parseSubscriptionNode: vi.fn<ApiClient['parseSubscriptionNode']>(),
     getSubscriptionNodeCatalog: vi.fn<ApiClient['getSubscriptionNodeCatalog']>().mockResolvedValue({
       applied_bundle_id: 'bundle_19',
+      node_orders: {},
       nodes: [],
       diagnostics: [],
     }),

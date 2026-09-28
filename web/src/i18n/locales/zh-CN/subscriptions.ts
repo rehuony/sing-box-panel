@@ -14,7 +14,7 @@ export const subscriptions = {
   nodes: {
     sortableCard: '可排序节点卡片',
     dragInstructions: '按 F2 开始排序，方向键移动，再按 F2 完成，Escape 取消。',
-    orderSaveFailed: '无法在当前浏览器保存节点顺序。',
+    orderSaveFailed: '节点顺序保存失败，已恢复为已确认的顺序。',
     detour: '前置节点',
     tlsRequired: '该协议必须启用 TLS。',
     endpointMode: '连接方式',

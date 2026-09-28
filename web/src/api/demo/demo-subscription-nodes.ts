@@ -1,5 +1,5 @@
 import type { DemoData } from './demo-data';
-import type { ApiClient, SubscriptionNodeDetail, SubscriptionNodeSummary } from '../api-client';
+import type { ApiClient, SubscriptionNodeDetail, SubscriptionNodeOrder, SubscriptionNodeSummary, SubscriptionSourceSummary } from '../api-client';
 
 import { ApiRequestError } from '../api-client';
 
@@ -22,10 +22,36 @@ export function nodeSummary({ outbound_json: _outbound, ...node }: SubscriptionN
   return node;
 }
 
-export function createDemoNodeApi(initial: SubscriptionNodeDetail[]) {
+export function createDemoNodeApi(initial: SubscriptionNodeDetail[], getSources: () => Pick<SubscriptionSourceSummary, 'id' | 'name' | 'enabled' | 'source_kind' | 'created_at'>[]) {
   let nodes = structuredClone(initial);
+  const orders: Record<string, SubscriptionNodeOrder> = {};
+  const catalog = () => {
+    const sources = new Map(getSources().map(source => [source.id, source]));
+    const remoteSources = [...sources.values()].filter(source => source.source_kind === 'remote').toSorted((a, b) => b.created_at.localeCompare(a.created_at) || b.id.localeCompare(a.id));
+    const collections = new Map(remoteSources.map((source, index) => [source.id, index + 1]));
+    const collection = (node: SubscriptionNodeSummary) => collections.has(node.source_id) ? node.source_id : 'manual';
+    nodes = nodes.filter(node => node.origin !== 'source' || sources.has(node.source_id));
+    for (const node of nodes) {
+      const source = sources.get(node.source_id);
+      if (node.origin === 'source' && source) {
+        node.source_name = source.source_kind === 'local' ? '手动节点' : source.name;
+        node.available = source.enabled;
+      }
+    }
+    for (const id of Object.keys(orders)) {
+      if (id !== 'manual' && !sources.has(id)) delete orders[id];
+    }
+    const positions = new Map(Object.entries(orders)
+      .map(([id, order]) => [id, new Map(order.ids.map((nodeID, index) => [nodeID, index]))]));
+    const position = (node: SubscriptionNodeSummary) => positions.get(collection(node))?.get(node.id) ?? Infinity;
+    return {
+      collections, collection,
+      nodes: nodes.toSorted((a, b) => (collections.get(a.source_id) ?? 0) - (collections.get(b.source_id) ?? 0)
+        || position(a) - position(b)),
+    };
+  };
   const find = (id: string) => {
-    const node = nodes.find(value => value.id === id);
+    const node = catalog().nodes.find(value => value.id === id);
     if (!node) throw new ApiRequestError('Node not found.', { status: 404, code: 'subscription_resource_not_found' });
     return node;
   };
@@ -36,7 +62,7 @@ export function createDemoNodeApi(initial: SubscriptionNodeDetail[]) {
     return node;
   };
   return {
-    getSubscriptionNodeCatalog: async () => ({ applied_bundle_id: 'bundle_demo_current', nodes: nodes.map(nodeSummary), diagnostics: [] }),
+    getSubscriptionNodeCatalog: async () => ({ applied_bundle_id: 'bundle_demo_current', nodes: catalog().nodes.map(nodeSummary), diagnostics: [], node_orders: structuredClone(orders) }),
     getSubscriptionNode: async id => structuredClone(find(id)),
     createSubscriptionNode: async raw => {
       const node = details(`node_demo_${crypto.randomUUID()}`, raw);
@@ -60,13 +86,27 @@ export function createDemoNodeApi(initial: SubscriptionNodeDetail[]) {
       node.visibility_revision += 1;
       return structuredClone(nodeSummary(node));
     },
+    setSubscriptionNodeOrder: async (collectionID, ids, revision) => {
+      const current = catalog();
+      const members = new Set(current.nodes
+        .filter(node => current.collection(node) === collectionID)
+        .map(node => node.id));
+      if ((collectionID !== 'manual' && !current.collections.has(collectionID))
+        || ids.length > 10_000 || new Set(ids).size !== ids.length
+        || ids.some(id => !members.has(id))) {
+        throw new ApiRequestError('Invalid order.', { status: 422, code: 'subscription_invalid' });
+      }
+      if (revision !== (orders[collectionID]?.revision ?? 0)) throw new ApiRequestError('Order changed.', { status: 412, code: 'subscription_version_conflict' });
+      orders[collectionID] = { ids: [...ids], revision: revision + 1 };
+      return structuredClone(orders[collectionID]);
+    },
     parseSubscriptionNode: async text => {
       // Demo accepts native JSON; production also uses the server's URI parser.
       details('preview', text);
       return { outbound_json: text };
     },
   } satisfies Pick<ApiClient, 'getSubscriptionNodeCatalog' | 'getSubscriptionNode' | 'createSubscriptionNode'
-  | 'updateSubscriptionNode' | 'deleteSubscriptionNode' | 'setSubscriptionNodeVisibility' | 'parseSubscriptionNode'>;
+  | 'updateSubscriptionNode' | 'deleteSubscriptionNode' | 'setSubscriptionNodeVisibility' | 'setSubscriptionNodeOrder' | 'parseSubscriptionNode'>;
 }
 
 export function demoManualNodes(): SubscriptionNodeDetail[] {

@@ -14,7 +14,7 @@ export const subscriptions = {
   nodes: {
     sortableCard: 'Sortable node card',
     dragInstructions: 'Press F2 to start reordering, arrow keys to move, F2 to finish, or Escape to cancel.',
-    orderSaveFailed: 'The order could not be saved in this browser.',
+    orderSaveFailed: 'The node order could not be saved. The last confirmed order has been restored.',
     detour: 'Detour',
     tlsRequired: 'TLS is required by this protocol.',
     endpointMode: 'Server connection',

@@ -151,6 +151,7 @@ func (application *Application) renderSubscriptionState(ctx context.Context, sta
 		Format:       subscription.RenderFormat(state.Channel.Format),
 		ExcludeTags:  append([]string(nil), config.ExcludeTags...),
 		ExcludeTypes: append([]string(nil), config.ExcludeTypes...),
+		NodeOrder:    publicationNodeIDs(orderSubscriptionNodes(selectedNodes, state.Sources, state.NodeOrders)),
 	}, config.Policy)
 	if err != nil {
 		return subscription.RenderResult{}, err

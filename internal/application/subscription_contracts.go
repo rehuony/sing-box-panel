@@ -181,6 +181,7 @@ type SubscriptionNodeSummary struct {
 }
 
 type SubscriptionNodeCatalog struct {
+	NodeOrders      map[string]subscription.NodeOrder   `json:"node_orders"`
 	AppliedBundleID string                              `json:"applied_bundle_id"`
 	Nodes           []SubscriptionNodeSummary           `json:"nodes"`
 	Diagnostics     []subscription.ConversionDiagnostic `json:"diagnostics"`

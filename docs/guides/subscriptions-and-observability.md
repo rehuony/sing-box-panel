@@ -47,12 +47,31 @@ subscription actions use visible button surfaces.
 
 Node cards within each source (including the manual collection) support whole-card
 DND-KIT sorting with the same mouse, touch and keyboard sensors as channel cards.
-Source display order is a browser-local preference keyed by source ID; refreshes
-and revisits retain it, new nodes append, and absent nodes are not rendered.
-Sorting a filtered or paginated view changes only its visible positions. This
-presentation order does not rewrite source data or channel policies. Header actions
-do not initiate dragging; dragging a hidden card does not restore its visibility.
-Storage failures use an error toast while keeping the current in-memory order.
+Node order is stored on the server per collection: `manual` includes system,
+manual and local-source nodes; each remote source has its own collection. The
+catalog, add-node picker and all three client exports follow the source sidebar:
+manual first, then remote sources by creation time descending (ID descending for
+ties), with each collection's saved node order. Unordered/new nodes append in
+that collection's original order; absent nodes are not rendered. Saved slots
+survive refreshes until the next reorder replaces them.
+
+`PUT /subscription/node-orders/{collectionId}` accepts `ids` and the current
+`revision` (zero before the first save); the node catalog returns saved
+`node_orders`. Stale revisions return 412 and must be reloaded. A drag saves
+immediately, blocks further sorting until completion, and restores confirmed
+order with an error toast if saving fails. Pending saves continue across panel
+navigation; returning to sources still blocks reordering until they finish.
+Successful changes affect subsequent
+previews and subscription requests without saving each channel. Browser-local
+orders from earlier releases are ignored and are not imported; reorder once to
+establish the shared server order.
+
+Sorting a filtered or paginated view changes only its visible positions. Source
+contents, publication identities, group candidate order and group defaults remain
+independent of this presentation order. Header actions do not initiate dragging;
+dragging a hidden card does not restore its visibility. The picker starts with
+DIRECT/REJECT, ordered available source nodes, then groups; its own temporary
+sorting affects only confirmed group additions.
 
 The API also supports user-scoped keys, which require an enabled user and exact
 node grants. An empty grant set renders an empty subscription. User/grant
@@ -315,7 +334,8 @@ Rule-set names must be unique across the channel, including disabled rules/group
 comparison is case-sensitive and names must have no surrounding whitespace.
 Mihomo provider keys and sing-box rule-set tags use these names verbatim, as do
 all generated references. Sing-box remote sets use an inline `http_client` with
-`detour: direct`, matching the native 1.14 Schema. Loon continues to use its native URL-based remote rules.
+`detour: direct`, matching the native 1.14 Schema. Loon uses native URL-based remote rules and emits the configured rule-set name
+as `tag` alongside `policy` and `enabled`, escaping quoted values when necessary.
 This development contract change has no legacy interval migration or compatibility
 reader; requests containing the removed field are rejected.
 The editor infers source format from the original URL's case-insensitive path

@@ -528,6 +528,7 @@ export function demoNodeCatalog(data: DemoData): SubscriptionNodeCatalog {
   return {
     applied_bundle_id: data.runtime.applied_bundle_id ?? '',
     nodes: demoSourceNodeDetails(data).map(nodeSummary),
+    node_orders: {},
     diagnostics: [],
   };
 }

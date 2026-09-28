@@ -1,8 +1,8 @@
 import { useTranslation } from 'react-i18next';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useCallback, useDeferredValue, useEffect, useRef, useState } from 'react';
+import { useIsMutating, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
-import type { SubscriptionNodeSummary, SubscriptionSource } from '@/api/api-client';
+import type { SubscriptionNodeCatalog, SubscriptionNodeSummary, SubscriptionSource } from '@/api/api-client';
 
 import { queries } from '@/api/queries';
 import { toast } from '@/components/ui/toast-manager';
@@ -43,10 +43,13 @@ function latestStart(...values: (string | undefined)[]): string | undefined {
     .sort((a, b) => Date.parse(b) - Date.parse(a))[0];
 }
 
+const nodeOrderMutationKey = ['subscription-node-order'];
+
 export function useSubscriptionSources(active = true) {
   const { t } = useTranslation();
   const client = useApiClient();
   const cache = useQueryClient();
+  const savingOrder = useIsMutating({ mutationKey: nodeOrderMutationKey }) > 0;
   const visible = usePageVisible();
   const enabled = active && visible;
   const sourceQuery = useQuery({ ...queries.sources(client), enabled, refetchInterval: enabled ? 15_000 : false });
@@ -226,6 +229,38 @@ export function useSubscriptionSources(active = true) {
       if (!signal()?.aborted) setBusyNodes(new Set(busyNodesRef.current));
     }
   }, [client]);
+  async function reorderNodes(collectionID: string, ids: string[]) {
+    let reconcile = true;
+    try {
+      const revision = cache.getQueryData<SubscriptionNodeCatalog>(['nodes'])?.node_orders[collectionID]?.revision ?? 0;
+      // A completed drag must survive panel navigation. The API boundary still
+      // rejects responses from an expired session before they reach the cache.
+      const order = await client.setSubscriptionNodeOrder(collectionID, ids, revision);
+      cache.setQueryData<SubscriptionNodeCatalog>(['nodes'], current => {
+        if (!current) return current;
+        const byID = new Map(current.nodes.map(node => [node.id, node]));
+        const members = new Set(ids);
+        const reordered = ids.flatMap(id => byID.has(id) ? [byID.get(id)!] : []);
+        let index = 0;
+        return {
+          ...current,
+          node_orders: { ...current.node_orders, [collectionID]: order },
+          nodes: current.nodes.map(node => members.has(node.id) ? reordered[index++] : node),
+        };
+      });
+    } catch (error) {
+      reconcile = !(error instanceof DOMException && error.name === 'AbortError');
+      throw error;
+    } finally {
+      // Reconcile on success and on conflicts before the grid drops its preview.
+      if (reconcile) await cache.invalidateQueries({ queryKey: ['nodes'] });
+    }
+  }
+  const orderMutation = useMutation({
+    mutationKey: nodeOrderMutationKey,
+    gcTime: 0,
+    mutationFn: ({ collectionID, ids }: { collectionID: string; ids: string[] }) => reorderNodes(collectionID, ids),
+  });
   const localSourceIDs = new Set(
     sources.filter((source) => source.source_kind === 'local').map((source) => source.id),
   );
@@ -265,7 +300,7 @@ export function useSubscriptionSources(active = true) {
     page,
     setPage,
     error,
-    busy,
+    busy: busy || savingOrder,
     editor,
     setEditor,
     form,
@@ -282,6 +317,7 @@ export function useSubscriptionSources(active = true) {
     refresh,
     saveSource,
     toggle,
+    reorderNodes: (collectionID: string, ids: string[]) => orderMutation.mutateAsync({ collectionID, ids }),
     displayedSources,
     inManualCollection,
     current,

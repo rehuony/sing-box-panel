@@ -185,7 +185,8 @@ markers for interrupted settings/identity updates and configuration restores.
 same application identity upgrades transactionally through version 12 (traffic months),
 version 13 (removal of channel export-key bindings), and version 14 (subscription
 policy ordering and removal of retired overrides), then version 15 (recorded
-traffic accounting without period completeness state or redundant checkpoints).
+traffic accounting without period completeness state or redundant checkpoints),
+then version 16 (shared subscription node order).
 `traffic_checkpoint.sql` defines the current process-counter checkpoint. Unknown and
 newer storage formats remain rejected.
 

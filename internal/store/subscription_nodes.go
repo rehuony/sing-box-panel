@@ -37,6 +37,7 @@ type SubscriptionNodeVisibility struct {
 type SubscriptionNodeControls struct {
 	ManualNodes []ManualSubscriptionNode
 	Visibility  map[string]SubscriptionNodeVisibility
+	NodeOrders  map[string]subscription.NodeOrder
 }
 
 func (s *Store) SaveManualSubscriptionNode(ctx context.Context, node ManualSubscriptionNode, expected int64) (ManualSubscriptionNode, error) {
@@ -198,5 +199,6 @@ func loadSubscriptionNodeControls(ctx context.Context, tx *sql.Tx) (Subscription
 	if err := rows.Err(); err != nil {
 		return value, err
 	}
-	return value, nil
+	value.NodeOrders, err = loadSubscriptionNodeOrders(ctx, tx)
+	return value, err
 }

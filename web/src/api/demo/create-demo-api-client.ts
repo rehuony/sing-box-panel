@@ -261,7 +261,7 @@ function matchesLog(entry: LogEntry, filter: Parameters<ApiClient['listLogs']>[0
 export function createDemoApiClient(): ApiClient {
   const state = createState();
   const tokenSecrets = new Map(state.tokens.map((token) => [token.id, `sbp_demo_${token.id}_secret`]));
-  const nodeApi = createDemoNodeApi([...demoManualNodes(), ...demoSourceNodeDetails(state)]);
+  const nodeApi = createDemoNodeApi([...demoManualNodes(), ...demoSourceNodeDetails(state)], () => state.sources);
   let panelSecrets = { management: 'demo-management-token-for-config-backup', github: '' };
   let panelSettings: PanelSettingsView = {
     service: { data_dir: '/var/lib/sing-box-panel', base_path: '', secure_cookie: false, catalog_refresh_interval_hours: 12, traffic_period_months: 1, sample_retention_days: 90, private_source_cidrs: [], core_log_retention_days: 7, core_log_max_files: 0, core_log_max_file_size_mib: 32 },

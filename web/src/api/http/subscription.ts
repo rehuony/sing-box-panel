@@ -1,5 +1,5 @@
 import type { HttpApiContext } from './shared';
-import type { ApiClient, CreatedSubscriptionToken, SubscriptionChannel, SubscriptionChannelPage, SubscriptionNodeCatalog, SubscriptionNodeDetail, SubscriptionNodeSummary, SubscriptionPreview, SubscriptionSource, SubscriptionSourcePage, SubscriptionSourceRefreshResult, SubscriptionSourceVersion, SubscriptionSourceVersionPage, SubscriptionSourceVersionSave, SubscriptionToken, SubscriptionTokenPage, SubscriptionTokenRotation, SubscriptionUser, SubscriptionUserGrants, SubscriptionUserPage } from '../api-client';
+import type { ApiClient, CreatedSubscriptionToken, SubscriptionChannel, SubscriptionChannelPage, SubscriptionNodeCatalog, SubscriptionNodeDetail, SubscriptionNodeOrder, SubscriptionNodeSummary, SubscriptionPreview, SubscriptionSource, SubscriptionSourcePage, SubscriptionSourceRefreshResult, SubscriptionSourceVersion, SubscriptionSourceVersionPage, SubscriptionSourceVersionSave, SubscriptionToken, SubscriptionTokenPage, SubscriptionTokenRotation, SubscriptionUser, SubscriptionUserGrants, SubscriptionUserPage } from '../api-client';
 
 function utf8Base64(value: string): string {
   const bytes = new TextEncoder().encode(value);
@@ -143,6 +143,11 @@ export function createSubscriptionHttpApi(context: HttpApiContext) {
     setSubscriptionNodeVisibility(id, hidden, revision, signal) {
       return request<SubscriptionNodeSummary>(fetcher, `${baseUrl}/subscription/nodes/${encodeURIComponent(id)}/visibility`, {
         method: 'PUT', body: JSON.stringify({ hidden, revision }), headers: writeJSONHeaders(), signal,
+      });
+    },
+    setSubscriptionNodeOrder(collectionID, ids, revision, signal) {
+      return request<SubscriptionNodeOrder>(fetcher, `${baseUrl}/subscription/node-orders/${encodeURIComponent(collectionID)}`, {
+        method: 'PUT', body: JSON.stringify({ ids, revision }), headers: writeJSONHeaders(), signal,
       });
     },
     parseSubscriptionNode(text, signal) {

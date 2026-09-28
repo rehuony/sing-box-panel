@@ -605,6 +605,25 @@ paths:
         "201":
           description: Created manual node
           content: {application/json: {schema: {$ref: "#/components/schemas/SubscriptionNodeDetail"}}}
+  /subscription/node-orders/{collectionId}:
+    put:
+      operationId: setSubscriptionNodeOrder
+      description: "Save presentation order for manual (system, manual and local-source nodes) or a remote source ID. IDs must be unique current members of the collection. Unlisted nodes append in their default order. No source contents or group candidates are modified."
+      parameters:
+        - {name: collectionId, in: path, required: true, schema: {type: string}}
+        - {$ref: "#/components/parameters/CSRFToken"}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/SubscriptionNodeOrder"}
+      responses:
+        "200":
+          description: Saved order with incremented revision
+          content: {application/json: {schema: {$ref: "#/components/schemas/SubscriptionNodeOrder"}}}
+        "412":
+          description: The order revision changed; reload the node catalog before retrying
+          content: {application/problem+json: {schema: {$ref: "#/components/schemas/Problem"}}}
   /subscription/nodes/parse:
     post:
       operationId: parseSubscriptionNode
@@ -2700,13 +2719,24 @@ components:
         tls: {type: boolean}
         reality: {type: boolean}
         sni: {type: string}
+    SubscriptionNodeOrder:
+      type: object
+      additionalProperties: false
+      required: [ids, revision]
+      properties:
+        ids: {type: array, maxItems: 10000, uniqueItems: true, items: {type: string}}
+        revision: {type: integer, format: int64, minimum: 0, maximum: 9007199254740991, description: "Zero when no order is saved; updates require the current revision."}
     SubscriptionNodeCatalog:
       type: object
       additionalProperties: false
-      required: [applied_bundle_id, nodes, diagnostics]
+      required: [applied_bundle_id, nodes, diagnostics, node_orders]
       properties:
         applied_bundle_id: {type: string}
         nodes: {type: array, items: {$ref: "#/components/schemas/SubscriptionNodeSummary"}}
+        node_orders:
+          type: object
+          description: "Saved orders keyed by manual or remote source ID. Missing collections have revision zero. Nodes are returned in source display order, then saved node order, with new nodes appended."
+          additionalProperties: {$ref: "#/components/schemas/SubscriptionNodeOrder"}
         diagnostics: {type: array, items: {$ref: "#/components/schemas/SubscriptionDiagnostic"}}
     SubscriptionToken:
       type: object

@@ -31,6 +31,8 @@ const legacyTrafficCheckpointSchema = `CREATE TABLE traffic_checkpoint (
 func restoreLegacyTrafficAccounting(t *testing.T, db *Store) {
 	t.Helper()
 	_, err := db.db.ExecContext(t.Context(), `
+        DROP TRIGGER subscription_source_delete_node_order;
+        DROP TABLE subscription_node_orders;
         ALTER TABLE traffic_months RENAME TO traffic_months_current;
         `+legacyTrafficMonthsSchema+`
         INSERT INTO traffic_months
