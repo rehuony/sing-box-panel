@@ -24,7 +24,6 @@ export const dashboard = {
     placeholder: 'All bundles',
   },
   chart: {
-    live: 'Live · last 120 seconds',
     arrows: 'Use arrow keys to inspect samples.',
     interactionHint: 'Ctrl + scroll to zoom · Shift + scroll to pan · +/− zoom · Shift + ←/→ pan',
     keyboardLabel:

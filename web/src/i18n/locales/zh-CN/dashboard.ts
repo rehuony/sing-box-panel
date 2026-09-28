@@ -24,7 +24,6 @@ export const dashboard = {
     placeholder: '全部运行包',
   },
   chart: {
-    live: '实时 · 最近 120 秒',
     arrows: '使用左右方向键查看采样。',
     interactionHint: 'Ctrl + 滚动缩放 · Shift + 滚动平移 · +/− 缩放 · Shift + ←/→ 平移',
     keyboardLabel:

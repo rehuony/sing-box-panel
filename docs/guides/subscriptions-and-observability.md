@@ -672,8 +672,8 @@ The Dashboard owns this subscription; other routes do not query historical data.
 Each event includes one-hour / 24-hour histories, runtime transitions, two recent
 activity records and `persisted_through`. Both metric ranges and that accepted
 sample watermark come from one database read transaction. The watermark replaces
-overlapping live tails when history catches up. Live tails are labelled, bounded
-to 120 seconds, and break at missing samples, process changes, counter regression
+overlapping live tails when history catches up. Live tails are bounded to 120
+seconds and break at missing samples, process changes, counter regression
 or reconnects. They never enter period totals or interpolate missing evidence.
 
 Each connection is authenticated again within one minute. Collection belongs to
