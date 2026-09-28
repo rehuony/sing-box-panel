@@ -303,18 +303,33 @@ func loonTLSOptions(value tlsOptions, includeServerName bool) ([]string, Diagnos
 	if !value.enabled {
 		return nil, ""
 	}
-	if len(value.alpn) > 1 {
-		return nil, DiagnosticUnsupportedTLS
+	alpn, issue := loonALPN(value.alpn)
+	if issue.code != "" {
+		return nil, issue.code
 	}
 	parts := make([]string, 0, 3)
 	if includeServerName && value.serverName != "" {
 		parts = append(parts, "sni="+loonOptionValue(value.serverName))
 	}
-	if len(value.alpn) == 1 {
-		parts = append(parts, "alpn="+loonOptionValue(value.alpn[0]))
+	if alpn != "" {
+		parts = append(parts, "alpn="+alpn)
 	}
 	parts = append(parts, loonOptionBool("skip-cert-verify", value.insecure))
 	return parts, ""
+}
+
+// Loon uses a quoted comma-separated list, preserving ALPN preference order.
+// A comma inside one protocol cannot be represented without changing its meaning.
+func loonALPN(protocols []string) (string, conversionIssue) {
+	for _, protocol := range protocols {
+		if strings.ContainsAny(protocol, ",\r\n\x00") || strings.TrimSpace(protocol) != protocol {
+			return "", conversionIssue{DiagnosticUnsupportedTLS, "tls.alpn", "unrepresentable_alpn"}
+		}
+	}
+	if len(protocols) == 0 {
+		return "", conversionIssue{}
+	}
+	return loonOptionValue(strings.Join(protocols, ",")), conversionIssue{}
 }
 
 var loonShadowsocksMethods = map[string]struct{}{

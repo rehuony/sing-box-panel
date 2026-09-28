@@ -102,6 +102,8 @@ describe('channel workspace', () => {
     expect(within(dialog).getByRole('button', { name: 'Copy' })).toBeDisabled();
     await user.click(within(dialog).getByRole('button', { name: 'Issues (1)' }));
     expect(await screen.findByText('Preview failed')).toBeVisible();
+    expect(within(screen.getByRole('dialog', { name: 'Issues (1)' })).getByText('Subscription preview failed')).toBeVisible();
+    expect(screen.queryByText('Not exported')).not.toBeInTheDocument();
     await user.keyboard('{Escape}');
     await user.keyboard('{Escape}');
     await user.click(screen.getByRole('button', { name: 'Subscription preview' }));
@@ -124,6 +126,31 @@ describe('channel workspace', () => {
     vi.spyOn(navigator.clipboard, 'writeText').mockRejectedValueOnce(new Error('Clipboard denied'));
     await user.click(within(dialog).getByRole('button', { name: 'Copy' }));
     expect(feedback).toHaveBeenLastCalledWith({ title: 'Clipboard denied', type: 'error' });
+  });
+
+  it('identifies skipped nodes with actionable details and a fallback for unknown codes', async () => {
+    const user = userEvent.setup();
+    const client = mount();
+    const preview = await client.previewSubscriptionChannel(channel.id, '');
+    preview.result.diagnostics = [
+      { collection: 'outbounds', item_index: 1, code: 'unsupported_tls', format: 'loon', node_id: 'node-anytls', node_name: 'Tokyo AnyTLS', node_type: 'anytls', field_path: 'outbounds[1].tls.fragment', reason: 'unsupported_tls_option' },
+      { collection: 'inbounds', item_index: 3, code: 'future_reason', format: 'loon' },
+    ];
+    vi.mocked(client.previewSubscriptionChannel).mockResolvedValue(preview);
+    await user.click(screen.getByRole('button', { name: 'Subscription preview' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Subscription preview' });
+    expect(within(dialog).queryByText('Tokyo AnyTLS')).not.toBeInTheDocument();
+    await user.click(within(dialog).getByRole('button', { name: 'Issues (2)' }));
+    expect(await screen.findByText('Tokyo AnyTLS')).toBeVisible();
+    expect(screen.getByText('The Loon exporter does not yet support this TLS option.')).toBeVisible();
+    expect(screen.getByText(/Review the field below/)).toBeVisible();
+    expect(screen.getByText('outbounds[1].tls.fragment')).toBeVisible();
+    expect(screen.getByText('Node 4')).toBeVisible();
+    expect(screen.getByText(/This node could not be exported/)).toBeVisible();
+    expect(screen.getByText('future_reason')).toBeVisible();
+    await user.keyboard('{Escape}');
+    expect(screen.queryByText('Tokyo AnyTLS')).not.toBeInTheDocument();
+    expect(dialog).toBeVisible();
   });
   it('submits confirmed channel settings through the save action', async () => {
     const user = userEvent.setup();

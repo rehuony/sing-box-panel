@@ -64,6 +64,21 @@ function mount(client: ApiClient = createMockApiClient()) {
 }
 
 describe('subscription sources and nodes', () => {
+  it('shows only the loading state before empty nodes and retains nodes during a refresh', () => {
+    const onOpen = vi.fn();
+    const view = render(<SubscriptionNodeGrid nodes={[]} search='' loading onOpen={onOpen} />);
+    expect(screen.getByRole('status', { name: 'Loading' })).toBeVisible();
+    expect(screen.queryByText('No nodes')).not.toBeInTheDocument();
+    view.rerender(<SubscriptionNodeGrid nodes={[]} search='' onOpen={onOpen} />);
+    expect(screen.queryByRole('status', { name: 'Loading' })).not.toBeInTheDocument();
+    expect(screen.getByText('No nodes')).toBeVisible();
+    view.rerender(<SubscriptionNodeGrid nodes={[node]} search='' loading onOpen={onOpen} />);
+    expect(screen.getByRole('article', { name: node.name })).toBeVisible();
+    expect(screen.queryByRole('status', { name: 'Loading' })).not.toBeInTheDocument();
+    view.rerender(<SubscriptionNodeGrid nodes={[node]} search='unmatched' onOpen={onOpen} />);
+    expect(screen.getByText('No matching nodes')).toBeVisible();
+    expect(screen.queryByText('No nodes')).not.toBeInTheDocument();
+  });
   it('opens node configuration only from the corner details action', async () => {
     const user = userEvent.setup();
     const onOpen = vi.fn();
@@ -185,7 +200,7 @@ describe('subscription sources and nodes', () => {
         </MemoryRouter>,
       );
       await waitFor(() => expect(client.getSubscriptionNode).toHaveBeenCalled());
-      expect(screen.getByRole('status', { name: 'Loading…' })).toBeInTheDocument();
+      expect(screen.getByRole('status', { name: 'Loading' })).toBeInTheDocument();
       expect(screen.queryByRole('textbox', { name: 'Advanced JSON' })).not.toBeInTheDocument();
       expect(screen.getByRole('button', { name: 'Save node' })).toBeDisabled();
 
@@ -195,7 +210,7 @@ describe('subscription sources and nodes', () => {
       });
       expect(await screen.findByRole('tab', { name: 'Visual editor', selected: true })).toBeInTheDocument();
       expect(screen.getByRole('combobox', { name: 'Protocol' })).toBeInTheDocument();
-      expect(screen.queryByRole('status', { name: 'Loading…' })).not.toBeInTheDocument();
+      expect(screen.queryByRole('status', { name: 'Loading' })).not.toBeInTheDocument();
       expect(screen.queryByRole('textbox', { name: 'Advanced JSON' })).not.toBeInTheDocument();
       expect(screen.getByRole('button', { name: 'Save node' })).toBeEnabled();
     } finally {
@@ -215,7 +230,7 @@ describe('subscription sources and nodes', () => {
       </ApiClientProvider>
     );
     const { rerender } = render(renderPanel('2026-09-20T00:00:00Z'), { wrapper: MemoryRouter });
-    const row = screen.getByRole('cell', { name: 'Manual nodes' }).closest('tr')!;
+    const row = (await screen.findByRole('cell', { name: 'Manual nodes' })).closest('tr')!;
     const format = (date: string) => new Intl.DateTimeFormat('en', {
       dateStyle: 'short', timeStyle: 'short',
     }).format(new Date(date));

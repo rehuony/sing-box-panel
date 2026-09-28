@@ -14,6 +14,7 @@ import { candidateOrder } from './channel-node-order';
 import { ChannelNodeCards } from './channel-node-cards';
 import { ChannelNodeActions } from './channel-node-actions';
 import { reorderVisibleNodes } from './subscription-node-order';
+import { SubscriptionContentState } from './subscription-content-state';
 
 interface Props {
   onClose: () => void;
@@ -108,7 +109,7 @@ export function ChannelNodePicker({ nodes, group, groups, format, onClose, onAdd
             </div>
           </div>
         </div>
-        <div className='channel-node-picker-scroll'>
+        <div className='channel-node-picker-scroll subscription-state-region'>
           <ChannelNodeCards
             items={items}
             onToggle={(id) => setSelected((current) =>
@@ -116,7 +117,7 @@ export function ChannelNodePicker({ nodes, group, groups, format, onClose, onAdd
             onMove={(active, over) => setOrder(reorderVisibleNodes(order, visible, active, over))}
             onDraggingChange={setDragging}
           />
-          {!items.length && <p className='subscription-empty'>{t('channels.noMatchingNodes')}</p>}
+          {!items.length && <SubscriptionContentState kind='search' title={t('channels.noMatchingNodes')} />}
         </div>
         <DialogFooter>
           <Button variant='outline' onClick={onClose}>{t('common.cancel')}</Button>

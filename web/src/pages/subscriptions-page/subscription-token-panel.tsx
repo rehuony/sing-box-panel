@@ -5,7 +5,6 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { CreatedSubscriptionToken, SubscriptionToken } from '@/api/api-client';
 
 import { Button } from '@/components/ui/button';
-import { Spinner } from '@/components/ui/spinner';
 import { toast } from '@/components/ui/toast-manager';
 import { useApiClient } from '@/api/api-client-context';
 import { ListPagination } from '@/components/list-pagination';
@@ -15,6 +14,8 @@ import { describeRequestError, ErrorNotice } from '@/components/error-notice';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 
 import type { useSubscriptionTokenPage } from './use-subscription-token-page';
+
+import { SubscriptionContentState } from './subscription-content-state';
 
 type KeyAction = 'rotate' | 'delete';
 
@@ -142,7 +143,7 @@ export function SubscriptionTokenPanel({ list, active = true, toolbarTarget }: {
         </div>
       </ToolbarActions>
       {error ? <ErrorNotice error={error} title={t('subscriptions.token.loadFailed')} /> : null}
-      <div className='subscription-keys__scroll' aria-busy={loading}>
+      <div className='subscription-keys__scroll subscription-state-region' aria-busy={loading}>
         <table className='workspace-table subscription-table'>
           <thead>
             <tr>
@@ -175,8 +176,9 @@ export function SubscriptionTokenPanel({ list, active = true, toolbarTarget }: {
             ))}
           </tbody>
         </table>
-        {!loading && items.length === 0 && !error ? <p className='subscription-empty'>{t('subscriptions.keys.empty')}</p> : null}
-        {loading ? <div className='subscription-keys__loading'><Spinner /></div> : null}
+        {items.length === 0 && (loading
+          ? <SubscriptionContentState loading />
+          : !error && <SubscriptionContentState kind='keys' title={t('subscriptions.keys.empty')} />)}
       </div>
       <ListPagination
         page={page}

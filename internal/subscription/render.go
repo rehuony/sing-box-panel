@@ -27,6 +27,7 @@ func Render(finalStartupJSON []byte, channel RenderChannel) (RenderResult, error
 	}
 	sortDiagnostics(diagnostics)
 	result.Diagnostics = diagnostics
+	result.PreviewDiagnostics = previewDiagnostics(diagnostics, nodes.values)
 	return result, nil
 }
 
@@ -36,5 +37,18 @@ func RenderNodes(nodes []Node, channel RenderChannel) (RenderResult, error) {
 	if err != nil {
 		return RenderResult{}, invalidStartup("invalid_normalized_nodes")
 	}
-	return Render(document, channel)
+	result, err := Render(document, channel)
+	if err != nil {
+		return RenderResult{}, err
+	}
+	// PublicationDocument defines these positions before filtering and tag sorting.
+	ordered := orderedPublicationNodes(nodes)
+	for index := range result.PreviewDiagnostics {
+		issue := &result.PreviewDiagnostics[index]
+		if issue.Collection == CollectionOutbounds && issue.ItemIndex < len(ordered) {
+			node := ordered[issue.ItemIndex]
+			issue.NodeID, issue.NodeName, issue.NodeType = PublicationID(node), node.Tag, node.Type
+		}
+	}
+	return result, nil
 }

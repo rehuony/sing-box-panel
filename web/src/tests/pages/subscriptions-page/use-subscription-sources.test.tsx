@@ -25,17 +25,17 @@ async function mount(overrides: Partial<ApiClient> = {}) {
 }
 
 describe('subscription sources', () => {
-  it('loads nodes concurrently with sources and ignores a superseded read', async () => {
-    const old = deferred<Awaited<ReturnType<ApiClient['listSubscriptionSources']>>>();
+  it('loads nodes concurrently and reuses an in-flight source read on refresh', async () => {
+    const pending = deferred<Awaited<ReturnType<ApiClient['listSubscriptionSources']>>>();
     const { result, client } = await mount({
-      listSubscriptionSources: vi.fn().mockReturnValueOnce(old.promise).mockResolvedValue({ items: [] }),
+      listSubscriptionSources: vi.fn().mockReturnValue(pending.promise),
     });
     expect(client.getSubscriptionNodeCatalog).toHaveBeenCalledOnce();
     await act(async () => result.current.reload());
-    await act(async () => old.resolve({
-      items: testSubscriptionSources.map(source => ({ ...source, has_version: false })),
-    }));
-    expect(result.current.sources).toEqual([]);
+    const sources = testSubscriptionSources.map(source => ({ ...source, has_version: false }));
+    await act(async () => pending.resolve({ items: sources }));
+    await waitFor(() => expect(result.current.sources).toEqual(sources));
+    expect(client.listSubscriptionSources).toHaveBeenCalledOnce();
   });
   it('polls on virtual time and aborts reads on unmount', async () => {
     vi.useFakeTimers();

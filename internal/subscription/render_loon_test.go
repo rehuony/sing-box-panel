@@ -4,8 +4,43 @@ package subscription
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 )
+
+func TestLoonALPNPreservesValues(t *testing.T) {
+	for _, test := range []struct {
+		name, tls, want, reason string
+	}{
+		{"absent", `"enabled":true`, "", ""},
+		{"empty", `"enabled":true,"alpn":[]`, "", ""},
+		{"scalar", `"enabled":true,"alpn":"h2"`, "alpn=h2", ""},
+		{"ordered", `"enabled":true,"alpn":["http/1.1","h2"]`, `alpn="http/1.1,h2"`, ""},
+		{"escaped", `"enabled":true,"alpn":["quoted\"protocol","h2"]`, `alpn="quoted\"protocol,h2"`, ""},
+		{"embedded comma", `"enabled":true,"alpn":["h2,http/1.1"]`, "", "unrepresentable_alpn"},
+		{"newline", `"enabled":true,"alpn":["h2\n"]`, "", "unrepresentable_alpn"},
+		{"empty protocol", `"enabled":true,"alpn":[""]`, "", "invalid_field"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			result, err := Render([]byte(`{"outbounds":[{"type":"anytls","tag":"Any","server":"example.test","server_port":443,"password":"secret","tls":{`+test.tls+`}}]}`), RenderChannel{Format: RenderFormatLoon})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if test.reason != "" {
+				if result.NodeCount != 0 || len(result.PreviewDiagnostics) != 1 || result.PreviewDiagnostics[0].Reason != test.reason || result.PreviewDiagnostics[0].FieldPath != "outbounds[0].tls.alpn" {
+					t.Fatalf("unexpected failure: %+v", result.PreviewDiagnostics)
+				}
+				return
+			}
+			if result.NodeCount != 1 || len(result.Diagnostics) != 0 || !strings.Contains(string(result.Content), "skip-cert-verify=false") {
+				t.Fatalf("node omitted or TLS changed: %s", result.Content)
+			}
+			if test.want == "" && strings.Contains(string(result.Content), "alpn=") || test.want != "" && !strings.Contains(string(result.Content), test.want) {
+				t.Fatalf("ALPN changed: %s", result.Content)
+			}
+		})
+	}
+}
 
 func TestRenderLoonConvertsProvenSubsetAndEscapesSecrets(t *testing.T) {
 	t.Parallel()

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { CirclePlus, Pencil, Route, Search, Trash2 } from 'lucide-react';
+import { CirclePlus, Pencil, Search, Trash2 } from 'lucide-react';
 
 import type {
   ChannelRouteExit,
@@ -13,7 +13,6 @@ import type {
 import { Button } from '@/components/ui/button';
 import { ErrorNotice } from '@/components/error-notice';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty';
 
 import type { ChannelNodeCard } from './channel-node-cards';
 
@@ -23,6 +22,7 @@ import { ChannelNodePicker } from './channel-node-picker';
 import { ChannelRuleEditor } from './channel-rule-editor';
 import { ChannelNodeActions } from './channel-node-actions';
 import { reorderVisibleNodes } from './subscription-node-order';
+import { SubscriptionContentState } from './subscription-content-state';
 import { compareChannelRules, ruleFormats, updateGroupCandidates } from './channel-policy';
 
 interface Props {
@@ -166,16 +166,10 @@ export function ChannelGroupEditor({ group, groups, nodes, format, busy, onChang
               })}
             />
             {!cards.length && (
-              <Empty className='channel-candidates-empty'>
-                <EmptyHeader>
-                  <EmptyTitle>{t(search ? 'channels.noMatchingNodes' : 'channels.emptyCandidates')}</EmptyTitle>
-                  <EmptyDescription>{t(search ? 'channels.searchNodesHint' : 'channels.emptyCandidatesHint')}</EmptyDescription>
-                </EmptyHeader>
-              </Empty>
+              <SubscriptionContentState kind={search ? 'search' : 'candidates'} title={t(search ? 'channels.noMatchingNodes' : 'channels.emptyCandidates')} />
             )}
           </TabsContent>
           <TabsContent value='rules' className='channel-group-content'>
-            {format === 'loon' && <p className='channel-delivery-hint'>{t('channels.loonRuleOrder')}</p>}
             <ul className='channel-rule-rows' aria-label={t('channels.matches')}>
               {[...group.rules].sort(compareChannelRules).map((item) => (
                 <li className='channel-rule-row' key={item.id} data-disabled={!item.enabled || undefined}>
@@ -209,13 +203,7 @@ export function ChannelGroupEditor({ group, groups, nodes, format, busy, onChang
               ))}
             </ul>
             {!group.rules.length && (
-              <Empty>
-                <EmptyHeader>
-                  <EmptyMedia variant='icon'><Route /></EmptyMedia>
-                  <EmptyTitle>{t('channels.matches')}</EmptyTitle>
-                  <EmptyDescription>{t('channels.noRules')}</EmptyDescription>
-                </EmptyHeader>
-              </Empty>
+              <SubscriptionContentState kind='rules' title={t('channels.matches')} />
             )}
           </TabsContent>
         </Tabs>

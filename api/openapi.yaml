@@ -2763,6 +2763,21 @@ components:
         item_index: {type: integer, minimum: 0}
         code: {type: string}
         format: {type: string, enum: [sing-box, mihomo, loon]}
+    SubscriptionPreviewDiagnostic:
+      type: object
+      additionalProperties: false
+      description: Authenticated preview context. Field paths refer to renderer input positions, not generated output lines. No configuration values are included.
+      required: [collection, item_index, code, format]
+      properties:
+        collection: {type: string, enum: [outbounds, endpoints, inbounds]}
+        item_index: {type: integer, minimum: 0}
+        code: {type: string}
+        format: {type: string, enum: [sing-box, mihomo, loon]}
+        node_id: {type: string, description: Stable publication ID when a normalized node exists.}
+        node_name: {type: string}
+        node_type: {type: string}
+        field_path: {type: string}
+        reason: {type: string, description: Fixed detail code for client-side localization.}
     SubscriptionPreview:
       type: object
       additionalProperties: false
@@ -2784,7 +2799,7 @@ components:
             media_type: {type: string}
             content: {type: string, format: byte}
             node_count: {type: integer, minimum: 0}
-            diagnostics: {type: array, items: {$ref: "#/components/schemas/SubscriptionRenderDiagnostic"}}
+            diagnostics: {type: array, items: {$ref: "#/components/schemas/SubscriptionPreviewDiagnostic"}}
     CoreLogFile:
       type: object
       additionalProperties: false

@@ -825,14 +825,6 @@
   min-height: 0;
   overflow: auto;
 }
-.subscription-keys__loading {
-  position: absolute;
-  inset: 44px 0 0;
-  display: grid;
-  place-items: center;
-  pointer-events: none;
-  color: var(--color-text-muted);
-}
 .subscription-keys .subscription-table {
   width: 100%;
   min-width: 64rem;
@@ -909,11 +901,6 @@
   overflow-wrap: anywhere;
 }
 .subscription-key-details dt {
-  color: var(--color-text-muted);
-}
-.subscription-empty {
-  padding: 64px 24px;
-  text-align: center;
   color: var(--color-text-muted);
 }
 
@@ -1219,11 +1206,6 @@
     backdrop-filter: none;
   }
 }
-.subscription-empty {
-  text-align: center;
-  padding: 80px 24px;
-  color: var(--color-text-muted);
-}
 .subscription-source-settings {
   flex: none;
   height: auto;
@@ -1283,14 +1265,6 @@
   height: min(440px, calc(100dvh - 32px));
   overflow: hidden;
   border-radius: var(--radius-card);
-}
-.subscription-node-editor__loading {
-  display: flex;
-  flex: 1;
-  min-height: 0;
-  flex-direction: column;
-  gap: 16px;
-  margin-inline: 24px;
 }
 .subscription-node-editor__modes {
   flex: 1;
@@ -1452,8 +1426,7 @@
   min-height: 0;
 }
 .channel-group-sidebar,
-.channel-group-editor,
-.channel-group-empty {
+.channel-group-editor {
   border: 0;
   border-radius: 0;
   background: transparent;
@@ -1582,9 +1555,6 @@
 }
 .channel-group-final-exit[aria-pressed='true'] {
   color: var(--color-primary);
-}
-.channel-group-empty {
-  min-height: 240px;
 }
 .channel-group-editor {
   overflow: hidden;
@@ -1909,13 +1879,9 @@
   }
 }
 
-.channel-group-content:has(.channel-candidates-empty) {
+.channel-group-content:has(> .subscription-content-state) {
   display: flex;
   flex-direction: column;
-}
-.channel-candidates-empty {
-  flex: 1;
-  width: 100%;
 }
 .channel-node-picker[data-slot='dialog-content'] {
   display: flex;
@@ -1983,4 +1949,28 @@
   .channel-node-picker-toolbar .channel-selection-actions {
     gap: 2px;
   }
+}
+
+/* Each list owns one centered state in its available content area. */
+.subscription-state-region {
+  display: flex;
+  flex-direction: column;
+}
+.subscription-state-region > table {
+  flex: none;
+}
+.subscription-content-state {
+  min-height: 160px;
+  flex: 1;
+}
+.channel-dialog-scroll:has(> .subscription-content-state) {
+  display: flex;
+  flex-direction: column;
+}
+.channel-preview-issues[data-slot='popover-content'] {
+  width: min(28rem, calc(100vw - 2rem), var(--available-width));
+  max-height: min(32rem, var(--available-height));
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 16px;
 }

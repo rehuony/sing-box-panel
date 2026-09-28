@@ -1,4 +1,17 @@
 export const subscriptions = {
+  states: {
+    loading: 'Preparing this section. Please wait.',
+    sources: 'Add a subscription source to import and manage its nodes.',
+    nodes: 'Import nodes from a subscription source or add manual nodes.',
+    candidates: 'Add nodes or strategy groups as candidate exits for this group.',
+    groups: 'Create a strategy group to organize candidates and configure traffic exits.',
+    rules: 'Add matching rules and choose an exit for the matched traffic.',
+    keys: 'Create a subscription key to access channel configurations.',
+    activeKeys: 'Create or enable a key in Key management, then copy the subscription link.',
+    channels: 'Create a channel, choose an output client, and configure nodes and rules.',
+    search: 'Try different keywords or clear the search to show all items.',
+    preview: 'Open the issues beside the title, resolve the cause, then preview again.',
+  },
   nodes: {
     sortableCard: 'Sortable node card',
     dragInstructions: 'Press F2 to start reordering, arrow keys to move, F2 to finish, or Escape to cancel.',
@@ -43,6 +56,7 @@ export const subscriptions = {
     save: 'Save node',
   },
   sources: {
+    noMatches: 'No matching sources',
     onDemand: 'On demand',
     refreshFailed: 'Refresh failed; the last successful nodes remain available',
     refreshPending: 'Refresh is still running; check panel logs later',
@@ -152,7 +166,6 @@ export const subscriptions = {
     disable: 'Disable',
     enable: 'Enable',
     inspect: 'Inspect',
-    loading: 'Loading…',
     name: 'Name',
     never: 'Never',
     none: 'None',

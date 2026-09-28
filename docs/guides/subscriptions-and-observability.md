@@ -362,8 +362,21 @@ empty text for Loon), are never upgraded or replaced automatically. Deleting a
 field removes it; invalid content fails validation instead of loading defaults.
 
 Preview diagnostics and request failures appear behind an issue button beside
-the preview title. Successful previews have no issue indicator; the code area
-contains only generated configuration. Both preview entry points use the same
+the preview title. Previews without diagnostics have no issue indicator; the code area
+contains only generated configuration. Authenticated preview diagnostics identify
+the node by stable publication ID, name and protocol when available, with an
+input field path, localized explanation and corrective suggestion. Positions
+refer to renderer input, not lines in the generated configuration. Unknown codes
+retain their technical code with a generic explanation. Public diagnostics remain
+positional and never include node identities or configuration values.
+
+Subscription sources, keys, channels and their dialogs show one centered empty
+or initial-loading state with a contextual icon, title and brief guidance inside
+the relevant content area. Loading does not show
+an empty-state message simultaneously; refreshes retain available data. Rule-order
+explanations do not occupy a separate banner above the editor.
+
+Both preview entry points use the same
 renderer; an unapplied template draft can intentionally differ from the saved
 channel. After Apply, the toolbar preview uses that same draft.
 
@@ -429,7 +442,10 @@ The cross-format renderers convert only their explicit current contracts:
 | Loon | `shadowsocks`, `socks`, `http`, `vmess`, `vless`, `trojan`, `hysteria2`, `anytls` |
 
 Unsupported types, transports, TLS shapes, networks, dependencies, or options
-are omitted with stable positional diagnostics. Renderers never infer a field
+are omitted with stable positional diagnostics. Loon TLS output preserves the
+ordered ALPN list using a quoted comma-separated value, including AnyTLS. A single
+identifier containing a comma, line break, NUL or surrounding whitespace is
+rejected rather than changed during conversion. Renderers never infer a field
 mapping that is not implemented and tested.
 
 Mihomo mapping also covers supported WebSocket/gRPC transport options,

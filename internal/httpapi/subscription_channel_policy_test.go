@@ -121,6 +121,60 @@ func TestChannelPolicyPreviewDeliveryAndVisibility(t *testing.T) {
 	}
 }
 
+func TestLoonPreviewDiagnosticsAndALPNDelivery(t *testing.T) {
+	ctx := context.Background()
+	_, app, handler := newSubscriptionHTTPServices(t, "")
+	good, err := app.CreateSubscriptionNode(ctx, []byte(`{"type":"anytls","tag":"AnyTLS good","server":"good.example","server_port":443,"password":"good-secret","tls":{"enabled":true,"alpn":["h2","http/1.1"]}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	bad, err := app.CreateSubscriptionNode(ctx, []byte(`{"type":"anytls","tag":"AnyTLS unsupported","server":"private.example","server_port":443,"password":"private-secret","tls":{"enabled":true,"fragment":true}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	policy := &subscription.ChannelPolicy{
+		Selection:         subscription.NodeSelection{IDs: []string{good.ID, bad.ID}, NewNodePolicy: "exclude"},
+		IncompatibleNodes: "skip", DefaultExit: subscription.RouteExit{Kind: "group", ID: "main"},
+		Groups: []subscription.RuleGroup{{ID: "main", Name: "Selected", Type: "select", Enabled: true, NodeIDs: []string{good.ID, bad.ID}, BuiltinNodes: []string{}, Rules: []subscription.ChannelRule{}}},
+	}
+	config, _ := json.Marshal(store.SubscriptionChannelConfig{Policy: policy})
+	channel, err := app.CreateSubscriptionChannel(ctx, application.CreateSubscriptionChannelRequest{Name: "Loon", Format: store.SubscriptionFormatLoon, Config: config, Enabled: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	response := authenticatedRequest(handler, http.MethodPost, "/api/v1/subscription/channels/"+channel.ID+"/preview", "{}", "")
+	var preview application.SubscriptionPreview
+	if response.Code != http.StatusOK || json.Unmarshal(response.Body.Bytes(), &preview) != nil {
+		t.Fatalf("preview failed: %d", response.Code)
+	}
+	if preview.Result.NodeCount != 1 || len(preview.Result.Diagnostics) != 1 {
+		t.Fatal("unexpected preview counts")
+	}
+	issue := preview.Result.Diagnostics[0]
+	if issue.NodeID != bad.ID || issue.NodeName != bad.Name || issue.NodeType != "anytls" || issue.FieldPath != "outbounds[1].tls.fragment" || issue.Reason != "unsupported_tls_option" {
+		t.Fatalf("wrong preview diagnostic: %+v", issue)
+	}
+	key, err := app.CreateSubscriptionToken(ctx, application.CreateSubscriptionTokenRequest{Label: "Loon"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	public, err := app.PublicSubscription(ctx, key.Token, channel.ID)
+	if err != nil || !bytes.Equal(public.Body, preview.Result.Content) {
+		t.Fatal("preview and delivery differ", err)
+	}
+	for _, expected := range []string{`alpn="h2,http/1.1"`, "Selected = select,AnyTLS good", "FINAL,Selected"} {
+		if !bytes.Contains(public.Body, []byte(expected)) {
+			t.Fatalf("missing generated behavior %q", expected)
+		}
+	}
+	diagnostics, _ := json.Marshal(public.Diagnostics)
+	for _, value := range []string{bad.ID, bad.Name, "private.example", "private-secret"} {
+		if bytes.Contains(diagnostics, []byte(value)) || bytes.Contains(public.Body, []byte(value)) {
+			t.Fatal("omitted node leaked into public response")
+		}
+	}
+}
+
 func TestChannelStrategyTypesPersistPreviewAndDeliver(t *testing.T) {
 	ctx := context.Background()
 	_, app, handler := newSubscriptionHTTPServices(t, "")

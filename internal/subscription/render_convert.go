@@ -141,49 +141,61 @@ func outboundUDP(value map[string]any) (bool, DiagnosticCode) {
 }
 
 func parseTLS(value map[string]any, required bool) (tlsOptions, DiagnosticCode) {
+	options, issue := parseTLSIssue(value, required)
+	return options, issue.code
+}
+
+// Both conversion and preview use this validation, so explanations cannot drift
+// from the checks that actually omitted the node.
+func parseTLSIssue(value map[string]any, required bool) (tlsOptions, conversionIssue) {
 	raw, exists := value["tls"]
 	if !exists {
 		if required {
-			return tlsOptions{}, DiagnosticInvalidRequiredField
+			return tlsOptions{}, conversionIssue{DiagnosticInvalidRequiredField, "tls", "tls_required"}
 		}
-		return tlsOptions{}, ""
+		return tlsOptions{}, conversionIssue{}
 	}
 	tlsValue, ok := raw.(map[string]any)
 	if !ok {
-		return tlsOptions{}, DiagnosticUnsupportedTLS
+		return tlsOptions{}, conversionIssue{DiagnosticUnsupportedTLS, "tls", "invalid_field"}
 	}
 	allowed := map[string]struct{}{
-		"alpn":        {},
-		"enabled":     {},
-		"insecure":    {},
-		"server_name": {},
+		"alpn": {}, "enabled": {}, "insecure": {}, "server_name": {},
 	}
 	if code := unsupportedFields(tlsValue, allowed); code != "" {
-		return tlsOptions{}, DiagnosticUnsupportedTLS
+		// Only known field names may appear in a diagnostic; arbitrary extension
+		// keys, like values, could themselves contain credentials.
+		field := "tls"
+		for _, key := range []string{"certificate", "certificate_path", "cipher_suites", "disable_sni", "ech", "fragment", "fragment_fallback_delay", "kernel_tx", "kernel_rx", "max_version", "min_version", "record_fragment", "reality", "utls"} {
+			if _, exists := tlsValue[key]; exists {
+				field += "." + key
+				break
+			}
+		}
+		return tlsOptions{}, conversionIssue{DiagnosticUnsupportedTLS, field, "unsupported_tls_option"}
 	}
 	enabled, ok := optionalBool(tlsValue, "enabled")
-	if !ok || (required && !enabled) {
-		return tlsOptions{}, DiagnosticUnsupportedTLS
+	if !ok {
+		return tlsOptions{}, conversionIssue{DiagnosticUnsupportedTLS, "tls.enabled", "invalid_field"}
+	}
+	if required && !enabled {
+		return tlsOptions{}, conversionIssue{DiagnosticUnsupportedTLS, "tls.enabled", "tls_required"}
 	}
 	serverName, ok := optionalString(tlsValue, "server_name")
 	if !ok || len(serverName) > 2048 {
-		return tlsOptions{}, DiagnosticUnsupportedTLS
+		return tlsOptions{}, conversionIssue{DiagnosticUnsupportedTLS, "tls.server_name", "invalid_field"}
 	}
 	insecure, ok := optionalBool(tlsValue, "insecure")
 	if !ok {
-		return tlsOptions{}, DiagnosticUnsupportedTLS
+		return tlsOptions{}, conversionIssue{DiagnosticUnsupportedTLS, "tls.insecure", "invalid_field"}
 	}
 	alpn, ok := stringList(tlsValue, "alpn", 16)
 	if !ok {
-		return tlsOptions{}, DiagnosticUnsupportedTLS
+		return tlsOptions{}, conversionIssue{DiagnosticUnsupportedTLS, "tls.alpn", "invalid_field"}
 	}
 	return tlsOptions{
-		present:    true,
-		enabled:    enabled,
-		serverName: serverName,
-		insecure:   insecure,
-		alpn:       alpn,
-	}, ""
+		present: true, enabled: enabled, serverName: serverName, insecure: insecure, alpn: alpn,
+	}, conversionIssue{}
 }
 
 func stringList(value map[string]any, key string, maximum int) ([]string, bool) {

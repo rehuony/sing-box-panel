@@ -13,12 +13,15 @@ import { toast } from '@/components/ui/toast-manager';
 import { ListPagination } from '@/components/list-pagination';
 
 import { SubscriptionNodeCardContent } from './subscription-node-card';
+import { SubscriptionContentState } from './subscription-content-state';
 import { SubscriptionNodeSortContext } from './subscription-node-sort-context';
 import { filterSourceNodes, orderSourceNodes, readSourceNodeOrder, reorderVisibleNodes, saveSourceNodeOrder } from './subscription-node-order';
 
 interface NodeGridProps {
   busy?: boolean;
   search: string;
+  error?: boolean;
+  loading?: boolean;
   sourceID?: string;
   readOnly?: boolean;
   selected?: Set<string>;
@@ -118,6 +121,8 @@ const SourceNodeCard = memo(({ node, busy, readOnly, selected, onSelect, onOpen,
 });
 
 export function SubscriptionNodeGrid({
+  loading = false,
+  error = false,
   sourceID,
   nodes,
   search,
@@ -161,10 +166,10 @@ export function SubscriptionNodeGrid({
   }
   return (
     <div className='subscription-node-list'>
-      <div className='subscription-node-list__scroll'>
+      <div className='subscription-node-list__scroll subscription-state-region' aria-busy={loading}>
         {filtered.length === 0
           ? (
-              <p className='subscription-empty'>{t('subscriptions.nodes.empty')}</p>
+              loading ? <SubscriptionContentState loading /> : !error && <SubscriptionContentState kind={search ? 'search' : 'nodes'} title={t(search ? 'channels.noMatchingNodes' : 'subscriptions.nodes.empty')} />
             )
           : (
               <SubscriptionNodeSortContext

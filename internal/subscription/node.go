@@ -64,8 +64,7 @@ func PublicationDocument(nodes []Node) ([]byte, error) {
 	if len(nodes) > MaximumNodes {
 		return nil, invalid("too_many_publishable_nodes")
 	}
-	ordered := append([]Node(nil), nodes...)
-	sort.SliceStable(ordered, func(left, right int) bool { return ordered[left].Key < ordered[right].Key })
+	ordered := orderedPublicationNodes(nodes)
 	seenKeys := make(map[string]struct{}, len(ordered))
 	outbounds := make([]any, 0, len(ordered))
 	for _, value := range ordered {
@@ -100,6 +99,12 @@ func PublicationDocument(nodes []Node) ([]byte, error) {
 		return nil, invalid("document_too_large")
 	}
 	return append(bytes.Clone(encoded), '\n'), nil
+}
+
+func orderedPublicationNodes(nodes []Node) []Node {
+	ordered := append([]Node(nil), nodes...)
+	sort.SliceStable(ordered, func(left, right int) bool { return ordered[left].Key < ordered[right].Key })
+	return ordered
 }
 
 func DecodeNodes(raw []byte) ([]Node, error) {

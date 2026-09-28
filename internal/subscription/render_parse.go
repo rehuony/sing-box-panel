@@ -9,6 +9,7 @@ import (
 type outbound struct {
 	collection Collection
 	index      int
+	nodeID     string
 	tag        string
 	typeID     string
 	value      map[string]any

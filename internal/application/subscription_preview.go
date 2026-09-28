@@ -5,9 +5,10 @@ package application
 import (
 	"context"
 	"encoding/json"
-	"github.com/rehuony/sing-box-panel/internal/store"
+	"fmt"
 	"strings"
 
+	"github.com/rehuony/sing-box-panel/internal/store"
 	"github.com/rehuony/sing-box-panel/internal/subscription"
 )
 
@@ -47,9 +48,37 @@ func (application *Application) RenderSubscriptionDraft(ctx context.Context, use
 		Channel:           applicationSubscriptionChannel(state.Channel),
 		StartupArtifactID: state.Startup.ID, CanonicalRevisionID: state.Startup.CanonicalRevisionID,
 		ExactCoreVersion: state.Startup.ExactCoreVersion, ArtifactState: state.Startup.State,
-		Result: subscription.RenderResult{
-			Format: subscription.RenderFormat(rendered.Format), MediaType: rendered.MediaType,
-			Content: rendered.Body, NodeCount: rendered.NodeCount, Diagnostics: rendered.Diagnostics,
+		Result: SubscriptionPreviewResult{
+			Format: rendered.Format, MediaType: rendered.MediaType,
+			Content: rendered.Content, NodeCount: rendered.NodeCount, Diagnostics: rendered.PreviewDiagnostics,
 		},
 	}, nil
+}
+
+func inboundPreviewDiagnostics(startupJSON []byte, diagnostics []subscription.ConversionDiagnostic, format subscription.RenderFormat) []subscription.PreviewDiagnostic {
+	result := make([]subscription.PreviewDiagnostic, 0, len(diagnostics))
+	if len(diagnostics) == 0 {
+		return result
+	}
+	root, _ := subscription.DecodeDocumentObject(startupJSON)
+	for _, diagnostic := range diagnostics {
+		issue := subscription.PreviewDiagnostic{
+			RenderDiagnostic: subscription.RenderDiagnostic{
+				Collection: diagnostic.Collection, ItemIndex: diagnostic.ItemIndex, Code: diagnostic.Code, Format: format,
+			},
+			FieldPath: fmt.Sprintf("%s[%d]", diagnostic.Collection, diagnostic.ItemIndex),
+		}
+		values, _ := root[string(diagnostic.Collection)].([]any)
+		if diagnostic.ItemIndex >= 0 && diagnostic.ItemIndex < len(values) {
+			value, _ := values[diagnostic.ItemIndex].(map[string]any)
+			if name, ok := value["tag"].(string); ok && subscription.ValidTag(name) {
+				issue.NodeName = name
+			}
+			if protocol, ok := value["type"].(string); ok && subscription.ValidType(protocol) {
+				issue.NodeType = protocol
+			}
+		}
+		result = append(result, issue)
+	}
+	return result
 }
