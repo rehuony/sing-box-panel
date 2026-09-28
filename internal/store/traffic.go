@@ -108,23 +108,54 @@ func (s *Store) GetTrafficPeriod(ctx context.Context, periodID string) (TrafficP
 	if strings.TrimSpace(periodID) == "" {
 		return TrafficPeriod{}, errors.New("traffic period id is empty")
 	}
-	period, err := getTrafficPeriod(ctx, s.db, periodID)
-	if (err != nil && !errors.Is(err, ErrTrafficPeriodNotFound)) || !strings.HasPrefix(periodID, "traffic_monthly_") {
-		return period, err
+	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		return TrafficPeriod{}, err
 	}
-	parts := strings.Split(strings.TrimPrefix(periodID, "traffic_monthly_"), "_")
-	if len(parts) != 2 {
-		return period, err
+	defer tx.Rollback()
+	period, err := getTrafficPeriod(ctx, tx, periodID)
+	if err != nil && !errors.Is(err, ErrTrafficPeriodNotFound) {
+		return TrafficPeriod{}, err
+	}
+	at := time.Now().UTC()
+	start, end, monthly := monthlyTrafficRange(periodID, at)
+	if monthly {
+		if errors.Is(err, ErrTrafficPeriodNotFound) {
+			var exists bool
+			if queryErr := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM traffic_months
+                WHERE month_start>=? AND month_start<? AND month_start<=?)`,
+				formatTime(start), formatTime(end), formatTime(monthStart(at))).Scan(&exists); queryErr != nil {
+				return TrafficPeriod{}, queryErr
+			}
+			if !exists {
+				return TrafficPeriod{}, err
+			}
+		}
+		period, err = aggregateTrafficPeriod(ctx, tx, start, end, at)
+	}
+	if err != nil {
+		return TrafficPeriod{}, err
+	}
+	return period, tx.Commit()
+}
+
+func monthlyTrafficRange(id string, at time.Time) (time.Time, time.Time, bool) {
+	parts := strings.Split(strings.TrimPrefix(id, "traffic_monthly_"), "_")
+	if !strings.HasPrefix(id, "traffic_monthly_") || len(parts) != 2 {
+		return time.Time{}, time.Time{}, false
 	}
 	start, startErr := time.Parse("200601", parts[0])
 	end, endErr := time.Parse("200601", parts[1])
 	months := (end.Year()-start.Year())*12 + int(end.Month()-start.Month())
-	if startErr != nil || endErr != nil || months < 1 || months > 120 || time.Now().Before(start) {
-		return period, err
+	return start, end, startErr == nil && endErr == nil && months >= 1 && months <= 120 && !at.Before(start)
+}
+
+func refreshMonthlyTrafficPeriod(ctx context.Context, q queryRower, period TrafficPeriod, at time.Time) (TrafficPeriod, error) {
+	start, end, monthly := monthlyTrafficRange(period.ID, at)
+	if !monthly {
+		return period, nil
 	}
-	// Recompute monthly ranges even when an older materialized row exists: a
-	// different configured range may have collected additional monthly deltas.
-	return s.AggregateTrafficPeriod(ctx, start, end, minTime(time.Now().UTC(), end.Add(-time.Nanosecond)))
+	return aggregateTrafficPeriod(ctx, q, start, end, at)
 }
 
 func (s *Store) CurrentTrafficPeriod(ctx context.Context, at time.Time) (TrafficPeriod, error) {
@@ -147,7 +178,7 @@ func (s *Store) CurrentTrafficPeriod(ctx context.Context, at time.Time) (Traffic
 	if err != nil {
 		return TrafficPeriod{}, fmt.Errorf("get current traffic period: %w", err)
 	}
-	return period, nil
+	return s.GetTrafficPeriod(ctx, period.ID)
 }
 
 func (s *Store) ListTrafficPeriods(ctx context.Context, filter TrafficPeriodFilter) ([]TrafficPeriod, error) {
@@ -183,7 +214,12 @@ func (s *Store) ListTrafficPeriodPage(ctx context.Context, filter TrafficPeriodF
 		args = append(args, cursorTime, cursorTime, filter.Cursor.ID)
 	}
 	args = append(args, limit+1)
-	rows, err := s.db.QueryContext(
+	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		return TrafficPeriodPage{}, err
+	}
+	defer tx.Rollback()
+	rows, err := tx.QueryContext(
 		ctx,
 		`SELECT id, activation_bundle_id, period_start, period_end,
                 inbound_bytes, outbound_bytes, counters_json, created_at
@@ -207,13 +243,23 @@ func (s *Store) ListTrafficPeriodPage(ctx context.Context, filter TrafficPeriodF
 	if err := rows.Err(); err != nil {
 		return TrafficPeriodPage{}, fmt.Errorf("iterate traffic periods: %w", err)
 	}
+	if err := rows.Close(); err != nil {
+		return TrafficPeriodPage{}, err
+	}
+	at := time.Now().UTC()
+	for i := range periods {
+		periods[i], err = refreshMonthlyTrafficPeriod(ctx, tx, periods[i], at)
+		if err != nil {
+			return TrafficPeriodPage{}, err
+		}
+	}
 	page := TrafficPeriodPage{Items: periods}
 	if len(periods) > limit {
 		page.Items = periods[:limit]
 		last := page.Items[len(page.Items)-1]
 		page.Next = &TrafficPeriodCursor{PeriodStart: last.PeriodStart, ID: last.ID}
 	}
-	return page, nil
+	return page, tx.Commit()
 }
 
 func validateTrafficPeriodCursor(cursor *TrafficPeriodCursor) error {

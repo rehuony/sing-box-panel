@@ -18,7 +18,7 @@ export function TrendChart({
   const plotRef = useRef<UPlot | null>(null);
   const [focused, setFocused] = useState<{ index: number; left: number; top: number } | null>(null);
   const descriptionId = useId();
-  const { data, from, to, unit, live } = chart;
+  const { data, from, to, unit } = chart;
   const frameRef = useRef<number | null>(null);
   const pendingFocusRef = useRef<typeof focused>(null);
   const updatePlot = useEffectEvent(() => {
@@ -217,9 +217,6 @@ export function TrendChart({
       }}
     >
       <div ref={hostRef} className='trend-chart__plot' />
-      {live
-        ? <small className='trend-chart__live'>{t('dashboard.chart.live')}</small>
-        : null}
       {data.slice(1).every(series => Array.from(series as (number | null | undefined)[]).every(value => value == null)) && <span className='trend-chart__empty'>{t('dashboard.empty.title')}</span>}
       <output ref={tooltipRef} className={bucket ? 'trend-chart__tooltip' : 'sr-only'} id={descriptionId}>
         {bucket && focused

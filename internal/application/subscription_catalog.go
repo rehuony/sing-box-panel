@@ -14,9 +14,10 @@ import (
 )
 
 type subscriptionCatalogEntry struct {
-	Summary  SubscriptionNodeSummary
-	Node     subscription.Node
-	ManualID string
+	Summary      SubscriptionNodeSummary
+	Node         subscription.Node
+	ManualID     string
+	CollectionID string
 }
 
 func (app *Application) SubscriptionNodeCatalog(ctx context.Context) (SubscriptionNodeCatalog, error) {
@@ -89,7 +90,8 @@ func (app *Application) subscriptionCatalog(ctx context.Context) (SubscriptionNo
 	if len(nodes) > subscription.MaximumNodes {
 		return SubscriptionNodeCatalog{}, nil, store.ErrSubscriptionLimitExceeded
 	}
-	result := SubscriptionNodeCatalog{AppliedBundleID: state.AppliedBundleID, Diagnostics: conversion.Diagnostics, Nodes: make([]SubscriptionNodeSummary, 0, len(nodes))}
+	nodes = orderSubscriptionNodes(nodes, state.Sources, state.NodeOrders)
+	result := SubscriptionNodeCatalog{AppliedBundleID: state.AppliedBundleID, Diagnostics: conversion.Diagnostics, Nodes: make([]SubscriptionNodeSummary, 0, len(nodes)), NodeOrders: state.NodeOrders}
 	if result.Diagnostics == nil {
 		result.Diagnostics = []subscription.ConversionDiagnostic{}
 	}
@@ -135,7 +137,7 @@ func (app *Application) subscriptionCatalog(ctx context.Context) (SubscriptionNo
 			summary.Origin = "manual"
 			summary.Revision = manualByKey[node.Key].Revision
 		}
-		entries = append(entries, subscriptionCatalogEntry{Summary: summary, Node: node, ManualID: manualByKey[node.Key].ID})
+		entries = append(entries, subscriptionCatalogEntry{Summary: summary, Node: node, ManualID: manualByKey[node.Key].ID, CollectionID: nodeCollection(node.SourceID, state.Sources)})
 		result.Nodes = append(result.Nodes, summary)
 	}
 	return result, entries, nil

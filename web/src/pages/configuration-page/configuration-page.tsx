@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { useHashTab } from '@/hooks/use-hash-tab';
 import { toast } from '@/components/ui/toast-manager';
 import { useApiClient } from '@/api/api-client-context';
+import { LoadingState } from '@/components/loading-state';
 import { buttonVariants } from '@/components/ui/button-variants';
 import { describeRequestError, ErrorNotice } from '@/components/error-notice';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -115,9 +116,7 @@ export function ConfigurationPage() {
             ? t('configuration.file.nextStart')
             : t('configuration.file.saved');
   const loadingEditor = (
-    <div className='configuration-editor-loading' role='status'>
-      {t('configuration.loading')}
-    </div>
+    <LoadingState className='configuration-editor-loading' label={t('configuration.loading')} fullScreen={false} />
   );
   return (
     <div className='configuration-page panel-page'>

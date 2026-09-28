@@ -48,7 +48,7 @@ func matchSubscriptionRoute(path string) (resource string, identifier string, op
 }
 
 func validSubscriptionResource(value string) bool {
-	return value == "channels" || value == "sources" || value == "tokens" || value == "users" || value == "nodes"
+	return value == "channels" || value == "sources" || value == "tokens" || value == "users" || value == "nodes" || value == "node-orders"
 }
 
 func (handler *Handler) subscriptionManagementHandler(
@@ -58,6 +58,10 @@ func (handler *Handler) subscriptionManagementHandler(
 	operation string,
 ) http.HandlerFunc {
 	switch {
+	case resource == "node-orders" && identifier != "" && operation == "" && method == http.MethodPut:
+		return func(w http.ResponseWriter, request *http.Request) {
+			handler.setSubscriptionNodeOrder(w, request, identifier)
+		}
 	case resource == "nodes" && identifier == "" && operation == "" && method == http.MethodGet:
 		return handler.subscriptionNodeCatalog
 	case resource == "nodes" && identifier == "" && operation == "" && method == http.MethodPost:

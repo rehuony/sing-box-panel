@@ -4,6 +4,7 @@ package subscription
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -20,7 +21,7 @@ func TestChannelLoonRenderingAndMissingExits(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			for _, want := range []string{base, "[Proxy]\n", "Selected = " + kind + ",Tokyo,Hong Kong", "DOMAIN-SUFFIX,example.org,Selected", "IP-CIDR6,2001:db8::/32,DIRECT", "https://gh-proxy.com/https://raw.githubusercontent.com/example/rules/main/proxy.rules,policy=Hong Kong,enabled=true", "FINAL,Selected\n"} {
+			for _, want := range []string{base, "[Proxy]\n", "Selected = " + kind + ",Tokyo,Hong Kong", "DOMAIN-SUFFIX,example.org,Selected", "IP-CIDR6,2001:db8::/32,DIRECT", "https://gh-proxy.com/https://raw.githubusercontent.com/example/rules/main/proxy.rules,policy=Hong Kong,tag=Remote rules,enabled=true", "FINAL,Selected\n"} {
 				if !bytes.Contains(result.Content, []byte(want)) {
 					t.Fatalf("missing %q in %s", want, result.Content)
 				}
@@ -37,7 +38,7 @@ func TestChannelLoonRenderingAndMissingExits(t *testing.T) {
 				t.Fatal("missing first candidate did not reject", string(result.Content))
 			}
 			result, err = RenderPolicyNodes(nil, RenderChannel{Format: RenderFormatLoon}, policy)
-			if err != nil || bytes.Contains(result.Content, []byte("[Proxy Group]")) || !bytes.Contains(result.Content, []byte("FINAL,REJECT\n")) || !bytes.Contains(result.Content, []byte("policy=REJECT,enabled=true")) {
+			if err != nil || bytes.Contains(result.Content, []byte("[Proxy Group]")) || !bytes.Contains(result.Content, []byte("FINAL,REJECT\n")) || !bytes.Contains(result.Content, []byte("policy=REJECT,tag=Remote rules,enabled=true")) {
 				t.Fatal("empty group did not reject", err, string(result.Content))
 			}
 		})
@@ -71,5 +72,34 @@ func TestChannelLoonRejectsConflictsAndInjection(t *testing.T) {
 		if err := ValidateChannelPolicy(p, RenderFormatLoon); err == nil {
 			t.Fatal("incompatible Loon policy accepted")
 		}
+	}
+}
+
+func TestChannelLoonRemoteRuleNames(t *testing.T) {
+	for _, name := range []string{"国内服务", "🚀 Global rules", `规则 "quoted" \\ value`} {
+		t.Run(name, func(t *testing.T) {
+			nodes, policy := policyFixture(t, RenderFormatLoon)
+			rule := &policy.Groups[0].Rules[3]
+			rule.Remote.Name = name
+			result, err := RenderPolicyNodes(nodes, RenderChannel{Format: RenderFormatLoon}, policy)
+			if err != nil {
+				t.Fatal(err)
+			}
+			line := strings.Split(strings.Split(string(result.Content), "[Remote Rule]\n")[1], "\n")[0]
+			tag := strings.TrimSuffix(strings.SplitN(line, ",tag=", 2)[1], ",enabled=true")
+			if strings.HasPrefix(tag, `"`) {
+				if err := json.Unmarshal([]byte(tag), &tag); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if tag != name {
+				t.Fatalf("remote tag %q, want %q", tag, name)
+			}
+			rule.Enabled = false
+			result, err = RenderPolicyNodes(nodes, RenderChannel{Format: RenderFormatLoon}, policy)
+			if err != nil || strings.Contains(string(result.Content), "[Remote Rule]") {
+				t.Fatalf("disabled remote rule emitted: %s, %v", result.Content, err)
+			}
+		})
 	}
 }

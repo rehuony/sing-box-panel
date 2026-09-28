@@ -69,7 +69,7 @@ function DashboardMetrics() {
   const { t, i18n } = useTranslation();
   const snapshot = useOptionalSharedTelemetry(s => s.snapshot);
   const host = snapshot?.host;
-  const traffic = snapshot?.traffic_available ? snapshot.current_traffic_period : undefined;
+  const traffic = snapshot?.current_traffic_period;
   const used = traffic ? traffic.inbound_bytes + traffic.outbound_bytes : undefined;
   const locale = i18n.language;
   const metrics = [
@@ -114,16 +114,7 @@ function DashboardMetrics() {
             <Icon size={18} />
           </div>
           <strong>{value}</strong>
-          <small>
-            {detail}
-            {key === 'transfer' && snapshot?.traffic_coverage === 'partial' && (
-              <>
-                {' '}
-                ·
-                {t('dashboard.metric.incomplete')}
-              </>
-            )}
-          </small>
+          <small>{detail}</small>
         </section>
       ))}
     </div>

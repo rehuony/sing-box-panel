@@ -277,12 +277,12 @@ export function createDemoData(now = new Date()): DemoData {
     code: 'catalog.refreshed', message: 'Core release catalog refreshed.',
     metadata: { asset_count: 3 },
   }];
-  const periodStart = ago(now, 60);
+  const periodStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+  const periodEnd = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1));
   const trafficPeriods: TrafficPeriod[] = [{
-    id: 'traffic_demo_current',
-    activation_bundle_id: 'bundle_demo_current',
-    period_start: periodStart,
-    period_end: now.toISOString(),
+    id: `traffic_monthly_${periodStart.toISOString().slice(0, 7).replace('-', '')}_${periodEnd.toISOString().slice(0, 7).replace('-', '')}`,
+    period_start: periodStart.toISOString(),
+    period_end: periodEnd.toISOString(),
     inbound_bytes: 268_435_456,
     outbound_bytes: 92_274_688,
     counters: { inbound: { mixed: 268_435_456 }, outbound: { direct: 92_274_688 } },
@@ -415,9 +415,44 @@ export function demoDashboardContext(data: DemoData): DashboardContext {
   };
 }
 
-export function demoMetrics(data: DemoData, quotaGiB: number | null, now = new Date()): MetricsSnapshot {
+function aggregateDemoTrafficPeriod(data: DemoData, start: string, end: string, now: Date): TrafficPeriod {
+  const months = data.trafficPeriods.filter(p =>
+    p.period_start >= start && p.period_start < end && p.period_start <= now.toISOString(),
+  );
+  return {
+    id: `traffic_monthly_${start.slice(0, 7).replace('-', '')}_${end.slice(0, 7).replace('-', '')}`,
+    period_start: start, period_end: end,
+    inbound_bytes: months.reduce((sum, p) => sum + p.inbound_bytes, 0),
+    outbound_bytes: months.reduce((sum, p) => sum + p.outbound_bytes, 0),
+    counters: { aggregation: 'monthly' }, created_at: months.map(p => p.created_at).sort()[0] ?? start,
+  };
+}
+
+export function demoTrafficPeriod(data: DemoData, periodID: string, now = new Date()): TrafficPeriod | undefined {
+  const stored = data.trafficPeriods.find(p => p.id === periodID);
+  const range = /^traffic_monthly_(\d{4})(0[1-9]|1[0-2])_(\d{4})(0[1-9]|1[0-2])$/u.exec(periodID);
+  if (!range) return stored;
+  const start = `${range[1]}-${range[2]}-01T00:00:00.000Z`;
+  const end = `${range[3]}-${range[4]}-01T00:00:00.000Z`;
+  const months = (Number(range[3]) - Number(range[1])) * 12 + Number(range[4]) - Number(range[2]);
+  if (months < 1 || months > 120 || start > now.toISOString()) return stored;
+  if (!stored && !data.trafficPeriods.some(p =>
+    p.period_start >= start && p.period_start < end && p.period_start <= now.toISOString(),
+  )) {
+    return undefined;
+  }
+  return aggregateDemoTrafficPeriod(data, start, end, now);
+}
+
+export function demoMetrics(
+  data: DemoData, quotaGiB: number | null, now = new Date(), periodMonths = 1,
+): MetricsSnapshot {
   const running = data.runtime.observation_state === 'running';
-  const period = data.trafficPeriods[0];
+  const month = (now.getUTCFullYear() - 1970) * 12 + now.getUTCMonth();
+  const startMonth = month - ((month % periodMonths) + periodMonths) % periodMonths;
+  const start = new Date(Date.UTC(1970, startMonth, 1)).toISOString();
+  const end = new Date(Date.UTC(1970, startMonth + periodMonths, 1)).toISOString();
+  const period = aggregateDemoTrafficPeriod(data, start, end, now);
   const quotaBytes = quotaGiB !== null && quotaGiB > 0 ? quotaGiB * 2 ** 30 : undefined;
   return {
     host: {
@@ -457,9 +492,8 @@ export function demoMetrics(data: DemoData, quotaGiB: number | null, now = new D
           download_total: Math.floor(now.getTime() / 1000) * 48621, accepted: true,
         }
       : undefined,
-    traffic_available: running,
     quota_bytes: quotaBytes,
-    quota_exceeded: running && period !== undefined && quotaBytes !== undefined
+    quota_exceeded: quotaBytes !== undefined
       && period.inbound_bytes + period.outbound_bytes >= quotaBytes,
   };
 }
@@ -494,6 +528,7 @@ export function demoNodeCatalog(data: DemoData): SubscriptionNodeCatalog {
   return {
     applied_bundle_id: data.runtime.applied_bundle_id ?? '',
     nodes: demoSourceNodeDetails(data).map(nodeSummary),
+    node_orders: {},
     diagnostics: [],
   };
 }

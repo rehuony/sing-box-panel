@@ -61,6 +61,7 @@ import type {
   SubscriptionListFilter,
   SubscriptionNodeCatalog,
   SubscriptionNodeDetail,
+  SubscriptionNodeOrder,
   SubscriptionNodeSummary,
   SubscriptionPreview,
   SubscriptionSource,
@@ -305,6 +306,12 @@ export interface ApiClient {
     revision: number,
     signal?: AbortSignal,
   ) => Promise<SubscriptionNodeSummary>;
+  setSubscriptionNodeOrder: (
+    collectionID: string,
+    ids: string[],
+    revision: number,
+    signal?: AbortSignal,
+  ) => Promise<SubscriptionNodeOrder>;
   updateSubscriptionUser: (
     userID: string,
     input: SubscriptionUserWrite,

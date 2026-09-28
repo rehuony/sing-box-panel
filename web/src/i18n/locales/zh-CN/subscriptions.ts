@@ -1,6 +1,5 @@
 export const subscriptions = {
   states: {
-    loading: '正在准备内容，请稍候。',
     sources: '添加订阅来源，导入并管理其中的节点。',
     nodes: '可从订阅来源导入节点，或添加手动节点。',
     candidates: '添加节点或策略组，作为本组的候选出口。',
@@ -15,7 +14,7 @@ export const subscriptions = {
   nodes: {
     sortableCard: '可排序节点卡片',
     dragInstructions: '按 F2 开始排序，方向键移动，再按 F2 完成，Escape 取消。',
-    orderSaveFailed: '无法在当前浏览器保存节点顺序。',
+    orderSaveFailed: '节点顺序保存失败，已恢复为已确认的顺序。',
     detour: '前置节点',
     tlsRequired: '该协议必须启用 TLS。',
     endpointMode: '连接方式',
@@ -93,7 +92,6 @@ export const subscriptions = {
     updated: '密钥已更新',
     empty: '暂无密钥',
     cancel: '取消',
-    done: '完成',
     scope: '访问范围',
   },
   channel: {

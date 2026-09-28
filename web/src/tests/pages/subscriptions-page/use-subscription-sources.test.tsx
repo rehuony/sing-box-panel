@@ -8,6 +8,7 @@ import type { ApiClient } from '@/api/api-client';
 import '@/i18n';
 import { deferred } from '@/tests/deferred';
 import { TestRouter } from '@/tests/test-router';
+import { ApiRequestError } from '@/api/api-client';
 import { toast } from '@/components/ui/toast-manager';
 import { ApiClientProvider } from '@/api/api-client-context';
 import { createMockApiClient, testSubscriptionSources } from '@/tests/api/mock-api-client';
@@ -25,6 +26,43 @@ async function mount(overrides: Partial<ApiClient> = {}) {
 }
 
 describe('subscription sources', () => {
+  it('does not restore cached order or refetch after the API session ends', async () => {
+    const pending = deferred<Awaited<ReturnType<ApiClient['setSubscriptionNodeOrder']>>>();
+    const { result, client, unmount } = await mount({ setSubscriptionNodeOrder: vi.fn(() => pending.promise) });
+    await waitFor(() => expect(result.current.nodeLoading).toBe(false));
+    let saved!: Promise<void>;
+    act(() => {
+      saved = result.current.reorderNodes('manual', []);
+    });
+    const rejected = expect(saved).rejects.toMatchObject({ name: 'AbortError' });
+    await waitFor(() => expect(client.setSubscriptionNodeOrder).toHaveBeenCalledOnce());
+    unmount();
+    pending.resolve({ ids: [], revision: 1 });
+    await rejected;
+    expect(client.getSubscriptionNodeCatalog).toHaveBeenCalledOnce();
+  });
+
+  it.each([false, true])('saves the current order revision and refetches after a conflict: %s', async conflict => {
+    const getCatalog = vi.fn<ApiClient['getSubscriptionNodeCatalog']>().mockResolvedValue({
+      applied_bundle_id: '', nodes: [], diagnostics: [], node_orders: { manual: { ids: [], revision: 3 } },
+    });
+    const saveOrder = vi.fn<ApiClient['setSubscriptionNodeOrder']>();
+    if (conflict) saveOrder.mockRejectedValue(new ApiRequestError('Changed', { status: 412, code: 'subscription_version_conflict' }));
+    else saveOrder.mockResolvedValue({ ids: [], revision: 4 });
+    const { result } = await mount({ getSubscriptionNodeCatalog: getCatalog, setSubscriptionNodeOrder: saveOrder });
+    await waitFor(() => expect(result.current.nodeLoading).toBe(false));
+    getCatalog.mockResolvedValue({ applied_bundle_id: '', nodes: [], diagnostics: [], node_orders: { manual: { ids: [], revision: 4 } } });
+    await act(async () => {
+      const saved = result.current.reorderNodes('manual', []);
+      if (conflict) await expect(saved).rejects.toMatchObject({ status: 412 });
+      else await saved;
+    });
+    expect(saveOrder).toHaveBeenCalledWith('manual', [], 3);
+    expect(getCatalog).toHaveBeenCalledTimes(2);
+    saveOrder.mockResolvedValue({ ids: [], revision: 5 });
+    await act(() => result.current.reorderNodes('manual', []));
+    expect(saveOrder).toHaveBeenLastCalledWith('manual', [], 4);
+  });
   it('loads nodes concurrently and reuses an in-flight source read on refresh', async () => {
     const pending = deferred<Awaited<ReturnType<ApiClient['listSubscriptionSources']>>>();
     const { result, client } = await mount({

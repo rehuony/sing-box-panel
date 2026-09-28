@@ -1,7 +1,6 @@
 export const dashboard = {
   metric: {
     usageUnknown: '用量未知',
-    incomplete: '数据不完整',
     cpu: '主机 CPU',
     cpuDetail: '{{count}} 核 · 1 分钟负载 {{load}}',
     memory: '主机内存',
@@ -24,7 +23,6 @@ export const dashboard = {
     placeholder: '全部运行包',
   },
   chart: {
-    live: '实时 · 最近 120 秒',
     arrows: '使用左右方向键查看采样。',
     interactionHint: 'Ctrl + 滚动缩放 · Shift + 滚动平移 · +/− 缩放 · Shift + ←/→ 平移',
     keyboardLabel:

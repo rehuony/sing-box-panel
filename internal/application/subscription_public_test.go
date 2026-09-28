@@ -40,14 +40,14 @@ func TestPublicSubscriptionTrafficUsesLiveSettingsAndCurrentUTCPeriod(t *testing
 	configuration.DataDir = t.TempDir()
 	configuration.Auth.Token = strings.Repeat("t", 32)
 
-	// Seed durable, incomplete month totals without live samples. The subscription
+	// Seed durable month totals without live samples. The subscription
 	// must still report these after collection stops or raw samples expire.
 	recordMonth := func(month string, upload, download int64) {
 		t.Helper()
 		err := db.WithTx(ctx, func(tx *sql.Tx) error {
 			_, err := tx.ExecContext(ctx, `INSERT INTO traffic_months
-				(month_start,inbound_bytes,outbound_bytes,has_delta,complete,first_observed_at,last_sample_at)
-				VALUES(?,?,?,1,0,?,?)`, month, download, upload, month, month)
+				(month_start,inbound_bytes,outbound_bytes,first_observed_at,last_sample_at)
+				VALUES(?,?,?,?,?)`, month, download, upload, month, month)
 			return err
 		})
 		if err != nil {

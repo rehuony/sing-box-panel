@@ -4,6 +4,7 @@ package httpapi
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 
 	"github.com/rehuony/sing-box-panel/internal/application"
@@ -99,6 +100,34 @@ func (handler *Handler) setSubscriptionNodeVisibility(w http.ResponseWriter, req
 	value, err := handler.commands.SetSubscriptionNodeVisibility(request.Context(), id, *input.Hidden, *input.Revision)
 	if err != nil {
 		writeSubscriptionProblem(w, request, "subscription_node_visibility_failed", err)
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	writeJSON(w, http.StatusOK, value)
+}
+
+func (handler *Handler) setSubscriptionNodeOrder(w http.ResponseWriter, request *http.Request, collectionID string) {
+	if !handler.subscriptionMutationRequest(w, request) {
+		return
+	}
+	var input struct {
+		IDs      []string `json:"ids"`
+		Revision *int64   `json:"revision"`
+	}
+	if !decodeStrictRequest(w, request, 1<<20, &input) {
+		return
+	}
+	if input.IDs == nil || input.Revision == nil {
+		writeSubscriptionInvalid(w, request)
+		return
+	}
+	value, err := handler.commands.SetSubscriptionNodeOrder(request.Context(), collectionID, input.IDs, *input.Revision)
+	if errors.Is(err, store.ErrSubscriptionConflict) {
+		writeProblem(w, request, http.StatusPreconditionFailed, "subscription_version_conflict", "Subscription version conflict", "The node order changed; reload the node catalog and retry with node_orders[collectionId].revision.")
+		return
+	}
+	if err != nil {
+		writeSubscriptionProblem(w, request, "subscription_node_order_failed", err)
 		return
 	}
 	w.Header().Set("Cache-Control", "no-store")

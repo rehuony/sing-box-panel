@@ -7,11 +7,11 @@ import type { CoreArtifact } from '@/api/api-client';
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Spinner } from '@/components/ui/spinner';
 import { useHashTab } from '@/hooks/use-hash-tab';
 import { ApiRequestError } from '@/api/api-client';
 import { toast } from '@/components/ui/toast-manager';
 import { useApiClient } from '@/api/api-client-context';
+import { LoadingState } from '@/components/loading-state';
 import { ListPagination } from '@/components/list-pagination';
 import { useControlPlane } from '@/stores/control-plane.store';
 import { WorkspaceToolbar } from '@/components/workspace-toolbar';
@@ -318,18 +318,9 @@ export function CoresPage() {
             </tbody>
           </table>
           {!count
-            ? (
-                <div className='core-list-state' role='status' aria-live='polite'>
-                  {listLoading
-                    ? (
-                        <>
-                          <Spinner />
-                          <span>{t(tab === 'installed' ? 'cores.loadingInstalled' : 'cores.loadingCatalog')}</span>
-                        </>
-                      )
-                    : <span>{t(`cores.empty.${tab}`)}</span>}
-                </div>
-              )
+            ? listLoading
+              ? <LoadingState label={t(tab === 'installed' ? 'cores.loadingInstalled' : 'cores.loadingCatalog')} fullScreen={false} />
+              : <div className='core-list-state' role='status'>{t(`cores.empty.${tab}`)}</div>
             : null}
         </TabsContent>
         <ListPagination

@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button';
 import { useApiClient } from '@/api/api-client-context';
 import { ErrorNotice } from '@/components/error-notice';
 import { SelectField } from '@/components/select-field';
+import { LoadingState } from '@/components/loading-state';
 import { usePageVisible } from '@/hooks/use-page-visible';
 import { ListPagination } from '@/components/list-pagination';
 import { ToolbarActions } from '@/components/workspace-toolbar';
@@ -109,9 +110,9 @@ export function PanelLogsPanel({ active = true, toolbarTarget }: {
             })}
           </tbody>
         </table>
-        {!result.items.length && (
-          <Empty role='status'><EmptyHeader><EmptyTitle>{t(loading ? 'productLogs.loading' : 'productLogs.empty')}</EmptyTitle></EmptyHeader></Empty>
-        )}
+        {!result.items.length && (loading
+          ? <LoadingState label={t('productLogs.loading')} fullScreen={false} />
+          : <Empty role='status'><EmptyHeader><EmptyTitle>{t('productLogs.empty')}</EmptyTitle></EmptyHeader></Empty>)}
       </div>
       <PanelLogDetails
         item={selected}

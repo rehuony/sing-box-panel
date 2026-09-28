@@ -8,8 +8,8 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Slider } from '@/components/ui/slider';
 import { Switch } from '@/components/ui/switch';
-import { Skeleton } from '@/components/ui/skeleton';
 import { ErrorNotice } from '@/components/error-notice';
+import { LoadingState } from '@/components/loading-state';
 import { ServerPathInput } from '@/components/server-path-input';
 import { usePanelSettings } from '@/stores/panel-settings.store';
 import { DEFAULT_APPEARANCE, THEME_PRESETS } from '@/theme/appearance';
@@ -276,7 +276,7 @@ export function PanelSettingsPage() {
               <Button onClick={reload}>{t('panelSettings.retry')}</Button>
             </>
           )
-        : view ? <SettingsEditor initial={view} /> : <Skeleton className='panel-settings-card' />}
+        : view ? <SettingsEditor initial={view} /> : <LoadingState label={t('common.loading')} fullScreen={false} />}
     </section>
   );
 }

@@ -77,7 +77,7 @@ func TestObservabilityHTTPReadsOnlyPersistedEvidence(t *testing.T) {
 	if err := json.Unmarshal(metrics.Body.Bytes(), &snapshot); err != nil {
 		t.Fatal(err)
 	}
-	if snapshot.Available || snapshot.ReasonCode != "not_applied" || snapshot.CurrentTrafficData != nil {
+	if snapshot.Available || snapshot.ReasonCode != "not_applied" || snapshot.CurrentTrafficData.InboundBytes != 0 || snapshot.CurrentTrafficData.OutboundBytes != 0 {
 		t.Fatalf("metrics fabricated values: %+v", snapshot)
 	}
 	trafficStatus := authenticatedRequest(handler, http.MethodGet, "/api/v1/traffic/status", "", "")

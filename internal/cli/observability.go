@@ -81,22 +81,15 @@ func newMetricsWatchCommand(state *options, open openApplicationFunc) *cobra.Com
 }
 
 func metricsText(result application.MetricsSnapshot) string {
-	if !result.Available || result.CurrentTrafficData == nil {
-		return fmt.Sprintf(
-			"unavailable\treason=%s\tbundle=%s\ttier=%s\tcollected=%s",
-			emptyAsDash(result.ReasonCode), emptyAsDash(result.AppliedBundleID),
-			emptyAsDash(string(result.MonitoringTier)), result.CollectedAt.Format(time.RFC3339Nano),
-		)
+	state := "available"
+	if !result.Available {
+		state = "unavailable"
 	}
 	period := result.CurrentTrafficData
-	if !result.TrafficAvailable {
-		return fmt.Sprintf("available\tperiod=%s..%s\ttraffic=unavailable\tcollected=%s",
-			period.PeriodStart.UTC().Format(time.RFC3339), period.PeriodEnd.UTC().Format(time.RFC3339),
-			result.CollectedAt.Format(time.RFC3339Nano))
-	}
 	return fmt.Sprintf(
-		"available\tperiod=%s..%s\tin=%d\tout=%d\tcollected=%s",
-		period.PeriodStart.UTC().Format(time.RFC3339), period.PeriodEnd.UTC().Format(time.RFC3339), period.InboundBytes, period.OutboundBytes,
+		"%s\treason=%s\tperiod=%s..%s\tin=%d\tout=%d\tcollected=%s",
+		state, emptyAsDash(result.ReasonCode), period.PeriodStart.UTC().Format(time.RFC3339),
+		period.PeriodEnd.UTC().Format(time.RFC3339), period.InboundBytes, period.OutboundBytes,
 		result.CollectedAt.Format(time.RFC3339Nano),
 	)
 }

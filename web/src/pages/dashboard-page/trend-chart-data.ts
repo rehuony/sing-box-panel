@@ -4,7 +4,6 @@ import type { MetricsHistory } from '@/api/api-client';
 import type { LivePoint } from '@/components/app-shell/use-telemetry';
 
 export interface TrendChartData {
-  live: boolean;
   unit: string | null;
   to: number | undefined;
   data: UPlot.AlignedData;
@@ -74,8 +73,5 @@ export function trendChartData(history: MetricsHistory | null, kind: 'traffic' |
     unit,
     from: from ?? times[0],
     to: history ? Math.max(Date.parse(history.to), times.at(-1) ?? 0) : times.at(-1),
-    live: live.some(point => kind === 'connections'
-      ? point.connections !== null
-      : point.downloadBytesPerSecond !== null || point.uploadBytesPerSecond !== null),
   };
 }

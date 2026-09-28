@@ -83,7 +83,7 @@ export function ChannelPreview({ preview, error, onClose }: Props) {
         </div>
         <DialogFooter>
           <Button variant='outline' onClick={onClose}>
-            {t('common.close')}
+            {t('common.cancel')}
           </Button>
           <Button disabled={!preview?.result.content} onClick={() => void copy()}>
             {t('channels.copy')}

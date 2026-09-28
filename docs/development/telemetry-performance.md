@@ -80,7 +80,7 @@ with saved order. The narrow source page had equal viewport and scroll widths
 no warnings or errors during this check. This fixture has **no runtime executor**;
 its empty metrics are not evidence of live Linux collection latency.
 
-A separate production demo build verified the 1-hour/24-hour charts, the labelled
+A separate production demo build verified the 1-hour/24-hour charts, the
 live tail, and keyboard cursor tooltips in a real browser, with no console
 warnings or errors. Those values are synthetic demo data, not a measurement of
 the runtime collector.

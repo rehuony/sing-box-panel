@@ -234,6 +234,7 @@ func prepareChannelNodes(nodes []Node, channel RenderChannel, p *ChannelPolicy) 
 			}
 		}
 	}
+	orderChannelOutbounds(values, channel.NodeOrder)
 	return values, names, nil
 }
 
@@ -396,7 +397,7 @@ func (b *channelRuleBuilder) addRule(rule ChannelRule, group *RuleGroup) {
 	if kind == "remote" {
 		remote := rule.Remote
 		if b.format == RenderFormatLoon {
-			b.loonRemote = append(b.loonRemote, EffectiveRuleURL(remote.URL, remote.Accelerated)+",policy="+target+",enabled=true")
+			b.loonRemote = append(b.loonRemote, EffectiveRuleURL(remote.URL, remote.Accelerated)+",policy="+target+",tag="+loonOptionValue(remote.Name)+",enabled=true")
 			return
 		}
 		name := remote.Name

@@ -62,6 +62,7 @@ export function SubscriptionSourcePanel({ active = true, toolbarTarget }: {
     refresh,
     saveSource,
     toggle,
+    reorderNodes,
     displayedSources,
     inManualCollection,
     current,
@@ -239,7 +240,7 @@ export function SubscriptionSourcePanel({ active = true, toolbarTarget }: {
                   <TabsContent value='nodes' className='subscription-node-list'>
                     <SubscriptionNodeGrid
                       key={selected}
-                      sourceID={selected}
+                      onReorder={(ids) => reorderNodes(selected, ids)}
                       loading={nodeLoading}
                       error={Boolean(error)}
                       busy={busy}

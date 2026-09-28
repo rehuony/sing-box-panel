@@ -1,13 +1,17 @@
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 
 import '@/i18n';
-import type { SubscriptionNodeSummary } from '@/api/api-client';
+import type { ApiClient, SubscriptionNodeCatalog, SubscriptionNodeSummary } from '@/api/api-client';
 
+import { deferred } from '@/tests/deferred';
+import { TestRouter } from '@/tests/test-router';
 import { toast } from '@/components/ui/toast-manager';
+import { ApiClientProvider } from '@/api/api-client-context';
+import { createMockApiClient } from '@/tests/api/mock-api-client';
+import { SubscriptionsPage } from '@/pages/subscriptions-page/subscriptions-page';
 import { SubscriptionNodeGrid } from '@/pages/subscriptions-page/subscription-node-grid';
-import { readSourceNodeOrder } from '@/pages/subscriptions-page/subscription-node-order';
 
 function node(id: string, name = id): SubscriptionNodeSummary {
   return {
@@ -47,29 +51,70 @@ async function moveRight(name: string, count: number) {
 }
 
 describe('source node sorting', () => {
-  it('persists per source, survives catalog polling/remounts, and appends new nodes', async () => {
-    const onOpen = vi.fn();
-    const props = { sourceID: 'source', nodes: [node('A'), node('B')], search: '', onOpen };
+  it.each([false, true])('finishes a drag save across tab navigation and reports failures: %s', async fails => {
+    const user = userEvent.setup();
+    const notice = vi.spyOn(toast, 'add');
+    const nodes = ['A', 'B'].map(id => ({ ...node(id), source_id: 'manual', origin: 'manual' as const }));
+    let catalog: SubscriptionNodeCatalog = { nodes, node_orders: {}, diagnostics: [], applied_bundle_id: '' };
+    const pending = deferred<Awaited<ReturnType<ApiClient['setSubscriptionNodeOrder']>>>();
+    const client = createMockApiClient({
+      getSubscriptionNodeCatalog: vi.fn(async () => structuredClone(catalog)),
+      setSubscriptionNodeOrder: vi.fn(() => pending.promise),
+    });
+    render(<TestRouter><ApiClientProvider client={client}><SubscriptionsPage /></ApiClientProvider></TestRouter>);
+    const editManual = () => within(screen.getByRole('row', { name: /Manual nodes/ })).getByRole('button', { name: 'Edit' });
+    await screen.findByRole('row', { name: /Manual nodes/ });
+    await user.click(editManual());
+    await screen.findByRole('article', { name: 'A' });
+    await moveRight('A', 2);
+    expect(client.setSubscriptionNodeOrder).toHaveBeenCalledExactlyOnceWith('manual', ['B', 'A'], 0);
+    await user.click(screen.getByRole('tab', { name: 'Channels' }));
+    await user.click(screen.getByRole('tab', { name: 'Sources' }));
+    expect(editManual()).toBeDisabled();
+    await act(async () => {
+      if (fails) {
+        pending.reject(new Error('offline'));
+      } else {
+        const saved = { ids: ['B', 'A'], revision: 1 };
+        catalog = { ...catalog, nodes: [...nodes].reverse(), node_orders: { manual: saved } };
+        pending.resolve(saved);
+      }
+    });
+    await waitFor(() => expect(editManual()).toBeEnabled());
+    await user.click(editManual());
+    expect(order()).toEqual(fails ? ['A', 'B'] : ['B', 'A']);
+    if (fails) {
+      expect(notice).toHaveBeenCalledWith({ type: 'error', title: 'The node order could not be saved. The last confirmed order has been restored.' });
+    }
+  });
+
+  it('previews a save, disables further dragging, and uses server order instead of browser storage', async () => {
+    window.localStorage.setItem('sing-box-panel.source-node-order.source', '["B","A"]');
+    const pending = deferred<void>();
+    const onReorder = vi.fn().mockReturnValue(pending.promise);
+    const props = { nodes: [node('A'), node('B')], search: '', onOpen: vi.fn(), onReorder };
     const view = render(<SubscriptionNodeGrid {...props} />);
+    expect(order()).toEqual(['A', 'B']);
     await moveRight('A', 2);
     expect(order()).toEqual(['B', 'A']);
-    expect(readSourceNodeOrder('source')).toEqual(['B', 'A']);
-    expect(readSourceNodeOrder('manual')).toEqual([]);
-    expect(onOpen).not.toHaveBeenCalled();
-    view.rerender(<SubscriptionNodeGrid {...props} nodes={[node('A'), node('B'), node('C')]} />);
+    expect(onReorder).toHaveBeenCalledExactlyOnceWith(['B', 'A']);
+    expect(screen.getByRole('article', { name: 'B' })).toHaveAttribute('tabindex', '-1');
+    fireEvent.keyDown(screen.getByRole('article', { name: 'B' }), { key: 'F2', code: 'F2' });
+    expect(onReorder).toHaveBeenCalledOnce();
+    view.rerender(<SubscriptionNodeGrid {...props} nodes={[node('B'), node('A'), node('C')]} />);
+    await act(() => pending.resolve());
     expect(order()).toEqual(['B', 'A', 'C']);
+    expect(screen.getByRole('article', { name: 'B' })).toHaveAttribute('tabindex', '0');
     view.unmount();
-    const restored = render(<SubscriptionNodeGrid {...props} nodes={[node('A'), node('C')]} />);
-    expect(order()).toEqual(['A', 'C']);
-    restored.unmount();
-    render(<SubscriptionNodeGrid {...props} />);
-    expect(order()).toEqual(['B', 'A']);
+    render(<SubscriptionNodeGrid {...props} nodes={[node('B'), node('A'), node('C')]} />);
+    expect(order()).toEqual(['B', 'A', 'C']);
   });
 
   it('only changes the current page and cancels keyboard drags without saving', async () => {
     const user = userEvent.setup();
     const nodes = Array.from({ length: 12 }, (_, index) => node(String(index + 1)));
-    render(<SubscriptionNodeGrid sourceID='source' nodes={nodes} search='' onOpen={vi.fn()} />);
+    const onReorder = vi.fn().mockResolvedValue(undefined);
+    render(<SubscriptionNodeGrid nodes={nodes} search='' onOpen={vi.fn()} onReorder={onReorder} />);
     await user.click(screen.getByRole('button', { name: 'Next page' }));
     expect(order()).toEqual(['11', '12']);
     const card = screen.getByRole('article', { name: '11' });
@@ -77,9 +122,9 @@ describe('source node sorting', () => {
     fireEvent.keyDown(card, { key: 'F2', code: 'F2' });
     await waitFor(() => expect(card).toHaveAttribute('data-dragging', 'true'));
     await user.keyboard('[Escape]');
-    expect(readSourceNodeOrder('source')).toEqual([]);
+    expect(onReorder).not.toHaveBeenCalled();
     await moveRight('11', 2);
-    expect(readSourceNodeOrder('source')).toEqual([...nodes.slice(0, 10).map((item) => item.id), '12', '11']);
+    expect(onReorder).toHaveBeenCalledExactlyOnceWith([...nodes.slice(0, 10).map((item) => item.id), '12', '11']);
     await user.click(screen.getByRole('button', { name: 'Previous page' }));
     expect(order()).toEqual(nodes.slice(0, 10).map((item) => item.id));
   });
@@ -105,16 +150,12 @@ describe('source node sorting', () => {
     expect(within(screen.getByRole('article', { name: 'B' })).getAllByRole('button')).toHaveLength(2);
   });
 
-  it('ignores invalid stored order and shows a toast if the new order cannot be persisted', async () => {
-    window.localStorage.setItem('sing-box-panel.source-node-order.source', '{invalid');
-    expect(readSourceNodeOrder('source')).toEqual([]);
+  it('restores confirmed order and reports a failed save', async () => {
     const notice = vi.spyOn(toast, 'add');
-    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
-      throw new Error('quota');
-    });
-    render(<SubscriptionNodeGrid sourceID='source' nodes={[node('A'), node('B')]} search='' onOpen={vi.fn()} />);
+    const onReorder = vi.fn().mockRejectedValue(new Error('offline'));
+    render(<SubscriptionNodeGrid nodes={[node('A'), node('B')]} search='' onOpen={vi.fn()} onReorder={onReorder} />);
     await moveRight('A', 2);
-    expect(order()).toEqual(['B', 'A']);
-    expect(notice).toHaveBeenCalledWith({ type: 'error', title: 'The order could not be saved in this browser.' });
+    await waitFor(() => expect(order()).toEqual(['A', 'B']));
+    expect(notice).toHaveBeenCalledWith({ type: 'error', title: 'The node order could not be saved. The last confirmed order has been restored.' });
   });
 });

@@ -198,23 +198,6 @@ CREATE TABLE traffic_samples (
     CHECK (coverage <> 'complete' OR interval_start IS NOT NULL)
 ) STRICT;
 
-CREATE TABLE traffic_checkpoint (
-    singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
-    period_start TEXT NOT NULL CHECK (period_start <> ''),
-    period_end TEXT NOT NULL CHECK (period_end <> ''),
-    pid INTEGER NOT NULL CHECK (pid > 0),
-    process_start_token TEXT NOT NULL CHECK (process_start_token <> ''),
-    activation_bundle_id TEXT NOT NULL
-        REFERENCES activation_bundles(id) ON DELETE RESTRICT,
-    last_upload_total INTEGER NOT NULL CHECK (last_upload_total >= 0),
-    last_download_total INTEGER NOT NULL CHECK (last_download_total >= 0),
-    accumulated_upload INTEGER NOT NULL CHECK (accumulated_upload >= 0),
-    accumulated_download INTEGER NOT NULL CHECK (accumulated_download >= 0),
-    has_delta INTEGER NOT NULL DEFAULT 0 CHECK (has_delta IN (0, 1)),
-    sampled_at TEXT NOT NULL CHECK (sampled_at <> ''),
-    CHECK (period_end > period_start)
-) STRICT;
-
 CREATE TABLE runtime_transitions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     dedupe_key TEXT NOT NULL UNIQUE

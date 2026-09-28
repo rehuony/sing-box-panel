@@ -124,7 +124,7 @@ it('creates a key without a user, with an independent shared quota, then clears 
   expect(within(issued).queryByLabelText('Delivery channel')).not.toBeInTheDocument();
   expect(within(issued).queryByRole('button', { name: 'Copy subscription URL' })).not.toBeInTheDocument();
   expect(client.listSubscriptionChannels).not.toHaveBeenCalled();
-  await user.click(within(issued).getByRole('button', { name: 'Done' }));
+  await user.click(within(issued).getByRole('button', { name: 'Cancel' }));
   await waitFor(() => expect(screen.queryByText('one-time-public-token')).not.toBeInTheDocument());
 });
 
@@ -195,7 +195,7 @@ it.each([true, false])('rotates an enabled=%s key after confirmation and shows t
   const issued = await screen.findByRole('dialog', { name: 'Key details' });
   const { token } = await vi.mocked(client.rotateSubscriptionToken).mock.results[0].value;
   expect(within(issued).getByText(token)).toBeVisible();
-  await user.click(within(issued).getByRole('button', { name: 'Done' }));
+  await user.click(within(issued).getByRole('button', { name: 'Cancel' }));
   await waitFor(() => expect(screen.queryByText(token)).not.toBeInTheDocument());
 });
 
@@ -243,7 +243,7 @@ it('does not report a stale copy after the one-time secret is closed', async () 
   await user.click(within(form).getByRole('button', { name: 'Create key' }));
   const issued = await screen.findByRole('dialog', { name: 'Key details' });
   await user.click(within(issued).getByRole('button', { name: 'Copy token' }));
-  await user.click(within(issued).getByRole('button', { name: 'Done' }));
+  await user.click(within(issued).getByRole('button', { name: 'Cancel' }));
   await act(async () => resolve());
   expect(feedback).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'success' }));
 });
@@ -259,6 +259,6 @@ it('reveals stored key contents only on request and clears them when closed', as
   const dialog = await screen.findByRole('dialog', { name: 'Key details' });
   expect(client.getSubscriptionTokenSecret).toHaveBeenCalledWith(testSubscriptionTokens[0].id);
   expect(within(dialog).getByText('sample-subscription-token')).toBeVisible();
-  await user.click(within(dialog).getByRole('button', { name: 'Done' }));
+  await user.click(within(dialog).getByRole('button', { name: 'Cancel' }));
   expect(screen.queryByText('sample-subscription-token')).not.toBeInTheDocument();
 });

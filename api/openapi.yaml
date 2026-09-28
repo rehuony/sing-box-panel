@@ -605,6 +605,25 @@ paths:
         "201":
           description: Created manual node
           content: {application/json: {schema: {$ref: "#/components/schemas/SubscriptionNodeDetail"}}}
+  /subscription/node-orders/{collectionId}:
+    put:
+      operationId: setSubscriptionNodeOrder
+      description: "Save presentation order for manual (system, manual and local-source nodes) or a remote source ID. IDs must be unique current members of the collection. Unlisted nodes append in their default order. No source contents or group candidates are modified."
+      parameters:
+        - {name: collectionId, in: path, required: true, schema: {type: string}}
+        - {$ref: "#/components/parameters/CSRFToken"}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/SubscriptionNodeOrder"}
+      responses:
+        "200":
+          description: Saved order with incremented revision
+          content: {application/json: {schema: {$ref: "#/components/schemas/SubscriptionNodeOrder"}}}
+        "412":
+          description: The order revision changed; reload the node catalog before retrying
+          content: {application/problem+json: {schema: {$ref: "#/components/schemas/Problem"}}}
   /subscription/nodes/parse:
     post:
       operationId: parseSubscriptionNode
@@ -1062,8 +1081,9 @@ paths:
         Usage is shared across keys and channels, not attributed to individual users
         or subscription downloads. Each request recomputes the period and reads the
         current settings. Recorded usage is retained when collection is stale or
-        stopped; a period without records reports zero. Missing samples can make
-        these totals incomplete. Settings or traffic-storage failures return 503
+        stopped; a period without records reports zero. Usage comes from sing-box
+        connection counters, not VPS interface totals. Cross-month increments are
+        booked in the later sample's UTC month. Settings or traffic-storage failures return 503
         without consuming download quota. The final authorization recheck must pass
         before traffic metadata is exposed. Traffic changes do not change the body ETag.
       responses:
@@ -1350,7 +1370,7 @@ components:
         the configured quota in GiB multiplied by 1073741824, or 0 for an absent or
         zero quota (unlimited). New periods start with zero recorded usage without
         deleting historical totals. This header contains no expire field or refresh
-        interval and cannot express sampling coverage; clients see updated values
+        interval; clients see updated values
         on their next successful subscription refresh.
       schema:
         type: string
@@ -2699,13 +2719,24 @@ components:
         tls: {type: boolean}
         reality: {type: boolean}
         sni: {type: string}
+    SubscriptionNodeOrder:
+      type: object
+      additionalProperties: false
+      required: [ids, revision]
+      properties:
+        ids: {type: array, maxItems: 10000, uniqueItems: true, items: {type: string}}
+        revision: {type: integer, format: int64, minimum: 0, maximum: 9007199254740991, description: "Zero when no order is saved; updates require the current revision."}
     SubscriptionNodeCatalog:
       type: object
       additionalProperties: false
-      required: [applied_bundle_id, nodes, diagnostics]
+      required: [applied_bundle_id, nodes, diagnostics, node_orders]
       properties:
         applied_bundle_id: {type: string}
         nodes: {type: array, items: {$ref: "#/components/schemas/SubscriptionNodeSummary"}}
+        node_orders:
+          type: object
+          description: "Saved orders keyed by manual or remote source ID. Missing collections have revision zero. Nodes are returned in source display order, then saved node order, with new nodes appended."
+          additionalProperties: {$ref: "#/components/schemas/SubscriptionNodeOrder"}
         diagnostics: {type: array, items: {$ref: "#/components/schemas/SubscriptionDiagnostic"}}
     SubscriptionToken:
       type: object
@@ -2945,7 +2976,7 @@ components:
     MetricsSnapshot:
       type: object
       additionalProperties: false
-      required: [available, collected_at, traffic_available, quota_exceeded]
+      required: [available, collected_at, current_traffic_period, quota_exceeded]
       properties:
         host:
           type: object
@@ -2960,16 +2991,18 @@ components:
             memory_used: {type: integer, format: int64, nullable: true, minimum: 0}
             disk_total: {type: integer, format: int64, nullable: true, minimum: 0}
             disk_used: {type: integer, format: int64, nullable: true, minimum: 0}
-        available: {type: boolean}
+        available:
+          type: boolean
+          description: Fresh collector evidence for the applied bundle; does not gate recorded period usage.
         reason_code: {type: string, enum: [not_applied, process_only, no_collector_sample, stale_collector_sample]}
         applied_bundle_id: {type: string}
         monitoring_tier: {type: string, enum: [process_only, limited]}
         collected_at: {type: string, format: date-time}
-        current_traffic_period: {$ref: "#/components/schemas/TrafficPeriod"}
+        current_traffic_period:
+          $ref: "#/components/schemas/TrafficPeriod"
+          description: Recorded sing-box upload and download usage in the configured UTC period, including zero before collection. Retained when live collection is unavailable.
         latest_sample: {$ref: "#/components/schemas/TrafficSample"}
         live_sample: {$ref: "#/components/schemas/LiveTrafficSample"}
-        traffic_coverage: {$ref: "#/components/schemas/CoverageStatus"}
-        traffic_available: {type: boolean}
         quota_bytes: {type: integer, format: int64, minimum: 0}
         quota_exceeded: {type: boolean}
     CoverageStatus:

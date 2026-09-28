@@ -8,6 +8,35 @@ describe('createDemoApiClient', () => {
     vi.useRealTimers();
   });
 
+  it('updates node order collections after source creation, kind changes and deletion', async () => {
+    const client = createDemoApiClient();
+    let source = await client.getSubscriptionSource('source_demo_remote');
+    let catalog = await client.getSubscriptionNodeCatalog();
+    const ids = catalog.nodes.filter(node => node.source_id === source.id).map(node => node.id).reverse();
+    expect(ids).toHaveLength(2);
+    await client.setSubscriptionNodeOrder(source.id, ids, 0);
+    source = await client.updateSubscriptionSource(source.id, {
+      name: source.name, source_kind: 'local', enabled: true, config: {},
+    }, source.updated_at);
+    await client.setSubscriptionNodeOrder('manual', ids, 0);
+    catalog = await client.getSubscriptionNodeCatalog();
+    expect(catalog.nodes.slice(0, 2).map(node => node.id)).toEqual(ids);
+    await expect(client.setSubscriptionNodeOrder(source.id, ids, 1)).rejects.toMatchObject({ status: 422 });
+
+    const added = await client.createSubscriptionSource({
+      name: 'New source', source_kind: 'remote', enabled: true,
+      config: { url: 'https://example.com/sub', format: 'auto' },
+    });
+    await expect(client.setSubscriptionNodeOrder(added.id, [], 0)).resolves.toEqual({ ids: [], revision: 1 });
+    await client.deleteSubscriptionSource(source.id, source.updated_at);
+    await client.deleteSubscriptionSource(added.id, added.updated_at);
+    catalog = await client.getSubscriptionNodeCatalog();
+    expect(catalog.nodes.some(node => node.source_id === source.id)).toBe(false);
+    expect(catalog.node_orders[source.id]).toBeUndefined();
+    expect(catalog.node_orders[added.id]).toBeUndefined();
+    await expect(client.getSubscriptionNode(ids[0])).rejects.toMatchObject({ status: 404 });
+  });
+
   it('round trips complete backup settings and exact text and rejects revision conflicts atomically', async () => {
     const source = createDemoApiClient();
     const target = createDemoApiClient();
@@ -178,6 +207,65 @@ describe('createDemoApiClient', () => {
       const snapshot = demoMetrics(data, quota);
       expect(snapshot.quota_bytes).toBeUndefined();
       expect(snapshot.quota_exceeded).toBe(false);
+    }
+  });
+
+  it('retains recorded usage and quota while stopped and starts empty periods at zero', () => {
+    const data = createDemoData();
+    const now = new Date();
+    const before = demoMetrics(data, 0.1, now);
+    data.runtime.observation_state = 'stopped';
+    const stopped = demoMetrics(data, 0.1, now);
+    expect(stopped.current_traffic_period).toEqual(before.current_traffic_period);
+    expect(stopped.quota_exceeded).toBe(before.quota_exceeded);
+    expect(stopped.available).toBe(false);
+    const next = demoMetrics(data, 0.1, new Date(before.current_traffic_period.period_end));
+    expect(next.current_traffic_period.inbound_bytes).toBe(0);
+    expect(next.current_traffic_period.outbound_bytes).toBe(0);
+    expect(next.quota_exceeded).toBe(false);
+  });
+
+  it('keeps period details consistent with metrics when expanding, shrinking and restoring the period', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-09-28T08:00:00Z'));
+    const client = createDemoApiClient();
+    let settings = await client.getPanelSettings();
+    const original = (await client.getMetrics()).current_traffic_period;
+    const periods = new Map([[original.id, original]]);
+
+    for (const [months, id] of [
+      [3, 'traffic_monthly_202607_202610'],
+      [1, 'traffic_monthly_202609_202610'],
+      [6, 'traffic_monthly_202607_202701'],
+      [3, 'traffic_monthly_202607_202610'],
+    ] as const) {
+      settings = await client.savePanelSettings({
+        revision: settings.revision, preferences: settings.preferences,
+        service: { ...settings.service, traffic_period_months: months },
+      });
+      const current = (await client.getMetrics()).current_traffic_period;
+      expect(current).toMatchObject({
+        id, inbound_bytes: original.inbound_bytes, outbound_bytes: original.outbound_bytes,
+      });
+      expect((await client.getTrafficStatus()).current_traffic_period).toEqual(current);
+      periods.set(current.id, current);
+      for (const period of periods.values()) {
+        await expect(client.getTrafficPeriod(period.id)).resolves.toEqual(period);
+      }
+      expect((await client.listTrafficPeriods()).items).toEqual([original]);
+    }
+  });
+
+  it('does not invent period details for invalid IDs or ranges without recorded months', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-09-28T08:00:00Z'));
+    const client = createDemoApiClient();
+    for (const id of [
+      'missing', 'traffic_monthly_202613_202701', 'traffic_monthly_202610_202609',
+      'traffic_monthly_202609_202609', 'traffic_monthly_202610_202611',
+      'traffic_monthly_202608_202609', 'traffic_monthly_200001_202701',
+    ]) {
+      await expect(async () => client.getTrafficPeriod(id)).rejects.toMatchObject({ status: 404 });
     }
   });
 

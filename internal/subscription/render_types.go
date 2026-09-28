@@ -37,6 +37,9 @@ type RenderChannel struct {
 	Format       RenderFormat
 	ExcludeTags  []string
 	ExcludeTypes []string
+	// NodeOrder controls presentation only. It must not affect name allocation,
+	// source normalization, group candidates, or diagnostic input positions.
+	NodeOrder []string
 }
 
 // RenderDiagnostic identifies an omitted node by its zero-based position in the

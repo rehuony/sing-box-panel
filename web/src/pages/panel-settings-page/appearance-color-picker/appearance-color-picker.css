@@ -62,10 +62,6 @@
   grid-column: 2;
 }
 
-.appearance-color-apply {
-  color: var(--color-accent);
-}
-
 .appearance-color-dialog [data-slot='dialog-footer'] > button {
   border-radius: var(--radius-control);
 }

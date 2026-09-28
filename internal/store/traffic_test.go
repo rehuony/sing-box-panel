@@ -6,7 +6,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"strings"
 	"testing"
 	"time"
 
@@ -130,8 +129,7 @@ func TestTrafficSamplesUseProvenDeltasAcrossPeriodsAndProcessIncarnations(t *tes
 	}
 	first := base
 	first.SampledAt, first.UploadTotal, first.DownloadTotal = now, 1000, 2000
-	if result := record(first); result.Sample.UploadDelta != nil || result.Period.OutboundBytes != 0 ||
-		!strings.Contains(string(result.Period.Counters), `"traffic_evidence_available":false`) {
+	if result := record(first); result.Sample.UploadDelta != nil || result.Period.OutboundBytes != 0 {
 		t.Fatalf("unproven first sample = %+v", result)
 	}
 	second := base
@@ -139,8 +137,7 @@ func TestTrafficSamplesUseProvenDeltasAcrossPeriodsAndProcessIncarnations(t *tes
 	if result := record(second); result.Sample.UploadDelta == nil || *result.Sample.UploadDelta != 100 ||
 		result.Sample.IntervalStart == nil || !result.Sample.IntervalStart.Equal(first.SampledAt) ||
 		result.Sample.IntervalEnd == nil || !result.Sample.IntervalEnd.Equal(second.SampledAt) ||
-		result.Sample.Coverage != CoverageComplete || result.Period.OutboundBytes != 100 || result.Period.InboundBytes != 200 ||
-		!strings.Contains(string(result.Period.Counters), `"traffic_evidence_available":true`) {
+		result.Sample.Coverage != CoverageComplete || result.Period.OutboundBytes != 100 || result.Period.InboundBytes != 200 {
 		t.Fatalf("second sample = %+v", result)
 	}
 
@@ -150,7 +147,7 @@ func TestTrafficSamplesUseProvenDeltasAcrossPeriodsAndProcessIncarnations(t *tes
 	if result := record(crossed); result.Sample.UploadDelta == nil || *result.Sample.UploadDelta != 100 ||
 		result.Sample.IntervalStart == nil || !result.Sample.IntervalStart.Equal(second.SampledAt) ||
 		result.Sample.IntervalEnd == nil || !result.Sample.IntervalEnd.Equal(crossed.SampledAt) ||
-		result.Sample.Coverage != CoveragePartial || result.Period.OutboundBytes != 0 || result.Period.InboundBytes != 0 {
+		result.Sample.Coverage != CoveragePartial || result.Period.OutboundBytes != 100 || result.Period.InboundBytes != 200 {
 		t.Fatalf("cross-period sample = %+v", result)
 	}
 
@@ -158,13 +155,13 @@ func TestTrafficSamplesUseProvenDeltasAcrossPeriodsAndProcessIncarnations(t *tes
 	restarted.PID, restarted.ProcessStartToken = 202, "process-two"
 	restarted.SampledAt = crossed.SampledAt.Add(10 * time.Second)
 	restarted.UploadTotal, restarted.DownloadTotal = 50, 70
-	if result := record(restarted); result.Sample.UploadDelta != nil || result.Sample.IntervalStart != nil || result.Period.OutboundBytes != 0 {
+	if result := record(restarted); result.Sample.UploadDelta != nil || result.Sample.IntervalStart != nil || result.Period.OutboundBytes != 100 {
 		t.Fatalf("first restarted-process sample = %+v", result)
 	}
 	restarted.SampledAt = restarted.SampledAt.Add(10 * time.Second)
 	restarted.UploadTotal, restarted.DownloadTotal = 80, 110
 	if result := record(restarted); result.Sample.UploadDelta == nil || *result.Sample.UploadDelta != 30 ||
-		result.Period.OutboundBytes != 30 || result.Period.InboundBytes != 40 {
+		result.Period.OutboundBytes != 130 || result.Period.InboundBytes != 240 {
 		t.Fatalf("proven restarted-process sample = %+v", result)
 	}
 
@@ -172,7 +169,7 @@ func TestTrafficSamplesUseProvenDeltasAcrossPeriodsAndProcessIncarnations(t *tes
 	regressed.SampledAt = regressed.SampledAt.Add(10 * time.Second)
 	regressed.UploadTotal = 79
 	if result := record(regressed); result.Sample.Accepted || result.Sample.DiagnosticCode != "counter_decreased" ||
-		result.Sample.IntervalStart != nil || result.Period.OutboundBytes != 30 {
+		result.Sample.IntervalStart != nil || result.Period.OutboundBytes != 130 {
 		t.Fatalf("regressed sample = %+v", result)
 	}
 }

@@ -13,7 +13,7 @@ import (
 	"github.com/rehuony/sing-box-panel/internal/store"
 )
 
-func TestMetricsReportsMissingEvidenceInsteadOfZeroCounters(t *testing.T) {
+func TestMetricsReturnsZeroUsageBeforeCollection(t *testing.T) {
 	ctx := context.Background()
 	database, err := store.Open(ctx, filepath.Join(t.TempDir(), "panel.db"))
 	if err != nil {
@@ -28,7 +28,7 @@ func TestMetricsReportsMissingEvidenceInsteadOfZeroCounters(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if metrics.Available || metrics.ReasonCode != "not_applied" || metrics.CurrentTrafficData != nil {
+	if metrics.Available || metrics.ReasonCode != "not_applied" || metrics.CurrentTrafficData.InboundBytes != 0 || metrics.CurrentTrafficData.OutboundBytes != 0 {
 		t.Fatalf("metrics = %+v", metrics)
 	}
 }

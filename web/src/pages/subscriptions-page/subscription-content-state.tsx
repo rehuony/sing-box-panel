@@ -1,7 +1,7 @@
 import { useTranslation } from 'react-i18next';
 import { FileWarning, KeyRound, Layers3, Network, Route, Rss, SearchX, Send } from 'lucide-react';
 
-import { Spinner } from '@/components/ui/spinner';
+import { LoadingState } from '@/components/loading-state';
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty';
 
 const stateIcons = {
@@ -23,15 +23,18 @@ export function SubscriptionContentState({ loading = false, kind = 'nodes', titl
   title?: string;
 }) {
   const { t } = useTranslation();
+  if (loading) {
+    return <LoadingState className='subscription-content-state' label={t('common.loading')} fullScreen={false} />;
+  }
   const Icon = stateIcons[kind];
   return (
-    <Empty className='subscription-content-state' role={loading ? 'status' : undefined} aria-label={loading ? t('common.loading') : undefined}>
+    <Empty className='subscription-content-state'>
       <EmptyHeader>
         <EmptyMedia variant='icon' aria-hidden='true'>
-          {loading ? <Spinner role={undefined} /> : <Icon />}
+          <Icon />
         </EmptyMedia>
-        <EmptyTitle>{loading ? t('common.loading') : title}</EmptyTitle>
-        <EmptyDescription>{t(`subscriptions.states.${loading ? 'loading' : kind}`)}</EmptyDescription>
+        <EmptyTitle>{title}</EmptyTitle>
+        <EmptyDescription>{t(`subscriptions.states.${kind}`)}</EmptyDescription>
       </EmptyHeader>
     </Empty>
   );

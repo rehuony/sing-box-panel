@@ -149,7 +149,7 @@ func TestQuotaVisibleWithoutAppliedCoreAndDynamicPoliciesDoNotRequireRestart(t *
 		t.Fatalf("retention did not hot reload: %+v %v", retention, err)
 	}
 	metrics, err := app.Metrics(t.Context())
-	if err != nil || metrics.QuotaBytes == nil || *metrics.QuotaBytes != quota<<30 || metrics.TrafficAvailable {
+	if err != nil || metrics.QuotaBytes == nil || *metrics.QuotaBytes != quota<<30 || metrics.CurrentTrafficData.InboundBytes != 0 || metrics.CurrentTrafficData.OutboundBytes != 0 {
 		t.Fatalf("quota without traffic: %+v %v", metrics, err)
 	}
 }

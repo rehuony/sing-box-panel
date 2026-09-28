@@ -507,7 +507,7 @@ inbound usernames, passwords and UUIDs are preserved.
 Appearance offers five presets and a custom HEX picker, with radius 0–32px (default 12).
 Preview changes page, controls, charts and dialogs immediately while semantic
 status colors and the logo stay independent. Card/dialog radius is R, controls
-R/2, and the shell min(32,7R/6). Saving persists preferences. Leaving the page with unsaved edits requires confirmation: Keep editing
+R/2, and the shell min(32,7R/6). Saving persists preferences. Leaving the page with unsaved edits requires confirmation: Cancel
 retains the current view and preview; Discard changes restores saved settings
 before navigating. Reset changes only theme color/radius and still requires
 saving. Help is in hover/click tips.

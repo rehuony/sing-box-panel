@@ -333,24 +333,15 @@ export function SubscriptionNodeEditor({
               )
             : (
                 <>
+                  <Button disabled={busy} onClick={onClose} variant='outline'>
+                    {t('common.cancel')}
+                  </Button>
                   {node?.origin === 'local' && (
                     <Button
                       render={<Link to={`/configuration?inbound=${encodeURIComponent(node.name)}`} />}
-                      variant='outline'
-                    >
-                      {t('nav.configuration')}
-                    </Button>
-                  )}
-                  <Button disabled={busy} onClick={onClose} variant={editable ? 'secondary' : 'outline'}>
-                    {t(editable ? 'common.cancel' : 'common.close')}
-                  </Button>
-                  {editable && (
-                    <Button
-                      disabled={busy || editorLoading || (node !== null && !detail) || (mode === 'import' ? !importText.trim() : !parsed)}
-                      onClick={() => void (mode === 'import' ? parseImport() : save())}
                       variant='default'
                     >
-                      {t(mode === 'import' ? 'subscriptions.nodes.parse' : 'subscriptions.nodes.save')}
+                      {t('nav.configuration')}
                     </Button>
                   )}
                   {node?.origin === 'manual' && (
@@ -360,6 +351,15 @@ export function SubscriptionNodeEditor({
                       variant='destructive'
                     >
                       {t('subscriptions.nodes.delete')}
+                    </Button>
+                  )}
+                  {editable && (
+                    <Button
+                      disabled={busy || editorLoading || (node !== null && !detail) || (mode === 'import' ? !importText.trim() : !parsed)}
+                      onClick={() => void (mode === 'import' ? parseImport() : save())}
+                      variant='default'
+                    >
+                      {t(mode === 'import' ? 'subscriptions.nodes.parse' : 'subscriptions.nodes.save')}
                     </Button>
                   )}
                 </>

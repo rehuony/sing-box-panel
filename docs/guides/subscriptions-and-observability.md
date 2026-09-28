@@ -47,12 +47,31 @@ subscription actions use visible button surfaces.
 
 Node cards within each source (including the manual collection) support whole-card
 DND-KIT sorting with the same mouse, touch and keyboard sensors as channel cards.
-Source display order is a browser-local preference keyed by source ID; refreshes
-and revisits retain it, new nodes append, and absent nodes are not rendered.
-Sorting a filtered or paginated view changes only its visible positions. This
-presentation order does not rewrite source data or channel policies. Header actions
-do not initiate dragging; dragging a hidden card does not restore its visibility.
-Storage failures use an error toast while keeping the current in-memory order.
+Node order is stored on the server per collection: `manual` includes system,
+manual and local-source nodes; each remote source has its own collection. The
+catalog, add-node picker and all three client exports follow the source sidebar:
+manual first, then remote sources by creation time descending (ID descending for
+ties), with each collection's saved node order. Unordered/new nodes append in
+that collection's original order; absent nodes are not rendered. Saved slots
+survive refreshes until the next reorder replaces them.
+
+`PUT /subscription/node-orders/{collectionId}` accepts `ids` and the current
+`revision` (zero before the first save); the node catalog returns saved
+`node_orders`. Stale revisions return 412 and must be reloaded. A drag saves
+immediately, blocks further sorting until completion, and restores confirmed
+order with an error toast if saving fails. Pending saves continue across panel
+navigation; returning to sources still blocks reordering until they finish.
+Successful changes affect subsequent
+previews and subscription requests without saving each channel. Browser-local
+orders from earlier releases are ignored and are not imported; reorder once to
+establish the shared server order.
+
+Sorting a filtered or paginated view changes only its visible positions. Source
+contents, publication identities, group candidate order and group defaults remain
+independent of this presentation order. Header actions do not initiate dragging;
+dragging a hidden card does not restore its visibility. The picker starts with
+DIRECT/REJECT, ordered available source nodes, then groups; its own temporary
+sorting affects only confirmed group additions.
 
 The API also supports user-scoped keys, which require an enabled user and exact
 node grants. An empty grant set renders an empty subscription. User/grant
@@ -100,11 +119,10 @@ recorded usage is returned; no records means `upload=0; download=0`. Historical
 totals remain intact, and no reset job or running collector is required.
 Quota and period changes take effect on the next request.
 
-The header reports recorded usage even when sampling is stale, stopped, or
-incomplete. Zero means no recorded usage, not proof that no traffic occurred.
-The header format cannot communicate sampling coverage; dashboard metrics keep
-their existing unknown/partial evidence semantics. Configuration read or traffic
-storage failures return `503` instead of fabricated counters. Failed requests
+The header and dashboard report the same recorded sing-box usage even when
+sampling is stale or stopped. Zero means no recorded usage, not proof that no
+traffic occurred. VPS interface totals and unrelated host traffic are not included.
+Configuration read or traffic storage failures return `503` instead of fabricated counters. Failed requests
 do not consume download quota or expose the traffic header; final authorization
 is rechecked before either a `200` or `304` response is committed.
 
@@ -187,7 +205,7 @@ the selected group's nodes and exit rules on the right. Each sidebar card has a
 settings action, shown on hover or keyboard focus, opening a compact dialog for
 name, strategy type and client-side health checks without selecting that group.
 Touch devices keep the action visible. Group icons distinguish manual selection,
-automatic latency tests and fallback. Done applies the draft; Cancel or closing
+automatic latency tests and fallback. Apply updates the channel draft; Cancel or closing
 it discards those edits. Groups created, configured or selected as the final exit are enabled; there is no separate
 group enablement control. Opening the page or cancelling the dialog preserves
 previously stored disabled groups. The top-level toolbar
@@ -316,7 +334,8 @@ Rule-set names must be unique across the channel, including disabled rules/group
 comparison is case-sensitive and names must have no surrounding whitespace.
 Mihomo provider keys and sing-box rule-set tags use these names verbatim, as do
 all generated references. Sing-box remote sets use an inline `http_client` with
-`detour: direct`, matching the native 1.14 Schema. Loon continues to use its native URL-based remote rules.
+`detour: direct`, matching the native 1.14 Schema. Loon uses native URL-based remote rules and emits the configured rule-set name
+as `tag` alongside `policy` and `enabled`, escaping quoted values when necessary.
 This development contract change has no legacy interval migration or compatibility
 reader; requests containing the removed field are rejected.
 The editor infers source format from the original URL's case-insensitive path
@@ -642,8 +661,9 @@ payloads.
 on a two-second cadence. The lifecycle-owned collector reads the running core
 every two seconds with a reused, incarnation-bound Clash client. The optional
 `metrics.live_sample` is process-local evidence with its own `sampled_at`, PID
-and start token. It does not change the existing `latest_sample`, availability,
-coverage or persisted period-total semantics. Snapshots use narrow runtime
+and start token. Live samples do not enter the persisted accounting totals.
+Collector availability and historical sampling quality remain separate from
+recorded period usage. Snapshots use narrow runtime
 projections rather than loading complete saved configurations.
 
 Live, history and log streams have independent browser ownership. Hidden tabs
@@ -672,8 +692,8 @@ The Dashboard owns this subscription; other routes do not query historical data.
 Each event includes one-hour / 24-hour histories, runtime transitions, two recent
 activity records and `persisted_through`. Both metric ranges and that accepted
 sample watermark come from one database read transaction. The watermark replaces
-overlapping live tails when history catches up. Live tails are labelled, bounded
-to 120 seconds, and break at missing samples, process changes, counter regression
+overlapping live tails when history catches up. Live tails are bounded to 120
+seconds and break at missing samples, process changes, counter regression
 or reconnects. They never enter period totals or interpolate missing evidence.
 
 Each connection is authenticated again within one minute. Collection belongs to
@@ -745,31 +765,49 @@ persists checkpoints every ten seconds. Incarnation changes and rejected evidenc
 may persist immediately: an intervening high-water observation is flushed before
 a counter regression so decimation cannot conceal it. Sampling failure clears
 live evidence without changing accounting. Persisted samples older than 30 seconds
-retain the existing stale accounting semantics.
+make live metrics unavailable; recorded period usage remains available.
 
-Counters are checkpointed by PID and OS start token. A restart opens a new
-segment and preserves the UTC natural-month period total. A decrease inside
-one process is stored as rejected diagnostic evidence and cannot lower totals.
-Checkpoints retain the last process counters across settings changes and add
-only deltas proven inside a UTC month, so changing a period cannot re-add lifetime
-counters. Cross-month intervals are not proportionally guessed. Samples and period contributions use
-nullable upload/download deltas: legacy or interrupted intervals that cannot
-be proven are marked `partial` instead of being rendered as zero.
+Counters are checkpointed by PID, OS start token and activation bundle. The
+first observation in each segment is a baseline; only subsequent nonnegative
+counter differences are added. A restart preserves recorded totals, and a counter
+decrease or out-of-order observation is rejected without changing the checkpoint.
+The source is the managed sing-box instance's `/connections` upload/download
+counters, not host network interfaces, SSH, system updates or other VPS traffic.
+
+Each accepted delta is booked entirely in the UTC month of its later sample,
+including a cross-month interval or a collection gap longer than 30 seconds.
+There is no proportional allocation. This keeps recorded increments from being
+lost or counted twice, but a cross-month interval can shift usage into the later
+month. Changing period settings does not reset checkpoints or re-add lifetime
+counters. The raw sample's nullable deltas and coverage metadata remain available
+for historical charts, independently of monthly accounting.
 
 Periods span `traffic.period_months`, aligned to UTC natural months from January
-1970, and are recomputed immediately after saving a new month count. Durable
-monthly totals are updated in the same transaction as samples and checkpoints,
-so changing periods does not depend on retained raw samples. Version-11 migration
-prefers existing single-month totals and backfills only missing months from
-verifiable samples. Unsplit older multi-month records remain available as history;
-no proportional allocation or duplicate accumulation is performed. Coverage is
-`missing`, `partial`, or `complete`; the dashboard marks partial history as
-“Incomplete data”. Missing or stale evidence displays unknown usage while still
-showing the configured quota. `traffic.quota_gib=null` or `0` is unlimited.
-Current periods aggregate across activation bundles while individual samples
-retain bundle evidence. Period list responses include the paired
-`period_start`/`id` cursor in `next`, so every matching record remains
-reachable beyond the requested limit.
+1970, and are recomputed immediately after saving a new month count. Monthly totals,
+samples and checkpoints update in one transaction. Current usage, monthly period
+details and paginated lists read the same durable monthly ledger, even after raw
+samples expire or a previously selected period receives more recorded usage.
+Unsplit legacy period records retain their original values. The paired
+`period_start`/`id` cursor in `next` preserves stable pagination.
+
+Every successful metrics response includes `current_traffic_period`: an empty
+period has zero inbound and outbound bytes. Recorded usage and quota status remain
+visible while sing-box is stopped, monitoring is unavailable or samples are stale.
+`available` and `reason_code` describe live collection only. The retired
+`traffic_available` and `traffic_coverage` fields are removed; clients should read
+`current_traffic_period` directly. The dashboard no longer evaluates period
+completeness. Before a successful response, or when storage fails, the existing
+loading/error handling applies rather than inventing zero usage.
+`traffic.quota_gib=null` or `0` is unlimited. Usage aggregates across activation
+bundles and is the sum of recorded upload and download bytes; quota exhaustion
+uses that same total even while collection is stopped.
+
+Schema 15 removes monthly completeness state and redundant checkpoint totals.
+Upgrades from versions 11–14 preserve accumulated bytes, the latest checkpoint
+and archived periods, and remove retired period coverage metadata transactionally.
+Version 11 first seeds the original monthly ledger from single-month totals and
+verifiable retained samples. Historical amounts are not replayed under the new
+cross-month rule; that rule applies to observations recorded after upgrade.
 
 Raw samples follow the required `traffic.sample_retention_days` setting, which
 is initialized to 90 and accepts 1 through 366 days. A settings file without
@@ -807,9 +845,11 @@ sing-box-panel metrics history
 sing-box-panel metrics period PERIOD_ID
 ```
 
-`show` and `watch` include the current traffic period and its cumulative
-traffic when evidence is available. Historical periods remain available
-through `history` and `period`; a separate `traffic` CLI group is unnecessary.
+Every successful `show` or `watch` read includes the current traffic period and
+its recorded cumulative traffic, including zero before collection. Stopped or
+stale collection does not hide these totals; availability and reason describe
+live collection only. Historical periods remain available through `history`
+and `period`; a separate `traffic` CLI group is unnecessary.
 
 ## Management surfaces
 

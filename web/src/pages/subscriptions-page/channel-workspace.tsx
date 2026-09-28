@@ -239,7 +239,7 @@ export function ChannelWorkspace({ active = true, toolbarTarget, channel, nodes,
               </FieldGroup>
               <DialogFooter>
                 <Button type='button' variant='outline' onClick={() => setGroupSettings(null)}>{t('common.cancel')}</Button>
-                <Button type='submit' disabled={busy || !groupSettings.name.trim()}>{t('channels.done')}</Button>
+                <Button type='submit' disabled={busy || !groupSettings.name.trim()}>{t('channels.apply')}</Button>
               </DialogFooter>
             </form>
           </DialogContent>

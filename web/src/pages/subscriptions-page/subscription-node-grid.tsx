@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { useSortable } from '@dnd-kit/sortable';
 import { useReducedMotion } from 'motion/react';
 import { Eye, EyeOff, MoreHorizontal } from 'lucide-react';
-import { memo, useDeferredValue, useMemo, useState } from 'react';
+import { memo, useDeferredValue, useMemo, useRef, useState } from 'react';
 
 import type { SubscriptionNodeSummary } from '@/api/api-client';
 
@@ -15,19 +15,19 @@ import { ListPagination } from '@/components/list-pagination';
 import { SubscriptionNodeCardContent } from './subscription-node-card';
 import { SubscriptionContentState } from './subscription-content-state';
 import { SubscriptionNodeSortContext } from './subscription-node-sort-context';
-import { filterSourceNodes, orderSourceNodes, readSourceNodeOrder, reorderVisibleNodes, saveSourceNodeOrder } from './subscription-node-order';
+import { filterSourceNodes, orderSourceNodes, reorderVisibleNodes } from './subscription-node-order';
 
 interface NodeGridProps {
   busy?: boolean;
   search: string;
   error?: boolean;
   loading?: boolean;
-  sourceID?: string;
   readOnly?: boolean;
   selected?: Set<string>;
   busyNodes?: Set<string>;
   onSelect?: (id: string) => void;
   nodes: SubscriptionNodeSummary[];
+  onReorder?: (ids: string[]) => Promise<void>;
   onOpen: (node: SubscriptionNodeSummary) => void;
   onVisibility?: (node: SubscriptionNodeSummary) => void;
 }
@@ -123,10 +123,10 @@ const SourceNodeCard = memo(({ node, busy, readOnly, selected, onSelect, onOpen,
 export function SubscriptionNodeGrid({
   loading = false,
   error = false,
-  sourceID,
+  onReorder,
   nodes,
   search,
-  busy,
+  busy: externalBusy,
   busyNodes,
   readOnly,
   selected,
@@ -135,9 +135,11 @@ export function SubscriptionNodeGrid({
   onVisibility,
 }: NodeGridProps) {
   const { t } = useTranslation();
-  const [savedOrder, setSavedOrder] = useState(() => readSourceNodeOrder(sourceID));
+  const [pendingOrder, setPendingOrder] = useState<string[] | null>(null);
+  const savingRef = useRef(false);
+  const busy = externalBusy || pendingOrder !== null;
   const deferredSearch = useDeferredValue(search);
-  const ordered = useMemo(() => orderSourceNodes(nodes, savedOrder), [nodes, savedOrder]);
+  const ordered = useMemo(() => pendingOrder ? orderSourceNodes(nodes, pendingOrder) : nodes, [nodes, pendingOrder]);
   const byID = new Map(ordered.map(node => [node.id, node]));
   const order = ordered.map(node => node.id);
   const [size, setSize] = useState(10);
@@ -152,16 +154,20 @@ export function SubscriptionNodeGrid({
   const current = Math.min(page, pages);
   if (pagination.search !== search || pagination.size !== size || pagination.page !== current) setPage(current);
   const pageNodes = filtered.slice((current - 1) * size, current * size);
-  function move(active: string, over: string) {
+  async function move(active: string, over: string) {
     const next = reorderVisibleNodes(order, pageNodes.map((node) => node.id), active, over);
-    if (next === order || busy || readOnly) return;
-    setSavedOrder(next);
-    if (sourceID) {
-      try {
-        saveSourceNodeOrder(sourceID, next);
-      } catch {
+    if (next === order || busy || readOnly || savingRef.current || !onReorder) return;
+    savingRef.current = true;
+    setPendingOrder(next);
+    try {
+      await onReorder(next);
+    } catch (error) {
+      if (!(error instanceof DOMException && error.name === 'AbortError')) {
         toast.add({ title: t('subscriptions.nodes.orderSaveFailed'), type: 'error' });
       }
+    } finally {
+      savingRef.current = false;
+      setPendingOrder(null);
     }
   }
   return (

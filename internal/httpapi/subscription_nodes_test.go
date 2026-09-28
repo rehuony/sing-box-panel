@@ -11,6 +11,7 @@ import (
 
 	"github.com/rehuony/sing-box-panel/internal/application"
 	"github.com/rehuony/sing-box-panel/internal/store"
+	"github.com/rehuony/sing-box-panel/internal/subscription"
 )
 
 func TestManualNodesCRUDVisibilityAndPublicationWithoutCore(t *testing.T) {
@@ -165,6 +166,110 @@ func TestParseSingleNodeDoesNotSaveAndRejectsMultiple(t *testing.T) {
 		result := authenticatedRequest(handler, http.MethodPost, "/api/v1/subscription/nodes/parse", string(body), "")
 		if result.Code != 422 {
 			t.Fatalf("invalid parse %d %s", result.Code, result.Body.String())
+		}
+	}
+}
+
+func TestNodeOrderPreviewDeliveryAndConflict(t *testing.T) {
+	ctx := t.Context()
+	_, app, handler := newSubscriptionHTTPServices(t, "")
+	nodes := make([]application.SubscriptionNodeDetail, 0, 2)
+	for _, name := range []string{"Alpha", "Beta"} {
+		node, err := app.CreateSubscriptionNode(ctx, []byte(fmt.Sprintf(`{"type":"socks","tag":%q,"server":%q,"server_port":1080}`, name, name+".example")))
+		if err != nil {
+			t.Fatal(err)
+		}
+		nodes = append(nodes, node)
+	}
+	key, err := app.CreateSubscriptionToken(ctx, application.CreateSubscriptionTokenRequest{Label: "order"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	type channelCheck struct{ id, path, etag string }
+	checks := []channelCheck{}
+	for _, format := range []store.SubscriptionFormat{store.SubscriptionFormatSingBox, store.SubscriptionFormatMihomo, store.SubscriptionFormatLoon} {
+		for _, modern := range []bool{false, true} {
+			config := json.RawMessage(`{}`)
+			if modern {
+				config, err = json.Marshal(store.SubscriptionChannelConfig{Policy: &subscription.ChannelPolicy{
+					Selection:   subscription.NodeSelection{IDs: []string{nodes[0].ID, nodes[1].ID}, ExcludedIDs: []string{}, NewNodePolicy: "exclude"},
+					DefaultExit: subscription.RouteExit{Kind: "group", ID: "main"},
+					Groups:      []subscription.RuleGroup{{ID: "main", Name: "Selected", Enabled: true, Type: "select", NodeIDs: []string{nodes[0].ID, nodes[1].ID}, BuiltinNodes: []string{}, Rules: []subscription.ChannelRule{}}},
+				}})
+				if err != nil {
+					t.Fatal(err)
+				}
+			}
+			channel, err := app.CreateSubscriptionChannel(ctx, application.CreateSubscriptionChannelRequest{Name: fmt.Sprintf("%s-%t", format, modern), Format: format, Enabled: true, Config: config})
+			if err != nil {
+				t.Fatal(err)
+			}
+			path := "/sub/" + key.Token + "/" + channel.ID
+			before := publicSubscriptionRequest(handler, path)
+			if before.Code != 200 || strings.Index(before.Body.String(), "Alpha.example") >= strings.Index(before.Body.String(), "Beta.example") {
+				t.Fatalf("initial order: %d %s", before.Code, before.Body.String())
+			}
+			checks = append(checks, channelCheck{channel.ID, path, before.Header().Get("ETag")})
+		}
+	}
+	endpoint := "/api/v1/subscription/node-orders/manual"
+	body := fmt.Sprintf(`{"ids":[%q,%q],"revision":0}`, nodes[1].ID, nodes[0].ID)
+	unauthenticated := httptest.NewRecorder()
+	handler.ServeHTTP(unauthenticated, httptest.NewRequest(http.MethodPut, endpoint, strings.NewReader(body)))
+	if unauthenticated.Code != 401 {
+		t.Fatalf("unauthenticated reorder: %d", unauthenticated.Code)
+	}
+	saved := authenticatedRequest(handler, http.MethodPut, endpoint, body, "")
+	if saved.Code != 200 {
+		t.Fatalf("save: %d %s", saved.Code, saved.Body.String())
+	}
+	stale := authenticatedRequest(handler, http.MethodPut, endpoint, body, "")
+	if stale.Code != 412 {
+		t.Fatalf("stale save: %d %s", stale.Code, stale.Body.String())
+	}
+	var conflict Problem
+	if err := json.Unmarshal(stale.Body.Bytes(), &conflict); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(conflict.Detail, "node_orders[collectionId].revision") || strings.Contains(conflict.Detail, "ETag") {
+		t.Fatalf("incorrect conflict recovery: %s", conflict.Detail)
+	}
+	for _, invalid := range []string{
+		`{"ids":[],"revision":-1}`, `{"ids":[],"revision":9007199254740991}`, `{"ids":[],"revision":null}`, `{"ids":null,"revision":1}`,
+		`{"ids":["node_unknown"],"revision":1}`, fmt.Sprintf(`{"ids":[%q,%q],"revision":1}`, nodes[0].ID, nodes[0].ID),
+	} {
+		response := authenticatedRequest(handler, http.MethodPut, endpoint, invalid, "")
+		if response.Code != 422 {
+			t.Fatalf("invalid order %s: %d %s", invalid, response.Code, response.Body.String())
+		}
+	}
+	catalog := authenticatedRequest(handler, http.MethodGet, "/api/v1/subscription/nodes", "", "")
+	var value application.SubscriptionNodeCatalog
+	if err := json.Unmarshal(catalog.Body.Bytes(), &value); err != nil {
+		t.Fatal(err)
+	}
+	if len(value.Nodes) != 2 || value.Nodes[0].ID != nodes[1].ID || value.NodeOrders["manual"].Revision != 1 {
+		t.Fatalf("catalog order: %+v", value)
+	}
+	for _, check := range checks {
+		delivered := publicSubscriptionRequest(handler, check.path)
+		content := delivered.Body.String()
+		if delivered.Code != 200 || strings.Index(content, "Beta.example") < 0 || strings.Index(content, "Beta.example") >= strings.Index(content, "Alpha.example") {
+			t.Fatalf("reordered delivery: %d %s", delivered.Code, content)
+		}
+		if delivered.Header().Get("ETag") == check.etag {
+			t.Fatal("reorder did not change ETag")
+		}
+		preview := authenticatedRequest(handler, http.MethodPost, "/api/v1/subscription/channels/"+check.id+"/preview", "{}", "")
+		var rendered application.SubscriptionPreview
+		if preview.Code != 200 {
+			t.Fatalf("preview: %d %s", preview.Code, preview.Body.String())
+		}
+		if err := json.Unmarshal(preview.Body.Bytes(), &rendered); err != nil {
+			t.Fatal(err)
+		}
+		if string(rendered.Result.Content) != content {
+			t.Fatal("preview and delivery orders differ")
 		}
 	}
 }

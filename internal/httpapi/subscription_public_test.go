@@ -6,8 +6,11 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"net/http"
+	"net/http/httptest"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -65,6 +68,39 @@ func TestPublicSubscriptionTrafficRefreshesOn304AndIsSharedAcrossChannels(t *tes
 	if conditional.Code != http.StatusNotModified || conditional.Body.Len() != 0 || conditional.Header().Get("ETag") != first.Header().Get("ETag") ||
 		conditional.Header().Get("Subscription-Userinfo") != "upload=123; download=456; total=107374182400" {
 		t.Fatalf("conditional response status=%d traffic=%q", conditional.Code, conditional.Header().Get("Subscription-Userinfo"))
+	}
+	// The same stopped-core ledger is exposed by management HTTP and SSE.
+	for _, endpoint := range []string{"/api/v1/metrics", "/api/v1/traffic/status"} {
+		request := httptest.NewRequest(http.MethodGet, "/panel"+endpoint, nil)
+		request.Header.Set("Authorization", "Bearer "+configuration.Auth.Token)
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, request)
+		var metrics application.MetricsSnapshot
+		if response.Code != http.StatusOK {
+			t.Fatalf("%s: %d %s", endpoint, response.Code, response.Body.String())
+		}
+		if err := json.Unmarshal(response.Body.Bytes(), &metrics); err != nil {
+			t.Fatal(err)
+		}
+		if metrics.Available || metrics.CurrentTrafficData.OutboundBytes != 123 || metrics.CurrentTrafficData.InboundBytes != 456 {
+			t.Fatalf("%s disagrees with subscription: %+v", endpoint, metrics)
+		}
+	}
+	streamRequest := httptest.NewRequest(http.MethodGet, "/panel/api/v1/metrics/stream", nil)
+	streamRequest.Header.Set("Authorization", "Bearer "+configuration.Auth.Token)
+	stream := &dashboardDeadlineRecorder{ResponseRecorder: httptest.NewRecorder(), flushError: errors.New("test complete")}
+	handler.ServeHTTP(stream, streamRequest)
+	var snapshot application.MetricsStreamSnapshot
+	_, frame, found := strings.Cut(stream.Body.String(), "data: ")
+	data, _, _ := strings.Cut(frame, "\n")
+	if !found {
+		t.Fatalf("missing metrics event: %s", stream.Body.String())
+	}
+	if err := json.Unmarshal([]byte(data), &snapshot); err != nil {
+		t.Fatal(err)
+	}
+	if snapshot.Metrics.CurrentTrafficData.OutboundBytes != 123 || snapshot.Metrics.CurrentTrafficData.InboundBytes != 456 {
+		t.Fatalf("stream disagrees with subscription: %+v", snapshot.Metrics)
 	}
 	second, err := app.CreateSubscriptionChannel(ctx, application.CreateSubscriptionChannelRequest{
 		Name: "Mihomo", Format: store.SubscriptionFormatMihomo, PublicHost: "publish.example", Enabled: true,

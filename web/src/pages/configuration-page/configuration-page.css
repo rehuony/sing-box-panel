@@ -490,12 +490,7 @@
   margin-right: calc(-1 * var(--configuration-workspace-inset));
 }
 .configuration-editor-loading {
-  display: flex;
   height: 100%;
-  align-items: center;
-  justify-content: center;
-  color: var(--color-text-muted);
-  font-size: var(--text-sm);
 }
 .configuration-empty-versions {
   align-items: center;

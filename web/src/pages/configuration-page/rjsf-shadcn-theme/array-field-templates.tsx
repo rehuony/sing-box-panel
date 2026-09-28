@@ -80,7 +80,7 @@ export function PanelArrayField(props: FieldProps) {
             </div>
           )}
           <DialogFooter>
-            <DialogClose render={<Button type='button' />}>{t('common.cancel')}</DialogClose>
+            <DialogClose render={<Button type='button' variant='outline' />}>{t('common.cancel')}</DialogClose>
             <Button disabled={disabled || readonly} type='button' onClick={() => {
               if (pending === null || disabled || readonly) return;
               const next = [...(Array.isArray(formData) ? formData : [])];

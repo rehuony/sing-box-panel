@@ -6,6 +6,7 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { ErrorNotice } from '@/components/error-notice';
 import { SelectField } from '@/components/select-field';
+import { LoadingState } from '@/components/loading-state';
 import { ToolbarActions } from '@/components/workspace-toolbar';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty';
@@ -241,35 +242,33 @@ export function CoreLogsPanel({ active = true, toolbarTarget }: {
           }}
         >
           {!lines.length
-            ? (
-                <Empty className='native-log__empty' role='status'>
-                  <EmptyHeader>
-                    {!log.loading && (
+            ? log.loading
+              ? <LoadingState label={t('productLogs.loading')} fullScreen={false} />
+              : (
+                  <Empty className='native-log__empty' role='status'>
+                    <EmptyHeader>
                       <EmptyMedia className='native-log__empty-icon'>
                         {!log.files.length
                           ? <SquareTerminal aria-hidden='true' strokeWidth={1.5} />
                           : <SearchX aria-hidden='true' strokeWidth={1.5} />}
                       </EmptyMedia>
-                    )}
-                    <EmptyTitle>
-                      {t(log.loading ? 'productLogs.loading' : !log.files.length ? 'productLogs.emptyCore' : cleared && !log.text ? 'productLogs.cleared' : 'productLogs.empty')}
-                    </EmptyTitle>
-                    {!log.loading && (
+                      <EmptyTitle>
+                        {t(!log.files.length ? 'productLogs.emptyCore' : cleared && !log.text ? 'productLogs.cleared' : 'productLogs.empty')}
+                      </EmptyTitle>
                       <EmptyDescription>
                         {t(!log.files.length ? 'productLogs.emptyCoreDescription' : cleared && !log.text ? 'productLogs.clearedDescription' : 'productLogs.emptyDescription')}
                       </EmptyDescription>
+                    </EmptyHeader>
+                    {log.paused && !log.text.trim() && (
+                      <EmptyContent>
+                        <Button size='sm' variant='ghost' disabled={mutating} onClick={() => log.setPaused(false)}>
+                          <Play aria-hidden='true' data-icon='inline-start' />
+                          {t('productLogs.resume')}
+                        </Button>
+                      </EmptyContent>
                     )}
-                  </EmptyHeader>
-                  {log.paused && !log.text.trim() && (
-                    <EmptyContent>
-                      <Button size='sm' variant='ghost' disabled={mutating} onClick={() => log.setPaused(false)}>
-                        <Play aria-hidden='true' data-icon='inline-start' />
-                        {t('productLogs.resume')}
-                      </Button>
-                    </EmptyContent>
-                  )}
-                </Empty>
-              )
+                  </Empty>
+                )
             : (
                 <pre>
                   {lines.map((line) => (
