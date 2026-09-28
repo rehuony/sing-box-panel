@@ -181,6 +181,65 @@ describe('createDemoApiClient', () => {
     }
   });
 
+  it('retains recorded usage and quota while stopped and starts empty periods at zero', () => {
+    const data = createDemoData();
+    const now = new Date();
+    const before = demoMetrics(data, 0.1, now);
+    data.runtime.observation_state = 'stopped';
+    const stopped = demoMetrics(data, 0.1, now);
+    expect(stopped.current_traffic_period).toEqual(before.current_traffic_period);
+    expect(stopped.quota_exceeded).toBe(before.quota_exceeded);
+    expect(stopped.available).toBe(false);
+    const next = demoMetrics(data, 0.1, new Date(before.current_traffic_period.period_end));
+    expect(next.current_traffic_period.inbound_bytes).toBe(0);
+    expect(next.current_traffic_period.outbound_bytes).toBe(0);
+    expect(next.quota_exceeded).toBe(false);
+  });
+
+  it('keeps period details consistent with metrics when expanding, shrinking and restoring the period', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-09-28T08:00:00Z'));
+    const client = createDemoApiClient();
+    let settings = await client.getPanelSettings();
+    const original = (await client.getMetrics()).current_traffic_period;
+    const periods = new Map([[original.id, original]]);
+
+    for (const [months, id] of [
+      [3, 'traffic_monthly_202607_202610'],
+      [1, 'traffic_monthly_202609_202610'],
+      [6, 'traffic_monthly_202607_202701'],
+      [3, 'traffic_monthly_202607_202610'],
+    ] as const) {
+      settings = await client.savePanelSettings({
+        revision: settings.revision, preferences: settings.preferences,
+        service: { ...settings.service, traffic_period_months: months },
+      });
+      const current = (await client.getMetrics()).current_traffic_period;
+      expect(current).toMatchObject({
+        id, inbound_bytes: original.inbound_bytes, outbound_bytes: original.outbound_bytes,
+      });
+      expect((await client.getTrafficStatus()).current_traffic_period).toEqual(current);
+      periods.set(current.id, current);
+      for (const period of periods.values()) {
+        await expect(client.getTrafficPeriod(period.id)).resolves.toEqual(period);
+      }
+      expect((await client.listTrafficPeriods()).items).toEqual([original]);
+    }
+  });
+
+  it('does not invent period details for invalid IDs or ranges without recorded months', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-09-28T08:00:00Z'));
+    const client = createDemoApiClient();
+    for (const id of [
+      'missing', 'traffic_monthly_202613_202701', 'traffic_monthly_202610_202609',
+      'traffic_monthly_202609_202609', 'traffic_monthly_202610_202611',
+      'traffic_monthly_202608_202609', 'traffic_monthly_200001_202701',
+    ]) {
+      await expect(async () => client.getTrafficPeriod(id)).rejects.toMatchObject({ status: 404 });
+    }
+  });
+
   it('fills the full 24-hour chart and keeps overlapping samples stable as the window advances', async () => {
     const client = createDemoApiClient();
     const filter = {

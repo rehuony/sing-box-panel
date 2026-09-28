@@ -5,7 +5,6 @@ package application
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -17,10 +16,8 @@ import (
 
 const gibibyte = int64(1 << 30)
 
-// MetricsSnapshot never invents missing counters. Available identifies a fresh
-// collector sample for the exact applied bundle. TrafficAvailable separately
-// proves that at least one process-local counter delta contributes to the
-// current period, so an unproven first lifetime counter is not exposed as zero.
+// MetricsSnapshot separates live collector availability from the durable current
+// period ledger. Every successful read includes recorded usage, even when zero.
 type MetricsSnapshot struct {
 	LiveSample         *LiveTrafficSample    `json:"live_sample,omitempty"`
 	Host               *hostmetrics.Snapshot `json:"host,omitempty"`
@@ -29,11 +26,9 @@ type MetricsSnapshot struct {
 	AppliedBundleID    string                `json:"applied_bundle_id,omitempty"`
 	MonitoringTier     store.MonitoringTier  `json:"monitoring_tier,omitempty"`
 	CollectedAt        time.Time             `json:"collected_at"`
-	CurrentTrafficData *store.TrafficPeriod  `json:"current_traffic_period,omitempty"`
+	CurrentTrafficData store.TrafficPeriod   `json:"current_traffic_period"`
 	LatestSample       *store.TrafficSample  `json:"latest_sample,omitempty"`
-	TrafficAvailable   bool                  `json:"traffic_available"`
 	QuotaBytes         *int64                `json:"quota_bytes,omitempty"`
-	TrafficCoverage    store.CoverageStatus  `json:"traffic_coverage,omitempty"`
 	QuotaExceeded      bool                  `json:"quota_exceeded"`
 }
 
@@ -45,13 +40,13 @@ type TrafficSampleRetentionResult struct {
 func (application *Application) Metrics(ctx context.Context) (MetricsSnapshot, error) {
 	now := application.now().UTC()
 	result := MetricsSnapshot{CollectedAt: now, Host: application.hostSampler.Sample(application.settings.DataDir), LiveSample: application.collector.live.Load()}
-	policy, err := application.trafficAccounting(ctx)
+	period, quota, err := application.currentTrafficUsage(ctx, now)
 	if err != nil {
 		return MetricsSnapshot{}, err
 	}
-	if quotaGiB := policy.QuotaGiB; quotaGiB != nil && *quotaGiB > 0 {
-		quota := *quotaGiB * gibibyte
-		result.QuotaBytes = &quota
+	result.CurrentTrafficData, result.QuotaBytes = period, quota
+	if quota != nil {
+		result.QuotaExceeded = period.InboundBytes+period.OutboundBytes >= *quota
 	}
 	hub, err := application.database.RuntimeHubState(ctx)
 	if err != nil {
@@ -74,22 +69,6 @@ func (application *Application) Metrics(ctx context.Context) (MetricsSnapshot, e
 	if bundle.MonitoringTier != store.MonitoringLimited {
 		return MetricsSnapshot{}, fmt.Errorf("invalid activation monitoring tier %q", bundle.MonitoringTier)
 	}
-	months := policy.PeriodMonths
-	if months == 0 && application.settingsPath == "" {
-		months = 1
-	}
-	start, end, err := naturalTrafficPeriod(now, months)
-	if err != nil {
-		return MetricsSnapshot{}, err
-	}
-	period, err := application.database.AggregateTrafficPeriod(ctx, start, end, now)
-	if errors.Is(err, store.ErrTrafficPeriodNotFound) {
-		result.ReasonCode = "no_collector_sample"
-		return result, nil
-	}
-	if err != nil {
-		return MetricsSnapshot{}, err
-	}
 	sample, err := application.database.LatestAcceptedTrafficSample(ctx)
 	if errors.Is(err, sql.ErrNoRows) {
 		result.ReasonCode = "no_collector_sample"
@@ -104,23 +83,31 @@ func (application *Application) Metrics(ctx context.Context) (MetricsSnapshot, e
 		return result, nil
 	}
 	result.Available = true
-	result.CurrentTrafficData = &period
-	var counters struct {
-		TrafficEvidenceAvailable bool                 `json:"traffic_evidence_available"`
-		Coverage                 store.CoverageStatus `json:"coverage"`
-	}
-	if err := json.Unmarshal(period.Counters, &counters); err != nil {
-		return MetricsSnapshot{}, fmt.Errorf("decode traffic period evidence: %w", err)
-	}
-	result.TrafficAvailable = counters.TrafficEvidenceAvailable
-	result.TrafficCoverage = counters.Coverage
-	if !result.TrafficAvailable {
-		return result, nil
-	}
-	if result.QuotaBytes != nil {
-		result.QuotaExceeded = period.InboundBytes+period.OutboundBytes >= *result.QuotaBytes
-	}
+
 	return result, nil
+}
+
+// currentTrafficUsage is shared by metrics and public subscription headers.
+// A successful empty ledger is zero; a storage or settings failure remains an error.
+func (application *Application) currentTrafficUsage(ctx context.Context, at time.Time) (store.TrafficPeriod, *int64, error) {
+	policy, err := application.trafficAccounting(ctx)
+	if err != nil {
+		return store.TrafficPeriod{}, nil, err
+	}
+	start, end, err := naturalTrafficPeriod(at, policy.PeriodMonths)
+	if err != nil {
+		return store.TrafficPeriod{}, nil, err
+	}
+	period, err := application.database.AggregateTrafficPeriod(ctx, start, end, at)
+	if err != nil {
+		return store.TrafficPeriod{}, nil, err
+	}
+	var quota *int64
+	if policy.QuotaGiB != nil && *policy.QuotaGiB > 0 {
+		value := *policy.QuotaGiB * gibibyte
+		quota = &value
+	}
+	return period, quota, nil
 }
 
 func (application *Application) trafficQuota(ctx context.Context) (*int64, error) {

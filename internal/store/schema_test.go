@@ -88,6 +88,7 @@ func TestRemoveExportBindingsMigration(t *testing.T) {
 						}
 					}
 				}
+				restoreLegacyTrafficAccounting(t, db)
 				if version == 11 {
 					if _, err := db.db.ExecContext(ctx, "DROP TABLE traffic_months"); err != nil {
 						t.Fatal(err)
@@ -220,6 +221,7 @@ func TestSubscriptionOrderingMigrationIsAtomic(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
+			restoreLegacyTrafficAccounting(t, db)
 			if _, err := db.db.ExecContext(ctx, `PRAGMA user_version=13`); err != nil {
 				t.Fatal(err)
 			}
@@ -301,6 +303,7 @@ func TestSubscriptionPolicyMigrationRemovesLegacyFilters(t *testing.T) {
 	if _, err = db.db.ExecContext(t.Context(), `UPDATE subscription_channels SET config_json=? WHERE id='test'`, legacy); err != nil {
 		t.Fatal(err)
 	}
+	restoreLegacyTrafficAccounting(t, db)
 	if _, err = db.db.ExecContext(t.Context(), `PRAGMA user_version=13`); err != nil {
 		t.Fatal(err)
 	}
@@ -353,6 +356,7 @@ func TestSubscriptionPolicyMigrationPreservesLargeConfig(t *testing.T) {
 	if _, err = db.db.ExecContext(t.Context(), `UPDATE subscription_channels SET config_json=? WHERE id='large'`, string(legacy)); err != nil {
 		t.Fatal(err)
 	}
+	restoreLegacyTrafficAccounting(t, db)
 	if _, err = db.db.ExecContext(t.Context(), `PRAGMA user_version=13`); err != nil {
 		t.Fatal(err)
 	}

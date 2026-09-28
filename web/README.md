@@ -167,6 +167,9 @@ failures use jittered exponential backoff (at most 30 seconds) and a five-second
 notification grace period. A 25-second idle watchdog detects half-open streams.
 Live snapshots become stale after 10 seconds, history after 45 seconds. History
 delays stay in the dashboard and do not trigger the global live-connection Toast.
+Period traffic reads the recorded monthly ledger independently of live sampling:
+empty periods show zero, stopped/stale collection retains usage and quota status,
+and no period-completeness label is displayed.
 Chart updates reuse uPlot instances and batch cursor feedback per animation frame.
 Live chart tails cover at most 120 seconds beyond the consistent persisted
 watermark, preserve gaps and never contribute to accounted traffic totals.

@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/rehuony/sing-box-panel/internal/store"
+	"github.com/rehuony/sing-box-panel/internal/testutil"
 )
 
 func TestLiveTrafficSamplingPreservesPersistenceAndRegressionEvidence(t *testing.T) {
@@ -60,6 +61,7 @@ func TestLiveTrafficSamplingPreservesPersistenceAndRegressionEvidence(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
+	testutil.ApplyBundle(t, db, bundle.ID)
 	observation := store.RuntimeObservation{PID: 42, ProcessStartToken: "collector-process", ActivationBundleID: bundle.ID, CoreArtifactID: core.ID, ExactCoreVersion: core.ExactVersion, ArchiveSHA256: core.ArchiveSHA256, BinarySHA256: core.BinarySHA256, StartedAt: at, ObservedAt: at}
 	if _, err = db.RecordRuntimeObservation(t.Context(), observation); err != nil {
 		t.Fatal(err)
@@ -93,7 +95,7 @@ func TestLiveTrafficSamplingPreservesPersistenceAndRegressionEvidence(t *testing
 	}
 	at = at.Add(2 * time.Second) // UTC month boundary
 	persisted := collect(150)
-	if persisted.Sample.UploadDelta == nil || *persisted.Sample.UploadDelta != 50 || persisted.Sample.Coverage != store.CoveragePartial {
+	if persisted.Sample.UploadDelta == nil || *persisted.Sample.UploadDelta != 50 || persisted.Sample.Coverage != store.CoveragePartial || persisted.Period.OutboundBytes != 50 || persisted.Period.InboundBytes != 100 {
 		t.Fatalf("cross-month evidence=%+v", persisted.Sample)
 	}
 	at = at.Add(2 * time.Second)
@@ -131,4 +133,43 @@ func TestLiveTrafficSamplingPreservesPersistenceAndRegressionEvidence(t *testing
 	if !restarted.Sample.Accepted || restarted.Sample.UploadDelta != nil || app.collector.client == pooled {
 		t.Fatalf("incarnation transition=%+v", restarted.Sample)
 	}
+	quota := int64(1)
+	app.settings.Traffic.QuotaGiB = &quota
+	at = at.Add(10 * time.Second)
+	accounted := collect(5 + gibibyte).Period
+	assertUsage := func(wantAvailable bool, wantReason string) {
+		t.Helper()
+		metrics, err := app.Metrics(t.Context())
+		if err != nil || metrics.Available != wantAvailable || metrics.ReasonCode != wantReason ||
+			metrics.CurrentTrafficData.OutboundBytes != accounted.OutboundBytes || metrics.CurrentTrafficData.InboundBytes != accounted.InboundBytes || !metrics.QuotaExceeded {
+			t.Fatalf("recorded usage depends on live collection: %+v %v", metrics, err)
+		}
+		public, err := app.publicSubscriptionTraffic(t.Context(), at)
+		if err != nil || public.UploadBytes != accounted.OutboundBytes || public.DownloadBytes != accounted.InboundBytes || public.TotalBytes != gibibyte {
+			t.Fatalf("subscription and metrics disagree: %+v %v", public, err)
+		}
+	}
+	assertUsage(true, "")
+	at = at.Add(time.Minute)
+	app.ClearLiveTrafficSample()
+	assertUsage(false, "stale_collector_sample")
+	if _, err := db.ClearRuntimeObservation(t.Context(), observation.PID, observation.ProcessStartToken); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.DeleteTrafficSamplesBefore(t.Context(), at); err != nil {
+		t.Fatal(err)
+	}
+	assertUsage(false, "no_collector_sample")
+	at = time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)
+	metrics, err := app.Metrics(t.Context())
+	if err != nil || metrics.CurrentTrafficData.OutboundBytes != 0 || metrics.CurrentTrafficData.InboundBytes != 0 || metrics.QuotaExceeded {
+		t.Fatalf("new period: %+v %v", metrics, err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := app.Metrics(t.Context()); err == nil {
+		t.Fatal("storage failure returned zero usage")
+	}
+
 }

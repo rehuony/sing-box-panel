@@ -100,11 +100,10 @@ recorded usage is returned; no records means `upload=0; download=0`. Historical
 totals remain intact, and no reset job or running collector is required.
 Quota and period changes take effect on the next request.
 
-The header reports recorded usage even when sampling is stale, stopped, or
-incomplete. Zero means no recorded usage, not proof that no traffic occurred.
-The header format cannot communicate sampling coverage; dashboard metrics keep
-their existing unknown/partial evidence semantics. Configuration read or traffic
-storage failures return `503` instead of fabricated counters. Failed requests
+The header and dashboard report the same recorded sing-box usage even when
+sampling is stale or stopped. Zero means no recorded usage, not proof that no
+traffic occurred. VPS interface totals and unrelated host traffic are not included.
+Configuration read or traffic storage failures return `503` instead of fabricated counters. Failed requests
 do not consume download quota or expose the traffic header; final authorization
 is rechecked before either a `200` or `304` response is committed.
 
@@ -642,8 +641,9 @@ payloads.
 on a two-second cadence. The lifecycle-owned collector reads the running core
 every two seconds with a reused, incarnation-bound Clash client. The optional
 `metrics.live_sample` is process-local evidence with its own `sampled_at`, PID
-and start token. It does not change the existing `latest_sample`, availability,
-coverage or persisted period-total semantics. Snapshots use narrow runtime
+and start token. Live samples do not enter the persisted accounting totals.
+Collector availability and historical sampling quality remain separate from
+recorded period usage. Snapshots use narrow runtime
 projections rather than loading complete saved configurations.
 
 Live, history and log streams have independent browser ownership. Hidden tabs
@@ -745,31 +745,49 @@ persists checkpoints every ten seconds. Incarnation changes and rejected evidenc
 may persist immediately: an intervening high-water observation is flushed before
 a counter regression so decimation cannot conceal it. Sampling failure clears
 live evidence without changing accounting. Persisted samples older than 30 seconds
-retain the existing stale accounting semantics.
+make live metrics unavailable; recorded period usage remains available.
 
-Counters are checkpointed by PID and OS start token. A restart opens a new
-segment and preserves the UTC natural-month period total. A decrease inside
-one process is stored as rejected diagnostic evidence and cannot lower totals.
-Checkpoints retain the last process counters across settings changes and add
-only deltas proven inside a UTC month, so changing a period cannot re-add lifetime
-counters. Cross-month intervals are not proportionally guessed. Samples and period contributions use
-nullable upload/download deltas: legacy or interrupted intervals that cannot
-be proven are marked `partial` instead of being rendered as zero.
+Counters are checkpointed by PID, OS start token and activation bundle. The
+first observation in each segment is a baseline; only subsequent nonnegative
+counter differences are added. A restart preserves recorded totals, and a counter
+decrease or out-of-order observation is rejected without changing the checkpoint.
+The source is the managed sing-box instance's `/connections` upload/download
+counters, not host network interfaces, SSH, system updates or other VPS traffic.
+
+Each accepted delta is booked entirely in the UTC month of its later sample,
+including a cross-month interval or a collection gap longer than 30 seconds.
+There is no proportional allocation. This keeps recorded increments from being
+lost or counted twice, but a cross-month interval can shift usage into the later
+month. Changing period settings does not reset checkpoints or re-add lifetime
+counters. The raw sample's nullable deltas and coverage metadata remain available
+for historical charts, independently of monthly accounting.
 
 Periods span `traffic.period_months`, aligned to UTC natural months from January
-1970, and are recomputed immediately after saving a new month count. Durable
-monthly totals are updated in the same transaction as samples and checkpoints,
-so changing periods does not depend on retained raw samples. Version-11 migration
-prefers existing single-month totals and backfills only missing months from
-verifiable samples. Unsplit older multi-month records remain available as history;
-no proportional allocation or duplicate accumulation is performed. Coverage is
-`missing`, `partial`, or `complete`; the dashboard marks partial history as
-“Incomplete data”. Missing or stale evidence displays unknown usage while still
-showing the configured quota. `traffic.quota_gib=null` or `0` is unlimited.
-Current periods aggregate across activation bundles while individual samples
-retain bundle evidence. Period list responses include the paired
-`period_start`/`id` cursor in `next`, so every matching record remains
-reachable beyond the requested limit.
+1970, and are recomputed immediately after saving a new month count. Monthly totals,
+samples and checkpoints update in one transaction. Current usage, monthly period
+details and paginated lists read the same durable monthly ledger, even after raw
+samples expire or a previously selected period receives more recorded usage.
+Unsplit legacy period records retain their original values. The paired
+`period_start`/`id` cursor in `next` preserves stable pagination.
+
+Every successful metrics response includes `current_traffic_period`: an empty
+period has zero inbound and outbound bytes. Recorded usage and quota status remain
+visible while sing-box is stopped, monitoring is unavailable or samples are stale.
+`available` and `reason_code` describe live collection only. The retired
+`traffic_available` and `traffic_coverage` fields are removed; clients should read
+`current_traffic_period` directly. The dashboard no longer evaluates period
+completeness. Before a successful response, or when storage fails, the existing
+loading/error handling applies rather than inventing zero usage.
+`traffic.quota_gib=null` or `0` is unlimited. Usage aggregates across activation
+bundles and is the sum of recorded upload and download bytes; quota exhaustion
+uses that same total even while collection is stopped.
+
+Schema 15 removes monthly completeness state and redundant checkpoint totals.
+Upgrades from versions 11–14 preserve accumulated bytes, the latest checkpoint
+and archived periods, and remove retired period coverage metadata transactionally.
+Version 11 first seeds the original monthly ledger from single-month totals and
+verifiable retained samples. Historical amounts are not replayed under the new
+cross-month rule; that rule applies to observations recorded after upgrade.
 
 Raw samples follow the required `traffic.sample_retention_days` setting, which
 is initialized to 90 and accepts 1 through 366 days. A settings file without
@@ -807,9 +825,11 @@ sing-box-panel metrics history
 sing-box-panel metrics period PERIOD_ID
 ```
 
-`show` and `watch` include the current traffic period and its cumulative
-traffic when evidence is available. Historical periods remain available
-through `history` and `period`; a separate `traffic` CLI group is unnecessary.
+Every successful `show` or `watch` read includes the current traffic period and
+its recorded cumulative traffic, including zero before collection. Stopped or
+stale collection does not hide these totals; availability and reason describe
+live collection only. Historical periods remain available through `history`
+and `period`; a separate `traffic` CLI group is unnecessary.
 
 ## Management surfaces
 

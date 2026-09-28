@@ -21,7 +21,7 @@ type SchemaInfo struct {
 }
 
 // initializeSchema creates an empty database or transactionally upgrades versions
-// 11–13 of this storage epoch. Unrelated and newer formats remain rejected.
+// 11–14 of this storage epoch. Unrelated and newer formats remain rejected.
 func (s *Store) initializeSchema(ctx context.Context) error {
 	return s.WithTx(ctx, func(tx *sql.Tx) error {
 		applicationID, err := pragmaInt(ctx, tx, "application_id")
@@ -33,7 +33,7 @@ func (s *Store) initializeSchema(ctx context.Context) error {
 			return err
 		}
 		if applicationID == ApplicationID && version == 11 {
-			if _, err := tx.ExecContext(ctx, trafficMonthsSchema); err != nil {
+			if _, err := tx.ExecContext(ctx, legacyTrafficMonthsSchema); err != nil {
 				return err
 			}
 			if err := seedTrafficMonths(ctx, tx); err != nil {
@@ -53,7 +53,13 @@ func (s *Store) initializeSchema(ctx context.Context) error {
 			if err := migrateSubscriptionPolicies(ctx, tx); err != nil {
 				return fmt.Errorf("migrate subscription policy ordering: %w", err)
 			}
-			_, err := tx.ExecContext(ctx, "PRAGMA user_version = 14")
+			version = 14
+		}
+		if applicationID == ApplicationID && version == 14 {
+			if err := migrateTrafficAccounting(ctx, tx); err != nil {
+				return fmt.Errorf("migrate traffic accounting: %w", err)
+			}
+			_, err := tx.ExecContext(ctx, "PRAGMA user_version = 15")
 			return err
 		}
 		if applicationID != 0 {
@@ -66,7 +72,7 @@ func (s *Store) initializeSchema(ctx context.Context) error {
 		if version != 0 || hasObjects {
 			return fmt.Errorf("%w: refusing to adopt an unidentified non-empty database", ErrUnexpectedApplicationID)
 		}
-		if _, err := tx.ExecContext(ctx, databaseSchema+"\n"+trafficMonthsSchema); err != nil {
+		if _, err := tx.ExecContext(ctx, databaseSchema+"\n"+trafficMonthsSchema+"\n"+trafficCheckpointSchema); err != nil {
 			return fmt.Errorf("initialize SQLite schema: %w", err)
 		}
 		if _, err := tx.ExecContext(ctx, fmt.Sprintf("PRAGMA application_id = %d; PRAGMA user_version = %d", ApplicationID, CurrentSchemaVersion)); err != nil {

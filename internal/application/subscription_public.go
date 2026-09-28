@@ -93,27 +93,14 @@ func (application *Application) PublicSubscription(
 }
 
 func (application *Application) publicSubscriptionTraffic(ctx context.Context, at time.Time) (PublicSubscriptionTraffic, error) {
-	policy, err := application.trafficAccounting(ctx)
+	period, quota, err := application.currentTrafficUsage(ctx, at)
 	if err != nil {
 		return PublicSubscriptionTraffic{}, err
 	}
-	var result PublicSubscriptionTraffic
-	if policy.QuotaGiB != nil {
-		result.TotalBytes = *policy.QuotaGiB * gibibyte
+	result := PublicSubscriptionTraffic{UploadBytes: period.OutboundBytes, DownloadBytes: period.InboundBytes}
+	if quota != nil {
+		result.TotalBytes = *quota
 	}
-	start, end, err := naturalTrafficPeriod(at, policy.PeriodMonths)
-	if err != nil {
-		return PublicSubscriptionTraffic{}, err
-	}
-	period, err := application.database.AggregateTrafficPeriod(ctx, start, end, at)
-	if errors.Is(err, store.ErrTrafficPeriodNotFound) {
-		// The current period starts at zero even before its first sample arrives.
-		return result, nil
-	}
-	if err != nil {
-		return PublicSubscriptionTraffic{}, err
-	}
-	result.UploadBytes, result.DownloadBytes = period.OutboundBytes, period.InboundBytes
 	return result, nil
 }
 

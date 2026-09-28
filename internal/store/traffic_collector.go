@@ -5,12 +5,15 @@ package store
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
+	_ "embed"
 	"errors"
 	"fmt"
 	"strings"
 	"time"
 )
+
+//go:embed traffic_checkpoint.sql
+var trafficCheckpointSchema string
 
 type TrafficSampleInput struct {
 	ActivationBundleID string
@@ -50,13 +53,10 @@ type TrafficSampleResult struct {
 }
 
 type trafficCheckpoint struct {
-	PeriodStart, PeriodEnd                 time.Time
-	PID                                    int
-	ProcessStartToken, ActivationBundleID  string
-	LastUpload, LastDownload               int64
-	AccumulatedUpload, AccumulatedDownload int64
-	HasDelta                               bool
-	SampledAt                              time.Time
+	PID                                   int
+	ProcessStartToken, ActivationBundleID string
+	LastUpload, LastDownload              int64
+	SampledAt                             time.Time
 }
 
 // RecordTrafficSample converts process-local counters into monotonic period
@@ -110,43 +110,22 @@ func (s *Store) RecordTrafficSample(ctx context.Context, input TrafficSampleInpu
 			return err
 		}
 		result.Sample = sample
-		if !accepted {
-			periodID := trafficPeriodID(prepared.PeriodStart, prepared.PeriodEnd)
-			period, periodErr := getTrafficPeriod(ctx, tx, periodID)
-			if errors.Is(periodErr, ErrTrafficPeriodNotFound) {
-				return nil
+		if accepted {
+			if err := recordTrafficMonth(ctx, tx, sample); err != nil {
+				return err
 			}
-			result.Period = period
-			return periodErr
+			if err := upsertTrafficCheckpoint(ctx, tx, prepared); err != nil {
+				return err
+			}
 		}
-
-		if err := recordTrafficMonth(ctx, tx, sample); err != nil {
-			return err
-		}
-		aggregated, err := aggregateTrafficPeriod(ctx, tx, prepared.PeriodStart, prepared.PeriodEnd, prepared.SampledAt)
+		period, err := aggregateTrafficPeriod(ctx, tx, prepared.PeriodStart, prepared.PeriodEnd, prepared.SampledAt)
 		if err != nil {
 			return err
 		}
-		accumulatedUpload, accumulatedDownload := aggregated.OutboundBytes, aggregated.InboundBytes
-		var evidence struct {
-			Available bool           `json:"traffic_evidence_available"`
-			Coverage  CoverageStatus `json:"coverage"`
-		}
-		if err := json.Unmarshal(aggregated.Counters, &evidence); err != nil {
-			return err
-		}
-		hasDelta := evidence.Available
-		if err := upsertTrafficCheckpoint(
-			ctx, tx, prepared, accumulatedUpload, accumulatedDownload, hasDelta,
-		); err != nil {
-			return err
-		}
-		period, err := upsertCollectedTrafficPeriod(
-			ctx, tx, prepared, accumulatedUpload, accumulatedDownload,
-			uploadDelta, downloadDelta, evidence.Coverage, hasDelta,
-		)
-		if err != nil {
-			return err
+		if accepted {
+			if err := upsertCollectedTrafficPeriod(ctx, tx, period); err != nil {
+				return err
+			}
 		}
 		result.Period = period
 		return nil
@@ -183,24 +162,12 @@ func prepareTrafficSampleInput(input TrafficSampleInput) (TrafficSampleInput, er
 
 func getTrafficCheckpoint(ctx context.Context, tx *sql.Tx) (trafficCheckpoint, error) {
 	var checkpoint trafficCheckpoint
-	var start, end, sampled string
+	var sampled string
 	err := tx.QueryRowContext(ctx, `
-        SELECT period_start, period_end, pid, process_start_token, activation_bundle_id,
-               last_upload_total, last_download_total, accumulated_upload,
-			   accumulated_download, has_delta, sampled_at
-          FROM traffic_checkpoint WHERE singleton = 1`).Scan(
-		&start, &end, &checkpoint.PID, &checkpoint.ProcessStartToken, &checkpoint.ActivationBundleID,
-		&checkpoint.LastUpload, &checkpoint.LastDownload, &checkpoint.AccumulatedUpload,
-		&checkpoint.AccumulatedDownload, &checkpoint.HasDelta, &sampled,
-	)
-	if err != nil {
-		return trafficCheckpoint{}, err
-	}
-	checkpoint.PeriodStart, err = parseTime(start)
-	if err != nil {
-		return trafficCheckpoint{}, err
-	}
-	checkpoint.PeriodEnd, err = parseTime(end)
+        SELECT pid,process_start_token,activation_bundle_id,last_upload_total,last_download_total,sampled_at
+        FROM traffic_checkpoint WHERE singleton=1`).Scan(
+		&checkpoint.PID, &checkpoint.ProcessStartToken, &checkpoint.ActivationBundleID,
+		&checkpoint.LastUpload, &checkpoint.LastDownload, &sampled)
 	if err != nil {
 		return trafficCheckpoint{}, err
 	}
@@ -247,72 +214,37 @@ func insertTrafficSample(
 	}, nil
 }
 
-func upsertTrafficCheckpoint(
-	ctx context.Context,
-	tx *sql.Tx,
-	input TrafficSampleInput,
-	upload, download int64,
-	hasDelta bool,
-) error {
+func upsertTrafficCheckpoint(ctx context.Context, tx *sql.Tx, input TrafficSampleInput) error {
 	_, err := tx.ExecContext(ctx, `
         INSERT INTO traffic_checkpoint(
-            singleton, period_start, period_end, pid, process_start_token, activation_bundle_id,
-			last_upload_total, last_download_total, accumulated_upload, accumulated_download,
-			has_delta, sampled_at
-		) VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            singleton,pid,process_start_token,activation_bundle_id,last_upload_total,last_download_total,sampled_at
+        ) VALUES (1,?,?,?,?,?,?)
         ON CONFLICT(singleton) DO UPDATE SET
-            period_start=excluded.period_start, period_end=excluded.period_end,
-            pid=excluded.pid, process_start_token=excluded.process_start_token,
+            pid=excluded.pid,process_start_token=excluded.process_start_token,
             activation_bundle_id=excluded.activation_bundle_id,
-            last_upload_total=excluded.last_upload_total, last_download_total=excluded.last_download_total,
-            accumulated_upload=excluded.accumulated_upload, accumulated_download=excluded.accumulated_download,
-			has_delta=excluded.has_delta, sampled_at=excluded.sampled_at`,
-		formatTime(input.PeriodStart), formatTime(input.PeriodEnd), input.PID,
-		input.ProcessStartToken, input.ActivationBundleID, input.UploadTotal, input.DownloadTotal,
-		upload, download, hasDelta, formatTime(input.SampledAt),
-	)
+            last_upload_total=excluded.last_upload_total,last_download_total=excluded.last_download_total,
+            sampled_at=excluded.sampled_at`,
+		input.PID, input.ProcessStartToken, input.ActivationBundleID, input.UploadTotal, input.DownloadTotal, formatTime(input.SampledAt))
 	if err != nil {
 		return fmt.Errorf("update traffic checkpoint: %w", err)
 	}
 	return nil
 }
 
-func upsertCollectedTrafficPeriod(
-	ctx context.Context,
-	tx *sql.Tx,
-	input TrafficSampleInput,
-	upload, download int64,
-	uploadDelta, downloadDelta *int64,
-	coverage CoverageStatus,
-	hasDelta bool,
-) (TrafficPeriod, error) {
-	periodID := trafficPeriodID(input.PeriodStart, input.PeriodEnd)
-	counters, err := json.Marshal(map[string]any{
-		"latest_sample_at": input.SampledAt, "memory_bytes": input.MemoryBytes,
-		"active_connections": input.ActiveConnections, "latest_bundle_id": input.ActivationBundleID,
-		"upload_total": input.UploadTotal, "download_total": input.DownloadTotal,
-		"upload_delta": uploadDelta, "download_delta": downloadDelta, "coverage": coverage,
-		"traffic_evidence_available": hasDelta,
-	})
-	if err != nil {
-		return TrafficPeriod{}, err
-	}
-	_, err = tx.ExecContext(ctx, `
+func upsertCollectedTrafficPeriod(ctx context.Context, tx *sql.Tx, period TrafficPeriod) error {
+	_, err := tx.ExecContext(ctx, `
         INSERT INTO traffic_periods(
-            id, activation_bundle_id, period_start, period_end, inbound_bytes,
-            outbound_bytes, counters_json, created_at
-        ) VALUES (?, NULL, ?, ?, ?, ?, ?, ?)
+            id,activation_bundle_id,period_start,period_end,inbound_bytes,outbound_bytes,counters_json,created_at
+        ) VALUES (?,NULL,?,?,?,?,?,?)
         ON CONFLICT(id) DO UPDATE SET
-            inbound_bytes=excluded.inbound_bytes,
-            outbound_bytes=excluded.outbound_bytes,
+            inbound_bytes=excluded.inbound_bytes,outbound_bytes=excluded.outbound_bytes,
             counters_json=excluded.counters_json`,
-		periodID, formatTime(input.PeriodStart), formatTime(input.PeriodEnd),
-		download, upload, string(counters), formatTime(input.SampledAt),
-	)
+		period.ID, formatTime(period.PeriodStart), formatTime(period.PeriodEnd), period.InboundBytes,
+		period.OutboundBytes, string(period.Counters), formatTime(period.CreatedAt))
 	if err != nil {
-		return TrafficPeriod{}, fmt.Errorf("update collected traffic period: %w", err)
+		return fmt.Errorf("update collected traffic period: %w", err)
 	}
-	return getTrafficPeriod(ctx, tx, periodID)
+	return nil
 }
 
 func trafficPeriodID(start, end time.Time) string {

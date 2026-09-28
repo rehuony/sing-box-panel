@@ -67,11 +67,10 @@ describe('dashboard evidence', () => {
     expect(screen.getByRole('heading', { name: 'Traffic（B/s）' })).toBeVisible();
   });
 
-  it('shows host metrics while core traffic is unavailable', () => {
+  it('shows host metrics and recorded usage while live collection is unavailable', () => {
     show({ metrics: {
       ...testMetrics,
       available: false,
-      traffic_available: false,
       reason_code: 'process_only',
       monitoring_tier: 'process_only',
       host: {
@@ -80,7 +79,7 @@ describe('dashboard evidence', () => {
       },
     } });
     expect(screen.getByText('12.8%')).toBeVisible();
-    expect(screen.getByText('Usage unknown')).toBeVisible();
+    expect(screen.getByText('6 KB')).toBeVisible();
   });
 
   it('never replaces missing host readings with core process samples', () => {
@@ -96,23 +95,26 @@ describe('dashboard evidence', () => {
     expect(card.querySelector('small')).toHaveTextContent('0 / ∞ GiB');
   });
 
-  it('does not invent used traffic when evidence is missing', () => {
-    show({ metrics: { ...testMetrics, traffic_available: false } });
+  it('keeps usage unknown until the first successful metrics response', () => {
+    show({ metrics: null });
     const card = screen.getByText('Period traffic').closest('section')!;
     expect(card.querySelector('strong')).toHaveTextContent('Usage unknown');
-    expect(card.querySelector('small')).toHaveTextContent('— / ∞ GiB');
   });
 
-  it('shows the configured quota alongside unknown usage and marks incomplete history', () => {
-    show({ metrics: { ...testMetrics, available: false, traffic_available: false, quota_bytes: 500 * 2 ** 30 } });
+  it('shows zero recorded usage for an empty period', () => {
+    show({ metrics: { ...testMetrics, available: false,
+      current_traffic_period: { ...testMetrics.current_traffic_period, inbound_bytes: 0, outbound_bytes: 0 },
+    } });
     const card = screen.getByText('Period traffic').closest('section')!;
-    expect(card.querySelector('strong')).toHaveTextContent('Usage unknown');
-    expect(card.querySelector('small')).toHaveTextContent('500 GB');
+    expect(card.querySelector('strong')).toHaveTextContent('0 B');
+    expect(card.querySelector('small')).toHaveTextContent('0 / ∞ GiB');
   });
 
-  it('marks partial monthly coverage without inventing missing usage', () => {
-    show({ metrics: { ...testMetrics, traffic_coverage: 'partial' } });
-    expect(screen.getByText('Period traffic').closest('section')).toHaveTextContent('Incomplete data');
+  it('preserves recorded usage and quota when collection is stale', () => {
+    show({ metrics: { ...testMetrics, available: false, reason_code: 'stale_collector_sample', quota_bytes: 12_288 } });
+    const card = screen.getByText('Period traffic').closest('section')!;
+    expect(card.querySelector('strong')).toHaveTextContent('6 KB');
+    expect(card.querySelector('small')).toHaveTextContent('Used 50.0% · quota 12 KB');
   });
 
   it('keeps the configured finite quota presentation', () => {

@@ -209,7 +209,6 @@ export const testMetrics: MetricsSnapshot = {
   applied_bundle_id: 'bundle_18',
   monitoring_tier: 'limited',
   collected_at: '2026-08-26T07:34:00Z',
-  traffic_available: true,
   quota_exceeded: false,
   current_traffic_period: testTrafficPeriod,
 };

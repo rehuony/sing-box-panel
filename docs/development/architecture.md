@@ -184,7 +184,9 @@ markers for interrupted settings/identity updates and configuration restores.
 `traffic_months.sql` adds durable monthly traffic accounting. Version 11 of the
 same application identity upgrades transactionally through version 12 (traffic months),
 version 13 (removal of channel export-key bindings), and version 14 (subscription
-policy ordering and removal of retired overrides); unknown and
+policy ordering and removal of retired overrides), then version 15 (recorded
+traffic accounting without period completeness state or redundant checkpoints).
+`traffic_checkpoint.sql` defines the current process-counter checkpoint. Unknown and
 newer storage formats remain rejected.
 
 Authenticated management, CSRF/origin controls, safe source acquisition,

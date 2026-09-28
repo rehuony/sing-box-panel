@@ -39,6 +39,7 @@ import {
   demoMetrics,
   demoMetricsHistory,
   demoSystemStatus,
+  demoTrafficPeriod,
 } from './demo-data';
 
 interface DemoState extends ReturnType<typeof createDemoData> {
@@ -1052,7 +1053,9 @@ export function createDemoApiClient(): ApiClient {
     async* streamMetrics(signal) {
       while (!signal?.aborted) {
         yield {
-          metrics: demoMetrics(state, panelSettings.preferences.traffic_quota_gib),
+          metrics: demoMetrics(
+            state, panelSettings.preferences.traffic_quota_gib, new Date(), panelSettings.service.traffic_period_months,
+          ),
           runtime: structuredClone(state.runtime),
         };
         await new Promise<void>((resolve) => {
@@ -1099,15 +1102,13 @@ export function createDemoApiClient(): ApiClient {
         });
       }
     },
-    getMetrics: (signal) => respond(demoMetrics(state, panelSettings.preferences.traffic_quota_gib), signal),
+    getMetrics: (signal) => respond(demoMetrics(
+      state, panelSettings.preferences.traffic_quota_gib, new Date(), panelSettings.service.traffic_period_months,
+    ), signal),
     getTrafficStatus(signal) {
-      const period = state.trafficPeriods[0];
-      if (period !== undefined && state.runtime.observation_state === 'running') {
-        period.inbound_bytes += 486_210;
-        period.outbound_bytes += 124_820;
-        period.period_end = updatedAt();
-      }
-      return respond(demoMetrics(state, panelSettings.preferences.traffic_quota_gib), signal);
+      return respond(demoMetrics(
+        state, panelSettings.preferences.traffic_quota_gib, new Date(), panelSettings.service.traffic_period_months,
+      ), signal);
     },
     getMetricsHistory(filter, signal) {
       const result = demoMetricsHistory(filter.from, filter.to, filter.bucketSeconds);
@@ -1123,10 +1124,12 @@ export function createDemoApiClient(): ApiClient {
           && (filter.to === undefined || period.period_start <= filter.to),
       );
       const limit = Math.max(1, filter.limit ?? 100);
-      return respond({ items: filtered.slice(0, limit) }, signal);
+      const now = new Date();
+      const items = filtered.slice(0, limit).map(period => demoTrafficPeriod(state, period.id, now)!);
+      return respond({ items }, signal);
     },
     getTrafficPeriod: (periodID, signal) =>
-      respond(requireItem(state.trafficPeriods, periodID, 'Traffic period'), signal),
+      respond(demoTrafficPeriod(state, periodID) ?? notFound('Traffic period', periodID), signal),
   };
 
   return client;

@@ -1062,8 +1062,9 @@ paths:
         Usage is shared across keys and channels, not attributed to individual users
         or subscription downloads. Each request recomputes the period and reads the
         current settings. Recorded usage is retained when collection is stale or
-        stopped; a period without records reports zero. Missing samples can make
-        these totals incomplete. Settings or traffic-storage failures return 503
+        stopped; a period without records reports zero. Usage comes from sing-box
+        connection counters, not VPS interface totals. Cross-month increments are
+        booked in the later sample's UTC month. Settings or traffic-storage failures return 503
         without consuming download quota. The final authorization recheck must pass
         before traffic metadata is exposed. Traffic changes do not change the body ETag.
       responses:
@@ -1350,7 +1351,7 @@ components:
         the configured quota in GiB multiplied by 1073741824, or 0 for an absent or
         zero quota (unlimited). New periods start with zero recorded usage without
         deleting historical totals. This header contains no expire field or refresh
-        interval and cannot express sampling coverage; clients see updated values
+        interval; clients see updated values
         on their next successful subscription refresh.
       schema:
         type: string
@@ -2945,7 +2946,7 @@ components:
     MetricsSnapshot:
       type: object
       additionalProperties: false
-      required: [available, collected_at, traffic_available, quota_exceeded]
+      required: [available, collected_at, current_traffic_period, quota_exceeded]
       properties:
         host:
           type: object
@@ -2960,16 +2961,18 @@ components:
             memory_used: {type: integer, format: int64, nullable: true, minimum: 0}
             disk_total: {type: integer, format: int64, nullable: true, minimum: 0}
             disk_used: {type: integer, format: int64, nullable: true, minimum: 0}
-        available: {type: boolean}
+        available:
+          type: boolean
+          description: Fresh collector evidence for the applied bundle; does not gate recorded period usage.
         reason_code: {type: string, enum: [not_applied, process_only, no_collector_sample, stale_collector_sample]}
         applied_bundle_id: {type: string}
         monitoring_tier: {type: string, enum: [process_only, limited]}
         collected_at: {type: string, format: date-time}
-        current_traffic_period: {$ref: "#/components/schemas/TrafficPeriod"}
+        current_traffic_period:
+          $ref: "#/components/schemas/TrafficPeriod"
+          description: Recorded sing-box upload and download usage in the configured UTC period, including zero before collection. Retained when live collection is unavailable.
         latest_sample: {$ref: "#/components/schemas/TrafficSample"}
         live_sample: {$ref: "#/components/schemas/LiveTrafficSample"}
-        traffic_coverage: {$ref: "#/components/schemas/CoverageStatus"}
-        traffic_available: {type: boolean}
         quota_bytes: {type: integer, format: int64, minimum: 0}
         quota_exceeded: {type: boolean}
     CoverageStatus:

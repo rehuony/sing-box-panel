@@ -44,7 +44,7 @@ func TestMetricsCommandsReportCurrentAndHistoricalEvidence(t *testing.T) {
 	if err := json.Unmarshal(metricsOutput, &metrics); err != nil {
 		t.Fatal(err)
 	}
-	if metrics.Available || metrics.ReasonCode != "not_applied" || metrics.CurrentTrafficData != nil {
+	if metrics.Available || metrics.ReasonCode != "not_applied" || metrics.CurrentTrafficData.InboundBytes != 0 || metrics.CurrentTrafficData.OutboundBytes != 0 {
 		t.Fatalf("metrics fabricated unavailable values: %+v", metrics)
 	}
 
@@ -80,8 +80,8 @@ func TestMetricsTextShowsCurrentPeriodWithoutInventingTraffic(t *testing.T) {
 	start := time.Date(2026, time.September, 1, 0, 0, 0, 0, time.UTC)
 	end := start.AddDate(0, 1, 0)
 	snapshot := application.MetricsSnapshot{
-		Available: true, TrafficAvailable: true, CollectedAt: start,
-		CurrentTrafficData: &store.TrafficPeriod{
+		Available: true, CollectedAt: start,
+		CurrentTrafficData: store.TrafficPeriod{
 			ID: "internal-period-id", PeriodStart: start, PeriodEnd: end,
 			InboundBytes: 123, OutboundBytes: 456,
 		},
@@ -95,9 +95,9 @@ func TestMetricsTextShowsCurrentPeriodWithoutInventingTraffic(t *testing.T) {
 	if strings.Contains(text, snapshot.CurrentTrafficData.ID) {
 		t.Fatalf("metrics shows internal identity instead of the period: %q", text)
 	}
-	snapshot.TrafficAvailable = false
+	snapshot.Available = false
 	text = metricsText(snapshot)
-	if !strings.Contains(text, "traffic=unavailable") || strings.Contains(text, "in=123") || strings.Contains(text, "out=456") {
-		t.Fatalf("metrics fabricates traffic without counter evidence: %q", text)
+	if !strings.Contains(text, "unavailable") || !strings.Contains(text, "in=123") || !strings.Contains(text, "out=456") {
+		t.Fatalf("metrics lost recorded usage without live evidence: %q", text)
 	}
 }
