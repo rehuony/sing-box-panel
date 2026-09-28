@@ -1240,6 +1240,15 @@
 .subscription-settings-fields input[type='checkbox'] {
   justify-self: start;
 }
+.channel-options-fields {
+  grid-template-columns: minmax(max-content, 1fr) minmax(0, 2fr);
+}
+.channel-options-fields > * {
+  min-width: 0;
+}
+.channel-options-fields > :is(label, span) {
+  white-space: nowrap;
+}
 .subscription-source-dialog[data-slot='dialog-content'] {
   width: 640px;
   max-width: calc(100vw - 32px);
@@ -1862,7 +1871,11 @@
   .channel-group-node-tools .subscription-search {
     flex: 1;
   }
-  .channel-rule-dialog .subscription-settings-fields,
+  .channel-options-fields {
+    grid-template-columns: max-content minmax(0, 1fr);
+    gap: 12px;
+  }
+  .channel-rule-dialog .subscription-settings-fields:not(.channel-options-fields),
   .channel-workspace .subscription-settings-fields,
   .subscription-source-settings .subscription-settings-fields {
     grid-template-columns: minmax(100px, 1fr) minmax(0, 2fr);
@@ -1871,7 +1884,7 @@
 }
 
 @media (max-width: 480px) {
-  .channel-rule-dialog .subscription-settings-fields,
+  .channel-rule-dialog .subscription-settings-fields:not(.channel-options-fields),
   .channel-workspace .subscription-settings-fields,
   .subscription-source-settings .subscription-settings-fields {
     grid-template-columns: minmax(0, 1fr);

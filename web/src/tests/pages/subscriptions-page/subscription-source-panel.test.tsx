@@ -264,7 +264,7 @@ describe('subscription sources and nodes', () => {
     await user.click(screen.getByRole('tab', { name: 'Source settings' }));
     await user.type(await screen.findByLabelText('Name'), ' edited');
     await user.click(screen.getByRole('tab', { name: 'Nodes' }));
-    await user.click(screen.getByRole('button', { name: 'Keep editing' }));
+    await user.click(screen.getByRole('button', { name: 'Cancel' }));
     expect(screen.getByLabelText('Name')).toHaveValue('Global Edge edited');
     await user.click(screen.getByRole('button', { name: 'Back' }));
     await user.click(screen.getByRole('button', { name: 'Discard changes' }));

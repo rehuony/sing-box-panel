@@ -249,7 +249,7 @@ export function ChannelRuleEditor({ rule, format, onClose, onSave, otherRuleName
             {t('common.cancel')}
           </Button>
           <Button disabled={busy} variant='default' onClick={() => void save()}>
-            {t('channels.done')}
+            {t('channels.apply')}
           </Button>
         </DialogFooter>
       </DialogContent>

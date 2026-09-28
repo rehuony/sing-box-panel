@@ -465,7 +465,7 @@ export function ManagedCollectionsEditor({
               )
             : null}
           <DialogFooter>
-            <DialogClose render={<Button type='button' />}>{t('common.cancel')}</DialogClose>
+            <DialogClose render={<Button type='button' variant='outline' />}>{t('common.cancel')}</DialogClose>
             <Button disabled={disabled || editing === null || !views[editing.index]?.valid} type='button' onClick={() => {
               if (editing === null) return;
               const updated = entries(editing.draft[activeCollection])[0];
@@ -563,7 +563,7 @@ export function ManagedCollectionsEditor({
                 : null}
           </div>
           <DialogFooter>
-            <DialogClose render={<Button type='button' variant='secondary' />}>{t('common.cancel')}</DialogClose>
+            <DialogClose render={<Button type='button' variant='outline' />}>{t('common.cancel')}</DialogClose>
             <Button
               disabled={disabled || (createOpen && !newIDValid) || !newTypeValid}
               onClick={() => {

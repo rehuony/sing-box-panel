@@ -238,13 +238,13 @@ export function SubscriptionTokenPanel({ list, active = true, toolbarTarget }: {
                     <dd>{issued.metadata.download_limit ?? t('subscriptions.keys.unlimited')}</dd>
                   </dl>
                   <DialogFooter>
-                    <Button variant='outline' onClick={() => void copy(issued.token)}>{t('subscriptions.token.secret.copy')}</Button>
-                    <Button onClick={() => {
+                    <Button variant='outline' onClick={() => {
                       setIssued(null);
                       operationRef.current++;
                     }}>
-                      {t('subscriptions.keys.done')}
+                      {t('common.cancel')}
                     </Button>
+                    <Button onClick={() => void copy(issued.token)}>{t('subscriptions.token.secret.copy')}</Button>
                   </DialogFooter>
                 </>
               )

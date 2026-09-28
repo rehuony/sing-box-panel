@@ -156,9 +156,9 @@ describe('channel workspace', () => {
     const user = userEvent.setup();
     const client = mount();
     await user.click(screen.getByRole('button', { name: 'Channel settings' }));
-    await user.click(screen.getByRole('combobox', { name: 'Output client' }));
+    await user.click(screen.getByRole('combobox', { name: 'Client' }));
     await user.click(await screen.findByRole('option', { name: 'Mihomo' }));
-    await user.click(screen.getByRole('button', { name: 'Done' }));
+    await user.click(screen.getByRole('button', { name: 'Apply' }));
     expect(client.updateSubscriptionChannel).not.toHaveBeenCalled();
     await user.click(screen.getByRole('button', { name: /Save changes/ }));
     await waitFor(() => expect(client.updateSubscriptionChannel).toHaveBeenCalledWith(
@@ -175,14 +175,14 @@ describe('channel workspace', () => {
     expect(screen.getByLabelText('Group name')).toHaveValue('Strategy group 1');
     expect(screen.queryByRole('switch')).not.toBeInTheDocument();
     await user.clear(screen.getByLabelText('Group name'));
-    expect(screen.getByRole('button', { name: 'Done' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Apply' })).toBeDisabled();
     await user.type(screen.getByLabelText('Group name'), 'Cancelled');
     await user.click(screen.getByRole('button', { name: 'Cancel' }));
     await user.click(screen.getByRole('button', { name: 'Configure Strategy group 1' }));
     expect(screen.getByLabelText('Group name')).toHaveValue('Strategy group 1');
     await user.clear(screen.getByLabelText('Group name'));
     await user.type(screen.getByLabelText('Group name'), '  Work  ');
-    await user.click(screen.getByRole('button', { name: 'Done' }));
+    await user.click(screen.getByRole('button', { name: 'Apply' }));
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: /^Work/ })).toHaveAttribute('aria-pressed', 'false');
     expect(screen.getByRole('button', { name: /^Strategy group 2/ })).toHaveAttribute('aria-pressed', 'true');
@@ -223,7 +223,7 @@ describe('channel workspace', () => {
     await user.type(screen.getByLabelText('Interval (s)'), '600');
     await user.clear(screen.getByLabelText('Tolerance (ms)'));
     await user.type(screen.getByLabelText('Tolerance (ms)'), '0');
-    await user.click(screen.getByRole('button', { name: 'Done' }));
+    await user.click(screen.getByRole('button', { name: 'Apply' }));
     await user.click(screen.getByRole('button', { name: /Save changes/ }));
     await waitFor(() => expect(client.updateSubscriptionChannel).toHaveBeenCalledTimes(1));
     expect(vi.mocked(client.updateSubscriptionChannel).mock.calls[0][1].config?.policy?.groups[0]).toMatchObject({ type: 'url-test', builtin_nodes: [], health_check: { url: 'https://probe.example/check', interval: 600, tolerance: 0 } });
@@ -236,12 +236,12 @@ describe('channel workspace', () => {
     await openGroupSettings(user);
     await user.click(screen.getByRole('combobox', { name: 'Group type' }));
     await user.click(await screen.findByRole('option', { name: 'Fallback' }));
-    await user.click(screen.getByRole('button', { name: 'Done' }));
+    await user.click(screen.getByRole('button', { name: 'Apply' }));
     await openGroupSettings(user);
     await user.click(screen.getByRole('combobox', { name: 'Group type' }));
     await user.click(await screen.findByRole('option', { name: 'Manual selection' }));
     expect(screen.queryByLabelText('Test link')).not.toBeInTheDocument();
-    await user.click(screen.getByRole('button', { name: 'Done' }));
+    await user.click(screen.getByRole('button', { name: 'Apply' }));
     await user.click(screen.getByRole('button', { name: /Save changes/ }));
     await waitFor(() => expect(client.updateSubscriptionChannel).toHaveBeenCalledTimes(2));
     const manualGroup = vi.mocked(client.updateSubscriptionChannel).mock.calls[1][1].config?.policy?.groups[0];
@@ -257,7 +257,7 @@ describe('channel workspace', () => {
     const child = screen.getByRole('dialog', { name: 'Edit rule set' });
     expect(within(child).queryByRole('combobox', { name: 'Traffic exit' })).not.toBeInTheDocument();
     expect(within(child).queryByRole('checkbox', { name: 'Enabled' })).not.toBeInTheDocument();
-    await user.click(within(child).getByRole('button', { name: 'Done' }));
+    await user.click(within(child).getByRole('button', { name: 'Apply' }));
     expect(within(child).getByLabelText('Source format')).toHaveAttribute('aria-invalid', 'true');
     await user.type(within(child).getByLabelText('Name'), 'Domains');
     await user.type(
@@ -270,7 +270,7 @@ describe('channel workspace', () => {
     );
     await user.click(within(child).getByRole('combobox', { name: 'Source format' }));
     await user.click(await screen.findByRole('option', { name: 'SRS (binary)' }));
-    await user.click(within(child).getByRole('button', { name: 'Done' }));
+    await user.click(within(child).getByRole('button', { name: 'Apply' }));
     await waitFor(() =>
       expect(screen.queryByRole('dialog', { name: 'Edit rule set' })).not.toBeInTheDocument(),
     );
@@ -292,11 +292,11 @@ describe('channel workspace', () => {
     await user.click(screen.getByRole('button', { name: 'Edit rule' }));
     const dialog = screen.getByRole('dialog', { name: 'Edit rule set' });
     expect(within(dialog).queryByLabelText('Update interval (seconds)')).not.toBeInTheDocument();
-    await user.click(within(dialog).getByRole('button', { name: 'Done' }));
+    await user.click(within(dialog).getByRole('button', { name: 'Apply' }));
     expect(within(dialog).getByLabelText('Source format')).toHaveAttribute('aria-invalid', 'true');
     await user.click(within(dialog).getByRole('combobox', { name: 'Source format' }));
     await user.click(await screen.findByRole('option', { name: 'Loon' }));
-    await user.click(within(dialog).getByRole('button', { name: 'Done' }));
+    await user.click(within(dialog).getByRole('button', { name: 'Apply' }));
     await user.click(screen.getByRole('button', { name: /Save changes/ }));
     await waitFor(() => expect(client.updateSubscriptionChannel).toHaveBeenCalledOnce());
     const saved = vi.mocked(client.updateSubscriptionChannel).mock.calls[0][1].config?.policy;
@@ -332,7 +332,7 @@ describe('channel workspace', () => {
     const index = within(screen.getByRole('dialog')).getByRole('textbox', { name: 'Sort index' });
     await user.clear(index);
     await user.type(index, remote ? '-20' : '0');
-    await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Done' }));
+    await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Apply' }));
     await user.click(screen.getByRole('button', { name: /Save changes/ }));
     await waitFor(() => expect(client.updateSubscriptionChannel).toHaveBeenCalledOnce());
     const saved = vi.mocked(client.updateSubscriptionChannel).mock.calls[0][1].config?.policy;
@@ -415,7 +415,7 @@ describe('channel workspace', () => {
     await user.click(screen.getByRole('button', { name: /^Strategy group 1/ }));
     await openGroupSettings(user);
     await user.type(screen.getByLabelText('Group name'), ' renamed');
-    await user.click(screen.getByRole('button', { name: 'Done' }));
+    await user.click(screen.getByRole('button', { name: 'Apply' }));
     expect(screen.getByRole('button', { name: /^Strategy group 2/ })).toHaveTextContent('Final exit');
     await user.click(screen.getByRole('button', { name: /^Strategy group 2/ }));
     await user.click(screen.getByRole('button', { name: 'Clear final exit' }));
@@ -434,7 +434,7 @@ describe('channel workspace', () => {
     expect(screen.queryByRole('button', { name: 'Organize nodes' })).not.toBeInTheDocument();
     await user.clear(screen.getByLabelText('Channel name'));
     await user.type(screen.getByLabelText('Channel name'), 'Office');
-    await user.click(screen.getByRole('button', { name: 'Done' }));
+    await user.click(screen.getByRole('button', { name: 'Apply' }));
     expect(client.updateSubscriptionChannel).not.toHaveBeenCalled();
     await user.click(screen.getByRole('button', { name: /Save changes/ }));
     await waitFor(() => expect(client.updateSubscriptionChannel).toHaveBeenCalled());
@@ -464,7 +464,7 @@ it('infers source formats on link edits and preserves manual choices through acc
   expect(source).toHaveTextContent('SRS (binary)');
   await user.click(source);
   await user.click(await screen.findByRole('option', { name: 'JSON (source)' }));
-  await user.click(within(dialog).getByRole('button', { name: 'Done' }));
+  await user.click(within(dialog).getByRole('button', { name: 'Apply' }));
   await user.click(screen.getByRole('button', { name: 'Edit rule' }));
   expect(within(screen.getByRole('dialog')).getByRole('combobox', { name: 'Source format' })).toHaveTextContent('JSON (source)');
 });
@@ -485,11 +485,11 @@ it('rejects a rule-set name already used in a disabled group', async () => {
   await user.clear(name);
   await user.type(name, ' Taken ');
   expect(name).toHaveAttribute('aria-invalid', 'true');
-  await user.click(within(dialog).getByRole('button', { name: 'Done' }));
+  await user.click(within(dialog).getByRole('button', { name: 'Apply' }));
   expect(dialog).toBeInTheDocument();
   await user.clear(name);
   await user.type(name, 'Unique');
-  await user.click(within(dialog).getByRole('button', { name: 'Done' }));
+  await user.click(within(dialog).getByRole('button', { name: 'Apply' }));
   await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
 });
 

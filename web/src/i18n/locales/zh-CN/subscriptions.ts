@@ -92,7 +92,6 @@ export const subscriptions = {
     updated: '密钥已更新',
     empty: '暂无密钥',
     cancel: '取消',
-    done: '完成',
     scope: '访问范围',
   },
   channel: {

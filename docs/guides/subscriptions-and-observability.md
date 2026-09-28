@@ -205,7 +205,7 @@ the selected group's nodes and exit rules on the right. Each sidebar card has a
 settings action, shown on hover or keyboard focus, opening a compact dialog for
 name, strategy type and client-side health checks without selecting that group.
 Touch devices keep the action visible. Group icons distinguish manual selection,
-automatic latency tests and fallback. Done applies the draft; Cancel or closing
+automatic latency tests and fallback. Apply updates the channel draft; Cancel or closing
 it discards those edits. Groups created, configured or selected as the final exit are enabled; there is no separate
 group enablement control. Opening the page or cancelling the dialog preserves
 previously stored disabled groups. The top-level toolbar

@@ -249,6 +249,12 @@ Adding a record or choosing its Edit action opens a dialog; confirming updates
 the draft and cancelling discards the pending changes. Simple entry dialogs use a
 compact, content-height layout with each label, help icon and control on one row
 when the form has enough space; narrower forms stack labels above their controls.
+Dialog footer actions align right, with an outline Cancel first, auxiliary
+actions next and the primary action last. Destructive actions retain their danger
+style. Cancel only dismisses the dialog or its pending edits; Apply updates a
+parent draft, while Save retains its existing persistence behavior. Channel
+settings order Channel name, Client, New-node policy and Config template, with
+each label and control on one row even on narrow screens.
 Node tag and protocol fields are stacked vertically.
 Simple entry fields omit row dividers, and user entries place the username before
 the password. Sections containing a single empty collection center their empty
@@ -305,13 +311,13 @@ separate dropdown button matching the input height. Focusing or clicking the inp
 filters suggestions, and the dropdown button opens the full list. Clearing the
 input closes suggestions. Only protocols in the selected schema can proceed. Its popup
 always opens below the input, is capped at 18rem and the available viewport height,
-and scrolls internally. Cancel uses a secondary color and Continue is primary;
+and scrolls internally. Cancel uses an outline style and Continue is primary;
 both footer actions use text without icons.
 Map fields keep keys separate from typed text, list or object
 values, and referenced scalar lists are edited inline. Dialog content remains
 mounted through the synchronized closing transition. Navigation to another route,
 query or hash tab prompts before discarding unsaved edits, including incomplete
-JSON. Keep editing preserves the current URL, draft and concurrency revision;
+JSON. Cancel preserves the current URL, draft and concurrency revision;
 Discard changes resets the draft and continues to the requested destination.
 Subscription areas return to their initial lists after leaving. Reloading or
 closing the page uses the browser's native unsaved-changes prompt, and signing

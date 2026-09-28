@@ -162,7 +162,7 @@ function AlertDialogAction({
 
 function AlertDialogCancel({
   className,
-  variant = 'secondary',
+  variant = 'outline',
   size = 'default',
   ...props
 }: AlertDialogPrimitive.Close.Props

@@ -94,7 +94,6 @@ export const subscriptions = {
     updated: 'Key updated',
     empty: 'No keys yet',
     cancel: 'Cancel',
-    done: 'Done',
     scope: 'Access scope',
   },
   channel: {

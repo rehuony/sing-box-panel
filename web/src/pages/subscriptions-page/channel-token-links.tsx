@@ -100,8 +100,8 @@ export function ChannelLinkDialog({ channelID, onClose }: {
               )
             : !error && <SubscriptionContentState kind='activeKeys' title={t('channels.noActiveKeys')} />}
         <DialogFooter>
+          <Button variant='outline' onClick={onClose}>{t('common.cancel')}</Button>
           <Button disabled={busy || loading || !selectedID} onClick={() => void copy()}>{t('channels.copy')}</Button>
-          <Button variant='outline' onClick={onClose}>{t('channels.done')}</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

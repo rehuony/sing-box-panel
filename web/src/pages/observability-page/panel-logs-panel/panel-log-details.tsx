@@ -98,7 +98,7 @@ export function PanelLogDetails({ item, open, onOpenChange, onClosed, returnFocu
               </details>
             </div>
             <DialogFooter className='panel-log-dialog-footer' showCloseButton>
-              <Button variant='secondary' onClick={() => void copy()}>{t('productLogs.copyLog')}</Button>
+              <Button onClick={() => void copy()}>{t('productLogs.copyLog')}</Button>
             </DialogFooter>
           </>
         )}

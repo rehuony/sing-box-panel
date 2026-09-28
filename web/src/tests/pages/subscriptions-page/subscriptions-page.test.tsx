@@ -52,14 +52,14 @@ describe('subscriptionsPage', () => {
     expect(screen.queryByRole('tab', { name: 'Strategy groups' })).not.toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: /^Configure Strategy group/ }));
     await user.type(screen.getByLabelText('Group name'), ' edited');
-    await user.click(screen.getByRole('button', { name: 'Done' }));
+    await user.click(screen.getByRole('button', { name: 'Apply' }));
     const back = screen.getByRole('button', { name: 'Back' });
     expect(back.closest('.workspace-toolbar')).not.toBeNull();
     await user.click(screen.getByRole('tab', { name: 'Sources' }));
     const confirmation = screen.getByRole('alertdialog', { name: 'Discard unsaved changes?' });
     expect(within(confirmation).queryByRole('button', { name: 'Close' })).not.toBeInTheDocument();
-    await waitFor(() => expect(within(confirmation).getByRole('button', { name: 'Keep editing' })).toHaveFocus());
-    await user.click(within(confirmation).getByRole('button', { name: 'Keep editing' }));
+    await waitFor(() => expect(within(confirmation).getByRole('button', { name: 'Cancel' })).toHaveFocus());
+    await user.click(within(confirmation).getByRole('button', { name: 'Cancel' }));
     expect(screen.getByRole('tab', { name: 'Channels' })).toHaveAttribute('aria-selected', 'true');
     await user.click(screen.getByRole('button', { name: /^Configure Strategy group/ }));
     expect(screen.getByLabelText('Group name')).toHaveValue('Strategy group 1 edited');
@@ -147,7 +147,7 @@ describe('subscriptionsPage', () => {
     await user.click(screen.getByRole('button', { name: 'Add channel' }));
     const dialog = await screen.findByRole('dialog', { name: 'Add channel' });
     await user.type(within(dialog).getByLabelText('Channel name'), 'Mobile clients');
-    await user.click(within(dialog).getByRole('combobox', { name: 'Output client' }));
+    await user.click(within(dialog).getByRole('combobox', { name: 'Client' }));
     await user.click(await screen.findByRole('option', { name: 'Mihomo' }));
     await user.click(within(dialog).getByRole('button', { name: 'Add channel' }));
     expect(client.createSubscriptionChannel).toHaveBeenCalledWith({

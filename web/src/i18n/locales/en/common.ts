@@ -21,7 +21,6 @@ export const common = {
   unsaved: {
     title: 'Discard unsaved changes?',
     description: 'Your changes will be lost if you leave this page.',
-    keepEditing: 'Keep editing',
     discard: 'Discard changes',
   },
   viewLoadFailed: 'This view could not be loaded',

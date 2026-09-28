@@ -68,7 +68,7 @@ export function AppearanceColorPicker({ id, value, onChange }: {
         </Field>
         <DialogFooter>
           <DialogClose render={<Button type='button' variant='outline' />}>{t('panelSettings.cancel')}</DialogClose>
-          <Button type='button' variant='outline' className='appearance-color-apply' disabled={!valid} onClick={() => {
+          <Button type='button' disabled={!valid} onClick={() => {
             pendingColorRef.current = draft;
             setOpen(false);
           }}>

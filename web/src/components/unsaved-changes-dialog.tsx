@@ -24,7 +24,7 @@ export function UnsavedChangesDialog({ open, busy, onCancel, onDiscard }: Props)
           <AlertDialogDescription>{t('common.unsaved.description')}</AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter className='gap-2'>
-          <AlertDialogCancel variant='outline'>{t('common.unsaved.keepEditing')}</AlertDialogCancel>
+          <AlertDialogCancel variant='outline'>{t('common.cancel')}</AlertDialogCancel>
           <AlertDialogAction variant='destructive' disabled={busy} onClick={onDiscard}>
             {t('common.unsaved.discard')}
           </AlertDialogAction>

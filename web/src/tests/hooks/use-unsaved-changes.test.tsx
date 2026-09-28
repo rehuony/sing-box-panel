@@ -119,6 +119,6 @@ it('uses one confirmation for multiple drafts and prevents discarding while a sa
   await user.click(screen.getByRole('button', { name: 'Other page' }));
   expect(screen.getAllByRole('alertdialog')).toHaveLength(1);
   expect(screen.getByRole('button', { name: 'Discard changes' })).toBeDisabled();
-  await user.click(screen.getByRole('button', { name: 'Keep editing' }));
+  await user.click(screen.getByRole('button', { name: 'Cancel' }));
   expect(screen.getByRole('textbox', { name: 'Nested draft' })).toHaveValue('inner');
 });

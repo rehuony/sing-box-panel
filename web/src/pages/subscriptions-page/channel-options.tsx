@@ -44,7 +44,7 @@ export function ChannelOptions({
           <DialogDescription className='sr-only'>{t('channels.title')}</DialogDescription>
         </DialogHeader>
         <div className='channel-dialog-scroll'>
-          <div className='subscription-settings-fields'>
+          <div className='subscription-settings-fields channel-options-fields'>
             <label htmlFor='channel-edit-name'>{t('channels.name')}</label>
             <input id='channel-edit-name' value={draftName} onChange={(event) => setDraftName(event.target.value)} />
             <label htmlFor='channel-output'>{t('channels.client')}</label>
@@ -58,10 +58,6 @@ export function ChannelOptions({
                 { value: 'loon', label: t('subscriptions.channel.format.loon') },
               ]}
             />
-            <span>{t('channels.template')}</span>
-            <Button variant='outline' disabled={draftFormat !== format} onClick={onTemplate}>
-              {t(policy.template ? 'channels.customTemplate' : 'channels.defaultTemplate')}
-            </Button>
             <label htmlFor='channel-new-nodes'>{t('channels.newNodes')}</label>
             <SelectField<'include' | 'exclude'>
               id='channel-new-nodes'
@@ -80,6 +76,10 @@ export function ChannelOptions({
                 { value: 'exclude', label: t('channels.exclude') },
               ]}
             />
+            <span>{t('channels.template')}</span>
+            <Button variant='outline' disabled={draftFormat !== format} onClick={onTemplate}>
+              <span className='truncate'>{t(policy.template ? 'channels.customTemplate' : 'channels.defaultTemplate')}</span>
+            </Button>
           </div>
           {draftFormat !== format && (
             <p role='status' className='channel-delivery-hint'>{t(policy.template ? 'channels.replaceTemplateHint' : 'channels.applyClientFirst')}</p>
@@ -100,7 +100,7 @@ export function ChannelOptions({
               onClose();
             }}
           >
-            {t(draftFormat !== format && policy.template ? 'channels.switchTemplate' : 'channels.done')}
+            {t(draftFormat !== format && policy.template ? 'channels.switchTemplate' : 'channels.apply')}
           </Button>
         </DialogFooter>
       </DialogContent>

@@ -21,7 +21,6 @@ export const common = {
   unsaved: {
     title: '放弃未保存的更改？',
     description: '离开后，当前的更改将不会保存。',
-    keepEditing: '继续编辑',
     discard: '放弃更改',
   },
   viewLoadFailed: '无法加载此视图',
