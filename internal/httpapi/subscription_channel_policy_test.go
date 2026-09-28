@@ -191,7 +191,7 @@ func TestChannelStrategyTypesPersistPreviewAndDeliver(t *testing.T) {
 				t.Fatalf("lost group settings: %+v", actual)
 			}
 			// Renaming a group preserves its stable references through a real save.
-			policy.Groups[1].Name = "Renamed child"
+			policy.Groups[1].Name = "🏠 Renamed child"
 			config, _ = json.Marshal(store.SubscriptionChannelConfig{Policy: policy})
 			raw, _ = json.Marshal(map[string]any{"name": channel.Name, "format": test.format, "config": json.RawMessage(config), "enabled": true})
 			saved := authenticatedRequest(handler, http.MethodPut, "/api/v1/subscription/channels/"+channel.ID, string(raw), subscriptionETag(channel.UpdatedAt))
@@ -216,7 +216,7 @@ func TestChannelStrategyTypesPersistPreviewAndDeliver(t *testing.T) {
 			if public.Code != http.StatusOK || public.Body.String() != string(rendered.Result.Content) {
 				t.Fatal("preview/delivery mismatch", public.Code, public.Body.String())
 			}
-			if !strings.Contains(public.Body.String(), "Renamed child") || (test.format != "loon" && !strings.Contains(public.Body.String(), "Named rules")) || strings.Contains(public.Body.String(), "update_interval") {
+			if !strings.Contains(public.Body.String(), "🏠 Renamed child") || (test.format != "loon" && !strings.Contains(public.Body.String(), "Named rules")) || strings.Contains(public.Body.String(), "update_interval") {
 				t.Fatal(public.Body.String())
 			}
 			if test.format == "mihomo" && !strings.Contains(public.Body.String(), "proxies:\n  - ") {

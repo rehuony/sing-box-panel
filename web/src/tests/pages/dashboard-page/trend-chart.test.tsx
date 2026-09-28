@@ -5,6 +5,7 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import '@/i18n';
 import { TrendChart } from '@/pages/dashboard-page/trend-chart';
 import { testMetricsHistory } from '@/tests/api/mock-api-client';
+import { trendChartData } from '@/pages/dashboard-page/trend-chart-data';
 
 vi.mock('uplot', () => ({
   default: vi.fn(class {
@@ -63,7 +64,7 @@ describe('chart details', () => {
         testMetricsHistory.buckets[1]!,
       ],
     };
-    render(<TrendChart history={history} kind='traffic' />);
+    render(<TrendChart chart={trendChartData(history, 'traffic', [])} kind='traffic' />);
     moveCursor(0, 100, 40);
     await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('Download1.0 KB/sUpload2.0 KB/s'));
 
@@ -72,7 +73,7 @@ describe('chart details', () => {
   });
 
   it('anchors keyboard details to the sample, respects bounds, and dismisses on Escape or blur', async () => {
-    render(<TrendChart history={testMetricsHistory} kind='connections' />);
+    render(<TrendChart chart={trendChartData(testMetricsHistory, 'connections', [])} kind='connections' />);
     const chart = screen.getByRole('figure');
     const tooltip = screen.getByRole('status');
     const plot = vi.mocked(UPlot).mock.results[0]!.value as UPlot;
@@ -92,6 +93,25 @@ describe('chart details', () => {
     fireEvent.blur(chart);
     expect(tooltip).not.toHaveClass('trend-chart__tooltip');
   });
+
+  it('updates plotted values and an open tooltip together when live traffic changes units', async () => {
+    const chart = (downloadBytesPerSecond: number) => trendChartData(null, 'traffic', [{
+      at: 1000, downloadBytesPerSecond, uploadBytesPerSecond: 512, connections: 2,
+    }]);
+    const { rerender } = render(<TrendChart chart={chart(1024)} kind='traffic' />);
+    moveCursor(0, 100, 40);
+    const tooltip = screen.getByRole('status');
+    await waitFor(() => expect(tooltip).toHaveTextContent('Download1.0 KB/sUpload0.50 KB/s'));
+
+    rerender(<TrendChart chart={chart(2 * 1024 ** 2)} kind='traffic' />);
+    expect(tooltip).toHaveTextContent('Download2.0 MB/sUpload0.000488 MB/s');
+    const plot = vi.mocked(UPlot).mock.results[0]!.value as UPlot;
+    expect(plot.setData).toHaveBeenLastCalledWith([[1000], [2], [512 / 1024 ** 2]]);
+
+    rerender(<TrendChart chart={chart(512)} kind='traffic' />);
+    expect(tooltip).toHaveTextContent('Download512 B/sUpload512 B/s');
+    expect(UPlot).toHaveBeenCalledTimes(1);
+  });
 });
 afterEach(() => vi.restoreAllMocks());
 
@@ -99,7 +119,8 @@ describe('rolling trend charts', () => {
   it.each(['traffic', 'connections'] as const)(
     'updates %s in place, removes expired samples, and preserves missing data',
     (kind) => {
-      const { rerender, unmount } = render(<TrendChart history={testMetricsHistory} kind={kind} />);
+      const chart = trendChartData(testMetricsHistory, kind, []);
+      const { rerender, unmount } = render(<TrendChart chart={chart} kind={kind} />);
       const plot = vi.mocked(UPlot).mock.results[0]!.value as UPlot;
       const next = {
         ...testMetricsHistory,
@@ -117,7 +138,7 @@ describe('rolling trend charts', () => {
         ],
       };
 
-      rerender(<TrendChart history={next} kind={kind} />);
+      rerender(<TrendChart chart={trendChartData(next, kind, [])} kind={kind} />);
 
       expect(UPlot).toHaveBeenCalledTimes(1);
       expect(plot.destroy).not.toHaveBeenCalled();
@@ -130,7 +151,7 @@ describe('rolling trend charts', () => {
         max: Date.parse(next.to),
       });
 
-      rerender(<TrendChart history={null} kind={kind} />);
+      rerender(<TrendChart chart={trendChartData(null, kind, [])} kind={kind} />);
       expect(plot.setData).toHaveBeenLastCalledWith(kind === 'traffic' ? [[], [], []] : [[], []]);
       unmount();
       expect(plot.destroy).toHaveBeenCalledTimes(1);

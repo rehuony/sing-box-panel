@@ -142,7 +142,7 @@ func (template channelTemplate) render(format RenderFormat, generated map[string
 	if err := encoder.Close(); err != nil {
 		return nil, err
 	}
-	return output.Bytes(), nil
+	return restoreYAMLUnicode(output.Bytes())
 }
 
 // Change collection layout without decoding scalar values or discarding comments.

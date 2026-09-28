@@ -343,7 +343,10 @@ nodes, groups, rules, providers and final exits; templates containing these
 reserved fields are rejected. Sing-box's other `route` options are preserved.
 Loon rejects other sections, duplicate sections/keys and malformed lines while
 preserving original comments and values. JSON numeric values and YAML comments
-and scalar values are also preserved.
+and scalar values are also preserved. Mihomo YAML exports retain Unicode text,
+including emoji in node names, strategy groups and rule references, as UTF-8
+characters. Literal backslash sequences and required YAML escaping keep their
+original meaning.
 
 Defaults are shared by the editor and renderer from the native files in
 `api/templates`. They use ordinary DNS without geographic
@@ -670,6 +673,13 @@ the omitted older interval is unknown, not inferred from the preceding state.
 The dashboard shows host summaries, transfer history and one-hour active
 connections. Graph gaps remain gaps. The 24-hour runtime strip uses 48 equal
 segments and persisted transitions; unknown intervals are not guessed healthy.
+Traffic charts choose a shared B/s, KB/s, MB/s, GB/s, TB/s or PB/s unit from the
+largest displayed upload/download rate. The heading, axis and details update
+together when live data or the selected history changes; the vertical range
+rescales with headroom. A final history bucket crossing the persistence watermark
+is plotted at that watermark, retaining its original full-bucket rate denominator.
+Adjacent live samples join that point; explicit missing values and live intervals
+over three seconds still break the line.
 Traffic and connection chart details follow the pointer and stay inside the chart,
 showing metric values and units without timestamps. Arrow keys inspect samples;
 Escape or leaving the chart dismisses the details.
