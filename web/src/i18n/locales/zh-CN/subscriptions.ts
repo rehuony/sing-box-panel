@@ -1,6 +1,5 @@
 export const subscriptions = {
   states: {
-    loading: '正在准备内容，请稍候。',
     sources: '添加订阅来源，导入并管理其中的节点。',
     nodes: '可从订阅来源导入节点，或添加手动节点。',
     candidates: '添加节点或策略组，作为本组的候选出口。',

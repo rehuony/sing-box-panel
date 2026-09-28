@@ -131,9 +131,12 @@ in effect; loading a server default does not write a browser override. Color and
 radius still follow the server settings and their previews. An explicit local
 system choice follows live OS changes. Without server metadata (Vite/demo), the
 default palette provides the initial appearance beneath any local theme override.
-Session checks, panel initialization, and route loading share `LoadingState`:
-a centered circular breathing indicator and a status label, without a card or
-skeleton bars. It uses the active theme and stays still under reduced motion.
+Session checks, route loading, and initial page/Tab data loading share
+`LoadingState`: a compact theme-colored spinner above a muted status label,
+without a card or secondary explanation. Its brief delayed fade-in avoids flashes
+for fast loads without delaying ready content. Loading stays within the pending
+content region, retaining navigation, toolbars and any usable data. Reduced motion
+shows the indicator immediately and keeps it still.
 
 At runtime the browser client uses same-origin `/api/v1` endpoints for the
 session, live dashboard context, the single saved configuration, panel settings,

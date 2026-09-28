@@ -1,6 +1,5 @@
 export const subscriptions = {
   states: {
-    loading: 'Preparing this section. Please wait.',
     sources: 'Add a subscription source to import and manage its nodes.',
     nodes: 'Import nodes from a subscription source or add manual nodes.',
     candidates: 'Add nodes or strategy groups as candidate exits for this group.',

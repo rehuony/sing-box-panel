@@ -147,11 +147,14 @@
   font-size: var(--text-sm);
 }
 .panel-log-scroll {
+  display: flex;
+  flex-direction: column;
   flex: 1;
   min-height: 0;
   overflow: auto;
 }
 .panel-log-table {
+  flex: none;
   border-collapse: collapse;
   width: 100%;
   table-layout: fixed;
