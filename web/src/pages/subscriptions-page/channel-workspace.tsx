@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ArrowDown, ArrowLeft, ArrowUp, CirclePlus, Eye, Flag, Gauge, ListRestart, MousePointer2, Save, Settings2, Trash2 } from 'lucide-react';
 
@@ -25,6 +26,8 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 
+import type { ChannelGroupTab } from './channel-group-editor';
+
 import { ChannelOptions } from './channel-options';
 import { ChannelPreview } from './channel-preview';
 import { useChannelDraft } from './use-channel-draft';
@@ -44,6 +47,7 @@ interface Props {
 }
 export function ChannelWorkspace({ active = true, toolbarTarget, channel, nodes, onBack, onSaved }: Props) {
   const { t } = useTranslation();
+  const [groupTab, setGroupTab] = useState<ChannelGroupTab>('nodes');
   const {
     policy,
     setPolicy,
@@ -174,6 +178,7 @@ export function ChannelWorkspace({ active = true, toolbarTarget, channel, nodes,
             ? (
                 <ChannelGroupEditor
                   key={group.id} group={group} groups={policy.groups} nodes={nodes}
+                  tab={groupTab} onTabChange={setGroupTab}
                   format={format} busy={busy} onChange={updateGroup} nextSortIndex={nextRuleIndex(policy)}
                 />
               )

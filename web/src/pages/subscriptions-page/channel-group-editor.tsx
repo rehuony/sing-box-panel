@@ -25,21 +25,26 @@ import { reorderVisibleNodes } from './subscription-node-order';
 import { SubscriptionContentState } from './subscription-content-state';
 import { compareChannelRules, ruleFormats, updateGroupCandidates } from './channel-policy';
 
+export type ChannelGroupTab = 'nodes' | 'rules';
+
 interface Props {
   busy: boolean;
+  tab: ChannelGroupTab;
   nextSortIndex: number;
   group: ChannelRuleGroup;
   format: SubscriptionFormat;
   groups: ChannelRuleGroup[];
   nodes: SubscriptionNodeSummary[];
   onChange: (group: ChannelRuleGroup) => void;
+  onTabChange: (tab: ChannelGroupTab) => void;
 }
-export function ChannelGroupEditor({ group, groups, nodes, format, busy, onChange, nextSortIndex }: Props) {
+export function ChannelGroupEditor({
+  group, groups, nodes, format, busy, tab, onTabChange, onChange, nextSortIndex,
+}: Props) {
   const { t } = useTranslation();
   const [addingNodes, setAddingNodes] = useState(false);
   const [rule, setRule] = useState<ChannelRule | null>(null);
   const [search, setSearch] = useState('');
-  const [tab, setTab] = useState('nodes');
   const [selected, setSelected] = useState<string[]>([]);
   const matches = (value: string) => value.toLowerCase().includes(search.trim().toLowerCase());
   const builtins = group.builtin_nodes;
@@ -110,7 +115,9 @@ export function ChannelGroupEditor({ group, groups, nodes, format, busy, onChang
           }} />
       )}
       <fieldset className='channel-group-fields' disabled={busy}>
-        <Tabs value={tab} onValueChange={setTab} className='channel-group-tabs'>
+        <Tabs value={tab} onValueChange={(value) => {
+          if (value === 'nodes' || value === 'rules') onTabChange(value);
+        }} className='channel-group-tabs'>
           <div className='channel-group-toolbar'>
             <TabsList className='subscriptions-tabs' aria-label={t('channels.editGroup')}>
               <TabsTrigger value='nodes'>{t('channels.candidates')}</TabsTrigger>

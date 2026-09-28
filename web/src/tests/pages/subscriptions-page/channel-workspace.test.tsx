@@ -340,7 +340,36 @@ describe('channel workspace', () => {
       ...rule, sort_index: remote ? -20 : 0,
     });
   });
-  it('resets card selection when switching groups without changing either membership', async () => {
+  it('shares the active tab across groups while showing each group’s own content', async () => {
+    const user = userEvent.setup();
+    const otherNode = { ...node, id: 'node-two', key: 'manual:two', name: 'Osaka', tag: 'Osaka' };
+    const groups = [node, otherNode].map((value) => ({
+      ...newRuleGroup([value.id]), name: value.name,
+      rules: [{
+        id: `rule-${value.id}`, kind: 'domain' as const, value: `${value.name.toLowerCase()}.example`,
+        enabled: true, exit: { kind: 'group-default' as const },
+      }],
+    }));
+    const client = mount({ ...channel, config: { policy: { ...channel.config.policy!, groups } } }, [node, otherNode]);
+    const sidebar = screen.getByRole('complementary', { name: 'Strategy groups' });
+    await user.click(screen.getByRole('tab', { name: 'Exit rules' }));
+    await user.click(within(sidebar).getByRole('button', { name: /^Osaka/ }));
+    expect(screen.getByRole('tab', { name: 'Exit rules' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('list', { name: 'Exit rules' })).toHaveTextContent('osaka.example');
+    expect(screen.queryByText('tokyo.example')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Add rule' })).toBeVisible();
+    await user.click(within(sidebar).getByRole('button', { name: /^Tokyo/ }));
+    expect(screen.getByRole('list', { name: 'Exit rules' })).toHaveTextContent('tokyo.example');
+    await user.click(screen.getByRole('tab', { name: 'Candidate nodes' }));
+    await user.click(within(sidebar).getByRole('button', { name: /^Osaka/ }));
+    expect(screen.getByRole('tab', { name: 'Candidate nodes' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('checkbox', { name: /Osaka/ })).toBeVisible();
+    expect(screen.queryByRole('checkbox', { name: /Tokyo/ })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Add nodes' })).toBeVisible();
+    expect(screen.getByRole('button', { name: /Save changes/ })).toBeDisabled();
+    expect(client.updateSubscriptionChannel).not.toHaveBeenCalled();
+  });
+  it('resets card selection and search when switching groups without changing either membership', async () => {
     const user = userEvent.setup();
     const groups = [
       { ...newRuleGroup(['node-one']), name: 'Proxy' },
@@ -349,8 +378,10 @@ describe('channel workspace', () => {
     const client = mount({ ...channel, config: { policy: { ...channel.config.policy!, groups } } });
     await user.click(screen.getByRole('checkbox', { name: /Tokyo/ }));
     expect(screen.getByRole('checkbox', { name: /Tokyo/ })).toBeChecked();
+    await user.type(screen.getByRole('textbox', { name: 'Search nodes, groups, sources or protocols' }), 'Tokyo');
     const sidebar = screen.getByRole('complementary', { name: 'Strategy groups' });
     await user.click(within(sidebar).getByRole('button', { name: /^Other/ }));
+    expect(screen.getByRole('textbox', { name: 'Search nodes, groups, sources or protocols' })).toHaveValue('');
     expect(screen.getByRole('checkbox', { name: /Tokyo/ })).not.toBeChecked();
     expect(screen.queryByRole('button', { name: 'Remove selected nodes' })).not.toBeInTheDocument();
     await user.click(within(sidebar).getByRole('button', { name: /^Proxy/ }));
