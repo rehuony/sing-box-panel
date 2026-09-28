@@ -186,6 +186,13 @@ func TestSupportedRendererProtocolMatrix(t *testing.T) {
 					t.Fatalf("scalar/list ALPN contract differs: %+v %v", same, err)
 				}
 			}
+			if test.format == RenderFormatLoon && strings.Contains(test.outbound, `"alpn"`) {
+				multiple := strings.ReplaceAll(test.outbound, `"alpn":["h2"]`, `"alpn":["h2","http/1.1"]`)
+				converted, err := Render([]byte(`{"outbounds":[`+multiple+`]}`), RenderChannel{Format: test.format})
+				if err != nil || converted.NodeCount != 1 || len(converted.Diagnostics) != 0 || !strings.Contains(string(converted.Content), `alpn="h2,http/1.1"`) {
+					t.Fatalf("multiple ALPN conversion: %s, %v, %v", converted.Content, converted.Diagnostics, err)
+				}
+			}
 			for _, want := range test.contains {
 				if !strings.Contains(string(result.Content), want) {
 					t.Fatalf("content missing %q:\n%s", want, result.Content)
@@ -210,7 +217,6 @@ func TestConversionFailuresUseStableCodes(t *testing.T) {
 		{name: "udp only network", format: RenderFormatLoon, outbound: `{"type":"shadowsocks","tag":"node","server":"a","server_port":1,"method":"aes-128-gcm","password":"pass","network":"udp"}`, code: DiagnosticUnsupportedNetwork},
 		{name: "detour", format: RenderFormatMihomo, outbound: `{"type":"shadowsocks","tag":"node","server":"a","server_port":1,"method":"aes-128-gcm","password":"pass","detour":"other"}`, code: DiagnosticUnresolvedDependency},
 		{name: "complex tls", format: RenderFormatMihomo, outbound: `{"type":"trojan","tag":"node","server":"a","server_port":1,"password":"pass","tls":{"enabled":true,"fragment":true}}`, code: DiagnosticUnsupportedTLS},
-		{name: "loon multiple alpn", format: RenderFormatLoon, outbound: `{"type":"trojan","tag":"node","server":"a","server_port":1,"password":"pass","tls":{"enabled":true,"alpn":["h2","http/1.1"]}}`, code: DiagnosticUnsupportedTLS},
 		{name: "mihomo unknown cipher", format: RenderFormatMihomo, outbound: `{"type":"shadowsocks","tag":"node","server":"a","server_port":1,"method":"future-cipher","password":"pass"}`, code: DiagnosticUnsupportedOption},
 		{name: "loon unsupported cipher", format: RenderFormatLoon, outbound: `{"type":"shadowsocks","tag":"node","server":"a","server_port":1,"method":"none","password":"pass"}`, code: DiagnosticUnsupportedOption},
 		{name: "invalid tuic relay", format: RenderFormatMihomo, outbound: `{"type":"tuic","tag":"node","server":"a","server_port":1,"uuid":"uuid","password":"pass","udp_relay_mode":"future","tls":{"enabled":true}}`, code: DiagnosticInvalidRequiredField},

@@ -40,7 +40,7 @@ type RenderChannel struct {
 }
 
 // RenderDiagnostic identifies an omitted node by its zero-based position in the
-// frozen startup document. It does not repeat its tag, address, or credentials.
+// renderer input. It does not repeat its tag, address, or credentials.
 type RenderDiagnostic struct {
 	Collection Collection     `json:"collection"`
 	ItemIndex  int            `json:"item_index"`
@@ -55,6 +55,20 @@ type RenderResult struct {
 	Content     []byte             `json:"content"`
 	NodeCount   int                `json:"node_count"`
 	Diagnostics []RenderDiagnostic `json:"diagnostics"`
+	// PreviewDiagnostics is explicitly projected only by authenticated preview.
+	// Public output and diagnostic serialization never include node identities.
+	PreviewDiagnostics []PreviewDiagnostic `json:"-"`
+}
+
+// PreviewDiagnostic adds actionable context without reflecting configuration values.
+// FieldPath refers to the renderer input, not a line in the generated output.
+type PreviewDiagnostic struct {
+	RenderDiagnostic
+	NodeID    string `json:"node_id,omitempty"`
+	NodeName  string `json:"node_name,omitempty"`
+	NodeType  string `json:"node_type,omitempty"`
+	FieldPath string `json:"field_path,omitempty"`
+	Reason    string `json:"reason,omitempty"`
 }
 
 // RenderValidationError exposes a stable reason code without reflecting input data.

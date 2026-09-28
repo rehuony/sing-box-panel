@@ -1,4 +1,17 @@
 export const subscriptions = {
+  states: {
+    loading: '正在准备内容，请稍候。',
+    sources: '添加订阅来源，导入并管理其中的节点。',
+    nodes: '可从订阅来源导入节点，或添加手动节点。',
+    candidates: '添加节点或策略组，作为本组的候选出口。',
+    groups: '创建策略组，组织候选节点并配置流量出口。',
+    rules: '添加匹配规则，为命中的流量指定出口。',
+    keys: '创建订阅密钥，用于获取渠道的订阅配置。',
+    activeKeys: '在密钥管理中创建或启用密钥，再复制订阅链接。',
+    channels: '创建分发渠道，选择输出客户端并配置节点与规则。',
+    search: '尝试其他关键词，或清空搜索查看全部内容。',
+    preview: '查看标题右侧的问题详情，定位原因后重新预览。',
+  },
   nodes: {
     sortableCard: '可排序节点卡片',
     dragInstructions: '按 F2 开始排序，方向键移动，再按 F2 完成，Escape 取消。',
@@ -42,6 +55,7 @@ export const subscriptions = {
     save: '保存节点',
   },
   sources: {
+    noMatches: '没有匹配的来源',
     onDemand: '仅手动',
     refreshFailed: '刷新失败，上次成功的节点仍可使用',
     refreshPending: '刷新仍在执行，请稍后查看面板日志',
@@ -149,7 +163,6 @@ export const subscriptions = {
     disable: '停用',
     enable: '启用',
     inspect: '查看',
-    loading: '正在载入…',
     name: '名称',
     never: '从未',
     none: '无',

@@ -78,7 +78,7 @@ describe('channel copies and shared links', () => {
         <ChannelLinkDialog channelID={channel.id} onClose={vi.fn()} />
       </ApiClientProvider>,
     );
-    expect(await screen.findByText('No active keys. Create or enable a key in Key management.')).toBeVisible();
+    expect(await screen.findByText('No active keys')).toBeVisible();
     expect(screen.getByRole('button', { name: 'Copy' })).toBeDisabled();
     expect(client.getSubscriptionTokenSecret).not.toHaveBeenCalled();
   });
@@ -98,7 +98,7 @@ describe('channel copies and shared links', () => {
         <ChannelLinkDialog channelID={channel.id} onClose={vi.fn()} />
       </ApiClientProvider>,
     );
-    const selector = screen.getByRole('combobox', { name: 'Subscription key' });
+    const selector = await screen.findByRole('combobox', { name: 'Subscription key' });
     await waitFor(() => expect(selector).toBeEnabled());
     expect(client.listSubscriptionTokens).toHaveBeenLastCalledWith(
       { limit: 100, beforeID: next.id, beforeTime: next.created_at }, expect.any(AbortSignal),

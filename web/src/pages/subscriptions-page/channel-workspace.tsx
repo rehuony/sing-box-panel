@@ -1,5 +1,6 @@
+import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { ArrowDown, ArrowLeft, ArrowUp, CirclePlus, Eye, Flag, Gauge, Layers3, ListRestart, MousePointer2, Save, Settings2, Trash2 } from 'lucide-react';
+import { ArrowDown, ArrowLeft, ArrowUp, CirclePlus, Eye, Flag, Gauge, ListRestart, MousePointer2, Save, Settings2, Trash2 } from 'lucide-react';
 
 import type {
   ChannelNativeTemplate,
@@ -16,7 +17,6 @@ import { ErrorNotice } from '@/components/error-notice';
 import { SelectField } from '@/components/select-field';
 import { ToolbarActions } from '@/components/workspace-toolbar';
 import { Field, FieldGroup, FieldLabel } from '@/components/ui/field';
-import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty';
 import {
   Dialog,
   DialogContent,
@@ -26,11 +26,14 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 
+import type { ChannelGroupTab } from './channel-group-editor';
+
 import { ChannelOptions } from './channel-options';
 import { ChannelPreview } from './channel-preview';
 import { useChannelDraft } from './use-channel-draft';
 import { ChannelGroupEditor } from './channel-group-editor';
 import { ChannelTemplateEditor } from './channel-template-editor';
+import { SubscriptionContentState } from './subscription-content-state';
 import { defaultGroupHealthCheck,
   nextRuleIndex, removeGroupReferences } from './channel-policy';
 
@@ -44,6 +47,7 @@ interface Props {
 }
 export function ChannelWorkspace({ active = true, toolbarTarget, channel, nodes, onBack, onSaved }: Props) {
   const { t } = useTranslation();
+  const [groupTab, setGroupTab] = useState<ChannelGroupTab>('nodes');
   const {
     policy,
     setPolicy,
@@ -174,17 +178,12 @@ export function ChannelWorkspace({ active = true, toolbarTarget, channel, nodes,
             ? (
                 <ChannelGroupEditor
                   key={group.id} group={group} groups={policy.groups} nodes={nodes}
+                  tab={groupTab} onTabChange={setGroupTab}
                   format={format} busy={busy} onChange={updateGroup} nextSortIndex={nextRuleIndex(policy)}
                 />
               )
             : (
-                <Empty className='channel-group-empty'>
-                  <EmptyHeader>
-                    <EmptyMedia variant='icon'><Layers3 /></EmptyMedia>
-                    <EmptyTitle>{t('channels.noGroups')}</EmptyTitle>
-                    <EmptyDescription>{t('channels.noGroupsHint')}</EmptyDescription>
-                  </EmptyHeader>
-                </Empty>
+                <SubscriptionContentState kind='groups' title={t('channels.noGroups')} />
               )}
         </div>
       </div>

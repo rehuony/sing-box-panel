@@ -261,5 +261,15 @@ type SubscriptionPreview struct {
 	CanonicalRevisionID string                     `json:"canonical_revision_id"`
 	ExactCoreVersion    string                     `json:"exact_core_version"`
 	ArtifactState       store.StartupArtifactState `json:"artifact_state"`
-	Result              subscription.RenderResult  `json:"result"`
+	Result              SubscriptionPreviewResult  `json:"result"`
+}
+
+// SubscriptionPreviewResult is an authenticated projection of rendered bytes and
+// node diagnostics. Public delivery never serializes the enriched diagnostics.
+type SubscriptionPreviewResult struct {
+	Format      subscription.RenderFormat        `json:"format"`
+	MediaType   string                           `json:"media_type"`
+	Content     []byte                           `json:"content"`
+	NodeCount   int                              `json:"node_count"`
+	Diagnostics []subscription.PreviewDiagnostic `json:"diagnostics"`
 }

@@ -3,7 +3,6 @@ import { useTranslation } from 'react-i18next';
 import { ArrowLeft, CirclePlus, RefreshCw, Search } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
-import { Spinner } from '@/components/ui/spinner';
 import { ErrorNotice } from '@/components/error-notice';
 import { SelectField } from '@/components/select-field';
 import { ListPagination } from '@/components/list-pagination';
@@ -21,6 +20,7 @@ import {
 import { SubscriptionNodeGrid } from './subscription-node-grid';
 import { SubscriptionNodeEditor } from './subscription-node-editor';
 import { useSubscriptionSources } from './use-subscription-sources';
+import { SubscriptionContentState } from './subscription-content-state';
 
 export function SubscriptionSourcePanel({ active = true, toolbarTarget }: {
   active?: boolean;
@@ -237,15 +237,11 @@ export function SubscriptionSourcePanel({ active = true, toolbarTarget }: {
                 )
               : (
                   <TabsContent value='nodes' className='subscription-node-list'>
-                    {nodeLoading && (
-                      <span role='status'>
-                        <Spinner />
-                        {t('common.loading')}
-                      </span>
-                    )}
                     <SubscriptionNodeGrid
                       key={selected}
                       sourceID={selected}
+                      loading={nodeLoading}
+                      error={Boolean(error)}
                       busy={busy}
                       busyNodes={busyNodes}
                       nodes={nodes.filter((node) =>
@@ -260,7 +256,7 @@ export function SubscriptionSourcePanel({ active = true, toolbarTarget }: {
           )
         : (
             <>
-              <div className='subscription-source-table-scroll'>
+              <div className='subscription-source-table-scroll subscription-state-region' aria-busy={sourceLoading}>
                 <table className='workspace-table subscription-source-table'>
                   <thead>
                     <tr>
@@ -271,17 +267,7 @@ export function SubscriptionSourcePanel({ active = true, toolbarTarget }: {
                     </tr>
                   </thead>
                   <tbody>
-                    {sourceLoading && (
-                      <tr>
-                        <td colSpan={4}>
-                          <span role='status'>
-                            <Spinner />
-                            {t('common.loading')}
-                          </span>
-                        </td>
-                      </tr>
-                    )}
-                    {displayedSources.slice((current - 1) * size, current * size).map((source) => (
+                    {!sourceLoading && displayedSources.slice((current - 1) * size, current * size).map((source) => (
                       <tr key={source.id}>
                         <td>
                           <span className='block truncate' title={source.name}>
@@ -328,6 +314,9 @@ export function SubscriptionSourcePanel({ active = true, toolbarTarget }: {
                     ))}
                   </tbody>
                 </table>
+                {sourceLoading
+                  ? <SubscriptionContentState loading />
+                  : !displayedSources.length && !error && <SubscriptionContentState kind={search ? 'search' : 'sources'} title={t(search ? 'subscriptions.sources.noMatches' : 'subscriptions.source.empty.title')} />}
               </div>
               <ListPagination
                 page={current}

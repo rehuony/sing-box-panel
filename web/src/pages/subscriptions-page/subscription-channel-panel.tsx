@@ -10,7 +10,6 @@ import type {
 
 import { queries } from '@/api/queries';
 import { Button } from '@/components/ui/button';
-import { Spinner } from '@/components/ui/spinner';
 import { toast } from '@/components/ui/toast-manager';
 import { useApiClient } from '@/api/api-client-context';
 import { SelectField } from '@/components/select-field';
@@ -31,6 +30,7 @@ import {
 import { ChannelWorkspace } from './channel-workspace';
 import { initialChannelPolicy } from './channel-policy';
 import { ChannelLinkDialog } from './channel-token-links';
+import { SubscriptionContentState } from './subscription-content-state';
 
 export function SubscriptionChannelPanel({ active = true, toolbarTarget }: {
   active?: boolean;
@@ -229,7 +229,7 @@ export function SubscriptionChannelPanel({ active = true, toolbarTarget }: {
                   </div>
                 </div>
               </ToolbarActions>
-              <div className='subscription-source-table-scroll'>
+              <div className='subscription-source-table-scroll subscription-state-region' aria-busy={list.isPending}>
                 <table className='workspace-table subscription-source-table'>
                   <thead>
                     <tr>
@@ -267,14 +267,9 @@ export function SubscriptionChannelPanel({ active = true, toolbarTarget }: {
                     ))}
                   </tbody>
                 </table>
-                {list.isPending
-                  ? (
-                      <span role='status'>
-                        <Spinner />
-                        {t('common.loading')}
-                      </span>
-                    )
-                  : !filtered.length && <p className='subscription-empty'>{t('channels.empty')}</p>}
+                {list.isPending && !filtered.length
+                  ? <SubscriptionContentState loading />
+                  : !list.isPending && !filtered.length && !error && <SubscriptionContentState kind={search ? 'search' : 'channels'} title={t(search ? 'channels.noMatchingChannels' : 'channels.empty')} />}
               </div>
               <ListPagination
                 page={current}

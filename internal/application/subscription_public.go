@@ -80,11 +80,16 @@ func (application *Application) PublicSubscription(
 	if err != nil {
 		return PublicSubscriptionResult{}, err
 	}
-	result.Traffic, err = application.publicSubscriptionTraffic(ctx, now)
+	traffic, err := application.publicSubscriptionTraffic(ctx, now)
 	if err != nil {
 		return PublicSubscriptionResult{}, err
 	}
-	return result, nil
+	bodyDigest := sha256.Sum256(result.Content)
+	return PublicSubscriptionResult{
+		TokenID: state.TokenID, Format: store.SubscriptionFormat(result.Format), MediaType: result.MediaType,
+		Body: bytes.Clone(result.Content), ETag: hex.EncodeToString(bodyDigest[:]),
+		NodeCount: result.NodeCount, Diagnostics: result.Diagnostics, Traffic: traffic,
+	}, nil
 }
 
 func (application *Application) publicSubscriptionTraffic(ctx context.Context, at time.Time) (PublicSubscriptionTraffic, error) {
@@ -112,31 +117,32 @@ func (application *Application) publicSubscriptionTraffic(ctx context.Context, a
 	return result, nil
 }
 
-func (application *Application) renderSubscriptionState(ctx context.Context, state store.PublicSubscriptionState) (PublicSubscriptionResult, error) {
+func (application *Application) renderSubscriptionState(ctx context.Context, state store.PublicSubscriptionState) (subscription.RenderResult, error) {
 	host, err := application.publicationHost(ctx, state.SubscriptionNodeControls, state.Channel.PublicHost)
 	if err != nil {
-		return PublicSubscriptionResult{}, err
+		return subscription.RenderResult{}, err
 	}
 	var conversion subscription.InboundResult
+	var startupJSON []byte
 	if state.AppliedBundleID != "" {
-		startupJSON, err := application.subscriptionStartupJSONWithCore(state.Startup, state.Core)
+		startupJSON, err = application.subscriptionStartupJSONWithCore(state.Startup, state.Core)
 		if err != nil {
-			return PublicSubscriptionResult{}, fmt.Errorf("prepare applied local subscription version: %w", err)
+			return subscription.RenderResult{}, fmt.Errorf("prepare applied local subscription version: %w", err)
 		}
 		conversion, err = application.convertInboundNodes(state.Startup.ExactCoreVersion, startupJSON, host)
 		if err != nil {
-			return PublicSubscriptionResult{}, err
+			return subscription.RenderResult{}, err
 		}
 	}
 	manual, err := manualPublicationNodes(state.ManualNodes)
 	if err != nil {
-		return PublicSubscriptionResult{}, err
+		return subscription.RenderResult{}, err
 	}
 	allNodes := append(append([]subscription.Node(nil), conversion.Nodes...), manual...)
 	for _, source := range state.Sources {
 		nodes, decodeErr := subscription.DecodeNodes(source.NormalizedNodes)
 		if decodeErr != nil {
-			return PublicSubscriptionResult{}, fmt.Errorf("decode current source version %q: %w", source.VersionID, decodeErr)
+			return subscription.RenderResult{}, fmt.Errorf("decode current source version %q: %w", source.VersionID, decodeErr)
 		}
 		allNodes = append(allNodes, nodes...)
 	}
@@ -152,7 +158,7 @@ func (application *Application) renderSubscriptionState(ctx context.Context, sta
 	}
 	config, err := store.DecodeSubscriptionChannelConfig(state.Channel.Config)
 	if err != nil {
-		return PublicSubscriptionResult{}, err
+		return subscription.RenderResult{}, err
 	}
 	rendered, err := subscription.RenderPolicyNodes(selectedNodes, subscription.RenderChannel{
 		Format:       subscription.RenderFormat(state.Channel.Format),
@@ -160,11 +166,11 @@ func (application *Application) renderSubscriptionState(ctx context.Context, sta
 		ExcludeTypes: append([]string(nil), config.ExcludeTypes...),
 	}, config.Policy)
 	if err != nil {
-		return PublicSubscriptionResult{}, err
+		return subscription.RenderResult{}, err
 	}
 	if config.Policy != nil && rendered.Format == subscription.RenderFormatSingBox {
 		if err := validateSubscriptionNativeJSON(rendered.Content, "generated_configuration"); err != nil {
-			return PublicSubscriptionResult{}, err
+			return subscription.RenderResult{}, err
 		}
 	}
 	diagnostics := make([]subscription.RenderDiagnostic, 0, len(conversion.Diagnostics)+len(rendered.Diagnostics))
@@ -175,12 +181,9 @@ func (application *Application) renderSubscriptionState(ctx context.Context, sta
 		})
 	}
 	diagnostics = append(diagnostics, rendered.Diagnostics...)
-	bodyDigest := sha256.Sum256(rendered.Content)
-	return PublicSubscriptionResult{
-		TokenID: state.TokenID, Format: state.Channel.Format, MediaType: rendered.MediaType,
-		Body: bytes.Clone(rendered.Content), ETag: hex.EncodeToString(bodyDigest[:]),
-		NodeCount: rendered.NodeCount, Diagnostics: diagnostics,
-	}, nil
+	rendered.Diagnostics = diagnostics
+	rendered.PreviewDiagnostics = append(inboundPreviewDiagnostics(startupJSON, conversion.Diagnostics, rendered.Format), rendered.PreviewDiagnostics...)
+	return rendered, nil
 }
 
 func (application *Application) RecordPublicSubscriptionUse(

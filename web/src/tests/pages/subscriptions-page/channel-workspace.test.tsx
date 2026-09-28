@@ -102,6 +102,8 @@ describe('channel workspace', () => {
     expect(within(dialog).getByRole('button', { name: 'Copy' })).toBeDisabled();
     await user.click(within(dialog).getByRole('button', { name: 'Issues (1)' }));
     expect(await screen.findByText('Preview failed')).toBeVisible();
+    expect(within(screen.getByRole('dialog', { name: 'Issues (1)' })).getByText('Subscription preview failed')).toBeVisible();
+    expect(screen.queryByText('Not exported')).not.toBeInTheDocument();
     await user.keyboard('{Escape}');
     await user.keyboard('{Escape}');
     await user.click(screen.getByRole('button', { name: 'Subscription preview' }));
@@ -124,6 +126,31 @@ describe('channel workspace', () => {
     vi.spyOn(navigator.clipboard, 'writeText').mockRejectedValueOnce(new Error('Clipboard denied'));
     await user.click(within(dialog).getByRole('button', { name: 'Copy' }));
     expect(feedback).toHaveBeenLastCalledWith({ title: 'Clipboard denied', type: 'error' });
+  });
+
+  it('identifies skipped nodes with actionable details and a fallback for unknown codes', async () => {
+    const user = userEvent.setup();
+    const client = mount();
+    const preview = await client.previewSubscriptionChannel(channel.id, '');
+    preview.result.diagnostics = [
+      { collection: 'outbounds', item_index: 1, code: 'unsupported_tls', format: 'loon', node_id: 'node-anytls', node_name: 'Tokyo AnyTLS', node_type: 'anytls', field_path: 'outbounds[1].tls.fragment', reason: 'unsupported_tls_option' },
+      { collection: 'inbounds', item_index: 3, code: 'future_reason', format: 'loon' },
+    ];
+    vi.mocked(client.previewSubscriptionChannel).mockResolvedValue(preview);
+    await user.click(screen.getByRole('button', { name: 'Subscription preview' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Subscription preview' });
+    expect(within(dialog).queryByText('Tokyo AnyTLS')).not.toBeInTheDocument();
+    await user.click(within(dialog).getByRole('button', { name: 'Issues (2)' }));
+    expect(await screen.findByText('Tokyo AnyTLS')).toBeVisible();
+    expect(screen.getByText('The Loon exporter does not yet support this TLS option.')).toBeVisible();
+    expect(screen.getByText(/Review the field below/)).toBeVisible();
+    expect(screen.getByText('outbounds[1].tls.fragment')).toBeVisible();
+    expect(screen.getByText('Node 4')).toBeVisible();
+    expect(screen.getByText(/This node could not be exported/)).toBeVisible();
+    expect(screen.getByText('future_reason')).toBeVisible();
+    await user.keyboard('{Escape}');
+    expect(screen.queryByText('Tokyo AnyTLS')).not.toBeInTheDocument();
+    expect(dialog).toBeVisible();
   });
   it('submits confirmed channel settings through the save action', async () => {
     const user = userEvent.setup();
@@ -313,7 +340,36 @@ describe('channel workspace', () => {
       ...rule, sort_index: remote ? -20 : 0,
     });
   });
-  it('resets card selection when switching groups without changing either membership', async () => {
+  it('shares the active tab across groups while showing each group’s own content', async () => {
+    const user = userEvent.setup();
+    const otherNode = { ...node, id: 'node-two', key: 'manual:two', name: 'Osaka', tag: 'Osaka' };
+    const groups = [node, otherNode].map((value) => ({
+      ...newRuleGroup([value.id]), name: value.name,
+      rules: [{
+        id: `rule-${value.id}`, kind: 'domain' as const, value: `${value.name.toLowerCase()}.example`,
+        enabled: true, exit: { kind: 'group-default' as const },
+      }],
+    }));
+    const client = mount({ ...channel, config: { policy: { ...channel.config.policy!, groups } } }, [node, otherNode]);
+    const sidebar = screen.getByRole('complementary', { name: 'Strategy groups' });
+    await user.click(screen.getByRole('tab', { name: 'Exit rules' }));
+    await user.click(within(sidebar).getByRole('button', { name: /^Osaka/ }));
+    expect(screen.getByRole('tab', { name: 'Exit rules' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('list', { name: 'Exit rules' })).toHaveTextContent('osaka.example');
+    expect(screen.queryByText('tokyo.example')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Add rule' })).toBeVisible();
+    await user.click(within(sidebar).getByRole('button', { name: /^Tokyo/ }));
+    expect(screen.getByRole('list', { name: 'Exit rules' })).toHaveTextContent('tokyo.example');
+    await user.click(screen.getByRole('tab', { name: 'Candidate nodes' }));
+    await user.click(within(sidebar).getByRole('button', { name: /^Osaka/ }));
+    expect(screen.getByRole('tab', { name: 'Candidate nodes' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('checkbox', { name: /Osaka/ })).toBeVisible();
+    expect(screen.queryByRole('checkbox', { name: /Tokyo/ })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Add nodes' })).toBeVisible();
+    expect(screen.getByRole('button', { name: /Save changes/ })).toBeDisabled();
+    expect(client.updateSubscriptionChannel).not.toHaveBeenCalled();
+  });
+  it('resets card selection and search when switching groups without changing either membership', async () => {
     const user = userEvent.setup();
     const groups = [
       { ...newRuleGroup(['node-one']), name: 'Proxy' },
@@ -322,8 +378,10 @@ describe('channel workspace', () => {
     const client = mount({ ...channel, config: { policy: { ...channel.config.policy!, groups } } });
     await user.click(screen.getByRole('checkbox', { name: /Tokyo/ }));
     expect(screen.getByRole('checkbox', { name: /Tokyo/ })).toBeChecked();
+    await user.type(screen.getByRole('textbox', { name: 'Search nodes, groups, sources or protocols' }), 'Tokyo');
     const sidebar = screen.getByRole('complementary', { name: 'Strategy groups' });
     await user.click(within(sidebar).getByRole('button', { name: /^Other/ }));
+    expect(screen.getByRole('textbox', { name: 'Search nodes, groups, sources or protocols' })).toHaveValue('');
     expect(screen.getByRole('checkbox', { name: /Tokyo/ })).not.toBeChecked();
     expect(screen.queryByRole('button', { name: 'Remove selected nodes' })).not.toBeInTheDocument();
     await user.click(within(sidebar).getByRole('button', { name: /^Proxy/ }));

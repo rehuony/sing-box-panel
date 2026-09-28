@@ -11,6 +11,7 @@ import { describeRequestError, ErrorNotice } from '@/components/error-notice';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 
 import { buildPublicSubscriptionURL } from './public-subscription-url';
+import { SubscriptionContentState } from './subscription-content-state';
 
 function useSubscriptionTokens() {
   const client = useApiClient();
@@ -87,12 +88,17 @@ export function ChannelLinkDialog({ channelID, onClose }: {
           <DialogDescription className='sr-only'>{t('channels.subscriptionKey')}</DialogDescription>
         </DialogHeader>
         {error != null && <ErrorNotice error={error} />}
-        <div className='subscription-settings-fields'>
-          <label htmlFor='channel-link-key'>{t('channels.subscriptionKey')}</label>
-          <SelectField id='channel-link-key' value={selectedID} onValueChange={setSelected} disabled={loading || busy || !available.length}
-            items={available.map((token) => ({ value: token.id, label: token.label }))} />
-        </div>
-        {!loading && !error && !available.length && <p className='text-sm text-muted-foreground'>{t('channels.noActiveKeys')}</p>}
+        {loading
+          ? <SubscriptionContentState loading />
+          : available.length > 0
+            ? (
+                <div className='subscription-settings-fields'>
+                  <label htmlFor='channel-link-key'>{t('channels.subscriptionKey')}</label>
+                  <SelectField id='channel-link-key' value={selectedID} onValueChange={setSelected} disabled={busy}
+                    items={available.map((token) => ({ value: token.id, label: token.label }))} />
+                </div>
+              )
+            : !error && <SubscriptionContentState kind='activeKeys' title={t('channels.noActiveKeys')} />}
         <DialogFooter>
           <Button disabled={busy || loading || !selectedID} onClick={() => void copy()}>{t('channels.copy')}</Button>
           <Button variant='outline' onClick={onClose}>{t('channels.done')}</Button>

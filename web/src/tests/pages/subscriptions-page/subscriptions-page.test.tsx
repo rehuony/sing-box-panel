@@ -1,11 +1,12 @@
-import { describe, expect, it } from 'vitest';
 import { useLocation } from 'react-router-dom';
+import { describe, expect, it, vi } from 'vitest';
 import userEvent from '@testing-library/user-event';
 import { render, screen, waitFor, within } from '@testing-library/react';
 
 import { TestRouter } from '@/tests/test-router';
 import '@/i18n';
 import { ApiClientProvider } from '@/api/api-client-context';
+import { newRuleGroup } from '@/pages/subscriptions-page/channel-policy';
 import { SubscriptionsPage } from '@/pages/subscriptions-page/subscriptions-page';
 import { createMockApiClient, testSubscriptionChannels } from '@/tests/api/mock-api-client';
 import { buildPublicSubscriptionURL } from '@/pages/subscriptions-page/public-subscription-url';
@@ -16,6 +17,24 @@ function LocationProbe() {
 }
 
 describe('subscriptionsPage', () => {
+  it('starts with candidate nodes when reopening a channel editor', async () => {
+    const user = userEvent.setup();
+    const channel = { ...testSubscriptionChannels[0], config: { policy: {
+      selection: { ids: [], excluded_ids: [], new_node_policy: 'exclude' as const },
+      groups: [newRuleGroup([])], default_exit: { kind: 'direct' as const },
+    } } };
+    const client = createMockApiClient({ getSubscriptionChannel: vi.fn().mockResolvedValue(channel) });
+    render(<TestRouter initialEntries={['/subscriptions#subscription-channels']}><ApiClientProvider client={client}><SubscriptionsPage /></ApiClientProvider></TestRouter>);
+    const row = (await screen.findByRole('cell', { name: channel.name })).closest('tr')!;
+    await user.click(within(row).getByRole('button', { name: 'Edit' }));
+    await user.click(await screen.findByRole('tab', { name: 'Exit rules' }));
+    await user.click(screen.getByRole('button', { name: 'Back' }));
+    const reopenedRow = (await screen.findByRole('cell', { name: channel.name })).closest('tr')!;
+    await user.click(within(reopenedRow).getByRole('button', { name: 'Edit' }));
+    expect(await screen.findByRole('tab', { name: 'Candidate nodes' })).toHaveAttribute('aria-selected', 'true');
+    expect(client.updateSubscriptionChannel).not.toHaveBeenCalled();
+  });
+
   it('keeps edits on canceled navigation and returns to the channel list after discarding', async () => {
     const user = userEvent.setup();
     const client = createMockApiClient();

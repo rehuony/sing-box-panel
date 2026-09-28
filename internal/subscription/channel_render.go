@@ -145,7 +145,7 @@ func RenderPolicyNodes(nodes []Node, channel RenderChannel, policy *ChannelPolic
 	} else if channel.Format == RenderFormatLoon {
 		media = "text/plain; charset=utf-8"
 	}
-	return RenderResult{Format: channel.Format, MediaType: media, Content: content, NodeCount: len(native) + len(loonNodes), Diagnostics: diagnostics}, nil
+	return RenderResult{Format: channel.Format, MediaType: media, Content: content, NodeCount: len(native) + len(loonNodes), Diagnostics: diagnostics, PreviewDiagnostics: previewDiagnostics(diagnostics, values)}, nil
 }
 
 func prepareChannelNodes(nodes []Node, channel RenderChannel, p *ChannelPolicy) ([]outbound, map[string]string, error) {
@@ -222,7 +222,7 @@ func prepareChannelNodes(nodes []Node, channel RenderChannel, p *ChannelPolicy) 
 		names[id] = name
 		sourceNames[node.SourceID+"\x00"+node.Tag] = name
 		value["tag"] = name
-		values = append(values, outbound{collection: CollectionOutbounds, index: index, tag: name, typeID: node.Type, value: value})
+		values = append(values, outbound{collection: CollectionOutbounds, index: index, nodeID: id, tag: name, typeID: node.Type, value: value})
 		sourceIDs = append(sourceIDs, node.SourceID)
 	}
 	for i, value := range values {

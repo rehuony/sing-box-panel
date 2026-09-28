@@ -11,7 +11,6 @@ import type { SubscriptionNodeDetail, SubscriptionNodeSummary } from '@/api/api-
 
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
-import { Skeleton } from '@/components/ui/skeleton';
 import { toast } from '@/components/ui/toast-manager';
 import { useApiClient } from '@/api/api-client-context';
 import { useUnsavedChanges } from '@/hooks/use-unsaved-changes';
@@ -28,6 +27,7 @@ import {
 } from '@/components/ui/dialog';
 
 import { SubscriptionNodeForm } from './subscription-node-form';
+import { SubscriptionContentState } from './subscription-content-state';
 import { collectionItemSchema, schemaProperties } from '../configuration-page/schema-ui';
 import {
   encodeCanonicalValue,
@@ -215,17 +215,7 @@ export function SubscriptionNodeEditor({
           <ErrorNotice error={error} />
         )}
         {editorLoading
-          ? (
-              <div
-                aria-label={t('subscriptions.common.loading')}
-                className='subscription-node-editor__loading'
-                role='status'
-              >
-                <Skeleton aria-hidden='true' className='h-8 w-40' />
-                <Skeleton aria-hidden='true' className='h-10 w-full' />
-                <Skeleton aria-hidden='true' className='min-h-0 w-full flex-1' />
-              </div>
-            )
+          ? <SubscriptionContentState loading />
           : node && !detail
             ? null
             : confirmDelete
