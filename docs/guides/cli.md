@@ -17,7 +17,7 @@ sing-box-panel
 │  ├─ catalog | refresh
 │  ├─ list | show | install | import | remove
 │  └─ enable | status | start | stop | restart | rollback
-├─ config init | show | set | unset | verify
+├─ config init | show | set | unset | verify | hash-password | reset-password
 ├─ channel list | show | create | update | delete | render
 ├─ source list | show | create | update | refresh | delete
 ├─ token list | create | rotate | revoke
@@ -108,29 +108,34 @@ directly from the shared settings file.
 valid panel settings. Startup checks the runtime environment and database;
 `config verify` reads the settings file alone. `server start` first creates default
 settings if the selected file is absent, including parent directories, the default data directory,
-and a random management token. The settings file uses mode `0600`; new directories
+and the administrator email and a random password. The settings file uses mode `0600`; new directories
 use `0700`. This also applies to an explicit `--config` path. Concurrent first
 starts cannot replace each other's settings. A damaged, unreadable, or dangling
 symlink file is never replaced. Database initialization remains part of startup.
 Installing or starting an existing generated unit prepares missing settings and
 directories before systemd starts it. It validates required external commands and
-manager access before initialization, preserves existing settings and tokens, and
+manager access before initialization, preserves existing settings and credentials, and
 never creates the database during installation. Customized or ambiguous units
 require explicit attention; start/restart does not install a missing unit.
 `init` explicitly creates settings and initializes storage. It refuses to overwrite an existing file
 unless `--force` is supplied. No command silently repairs a damaged file.
 
-When `server start` creates settings, it prints `sing-box-panel settings is created`
-to stderr, followed by aligned `Default URL`, `Default Token`, `Default Settings`,
-and `Default Data Dir` rows. This reports initialization, not HTTP readiness.
+When `server start` creates settings, it prints `sing-box-panel settings created`
+to stderr, followed by aligned `Panel URL`, `Email`, `Initial Password`, `Settings`,
+and `Data Dir` rows. This reports initialization, not HTTP readiness.
+`init` and `config init` use the same aligned text summary on stdout, including
+the reminder to save the password because only its hash is stored. Systemd creation
+uses the startup summary on stderr. If settings creation succeeds but later storage
+initialization or service activation fails, stderr still carries the one-time
+credentials; the failure does not claim service readiness.
 It does not repeat the summary when the file already exists. Once the server is
 ready, it prints `sing-box-panel is running` with aligned `Panel URL`, `Settings`,
 and `Data Dir` rows, followed by the stop shortcut and stored-log command.
 Color is limited to text on a terminal
 and respects `NO_COLOR` and `TERM`. In JSON/JSONL mode, stderr receives one event
 with `event: "settings_initialized"`, `settings_path`, `data_dir`,
-`default_panel_url`, and `login_token`; stdout remains free of startup guidance.
-First-run output contains the newly generated token in both terminal and redirected
+`default_panel_url`, `login_email`, and `login_password`; stdout remains free of startup guidance.
+First-run output contains the newly generated password in both terminal and redirected
 output, including JSON/JSONL.
 
 Results are written to stdout. Progress, warnings, and terminal errors are
@@ -171,15 +176,35 @@ sing-box-panel config set --config ./setting.json --file ./new-setting.json
 sing-box-panel config set --config ./setting.json --file - < ./new-setting.json
 ```
 
-- `init` generates a default settings file with a random login token, without
+- `init` generates a default settings file with a random administrator password, without
   creating the data directory, opening SQLite, or starting a service. New settings
   directories use `0700` and the file uses `0600`. Existing files are preserved;
-  `--force` explicitly replaces a regular file and generates a new token.
+  `--force` explicitly replaces a regular file and generates a new password.
   Symlinks and pending settings/data relocation recovery are rejected even with
   `--force`. Location metadata is retained for the next startup relocation.
-  Text output displays the file path and login token; JSON/JSONL returns
-  `initialized: true`, `settings_path`, and `login_token`. Top-level `init` retains
+  Text output displays the file path, administrator email, and initial password; JSON/JSONL returns
+  `initialized: true`, `settings_path`, `login_email`, and `login_password`. Top-level `init` retains
   its broader responsibility of also initializing storage.
+- `reset-password` resets the administrator password in the existing selected settings
+  file. It generates a random password by default and prints an aligned summary with
+  the settings path, email and new password exactly once. JSON/JSONL returns
+  `password_reset: true`, `settings_path`, `login_email`, and `login_password`.
+  `--stdin` supplies a custom password using the same bounded input rules as
+  `hash-password`; that mode never echoes the password and omits `login_password`.
+  No old password is required. Email, other settings, relative paths and file ownership
+  are preserved; the file remains `0600`. No database is opened and no restart is
+  needed. Old sessions fail their next authentication check; normal login rate limits
+  still apply. Missing, invalid, unreadable or pending-recovery settings fail without
+  initialization. Cancellation or invalid password input leaves settings unchanged.
+  Use `sing-box-panel --config /path/to/setting.json config reset-password` as the
+  file owner or with the system service's required administrative permissions.
+  Keep the command output private; it contains the generated password even when redirected.
+- `hash-password` prompts for a password and confirmation with terminal echo disabled.
+  Use `config hash-password --stdin` to explicitly read from stdin (one final line
+  ending is removed). Passwords have 12–128 Unicode characters; spaces are preserved.
+  Text output is the Argon2id hash; JSON/JSONL returns `password_hash`. It does not
+  change settings and never accepts a plaintext password argument. For example,
+  `sing-box-panel config hash-password`, then copy the result into `auth.password_hash`.
 - `show` returns exact file bytes, even when the JSON or settings are invalid.
   JSON/JSONL returns `settings_path` and a `content` string. The content includes
   credentials; the Web UI reads and writes this same file.
@@ -195,10 +220,12 @@ sing-box-panel config set --config ./setting.json --file - < ./new-setting.json
 - `unset FIELD [FIELD...]` restores selected fields or entire sections from the
   same defaults as `init`. Dotted names (`server.port`) and slash paths
   (`/server/port`) select the same field. Arrays reset as a whole. Multiple
-  fields are reset in one atomic write, so related values such as
-  `server.external_origin` and `auth.secure_cookie` can be reset together.
+  fields are reset in one atomic write. `server.external_origin` can be reset
+  independently; Cookie security is automatic. The removed `auth.secure_cookie`
+  field is rejected by validation and cannot be reset. Delete it from old
+  configuration files before using them; no automatic migration is performed.
   The complete result must validate: unknown fields and required values without
-  defaults, including `auth.token` or the whole `auth` section, are rejected
+  defaults, including `auth.email`, `auth.password_hash`, or the whole `auth` section, are rejected
   without changing the file. Unselected values, including relative paths and
   credentials, are preserved. Missing files are not initialized. JSON/JSONL
   returns `saved: true`, `settings_path`, and `reset_fields` without their values.

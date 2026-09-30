@@ -26,7 +26,7 @@ import type {
 import { DEFAULT_APPEARANCE } from '@/theme/appearance';
 import { reviewedSchemaManifest } from '@/schemas/generated';
 
-export const testSession: Session = { displayName: 'Panel administrator' };
+export const testSession: Session = { email: 'admin@example.com', csrfToken: 'csrf-test', expiresAt: '2099-01-01T00:00:00Z', displayName: 'Panel administrator' };
 
 export const testSystemStatus: SystemStatus = {
   platform: { os: 'linux', arch: 'arm64' },
@@ -311,9 +311,9 @@ export function createMockApiClient(overrides: Partial<ApiClient> = {}): Mocked<
     }),
     exportPanelBackup: vi.fn<ApiClient['exportPanelBackup']>(),
     restorePanelBackup: vi.fn<ApiClient['restorePanelBackup']>(),
-    getPanelSettings: vi.fn<ApiClient['getPanelSettings']>().mockResolvedValue({
+    getPanelSettings: vi.fn<ApiClient['getPanelSettings']>().mockResolvedValue({ admin_email: 'admin@example.com',
       revision: 0,
-      service: { data_dir: '/var/lib/sing-box-panel', base_path: '', secure_cookie: false, catalog_refresh_interval_hours: 12, traffic_period_months: 1, sample_retention_days: 90, private_source_cidrs: [] },
+      service: { data_dir: '/var/lib/sing-box-panel', base_path: '', catalog_refresh_interval_hours: 12, traffic_period_months: 1, sample_retention_days: 90, private_source_cidrs: [] },
       github_token_configured: false,
       restart_required: false,
       preferences: {
@@ -326,13 +326,13 @@ export function createMockApiClient(overrides: Partial<ApiClient> = {}): Mocked<
         appearance: { ...DEFAULT_APPEARANCE },
       },
     }),
-    savePanelSettings: vi.fn<ApiClient['savePanelSettings']>().mockImplementation(async (input) => ({
+    savePanelSettings: vi.fn<ApiClient['savePanelSettings']>().mockImplementation(async (input) => ({ reauthentication_required: false, settings: { admin_email: 'admin@example.com',
       revision: input.revision + 1,
       preferences: input.preferences,
-      service: input.service ?? { data_dir: '/var/lib/sing-box-panel', base_path: '', secure_cookie: false, catalog_refresh_interval_hours: 12, traffic_period_months: 1, sample_retention_days: 90, private_source_cidrs: [] },
+      service: input.service ?? { data_dir: '/var/lib/sing-box-panel', base_path: '', catalog_refresh_interval_hours: 12, traffic_period_months: 1, sample_retention_days: 90, private_source_cidrs: [] },
       github_token_configured: Boolean(input.github_token),
       restart_required: false,
-    })),
+    } })),
     subscribeSessionInvalidated: vi.fn<ApiClient['subscribeSessionInvalidated']>().mockReturnValue(() => undefined),
     getSession: vi.fn<ApiClient['getSession']>().mockResolvedValue(testSession),
     getSystemStatus: vi.fn<ApiClient['getSystemStatus']>().mockResolvedValue(testSystemStatus),

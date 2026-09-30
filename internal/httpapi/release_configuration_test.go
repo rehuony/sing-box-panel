@@ -18,6 +18,7 @@ import (
 	"github.com/rehuony/sing-box-panel/internal/configuration"
 	"github.com/rehuony/sing-box-panel/internal/settings"
 	"github.com/rehuony/sing-box-panel/internal/store"
+	"github.com/rehuony/sing-box-panel/internal/testutil"
 )
 
 // Use the release scenario's actual input and the public OpenAPI contract so
@@ -37,7 +38,8 @@ func TestReleaseConfigurationFileContractSurvivesReopen(t *testing.T) {
 	}
 	value := settings.Defaults()
 	value.DataDir = t.TempDir()
-	value.Auth.Token = "openapi-response-test"
+	value.Auth.Email = testutil.AdminEmail
+	value.Auth.PasswordHash = testutil.PasswordHash
 	databasePath := filepath.Join(value.DataDir, "panel.db")
 	open := func() (*store.Store, *Handler) {
 		t.Helper()
@@ -46,7 +48,7 @@ func TestReleaseConfigurationFileContractSurvivesReopen(t *testing.T) {
 			t.Fatal(err)
 		}
 		t.Cleanup(func() { _ = database.Close() })
-		return database, NewHandler(HandlerOptions{Settings: value, Commands: application.FromStoreWithSettings(database, value)})
+		return database, newTestHandler(t, HandlerOptions{Settings: value, Commands: application.FromStoreWithSettings(database, value)})
 	}
 	database, handler := open()
 	var expectedRevision int64

@@ -18,6 +18,7 @@ import (
 	"github.com/rehuony/sing-box-panel/internal/buildinfo"
 	"github.com/rehuony/sing-box-panel/internal/console"
 	"github.com/rehuony/sing-box-panel/internal/settings"
+	"github.com/rehuony/sing-box-panel/internal/testutil"
 )
 
 func TestServerStopsWithOpenMetricsStream(t *testing.T) {
@@ -31,7 +32,8 @@ func TestServerStopsWithOpenMetricsStream(t *testing.T) {
 	value := settings.Defaults()
 	value.Server.Host, value.Server.Port = "127.0.0.1", port
 	value.DataDir = filepath.Join(t.TempDir(), "data")
-	value.Auth.Token = strings.Repeat("x", 32)
+	value.Auth.Email = testutil.AdminEmail
+	value.Auth.PasswordHash = testutil.PasswordHash
 	settingsPath := filepath.Join(t.TempDir(), "setting.json")
 	raw, err := json.Marshal(value)
 	if err != nil {
@@ -49,7 +51,7 @@ func TestServerStopsWithOpenMetricsStream(t *testing.T) {
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
 		request, _ := http.NewRequestWithContext(t.Context(), http.MethodGet, "http://"+address+"/api/v1/metrics/stream", nil)
-		request.Header.Set("Authorization", "Bearer "+value.Auth.Token)
+		request.Header.Set("Authorization", "Bearer "+value.Auth.PasswordHash)
 		response, err = client.Do(request)
 		if err == nil {
 			break

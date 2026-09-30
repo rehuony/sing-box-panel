@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/rehuony/sing-box-panel/internal/corelogs"
+	"github.com/rehuony/sing-box-panel/internal/testutil"
 )
 
 func TestClearCoreLogPersistsAndRequiresAuthenticationAndCSRF(t *testing.T) {
@@ -42,8 +43,7 @@ func TestClearCoreLogPersistsAndRequiresAuthenticationAndCSRF(t *testing.T) {
 	if unauthed.Code != http.StatusUnauthorized {
 		t.Fatal(unauthed.Code)
 	}
-	login := httptest.NewRecorder()
-	handler.ServeHTTP(login, httptest.NewRequest(http.MethodPost, "/api/v1/auth/session", strings.NewReader(`{"token":"correct-management-token"}`)))
+	login := loginWithPassword(t, handler, testutil.AdminPassword)
 	var session struct {
 		CSRF string `json:"csrfToken"`
 	}
@@ -71,7 +71,7 @@ func TestClearCoreLogPersistsAndRequiresAuthenticationAndCSRF(t *testing.T) {
 		{"file=" + name + "&offset=0", "", http.StatusBadRequest},
 		{"file=" + name, `{}`, http.StatusUnprocessableEntity},
 	} {
-		response := authenticatedRequest(handler, http.MethodDelete, "/api/v1/core/logs/content?"+test.query, test.body, "")
+		response := authenticatedRequest(t, handler, http.MethodDelete, "/api/v1/core/logs/content?"+test.query, test.body, "")
 		if response.Code != test.status {
 			t.Fatalf("%s: %d %s", test.query, response.Code, response.Body.String())
 		}
@@ -92,7 +92,7 @@ func TestClearCoreLogPersistsAndRequiresAuthenticationAndCSRF(t *testing.T) {
 	read := func(want string) {
 		t.Helper()
 		for _, suffix := range []string{"", "&offset=0"} {
-			response := authenticatedRequest(handler, http.MethodGet, path+suffix, "", "")
+			response := authenticatedRequest(t, handler, http.MethodGet, path+suffix, "", "")
 			var got corelogs.Chunk
 			if response.Code != http.StatusOK || json.Unmarshal(response.Body.Bytes(), &got) != nil || got.Text != want || got.Size != int64(len(want)) || got.NextOffset != int64(len(want)) {
 				t.Fatalf("reread: %d %s", response.Code, response.Body.String())
@@ -107,7 +107,7 @@ func TestClearCoreLogPersistsAndRequiresAuthenticationAndCSRF(t *testing.T) {
 	if content, err := os.ReadFile(archivePath); err != nil || string(content) != "INFO unrelated\n" {
 		t.Fatalf("archive changed: %q, %v", content, err)
 	}
-	response := authenticatedRequest(handler, http.MethodGet, "/api/v1/logs/panel?search=Core%20log%20clearing", "", "")
+	response := authenticatedRequest(t, handler, http.MethodGet, "/api/v1/logs/panel?search=Core%20log%20clearing", "", "")
 	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), "core.log.clear.completed") || !strings.Contains(response.Body.String(), "core.log.clear.failed") {
 		t.Fatal(response.Code, response.Body.String())
 	}
@@ -133,7 +133,7 @@ func TestCoreLogStreamAndReconnectResetAfterClear(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	request := httptest.NewRequest(http.MethodGet, "/api/v1/core/logs/stream?file="+name, nil).WithContext(ctx)
-	request.Header.Set("Authorization", "Bearer correct-management-token")
+	testutil.Authorize(t, handler, request)
 	flushes := 0
 	stream := &coreLogFlushRecorder{ResponseRecorder: httptest.NewRecorder()}
 	stream.onFlush = func() {
@@ -142,7 +142,7 @@ func TestCoreLogStreamAndReconnectResetAfterClear(t *testing.T) {
 			cancel()
 			return
 		}
-		response := authenticatedRequest(handler, http.MethodDelete, "/api/v1/core/logs/content?file="+name, "", "")
+		response := authenticatedRequest(t, handler, http.MethodDelete, "/api/v1/core/logs/content?file="+name, "", "")
 		if response.Code != http.StatusNoContent {
 			t.Fatal(response.Code, response.Body.String())
 		}
@@ -169,7 +169,7 @@ func TestCoreLogStreamAndReconnectResetAfterClear(t *testing.T) {
 	for _, endpoint := range []string{"content", "stream"} {
 		path := fmt.Sprintf("/api/v1/core/logs/%s?file=%s&offset=%d&generation=%s", endpoint, name, chunks[0].NextOffset, chunks[0].Generation)
 		request := httptest.NewRequest(http.MethodGet, path, nil)
-		request.Header.Set("Authorization", "Bearer correct-management-token")
+		testutil.Authorize(t, handler, request)
 		ctx, cancel := context.WithCancel(request.Context())
 		response := &cancelingLogRecorder{ResponseRecorder: httptest.NewRecorder(), cancel: cancel}
 		handler.ServeHTTP(response, request.WithContext(ctx))
@@ -196,7 +196,7 @@ func TestClearCoreLogSurfacesStorageFailure(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(handler.settings.DataDir, "logs"), []byte("blocked"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	response := authenticatedRequest(handler, http.MethodDelete, "/api/v1/core/logs/content?file=2026-09-23-000.log", "", "")
+	response := authenticatedRequest(t, handler, http.MethodDelete, "/api/v1/core/logs/content?file=2026-09-23-000.log", "", "")
 	if response.Code != http.StatusServiceUnavailable || !strings.Contains(response.Body.String(), "core_log_clear_failed") {
 		t.Fatal(response.Code, response.Body.String())
 	}

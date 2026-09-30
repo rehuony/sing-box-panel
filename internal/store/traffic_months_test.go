@@ -125,7 +125,7 @@ func TestVersion11UpgradePreservesSingleMonthTotalsAndBackfillsOnlyMissingMonths
 	}
 	restoreLegacyTrafficAccounting(t, db)
 	path := db.Path()
-	if _, err := db.db.ExecContext(ctx, "DROP TABLE traffic_months; PRAGMA user_version=11"); err != nil {
+	if _, err := db.db.ExecContext(ctx, "DROP TABLE traffic_months; DROP TABLE auth_sessions; PRAGMA user_version=11"); err != nil {
 		t.Fatal(err)
 	}
 	if err := db.Close(); err != nil {

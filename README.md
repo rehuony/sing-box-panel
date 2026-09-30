@@ -153,12 +153,12 @@ Initialize an isolated development instance and start the server:
 
 `server start` also creates default settings automatically when the selected
 file is missing, so `init` is optional. On creation, it prints a concise summary
-of the paths, default URL, and generated login token. Every successful start also
+of the paths, default URL, and generated administrator email and password. Every successful start also
 prints the bound panel URL and streams formatted panel logs. Existing settings
 are never overwritten by startup.
 
 The default listener is `127.0.0.1:3000`. The settings file contains a random
-management token and must not be committed. Keep `server start` active for configuration checks and core process controls.
+password hash and must not be committed. Keep `server start` active for configuration checks and core process controls.
 Catalog refresh, installation, import and source refresh also work directly from the CLI.
 
 See [Getting started](docs/getting-started.md) for the first configuration,

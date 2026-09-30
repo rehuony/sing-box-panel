@@ -24,10 +24,10 @@ export function createSessionHttpApi(context: HttpApiContext) {
         throw error;
       }
     },
-    async login(token, signal) {
+    async login(input, signal) {
       const payload = await request<SessionPayload>(fetcher, `${baseUrl}/auth/session`, {
         method: 'POST',
-        body: JSON.stringify({ token }),
+        body: JSON.stringify(input),
         headers: {
           'Content-Type': 'application/json',
         },

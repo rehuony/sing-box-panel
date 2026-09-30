@@ -20,8 +20,7 @@ function record(value: unknown): Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
 }
 
-export function PanelBackupSettings({ dirty, busy, onBusyChange, onRestored }: {
-  dirty: boolean;
+export function PanelBackupSettings({ busy, onBusyChange, onRestored }: {
   busy: boolean;
   onBusyChange: (busy: boolean) => void;
   onRestored: (view: PanelSettingsView) => Promise<void>;
@@ -111,8 +110,6 @@ export function PanelBackupSettings({ dirty, busy, onBusyChange, onRestored }: {
   return (
     <div className='settings-backup'>
       <h2>{t('panelSettings.backup')}</h2>
-      <p className='settings-notice'>{t('panelSettings.backupDescription')}</p>
-      {dirty && <p className='settings-notice' role='status'>{t('panelSettings.backupDraftWarning')}</p>}
       {error != null && <ErrorNotice error={error} />}
       <div className='settings-backup-actions'>
         <Button type='button' variant='outline' disabled={locked} onClick={() => void exportBackup()}>

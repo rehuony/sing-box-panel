@@ -15,6 +15,7 @@ import (
 
 	"github.com/rehuony/sing-box-panel/internal/application"
 	"github.com/rehuony/sing-box-panel/internal/settings"
+	"github.com/rehuony/sing-box-panel/internal/testutil"
 )
 
 // This runner deliberately fails if a file command acquires application services.
@@ -89,7 +90,8 @@ func TestPanelConfigFileOperationsDoNotOpenStorage(t *testing.T) {
 				}
 				value := settings.Defaults()
 				value.DataDir = "../data"
-				value.Auth.Token = "fixture-token"
+				value.Auth.Email = testutil.AdminEmail
+				value.Auth.PasswordHash = testutil.PasswordHash
 				data, err := json.MarshalIndent(value, "", "  ")
 				if err != nil {
 					t.Fatal(err)
@@ -229,7 +231,7 @@ func TestPanelConfigInitOnlyGeneratesSettings(t *testing.T) {
 				t.Fatal(err)
 			}
 			value, err := settings.Load(path)
-			if err != nil || len(value.Subscription.PrivateSourceCIDRs) != 0 || value.Auth.Token == "" {
+			if err != nil || len(value.Subscription.PrivateSourceCIDRs) != 0 || value.Auth.PasswordHash == "" {
 				t.Fatal("init did not generate valid defaults", err)
 			}
 			shown, err := runPanelConfig(t, t.Context(), path, nil, "show")
@@ -241,16 +243,17 @@ func TestPanelConfigInitOnlyGeneratesSettings(t *testing.T) {
 					t.Fatalf("initialization generated removed field %s", field)
 				}
 			}
-			if !strings.Contains(out, value.Auth.Token) || !strings.Contains(out, path) {
+			password := initialPasswordFromOutput(t, out, value.Auth.PasswordHash)
+			if !strings.Contains(out, path) {
 				t.Fatal("initialization summary omitted the path or token")
 			}
 			if format != "text" {
 				var result struct {
-					Initialized  bool   `json:"initialized"`
-					SettingsPath string `json:"settings_path"`
-					LoginToken   string `json:"login_token"`
+					Initialized   bool   `json:"initialized"`
+					SettingsPath  string `json:"settings_path"`
+					LoginPassword string `json:"login_password"`
 				}
-				if err := json.Unmarshal([]byte(out), &result); err != nil || !result.Initialized || result.SettingsPath != path || result.LoginToken != value.Auth.Token {
+				if err := json.Unmarshal([]byte(out), &result); err != nil || !result.Initialized || result.SettingsPath != path || result.LoginPassword != password {
 					t.Fatal("invalid initialization result", err)
 				}
 			}
@@ -269,7 +272,7 @@ func TestPanelConfigInitOnlyGeneratesSettings(t *testing.T) {
 				t.Fatal(err)
 			}
 			replacement, err := settings.Load(path)
-			if err != nil || replacement.Auth.Token == value.Auth.Token {
+			if err != nil || replacement.Auth.PasswordHash == value.Auth.PasswordHash {
 				t.Fatal("forced initialization did not generate a new token", err)
 			}
 			for target, mode := range map[string]os.FileMode{path: 0600, filepath.Dir(path): 0700} {
@@ -348,7 +351,8 @@ func TestPanelConfigUnsetRestoresDefaultsWithoutOpeningStorage(t *testing.T) {
 	for _, format := range []string{"text", "json", "jsonl"} {
 		path := filepath.Join(t.TempDir(), "setting.json")
 		value := settings.Defaults()
-		value.Auth.Token = "keep-token"
+		value.Auth.Email = testutil.AdminEmail
+		value.Auth.PasswordHash = testutil.PasswordHash
 		value.DataDir = "./absent-data"
 		value.Server.Port = 8181
 		value.GitHub.CatalogRefreshIntervalHours = 24
@@ -363,17 +367,17 @@ func TestPanelConfigUnsetRestoresDefaultsWithoutOpeningStorage(t *testing.T) {
 		if format != "text" && (!strings.Contains(out, `"saved":true`) || !strings.Contains(out, `"reset_fields":["server.port","/github/catalog_refresh_interval_hours"]`)) {
 			t.Fatal("invalid structured reset result", out)
 		}
-		if strings.Contains(out, value.Auth.Token) {
+		if strings.Contains(out, value.Auth.PasswordHash) {
 			t.Fatal("reset result exposed a credential")
 		}
 		loaded, err := settings.Load(path)
-		if err != nil || loaded.Server.Port != 3000 || loaded.GitHub.CatalogRefreshIntervalHours != 12 || loaded.Auth.Token != value.Auth.Token {
+		if err != nil || loaded.Server.Port != 3000 || loaded.GitHub.CatalogRefreshIntervalHours != 12 || loaded.Auth.PasswordHash != value.Auth.PasswordHash {
 			t.Fatal("unset did not restore selected defaults", err)
 		}
 		if _, err := os.Stat(loaded.DataDir); !errors.Is(err, os.ErrNotExist) {
 			t.Fatal("unset opened or created storage", err)
 		}
-		for _, args := range [][]string{{"unset"}, {"unset", "auth.token"}, {"unset", "unknown"}} {
+		for _, args := range [][]string{{"unset"}, {"unset", "auth.password_hash"}, {"unset", "unknown"}} {
 			out, err := runPanelConfig(t, t.Context(), path, nil, args...)
 			want := 3
 			if len(args) == 1 {

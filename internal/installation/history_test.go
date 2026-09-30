@@ -91,7 +91,7 @@ func TestMissingDataStillFinalizesDedicatedConfigDirectory(t *testing.T) {
 			root := t.TempDir()
 			config := filepath.Join(root, "sing-box-panel", "setting.json")
 			data := filepath.Join(root, "missing-data")
-			if _, err := settings.EnsureFile(t.Context(), config, data); err != nil {
+			if _, _, err := settings.EnsureFile(t.Context(), config, data); err != nil {
 				t.Fatal(err)
 			}
 			extraPath := filepath.Join(filepath.Dir(config), "keep.txt")

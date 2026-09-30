@@ -4,6 +4,7 @@ package server
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net"
 	"net/http"
@@ -19,6 +20,7 @@ import (
 	"github.com/rehuony/sing-box-panel/internal/httpapi"
 	"github.com/rehuony/sing-box-panel/internal/settings"
 	"github.com/rehuony/sing-box-panel/internal/store"
+	"github.com/rehuony/sing-box-panel/internal/testutil"
 )
 
 // TestBrowserReview serves the real HTTP boundary and built web assets against
@@ -31,17 +33,31 @@ func TestBrowserReview(t *testing.T) {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
-	db, err := store.Open(ctx, filepath.Join(t.TempDir(), "panel.db"))
+	reviewRoot := t.TempDir()
+	db, err := store.Open(ctx, filepath.Join(reviewRoot, "panel.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer db.Close()
 	configuration := settings.Defaults()
-	configuration.Auth.Token = "local-review-fixture-token-2026-09-19"
+	configuration.Auth.Email = testutil.AdminEmail
+	configuration.Auth.PasswordHash = testutil.PasswordHash
 	configuration.Server.Host = "127.0.0.1"
 	configuration.Server.Port = 3337
 	configuration.Server.ExternalOrigin = "http://127.0.0.1:3337"
-	configuration.Auth.SecureCookie = false
+	configuration.DataDir = reviewRoot
+	raw, err := json.Marshal(configuration)
+	if err != nil {
+		t.Fatal(err)
+	}
+	configPath := filepath.Join(reviewRoot, "setting.json")
+	if err := settings.WriteAtomic(configPath, raw); err != nil {
+		t.Fatal(err)
+	}
+	configuration, err = settings.Load(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
 	commands := application.FromStoreWithSettings(db, configuration)
 	commands.SetTelemetryContext(ctx)
 	nodeCount := 2

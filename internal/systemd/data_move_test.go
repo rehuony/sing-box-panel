@@ -12,6 +12,7 @@ import (
 	"github.com/rehuony/sing-box-panel/internal/panelprocess"
 	"github.com/rehuony/sing-box-panel/internal/settings"
 	"github.com/rehuony/sing-box-panel/internal/store"
+	"github.com/rehuony/sing-box-panel/internal/testutil"
 )
 
 func TestExplicitServiceRestartMovesDataAndUpdatesGeneratedPaths(t *testing.T) {
@@ -24,7 +25,8 @@ func TestExplicitServiceRestartMovesDataAndUpdatesGeneratedPaths(t *testing.T) {
 			}
 			db.Close()
 			value := settings.Defaults()
-			value.Auth.Token = strings.Repeat("test", 8)
+			value.Auth.Email = testutil.AdminEmail
+			value.Auth.PasswordHash = testutil.PasswordHash
 			value.DataDir = fixture.data
 			raw, _ := json.Marshal(value)
 			if err := settings.Replace(fixture.settings, raw); err != nil {

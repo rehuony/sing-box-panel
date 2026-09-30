@@ -1,6 +1,6 @@
 import { createContext, use } from 'react';
 
-import type { Session } from '@/api/api-client';
+import type { LoginInput, Session } from '@/api/api-client';
 
 import i18n from '@/i18n';
 
@@ -11,7 +11,7 @@ export interface AuthSessionValue {
   session: Session | null;
   retrySession: () => void;
   logout: (signal?: AbortSignal) => Promise<void>;
-  login: (token: string, signal?: AbortSignal) => Promise<void>;
+  login: (input: LoginInput, signal?: AbortSignal) => Promise<void>;
 }
 
 export const AuthSessionContext = createContext<AuthSessionValue | null>(null);

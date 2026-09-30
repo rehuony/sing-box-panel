@@ -14,6 +14,7 @@ import type {
   LogEntry,
   PanelLog,
   PanelSettingsView,
+  Session,
   StartupArtifactSummary,
   SubscriptionChannel,
   SubscriptionSource,
@@ -44,7 +45,7 @@ import {
 
 interface DemoState extends ReturnType<typeof createDemoData> {
   nextID: number;
-  session: { displayName: string } | null;
+  session: Session | null;
 }
 
 function abortError(): DOMException {
@@ -53,6 +54,13 @@ function abortError(): DOMException {
 
 function assertActive(signal?: AbortSignal): void {
   if (signal?.aborted === true) throw signal.reason ?? abortError();
+}
+
+// This verifier is only for the in-memory demo. Production passwords use
+// Argon2id on the server; demo backups never contain a plaintext password.
+async function hashDemoPassword(password: string): Promise<string> {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(password));
+  return `demo-sha256:${Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, '0')).join('')}`;
 }
 
 async function respond<T>(value: T, signal?: AbortSignal): Promise<T> {
@@ -137,7 +145,7 @@ function createState(): DemoState {
   return {
     ...data,
     nextID: 100,
-    session: { displayName: 'Demo administrator' },
+    session: { displayName: 'Demo administrator', email: 'admin@example.com', csrfToken: 'demo-csrf', expiresAt: new Date(Date.now() + 7 * 86400000).toISOString() },
   };
 }
 
@@ -262,9 +270,11 @@ export function createDemoApiClient(): ApiClient {
   const state = createState();
   const tokenSecrets = new Map(state.tokens.map((token) => [token.id, `sbp_demo_${token.id}_secret`]));
   const nodeApi = createDemoNodeApi([...demoManualNodes(), ...demoSourceNodeDetails(state)], () => state.sources);
-  let panelSecrets = { management: 'demo-management-token-for-config-backup', github: '' };
+  // SHA-256 of the public demo credential "demo-password-123".
+  let panelSecrets = { passwordHash: 'demo-sha256:22d7a6af7944bae67c1a5266956fd64011985bb71f0216ecdfadf38655be4457', github: '' };
   let panelSettings: PanelSettingsView = {
-    service: { data_dir: '/var/lib/sing-box-panel', base_path: '', secure_cookie: false, catalog_refresh_interval_hours: 12, traffic_period_months: 1, sample_retention_days: 90, private_source_cidrs: [], core_log_retention_days: 7, core_log_max_files: 0, core_log_max_file_size_mib: 32 },
+    admin_email: 'admin@example.com',
+    service: { data_dir: '/var/lib/sing-box-panel', base_path: '', catalog_refresh_interval_hours: 12, traffic_period_months: 1, sample_retention_days: 90, private_source_cidrs: [], core_log_retention_days: 7, core_log_max_files: 0, core_log_max_file_size_mib: 32 },
     revision: 0,
     github_token_configured: false,
     restart_required: false,
@@ -320,7 +330,7 @@ export function createDemoApiClient(): ApiClient {
       assertActive(signal);
       return respond(updateConfigurationFile(input), signal);
     },
-    exportPanelBackup: signal => respond({ format: 'sing-box-panel-backup', version: 1, exported_at: updatedAt(), panel_settings: demoBackupSettings(panelSettings, panelSecrets), sing_box_configuration: configurationFile.content }, signal),
+    exportPanelBackup: signal => respond({ format: 'sing-box-panel-backup', version: 2, exported_at: updatedAt(), panel_settings: demoBackupSettings(panelSettings, panelSecrets), sing_box_configuration: configurationFile.content }, signal),
     async restorePanelBackup(input, signal) {
       assertActive(signal);
       if (input.settings_revision !== panelSettings.revision || input.configuration_revision !== configurationFile.revision) conflict('Saved configuration');
@@ -328,8 +338,9 @@ export function createDemoApiClient(): ApiClient {
       updateConfigurationFile({
         revision: configurationFile.revision, content: input.backup.sing_box_configuration,
       });
-      const reauthenticate = restored.secrets.management !== panelSecrets.management;
-      restored.view.restart_required = restored.view.preferences.listen_host !== '127.0.0.1' || restored.view.preferences.listen_port !== 3000 || restored.view.preferences.external_origin !== '' || restored.view.service.data_dir !== '/var/lib/sing-box-panel' || restored.view.service.base_path !== '' || restored.view.service.secure_cookie;
+      const reauthenticate = restored.secrets.passwordHash !== panelSecrets.passwordHash
+        || restored.view.admin_email !== panelSettings.admin_email;
+      restored.view.restart_required = restored.view.preferences.listen_host !== '127.0.0.1' || restored.view.preferences.listen_port !== 3000 || restored.view.preferences.external_origin !== '' || restored.view.service.data_dir !== '/var/lib/sing-box-panel' || restored.view.service.base_path !== '';
       panelSettings = restored.view;
       panelSecrets = restored.secrets;
       if (reauthenticate) state.session = null;
@@ -338,13 +349,23 @@ export function createDemoApiClient(): ApiClient {
     getPanelSettings: (signal) => respond(panelSettings, signal),
     async savePanelSettings(input, signal) {
       assertActive(signal);
-      if (Object.keys(input).some(key => !['revision', 'preferences', 'service', 'github_token', 'clear_github_token', 'management_token'].includes(key))
-        || Object.keys(input.preferences).some(key => !Object.hasOwn(panelSettings.preferences, key))) {
+      if (Object.keys(input).some(key => !['revision', 'preferences', 'service', 'github_token', 'clear_github_token', 'credentials'].includes(key))
+        || Object.keys(input.preferences).some(key => !Object.hasOwn(panelSettings.preferences, key))
+        || Object.hasOwn(input.service ?? {}, 'secure_cookie')
+        || Object.keys(input.credentials ?? {}).some(key => !['email', 'new_password'].includes(key))) {
         throw new ApiRequestError('Invalid settings fields.', { status: 422, code: 'invalid_json' });
       }
+      const credentials = input.credentials;
+      const email = credentials?.email?.trim().toLowerCase() ?? panelSettings.admin_email;
+      const password = credentials?.new_password ?? '';
+      if (credentials && (!/^[^\s@]+@[^\s@]+$/.test(email) || (password !== '' && ([...password].length < 12 || [...password].length > 128)))) throw new ApiRequestError('Invalid account settings.', { status: 422, code: 'panel_settings_invalid' });
+      const passwordHash = password === '' ? panelSecrets.passwordHash : await hashDemoPassword(password);
+      assertActive(signal);
       if (input.revision !== panelSettings.revision) conflict('Panel settings');
-      panelSecrets = { management: input.management_token || panelSecrets.management, github: input.clear_github_token ? '' : input.github_token || panelSecrets.github };
+      const reauthenticate = email !== panelSettings.admin_email || passwordHash !== panelSecrets.passwordHash;
+      panelSecrets = { passwordHash, github: input.clear_github_token ? '' : input.github_token || panelSecrets.github };
       panelSettings = {
+        admin_email: email,
         revision: panelSettings.revision + 1,
         service: input.service ?? panelSettings.service,
         preferences: structuredClone(input.preferences),
@@ -355,18 +376,25 @@ export function createDemoApiClient(): ApiClient {
           input.preferences.listen_host !== '127.0.0.1'
           || input.preferences.listen_port !== 3000
           || input.preferences.external_origin !== ''
-          || (input.service !== undefined && (input.service.data_dir !== '/var/lib/sing-box-panel' || input.service.base_path !== '' || input.service.secure_cookie)),
+          || (input.service !== undefined && (input.service.data_dir !== '/var/lib/sing-box-panel' || input.service.base_path !== '')),
       };
-      return respond(panelSettings, signal);
+      if (reauthenticate) {
+        state.session = null;
+        for (const listener of sessionListeners) listener();
+      }
+      return respond({ settings: panelSettings, reauthentication_required: reauthenticate }, signal);
     },
     subscribeSessionInvalidated(listener) {
       sessionListeners.add(listener);
       return () => sessionListeners.delete(listener);
     },
     getSession: (signal) => respond(state.session, signal),
-    async login(_token, signal) {
+    async login(input, signal) {
       assertActive(signal);
-      state.session = { displayName: 'Demo administrator' };
+      const passwordHash = await hashDemoPassword(input.password);
+      assertActive(signal);
+      if (input.email.trim().toLowerCase() !== panelSettings.admin_email || passwordHash !== panelSecrets.passwordHash) throw new ApiRequestError('The email or password is incorrect.', { status: 401, code: 'invalid_credentials' });
+      state.session = { displayName: 'Demo administrator', email: panelSettings.admin_email, csrfToken: 'demo-csrf', expiresAt: new Date(Date.now() + 7 * 86400000).toISOString() };
       return respond(state.session, signal);
     },
     async logout(signal) {

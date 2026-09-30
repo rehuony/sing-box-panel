@@ -14,7 +14,7 @@ import (
 	"github.com/rehuony/sing-box-panel/internal/settings"
 )
 
-func (manager *Manager) Install(ctx context.Context, request InstallRequest) (InstallResult, error) {
+func (manager *Manager) Install(ctx context.Context, request InstallRequest) (result InstallResult, installErr error) {
 	if err := manager.requireLinux(); err != nil {
 		return InstallResult{}, err
 	}
@@ -69,7 +69,8 @@ func (manager *Manager) Install(ctx context.Context, request InstallRequest) (In
 	} else if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return InstallResult{}, err
 	}
-	created, err := prepareResources(ctx, request)
+	initial, err := prepareResources(ctx, request)
+	defer func() { result.InitialSettings = initial; result.SettingsCreated = initial != nil }()
 	if err != nil {
 		return InstallResult{}, err
 	}
@@ -103,7 +104,7 @@ func (manager *Manager) Install(ctx context.Context, request InstallRequest) (In
 	}
 
 	return InstallResult{
-		SettingsCreated: created,
+		SettingsCreated: initial != nil,
 		Scope:           scope, Unit: UnitName, UnitPath: manager.unitPath(scope), ExecutablePath: executablePath,
 		SettingsPath: settingsPath, DataDir: dataDir, InstalledPaths: installed,
 		Enabled: true, Started: request.Now, PersistentState: true,

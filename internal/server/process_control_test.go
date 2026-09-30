@@ -23,6 +23,7 @@ import (
 	"github.com/rehuony/sing-box-panel/internal/panelprocess"
 	"github.com/rehuony/sing-box-panel/internal/settings"
 	"github.com/rehuony/sing-box-panel/internal/store"
+	"github.com/rehuony/sing-box-panel/internal/testutil"
 )
 
 func TestForegroundPanelCanBeStoppedFromAnotherClient(t *testing.T) {
@@ -82,7 +83,7 @@ func TestForegroundPanelCanBeStoppedFromAnotherClient(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		request.Header.Set("Authorization", "Bearer "+value.Auth.Token)
+		request.Header.Set("Authorization", "Bearer "+value.Auth.PasswordHash)
 		response, err := http.DefaultClient.Do(request)
 		if err != nil {
 			t.Fatal(err)
@@ -112,7 +113,7 @@ func TestForegroundPanelCanBeStoppedFromAnotherClient(t *testing.T) {
 		if start == 0 {
 			// The Web endpoint persists the new port without moving the listener.
 			var view application.PanelSettingsView
-			requestPanelSettings(t, wait, status.Listen, value.Auth.Token, nil, &view)
+			requestPanelSettings(t, wait, status.Listen, value.Auth.PasswordHash, nil, &view)
 			reserved, err := net.Listen("tcp", "127.0.0.1:0")
 			if err != nil {
 				t.Fatal(err)
@@ -122,11 +123,11 @@ func TestForegroundPanelCanBeStoppedFromAnotherClient(t *testing.T) {
 			view.Preferences.ListenPort = value.Server.Port
 			input := application.PanelSettingsWrite{Revision: view.Revision, Preferences: view.Preferences}
 			var saved application.PanelSettingsView
-			requestPanelSettings(t, wait, status.Listen, value.Auth.Token, &input, &saved)
+			requestPanelSettings(t, wait, status.Listen, value.Auth.PasswordHash, &input, &saved)
 			if !saved.RestartRequired {
 				t.Fatal("listener change did not request manual restart")
 			}
-			requestPanelSettings(t, wait, status.Listen, value.Auth.Token, nil, &saved)
+			requestPanelSettings(t, wait, status.Listen, value.Auth.PasswordHash, nil, &saved)
 			current, err := panelprocess.Inspect(wait, value.DataDir)
 			if err != nil || current.Listen != status.Listen || current.State != "ready" {
 				t.Fatalf("Web save changed running listener: %+v %v", current, err)
@@ -169,7 +170,8 @@ func processSettings(t *testing.T) (settings.Settings, string) {
 	t.Cleanup(func() { _ = os.RemoveAll(dir) })
 	value := settings.Defaults()
 	value.DataDir = filepath.Join(dir, "data")
-	value.Auth.Token = strings.Repeat("s", 32)
+	value.Auth.Email = testutil.AdminEmail
+	value.Auth.PasswordHash = testutil.PasswordHash
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)

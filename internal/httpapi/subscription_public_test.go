@@ -17,6 +17,7 @@ import (
 	"github.com/rehuony/sing-box-panel/internal/application"
 	"github.com/rehuony/sing-box-panel/internal/settings"
 	"github.com/rehuony/sing-box-panel/internal/store"
+	"github.com/rehuony/sing-box-panel/internal/testutil"
 )
 
 func TestPublicSubscriptionTrafficRefreshesOn304AndIsSharedAcrossChannels(t *testing.T) {
@@ -72,7 +73,7 @@ func TestPublicSubscriptionTrafficRefreshesOn304AndIsSharedAcrossChannels(t *tes
 	// The same stopped-core ledger is exposed by management HTTP and SSE.
 	for _, endpoint := range []string{"/api/v1/metrics", "/api/v1/traffic/status"} {
 		request := httptest.NewRequest(http.MethodGet, "/panel"+endpoint, nil)
-		request.Header.Set("Authorization", "Bearer "+configuration.Auth.Token)
+		testutil.Authorize(t, handler, request)
 		response := httptest.NewRecorder()
 		handler.ServeHTTP(response, request)
 		var metrics application.MetricsSnapshot
@@ -87,7 +88,7 @@ func TestPublicSubscriptionTrafficRefreshesOn304AndIsSharedAcrossChannels(t *tes
 		}
 	}
 	streamRequest := httptest.NewRequest(http.MethodGet, "/panel/api/v1/metrics/stream", nil)
-	streamRequest.Header.Set("Authorization", "Bearer "+configuration.Auth.Token)
+	testutil.Authorize(t, handler, streamRequest)
 	stream := &dashboardDeadlineRecorder{ResponseRecorder: httptest.NewRecorder(), flushError: errors.New("test complete")}
 	handler.ServeHTTP(stream, streamRequest)
 	var snapshot application.MetricsStreamSnapshot

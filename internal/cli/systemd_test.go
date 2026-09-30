@@ -14,6 +14,7 @@ import (
 
 	"github.com/rehuony/sing-box-panel/internal/settings"
 	panelSystemd "github.com/rehuony/sing-box-panel/internal/systemd"
+	"github.com/rehuony/sing-box-panel/internal/testutil"
 )
 
 type fakeSystemdService struct {
@@ -332,4 +333,29 @@ func testHistoryPath(t *testing.T) string {
 	testHistoryPaths.Store(t, path)
 	t.Cleanup(func() { testHistoryPaths.Delete(t) })
 	return path
+}
+
+func TestSystemdInitialCredentialsSurviveActivationFailure(t *testing.T) {
+	for _, action := range []string{"install", "start", "restart"} {
+		for _, format := range []string{"text", "json", "jsonl"} {
+			t.Run(action+"/"+format, func(t *testing.T) {
+				path := commandSettingsFixture(t)
+				value, err := settings.Load(path)
+				if err != nil {
+					t.Fatal(err)
+				}
+				value.InitialPassword = testutil.AdminPassword
+				service := &fakeSystemdService{
+					installResult: panelSystemd.InstallResult{InitialSettings: &value},
+					controlResult: panelSystemd.ControlResult{InitialSettings: &value},
+					err:           errors.New("service activation failed"),
+				}
+				stdout, stderr, err := executeSystemCommand(t, service, "--config", path, "--output", format, "systemd", action, "--scope=user")
+				if err == nil || stdout != "" {
+					t.Fatal("activation failure claimed success")
+				}
+				initialPasswordFromOutput(t, stderr, value.Auth.PasswordHash)
+			})
+		}
+	}
 }

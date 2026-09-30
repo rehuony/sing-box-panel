@@ -10,6 +10,7 @@ import (
 
 	"github.com/rehuony/sing-box-panel/internal/settings"
 	"github.com/rehuony/sing-box-panel/internal/store"
+	"github.com/rehuony/sing-box-panel/internal/testutil"
 )
 
 func TestPanelSettingsPersistCASAndRedact(t *testing.T) {
@@ -21,7 +22,8 @@ func TestPanelSettingsPersistCASAndRedact(t *testing.T) {
 	}
 	defer db.Close()
 	bootstrap := settings.Defaults()
-	bootstrap.Auth.Token = strings.Repeat("a", 32)
+	bootstrap.Auth.Email = testutil.AdminEmail
+	bootstrap.Auth.PasswordHash = testutil.PasswordHash
 	bootstrap.GitHub.Token = "github-original-secret"
 	bootstrap = settingsFileFixture(t, bootstrap)
 	app := FromStoreWithSettings(db, bootstrap)
@@ -34,7 +36,7 @@ func TestPanelSettingsPersistCASAndRedact(t *testing.T) {
 	p.Appearance.Radius = 0
 	p.PublicNodeHost = "2001:db8::1"
 	p.ExternalOrigin = "https://panel.example.com"
-	input := PanelSettingsWrite{Preferences: p, Revision: view.Revision, ManagementToken: strings.Repeat("b", 32)}
+	input := PanelSettingsWrite{Preferences: p, Revision: view.Revision, Credentials: &CredentialsWrite{Email: new(testutil.AdminEmail), NewPassword: testutil.ChangedPassword}}
 	saved, err := app.SavePanelSettings(ctx, input)
 	if err != nil {
 		t.Fatal(err)
@@ -45,16 +47,17 @@ func TestPanelSettingsPersistCASAndRedact(t *testing.T) {
 			t.Fatal("response contains secret")
 		}
 	}
-	if !saved.GitHubTokenConfigured || saved.Revision == view.Revision {
+	if !saved.Settings.GitHubTokenConfigured || saved.Settings.Revision == view.Revision {
 		t.Fatalf("save: %+v", saved)
 	}
 	if _, err := app.SavePanelSettings(ctx, input); !errors.Is(err, store.ErrPanelSettingsConflict) {
 		t.Fatalf("stale save: %v", err)
 	}
-	input.Revision = saved.Revision
+	input.Revision = saved.Settings.Revision
 	input.ClearGitHubToken = true
+	input.Credentials = nil
 	saved, err = app.SavePanelSettings(ctx, input)
-	if err != nil || saved.GitHubTokenConfigured {
+	if err != nil || saved.Settings.GitHubTokenConfigured {
 		t.Fatalf("clear: %+v %v", saved, err)
 	}
 	db2, err := store.Open(ctx, path)
@@ -64,11 +67,11 @@ func TestPanelSettingsPersistCASAndRedact(t *testing.T) {
 	defer db2.Close()
 	reloaded := FromStoreWithSettings(db2, bootstrap)
 	effective, err := reloaded.EffectiveSettings(ctx)
-	if err != nil || effective.GitHub.Token != "" || effective.Auth.Token != strings.Repeat("b", 32) {
+	if err != nil || effective.GitHub.Token != "" || effective.Auth.PasswordHash == testutil.PasswordHash {
 		t.Fatal("effective credentials did not persist")
 	}
-	if !effective.Auth.SecureCookie {
-		t.Fatal("HTTPS origin did not enable secure cookies")
+	if effective.Server.ExternalOrigin != p.ExternalOrigin || !saved.Settings.RestartRequired {
+		t.Fatal("HTTPS origin did not persist with a pending restart")
 	}
 	got, err := reloaded.PanelSettings(ctx)
 	if err != nil || got.Preferences.Appearance.Color != "#ABCDEF" || got.Preferences.Appearance.Radius != 0 {
@@ -85,9 +88,13 @@ func TestPanelSettingsValidation(t *testing.T) {
 		"port in host":            func(v *PanelSettingsWrite) { v.Preferences.PublicNodeHost = "example.com:443" },
 		"radius":                  func(v *PanelSettingsWrite) { v.Preferences.Appearance.Radius = 33 },
 		"color":                   func(v *PanelSettingsWrite) { v.Preferences.Appearance.Color = "red" },
-		"weak management token":   func(v *PanelSettingsWrite) { v.ManagementToken = "short" },
-		"ambiguous secret":        func(v *PanelSettingsWrite) { v.GitHubToken = "secret"; v.ClearGitHubToken = true },
-		"credential newline":      func(v *PanelSettingsWrite) { v.GitHubToken = "bad\nsecret" },
+		"short password": func(v *PanelSettingsWrite) {
+			v.Credentials = &CredentialsWrite{Email: new(testutil.AdminEmail), NewPassword: "short"}
+		},
+		"empty email":        func(v *PanelSettingsWrite) { v.Credentials = &CredentialsWrite{Email: new("")} },
+		"invalid email":      func(v *PanelSettingsWrite) { v.Credentials = &CredentialsWrite{Email: new("invalid")} },
+		"ambiguous secret":   func(v *PanelSettingsWrite) { v.GitHubToken = "secret"; v.ClearGitHubToken = true },
+		"credential newline": func(v *PanelSettingsWrite) { v.GitHubToken = "bad\nsecret" },
 	}
 	for name, change := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -119,7 +126,7 @@ func TestPublicNodeHostOverrideAndDetectionHint(t *testing.T) {
 	}
 	view.Preferences.PublicNodeHost = "nodes.example.com"
 	saved, err := app.SavePanelSettings(ctx, PanelSettingsWrite{Revision: view.Revision, Preferences: view.Preferences})
-	if err != nil || saved.DetectedPublicIP != "1.1.1.1" {
+	if err != nil || saved.Settings.DetectedPublicIP != "1.1.1.1" {
 		t.Fatal(saved, err)
 	}
 	got, err = app.publicationHost(ctx, store.SubscriptionNodeControls{}, "legacy.example.com")

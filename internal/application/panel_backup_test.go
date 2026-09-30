@@ -10,6 +10,7 @@ import (
 
 	"github.com/rehuony/sing-box-panel/internal/settings"
 	"github.com/rehuony/sing-box-panel/internal/store"
+	"github.com/rehuony/sing-box-panel/internal/testutil"
 )
 
 func TestPanelBackupRestoresBothSourcesAndExactConfigurationText(t *testing.T) {
@@ -22,7 +23,7 @@ func TestPanelBackupRestoresBothSourcesAndExactConfigurationText(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, field := range []string{`"author"`, `"provider"`, `"retention_days"`, `"identity_name"`, `"identity_key"`} {
+	for _, field := range []string{`"author"`, `"provider"`, `"retention_days"`, `"identity_name"`, `"identity_key"`, `"secure_cookie"`} {
 		if bytes.Contains(backup.PanelSettings, []byte(field)) {
 			t.Fatalf("backup contains removed field %s", field)
 		}
@@ -31,7 +32,8 @@ func TestPanelBackupRestoresBothSourcesAndExactConfigurationText(t *testing.T) {
 	if err := json.Unmarshal(backup.PanelSettings, &native); err != nil {
 		t.Fatal(err)
 	}
-	native.Auth.Token = strings.Repeat("restored-token-", 3)
+	native.Auth.Email = testutil.AdminEmail
+	native.Auth.PasswordHash = testutil.ChangedPasswordHash
 	native.Panel.PublicNodeHost = "restored.example.com"
 	native.Server.Port = 8080
 	backup.PanelSettings, _ = json.Marshal(native)
@@ -49,7 +51,7 @@ func TestPanelBackupRestoresBothSourcesAndExactConfigurationText(t *testing.T) {
 		t.Fatalf("configuration text changed: %+v %v", got, err)
 	}
 	loaded, err := settings.Load(target.settingsPath)
-	if err != nil || loaded.Auth.Token != native.Auth.Token || loaded.DataDir != native.DataDir || loaded.Panel.PublicNodeHost != native.Panel.PublicNodeHost {
+	if err != nil || loaded.Auth.PasswordHash != native.Auth.PasswordHash || loaded.DataDir != native.DataDir || loaded.Panel.PublicNodeHost != native.Panel.PublicNodeHost {
 		t.Fatal("incomplete settings restore", err)
 	}
 	state, err := target.database.Bootstrap(t.Context())
@@ -59,7 +61,7 @@ func TestPanelBackupRestoresBothSourcesAndExactConfigurationText(t *testing.T) {
 }
 
 func TestPanelBackupConflictsAndInvalidInputLeaveBothSourcesUntouched(t *testing.T) {
-	for _, kind := range []string{"settings_conflict", "configuration_conflict", "unsupported", "invalid_settings", "identity_name", "identity_key", "oversize", "removed_author", "removed_provider", "removed_retention"} {
+	for _, kind := range []string{"settings_conflict", "configuration_conflict", "unsupported", "invalid_settings", "identity_name", "identity_key", "oversize", "removed_author", "removed_provider", "removed_retention", "removed_cookie"} {
 		t.Run(kind, func(t *testing.T) {
 			app := panelFileApp(t)
 			original, err := app.SaveConfigurationFile(t.Context(), ConfigurationFileWrite{Content: `{"log":{"level":"info"}}`})
@@ -79,12 +81,16 @@ func TestPanelBackupConflictsAndInvalidInputLeaveBothSourcesUntouched(t *testing
 				request.Backup.Version = 999
 			case "invalid_settings":
 				request.Backup.PanelSettings = json.RawMessage(`{"data_dir":"bad"}`)
-			case "identity_name", "identity_key":
+			case "identity_name", "identity_key", "removed_cookie":
 				var fields map[string]any
 				if err := json.Unmarshal(request.Backup.PanelSettings, &fields); err != nil {
 					t.Fatal(err)
 				}
-				fields["panel"].(map[string]any)[kind] = "removed"
+				if kind == "removed_cookie" {
+					fields["auth"].(map[string]any)["secure_cookie"] = false
+				} else {
+					fields["panel"].(map[string]any)[kind] = "removed"
+				}
 				request.Backup.PanelSettings, _ = json.Marshal(fields)
 			case "oversize":
 				request.Backup.SingBoxConfiguration = strings.Repeat("x", 2<<20+1)
@@ -136,7 +142,7 @@ func TestQuotaVisibleWithoutAppliedCoreAndDynamicPoliciesDoNotRequireRestart(t *
 	changes, cancel := app.SettingsChanges()
 	defer cancel()
 	saved, err := app.SavePanelSettings(t.Context(), PanelSettingsWrite{Revision: view.Revision, Preferences: view.Preferences, Service: &view.Service})
-	if err != nil || saved.RestartRequired {
+	if err != nil || saved.Settings.RestartRequired {
 		t.Fatalf("dynamic settings: %+v %v", saved, err)
 	}
 	select {
@@ -178,7 +184,7 @@ func TestInterruptedBackupRestoreRecoversBothSources(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				if err := app.database.CommitPanelSettingsFile(t.Context(), app.settingsPath, "backup-interrupted", update, func() error { return nil }); err != nil {
+				if err := app.database.CommitPanelSettingsFile(t.Context(), app.settingsPath, "backup-interrupted", update, false, func() error { return nil }); err != nil {
 					t.Fatal(err)
 				}
 			}

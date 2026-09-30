@@ -136,7 +136,7 @@ func TestSettingsFileJournalRecoversCommitAndRollback(t *testing.T) {
 					}
 				}
 				if committed {
-					if err := app.database.CommitPanelSettingsFile(t.Context(), app.settingsPath, "interrupted", nil, func() error { return nil }); err != nil {
+					if err := app.database.CommitPanelSettingsFile(t.Context(), app.settingsPath, "interrupted", nil, false, func() error { return nil }); err != nil {
 						t.Fatal(err)
 					}
 				}
@@ -266,7 +266,7 @@ func TestSettingsRecoveryUsesCommitIdentityAcrossPathAliases(t *testing.T) {
 	if err := settings.WriteAtomic(app.settingsPath+".pending", journal); err != nil {
 		t.Fatal(err)
 	}
-	if err := app.database.CommitPanelSettingsFile(t.Context(), app.settingsPath, "committed-through-original-path", nil, func() error {
+	if err := app.database.CommitPanelSettingsFile(t.Context(), app.settingsPath, "committed-through-original-path", nil, false, func() error {
 		return settings.ReplaceLocked(app.settingsPath, after)
 	}); err != nil {
 		t.Fatal(err)
@@ -291,7 +291,7 @@ func TestPanelServiceSettingsRoundTripAndValidation(t *testing.T) {
 	}
 	originalDir := view.Service.DataDir
 	service := PanelServiceSettings{
-		DataDir: filepath.Join(t.TempDir(), "panel-data"), BasePath: "/control", SecureCookie: true,
+		DataDir: filepath.Join(t.TempDir(), "panel-data"), BasePath: "/control",
 		CatalogRefreshIntervalHours: 24, TrafficPeriodMonths: 3, SampleRetentionDays: 120,
 		PrivateSourceCIDRs: []string{"10.0.0.0/24", "fd00::/64"},
 	}
@@ -302,7 +302,7 @@ func TestPanelServiceSettingsRoundTripAndValidation(t *testing.T) {
 		t.Fatal(err)
 	}
 	service.CoreLogRetentionDays, service.CoreLogMaxFiles, service.CoreLogMaxFileSizeMiB = view.Service.CoreLogRetentionDays, view.Service.CoreLogMaxFiles, view.Service.CoreLogMaxFileSizeMiB
-	if !reflect.DeepEqual(saved.Service, service) || !saved.RestartRequired {
+	if !reflect.DeepEqual(saved.Settings.Service, service) || !saved.Settings.RestartRequired {
 		t.Fatalf("service settings not exposed: %+v", saved)
 	}
 	loaded, err := settings.Load(app.settingsPath)
@@ -315,7 +315,7 @@ func TestPanelServiceSettingsRoundTripAndValidation(t *testing.T) {
 	before, _ := settings.Read(app.settingsPath)
 	invalid := service
 	invalid.PrivateSourceCIDRs = []string{"not-a-network"}
-	input.Revision, input.Service = saved.Revision, &invalid
+	input.Revision, input.Service = saved.Settings.Revision, &invalid
 	if _, err := app.SavePanelSettings(ctx, input); !errors.Is(err, ErrPanelSettingsInvalid) {
 		t.Fatalf("invalid network accepted: %v", err)
 	}
@@ -326,7 +326,7 @@ func TestPanelServiceSettingsRoundTripAndValidation(t *testing.T) {
 	input.Service = nil
 	input.Preferences.Appearance.Radius = 4
 	preserved, err := app.SavePanelSettings(ctx, input)
-	if err != nil || !reflect.DeepEqual(preserved.Service, service) {
+	if err != nil || !reflect.DeepEqual(preserved.Settings.Service, service) {
 		t.Fatalf("older client lost service settings: %+v %v", preserved, err)
 	}
 }
@@ -346,7 +346,7 @@ func TestCatalogRefreshIntervalAppliesWithoutRestart(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if saved.RestartRequired || saved.Service.CatalogRefreshIntervalHours != 24 {
+	if saved.Settings.RestartRequired || saved.Settings.Service.CatalogRefreshIntervalHours != 24 {
 		t.Fatalf("dynamic catalog refresh interval result=%+v", saved)
 	}
 }

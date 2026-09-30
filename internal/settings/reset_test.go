@@ -11,6 +11,8 @@ import (
 	"path/filepath"
 	"sync"
 	"testing"
+
+	"github.com/rehuony/sing-box-panel/internal/testutil"
 )
 
 func resetFixture(t *testing.T) (string, Settings) {
@@ -18,7 +20,8 @@ func resetFixture(t *testing.T) (string, Settings) {
 	path := filepath.Join(t.TempDir(), "setting.json")
 	value := Defaults()
 	value.DataDir = "./private-data"
-	value.Auth.Token = "keep-required-token"
+	value.Auth.Email = testutil.AdminEmail
+	value.Auth.PasswordHash = testutil.PasswordHash
 	value.Server.Port = 8181
 	value.GitHub.CatalogRefreshIntervalHours = 24
 	value.GitHub.Token = "clear-optional-token"
@@ -42,7 +45,7 @@ func TestResetFieldsKeepsUnselectedValuesAndStorageUntouched(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if loaded.Server.Port != Defaults().Server.Port || loaded.GitHub.CatalogRefreshIntervalHours != 12 || loaded.GitHub.Token != "" || loaded.Auth.Token != original.Auth.Token || loaded.Logs != original.Logs {
+	if loaded.Server.Port != Defaults().Server.Port || loaded.GitHub.CatalogRefreshIntervalHours != 12 || loaded.GitHub.Token != "" || loaded.Auth.PasswordHash != original.Auth.PasswordHash || loaded.Logs != original.Logs {
 		t.Fatal("reset changed unselected fields or did not restore defaults")
 	}
 	raw, _ := Read(path)
@@ -62,12 +65,11 @@ func TestResetFieldsKeepsUnselectedValuesAndStorageUntouched(t *testing.T) {
 func TestResetFieldsValidatesWholeEditBeforeSaving(t *testing.T) {
 	path, value := resetFixture(t)
 	value.Server.ExternalOrigin = "https://panel.example.com"
-	value.Auth.SecureCookie = true
 	raw, _ := json.Marshal(value)
 	if err := Replace(path, raw); err != nil {
 		t.Fatal(err)
 	}
-	for _, fields := range [][]string{{}, {"server.port", "unknown"}, {""}, {"/"}, {"server..port"}, {"auth.token"}, {"auth"}, {"server.external_origin"}, {"subscription.private_source_cidrs.0"}} {
+	for _, fields := range [][]string{{}, {"server.port", "unknown"}, {""}, {"/"}, {"server..port"}, {"auth.password_hash"}, {"auth"}, {"auth.secure_cookie"}, {"subscription.private_source_cidrs.0"}} {
 		if err := ResetFields(t.Context(), path, fields); err == nil {
 			t.Fatalf("invalid reset accepted: %v", fields)
 		}
@@ -76,12 +78,12 @@ func TestResetFieldsValidatesWholeEditBeforeSaving(t *testing.T) {
 			t.Fatalf("invalid reset changed the file: %v", fields)
 		}
 	}
-	if err := ResetFields(t.Context(), path, []string{"server.external_origin", "auth.secure_cookie"}); err != nil {
+	if err := ResetFields(t.Context(), path, []string{"server.external_origin"}); err != nil {
 		t.Fatal(err)
 	}
 	loaded, err := Load(path)
-	if err != nil || loaded.Server.ExternalOrigin != "" || loaded.Auth.SecureCookie {
-		t.Fatal("related fields could not reset together", err)
+	if err != nil || loaded.Server.ExternalOrigin != "" {
+		t.Fatal("origin could not reset independently", err)
 	}
 }
 

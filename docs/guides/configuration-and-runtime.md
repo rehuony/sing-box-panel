@@ -402,7 +402,13 @@ Desktop uses an internal sidebar; narrow screens use a category selector.
 All topics share one draft and Save button. Hash navigation and browser history
 retain the draft; leaving `/panel` or closing the page warns about unsaved changes.
 Validation locates the offending category and field; failed saves retain drafts.
-Credential reads expose configured flags. Empty credentials preserve saved values;
+Email and new password are separate inline fields in Authentication. Neither requires
+an old password or repeated password confirmation. Both remain drafts until the shared
+Save button is used. An empty new password preserves the existing password. Invalid
+email or password input prevents the entire save; failed saves retain the draft.
+Settings saves return `{ settings, reauthentication_required }`. Actual credential changes
+sign out every session; unchanged credentials do not. Credential reads expose the
+administrator email and GitHub configured flag;
 GitHub tokens have an explicit remove control. Subscription source access settings
 are hidden in this UI and preserved during ordinary saves.
 
@@ -411,12 +417,18 @@ are hidden in this UI and preserved during ordinary saves.
 Existing file fields retain their paths. Web-only preferences are added under
 `panel`, with matching defaults. Hidden subscription source access fields remain supported in the file and API. The `service` API projection covers non-secret service options and is optional on writes. Settings validation and revision checks cover the entire file. Changing service options that are captured at startup displays a restart notice.
 
-Unused `subscription.author`, `subscription.provider`, and `logs.retention_days`
+Unused `subscription.author`, `subscription.provider`, `logs.retention_days`, and `auth.secure_cookie`
 have been removed, together with API fields `subscription_author`,
-`subscription_provider`, and `log_retention_days`. This is a breaking development
+`subscription_provider`, `log_retention_days`, and `service.secure_cookie`. This is a breaking development
 change: configuration validation, settings writes, and backup restore reject these
 fields. Remove them from existing files/backups, or use `config init --force` to
-replace settings with current defaults (including a new management token).
+replace settings with current defaults (including a new administrator password).
+
+Session Cookie `Secure` follows the active `server.external_origin`: HTTPS enables
+it and HTTP disables it. When no external origin is configured, the actual request
+TLS state determines it. Forwarded headers cannot override this policy. Origin
+changes take effect after restart. Existing backup version 2 remains supported
+only when its settings omit the removed fields; no migration is performed.
 
 | Settings field | Web field | Generated default |
 | --- | --- | --- |
@@ -424,8 +436,8 @@ replace settings with current defaults (including a new management token).
 | `server.external_origin` | External origin | Empty |
 | `server.base_path` | Base path | Empty |
 | `data_dir` | Data directory (absolute path) | Root or XDG data directory |
-| `auth.token` | Management token | Random token |
-| `auth.secure_cookie` | HTTPS-only session cookie (synchronized with origin) | `false`; must match HTTPS origin |
+| `auth.email` | Administrator email | `admin@example.com` |
+| `auth.password_hash` | Password (hash stored only) | Argon2id hash of a random password |
 | `github.token` | GitHub token | Empty |
 | `github.catalog_refresh_interval_hours` | GitHub version check interval | `12` |
 | `traffic.quota_gib` | Traffic quota | `null`; `null` and `0` are unlimited |
@@ -523,10 +535,11 @@ continue to follow panel settings and their previews.
 
 Panel settings → Backup and restore exports the **saved** panel settings and
 exact saved sing-box text; unsaved drafts are excluded. `GET /api/v1/panel/backup`
-returns authenticated, no-store plaintext JSON with `format`, `version` (1),
+returns authenticated, no-store plaintext JSON with `format`, `version` (2),
 `exported_at`, `panel_settings`, and `sing_box_configuration`. The file includes
 credentials, listener settings and data directory paths. External referenced
-files, binaries, logs, metrics and subscription business records are not included.
+files, binaries, logs, metrics, login sessions and subscription business records are not included.
+Version 1 and old token-based authentication settings are rejected without conversion.
 
 Selecting a file previews overwritten settings and source/destination service
 addresses and directories before confirmation. `POST /api/v1/panel/restore`
@@ -537,8 +550,7 @@ sources unchanged. The existing settings journal and SQLite commit marker make
 restoration atomic and recover interrupted writes. Native sing-box text, including
 formatting and unfinished edits, is preserved exactly.
 
-Restore refreshes settings and the configuration editor. A changed management
-token requires signing in again; listener/path changes require a manual restart.
+Restore refreshes settings and the configuration editor. A changed administrator email or password hash requires signing in again; listener/path changes require a manual restart.
 The running core keeps its current configuration and running/stopped state.
 Review machine-specific paths and apply the restored sing-box configuration
 manually; relative panel data paths resolve beside the target settings file.

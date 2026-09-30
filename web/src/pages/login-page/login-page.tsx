@@ -1,16 +1,20 @@
 import type { FormEvent } from 'react';
 
+import { Eye, EyeOff } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useEffect, useRef, useState } from 'react';
-import { Eye, EyeOff, ShieldCheck } from 'lucide-react';
 import { Navigate, useLocation, useNavigate } from 'react-router-dom';
 
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
+import { Spinner } from '@/components/ui/spinner';
 import { ApiRequestError } from '@/api/api-client';
-import { ErrorNotice } from '@/components/error-notice';
+import { PanelLogo } from '@/components/panel-logo';
+import { toast } from '@/components/ui/toast-manager';
 import { LoadingState } from '@/components/loading-state';
 import { useAuthSession } from '@/stores/auth-session.store';
+import { Field, FieldGroup, FieldLabel } from '@/components/ui/field';
+import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupInput } from '@/components/ui/input-group';
 
 import './login-page.css';
 
@@ -35,112 +39,137 @@ export function LoginPage() {
   const { login, retrySession, status } = useAuthSession();
   const location = useLocation();
   const navigate = useNavigate();
-  const [token, setToken] = useState('');
-  const [showToken, setShowToken] = useState(false);
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
+  const [invalidField, setInvalidField] = useState<'email' | 'password' | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const controllerRef = useRef<AbortController | null>(null);
-  const locationState = location.state as LoginLocationState | null;
-  const returnTarget = safeReturnTarget(locationState?.from);
+  const toastIdRef = useRef<string | null>(null);
+  const emailRef = useRef<HTMLInputElement>(null);
+  const passwordRef = useRef<HTMLInputElement>(null);
+  const returnTarget = safeReturnTarget((location.state as LoginLocationState | null)?.from);
 
-  useEffect(() => () => controllerRef.current?.abort(), []);
+  useEffect(() => () => {
+    controllerRef.current?.abort();
+    if (toastIdRef.current !== null) toast.close(toastIdRef.current);
+  }, []);
 
   if (status === 'authenticated') return <Navigate replace to={returnTarget} />;
-
   if (status === 'checking') {
-    return <LoadingState label={t('login.checking')} />;
+    return (
+      <main className='login-page' aria-busy='true'>
+        <section className='login-card login-card--status'>
+          <div className='login-card__brand'><PanelLogo compact /></div>
+          <LoadingState fullScreen={false} label={t('login.checking')} />
+        </section>
+      </main>
+    );
   }
-
   if (status === 'unavailable') {
     return (
-      <main className='loading-screen'>
-        <div className='load-error'>
-          <ErrorNotice title={t('login.unavailable.title', { defaultValue: 'The panel service could not be reached.' })} error={t('login.unavailable.description', { defaultValue: 'Your session has not changed. Check the server and try again.' })} />
-          <Button onClick={retrySession} type='button'>
-            {t('login.unavailable.retry', { defaultValue: 'Try again' })}
-          </Button>
-        </div>
+      <main className='login-page'>
+        <section className='login-card login-card--unavailable'>
+          <header className='login-card__brand'>
+            <PanelLogo compact />
+            <h1>{t('login.unavailable.title')}</h1>
+            <p className='login-card__description' role='alert'>{t('login.unavailable.description')}</p>
+          </header>
+          <Button onClick={retrySession} type='button'>{t('login.unavailable.retry')}</Button>
+        </section>
       </main>
     );
   }
 
+  function clearError() {
+    setError('');
+    setInvalidField(null);
+    if (toastIdRef.current !== null) {
+      toast.close(toastIdRef.current);
+      toastIdRef.current = null;
+    }
+  }
+
+  function reportError(message: string, field: 'email' | 'password' | null = null) {
+    clearError();
+    setError(message);
+    setInvalidField(field);
+    toastIdRef.current = toast.add({ title: message, type: 'error' });
+  }
+
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const normalizedToken = token.trim();
-    if (normalizedToken === '') {
-      setError(t('login.error.empty', { defaultValue: 'Enter the management token to continue.' }));
+    if (controllerRef.current !== null) return;
+    const normalizedEmail = email.trim().toLowerCase();
+    // The server validates addresses, including Unicode addresses that native
+    // HTML email validation rejects. Only require a value before submitting.
+    if (!normalizedEmail) {
+      reportError(t('login.error.email'), 'email');
+      emailRef.current?.focus();
       return;
     }
-
+    if (!password) {
+      reportError(t('login.error.empty'), 'password');
+      passwordRef.current?.focus();
+      return;
+    }
     const controller = new AbortController();
     controllerRef.current = controller;
-    setError('');
+    clearError();
     setIsSubmitting(true);
     try {
-      await login(normalizedToken, controller.signal);
+      await login({ email: normalizedEmail, password }, controller.signal);
+      setPassword('');
       navigate(returnTarget, { replace: true });
-    } catch (loginError) {
-      if (loginError instanceof DOMException && loginError.name === 'AbortError') return;
-      setError(loginError instanceof ApiRequestError && loginError.status === 401
-        ? t('login.error.unauthorized', { defaultValue: 'That management token was not accepted.' })
-        : t('login.error.unreachable', { defaultValue: 'The panel could not be reached. Try again.' }));
+    } catch (reason) {
+      if (controller.signal.aborted) return;
+      reportError(reason instanceof ApiRequestError && reason.status === 401
+        ? t('login.error.unauthorized')
+        : reason instanceof ApiRequestError && reason.status === 429
+          ? t('login.error.rateLimited')
+          : t('login.error.unreachable'));
     } finally {
       if (!controller.signal.aborted) setIsSubmitting(false);
+      controllerRef.current = null;
     }
   }
 
   return (
     <main className='login-page'>
       <section className='login-card' aria-labelledby='login-title'>
-        <div className='login-card__brand'>
-          <span className='login-card__icon' aria-hidden='true'><ShieldCheck /></span>
+        <header className='login-card__brand'>
+          <PanelLogo compact />
           <h1 id='login-title'>{t('login.title')}</h1>
-          <p>{t('login.subtitle')}</p>
-        </div>
-
-        <form noValidate onSubmit={handleSubmit}>
-          <div className='field-group'>
-            <label className='sr-only' htmlFor='management-token'>
-              {t('login.token.label', { defaultValue: 'Management token' })}
-            </label>
-            <div className='login-card__token'>
-              <Input
-                aria-describedby={error === '' ? undefined : 'management-token-error'}
-                aria-invalid={error !== ''}
-                autoComplete='current-password'
-                autoFocus
-                disabled={isSubmitting}
-                id='management-token'
-                name='management-token'
-                onChange={(event) => setToken(event.target.value)}
-                placeholder={t('login.token.placeholder', { defaultValue: 'Enter token' })}
-                spellCheck={false}
-                type={showToken ? 'text' : 'password'}
-                value={token}
-              />
-              <Button
-                aria-label={t(showToken ? 'login.token.hide' : 'login.token.show')}
-                aria-pressed={showToken}
-                className='login-card__visibility'
-                disabled={isSubmitting}
-                onClick={() => setShowToken((visible) => !visible)}
-                size='icon-sm'
-                type='button'
-                variant='ghost'
-              >
-                {showToken ? <EyeOff /> : <Eye />}
-              </Button>
-            </div>
-            {error === ''
-              ? null
-              : (
-                  <ErrorNotice id='management-token-error' error={error} />
-                )}
-          </div>
+        </header>
+        <form noValidate onSubmit={handleSubmit} aria-busy={isSubmitting}>
+          {error && <p className='sr-only' id='login-error'>{error}</p>}
+          <FieldGroup>
+            <Field className='login-card__input-field' data-invalid={invalidField === 'email'} data-disabled={isSubmitting}>
+              <FieldLabel htmlFor='login-email'>{t('login.email.label')}</FieldLabel>
+              <Input ref={emailRef} id='login-email' name='email' type='text' inputMode='email' autoComplete='username' autoCapitalize='none' autoCorrect='off' spellCheck={false} required maxLength={254} autoFocus disabled={isSubmitting} placeholder={t('login.email.placeholder')} value={email} onChange={(event) => {
+                setEmail(event.target.value);
+                clearError();
+              }} aria-invalid={invalidField === 'email'} aria-describedby={error && invalidField !== 'password' ? 'login-error' : undefined} />
+            </Field>
+            <Field className='login-card__input-field' data-invalid={invalidField === 'password'} data-disabled={isSubmitting}>
+              <FieldLabel htmlFor='login-password'>{t('login.password.label')}</FieldLabel>
+              <InputGroup>
+                <InputGroupInput ref={passwordRef} id='login-password' name='password' type={showPassword ? 'text' : 'password'} autoComplete='current-password' required disabled={isSubmitting} placeholder={t('login.password.placeholder')} value={password} onChange={(event) => {
+                  setPassword(event.target.value);
+                  clearError();
+                }} aria-invalid={invalidField === 'password'} aria-describedby={error && invalidField !== 'email' ? 'login-error' : undefined} />
+                <InputGroupAddon align='inline-end'>
+                  <InputGroupButton size='icon-sm' aria-label={t(showPassword ? 'login.password.hide' : 'login.password.show')} aria-pressed={showPassword} disabled={isSubmitting} onClick={() => setShowPassword(current => !current)}>
+                    {showPassword ? <EyeOff /> : <Eye />}
+                  </InputGroupButton>
+                </InputGroupAddon>
+              </InputGroup>
+            </Field>
+          </FieldGroup>
           <Button className='login-card__submit' disabled={isSubmitting} size='lg' type='submit'>
-            {isSubmitting
-              ? t('login.submit.pending', { defaultValue: 'Opening…' })
-              : t('login.submit.label', { defaultValue: 'Open panel' })}
+            {isSubmitting && <Spinner data-icon='inline-start' />}
+            {t(isSubmitting ? 'login.submit.pending' : 'login.submit.label')}
           </Button>
         </form>
       </section>

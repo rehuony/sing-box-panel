@@ -89,7 +89,7 @@ func (manager *Manager) queryStatus(ctx context.Context, requested Scope) (Statu
 	return status, nil
 }
 
-func (manager *Manager) Control(ctx context.Context, requested Scope, action Action) (ControlResult, error) {
+func (manager *Manager) Control(ctx context.Context, requested Scope, action Action) (result ControlResult, controlErr error) {
 	if err := manager.requireLinux(); err != nil {
 		return ControlResult{}, err
 	}
@@ -109,7 +109,9 @@ func (manager *Manager) Control(ctx context.Context, requested Scope, action Act
 		return ControlResult{}, err
 	}
 	if action != ActionStop {
-		if err := manager.prepareInstalledResources(ctx, scope); err != nil {
+		initial, err := manager.prepareInstalledResources(ctx, scope)
+		defer func() { result.InitialSettings = initial }()
+		if err != nil {
 			return ControlResult{}, err
 		}
 	}

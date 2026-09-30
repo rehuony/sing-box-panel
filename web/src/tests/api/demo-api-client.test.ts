@@ -43,7 +43,8 @@ describe('createDemoApiClient', () => {
     const saved = await source.getConfigurationFile();
     await source.saveConfigurationFile({ revision: saved.revision, content: '  { unfinished raw text' });
     const backup = await source.exportPanelBackup();
-    expect(backup.panel_settings).toHaveProperty('auth.token');
+    expect(backup.panel_settings).toHaveProperty('auth.password_hash');
+    expect(backup.panel_settings).not.toHaveProperty('auth.secure_cookie');
     expect(backup.panel_settings).not.toHaveProperty('subscription.author');
     expect(backup.panel_settings).not.toHaveProperty('subscription.provider');
     expect(backup.panel_settings).not.toHaveProperty('logs.retention_days');
@@ -53,6 +54,7 @@ describe('createDemoApiClient', () => {
     expect(settings.service).not.toHaveProperty('subscription_author');
     expect(settings.service).not.toHaveProperty('subscription_provider');
     expect(settings.service).not.toHaveProperty('log_retention_days');
+    expect(settings.service).not.toHaveProperty('secure_cookie');
     const file = await target.getConfigurationFile();
     const request = { backup, settings_revision: settings.revision, configuration_revision: file.revision };
     await expect(target.restorePanelBackup({
@@ -63,6 +65,74 @@ describe('createDemoApiClient', () => {
     await target.restorePanelBackup(request);
     expect((await target.getConfigurationFile()).content).toBe(backup.sing_box_configuration);
     expect((await target.exportPanelBackup()).panel_settings).toEqual(backup.panel_settings);
+  });
+
+  it.each([false, true])('restores the backed-up password (fresh client: %s)', async freshClient => {
+    const source = createDemoApiClient();
+    const savedPassword = '  备份 password with spaces  ';
+    const replacedPassword = 'replaced-password-456';
+    let settings = await source.getPanelSettings();
+    await source.savePanelSettings({
+      revision: settings.revision, preferences: settings.preferences,
+      credentials: { new_password: savedPassword },
+    });
+    const backup = await source.exportPanelBackup();
+    expect(JSON.stringify(backup)).not.toContain(savedPassword);
+    settings = await source.getPanelSettings();
+    await source.savePanelSettings({
+      revision: settings.revision, preferences: settings.preferences,
+      credentials: { new_password: replacedPassword },
+    });
+    const target = freshClient ? createDemoApiClient() : source;
+    settings = await target.getPanelSettings();
+    const file = await target.getConfigurationFile();
+    const restored = await target.restorePanelBackup({
+      backup, settings_revision: settings.revision, configuration_revision: file.revision,
+    });
+    expect(restored.reauthentication_required).toBe(true);
+    expect(await target.getSession()).toBeNull();
+    await expect(target.login({ email: settings.admin_email, password: freshClient ? 'demo-password-123' : replacedPassword }))
+      .rejects
+      .toMatchObject({ status: 401, code: 'invalid_credentials' });
+    const session = await target.login({ email: settings.admin_email, password: savedPassword });
+    const unchanged = await target.savePanelSettings({
+      revision: restored.settings.revision, preferences: restored.settings.preferences,
+      credentials: { new_password: savedPassword },
+    });
+    expect(unchanged.reauthentication_required).toBe(false);
+    expect(await target.getSession()).toEqual(session);
+  });
+
+  it('rejects a password save if another save completes while hashing', async () => {
+    const client = createDemoApiClient();
+    const settings = await client.getPanelSettings();
+    const pending = client.savePanelSettings({
+      revision: settings.revision, preferences: settings.preferences,
+      credentials: { new_password: 'pending-password-123' },
+    });
+    await client.savePanelSettings({
+      revision: settings.revision, preferences: { ...settings.preferences, language: 'en' },
+    });
+    await expect(pending).rejects.toMatchObject({ status: 412 });
+    expect((await client.getPanelSettings()).preferences.language).toBe('en');
+    await expect(client.login({ email: settings.admin_email, password: 'demo-password-123' }))
+      .resolves
+      .toMatchObject({ email: settings.admin_email });
+  });
+
+  it('keeps settings and sessions when a password save is canceled during hashing', async () => {
+    const client = createDemoApiClient();
+    const settings = await client.getPanelSettings();
+    const session = await client.getSession();
+    const controller = new AbortController();
+    const pending = client.savePanelSettings({
+      revision: settings.revision, preferences: settings.preferences,
+      credentials: { new_password: 'pending-password-123' },
+    }, controller.signal);
+    controller.abort();
+    await expect(pending).rejects.toMatchObject({ name: 'AbortError' });
+    expect(await client.getPanelSettings()).toEqual(settings);
+    expect(await client.getSession()).toEqual(session);
   });
 
   it.each(['identity_name', 'identity_key'])('rejects removed backup field %s without changing state', async (field) => {
@@ -82,13 +152,17 @@ describe('createDemoApiClient', () => {
     expect(await client.getSession()).toEqual(session);
   });
 
-  it.each(['identity_name', 'identity_key', 'clear_identity_key'])('rejects removed settings field %s without changing state', async (field) => {
+  it.each(['identity_name', 'identity_key', 'clear_identity_key', 'secure_cookie'])('rejects removed settings field %s without changing state', async (field) => {
     const client = createDemoApiClient();
     const settings = await client.getPanelSettings();
     const configuration = await client.getConfigurationFile();
     const backup = await client.exportPanelBackup();
-    const input = { revision: settings.revision, preferences: structuredClone(settings.preferences) };
-    const target = field === 'identity_name' ? input.preferences : input;
+    const input = {
+      revision: settings.revision,
+      preferences: structuredClone(settings.preferences),
+      service: structuredClone(settings.service),
+    };
+    const target = field === 'identity_name' ? input.preferences : field === 'secure_cookie' ? input.service : input;
     Object.assign(target, { [field]: field === 'clear_identity_key' ? true : 'removed' });
     await expect(client.savePanelSettings(input)).rejects.toMatchObject({ status: 422, code: 'invalid_json' });
     expect(await client.getPanelSettings()).toEqual(settings);
@@ -99,7 +173,7 @@ describe('createDemoApiClient', () => {
   it('starts authenticated with representative 1.14 core and Schema data', async () => {
     const client = createDemoApiClient();
 
-    await expect(client.getSession()).resolves.toEqual({ displayName: 'Demo administrator' });
+    await expect(client.getSession()).resolves.toMatchObject({ displayName: 'Demo administrator', email: 'admin@example.com' });
 
     const cores = await client.listCoreArtifacts();
     const current = cores.items.find((item) => item.exact_version === '1.14.0');
@@ -134,6 +208,8 @@ describe('createDemoApiClient', () => {
     ['subscription', 'author', 'old-author'],
     ['subscription', 'provider', 'old-provider'],
     ['logs', 'retention_days', 7],
+    ['auth', 'secure_cookie', false],
+    ['auth', 'password_hash', 'unsupported-password-hash'],
     ['subscription', 'unexpected', true],
     ['logs', 'unexpected', true],
   ])('rejects unsupported backup field %s.%s without changing state', async (section, field, value) => {
@@ -177,10 +253,10 @@ describe('createDemoApiClient', () => {
     try {
       for (const quotaGiB of [2, null, 0, 250]) {
         const before = await client.getMetrics();
-        settings = await client.savePanelSettings({
+        settings = (await client.savePanelSettings({
           revision: settings.revision,
           preferences: { ...settings.preferences, traffic_quota_gib: quotaGiB },
-        });
+        })).settings;
         const quotaBytes = quotaGiB ? quotaGiB * 2 ** 30 : undefined;
         const metrics = await client.getMetrics();
         expect(metrics.quota_bytes).toBe(quotaBytes);
@@ -239,10 +315,10 @@ describe('createDemoApiClient', () => {
       [6, 'traffic_monthly_202607_202701'],
       [3, 'traffic_monthly_202607_202610'],
     ] as const) {
-      settings = await client.savePanelSettings({
+      settings = (await client.savePanelSettings({
         revision: settings.revision, preferences: settings.preferences,
         service: { ...settings.service, traffic_period_months: months },
-      });
+      })).settings;
       const current = (await client.getMetrics()).current_traffic_period;
       expect(current).toMatchObject({
         id, inbound_bytes: original.inbound_bytes, outbound_bytes: original.outbound_bytes,

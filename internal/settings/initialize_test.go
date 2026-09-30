@@ -45,9 +45,9 @@ func TestLoadOrInitializeConcurrentStarts(t *testing.T) {
 			created++
 		}
 		if token == "" {
-			token = got.value.Auth.Token
+			token = got.value.Auth.PasswordHash
 		}
-		if got.value.Auth.Token != token {
+		if got.value.Auth.PasswordHash != token {
 			t.Error("concurrent starts loaded different tokens")
 		}
 	}
@@ -55,7 +55,7 @@ func TestLoadOrInitializeConcurrentStarts(t *testing.T) {
 		t.Fatalf("created = %d, want one creation with a token", created)
 	}
 	value, err := Load(path)
-	if err != nil || value.Auth.Token != token {
+	if err != nil || value.Auth.PasswordHash != token {
 		t.Fatalf("stored settings differ from the startup settings: %v", err)
 	}
 	for path, wantMode := range map[string]os.FileMode{

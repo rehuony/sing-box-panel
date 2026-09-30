@@ -22,7 +22,7 @@ func TestManualNodeValidationPreservesExtensionsAndRejectsInvalidAssociations(t 
 		`{"type":"socks","tag":"self","server":"proxy.example","server_port":1080,"detour":"self"}`,
 		`{"type":"socks","tag":"unresolved","server":"proxy.example","server_port":1080,"detour":"missing"}`,
 	} {
-		response := authenticatedRequest(handler, http.MethodPost, "/api/v1/subscription/nodes", `{"outbound":`+raw+`}`, "")
+		response := authenticatedRequest(t, handler, http.MethodPost, "/api/v1/subscription/nodes", `{"outbound":`+raw+`}`, "")
 		if response.Code != 422 || strings.Contains(response.Body.String(), "secret-input") {
 			t.Fatalf("invalid association: %d %s", response.Code, response.Body.String())
 		}
@@ -32,7 +32,7 @@ func TestManualNodeValidationPreservesExtensionsAndRejectsInvalidAssociations(t 
 		`{"type":"hysteria2","tag":"hopping","server":"proxy.example","server_ports":["443:445"],"password":"secret-input","tls":{"enabled":true}}`,
 		`{"type":"ssh","tag":"ssh-default-port","server":"proxy.example","user":"review","private_key_path":"client-key.pem"}`,
 	} {
-		response := authenticatedRequest(handler, http.MethodPost, "/api/v1/subscription/nodes", `{"outbound":`+raw+`}`, "")
+		response := authenticatedRequest(t, handler, http.MethodPost, "/api/v1/subscription/nodes", `{"outbound":`+raw+`}`, "")
 		if response.Code != 201 {
 			t.Fatalf("valid node: %d %s", response.Code, response.Body.String())
 		}
@@ -53,7 +53,7 @@ func TestManualNodeCycleRejectedWithoutLosingPreviousConfiguration(t *testing.T)
 	_, _, handler := newSubscriptionHTTPServices(t, "")
 	create := func(raw string) application.SubscriptionNodeDetail {
 		t.Helper()
-		response := authenticatedRequest(handler, http.MethodPost, "/api/v1/subscription/nodes", `{"outbound":`+raw+`}`, "")
+		response := authenticatedRequest(t, handler, http.MethodPost, "/api/v1/subscription/nodes", `{"outbound":`+raw+`}`, "")
 		if response.Code != 201 {
 			t.Fatalf("create: %d %s", response.Code, response.Body.String())
 		}
@@ -66,11 +66,11 @@ func TestManualNodeCycleRejectedWithoutLosingPreviousConfiguration(t *testing.T)
 	a := create(`{"type":"socks","tag":"a","server":"a.example","server_port":1080}`)
 	create(`{"type":"socks","tag":"b","server":"b.example","server_port":1080,"detour":"a"}`)
 	endpoint := "/api/v1/subscription/nodes/" + a.ID
-	response := authenticatedRequest(handler, http.MethodPut, endpoint, `{"revision":1,"outbound":{"type":"socks","tag":"a","server":"a.example","server_port":1080,"detour":"b"}}`, "")
+	response := authenticatedRequest(t, handler, http.MethodPut, endpoint, `{"revision":1,"outbound":{"type":"socks","tag":"a","server":"a.example","server_port":1080,"detour":"b"}}`, "")
 	if response.Code != 422 || !strings.Contains(response.Body.String(), "dependency_cycle") {
 		t.Fatalf("cycle: %d %s", response.Code, response.Body.String())
 	}
-	response = authenticatedRequest(handler, http.MethodGet, endpoint, "", "")
+	response = authenticatedRequest(t, handler, http.MethodGet, endpoint, "", "")
 	var after application.SubscriptionNodeDetail
 	if err := json.Unmarshal(response.Body.Bytes(), &after); err != nil {
 		t.Fatal(err)

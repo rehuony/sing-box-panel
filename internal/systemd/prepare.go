@@ -66,36 +66,40 @@ func (manager *Manager) preflightCommands(ctx context.Context, scope Scope, inst
 	return manager.runSystemctl(ctx, scope, "show", "--property=Version", "--value")
 }
 
-func prepareResources(ctx context.Context, request InstallRequest) (bool, error) {
-	created, err := settings.EnsureFile(ctx, request.SettingsPath, request.DataDir)
+func prepareResources(ctx context.Context, request InstallRequest) (*settings.Settings, error) {
+	value, created, err := settings.EnsureFile(ctx, request.SettingsPath, request.DataDir)
+	var initial *settings.Settings
+	if created {
+		initial = &value
+	}
 	if err != nil {
-		return created, err
+		return initial, err
 	}
 	dataDir, err := settings.ConfiguredDataDir(request.SettingsPath)
 	if err != nil || dataDir != request.DataDir {
-		return created, errors.New("settings changed during service preparation; inspect and retry")
+		return initial, errors.New("settings changed during service preparation; inspect and retry")
 	}
 	if request.Now {
 		if _, err := settings.Load(request.SettingsPath); err != nil {
-			return created, err
+			return initial, err
 		}
 	}
 	if err := ctx.Err(); err != nil {
-		return created, err
+		return initial, err
 	}
 	if err := os.MkdirAll(dataDir, 0o700); err != nil {
-		return created, fmt.Errorf("create service data directory: %w", err)
+		return initial, fmt.Errorf("create service data directory: %w", err)
 	}
-	return created, requireDirectory(dataDir)
+	return initial, requireDirectory(dataDir)
 }
 
-func (manager *Manager) prepareInstalledResources(ctx context.Context, scope Scope) error {
+func (manager *Manager) prepareInstalledResources(ctx context.Context, scope Scope) (*settings.Settings, error) {
 	files, err := manager.managedFiles(ctx, scope)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if files.SettingsPath == "" || len(files.Files) == 0 || !files.Files[0].Managed {
-		return nil // systemctl handles absent and externally managed units.
+		return nil, nil // systemctl handles absent and externally managed units.
 	}
 	request := InstallRequest{SettingsPath: files.SettingsPath, Now: true}
 	if _, err := os.Lstat(files.SettingsPath); errors.Is(err, os.ErrNotExist) {
@@ -104,60 +108,61 @@ func (manager *Manager) prepareInstalledResources(ctx context.Context, scope Sco
 		// before trusting this hint to create anything.
 		unit, err := os.ReadFile(manager.unitPath(scope))
 		if err != nil {
-			return err
+			return nil, err
 		}
 		for _, line := range strings.Split(string(unit), "\n") {
 			if !strings.HasPrefix(line, "WorkingDirectory=") {
 				continue
 			}
 			if request.DataDir != "" {
-				return errors.New("ambiguous service working directory")
+				return nil, errors.New("ambiguous service working directory")
 			}
 			value := strings.TrimPrefix(line, "WorkingDirectory=")
 			if strings.Contains(strings.ReplaceAll(value, "%%", ""), "%") {
-				return errors.New("unresolved working-directory specifier")
+				return nil, errors.New("unresolved working-directory specifier")
 			}
 			request.DataDir = strings.ReplaceAll(value, "%%", "%")
 		}
 		if request.DataDir == "" {
-			return errors.New("service does not identify its data directory")
+			return nil, errors.New("service does not identify its data directory")
 		}
 	}
 	request, err = manager.resolveInstallSettings(scope, request)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	_, settingsErr := os.Lstat(request.SettingsPath)
 	_, dataErr := os.Lstat(request.DataDir)
 	if settingsErr == nil && dataErr == nil {
-		return nil
+		return nil, nil
 	}
 	current, err := manager.queryStatus(ctx, scope)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if current.NeedDaemonReload || current.UnitFileSettingsPath != files.SettingsPath || current.UnitPath != manager.unitPath(scope) {
-		return errors.New("resource preparation requires an unmodified, reloaded managed service; reinstall explicitly")
+		return nil, errors.New("resource preparation requires an unmodified, reloaded managed service; reinstall explicitly")
 	}
 	executable, _, _, err := manager.validateInstallPaths(scope, request)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	unit, err := renderUnit(scope, executable, request.SettingsPath, request.DataDir)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if err := preflightInstall(manager.installFiles(scope, unit, request.DataDir), false); err != nil {
-		return err
+		return nil, err
 	}
 	if err := manager.preflightCommands(ctx, scope, true); err != nil {
-		return err
+		return nil, err
 	}
-	if _, err := prepareResources(ctx, request); err != nil {
-		return err
+	initial, err := prepareResources(ctx, request)
+	if err != nil {
+		return initial, err
 	}
 	if scope == ScopeSystem {
-		return manager.prepareSystemOwnership(ctx, request.SettingsPath, request.DataDir)
+		return initial, manager.prepareSystemOwnership(ctx, request.SettingsPath, request.DataDir)
 	}
-	return nil
+	return initial, nil
 }

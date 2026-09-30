@@ -11,6 +11,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/rehuony/sing-box-panel/internal/testutil"
 )
 
 func TestReplacePreservesNonRegularDestinations(t *testing.T) {
@@ -21,7 +23,8 @@ func TestReplacePreservesNonRegularDestinations(t *testing.T) {
 			target := filepath.Join(dir, "target.json")
 			value := Defaults()
 			value.DataDir = filepath.Join(dir, "data")
-			value.Auth.Token = "fixture-token"
+			value.Auth.Email = testutil.AdminEmail
+			value.Auth.PasswordHash = testutil.PasswordHash
 			input, err := json.Marshal(value)
 			if err != nil {
 				t.Fatal(err)
@@ -76,7 +79,8 @@ func TestInitializeFilePreservesStorageAndRecovery(t *testing.T) {
 			path := filepath.Join(root, "setting.json")
 			value := Defaults()
 			value.DataDir = filepath.Join(root, "original-data")
-			value.Auth.Token = "keep-token"
+			value.Auth.Email = testutil.AdminEmail
+			value.Auth.PasswordHash = testutil.PasswordHash
 			before, _ := json.Marshal(value)
 			if err := os.WriteFile(path, before, 0600); err != nil {
 				t.Fatal(err)
@@ -146,7 +150,8 @@ func TestPrivateSourceDefaultsAndCustomValue(t *testing.T) {
 	if len(value.Subscription.PrivateSourceCIDRs) != 0 {
 		t.Fatal("private source allowlist should default to empty")
 	}
-	value.Auth.Token = "fixture-token"
+	value.Auth.Email = testutil.AdminEmail
+	value.Auth.PasswordHash = testutil.PasswordHash
 	value.Subscription.PrivateSourceCIDRs = []string{"10.0.0.0/8"}
 	data, err := json.Marshal(value)
 	if err != nil {
@@ -180,7 +185,8 @@ func TestPendingUpdatePreventsInitialization(t *testing.T) {
 
 func TestLegacyFileGetsPanelDefaultsWithoutLosingExplicitZeroRadius(t *testing.T) {
 	value := Defaults()
-	value.Auth.Token = "fixture-token"
+	value.Auth.Email = testutil.AdminEmail
+	value.Auth.PasswordHash = testutil.PasswordHash
 	raw, err := json.Marshal(value)
 	if err != nil {
 		t.Fatal(err)

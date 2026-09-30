@@ -262,7 +262,7 @@ func TestInitAndConfigVerify(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if stderr != "" || !strings.Contains(stdout, "initialized") {
+	if stderr != "" || !strings.Contains(stdout, "settings created") {
 		t.Fatalf("stdout=%q stderr=%q", stdout, stderr)
 	}
 	stdout, stderr, err = execute(t, "config", "verify", "--config", path, "--output=json")
@@ -311,7 +311,7 @@ var visibleLeafCapabilities = []string{
 	"core catalog", "core refresh",
 	"core list", "core show", "core install", "core import", "core remove",
 	"core enable", "core status", "core start", "core stop", "core restart", "core rollback",
-	"config init", "config show", "config set", "config verify", "config unset",
+	"config init", "config hash-password", "config reset-password", "config show", "config set", "config verify", "config unset",
 	"channel list", "channel show", "channel create", "channel update", "channel delete", "channel render",
 	"source list", "source show", "source create", "source update", "source refresh", "source delete",
 	"token list", "token create", "token rotate", "token revoke",
@@ -427,5 +427,41 @@ func TestUnavailableExitClass(t *testing.T) {
 	_, _, err := execute(t, "core", "list")
 	if ExitCode(err) != 6 {
 		t.Fatalf("ExitCode() = %d, error = %v", ExitCode(err), err)
+	}
+}
+
+func TestInitReportsCreatedCredentialsWhenStorageFails(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("uses isolated user defaults")
+	}
+	for _, format := range []string{"text", "json", "jsonl"} {
+		t.Run(format, func(t *testing.T) {
+			directory := t.TempDir()
+			t.Setenv("XDG_DATA_HOME", directory)
+			dataDir := filepath.Join(directory, "sing-box-panel")
+			if err := os.MkdirAll(dataDir, 0700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(dataDir, "panel.db"), []byte("not a database"), 0600); err != nil {
+				t.Fatal(err)
+			}
+			path := filepath.Join(directory, "setting.json")
+			stdout, stderr, err := execute(t, "init", "--config", path, "-o", format)
+			if err == nil || stdout != "" {
+				t.Fatal("failed storage initialization claimed success")
+			}
+			value, err := settings.Load(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			initialPasswordFromOutput(t, stderr, value.Auth.PasswordHash)
+			if strings.Contains(stderr, "is running") {
+				t.Fatal("initialization claimed service readiness")
+			}
+			_, stderr, err = execute(t, "init", "--config", path, "-o", format)
+			if err == nil || stderr != "" {
+				t.Fatal("retry repeated credentials or overwrote configuration")
+			}
+		})
 	}
 }

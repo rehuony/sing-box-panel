@@ -1,6 +1,6 @@
 import { createContext, use } from 'react';
 
-import type { AppearanceSettings, PanelSettingsView, PanelSettingsWrite } from '@/api/api-client';
+import type { AppearanceSettings, PanelSettingsSaveResult, PanelSettingsView, PanelSettingsWrite } from '@/api/api-client';
 
 export interface PanelSettingsContextValue {
   reload: () => void;
@@ -8,7 +8,7 @@ export interface PanelSettingsContextValue {
   view: PanelSettingsView | null;
   accept: (view: PanelSettingsView) => Promise<void>;
   preview: (value: Partial<AppearanceSettings> | null) => void;
-  save: (input: PanelSettingsWrite) => Promise<PanelSettingsView>;
+  save: (input: PanelSettingsWrite) => Promise<PanelSettingsSaveResult>;
 }
 
 export const PanelSettingsContext = createContext<PanelSettingsContextValue | null>(null);

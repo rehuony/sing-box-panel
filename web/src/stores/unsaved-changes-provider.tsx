@@ -46,6 +46,12 @@ export function UnsavedChangesProvider({ children }: { children: ReactNode }) {
     return () => window.removeEventListener('beforeunload', prevent);
   }, [dirty]);
 
+  useEffect(() => {
+    // Authentication loss unmounts editors. A pending route must not keep an
+    // obsolete draft dialog in front of the login page after that cleanup.
+    if (!dirty && blocker.state === 'blocked') blocker.proceed();
+  }, [dirty, blocker]);
+
   function cancel() {
     setPending(null);
     if (blocker.state === 'blocked') blocker.reset();

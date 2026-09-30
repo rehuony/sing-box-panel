@@ -37,18 +37,18 @@ func TestSubscriptionManagementHTTPCRUDStrictnessAndCAS(t *testing.T) {
 		t.Fatalf("unauthenticated status=%d body=%s", unauthenticated.Code, unauthenticated.Body.String())
 	}
 
-	ambiguous := authenticatedRequest(handler, http.MethodPost, "/api/v1/subscription/channels",
+	ambiguous := authenticatedRequest(t, handler, http.MethodPost, "/api/v1/subscription/channels",
 		`{"name":"public","format":"sing-box","public_host":"public.example","enabled":true,"enabled":false}`, "")
 	if ambiguous.Code != http.StatusUnprocessableEntity {
 		t.Fatalf("ambiguous status=%d body=%s", ambiguous.Code, ambiguous.Body.String())
 	}
-	unknown := authenticatedRequest(handler, http.MethodPost, "/api/v1/subscription/channels",
+	unknown := authenticatedRequest(t, handler, http.MethodPost, "/api/v1/subscription/channels",
 		`{"name":"public","format":"sing-box","public_host":"public.example","enabled":true,"future":true}`, "")
 	if unknown.Code != http.StatusUnprocessableEntity {
 		t.Fatalf("unknown field status=%d body=%s", unknown.Code, unknown.Body.String())
 	}
 
-	createdResponse := authenticatedRequest(handler, http.MethodPost, "/api/v1/subscription/channels",
+	createdResponse := authenticatedRequest(t, handler, http.MethodPost, "/api/v1/subscription/channels",
 		`{"name":"public","format":"sing-box","public_host":"public.example","config":{},"enabled":true}`, "")
 	if createdResponse.Code != http.StatusCreated || createdResponse.Header().Get("ETag") == "" {
 		t.Fatalf("create status=%d etag=%q body=%s", createdResponse.Code, createdResponse.Header().Get("ETag"), createdResponse.Body.String())
@@ -58,36 +58,36 @@ func TestSubscriptionManagementHTTPCRUDStrictnessAndCAS(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	listed := authenticatedRequest(handler, http.MethodGet, "/api/v1/subscription/channels", "", "")
+	listed := authenticatedRequest(t, handler, http.MethodGet, "/api/v1/subscription/channels", "", "")
 	if listed.Code != http.StatusOK || !strings.Contains(listed.Body.String(), channel.ID) {
 		t.Fatalf("list status=%d body=%s", listed.Code, listed.Body.String())
 	}
-	invalidQuery := authenticatedRequest(handler, http.MethodGet, "/api/v1/subscription/channels?future=true", "", "")
+	invalidQuery := authenticatedRequest(t, handler, http.MethodGet, "/api/v1/subscription/channels?future=true", "", "")
 	if invalidQuery.Code != http.StatusBadRequest {
 		t.Fatalf("invalid query status=%d body=%s", invalidQuery.Code, invalidQuery.Body.String())
 	}
-	show := authenticatedRequest(handler, http.MethodGet, "/api/v1/subscription/channels/"+channel.ID, "", "")
+	show := authenticatedRequest(t, handler, http.MethodGet, "/api/v1/subscription/channels/"+channel.ID, "", "")
 	if show.Code != http.StatusOK || show.Header().Get("ETag") != createdResponse.Header().Get("ETag") {
 		t.Fatalf("show status=%d etag=%q body=%s", show.Code, show.Header().Get("ETag"), show.Body.String())
 	}
 
-	missingCAS := authenticatedRequest(handler, http.MethodPut, "/api/v1/subscription/channels/"+channel.ID,
+	missingCAS := authenticatedRequest(t, handler, http.MethodPut, "/api/v1/subscription/channels/"+channel.ID,
 		`{"name":"renamed","format":"loon","public_host":"renamed.example","config":{},"enabled":false}`, "")
 	if missingCAS.Code != http.StatusPreconditionRequired {
 		t.Fatalf("missing CAS status=%d body=%s", missingCAS.Code, missingCAS.Body.String())
 	}
-	updated := authenticatedRequest(handler, http.MethodPut, "/api/v1/subscription/channels/"+channel.ID,
+	updated := authenticatedRequest(t, handler, http.MethodPut, "/api/v1/subscription/channels/"+channel.ID,
 		`{"name":"renamed","format":"loon","public_host":"renamed.example","config":{},"enabled":false}`, createdResponse.Header().Get("ETag"))
 	if updated.Code != http.StatusOK || updated.Header().Get("ETag") == createdResponse.Header().Get("ETag") {
 		t.Fatalf("update status=%d etag=%q body=%s", updated.Code, updated.Header().Get("ETag"), updated.Body.String())
 	}
-	stale := authenticatedRequest(handler, http.MethodPut, "/api/v1/subscription/channels/"+channel.ID,
+	stale := authenticatedRequest(t, handler, http.MethodPut, "/api/v1/subscription/channels/"+channel.ID,
 		`{"name":"stale","format":"loon","public_host":"stale.example","config":{},"enabled":false}`, createdResponse.Header().Get("ETag"))
 	if stale.Code != http.StatusPreconditionFailed {
 		t.Fatalf("stale status=%d body=%s", stale.Code, stale.Body.String())
 	}
 
-	sourceResponse := authenticatedRequest(handler, http.MethodPost, "/api/v1/subscription/sources",
+	sourceResponse := authenticatedRequest(t, handler, http.MethodPost, "/api/v1/subscription/sources",
 		`{"name":"attached","source_kind":"local","config":{},"enabled":true}`, "")
 	if sourceResponse.Code != http.StatusCreated {
 		t.Fatalf("source create status=%d body=%s", sourceResponse.Code, sourceResponse.Body.String())
@@ -96,19 +96,19 @@ func TestSubscriptionManagementHTTPCRUDStrictnessAndCAS(t *testing.T) {
 	if err := json.Unmarshal(sourceResponse.Body.Bytes(), &source); err != nil {
 		t.Fatal(err)
 	}
-	updateSource := authenticatedRequest(handler, http.MethodPut, "/api/v1/subscription/sources/"+source.ID,
+	updateSource := authenticatedRequest(t, handler, http.MethodPut, "/api/v1/subscription/sources/"+source.ID,
 		`{"name":"attached remote","source_kind":"remote","config":{"url":"https://example.test/sub"},"enabled":false}`,
 		sourceResponse.Header().Get("ETag"))
 	if updateSource.Code != http.StatusOK || !strings.Contains(updateSource.Body.String(), `"attached remote"`) ||
 		strings.Contains(updateSource.Body.String(), `"latest_snapshot"`) {
 		t.Fatalf("source update status=%d body=%s", updateSource.Code, updateSource.Body.String())
 	}
-	showSource := authenticatedRequest(handler, http.MethodGet, "/api/v1/subscription/sources/"+source.ID, "", "")
+	showSource := authenticatedRequest(t, handler, http.MethodGet, "/api/v1/subscription/sources/"+source.ID, "", "")
 	if showSource.Code != http.StatusOK || showSource.Header().Get("ETag") != updateSource.Header().Get("ETag") {
 		t.Fatalf("source show status=%d etag=%q body=%s", showSource.Code, showSource.Header().Get("ETag"), showSource.Body.String())
 	}
 	versionBody := []byte(`[{"type":"socks","tag":"source-node","server":"source.example","server_port":1080}]`)
-	versionResponse := authenticatedRequest(handler, http.MethodPost,
+	versionResponse := authenticatedRequest(t, handler, http.MethodPost,
 		"/api/v1/subscription/sources/"+source.ID+"/versions",
 		`{"format":"sing-box-json","raw_body":"`+base64.StdEncoding.EncodeToString(versionBody)+`"}`,
 		showSource.Header().Get("ETag"))
@@ -119,30 +119,30 @@ func TestSubscriptionManagementHTTPCRUDStrictnessAndCAS(t *testing.T) {
 	if err := json.Unmarshal(versionResponse.Body.Bytes(), &savedVersion); err != nil {
 		t.Fatal(err)
 	}
-	versions := authenticatedRequest(handler, http.MethodGet,
+	versions := authenticatedRequest(t, handler, http.MethodGet,
 		"/api/v1/subscription/sources/"+source.ID+"/versions", "", "")
 	if versions.Code != http.StatusOK || !strings.Contains(versions.Body.String(), savedVersion.Version.ID) ||
 		strings.Contains(versions.Body.String(), `"raw_body"`) {
 		t.Fatalf("source versions status=%d body=%s", versions.Code, versions.Body.String())
 	}
-	versionDetail := authenticatedRequest(handler, http.MethodGet,
+	versionDetail := authenticatedRequest(t, handler, http.MethodGet,
 		"/api/v1/subscription/sources/"+source.ID+"/versions/"+savedVersion.Version.ID, "", "")
 	if versionDetail.Code != http.StatusOK || !strings.Contains(versionDetail.Body.String(), `"raw_body"`) {
 		t.Fatalf("source version detail status=%d body=%s", versionDetail.Code, versionDetail.Body.String())
 	}
-	restoredVersion := authenticatedRequest(handler, http.MethodPost,
+	restoredVersion := authenticatedRequest(t, handler, http.MethodPost,
 		"/api/v1/subscription/sources/"+source.ID+"/versions/"+savedVersion.Version.ID+"/restore",
 		"", versionResponse.Header().Get("ETag"))
 	if restoredVersion.Code != http.StatusOK {
 		t.Fatalf("source version restore status=%d body=%s", restoredVersion.Code, restoredVersion.Body.String())
 	}
-	deleteSource := authenticatedRequest(handler, http.MethodDelete, "/api/v1/subscription/sources/"+source.ID,
+	deleteSource := authenticatedRequest(t, handler, http.MethodDelete, "/api/v1/subscription/sources/"+source.ID,
 		"", restoredVersion.Header().Get("ETag"))
 	if deleteSource.Code != http.StatusNoContent {
 		t.Fatalf("source delete status=%d body=%s", deleteSource.Code, deleteSource.Body.String())
 	}
 
-	userResponse := authenticatedRequest(handler, http.MethodPost, "/api/v1/subscription/users",
+	userResponse := authenticatedRequest(t, handler, http.MethodPost, "/api/v1/subscription/users",
 		`{"name":"primary user","description":"HTTP fixture","enabled":true}`, "")
 	if userResponse.Code != http.StatusCreated || userResponse.Header().Get("ETag") == "" {
 		t.Fatalf("user create status=%d body=%s", userResponse.Code, userResponse.Body.String())
@@ -151,13 +151,13 @@ func TestSubscriptionManagementHTTPCRUDStrictnessAndCAS(t *testing.T) {
 	if err := json.Unmarshal(userResponse.Body.Bytes(), &user); err != nil {
 		t.Fatal(err)
 	}
-	emptyGrants := authenticatedRequest(handler, http.MethodGet,
+	emptyGrants := authenticatedRequest(t, handler, http.MethodGet,
 		"/api/v1/subscription/users/"+user.ID+"/grants", "", "")
 	if emptyGrants.Code != http.StatusOK || !strings.Contains(emptyGrants.Body.String(), `"grants":[]`) {
 		t.Fatalf("user grants status=%d body=%s", emptyGrants.Code, emptyGrants.Body.String())
 	}
 
-	tokenResponse := authenticatedRequest(handler, http.MethodPost, "/api/v1/subscription/tokens",
+	tokenResponse := authenticatedRequest(t, handler, http.MethodPost, "/api/v1/subscription/tokens",
 		`{"user_id":"`+user.ID+`","label":"primary"}`, "")
 	if tokenResponse.Code != http.StatusCreated {
 		t.Fatalf("token create status=%d body=%s", tokenResponse.Code, tokenResponse.Body.String())
@@ -170,7 +170,7 @@ func TestSubscriptionManagementHTTPCRUDStrictnessAndCAS(t *testing.T) {
 		t.Fatal("token plaintext missing from one-time create response")
 	}
 	secretPath := "/api/v1/subscription/tokens/" + token.Metadata.ID + "/secret"
-	secret := authenticatedRequest(handler, http.MethodGet, secretPath, "", "")
+	secret := authenticatedRequest(t, handler, http.MethodGet, secretPath, "", "")
 	var revealed application.SubscriptionTokenSecret
 	if secret.Code != http.StatusOK || secret.Header().Get("Cache-Control") != "no-store" {
 		t.Fatalf("secret response status=%d cache=%q", secret.Code, secret.Header().Get("Cache-Control"))
@@ -185,22 +185,24 @@ func TestSubscriptionManagementHTTPCRUDStrictnessAndCAS(t *testing.T) {
 	if unauthorizedSecret.Code != http.StatusUnauthorized || bytes.Contains(unauthorizedSecret.Body.Bytes(), []byte(token.Token)) {
 		t.Fatal("subscription token must not authorize secret reads")
 	}
-	metadata := authenticatedRequest(handler, http.MethodGet, "/api/v1/subscription/tokens/"+token.Metadata.ID, "", "")
+	metadata := authenticatedRequest(t, handler, http.MethodGet, "/api/v1/subscription/tokens/"+token.Metadata.ID, "", "")
 	if metadata.Code != http.StatusOK || bytes.Contains(metadata.Body.Bytes(), []byte(token.Token)) {
 		t.Fatal("ordinary token read leaked its secret")
 	}
-	tokens := authenticatedRequest(handler, http.MethodGet, "/api/v1/subscription/tokens", "", "")
+	tokens := authenticatedRequest(t, handler, http.MethodGet, "/api/v1/subscription/tokens", "", "")
 	if tokens.Code != http.StatusOK || bytes.Contains(tokens.Body.Bytes(), []byte(token.Token)) {
 		t.Fatalf("token list status=%d body=%s", tokens.Code, tokens.Body.String())
 	}
-	deleted := authenticatedRequest(handler, http.MethodDelete, "/api/v1/subscription/channels/"+channel.ID,
+	deleted := authenticatedRequest(t, handler, http.MethodDelete, "/api/v1/subscription/channels/"+channel.ID,
 		"", updated.Header().Get("ETag"))
 	if deleted.Code != http.StatusNoContent {
 		t.Fatalf("delete with global token status=%d body=%s", deleted.Code, deleted.Body.String())
 	}
 
 	// Cookie-authenticated writes are covered by the same CSRF/Origin boundary.
-	login := httptest.NewRequest(http.MethodPost, "/api/v1/auth/session", strings.NewReader(`{"token":"correct-management-token"}`))
+	login := httptest.NewRequest(http.MethodPost, "/api/v1/auth/session", strings.NewReader(`{"email":"admin@example.com","password":"test-administrator-password"}`))
+	login.Header.Set("Content-Type", "application/json")
+	login.Header.Set("Origin", "http://example.com")
 	loginResponse := httptest.NewRecorder()
 	handler.ServeHTTP(loginResponse, login)
 	cookies := loginResponse.Result().Cookies()
@@ -238,7 +240,7 @@ func TestSubscriptionPreviewHTTPUsesSelectedUserAndAppliedVersion(t *testing.T) 
 	if _, err := app.ReplaceSubscriptionUserGrants(ctx, user.ID, []string{catalog.Nodes[0].Key}, user.UpdatedAt); err != nil {
 		t.Fatal(err)
 	}
-	preview := authenticatedRequest(handler, http.MethodPost,
+	preview := authenticatedRequest(t, handler, http.MethodPost,
 		"/api/v1/subscription/channels/"+channel.ID+"/preview",
 		`{"user_id":"`+user.ID+`"}`, "")
 	if preview.Code != http.StatusOK || !strings.Contains(preview.Body.String(), `"node_count":1`) ||
@@ -328,7 +330,7 @@ func TestPublicSubscriptionHTTPFrozenPublicationAndTokenLifecycle(t *testing.T) 
 	}
 
 	// Channel policy is evaluated live against the applied local node version.
-	update := authenticatedRequest(handler, http.MethodPut,
+	update := authenticatedRequest(t, handler, http.MethodPut,
 		"/panel/api/v1/subscription/channels/"+channel.ID,
 		`{"name":"sing-box","format":"sing-box","public_host":"publish.example","config":{"exclude_tags":["publish"]},"enabled":true}`,
 		subscriptionETag(channel.UpdatedAt))
@@ -341,7 +343,7 @@ func TestPublicSubscriptionHTTPFrozenPublicationAndTokenLifecycle(t *testing.T) 
 		t.Fatalf("live channel policy was not applied: status=%d body=%s", livePolicy.Code, livePolicy.Body.String())
 	}
 
-	rotationResponse := authenticatedRequest(handler, http.MethodPost,
+	rotationResponse := authenticatedRequest(t, handler, http.MethodPost,
 		"/panel/api/v1/subscription/tokens/"+created.Metadata.ID+"/rotate", `{}`, "")
 	if rotationResponse.Code != http.StatusCreated {
 		t.Fatalf("rotate status=%d body=%s", rotationResponse.Code, rotationResponse.Body.String())
@@ -361,7 +363,7 @@ func TestPublicSubscriptionHTTPFrozenPublicationAndTokenLifecycle(t *testing.T) 
 	if newToken.Code != http.StatusOK {
 		t.Fatalf("replacement token status=%d body=%s", newToken.Code, newToken.Body.String())
 	}
-	revokedResponse := authenticatedRequest(handler, http.MethodPost,
+	revokedResponse := authenticatedRequest(t, handler, http.MethodPost,
 		"/panel/api/v1/subscription/tokens/"+rotation.Created.ID+"/revoke", "", "")
 	if revokedResponse.Code != http.StatusOK {
 		t.Fatalf("revoke status=%d body=%s", revokedResponse.Code, revokedResponse.Body.String())
@@ -404,14 +406,15 @@ func newSubscriptionHTTPServices(t *testing.T, basePath string) (*store.Store, *
 	t.Cleanup(func() { _ = database.Close() })
 	value := settings.Defaults()
 	value.DataDir = t.TempDir()
-	value.Auth.Token = "correct-management-token"
+	value.Auth.Email = testutil.AdminEmail
+	value.Auth.PasswordHash = testutil.PasswordHash
 	value.Server.BasePath = basePath
 	if err := value.Validate(); err != nil {
 		t.Fatal(err)
 	}
 	value = settingsFileFixture(t, value)
 	app := application.FromStoreWithSettings(database, value)
-	handler := NewHandler(HandlerOptions{
+	handler := newTestHandler(t, HandlerOptions{
 		Settings: value, Build: buildinfo.Info{Version: "test"}, Commands: app,
 	})
 	return database, app, handler

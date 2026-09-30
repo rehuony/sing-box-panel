@@ -15,7 +15,7 @@ import (
 )
 
 const PanelBackupFormat = "sing-box-panel-backup"
-const PanelBackupVersion = 1
+const PanelBackupVersion = 2
 
 var ErrPanelBackupInvalid = errors.New("panel backup is invalid or unsupported")
 
@@ -111,5 +111,5 @@ func (app *Application) RestorePanelBackup(ctx context.Context, input PanelResto
 		return result, err
 	}
 	app.publishSettings(next)
-	return PanelRestoreResult{Settings: app.panelSettingsView(next, settings.Revision(after)), ReauthenticationRequired: previous.Auth.Token != next.Auth.Token}, nil
+	return PanelRestoreResult{Settings: app.panelSettingsView(next, settings.Revision(after)), ReauthenticationRequired: previous.Auth.Email != next.Auth.Email || previous.Auth.PasswordHash != next.Auth.PasswordHash}, nil
 }

@@ -39,7 +39,7 @@ func TestCoreHTTPRoutesUseApplicationServices(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	assetsResponse := authenticatedRequest(
+	assetsResponse := authenticatedRequest(t,
 		handler,
 		http.MethodGet,
 		"/api/v1/core/catalog/assets?exact_version=1.13.19&architecture=amd64&variant=musl",
@@ -57,11 +57,11 @@ func TestCoreHTTPRoutesUseApplicationServices(t *testing.T) {
 		t.Fatalf("catalog assets = %+v", assets)
 	}
 
-	refreshResponse := authenticatedRequest(handler, http.MethodPost, "/api/v1/core/catalog/refresh", `{"force":false}`, "")
+	refreshResponse := authenticatedRequest(t, handler, http.MethodPost, "/api/v1/core/catalog/refresh", `{"force":false}`, "")
 	if refreshResponse.Code != http.StatusOK || !strings.Contains(refreshResponse.Body.String(), `"not_modified":true`) {
 		t.Fatal(refreshResponse.Code, refreshResponse.Body.String())
 	}
-	supportResponse := authenticatedRequest(
+	supportResponse := authenticatedRequest(t,
 		handler,
 		http.MethodGet,
 		"/api/v1/core/artifacts/"+artifact.ID+"/configuration-support",
@@ -78,7 +78,7 @@ func TestCoreHTTPRoutesUseApplicationServices(t *testing.T) {
 	if !support.Structured || support.ExactVersion != "1.13.19" {
 		t.Fatalf("configuration support = %+v", support)
 	}
-	legacySchemaResponse := authenticatedRequest(
+	legacySchemaResponse := authenticatedRequest(t,
 		handler,
 		http.MethodGet,
 		"/api/v1/core/artifacts/"+artifact.ID+"/configuration-schema",
@@ -89,7 +89,7 @@ func TestCoreHTTPRoutesUseApplicationServices(t *testing.T) {
 		t.Fatalf("reviewed 1.13 schema: %d %s", legacySchemaResponse.Code, legacySchemaResponse.Body.String())
 	}
 
-	listResponse := authenticatedRequest(
+	listResponse := authenticatedRequest(t,
 		handler,
 		http.MethodGet,
 		"/api/v1/core/artifacts?exact_version=1.13.19&architecture=amd64&variant=musl&source_kind=official&limit=1",
@@ -114,7 +114,7 @@ func TestCoreHTTPRoutesUseApplicationServices(t *testing.T) {
 		"before_id":   []string{page.Next.ID},
 		"limit":       []string{"1"},
 	}
-	nextResponse := authenticatedRequest(handler, http.MethodGet, "/api/v1/core/artifacts?"+cursorQuery.Encode(), "", "")
+	nextResponse := authenticatedRequest(t, handler, http.MethodGet, "/api/v1/core/artifacts?"+cursorQuery.Encode(), "", "")
 	if nextResponse.Code != http.StatusOK {
 		t.Fatalf("next artifact page status=%d body=%s", nextResponse.Code, nextResponse.Body.String())
 	}
@@ -127,7 +127,7 @@ func TestCoreHTTPRoutesUseApplicationServices(t *testing.T) {
 	}
 
 	for _, operation := range []string{"quarantine", "revoke"} {
-		response := authenticatedRequest(handler, http.MethodPost, "/api/v1/core/artifacts/"+olderArtifact.ID+"/"+operation, "", "")
+		response := authenticatedRequest(t, handler, http.MethodPost, "/api/v1/core/artifacts/"+olderArtifact.ID+"/"+operation, "", "")
 		if response.Code != http.StatusNotFound {
 			t.Fatalf("removed %s endpoint status=%d", operation, response.Code)
 		}
@@ -136,16 +136,16 @@ func TestCoreHTTPRoutesUseApplicationServices(t *testing.T) {
 		t.Fatal("artifact response still exposes trust state")
 	}
 
-	getResponse := authenticatedRequest(handler, http.MethodGet, "/api/v1/core/artifacts/"+artifact.ID, "", "")
+	getResponse := authenticatedRequest(t, handler, http.MethodGet, "/api/v1/core/artifacts/"+artifact.ID, "", "")
 	if getResponse.Code != http.StatusOK || !strings.Contains(getResponse.Body.String(), `"id":"`+artifact.ID+`"`) {
 		t.Fatalf("get artifact status=%d body=%s", getResponse.Code, getResponse.Body.String())
 	}
 
-	deleteResponse := authenticatedRequest(handler, http.MethodDelete, "/api/v1/core/artifacts/"+artifact.ID, "", "")
+	deleteResponse := authenticatedRequest(t, handler, http.MethodDelete, "/api/v1/core/artifacts/"+artifact.ID, "", "")
 	if deleteResponse.Code != http.StatusNoContent || deleteResponse.Body.Len() != 0 {
 		t.Fatalf("delete artifact status=%d body=%s", deleteResponse.Code, deleteResponse.Body.String())
 	}
-	missingResponse := authenticatedRequest(handler, http.MethodGet, "/api/v1/core/artifacts/"+artifact.ID, "", "")
+	missingResponse := authenticatedRequest(t, handler, http.MethodGet, "/api/v1/core/artifacts/"+artifact.ID, "", "")
 	assertCoreHTTPProblem(t, missingResponse, http.StatusNotFound, "core_artifact_not_found")
 }
 
@@ -164,7 +164,7 @@ func TestCoreConfigurationSchemaUsesExactVersionContractAndETag(t *testing.T) {
 	}
 	target := "/api/v1/core/artifacts/" + artifact.ID + "/configuration-schema"
 
-	response := authenticatedRequest(handler, http.MethodGet, target, "", "")
+	response := authenticatedRequest(t, handler, http.MethodGet, target, "", "")
 	if response.Code != http.StatusOK {
 		t.Fatalf("configuration schema status=%d body=%s", response.Code, response.Body.String())
 	}
@@ -188,7 +188,7 @@ func TestCoreConfigurationSchemaUsesExactVersionContractAndETag(t *testing.T) {
 
 	for _, validator := range []string{etag, "W/" + etag, `"other", W/` + etag, "*"} {
 		request := httptest.NewRequest(http.MethodGet, target, nil)
-		request.Header.Set("Authorization", "Bearer correct-management-token")
+		testutil.Authorize(t, handler, request)
 		request.Header.Set("If-None-Match", validator)
 		notModified := httptest.NewRecorder()
 		handler.ServeHTTP(notModified, request)
@@ -311,24 +311,24 @@ func TestCoreHTTPRejectsAmbiguousAndOversizedInputs(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			response := authenticatedRequest(handler, test.method, test.target, test.body, "")
+			response := authenticatedRequest(t, handler, test.method, test.target, test.body, "")
 			assertCoreHTTPProblem(t, response, test.wantStatus, test.wantCode)
 		})
 	}
 
 	secretPath := "/private/customer/upload/core.tar.gz"
-	invalidImport := authenticatedCoreUpload(handler, []byte("archive fixture"), strings.Repeat("0", 64))
+	invalidImport := authenticatedCoreUpload(t, handler, []byte("archive fixture"), strings.Repeat("0", 64))
 	assertCoreHTTPProblem(t, invalidImport, http.StatusUnprocessableEntity, "core_import_invalid")
 	if strings.Contains(invalidImport.Body.String(), secretPath) {
 		t.Fatalf("problem response leaked import path: %s", invalidImport.Body.String())
 	}
-	stillPresent := authenticatedRequest(handler, http.MethodGet, "/api/v1/core/artifacts/"+artifact.ID, "", "")
+	stillPresent := authenticatedRequest(t, handler, http.MethodGet, "/api/v1/core/artifacts/"+artifact.ID, "", "")
 	if stillPresent.Code != http.StatusOK {
 		t.Fatalf("artifact was changed by rejected DELETE body: status=%d body=%s", stillPresent.Code, stillPresent.Body.String())
 	}
 }
 
-func authenticatedCoreUpload(handler http.Handler, archive []byte, overrideDigest string) *httptest.ResponseRecorder {
+func authenticatedCoreUpload(t *testing.T, handler http.Handler, archive []byte, overrideDigest string) *httptest.ResponseRecorder {
 	var body bytes.Buffer
 	writer := multipart.NewWriter(&body)
 	part, _ := writer.CreateFormFile("archive", "untrusted-client-name.tar.gz")
@@ -345,7 +345,7 @@ func authenticatedCoreUpload(handler http.Handler, archive []byte, overrideDiges
 	}
 	_ = writer.Close()
 	request := httptest.NewRequest(http.MethodPost, "/api/v1/core/import", &body)
-	request.Header.Set("Authorization", "Bearer correct-management-token")
+	testutil.Authorize(t, handler, request)
 	request.Header.Set("Content-Type", writer.FormDataContentType())
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, request)
@@ -372,7 +372,7 @@ func TestCoreHTTPRejectsDeletingReferencedArtifact(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	response := authenticatedRequest(handler, http.MethodDelete, "/api/v1/core/artifacts/"+artifact.ID, "", "")
+	response := authenticatedRequest(t, handler, http.MethodDelete, "/api/v1/core/artifacts/"+artifact.ID, "", "")
 	assertCoreHTTPProblem(t, response, http.StatusConflict, "core_artifact_in_use")
 }
 
@@ -384,14 +384,16 @@ func TestCoreHTTPAuthenticationCSRFAndCatalogState(t *testing.T) {
 	handler.ServeHTTP(unauthenticatedResponse, unauthenticated)
 	assertCoreHTTPProblem(t, unauthenticatedResponse, http.StatusUnauthorized, "authentication_required")
 
-	uninitialized := authenticatedRequest(handler, http.MethodGet, "/api/v1/core/catalog/assets", "", "")
+	uninitialized := authenticatedRequest(t, handler, http.MethodGet, "/api/v1/core/catalog/assets", "", "")
 	assertCoreHTTPProblem(t, uninitialized, http.StatusConflict, "catalog_not_initialized")
 
 	login := httptest.NewRequest(
 		http.MethodPost,
 		"/api/v1/auth/session",
-		strings.NewReader(`{"token":"correct-management-token"}`),
+		strings.NewReader(`{"email":"admin@example.com","password":"test-administrator-password"}`),
 	)
+	login.Header.Set("Origin", "http://example.com")
+	login.Header.Set("Content-Type", "application/json")
 	loginResponse := httptest.NewRecorder()
 	handler.ServeHTTP(loginResponse, login)
 	if loginResponse.Code != http.StatusOK {
@@ -437,13 +439,14 @@ func newCoreHTTPFixture(t *testing.T) (*Handler, *store.Store) {
 	t.Cleanup(func() { _ = database.Close() })
 	configuration := settings.Defaults()
 	configuration.DataDir = dataDirectory
-	configuration.Auth.Token = "correct-management-token"
+	configuration.Auth.Email = testutil.AdminEmail
+	configuration.Auth.PasswordHash = testutil.PasswordHash
 	if err := configuration.Validate(); err != nil {
 		t.Fatal(err)
 	}
 	commands := application.FromStoreWithSettings(database, configuration)
 	commands.SetRuntimeController(httpRuntimeFixture{commands: commands})
-	return NewHandler(HandlerOptions{
+	return newTestHandler(t, HandlerOptions{
 		Settings: configuration,
 		Commands: commands,
 	}), database

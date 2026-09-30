@@ -91,7 +91,7 @@ func TestTrafficAccountingUpgradePreservesLedgerAndCheckpoint(t *testing.T) {
 						t.Fatal(err)
 					}
 				}
-				if _, err := db.db.ExecContext(ctx, fmt.Sprintf("PRAGMA user_version=%d", version)); err != nil {
+				if _, err := db.db.ExecContext(ctx, fmt.Sprintf("DROP TABLE auth_sessions; PRAGMA user_version=%d", version)); err != nil {
 					t.Fatal(err)
 				}
 				path := db.Path()

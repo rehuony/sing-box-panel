@@ -91,7 +91,7 @@ describe('createHttpApiClient subscription domain', () => {
       );
     const client = createHttpApiClient({ fetcher });
 
-    await client.login('secret-token');
+    await client.login({ email: 'admin@example.com', password: 'test-password-123' });
     await client.updateSubscriptionChannel(
       'channel/1',
       {

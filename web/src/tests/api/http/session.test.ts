@@ -79,12 +79,12 @@ describe('createHttpApiClient session domain', () => {
     );
     const client = createHttpApiClient({ fetcher });
 
-    await client.login('secret-token');
+    await client.login({ email: 'admin@example.com', password: 'test-password-123' });
 
     expect(fetcher).toHaveBeenCalledWith(
       '/api/v1/auth/session',
       expect.objectContaining({
-        body: JSON.stringify({ token: 'secret-token' }),
+        body: JSON.stringify({ email: 'admin@example.com', password: 'test-password-123' }),
         headers: {
           'Accept': 'application/json',
           'Content-Type': 'application/json',
@@ -109,7 +109,7 @@ describe('createHttpApiClient session domain', () => {
       .mockResolvedValueOnce(new Response(null, { status: 204 }));
     const client = createHttpApiClient({ fetcher });
 
-    await client.login('secret-token');
+    await client.login({ email: 'admin@example.com', password: 'test-password-123' });
     await client.logout();
 
     expect(fetcher).toHaveBeenLastCalledWith(
@@ -143,7 +143,7 @@ describe('createHttpApiClient session domain', () => {
     const invalidated = vi.fn();
     client.subscribeSessionInvalidated(invalidated);
 
-    await client.login('secret-token');
+    await client.login({ email: 'admin@example.com', password: 'test-password-123' });
     await expect(client.getDashboardContext()).rejects.toMatchObject({ status: 401 });
     await client.stopRuntime();
 
@@ -168,5 +168,25 @@ describe('createHttpApiClient session domain', () => {
 
     await expect(client.logout()).resolves.toBeUndefined();
     expect(invalidated).toHaveBeenCalledOnce();
+  });
+  it.each([503, 'network'])('retains restored CSRF and identity during %s failures without replaying writes', async failure => {
+    const fetcher = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ email: 'admin@example.com', displayName: 'Administrator', csrfToken: 'restored-csrf', expiresAt: '2099-01-01T00:00:00Z' })))
+      .mockImplementationOnce(async () => {
+        if (failure === 'network') throw new TypeError('offline');
+        return new Response(JSON.stringify({ code: 'authentication_unavailable' }), { status: 503 });
+      })
+      .mockResolvedValueOnce(new Response(null, { status: 204 }));
+    const client = createHttpApiClient({ fetcher });
+    const invalidated = vi.fn();
+    client.subscribeSessionInvalidated(invalidated);
+    await client.getSession();
+    await expect(client.stopRuntime()).rejects.toBeInstanceOf(Error);
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    expect(invalidated).not.toHaveBeenCalled();
+    await client.logout();
+    expect(fetcher).toHaveBeenLastCalledWith('/api/v1/auth/session', expect.objectContaining({
+      headers: expect.objectContaining({ 'X-CSRF-Token': 'restored-csrf' }),
+    }));
   });
 });

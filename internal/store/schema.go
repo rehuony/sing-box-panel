@@ -21,7 +21,7 @@ type SchemaInfo struct {
 }
 
 // initializeSchema creates an empty database or transactionally upgrades versions
-// 11–15 of this storage epoch. Unrelated and newer formats remain rejected.
+// 11–16 of this storage epoch. Unrelated and newer formats remain rejected.
 func (s *Store) initializeSchema(ctx context.Context) error {
 	return s.WithTx(ctx, func(tx *sql.Tx) error {
 		applicationID, err := pragmaInt(ctx, tx, "application_id")
@@ -65,7 +65,13 @@ func (s *Store) initializeSchema(ctx context.Context) error {
 			if _, err := tx.ExecContext(ctx, subscriptionNodeOrdersSchema); err != nil {
 				return fmt.Errorf("migrate subscription node orders: %w", err)
 			}
-			_, err := tx.ExecContext(ctx, "PRAGMA user_version = 16")
+			version = 16
+		}
+		if applicationID == ApplicationID && version == 16 {
+			if _, err := tx.ExecContext(ctx, authenticationSchema); err != nil {
+				return fmt.Errorf("migrate authentication sessions: %w", err)
+			}
+			_, err := tx.ExecContext(ctx, "PRAGMA user_version = 17")
 			return err
 		}
 		if applicationID != 0 {
@@ -78,7 +84,7 @@ func (s *Store) initializeSchema(ctx context.Context) error {
 		if version != 0 || hasObjects {
 			return fmt.Errorf("%w: refusing to adopt an unidentified non-empty database", ErrUnexpectedApplicationID)
 		}
-		if _, err := tx.ExecContext(ctx, databaseSchema+"\n"+trafficMonthsSchema+"\n"+trafficCheckpointSchema+"\n"+subscriptionNodeOrdersSchema); err != nil {
+		if _, err := tx.ExecContext(ctx, databaseSchema+"\n"+trafficMonthsSchema+"\n"+trafficCheckpointSchema+"\n"+subscriptionNodeOrdersSchema+"\n"+authenticationSchema); err != nil {
 			return fmt.Errorf("initialize SQLite schema: %w", err)
 		}
 		if _, err := tx.ExecContext(ctx, fmt.Sprintf("PRAGMA application_id = %d; PRAGMA user_version = %d", ApplicationID, CurrentSchemaVersion)); err != nil {

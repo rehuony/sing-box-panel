@@ -4,16 +4,17 @@ package application
 import (
 	"encoding/json"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/rehuony/sing-box-panel/internal/settings"
+	"github.com/rehuony/sing-box-panel/internal/testutil"
 )
 
 func settingsFileFixture(t *testing.T, value settings.Settings) settings.Settings {
 	t.Helper()
-	if value.Auth.Token == "" {
-		value.Auth.Token = strings.Repeat("t", 32)
+	if value.Auth.PasswordHash == "" {
+		value.Auth.Email = testutil.AdminEmail
+		value.Auth.PasswordHash = testutil.PasswordHash
 	}
 	path := filepath.Join(t.TempDir(), "setting.json")
 	raw, err := json.Marshal(value)

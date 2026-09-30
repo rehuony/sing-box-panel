@@ -13,8 +13,13 @@ var ErrPanelSettingsConflict = errors.New("panel settings changed")
 // CommitPanelSettingsFile couples identity changes and the recovery marker in
 // one transaction. publish runs before commit while application readers hold
 // the selected file lock; its journal resolves ambiguous commit outcomes.
-func (s *Store) CommitPanelSettingsFile(ctx context.Context, path, id string, configuration *ConfigurationFileUpdate, publish func() error) error {
+func (s *Store) CommitPanelSettingsFile(ctx context.Context, path, id string, configuration *ConfigurationFileUpdate, revokeSessions bool, publish func() error) error {
 	return s.WithTx(ctx, func(tx *sql.Tx) error {
+		if revokeSessions {
+			if _, err := tx.ExecContext(ctx, `DELETE FROM auth_sessions`); err != nil {
+				return err
+			}
+		}
 		if configuration != nil {
 			if _, err := saveConfigurationFileTx(ctx, tx, configuration.ExpectedRevision, configuration.Content, configuration.Revision); err != nil {
 				return err

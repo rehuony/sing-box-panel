@@ -16,7 +16,7 @@ import (
 )
 
 const (
-	// An accepted 8 KiB token may expand sixfold when JSON-escaped.
+	// Bound JSON credentials before decoding or running password verification.
 	maxLoginBody  = 64 << 10
 	sessionCookie = "sbp_session"
 )
@@ -90,7 +90,6 @@ type HandlerOptions struct {
 type Handler struct {
 	settings settings.Settings
 	build    buildinfo.Info
-	sessions *sessions
 	logins   *loginLimiter
 	status   StatusProvider
 	commands *application.Application
@@ -106,7 +105,6 @@ func NewHandler(options HandlerOptions) *Handler {
 	return &Handler{
 		settings: options.Settings,
 		build:    options.Build,
-		sessions: newSessions(),
 		logins:   newLoginLimiter(),
 		status:   options.Status,
 		commands: options.Commands,

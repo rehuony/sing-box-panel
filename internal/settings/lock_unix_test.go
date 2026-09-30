@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"syscall"
 	"testing"
+
+	"github.com/rehuony/sing-box-panel/internal/testutil"
 )
 
 func TestRootReplacementPreservesServiceOwner(t *testing.T) {
@@ -18,7 +20,8 @@ func TestRootReplacementPreservesServiceOwner(t *testing.T) {
 	}
 	path := filepath.Join(t.TempDir(), "setting.json")
 	value := Defaults()
-	value.Auth.Token = "fixture-token"
+	value.Auth.Email = testutil.AdminEmail
+	value.Auth.PasswordHash = testutil.PasswordHash
 	raw, _ := json.Marshal(value)
 	if err := os.WriteFile(path, raw, 0600); err != nil {
 		t.Fatal(err)

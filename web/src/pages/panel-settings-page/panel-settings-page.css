@@ -219,10 +219,6 @@
 .panel-settings-footer > [data-slot='button'] {
   flex-shrink: 0;
 }
-.settings-token-dialog {
-  width: min(680px, calc(100vw - 32px));
-  max-width: min(680px, calc(100vw - 32px));
-}
 @media (max-width: 1000px) {
   .panel-settings-tabs > [data-slot='tabs-list'] {
     width: 160px;

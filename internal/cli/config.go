@@ -3,6 +3,7 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 
@@ -17,7 +18,7 @@ func newConfigCommand(state *options) *cobra.Command {
 The Web UI, CLI, and manual edits share this same file. These commands do not
 open the database. Use the Web UI to manage sing-box configuration.`
 	root.AddCommand(newConfigInitCommand(state), newConfigShowCommand(state), newConfigSetCommand(state),
-		newConfigVerifyCommand(state), newConfigUnsetCommand(state))
+		newConfigVerifyCommand(state), newConfigUnsetCommand(state), newConfigHashPasswordCommand(state), newConfigResetPasswordCommand(state))
 	return root
 }
 
@@ -25,13 +26,13 @@ func newConfigInitCommand(state *options) *cobra.Command {
 	var force bool
 	command := &cobra.Command{
 		Use:   "init",
-		Short: "Generate a default panel settings file with a random login token",
+		Short: "Generate a default panel settings file with a random administrator password",
 		Long: `Create the settings file selected by --config using the current defaults
-and a new random login token. Create missing settings directories with private
+and a new random administrator password. Create missing settings directories with private
 permissions. The data directory and database are untouched and no service starts.
 
 An existing file is preserved unless --force is specified. Forced initialization
-replaces the settings and rotates the login token; migration recovery records
+replaces the settings and rotates the administrator password; migration recovery records
 are preserved. Directories, symlinks, and pending recovery cannot be overwritten.`,
 		Example: `  sing-box-panel config init
   sing-box-panel config init --config ./setting.json`,
@@ -39,15 +40,16 @@ are preserved. Directories, symlinks, and pending recovery cannot be overwritten
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			value, err := settings.InitializeFile(cmd.Context(), state.settingsPath, force)
 			if err != nil {
-				return &Error{Kind: ErrorValidation, Code: "settings_initialization_failed", Message: err.Error(), Cause: err}
+				failure := &Error{Kind: ErrorValidation, Code: "settings_initialization_failed", Message: err.Error(), Cause: err}
+				return errors.Join(failure, writeServerInitialization(cmd, state, value))
 			}
-			text := fmt.Sprintf("Default settings created\n  Settings     %s\n  Login token  %s", value.Path(), value.Auth.Token)
+			text := initializationText(cmd.OutOrStdout(), state.format, value)
 			return writeResult(cmd.OutOrStdout(), state.format, map[string]any{
-				"initialized": true, "settings_path": value.Path(), "login_token": value.Auth.Token,
+				"initialized": true, "settings_path": value.Path(), "login_email": value.Auth.Email, "login_password": value.InitialPassword,
 			}, text)
 		},
 	}
-	command.Flags().BoolVar(&force, "force", false, "replace an existing settings file and generate a new login token")
+	command.Flags().BoolVar(&force, "force", false, "replace an existing settings file and generate a new administrator password")
 	return command
 }
 
@@ -58,13 +60,13 @@ func newConfigUnsetCommand(state *options) *cobra.Command {
 		Long: `Restore one or more fields or sections to the defaults used by init.
 Use dotted names such as server.port or paths such as /server/port. Multiple
 fields are reset atomically and the complete result must remain valid. Required
-values without a default, such as auth.token, cannot be reset.
+values without a default, such as auth.email and auth.password_hash, cannot be reset.
 
 Only the shared settings file changes. Startup settings take effect after a
 manual restart; resetting data_dir follows the existing data migration workflow.`,
 		Example: `  sing-box-panel config unset server.port
   sing-box-panel config unset /github/catalog_refresh_interval_hours
-  sing-box-panel config unset server.external_origin auth.secure_cookie`,
+  sing-box-panel config unset server.external_origin`,
 		Args:              cobra.MinimumNArgs(1),
 		ValidArgsFunction: cobra.NoFileCompletions,
 		RunE: func(cmd *cobra.Command, args []string) error {

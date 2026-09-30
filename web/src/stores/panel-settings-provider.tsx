@@ -43,7 +43,7 @@ export function PanelSettingsProvider({ children }: { children: ReactNode }) {
   }, [setAppearance, cache, api]);
   const save = useCallback(async (input: PanelSettingsWrite) => {
     const result = await api.savePanelSettings(input);
-    await accept(result);
+    if (!result.reauthentication_required) await accept(result.settings);
     return result;
   }, [api, accept]);
   const value = useMemo(
