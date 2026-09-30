@@ -58,15 +58,28 @@ func collectGoToolchain(ctx context.Context, root string) (component, error) {
 }
 
 func collectGoModules(ctx context.Context, root string) ([]component, error) {
+	// Preserve effective cache paths before GOENV=off hides go env -w settings.
+	output, err := commandOutput(ctx, root, nil, "go", "env", "-json", "GOPATH", "GOMODCACHE", "GOCACHE")
+	if err != nil {
+		return nil, fmt.Errorf("read Go cache paths: %w", err)
+	}
+	var cachePaths map[string]string
+	if err := json.Unmarshal(output, &cachePaths); err != nil {
+		return nil, fmt.Errorf("decode Go cache paths: %w", err)
+	}
+
 	modules := make(map[string]goModule)
 	for _, architecture := range []string{"amd64", "arm64"} {
 		output, err := commandOutput(ctx, root, []string{
 			"CGO_ENABLED=0",
 			"GOARCH=" + architecture,
+			"GOCACHE=" + cachePaths["GOCACHE"],
 			"GOENV=off",
 			"GOEXPERIMENT=",
 			"GOFLAGS=",
+			"GOMODCACHE=" + cachePaths["GOMODCACHE"],
 			"GOOS=linux",
+			"GOPATH=" + cachePaths["GOPATH"],
 			"GOTOOLCHAIN=local",
 			"GOWORK=off",
 		}, "go", "list", "-mod=readonly", "-deps", "-json", "./cmd/sing-box-panel")

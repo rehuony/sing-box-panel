@@ -47,10 +47,15 @@ go tool sign-release public-key --private-key "${test_root}/private.pem" >"${tes
 public_key="$(<"${test_root}/public-key")"
 version=v0.0.1-smoke
 ldflags="-s -w -X=github.com/rehuony/sing-box-panel/internal/buildinfo.version=${version} -X=github.com/rehuony/sing-box-panel/internal/buildinfo.commit=${source_commit} -X=github.com/rehuony/sing-box-panel/internal/buildinfo.date=${source_date} -X=github.com/rehuony/sing-box-panel/internal/selfupdate.embeddedPublicKey=${public_key}"
+# Resolve cache paths before GOENV=off hides persistent Go settings.
+go_path="$(go env GOPATH)"
+go_module_cache="$(go env GOMODCACHE)"
+go_build_cache="$(go env GOCACHE)"
 for target_architecture in amd64 arm64; do
   printf '[release contract] build linux/%s test candidate\n' "${target_architecture}"
   env CGO_ENABLED=0 GOOS=linux GOARCH="${target_architecture}" \
     GOAMD64=v1 GOARM64=v8.0 GOENV=off GOEXPERIMENT= GOFIPS140=off \
+    GOPATH="${go_path}" GOMODCACHE="${go_module_cache}" GOCACHE="${go_build_cache}" \
     GOFLAGS=-mod=readonly GOTOOLCHAIN=local GOWORK=off \
     go build -buildvcs=false -trimpath -ldflags="${ldflags}" \
       -o "${release_dir}/sing-box-panel-linux-${target_architecture}" ./cmd/sing-box-panel
