@@ -31,6 +31,14 @@ its password, including in another demo instance. These verifiers are only for
 demo data; production uses server-side Argon2id. Unsupported backup verifiers are
 rejected before changing demo state.
 
+Production login lazily collects a FingerprintJS visitor ID with the locally
+bundled SDK and sends it only in `X-Client-Fingerprint`. Collection is bounded to
+1.5 seconds, SDK monitoring is disabled, and the ID is kept only in page memory.
+Collection failure falls back to login without a fingerprint; server peer/global
+limits always apply. Fingerprints do not authenticate a user. See the
+[authentication contract](../docs/development/architecture.md#management-authentication)
+for limits, proxy behavior and privacy boundaries.
+
 Transport types under `src/api/generated/` are build artifacts generated from
 `../api/openapi.yaml`. Development, typecheck, test, and build commands refresh
 them automatically; they are not committed or edited by hand. The custom HTTP

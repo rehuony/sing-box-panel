@@ -50,8 +50,7 @@ func TestServerStopsWithOpenMetricsStream(t *testing.T) {
 	var response *http.Response
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
-		request, _ := http.NewRequestWithContext(t.Context(), http.MethodGet, "http://"+address+"/api/v1/metrics/stream", nil)
-		request.Header.Set("Authorization", "Bearer "+value.Auth.PasswordHash)
+		request, _ := http.NewRequestWithContext(t.Context(), http.MethodGet, "http://"+address+"/api/v1/health", nil)
 		response, err = client.Do(request)
 		if err == nil {
 			break
@@ -62,6 +61,19 @@ func TestServerStopsWithOpenMetricsStream(t *testing.T) {
 		case <-time.After(10 * time.Millisecond):
 		}
 	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("health response: %d", response.StatusCode)
+	}
+	client, _ = loginPanel(t, t.Context(), address)
+	request, err := http.NewRequestWithContext(t.Context(), http.MethodGet, "http://"+address+"/api/v1/metrics/stream", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	response, err = client.Do(request)
 	if err != nil {
 		t.Fatal(err)
 	}

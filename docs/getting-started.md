@@ -115,6 +115,14 @@ for a public path prefix. Origin changes take effect after a server restart.
 The removed `auth.secure_cookie` field is rejected: delete it from existing
 settings files and backups before using them with this version.
 
+Login allows five attempts per minute per direct peer and, when available,
+per browser fingerprint, with a process-wide budget of 30 and two concurrent
+logins. Successful attempts also count. A 429 response includes `Retry-After`;
+wait before trying again. Behind a reverse proxy or NAT, users share the direct
+peer's budget; forwarded IP headers do not change it. Fingerprint collection is
+local and optional, with no third-party telemetry. See the
+[authentication contract](development/architecture.md#management-authentication).
+
 The generated listener is `127.0.0.1:3000`. Change `data_dir` to an absolute,
 empty directory when a test must also isolate the database.
 

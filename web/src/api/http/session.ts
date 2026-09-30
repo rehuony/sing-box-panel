@@ -2,6 +2,7 @@ import type { HttpApiContext, SessionPayload } from './shared';
 import type { ApiClient, DashboardContext, SystemStatus } from '../api-client';
 
 import { ApiRequestError } from '../api-client';
+import { loginFingerprint } from './login-fingerprint';
 
 export function createSessionHttpApi(context: HttpApiContext) {
   const {
@@ -25,11 +26,15 @@ export function createSessionHttpApi(context: HttpApiContext) {
       }
     },
     async login(input, signal) {
+      signal?.throwIfAborted();
+      const fingerprint = await loginFingerprint();
+      signal?.throwIfAborted();
       const payload = await request<SessionPayload>(fetcher, `${baseUrl}/auth/session`, {
         method: 'POST',
         body: JSON.stringify(input),
         headers: {
           'Content-Type': 'application/json',
+          ...(fingerprint && { 'X-Client-Fingerprint': fingerprint }),
         },
         signal,
       });

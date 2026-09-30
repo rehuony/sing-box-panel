@@ -31,7 +31,9 @@ func newTestHandler(t *testing.T, options HandlerOptions) *Handler {
 		t.Cleanup(func() { _ = database.Close() })
 		options.Commands = application.FromStoreWithSettings(database, options.Settings)
 	}
-	return NewHandler(options)
+	handler := NewHandler(options)
+	testutil.ReuseSession(t, handler)
+	return handler
 }
 
 func testHandler(t *testing.T) *Handler {
@@ -134,6 +136,54 @@ func TestHealthIsPublic(t *testing.T) {
 	}
 }
 
+func TestRequestIDIsBoundedAndConsistentAcrossResponses(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		values   []string
+		preserve bool
+	}{
+		{name: "missing"},
+		{name: "empty", values: []string{""}},
+		{name: "ordinary", values: []string{"proxy-request:42.1"}, preserve: true},
+		{name: "boundary", values: []string{strings.Repeat("x", 128)}, preserve: true},
+		{name: "unicode_boundary", values: []string{strings.Repeat("界", 42) + "ab"}, preserve: true},
+		{name: "invalid_utf8", values: []string{strings.Repeat("\xff", 128)}},
+		{name: "oversized", values: []string{strings.Repeat("x", 900<<10)}},
+		{name: "unicode_bytes", values: []string{strings.Repeat("界", 43)}},
+		{name: "duplicate", values: []string{"first", "second"}},
+		{name: "oversized_duplicate", values: []string{"first", strings.Repeat("x", 900<<10)}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			for _, method := range []string{http.MethodGet, http.MethodPost} {
+				handler := NewHandler(HandlerOptions{})
+				request := httptest.NewRequest(method, "/api/v1/auth/session", strings.NewReader("{"))
+				request.Header.Set("Origin", "http://example.com")
+				request.Header.Set("Content-Type", "application/json")
+				request.Header["X-Request-Id"] = test.values
+				response := httptest.NewRecorder()
+				handler.ServeHTTP(response, request)
+				id := response.Header().Get("X-Request-ID")
+				if len(id) == 0 || len(id) > 128 {
+					t.Fatalf("%s: response ID length=%d", method, len(id))
+				}
+				if test.preserve && id != test.values[0] {
+					t.Fatalf("%s: changed a bounded request ID", method)
+				}
+				if !test.preserve && len(test.values) > 0 && id == test.values[0] {
+					t.Fatalf("%s: did not replace invalid or ambiguous request ID", method)
+				}
+				var problem Problem
+				if err := json.Unmarshal(response.Body.Bytes(), &problem); err != nil {
+					t.Fatal(err)
+				}
+				if problem.RequestID != id || request.Header.Get("X-Request-ID") != id || len(request.Header.Values("X-Request-ID")) != 1 {
+					t.Fatalf("%s: request and response correlation IDs disagree", method)
+				}
+			}
+		})
+	}
+}
+
 func TestLoginAndAuthenticatedStatus(t *testing.T) {
 	handler := testHandler(t)
 	login := httptest.NewRequest(http.MethodPost, "/api/v1/auth/session", strings.NewReader(`{"email":"admin@example.com","password":"test-administrator-password"}`))
@@ -187,7 +237,7 @@ func TestLoginRateLimitUsesRemoteAddressAndExpires(t *testing.T) {
 	handler := testHandler(t)
 	now := time.Date(2026, time.August, 26, 0, 0, 0, 0, time.UTC)
 	handler.logins.now = func() time.Time { return now }
-	for attempt := 0; attempt < loginFailureLimit; attempt++ {
+	for attempt := 0; attempt < loginAttemptLimit; attempt++ {
 		request := httptest.NewRequest(http.MethodPost, "/api/v1/auth/session", strings.NewReader(`{"email":"admin@example.com","password":"wrong"}`))
 		request.Header.Set("Content-Type", "application/json")
 		request.Header.Set("Origin", "http://example.com")
@@ -211,7 +261,7 @@ func TestLoginRateLimitUsesRemoteAddressAndExpires(t *testing.T) {
 		t.Fatalf("blocked status = %d retry-after=%q body=%s", blockedResponse.Code, blockedResponse.Header().Get("Retry-After"), blockedResponse.Body.String())
 	}
 
-	now = now.Add(loginFailureWindow)
+	now = now.Add(loginAttemptWindow)
 	retry := httptest.NewRequest(http.MethodPost, "/api/v1/auth/session", strings.NewReader(`{"email":"admin@example.com","password":"test-administrator-password"}`))
 	retry.Header.Set("Content-Type", "application/json")
 	retry.Header.Set("Origin", "http://example.com")
@@ -223,9 +273,9 @@ func TestLoginRateLimitUsesRemoteAddressAndExpires(t *testing.T) {
 	}
 }
 
-func TestSuccessfulLoginClearsFailureBudget(t *testing.T) {
+func TestSuccessfulLoginDoesNotResetAttemptBudget(t *testing.T) {
 	handler := testHandler(t)
-	for attempt := 0; attempt < loginFailureLimit-1; attempt++ {
+	for attempt := 0; attempt < loginAttemptLimit-1; attempt++ {
 		response := httptest.NewRecorder()
 		request := httptest.NewRequest(http.MethodPost, "/api/v1/auth/session", strings.NewReader(`{"email":"admin@example.com","password":"wrong"}`))
 		request.Header.Set("Content-Type", "application/json")
@@ -236,15 +286,9 @@ func TestSuccessfulLoginClearsFailureBudget(t *testing.T) {
 	if success.Code != http.StatusOK {
 		t.Fatalf("success status = %d; body = %s", success.Code, success.Body.String())
 	}
-	for attempt := 0; attempt < loginFailureLimit-1; attempt++ {
-		response := httptest.NewRecorder()
-		request := httptest.NewRequest(http.MethodPost, "/api/v1/auth/session", strings.NewReader(`{"email":"admin@example.com","password":"wrong"}`))
-		request.Header.Set("Content-Type", "application/json")
-		request.Header.Set("Origin", "http://example.com")
-		handler.ServeHTTP(response, request)
-		if response.Code != http.StatusUnauthorized {
-			t.Fatalf("attempt after reset %d status = %d", attempt+1, response.Code)
-		}
+	response := loginWithPassword(t, handler, testutil.AdminPassword)
+	if response.Code != http.StatusTooManyRequests {
+		t.Fatalf("attempt after success status = %d", response.Code)
 	}
 }
 

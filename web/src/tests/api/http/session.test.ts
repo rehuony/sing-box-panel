@@ -1,6 +1,12 @@
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { createHttpApiClient } from '@/api/http-api-client';
+
+const fingerprint = vi.hoisted(() => vi.fn<() => Promise<string | undefined>>());
+vi.mock('@/api/http/login-fingerprint', () => ({ loginFingerprint: fingerprint }));
+beforeEach(() => {
+  fingerprint.mockResolvedValue(undefined);
+});
 
 describe('createHttpApiClient session domain', () => {
   it('reads the complete control-plane system status', async () => {
@@ -92,6 +98,35 @@ describe('createHttpApiClient session domain', () => {
         method: 'POST',
       }),
     );
+  });
+
+  it('sends the fingerprint only on login and never retries a rate-limited login', async () => {
+    fingerprint.mockResolvedValue('a'.repeat(32));
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValueOnce(new Response(JSON.stringify({ code: 'login_rate_limited' }), {
+      status: 429,
+      headers: { 'Retry-After': '60', 'Content-Type': 'application/problem+json' },
+    })).mockResolvedValueOnce(new Response(JSON.stringify({ displayName: 'Administrator' })));
+    const client = createHttpApiClient({ fetcher });
+    await expect(client.login({ email: 'admin@example.com', password: 'test-password-123' })).rejects.toMatchObject({ status: 429, code: 'login_rate_limited' });
+    expect(fetcher).toHaveBeenCalledOnce();
+    expect(fetcher).toHaveBeenCalledWith('/api/v1/auth/session', expect.objectContaining({
+      headers: expect.objectContaining({ 'X-Client-Fingerprint': 'a'.repeat(32) }),
+      body: JSON.stringify({ email: 'admin@example.com', password: 'test-password-123' }),
+    }));
+    await client.getSession();
+    expect(fetcher).toHaveBeenLastCalledWith('/api/v1/auth/session', expect.objectContaining({ headers: { Accept: 'application/json' } }));
+  });
+
+  it('does not send credentials when cancelled during fingerprint collection', async () => {
+    const controller = new AbortController();
+    fingerprint.mockImplementation(async () => {
+      controller.abort();
+      return undefined;
+    });
+    const fetcher = vi.fn<typeof fetch>();
+    const client = createHttpApiClient({ fetcher });
+    await expect(client.login({ email: 'admin@example.com', password: 'test-password-123' }, controller.signal)).rejects.toMatchObject({ name: 'AbortError' });
+    expect(fetcher).not.toHaveBeenCalled();
   });
 
   it('retains the session CSRF token for cookie-authenticated writes', async () => {

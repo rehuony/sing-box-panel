@@ -256,6 +256,13 @@ schema, status-code, and problem-detail contract is
 [`api/openapi.yaml`](../../api/openapi.yaml); this guide describes its trust
 boundaries without duplicating the endpoint inventory.
 
+Every response includes `X-Request-ID`, matching `request_id` in problem responses.
+The server preserves a single nonempty, valid UTF-8 incoming ID of at most 128
+bytes. Missing, empty, oversized, invalid UTF-8 or repeated headers receive a
+newly generated ID before routing;
+the same ID is used in request context headers and both response representations.
+Oversized IDs are replaced, never truncated or echoed back in an error.
+
 `server.base_path` prefixes the Web application, management API, and `/sub`
 routes. It must be empty or a normalized path without a trailing slash. Browser
 code uses same-origin paths and depends only on the HTTP contract.
@@ -285,8 +292,39 @@ settings contract instead of applying native HTML email validation. New password
 19 MiB memory, two iterations, parallelism one, a 16-byte salt and a 32-byte key.
 Configured hashes are checked before computation (19–64 MiB, 2–4 iterations,
 1–4 parallelism, 16–32-byte salt, 32-byte key). At most two password computations
-run concurrently. Login attempts are rate-limited by direct peer address;
-forwarded-IP headers are not trusted. Login JSON is bounded to 64 KiB.
+run concurrently.
+
+The HTTP client lazily loads the locally bundled FingerprintJS SDK (5.2.0, MIT)
+and sends only its 32-character `visitorId` as `X-Client-Fingerprint` on login.
+SDK monitoring is disabled; no fingerprint components or telemetry are sent to
+Fingerprint or other third parties. Collection has a 1.5-second budget and the
+result is cached only in page memory. SDK failures/timeouts omit the header.
+Fingerprints are untrusted, spoofable abuse signals, never authentication factors;
+missing fingerprints still receive all peer/global protections. Invalid or repeated
+fingerprint headers return 400. The demo client does not contact this HTTP boundary.
+
+Before reading a login body or waiting for settings/password work, the server
+atomically admits at most two concurrent logins, five attempts per direct peer
+in a fixed one-minute window, and 30 attempts process-wide per minute. IPv4-mapped
+addresses normalize to IPv4; IPv6 addresses share a /64 budget. A supplied
+fingerprint also allows five attempts per minute across changing peers. Changing
+or omitting the fingerprint cannot bypass the peer/global limits. Successful and
+malformed admitted requests count; success does not reset budgets. Exhausted peers
+and concurrency rejections do not consume the remaining global budget. Limits
+return 429 with `Retry-After` in seconds. State is memory-only, bounded to 4096
+keys without evicting active entries, expires automatically, and resets on restart.
+
+Forwarded-IP headers are ignored, including behind a reverse proxy: users sharing
+a direct proxy/NAT peer share its budget. `server.external_origin` establishes the
+trusted origin and cookie scheme, not trust in forwarded client IPs. Login JSON
+is bounded to 4 KiB; body reads, settings-lock waits and response writes share a
+five-second deadline. The write deadline is armed before admission, covers rejected
+responses too, and remains active through the server's buffered flush. On expiry,
+the connection may close or the stream reset before a problem response is delivered.
+HTTP/1 login responses close their connection so rejected requests cannot keep
+it occupied draining an unread body. HTTP/2 reuses the connection with per-stream
+read/write deadlines. These controls bound application authentication work; ingress
+connection/traffic floods still require network or reverse-proxy controls.
 
 Management Bearer authentication is removed. Automation uses the same login endpoint
 with JSON and an `Origin`, retains the Cookie, then supplies `X-CSRF-Token` and

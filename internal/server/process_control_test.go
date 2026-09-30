@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/http/cookiejar"
 	"os"
 	"path/filepath"
 	"strings"
@@ -55,9 +56,11 @@ func TestForegroundPanelCanBeStoppedFromAnotherClient(t *testing.T) {
 	var initialConfiguration application.ConfigurationFile
 	for start := range 2 {
 		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
 		result := make(chan error, 1)
 		go func() { result <- Run(ctx, path, buildinfo.Info{Version: "test"}, fstest.MapFS{}) }()
 		wait, stop := context.WithTimeout(context.Background(), 10*time.Second)
+		defer stop()
 		var status panelprocess.Status
 		for {
 			status, err = panelprocess.Inspect(wait, value.DataDir)
@@ -79,12 +82,12 @@ func TestForegroundPanelCanBeStoppedFromAnotherClient(t *testing.T) {
 		if status.SettingsPath != path || status.DataDir != value.DataDir || status.PID != os.Getpid() {
 			t.Fatalf("live status=%+v", status)
 		}
+		client, csrf := loginPanel(t, wait, status.Listen)
 		request, err := http.NewRequestWithContext(wait, http.MethodGet, "http://"+status.Listen+"/api/v1/config/file", nil)
 		if err != nil {
 			t.Fatal(err)
 		}
-		request.Header.Set("Authorization", "Bearer "+value.Auth.PasswordHash)
-		response, err := http.DefaultClient.Do(request)
+		response, err := client.Do(request)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -113,7 +116,7 @@ func TestForegroundPanelCanBeStoppedFromAnotherClient(t *testing.T) {
 		if start == 0 {
 			// The Web endpoint persists the new port without moving the listener.
 			var view application.PanelSettingsView
-			requestPanelSettings(t, wait, status.Listen, value.Auth.PasswordHash, nil, &view)
+			requestPanelSettings(t, wait, client, status.Listen, csrf, nil, &view)
 			reserved, err := net.Listen("tcp", "127.0.0.1:0")
 			if err != nil {
 				t.Fatal(err)
@@ -122,12 +125,12 @@ func TestForegroundPanelCanBeStoppedFromAnotherClient(t *testing.T) {
 			reserved.Close()
 			view.Preferences.ListenPort = value.Server.Port
 			input := application.PanelSettingsWrite{Revision: view.Revision, Preferences: view.Preferences}
-			var saved application.PanelSettingsView
-			requestPanelSettings(t, wait, status.Listen, value.Auth.PasswordHash, &input, &saved)
-			if !saved.RestartRequired {
+			var saved application.PanelSettingsSaveResult
+			requestPanelSettings(t, wait, client, status.Listen, csrf, &input, &saved)
+			if !saved.Settings.RestartRequired {
 				t.Fatal("listener change did not request manual restart")
 			}
-			requestPanelSettings(t, wait, status.Listen, value.Auth.PasswordHash, nil, &saved)
+			requestPanelSettings(t, wait, client, status.Listen, csrf, nil, &view)
 			current, err := panelprocess.Inspect(wait, value.DataDir)
 			if err != nil || current.Listen != status.Listen || current.State != "ready" {
 				t.Fatalf("Web save changed running listener: %+v %v", current, err)
@@ -212,7 +215,43 @@ func TestCanceledStartupReleasesControlAndLease(t *testing.T) {
 	_ = lease.Close()
 }
 
-func requestPanelSettings(t *testing.T, ctx context.Context, address, token string, input *application.PanelSettingsWrite, output *application.PanelSettingsView) {
+func loginPanel(t *testing.T, ctx context.Context, address string) (*http.Client, string) {
+	t.Helper()
+	jar, err := cookiejar.New(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	client := &http.Client{Jar: jar, Timeout: 5 * time.Second}
+	body, err := json.Marshal(application.LoginInput{Email: testutil.AdminEmail, Password: testutil.AdminPassword})
+	if err != nil {
+		t.Fatal(err)
+	}
+	origin := "http://" + address
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, origin+"/api/v1/auth/session", bytes.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	request.Header.Set("Origin", origin)
+	request.Header.Set("Content-Type", "application/json")
+	response, err := client.Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("login response: %d", response.StatusCode)
+	}
+	var session application.AuthSession
+	if err := json.NewDecoder(response.Body).Decode(&session); err != nil {
+		t.Fatal(err)
+	}
+	if session.CSRFToken == "" {
+		t.Fatal("login response is missing the CSRF token")
+	}
+	return client, session.CSRFToken
+}
+
+func requestPanelSettings(t *testing.T, ctx context.Context, client *http.Client, address, csrf string, input *application.PanelSettingsWrite, output any) {
 	t.Helper()
 	method := http.MethodGet
 	var body []byte
@@ -228,9 +267,10 @@ func requestPanelSettings(t *testing.T, ctx context.Context, address, token stri
 	if err != nil {
 		t.Fatal(err)
 	}
-	request.Header.Set("Authorization", "Bearer "+token)
+	request.Header.Set("Origin", "http://"+address)
+	request.Header.Set("X-CSRF-Token", csrf)
 	request.Header.Set("Content-Type", "application/json")
-	response, err := http.DefaultClient.Do(request)
+	response, err := client.Do(request)
 	if err != nil {
 		t.Fatal(err)
 	}

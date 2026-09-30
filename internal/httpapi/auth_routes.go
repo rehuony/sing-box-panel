@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -19,34 +20,79 @@ import (
 type sessionContextKey struct{}
 type sessionPayload = application.AuthSession
 
+const loginFingerprintHeader = "X-Client-Fingerprint"
+const loginTimeout = 5 * time.Second
+
+var loginFingerprintPattern = regexp.MustCompile(`^[a-f0-9]{32}$`)
+
+func writeLoginRateLimit(w http.ResponseWriter, request *http.Request, retryAfter time.Duration) {
+	seconds := max(1, int((retryAfter+time.Second-1)/time.Second))
+	w.Header().Set("Retry-After", strconv.Itoa(seconds))
+	writeProblem(w, request, http.StatusTooManyRequests, "login_rate_limited", "Too many attempts", "Wait before trying to authenticate again.")
+}
+
 func (handler *Handler) allowLogin(w http.ResponseWriter, request *http.Request) bool {
-	if allowed, retryAfter := handler.logins.allow(loginClient(request.RemoteAddr)); !allowed {
-		seconds := max(1, int((retryAfter+time.Second-1)/time.Second))
-		w.Header().Set("Retry-After", strconv.Itoa(seconds))
-		writeProblem(w, request, http.StatusTooManyRequests, "login_rate_limited", "Too many attempts", "Wait before trying to authenticate again.")
+	if allowed, retryAfter := handler.logins.begin(loginClient(request.RemoteAddr)); !allowed {
+		writeLoginRateLimit(w, request, retryAfter)
 		return false
 	}
 	return true
 }
 
 func (handler *Handler) login(w http.ResponseWriter, request *http.Request) {
+	controller := http.NewResponseController(w)
+	// A rejected HTTP/1 login must not keep the connection busy draining an
+	// attacker-controlled body after the handler has released its work slot.
+	if request.ProtoMajor == 1 {
+		w.Header().Set("Connection", "close")
+		request.Close = true
+		defer func() {
+			_ = controller.SetReadDeadline(time.Now())
+			_ = request.Body.Close()
+		}()
+	}
+	// Bound response writes before admission so rejected logins are protected
+	// too. Keep the deadline armed for the server's post-handler buffered flush.
+	ctx, cancel := context.WithTimeout(request.Context(), loginTimeout)
+	defer cancel()
+	request = request.WithContext(ctx)
+	deadline, _ := ctx.Deadline()
+	if err := controller.SetWriteDeadline(deadline); err != nil && !errors.Is(err, http.ErrNotSupported) {
+		handler.authenticationUnavailable(w, request)
+		return
+	}
 	if !handler.allowLogin(w, request) {
 		return
 	}
-	client := loginClient(request.RemoteAddr)
+	defer handler.logins.finish()
+	if err := controller.SetReadDeadline(deadline); err != nil && !errors.Is(err, http.ErrNotSupported) {
+		handler.authenticationUnavailable(w, request)
+		return
+	}
+	fingerprint := request.Header.Get(loginFingerprintHeader)
+	if values := request.Header.Values(loginFingerprintHeader); len(values) > 1 || (len(values) == 1 && !loginFingerprintPattern.MatchString(fingerprint)) {
+		writeProblem(w, request, http.StatusBadRequest, "invalid_login", "Invalid login", "The login fingerprint is invalid.")
+		return
+	}
+	if allowed, retryAfter := handler.logins.fingerprint(fingerprint); !allowed {
+		writeLoginRateLimit(w, request, retryAfter)
+		return
+	}
 	if !handler.sameOrigin(request) || request.Header.Get("Content-Type") != "application/json" {
 		writeProblem(w, request, http.StatusForbidden, "csrf_failed", "Request rejected", "A same-origin JSON login request is required.")
 		return
 	}
+	if request.ContentLength > maxLoginBody {
+		writeProblem(w, request, http.StatusBadRequest, "invalid_body", "Invalid request", "The login payload is invalid.")
+		return
+	}
 	data, err := readBoundedBody(request, maxLoginBody)
 	if err != nil {
-		handler.logins.failed(client)
 		writeProblem(w, request, http.StatusBadRequest, "invalid_body", "Invalid request", "The login payload is invalid.")
 		return
 	}
 	var input application.LoginInput
 	if err := jsonstrict.Decode(data, maxLoginBody, &input); err != nil {
-		handler.logins.failed(client)
 		writeProblem(w, request, http.StatusBadRequest, "invalid_login", "Invalid login", "The login payload is invalid.")
 		return
 	}
@@ -62,7 +108,6 @@ func (handler *Handler) login(w http.ResponseWriter, request *http.Request) {
 	value, err := handler.commands.Login(request.Context(), input, previousToken)
 	if err != nil {
 		if errors.Is(err, application.ErrInvalidCredentials) {
-			handler.logins.failed(client)
 			writeProblem(w, request, http.StatusUnauthorized, "invalid_credentials", "Authentication failed", "The email or password is incorrect.")
 		} else if errors.Is(err, auth.ErrBusy) {
 			w.Header().Set("Retry-After", "1")
@@ -72,7 +117,6 @@ func (handler *Handler) login(w http.ResponseWriter, request *http.Request) {
 		}
 		return
 	}
-	handler.logins.succeeded(client)
 	cookie := &http.Cookie{
 		Name: sessionCookie, Value: value.Token, Path: cookiePath(handler.settings.Server.BasePath),
 		HttpOnly: true, Secure: handler.secureCookie(request), SameSite: http.SameSiteStrictMode,
