@@ -3,15 +3,10 @@ import type { PanelPreferences, PanelServiceSettings } from '@/api/api-client';
 export const settingsCategories = ['service', 'traffic', 'logs', 'interface', 'maintenance', 'backup'] as const;
 export type SettingsCategory = typeof settingsCategories[number];
 
-export function managementTokenError(token: string) {
-  const bytes = new TextEncoder().encode(token).length;
-  return bytes < 8
-    ? 'panelSettings.tokenTooShort'
-    : bytes > 8192
-      ? 'panelSettings.tokenTooLong'
-      : /^[\s\u0085]|[\s\u0085]$/u.test(token) || /[\0\r\n]/.test(token)
-        ? 'panelSettings.tokenInvalid'
-        : undefined;
+export function passwordError(password: string) {
+  if (password === '') return undefined;
+  const length = [...password].length;
+  return length < 12 || length > 128 ? 'panelSettings.passwordLength' : undefined;
 }
 
 // Preserve links to sections that now belong to a broader category.
@@ -66,7 +61,7 @@ function validPublishedHost(host: string) {
 }
 
 export function invalidSettingsField(
-  p: PanelPreferences, s: PanelServiceSettings, github: string,
+  p: PanelPreferences, s: PanelServiceSettings, github: string, email?: string, password = '',
 ): { category: SettingsCategory; field: string } | null {
   const integer = (value: number, min: number, max: number) => Number.isInteger(value) && value >= min && value <= max;
   const fail = (category: SettingsCategory, field: string) => ({ category, field });
@@ -80,8 +75,9 @@ export function invalidSettingsField(
       return fail('service', 'origin');
     }
   }
+  if (email !== undefined && (!/^[^\s@]+@[^\s@]+$/.test(email.trim()) || new TextEncoder().encode(email.trim()).length > 254)) return fail('service', 'admin-email');
+  if (passwordError(password)) return fail('service', 'new-password');
   if (s.base_path && (!/^\/[\w./~-]+$/.test(s.base_path) || s.base_path.endsWith('/') || s.base_path.includes('//') || s.base_path.split('/').some(part => part === '.' || part === '..'))) return fail('service', 'base-path');
-  if (s.secure_cookie !== p.external_origin.startsWith('https://')) return fail('service', 'secure-cookie');
   if (!s.data_dir.startsWith('/') || s.data_dir.includes('\0')) return fail('maintenance', 'data-dir');
   if (!integer(s.catalog_refresh_interval_hours, 1, 720)) return fail('maintenance', 'catalog-refresh-interval');
   if (new TextEncoder().encode(github).length > 8192 || /[\0\r\n]/.test(github)) return fail('maintenance', 'github-token');

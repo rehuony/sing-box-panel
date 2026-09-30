@@ -6,10 +6,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net"
 	"os"
 	"path/filepath"
-	"strconv"
 	"time"
 
 	"github.com/rehuony/sing-box-panel/internal/console"
@@ -40,13 +38,13 @@ func newServerStartCommand(state *options, run func(context.Context, string) err
 				return err
 			}
 			configuration, created, err := settings.LoadOrInitializeContext(cmd.Context(), state.settingsPath)
+			if created {
+				if outputErr := writeServerInitialization(cmd, state, configuration); outputErr != nil {
+					return errors.Join(err, outputErr)
+				}
+			}
 			if err != nil {
 				return &Error{Kind: ErrorValidation, Code: "settings_invalid", Message: err.Error(), Cause: err}
-			}
-			if created {
-				if err := writeServerInitialization(cmd, state, configuration); err != nil {
-					return err
-				}
 			}
 			if err := cmd.Context().Err(); err != nil {
 				return err
@@ -57,22 +55,27 @@ func newServerStartCommand(state *options, run func(context.Context, string) err
 }
 
 func writeServerInitialization(cmd *cobra.Command, state *options, configuration settings.Settings) error {
-	path, err := filepath.Abs(state.settingsPath)
+	if configuration.InitialPassword == "" {
+		return nil
+	}
+	selectedPath := configuration.Path()
+	if selectedPath == "" {
+		selectedPath = state.settingsPath
+	}
+	path, err := filepath.Abs(selectedPath)
 	if err != nil {
 		return err
 	}
-	panelURL := "http://" + net.JoinHostPort(configuration.Server.Host, strconv.Itoa(configuration.Server.Port)) + configuration.Server.BasePath + "/"
+	panelURL := initialPanelURL(configuration)
 	result := struct {
-		Event        string `json:"event"`
-		SettingsPath string `json:"settings_path"`
-		DataDir      string `json:"data_dir"`
-		PanelURL     string `json:"default_panel_url"`
-		LoginToken   string `json:"login_token"`
-	}{"settings_initialized", path, configuration.DataDir, panelURL, configuration.Auth.Token}
-	style := newFileTreeStyle(cmd.ErrOrStderr(), state.format)
-	text := fmt.Sprintf("\n%s\n\n  Default URL       %s\n  Default Token     %s\n  Default Settings  %s\n  Default Data Dir  %s\n",
-		style.paint("1;32", "sing-box-panel settings is created"),
-		style.paint("36", panelURL), configuration.Auth.Token, style.path(path), style.path(configuration.DataDir))
+		Event         string `json:"event"`
+		SettingsPath  string `json:"settings_path"`
+		DataDir       string `json:"data_dir"`
+		PanelURL      string `json:"default_panel_url"`
+		LoginEmail    string `json:"login_email"`
+		LoginPassword string `json:"login_password"`
+	}{"settings_initialized", path, configuration.DataDir, panelURL, configuration.Auth.Email, configuration.InitialPassword}
+	text := initializationText(cmd.ErrOrStderr(), state.format, configuration)
 	return writeResult(cmd.ErrOrStderr(), state.format, result, text)
 }
 

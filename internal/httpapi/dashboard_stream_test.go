@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/rehuony/sing-box-panel/internal/application"
+	"github.com/rehuony/sing-box-panel/internal/testutil"
 )
 
 func TestDashboardStreamClosesTransportCleanly(t *testing.T) {
@@ -77,7 +78,7 @@ func TestDashboardStreamWritesImmediateAuthenticatedSnapshot(t *testing.T) {
 	defer cancel()
 	response := newFlushRecorder()
 	request := httptest.NewRequest(http.MethodGet, "/api/v1/dashboard/stream", nil).WithContext(ctx)
-	request.Header.Set("Authorization", "Bearer correct-management-token")
+	testutil.Authorize(t, handler, request)
 
 	done := make(chan struct{})
 	go func() {
@@ -112,23 +113,23 @@ func TestDashboardStreamWritesImmediateAuthenticatedSnapshot(t *testing.T) {
 	}
 }
 
-func TestDashboardStreamReportsInitialSnapshotFailure(t *testing.T) {
+func TestDashboardStreamReportsAuthenticationStorageFailure(t *testing.T) {
 	handler, database := newCoreHTTPFixture(t)
+	response := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/dashboard/stream", nil)
+	testutil.Authorize(t, handler, request)
 	if err := database.Close(); err != nil {
 		t.Fatal(err)
 	}
-	response := httptest.NewRecorder()
-	request := httptest.NewRequest(http.MethodGet, "/api/v1/dashboard/stream", nil)
-	request.Header.Set("Authorization", "Bearer correct-management-token")
 	handler.ServeHTTP(response, request)
-	if response.Code != http.StatusInternalServerError || !strings.HasPrefix(response.Header().Get("Content-Type"), "application/problem+json") {
+	if response.Code != http.StatusServiceUnavailable || !strings.HasPrefix(response.Header().Get("Content-Type"), "application/problem+json") {
 		t.Fatalf("failed snapshot status=%d content-type=%q", response.Code, response.Header().Get("Content-Type"))
 	}
 	var problem Problem
 	if err := json.Unmarshal(response.Body.Bytes(), &problem); err != nil {
 		t.Fatal(err)
 	}
-	if problem.Code != "dashboard_snapshot_unavailable" {
+	if problem.Code != "authentication_unavailable" {
 		t.Fatalf("problem code=%q", problem.Code)
 	}
 }

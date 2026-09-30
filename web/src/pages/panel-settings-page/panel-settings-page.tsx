@@ -7,7 +7,6 @@ import type { PanelSettingsView } from '@/api/api-client';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Slider } from '@/components/ui/slider';
-import { Switch } from '@/components/ui/switch';
 import { ErrorNotice } from '@/components/error-notice';
 import { LoadingState } from '@/components/loading-state';
 import { ServerPathInput } from '@/components/server-path-input';
@@ -16,7 +15,6 @@ import { DEFAULT_APPEARANCE, THEME_PRESETS } from '@/theme/appearance';
 import { FieldGroup, FieldLegend, FieldSet } from '@/components/ui/field';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 
 import { SettingsField } from './settings-field';
@@ -38,6 +36,7 @@ function SettingsGroup({ title, children }: { title: string; children: ReactNode
 function SettingsEditor({ initial }: { initial: PanelSettingsView }) {
   const { t } = useTranslation();
   const {
+    email, setEmail,
     preferences,
     service,
     github,
@@ -45,18 +44,14 @@ function SettingsEditor({ initial }: { initial: PanelSettingsView }) {
     category,
     saving,
     invalidField,
-    tokenOpen,
-    token,
-    tokenConfirm,
-    tokenError,
-    tokenValid,
+    password,
+    newPasswordError,
+    passwordValid,
     colorValid,
     dirty,
     setCategory,
     setSaving,
-    setTokenOpen,
-    setToken,
-    setTokenConfirm,
+    setPassword,
     setGithub,
     setClearGithub,
     restored,
@@ -88,24 +83,19 @@ function SettingsEditor({ initial }: { initial: PanelSettingsView }) {
                 <Input id='listen-port' aria-invalid={invalidField === 'listen-port' || undefined} type='number' min={1} max={65535} required value={preferences.listen_port} onChange={e => update('listen_port', Number(e.target.value))} />
               </SettingsField>
               <SettingsField id='origin' invalid={invalidField === 'origin'} label={t('panelSettings.origin')} help={t('panelSettings.originHelp')}>
-                <Input id='origin' aria-invalid={invalidField === 'origin' || undefined} type='url' placeholder='https://panel.example.com' value={preferences.external_origin} onChange={e => {
-                  update('external_origin', e.target.value);
-                  updateService('secure_cookie', e.target.value.startsWith('https://'));
-                }} />
+                <Input id='origin' aria-invalid={invalidField === 'origin' || undefined} type='url' placeholder='https://panel.example.com' value={preferences.external_origin} onChange={e => update('external_origin', e.target.value)} />
               </SettingsField>
               <SettingsField id='base-path' invalid={invalidField === 'base-path'} label={t('panelSettings.basePath')} help={t('panelSettings.basePathHelp')}>
                 <Input id='base-path' aria-invalid={invalidField === 'base-path' || undefined} value={service.base_path} onChange={e => updateService('base_path', e.target.value)} />
               </SettingsField>
             </SettingsGroup>
             <SettingsGroup title={t('panelSettings.authentication')}>
-              <SettingsField id='management-token' invalid={invalidField === 'management-token'} label={t('panelSettings.managementToken')} help={t('panelSettings.tokenHelp')}>
-                <div className='settings-inline'>
-                  <Input id='management-token' aria-invalid={invalidField === 'management-token' || undefined} aria-label={t('panelSettings.managementToken')} readOnly value='••••••••••••' />
-                  <Button type='button' variant='ghost' onClick={() => setTokenOpen(true)}>{t('panelSettings.change')}</Button>
-                </div>
+              <SettingsField id='admin-email' label={t('panelSettings.adminEmail')} invalid={invalidField === 'admin-email'}>
+                <Input id='admin-email' type='text' inputMode='email' autoComplete='username' value={email} aria-invalid={invalidField === 'admin-email' || undefined} onChange={e => setEmail(e.target.value)} />
               </SettingsField>
-              <SettingsField id='secure-cookie' invalid={invalidField === 'secure-cookie'} label={t('panelSettings.secureCookie')} help={t('panelSettings.secureCookieHelp')}>
-                <Switch id='secure-cookie' aria-invalid={invalidField === 'secure-cookie' || undefined} checked={service.secure_cookie} onCheckedChange={value => updateService('secure_cookie', value)} />
+              <SettingsField id='new-password' label={t('panelSettings.password')} help={t('panelSettings.passwordHelp')} invalid={!passwordValid}>
+                <Input id='new-password' type='password' autoComplete='new-password' value={password} placeholder={t('panelSettings.passwordPlaceholder')} aria-invalid={!passwordValid || undefined} aria-describedby={!passwordValid ? 'password-error' : undefined} onChange={e => setPassword(e.target.value)} />
+                {newPasswordError && <ErrorNotice id='password-error' error={t(newPasswordError)} />}
               </SettingsField>
             </SettingsGroup>
             <SettingsGroup title={t('panelSettings.publication')}>
@@ -224,41 +214,13 @@ function SettingsEditor({ initial }: { initial: PanelSettingsView }) {
               </SettingsField>
             </SettingsGroup>
           </TabsContent>
-          <TabsContent value='backup'><PanelBackupSettings dirty={dirty} busy={saving} onBusyChange={setSaving} onRestored={restored} /></TabsContent>
+          <TabsContent value='backup'><PanelBackupSettings busy={saving} onBusyChange={setSaving} onRestored={restored} /></TabsContent>
         </div>
       </Tabs>
       <footer className='panel-settings-footer'>
         {initial.restart_required && <p className='panel-settings-status' role='status'>{t('panelSettings.restartPending')}</p>}
         <Button disabled={saving || !dirty} type='submit'>{t(saving ? 'panelSettings.saving' : 'panelSettings.save')}</Button>
       </footer>
-      <Dialog open={tokenOpen} onOpenChange={open => {
-        setTokenOpen(open);
-        if (!open) {
-          setToken('');
-          setTokenConfirm('');
-        }
-      }}>
-        <DialogContent className='settings-token-dialog'>
-          <DialogHeader><DialogTitle>{t('panelSettings.managementToken')}</DialogTitle></DialogHeader>
-          <FieldGroup>
-            <SettingsField id='new-token' label={t('panelSettings.newToken')} help={t('panelSettings.tokenHelp')} invalid={token !== '' && !tokenValid}>
-              <Input id='new-token' type='password' autoComplete='new-password' value={token} aria-invalid={token !== '' && !tokenValid} aria-describedby={token !== '' && !tokenValid ? 'token-error' : undefined} onChange={e => setToken(e.target.value)} />
-              {token !== '' && tokenError && <ErrorNotice id='token-error' error={t(tokenError)} />}
-            </SettingsField>
-            <SettingsField id='confirm-token' invalid={invalidField === 'confirm-token'} label={t('panelSettings.confirmToken')}><Input id='confirm-token' type='password' autoComplete='new-password' value={tokenConfirm} aria-invalid={tokenConfirm !== '' && token !== tokenConfirm} onChange={e => setTokenConfirm(e.target.value)} /></SettingsField>
-          </FieldGroup>
-          <DialogFooter>
-            <Button type='button' variant='outline' onClick={() => {
-              setTokenOpen(false);
-              setToken('');
-              setTokenConfirm('');
-            }}>
-              {t('panelSettings.cancel')}
-            </Button>
-            <Button type='button' disabled={saving || !tokenValid || token !== tokenConfirm} onClick={() => void submit(undefined, token)}>{t('panelSettings.save')}</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </form>
   );
 }

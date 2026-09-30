@@ -128,7 +128,7 @@ below exercise the corresponding source, API and runtime boundaries.
 | UI-01 | Floating 248px sidebar, 64px header; no visible page-title band; desktop content starts 16px below the header and fills the remaining height with its bottom aligned to the sidebar; six navigation entries in dashboard/version/subscription/configuration/panel/log order | App shell, responsive layout, shared controls | Desktop and narrow viewports, keyboard, internal scrolling without clipped controls | implemented |
 | UI-02 | Shared 40px standard and 32px compact action buttons with 16px icons, matching square icon buttons and at least 44px touch targets; primary save, outlined secondary actions and semantic destructive actions; consistent hover/pressed/focus; centered dialogs; compact semantic-color Toast for all operation, loading and validation errors, without inserting error banners into page flow; repeated persistent failures reuse one notification and recovery closes it; all dropdown fields use the shared custom Select, including protocol, source and channel forms, with consistent popup styling and keyboard interaction | Shared UI and feedback | Real actions, focus return, Escape, visible validation, disabled options, no false success | implemented |
 | UI-03 | Data tables and item lists use regular-weight names, body text, statuses and row actions; table headers use medium weight; dropdown options use regular weight, with existing compact metadata sizes preserved | Shared table typography and feature-owned list styles | Browser checks across versions, sources, keys, channels, configuration rows and logs | implemented |
-| AUTH-01 | Compact token login; remove redundant brand/label/help; accessible input remains | Existing authenticated session, CSRF/origin/rate-limit boundaries | Login/logout/error tests, credentials never exposed | implemented |
+| AUTH-01 | Email/password login with visible labels, password visibility, fixed seven-day persistence and reduced-motion support | Existing authenticated session, CSRF/origin/rate-limit boundaries | Login/logout/error tests, credentials never exposed | implemented |
 | RUN-01 | One status badge: demo fixed, real running/stopped/failed accurately; transparent start/stop/restart icon buttons with clear spacing; theme/language/logout in sidebar footer share the same button and icon sizes without decorative borders or fills; keyboard focus remains visible; narrow header keeps uptime and transfer rates in one row of compact pills | Runtime observation and lifecycle, shared header | Unknown/stale never reported running; check failure keeps current process | implemented |
 | DASH-01 | CPU/memory summary, transfer graph with 1h/24h inset tabs matching version management, and one-hour active connections graph; compact plot margins and external axes/units; rolling windows put the newest bucket at the right edge and remove expired samples on refresh without rebuilding the chart; no refresh/footer/extra core metric strip | Metrics history and real push updates | Real samples, reconnect, missing data, rolling time window, keyboard range switching | implemented |
 | DASH-02 | 24h runtime history in 48 equal segments; running/failed/stopped/unknown with legend, no yellow state | Persistent runtime history | Restart persistence and unknown periods | implemented |
@@ -150,7 +150,7 @@ below exercise the corresponding source, API and runtime boundaries.
 | CHAN-03 | Distribution: name/client/template/new-node policy; direct node editing and card order; global rule indices | Channel data separation | Preview and delivery share defaults; card/index order preserved | implemented |
 | TPL-01 | Per-channel native JSON/YAML template; true edit/dirty/validate/location/preview/save/cancel; generated nodes/auth/groups/rules/fallback reserved | New template storage/API/merge/validation; no shared library or DSL | Reject conflicts and invalid save; preserve other channel; preview equals delivery | implemented |
 | SET-01 | Six grouped categories; shared draft and save, same-path hash navigation, cross-category validation, backup preview and atomic restore | Panel settings API/storage/bootstrap separation | Authenticated update, optimistic concurrency, invalid inputs, secrets redacted | implemented |
-| SET-02 | Listen/address/domain, management token and optional GitHub token; blank token retains, explicit remove; server-only use | Bootstrap/security settings and catalog client | Restart semantics, session invalidation, no token in response/log/browser persistence | implemented |
+| SET-02 | Listen/address/domain, administrator credentials and optional GitHub token; independent email/new-password drafts, shared save; server-only secrets | Bootstrap/security settings and catalog client | Restart semantics, session invalidation, no token in response/log/browser persistence | implemented |
 | SET-03 | Public node host auto placeholder/custom override; hidden subscription source access values preserved; inbound credentials edited natively; protocol obfuscation stays protocol-specific | Publication settings and native configuration | IPv4/IPv6/domain, failed auto detection cannot export bind/loopback, imported credentials unchanged | implemented |
 | SET-04 | Traffic quota, language, theme, five presets/custom color picker with HEX and explicit apply/cancel after closing; default #6D4ED1, radius 0–32 default12 | Persisted preferences and preview transaction | Save/reload; unsaved category/route changes require confirmation; cancellation retains draft, confirmed departure restores saved; reset only color/radius | implemented |
 | SET-05 | Theme links accent/background/border/focus/charts; R cards/dialogs, R/2 controls, min(32,7R/6) shell; badges/logo/status independent | Shared CSS tokens and accessible color derivation | Text contrast ≥4.5 for arbitrary light/dark colors, radius bounds, all component states | implemented |
@@ -186,7 +186,7 @@ same application identity upgrades transactionally through version 12 (traffic m
 version 13 (removal of channel export-key bindings), and version 14 (subscription
 policy ordering and removal of retired overrides), then version 15 (recorded
 traffic accounting without period completeness state or redundant checkpoints),
-then version 16 (shared subscription node order).
+then version 16 (shared subscription node order) and version 17 (persistent login sessions).
 `traffic_checkpoint.sql` defines the current process-counter checkpoint. Unknown and
 newer storage formats remain rejected.
 
@@ -256,6 +256,13 @@ schema, status-code, and problem-detail contract is
 [`api/openapi.yaml`](../../api/openapi.yaml); this guide describes its trust
 boundaries without duplicating the endpoint inventory.
 
+Every response includes `X-Request-ID`, matching `request_id` in problem responses.
+The server preserves a single nonempty, valid UTF-8 incoming ID of at most 128
+bytes. Missing, empty, oversized, invalid UTF-8 or repeated headers receive a
+newly generated ID before routing;
+the same ID is used in request context headers and both response representations.
+Oversized IDs are replaced, never truncated or echoed back in an error.
+
 `server.base_path` prefixes the Web application, management API, and `/sub`
 routes. It must be empty or a normalized path without a trailing slash. Browser
 code uses same-origin paths and depends only on the HTTP contract.
@@ -273,28 +280,98 @@ bundle. It never selects the newest catalog version or a nearby release.
 
 ### Management authentication
 
-The shared settings file supplies the management token. Web replacements update
-`auth.token` in that file; CLI or manual token edits are seen at the next
-authentication boundary and invalidate existing sessions. API clients may send the
-current token as a Bearer credential. Browser login exchanges it for an HttpOnly,
-SameSite session cookie and a CSRF token.
+The shared settings file stores one normalized administrator email in `auth.email`
+and an Argon2id hash in `auth.password_hash`. Legacy `auth.token` is rejected.
+There is no registration, email verification, browser password recovery, or additional administrator.
+Server operators recover access with `config reset-password`; the login page has no recovery UI.
+`POST /api/v1/auth/session` accepts `{ email, password }`; email is trimmed
+and lowercased, while password characters are preserved. Address validation is
+owned by the server; the login form accepts Unicode addresses supported by the
+settings contract instead of applying native HTML email validation. New passwords contain
+12–128 Unicode characters. `config hash-password` uses `alexedwards/argon2id` with
+19 MiB memory, two iterations, parallelism one, a 16-byte salt and a 32-byte key.
+Configured hashes are checked before computation (19–64 MiB, 2–4 iterations,
+1–4 parallelism, 16–32-byte salt, 32-byte key). At most two password computations
+run concurrently.
 
-Replacement tokens must contain 8–8192 UTF-8 bytes, without leading or trailing
-Unicode whitespace or BOM, NUL, CR, or LF. Invalid replacements leave the current
-credential and sessions intact. The login JSON body is bounded to 64 KiB so every
-accepted token fits even when JSON encoding escapes its characters.
+The HTTP client lazily loads the locally bundled FingerprintJS SDK (5.2.0, MIT)
+and sends only its 32-character `visitorId` as `X-Client-Fingerprint` on login.
+SDK monitoring is disabled; no fingerprint components or telemetry are sent to
+Fingerprint or other third parties. Collection has a 1.5-second budget and the
+result is cached only in page memory. SDK failures/timeouts omit the header.
+Fingerprints are untrusted, spoofable abuse signals, never authentication factors;
+missing fingerprints still receive all peer/global protections. Invalid or repeated
+fingerprint headers return 400. The demo client does not contact this HTTP boundary.
 
-Cookie-authenticated state changes require both the session CSRF token and a
-same-origin request. Login failures are rate-limited by the direct peer
-address; forwarded-IP headers are not trusted. CORS is disabled by default.
+Before reading a login body or waiting for settings/password work, the server
+atomically admits at most two concurrent logins, five attempts per direct peer
+in a fixed one-minute window, and 30 attempts process-wide per minute. IPv4-mapped
+addresses normalize to IPv4; IPv6 addresses share a /64 budget. A supplied
+fingerprint also allows five attempts per minute across changing peers. Changing
+or omitting the fingerprint cannot bypass the peer/global limits. Successful and
+malformed admitted requests count; success does not reset budgets. Exhausted peers
+and concurrency rejections do not consume the remaining global budget. Limits
+return 429 with `Retry-After` in seconds. State is memory-only, bounded to 4096
+keys without evicting active entries, expires automatically, and resets on restart.
+
+Forwarded-IP headers are ignored, including behind a reverse proxy: users sharing
+a direct proxy/NAT peer share its budget. `server.external_origin` establishes the
+trusted origin and cookie scheme, not trust in forwarded client IPs. Login JSON
+is bounded to 4 KiB; body reads, settings-lock waits and response writes share a
+five-second deadline. The write deadline is armed before admission, covers rejected
+responses too, and remains active through the server's buffered flush. On expiry,
+the connection may close or the stream reset before a problem response is delivered.
+HTTP/1 login responses close their connection so rejected requests cannot keep
+it occupied draining an unread body. HTTP/2 reuses the connection with per-stream
+read/write deadlines. These controls bound application authentication work; ingress
+connection/traffic floods still require network or reverse-proxy controls.
+
+Management Bearer authentication is removed. Automation uses the same login endpoint
+with JSON and an `Origin`, retains the Cookie, then supplies `X-CSRF-Token` and
+`Origin` for writes. Login and `GET /api/v1/auth/session` return email, display name,
+CSRF token and expiration. Subscription tokens retain their separate purpose.
+
+SQLite stores only a SHA-256 digest of the random session identifier, CSRF token,
+expiration and credential fingerprint. Each new login issues a persistent Cookie
+with a fixed seven-day server lifetime, `Expires`, and `Max-Age`. All cookies use
+HttpOnly, SameSite=Strict and the configured BasePath. Secure follows the active
+external origin's HTTPS scheme, or actual request TLS when no external origin is
+configured. Setting and clearing cookies use the same rule. Expiration does not slide. Startup and login
+remove expired records. Logout deletes the record; login rotates the current browser's
+session. Database/service errors return 503 and do not clear the browser Cookie.
+
+The settings API accepts optional `credentials.email` and `credentials.new_password`
+independently, without current-password verification. Empty passwords preserve the
+current hash; empty email addresses are invalid. Password confirmation is not part of
+the interface. Authenticated writes still require the existing session, Origin and CSRF.
+
+`config reset-password` generates a random password, or accepts an explicit `--stdin`
+password. It atomically replaces only the hash in an existing valid settings file,
+without opening SQLite. Even the same supplied password receives a fresh salt and
+invalidates prior session fingerprints. The command works while the service is stopped
+or running; no restart is needed. Plaintext is emitted only for a generated password,
+not persisted or echoed for stdin input. Initialization and recovery share the random
+password generator and Argon2id implementation.
+
+Settings reads and session operations share the settings lock. Credential edits
+through settings/restore revoke every session in the settings commit transaction.
+Both responses clear the current Cookie immediately when credentials change.
+Manual changes invalidate old credential fingerprints at the next authentication
+boundary. Backups exclude sessions. Browser reload restores identity and CSRF
+from the session endpoint. Only a confirmed 401 clears frontend authentication;
+network/5xx errors preserve it, and writes are never replayed automatically.
 
 The generated listener is `127.0.0.1:3000`. Before exposing the service beyond
-loopback, place it behind a reviewed HTTPS reverse proxy, set
-`server.external_origin` to its normalized public origin, and set
-`auth.secure_cookie` so the browser session cookie is HTTPS-only. CSRF origin
+loopback, place it behind a reviewed HTTPS reverse proxy and set
+`server.external_origin` to its normalized public origin. HTTPS automatically
+enables Secure session cookies; origin changes take effect after restart. CSRF origin
 checks use this explicit value and never trust `Forwarded` or
-`X-Forwarded-*` headers. Do not treat the management token as a public
-subscription token.
+`X-Forwarded-*` headers. Administrator credentials and subscription tokens are separate trust boundaries.
+
+The removed `auth.secure_cookie` setting and `service.secure_cookie` API field are
+rejected, including inside backup settings. Existing files and backups require
+manual removal of the obsolete field; new API clients must omit it. There is no
+compatibility decoder or automatic migration, and the backup version remains 2.
 
 ### Request and download protections
 
@@ -325,7 +402,7 @@ only persisted successful source versions and never fetch an upstream URL.
 
 Keep the following data private:
 
-- settings files and management tokens;
+- settings files and administrator passwords;
 - exported sing-box configuration;
 - subscription token plaintext and raw source versions; and
 - diagnostic files that may contain paths or operator-provided values.

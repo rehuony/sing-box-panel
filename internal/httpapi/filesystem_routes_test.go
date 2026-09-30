@@ -12,15 +12,16 @@ import (
 	"testing"
 
 	"github.com/getkin/kin-openapi/routers/legacy"
-	"github.com/rehuony/sing-box-panel/internal/application"
 	"github.com/rehuony/sing-box-panel/internal/filesystem"
 	"github.com/rehuony/sing-box-panel/internal/settings"
+	"github.com/rehuony/sing-box-panel/internal/testutil"
 )
 
 func TestFilesystemHTTPContract(t *testing.T) {
 	value := settings.Defaults()
 	value.DataDir = t.TempDir()
-	value.Auth.Token = "filesystem-test"
+	value.Auth.Email = testutil.AdminEmail
+	value.Auth.PasswordHash = testutil.PasswordHash
 	value.Server.BasePath = "/panel"
 	runtime := filepath.Join(value.DataDir, "runtime")
 	if err := os.Mkdir(runtime, 0700); err != nil {
@@ -30,7 +31,7 @@ func TestFilesystemHTTPContract(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(runtime, file), []byte("private file content"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	handler := NewHandler(HandlerOptions{Settings: value, Commands: application.FromStoreWithSettings(nil, value)})
+	handler := newTestHandler(t, HandlerOptions{Settings: value})
 	for _, route := range []string{"entries", "resolve?mode=file&path=" + url.QueryEscape(file)} {
 		recorder := httptest.NewRecorder()
 		handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/panel/api/v1/filesystem/"+route, nil))
@@ -50,7 +51,7 @@ func TestFilesystemHTTPContract(t *testing.T) {
 		{"resolve", 400},
 	} {
 		request := httptest.NewRequest(http.MethodGet, "/panel/api/v1/filesystem/"+tc.path, nil)
-		request.Header.Set("Authorization", "Bearer "+value.Auth.Token)
+		testutil.Authorize(t, handler, request)
 		response := httptest.NewRecorder()
 		handler.ServeHTTP(response, request)
 		if response.Code != tc.status || response.Header().Get("Cache-Control") != "no-store" {
@@ -66,8 +67,9 @@ func TestFilesystemHTTPContract(t *testing.T) {
 			}
 		}
 	}
-	value.Auth.Token = "openapi-response-test"
-	contractHandler := NewHandler(HandlerOptions{Settings: settings.Settings{DataDir: value.DataDir, Auth: settings.Auth{Token: "openapi-response-test"}}, Commands: application.FromStoreWithSettings(nil, value)})
+	value.Auth.Email = testutil.AdminEmail
+	value.Auth.PasswordHash = testutil.PasswordHash
+	contractHandler := newTestHandler(t, HandlerOptions{Settings: settings.Settings{DataDir: value.DataDir, Auth: settings.Auth{Email: testutil.AdminEmail, PasswordHash: testutil.PasswordHash}}})
 	router, err := legacy.NewRouter(loadOpenAPIContract(t))
 	if err != nil {
 		t.Fatal(err)

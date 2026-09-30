@@ -68,17 +68,13 @@ func newSystemInstallCommand(state *options, service panelSystemd.Service) *cobr
 			result, err := service.Install(cmd.Context(), panelSystemd.InstallRequest{
 				Scope: scope, SettingsPath: settingsPath, DataDir: dataDir, Force: force, Now: now,
 			})
+			if result.InitialSettings != nil {
+				if outputErr := writeServerInitialization(cmd, state, *result.InitialSettings); outputErr != nil {
+					return errors.Join(err, outputErr)
+				}
+			}
 			if err != nil {
 				return classifySystemError("system_install_failed", err)
-			}
-			if result.SettingsCreated {
-				value, err := settings.Load(settingsPath)
-				if err != nil {
-					return err
-				}
-				if err := writeServerInitialization(cmd, state, value); err != nil {
-					return err
-				}
 			}
 			text := fmt.Sprintf("installed and enabled %s %s at %s", result.Scope, result.Unit, result.UnitPath)
 			if result.Started {
@@ -350,6 +346,11 @@ func newSystemControlCommand(state *options, service panelSystemd.Service, actio
 				return err
 			}
 			result, err := service.Control(cmd.Context(), scope, action)
+			if result.InitialSettings != nil {
+				if outputErr := writeServerInitialization(cmd, state, *result.InitialSettings); outputErr != nil {
+					return errors.Join(err, outputErr)
+				}
+			}
 			if err != nil {
 				return classifySystemError("system_"+string(action)+"_failed", err)
 			}

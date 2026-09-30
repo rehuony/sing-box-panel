@@ -305,7 +305,7 @@ func TestSettingsRecoveryPrecedesDataDirectoryMove(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := db.CommitPanelSettingsFile(t.Context(), path, "pending-settings", nil, func() error { return settings.ReplaceLocked(path, after) }); err != nil {
+	if err := db.CommitPanelSettingsFile(t.Context(), path, "pending-settings", nil, false, func() error { return settings.ReplaceLocked(path, after) }); err != nil {
 		t.Fatal(err)
 	}
 	db.Close()

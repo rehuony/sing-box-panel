@@ -1,6 +1,12 @@
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { createHttpApiClient } from '@/api/http-api-client';
+
+const fingerprint = vi.hoisted(() => vi.fn<() => Promise<string | undefined>>());
+vi.mock('@/api/http/login-fingerprint', () => ({ loginFingerprint: fingerprint }));
+beforeEach(() => {
+  fingerprint.mockResolvedValue(undefined);
+});
 
 describe('createHttpApiClient session domain', () => {
   it('reads the complete control-plane system status', async () => {
@@ -79,12 +85,12 @@ describe('createHttpApiClient session domain', () => {
     );
     const client = createHttpApiClient({ fetcher });
 
-    await client.login('secret-token');
+    await client.login({ email: 'admin@example.com', password: 'test-password-123' });
 
     expect(fetcher).toHaveBeenCalledWith(
       '/api/v1/auth/session',
       expect.objectContaining({
-        body: JSON.stringify({ token: 'secret-token' }),
+        body: JSON.stringify({ email: 'admin@example.com', password: 'test-password-123' }),
         headers: {
           'Accept': 'application/json',
           'Content-Type': 'application/json',
@@ -92,6 +98,35 @@ describe('createHttpApiClient session domain', () => {
         method: 'POST',
       }),
     );
+  });
+
+  it('sends the fingerprint only on login and never retries a rate-limited login', async () => {
+    fingerprint.mockResolvedValue('a'.repeat(32));
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValueOnce(new Response(JSON.stringify({ code: 'login_rate_limited' }), {
+      status: 429,
+      headers: { 'Retry-After': '60', 'Content-Type': 'application/problem+json' },
+    })).mockResolvedValueOnce(new Response(JSON.stringify({ displayName: 'Administrator' })));
+    const client = createHttpApiClient({ fetcher });
+    await expect(client.login({ email: 'admin@example.com', password: 'test-password-123' })).rejects.toMatchObject({ status: 429, code: 'login_rate_limited' });
+    expect(fetcher).toHaveBeenCalledOnce();
+    expect(fetcher).toHaveBeenCalledWith('/api/v1/auth/session', expect.objectContaining({
+      headers: expect.objectContaining({ 'X-Client-Fingerprint': 'a'.repeat(32) }),
+      body: JSON.stringify({ email: 'admin@example.com', password: 'test-password-123' }),
+    }));
+    await client.getSession();
+    expect(fetcher).toHaveBeenLastCalledWith('/api/v1/auth/session', expect.objectContaining({ headers: { Accept: 'application/json' } }));
+  });
+
+  it('does not send credentials when cancelled during fingerprint collection', async () => {
+    const controller = new AbortController();
+    fingerprint.mockImplementation(async () => {
+      controller.abort();
+      return undefined;
+    });
+    const fetcher = vi.fn<typeof fetch>();
+    const client = createHttpApiClient({ fetcher });
+    await expect(client.login({ email: 'admin@example.com', password: 'test-password-123' }, controller.signal)).rejects.toMatchObject({ name: 'AbortError' });
+    expect(fetcher).not.toHaveBeenCalled();
   });
 
   it('retains the session CSRF token for cookie-authenticated writes', async () => {
@@ -109,7 +144,7 @@ describe('createHttpApiClient session domain', () => {
       .mockResolvedValueOnce(new Response(null, { status: 204 }));
     const client = createHttpApiClient({ fetcher });
 
-    await client.login('secret-token');
+    await client.login({ email: 'admin@example.com', password: 'test-password-123' });
     await client.logout();
 
     expect(fetcher).toHaveBeenLastCalledWith(
@@ -143,7 +178,7 @@ describe('createHttpApiClient session domain', () => {
     const invalidated = vi.fn();
     client.subscribeSessionInvalidated(invalidated);
 
-    await client.login('secret-token');
+    await client.login({ email: 'admin@example.com', password: 'test-password-123' });
     await expect(client.getDashboardContext()).rejects.toMatchObject({ status: 401 });
     await client.stopRuntime();
 
@@ -168,5 +203,25 @@ describe('createHttpApiClient session domain', () => {
 
     await expect(client.logout()).resolves.toBeUndefined();
     expect(invalidated).toHaveBeenCalledOnce();
+  });
+  it.each([503, 'network'])('retains restored CSRF and identity during %s failures without replaying writes', async failure => {
+    const fetcher = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ email: 'admin@example.com', displayName: 'Administrator', csrfToken: 'restored-csrf', expiresAt: '2099-01-01T00:00:00Z' })))
+      .mockImplementationOnce(async () => {
+        if (failure === 'network') throw new TypeError('offline');
+        return new Response(JSON.stringify({ code: 'authentication_unavailable' }), { status: 503 });
+      })
+      .mockResolvedValueOnce(new Response(null, { status: 204 }));
+    const client = createHttpApiClient({ fetcher });
+    const invalidated = vi.fn();
+    client.subscribeSessionInvalidated(invalidated);
+    await client.getSession();
+    await expect(client.stopRuntime()).rejects.toBeInstanceOf(Error);
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    expect(invalidated).not.toHaveBeenCalled();
+    await client.logout();
+    expect(fetcher).toHaveBeenLastCalledWith('/api/v1/auth/session', expect.objectContaining({
+      headers: expect.objectContaining({ 'X-CSRF-Token': 'restored-csrf' }),
+    }));
   });
 });

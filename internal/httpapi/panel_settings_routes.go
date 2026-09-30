@@ -7,6 +7,7 @@ import (
 	"net/http"
 
 	"github.com/rehuony/sing-box-panel/internal/application"
+	"github.com/rehuony/sing-box-panel/internal/auth"
 	"github.com/rehuony/sing-box-panel/internal/store"
 )
 
@@ -42,12 +43,18 @@ func (handler *Handler) savePanelSettings(w http.ResponseWriter, request *http.R
 		writePanelSettingsProblem(w, request, err)
 		return
 	}
+	if value.ReauthenticationRequired {
+		handler.clearSessionCookie(w, request)
+	}
 	w.Header().Set("Cache-Control", "no-store")
 	writeJSON(w, http.StatusOK, value)
 }
 
 func writePanelSettingsProblem(w http.ResponseWriter, request *http.Request, err error) {
 	switch {
+	case errors.Is(err, auth.ErrBusy):
+		w.Header().Set("Retry-After", "1")
+		writeProblem(w, request, http.StatusTooManyRequests, "login_rate_limited", "Authentication busy", "Try again shortly.")
 	case errors.Is(err, application.ErrPanelSettingsInvalid):
 		writeProblem(w, request, http.StatusUnprocessableEntity, "panel_settings_invalid", "Invalid settings", "Check the settings values and try again.")
 	case errors.Is(err, store.ErrPanelSettingsConflict):
@@ -55,19 +62,4 @@ func writePanelSettingsProblem(w http.ResponseWriter, request *http.Request, err
 	default:
 		writeProblem(w, request, http.StatusInternalServerError, "panel_settings_failed", "Settings unavailable", "The settings operation could not be completed.")
 	}
-}
-
-func (handler *Handler) currentManagementToken(w http.ResponseWriter, request *http.Request) (string, bool) {
-	if handler.commands == nil {
-		return handler.settings.Auth.Token, true
-	}
-	value, err := handler.commands.EffectiveSettings(request.Context())
-	if err != nil {
-		writeProblem(w, request, http.StatusServiceUnavailable, "authentication_unavailable", "Authentication unavailable", "Authentication settings could not be read.")
-		return "", false
-	}
-	if value.Auth.Token == "" {
-		return handler.settings.Auth.Token, true
-	}
-	return value.Auth.Token, true
 }

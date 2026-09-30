@@ -2,7 +2,7 @@ import type { PanelBackup, PanelSettingsView } from '../api-client';
 
 import { ApiRequestError } from '../api-client';
 
-export interface DemoPanelSecrets { github: string; management: string }
+export interface DemoPanelSecrets { github: string; passwordHash: string }
 
 export function demoBackupSettings(view: PanelSettingsView, secrets: DemoPanelSecrets) {
   const p = view.preferences;
@@ -20,7 +20,7 @@ export function demoBackupSettings(view: PanelSettingsView, secrets: DemoPanelSe
       base_path: s.base_path,
     },
     data_dir: s.data_dir,
-    auth: { token: secrets.management, secure_cookie: s.secure_cookie },
+    auth: { email: view.admin_email, password_hash: secrets.passwordHash },
     github: { token: secrets.github, catalog_refresh_interval_hours: s.catalog_refresh_interval_hours },
     traffic: {
       quota_gib: p.traffic_quota_gib,
@@ -42,18 +42,21 @@ export function demoRestoreSettings(
   backup: PanelBackup, revision: number,
 ): { view: PanelSettingsView; secrets: DemoPanelSecrets } {
   const native = backup.panel_settings as unknown as ReturnType<typeof demoBackupSettings>;
-  if (backup.format !== 'sing-box-panel-backup' || backup.version !== 1 || !native?.server || !native.auth || !native.panel || !native.traffic || !native.github || !native.subscription || !native.logs || typeof backup.sing_box_configuration !== 'string' || typeof native.auth.token !== 'string') {
+  if (backup.format !== 'sing-box-panel-backup' || backup.version !== 2 || !native?.server || !native.auth || !native.panel || !native.traffic || !native.github || !native.subscription || !native.logs || typeof backup.sing_box_configuration !== 'string' || typeof native.auth.password_hash !== 'string'
+    || !/^demo-sha256:[a-f\d]{64}$/.test(native.auth.password_hash)) {
     throw new ApiRequestError('Invalid configuration backup.', { status: 422, code: 'panel_backup_invalid' });
   }
-  if (!hasOnlyFields(native.panel, ['public_node_host', 'language', 'appearance'])
+  if (!hasOnlyFields(native.auth, ['email', 'password_hash'])
+    || !hasOnlyFields(native.panel, ['public_node_host', 'language', 'appearance'])
     || !hasOnlyFields(native.subscription, ['private_source_cidrs'])
     || !hasOnlyFields(native.logs, ['core_retention_days', 'core_max_files', 'core_max_file_size_mib'])) {
     throw new ApiRequestError('Invalid configuration backup.', { status: 422, code: 'panel_backup_invalid' });
   }
   return {
-    secrets: { management: native.auth.token, github: native.github.token },
+    secrets: { passwordHash: native.auth.password_hash, github: native.github.token },
     view: {
       revision,
+      admin_email: native.auth.email,
       preferences: {
         listen_host: native.server.host,
         listen_port: native.server.port,
@@ -66,7 +69,6 @@ export function demoRestoreSettings(
       service: {
         data_dir: native.data_dir,
         base_path: native.server.base_path,
-        secure_cookie: native.auth.secure_cookie,
         catalog_refresh_interval_hours: native.github.catalog_refresh_interval_hours,
         traffic_period_months: native.traffic.period_months,
         sample_retention_days: native.traffic.sample_retention_days,

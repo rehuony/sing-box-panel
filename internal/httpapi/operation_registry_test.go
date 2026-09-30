@@ -22,6 +22,7 @@ import (
 	"github.com/rehuony/sing-box-panel/internal/buildinfo"
 	"github.com/rehuony/sing-box-panel/internal/settings"
 	"github.com/rehuony/sing-box-panel/internal/store"
+	"github.com/rehuony/sing-box-panel/internal/testutil"
 )
 
 func TestManagementOperationRegistryMatchesOpenAPIAndDispatcher(t *testing.T) {
@@ -54,8 +55,8 @@ func TestManagementOperationRegistryMatchesOpenAPIAndDispatcher(t *testing.T) {
 		}
 	}
 
-	handler := NewHandler(HandlerOptions{
-		Settings: settings.Settings{Auth: settings.Auth{Token: "operation-registry-test"}},
+	handler := newTestHandler(t, HandlerOptions{
+		Settings: settings.Settings{Auth: settings.Auth{Email: testutil.AdminEmail, PasswordHash: testutil.PasswordHash}},
 		Build:    buildinfo.Info{Version: "test"},
 	})
 	for _, operation := range managementOperations {
@@ -91,9 +92,10 @@ func TestRepresentativeHTTPResponsesConformToOpenAPI(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = database.Close() })
 	value := settings.Defaults()
-	value.Auth.Token = "openapi-response-test"
+	value.Auth.Email = testutil.AdminEmail
+	value.Auth.PasswordHash = testutil.PasswordHash
 	value = settingsFileFixture(t, value)
-	handler := NewHandler(HandlerOptions{
+	handler := newTestHandler(t, HandlerOptions{
 		Settings: value,
 		Build:    buildinfo.Info{Version: "test"},
 		Commands: application.FromStoreWithSettings(database, value),
@@ -164,7 +166,7 @@ func serveConformingRequest(
 	newRequest := func() *http.Request {
 		request := httptest.NewRequest(method, target, strings.NewReader(body))
 		if authenticated {
-			request.Header.Set("Authorization", "Bearer openapi-response-test")
+			testutil.Authorize(t, handler, request)
 		}
 		if body != "" {
 			request.Header.Set("Content-Type", "application/json")

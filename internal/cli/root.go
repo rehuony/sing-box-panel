@@ -5,7 +5,7 @@ package cli
 
 import (
 	"context"
-	"fmt"
+	"errors"
 	"io"
 	"path/filepath"
 	"strings"
@@ -120,8 +120,17 @@ func newInitCommand(state *options) *cobra.Command {
 		Use:   "init",
 		Short: "Create settings and initialize the data directory",
 		Args:  cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, _ []string) error {
+		RunE: func(cmd *cobra.Command, _ []string) (runErr error) {
 			value, err := settings.Initialize(state.settingsPath, force)
+			initial := value
+			outputAttempted := false
+			defer func() {
+				// Creation is durable even if storage preparation later fails. Give
+				// the operator the one-time credential without claiming readiness.
+				if runErr != nil && !outputAttempted {
+					runErr = errors.Join(runErr, writeServerInitialization(cmd, state, initial))
+				}
+			}()
 			if err != nil {
 				return &Error{Kind: ErrorValidation, Code: "initialization_failed", Message: err.Error(), Cause: err}
 			}
@@ -144,8 +153,9 @@ func newInitCommand(state *options) *cobra.Command {
 			if err := settings.EstablishDataLocation(cmd.Context(), state.settingsPath, value.DataDir); err != nil {
 				return err
 			}
-			result := map[string]any{"settings_path": state.settingsPath, "data_dir": value.DataDir, "schema_version": info.Version}
-			return writeResult(cmd.OutOrStdout(), state.format, result, fmt.Sprintf("initialized %s", state.settingsPath))
+			result := map[string]any{"settings_path": state.settingsPath, "data_dir": value.DataDir, "schema_version": info.Version, "login_email": value.Auth.Email, "login_password": initial.InitialPassword}
+			outputAttempted = true
+			return writeResult(cmd.OutOrStdout(), state.format, result, initializationText(cmd.OutOrStdout(), state.format, initial))
 		},
 	}
 	cmd.Flags().BoolVar(&force, "force", false, "replace an existing settings file")

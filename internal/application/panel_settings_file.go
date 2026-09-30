@@ -9,9 +9,9 @@ import (
 	"errors"
 	"io"
 	"os"
-	"strings"
 	"time"
 
+	"github.com/rehuony/sing-box-panel/internal/auth"
 	"github.com/rehuony/sing-box-panel/internal/jsonstrict"
 	"github.com/rehuony/sing-box-panel/internal/settings"
 	"github.com/rehuony/sing-box-panel/internal/store"
@@ -34,13 +34,13 @@ func panelValues(value settings.Settings) storedPanelSettings {
 		Preferences: PanelPreferences{ListenHost: value.Server.Host, ListenPort: value.Server.Port, ExternalOrigin: value.Server.ExternalOrigin,
 			PublicNodeHost: value.Panel.PublicNodeHost, TrafficQuotaGiB: value.Traffic.QuotaGiB,
 			Language: value.Panel.Language, Appearance: value.Panel.Appearance},
-		GitHubToken: value.GitHub.Token, ManagementToken: value.Auth.Token,
+		GitHubToken: value.GitHub.Token, Auth: value.Auth,
 	}
 }
 
 func applyPanelValues(value *settings.Settings, panel storedPanelSettings) {
 	value.Server.Host, value.Server.Port, value.Server.ExternalOrigin = panel.Preferences.ListenHost, panel.Preferences.ListenPort, panel.Preferences.ExternalOrigin
-	value.Auth.Token, value.Auth.SecureCookie = panel.ManagementToken, strings.HasPrefix(value.Server.ExternalOrigin, "https://")
+	value.Auth = panel.Auth
 	value.GitHub.Token = panel.GitHubToken
 	value.Traffic.QuotaGiB = panel.Preferences.TrafficQuotaGiB
 	value.Panel = panelFields(panel.Preferences)
@@ -83,6 +83,10 @@ func (app *Application) currentSettings(ctx context.Context) (settings.Settings,
 		return settings.Settings{}, 0, err
 	}
 	defer lock.Close()
+	return app.currentSettingsLocked(ctx)
+}
+
+func (app *Application) currentSettingsLocked(ctx context.Context) (settings.Settings, int64, error) {
 	if err := app.recoverSettingsFile(ctx); err != nil {
 		return settings.Settings{}, 0, err
 	}
@@ -161,9 +165,15 @@ func (app *Application) RecoverPanelSettingsFileLocked(ctx context.Context) erro
 // commitSettingsFile requires the file lock. The durable journal is published
 // before either resource changes and cleared only after a known commit outcome.
 func (app *Application) commitSettingsFile(ctx context.Context, before, after []byte, configuration *store.ConfigurationFileUpdate) error {
-	if _, err := settings.Parse(app.settingsPath, after); err != nil {
+	next, err := settings.Parse(app.settingsPath, after)
+	if err != nil {
 		return err
 	}
+	previous, err := settings.Parse(app.settingsPath, before)
+	if err != nil {
+		return err
+	}
+	credentialsChanged := auth.Fingerprint(previous.Auth.Email, previous.Auth.PasswordHash) != auth.Fingerprint(next.Auth.Email, next.Auth.PasswordHash)
 	id, err := app.newID("settings")
 	if err != nil {
 		return err
@@ -175,7 +185,7 @@ func (app *Application) commitSettingsFile(ctx context.Context, before, after []
 	if err := settings.WriteAtomic(app.settingsPath+".pending", journal); err != nil {
 		return err
 	}
-	err = app.database.CommitPanelSettingsFile(ctx, app.settingsPath, id, configuration, func() error {
+	err = app.database.CommitPanelSettingsFile(ctx, app.settingsPath, id, configuration, credentialsChanged, func() error {
 		current, err := settings.ReadRaw(app.settingsPath)
 		if err != nil {
 			return err

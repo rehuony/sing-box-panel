@@ -144,6 +144,14 @@ License: MIT
 License documents:
   - LICENSE (SHA-256: 537607e3f1533ad2c5b12978967f5ab27f34ffb7e626e321017a7ccca6cc24ff)
 
+Component: @fingerprintjs/fingerprintjs
+Ecosystem: web-package
+Version: 5.2.0
+Source: https://github.com/fingerprintjs/fingerprintjs
+License: MIT
+License documents:
+  - LICENSE (SHA-256: b7eeaf845cbd307fbabdde266a01c632ab9ca30d08355dbfc7acc463b5ea8ee9)
+
 Component: @floating-ui/core
 Ecosystem: web-package
 Version: 1.8.0
@@ -282,7 +290,7 @@ License documents:
 
 Component: Go runtime and standard library
 Ecosystem: go-toolchain
-Version: go directive 1.26
+Version: go directive 1.26.0
 Source: https://go.dev/LICENSE
 License: BSD-3-Clause
 License documents:
@@ -393,6 +401,14 @@ License: MIT
 License documents:
   - LICENSE.md (SHA-256: 5ff46083b88563822b0560dd6221ab89d2f74bc97a52d4c97a75020fd62c6f32)
 
+Component: github.com/alexedwards/argon2id
+Ecosystem: go-module
+Version: v1.0.0
+Source: https://pkg.go.dev/github.com/alexedwards/argon2id@v1.0.0
+License: MIT
+License documents:
+  - LICENSE (SHA-256: c7f183250ac7e0e0734ffe5f472ea4ce2ec56071f78b9a0c72c54b5a875f5d5a)
+
 Component: github.com/dustin/go-humanize
 Ecosystem: go-module
 Version: v1.0.1
@@ -466,10 +482,19 @@ License documents:
   - LICENSE (SHA-256: d18f6323b71b0b768bb5e9616e36da390fbd39369a81807cca352de4e4e6aa0b)
   - NOTICE (SHA-256: f6c2dd3a67b576eafb89b80200b8b1627230bf3821a0c14cb99a22ac19107d00)
 
+Component: golang.org/x/crypto
+Ecosystem: go-module
+Version: v0.57.0
+Source: https://pkg.go.dev/golang.org/x/crypto@v0.57.0
+License: BSD-3-Clause
+License documents:
+  - LICENSE (SHA-256: 911f8f5782931320f5b8d1160a76365b83aea6447ee6c04fa6d5591467db9dad)
+  - PATENTS (SHA-256: 96f408bfae65bf137fc2525d3ecb030271c50c1e90799f87abf8846d8dd505cc)
+
 Component: golang.org/x/mod
 Ecosystem: go-module
-Version: v0.40.0
-Source: https://pkg.go.dev/golang.org/x/mod@v0.40.0
+Version: v0.41.0
+Source: https://pkg.go.dev/golang.org/x/mod@v0.41.0
 License: BSD-3-Clause
 License documents:
   - LICENSE (SHA-256: 911f8f5782931320f5b8d1160a76365b83aea6447ee6c04fa6d5591467db9dad)
@@ -477,8 +502,17 @@ License documents:
 
 Component: golang.org/x/sys
 Ecosystem: go-module
-Version: v0.47.0
-Source: https://pkg.go.dev/golang.org/x/sys@v0.47.0
+Version: v0.48.0
+Source: https://pkg.go.dev/golang.org/x/sys@v0.48.0
+License: BSD-3-Clause
+License documents:
+  - LICENSE (SHA-256: 911f8f5782931320f5b8d1160a76365b83aea6447ee6c04fa6d5591467db9dad)
+  - PATENTS (SHA-256: 96f408bfae65bf137fc2525d3ecb030271c50c1e90799f87abf8846d8dd505cc)
+
+Component: golang.org/x/term
+Ecosystem: go-module
+Version: v0.46.0
+Source: https://pkg.go.dev/golang.org/x/term@v0.46.0
 License: BSD-3-Clause
 License documents:
   - LICENSE (SHA-256: 911f8f5782931320f5b8d1160a76365b83aea6447ee6c04fa6d5591467db9dad)
@@ -486,11 +520,11 @@ License documents:
 
 Component: golang.org/x/text
 Ecosystem: go-module
-Version: v0.14.0
-Source: https://pkg.go.dev/golang.org/x/text@v0.14.0
+Version: v0.42.0
+Source: https://pkg.go.dev/golang.org/x/text@v0.42.0
 License: BSD-3-Clause
 License documents:
-  - LICENSE (SHA-256: 2d36597f7117c38b006835ae7f537487207d8ec407aa9d9980794b2030cbc067)
+  - LICENSE (SHA-256: 911f8f5782931320f5b8d1160a76365b83aea6447ee6c04fa6d5591467db9dad)
   - PATENTS (SHA-256: 96f408bfae65bf137fc2525d3ecb030271c50c1e90799f87abf8846d8dd505cc)
 
 Component: html-parse-stringify
@@ -1634,7 +1668,6 @@ SOFTWARE.
 ================================================================================
 SHA-256: 2d36597f7117c38b006835ae7f537487207d8ec407aa9d9980794b2030cbc067
 Applies to:
-  - go-module:golang.org/x/text@v0.14.0 — LICENSE
   - go-module:modernc.org/memory@v1.12.1 — LICENSE-GO
 --------------------------------------------------------------------------------
 Copyright (c) 2009 The Go Authors. All rights reserved.
@@ -2367,9 +2400,12 @@ THE SOFTWARE.
 ================================================================================
 SHA-256: 911f8f5782931320f5b8d1160a76365b83aea6447ee6c04fa6d5591467db9dad
 Applies to:
-  - go-module:golang.org/x/mod@v0.40.0 — LICENSE
-  - go-module:golang.org/x/sys@v0.47.0 — LICENSE
-  - go-toolchain:Go runtime and standard library@go directive 1.26 — LICENSE
+  - go-module:golang.org/x/crypto@v0.57.0 — LICENSE
+  - go-module:golang.org/x/mod@v0.41.0 — LICENSE
+  - go-module:golang.org/x/sys@v0.48.0 — LICENSE
+  - go-module:golang.org/x/term@v0.46.0 — LICENSE
+  - go-module:golang.org/x/text@v0.42.0 — LICENSE
+  - go-toolchain:Go runtime and standard library@go directive 1.26.0 — LICENSE
 --------------------------------------------------------------------------------
 Copyright 2009 The Go Authors.
 
@@ -2462,10 +2498,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ================================================================================
 SHA-256: 96f408bfae65bf137fc2525d3ecb030271c50c1e90799f87abf8846d8dd505cc
 Applies to:
-  - go-module:golang.org/x/mod@v0.40.0 — PATENTS
-  - go-module:golang.org/x/sys@v0.47.0 — PATENTS
-  - go-module:golang.org/x/text@v0.14.0 — PATENTS
-  - go-toolchain:Go runtime and standard library@go directive 1.26 — PATENTS
+  - go-module:golang.org/x/crypto@v0.57.0 — PATENTS
+  - go-module:golang.org/x/mod@v0.41.0 — PATENTS
+  - go-module:golang.org/x/sys@v0.48.0 — PATENTS
+  - go-module:golang.org/x/term@v0.46.0 — PATENTS
+  - go-module:golang.org/x/text@v0.42.0 — PATENTS
+  - go-toolchain:Go runtime and standard library@go directive 1.26.0 — PATENTS
 --------------------------------------------------------------------------------
 Additional IP Rights Grant (Patents)
 
@@ -2684,6 +2722,33 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 The complete list of contributors can be found at:
 - https://github.com/garycourt/uri-js/graphs/contributors
+
+================================================================================
+SHA-256: b7eeaf845cbd307fbabdde266a01c632ab9ca30d08355dbfc7acc463b5ea8ee9
+Applies to:
+  - web-package:@fingerprintjs/fingerprintjs@5.2.0 — LICENSE
+--------------------------------------------------------------------------------
+MIT License
+
+Copyright (c) 2025 FingerprintJS, Inc
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
 
 ================================================================================
 SHA-256: b8514c577c1c4b46cee454d5a882b15fa411e72c5bd7f801f241591789fce61a
@@ -3010,6 +3075,33 @@ Applies to:
 MIT License
 
 Copyright (c) 2020-present Vlad Shilov <omgovich@ya.ru>
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+================================================================================
+SHA-256: c7f183250ac7e0e0734ffe5f472ea4ce2ec56071f78b9a0c72c54b5a875f5d5a
+Applies to:
+  - go-module:github.com/alexedwards/argon2id@v1.0.0 — LICENSE
+--------------------------------------------------------------------------------
+MIT License
+
+Copyright (c) 2018 Alex Edwards
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal

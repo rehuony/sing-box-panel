@@ -3,10 +3,8 @@ import { useTranslation } from 'react-i18next';
 import { Navigate, Outlet, Route, Routes, useLocation } from 'react-router-dom';
 
 import { LoginPage } from '@/pages/login-page';
-import { Button } from '@/components/ui/button';
 import { AppShell } from '@/components/app-shell';
 import { NotFoundPage } from '@/pages/not-found-page';
-import { ErrorNotice } from '@/components/error-notice';
 import { LoadingState } from '@/components/loading-state';
 import { useAuthSession } from '@/stores/auth-session.store';
 import { ControlPlaneProvider } from '@/stores/control-plane-provider';
@@ -27,12 +25,11 @@ function RouteLoadingState() {
 }
 
 function ProtectedRoute() {
-  const { t } = useTranslation();
-  const { retrySession, status } = useAuthSession();
+  const { status } = useAuthSession();
   const location = useLocation();
 
   if (status === 'checking') {
-    return <LoadingState label={t('login.checking')} />;
+    return <LoginPage />;
   }
 
   if (status === 'anonymous') {
@@ -45,16 +42,7 @@ function ProtectedRoute() {
     );
   }
 
-  if (status === 'unavailable') {
-    return (
-      <main className='loading-screen'>
-        <div className='load-error'>
-          <ErrorNotice title={t('login.unavailable.title')} error={t('login.unavailable.description')} />
-          <Button onClick={retrySession} type='button'>{t('login.unavailable.retry')}</Button>
-        </div>
-      </main>
-    );
-  }
+  if (status === 'unavailable') return <LoginPage />;
 
   return (
     <ControlPlaneProvider>

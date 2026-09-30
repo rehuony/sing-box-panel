@@ -57,12 +57,10 @@ func TestServerStartInitializesMissingSettings(t *testing.T) {
 			if err := command.ExecuteContext(t.Context()); err != nil {
 				t.Fatal(err)
 			}
-			if started != 1 || stdout.Len() != 0 || configuration.Auth.Token == "" {
+			if started != 1 || stdout.Len() != 0 || configuration.Auth.PasswordHash == "" {
 				t.Fatalf("startup = %d, stdout = %q", started, stdout.String())
 			}
-			if strings.Count(stderr.String(), configuration.Auth.Token) != 1 {
-				t.Fatal("first-run guidance must show the generated token exactly once")
-			}
+			password := initialPasswordFromOutput(t, stderr.String(), configuration.Auth.PasswordHash)
 			if strings.Contains(stderr.String(), "\x1b[") {
 				t.Fatal("redirected guidance contains terminal escapes")
 			}
@@ -71,11 +69,12 @@ func TestServerStartInitializesMissingSettings(t *testing.T) {
 				if test.explicit {
 					settingsPath = "~/custom/setting.json"
 				}
-				want := "\nsing-box-panel settings is created\n\n" +
-					"  Default URL       http://127.0.0.1:3000/\n" +
-					"  Default Token     " + configuration.Auth.Token + "\n" +
-					"  Default Settings  " + settingsPath + "\n" +
-					"  Default Data Dir  ~/data/sing-box-panel\n\n"
+				want := "\nsing-box-panel settings created\n\n" +
+					"  Panel URL         http://127.0.0.1:3000/\n" +
+					"  Email             " + configuration.Auth.Email + "\n" +
+					"  Initial Password  " + password + "\n" +
+					"  Settings          " + settingsPath + "\n" +
+					"  Data Dir          ~/data/sing-box-panel\n\n  Save this password now; only its hash is stored.\n\n"
 				if stderr.String() != want {
 					t.Errorf("initialization banner mismatch:\nwant %q\n got %q", want, stderr.String())
 				}
@@ -90,7 +89,7 @@ func TestServerStartInitializesMissingSettings(t *testing.T) {
 				}
 				if event["event"] != "settings_initialized" || event["settings_path"] != absolute ||
 					event["data_dir"] != configuration.DataDir || event["default_panel_url"] != "http://127.0.0.1:3000/" ||
-					event["login_token"] != configuration.Auth.Token || event["login_hint"] != "" {
+					event["login_email"] != configuration.Auth.Email || event["login_password"] != password || event["login_hint"] != "" {
 					t.Fatalf("initialization event = %v", event)
 				}
 			}

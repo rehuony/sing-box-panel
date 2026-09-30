@@ -36,7 +36,7 @@ func TestNumberedPaginationPreservesCursorQueriesAndReportsTotals(t *testing.T) 
 			}
 			read := func(query string) page {
 				t.Helper()
-				response := authenticatedRequest(handler, http.MethodGet, endpoint+query, "", "")
+				response := authenticatedRequest(t, handler, http.MethodGet, endpoint+query, "", "")
 				var result page
 				if response.Code != http.StatusOK || json.Unmarshal(response.Body.Bytes(), &result) != nil {
 					t.Fatalf("query %s: %d %s", query, response.Code, response.Body.String())
@@ -62,14 +62,14 @@ func TestNumberedPaginationPreservesCursorQueriesAndReportsTotals(t *testing.T) 
 				t.Fatalf("cursor query changed: %+v", second)
 			}
 			for _, invalid := range []string{"offset=-1", "offset=1.5", "offset=2147483648", "offset=", "offset=1&offset=2", query + "&offset=0"} {
-				response := authenticatedRequest(handler, http.MethodGet, endpoint+invalid, "", "")
+				response := authenticatedRequest(t, handler, http.MethodGet, endpoint+invalid, "", "")
 				if response.Code != http.StatusBadRequest {
 					t.Fatalf("invalid query %q: %d %s", invalid, response.Code, response.Body.String())
 				}
 			}
 		})
 	}
-	response := authenticatedRequest(handler, http.MethodGet, "/api/v1/logs/panel?search=pagination&level=error&offset=0", "", "")
+	response := authenticatedRequest(t, handler, http.MethodGet, "/api/v1/logs/panel?search=pagination&level=error&offset=0", "", "")
 	var filtered store.PanelLogPage
 	if response.Code != http.StatusOK || json.Unmarshal(response.Body.Bytes(), &filtered) != nil || filtered.Total != 0 || len(filtered.Items) != 0 {
 		t.Fatalf("filtered total: %d %s", response.Code, response.Body.String())

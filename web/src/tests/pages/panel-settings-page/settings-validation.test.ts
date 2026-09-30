@@ -3,19 +3,14 @@ import { describe, expect, it } from 'vitest';
 import { demoBackupSettings } from '@/api/demo/demo-panel-backup';
 import { createMockApiClient } from '@/tests/api/mock-api-client';
 import { backupFile } from '@/pages/panel-settings-page/panel-backup';
-import { invalidSettingsField, managementTokenError, resolveSettingsCategory } from '@/pages/panel-settings-page/settings-categories';
+import { invalidSettingsField, passwordError, resolveSettingsCategory } from '@/pages/panel-settings-page/settings-categories';
 
 describe('settings validation', () => {
-  it.each([
-    ['1234567', 'tokenTooShort'], ['ééé', 'tokenTooShort'],
-    ['12345678 ', 'tokenInvalid'], ['\uFEFF12345678', 'tokenInvalid'],
-    ['1234\0' + '5678', 'tokenInvalid'], ['1234\n5678', 'tokenInvalid'],
-    ['x'.repeat(8193), 'tokenTooLong'],
-  ])('rejects invalid management token %#', (token, code) => {
-    expect(managementTokenError(token)).toBe(`panelSettings.${code}`);
+  it.each(['short', '密'.repeat(11), 'x'.repeat(129)])('rejects passwords outside character boundaries', password => {
+    expect(passwordError(password)).toBe('panelSettings.passwordLength');
   });
-  it.each(['12345678', 'éééé', 'é'.repeat(4096)])('accepts a token inside UTF-8 byte boundaries %#', token => {
-    expect(managementTokenError(token)).toBeUndefined();
+  it.each(['', '密'.repeat(12), '密'.repeat(128), '  password with spaces  '])('accepts valid passwords or unchanged input', password => {
+    expect(passwordError(password)).toBeUndefined();
   });
   it.each([
     ['access', 'service'], ['authentication', 'service'], ['publication', 'service'],
@@ -26,6 +21,7 @@ describe('settings validation', () => {
   it('returns the category and field that prevent submission', async () => {
     const view = await createMockApiClient().getPanelSettings();
     expect(invalidSettingsField(view.preferences, view.service, '')).toBeNull();
+    expect(invalidSettingsField({ ...view.preferences, external_origin: 'https://panel.example.com' }, view.service, '')).toBeNull();
     expect(invalidSettingsField({ ...view.preferences, public_node_host: 'https://invalid.example.com' }, view.service, ''))
       .toEqual({ category: 'service', field: 'public-host' });
     expect(invalidSettingsField(view.preferences, { ...view.service, catalog_refresh_interval_hours: 0 }, ''))
@@ -39,15 +35,18 @@ describe('backup import boundary', () => {
   async function fixture() {
     const view = await createMockApiClient().getPanelSettings();
     return {
-      format: 'sing-box-panel-backup', version: 1, exported_at: '2026-09-23T01:00:00Z',
-      panel_settings: demoBackupSettings(view, { github: '', management: 'test-token' }),
+      format: 'sing-box-panel-backup', version: 2, exported_at: '2026-09-23T01:00:00Z',
+      panel_settings: demoBackupSettings(view, { github: '', passwordHash: 'demo-password-hash' }),
       sing_box_configuration: '  { unfinished raw text',
     };
   }
   it('preserves incomplete configuration text and accepts only the supported envelope', async () => {
     const backup = await fixture();
     expect(backupFile(backup)).toBe(backup);
-    for (const value of [null, {}, [], { ...backup, version: 2 }, { ...backup, exported_at: 'invalid' }, { ...backup, panel_settings: {} }]) {
+    for (const value of [null, {}, [], { ...backup, version: 1 }, { ...backup, exported_at: 'invalid' }, { ...backup, panel_settings: {} }, {
+      ...backup,
+      panel_settings: { ...backup.panel_settings, auth: { ...backup.panel_settings.auth, secure_cookie: false } },
+    }]) {
       expect(backupFile(value)).toBeNull();
     }
   });

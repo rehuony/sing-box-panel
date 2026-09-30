@@ -8,12 +8,15 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/rehuony/sing-box-panel/internal/testutil"
 )
 
 func TestLoadRejectsRemovedCatalogTTLField(t *testing.T) {
 	value := Defaults()
 	value.DataDir = t.TempDir()
-	value.Auth.Token = "test-token"
+	value.Auth.Email = testutil.AdminEmail
+	value.Auth.PasswordHash = testutil.PasswordHash
 	encoded, err := json.Marshal(value)
 	if err != nil {
 		t.Fatal(err)
@@ -40,7 +43,7 @@ func TestInitializeAndLoad(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Initialize() error = %v", err)
 	}
-	if value.Auth.Token == "" {
+	if value.Auth.PasswordHash == "" {
 		t.Fatal("Initialize() generated an empty token")
 	}
 	info, err := os.Stat(path)
@@ -54,7 +57,7 @@ func TestInitializeAndLoad(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
-	if loaded.Auth.Token != value.Auth.Token {
+	if loaded.Auth.PasswordHash != value.Auth.PasswordHash {
 		t.Fatal("Load() did not preserve the token")
 	}
 	if loaded.Panel.Appearance.Theme != "system" {
@@ -77,7 +80,7 @@ func TestLoadRejectsAmbiguousSettings(t *testing.T) {
 	input := `{
   "server":{"host":"127.0.0.1","port":3000,"base_path":""},
   "data_dir":"data",
-  "auth":{"token":"one","token":"two","secure_cookie":false},
+  "auth":{"token":"one","token":"two"},
   "github":{"token":"","catalog_refresh_interval_hours":12},
   "traffic":{"quota_gib":null,"period_months":1},
   "subscription":{"private_source_cidrs":[]},
@@ -98,7 +101,7 @@ func TestLoadRejectsMissingOrInvalidTrafficSampleRetention(t *testing.T) {
 	legacy := `{
   "server":{"host":"127.0.0.1","port":3000,"base_path":""},
   "data_dir":"data",
-  "auth":{"token":"token","secure_cookie":false},
+  "auth":{"email":"admin@example.com","password_hash":"` + testutil.PasswordHash + `"},
   "github":{"token":"","catalog_refresh_interval_hours":12},
   "traffic":{"quota_gib":null,"period_months":1},
   "subscription":{"private_source_cidrs":[]},
@@ -112,7 +115,8 @@ func TestLoadRejectsMissingOrInvalidTrafficSampleRetention(t *testing.T) {
 	}
 	loaded := Defaults()
 	loaded.DataDir = root
-	loaded.Auth.Token = "token"
+	loaded.Auth.Email = testutil.AdminEmail
+	loaded.Auth.PasswordHash = testutil.PasswordHash
 	loaded.Traffic.SampleRetentionDays = 367
 	if err := loaded.Validate(); err == nil || !strings.Contains(err.Error(), "sample_retention_days") {
 		t.Fatalf("Validate() oversized retention error = %v", err)
@@ -132,7 +136,8 @@ func TestValidateRejectsUnsafeBasePath(t *testing.T) {
 		t.Run(basePath, func(t *testing.T) {
 			value := Defaults()
 			value.DataDir = t.TempDir()
-			value.Auth.Token = "token"
+			value.Auth.Email = testutil.AdminEmail
+			value.Auth.PasswordHash = testutil.PasswordHash
 			value.Server.BasePath = basePath
 			if err := value.Validate(); err == nil {
 				t.Fatalf("Validate() accepted unsafe base path %q", basePath)
@@ -165,28 +170,45 @@ func TestNormalizeOrigin(t *testing.T) {
 	}
 }
 
-func TestValidateExternalOriginAndSecureCookie(t *testing.T) {
+func TestExternalOriginNeedsNoCookieSetting(t *testing.T) {
 	value := Defaults()
 	value.DataDir = t.TempDir()
-	value.Auth.Token = "token"
+	value.Auth.Email = testutil.AdminEmail
+	value.Auth.PasswordHash = testutil.PasswordHash
 
-	value.Server.ExternalOrigin = "https://panel.example.com"
-	if err := value.Validate(); err == nil {
-		t.Fatal("Validate() accepted HTTPS external origin without secure cookies")
+	for _, origin := range []string{"", "http://panel.example.com", "https://panel.example.com"} {
+		value.Server.ExternalOrigin = origin
+		if err := value.Validate(); err != nil {
+			t.Fatalf("Validate() rejected origin %q: %v", origin, err)
+		}
 	}
-	value.Auth.SecureCookie = true
-	if err := value.Validate(); err != nil {
-		t.Fatalf("Validate() rejected matching HTTPS external origin: %v", err)
+	raw, err := json.Marshal(value)
+	if err != nil {
+		t.Fatal(err)
 	}
-	value.Server.ExternalOrigin = ""
-	if err := value.Validate(); err == nil {
-		t.Fatal("Validate() accepted secure cookies without an external origin")
+	if strings.Contains(string(raw), "secure_cookie") {
+		t.Fatal("generated settings contain removed cookie field")
+	}
+	path := filepath.Join(t.TempDir(), "setting.json")
+	for _, legacy := range []string{"true", "false", "null"} {
+		input := strings.Replace(string(raw), `"auth":{`, `"auth":{"secure_cookie":`+legacy+`,`, 1)
+		if err := os.WriteFile(path, []byte(input), 0600); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := Load(path); err == nil || !strings.Contains(err.Error(), `unknown field "secure_cookie"`) {
+			t.Fatalf("removed cookie field accepted: %v", err)
+		}
+		after, err := os.ReadFile(path)
+		if err != nil || string(after) != input {
+			t.Fatal("failed load changed settings", err)
+		}
 	}
 }
 
 func TestCoreLogPolicyDefaultsAndBounds(t *testing.T) {
 	value := Defaults()
-	value.Auth.Token = "test-token"
+	value.Auth.Email = testutil.AdminEmail
+	value.Auth.PasswordHash = testutil.PasswordHash
 	value.DataDir = t.TempDir()
 	raw, _ := json.Marshal(value)
 	var legacy map[string]any

@@ -4,9 +4,8 @@
 package settings
 
 import (
+	"bytes"
 	"context"
-	"crypto/rand"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -19,6 +18,8 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+
+	"github.com/rehuony/sing-box-panel/internal/auth"
 )
 
 // MaximumBytes limits settings documents read from disk or supplied by the CLI.
@@ -29,15 +30,18 @@ var basePathPattern = regexp.MustCompile(`^/[A-Za-z0-9._~/-]+$`)
 // Settings is the shared file contract for panel configuration. Sing-box
 // documents, subscriptions and runtime evidence belong in SQLite.
 type Settings struct {
-	sourcePath   string
-	Panel        Panel        `json:"panel"`
-	Server       Server       `json:"server"`
-	DataDir      string       `json:"data_dir"`
-	Auth         Auth         `json:"auth"`
-	GitHub       GitHub       `json:"github"`
-	Traffic      Traffic      `json:"traffic"`
-	Subscription Subscription `json:"subscription"`
-	Logs         Logs         `json:"logs"`
+	sourcePath string
+	// InitialPassword is returned only when this invocation published credentials,
+	// even if later initialization failed. It is never included in a saved file.
+	InitialPassword string       `json:"-"`
+	Panel           Panel        `json:"panel"`
+	Server          Server       `json:"server"`
+	DataDir         string       `json:"data_dir"`
+	Auth            Auth         `json:"auth"`
+	GitHub          GitHub       `json:"github"`
+	Traffic         Traffic      `json:"traffic"`
+	Subscription    Subscription `json:"subscription"`
+	Logs            Logs         `json:"logs"`
 }
 
 type Server struct {
@@ -48,8 +52,8 @@ type Server struct {
 }
 
 type Auth struct {
-	Token        string `json:"token"`
-	SecureCookie bool   `json:"secure_cookie"`
+	Email        string `json:"email"`
+	PasswordHash string `json:"password_hash"`
 }
 
 type GitHub struct {
@@ -149,6 +153,9 @@ func parse(path string, data []byte) (Settings, error) {
 		}
 		value.Server.ExternalOrigin = origin
 	}
+	if email, err := auth.NormalizeEmail(value.Auth.Email); err == nil {
+		value.Auth.Email = email
+	}
 	if err := value.Validate(); err != nil {
 		return Settings{}, fmt.Errorf("validate settings %q: %w", path, err)
 	}
@@ -171,11 +178,11 @@ func LoadOrInitializeContext(ctx context.Context, path string) (value Settings, 
 		return value, false, err
 	}
 	value, err = initialize(ctx, path, false, true, "")
-	if errors.Is(err, os.ErrExist) {
+	if errors.Is(err, os.ErrExist) && value.InitialPassword == "" {
 		value, err = Load(path)
 		return value, false, err
 	}
-	return value, err == nil, err
+	return value, value.InitialPassword != "", err
 }
 
 // Validate verifies the complete resolved settings contract.
@@ -205,18 +212,15 @@ func (value Settings) Validate() error {
 		if origin != value.Server.ExternalOrigin {
 			return errors.New("server.external_origin must be a normalized HTTP or HTTPS origin")
 		}
-		usesHTTPS := strings.HasPrefix(origin, "https://")
-		if usesHTTPS != value.Auth.SecureCookie {
-			return errors.New("auth.secure_cookie must be true exactly when server.external_origin uses HTTPS")
-		}
-	} else if value.Auth.SecureCookie {
-		return errors.New("server.external_origin must be configured when auth.secure_cookie is true")
 	}
 	if value.DataDir == "" || !filepath.IsAbs(value.DataDir) {
 		return errors.New("data_dir must resolve to an absolute path")
 	}
-	if strings.TrimSpace(value.Auth.Token) == "" {
-		return errors.New("auth.token must not be empty")
+	if _, err := auth.NormalizeEmail(value.Auth.Email); err != nil {
+		return fmt.Errorf("auth.email: %w", err)
+	}
+	if err := auth.ValidateHash(value.Auth.PasswordHash); err != nil {
+		return fmt.Errorf("auth.password_hash: %w", err)
 	}
 	if value.GitHub.CatalogRefreshIntervalHours < 1 || value.GitHub.CatalogRefreshIntervalHours > 24*30 {
 		return errors.New("github.catalog_refresh_interval_hours must be between 1 and 720")
@@ -303,20 +307,20 @@ func InitializeFile(ctx context.Context, path string, overwrite bool) (Settings,
 
 // EnsureFile initializes only an absent regular-file destination. The caller
 // validates existing settings according to the operation it intends to perform.
-func EnsureFile(ctx context.Context, path, defaultDataDir string) (bool, error) {
+func EnsureFile(ctx context.Context, path, defaultDataDir string) (Settings, bool, error) {
 	if info, err := os.Lstat(path); err == nil {
 		if !info.Mode().IsRegular() {
-			return false, fmt.Errorf("settings destination %q must be a regular file", path)
+			return Settings{}, false, fmt.Errorf("settings destination %q must be a regular file", path)
 		}
-		return false, nil
+		return Settings{}, false, nil
 	} else if !errors.Is(err, os.ErrNotExist) {
-		return false, err
+		return Settings{}, false, err
 	}
-	_, err := initialize(ctx, path, false, false, defaultDataDir)
-	if errors.Is(err, os.ErrExist) {
-		return false, nil
+	value, err := initialize(ctx, path, false, false, defaultDataDir)
+	if errors.Is(err, os.ErrExist) && value.InitialPassword == "" {
+		return Settings{}, false, nil
 	}
-	return err == nil, err
+	return value, value.InitialPassword != "", err
 }
 
 func initialize(ctx context.Context, path string, overwrite, createDataDirectory bool, defaultDataDir string) (Settings, error) {
@@ -362,11 +366,15 @@ func initialize(ctx context.Context, path string, overwrite, createDataDirectory
 	if err != nil {
 		return Settings{}, err
 	}
-	token, err := randomToken(32)
+	token, err := auth.GeneratePassword()
 	if err != nil {
 		return Settings{}, err
 	}
-	value.Auth.Token = token
+	value.Auth.Email = "admin@example.com"
+	value.Auth.PasswordHash, err = auth.HashPassword(ctx, token)
+	if err != nil {
+		return Settings{}, err
+	}
 	if err := value.Validate(); err != nil {
 		return Settings{}, err
 	}
@@ -392,20 +400,19 @@ func initialize(ctx context.Context, path string, overwrite, createDataDirectory
 		}
 	}
 	if err := atomicWrite(path, data, 0o600, overwrite); err != nil {
+		// A directory sync can fail after publication. Report the failure, but
+		// retain the one-time credential if the selected file contains it.
+		if saved, readErr := ReadRaw(path); readErr == nil && bytes.Equal(saved, data) {
+			value.InitialPassword = token
+			return value, err
+		}
 		return Settings{}, err
 	}
+	value.InitialPassword = token
 	if err := RememberDataLocation(path, value.DataDir); err != nil {
-		return Settings{}, err
+		return value, err
 	}
 	return value, nil
-}
-
-func randomToken(size int) (string, error) {
-	raw := make([]byte, size)
-	if _, err := rand.Read(raw); err != nil {
-		return "", fmt.Errorf("generate token: %w", err)
-	}
-	return base64.RawURLEncoding.EncodeToString(raw), nil
 }
 
 func atomicWrite(path string, data []byte, mode os.FileMode, overwrite bool) error {
@@ -441,7 +448,7 @@ func atomicWrite(path string, data []byte, mode os.FileMode, overwrite bool) err
 		}
 	} else if err := os.Link(temporaryPath, path); err != nil {
 		// Publishing a complete file without replacement prevents concurrent
-		// first starts from overwriting each other's authentication token.
+		// first starts from overwriting each other's administrator credentials.
 		return fmt.Errorf("create settings: %w", err)
 	}
 	dir, err := os.Open(directory)

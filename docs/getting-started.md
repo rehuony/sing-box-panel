@@ -38,33 +38,34 @@ To prepare and inspect settings before startup, initialize them explicitly:
 
 To generate only the default configuration file, use
 `./bin/sing-box-panel config init --config ./setting.json`. It prints the generated
-login token and leaves the data directory and database untouched. Existing files
+administrator email and random password and leaves the data directory and database untouched. Existing files
 are preserved unless `--force` is explicitly requested.
 
 `init` performs the following operations:
 
-- creates a random management token;
+- creates `admin@example.com` and a random password; stores only its Argon2id hash;
 - writes the settings atomically with mode `0600`;
 - creates the data directory with mode `0700`; and
 - creates `panel.db` with the current schema in that data directory.
 
-Do not commit the settings file, management token, database, exported
+Do not commit the settings file, administrator password, database, exported
 configuration, or subscription data.
 
 ### Database compatibility
 
 The current application uses SQLite `application_id = 0x53425034` and storage
-schema version 16, defined in `internal/store/schema.sql`,
+schema version 17, defined in `internal/store/schema.sql`,
 `internal/store/traffic_months.sql`, `internal/store/traffic_checkpoint.sql` and
 `internal/store/subscription_node_orders.sql`. Empty databases are initialized directly.
 Versions 11–15 of the same application identity upgrade transactionally to
-version 16. Version 11 first adds durable monthly traffic totals; version 13
+version 17. Version 11 first adds durable monthly traffic totals; version 13
 removes obsolete `export_token_ids` from channel configuration while preserving
 all other channel data. Version 14 removes the retired channel organizer and
 independent group defaults and retains card order. Rule indices default to zero.
 Version 15 preserves recorded traffic while removing monthly completeness state
 and redundant checkpoint totals. Historical usage is not recalculated.
 Version 16 adds shared subscription node order; browser-local orders are not imported.
+Version 17 adds persistent administrator sessions while retaining business data.
 API clients must stop submitting retired fields and read recorded period usage
 directly instead of using the removed traffic availability/coverage fields. Unidentified
 databases, other application identities, and unsupported older or newer schemas
@@ -107,9 +108,20 @@ without validating unrelated runtime fields; see [CLI configuration dependencies
 
 When the panel is served through a reverse proxy, set `server.external_origin`
 to the single public HTTP origin, for example `https://panel.example.com`.
-HTTPS origins require `auth.secure_cookie: true`; a secure cookie in turn
-requires an HTTPS external origin. The origin contains no path—continue to use
-`server.base_path` for a public path prefix.
+Session cookies automatically use `Secure` for an HTTPS external origin. Without
+an external origin, they use the request's actual TLS state; forwarded headers
+are not trusted. The origin contains no path—continue to use `server.base_path`
+for a public path prefix. Origin changes take effect after a server restart.
+The removed `auth.secure_cookie` field is rejected: delete it from existing
+settings files and backups before using them with this version.
+
+Login allows five attempts per minute per direct peer and, when available,
+per browser fingerprint, with a process-wide budget of 30 and two concurrent
+logins. Successful attempts also count. A 429 response includes `Retry-After`;
+wait before trying again. Behind a reverse proxy or NAT, users share the direct
+peer's budget; forwarded IP headers do not change it. Fingerprint collection is
+local and optional, with no third-party telemetry. See the
+[authentication contract](development/architecture.md#management-authentication).
 
 The generated listener is `127.0.0.1:3000`. Change `data_dir` to an absolute,
 empty directory when a test must also isolate the database.
@@ -120,20 +132,35 @@ empty directory when a test must also isolate the database.
 ./bin/sing-box-panel server start --config ./setting.json
 ```
 
-If the selected file is absent, `server start` creates default settings and a
-random management token automatically, then initializes storage and starts the
+If the selected file is absent, `server start` creates default settings and an
+administrator email and random password automatically, then initializes storage and starts the
 panel. The explicit `init` step is optional. Existing files are validated without
 replacement; broken or unreadable settings still fail. The same behavior applies
 without `--config`, using the default path for the current user.
 
-First-run guidance lists `Default URL`, the generated `Default Token`,
-`Default Settings`, and `Default Data Dir` in aligned columns.
-Open the default URL and use the printed token
-to log in to a new instance; the same value is saved as `auth.token` in settings.
+First-run guidance lists `Panel URL`, `Email`, `Initial Password`,
+`Settings`, and `Data Dir`. Open the URL and sign in with the
+printed email and password. The password is displayed only when settings are
+created; `auth.password_hash` stores its hash. Existing token-based settings are
+rejected: replace `auth.token` with `auth.email` and `auth.password_hash` manually,
+using `config hash-password` to generate the hash. There is no automatic conversion.
 That initial summary confirms settings creation. After binding the listener, every
 start prints the actual panel URL, settings and data paths, stored-log command and stop
 hint, then streams sanitized panel events. Redirected output omits ANSI color;
 `NO_COLOR` disables it in terminals and `--output json` emits structured events.
+
+If the password is lost, run the following on the server using the same configuration
+path and an OS account permitted to update it:
+
+```sh
+./bin/sing-box-panel --config ./setting.json config reset-password
+```
+
+The command generates and displays a new password once, preserves the email and
+other configuration, and stores only its hash. Existing sessions become invalid
+at their next authentication check. It works while the server is stopped or running
+and requires no restart. To supply a custom password without echoing it, use
+`config reset-password --stdin`; see the [CLI reference](guides/cli.md).
 
 This runs in the foreground. Stop it with `Ctrl+C`, or run
 `./bin/sing-box-panel server stop --config ./setting.json` in another terminal.

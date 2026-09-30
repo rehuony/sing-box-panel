@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"time"
 
 	"modernc.org/sqlite"
 )
@@ -20,7 +21,7 @@ const (
 	ApplicationID = 0x53425034
 
 	// CurrentSchemaVersion is the only schema this package can open.
-	CurrentSchemaVersion = 16
+	CurrentSchemaVersion = 17
 
 	defaultBusyTimeoutMillis  = 5_000
 	defaultMaxOpenConnections = 4
@@ -115,6 +116,9 @@ func open(ctx context.Context, path string, exclusive bool) (*Store, error) {
 	}
 	if _, err := store.SchemaInfo(ctx); err != nil {
 		return nil, err
+	}
+	if _, err := db.ExecContext(ctx, `DELETE FROM auth_sessions WHERE expires_at <= ?`, time.Now().Unix()); err != nil {
+		return nil, fmt.Errorf("clean expired sessions: %w", err)
 	}
 	if err := os.Chmod(absPath, 0o600); err != nil {
 		return nil, fmt.Errorf("secure SQLite database permissions: %w", err)

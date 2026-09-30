@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/rehuony/sing-box-panel/internal/application"
 	"github.com/rehuony/sing-box-panel/internal/buildinfo"
@@ -16,9 +17,10 @@ import (
 )
 
 const (
-	// An accepted 8 KiB token may expand sixfold when JSON-escaped.
-	maxLoginBody  = 64 << 10
-	sessionCookie = "sbp_session"
+	// Bound JSON credentials before decoding or running password verification.
+	maxLoginBody      = 4 << 10
+	maxRequestIDBytes = 128
+	sessionCookie     = "sbp_session"
 )
 
 type StatusProvider interface {
@@ -90,7 +92,6 @@ type HandlerOptions struct {
 type Handler struct {
 	settings settings.Settings
 	build    buildinfo.Info
-	sessions *sessions
 	logins   *loginLimiter
 	status   StatusProvider
 	commands *application.Application
@@ -106,7 +107,6 @@ func NewHandler(options HandlerOptions) *Handler {
 	return &Handler{
 		settings: options.Settings,
 		build:    options.Build,
-		sessions: newSessions(),
 		logins:   newLoginLimiter(),
 		status:   options.Status,
 		commands: options.Commands,
@@ -117,10 +117,12 @@ func NewHandler(options HandlerOptions) *Handler {
 
 func (handler *Handler) ServeHTTP(w http.ResponseWriter, request *http.Request) {
 	requestID := request.Header.Get("X-Request-ID")
-	if requestID == "" {
+	if requestID == "" || len(requestID) > maxRequestIDBytes || !utf8.ValidString(requestID) || len(request.Header.Values("X-Request-ID")) != 1 {
 		requestID = newRequestID()
-		request.Header.Set("X-Request-ID", requestID)
 	}
+	// Normalize before any route or error can echo the caller's ID. Replace
+	// invalid or ambiguous IDs rather than truncating unrelated IDs to one.
+	request.Header.Set("X-Request-ID", requestID)
 	w.Header().Set("X-Request-ID", requestID)
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("X-Frame-Options", "DENY")

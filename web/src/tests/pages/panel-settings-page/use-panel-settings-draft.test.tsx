@@ -3,7 +3,7 @@ import type { PropsWithChildren } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import { act, renderHook, waitFor } from '@testing-library/react';
 
-import type { ApiClient, PanelSettingsView } from '@/api/api-client';
+import type { ApiClient, PanelSettingsSaveResult } from '@/api/api-client';
 
 import '@/i18n';
 import { ThemeProvider } from '@/theme';
@@ -70,7 +70,7 @@ describe('panel settings draft', () => {
     expect(client.savePanelSettings).toHaveBeenCalledExactlyOnceWith({
       revision: initial.revision, preferences: initial.preferences,
       service: { ...initial.service, catalog_refresh_interval_hours: 24 },
-      github_token: '', clear_github_token: false, management_token: undefined,
+      github_token: '', clear_github_token: false, credentials: undefined,
     });
   });
   it('keeps failed edits and leaves the accepted settings unchanged', async () => {
@@ -79,9 +79,13 @@ describe('panel settings draft', () => {
     act(() => {
       result.current.draft.updateService('base_path', '/draft');
       result.current.draft.appearance({ color: '#123456' });
+      result.current.draft.setEmail('draft@example.com');
+      result.current.draft.setPassword('draft-password-123');
     });
     await act(() => result.current.draft.submit());
     expect(result.current.draft.service.base_path).toBe('/draft');
+    expect(result.current.draft.email).toBe('draft@example.com');
+    expect(result.current.draft.password).toBe('draft-password-123');
     expect(result.current.draft.preferences.appearance.color).toBe('#123456');
     expect(result.current.draft.dirty).toBe(true);
     expect(result.current.settings.view).toEqual(initial);
@@ -99,26 +103,26 @@ describe('panel settings draft', () => {
     expect(client.savePanelSettings).not.toHaveBeenCalled();
   });
   it('locks duplicate submission until success and clears sensitive input afterwards', async () => {
-    const pending = deferred<PanelSettingsView>();
+    const pending = deferred<PanelSettingsSaveResult>();
     const client = createMockApiClient({ savePanelSettings: vi.fn().mockReturnValue(pending.promise) });
     const { result, initial } = await mount(client);
     act(() => {
       result.current.draft.setGithub('test-github');
-      result.current.draft.setToken('test-token');
+      result.current.draft.setPassword('test-password-123');
     });
     let saving!: Promise<void>;
     act(() => {
-      saving = result.current.draft.submit(undefined, 'test-token');
+      saving = result.current.draft.submit();
     });
     await act(() => result.current.draft.submit());
     expect(client.savePanelSettings).toHaveBeenCalledOnce();
     expect(result.current.draft.saving).toBe(true);
     await act(async () => {
-      pending.resolve({ ...initial, revision: initial.revision + 1 });
+      pending.resolve({ settings: { ...initial, revision: initial.revision + 1 }, reauthentication_required: false });
       await saving;
     });
     expect(result.current.draft.github).toBe('');
-    expect(result.current.draft.token).toBe('');
+    expect(result.current.draft.password).toBe('');
     expect(result.current.draft.saving).toBe(false);
   });
   it('keeps one draft across categories and accepts restored settings atomically', async () => {
@@ -127,12 +131,16 @@ describe('panel settings draft', () => {
       result.current.draft.updateService('base_path', '/draft');
       result.current.draft.setCategory('maintenance');
       result.current.draft.setGithub('pending-token');
+      result.current.draft.setEmail('draft@example.com');
+      result.current.draft.setPassword('draft-password-123');
     });
     expect(result.current.draft.service.base_path).toBe('/draft');
     const restored = { ...initial, revision: initial.revision + 1, service: { ...initial.service, base_path: '/restored' } };
     await act(() => result.current.draft.restored(restored));
     await waitFor(() => expect(result.current.settings.view).toEqual(restored));
     expect(result.current.draft.service).toEqual(restored.service);
+    expect(result.current.draft.email).toBe(restored.admin_email);
+    expect(result.current.draft.password).toBe('');
     expect(result.current.draft.github).toBe('');
   });
 });

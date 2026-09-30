@@ -40,7 +40,7 @@ func TestRuntimeHistoryHTTPUsesStablePairedCursor(t *testing.T) {
 		"state": []string{string(store.RuntimeTransitionStopped)},
 		"limit": []string{"1"},
 	}
-	response := authenticatedRequest(
+	response := authenticatedRequest(t,
 		handler,
 		http.MethodGet,
 		"/api/v1/core/runtime/history?"+query.Encode(),
@@ -64,7 +64,7 @@ func TestRuntimeHistoryHTTPUsesStablePairedCursor(t *testing.T) {
 		"before_id":   []string{strconv.FormatInt(page.Next.ID, 10)},
 		"limit":       []string{"1"},
 	}
-	nextResponse := authenticatedRequest(
+	nextResponse := authenticatedRequest(t,
 		handler,
 		http.MethodGet,
 		"/api/v1/core/runtime/history?"+nextQuery.Encode(),
@@ -86,7 +86,7 @@ func TestRuntimeHistoryHTTPUsesStablePairedCursor(t *testing.T) {
 		"/api/v1/core/runtime/history?before_time=" + url.QueryEscape(now.Format(time.RFC3339Nano)),
 		"/api/v1/core/runtime/history?state=starting",
 	} {
-		invalid := authenticatedRequest(handler, http.MethodGet, target, "", "")
+		invalid := authenticatedRequest(t, handler, http.MethodGet, target, "", "")
 		if invalid.Code != http.StatusBadRequest {
 			t.Fatalf("invalid runtime history %q status=%d body=%s", target, invalid.Code, invalid.Body.String())
 		}
@@ -98,7 +98,7 @@ func TestRuntimeAndConfigurationHTTPRoutesUseApplicationServices(t *testing.T) {
 	core := seedSupportedRuntimeHTTPCore(t, database)
 	_, startup := seedRuntimeHTTPStartup(t, database, core)
 
-	statusResponse := authenticatedRequest(handler, http.MethodGet, "/api/v1/core/status", "", "")
+	statusResponse := authenticatedRequest(t, handler, http.MethodGet, "/api/v1/core/status", "", "")
 	if statusResponse.Code != http.StatusOK {
 		t.Fatalf("runtime status=%d body=%s", statusResponse.Code, statusResponse.Body.String())
 	}
@@ -110,7 +110,7 @@ func TestRuntimeAndConfigurationHTTPRoutesUseApplicationServices(t *testing.T) {
 		t.Fatalf("runtime status = %+v", runtimeStatus)
 	}
 
-	previewResponse := authenticatedRequest(
+	previewResponse := authenticatedRequest(t,
 		handler,
 		http.MethodPost,
 		"/api/v1/config/preview",
@@ -121,7 +121,7 @@ func TestRuntimeAndConfigurationHTTPRoutesUseApplicationServices(t *testing.T) {
 		!strings.Contains(previewResponse.Body.String(), `"config":{}`) {
 		t.Fatalf("preview status=%d body=%s", previewResponse.Code, previewResponse.Body.String())
 	}
-	compileResponse := authenticatedRequest(
+	compileResponse := authenticatedRequest(t,
 		handler,
 		http.MethodPost,
 		"/api/v1/config/compile",
@@ -139,7 +139,7 @@ func TestRuntimeAndConfigurationHTTPRoutesUseApplicationServices(t *testing.T) {
 		t.Fatalf("compile = %+v", compiled)
 	}
 
-	checkResponse := authenticatedRequest(
+	checkResponse := authenticatedRequest(t,
 		handler,
 		http.MethodPost,
 		"/api/v1/core/check",
@@ -155,7 +155,7 @@ func TestRuntimeAndConfigurationHTTPRoutesUseApplicationServices(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	activateResponse := authenticatedRequest(
+	activateResponse := authenticatedRequest(t,
 		handler,
 		http.MethodPost,
 		"/api/v1/core/activate",
@@ -177,9 +177,9 @@ func TestRuntimeAndConfigurationHTTPRoutesUseApplicationServices(t *testing.T) {
 		t.Fatalf("activation response = %+v", activated)
 	}
 
-	startResponse := authenticatedRequest(handler, http.MethodPost, "/api/v1/core/start", "", "")
+	startResponse := authenticatedRequest(t, handler, http.MethodPost, "/api/v1/core/start", "", "")
 	assertCoreHTTPProblem(t, startResponse, http.StatusConflict, "no_applied_bundle")
-	stopResponse := authenticatedRequest(handler, http.MethodPost, "/api/v1/core/stop", "", "")
+	stopResponse := authenticatedRequest(t, handler, http.MethodPost, "/api/v1/core/stop", "", "")
 	if stopResponse.Code != http.StatusOK {
 		t.Fatal(stopResponse.Code, stopResponse.Body.String())
 	}
@@ -228,7 +228,7 @@ func TestRuntimeAndConfigurationHTTPRejectAmbiguousInputs(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			response := authenticatedRequest(handler, test.method, test.target, test.body, "")
+			response := authenticatedRequest(t, handler, test.method, test.target, test.body, "")
 			assertCoreHTTPProblem(t, response, test.wantStatus, test.wantCode)
 		})
 	}

@@ -39,7 +39,7 @@ func TestChannelPolicyPreviewDeliveryAndVisibility(t *testing.T) {
 	}
 	input := application.CreateSubscriptionChannelRequest{Name: "Modern", Format: store.SubscriptionFormatSingBox, Config: config, Enabled: true}
 	raw, _ := json.Marshal(input)
-	created := authenticatedRequest(handler, http.MethodPost, "/api/v1/subscription/channels", string(raw), "")
+	created := authenticatedRequest(t, handler, http.MethodPost, "/api/v1/subscription/channels", string(raw), "")
 	if created.Code != 201 {
 		t.Fatal(created.Code, created.Body.String())
 	}
@@ -52,7 +52,7 @@ func TestChannelPolicyPreviewDeliveryAndVisibility(t *testing.T) {
 		t.Fatal(err)
 	}
 	publicURL := "/sub/" + key.Token + "/" + channel.ID
-	preview := authenticatedRequest(handler, http.MethodPost, "/api/v1/subscription/channels/"+channel.ID+"/preview", "{}", "")
+	preview := authenticatedRequest(t, handler, http.MethodPost, "/api/v1/subscription/channels/"+channel.ID+"/preview", "{}", "")
 	var rendered application.SubscriptionPreview
 	if preview.Code != 200 {
 		t.Fatal(preview.Code, preview.Body.String())
@@ -68,7 +68,7 @@ func TestChannelPolicyPreviewDeliveryAndVisibility(t *testing.T) {
 	policy.Template.Content = `{"log":{"level":"error"}}`
 	config, _ = json.Marshal(store.SubscriptionChannelConfig{Policy: policy})
 	raw, _ = json.Marshal(map[string]any{"draft": application.SubscriptionDraftPreview{Format: store.SubscriptionFormatSingBox, Config: config}})
-	preview = authenticatedRequest(handler, http.MethodPost, "/api/v1/subscription/channels/"+channel.ID+"/preview", string(raw), "")
+	preview = authenticatedRequest(t, handler, http.MethodPost, "/api/v1/subscription/channels/"+channel.ID+"/preview", string(raw), "")
 	if preview.Code != 200 {
 		t.Fatal(preview.Code, preview.Body.String())
 	}
@@ -96,7 +96,7 @@ func TestChannelPolicyPreviewDeliveryAndVisibility(t *testing.T) {
 	config, _ = json.Marshal(store.SubscriptionChannelConfig{Policy: policy})
 	input.Config = config
 	raw, _ = json.Marshal(input)
-	invalid := authenticatedRequest(handler, http.MethodPut, "/api/v1/subscription/channels/"+channel.ID, string(raw), subscriptionETag(channel.UpdatedAt))
+	invalid := authenticatedRequest(t, handler, http.MethodPut, "/api/v1/subscription/channels/"+channel.ID, string(raw), subscriptionETag(channel.UpdatedAt))
 	if invalid.Code != 422 || !strings.Contains(invalid.Body.String(), "policy.template.content/outbounds") || strings.Contains(invalid.Body.String(), "must-not-reflect-secret") {
 		t.Fatal(invalid.Code, invalid.Body.String())
 	}
@@ -104,13 +104,13 @@ func TestChannelPolicyPreviewDeliveryAndVisibility(t *testing.T) {
 		policy.Template.Content = content
 		config, _ = json.Marshal(store.SubscriptionChannelConfig{Policy: policy})
 		raw, _ = json.Marshal(map[string]any{"draft": application.SubscriptionDraftPreview{Format: store.SubscriptionFormatSingBox, Config: config}})
-		invalid = authenticatedRequest(handler, http.MethodPost, "/api/v1/subscription/channels/"+channel.ID+"/preview", string(raw), "")
+		invalid = authenticatedRequest(t, handler, http.MethodPost, "/api/v1/subscription/channels/"+channel.ID+"/preview", string(raw), "")
 		if invalid.Code != 422 || !strings.Contains(invalid.Body.String(), "policy.template.content") || strings.Contains(invalid.Body.String(), "must-not-reflect-secret") {
 			t.Fatal("invalid native template was accepted or reflected", invalid.Code, invalid.Body.String())
 		}
 		input.Config = config
 		raw, _ = json.Marshal(input)
-		invalid = authenticatedRequest(handler, http.MethodPut, "/api/v1/subscription/channels/"+channel.ID, string(raw), subscriptionETag(channel.UpdatedAt))
+		invalid = authenticatedRequest(t, handler, http.MethodPut, "/api/v1/subscription/channels/"+channel.ID, string(raw), subscriptionETag(channel.UpdatedAt))
 		if invalid.Code != 422 {
 			t.Fatal("invalid native template was persisted", invalid.Code, invalid.Body.String())
 		}
@@ -142,7 +142,7 @@ func TestLoonPreviewDiagnosticsAndALPNDelivery(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	response := authenticatedRequest(handler, http.MethodPost, "/api/v1/subscription/channels/"+channel.ID+"/preview", "{}", "")
+	response := authenticatedRequest(t, handler, http.MethodPost, "/api/v1/subscription/channels/"+channel.ID+"/preview", "{}", "")
 	var preview application.SubscriptionPreview
 	if response.Code != http.StatusOK || json.Unmarshal(response.Body.Bytes(), &preview) != nil {
 		t.Fatalf("preview failed: %d", response.Code)
@@ -221,7 +221,7 @@ func TestChannelStrategyTypesPersistPreviewAndDeliver(t *testing.T) {
 			policy.Groups[0].CandidateOrder = append(policy.Groups[0].CandidateOrder, "node:"+node.ID)
 			config, _ := json.Marshal(store.SubscriptionChannelConfig{Policy: policy})
 			raw, _ := json.Marshal(map[string]any{"name": test.format + " " + test.kind, "format": test.format, "config": json.RawMessage(config), "enabled": true})
-			created := authenticatedRequest(handler, http.MethodPost, "/api/v1/subscription/channels", string(raw), "")
+			created := authenticatedRequest(t, handler, http.MethodPost, "/api/v1/subscription/channels", string(raw), "")
 			if created.Code != http.StatusCreated {
 				t.Fatal(created.Code, created.Body.String())
 			}
@@ -248,17 +248,17 @@ func TestChannelStrategyTypesPersistPreviewAndDeliver(t *testing.T) {
 			policy.Groups[1].Name = "🏠 Renamed child"
 			config, _ = json.Marshal(store.SubscriptionChannelConfig{Policy: policy})
 			raw, _ = json.Marshal(map[string]any{"name": channel.Name, "format": test.format, "config": json.RawMessage(config), "enabled": true})
-			saved := authenticatedRequest(handler, http.MethodPut, "/api/v1/subscription/channels/"+channel.ID, string(raw), subscriptionETag(channel.UpdatedAt))
+			saved := authenticatedRequest(t, handler, http.MethodPut, "/api/v1/subscription/channels/"+channel.ID, string(raw), subscriptionETag(channel.UpdatedAt))
 			if saved.Code != http.StatusOK {
 				t.Fatal(saved.Code, saved.Body.String())
 			}
 			invalidConfig := strings.Replace(string(config), `"remote":{`, `"remote":{"update_interval":3600,`, 1)
 			invalidRaw, _ := json.Marshal(map[string]any{"name": "Removed interval", "format": test.format, "config": json.RawMessage(invalidConfig), "enabled": true})
-			invalid := authenticatedRequest(handler, http.MethodPost, "/api/v1/subscription/channels", string(invalidRaw), "")
+			invalid := authenticatedRequest(t, handler, http.MethodPost, "/api/v1/subscription/channels", string(invalidRaw), "")
 			if invalid.Code != http.StatusUnprocessableEntity {
 				t.Fatal("removed interval accepted", invalid.Code, invalid.Body.String())
 			}
-			preview := authenticatedRequest(handler, http.MethodPost, "/api/v1/subscription/channels/"+channel.ID+"/preview", "{}", "")
+			preview := authenticatedRequest(t, handler, http.MethodPost, "/api/v1/subscription/channels/"+channel.ID+"/preview", "{}", "")
 			if preview.Code != http.StatusOK {
 				t.Fatal(preview.Code, preview.Body.String())
 			}
@@ -282,7 +282,7 @@ func TestChannelStrategyTypesPersistPreviewAndDeliver(t *testing.T) {
 
 func TestSubscriptionChannelAPIRejectsRemovedBindings(t *testing.T) {
 	_, _, handler := newSubscriptionHTTPServices(t, "")
-	response := authenticatedRequest(handler, http.MethodPost, "/api/v1/subscription/channels",
+	response := authenticatedRequest(t, handler, http.MethodPost, "/api/v1/subscription/channels",
 		`{"name":"Removed binding","format":"mihomo","enabled":true,"config":{"export_token_ids":["token-old"]}}`, "")
 	if response.Code != http.StatusUnprocessableEntity {
 		t.Fatalf("removed binding accepted: %d %s", response.Code, response.Body.String())
@@ -315,7 +315,7 @@ func TestChannelDefaultTemplatesAndWholeReplacement(t *testing.T) {
 			}
 			input := map[string]any{"name": test.format, "format": test.format, "enabled": true, "config": store.SubscriptionChannelConfig{Policy: p}}
 			raw, _ := json.Marshal(input)
-			created := authenticatedRequest(handler, http.MethodPost, "/api/v1/subscription/channels", string(raw), "")
+			created := authenticatedRequest(t, handler, http.MethodPost, "/api/v1/subscription/channels", string(raw), "")
 			if created.Code != http.StatusCreated {
 				t.Fatal(created.Code, created.Body.String())
 			}
@@ -329,12 +329,12 @@ func TestChannelDefaultTemplatesAndWholeReplacement(t *testing.T) {
 				if empty {
 					p.Template = &subscription.NativeTemplate{Format: subscription.RenderFormat(test.format), Content: test.empty}
 					raw, _ = json.Marshal(input)
-					saved := authenticatedRequest(handler, http.MethodPut, url, string(raw), subscriptionETag(channel.UpdatedAt))
+					saved := authenticatedRequest(t, handler, http.MethodPut, url, string(raw), subscriptionETag(channel.UpdatedAt))
 					if saved.Code != http.StatusOK {
 						t.Fatal(saved.Code, saved.Body.String())
 					}
 				}
-				preview := authenticatedRequest(handler, http.MethodPost, url+"/preview", "{}", "")
+				preview := authenticatedRequest(t, handler, http.MethodPost, url+"/preview", "{}", "")
 				if preview.Code != http.StatusOK {
 					t.Fatal(preview.Code, preview.Body.String())
 				}
@@ -346,7 +346,7 @@ func TestChannelDefaultTemplatesAndWholeReplacement(t *testing.T) {
 					draftPolicy := *p
 					draftPolicy.Template = &subscription.NativeTemplate{Format: subscription.RenderFormat(test.format), Content: string(content)}
 					draftRaw, _ := json.Marshal(map[string]any{"draft": map[string]any{"format": test.format, "config": store.SubscriptionChannelConfig{Policy: &draftPolicy}}})
-					draft := authenticatedRequest(handler, http.MethodPost, url+"/preview", string(draftRaw), "")
+					draft := authenticatedRequest(t, handler, http.MethodPost, url+"/preview", string(draftRaw), "")
 					var explicit application.SubscriptionPreview
 					if draft.Code != http.StatusOK || json.Unmarshal(draft.Body.Bytes(), &explicit) != nil || string(explicit.Result.Content) != string(rendered.Result.Content) {
 						t.Fatal("missing/default template preview diverged", draft.Code, draft.Body.String())
@@ -387,7 +387,7 @@ func TestLegacyChannelUpgradePublishesPreview(t *testing.T) {
 		t.Fatal(err)
 	}
 	raw, _ := json.Marshal(application.CreateSubscriptionChannelRequest{Name: "Legacy", Format: store.SubscriptionFormatSingBox, Config: json.RawMessage(`{}`), Enabled: true})
-	created := authenticatedRequest(handler, http.MethodPost, "/api/v1/subscription/channels", string(raw), "")
+	created := authenticatedRequest(t, handler, http.MethodPost, "/api/v1/subscription/channels", string(raw), "")
 	if created.Code != 201 {
 		t.Fatal(created.Code, created.Body.String())
 	}
@@ -402,7 +402,7 @@ func TestLegacyChannelUpgradePublishesPreview(t *testing.T) {
 	// This is the unchanged initialChannelPolicy generated by useChannelDraft.
 	config, _ := json.Marshal(store.SubscriptionChannelConfig{Policy: &subscription.ChannelPolicy{Selection: subscription.NodeSelection{IDs: []string{node.ID}, ExcludedIDs: []string{}, NewNodePolicy: "include"}, Groups: []subscription.RuleGroup{}, DefaultExit: subscription.RouteExit{Kind: "direct"}}})
 	raw, _ = json.Marshal(map[string]any{"draft": application.SubscriptionDraftPreview{Format: store.SubscriptionFormatSingBox, Config: config}})
-	preview := authenticatedRequest(handler, http.MethodPost, "/api/v1/subscription/channels/"+channel.ID+"/preview", string(raw), "")
+	preview := authenticatedRequest(t, handler, http.MethodPost, "/api/v1/subscription/channels/"+channel.ID+"/preview", string(raw), "")
 	if preview.Code != 200 {
 		t.Fatal(preview.Code, preview.Body.String())
 	}
@@ -419,7 +419,7 @@ func TestLegacyChannelUpgradePublishesPreview(t *testing.T) {
 		t.Fatal("preview upgraded the saved channel")
 	}
 	raw, _ = json.Marshal(map[string]any{"name": channel.Name, "format": channel.Format, "config": json.RawMessage(config), "enabled": channel.Enabled})
-	saved := authenticatedRequest(handler, http.MethodPut, "/api/v1/subscription/channels/"+channel.ID, string(raw), subscriptionETag(channel.UpdatedAt))
+	saved := authenticatedRequest(t, handler, http.MethodPut, "/api/v1/subscription/channels/"+channel.ID, string(raw), subscriptionETag(channel.UpdatedAt))
 	if saved.Code != http.StatusOK {
 		t.Fatal(saved.Code, saved.Body.String())
 	}
@@ -434,12 +434,12 @@ func TestLegacyChannelUpgradePublishesPreview(t *testing.T) {
 	}
 	invalid, _ := json.Marshal(filtered)
 	raw, _ = json.Marshal(map[string]any{"draft": application.SubscriptionDraftPreview{Format: channel.Format, Config: invalid}})
-	rejected := authenticatedRequest(handler, http.MethodPost, "/api/v1/subscription/channels/"+channel.ID+"/preview", string(raw), "")
+	rejected := authenticatedRequest(t, handler, http.MethodPost, "/api/v1/subscription/channels/"+channel.ID+"/preview", string(raw), "")
 	if rejected.Code != http.StatusUnprocessableEntity {
 		t.Fatal("preview accepted legacy filters", rejected.Code)
 	}
 	raw, _ = json.Marshal(application.CreateSubscriptionChannelRequest{Name: "Invalid", Format: channel.Format, Config: invalid, Enabled: true})
-	rejected = authenticatedRequest(handler, http.MethodPost, "/api/v1/subscription/channels", string(raw), "")
+	rejected = authenticatedRequest(t, handler, http.MethodPost, "/api/v1/subscription/channels", string(raw), "")
 	if rejected.Code != http.StatusUnprocessableEntity {
 		t.Fatal("create accepted legacy filters", rejected.Code)
 	}

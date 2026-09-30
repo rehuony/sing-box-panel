@@ -3,10 +3,13 @@ import userEvent from '@testing-library/user-event';
 import { beforeAll, describe, expect, it, vi } from 'vitest';
 import { act, render, screen, waitFor } from '@testing-library/react';
 
+import type { ApiClient } from '@/api/api-client';
+
 import { ThemeProvider } from '@/theme';
 import { Toaster } from '@/components/ui/toast';
-import '@/i18n';
 import { AppRoutes } from '@/routes/app.routes';
+import { ApiRequestError } from '@/api/api-client';
+import '@/i18n';
 import { pageLoaders } from '@/routes/page-loaders';
 import { appearanceTokens } from '@/theme/appearance';
 import { TooltipProvider } from '@/components/ui/tooltip';
@@ -14,6 +17,7 @@ import * as pageLoaderModule from '@/routes/page-loaders';
 import { ApiClientProvider } from '@/api/api-client-context';
 import { TestRouter as MemoryRouter } from '@/tests/test-router';
 import { AuthSessionProvider } from '@/stores/auth-session-provider';
+import { createDemoApiClient } from '@/api/demo/create-demo-api-client';
 import { createMockApiClient, testDashboardContext, testSession } from '@/tests/api/mock-api-client';
 
 function LocationProbe() {
@@ -23,7 +27,7 @@ function LocationProbe() {
   );
 }
 
-function renderRoutes(initialEntry: string, client = createMockApiClient()) {
+function renderRoutes(initialEntry: string, client: ApiClient = createMockApiClient()) {
   return render(
     <Toaster>
       <ApiClientProvider client={client}>
@@ -111,7 +115,7 @@ describe('application routes', () => {
     await screen.findByRole('button', { name: 'Sign out' });
     await waitFor(assertTokens);
     await openSignOut(user);
-    await screen.findByLabelText('Management token');
+    await screen.findByLabelText('Password');
     assertTokens();
     panel.unmount();
 
@@ -123,14 +127,15 @@ describe('application routes', () => {
     try {
       const anonymous = createMockApiClient({ getSession: vi.fn().mockResolvedValue(null) });
       renderRoutes('/login', anonymous);
-      await screen.findByLabelText('Management token');
+      await screen.findByLabelText('Password');
       assertTokens();
       expect(anonymous.getPanelSettings).not.toHaveBeenCalled();
-      await user.type(screen.getByLabelText('Management token'), 'local-token');
+      await user.type(screen.getByLabelText('Email'), 'admin@example.com');
+      await user.type(screen.getByLabelText('Password'), 'local-token');
       vi.mocked(anonymous.getPanelSettings).mockResolvedValue({
         ...view, preferences: { ...view.preferences, appearance },
       });
-      await user.click(screen.getByRole('button', { name: 'Open panel' }));
+      await user.click(screen.getByRole('button', { name: 'Sign in' }));
       await screen.findByRole('button', { name: 'Sign out' });
       assertTokens();
     } finally {
@@ -145,9 +150,10 @@ describe('application routes', () => {
       login: vi.fn().mockResolvedValue(testSession),
     });
     renderRoutes('/configuration?editor=advanced#deploy', client);
-    await user.type(await screen.findByLabelText('Management token'), 'local-token');
-    await user.click(screen.getByRole('button', { name: 'Open panel' }));
-    expect(client.login).toHaveBeenCalledWith('local-token', expect.any(AbortSignal));
+    await user.type(await screen.findByLabelText('Email'), 'admin@example.com');
+    await user.type(screen.getByLabelText('Password'), 'local-token');
+    await user.click(screen.getByRole('button', { name: 'Sign in' }));
+    expect(client.login).toHaveBeenCalledWith({ email: 'admin@example.com', password: 'local-token' }, expect.any(AbortSignal));
     await waitFor(
       () =>
         expect(screen.getByLabelText('Current route')).toHaveTextContent(
@@ -216,9 +222,9 @@ describe('application routes', () => {
     renderRoutes('/configuration', client);
 
     expect(
-      await screen.findByText('The panel service could not be reached.', { selector: '[data-slot="toast-title"]' }),
+      await screen.findByRole('heading', { name: 'The panel service could not be reached.' }),
     ).toBeInTheDocument();
-    expect(screen.queryByLabelText('Management token')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Password')).not.toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Try again' }));
     expect(await screen.findByRole('button', { name: 'Sign out' })).toBeInTheDocument();
     expect(getSession).toHaveBeenCalledTimes(2);
@@ -239,7 +245,7 @@ describe('application routes', () => {
     expect(await screen.findByRole('button', { name: 'Sign out' })).toBeInTheDocument();
 
     act(() => invalidate());
-    expect(await screen.findByLabelText('Management token')).toBeInTheDocument();
+    expect(await screen.findByLabelText('Password')).toBeInTheDocument();
   });
 
   it('keeps the authenticated view and reports a failed sign out', async () => {
@@ -256,25 +262,103 @@ describe('application routes', () => {
     expect(screen.getByRole('button', { name: 'Sign out' })).toBeInTheDocument();
   });
 
-  it('matches the login form content and toggles token visibility without submitting', async () => {
+  it('toggles password visibility without submitting or changing the value', async () => {
     const user = userEvent.setup();
     const client = createMockApiClient({ getSession: vi.fn().mockResolvedValue(null) });
     renderRoutes('/login', client);
-    const input = await screen.findByLabelText('Management token');
-    expect(await screen.findByRole('heading', { name: 'Welcome back' })).toBeVisible();
+    const input = await screen.findByLabelText('Password');
     expect(input).toHaveAttribute('type', 'password');
-    await user.type(input, 'preview-token');
-    await user.click(screen.getByRole('button', { name: 'Show management token' }));
+    await user.type(input, 'preview-password');
+    await user.click(screen.getByRole('button', { name: 'Show password' }));
     expect(input).toHaveAttribute('type', 'text');
-    expect(input).toHaveValue('preview-token');
-    await user.click(screen.getByRole('button', { name: 'Hide management token' }));
+    expect(input).toHaveValue('preview-password');
+    await user.click(screen.getByRole('button', { name: 'Hide password' }));
     expect(input).toHaveAttribute('type', 'password');
     expect(client.login).not.toHaveBeenCalled();
+  });
+
+  it('reports validation through a toast and describes the focused invalid field', async () => {
+    const user = userEvent.setup();
+    const client = createMockApiClient({ getSession: vi.fn().mockResolvedValue(null) });
+    renderRoutes('/login', client);
+    const email = await screen.findByLabelText('Email');
+    const password = screen.getByLabelText('Password');
+    await user.click(screen.getByRole('button', { name: 'Sign in' }));
+    expect(email).toHaveFocus();
+    expect(email).toBeInvalid();
+    expect(email).toHaveAccessibleDescription('Enter a valid email address.');
+    expect(await screen.findByText('Enter a valid email address.', { selector: '[data-slot="toast-title"]' })).toBeVisible();
+
+    await user.type(email, 'admin@example.com');
+    expect(email).not.toHaveAttribute('aria-describedby');
+    await user.click(screen.getByRole('button', { name: 'Sign in' }));
+    expect(password).toHaveFocus();
+    expect(password).toBeInvalid();
+    expect(password).toHaveAccessibleDescription('Enter your password to continue.');
+    expect(await screen.findByText('Enter your password to continue.', { selector: '[data-slot="toast-title"]' })).toBeVisible();
+    expect(client.login).not.toHaveBeenCalled();
+  });
+
+  it('keeps submitted credentials after a failed login and restores controls for retry', async () => {
+    const user = userEvent.setup();
+    let rejectLogin!: (reason: Error) => void;
+    const client = createMockApiClient({
+      getSession: vi.fn().mockResolvedValue(null),
+      login: vi.fn(() => new Promise<typeof testSession>((_resolve, reject) => {
+        rejectLogin = reject;
+      })),
+    });
+    renderRoutes('/login', client);
+    const email = await screen.findByLabelText('Email');
+    const password = screen.getByLabelText('Password');
+    await user.type(email, 'admin@example.com');
+    await user.type(password, 'incorrect-password{Enter}');
+    const submit = screen.getByRole('button', { name: /Signing in/ });
+    expect(submit).toBeDisabled();
+    expect(password).toBeDisabled();
+    await user.click(submit);
+    expect(client.login).toHaveBeenCalledTimes(1);
+
+    await act(async () => rejectLogin(new ApiRequestError('Invalid credentials', { status: 401, code: 'unauthorized' })));
+    expect(await screen.findByText('The email or password is incorrect.', { selector: '[data-slot="toast-title"]' })).toBeVisible();
+    expect(email).toHaveValue('admin@example.com');
+    expect(password).toHaveValue('incorrect-password');
+    expect(password).toHaveAccessibleDescription('The email or password is incorrect.');
+    expect(password).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Sign in' })).toBeEnabled();
   });
 
   it('opens panel logs without a legacy operation dialog', async () => {
     renderRoutes('/observability?tab=panel&task=legacy');
     expect(await screen.findByRole('tab', { name: 'Panel logs' })).toHaveAttribute('aria-selected', 'true');
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+  it.each([
+    { change: 'email', email: 'updated@example.com' },
+    { change: 'Unicode email', email: '用户@例子.测试' },
+    { change: 'password', password: 'updated-password-123' },
+    { change: 'both', email: 'updated@example.com', password: 'updated-password-123' },
+  ])('signs out only after saving $change and accepts the updated account', async ({ email: nextEmail, password: nextPassword }) => {
+    const user = userEvent.setup();
+    const client = createDemoApiClient();
+    const settings = await client.getPanelSettings();
+    await client.savePanelSettings({ revision: settings.revision, preferences: { ...settings.preferences, language: 'en' } });
+    renderRoutes('/panel', client);
+    const email = nextEmail ?? 'admin@example.com';
+    const password = nextPassword ?? 'demo-password-123';
+    const emailInput = await screen.findByLabelText('Email');
+    if (nextEmail) {
+      await user.clear(emailInput);
+      await user.type(emailInput, email);
+    }
+    if (nextPassword) await user.type(screen.getByLabelText('Password', { selector: 'input' }), password);
+    expect(await client.getSession()).not.toBeNull();
+    await user.click(screen.getByRole('button', { name: 'Save settings' }));
+    await screen.findByLabelText('Password');
+    await user.type(screen.getByLabelText('Email'), email);
+    await user.type(screen.getByLabelText('Password'), password);
+    await user.click(screen.getByRole('button', { name: 'Sign in' }));
+    expect(await screen.findByRole('button', { name: 'Sign out' })).toBeVisible();
+    expect((await client.getSession())?.email).toBe(email);
   });
 });

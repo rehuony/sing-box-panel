@@ -4,96 +4,116 @@ package httpapi
 
 import (
 	"net"
+	"net/netip"
 	"strings"
 	"sync"
 	"time"
 )
 
 const (
-	loginFailureLimit  = 5
-	loginFailureWindow = time.Minute
-	maxLoginClients    = 4096
+	loginAttemptLimit   = 5
+	loginAttemptWindow  = time.Minute
+	loginGlobalLimit    = 30
+	maxConcurrentLogins = 2
+	maxLoginClients     = 4096
 )
 
 type loginAttempt struct {
-	failures  int
+	attempts  int
 	expiresAt time.Time
 }
 
-// loginLimiter is deliberately local to the process. It bounds online guessing
-// without trusting proxy-supplied headers or creating attacker-controlled rows
-// in the database.
+// loginLimiter bounds work before reading a body, waiting for settings, or
+// hashing a password. Fingerprints are untrusted supplementary signals, never
+// replacements for the peer and process-wide budgets. State is memory-only.
 type loginLimiter struct {
-	mu      sync.Mutex
-	entries map[string]loginAttempt
-	now     func() time.Time
+	mu          sync.Mutex
+	entries     map[string]loginAttempt
+	global      loginAttempt
+	inFlight    int
+	nextCleanup time.Time
+	now         func() time.Time
 }
 
 func newLoginLimiter() *loginLimiter {
 	return &loginLimiter{entries: make(map[string]loginAttempt), now: time.Now}
 }
 
-func (limiter *loginLimiter) allow(client string) (bool, time.Duration) {
+// begin atomically consumes the peer/global budgets and reserves a work slot.
+// Rejected traffic from an exhausted peer cannot consume other peers' budget.
+func (limiter *loginLimiter) begin(client string) (bool, time.Duration) {
 	limiter.mu.Lock()
 	defer limiter.mu.Unlock()
 	now := limiter.now()
-	limiter.removeExpiredLocked(now)
-	attempt, ok := limiter.entries[client]
-	if !ok || attempt.failures < loginFailureLimit {
-		return true, 0
+	if !limiter.global.expiresAt.After(now) {
+		limiter.global = loginAttempt{expiresAt: now.Add(loginAttemptWindow)}
 	}
-	return false, attempt.expiresAt.Sub(now)
+	if limiter.global.attempts >= loginGlobalLimit {
+		return false, limiter.global.expiresAt.Sub(now)
+	}
+	if limiter.inFlight >= maxConcurrentLogins {
+		return false, time.Second
+	}
+	if allowed, retry := limiter.consumeLocked("peer:"+client, now); !allowed {
+		return false, retry
+	}
+	limiter.global.attempts++
+	limiter.inFlight++
+	return true, 0
 }
 
-func (limiter *loginLimiter) failed(client string) {
+func (limiter *loginLimiter) finish() {
 	limiter.mu.Lock()
-	defer limiter.mu.Unlock()
-	now := limiter.now()
-	limiter.removeExpiredLocked(now)
-	attempt, ok := limiter.entries[client]
-	if !ok {
-		limiter.makeRoomLocked()
-		attempt.expiresAt = now.Add(loginFailureWindow)
-	}
-	attempt.failures++
-	limiter.entries[client] = attempt
-}
-
-func (limiter *loginLimiter) succeeded(client string) {
-	limiter.mu.Lock()
-	delete(limiter.entries, client)
+	limiter.inFlight--
 	limiter.mu.Unlock()
 }
 
-func (limiter *loginLimiter) removeExpiredLocked(now time.Time) {
-	for client, attempt := range limiter.entries {
-		if !attempt.expiresAt.After(now) {
-			delete(limiter.entries, client)
-		}
+func (limiter *loginLimiter) fingerprint(value string) (bool, time.Duration) {
+	if value == "" {
+		return true, 0
 	}
+	limiter.mu.Lock()
+	defer limiter.mu.Unlock()
+	return limiter.consumeLocked("fingerprint:"+value, limiter.now())
 }
 
-func (limiter *loginLimiter) makeRoomLocked() {
-	if len(limiter.entries) < maxLoginClients {
-		return
-	}
-	var oldestClient string
-	var oldestExpiry time.Time
-	for client, attempt := range limiter.entries {
-		if oldestClient == "" || attempt.expiresAt.Before(oldestExpiry) {
-			oldestClient, oldestExpiry = client, attempt.expiresAt
+// consumeLocked never evicts a live entry to admit an attacker-controlled key.
+func (limiter *loginLimiter) consumeLocked(key string, now time.Time) (bool, time.Duration) {
+	if !limiter.nextCleanup.After(now) {
+		for key, attempt := range limiter.entries {
+			if !attempt.expiresAt.After(now) {
+				delete(limiter.entries, key)
+			}
 		}
+		limiter.nextCleanup = now.Add(loginAttemptWindow)
 	}
-	delete(limiter.entries, oldestClient)
+	attempt, exists := limiter.entries[key]
+	if !exists && len(limiter.entries) >= maxLoginClients {
+		return false, limiter.nextCleanup.Sub(now)
+	}
+	if !attempt.expiresAt.After(now) {
+		attempt = loginAttempt{expiresAt: now.Add(loginAttemptWindow)}
+	}
+	if attempt.attempts >= loginAttemptLimit {
+		return false, attempt.expiresAt.Sub(now)
+	}
+	attempt.attempts++
+	limiter.entries[key] = attempt
+	return true, 0
 }
 
 func loginClient(remoteAddress string) string {
-	remoteAddress = strings.TrimSpace(remoteAddress)
-	if host, _, err := net.SplitHostPort(remoteAddress); err == nil && host != "" {
-		return host
+	host := strings.TrimSpace(remoteAddress)
+	if parsed, _, err := net.SplitHostPort(host); err == nil {
+		host = parsed
 	}
-	if remoteAddress == "" {
-		return "unknown"
+	if address, err := netip.ParseAddr(host); err == nil {
+		address = address.Unmap().WithZone("")
+		if address.Is6() {
+			// Rotating addresses within a delegated IPv6 network is not a new peer.
+			return netip.PrefixFrom(address, 64).Masked().String()
+		}
+		return address.String()
 	}
-	return remoteAddress
+	return "unknown"
 }

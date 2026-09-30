@@ -48,6 +48,9 @@ func (handler *Handler) restorePanelBackup(w http.ResponseWriter, r *http.Reques
 	case err != nil:
 		writePanelSettingsProblem(w, r, err)
 	default:
+		if result.ReauthenticationRequired {
+			handler.clearSessionCookie(w, r)
+		}
 		w.Header().Set("Cache-Control", "no-store")
 		writeJSON(w, http.StatusOK, result)
 	}

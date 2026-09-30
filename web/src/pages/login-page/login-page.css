@@ -1,60 +1,62 @@
 .login-page {
-  align-items: center;
   display: grid;
-  justify-items: center;
-  min-block-size: 100dvh;
-  padding: 24px;
+  place-items: safe center;
+  block-size: 100dvh;
+  padding: 40px 24px;
+  overflow: auto;
+  background:
+    radial-gradient(ellipse at 0% 100%, color-mix(in oklch, var(--color-info) 16%, transparent), transparent 65%),
+    radial-gradient(
+      ellipse at 100% 0%,
+      color-mix(in oklch, var(--color-brand-orange) 16%, transparent),
+      transparent 65%
+    ),
+    radial-gradient(ellipse at 0% 0%, color-mix(in oklch, var(--color-accent) 10%, transparent), transparent 55%),
+    var(--color-paper);
 }
 
 .login-card {
+  --form-field-gap: 26px;
+  --control-height: 52px;
+  --control-height-lg: 52px;
+  --input: color-mix(in oklch, var(--color-text) 18%, var(--color-surface));
+  --input-focus: var(--color-accent);
   background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-panel);
-  box-shadow: var(--shadow-panel);
+  border-radius: 20px;
+  box-shadow: var(--shadow-card);
   display: grid;
-  gap: 24px;
-  max-width: 420px;
+  gap: 36px;
+  max-width: 448px;
   padding: 40px;
   width: 100%;
+  animation: login-arrive var(--dur-short) ease-out both;
 }
 
 .login-card__brand {
-  align-items: center;
-  display: flex;
-  flex-direction: column;
-  gap: 24px;
+  display: grid;
+  justify-items: center;
   text-align: center;
+  gap: 24px;
 }
 
-.login-card__icon {
-  align-items: center;
-  background: var(--color-accent-soft);
-  border-radius: var(--radius-card);
-  color: var(--color-accent);
-  display: flex;
-  height: 72px;
-  justify-content: center;
-  width: 72px;
-}
-
-.login-card__icon svg {
-  height: 32px;
-  width: 32px;
-  stroke-width: 1.6;
+.login-card__brand .panel-logo__mark {
+  width: 56px;
+  height: 56px;
 }
 
 .login-card__brand h1 {
   font-family: var(--font-display);
-  font-size: 28px;
+  font-size: 24px;
   font-weight: 650;
-  line-height: 40px;
+  line-height: 1.35;
+  letter-spacing: -0.02em;
   margin: 0;
 }
 
-.login-card__brand p {
+.login-card__description {
   color: var(--color-text-muted);
-  font-size: 14px;
-  line-height: 24px;
+  font-size: var(--text-sm);
+  line-height: 1.6;
   margin: 0;
 }
 
@@ -63,44 +65,69 @@
   gap: 24px;
 }
 
-.login-card .field-group {
-  display: grid;
-  gap: 12px;
-}
-
-.login-card__token {
+.login-card__input-field {
   position: relative;
 }
 
-.login-card__token input {
-  border-radius: var(--radius-control);
-  height: 48px;
-  padding-inline: 12px 48px;
+.login-card__input-field > [data-slot='field-label'] {
+  position: absolute;
+  z-index: 1;
+  inset-block-start: 0;
+  inset-inline-start: 12px;
+  transform: translateY(-50%);
+  width: auto;
+  padding-inline: 6px;
+  background: var(--color-surface);
+  font-size: var(--text-sm);
+  line-height: 20px;
+  transition: color var(--dur-micro) ease-out;
 }
 
-.login-card__visibility {
-  color: var(--color-text-muted);
-  position: absolute;
-  right: 8px;
-  top: 8px;
+.login-card__input-field:has(:focus-visible) > [data-slot='field-label'] {
+  color: var(--color-accent);
+}
+
+.login-card__input-field[data-invalid='true'] > [data-slot='field-label'] {
+  color: var(--destructive);
+}
+
+.login-card__input-field input {
+  font-size: var(--text-base);
+  padding-inline-start: 16px;
+}
+
+.login-card__input-field > [data-slot='input'],
+.login-card__input-field > [data-slot='input-group'] {
+  background: transparent;
 }
 
 .login-card__submit {
-  border-radius: var(--radius-control);
-  height: 44px;
   width: 100%;
 }
 
-#management-token-error {
-  color: var(--color-danger-text);
-  font-size: 0.8rem;
+@keyframes login-arrive {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }
 
 @media (max-width: 480px) {
   .login-page {
-    padding: 16px;
+    padding: 24px 16px;
   }
   .login-card {
-    padding: 32px 24px;
+    padding: 24px;
+    gap: 32px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .login-card,
+  .login-card * {
+    animation: none;
+    transition: none;
   }
 }

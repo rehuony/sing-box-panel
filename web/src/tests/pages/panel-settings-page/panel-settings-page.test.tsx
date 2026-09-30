@@ -5,6 +5,7 @@ import { fireEvent, render, screen, waitFor, within } from '@testing-library/rea
 
 import { ThemeProvider } from '@/theme';
 import { Toaster } from '@/components/ui/toast';
+import { ApiRequestError } from '@/api/api-client';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import '@/i18n';
 import { ApiClientProvider } from '@/api/api-client-context';
@@ -96,10 +97,10 @@ describe('panel settings', () => {
     const view = await client.getPanelSettings();
     vi.mocked(client.getPanelSettings).mockResolvedValue({ ...view, github_token_configured: true });
     setup(client);
-    const management = await screen.findByLabelText('Management token', { selector: 'input' });
+    await screen.findByRole('tab', { name: 'System maintenance' });
     await user.click(screen.getByRole('tab', { name: 'System maintenance' }));
     const github = screen.getByLabelText('GitHub Token', { selector: 'input' });
-    expect(github).toHaveAttribute('placeholder', (management as HTMLInputElement).value);
+    expect(github.getAttribute('placeholder')).toMatch(/^•+$/);
     expect(github).toHaveValue('');
     expect(github).toHaveAccessibleDescription('Configured; leave blank to retain');
     expect(screen.getByRole('button', { name: 'Save settings' })).toBeDisabled();
@@ -108,7 +109,7 @@ describe('panel settings', () => {
     expect(github).toHaveAttribute('placeholder', 'Removed when saved');
     await user.click(screen.getByRole('button', { name: 'Undo' }));
     expect(github).toBeEnabled();
-    expect(github).toHaveAttribute('placeholder', (management as HTMLInputElement).value);
+    expect(github.getAttribute('placeholder')).toMatch(/^•+$/);
     fireEvent.change(screen.getByLabelText('Version check interval (hours)'), { target: { value: '24' } });
     await user.click(screen.getByRole('button', { name: 'Save settings' }));
     await waitFor(() => expect(client.savePanelSettings).toHaveBeenCalledWith(expect.objectContaining({
@@ -147,10 +148,10 @@ describe('panel settings', () => {
     const client = setup();
     const view = await client.getPanelSettings();
     const configuration = await client.getConfigurationFile();
-    const native = demoBackupSettings(view, { github: '', management: 'backup-secret' });
+    const native = demoBackupSettings(view, { github: '', passwordHash: 'backup-secret' });
     native.data_dir = '/srv/other-machine';
     const backup = {
-      format: 'sing-box-panel-backup', version: 1, exported_at: '2026-09-23T01:00:00Z',
+      format: 'sing-box-panel-backup', version: 2, exported_at: '2026-09-23T01:00:00Z',
       panel_settings: native, sing_box_configuration: '  { unfinished raw text',
     };
     vi.mocked(client.restorePanelBackup).mockResolvedValue({
@@ -199,5 +200,49 @@ describe('panel settings', () => {
     })));
     await user.click(screen.getByRole('link', { name: 'Leave settings' }));
     await waitFor(() => expect(document.documentElement.style.getPropertyValue('--appearance-color')).toBe('#15803D'));
+  });
+  it.each([
+    { email: ' New@example.com ', password: '', credentials: { email: 'new@example.com' } },
+    { email: 'admin@example.com', password: 'new-password-123', credentials: { new_password: 'new-password-123' } },
+    { email: 'new@example.com', password: 'new-password-123', credentials: { email: 'new@example.com', new_password: 'new-password-123' } },
+  ])('stages account changes until the page save and retains failed drafts: $credentials', async ({ email, password, credentials }) => {
+    const user = userEvent.setup();
+    const client = createMockApiClient();
+    client.savePanelSettings.mockRejectedValue(new ApiRequestError('Settings changed', { status: 412, code: 'panel_settings_conflict' }));
+    setup(client);
+    const emailInput = await screen.findByLabelText('Email');
+    await user.clear(emailInput);
+    await user.type(emailInput, email);
+    if (password) await user.type(screen.getByLabelText('Password', { selector: 'input' }), password);
+    expect(screen.queryByLabelText('Current password')).not.toBeInTheDocument();
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    await user.click(screen.getByRole('tab', { name: 'Log management' }));
+    await user.click(screen.getByRole('tab', { name: 'Service settings' }));
+    expect(client.savePanelSettings).not.toHaveBeenCalled();
+    await user.click(screen.getByRole('button', { name: 'Save settings' }));
+    await waitFor(() => expect(client.savePanelSettings).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ credentials }),
+    ));
+    expect(screen.getByLabelText('Email')).toHaveValue(email);
+    expect(screen.getByLabelText('Password', { selector: 'input' })).toHaveValue(password);
+    expect(client.logout).not.toHaveBeenCalled();
+    await user.click(screen.getByRole('link', { name: 'Leave settings' }));
+    await user.click(screen.getByRole('button', { name: 'Discard changes' }));
+    await user.click(screen.getByRole('link', { name: 'Open settings' }));
+    expect(await screen.findByLabelText('Email')).toHaveValue('admin@example.com');
+    expect(screen.getByLabelText('Password', { selector: 'input' })).toHaveValue('');
+  });
+  it.each([
+    ['Email', 'invalid', 'admin-email'],
+    ['Password', 'short', 'new-password'],
+  ])('locates an invalid %s after saving from another category', async (label, value, id) => {
+    const user = userEvent.setup();
+    const client = setup();
+    const input = await screen.findByLabelText(label, { selector: 'input' });
+    fireEvent.change(input, { target: { value } });
+    await user.click(screen.getByRole('tab', { name: 'Log management' }));
+    await user.click(screen.getByRole('button', { name: 'Save settings' }));
+    await waitFor(() => expect(document.getElementById(id)).toHaveFocus());
+    expect(client.savePanelSettings).not.toHaveBeenCalled();
   });
 });

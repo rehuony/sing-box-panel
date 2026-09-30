@@ -6,13 +6,15 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	panelsettings "github.com/rehuony/sing-box-panel/internal/settings"
 	"os"
 	"path/filepath"
 	"reflect"
 	"slices"
 	"strings"
 	"testing"
+
+	panelsettings "github.com/rehuony/sing-box-panel/internal/settings"
+	"github.com/rehuony/sing-box-panel/internal/testutil"
 )
 
 type recordedCommand struct {
@@ -480,7 +482,8 @@ func escapedPathDirective(value string) string {
 func validTestSettings(data string) []byte {
 	config := panelsettings.Defaults()
 	config.DataDir = data
-	config.Auth.Token = "test-token"
+	config.Auth.Email = testutil.AdminEmail
+	config.Auth.PasswordHash = testutil.PasswordHash
 	raw, _ := json.Marshal(config)
 	return raw
 }

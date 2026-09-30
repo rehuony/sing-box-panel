@@ -10,12 +10,12 @@ import (
 	"path/filepath"
 	"reflect"
 	"slices"
-	"strings"
 	"testing"
 
 	"github.com/rehuony/sing-box-panel/internal/panelprocess"
 	"github.com/rehuony/sing-box-panel/internal/settings"
 	"github.com/rehuony/sing-box-panel/internal/store"
+	"github.com/rehuony/sing-box-panel/internal/testutil"
 )
 
 func fixture(t *testing.T) (string, string) {
@@ -27,7 +27,8 @@ func fixture(t *testing.T) (string, string) {
 	}
 	value := settings.Defaults()
 	value.DataDir = dataDir
-	value.Auth.Token = strings.Repeat("test", 8)
+	value.Auth.Email = testutil.AdminEmail
+	value.Auth.PasswordHash = testutil.PasswordHash
 	data, err := json.Marshal(value)
 	if err != nil {
 		t.Fatal(err)

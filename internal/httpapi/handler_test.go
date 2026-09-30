@@ -7,32 +7,52 @@ import (
 	"io/fs"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
 	"testing/fstest"
 	"time"
 
+	"github.com/rehuony/sing-box-panel/internal/application"
 	"github.com/rehuony/sing-box-panel/internal/buildinfo"
 	"github.com/rehuony/sing-box-panel/internal/settings"
+	"github.com/rehuony/sing-box-panel/internal/store"
+	"github.com/rehuony/sing-box-panel/internal/testutil"
 )
+
+func newTestHandler(t *testing.T, options HandlerOptions) *Handler {
+	t.Helper()
+	if options.Commands == nil {
+		database, err := store.Open(t.Context(), filepath.Join(t.TempDir(), "panel.db"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = database.Close() })
+		options.Commands = application.FromStoreWithSettings(database, options.Settings)
+	}
+	handler := NewHandler(options)
+	testutil.ReuseSession(t, handler)
+	return handler
+}
 
 func testHandler(t *testing.T) *Handler {
 	t.Helper()
 	value := settings.Defaults()
 	value.DataDir = t.TempDir()
-	value.Auth.Token = "correct-management-token"
+	value.Auth.Email = testutil.AdminEmail
+	value.Auth.PasswordHash = testutil.PasswordHash
 	if err := value.Validate(); err != nil {
 		t.Fatal(err)
 	}
-	return NewHandler(HandlerOptions{Settings: value, Build: buildinfo.Info{Version: "test"}})
+	return newTestHandler(t, HandlerOptions{Settings: value, Build: buildinfo.Info{Version: "test"}})
 }
 
 func TestRemovedConfigurationRoutesAreNotExposed(t *testing.T) {
 	handler := testHandler(t)
 	for _, path := range []string{"/api/v1/nodes", "/api/v1/config/canonical", "/api/v1/config/revisions", "/api/v1/config/revisions/diff", "/api/v1/config/revisions/old/restore"} {
 		for _, method := range []string{http.MethodGet, http.MethodPut, http.MethodPatch, http.MethodPost} {
-			response := authenticatedRequest(handler, method, path, "", "")
+			response := authenticatedRequest(t, handler, method, path, "", "")
 			if response.Code != http.StatusNotFound {
 				t.Fatalf("%s %s: status=%d body=%s", method, path, response.Code, response.Body.String())
 			}
@@ -55,9 +75,9 @@ func TestContentSecurityPolicyDoesNotPermitRuntimeSchemaEvaluation(t *testing.T)
 	}
 }
 
-func authenticatedRequest(handler http.Handler, method, target, body, ifMatch string) *httptest.ResponseRecorder {
+func authenticatedRequest(t *testing.T, handler http.Handler, method, target, body, ifMatch string) *httptest.ResponseRecorder {
 	request := httptest.NewRequest(method, target, strings.NewReader(body))
-	request.Header.Set("Authorization", "Bearer correct-management-token")
+	testutil.Authorize(t, handler, request)
 	if ifMatch != "" {
 		request.Header.Set("If-Match", ifMatch)
 	}
@@ -69,13 +89,14 @@ func authenticatedRequest(handler http.Handler, method, target, body, ifMatch st
 func TestBasePathAndSPAFallback(t *testing.T) {
 	value := settings.Defaults()
 	value.DataDir = t.TempDir()
-	value.Auth.Token = "correct-management-token"
+	value.Auth.Email = testutil.AdminEmail
+	value.Auth.PasswordHash = testutil.PasswordHash
 	value.Server.BasePath = "/panel"
 	assets := fstest.MapFS{
 		"index.html":    &fstest.MapFile{Data: []byte(`<base href="/" data-sbp-runtime /><meta name="sing-box-panel-base-path" content="__SBP_BASE_PATH__" />`)},
 		"assets/app.js": &fstest.MapFile{Data: []byte(`console.log("panel")`)},
 	}
-	handler := NewHandler(HandlerOptions{Settings: value, Assets: fs.FS(assets)})
+	handler := newTestHandler(t, HandlerOptions{Settings: value, Assets: fs.FS(assets)})
 
 	root := httptest.NewRequest(http.MethodGet, "/panel", nil)
 	rootResponse := httptest.NewRecorder()
@@ -115,9 +136,59 @@ func TestHealthIsPublic(t *testing.T) {
 	}
 }
 
+func TestRequestIDIsBoundedAndConsistentAcrossResponses(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		values   []string
+		preserve bool
+	}{
+		{name: "missing"},
+		{name: "empty", values: []string{""}},
+		{name: "ordinary", values: []string{"proxy-request:42.1"}, preserve: true},
+		{name: "boundary", values: []string{strings.Repeat("x", 128)}, preserve: true},
+		{name: "unicode_boundary", values: []string{strings.Repeat("界", 42) + "ab"}, preserve: true},
+		{name: "invalid_utf8", values: []string{strings.Repeat("\xff", 128)}},
+		{name: "oversized", values: []string{strings.Repeat("x", 900<<10)}},
+		{name: "unicode_bytes", values: []string{strings.Repeat("界", 43)}},
+		{name: "duplicate", values: []string{"first", "second"}},
+		{name: "oversized_duplicate", values: []string{"first", strings.Repeat("x", 900<<10)}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			for _, method := range []string{http.MethodGet, http.MethodPost} {
+				handler := NewHandler(HandlerOptions{})
+				request := httptest.NewRequest(method, "/api/v1/auth/session", strings.NewReader("{"))
+				request.Header.Set("Origin", "http://example.com")
+				request.Header.Set("Content-Type", "application/json")
+				request.Header["X-Request-Id"] = test.values
+				response := httptest.NewRecorder()
+				handler.ServeHTTP(response, request)
+				id := response.Header().Get("X-Request-ID")
+				if len(id) == 0 || len(id) > 128 {
+					t.Fatalf("%s: response ID length=%d", method, len(id))
+				}
+				if test.preserve && id != test.values[0] {
+					t.Fatalf("%s: changed a bounded request ID", method)
+				}
+				if !test.preserve && len(test.values) > 0 && id == test.values[0] {
+					t.Fatalf("%s: did not replace invalid or ambiguous request ID", method)
+				}
+				var problem Problem
+				if err := json.Unmarshal(response.Body.Bytes(), &problem); err != nil {
+					t.Fatal(err)
+				}
+				if problem.RequestID != id || request.Header.Get("X-Request-ID") != id || len(request.Header.Values("X-Request-ID")) != 1 {
+					t.Fatalf("%s: request and response correlation IDs disagree", method)
+				}
+			}
+		})
+	}
+}
+
 func TestLoginAndAuthenticatedStatus(t *testing.T) {
 	handler := testHandler(t)
-	login := httptest.NewRequest(http.MethodPost, "/api/v1/auth/session", strings.NewReader(`{"token":"correct-management-token"}`))
+	login := httptest.NewRequest(http.MethodPost, "/api/v1/auth/session", strings.NewReader(`{"email":"admin@example.com","password":"test-administrator-password"}`))
+	login.Header.Set("Content-Type", "application/json")
+	login.Header.Set("Origin", "http://example.com")
 	login.Header.Set("Content-Type", "application/json")
 	loginResponse := httptest.NewRecorder()
 	handler.ServeHTTP(loginResponse, login)
@@ -149,7 +220,9 @@ func TestLoginAndAuthenticatedStatus(t *testing.T) {
 
 func TestInvalidLoginDoesNotCreateSession(t *testing.T) {
 	handler := testHandler(t)
-	request := httptest.NewRequest(http.MethodPost, "/api/v1/auth/session", strings.NewReader(`{"token":"wrong"}`))
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/auth/session", strings.NewReader(`{"email":"admin@example.com","password":"wrong"}`))
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Origin", "http://example.com")
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, request)
 	if response.Code != http.StatusUnauthorized {
@@ -164,8 +237,10 @@ func TestLoginRateLimitUsesRemoteAddressAndExpires(t *testing.T) {
 	handler := testHandler(t)
 	now := time.Date(2026, time.August, 26, 0, 0, 0, 0, time.UTC)
 	handler.logins.now = func() time.Time { return now }
-	for attempt := 0; attempt < loginFailureLimit; attempt++ {
-		request := httptest.NewRequest(http.MethodPost, "/api/v1/auth/session", strings.NewReader(`{"token":"wrong"}`))
+	for attempt := 0; attempt < loginAttemptLimit; attempt++ {
+		request := httptest.NewRequest(http.MethodPost, "/api/v1/auth/session", strings.NewReader(`{"email":"admin@example.com","password":"wrong"}`))
+		request.Header.Set("Content-Type", "application/json")
+		request.Header.Set("Origin", "http://example.com")
 		request.RemoteAddr = "192.0.2.10:1234"
 		request.Header.Set("X-Forwarded-For", "198.51.100."+strconv.Itoa(attempt+1))
 		response := httptest.NewRecorder()
@@ -175,7 +250,9 @@ func TestLoginRateLimitUsesRemoteAddressAndExpires(t *testing.T) {
 		}
 	}
 
-	blocked := httptest.NewRequest(http.MethodPost, "/api/v1/auth/session", strings.NewReader(`{"token":"correct-management-token"}`))
+	blocked := httptest.NewRequest(http.MethodPost, "/api/v1/auth/session", strings.NewReader(`{"email":"admin@example.com","password":"test-administrator-password"}`))
+	blocked.Header.Set("Content-Type", "application/json")
+	blocked.Header.Set("Origin", "http://example.com")
 	blocked.RemoteAddr = "192.0.2.10:9999"
 	blocked.Header.Set("X-Forwarded-For", "203.0.113.200")
 	blockedResponse := httptest.NewRecorder()
@@ -184,8 +261,10 @@ func TestLoginRateLimitUsesRemoteAddressAndExpires(t *testing.T) {
 		t.Fatalf("blocked status = %d retry-after=%q body=%s", blockedResponse.Code, blockedResponse.Header().Get("Retry-After"), blockedResponse.Body.String())
 	}
 
-	now = now.Add(loginFailureWindow)
-	retry := httptest.NewRequest(http.MethodPost, "/api/v1/auth/session", strings.NewReader(`{"token":"correct-management-token"}`))
+	now = now.Add(loginAttemptWindow)
+	retry := httptest.NewRequest(http.MethodPost, "/api/v1/auth/session", strings.NewReader(`{"email":"admin@example.com","password":"test-administrator-password"}`))
+	retry.Header.Set("Content-Type", "application/json")
+	retry.Header.Set("Origin", "http://example.com")
 	retry.RemoteAddr = "192.0.2.10:1234"
 	retryResponse := httptest.NewRecorder()
 	handler.ServeHTTP(retryResponse, retry)
@@ -194,42 +273,41 @@ func TestLoginRateLimitUsesRemoteAddressAndExpires(t *testing.T) {
 	}
 }
 
-func TestSuccessfulLoginClearsFailureBudget(t *testing.T) {
+func TestSuccessfulLoginDoesNotResetAttemptBudget(t *testing.T) {
 	handler := testHandler(t)
-	for attempt := 0; attempt < loginFailureLimit-1; attempt++ {
+	for attempt := 0; attempt < loginAttemptLimit-1; attempt++ {
 		response := httptest.NewRecorder()
-		request := httptest.NewRequest(http.MethodPost, "/api/v1/auth/session", strings.NewReader(`{"token":"wrong"}`))
+		request := httptest.NewRequest(http.MethodPost, "/api/v1/auth/session", strings.NewReader(`{"email":"admin@example.com","password":"wrong"}`))
+		request.Header.Set("Content-Type", "application/json")
+		request.Header.Set("Origin", "http://example.com")
 		handler.ServeHTTP(response, request)
 	}
-	success := httptest.NewRecorder()
-	handler.ServeHTTP(success, httptest.NewRequest(http.MethodPost, "/api/v1/auth/session", strings.NewReader(`{"token":"correct-management-token"}`)))
+	success := loginWithPassword(t, handler, testutil.AdminPassword)
 	if success.Code != http.StatusOK {
 		t.Fatalf("success status = %d; body = %s", success.Code, success.Body.String())
 	}
-	for attempt := 0; attempt < loginFailureLimit-1; attempt++ {
-		response := httptest.NewRecorder()
-		request := httptest.NewRequest(http.MethodPost, "/api/v1/auth/session", strings.NewReader(`{"token":"wrong"}`))
-		handler.ServeHTTP(response, request)
-		if response.Code != http.StatusUnauthorized {
-			t.Fatalf("attempt after reset %d status = %d", attempt+1, response.Code)
-		}
+	response := loginWithPassword(t, handler, testutil.AdminPassword)
+	if response.Code != http.StatusTooManyRequests {
+		t.Fatalf("attempt after success status = %d", response.Code)
 	}
 }
 
-func TestBearerStatus(t *testing.T) {
+func TestBearerAuthenticationRemoved(t *testing.T) {
 	handler := testHandler(t)
 	request := httptest.NewRequest(http.MethodGet, "/api/v1/system/status", nil)
-	request.Header.Set("Authorization", "Bearer correct-management-token")
+	request.Header.Set("Authorization", "Bearer "+testutil.AdminPassword)
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, request)
-	if response.Code != http.StatusOK {
+	if response.Code != http.StatusUnauthorized {
 		t.Fatalf("status = %d; body = %s", response.Code, response.Body.String())
 	}
 }
 
-func TestLoginRejectsDuplicateToken(t *testing.T) {
+func TestLoginRejectsDuplicatePassword(t *testing.T) {
 	handler := testHandler(t)
-	request := httptest.NewRequest(http.MethodPost, "/api/v1/auth/session", strings.NewReader(`{"token":"correct-management-token","token":"wrong"}`))
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/auth/session", strings.NewReader(`{"email":"admin@example.com","password":"correct","password":"wrong"}`))
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Origin", "http://example.com")
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, request)
 	if response.Code != http.StatusBadRequest {
@@ -239,7 +317,9 @@ func TestLoginRejectsDuplicateToken(t *testing.T) {
 
 func TestSessionRefreshAndCSRFProtectedLogout(t *testing.T) {
 	handler := testHandler(t)
-	login := httptest.NewRequest(http.MethodPost, "/api/v1/auth/session", strings.NewReader(`{"token":"correct-management-token"}`))
+	login := httptest.NewRequest(http.MethodPost, "/api/v1/auth/session", strings.NewReader(`{"email":"admin@example.com","password":"test-administrator-password"}`))
+	login.Header.Set("Content-Type", "application/json")
+	login.Header.Set("Origin", "http://example.com")
 	loginResponse := httptest.NewRecorder()
 	handler.ServeHTTP(loginResponse, login)
 	if loginResponse.Code != http.StatusOK {
@@ -286,13 +366,16 @@ func TestSessionRefreshAndCSRFProtectedLogout(t *testing.T) {
 func TestCSRFUsesConfiguredExternalOriginWithoutForwardedHeaders(t *testing.T) {
 	value := settings.Defaults()
 	value.DataDir = t.TempDir()
-	value.Auth.Token = "correct-management-token"
+	value.Auth.Email = testutil.AdminEmail
+	value.Auth.PasswordHash = testutil.PasswordHash
 	value.Server.ExternalOrigin = "http://panel.example"
 	if err := value.Validate(); err != nil {
 		t.Fatal(err)
 	}
-	handler := NewHandler(HandlerOptions{Settings: value, Build: buildinfo.Info{Version: "test"}})
-	login := httptest.NewRequest(http.MethodPost, "/api/v1/auth/session", strings.NewReader(`{"token":"correct-management-token"}`))
+	handler := newTestHandler(t, HandlerOptions{Settings: value, Build: buildinfo.Info{Version: "test"}})
+	login := httptest.NewRequest(http.MethodPost, "/api/v1/auth/session", strings.NewReader(`{"email":"admin@example.com","password":"test-administrator-password"}`))
+	login.Header.Set("Content-Type", "application/json")
+	login.Header.Set("Origin", "http://panel.example")
 	loginResponse := httptest.NewRecorder()
 	handler.ServeHTTP(loginResponse, login)
 	var payload struct {
@@ -318,7 +401,7 @@ func TestCSRFUsesConfiguredExternalOriginWithoutForwardedHeaders(t *testing.T) {
 }
 
 func TestIndexStyleNonceIsUniqueAndMatchesPolicy(t *testing.T) {
-	handler := NewHandler(HandlerOptions{Settings: settings.Defaults(), Assets: fstest.MapFS{
+	handler := newTestHandler(t, HandlerOptions{Settings: settings.Defaults(), Assets: fstest.MapFS{
 		"index.html": &fstest.MapFile{Data: []byte(`<head><meta name="sing-box-panel-style-nonce" content="__SBP_STYLE_NONCE__" /></head>`)},
 	}})
 	previous := ""

@@ -16,13 +16,15 @@ import (
 	"github.com/rehuony/sing-box-panel/internal/application"
 	"github.com/rehuony/sing-box-panel/internal/settings"
 	"github.com/rehuony/sing-box-panel/internal/store"
+	"github.com/rehuony/sing-box-panel/internal/testutil"
 )
 
 func TestAnonymousHTMLSharesCurrentPanelAppearance(t *testing.T) {
 	value := settings.Defaults()
 	value.DataDir = t.TempDir()
 	value.Server.BasePath = "/panel"
-	value.Auth.Token = "private-management-token"
+	value.Auth.Email = testutil.AdminEmail
+	value.Auth.PasswordHash = testutil.PasswordHash
 	value.GitHub.Token = "private-github-token"
 	value.Panel.Appearance = settings.Appearance{Theme: "dark", Color: "#C65B13", Radius: 8}
 	value = settingsFileFixture(t, value)
@@ -35,7 +37,7 @@ func TestAnonymousHTMLSharesCurrentPanelAppearance(t *testing.T) {
 	assets := fstest.MapFS{
 		"index.html": &fstest.MapFile{Data: []byte(`<meta name="sing-box-panel-appearance" content="__SBP_APPEARANCE__" /><style nonce="__SBP_STYLE_NONCE__">/*__SBP_APPEARANCE_CSS__*/</style>`)},
 	}
-	handler := NewHandler(HandlerOptions{Settings: value, Commands: app, Assets: assets})
+	handler := newTestHandler(t, HandlerOptions{Settings: value, Commands: app, Assets: assets})
 	assertAppearance := func(want settings.Appearance) {
 		t.Helper()
 		for _, path := range []string{"/panel/login", "/panel/", "/panel/configuration"} {
@@ -54,7 +56,7 @@ func TestAnonymousHTMLSharesCurrentPanelAppearance(t *testing.T) {
 			if len(got) != 3 || got["theme"] != want.Theme || got["color"] != want.Color || got["radius"] != float64(want.Radius) {
 				t.Fatalf("appearance = %v; want %+v", got, want)
 			}
-			for _, private := range []string{value.Auth.Token, value.GitHub.Token, value.DataDir, "listen_host", "service"} {
+			for _, private := range []string{value.Auth.PasswordHash, value.GitHub.Token, value.DataDir, "listen_host", "service"} {
 				if strings.Contains(body, private) {
 					t.Fatal("anonymous HTML contains private panel settings")
 				}

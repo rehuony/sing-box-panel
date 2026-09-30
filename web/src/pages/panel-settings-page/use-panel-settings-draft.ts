@@ -12,10 +12,11 @@ import { useUnsavedChanges } from '@/hooks/use-unsaved-changes';
 import { describeRequestError } from '@/components/error-notice';
 import { usePanelSettings } from '@/stores/panel-settings.store';
 
-import { invalidSettingsField, managementTokenError, resolveSettingsCategory, settingsHashValues } from './settings-categories';
+import { invalidSettingsField, passwordError, resolveSettingsCategory, settingsHashValues } from './settings-categories';
 
 export function usePanelSettingsDraft(incoming: PanelSettingsView) {
   const [initial, setInitial] = useState(incoming);
+  const [observedIncoming, setObservedIncoming] = useState(incoming);
   const { t } = useTranslation();
   const { preview, save, accept } = usePanelSettings();
   const { appearance: activeAppearance } = useTheme();
@@ -32,41 +33,44 @@ export function usePanelSettingsDraft(incoming: PanelSettingsView) {
   useEffect(() => {
     if (invalidField) document.getElementById(invalidField)?.focus();
   }, [invalidField, category]);
-  const [tokenOpen, setTokenOpen] = useState(false);
-  const [token, setToken] = useState('');
-  const [tokenConfirm, setTokenConfirm] = useState('');
+  const [password, setPassword] = useState('');
+  const [email, setEmail] = useState(initial.admin_email);
   async function restored(view: PanelSettingsView) {
     setInitial(view);
+    setEmail(view.admin_email);
     const { appearance: _appearance, ...restoredPreferences } = view.preferences;
     setPreferencesDraft(restoredPreferences);
     setService(view.service);
     setGithub('');
     setClearGithub(false);
-    setToken('');
-    setTokenConfirm('');
+    setPassword('');
     setInvalidField(null);
     await accept(view);
   }
-  const tokenError = managementTokenError(token);
-  const tokenValid = tokenError === undefined;
+  const newPasswordError = passwordError(password);
+  const passwordValid = newPasswordError === undefined;
   const colorValid = /^#[\dA-F]{6}$/i.test(preferences.appearance.color);
   const dirty = JSON.stringify(preferencesDraft) !== JSON.stringify(initialPreferences)
     || JSON.stringify(activeAppearance) !== JSON.stringify(initialAppearance)
-    || JSON.stringify(service) !== JSON.stringify(initial.service) || github !== '' || clearGithub;
-  if (!dirty && !saving && incoming.revision > initial.revision) {
-    setInitial(incoming);
-    const { appearance: _appearance, ...nextPreferences } = incoming.preferences;
-    setPreferencesDraft(nextPreferences);
-    setService(incoming.service);
+    || JSON.stringify(service) !== JSON.stringify(initial.service) || github !== '' || clearGithub
+    || email !== initial.admin_email || password !== '';
+  if (!dirty && !saving && incoming !== observedIncoming) {
+    setObservedIncoming(incoming);
+    if (incoming.revision !== initial.revision) {
+      setInitial(incoming);
+      setEmail(incoming.admin_email);
+      const { appearance: _appearance, ...nextPreferences } = incoming.preferences;
+      setPreferencesDraft(nextPreferences);
+      setService(incoming.service);
+    }
   }
-  useUnsavedChanges(dirty || token !== '' || tokenConfirm !== '', () => {
+  useUnsavedChanges(dirty, () => {
+    setEmail(initial.admin_email);
     setPreferencesDraft(initialPreferences);
     setService(initial.service);
     setGithub('');
     setClearGithub(false);
-    setToken('');
-    setTokenConfirm('');
-    setTokenOpen(false);
+    setPassword('');
     preview(null);
   }, saving, { allowSamePathNavigation: true });
 
@@ -82,34 +86,43 @@ export function usePanelSettingsDraft(incoming: PanelSettingsView) {
   const appearance = (value: Partial<AppearanceSettings>) =>
     preview(value);
 
-  async function submit(event?: FormEvent, managementToken?: string) {
+  async function submit(event?: FormEvent) {
     event?.preventDefault();
-    if (saving || (managementToken !== undefined && !tokenValid)) return;
-    const invalid = invalidSettingsField(preferences, service, github);
+    if (saving) return;
+    const invalid = invalidSettingsField(preferences, service, github, email, password);
     setInvalidField(invalid?.field ?? null);
     if (invalid) {
       setCategory(invalid.category);
-      setTokenOpen(false);
       return;
     }
     setSaving(true);
     try {
-      const result = await save({
+      const saved = await save({
         revision: initial.revision, preferences, github_token: github, clear_github_token: clearGithub,
         service,
-        management_token: managementToken,
+        credentials: email !== initial.admin_email || password !== ''
+          ? {
+              ...(email !== initial.admin_email && { email: email.trim().toLowerCase() }),
+              ...(password !== '' && { new_password: password }),
+            }
+          : undefined,
       });
+      setPassword('');
+      if (saved.reauthentication_required) {
+        toast.add({ title: t('panelSettings.credentialsChanged'), type: 'success' });
+        return;
+      }
+      const result = saved.settings;
       setInitial(result);
+      setEmail(result.admin_email);
       const { appearance: _appearance, ...savedPreferences } = result.preferences;
       setPreferencesDraft(savedPreferences);
       setService(result.service);
       setGithub('');
       setClearGithub(false);
-      setToken('');
-      setTokenConfirm('');
-      setTokenOpen(false);
-      toast.add({ title: t(managementToken ? 'panelSettings.tokenChanged' : result.restart_required ? 'panelSettings.restart' : 'panelSettings.saved'), type: 'success' });
+      toast.add({ title: t(result.restart_required ? 'panelSettings.restart' : 'panelSettings.saved'), type: 'success' });
     } catch (reason) {
+      if (reason instanceof DOMException && reason.name === 'AbortError') return;
       toast.add({ title: t('panelSettings.failed'), description: describeRequestError(reason), type: 'error' });
     } finally {
       setSaving(false);
@@ -117,6 +130,7 @@ export function usePanelSettingsDraft(incoming: PanelSettingsView) {
   }
 
   return {
+    email, setEmail,
     preferences,
     service,
     github,
@@ -124,18 +138,14 @@ export function usePanelSettingsDraft(incoming: PanelSettingsView) {
     category,
     saving,
     invalidField,
-    tokenOpen,
-    token,
-    tokenConfirm,
-    tokenError,
-    tokenValid,
+    password,
+    newPasswordError,
+    passwordValid,
     colorValid,
     dirty,
     setCategory,
     setSaving,
-    setTokenOpen,
-    setToken,
-    setTokenConfirm,
+    setPassword,
     setGithub,
     setClearGithub,
     restored,

@@ -237,7 +237,7 @@ func TestPanelEventsSurviveSettingsChangesAndBackupRestore(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := app.RestorePanelBackup(ctx, PanelRestoreRequest{
-		Backup: backup, SettingsRevision: saved.Revision, ConfigurationRevision: file.Revision,
+		Backup: backup, SettingsRevision: saved.Settings.Revision, ConfigurationRevision: file.Revision,
 	}); err != nil {
 		t.Fatal(err)
 	}

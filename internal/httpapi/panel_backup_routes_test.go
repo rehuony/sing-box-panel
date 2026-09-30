@@ -12,6 +12,7 @@ import (
 	"github.com/rehuony/sing-box-panel/internal/application"
 	"github.com/rehuony/sing-box-panel/internal/settings"
 	"github.com/rehuony/sing-box-panel/internal/store"
+	"github.com/rehuony/sing-box-panel/internal/testutil"
 )
 
 func TestPanelBackupAuthenticationCSRFAndRevisionConflict(t *testing.T) {
@@ -22,15 +23,13 @@ func TestPanelBackupAuthenticationCSRFAndRevisionConflict(t *testing.T) {
 	defer db.Close()
 	cfg := settingsFileFixture(t, settings.Defaults())
 	app := application.FromStoreWithSettings(db, cfg)
-	handler := NewHandler(HandlerOptions{Settings: cfg, Commands: app})
+	handler := newTestHandler(t, HandlerOptions{Settings: cfg, Commands: app})
 	anonymous := httptest.NewRecorder()
 	handler.ServeHTTP(anonymous, httptest.NewRequest(http.MethodGet, "/api/v1/panel/backup", nil))
 	if anonymous.Code != 401 {
 		t.Fatalf("anonymous export: %d", anonymous.Code)
 	}
-	login := httptest.NewRecorder()
-	body, _ := json.Marshal(map[string]string{"token": cfg.Auth.Token})
-	handler.ServeHTTP(login, httptest.NewRequest(http.MethodPost, "/api/v1/auth/session", bytes.NewReader(body)))
+	login := loginWithPassword(t, handler, testutil.AdminPassword)
 	if login.Code != 200 {
 		t.Fatal(login.Body.String())
 	}
@@ -70,7 +69,7 @@ func TestPanelBackupAuthenticationCSRFAndRevisionConflict(t *testing.T) {
 	if got := restore(false); got.Code != 403 {
 		t.Fatalf("CSRF: %d", got.Code)
 	}
-	if got := restore(true); got.Code != 200 || strings.Contains(got.Body.String(), cfg.Auth.Token) {
+	if got := restore(true); got.Code != 200 || len(got.Result().Cookies()) != 0 || strings.Contains(got.Body.String(), cfg.Auth.PasswordHash) {
 		t.Fatalf("restore: %d", got.Code)
 	}
 	if got := restore(true); got.Code != 412 {
@@ -80,7 +79,7 @@ func TestPanelBackupAuthenticationCSRFAndRevisionConflict(t *testing.T) {
 	if stored.Content != backup.SingBoxConfiguration {
 		t.Fatal("text was altered")
 	}
-	input.Backup.Version = 2
+	input.Backup.Version = 1
 	if got := restore(true); got.Code != 422 {
 		t.Fatalf("unsupported: %d", got.Code)
 	}

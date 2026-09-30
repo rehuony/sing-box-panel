@@ -1,19 +1,5 @@
 import type { FilesystemPage, FilesystemQuery, FilesystemResolveInput, FilesystemSelection } from './contracts/filesystem';
 import type {
-  CatalogRefresh,
-  ConfigurationFile,
-  ConfigurationFileWrite,
-  DashboardContext,
-  PanelBackup,
-  PanelRestoreRequest,
-  PanelRestoreResult,
-  PanelSettingsView,
-  PanelSettingsWrite,
-  Session,
-  SubscriptionSourceRefreshResult,
-  SystemStatus,
-} from './generated';
-import type {
   CoreLogChunk,
   CoreLogFile,
   DashboardStreamSnapshot,
@@ -32,6 +18,22 @@ import type {
   TrafficPeriodFilter,
   TrafficPeriodPage,
 } from './contracts/observability';
+import type {
+  CatalogRefresh,
+  ConfigurationFile,
+  ConfigurationFileWrite,
+  DashboardContext,
+  LoginInputWritable as LoginInput,
+  PanelBackup,
+  PanelRestoreRequest,
+  PanelRestoreResult,
+  PanelSettingsSaveResult,
+  PanelSettingsView,
+  PanelSettingsWriteWritable as PanelSettingsWrite,
+  Session,
+  SubscriptionSourceRefreshResult,
+  SystemStatus,
+} from './generated';
 import type {
   CatalogAssetFilter,
   CatalogAssetList,
@@ -87,13 +89,15 @@ export type {
   ConfigurationFileWrite,
   DashboardContext,
   DynamicObject as JsonObject,
+  LoginInputWritable as LoginInput,
   PanelBackup,
   PanelPreferences,
   PanelRestoreRequest,
   PanelRestoreResult,
   PanelServiceSettings,
+  PanelSettingsSaveResult,
   PanelSettingsView,
-  PanelSettingsWrite,
+  PanelSettingsWriteWritable as PanelSettingsWrite,
   Session,
   SubscriptionSourceRefreshResult,
   SystemStatus,
@@ -117,16 +121,16 @@ export interface ApiClient {
   getMetrics: (signal?: AbortSignal) => Promise<MetricsSnapshot>;
   startRuntime: (signal?: AbortSignal) => Promise<RuntimeStatus>;
   getSystemStatus: (signal?: AbortSignal) => Promise<SystemStatus>;
-  login: (token: string, signal?: AbortSignal) => Promise<Session>;
-
   restartRuntime: (signal?: AbortSignal) => Promise<RuntimeStatus>;
+
   exportPanelBackup: (signal?: AbortSignal) => Promise<PanelBackup>;
   subscribeSessionInvalidated: (listener: () => void) => () => void;
   getRuntimeStatus: (signal?: AbortSignal) => Promise<RuntimeStatus>;
   clearCoreLog: (file: string, signal?: AbortSignal) => Promise<void>;
   getLog: (entryID: string, signal?: AbortSignal) => Promise<LogEntry>;
-
   getTrafficStatus: (signal?: AbortSignal) => Promise<MetricsSnapshot>;
+
+  login: (input: LoginInput, signal?: AbortSignal) => Promise<Session>;
   getPanelSettings: (signal?: AbortSignal) => Promise<PanelSettingsView>;
   deleteCoreLogFile: (file: string, signal?: AbortSignal) => Promise<void>;
   getDashboardContext: (signal?: AbortSignal) => Promise<DashboardContext>;
@@ -171,10 +175,6 @@ export interface ApiClient {
   ) => Promise<MetricsHistory>;
 
   refreshSubscriptionSource: (sourceID: string, signal?: AbortSignal) => Promise<SubscriptionSourceRefreshResult>;
-  savePanelSettings: (
-    input: PanelSettingsWrite,
-    signal?: AbortSignal,
-  ) => Promise<PanelSettingsView>;
   listCatalogAssets: (
     filter?: CatalogAssetFilter,
     signal?: AbortSignal,
@@ -184,11 +184,11 @@ export interface ApiClient {
     signal?: AbortSignal,
   ) => Promise<CoreArtifactPage>;
   readCoreLog: (file: string, offset?: number, generation?: string, signal?: AbortSignal) => Promise<CoreLogChunk>;
-
   getConfigurationSupport: (
     artifactID: string,
     signal?: AbortSignal,
   ) => Promise<ConfigurationSupport>;
+
   getSubscriptionUserGrants: (
     userID: string,
     signal?: AbortSignal,
@@ -210,6 +210,10 @@ export interface ApiClient {
     filter?: RuntimeHistoryFilter,
     signal?: AbortSignal,
   ) => Promise<RuntimeHistoryPage>;
+  savePanelSettings: (
+    input: PanelSettingsWrite,
+    signal?: AbortSignal,
+  ) => Promise<PanelSettingsSaveResult>;
   streamMetrics: (
     signal?: AbortSignal,
   ) => AsyncIterable<{ metrics: MetricsSnapshot; runtime: RuntimeStatus }>;

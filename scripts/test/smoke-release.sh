@@ -365,18 +365,20 @@ run_installed() {
     "${installed_binary}" --config "${settings_path}" "$@"
 }
 
-run_installed init >/dev/null
+run_installed --output json init >"${smoke_root}/initial-credentials.json"
+chmod 0600 "${smoke_root}/initial-credentials.json"
 panel_port="$(allocate_port)"
 settings_temporary="${settings_path}.tmp"
 jq \
   --argjson port "${panel_port}" \
-  '.server.host = "127.0.0.1" | .server.port = $port | .server.external_origin = "" | .auth.secure_cookie = false' \
+  '.server.host = "127.0.0.1" | .server.port = $port | .server.external_origin = ""' \
   "${settings_path}" >"${settings_temporary}"
 chmod 0600 "${settings_temporary}"
 mv -- "${settings_temporary}" "${settings_path}"
 run_installed config verify >/dev/null
 
-management_token="$(jq -er '.auth.token | select(type == "string" and length > 0)' "${settings_path}")"
+cookie_jar="${smoke_root}/session.cookies"
+csrf_token=""
 panel_origin="http://127.0.0.1:${panel_port}"
 start_panel() {
   local expected_version="$1"
@@ -427,7 +429,7 @@ authenticated_get() {
     --silent \
     --show-error \
     --max-time 5 \
-    --header "Authorization: Bearer ${management_token}" \
+    --cookie "${cookie_jar}" \
     "${panel_origin}${path}"
 }
 
@@ -437,7 +439,9 @@ authenticated_put() {
   local response_status
   response_status="$(curl --silent --show-error --max-time 10 \
     --request PUT \
-    --header "Authorization: Bearer ${management_token}" \
+    --header "Origin: ${panel_origin}" \
+    --header "X-CSRF-Token: ${csrf_token}" \
+    --cookie "${cookie_jar}" \
     --header 'Content-Type: application/json' \
     --data-binary @- \
     --output "${smoke_root}/response.json" \
@@ -452,6 +456,12 @@ authenticated_put() {
 
 phase 'exercise the current editable configuration and settings APIs'
 start_panel "${probe_version}"
+jq '{email: .login_email, password: .login_password}' "${smoke_root}/initial-credentials.json" |
+  curl --fail-with-body --silent --show-error --max-time 10 \
+    --cookie-jar "${cookie_jar}" --header "Origin: ${panel_origin}" \
+    --header 'Content-Type: application/json' --data-binary @- \
+    "${panel_origin}/api/v1/auth/session" >"${smoke_root}/session.json"
+csrf_token="$(jq -er '.csrfToken' "${smoke_root}/session.json")"
 status_payload="$(authenticated_get '/api/v1/system/status')"
 assert_json 'fresh instance initializes configuration history without starting a core' --arg version "${probe_version}" \
   '.panel_version == $version and .canonical_revision == 1 and .running == false' <<<"${status_payload}"
@@ -475,8 +485,8 @@ panel_settings="$(authenticated_get '/api/v1/panel/settings')"
 settings_write="$(jq '{revision, preferences: (.preferences | .language = "en" | .appearance.theme = "dark")}' <<<"${panel_settings}")"
 saved_settings="$(authenticated_put '/api/v1/panel/settings' <<<"${settings_write}")"
 assert_json 'panel settings are saved through the current settings API' \
-  '.preferences.language == "en" and .preferences.appearance.theme == "dark"' <<<"${saved_settings}"
-saved_settings="$(jq '{revision, preferences, github_token_configured}' <<<"${saved_settings}")"
+  '.reauthentication_required == false and .settings.preferences.language == "en" and .settings.preferences.appearance.theme == "dark"' <<<"${saved_settings}"
+saved_settings="$(jq '.settings | {revision, preferences, github_token_configured}' <<<"${saved_settings}")"
 settings_digest="$(sha256sum "${settings_path}" | cut -d ' ' -f 1)"
 
 # Unfinished text must survive an update without falling back to the valid head.

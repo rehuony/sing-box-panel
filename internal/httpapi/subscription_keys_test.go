@@ -14,7 +14,7 @@ import (
 func TestChannelScopedKeysShareDownloadLimitAcrossChannels(t *testing.T) {
 	ctx := context.Background()
 	db, app, handler, channel, startup := newSubscriptionPublicationHTTPFixture(t, "")
-	response := authenticatedRequest(handler, http.MethodPost, "/api/v1/subscription/tokens", `{"label":"Shared key","download_limit":2}`, "")
+	response := authenticatedRequest(t, handler, http.MethodPost, "/api/v1/subscription/tokens", `{"label":"Shared key","download_limit":2}`, "")
 	if response.Code != http.StatusCreated {
 		t.Fatalf("create: %d %s", response.Code, response.Body.String())
 	}
@@ -59,12 +59,12 @@ func TestChannelScopedKeysShareDownloadLimitAcrossChannels(t *testing.T) {
 	if err != nil || used.Active || used.BodyResponseCount != 2 || used.SuccessfulRequestCount != 3 {
 		t.Fatalf("shared counters: %+v %v", used, err)
 	}
-	preview := authenticatedRequest(handler, http.MethodPost, "/api/v1/subscription/channels/"+channel.ID+"/preview", `{}`, "")
+	preview := authenticatedRequest(t, handler, http.MethodPost, "/api/v1/subscription/channels/"+channel.ID+"/preview", `{}`, "")
 	if preview.Code != http.StatusOK || !strings.Contains(preview.Body.String(), `"node_count":1`) {
 		t.Fatalf("channel preview: %d %s", preview.Code, preview.Body.String())
 	}
 	for _, body := range []string{`{"label":"bad","download_limit":0}`, `{"label":"bad","download_limit":1.5}`, `{"label":"bad","download_limit":1000000001}`} {
-		invalid := authenticatedRequest(handler, http.MethodPost, "/api/v1/subscription/tokens", body, "")
+		invalid := authenticatedRequest(t, handler, http.MethodPost, "/api/v1/subscription/tokens", body, "")
 		if invalid.Code != http.StatusUnprocessableEntity {
 			t.Fatalf("invalid quota: %d %s", invalid.Code, invalid.Body.String())
 		}

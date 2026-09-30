@@ -41,6 +41,9 @@ importers:
       '@dnd-kit/utilities':
         specifier: 3.2.2
         version: 3.2.2(react@19.2.8)
+      '@fingerprintjs/fingerprintjs':
+        specifier: 5.2.0
+        version: 5.2.0
       '@lezer/highlight':
         specifier: ^1.2.3
         version: 1.2.3
@@ -672,6 +675,9 @@ packages:
     peerDependenciesMeta:
       '@noble/hashes':
         optional: true
+
+  '@fingerprintjs/fingerprintjs@5.2.0':
+    resolution: {integrity: sha512-j+2nInkwCQNTJcNhOjvkGM/nLRTuGJTC6xai4quqvUpjob2ssrGwBZjS7k55nOmKvge7qvJT2nS3i/IRvQSTQA==}
 
   '@floating-ui/core@1.8.0':
     resolution: {integrity: sha512-0CIZ5itps/8x7BG8dEIhs53BvCUH2PCoogtakwRTut+Arm58sJooJ0AuZhLw2HJYIR5cMLNPBSS728sPho2khQ==}
@@ -4770,6 +4776,8 @@ snapshots:
       levn: 0.4.1
 
   '@exodus/bytes@1.15.1': {}
+
+  '@fingerprintjs/fingerprintjs@5.2.0': {}
 
   '@floating-ui/core@1.8.0':
     dependencies:

@@ -9,8 +9,8 @@ import (
 	"net"
 	"slices"
 	"strings"
-	"unicode"
 
+	"github.com/rehuony/sing-box-panel/internal/auth"
 	"github.com/rehuony/sing-box-panel/internal/settings"
 	"github.com/rehuony/sing-box-panel/internal/store"
 )
@@ -34,7 +34,6 @@ type PanelPreferences struct {
 type PanelServiceSettings struct {
 	DataDir                     string   `json:"data_dir"`
 	BasePath                    string   `json:"base_path"`
-	SecureCookie                bool     `json:"secure_cookie"`
 	CatalogRefreshIntervalHours int      `json:"catalog_refresh_interval_hours"`
 	TrafficPeriodMonths         int      `json:"traffic_period_months"`
 	SampleRetentionDays         int      `json:"sample_retention_days"`
@@ -46,7 +45,7 @@ type PanelServiceSettings struct {
 
 func serviceSettings(value settings.Settings) PanelServiceSettings {
 	return PanelServiceSettings{
-		DataDir: value.DataDir, BasePath: value.Server.BasePath, SecureCookie: value.Auth.SecureCookie,
+		DataDir: value.DataDir, BasePath: value.Server.BasePath,
 		CatalogRefreshIntervalHours: value.GitHub.CatalogRefreshIntervalHours, TrafficPeriodMonths: value.Traffic.PeriodMonths,
 		SampleRetentionDays: value.Traffic.SampleRetentionDays, PrivateSourceCIDRs: append([]string{}, value.Subscription.PrivateSourceCIDRs...),
 		CoreLogRetentionDays: &value.Logs.CoreRetentionDays, CoreLogMaxFiles: &value.Logs.CoreMaxFiles, CoreLogMaxFileSizeMiB: &value.Logs.CoreMaxFileSizeMiB,
@@ -54,7 +53,7 @@ func serviceSettings(value settings.Settings) PanelServiceSettings {
 }
 
 func (service PanelServiceSettings) apply(value *settings.Settings) {
-	value.DataDir, value.Server.BasePath, value.Auth.SecureCookie = service.DataDir, service.BasePath, service.SecureCookie
+	value.DataDir, value.Server.BasePath = service.DataDir, service.BasePath
 	value.GitHub.CatalogRefreshIntervalHours = service.CatalogRefreshIntervalHours
 	value.Traffic.PeriodMonths, value.Traffic.SampleRetentionDays = service.TrafficPeriodMonths, service.SampleRetentionDays
 	value.Subscription.PrivateSourceCIDRs = slices.Clone(service.PrivateSourceCIDRs)
@@ -70,6 +69,7 @@ func (service PanelServiceSettings) apply(value *settings.Settings) {
 }
 
 type PanelSettingsView struct {
+	AdminEmail            string               `json:"admin_email"`
 	Service               PanelServiceSettings `json:"service"`
 	DetectedPublicIP      string               `json:"detected_public_ip,omitempty"`
 	Revision              int64                `json:"revision"`
@@ -84,13 +84,23 @@ type PanelSettingsWrite struct {
 	Preferences      PanelPreferences      `json:"preferences"`
 	GitHubToken      string                `json:"github_token,omitempty"`
 	ClearGitHubToken bool                  `json:"clear_github_token,omitempty"`
-	ManagementToken  string                `json:"management_token,omitempty"`
+	Credentials      *CredentialsWrite     `json:"credentials,omitempty"`
+}
+
+type CredentialsWrite struct {
+	Email       *string `json:"email,omitempty"`
+	NewPassword string  `json:"new_password,omitempty"`
+}
+
+type PanelSettingsSaveResult struct {
+	Settings                 PanelSettingsView `json:"settings"`
+	ReauthenticationRequired bool              `json:"reauthentication_required"`
 }
 
 type storedPanelSettings struct {
-	Preferences     PanelPreferences `json:"preferences"`
-	GitHubToken     string           `json:"github_token"`
-	ManagementToken string           `json:"management_token"`
+	Preferences PanelPreferences `json:"preferences"`
+	GitHubToken string           `json:"github_token"`
+	Auth        settings.Auth    `json:"-"`
 }
 
 var ErrPanelSettingsInvalid = errors.New("panel settings are invalid")
@@ -117,42 +127,41 @@ func (app *Application) panelSettingsView(configuration settings.Settings, revis
 	value := panelValues(configuration)
 	p := value.Preferences
 	loaded := app.settings
-	restartRequired := configuration.Server != loaded.Server || configuration.DataDir != loaded.DataDir ||
-		configuration.Auth.SecureCookie != loaded.Auth.SecureCookie
+	restartRequired := configuration.Server != loaded.Server || configuration.DataDir != loaded.DataDir
 	return PanelSettingsView{
-		Revision: revision, Preferences: p, Service: serviceSettings(configuration),
+		AdminEmail: configuration.Auth.Email, Revision: revision, Preferences: p, Service: serviceSettings(configuration),
 		GitHubTokenConfigured: value.GitHubToken != "",
 		RestartRequired:       restartRequired,
 	}
 }
 
-func (app *Application) SavePanelSettings(ctx context.Context, input PanelSettingsWrite) (PanelSettingsView, error) {
+func (app *Application) SavePanelSettings(ctx context.Context, input PanelSettingsWrite) (PanelSettingsSaveResult, error) {
 	if err := validatePanelSettings(input); err != nil {
-		return PanelSettingsView{}, err
+		return PanelSettingsSaveResult{}, err
 	}
 	if app.settingsPath == "" {
-		return PanelSettingsView{}, errors.New("panel settings file path is required")
+		return PanelSettingsSaveResult{}, errors.New("panel settings file path is required")
 	}
 	lock, err := settings.Lock(ctx, app.settingsPath)
 	if err != nil {
-		return PanelSettingsView{}, err
+		return PanelSettingsSaveResult{}, err
 	}
 	defer lock.Close()
 	if err := app.recoverSettingsFile(ctx); err != nil {
-		return PanelSettingsView{}, err
+		return PanelSettingsSaveResult{}, err
 	}
 	before, err := settings.Read(app.settingsPath)
 	if err != nil {
-		return PanelSettingsView{}, err
+		return PanelSettingsSaveResult{}, err
 	}
 	configurationFile, err := settings.Parse(app.settingsPath, before)
 	if err != nil {
-		return PanelSettingsView{}, err
+		return PanelSettingsSaveResult{}, err
 	}
 	revision := settings.Revision(before)
 	value := panelValues(configurationFile)
 	if input.Revision != revision {
-		return PanelSettingsView{}, store.ErrPanelSettingsConflict
+		return PanelSettingsSaveResult{}, store.ErrPanelSettingsConflict
 	}
 	value.Preferences = input.Preferences
 	value.Preferences.Appearance.Color = strings.ToUpper(input.Preferences.Appearance.Color)
@@ -162,8 +171,29 @@ func (app *Application) SavePanelSettings(ctx context.Context, input PanelSettin
 	if input.ClearGitHubToken {
 		value.GitHubToken = ""
 	}
-	if input.ManagementToken != "" {
-		value.ManagementToken = input.ManagementToken
+	credentialsChanged := false
+	if credentials := input.Credentials; credentials != nil {
+		if credentials.Email != nil {
+			email, err := auth.NormalizeEmail(*credentials.Email)
+			if err != nil {
+				return PanelSettingsSaveResult{}, ErrPanelSettingsInvalid
+			}
+			credentialsChanged = email != value.Auth.Email
+			value.Auth.Email = email
+		}
+		if credentials.NewPassword != "" {
+			same, err := auth.VerifyPassword(ctx, credentials.NewPassword, value.Auth.PasswordHash)
+			if err != nil {
+				return PanelSettingsSaveResult{}, err
+			}
+			if !same {
+				value.Auth.PasswordHash, err = auth.HashPassword(ctx, credentials.NewPassword)
+				if err != nil {
+					return PanelSettingsSaveResult{}, err
+				}
+				credentialsChanged = true
+			}
+		}
 	}
 	originalDataDir := configurationFile.DataDir
 	applyPanelValues(&configurationFile, value)
@@ -171,14 +201,14 @@ func (app *Application) SavePanelSettings(ctx context.Context, input PanelSettin
 		input.Service.apply(&configurationFile)
 	}
 	if err := configurationFile.Validate(); err != nil {
-		return PanelSettingsView{}, fmt.Errorf("%w: %s", ErrPanelSettingsInvalid, err)
+		return PanelSettingsSaveResult{}, fmt.Errorf("%w: %s", ErrPanelSettingsInvalid, err)
 	}
 	after, err := encodeSettings(configurationFile, before, configurationFile.DataDir == originalDataDir)
 	if err != nil {
-		return PanelSettingsView{}, err
+		return PanelSettingsSaveResult{}, err
 	}
 	if err := app.commitSettingsFile(ctx, before, after, nil); err != nil {
-		return PanelSettingsView{}, err
+		return PanelSettingsSaveResult{}, err
 	}
 	app.publishSettings(configurationFile)
 	revision = settings.Revision(after)
@@ -186,7 +216,7 @@ func (app *Application) SavePanelSettings(ctx context.Context, input PanelSettin
 	if app.publicIP != nil {
 		view.DetectedPublicIP = app.publicIP(ctx)
 	}
-	return view, nil
+	return PanelSettingsSaveResult{Settings: view, ReauthenticationRequired: credentialsChanged}, nil
 }
 
 func validatePanelSettings(input PanelSettingsWrite) error {
@@ -207,17 +237,20 @@ func validatePanelSettings(input PanelSettingsWrite) error {
 	if p.PublicNodeHost != "" && !settings.ValidPublishedHost(p.PublicNodeHost) {
 		return ErrPanelSettingsInvalid
 	}
-	for _, secret := range []string{input.GitHubToken, input.ManagementToken} {
+	for _, secret := range []string{input.GitHubToken} {
 		if len(secret) > 8192 || strings.ContainsAny(secret, "\x00\r\n") {
 			return ErrPanelSettingsInvalid
 		}
 	}
-	// Login clients trim whitespace, including the JavaScript BOM character.
-	// Reject ambiguous replacements before persisting or invalidating sessions.
-	token := input.ManagementToken
-	trimmedToken := strings.TrimFunc(token, func(r rune) bool { return unicode.IsSpace(r) || r == '\ufeff' })
-	if token != "" && (len(token) < 8 || token != trimmedToken) {
-		return ErrPanelSettingsInvalid
+	if credentials := input.Credentials; credentials != nil {
+		if credentials.Email != nil {
+			if _, err := auth.NormalizeEmail(*credentials.Email); err != nil {
+				return ErrPanelSettingsInvalid
+			}
+		}
+		if credentials.NewPassword != "" && auth.ValidatePassword(credentials.NewPassword) != nil {
+			return ErrPanelSettingsInvalid
+		}
 	}
 	if input.GitHubToken != "" && input.ClearGitHubToken {
 		return ErrPanelSettingsInvalid

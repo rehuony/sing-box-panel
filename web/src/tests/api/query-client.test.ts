@@ -65,7 +65,7 @@ describe('session query cache', () => {
     const rejection = expect(saved).rejects.toMatchObject({ name: 'AbortError' });
     await Promise.resolve();
     resetQuerySession(cache);
-    pending.resolve(await raw.getPanelSettings());
+    pending.resolve({ settings: await raw.getPanelSettings(), reauthentication_required: false });
     await rejection;
     expect(cache.getQueryCache().getAll()).toEqual([]);
   });

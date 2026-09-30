@@ -1,6 +1,12 @@
 import '@testing-library/jest-dom/vitest';
 import { afterEach, vi } from 'vitest';
+import { webcrypto } from 'node:crypto';
 import { cleanup } from '@testing-library/react';
+
+// jsdom supplies Crypto but not the browser's SubtleCrypto implementation.
+if (!globalThis.crypto.subtle) {
+  Object.defineProperty(globalThis.crypto, 'subtle', { value: webcrypto.subtle });
+}
 
 if (typeof window.matchMedia !== 'function') {
   Object.defineProperty(window, 'matchMedia', {

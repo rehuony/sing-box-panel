@@ -36,7 +36,7 @@ writes only the current user's XDG systemd unit.
 
 Before writing files, installation checks required commands, manager access,
 permissions, paths, pending migrations and conflicting service files. It creates
-missing settings (0600, random token) and directories (0700), without overwriting
+missing settings (0600, administrator email and hashed random password) and directories (0700), without overwriting
 existing configuration or initializing the database. The server creates storage
 when it starts. Existing differing unit files still require `--force`.
 Configuration sidecars must be regular files when present; conflicts are rejected
@@ -45,6 +45,20 @@ write access to the directory itself, not to an otherwise shared parent.
 `systemctl`, `systemd-sysusers`, `systemd-tmpfiles`, `getent`, and `chown` are checked only
 when required; the CLI never runs a package manager. `systemd-analyze` is a test
 and CI dependency, not a runtime requirement.
+
+When settings are created, the CLI prints the same aligned URL, email, initial
+password and paths as `config init` and `server start`, even if later service
+activation fails. Existing settings do not regenerate or redisplay a password.
+To recover access to a system service, run:
+
+```sh
+sudo /usr/local/bin/sing-box-panel --config /etc/sing-box-panel/setting.json config reset-password
+```
+
+This prints a new random password once and updates only its hash. It preserves the
+service account's ownership and private file permissions. No restart or database
+access is required; old sessions are rejected at their next authentication check.
+For a user service, run the command as that user with its selected `--config` path.
 
 `WorkingDirectory` is a scalar path: quotes and backslashes are literal, while
 percent specifiers must be escaped. Execution arguments, path lists and tmpfiles
@@ -171,7 +185,7 @@ A packager should install the following files:
 After creating the account and directories with the host's normal packaging
 tools, initialize `/etc/sing-box-panel/setting.json`. The runtime user must be
 able to atomically replace that file and create private lock/recovery sidecars
-in its directory, while no other user should be able to read its token:
+in its directory, while no other user should be able to read its credentials:
 
 ```sh
 chown sing-box-panel:sing-box-panel /etc/sing-box-panel /etc/sing-box-panel/setting.json

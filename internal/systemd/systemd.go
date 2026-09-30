@@ -11,6 +11,8 @@ import (
 	"os/exec"
 	"runtime"
 	"strings"
+
+	"github.com/rehuony/sing-box-panel/internal/settings"
 )
 
 const (
@@ -151,17 +153,18 @@ type InstallRequest struct {
 }
 
 type InstallResult struct {
-	SettingsCreated bool     `json:"settings_created"`
-	Scope           Scope    `json:"scope"`
-	Unit            string   `json:"unit"`
-	UnitPath        string   `json:"unit_path"`
-	ExecutablePath  string   `json:"executable_path"`
-	SettingsPath    string   `json:"settings_path"`
-	DataDir         string   `json:"data_dir"`
-	InstalledPaths  []string `json:"installed_paths"`
-	Enabled         bool     `json:"enabled"`
-	Started         bool     `json:"started"`
-	PersistentState bool     `json:"persistent_state_preserved"`
+	InitialSettings *settings.Settings `json:"-"`
+	SettingsCreated bool               `json:"settings_created"`
+	Scope           Scope              `json:"scope"`
+	Unit            string             `json:"unit"`
+	UnitPath        string             `json:"unit_path"`
+	ExecutablePath  string             `json:"executable_path"`
+	SettingsPath    string             `json:"settings_path"`
+	DataDir         string             `json:"data_dir"`
+	InstalledPaths  []string           `json:"installed_paths"`
+	Enabled         bool               `json:"enabled"`
+	Started         bool               `json:"started"`
+	PersistentState bool               `json:"persistent_state_preserved"`
 }
 
 type UninstallRequest struct {
@@ -205,9 +208,10 @@ type Status struct {
 }
 
 type ControlResult struct {
-	Scope  Scope  `json:"scope"`
-	Unit   string `json:"unit"`
-	Action Action `json:"action"`
+	InitialSettings *settings.Settings `json:"-"`
+	Scope           Scope              `json:"scope"`
+	Unit            string             `json:"unit"`
+	Action          Action             `json:"action"`
 }
 
 type LogsRequest struct {

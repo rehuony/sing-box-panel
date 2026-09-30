@@ -1,23 +1,18 @@
 export const login = {
-  title: '欢迎回来',
+  title: '登录你的账户',
   checking: '正在检查面板会话…',
+  email: { label: '邮箱', placeholder: '请输入邮箱地址' },
+  password: { label: '密码', placeholder: '输入你的密码', show: '显示密码', hide: '隐藏密码' },
   error: {
-    empty: '请输入管理令牌以继续。',
-    unauthorized: '该管理令牌未被接受。',
+    email: '请输入有效的邮箱地址。',
+    empty: '请输入密码以继续。',
+    unauthorized: '邮箱或密码不正确。',
+    rateLimited: '尝试次数过多，请稍候重试。',
     unreachable: '无法连接面板，请重试。',
   },
-  submit: { label: '进入面板', pending: '正在打开…' },
-  subtitle: '验证身份，进入你的控制中心。',
-  token: {
-    hint: '仅保存在此设备上。',
-    label: '管理令牌',
-    placeholder: '输入管理令牌',
-    show: '显示管理令牌',
-    hide: '隐藏管理令牌',
-  },
+  submit: { label: '登录', pending: '正在登录…' },
   unavailable: {
     description: '当前会话没有变化，请检查服务后重试。',
-    retry: '重试',
-    title: '无法连接面板服务。',
+    retry: '重试', title: '无法连接面板服务。',
   },
 } as const;

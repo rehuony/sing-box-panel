@@ -73,7 +73,7 @@ func TestNodeOrderMigrationAndPersistence(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.db.ExecContext(ctx, `DROP TRIGGER subscription_source_delete_node_order; DROP TABLE subscription_node_orders; PRAGMA user_version=15`); err != nil {
+	if _, err := db.db.ExecContext(ctx, `DROP TRIGGER subscription_source_delete_node_order; DROP TABLE subscription_node_orders; DROP TABLE auth_sessions; PRAGMA user_version=15`); err != nil {
 		t.Fatal(err)
 	}
 	if err := db.initializeSchema(ctx); err != nil {
@@ -150,7 +150,7 @@ func TestRemoveExportBindingsMigration(t *testing.T) {
 						t.Fatal(err)
 					}
 				}
-				if _, err := db.db.ExecContext(ctx, fmt.Sprintf("PRAGMA user_version = %d", version)); err != nil {
+				if _, err := db.db.ExecContext(ctx, fmt.Sprintf("DROP TABLE auth_sessions; PRAGMA user_version = %d", version)); err != nil {
 					t.Fatal(err)
 				}
 				path := db.Path()
@@ -272,7 +272,7 @@ func TestSubscriptionOrderingMigrationIsAtomic(t *testing.T) {
 				}
 			}
 			restoreLegacyTrafficAccounting(t, db)
-			if _, err := db.db.ExecContext(ctx, `PRAGMA user_version=13`); err != nil {
+			if _, err := db.db.ExecContext(ctx, `DROP TABLE auth_sessions; PRAGMA user_version=13`); err != nil {
 				t.Fatal(err)
 			}
 			path := db.Path()
@@ -354,7 +354,7 @@ func TestSubscriptionPolicyMigrationRemovesLegacyFilters(t *testing.T) {
 		t.Fatal(err)
 	}
 	restoreLegacyTrafficAccounting(t, db)
-	if _, err = db.db.ExecContext(t.Context(), `PRAGMA user_version=13`); err != nil {
+	if _, err = db.db.ExecContext(t.Context(), `DROP TABLE auth_sessions; PRAGMA user_version=13`); err != nil {
 		t.Fatal(err)
 	}
 	if err = db.initializeSchema(t.Context()); err != nil {
@@ -407,7 +407,7 @@ func TestSubscriptionPolicyMigrationPreservesLargeConfig(t *testing.T) {
 		t.Fatal(err)
 	}
 	restoreLegacyTrafficAccounting(t, db)
-	if _, err = db.db.ExecContext(t.Context(), `PRAGMA user_version=13`); err != nil {
+	if _, err = db.db.ExecContext(t.Context(), `DROP TABLE auth_sessions; PRAGMA user_version=13`); err != nil {
 		t.Fatal(err)
 	}
 	if err = db.initializeSchema(t.Context()); err != nil {

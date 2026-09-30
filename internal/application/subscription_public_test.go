@@ -7,12 +7,12 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 
 	"github.com/rehuony/sing-box-panel/internal/settings"
 	"github.com/rehuony/sing-box-panel/internal/store"
+	"github.com/rehuony/sing-box-panel/internal/testutil"
 )
 
 func TestPublicSubscriptionTrafficUsesLiveSettingsAndCurrentUTCPeriod(t *testing.T) {
@@ -38,7 +38,8 @@ func TestPublicSubscriptionTrafficUsesLiveSettingsAndCurrentUTCPeriod(t *testing
 	}
 	configuration := settings.Defaults()
 	configuration.DataDir = t.TempDir()
-	configuration.Auth.Token = strings.Repeat("t", 32)
+	configuration.Auth.Email = testutil.AdminEmail
+	configuration.Auth.PasswordHash = testutil.PasswordHash
 
 	// Seed durable month totals without live samples. The subscription
 	// must still report these after collection stops or raw samples expire.

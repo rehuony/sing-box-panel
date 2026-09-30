@@ -15,7 +15,7 @@ func TestFrontendAssetCachePolicy(t *testing.T) {
 	config := settings.Defaults()
 	config.DataDir = t.TempDir()
 	config.Server.BasePath = "/panel"
-	handler := NewHandler(HandlerOptions{Settings: config, Assets: fstest.MapFS{
+	handler := newTestHandler(t, HandlerOptions{Settings: config, Assets: fstest.MapFS{
 		"index.html":              &fstest.MapFile{Data: []byte(`<base href="/" data-sbp-runtime />`)},
 		"assets/app-Abc123_-.js":  &fstest.MapFile{Data: []byte(`export default {}`)},
 		"assets/app-Abc123_-.css": &fstest.MapFile{Data: []byte(`body{margin:0}`)},

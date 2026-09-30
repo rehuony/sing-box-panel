@@ -58,8 +58,8 @@ export function AuthSessionProvider({ children }: AuthSessionProviderProps) {
         setStatus('checking');
         setCheckGeneration((current) => current + 1);
       },
-      async login(token, signal) {
-        const nextSession = await client.login(token, signal);
+      async login(input, signal) {
+        const nextSession = await client.login(input, signal);
         setSession(nextSession);
         setStatus('authenticated');
       },

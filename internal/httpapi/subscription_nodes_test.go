@@ -23,7 +23,7 @@ func TestManualNodesCRUDVisibilityAndPublicationWithoutCore(t *testing.T) {
 	if unauthenticated.Code != 401 {
 		t.Fatalf("unauthenticated %d", unauthenticated.Code)
 	}
-	created := authenticatedRequest(handler, http.MethodPost, "/api/v1/subscription/nodes", `{"outbound":`+raw+`}`, "")
+	created := authenticatedRequest(t, handler, http.MethodPost, "/api/v1/subscription/nodes", `{"outbound":`+raw+`}`, "")
 	if created.Code != 201 {
 		t.Fatalf("create %d %s", created.Code, created.Body.String())
 	}
@@ -34,7 +34,7 @@ func TestManualNodesCRUDVisibilityAndPublicationWithoutCore(t *testing.T) {
 	if node.Name != "香港" || node.SourceName != "手动节点" || node.Revision != 1 || !strings.Contains(node.OutboundJSON, "9007199254740993") {
 		t.Fatalf("wrong detail %+v", node)
 	}
-	catalog := authenticatedRequest(handler, http.MethodGet, "/api/v1/subscription/nodes", "", "")
+	catalog := authenticatedRequest(t, handler, http.MethodGet, "/api/v1/subscription/nodes", "", "")
 	if catalog.Code != 200 || strings.Contains(catalog.Body.String(), "not-in-summary") {
 		t.Fatalf("catalog %d %s", catalog.Code, catalog.Body.String())
 	}
@@ -52,11 +52,11 @@ func TestManualNodesCRUDVisibilityAndPublicationWithoutCore(t *testing.T) {
 		t.Fatalf("publish %d %s", response.Code, response.Body.String())
 	}
 	endpoint := "/api/v1/subscription/nodes/" + node.ID
-	hidden := authenticatedRequest(handler, http.MethodPut, endpoint+"/visibility", `{"hidden":true,"revision":0}`, "")
+	hidden := authenticatedRequest(t, handler, http.MethodPut, endpoint+"/visibility", `{"hidden":true,"revision":0}`, "")
 	if hidden.Code != 200 {
 		t.Fatalf("hide %d %s", hidden.Code, hidden.Body.String())
 	}
-	stale := authenticatedRequest(handler, http.MethodPut, endpoint+"/visibility", `{"hidden":false,"revision":0}`, "")
+	stale := authenticatedRequest(t, handler, http.MethodPut, endpoint+"/visibility", `{"hidden":false,"revision":0}`, "")
 	if stale.Code != 412 {
 		t.Fatalf("stale hide %d", stale.Code)
 	}
@@ -65,15 +65,15 @@ func TestManualNodesCRUDVisibilityAndPublicationWithoutCore(t *testing.T) {
 		t.Fatalf("hidden published %d %s", response.Code, response.Body.String())
 	}
 	newRaw := strings.ReplaceAll(raw, "manual.example", "changed.example")
-	updated := authenticatedRequest(handler, http.MethodPut, endpoint, `{"revision":1,"outbound":`+newRaw+`}`, "")
+	updated := authenticatedRequest(t, handler, http.MethodPut, endpoint, `{"revision":1,"outbound":`+newRaw+`}`, "")
 	if updated.Code != 200 || !strings.Contains(updated.Body.String(), `"hidden":true`) {
 		t.Fatalf("update %d %s", updated.Code, updated.Body.String())
 	}
-	stale = authenticatedRequest(handler, http.MethodDelete, endpoint, `{"revision":1}`, "")
+	stale = authenticatedRequest(t, handler, http.MethodDelete, endpoint, `{"revision":1}`, "")
 	if stale.Code != 412 {
 		t.Fatalf("stale delete %d", stale.Code)
 	}
-	restored := authenticatedRequest(handler, http.MethodPut, endpoint+"/visibility", `{"hidden":false,"revision":1}`, "")
+	restored := authenticatedRequest(t, handler, http.MethodPut, endpoint+"/visibility", `{"hidden":false,"revision":1}`, "")
 	if restored.Code != 200 {
 		t.Fatalf("restore %d", restored.Code)
 	}
@@ -81,11 +81,11 @@ func TestManualNodesCRUDVisibilityAndPublicationWithoutCore(t *testing.T) {
 	if !strings.Contains(response.Body.String(), "changed.example") {
 		t.Fatalf("restored missing %s", response.Body.String())
 	}
-	deleted := authenticatedRequest(handler, http.MethodDelete, endpoint, `{"revision":2}`, "")
+	deleted := authenticatedRequest(t, handler, http.MethodDelete, endpoint, `{"revision":2}`, "")
 	if deleted.Code != 204 {
 		t.Fatalf("delete %d %s", deleted.Code, deleted.Body.String())
 	}
-	missing := authenticatedRequest(handler, http.MethodGet, endpoint, "", "")
+	missing := authenticatedRequest(t, handler, http.MethodGet, endpoint, "", "")
 	if missing.Code != 404 {
 		t.Fatalf("after delete %d", missing.Code)
 	}
@@ -140,7 +140,7 @@ func TestSourceNodeVisibilitySurvivesRefreshAndDoesNotBroadenLegacyGrants(t *tes
 	if response.Code != 200 || strings.Contains(response.Body.String(), "second.example") {
 		t.Fatalf("grant widened %d %s", response.Code, response.Body.String())
 	}
-	denied := authenticatedRequest(handler, http.MethodDelete, "/api/v1/subscription/nodes/"+local.ID, `{"revision":1}`, "")
+	denied := authenticatedRequest(t, handler, http.MethodDelete, "/api/v1/subscription/nodes/"+local.ID, `{"revision":1}`, "")
 	if denied.Code != 422 {
 		t.Fatalf("local deletion %d %s", denied.Code, denied.Body.String())
 	}
@@ -153,7 +153,7 @@ func TestParseSingleNodeDoesNotSaveAndRejectsMultiple(t *testing.T) {
 	_, app, handler := newSubscriptionHTTPServices(t, "")
 	raw := `{"type":"socks","tag":"single","server":"example.com","server_port":1080}`
 	body, _ := json.Marshal(map[string]string{"text": raw})
-	parsed := authenticatedRequest(handler, http.MethodPost, "/api/v1/subscription/nodes/parse", string(body), "")
+	parsed := authenticatedRequest(t, handler, http.MethodPost, "/api/v1/subscription/nodes/parse", string(body), "")
 	if parsed.Code != 200 || parsed.Header().Get("Cache-Control") != "no-store" {
 		t.Fatalf("parse %d %s", parsed.Code, parsed.Body.String())
 	}
@@ -163,7 +163,7 @@ func TestParseSingleNodeDoesNotSaveAndRejectsMultiple(t *testing.T) {
 	}
 	for _, input := range []string{`[]`, fmt.Sprintf(`[%s,%s]`, raw, strings.Replace(raw, "single", "second", 1)), `{"type":"socks","tag":"missing"}`} {
 		body, _ = json.Marshal(map[string]string{"text": input})
-		result := authenticatedRequest(handler, http.MethodPost, "/api/v1/subscription/nodes/parse", string(body), "")
+		result := authenticatedRequest(t, handler, http.MethodPost, "/api/v1/subscription/nodes/parse", string(body), "")
 		if result.Code != 422 {
 			t.Fatalf("invalid parse %d %s", result.Code, result.Body.String())
 		}
@@ -219,11 +219,11 @@ func TestNodeOrderPreviewDeliveryAndConflict(t *testing.T) {
 	if unauthenticated.Code != 401 {
 		t.Fatalf("unauthenticated reorder: %d", unauthenticated.Code)
 	}
-	saved := authenticatedRequest(handler, http.MethodPut, endpoint, body, "")
+	saved := authenticatedRequest(t, handler, http.MethodPut, endpoint, body, "")
 	if saved.Code != 200 {
 		t.Fatalf("save: %d %s", saved.Code, saved.Body.String())
 	}
-	stale := authenticatedRequest(handler, http.MethodPut, endpoint, body, "")
+	stale := authenticatedRequest(t, handler, http.MethodPut, endpoint, body, "")
 	if stale.Code != 412 {
 		t.Fatalf("stale save: %d %s", stale.Code, stale.Body.String())
 	}
@@ -238,12 +238,12 @@ func TestNodeOrderPreviewDeliveryAndConflict(t *testing.T) {
 		`{"ids":[],"revision":-1}`, `{"ids":[],"revision":9007199254740991}`, `{"ids":[],"revision":null}`, `{"ids":null,"revision":1}`,
 		`{"ids":["node_unknown"],"revision":1}`, fmt.Sprintf(`{"ids":[%q,%q],"revision":1}`, nodes[0].ID, nodes[0].ID),
 	} {
-		response := authenticatedRequest(handler, http.MethodPut, endpoint, invalid, "")
+		response := authenticatedRequest(t, handler, http.MethodPut, endpoint, invalid, "")
 		if response.Code != 422 {
 			t.Fatalf("invalid order %s: %d %s", invalid, response.Code, response.Body.String())
 		}
 	}
-	catalog := authenticatedRequest(handler, http.MethodGet, "/api/v1/subscription/nodes", "", "")
+	catalog := authenticatedRequest(t, handler, http.MethodGet, "/api/v1/subscription/nodes", "", "")
 	var value application.SubscriptionNodeCatalog
 	if err := json.Unmarshal(catalog.Body.Bytes(), &value); err != nil {
 		t.Fatal(err)
@@ -260,7 +260,7 @@ func TestNodeOrderPreviewDeliveryAndConflict(t *testing.T) {
 		if delivered.Header().Get("ETag") == check.etag {
 			t.Fatal("reorder did not change ETag")
 		}
-		preview := authenticatedRequest(handler, http.MethodPost, "/api/v1/subscription/channels/"+check.id+"/preview", "{}", "")
+		preview := authenticatedRequest(t, handler, http.MethodPost, "/api/v1/subscription/channels/"+check.id+"/preview", "{}", "")
 		var rendered application.SubscriptionPreview
 		if preview.Code != 200 {
 			t.Fatalf("preview: %d %s", preview.Code, preview.Body.String())

@@ -10,10 +10,7 @@ interface ProblemDetails {
   fields?: Record<string, string>;
 }
 
-export interface SessionPayload {
-  csrfToken?: string;
-  displayName: string;
-}
+export type SessionPayload = Session;
 
 export interface HttpApiOptions {
   baseUrl?: string;
@@ -24,6 +21,7 @@ export interface HttpApiContext {
   baseUrl: string;
   fetcher: typeof fetch;
   clearSession: () => void;
+  invalidateSession: () => void;
   quoteETag: (value: string) => string;
   acceptSession: (payload: SessionPayload) => Session;
   writeHeaders: (headers?: HeadersInit) => HeadersInit;
@@ -126,7 +124,11 @@ export function createHttpApiContext(options: HttpApiOptions): HttpApiContext {
     },
     acceptSession(payload) {
       csrfToken = payload.csrfToken ?? '';
-      return { displayName: payload.displayName };
+      return payload;
+    },
+    invalidateSession() {
+      csrfToken = '';
+      for (const listener of [...sessionInvalidatedListeners]) listener();
     },
     clearSession() {
       csrfToken = '';
