@@ -340,11 +340,16 @@ if [[ ! -s "${workspace_root}/web/dist/index.html" ]]; then
 fi
 (
   cd -- "${workspace_root}"
+  # Resolve cache paths before GOENV=off hides persistent Go settings.
+  go_path="$(go env GOPATH)"
+  go_module_cache="$(go env GOMODCACHE)"
+  go_build_cache="$(go env GOCACHE)"
   env \
     CGO_ENABLED=0 \
     GOARCH="${architecture}" \
     GOOS=linux \
     GOAMD64=v1 GOARM64=v8.0 GOENV=off GOEXPERIMENT= GOFIPS140=off GOWORK=off \
+    GOPATH="${go_path}" GOMODCACHE="${go_module_cache}" GOCACHE="${go_build_cache}" \
     GOFLAGS='-mod=readonly' \
     GOTOOLCHAIN=local \
     go build \
