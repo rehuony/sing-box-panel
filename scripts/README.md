@@ -53,6 +53,11 @@ that same scenario in ordinary CI and local Linux checks. It never reads the
 repository's private key or replaces the committed public key. Temporary keys,
 binaries and instance data are removed on exit.
 
+Working-tree smoke builds preserve the caller's effective `GOPATH`, `GOMODCACHE`
+and `GOCACHE`, including paths saved with `go env -w`, while fixing the Go build
+settings. The third-party notices generator preserves the same cache paths when
+listing dependencies for both Linux architectures.
+
 The `Release Build` workflow supplies the actual signed release artifacts to
 the shared scenario, then creates a verified Draft Release for a maintainer
 to publish. The isolated packaging check remains separate from the working-tree

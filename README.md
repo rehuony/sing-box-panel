@@ -58,24 +58,20 @@ initialize, migrate, or rewrite settings or data.
 Install for the current user:
 
 ```sh
-curl --proto '=https' --tlsv1.2 -fsSL \
-  https://raw.githubusercontent.com/rehuony/sing-box-panel/main/scripts/installer.sh | bash
+curl https://raw.githubusercontent.com/rehuony/sing-box-panel/main/scripts/installer.sh | bash
 ```
 
 Install the fixed system layout as root:
 
 ```sh
-curl --proto '=https' --tlsv1.2 -fsSL \
-  https://raw.githubusercontent.com/rehuony/sing-box-panel/main/scripts/installer.sh | sudo bash
+curl https://raw.githubusercontent.com/rehuony/sing-box-panel/main/scripts/installer.sh | sudo bash
 ```
 
 Pin an exact published release, including a pre-release, when reproducibility
 matters:
 
 ```sh
-curl --proto '=https' --tlsv1.2 -fsSL \
-  https://raw.githubusercontent.com/rehuony/sing-box-panel/main/scripts/installer.sh | \
-  bash -s -- --version v0.1.0
+curl https://raw.githubusercontent.com/rehuony/sing-box-panel/main/scripts/installer.sh | bash -s -- --version v0.1.0
 ```
 
 The default layouts are:
