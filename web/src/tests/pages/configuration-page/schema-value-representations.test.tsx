@@ -9,7 +9,7 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import type { ReviewedSchemaResolution } from '@/schemas/resolve-reviewed-schema';
 
 import '@/i18n';
-import { reviewedSchemaManifest } from '@/schemas/generated';
+import { reviewedSchemaManifest } from '@/schemas';
 import { schemaProperties } from '@/pages/configuration-page/schema-ui';
 import { SchemaSectionForm } from '@/pages/configuration-page/schema-section-form';
 import { encodeCanonicalDraft, parseCanonicalDraft } from '@/pages/configuration-page/use-canonical-configuration';
@@ -20,7 +20,7 @@ let resolution: ReviewedSchemaResolution;
 let tlsFields: Record<string, RJSFSchema>;
 
 beforeAll(async () => {
-  expect(reviewedEntry, 'Missing committed 1.14.0 Schema fixture').toBeDefined();
+  expect(reviewedEntry, 'Missing reviewed 1.14.0 Schema fixture').toBeDefined();
   const reviewed = await reviewedEntry.load();
   resolution = {
     schema: reviewed.schema,

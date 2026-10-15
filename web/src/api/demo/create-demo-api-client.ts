@@ -4,6 +4,8 @@ import {
   stringify as stringifyLosslessJSON,
 } from 'lossless-json';
 
+import { reviewedSchemaManifest } from '@/schemas';
+
 import type {
   ApiClient,
   CanonicalSnapshot,
@@ -27,7 +29,6 @@ import { ApiRequestError } from '../api-client';
 import { createDemoCoreLogs } from './demo-core-logs';
 import { DEFAULT_APPEARANCE } from '../../theme/appearance';
 import { createDemoFilesystemApi } from './demo-filesystem';
-import { reviewedSchemaManifest } from '../../schemas/generated';
 import { demoBackupSettings, demoRestoreSettings } from './demo-panel-backup';
 import {
   createDemoNodeApi,

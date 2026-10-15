@@ -88,8 +88,9 @@ jobs:
           - [ ] Review upstream release and migration notes.
           - [ ] Decide whether to reuse an existing behavior family or add a new one.
           - [ ] Record reviewed amd64 and arm64 artifacts, sizes, and SHA-256 digests.
-          - [ ] Update the support catalog and generated Go data.
-          - [ ] Add native Schema tests when available and review inbound conversion separately.
+          - [ ] Update the exact-version support catalog and review inbound conversion separately.
+          - [ ] Run \`make support-generate\` on native Linux to regenerate catalog code, exact-version Schema entries, shared assets, and the support table.
+          - [ ] Run \`make support-check\` and \`make check\`; reuse catalog/manifest-driven tests and add coverage for changed behavior.
           - [ ] Pass the native amd64 and arm64 core contract workflow.
           EOF
             if [[ -z "${issue_number}" ]]; then

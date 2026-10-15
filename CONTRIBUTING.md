@@ -49,7 +49,8 @@ runtime identity, or release behavior.
   resulting `THIRD_PARTY_NOTICES` update.
 - Follow the version-onboarding and release guides for core-version or packaging
   changes instead of adding compatibility fallbacks.
-- Do not commit settings, databases, generated binaries, `web/dist`, release
+- Do not commit settings, databases, generated binaries, `web/dist`, frontend
+  outputs under `web/src/api/generated` or `web/src/schemas/.generated`, release
   private keys, credentials, tokens, or secret-bearing diagnostics.
 
 ## Validation
@@ -65,7 +66,10 @@ binary), `check` (ordinary validation), and `fmt` (Go formatting). Plain `make`
 also builds the local binary. To narrow validation, use `make check-go` for Go
 formatting, modules, vet, and tests; `make check-web` for Web build, types, lint,
 tests, and notices; or `make check-contracts` for shell, installer, OpenAPI, and
-offline core-support checks. Shared Web assets are built once per Make invocation.
+offline core-support checks. Web package scripts prepare their generated inputs
+before typechecking, testing, or building. `make check` shares one Web generation,
+typecheck and production build across its checks; `check-web` then runs lint,
+all Vitest projects, Schema consistency and notices checks.
 
 For an individual Go test, build Web assets once with `make web-build`, then use
 `go test ./path/to/package`. For individual frontend checks or formatting, use
@@ -84,6 +88,9 @@ changes, also run:
 ```sh
 make release-verify
 ```
+
+Release verification builds committed `HEAD` in an isolated source snapshot;
+it does not include uncommitted working-tree changes.
 
 Record every command run and any intentionally omitted check in the pull
 request. Do not weaken checks merely to make a change pass.

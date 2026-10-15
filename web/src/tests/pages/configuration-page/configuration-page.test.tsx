@@ -6,10 +6,10 @@ import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ApiClient, ConfigurationCompile, ConfigurationFile, ConfigurationSchemaContract } from '@/api/api-client';
 
 import '@/i18n';
+import { reviewedSchemaManifest } from '@/schemas';
 import { toast } from '@/components/ui/toast-manager';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { ApiClientProvider } from '@/api/api-client-context';
-import { reviewedSchemaManifest } from '@/schemas/generated';
 import { TestRouter as MemoryRouter } from '@/tests/test-router';
 import { ControlPlaneProvider } from '@/stores/control-plane-provider';
 import { representativeSchemaVersions } from '@/tests/schemas/schema-fixtures';

@@ -200,9 +200,8 @@ func validateSchemaManifestEntry(entry schemaManifestEntry) error {
 	if err != nil || digest.String() != entry.SchemaSHA256 {
 		return errors.New("schema digest is not a lowercase SHA-256")
 	}
-	if path.Clean(entry.SchemaFile) != entry.SchemaFile || path.IsAbs(entry.SchemaFile) ||
-		path.Ext(entry.SchemaFile) != ".json" || path.Base(entry.SchemaFile) != entry.SchemaFile {
-		return errors.New("schema file is not a safe root JSON path")
+	if entry.SchemaFile != "schema-"+entry.SchemaSHA256+".json" {
+		return errors.New("schema file does not match its content digest")
 	}
 	return nil
 }

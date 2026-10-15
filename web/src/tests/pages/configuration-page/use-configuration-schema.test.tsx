@@ -6,8 +6,8 @@ import { act, renderHook, waitFor } from '@testing-library/react';
 import type { ConfigurationSchemaContract, CoreArtifact } from '@/api/api-client';
 
 import { deferred } from '@/tests/deferred';
+import { reviewedSchemaManifest } from '@/schemas';
 import { ApiClientProvider } from '@/api/api-client-context';
-import { reviewedSchemaManifest } from '@/schemas/generated';
 import { createMockApiClient, testArtifacts } from '@/tests/api/mock-api-client';
 import { useConfigurationSchema } from '@/pages/configuration-page/use-configuration-schema';
 

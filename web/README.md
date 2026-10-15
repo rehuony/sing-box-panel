@@ -3,23 +3,25 @@
 This directory owns the React/Vite frontend. It deliberately has no dependency
 on backend implementation packages.
 
+Install the [development toolchains](../CONTRIBUTING.md#development-setup) first.
+Schema preparation requires Go for offline export, including when running frontend tests.
+
 ```sh
 corepack enable pnpm
 pnpm install --frozen-lockfile --ignore-scripts --verify-store-integrity
-pnpm run lint
-pnpm test
-pnpm test:logic
-pnpm test:react
-pnpm test:contracts
-pnpm run build
+pnpm demo
 ```
+
+Use `make check-web` from the repository root for a production build, types,
+lint, all tests, Schema consistency and notices checks. For a focused check,
+run `pnpm test --project logic`, `pnpm test --project react`, or
+`pnpm test --project contracts` from this directory. `pnpm test` runs all three
+projects; `pnpm run build` builds the application.
 
 Run `pnpm run lint:fix` to apply the configured TypeScript, React, CSS, and HTML
 formatting rules before checking the remaining code-quality diagnostics.
-`pnpm test` includes all three test projects. Their environments, timeout bounds,
-coverage ownership and CI execution order are documented in
-[Testing](../docs/development/testing.md). `make check-web` runs the complete web
-pipeline from the repository root and reports each phase's duration.
+Test environments, timeout bounds and coverage ownership are documented in
+[Testing](../docs/development/testing.md).
 
 Run `pnpm demo` to start the complete interface with an in-memory API client.
 Demo mode never contacts the backend, so it is suitable for working on pages,
@@ -42,8 +44,9 @@ for limits, proxy behavior and privacy boundaries.
 Transport types under `src/api/generated/` are build artifacts generated from
 `../api/openapi.yaml`. Development, typecheck, test, and build commands refresh
 them automatically; they are not committed or edited by hand. The custom HTTP
-client remains hand-written. `pnpm run api:generate` performs only this OpenAPI
-generation; configuration Schema export belongs to the Vite plugin.
+client remains hand-written. `pnpm run generate` prepares both transport types
+and configuration Schema assets; ordinary development and validation commands
+include this step, so no separate preparation command is needed.
 
 Navigation preloads route modules on sidebar hover, keyboard focus and pointer
 press, sharing each pending download with navigation. A failed speculative import
@@ -99,11 +102,23 @@ with the mouse keeps options visually neutral, including the selected item;
 the checkmark still identifies the current value. Options highlight on hover or
 keyboard-visible focus, without changing the value until an option is chosen.
 
-Configuration contracts under `src/schemas/generated/` are exported offline
-from the committed backend Schema assets by the Vite plugin. Its manifest binds
-each exact sing-box version to its native/reviewed source kind, file and SHA-256 digest, and the plugin
-precompiles the root validator as an Ajv 2020 module for the browser. Generated
-validators contain no CommonJS `require`. A version without a committed Schema
+Configuration contracts under `src/schemas/.generated/` are exported offline
+from the committed backend Schema assets by `pnpm run generate`. They are
+build outputs and are not committed or edited by hand. Development, demo,
+typecheck, test and build commands run generation before loading their imports;
+Vite itself does not generate them. The generated manifest binds each reviewed
+exact version to its source kind, file and SHA-256 digest. Identical Schema
+contents share one exported asset and one Ajv 2020 browser validator. Generation
+leaves the output directory untouched when all contents already match.
+`pnpm run schema:check` recomputes and compares the expected outputs without
+changing that directory. Generated validators contain no CommonJS `require`.
+Application code imports the stable `src/schemas/index.ts` public entry instead
+of importing generated files directly. This entry reads the manifest and lazily
+loads shared Schema and validator modules with Vite's `import.meta.glob`; the
+generator writes only the manifest and assets.
+The [support table](../docs/guides/core-versions.md#exact-configuration-support)
+lists the reviewed exact versions; sharing a digest does not support another
+version. A version without a committed Schema
 remains available in the Advanced JSON editor; structured editing is enabled
 only when the exact-version local Schema and served digest match. The
 configuration version selector lists compatible installed core versions,

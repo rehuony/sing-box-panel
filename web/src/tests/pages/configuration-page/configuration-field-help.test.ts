@@ -2,15 +2,15 @@ import type { RJSFSchema } from '@rjsf/utils';
 
 import { describe, expect, it } from 'vitest';
 
-import schemaManifest from '@/schemas/generated/manifest.json';
+import schemaManifest from '@/schemas/.generated/manifest.json';
 import { configurationFieldCopy } from '@/i18n/locales/zh-CN/configuration-fields';
 import { schemaProperties, selfContainedSchema } from '@/pages/configuration-page/schema-ui';
 import { configurationFieldHelp, readConfigurationFieldHelp } from '@/pages/configuration-page/configuration-field-help';
 
-const schemas = import.meta.glob<RJSFSchema>('../../../schemas/generated/schema-*.json', { eager: true, import: 'default' });
+const schemas = import.meta.glob<RJSFSchema>('../../../schemas/.generated/schema-*.json', { eager: true, import: 'default' });
 
 describe('configuration field help', () => {
-  it('covers every declared property in every committed exact-version schema', () => {
+  it('covers every declared property in every distinct reviewed schema', () => {
     const missing = new Set<string>();
     const keys = new Set<string>();
     function visit(value: unknown) {
@@ -27,7 +27,7 @@ describe('configuration field help', () => {
       }
     }
     expect(Object.keys(schemas).sort()).toEqual(
-      schemaManifest.entries.map(entry => `../../../schemas/generated/${entry.schema_file}`).sort(),
+      [...new Set(schemaManifest.entries.map(entry => `../../../schemas/.generated/${entry.schema_file}`))].sort(),
     );
     Object.values(schemas).forEach(visit);
     expect([...missing]).toEqual([]);

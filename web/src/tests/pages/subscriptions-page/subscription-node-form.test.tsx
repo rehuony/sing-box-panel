@@ -9,7 +9,7 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import type { ReviewedSchemaResolution } from '@/schemas/resolve-reviewed-schema';
 
 import '@/i18n';
-import { reviewedSchemaManifest } from '@/schemas/generated';
+import { reviewedSchemaManifest } from '@/schemas';
 import { SubscriptionNodeForm } from '@/pages/subscriptions-page/subscription-node-form';
 
 let resolution: ReviewedSchemaResolution;

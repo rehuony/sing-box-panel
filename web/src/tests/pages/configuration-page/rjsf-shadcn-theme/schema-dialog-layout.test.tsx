@@ -7,8 +7,8 @@ import { fireEvent, render, screen, waitFor, within } from '@testing-library/rea
 import { createPrecompiledValidator, customizeValidator } from '@rjsf/validator-ajv8';
 
 import '@/i18n';
+import { reviewedSchemaManifest } from '@/schemas';
 import { TooltipProvider } from '@/components/ui/tooltip';
-import { reviewedSchemaManifest } from '@/schemas/generated';
 import { resolvedSchema } from '@/pages/configuration-page/schema-ui';
 import { SchemaDialogLayout } from '@/pages/configuration-page/rjsf-shadcn-theme';
 import { SchemaSectionForm } from '@/pages/configuration-page/schema-section-form';

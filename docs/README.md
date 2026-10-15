@@ -37,13 +37,18 @@ inventories live beside their Schema source rather than as separate guides.
 | CLI behavior | Cobra commands under [`internal/cli`](../internal/cli) and live `--help` |
 | HTTP operations, payloads and problem details | [`api/openapi.yaml`](../api/openapi.yaml) |
 | Exact core releases and official artifact pins | [`internal/singbox/catalog.json`](../internal/singbox/catalog.json) |
-| Exact-version Schema sources and digests | [Schema manifest](../internal/singbox/schemas/manifest.json) |
+| Exact-version Schema sources and shared content digests | [Schema manifest](../internal/singbox/schemas/manifest.json) |
 | Reviewed 1.13 fields and upstream provenance | [Source definition](../cmd/singbox-support/schema-sources/1.13.json), [generated field table](../cmd/singbox-support/schema-sources/1.13-fields.csv) |
 | Service layouts, ownership and hardening | [systemd packaging](../systemd/README.md) |
 | Installer, packaging scripts and generated release files | [Project scripts](../scripts/README.md) |
 | Frontend ownership, embedding and HTTP client boundaries | [Web application](../web/README.md) |
 
 Keep each behavior in its owning guide and link to it from other guides.
+Use the generated [support table](guides/core-versions.md#exact-configuration-support)
+for the current reviewed version list. Exact versions retain separate manifest
+entries and official-core checks even when their Schema assets share a SHA-256.
 When a summary conflicts with an authoritative contract or executable validation,
-resolve the discrepancy there and update the summary. Keep generated outputs in
-their component directories and regenerate them through the documented workflow.
+resolve the discrepancy there and update the summary. Regenerate outputs through
+the documented workflow: backend Schema assets are committed, while frontend
+Schema exports and validators are uncommitted build outputs generated offline
+before Web development and verification.

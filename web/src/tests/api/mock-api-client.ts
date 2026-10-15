@@ -23,8 +23,8 @@ import type {
   TrafficPeriod,
 } from '@/api/api-client';
 
+import { reviewedSchemaManifest } from '@/schemas';
 import { DEFAULT_APPEARANCE } from '@/theme/appearance';
-import { reviewedSchemaManifest } from '@/schemas/generated';
 
 export const testSession: Session = { email: 'admin@example.com', csrfToken: 'csrf-test', expiresAt: '2099-01-01T00:00:00Z', displayName: 'Panel administrator' };
 

@@ -2,11 +2,11 @@ import { beforeAll, describe, expect, it, vi } from 'vitest';
 
 import type { ConfigurationSchemaContract } from '@/api/api-client';
 
-import { reviewedSchemaManifest } from '@/schemas/generated';
 import { resolveReviewedSchema } from '@/schemas/resolve-reviewed-schema';
+import { hasReviewedSchemaVersion, loadReviewedSchema, reviewedSchemaManifest } from '@/schemas';
 
 import { representativeSchemaVersions } from './schema-fixtures';
-import { parseConfigurationSchemaManifest } from '../../../plugins/configuration-schema';
+import { parseConfigurationSchemaManifest } from '../../../scripts/configuration-schema';
 
 const unavailableSHA256 = '0'.repeat(64);
 
@@ -53,6 +53,11 @@ it.each(Object.keys(reviewedSchemaManifest))('loads the precompiled contract for
   expect(resolution.createValidator(resolution.schema)).toBeDefined();
 });
 
+it.each(['1.14', '1.14.3-custom', 'toString', '__proto__'])('does not resolve an unlisted version %s', async exactVersion => {
+  expect(hasReviewedSchemaVersion(exactVersion)).toBe(false);
+  expect(await loadReviewedSchema(exactVersion)).toBeUndefined();
+});
+
 describe.each(representativeSchemaVersions())('resolveReviewedSchema %s', (exactVersion) => {
   it('fails closed for a version without a reviewed manifest entry', async () => {
     await expect(resolveReviewedSchema(await contract(exactVersion, { exact_version: '99.0.0' }), '99.0.0'))
@@ -90,14 +95,14 @@ describe('configuration Schema manifest', () => {
       entries: [{
         exact_version: '1.14.0',
         source: 'native',
-        schema_file: 'schema.json',
+        schema_file: `schema-${'b'.repeat(64)}.json`,
         schema_sha256: 'b'.repeat(64),
       }],
     }));
     expect(manifest.entries).toEqual([{
       exact_version: '1.14.0',
       source: 'native',
-      schema_file: 'schema.json',
+      schema_file: `schema-${'b'.repeat(64)}.json`,
       schema_sha256: 'b'.repeat(64),
     }]);
   });
@@ -108,11 +113,24 @@ describe('configuration Schema manifest', () => {
       entries: [{
         exact_version: '1.14.0',
         source: 'native',
-        schema_file: 'schema.json',
+        schema_file: `schema-${'b'.repeat(64)}.json`,
         schema_sha256: 'b'.repeat(64),
       }],
     };
     delete (manifest.entries[0] as Partial<typeof manifest.entries[0]>).schema_sha256;
+    expect(() => parseConfigurationSchemaManifest(JSON.stringify(manifest))).toThrow('manifest entry');
+  });
+
+  it('rejects a schema filename that does not match its digest', () => {
+    const manifest = {
+      schema_version: 1,
+      entries: [{
+        exact_version: '1.14.0',
+        source: 'native',
+        schema_file: `schema-${'a'.repeat(64)}.json`,
+        schema_sha256: 'b'.repeat(64),
+      }],
+    };
     expect(() => parseConfigurationSchemaManifest(JSON.stringify(manifest))).toThrow('manifest entry');
   });
 });

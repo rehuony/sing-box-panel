@@ -46,7 +46,7 @@ jobs:
           corepack enable pnpm
           pnpm --version
 
-      - name: Build the committed Web distribution
+      - name: Build Web assets from committed schema sources
         run: make bootstrap web-build
 
       - name: Regenerate native schemas
@@ -61,6 +61,8 @@ jobs:
             exit 1
           fi
           go tool singbox-support check
+          cd web
+          corepack pnpm run schema:check
 
   go-check:
     name: Go and contract checks

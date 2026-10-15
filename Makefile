@@ -36,8 +36,11 @@ check-go: web-build
 	go vet ./...
 	go test ./...
 
-check-web:
-	bash scripts/test/check-web.sh
+check-web: web-build
+	$(WEB_PNPM) run lint
+	$(WEB_PNPM) exec vitest run
+	$(WEB_PNPM) run schema:check
+	go tool third-party-notices --check
 
 check-contracts: web-build support-check
 	@for script in $$(find scripts -type f -name '*.sh'); do bash -n "$$script" || exit; done

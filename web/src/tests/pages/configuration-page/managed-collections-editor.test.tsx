@@ -10,7 +10,7 @@ import type { ReviewedSchemaResolution } from '@/schemas/resolve-reviewed-schema
 import type { CanonicalDraft } from '@/pages/configuration-page/use-canonical-configuration';
 
 import '@/i18n';
-import { reviewedSchemaManifest } from '@/schemas/generated';
+import { reviewedSchemaManifest } from '@/schemas';
 import { ManagedCollectionsEditor } from '@/pages/configuration-page/managed-collections-editor';
 import { encodeCanonicalDraft, parseCanonicalDraft } from '@/pages/configuration-page/use-canonical-configuration';
 
@@ -18,7 +18,7 @@ const reviewedEntry = reviewedSchemaManifest['1.14.0'];
 let resolution: ReviewedSchemaResolution;
 
 beforeAll(async () => {
-  expect(reviewedEntry, 'Missing committed 1.14.0 Schema fixture').toBeDefined();
+  expect(reviewedEntry, 'Missing reviewed 1.14.0 Schema fixture').toBeDefined();
   const reviewed = await reviewedEntry.load();
   resolution = {
     schema: reviewed.schema,

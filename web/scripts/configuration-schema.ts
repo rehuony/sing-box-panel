@@ -1,17 +1,16 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import type { Plugin, ResolvedConfig } from 'vite';
-
 import { tmpdir } from 'node:os';
 import process from 'node:process';
 import { promisify } from 'node:util';
 import Ajv2020 from 'ajv/dist/2020.js';
 import { createHash } from 'node:crypto';
+import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import standaloneCode from 'ajv/dist/standalone/index.js';
 import { execFile as execFileCallback } from 'node:child_process';
-import { dirname, join, parse, relative, resolve, sep } from 'node:path';
 import createAjvInstance from '@rjsf/validator-ajv8/lib/createAjvInstance.js';
-import { chmod, mkdir, mkdtemp, readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 
 const execFile = promisify(execFileCallback);
 
@@ -27,36 +26,16 @@ interface SchemaManifest {
   entries: SchemaManifestEntry[];
 }
 
-export interface ConfigurationSchemaPluginOptions {
+export interface ConfigurationSchemaGenerationOptions {
   check?: boolean;
-}
-
-export function configurationSchemaPlugin(
-  options: ConfigurationSchemaPluginOptions = {},
-): Plugin {
-  let config: ResolvedConfig;
-  let generation: Promise<void> | undefined;
-  return {
-    name: 'sing-box-panel:configuration-schema',
-    enforce: 'pre',
-    configResolved(resolvedConfig) {
-      config = resolvedConfig;
-    },
-    async buildStart() {
-      generation ??= generateConfigurationSchemaArtifacts(config.root, {
-        check: options.check ?? process.env.CI !== undefined,
-      });
-      await generation;
-    },
-  };
 }
 
 export async function generateConfigurationSchemaArtifacts(
   webRoot: string,
-  options: ConfigurationSchemaPluginOptions = {},
+  options: ConfigurationSchemaGenerationOptions = {},
 ): Promise<void> {
   const repositoryRoot = resolve(webRoot, '..');
-  const outputRoot = join(webRoot, 'src', 'schemas', 'generated');
+  const outputRoot = join(webRoot, 'src', 'schemas', '.generated');
   const sourceRoot = await mkdtemp(join(tmpdir(), 'sing-box-panel-schema-web-'));
   try {
     await exportConfigurationSchemaAssets(repositoryRoot, sourceRoot);
@@ -65,28 +44,28 @@ export async function generateConfigurationSchemaArtifacts(
     const generated = new Map<string, string>();
     generated.set('manifest.json', `${JSON.stringify(manifest, null, 2)}\n`);
 
-    const indexEntries: string[] = [];
     for (const entry of manifest.entries) {
-      const schemaPath = safeAssetPath(sourceRoot, entry.schema_file);
-      const schemaSource = await readFile(schemaPath, 'utf8');
-      if (sha256(schemaSource) !== entry.schema_sha256) {
-        throw new Error(`schema ${entry.exact_version} differs from its manifest digest`);
+      const outputSchemaFile = entry.schema_file;
+      const validatorFile = `validator-${entry.schema_sha256}.ts`;
+      if (!generated.has(outputSchemaFile)) {
+        const schemaSource = await readFile(join(sourceRoot, outputSchemaFile), 'utf8');
+        if (sha256(schemaSource) !== entry.schema_sha256) {
+          throw new Error(`schema ${entry.exact_version} differs from its manifest digest`);
+        }
+        const schema = JSON.parse(schemaSource) as Record<string, unknown>;
+        generated.set(outputSchemaFile, schemaSource);
+        generated.set(validatorFile, compileConfigurationSchemaValidator(
+          schema,
+          `Schema SHA-256: ${entry.schema_sha256}`,
+          validatorFile,
+        ));
       }
-      const schema = JSON.parse(schemaSource) as Record<string, unknown>;
-      const outputSchemaFile = normalizePath(entry.schema_file);
-      const schemaDirectory = parse(outputSchemaFile).dir;
-      const validatorBase = parse(outputSchemaFile).name.replace(/^schema-/, 'validator-');
-      const validatorFile = normalizePath(join(schemaDirectory, `${validatorBase}.ts`));
-      generated.set(outputSchemaFile, schemaSource);
-      generated.set(validatorFile, compileValidator(entry, schema, validatorFile));
-      indexEntries.push(renderIndexEntry(entry, outputSchemaFile, validatorFile));
     }
-    generated.set('index.ts', renderIndex(indexEntries));
 
     const differences = await compareGeneratedFiles(outputRoot, generated);
     if (options.check && differences.length > 0) {
       throw new Error(
-        `configuration schema browser artifacts are stale (${differences.join(', ')}); run a local Vite command to regenerate them`,
+        `configuration schema browser artifacts are stale (${differences.join(', ')}); run pnpm run generate`,
       );
     }
     if (!options.check && differences.length > 0) {
@@ -127,8 +106,8 @@ export function parseConfigurationSchemaManifest(source: string): SchemaManifest
     if (
       !isRecord(entry)
       || typeof entry.exact_version !== 'string' || !/^\d+\.\d+\.\d+$/.test(entry.exact_version)
-      || typeof entry.schema_file !== 'string' || entry.schema_file === ''
       || !isSha256(entry.schema_sha256)
+      || entry.schema_file !== `schema-${entry.schema_sha256}.json`
       || (entry.source !== 'native' && entry.source !== 'reviewed-1.13')
     ) {
       throw new Error(`configuration schema manifest entry for ${entry.exact_version ?? 'unknown'} is incomplete`);
@@ -149,18 +128,6 @@ export function parseConfigurationSchemaManifest(source: string): SchemaManifest
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
-}
-
-function compileValidator(
-  entry: SchemaManifestEntry,
-  schema: Record<string, unknown>,
-  validatorFile: string,
-): string {
-  return compileConfigurationSchemaValidator(
-    schema,
-    `${entry.source}: github.com/sagernet/sing-box@v${entry.exact_version}`,
-    validatorFile,
-  );
 }
 
 interface AjvRuntimeImport {
@@ -207,7 +174,7 @@ export function compileConfigurationSchemaValidator(
     .join('\n');
   return `/* eslint-disable */
 // @ts-nocheck -- Ajv standalone output is generated JavaScript stored beside typed modules.
-// Code generated by the configuration Schema Vite plugin; DO NOT EDIT.
+// Code generated by pnpm generate; DO NOT EDIT.
 // Source: ${sourceReference}
 ${imports}
 const validators = {};
@@ -239,66 +206,6 @@ function compileRootSchemaValidator(schema: Record<string, unknown>): string {
   return standaloneCode(ajv);
 }
 
-function renderIndexEntry(
-  entry: SchemaManifestEntry,
-  schemaFile: string,
-  validatorFile: string,
-): string {
-  const schemaImport = `./${schemaFile}`;
-  const validatorImport = `./${validatorFile.replace(/\.ts$/, '')}`;
-  return `  ${JSON.stringify(entry.exact_version)}: {
-    exactVersion: ${JSON.stringify(entry.exact_version)},
-    schemaSHA256: ${JSON.stringify(entry.schema_sha256)},
-    async load() {
-      const [schemaModule, validatorModule] = await Promise.all([
-        import(${JSON.stringify(schemaImport)}),
-        import(${JSON.stringify(validatorImport)}),
-      ]);
-      return {
-        exactVersion: ${JSON.stringify(entry.exact_version)},
-        schemaSHA256: ${JSON.stringify(entry.schema_sha256)},
-        schema: schemaModule.default as unknown as RJSFSchema,
-        validateFns: validatorModule.default as unknown as ReviewedValidatorFunctions,
-      };
-    },
-  },`;
-}
-
-function renderIndex(entries: string[]): string {
-  return `/* eslint-disable */
-// Code generated by the configuration Schema Vite plugin; DO NOT EDIT.
-import type { RJSFSchema } from '@rjsf/utils';
-
-type ReviewedValidatorFunction = ((data: unknown) => boolean) & { errors?: unknown };
-type ReviewedValidatorFunctions = Record<string, ReviewedValidatorFunction>;
-
-export interface ReviewedSchemaEntry {
-  exactVersion: string;
-  schemaSHA256: string;
-  schema: RJSFSchema;
-  validateFns: ReviewedValidatorFunctions;
-}
-
-export interface ReviewedSchemaManifestEntry {
-  exactVersion: string;
-  schemaSHA256: string;
-  load: () => Promise<ReviewedSchemaEntry>;
-}
-
-export const reviewedSchemaManifest: Readonly<Record<string, ReviewedSchemaManifestEntry>> = {
-${entries.join('\n')}
-};
-
-export function hasReviewedSchemaVersion(exactVersion: string): boolean {
-  return reviewedSchemaManifest[exactVersion] !== undefined;
-}
-
-export async function loadReviewedSchema(exactVersion: string): Promise<ReviewedSchemaEntry | undefined> {
-  return reviewedSchemaManifest[exactVersion]?.load();
-}
-`;
-}
-
 async function compareGeneratedFiles(
   outputRoot: string,
   expected: ReadonlyMap<string, string>,
@@ -308,7 +215,8 @@ async function compareGeneratedFiles(
   for (const [name, content] of expected) {
     try {
       if (await readFile(join(outputRoot, name), 'utf8') !== content) differences.push(name);
-    } catch {
+    } catch (error) {
+      if (!isNodeError(error, 'ENOENT')) throw error;
       differences.push(name);
     }
   }
@@ -323,30 +231,28 @@ async function syncGeneratedFiles(
   expected: ReadonlyMap<string, string>,
 ): Promise<void> {
   const parent = dirname(outputRoot);
-  await mkdir(parent, { recursive: true });
+  await mkdir(outputRoot, { recursive: true });
   const nextRoot = await mkdtemp(join(parent, '.configuration-schema-next-'));
   await chmod(nextRoot, 0o755);
-  const previousRoot = join(parent, `.configuration-schema-previous-${process.pid}-${Math.random().toString(16).slice(2)}`);
-  let movedPrevious = false;
   try {
-    for (const [name, content] of expected) {
-      const target = join(nextRoot, name);
-      await mkdir(dirname(target), { recursive: true });
-      await writeFile(target, content, { encoding: 'utf8', mode: 0o644 });
+    // Keep the directory available to concurrent builds. Publish referenced
+    // content before the manifest that exposes it to consumers.
+    const assets = [...expected.keys()].filter(name => name !== 'manifest.json');
+    for (let attempt = 0; attempt < 3; attempt++) {
+      for (const [name, content] of expected) {
+        await writeFile(join(nextRoot, name), content, { encoding: 'utf8', mode: 0o644 });
+      }
+      for (const name of [...assets, 'manifest.json']) {
+        await rename(join(nextRoot, name), join(outputRoot, name));
+      }
+      for (const name of await listFiles(outputRoot)) {
+        if (!expected.has(name)) await rm(join(outputRoot, name), { force: true, recursive: true });
+      }
+      // A different concurrent input can remove assets referenced by our manifest.
+      // Verify the whole set after publication and retry it as one complete set.
+      if ((await compareGeneratedFiles(outputRoot, expected)).length === 0) return;
     }
-    try {
-      await rename(outputRoot, previousRoot);
-      movedPrevious = true;
-    } catch (error) {
-      if (!isNodeError(error, 'ENOENT')) throw error;
-    }
-    try {
-      await rename(nextRoot, outputRoot);
-    } catch (error) {
-      if (movedPrevious) await rename(previousRoot, outputRoot);
-      throw error;
-    }
-    if (movedPrevious) await rm(previousRoot, { force: true, recursive: true });
+    throw new Error('concurrent configuration schema generation conflict; rerun pnpm generate after other generators finish');
   } finally {
     await rm(nextRoot, { force: true, recursive: true });
   }
@@ -354,40 +260,15 @@ async function syncGeneratedFiles(
 
 async function listFiles(root: string): Promise<string[]> {
   try {
-    if (!(await stat(root)).isDirectory()) return [];
-  } catch {
-    return [];
+    return (await readdir(root)).sort();
+  } catch (error) {
+    if (isNodeError(error, 'ENOENT')) return [];
+    throw error;
   }
-  const result: string[] = [];
-  async function visit(directory: string): Promise<void> {
-    for (const entry of await readdir(directory, { withFileTypes: true })) {
-      const current = join(directory, entry.name);
-      if (entry.isDirectory()) await visit(current);
-      else if (entry.isFile()) result.push(normalizePath(relative(root, current)));
-    }
-  }
-  await visit(root);
-  return result.sort();
 }
 
 function isNodeError(error: unknown, code: string): error is NodeJS.ErrnoException {
   return error instanceof Error && 'code' in error && error.code === code;
-}
-
-function safeAssetPath(root: string, name: string): string {
-  const normalized = normalizePath(name);
-  if (normalized !== name || normalized.startsWith('../') || normalized.startsWith('/')) {
-    throw new Error(`unsafe configuration schema asset path ${JSON.stringify(name)}`);
-  }
-  const target = resolve(root, name);
-  if (!target.startsWith(`${resolve(root)}${sep}`)) {
-    throw new Error(`configuration schema asset escapes its root: ${JSON.stringify(name)}`);
-  }
-  return target;
-}
-
-function normalizePath(value: string): string {
-  return value.split(sep).join('/');
 }
 
 function sha256(value: string): string {
@@ -396,4 +277,14 @@ function sha256(value: string): string {
 
 function isSha256(value: unknown): value is string {
   return typeof value === 'string' && /^[a-f0-9]{64}$/.test(value);
+}
+
+if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
+  const arguments_ = process.argv.slice(2);
+  if (arguments_.length > 1 || (arguments_.length === 1 && arguments_[0] !== '--check')) {
+    throw new Error('usage: configuration-schema.ts [--check]');
+  }
+  await generateConfigurationSchemaArtifacts(fileURLToPath(new URL('..', import.meta.url)), {
+    check: arguments_[0] === '--check',
+  });
 }

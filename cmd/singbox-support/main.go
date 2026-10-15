@@ -101,18 +101,10 @@ func generateCatalog(root string) error {
 	if err != nil {
 		return err
 	}
-	path := filepath.Join(root, generatedPath)
-	current, readErr := os.ReadFile(path)
-	if readErr == nil && bytes.Equal(current, generated) {
-		return nil
-	}
-	if readErr != nil && !errors.Is(readErr, os.ErrNotExist) {
-		return readErr
-	}
-	if err := os.WriteFile(path, generated, 0o644); err != nil {
+	if err := writeFileIfChanged(filepath.Join(root, generatedPath), generated); err != nil {
 		return fmt.Errorf("write generated support catalog: %w", err)
 	}
-	return nil
+	return syncSupportGuide(root, catalog, false)
 }
 
 func check(root string) error {
@@ -130,6 +122,9 @@ func check(root string) error {
 	}
 	if !bytes.Equal(onDisk, generated) {
 		return errors.New("generated support catalog is stale; run `go tool singbox-support generate`")
+	}
+	if err := syncSupportGuide(root, catalog, true); err != nil {
+		return err
 	}
 	if err := singbox.ValidateConfigurationSchemaAssets(); err != nil {
 		return fmt.Errorf("validate configuration schema assets: %w", err)

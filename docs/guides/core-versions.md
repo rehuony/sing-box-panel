@@ -8,7 +8,7 @@ nearest supported release.
 - [Install and select](#install-and-select-a-version), [choose a build](#multiple-installations-of-one-version), or [import](#import-a-local-archive)
 - [Catalog cache](#catalog-cache), [verification boundaries](#checks-and-recorded-hashes), and [runtime switching](#switching-and-runtime-state)
 - [Exact configuration support](#exact-configuration-support) and [CLI / HTTP migration](#cli-and-http-migration)
-- [Maintaining support](#maintaining-support), [1.14.2 review evidence](#1142-configuration-review), and [1.13 review evidence](#113-configuration-review)
+- [Maintaining support](#maintaining-support), [1.14.3 review evidence](#1143-configuration-review), and [1.13 review evidence](#113-configuration-review)
 
 ## Install and select a version
 
@@ -199,14 +199,23 @@ binary path and safe-file checks, not the convenience link as an authority.
 
 ## Exact configuration support
 
+This table is generated from the support catalog and lists the reviewed exact
+versions and their capabilities.
+
+<!-- singbox-support-table:start -->
+<!-- Generated from internal/singbox/catalog.json; DO NOT EDIT. -->
+
 | Exact releases | Configuration Schema source | Inbound family |
 | --- | --- | --- |
 | 1.13.19, 1.13.20, 1.13.21 | Project-reviewed `reviewed-1.13` source definition | 1.13 |
-| 1.14.0, 1.14.1, 1.14.2 | Official binary's native `schema` command | 1.14 |
+| 1.14.0, 1.14.1, 1.14.2, 1.14.3 | Official binary's native `schema` command | 1.14 |
+<!-- singbox-support-table:end -->
 
-Each exact release has a separate Schema asset, manifest entry and precompiled
-browser validator. The three 1.13 option type definitions are identical and share
-one reviewed semantic source. Field provenance, actual musl protocol coverage,
+Each exact release has its own reviewed manifest entry and official-core contract
+checks. Canonical Schema assets and browser validators are shared by SHA-256 only
+when their contents are identical; sharing files never grants support to another
+version. The three reviewed 1.13 option type definitions are identical and share
+one semantic source. Field provenance, actual musl protocol coverage,
 conditional checks and DNS patch behavior are documented in the
 [1.13 review and field table](#113-configuration-review). Presentation annotations live
 separately from semantic constraints. The 1.13 forms exclude 1.14-only fields.
@@ -222,9 +231,10 @@ A version without an exact manifest entry uses Advanced JSON editing. Missing
 Schema or inbound-conversion support does not prohibit raw runtime use. No nearby
 version's Schema or converter is substituted. The existing
 [1.14.1 review](https://github.com/SagerNet/sing-box/compare/v1.14.0...v1.14.1)
-retains family 1.14 and its independently generated asset.
-The [1.14.2 review](#1142-configuration-review) also retains family 1.14,
-with its own native Schema and browser validator.
+retains family 1.14 and independently verifies its native Schema.
+The [1.14.2 review](#1142-configuration-review) and
+[1.14.3 review](#1143-configuration-review) also retain family 1.14,
+with separate exact-version review and native Schema generation.
 
 ## CLI and HTTP migration
 
@@ -249,10 +259,18 @@ its input and published client fields. Native Schema versions use the official
 `schema` command; pre-1.14 support requires an explicit reviewed source definition,
 never a copy of a neighboring native Schema.
 
-`make support-generate` runs on Linux and regenerates source-derived catalog code,
-each exact Schema and the reviewed field table. `make support-check` validates committed outputs
-offline. `make web-build` exports them and compiles browser validators. Production
-never fetches Schema definitions from the network. Native Linux amd64 and arm64
+`make support-generate` runs on Linux and independently generates each exact
+version's Schema, updates its manifest entry and stores identical canonical
+contents once per SHA-256. It also regenerates catalog code, the support table
+above and the reviewed field table. `make support-check` validates committed
+outputs offline.
+
+From `web`, `pnpm run generate` exports the committed backend contracts
+offline and compiles one browser validator per distinct Schema. Frontend Schema
+assets and validators are build outputs and are not committed. Web development,
+typecheck, test and build commands prepare them before loading generated imports;
+`make web-build` includes this step. Production never fetches Schema definitions
+from the network. Native Linux amd64 and arm64
 `make core-contract` runs the real binaries, including 1.13 positive and negative
 configuration fixtures. `make release-smoke` exercises the panel release flow on
 native Linux as a non-root user. Emulation is supplementary evidence.
@@ -260,6 +278,37 @@ native Linux as a non-root user. Emulation is supplementary evidence.
 The daily Core Version Monitor opens or updates one rolling issue when the latest
 stable upstream release exceeds the highest supported catalog entry. It requests
 manual review, never edits support code or backfills older release lines.
+
+## 1.14.3 configuration review
+
+The [1.14.3 release](https://github.com/SagerNet/sing-box/releases/tag/v1.14.3)
+is pinned to commit `7054cac5124465ffdb145870d7c01885566711b1`.
+The [30-commit comparison with 1.14.2](https://github.com/SagerNet/sing-box/compare/v1.14.2...v1.14.3)
+leaves the `option/`, `cmd/`, `include/` and `release/` source trees unchanged,
+including configuration types, protocol registrations, native Schema generation
+and the `check`, `format` and `merge` commands. The
+[tag's migration notes](https://github.com/SagerNet/sing-box/blob/v1.14.3/docs/migration.md)
+clarify existing 1.14 DNS rule conditions and shorten older explanations; they
+introduce no new 1.14.3 migration requirement.
+
+The reviewed inbound input types and published client fields remain unchanged,
+so 1.14.3 reuses inbound family `1.14`. Runtime changes cover scoped lifecycle
+cleanup, idle connections, DNS/TUN behavior, UDP fragmentation and protocol input
+validation. These fixes remain the exact core's responsibility and do not require
+new form fields or client-conversion rules.
+
+Both official Linux amd64/arm64 **musl** archives were downloaded and checked
+against their release asset sizes and SHA-256 digests. Static Go build metadata
+confirms version 1.14.3, the pinned commit, Go 1.26.8 and the same feature tags as
+1.14.2, including `with_musl`. Exact artifact pins and Go module checksums are in
+[`catalog.json`](../../internal/singbox/catalog.json).
+
+The official 1.14.3 binary independently generates its native Schema through the
+normal generation workflow, together with the panel presentation overlay and Web
+validator. Existing catalog-driven tests cover exact-version selection,
+configuration validation and inbound conversion; browser tests cover loading the
+exact Schema. The native Linux amd64/arm64 core contract matrix includes the new
+catalog entry.
 
 ## 1.14.2 configuration review
 
@@ -351,9 +400,10 @@ browser validator and exact official core checks.
 The source definition contains semantic JSON constraints and provenance. The
 existing `schema_overlay.go` workflow separately adds `x-panel` presentation
 annotations; it cannot widen accepted fields or values. `make support-generate`
-regenerates the CSV and independent exact-version Schema assets. Offline
-`make support-check` rejects source/output drift. `make web-build` produces each
-version's standalone browser validator. These are reviewed schemas, not official
+regenerates the CSV and exact-version manifest entries, sharing identical Schema
+contents by SHA-256. Offline `make support-check` rejects source/output drift.
+`make web-build` produces standalone browser validators for the distinct Schema
+contents. These are reviewed schemas, not official
 native-schema output: sing-box 1.13 has no `schema` command.
 
 ### Section and conditional-field review

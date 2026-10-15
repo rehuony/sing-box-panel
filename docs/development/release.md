@@ -34,8 +34,11 @@ root.
 
 A separate path-filtered `Core Compatibility` workflow downloads every reviewed
 sing-box archive and runs the raw-configuration and real `sing-box check`
-contract on native amd64 and arm64 runners. Schema reproducibility is a separate
-CI job. The core job receives no secrets and does not run for unrelated
+contract on native amd64 and arm64 runners. A separate Schema reproducibility
+job builds frontend assets from committed backend sources, regenerates native
+Schemas and checks committed-output drift, then checks that the frontend outputs
+still match with `pnpm run schema:check`. Frontend Schema assets are not committed.
+The core job receives no secrets and does not run for unrelated
 documentation changes.
 
 The signed-release workflow calls the same reusable native core contract with
@@ -116,9 +119,13 @@ Snapshot and release builds share the implementation in
 `scripts/build.sh`. It exports committed `HEAD` into a
 temporary source tree and builds the Web application inside that complete
 snapshot with locked dependencies. Keeping `web/` beneath the snapshot's
-`go.mod` is required because the Vite Schema plugin invokes the offline Go
-exporter. Go module, build, and package-manager state is isolated from the
-caller's normal caches.
+`go.mod` is required because `pnpm run generate` prepares OpenAPI types and
+invokes the offline Go Schema exporter before TypeScript checking and Vite
+bundling. The committed backend
+manifest and Schema assets produce `web/src/schemas/.generated/` inside the
+snapshot; no generated frontend files are taken from the caller's working tree.
+Go module, build, and package-manager state is isolated from the caller's normal
+caches.
 
 Both Linux binaries use `CGO_ENABLED=0`, fixed CPU baselines, `-trimpath`, and
 `-buildvcs=false`. Module download and repository-only tools may run first,

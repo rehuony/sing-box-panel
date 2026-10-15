@@ -3,8 +3,8 @@ import { useQuery } from '@tanstack/react-query';
 import type { CoreArtifact } from '@/api/api-client';
 import type { ReviewedSchemaResolution } from '@/schemas/resolve-reviewed-schema';
 
+import { hasReviewedSchemaVersion } from '@/schemas';
 import { useApiClient } from '@/api/api-client-context';
-import { hasReviewedSchemaVersion } from '@/schemas/generated';
 import { resolveReviewedSchema } from '@/schemas/resolve-reviewed-schema';
 
 type SchemaState

@@ -7,7 +7,7 @@ import type { ApiClient, SubscriptionNodeSummary } from '@/api/api-client';
 import type { TelemetryState } from '@/components/app-shell/use-telemetry';
 
 import '@/i18n';
-import * as reviewedSchemas from '@/schemas/generated';
+import * as reviewedSchemas from '@/schemas';
 import { ApiClientProvider } from '@/api/api-client-context';
 import { TestRouter as MemoryRouter } from '@/tests/test-router';
 import { TelemetryContext } from '@/components/app-shell/telemetry-context';
