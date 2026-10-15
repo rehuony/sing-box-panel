@@ -199,7 +199,10 @@ configuration writes use optimistic concurrency. Backup restores commit settings
 Panel settings saves do not modify native inbound credentials.
 
 The obsolete Web user, deployment and history components have been removed.
-The CLI also removes configuration history, revision, diff and restore commands.
+The CLI is limited to panel settings, panel and systemd service control, installation
+maintenance, and binary version/update commands. Core versions and runtime,
+subscriptions, logs, and metrics use the Web UI and authenticated HTTP API.
+Configuration history, revision, diff and restore commands remain absent.
 Internal immutable evidence remains for checked startup and runtime recovery. Unknown native configuration fields and numeric
 lexemes survive editing. Neither hide nor delete-publication actions delete an
 underlying core inbound.
@@ -284,12 +287,12 @@ bundle. It never selects the newest catalog version or a nearby release.
 The shared settings file stores one normalized administrator email in `auth.email`
 and an Argon2id hash in `auth.password_hash`. Legacy `auth.token` is rejected.
 There is no registration, email verification, browser password recovery, or additional administrator.
-Server operators recover access with `config reset-password`; the login page has no recovery UI.
+Server operators recover access with `config set auth.password --stdin`; the login page has no recovery UI.
 `POST /api/v1/auth/session` accepts `{ email, password }`; email is trimmed
 and lowercased, while password characters are preserved. Address validation is
 owned by the server; the login form accepts Unicode addresses supported by the
 settings contract instead of applying native HTML email validation. New passwords contain
-12–128 Unicode characters. `config hash-password` uses `alexedwards/argon2id` with
+12–128 Unicode characters. Password hashing uses `alexedwards/argon2id` with
 19 MiB memory, two iterations, parallelism one, a 16-byte salt and a 32-byte key.
 Configured hashes are checked before computation (19–64 MiB, 2–4 iterations,
 1–4 parallelism, 16–32-byte salt, 32-byte key). At most two password computations
@@ -346,13 +349,13 @@ independently, without current-password verification. Empty passwords preserve t
 current hash; empty email addresses are invalid. Password confirmation is not part of
 the interface. Authenticated writes still require the existing session, Origin and CSRF.
 
-`config reset-password` generates a random password, or accepts an explicit `--stdin`
-password. It atomically replaces only the hash in an existing valid settings file,
+`config set auth.password --stdin` accepts a custom password and atomically
+replaces only its hash in the existing settings file after validating the result,
 without opening SQLite. Even the same supplied password receives a fresh salt and
 invalidates prior session fingerprints. The command works while the service is stopped
-or running; no restart is needed. Plaintext is emitted only for a generated password,
-not persisted or echoed for stdin input. Initialization and recovery share the random
-password generator and Argon2id implementation.
+or running; no restart is needed. Plaintext is neither persisted nor echoed in
+command output. Initialization, CLI changes, and Web settings changes share the
+Argon2id implementation; initialization also generates a random password.
 
 Settings reads and session operations share the settings lock. Credential edits
 through settings/restore revoke every session in the settings commit transaction.

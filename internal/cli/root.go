@@ -10,7 +10,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/rehuony/sing-box-panel/internal/application"
 	"github.com/rehuony/sing-box-panel/internal/buildinfo"
 	"github.com/rehuony/sing-box-panel/internal/installation"
 	"github.com/rehuony/sing-box-panel/internal/selfupdate"
@@ -28,7 +27,6 @@ type Dependencies struct {
 	Build              buildinfo.Info
 	Update             func(context.Context, string, selfupdate.ProgressFunc) (selfupdate.Result, error)
 	RunServer          func(context.Context, string) error
-	OpenApplication    func(context.Context, string) (*application.Application, error)
 	Systemd            panelSystemd.Service
 }
 
@@ -54,7 +52,7 @@ func NewRootCommand(deps Dependencies) *cobra.Command {
 	}
 	root := &cobra.Command{
 		Use:           "sing-box-panel",
-		Short:         "Manage sing-box artifacts, configuration, runtime, and subscriptions",
+		Short:         "Manage panel configuration and services",
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		Args:          cobra.NoArgs,
@@ -73,13 +71,7 @@ func NewRootCommand(deps Dependencies) *cobra.Command {
 		newVersionCommand(state, deps.Build),
 		newUpdateCommand(state, deps.Build, deps.Update),
 		newServerCommand(state, deps.RunServer),
-		newCoreCommand(state, deps.OpenApplication),
 		newConfigCommand(state),
-		newSubscriptionChannelCommand(state, deps.OpenApplication),
-		newSubscriptionSourceCommand(state, deps.OpenApplication),
-		newSubscriptionTokenCommand(state, deps.OpenApplication),
-		newDurableLogCommand(state, deps.OpenApplication),
-		newMetricsCommand(state, deps.OpenApplication),
 		newSystemCommand(state, systemdService),
 		newSystemdCommand(state, systemdService),
 		newCompletionCommand(root),

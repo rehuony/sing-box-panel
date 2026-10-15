@@ -12,82 +12,31 @@ nearest supported release.
 
 ## Install and select a version
 
-```sh
-sing-box-panel core refresh
-sing-box-panel core catalog
-sing-box-panel core install 1.13.21
-sing-box-panel core list
-sing-box-panel core show 1.13.21
-sing-box-panel core enable 1.13.21
-# Remove an unused installation when it is no longer needed:
-sing-box-panel core remove 1.13.21
-```
+Open version management in the Web UI. The available list shows cached official
+downloads; the installed list shows local artifacts. Use “Check GitHub for updates”
+to refresh available versions, Download to install an exact release, and Enable
+on an installed artifact to select it. Remove unused installations there when
+they are no longer needed.
 
-`catalog` lists cached official downloads; `list` lists local installations.
-Copy a version from the `VERSION` column. `install`, `show`, `enable` and `remove`
-accept that complete version, or its release tag such as `v1.13.21`. Values such
-as `1.13`, `1.13.*`, `latest`, prereleases and internal IDs are not accepted.
-The CLI normalizes `v1.13.21` to `1.13.21` without selecting another release.
+Installation uses the stored catalog and never substitutes a newer or older
+release. Opening version management initializes the catalog if it is missing;
+use the explicit refresh action when a release is absent from an existing cache.
+The selected release must have a complete `MAJOR.MINOR.PATCH` version.
 
-The default architecture is the CLI machine's architecture and the build variant
-is `musl`. Use `--arch amd64` or `--arch arm64` to explicitly select an
-architecture, including when querying a catalog or installation list:
-
-```sh
-sing-box-panel core catalog --arch arm64 --core-version 1.13.21
-sing-box-panel core install v1.13.21 --arch arm64
-sing-box-panel core list --arch arm64 --core-version 1.13.21
-```
-
+Official packages use the static musl variant for Linux amd64 or arm64.
 Installation inspects the actual executable; the environment must be able to
-execute the selected architecture. Runtime enablement requires the panel server's
-Linux architecture. An architecture flag does not provide emulation.
-
-Installation uses the stored catalog. It does not refresh implicitly. If no cache
-exists, run `sing-box-panel core refresh` and `sing-box-panel core catalog`.
-If a version is absent from an existing cache, run
-`sing-box-panel core refresh --force` and query the catalog again. Error messages
-include these commands. They do not substitute a newer or older version.
-
-The installed list has `VERSION`, `ARCH`, `SOURCE`, `STATUS` and `BUILD` columns.
-Status distinguishes an installed artifact from the selected artifact and its
-observed runtime state. `show` prints labelled details. `-o json` and `-o jsonl`
-retain full internal IDs for machine consumers.
+execute its architecture. Runtime enablement requires the panel server's Linux
+architecture. Selecting an architecture does not provide emulation.
 
 ## Multiple installations of one version
 
-Official and imported builds of one exact version may coexist. If more than one
-installation matches the version, architecture and musl variant, `show`, `enable`
-and `remove` require `--build`. Copy the short installation number from the
-`BUILD` column of `core list`. The ambiguity error also lists candidates and a
-complete command for each one. For example, if the list shows `a17b34c56d78`:
-
-```sh
-sing-box-panel core show 1.13.21 --arch arm64 --build a17b34c56d78
-sing-box-panel core enable 1.13.21 --arch arm64 --build a17b34c56d78
-sing-box-panel core remove 1.13.21 --arch arm64 --build a17b34c56d78
-```
-
-This example number must be replaced with the value from your list. Short numbers
-are prefixes derived from existing installation IDs, normally 12 characters.
-Collisions extend the displayed prefix; an ambiguous prefix never selects a
-candidate automatically. No database migration or new persistent identifier is
-needed. The default list limit is 50; use version/source filters or `--limit 200`
-when it reports more installations.
+Official and imported builds of one exact version may coexist. Select the intended
+installed artifact in version management; its source and installation identity
+distinguish it from another build of the same version. HTTP operations address
+that exact artifact by its existing internal ID. Version text alone does not
+change which artifact a management request selects.
 
 ## Import a local archive
-
-```sh
-sing-box-panel core import \
-  --file ./sing-box-1.13.21-linux-arm64-musl.tar.gz \
-  --version 1.13.21 \
-  --arch arm64
-```
-
-`--file` is the local archive path and `--version` is the version that the binary
-must report. `--arch` defaults to the local machine; `--variant` only accepts
-`musl`. An optional `--source` describes the archive's origin. There is no
-`--sha256` argument.
 
 The Web import dialog accepts one `.tar.gz`/`.tgz` file and an exact version.
 Recognized filenames suggest an editable version and reject a clearly incompatible
@@ -110,7 +59,8 @@ aggregate limit and a three-minute deadline. JSON depth and duplicate keys are
 checked. A successful complete catalog and its HTTP validator remain in SQLite
 until another complete refresh succeeds. Failed refreshes retain the last usable
 cache. `github.catalog_refresh_interval_hours` controls refresh scheduling, not
-cache expiration. Ordinary refreshes honor the interval; `--force` bypasses it.
+cache expiration. Scheduled refreshes honor the interval; the explicit Web
+refresh action bypasses it.
 The running server checks in the background without delaying HTTP readiness.
 
 Opening Web version management reads the cache and initializes it only if missing.
@@ -178,7 +128,7 @@ history; merely moving the core files leaves stale paths in the database.
 
 ## Switching and runtime state
 
-Web Enable and CLI `core enable VERSION` preserve the stopped/running state.
+Web Enable preserves the stopped/running state.
 Panel startup initializes an absent sing-box configuration to `{}`, so the first
 installed version can be enabled without manually saving an empty document.
 Existing saved configuration is preserved. Installation and version selection
@@ -238,14 +188,13 @@ with separate exact-version review and native Schema generation.
 
 ## CLI and HTTP migration
 
-Replace `core install ASSET_ID` with `core install VERSION`. Replace
-`core show/enable/remove ARTIFACT_ID` with the corresponding version and, when
-needed, `--build` from `core list`. Remove `core catalog --installable` and local
-import `--sha256` from scripts. Regenerate shell completions after upgrading;
-version and build completion now come from the cached catalog and local records.
+The `core` CLI group has been removed. Move catalog refresh, installation,
+import, selection, removal, and core lifecycle operations to the Web UI.
+Existing automation should use authenticated HTTP management endpoints.
+Regenerate shell completions after upgrading; removed commands have no aliases.
 
 HTTP management endpoints continue to locate objects by internal asset or artifact
-ID. Machine CLI output preserves those full IDs. The multipart import endpoint no
+ID. The multipart import endpoint no
 longer accepts a `sha256` field and the catalog endpoint no longer accepts an
 `installable` query. Update API clients to the [OpenAPI contract](../../api/openapi.yaml).
 

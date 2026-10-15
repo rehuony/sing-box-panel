@@ -9,19 +9,18 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
-	"sync"
 	"testing"
 
 	"github.com/rehuony/sing-box-panel/internal/testutil"
 )
 
-func TestResetPasswordPreservesSettingsAndPermissions(t *testing.T) {
-	path, original := resetFixture(t)
+func TestSetPasswordPreservesSettingsAndPermissions(t *testing.T) {
+	path, original := settingsFieldFixture(t)
 	before, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	saved, err := ResetPassword(t.Context(), path, testutil.ChangedPassword)
+	err = SetField(t.Context(), path, "auth.password", testutil.ChangedPassword)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -46,15 +45,15 @@ func TestResetPasswordPreservesSettingsAndPermissions(t *testing.T) {
 	if info, err := os.Stat(path); err != nil || info.Mode().Perm() != 0600 {
 		t.Fatal("private permissions lost", err)
 	}
-	if _, err := os.Stat(saved.DataDir); !errors.Is(err, os.ErrNotExist) {
-		t.Fatal("reset accessed storage", err)
+	if _, err := os.Stat(filepath.Join(filepath.Dir(path), original.DataDir)); !errors.Is(err, os.ErrNotExist) {
+		t.Fatal("password update accessed storage", err)
 	}
 }
 
-func TestResetPasswordFailureLeavesSettingsUntouched(t *testing.T) {
+func TestSetPasswordFailureLeavesSettingsUntouched(t *testing.T) {
 	for _, failure := range []string{"missing", "invalid", "pending", "canceled", "permission", "symlink"} {
 		t.Run(failure, func(t *testing.T) {
-			path, _ := resetFixture(t)
+			path, _ := settingsFieldFixture(t)
 			ctx := t.Context()
 			switch failure {
 			case "missing":
@@ -88,37 +87,16 @@ func TestResetPasswordFailureLeavesSettingsUntouched(t *testing.T) {
 				}
 			}
 			before, _ := os.ReadFile(path)
-			if _, err := ResetPassword(ctx, path, testutil.ChangedPassword); err == nil {
-				t.Fatal("invalid reset succeeded")
+			if err := SetField(ctx, path, "auth.password", testutil.ChangedPassword); err == nil {
+				t.Fatal("invalid password update succeeded")
 			}
 			after, err := os.ReadFile(path)
 			if !bytes.Equal(before, after) {
-				t.Fatal("failed reset changed settings")
+				t.Fatal("failed password update changed settings")
 			}
 			if failure == "missing" && !errors.Is(err, os.ErrNotExist) {
 				t.Fatal("missing config was created", err)
 			}
 		})
-	}
-}
-
-func TestPasswordResetAndOtherSettingsWritesSerialize(t *testing.T) {
-	path, _ := resetFixture(t)
-	start := make(chan struct{})
-	failures := make(chan error, 2)
-	var workers sync.WaitGroup
-	workers.Go(func() { <-start; _, err := ResetPassword(t.Context(), path, testutil.ChangedPassword); failures <- err })
-	workers.Go(func() { <-start; failures <- ResetFields(t.Context(), path, []string{"server.port"}) })
-	close(start)
-	workers.Wait()
-	close(failures)
-	for err := range failures {
-		if err != nil {
-			t.Fatal(err)
-		}
-	}
-	after, err := Load(path)
-	if err != nil || after.Server.Port != Defaults().Server.Port || after.Auth.PasswordHash == testutil.PasswordHash {
-		t.Fatal("concurrent write lost an update", err)
 	}
 }

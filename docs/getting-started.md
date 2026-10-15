@@ -91,11 +91,19 @@ user it is `$XDG_DATA_HOME/sing-box-panel`, or
 `data_dir` in an explicit settings file is resolved relative to that file.
 
 The settings file is the single source for all panel settings. The Web UI,
-`config init/show/set/unset/verify`, and manual edits use this same file. Shared fields retain
+`config init/show/get/set/verify`, and manual edits use this same file. Shared fields retain
 their existing sections; `panel` adds the public node host, language and appearance. The Web form exposes service paths, version check interval, metric retention and sing-box log retention. Panel events are retained indefinitely; subscription source policy remains a file/API setting. Inbound credentials are edited directly in the native sing-box configuration. Changing `data_dir` moves
 existing storage on the next explicit start, with interruption recovery.
 Sing-box documents, subscriptions and runtime evidence remain in SQLite.
 See the [complete field mapping](guides/configuration-and-runtime.md#shared-settings-file).
+To edit one field without replacing the document, use
+`./bin/sing-box-panel --config ./setting.json config set server.port 9090`.
+Read its stored value with `config get server.port`. Field keys use dots as
+separators. String values are literal text; numbers, arrays and objects use JSON.
+Clear an optional string with `config set github.token ''`, or a nullable value
+with `config set traffic.quota_gib null`. Use `config set auth.password --stdin`
+to hash and save a custom administrator password without echoing it. See
+[Panel settings](guides/cli.md#panel-settings) for field types and password handling.
 Only active settings are generated. Removed subscription author/provider and
 panel event retention fields are rejected; see the field mapping above for the
 breaking development change.
@@ -141,11 +149,11 @@ without `--config`, using the default path for the current user.
 First-run guidance lists `Panel URL`, `Email`, `Initial Password`,
 `Settings`, and `Data Dir`. Open the URL and sign in with the
 printed email and password. The password is displayed only when settings are
-created; `auth.password_hash` stores its hash. Existing token-based settings are
-rejected: replace `auth.token` with `auth.email` and `auth.password_hash` manually,
-using `config hash-password` to generate the hash. There is no automatic conversion.
+created; `auth.password_hash` stores its hash. Existing token-based settings using
+`auth.token` are rejected: initialize current-format settings and migrate the
+other options. There is no automatic conversion.
 That initial summary confirms settings creation. After binding the listener, every
-start prints the actual panel URL, settings and data paths, stored-log command and stop
+start prints the actual panel URL, settings and data paths, Web logs guidance and stop
 hint, then streams sanitized panel events. Redirected output omits ANSI color;
 `NO_COLOR` disables it in terminals and `--output json` emits structured events.
 
@@ -153,14 +161,14 @@ If the password is lost, run the following on the server using the same configur
 path and an OS account permitted to update it:
 
 ```sh
-./bin/sing-box-panel --config ./setting.json config reset-password
+./bin/sing-box-panel --config ./setting.json config set auth.password --stdin < ./password.txt
 ```
 
-The command generates and displays a new password once, preserves the email and
-other configuration, and stores only its hash. Existing sessions become invalid
+Supply a new password containing 12–128 Unicode characters in `password.txt`.
+The command reads it without echoing it in output, preserves the email and
+other configuration, and stores only its Argon2id hash. Existing sessions become invalid
 at their next authentication check. It works while the server is stopped or running
-and requires no restart. To supply a custom password without echoing it, use
-`config reset-password --stdin`; see the [CLI reference](guides/cli.md).
+and requires no restart. See the [CLI reference](guides/cli.md) for input handling.
 
 This runs in the foreground. Stop it with `Ctrl+C`, or run
 `./bin/sing-box-panel server stop --config ./setting.json` in another terminal.
@@ -169,10 +177,9 @@ background operation, install and start the systemd service instead.
 
 The server exposes the embedded UI and management API and exclusively owns the
 core process. Keep it active for configuration checks, enabling/disabling a core,
-and start/stop/restart/rollback. Local CLI controls use its owner-only Unix socket.
-Catalog refresh, core installation/import, and subscription refresh execute in the
-calling CLI process and do not require a running server. Commands return their
-completed result; interrupting the caller cancels active work at a safe boundary.
+and start/stop/restart/rollback. Manage catalogs, installed cores, subscriptions,
+logs, and metrics in the Web UI. The CLI provides panel settings, service and
+installation maintenance; its panel status/stop controls use the owner-only Unix socket.
 
 Runtime recovery and configured source refresh keep their own bounded schedules.
 There is no generic operation queue or detached polling API.
@@ -196,8 +203,8 @@ to load it. Repeated starts preserve existing configuration, including invalid
 or unfinished text.
 Concurrent saves use the current file revision and reject stale edits instead
 of merging implicitly. Invalid JSON can be saved as text but blocks validation,
-Enable, Start, and Restart until corrected. Core lifecycle and artifact commands remain
-available through the CLI. The separate `config init/show/set/unset/verify` commands manage
+Enable, Start, and Restart until corrected. Core lifecycle and artifact management
+use the Web UI or authenticated HTTP API. The `config init/show/get/set/verify` commands manage
 only the panel's `setting.json`; see [Panel settings](guides/cli.md#panel-settings).
 
 Continue with [Core versions](guides/core-versions.md), then

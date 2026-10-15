@@ -55,7 +55,7 @@ func ValidateHash(hash string) error {
 	}
 	params, salt, key, err := argon2id.DecodeHash(hash)
 	if err != nil || params.Memory < 19*1024 || params.Memory > 64*1024 || params.Iterations < 2 || params.Iterations > 4 || params.Parallelism < 1 || params.Parallelism > 4 || len(salt) < 16 || len(salt) > 32 || len(key) != 32 {
-		return errors.New("password_hash must be a supported Argon2id hash; use config hash-password")
+		return errors.New("password_hash must be a supported Argon2id hash; use config set auth.password --stdin")
 	}
 	return nil
 }

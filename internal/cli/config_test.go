@@ -13,21 +13,15 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/rehuony/sing-box-panel/internal/application"
 	"github.com/rehuony/sing-box-panel/internal/settings"
 	"github.com/rehuony/sing-box-panel/internal/testutil"
 )
 
-// This runner deliberately fails if a file command acquires application services.
 func runPanelConfig(t *testing.T, ctx context.Context, path string, input io.Reader, args ...string) (string, error) {
 	t.Helper()
 	var out, diagnostics bytes.Buffer
 	root := NewRootCommand(Dependencies{
 		Stdin: input, Stdout: &out, Stderr: &diagnostics,
-		OpenApplication: func(context.Context, string) (*application.Application, error) {
-			t.Fatal("panel config opened application services")
-			return nil, nil
-		},
 	})
 	root.SetArgs(append([]string{"--config", path, "config"}, args...))
 	err := root.ExecuteContext(ctx)
@@ -186,7 +180,13 @@ func TestPanelConfigReadErrorsAndSetUsage(t *testing.T) {
 		}
 	}
 	path := filepath.Join(t.TempDir(), "setting.json")
-	for _, args := range [][]string{{"set"}, {"set", "--file="}, {"set", "/log/level", "--file=-"}, {"verify", "--core=x"}, {"set", "--revision=0"}} {
+	for _, args := range [][]string{
+		{"set"}, {"set", "--file="}, {"set", "server.port"},
+		{"set", "server.port", "9090", "extra"}, {"set", "--stdin"},
+		{"set", "server.port", "9090", "--stdin"}, {"set", "--file=-", "--stdin"},
+		{"set", "server.port", "--file=-"}, {"set", "server.port", "9090", "--file=-"},
+		{"verify", "--core=x"}, {"set", "--revision=0"},
+	} {
 		if out, err := runPanelConfig(t, t.Context(), path, nil, args...); ExitCode(err) != 2 || out != "" {
 			t.Fatalf("usage %v = %q, %v", args, out, err)
 		}
@@ -205,15 +205,177 @@ func TestPanelConfigCancellationDoesNotWrite(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ctx, cancel := context.WithCancel(t.Context())
-	reader := &cancelSettingsReader{Reader: bytes.NewReader(data), cancel: cancel}
-	out, err := runPanelConfig(t, ctx, path, reader, "set", "--file=-")
-	if !errors.Is(err, context.Canceled) || out != "" {
-		t.Fatalf("cancelled set = %q, %v", out, err)
+	for _, tc := range []struct {
+		args  []string
+		input string
+	}{
+		{[]string{"set", "--file=-"}, string(data)},
+		{[]string{"set", "server.port", "--stdin"}, "9090"},
+		{[]string{"set", "auth.password", "--stdin"}, testutil.ChangedPassword},
+	} {
+		ctx, cancel := context.WithCancel(t.Context())
+		reader := &cancelSettingsReader{Reader: strings.NewReader(tc.input), cancel: cancel}
+		out, err := runPanelConfig(t, ctx, path, reader, tc.args...)
+		cancel()
+		if !errors.Is(err, context.Canceled) || out != "" {
+			t.Fatalf("cancelled set = %q, %v", out, err)
+		}
+		after, _ := os.ReadFile(path)
+		if !bytes.Equal(data, after) {
+			t.Fatal("cancelled set changed settings")
+		}
 	}
-	after, _ := os.ReadFile(path)
-	if !bytes.Equal(data, after) {
-		t.Fatal("cancelled set changed settings")
+}
+
+func TestPanelConfigSetField(t *testing.T) {
+	for _, format := range []string{"text", "json", "jsonl"} {
+		t.Run(format, func(t *testing.T) {
+			path := commandSettingsFixture(t)
+			before, err := settings.Load(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, tc := range []struct {
+				args  []string
+				input string
+			}{
+				{[]string{"set", "server.port", "9090"}, ""},
+				{[]string{"set", "github.token", "--stdin"}, "  12345  \r\n"},
+				{[]string{"set", "subscription.private_source_cidrs", `["10.0.0.0/8"]`}, ""},
+			} {
+				out, err := runPanelConfig(t, t.Context(), path, strings.NewReader(tc.input), append(tc.args, "-o", format)...)
+				if err != nil || out == "" || (format != "text" && !strings.Contains(out, `"saved":true`)) {
+					t.Fatalf("set field %v: %q, %v", tc.args, out, err)
+				}
+				if strings.Contains(out, "12345") {
+					t.Fatal("set exposed the field value")
+				}
+			}
+			after, err := settings.Load(path)
+			if err != nil || after.Server.Port != 9090 || after.GitHub.Token != "  12345  " ||
+				len(after.Subscription.PrivateSourceCIDRs) != 1 || after.Subscription.PrivateSourceCIDRs[0] != "10.0.0.0/8" ||
+				after.Auth != before.Auth || after.DataDir != before.DataDir {
+				t.Fatal("targeted edit changed the wrong values", err)
+			}
+			if files, err := os.ReadDir(before.DataDir); err != nil || len(files) != 0 {
+				t.Fatal("field edit created storage files", err)
+			}
+			original, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, args := range [][]string{
+				{"set", "server.port", "zero"}, {"set", "server.port", "0"},
+				{"set", "unknown", "secret-value"}, {"set", "auth.password", "secret"},
+				{"set", "/server/port", "9090"}, {"set", "/auth/password", testutil.ChangedPassword},
+				{"set", "server.port", ""}, {"set", "auth.password", ""},
+			} {
+				out, err := runPanelConfig(t, t.Context(), path, nil, append(args, "-o", format)...)
+				if ExitCode(err) != 3 || out != "" || strings.Contains(err.Error(), "secret") {
+					t.Fatalf("invalid field edit leaked input or succeeded: %q, %v", out, err)
+				}
+				data, readErr := os.ReadFile(path)
+				if readErr != nil || !bytes.Equal(original, data) {
+					t.Fatal("invalid field edit changed settings", readErr)
+				}
+			}
+		})
+	}
+}
+
+func TestPanelConfigGetField(t *testing.T) {
+	path := commandSettingsFixture(t)
+	before, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hash, _ := json.Marshal(testutil.PasswordHash)
+	for _, tc := range []struct{ field, text, json string }{
+		{"server.port", "3000", "3000"},
+		{"server.host", "127.0.0.1", `"127.0.0.1"`},
+		{"github.token", "", `""`},
+		{"traffic.quota_gib", "null", "null"},
+		{"subscription.private_source_cidrs", "[]", "[]"},
+		{"server", `{"host":"127.0.0.1","port":3000,"base_path":""}`, `{"host":"127.0.0.1","port":3000,"base_path":""}`},
+		{"auth.password_hash", testutil.PasswordHash, string(hash)},
+	} {
+		for _, format := range []string{"text", "json", "jsonl"} {
+			t.Run(tc.field+"/"+format, func(t *testing.T) {
+				out, err := runPanelConfig(t, t.Context(), path, nil, "get", tc.field, "-o", format)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if format == "text" {
+					if out != tc.text+"\n" {
+						t.Fatalf("get text = %q, want %q", out, tc.text+"\n")
+					}
+					return
+				}
+				var result struct {
+					Path  string          `json:"settings_path"`
+					Field string          `json:"field"`
+					Value json.RawMessage `json:"value"`
+				}
+				if err := json.Unmarshal([]byte(out), &result); err != nil || result.Path != path || result.Field != tc.field || string(result.Value) != tc.json {
+					t.Fatalf("get structured output = %q, error = %v", out, err)
+				}
+			})
+		}
+	}
+	for _, tc := range []struct {
+		args []string
+		code int
+	}{
+		{[]string{"get"}, 2}, {[]string{"get", "server.port", "extra"}, 2},
+		{[]string{"get", "/server/port"}, 3}, {[]string{"get", "server/port"}, 3},
+		{[]string{"get", "unknown"}, 3}, {[]string{"get", "panel.language"}, 3},
+		{[]string{"get", "auth.password"}, 3},
+	} {
+		if out, err := runPanelConfig(t, t.Context(), path, nil, tc.args...); ExitCode(err) != tc.code || out != "" {
+			t.Fatalf("invalid get %v: %q, %v", tc.args, out, err)
+		}
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	if out, err := runPanelConfig(t, ctx, path, nil, "get", "server.port"); !errors.Is(err, context.Canceled) || out != "" {
+		t.Fatal("get ignored cancellation", err)
+	}
+	after, err := os.ReadFile(path)
+	if err != nil || !bytes.Equal(before, after) {
+		t.Fatal("get changed settings", err)
+	}
+	if _, err := os.Stat(path + ".lock"); !errors.Is(err, os.ErrNotExist) {
+		t.Fatal("get created a writer lock", err)
+	}
+	loaded, err := settings.Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if files, err := os.ReadDir(loaded.DataDir); err != nil || len(files) != 0 {
+		t.Fatal("get opened storage", err)
+	}
+}
+
+func TestPanelConfigSetClearsOptionalValues(t *testing.T) {
+	path := commandSettingsFixture(t)
+	for _, tc := range []struct{ field, populated, cleared, output string }{
+		{"github.token", "secret-token", "", "\n"},
+		{"server.external_origin", "https://panel.example.com", "", "\n"},
+		{"traffic.quota_gib", "42", "null", "null\n"},
+		{"subscription.private_source_cidrs", `["10.0.0.0/8"]`, "[]", "[]\n"},
+	} {
+		for _, value := range []string{tc.populated, tc.cleared} {
+			if _, err := runPanelConfig(t, t.Context(), path, nil, "set", tc.field, value); err != nil {
+				t.Fatalf("set %s failed: %v", tc.field, err)
+			}
+		}
+		out, err := runPanelConfig(t, t.Context(), path, nil, "get", tc.field)
+		if err != nil || out != tc.output {
+			t.Fatalf("cleared %s = %q, error = %v", tc.field, out, err)
+		}
+	}
+	if _, err := settings.Load(path); err != nil {
+		t.Fatal("clearing optional fields invalidated settings", err)
 	}
 }
 
@@ -311,8 +473,8 @@ func TestPanelConfigRejectsRemovedFieldsAndForceInitDoesNotRegenerateThem(t *tes
 			if _, err := runPanelConfig(t, t.Context(), path, bytes.NewReader(legacy), "set", "--file=-"); ExitCode(err) != 3 || !strings.Contains(err.Error(), "unknown field") {
 				t.Fatalf("removed field accepted by set: %v", err)
 			}
-			if _, err := runPanelConfig(t, t.Context(), path, nil, "unset", tc.section+"."+tc.field); ExitCode(err) != 3 {
-				t.Fatalf("removed field accepted by unset: %v", err)
+			if _, err := runPanelConfig(t, t.Context(), path, nil, "set", tc.section+"."+tc.field, tc.value); ExitCode(err) != 3 {
+				t.Fatalf("removed field accepted by field set: %v", err)
 			}
 			after, _ := settings.Read(path)
 			if !bytes.Equal(before, after) {
@@ -347,49 +509,6 @@ func TestPanelConfigInitCancellationDoesNotCreateFiles(t *testing.T) {
 	}
 }
 
-func TestPanelConfigUnsetRestoresDefaultsWithoutOpeningStorage(t *testing.T) {
-	for _, format := range []string{"text", "json", "jsonl"} {
-		path := filepath.Join(t.TempDir(), "setting.json")
-		value := settings.Defaults()
-		value.Auth.Email = testutil.AdminEmail
-		value.Auth.PasswordHash = testutil.PasswordHash
-		value.DataDir = "./absent-data"
-		value.Server.Port = 8181
-		value.GitHub.CatalogRefreshIntervalHours = 24
-		raw, _ := json.Marshal(value)
-		if err := os.WriteFile(path, raw, 0600); err != nil {
-			t.Fatal(err)
-		}
-		out, err := runPanelConfig(t, t.Context(), path, nil, "unset", "server.port", "/github/catalog_refresh_interval_hours", "-o", format)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if format != "text" && (!strings.Contains(out, `"saved":true`) || !strings.Contains(out, `"reset_fields":["server.port","/github/catalog_refresh_interval_hours"]`)) {
-			t.Fatal("invalid structured reset result", out)
-		}
-		if strings.Contains(out, value.Auth.PasswordHash) {
-			t.Fatal("reset result exposed a credential")
-		}
-		loaded, err := settings.Load(path)
-		if err != nil || loaded.Server.Port != 3000 || loaded.GitHub.CatalogRefreshIntervalHours != 12 || loaded.Auth.PasswordHash != value.Auth.PasswordHash {
-			t.Fatal("unset did not restore selected defaults", err)
-		}
-		if _, err := os.Stat(loaded.DataDir); !errors.Is(err, os.ErrNotExist) {
-			t.Fatal("unset opened or created storage", err)
-		}
-		for _, args := range [][]string{{"unset"}, {"unset", "auth.password_hash"}, {"unset", "unknown"}} {
-			out, err := runPanelConfig(t, t.Context(), path, nil, args...)
-			want := 3
-			if len(args) == 1 {
-				want = 2
-			}
-			if ExitCode(err) != want || out != "" {
-				t.Fatalf("invalid reset %v: %q %v", args, out, err)
-			}
-		}
-	}
-}
-
 type cancelSettingsReader struct {
 	io.Reader
 	cancel context.CancelFunc
@@ -399,38 +518,6 @@ func (r *cancelSettingsReader) Read(p []byte) (int, error) {
 	n, err := r.Reader.Read(p)
 	r.cancel()
 	return n, err
-}
-
-func TestCoreSelectionRejectsExplicitBlankArtifactBeforeOpeningApplication(t *testing.T) {
-	for _, args := range [][]string{
-		{"core", "enable", ""}, {"core", "enable", " \t "},
-	} {
-		opened := false
-		command := NewRootCommand(Dependencies{
-			Stdout: &bytes.Buffer{}, Stderr: &bytes.Buffer{},
-			OpenApplication: func(context.Context, string) (*application.Application, error) {
-				opened = true
-				return nil, errors.New("unexpected application open")
-			},
-		})
-		command.SetArgs(args)
-		err := command.ExecuteContext(context.Background())
-		if ExitCode(err) != 2 || opened {
-			t.Fatalf("blank artifact %q: opened=%t error=%v exit=%d", args, opened, err, ExitCode(err))
-		}
-	}
-}
-
-func TestCoreEnableReportsMissingArtifact(t *testing.T) {
-	path := commandSettingsFixture(t)
-	saveConfigurationFixture(t, path, "{}")
-	command := NewRootCommand(Dependencies{Stdout: &bytes.Buffer{}, Stderr: &bytes.Buffer{}, OpenApplication: application.Open})
-	command.SetArgs([]string{"--config", path, "core", "enable", "1.13.21"})
-	err := command.ExecuteContext(t.Context())
-	var classified *Error
-	if ExitCode(err) != 1 || !errors.As(err, &classified) || classified.Code != "core_version_not_installed" {
-		t.Fatalf("core enable error = %v", err)
-	}
 }
 
 func TestPanelConfigRejectsRemovedIdentityFields(t *testing.T) {
@@ -460,8 +547,8 @@ func TestPanelConfigRejectsRemovedIdentityFields(t *testing.T) {
 			if _, err := runPanelConfig(t, t.Context(), path, bytes.NewReader(raw), "set", "--file", "-"); err == nil {
 				t.Fatal("removed field accepted")
 			}
-			if _, err := runPanelConfig(t, t.Context(), path, nil, "unset", "/panel/"+field); err == nil {
-				t.Fatal("removed field has a reset default")
+			if _, err := runPanelConfig(t, t.Context(), path, nil, "set", "panel."+field, "removed"); err == nil {
+				t.Fatal("removed field accepted by field set")
 			}
 			after, err := settings.Read(path)
 			if err != nil || !bytes.Equal(before, after) {

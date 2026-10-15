@@ -45,6 +45,68 @@ func TestRootShowsHelp(t *testing.T) {
 	if stderr != "" {
 		t.Fatalf("stderr = %q", stderr)
 	}
+	for _, name := range panelOnlyCommands {
+		if strings.Contains(stdout, "\n  "+name+" ") {
+			t.Errorf("panel-only command %q is listed in root help", name)
+		}
+	}
+}
+
+var panelOnlyCommands = []string{"core", "channel", "source", "token", "log", "metrics"}
+
+func TestHelpCompletionAndRemovedCommandsDoNotOpenStorage(t *testing.T) {
+	path := commandSettingsFixture(t)
+	before, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	configuration, err := settings.Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, args := range [][]string{
+		nil, {"--help"}, {"help"},
+		{"completion", "bash"}, {"completion", "zsh"}, {"completion", "fish"},
+		{cobra.ShellCompRequestCmd, ""}, {cobra.ShellCompNoDescRequestCmd, ""},
+	} {
+		t.Run(strings.Join(args, " "), func(t *testing.T) {
+			_, _, err := execute(t, append([]string{"--config", path}, args...)...)
+			if err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+	for _, name := range panelOnlyCommands {
+		for _, suffix := range [][]string{nil, {"list"}} {
+			args := append([]string{"--config", path, name}, suffix...)
+			t.Run(strings.Join(args[2:], " "), func(t *testing.T) {
+				stdout, _, err := execute(t, args...)
+				if ExitCode(err) != 2 || stdout != "" {
+					t.Fatalf("removed command accepted: stdout=%q error=%v", stdout, err)
+				}
+			})
+		}
+	}
+	for _, args := range [][]string{
+		{"config", "hash-password"}, {"config", "hash-password", "--stdin"},
+		{"config", "reset-password"}, {"config", "reset-password", "--stdin"},
+		{"config", "unset", "server.port"},
+	} {
+		t.Run(strings.Join(args, " "), func(t *testing.T) {
+			stdout, _, err := execute(t, append([]string{"--config", path}, args...)...)
+			if ExitCode(err) != 2 || stdout != "" {
+				t.Fatalf("removed command accepted: stdout=%q error=%v", stdout, err)
+			}
+		})
+	}
+	after, err := os.ReadFile(path)
+	if err != nil || !bytes.Equal(before, after) {
+		t.Fatalf("informational or removed commands changed settings: error=%v", err)
+	}
+	files, err := os.ReadDir(configuration.DataDir)
+	if err != nil || len(files) != 0 {
+		t.Fatalf("informational or removed commands opened storage: files=%v error=%v", files, err)
+	}
 }
 
 func TestHelpSectionOrder(t *testing.T) {
@@ -60,20 +122,19 @@ func TestHelpSectionOrder(t *testing.T) {
 		{name: "root flag", args: []string{"--help"}, usage: "[flags] [command]", subcommands: true},
 		{name: "root short flag", args: []string{"-h"}, usage: "[flags] [command]", subcommands: true},
 		{name: "root help command", args: []string{"help"}, usage: "[flags] [command]", subcommands: true},
-		{name: "group", args: []string{"core"}, usage: "core [flags] [command]", inherited: true, subcommands: true},
-		{name: "group flag", args: []string{"core", "--help"}, usage: "core [flags] [command]", inherited: true, subcommands: true},
-		{name: "group help command", args: []string{"help", "core"}, usage: "core [flags] [command]", inherited: true, subcommands: true},
+		{name: "group", args: []string{"server"}, usage: "server [flags] [command]", inherited: true, subcommands: true},
+		{name: "group flag", args: []string{"server", "--help"}, usage: "server [flags] [command]", inherited: true, subcommands: true},
+		{name: "group help command", args: []string{"help", "server"}, usage: "server [flags] [command]", inherited: true, subcommands: true},
 		{name: "completion group", args: []string{"completion", "--help"}, usage: "completion [flags] [command]", inherited: true, subcommands: true},
 		{name: "system group", args: []string{"system", "--help"}, usage: "system [flags] [command]", inherited: true, subcommands: true},
 		{name: "systemd group", args: []string{"systemd", "--help"}, usage: "systemd [flags] [command]", inherited: true, subcommands: true},
 		{name: "config group", args: []string{"config", "--help"}, usage: "config [flags] [command]", inherited: true, subcommands: true},
-		{name: "config set", args: []string{"config", "set", "--help"}, usage: "config set [flags]", inherited: true, examples: true},
+		{name: "config set", args: []string{"config", "set", "--help"}, usage: "config set [FIELD VALUE] [flags]", inherited: true, examples: true},
 		{name: "config verify", args: []string{"config", "verify", "--help"}, usage: "config verify [flags]", inherited: true, examples: true},
 		{name: "config init", args: []string{"config", "init", "--help"}, usage: "config init [flags]", inherited: true, examples: true},
-		{name: "config unset", args: []string{"config", "unset", "--help"}, usage: "config unset FIELD [FIELD...] [flags]", inherited: true, examples: true},
-		{name: "leaf flag", args: []string{"core", "install", "--help"}, usage: "core install VERSION [flags]", inherited: true},
-		{name: "leaf help command", args: []string{"help", "core", "install"}, usage: "core install VERSION [flags]", inherited: true},
-		{name: "period argument", args: []string{"metrics", "period", "--help"}, usage: "metrics period PERIOD_ID [flags]", inherited: true},
+		{name: "config get", args: []string{"config", "get", "--help"}, usage: "config get FIELD [flags]", inherited: true, examples: true},
+		{name: "leaf flag", args: []string{"server", "start", "--help"}, usage: "server start [flags]", inherited: true},
+		{name: "leaf help command", args: []string{"help", "server", "start"}, usage: "server start [flags]", inherited: true},
 		{name: "optional help argument", args: []string{"help", "--help"}, usage: "help [command] [flags]", inherited: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -308,21 +369,13 @@ func TestForcedInitMigratesExistingDataBeforeOpeningStorage(t *testing.T) {
 var visibleLeafCapabilities = []string{
 	"init", "version", "update",
 	"server start", "server stop", "server status",
-	"core catalog", "core refresh",
-	"core list", "core show", "core install", "core import", "core remove",
-	"core enable", "core status", "core start", "core stop", "core restart", "core rollback",
-	"config init", "config hash-password", "config reset-password", "config show", "config set", "config verify", "config unset",
-	"channel list", "channel show", "channel create", "channel update", "channel delete", "channel render",
-	"source list", "source show", "source create", "source update", "source refresh", "source delete",
-	"token list", "token create", "token rotate", "token revoke",
-	"log list", "log show", "log tail", "log clear", "log delete",
-	"metrics show", "metrics watch", "metrics history", "metrics period",
+	"config init", "config show", "config get", "config set", "config verify",
 	"system df", "system prune",
 	"systemd install", "systemd uninstall", "systemd status", "systemd start", "systemd stop", "systemd restart", "systemd logs",
 	"completion bash", "completion zsh", "completion fish",
 }
 
-func TestCommandTreeIsAtMostTwoWordsDeepAndKeepsEveryCapability(t *testing.T) {
+func TestCommandTreeOnlyExposesPanelMaintenanceCommands(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	root := NewRootCommand(Dependencies{Stdin: strings.NewReader(""), Stdout: &stdout, Stderr: &stderr})
 	leaves := map[string]bool{}
@@ -356,7 +409,8 @@ func TestCommandTreeIsAtMostTwoWordsDeepAndKeepsEveryCapability(t *testing.T) {
 	for _, path := range []string{
 		"system clean", "system prn", "system file", "system files",
 		"system install", "system uninstall", "system status", "system start", "system stop", "system restart", "system logs",
-		"server run", "verify", "config export", "config import", "config validate", "config get", "config apply",
+		"server run", "verify", "config export", "config import", "config validate", "config apply",
+		"config hash-password", "config reset-password", "config unset",
 		"config history", "config revision", "config diff", "config restore", "config compile", "config replace", "config revision list", "config revision show", "config revision diff", "config revision restore",
 		"core check", "core activate", "core catalog list", "core catalog refresh",
 		"subscription", "subscription channel", "subscription source", "subscription token",
@@ -420,13 +474,6 @@ func TestConfigCommandsOnlyExposePanelSettingsFlags(t *testing.T) {
 				t.Errorf("config %s still exposes --%s", name, removed)
 			}
 		}
-	}
-}
-
-func TestUnavailableExitClass(t *testing.T) {
-	_, _, err := execute(t, "core", "list")
-	if ExitCode(err) != 6 {
-		t.Fatalf("ExitCode() = %d, error = %v", ExitCode(err), err)
 	}
 }
 

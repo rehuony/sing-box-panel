@@ -509,15 +509,6 @@ License documents:
   - LICENSE (SHA-256: 911f8f5782931320f5b8d1160a76365b83aea6447ee6c04fa6d5591467db9dad)
   - PATENTS (SHA-256: 96f408bfae65bf137fc2525d3ecb030271c50c1e90799f87abf8846d8dd505cc)
 
-Component: golang.org/x/term
-Ecosystem: go-module
-Version: v0.46.0
-Source: https://pkg.go.dev/golang.org/x/term@v0.46.0
-License: BSD-3-Clause
-License documents:
-  - LICENSE (SHA-256: 911f8f5782931320f5b8d1160a76365b83aea6447ee6c04fa6d5591467db9dad)
-  - PATENTS (SHA-256: 96f408bfae65bf137fc2525d3ecb030271c50c1e90799f87abf8846d8dd505cc)
-
 Component: golang.org/x/text
 Ecosystem: go-module
 Version: v0.42.0
@@ -2403,7 +2394,6 @@ Applies to:
   - go-module:golang.org/x/crypto@v0.57.0 — LICENSE
   - go-module:golang.org/x/mod@v0.41.0 — LICENSE
   - go-module:golang.org/x/sys@v0.48.0 — LICENSE
-  - go-module:golang.org/x/term@v0.46.0 — LICENSE
   - go-module:golang.org/x/text@v0.42.0 — LICENSE
   - go-toolchain:Go runtime and standard library@go directive 1.26.0 — LICENSE
 --------------------------------------------------------------------------------
@@ -2501,7 +2491,6 @@ Applies to:
   - go-module:golang.org/x/crypto@v0.57.0 — PATENTS
   - go-module:golang.org/x/mod@v0.41.0 — PATENTS
   - go-module:golang.org/x/sys@v0.48.0 — PATENTS
-  - go-module:golang.org/x/term@v0.46.0 — PATENTS
   - go-module:golang.org/x/text@v0.42.0 — PATENTS
   - go-toolchain:Go runtime and standard library@go directive 1.26.0 — PATENTS
 --------------------------------------------------------------------------------

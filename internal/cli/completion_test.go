@@ -118,15 +118,49 @@ func TestCompletionCandidatesIncludeDescriptions(t *testing.T) {
 	}
 }
 
-func TestConfigCompletionIncludesVerifyAndUnset(t *testing.T) {
-	stdout, _, err := execute(t, cobra.ShellCompRequestCmd, "config", "")
-	if err != nil {
-		t.Fatal(err)
+func TestConfigCompletionOnlyOffersSettingsCommands(t *testing.T) {
+	for _, request := range []string{cobra.ShellCompRequestCmd, cobra.ShellCompNoDescRequestCmd} {
+		t.Run(request, func(t *testing.T) {
+			stdout, _, err := execute(t, request, "config", "")
+			if err != nil {
+				t.Fatal(err)
+			}
+			var names []string
+			for line := range strings.SplitSeq(strings.TrimSpace(stdout), "\n") {
+				if strings.HasPrefix(line, ":") {
+					continue
+				}
+				name, _, _ := strings.Cut(line, "\t")
+				names = append(names, name)
+			}
+			want := "get init set show verify"
+			if got := strings.Join(names, " "); got != want {
+				t.Fatalf("config completion names = %q, want %q", got, want)
+			}
+		})
 	}
-	for _, name := range []string{"init", "show", "set", "unset", "verify"} {
-		if !strings.Contains(stdout, name+"\t") {
-			t.Fatalf("missing config completion %s: %s", name, stdout)
-		}
+}
+
+func TestRootCompletionOnlyOffersPanelMaintenanceCommands(t *testing.T) {
+	for _, request := range []string{cobra.ShellCompRequestCmd, cobra.ShellCompNoDescRequestCmd} {
+		t.Run(request, func(t *testing.T) {
+			stdout, _, err := execute(t, request, "")
+			if err != nil {
+				t.Fatal(err)
+			}
+			var names []string
+			for line := range strings.SplitSeq(strings.TrimSpace(stdout), "\n") {
+				if strings.HasPrefix(line, ":") {
+					continue
+				}
+				name, _, _ := strings.Cut(line, "\t")
+				names = append(names, name)
+			}
+			want := "completion config help init server system systemd update version"
+			if got := strings.Join(names, " "); got != want {
+				t.Fatalf("completion names = %q, want %q", got, want)
+			}
+		})
 	}
 }
 

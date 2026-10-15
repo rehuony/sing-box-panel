@@ -9,7 +9,6 @@ import (
 	"sync/atomic"
 	"syscall"
 
-	"github.com/rehuony/sing-box-panel/internal/application"
 	"github.com/rehuony/sing-box-panel/internal/buildinfo"
 	"github.com/rehuony/sing-box-panel/internal/cli"
 	"github.com/rehuony/sing-box-panel/internal/selfupdate"
@@ -37,12 +36,11 @@ func run() int {
 	build := buildinfo.Current()
 	updater := selfupdate.New(selfupdate.Options{})
 	root := cli.NewRootCommand(cli.Dependencies{
-		Stdin:           os.Stdin,
-		Stdout:          os.Stdout,
-		Stderr:          os.Stderr,
-		Build:           build,
-		Update:          updater.Update,
-		OpenApplication: application.Open,
+		Stdin:  os.Stdin,
+		Stdout: os.Stdout,
+		Stderr: os.Stderr,
+		Build:  build,
+		Update: updater.Update,
 		RunServer: func(ctx context.Context, path string) error {
 			return server.Run(ctx, path, build, webui.Assets())
 		},

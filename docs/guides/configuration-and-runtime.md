@@ -295,9 +295,8 @@ Those operations perform preflight in the serialized runtime controller before c
 the running process. The Web UI uses
 `POST /api/v1/core/artifacts/{artifactId}/enable` and the runtime endpoints.
 Startup artifacts and activation bundles remain internal evidence.
-The CLI retains `core enable VERSION` to switch
-binaries with the current saved document while preserving stopped/running state;
-it returns after the operation completes.
+Enable switches binaries with the current saved document while preserving
+stopped/running state and returns after the operation completes.
 
 Apply rechecks the current file, canonical head, artifact identity, and startup
 evidence. A concurrent configuration or artifact change cannot be combined with
@@ -309,7 +308,7 @@ configuration exposes a secret-protected Clash API on a loopback address and
 completes the `/version` handshake, otherwise `process_only`, which checks
 process health only. Nothing is injected into the file to create that endpoint.
 
-`core status` and `/api/v1/core/runtime` report `enabled_core` separately from
+`GET /api/v1/core/runtime` reports `enabled_core` separately from
 `running`. The former persists while stopped; the latter remains evidence of a
 verified live process. A checked selection while stopped does not claim a loaded
 configuration or create a running process identity.
@@ -318,18 +317,14 @@ configuration or create a running process identity.
 currently selected artifact. Successful completion clears desired, applied and
 rollback pointers and removes the current symlink; it keeps immutable artifacts
 and lifecycle history. Requests for an artifact that is no longer selected are
-rejected. Ordinary `core stop` retains selection. Enable another version before
+rejected. Ordinary Stop retains selection. Enable another version before
 starting again after disable.
 
 ## Lifecycle and rollback
 
-```sh
-sing-box-panel core status
-sing-box-panel core start
-sing-box-panel core restart
-sing-box-panel core rollback
-sing-box-panel core stop
-```
+Use the Web UI's runtime controls to inspect status, start, restart, roll back,
+or stop the selected core. The authenticated runtime API supports the same
+operations; the CLI manages the panel service itself.
 
 Start and Restart use the last successfully selected binary identity and the current saved
 file. A changed file is snapshotted for binary preflight in the serialized runtime
@@ -350,9 +345,8 @@ and binary evidence; it does not reinterpret current configuration.
 
 Core operations return the completed resource or observed runtime state in the
 requesting call. The server holds the process lease and serializes configuration
-checks and process controls. CLI callers use its private Unix socket rather than
-creating another process manager. Catalog, artifact and source maintenance can
-run directly from the CLI. Interrupted requests are canceled at safe boundaries;
+checks and process controls. Catalog, artifact and source maintenance are exposed
+through the Web UI and authenticated HTTP API. Interrupted requests are canceled at safe boundaries;
 completed side effects retain their evidence. There is no generic operation queue.
 
 ## Runtime identity and history
@@ -561,8 +555,9 @@ manually; relative panel data paths resolve beside the target settings file.
 
 ### Data directory changes
 
-The existing defaults remain unchanged. Edit `data_dir` through the same
-`config set` command or settings file; no separate data-directory command exists.
+The existing defaults remain unchanged. Edit `data_dir` through
+`config set data_dir /path/to/data`, complete-file replacement with
+`config set --file`, or the settings file; no separate data-directory command exists.
 A private `setting.json.location` records the established directory so manual
 edits can be distinguished from a new instance. It is relocation metadata, not
 another configuration source. Status and stop continue to locate the old
