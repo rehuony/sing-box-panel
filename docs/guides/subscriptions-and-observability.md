@@ -637,22 +637,16 @@ historical gaps. This is an additive API change with no database migration.
 
 ## Durable logs
 
-The log CLI and authenticated API expose bounded, sanitized metadata for
-panel, core, and security events:
-
-```sh
-sing-box-panel log list
-sing-box-panel log show LOG_ID
-sing-box-panel log tail --follow
-sing-box-panel log clear --before TIMESTAMP
-sing-box-panel log delete LOG_ID
-```
+The Web logs pages and authenticated API expose bounded, sanitized metadata for
+panel, core, and security events. Use the Web UI to inspect stored events;
+`server start` also streams panel events in its terminal and `systemd logs`
+reads the service journal.
 
 `GET /api/v1/logs/stream` is a durable server-sent event stream and accepts
 `Last-Event-ID` for reconnection. Panel events and runtime history have no automatic
 expiration, including on startup, settings changes, or backup restore. The unused
 `logs.retention_days` file field and `log_retention_days` API field have been
-removed and are rejected. Explicit log clear/delete commands
+removed and are rejected. Explicit log clear/delete API operations
 remain available. Configuration bytes, subscription bodies, token
 plaintext, URL credentials, and known secret fields are not stored as log
 payloads.
@@ -840,22 +834,17 @@ without a provable interval makes the bucket `partial`; no evidence makes it
 `missing`. Traffic deltas remain nullable whenever the interval that would
 justify them is unknown.
 
-```sh
-sing-box-panel metrics show
-sing-box-panel metrics watch
-sing-box-panel metrics history
-sing-box-panel metrics period PERIOD_ID
-```
-
-Every successful `show` or `watch` read includes the current traffic period and
-its recorded cumulative traffic, including zero before collection. Stopped or
+The Web dashboard and authenticated metrics API expose the current traffic period
+and its recorded cumulative traffic, including zero before collection. Stopped or
 stale collection does not hide these totals; availability and reason describe
-live collection only. Historical periods remain available through `history`
-and `period`; a separate `traffic` CLI group is unnecessary.
+live collection only. Historical periods remain available through the authenticated
+traffic API. Metrics and traffic periods have no CLI command group.
 
 ## Management surfaces
 
 The Web interface exposes sources, manual nodes, keys and channel policy.
+The former subscription, log, and metrics CLI groups have been removed; use the
+Web UI for these management tasks or the authenticated HTTP API for automation.
 OpenAPI also provides user profiles/grant matrices and source history
 for existing clients. Runtime operations and traffic evidence retain
 their authenticated management contracts. The

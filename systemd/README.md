@@ -52,10 +52,11 @@ activation fails. Existing settings do not regenerate or redisplay a password.
 To recover access to a system service, run:
 
 ```sh
-sudo /usr/local/bin/sing-box-panel --config /etc/sing-box-panel/setting.json config reset-password
+sudo /usr/local/bin/sing-box-panel --config /etc/sing-box-panel/setting.json config set auth.password --stdin < ./password.txt
 ```
 
-This prints a new random password once and updates only its hash. It preserves the
+Supply a new password containing 12–128 Unicode characters in `password.txt`.
+The command updates only its hash without echoing the password in output. It preserves the
 service account's ownership and private file permissions. No restart or database
 access is required; old sessions are rejected at their next authentication check.
 For a user service, run the command as that user with its selected `--config` path.

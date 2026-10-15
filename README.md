@@ -35,8 +35,9 @@ Node.js, pnpm, or a separate SQLite CLI.
   rollback bundles separate and immutable.
 - Publish live, authorized subscriptions in sing-box, Mihomo, and Loon formats
   from the last applied local nodes and current third-party source versions.
-- Operate through a Docker-style CLI, versioned HTTP API, embedded React UI, or
-  audited systemd integration.
+- Manage core versions, configuration and subscriptions through the embedded React
+  UI and versioned HTTP API; maintain panel settings and services through a focused
+  CLI and audited systemd integration.
 - Return completed operation results, serialize process controls, and retain
   sanitized logs and immutable runtime history.
 
@@ -155,7 +156,7 @@ are never overwritten by startup.
 
 The default listener is `127.0.0.1:3000`. The settings file contains a random
 password hash and must not be committed. Keep `server start` active for configuration checks and core process controls.
-Catalog refresh, installation, import and source refresh also work directly from the CLI.
+Use the Web UI for catalog refresh, installation, import and subscription management.
 
 See [Getting started](docs/getting-started.md) for the first configuration,
 settings precedence, and systemd deployment paths.

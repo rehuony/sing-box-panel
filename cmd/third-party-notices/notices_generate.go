@@ -15,7 +15,6 @@ var goDirectivePattern = regexp.MustCompile(`(?m)^go[ \t]+([0-9]+(?:\.[0-9]+){1,
 var goModuleLicenseIDs = map[string]string{
 	"github.com/alexedwards/argon2id":          "MIT",
 	"golang.org/x/crypto":                      "BSD-3-Clause",
-	"golang.org/x/term":                        "BSD-3-Clause",
 	"github.com/dustin/go-humanize":            "MIT",
 	"github.com/google/uuid":                   "BSD-3-Clause",
 	"github.com/mattn/go-isatty":               "MIT",

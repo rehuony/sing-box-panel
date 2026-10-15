@@ -4,11 +4,12 @@ package cli
 
 import (
 	"bytes"
-	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
-	"strings"
+
+	"github.com/rehuony/sing-box-panel/internal/auth"
 )
 
 func readInputFile(stdin io.Reader, filePath string, maximum int64, label string) ([]byte, error) {
@@ -37,13 +38,16 @@ func readInputFile(stdin io.Reader, filePath string, maximum int64, label string
 	return data, nil
 }
 
-func prettyJSON(value any) string {
-	var output bytes.Buffer
-	encoder := json.NewEncoder(&output)
-	encoder.SetEscapeHTML(false)
-	encoder.SetIndent("", "  ")
-	if err := encoder.Encode(value); err != nil {
-		return fmt.Sprintf("%v", value)
+// readPasswordStdin removes only the final line ending, never password spaces.
+func readPasswordStdin(reader io.Reader) ([]byte, error) {
+	data, err := io.ReadAll(io.LimitReader(reader, 515))
+	if err != nil {
+		clear(data)
+		return nil, errors.New("could not read password")
 	}
-	return strings.TrimSuffix(output.String(), "\n")
+	if len(data) > 514 {
+		clear(data)
+		return nil, auth.ErrPassword
+	}
+	return bytes.TrimSuffix(bytes.TrimSuffix(data, []byte("\n")), []byte("\r")), nil
 }

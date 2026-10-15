@@ -1,38 +1,33 @@
 # CLI reference
 
-The sing-box-panel CLI manages the panel settings file, exact sing-box artifacts,
-runtime state, subscriptions, and operational evidence. Sing-box configuration
-content is managed through the Web UI. Running the root command or a command
-group without a leaf prints help.
+The sing-box-panel CLI manages panel settings, the panel service, systemd
+integration, installation files, and the panel executable. Manage sing-box
+versions and runtime, subscriptions, logs, and metrics through the Web UI.
+Running the root command or a command group without a leaf prints help.
 
 ## Command hierarchy
 
 ```text
 sing-box-panel
 ├─ init | version | update
-├─ server start | stop | status
 ├─ system df | prune
+├─ server start | stop | status
 ├─ systemd install | uninstall | status | start | stop | restart | logs
-├─ core
-│  ├─ catalog | refresh
-│  ├─ list | show | install | import | remove
-│  └─ enable | status | start | stop | restart | rollback
-├─ config init | show | set | unset | verify | hash-password | reset-password
-├─ channel list | show | create | update | delete | render
-├─ source list | show | create | update | refresh | delete
-├─ token list | create | rotate | revoke
-├─ log list | show | tail | clear | delete
-├─ metrics show | watch | history | period PERIOD_ID
+├─ config init | show | get | set | verify
 └─ completion bash | zsh | fish
 ```
 
-Every command is at most two words deep; each group adds one verb, and each
-verb maps to one application operation. `channel` and `source` manage
-subscription resources: channels rendered for public subscription clients and
-upstream sources attached from third parties. `token` manages public
-subscription access tokens; it never manages the panel management login
-token. `server start` runs the panel in the current terminal. Background
+Every command is at most two words deep; each group adds one verb.
+`server start` runs the panel in the current terminal. Background
 operation belongs to the `systemd` service commands.
+
+The `core`, `channel`, `source`, `token`, `log`, and `metrics` command groups
+have been removed, including their shell completions; no hidden aliases remain.
+Use version management, subscriptions, logs, and the dashboard in the Web UI.
+Automation can use the unchanged authenticated [HTTP API](../../api/openapi.yaml).
+Update scripts and regenerate installed shell completions after upgrading.
+`version` reports the panel executable's version and `update` updates that
+executable; sing-box version management belongs to the Web UI.
 
 Service commands previously under `system` now use `systemd`. File inspection
 uses `system df` (formerly `system files`); cleanup uses `system prune`
@@ -46,9 +41,7 @@ and available commands, in that order. Root usage is shown on one line as
 `sing-box-panel [flags] [command]`; command groups similarly combine flags and
 subcommands. Global flags may appear before or after subcommands, and invoking
 a group without a subcommand still displays help. Leaf usage retains its
-command-specific arguments. The HTTP/Web management surface
-additionally exposes subscription user profiles, grant matrices, and
-source-version history.
+command-specific arguments.
 
 Within Flags, `-h/--help` appears first, followed by the other flags in
 alphabetical order. Global flags and available commands retain alphabetical
@@ -88,12 +81,12 @@ See [service lifecycle and permissions](../../systemd/README.md).
 optional location report marks unreadable files or invalid `data_dir` fields as
 unavailable without hiding systemd's status.
 
-`system df`, `system prune`, `server status/stop`, `systemd install` without
-`--now`, and local database operations read only `data_dir` to locate the
+`system df`, `system prune`, `server status/stop`, and `systemd install` without
+`--now` read only `data_dir` to locate the
 instance. When settings exist, these commands reject empty, wrongly typed, or ambiguous paths and
 malformed JSON; unrelated runtime fields such as `traffic.sample_retention_days`
 do not block them. Relative data paths resolve against the settings file. After a directory edit,
-status/stop and database commands keep using the recorded current location until
+status/stop commands keep using the recorded current location until
 the next explicit start completes relocation.
 If the settings file itself is missing, `system df` and the `system prune`
 preview still report known paths. A valid `.location` record can identify current
@@ -101,8 +94,7 @@ data when configuration is missing. Cleanup history only discovers old paths;
 it cannot authorize deleting them. Repeated cleanup with no current targets succeeds.
 Service ownership, symlink, locking, and cleanup-scope checks still apply.
 Database identity restricts storage operations, but does not prevent confirmed
-full-directory cleanup. Metrics read and validate `traffic.quota_gib` only when needed,
-directly from the shared settings file.
+full-directory cleanup.
 
 `config verify`, `server start`, and `systemd install --now` require the complete
 valid panel settings. Startup checks the runtime environment and database;
@@ -130,7 +122,7 @@ initialization or service activation fails, stderr still carries the one-time
 credentials; the failure does not claim service readiness.
 It does not repeat the summary when the file already exists. Once the server is
 ready, it prints `sing-box-panel is running` with aligned `Panel URL`, `Settings`,
-and `Data Dir` rows, followed by the stop shortcut and stored-log command.
+and `Data Dir` rows, followed by the stop shortcut and Web logs guidance.
 Color is limited to text on a terminal
 and respects `NO_COLOR` and `TERM`. In JSON/JSONL mode, stderr receives one event
 with `event: "settings_initialized"`, `settings_path`, `data_dir`,
@@ -157,11 +149,10 @@ Local `make build` uses Go's module and VCS metadata without injecting a build
 timestamp. A pseudo-version's timestamp identifies the source commit, not the
 time the binary was compiled; `+dirty` records uncommitted source changes.
 
-Complete panel settings documents, subscription source definitions, and other bulk
-or secret-bearing values use `--file PATH` or `--file -` for stdin. Do not
-place secrets in command arguments. Panel settings output and
-subscription source details may contain credentials and must be handled as
-secret-bearing output.
+Complete panel settings documents use `--file PATH` or `--file -` for stdin.
+Use `config set FIELD --stdin` for secret field values instead of placing them
+in command arguments. Panel settings output contains credentials and must be
+handled as secret-bearing output.
 
 ## Panel settings
 
@@ -171,7 +162,13 @@ secret-bearing output.
 sing-box-panel config init --config ./setting.json
 sing-box-panel config show --config ./setting.json
 sing-box-panel config verify --config ./setting.json
-sing-box-panel config unset server.port /github/catalog_refresh_interval_hours --config ./setting.json
+sing-box-panel config get server.port --config ./setting.json
+sing-box-panel config set server.port 9090 --config ./setting.json
+sing-box-panel config set server.host 127.0.0.1 --config ./setting.json
+sing-box-panel config set panel.language en --config ./setting.json
+sing-box-panel config set auth.password --stdin --config ./setting.json < ./password.txt
+sing-box-panel config set github.token '' --config ./setting.json
+sing-box-panel config set traffic.quota_gib null --config ./setting.json
 sing-box-panel config set --config ./setting.json --file ./new-setting.json
 sing-box-panel config set --config ./setting.json --file - < ./new-setting.json
 ```
@@ -185,59 +182,67 @@ sing-box-panel config set --config ./setting.json --file - < ./new-setting.json
   Text output displays the file path, administrator email, and initial password; JSON/JSONL returns
   `initialized: true`, `settings_path`, `login_email`, and `login_password`. Top-level `init` retains
   its broader responsibility of also initializing storage.
-- `reset-password` resets the administrator password in the existing selected settings
-  file. It generates a random password by default and prints an aligned summary with
-  the settings path, email and new password exactly once. JSON/JSONL returns
-  `password_reset: true`, `settings_path`, `login_email`, and `login_password`.
-  `--stdin` supplies a custom password using the same bounded input rules as
-  `hash-password`; that mode never echoes the password and omits `login_password`.
-  No old password is required. Email, other settings, relative paths and file ownership
-  are preserved; the file remains `0600`. No database is opened and no restart is
-  needed. Old sessions fail their next authentication check; normal login rate limits
-  still apply. Missing, invalid, unreadable or pending-recovery settings fail without
-  initialization. Cancellation or invalid password input leaves settings unchanged.
-  Use `sing-box-panel --config /path/to/setting.json config reset-password` as the
-  file owner or with the system service's required administrative permissions.
-  Keep the command output private; it contains the generated password even when redirected.
-- `hash-password` prompts for a password and confirmation with terminal echo disabled.
-  Use `config hash-password --stdin` to explicitly read from stdin (one final line
-  ending is removed). Passwords have 12–128 Unicode characters; spaces are preserved.
-  Text output is the Argon2id hash; JSON/JSONL returns `password_hash`. It does not
-  change settings and never accepts a plaintext password argument. For example,
-  `sing-box-panel config hash-password`, then copy the result into `auth.password_hash`.
 - `show` returns exact file bytes, even when the JSON or settings are invalid.
   JSON/JSONL returns `settings_path` and a `content` string. The content includes
   credentials; the Web UI reads and writes this same file.
+- `get FIELD` reads one stored field or section using a dotted name such as
+  `server.port`. Text output prints strings directly and other values as JSON;
+  JSON/JSONL returns `settings_path`, `field`, and `value`. It does not apply
+  defaults or resolve a relative `data_dir`. A missing file or absent field is
+  an error. `auth.password` is write-only; `auth.password_hash` reads the stored
+  hash. Values can include credentials.
 - `verify` validates strict JSON and the complete panel settings contract.
   It returns `valid: true` and `settings_path` on success. It never creates or
   migrates a database, checks directory availability, or runs sing-box.
+- `set FIELD VALUE` updates one settings field or section using a dotted name
+  such as `server.port`. Strings are passed directly, without
+  JSON string quotes. Numbers, arrays, and objects must be strict JSON
+  of the field's type; arrays are replaced as a whole. For example, use
+  `config set subscription.private_source_cidrs '["10.0.0.0/8"]'` for an array.
+  `set FIELD --stdin` reads the value from stdin instead of an argument and removes
+  only its final line ending.
+  Clear optional strings with an empty argument, for example
+  `config set github.token ''` or `config set server.external_origin ''`.
+  Use `config set traffic.quota_gib null` for a nullable value and `[]` for an
+  empty array. Required values, including the administrator password, cannot be
+  cleared. Clearing a value does not restore initialization defaults.
+  The existing file must be a JSON object; the complete result must validate.
+  This can repair an invalid field value, but cannot repair malformed JSON.
+  The change is atomic, retains unselected values and relative paths, and uses mode `0600`.
+  Missing files are not initialized. Values are never echoed in success output.
+- `set auth.password --stdin` accepts a plaintext administrator password and
+  stores only its Argon2id hash in `auth.password_hash`, using the same password
+  rules and hashing implementation as authentication. `auth.password` is a
+  command-only field and is never written into settings. Password spaces are
+  preserved and passwords must have 12–128 Unicode characters. Password changes
+  invalidate existing sessions at their next authentication check and need no restart.
+  No old password is required. Run the command as the settings file owner or
+  with the system service's required administrative permissions. Other settings,
+  file ownership, and private file permissions are preserved; no database is opened.
+  Password input is never echoed in command output.
+  To supply an existing encoded hash, use `auth.password_hash`; the hash is
+  validated and is not hashed again. Complete `--file` documents still require
+  `auth.password_hash`, never plaintext `auth.password`.
 - `set --file FILE|-` replaces the complete document. Validation finishes before
   the destination is changed; invalid input leaves the existing file intact.
   Relative `data_dir` paths resolve against the destination settings file.
   The write is atomic with mode `0600`; new settings directories use `0700`.
   Symlinks and other non-regular destinations are rejected. The data directory
   and database are untouched. JSON/JSONL returns `saved: true` and `settings_path`.
-- `unset FIELD [FIELD...]` restores selected fields or entire sections from the
-  same defaults as `init`. Dotted names (`server.port`) and slash paths
-  (`/server/port`) select the same field. Arrays reset as a whole. Multiple
-  fields are reset in one atomic write. `server.external_origin` can be reset
-  independently; Cookie security is automatic. The removed `auth.secure_cookie`
-  field is rejected by validation and cannot be reset. Delete it from old
-  configuration files before using them; no automatic migration is performed.
-  The complete result must validate: unknown fields and required values without
-  defaults, including `auth.email`, `auth.password_hash`, or the whole `auth` section, are rejected
-  without changing the file. Unselected values, including relative paths and
-  credentials, are preserved. Missing files are not initialized. JSON/JSONL
-  returns `saved: true`, `settings_path`, and `reset_fields` without their values.
-  Resetting `data_dir` selects the current effective user's default directory;
-  the old directory remains active until the existing startup relocation runs.
+  This form cannot be combined with a field/value or `--stdin`.
 
-Settings documents are limited to 1 MiB. `set`, `unset`, and
+`get` and `set` accept dot-separated keys only. The former `unset`,
+`hash-password`, and `reset-password` commands have been removed; use `set`
+to clear optional values or change the password. Update scripts and regenerate
+installed shell completions after upgrading.
+
+Settings documents are limited to 1 MiB. `set` and
 `verify` reject unknown fields, duplicate keys, trailing JSON, and invalid
 settings values.
-`set` can replace an invalid existing file or create a missing file; it does not
-merge fields or restart a running panel. Restart to reload startup fields such
-as the listener and data path. Tokens, Web preferences and quota are read from
+`set --file` can replace an invalid existing file or create a missing file;
+field updates require an existing JSON object. Neither form restarts a running
+panel. Restart to reload startup fields such as the listener and data path.
+Tokens, Web preferences and quota are read from
 this file at operation boundaries. File edits invalidate an older Web form's
 revision, so its next save returns a conflict instead of overwriting the edit.
 See [the field mapping and effect timing](configuration-and-runtime.md#shared-settings-file).
@@ -254,60 +259,12 @@ Do not remove recovery material to bypass a conflict.
 The top-level `verify` and duplicate `config check` commands are removed; use
 `config verify`. Update scripts that used `config check`.
 The former sing-box configuration interfaces and their revision and core
-flags remain removed. The current `config verify`, `set`, and `unset`
+flags remain removed. The current `config verify`, `get`, and `set`
 operate only on panel settings. Move sing-box editing, validation, and Apply
 workflows to the Web UI, and regenerate shell completions after upgrading.
 The Web editor continues to
 store exact sing-box text in SQLite with revision conflict detection; this
 change does not create a separately editable sing-box file on disk.
-
-## Exact core selection
-
-Executable sing-box configuration is always the current valid document saved
-through the Web UI. Select an exact installed artifact there for
-Check or Apply. The CLI retains explicit core switching:
-
-```sh
-sing-box-panel core enable 1.13.21
-```
-
-`install`, `show`, `enable` and `remove` take a complete version or `v` tag.
-The default is this machine's architecture and musl; `--arch` is explicit.
-When multiple installations match, copy `BUILD` from `core list` and pass
-`--build`. The old asset/artifact ID positional arguments, `catalog --installable`
-and import `--sha256` are removed. Full IDs remain in machine output and HTTP
-management paths. See [core commands and migration](core-versions.md#cli-and-http-migration)
-for examples and refresh/cache behavior.
-
-`core enable` preserves the stopped/running state: a stopped core is selected
-without launching it, while a running core is restarted after validation.
-`core status` retains `enabled_core` when stopped.
-`core enable` carries the saved JSON forward unchanged. It never merges, fills,
-migrates, or rewrites fields for another version. The selected binary must
-accept an execution snapshot with `sing-box check` before the running process
-is replaced. Snapshot formatting may differ, but field names and values are
-preserved. A failed preflight leaves the live core and saved document unchanged.
-
-Missing JSON Schema disables only structured editing in the Web UI. Raw JSON
-check and Apply there, and core enable/start/restart/rollback in the CLI, retain
-the selected binary's native check as the final gate. Version selection requires an exact match and never silently selects a nearby release.
-
-The CLI does not expose the internal startup-artifact and activation-bundle
-steps; the HTTP API still exposes them for the Web UI. The monitoring tier is
-not a CLI input either: a checked restart derives the evidence tier from the
-saved configuration itself, `limited` when the file already exposes a usable
-Clash API and otherwise `process_only`; nothing is injected into the file to
-create that endpoint. Rollback uses the previous immutable bundle and its own
-configuration and binary evidence.
-
-## Operation completion and cancellation
-
-Core download/import, catalog refresh and source refresh execute directly and
-return completed results without requiring the server. Configuration checks and
-core process controls require the active server and use its private Unix socket;
-that server serializes them under the existing process lease. Interrupting the
-caller cancels work at its next safe boundary. Logs record completed outcomes.
-There is no generic queue, operation polling command, or `--detach` flag.
 
 ## Foreground panel control
 
@@ -355,15 +312,6 @@ The installed unit invokes the same foreground `server start` entry point;
 systemd owns its background lifecycle and restart policy.
 The unit sets a panel-specific supervisor marker; an invocation environment
 inherited from a terminal service does not make a manual panel systemd-managed.
-
-## Metrics and traffic periods
-
-`metrics show` displays one metrics snapshot; `metrics watch` refreshes it
-until interrupted. Both include current traffic-period start/end times and
-the period's cumulative traffic when reliable evidence is available. Missing
-traffic evidence is shown as unavailable rather than zero usage.
-`metrics history` lists saved periods and `metrics period PERIOD_ID` shows
-one period's details. There is no separate `traffic` command group.
 
 ## Instance files and cleanup
 

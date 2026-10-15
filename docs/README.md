@@ -8,7 +8,7 @@ Schema and packaging contracts remain beside their owning components.
 
 | Task | Guide |
 | --- | --- |
-| Commands, settings, output formats and shell completion | [CLI reference](guides/cli.md) |
+| Panel settings, services, installation maintenance and shell completion | [CLI reference](guides/cli.md) |
 | Install, import and select an exact version; inspect support and migration rules | [Core versions](guides/core-versions.md) |
 | Edit and validate configuration; operate, recover and observe the runtime | [Configuration and runtime](guides/configuration-and-runtime.md) |
 | Publish subscriptions, manage access, and inspect logs, metrics and traffic | [Subscriptions and observability](guides/subscriptions-and-observability.md) |

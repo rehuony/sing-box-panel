@@ -3,8 +3,6 @@
 package cli
 
 import (
-	"bytes"
-	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -17,20 +15,6 @@ import (
 	"github.com/rehuony/sing-box-panel/internal/auth"
 	"github.com/rehuony/sing-box-panel/internal/testutil"
 )
-
-func runApplicationCommand(t *testing.T, settingsPath, stdin string, args ...string) []byte {
-	t.Helper()
-	var stdout bytes.Buffer
-	command := NewRootCommand(Dependencies{
-		Stdin: strings.NewReader(stdin), Stdout: &stdout, Stderr: &bytes.Buffer{},
-		OpenApplication: application.Open,
-	})
-	command.SetArgs(append([]string{"--config", settingsPath}, args...))
-	if err := command.ExecuteContext(context.Background()); err != nil {
-		t.Fatalf("command %v error=%v output=%s", args, err, stdout.String())
-	}
-	return stdout.Bytes()
-}
 
 func commandSettingsFixture(t *testing.T) string {
 	t.Helper()
