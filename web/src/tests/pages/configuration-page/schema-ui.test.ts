@@ -7,7 +7,7 @@ import { beforeAll, describe, expect, it } from 'vitest';
 
 import type { CanonicalDraft } from '@/pages/configuration-page/use-canonical-configuration';
 
-import { reviewedSchemaManifest } from '@/schemas/generated';
+import { reviewedSchemaManifest } from '@/schemas';
 import { resolveReviewedSchema } from '@/schemas/resolve-reviewed-schema';
 import { representativeSchemaVersions } from '@/tests/schemas/schema-fixtures';
 import { visibleStructuredConfiguration } from '@/pages/configuration-page/structured-validation';

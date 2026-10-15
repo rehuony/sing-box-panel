@@ -12,7 +12,7 @@ const browserLogic = [
   'src/tests/components/app-shell/i18n.test.ts',
 ];
 
-// Tests consume committed schemas. Generation is checked by the production build.
+// Package scripts generate local schemas before Vitest loads the test modules.
 export default defineConfig({
   server: { fs: { allow: [fileURLToPath(new URL('.', import.meta.url)), fileURLToPath(new URL('../api', import.meta.url))] } },
   plugins: [react()],

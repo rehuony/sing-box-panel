@@ -11,7 +11,7 @@ import type { ReviewedSchemaResolution } from '@/schemas/resolve-reviewed-schema
 import type { CanonicalDraft } from '@/pages/configuration-page/use-canonical-configuration';
 
 import '@/i18n';
-import { reviewedSchemaManifest } from '@/schemas/generated';
+import { reviewedSchemaManifest } from '@/schemas';
 import { resolveReviewedSchema } from '@/schemas/resolve-reviewed-schema';
 import { representativeSchemaVersions } from '@/tests/schemas/schema-fixtures';
 import { SchemaSectionForm } from '@/pages/configuration-page/schema-section-form';

@@ -121,16 +121,17 @@ version-scoped. The response contains only `exact_version`, `schema_sha256`,
 and the Schema. Its ETag binds the exact version and digest and supports
 `If-None-Match`.
 
-The panel commits reviewed Schema definitions for `1.13.19`, `1.13.20` and
-`1.13.21`, plus native Schema output for `1.14.0`, `1.14.1` and `1.14.2`. The Web
-configuration selector lists compatible installed versions, defaults to the
-enabled core when available and otherwise uses the highest installed semantic
-version. Installed artifacts require the served schema to match the reviewed
+The [support table](core-versions.md#exact-configuration-support) lists the exact
+versions with reviewed or native Schema support. Each keeps its own manifest
+entry; identical canonical Schema contents share an asset by SHA-256.
+The Web configuration selector lists compatible installed versions,
+defaults to the enabled core when available and otherwise uses the highest
+installed semantic version. Installed artifacts require the served schema to match the reviewed
 manifest. With no installed core, the Web UI keeps Advanced JSON editing and
 saving available, while the visual editor directs the operator to version
 management. Native validation and runtime startup always require an installed
-matching core. The three 1.13 releases share an explicitly reviewed source definition based on
-their exact tag sources and documentation; unreviewed versions remain
+matching core. The reviewed 1.13 family uses an explicit source definition based
+on the exact tag sources and documentation; unreviewed versions remain
 Advanced-JSON-only. A
 missing Schema disables only structured controls, never JSON save,
 compile, check, Apply, Start, Restart, or Rollback.
@@ -148,9 +149,12 @@ bilingual labels. The metadata cannot add `_panel`, introduce a disabled-item
 union, fill cross-version fields, or change a sing-box constraint. References
 remain local to that one Schema document.
 
-The Web build exports each committed Schema and compiles its root validator into
-an Ajv 2020 standalone module. The generated manifest records only the exact
-version, source kind, file, and digest. At runtime the browser selects by exact version and
+Before Web typechecking, tests or builds, `pnpm run generate` exports the
+committed backend contracts offline and compiles each distinct Schema's root
+validator into an Ajv 2020 standalone module. These frontend assets are generated
+outputs and are not committed. The generated manifest keeps each exact version's
+source kind, file and digest; identical contents share a Schema and validator.
+At runtime the browser selects by exact version and
 verifies the served digest and content against its local asset. An unavailable
 Schema or mismatch falls back to the lossless Advanced editor; the production
 UI does not fetch schemas from the network or relax the Content Security Policy
@@ -188,7 +192,7 @@ keys and externally issued access tokens do not receive generic random generator
 ### Field names and inline help
 
 The Simplified Chinese visual editor uses reviewed Chinese names and descriptions
-for the fields declared by the five committed schemas. An information button
+for the fields declared by the committed schemas. An information button
 beside scalar, list and optional-object labels shows a concise description after
 a brief hover or immediately on click/tap. Help icons are excluded from Tab
 navigation and do not display a focus border or ring.

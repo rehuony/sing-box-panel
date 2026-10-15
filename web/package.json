@@ -5,19 +5,17 @@
   "packageManager": "pnpm@11.21.0",
   "type": "module",
   "scripts": {
-    "api:generate": "openapi-ts -i ../api/openapi.yaml -o src/api/generated -p @hey-api/typescript --no-log-file",
-    "dev": "pnpm run api:generate && vite",
-    "demo": "pnpm run api:generate && vite --mode demo",
-    "build": "pnpm run api:generate && tsc --noEmit && vite build",
+    "generate": "openapi-ts -i ../api/openapi.yaml -o src/api/generated -p @hey-api/typescript --no-log-file && node --experimental-strip-types scripts/configuration-schema.ts",
+    "schema:check": "node --experimental-strip-types scripts/configuration-schema.ts --check",
+    "dev": "pnpm run generate && vite",
+    "demo": "pnpm run generate && vite --mode demo",
+    "build": "pnpm run generate && tsc --noEmit && vite build",
     "lint": "eslint . --max-warnings 0",
     "lint:fix": "eslint . --fix",
     "preview": "vite preview",
-    "test": "pnpm run api:generate && vitest run",
-    "test:logic": "vitest run --project logic",
-    "test:react": "vitest run --project react",
-    "test:contracts": "vitest run --project contracts",
-    "test:watch": "pnpm run api:generate && vitest",
-    "typecheck": "pnpm run api:generate && tsc --noEmit"
+    "test": "pnpm run generate && vitest run",
+    "test:watch": "pnpm run generate && vitest",
+    "typecheck": "pnpm run generate && tsc --noEmit"
   },
   "dependencies": {
     "@base-ui/react": "^1.7.0",

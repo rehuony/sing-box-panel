@@ -3,14 +3,15 @@ import type { InlineConfig } from 'vite';
 import { build } from 'vite';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readdir, rm, writeFile } from 'node:fs/promises';
 import { afterEach, beforeAll, describe, expect, it } from 'vitest';
 
-import { reviewedSchemaManifest } from '@/schemas/generated';
+import { reviewedSchemaManifest } from '@/schemas';
+import manifest from '@/schemas/.generated/manifest.json';
 
 import {
   compileConfigurationSchemaValidator,
-} from '../../../plugins/configuration-schema';
+} from '../../../scripts/configuration-schema';
 
 const temporaryDirectories: string[] = [];
 
@@ -23,6 +24,27 @@ afterEach(async () => {
 });
 
 describe('generated configuration validators', () => {
+  it('shares one schema and validator per digest without merging exact versions', async () => {
+    const digests = [...new Set(manifest.entries.map(entry => entry.schema_sha256))];
+    const files = await readdir(new URL('../../schemas/.generated/', import.meta.url));
+    expect(files.sort()).toEqual([
+      'manifest.json',
+      ...digests.flatMap(digest => [`schema-${digest}.json`, `validator-${digest}.ts`]),
+    ].sort());
+
+    for (const digest of digests) {
+      const entries = manifest.entries.filter(entry => entry.schema_sha256 === digest);
+      const shared = await reviewedSchemaManifest[entries[0].exact_version].load();
+      for (const entry of entries) {
+        const loaded = await reviewedSchemaManifest[entry.exact_version].load();
+        expect(loaded.exactVersion).toBe(entry.exact_version);
+        expect(loaded.schemaSHA256).toBe(digest);
+        expect(loaded.schema).toBe(shared.schema);
+        expect(loaded.validateFns).toBe(shared.validateFns);
+      }
+    }
+  });
+
   it('executes Ajv runtime helpers after Vite bundles the generated ESM module', async () => {
     const testRoot = await mkdtemp(join(dirname(fileURLToPath(import.meta.url)), '.validator-runtime-'));
     temporaryDirectories.push(testRoot);

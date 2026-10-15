@@ -9,6 +9,7 @@ actions; they do not repeat every domain case through a complete editing journey
 | --- | --- |
 | Configuration save/reload, incomplete JSON, CAS conflict, failed save, draft reset, exact numbers | `use-canonical-configuration.test.tsx`; HTTP configuration and application tests verify real persistence |
 | Exact Schema versions, integrity and generated validators | `resolve-reviewed-schema.test.ts`, `generated-validator-browser.test.ts`, production build and schema regeneration job |
+| Schema generation from an empty directory, concurrent publication, stale output and read-only checks | `configuration-schema-generation.test.ts` |
 | Credential formats and Hysteria2 obfuscation | `configuration-credentials.test.tsx`, `managed-collections-editor.test.tsx` |
 | Version selection, unavailable versions, stale responses and retained session choice | `configuration-session.store.test.ts`, `use-configuration-schema.test.tsx` |
 | Navigation cancellation and discard | `use-unsaved-changes.test.tsx`; configuration Hook reset checks |
@@ -56,15 +57,26 @@ assertions. A security or data-integrity boundary must retain a direct check.
 
 ## Commands and environments
 
-`pnpm test` runs all three Vitest projects. Use `pnpm test:logic`,
-`pnpm test:react`, or `pnpm test:contracts` from `web` to run one boundary.
+`pnpm test` runs all three Vitest projects. Use `pnpm test --project logic`,
+`pnpm test --project react`, or `pnpm test --project contracts` from `web` to run
+one boundary.
 Logic uses Node; React Hooks and component smoke use jsdom; build contracts
 use Node with an explicit jsdom override for CSS preload recovery.
 
-Tests read committed Schema assets. The production Vite plugin checks their
-generation in CI; ordinary tests do not regenerate them or invoke Go export.
-Keep exact-version integrity coverage even when equivalent form behavior is
-tested using one representative Schema.
+Frontend Schema assets and validators are uncommitted build outputs derived
+offline from the committed backend assets. Test entry points run
+`pnpm run generate` before Vitest loads them; individual tests do not run
+generation. `pnpm run schema:check` recomputes and checks those outputs without
+rewriting them. Vite does not own Schema generation. Direct `pnpm exec vitest`
+or `pnpm exec tsc` commands bypass package-script preparation; first run
+`pnpm run generate` in a clean checkout.
+
+Keep manifest selection and integrity coverage for every exact version, while
+identical Schema contents share one digest and validator. Equivalent form behavior
+can use one representative Schema. Native Linux amd64/arm64 core contracts still
+exercise every reviewed version's official artifact; shared Schema content does
+not replace those checks. The current version list comes from the generated
+[support table](../guides/core-versions.md#exact-configuration-support).
 
 Use controlled promises for asynchronous outcomes and virtual time for timers,
 expiry and retries. Unmount before restoring timers; abort streams and remove
@@ -73,10 +85,11 @@ logic has 5 seconds, React 10 seconds, and build contracts 30 seconds. Schema
 imports belong in suite preparation. Retries remain disabled.
 
 CI bounds workers to two and runs build contracts sequentially. Test isolation
-remains enabled. `make check-web` runs static checks, logic, React, production
-build, build contracts and third-party notices; `make check` also runs Go and
-API/installer contracts. Linux-only guarantees remain in their existing jobs.
-Each web phase reports its duration and exits immediately on failure.
+remains enabled. `make check-web` builds the Web application once, including
+generation and TypeScript checking, then runs lint, all Vitest projects,
+Schema generation consistency and third-party notices. `make check` shares that
+build with Go and API/installer checks. Linux-only guarantees remain in their
+existing jobs.
 
 When changing the test layout, use `pnpm exec vitest list --json` to compare
 discovered files against `src/tests/**/*.test.{ts,tsx}`. Every file must belong

@@ -14,9 +14,9 @@ import { Button } from '@/components/ui/button';
 import { toast } from '@/components/ui/toast-manager';
 import { useApiClient } from '@/api/api-client-context';
 import { useUnsavedChanges } from '@/hooks/use-unsaved-changes';
+import { loadReviewedSchema, reviewedSchemaManifest } from '@/schemas';
 import { describeRequestError, ErrorNotice } from '@/components/error-notice';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { loadReviewedSchema, reviewedSchemaManifest } from '@/schemas/generated';
 import {
   Dialog,
   DialogContent,

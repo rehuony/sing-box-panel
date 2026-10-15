@@ -146,18 +146,14 @@ func writeConfigurationSchema(version singbox.Version, raw []byte, outputRoot st
 	if err != nil {
 		return generatedSchemaManifestEntry{}, fmt.Errorf("apply presentation overlay to sing-box %s: %w", version.ExactVersion, err)
 	}
-	baseName := "schema-" + strings.ReplaceAll(version.ExactVersion, ".", "_") + ".json"
-	schemaName := filepath.ToSlash(baseName)
-	target := filepath.Join(outputRoot, filepath.FromSlash(schemaName))
-	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
-		return generatedSchemaManifestEntry{}, err
-	}
-	if err := os.WriteFile(target, schema, 0o644); err != nil {
+	digest := digestHex(schema)
+	schemaName := "schema-" + digest + ".json"
+	if err := writeFileIfChanged(filepath.Join(outputRoot, schemaName), schema); err != nil {
 		return generatedSchemaManifestEntry{}, err
 	}
 	return generatedSchemaManifestEntry{
 		ExactVersion: version.ExactVersion,
-		SchemaSHA256: digestHex(schema),
+		SchemaSHA256: digest,
 		SchemaFile:   schemaName,
 		Source:       version.SchemaSource,
 	}, nil

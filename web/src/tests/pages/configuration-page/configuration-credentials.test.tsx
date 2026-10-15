@@ -9,14 +9,14 @@ import { fireEvent, render, screen, within } from '@testing-library/react';
 import type { ReviewedSchemaResolution } from '@/schemas/resolve-reviewed-schema';
 
 import '@/i18n';
+import { reviewedSchemaManifest } from '@/schemas';
 import { toast } from '@/components/ui/toast-manager';
-import { reviewedSchemaManifest } from '@/schemas/generated';
 import { SchemaSectionForm } from '@/pages/configuration-page/schema-section-form';
 import { schemaProperties, selfContainedSchema, uiSchemaFromPanel } from '@/pages/configuration-page/schema-ui';
 import { encodeCanonicalDraft, parseCanonicalDraft } from '@/pages/configuration-page/use-canonical-configuration';
 import { configurationCredentialKind, credentialGenerator, generateCredential } from '@/pages/configuration-page/configuration-credentials';
 
-const schemas = import.meta.glob<RJSFSchema>('../../../schemas/generated/schema-*.json', { eager: true, import: 'default' });
+const schemas = import.meta.glob<RJSFSchema>('../../../schemas/.generated/schema-*.json', { eager: true, import: 'default' });
 let resolution: ReviewedSchemaResolution;
 beforeAll(async () => {
   const reviewed = await reviewedSchemaManifest['1.14.1'].load();

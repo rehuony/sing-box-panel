@@ -1,4 +1,4 @@
-import manifest from '@/schemas/generated/manifest.json';
+import manifest from '@/schemas/.generated/manifest.json';
 
 // Exact-version loading is tested separately; editor behavior depends on schema content.
 export function representativeSchemaVersions(source?: string): string[] {
@@ -11,6 +11,6 @@ export function representativeSchemaVersions(source?: string): string[] {
     seen.add(key);
     versions.push(entry.exact_version);
   }
-  if (versions.length === 0) throw new Error(`Missing committed schemas for ${source ?? 'all sources'}.`);
+  if (versions.length === 0) throw new Error(`Missing generated schemas for ${source ?? 'all sources'}.`);
   return versions;
 }

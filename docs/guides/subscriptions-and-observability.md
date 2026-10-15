@@ -140,19 +140,21 @@ configuration is never published. Rollback changes the applied bundle pointer
 and therefore restores the matching local-node input without re-projecting the
 current revision.
 
-The inbound registry accepts only the exact reviewed releases `1.13.19`, `1.13.20`, `1.13.21`, `1.14.0`, `1.14.1` and `1.14.2`; other versions fail closed. Each converter publishes
-only the client-usable inbound types available in that release and reports
-stable diagnostics for server-only or unsupported types. Multi-user inbounds
+The inbound registry accepts only the exact reviewed releases with an inbound
+family in the [support table](core-versions.md#exact-configuration-support);
+other versions fail closed.
+Each converter publishes only the client-usable inbound types available in that
+release and reports stable diagnostics for server-only or unsupported types. Multi-user inbounds
 become separate grantable credentials for user-scoped access. The panel public-host override, existing channel `public_host`, or detected
 public IP combines with each inbound `listen_port`; server certificate private keys,
 ACME configuration, and listen-side fields are never copied.
 
-The current exact inbound contracts are:
+Each reviewed version uses the following contract for its assigned family:
 
-| Core | Convertible local inbound types |
+| Inbound family | Convertible local inbound types |
 | --- | --- |
-| `1.13.19`, `1.13.20`, `1.13.21` | `mixed`, `socks`, `http`, `shadowsocks`, `vmess`, `trojan`, `hysteria`, `shadowtls`, `vless`, `tuic`, `hysteria2`, `anytls`, `naive` |
-| `1.14.0`, `1.14.1`, `1.14.2` | All 1.13.19 types plus `snell` |
+| `1.13` | `mixed`, `socks`, `http`, `shadowsocks`, `vmess`, `trojan`, `hysteria`, `shadowtls`, `vless`, `tuic`, `hysteria2`, `anytls`, `naive` |
+| `1.14` | All family 1.13 types plus `snell` |
 
 For these versions, `direct`, `tun`, `redirect`, `tproxy`, and
 `cloudflared` are explicitly unpublishable. Any other inbound type currently

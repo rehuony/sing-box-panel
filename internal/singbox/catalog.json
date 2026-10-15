@@ -367,6 +367,71 @@
         }
       },
       "configuration_schema": "native"
+    },
+    {
+      "version": "1.14.3",
+      "inbound_family": "1.14",
+      "upstream": {
+        "tag": "v1.14.3",
+        "commit": "7054cac5124465ffdb145870d7c01885566711b1",
+        "module_sum": "h1:cBg8TP5SPWoMAlWqTqbSNdHGKPUciZisjQbLtqFlMZA=",
+        "go_mod_sum": "h1:Yei01EtPLnLTpLho05THCbqUwfidsaE/0vm1oSu+XQA="
+      },
+      "profiles": {
+        "amd64": {
+          "asset_name": "sing-box-1.14.3-linux-amd64-musl.tar.gz",
+          "url": "https://github.com/SagerNet/sing-box/releases/download/v1.14.3/sing-box-1.14.3-linux-amd64-musl.tar.gz",
+          "sha256": "41fc81fd041134d4d7d850a928d7d2cde17a7d6563953f406b22d32a68bfab1f",
+          "size": 32521387,
+          "features": [
+            "badlinkname",
+            "tfogo_checklinkname0",
+            "with_acme",
+            "with_ccm",
+            "with_clash_api",
+            "with_cloudflared",
+            "with_dhcp",
+            "with_gvisor",
+            "with_musl",
+            "with_naive_outbound",
+            "with_ocm",
+            "with_openconnect",
+            "with_openvpn",
+            "with_quic",
+            "with_tailscale",
+            "with_usbip",
+            "with_utls",
+            "with_wireguard"
+          ]
+        },
+        "arm64": {
+          "asset_name": "sing-box-1.14.3-linux-arm64-musl.tar.gz",
+          "url": "https://github.com/SagerNet/sing-box/releases/download/v1.14.3/sing-box-1.14.3-linux-arm64-musl.tar.gz",
+          "sha256": "12d6d67a4edf0dd54590865b1f4f79cd09ae043a02d648e9d1b5fccc8446ee07",
+          "size": 29733009,
+          "features": [
+            "badlinkname",
+            "tfogo_checklinkname0",
+            "with_acme",
+            "with_ccm",
+            "with_clash_api",
+            "with_cloudflared",
+            "with_dhcp",
+            "with_gvisor",
+            "with_musl",
+            "with_naive_outbound",
+            "with_ocm",
+            "with_openconnect",
+            "with_openvpn",
+            "with_quic",
+            "with_tailscale",
+            "with_usbip",
+            "with_utls",
+            "with_wireguard"
+          ]
+        }
+      },
+      "configuration_schema": "native"
     }
   ]
 }

@@ -126,8 +126,12 @@ The script:
    workspaces, overlays, experiments, and persistent Go settings disabled;
 3. installs and builds the Web application inside that complete source
    snapshot using the package-pinned pnpm, frozen lockfile, disabled lifecycle
-   scripts, and an isolated store; this lets the Vite Schema exporter use the
-   snapshot's parent Go module without reading the caller's working tree;
+   scripts, and an isolated store; the explicit build command runs `generate`
+   for OpenAPI types and Schema assets before TypeScript checking and Vite
+   bundling. The Schema exporter uses the snapshot's parent Go module, creating
+   `web/src/schemas/.generated/` from the
+   committed backend manifest and Schema assets without reading generated files
+   from the caller's working tree;
 4. requires the fresh Web distribution to contain `index.html`, the single
    public `favicon.svg`, and bundled assets before loading the Go package that
    embeds `web/dist`;

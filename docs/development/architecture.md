@@ -43,9 +43,10 @@ visible. File length alone is not a reason to create another package.
 - `internal/subscription` owns documents, normalized nodes, source parsing and
   fetching, rendering, and inbound conversion contracts. Files use
   `document_*`, `node_*`, `source_*`, `render_*`, and `inbound_*` prefixes.
-- `internal/singbox` owns the reviewed support catalog, version-scoped native and reviewed
-  Schema assets, inbound conversion, and behavior-family dispatch. Exact
-  versions exist as catalog data rather than forwarding packages.
+- `internal/singbox` owns the reviewed support catalog, exact-version Schema
+  manifest, canonical native and reviewed Schema assets shared by content digest,
+  inbound conversion, and behavior-family dispatch. Exact versions exist as
+  catalog data rather than forwarding packages.
 - `internal/runtime` owns managed processes, reference-counted disposable
   configuration files and its restricted Clash API monitoring client. Durable
   snapshot bytes remain in `store`; file cleanup follows check and child lifetimes.

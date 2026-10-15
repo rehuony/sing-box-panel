@@ -7,6 +7,7 @@ import { customizeValidator } from '@rjsf/validator-ajv8';
 import { render, screen, waitFor, within } from '@testing-library/react';
 
 import '@/i18n';
+import { loadReviewedSchema } from '@/schemas';
 import { ApiClientProvider } from '@/api/api-client-context';
 import { createMockApiClient } from '@/tests/api/mock-api-client';
 import { createDemoFilesystemApi } from '@/api/demo/demo-filesystem';
@@ -16,7 +17,7 @@ import { schemaProperties, selfContainedSchema } from '@/pages/configuration-pag
 import { readConfigurationPathMode } from '@/pages/configuration-page/configuration-path-fields';
 import { encodeCanonicalDraft, parseCanonicalDraft } from '@/pages/configuration-page/use-canonical-configuration';
 
-const schemas = import.meta.glob<RJSFSchema>('../../../schemas/generated/schema-*.json', { eager: true, import: 'default' });
+const schemas = import.meta.glob<RJSFSchema>('../../../schemas/.generated/schema-*.json', { eager: true, import: 'default' });
 
 describe('configuration path presentation', () => {
   it.each(Object.entries(schemas))('covers filesystem properties without changing the authoritative schema: %s', (_, root) => {
@@ -104,7 +105,7 @@ describe('configuration path presentation', () => {
   });
 
   it('uses the same picker in subscription node forms and retains unrelated node options', async () => {
-    const root = Object.entries(schemas).find(([name]) => name.includes('1_14_1'))![1];
+    const root = (await loadReviewedSchema('1.14.1'))!.schema;
     const changed = vi.fn();
     const data = {
       type: 'ssh', tag: 'ssh-server', server: 'example.com', server_port: 22, user: 'alice',

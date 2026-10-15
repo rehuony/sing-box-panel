@@ -6,7 +6,7 @@ import type { ConfigurationSchemaContract } from '@/api/api-client';
 
 import i18n from '@/i18n';
 
-import { loadReviewedSchema, reviewedSchemaManifest } from './generated';
+import { loadReviewedSchema, reviewedSchemaManifest } from './index';
 
 export interface ReviewedSchemaResolution {
   schema: RJSFSchema;

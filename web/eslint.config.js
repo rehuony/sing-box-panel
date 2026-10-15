@@ -11,7 +11,7 @@ export default antfu(
       '**/*.json',
       'pnpm-lock.yaml',
       'src/api/generated/**',
-      'src/schemas/generated/**',
+      'src/schemas/.generated/**',
     ],
     jsonc: false,
     markdown: false,
