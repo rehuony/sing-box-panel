@@ -347,10 +347,29 @@ describe('useTelemetry', () => {
     expect(metricsSignal?.aborted).toBe(true);
     expect(dashboardSignal?.aborted).toBe(true);
   });
-  it('acquires history only on demand and suspends both channels while hidden', async () => {
-    const client = createMockApiClient();
+  it('keeps live samples continuous across tab switches while pausing history', async () => {
+    let background!: () => void;
+    const hidden = new Promise<void>(resolve => {
+      background = resolve;
+    });
+    let foreground!: () => void;
+    const visible = new Promise<void>(resolve => {
+      foreground = resolve;
+    });
+    const client = createMockApiClient({
+      streamMetrics: vi.fn(async function* (signal) {
+        yield { metrics: liveMetrics(0, 200), runtime: testRuntimeStatus };
+        await hidden;
+        for (let second = 1; second <= 5; second++) {
+          yield { metrics: liveMetrics(second, 200 + second), runtime: testRuntimeStatus };
+        }
+        await visible;
+        yield { metrics: liveMetrics(6, 206), runtime: testRuntimeStatus };
+        await waitForAbort(signal);
+      }),
+    });
     const { result } = renderHook(() => useTelemetryStore(), { wrapper: wrapper(client) });
-    await act(async () => {});
+    await waitFor(() => expect(result.current.getState().rates.uploadBytesPerSecond).toBe(200));
     expect(client.streamDashboard).not.toHaveBeenCalled();
     let release!: () => void;
     act(() => {
@@ -359,11 +378,16 @@ describe('useTelemetry', () => {
     await waitFor(() => expect(client.streamDashboard).toHaveBeenCalledOnce());
     const visibility = vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('hidden');
     act(() => document.dispatchEvent(new Event('visibilitychange')));
-    expect(client.streamMetrics.mock.calls[0][0]?.aborted).toBe(true);
+    expect(client.streamMetrics.mock.calls[0][0]?.aborted).toBe(false);
     expect(client.streamDashboard.mock.calls[0][0]?.aborted).toBe(true);
+    await act(async () => background());
+    expect(result.current.getState().rates.uploadBytesPerSecond).toBe(205);
     visibility.mockReturnValue('visible');
     act(() => document.dispatchEvent(new Event('visibilitychange')));
-    await waitFor(() => expect(client.streamMetrics).toHaveBeenCalledTimes(2));
+    await act(async () => foreground());
+    expect(client.streamMetrics).toHaveBeenCalledOnce();
+    expect(result.current.getState().liveTail.map(point => point.uploadBytesPerSecond))
+      .toEqual([200, 201, 202, 203, 204, 205, 206]);
     act(() => release());
     expect(client.streamDashboard.mock.calls[1][0]?.aborted).toBe(true);
     visibility.mockRestore();

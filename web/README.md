@@ -199,7 +199,9 @@ streams with bounded buffering and reconnect.
 
 Telemetry uses a stable Zustand store with separate subscriptions for runtime,
 metrics, history and connection health. History is subscribed only by the
-Dashboard; logs only by the visible log page. Hidden tabs stop streams and polls.
+Dashboard; logs only by the visible log page. The live metrics stream stays
+connected across browser tab switches so received samples remain continuous.
+Hidden tabs pause history, logs and polling until they become visible again.
 Normal server rotation sends a control event and reconnects immediately. Other
 failures use jittered exponential backoff (at most 30 seconds) and a five-second
 notification grace period. A 25-second idle watchdog detects half-open streams.
