@@ -13,18 +13,25 @@ import (
 	"github.com/rehuony/sing-box-panel/internal/store"
 )
 
+// LiveTrafficSampleInterval is shared by collection and live metrics delivery.
+const LiveTrafficSampleInterval = time.Second
+
+const maximumLiveTrafficSampleGap = 3 * time.Second
+
 // LiveTrafficSample is process-local evidence, not an accounted traffic delta.
 // It is never added to persisted period totals.
 type LiveTrafficSample struct {
-	ActivationBundleID string    `json:"activation_bundle_id"`
-	PID                int       `json:"pid"`
-	ProcessStartToken  string    `json:"process_start_token"`
-	SampledAt          time.Time `json:"sampled_at"`
-	MemoryBytes        int64     `json:"memory_bytes"`
-	ActiveConnections  int64     `json:"active_connections"`
-	UploadTotal        int64     `json:"upload_total"`
-	DownloadTotal      int64     `json:"download_total"`
-	Accepted           bool      `json:"accepted"`
+	ActivationBundleID     string    `json:"activation_bundle_id"`
+	PID                    int       `json:"pid"`
+	ProcessStartToken      string    `json:"process_start_token"`
+	SampledAt              time.Time `json:"sampled_at"`
+	MemoryBytes            int64     `json:"memory_bytes"`
+	ActiveConnections      int64     `json:"active_connections"`
+	UploadTotal            int64     `json:"upload_total"`
+	DownloadTotal          int64     `json:"download_total"`
+	UploadBytesPerSecond   *float64  `json:"upload_bytes_per_second"`
+	DownloadBytesPerSecond *float64  `json:"download_bytes_per_second"`
+	Accepted               bool      `json:"accepted"`
 }
 
 type trafficCollector struct {
@@ -43,7 +50,7 @@ func sameTrafficProcess(a, b store.RuntimeObservation) bool {
 // ClearLiveTrafficSample marks a collection gap without changing accounting.
 func (a *Application) ClearLiveTrafficSample() { a.collector.live.Store(nil) }
 
-// SampleLimitedTraffic collects every two seconds and checkpoints every ten.
+// SampleLimitedTraffic collects every second and checkpoints every ten.
 // Incarnation changes and invalid evidence are persisted immediately so the
 // lower persistence frequency cannot conceal a counter regression.
 func (a *Application) SampleLimitedTraffic(ctx context.Context, observation store.RuntimeObservation, persist bool) (store.TrafficSampleResult, error) {
@@ -115,6 +122,19 @@ func (a *Application) SampleLimitedTraffic(ctx context.Context, observation stor
 		}
 	}
 	if sample.Accepted {
+		// Derive live rates at the collector, independently of which snapshots a
+		// browser receives. Unlike the accounting high-water mark, the published
+		// sample is cleared after a collection failure and rejected after invalid
+		// evidence, so neither gap can become an apparently current rate.
+		if live := c.live.Load(); live != nil && live.Accepted &&
+			live.PID == sample.PID && live.ProcessStartToken == sample.ProcessStartToken && live.ActivationBundleID == sample.ActivationBundleID {
+			elapsed := sample.SampledAt.Sub(live.SampledAt)
+			if elapsed > 0 && elapsed <= maximumLiveTrafficSampleGap {
+				upload := float64(sample.UploadTotal-live.UploadTotal) / elapsed.Seconds()
+				download := float64(sample.DownloadTotal-live.DownloadTotal) / elapsed.Seconds()
+				sample.UploadBytesPerSecond, sample.DownloadBytesPerSecond = &upload, &download
+			}
+		}
 		c.previous = sample
 	}
 	c.live.Store(sample)

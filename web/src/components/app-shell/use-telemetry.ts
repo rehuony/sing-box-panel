@@ -38,20 +38,17 @@ export interface TelemetryState {
 }
 const emptyRates: TrafficRates = { downloadBytesPerSecond: null, uploadBytesPerSecond: null };
 
-export function deriveTrafficRates(previous: TrafficSample | null, current: TrafficSample | undefined): TrafficRates {
-  if (!previous?.accepted || !current?.accepted
-    || previous.activation_bundle_id !== current.activation_bundle_id
-    || previous.pid !== current.pid || previous.process_start_token !== current.process_start_token) {
-    return emptyRates;
-  }
-  const seconds = (Date.parse(current.sampled_at) - Date.parse(previous.sampled_at)) / 1000;
-  const upload = current.upload_total - previous.upload_total;
-  const download = current.download_total - previous.download_total;
-  if (!Number.isFinite(seconds) || seconds <= 0 || seconds > 3
+function trafficRates(snapshot: MetricsSnapshot): TrafficRates {
+  const sample = snapshot.live_sample;
+  const age = Date.parse(snapshot.collected_at) - Date.parse(sample?.sampled_at ?? '');
+  const upload = sample?.upload_bytes_per_second;
+  const download = sample?.download_bytes_per_second;
+  if (!sample?.accepted || !Number.isFinite(age) || age > 3000
+    || upload == null || download == null
     || !Number.isFinite(upload) || !Number.isFinite(download) || upload < 0 || download < 0) {
     return emptyRates;
   }
-  return { uploadBytesPerSecond: upload / seconds, downloadBytesPerSecond: download / seconds };
+  return { uploadBytesPerSecond: upload, downloadBytesPerSecond: download };
 }
 
 export function createTelemetryStore(initial: Partial<TelemetryState> = {}) {
@@ -103,6 +100,9 @@ export function useTelemetryStore(): TelemetryStore {
     if (!visible) return;
     let previous: TrafficSample | null = null;
     let receivedAt = Date.now();
+    let ratesExpireAt = 0;
+    let interrupted = store.getState().liveTail.length > 0;
+    store.setState({ rates: emptyRates });
     const stop = followStream(signal => client.streamMetrics(signal), event => {
       receivedAt = Date.now();
       const state = store.getState();
@@ -111,21 +111,37 @@ export function useTelemetryStore(): TelemetryStore {
       const repeated = sample && sample.sampled_at === previous?.sampled_at
         && sample.pid === previous.pid && sample.process_start_token === previous.process_start_token
         && sample.activation_bundle_id === previous.activation_bundle_id;
-      const rates = repeated ? state.rates : deriveTrafficRates(previous, sample);
       const at = sample ? Date.parse(sample.sampled_at) : Date.parse(event.metrics.collected_at);
+      if (!repeated) ratesExpireAt = receivedAt + 3000 - Math.max(0, Date.parse(event.metrics.collected_at) - at);
+      const rates = receivedAt < ratesExpireAt ? trafficRates(event.metrics) : emptyRates;
       const point: LivePoint = {
-        at, ...rates, connections: sample?.accepted && previous && rates.uploadBytesPerSecond !== null
+        at, ...rates, connections: sample?.accepted && receivedAt < ratesExpireAt
           ? sample.active_connections
           : null,
       };
-      const tail = repeated ? state.liveTail : [...state.liveTail.filter(p => p.at > at - 120_000 && p.at < at), point];
-      previous = sample?.accepted ? sample : null;
+      const tail = repeated ? state.liveTail : state.liveTail.filter(p => p.at > at - 120_000 && p.at < at);
+      if (!repeated) {
+        const changedProcess = previous && sample && (previous.pid !== sample.pid
+          || previous.process_start_token !== sample.process_start_token
+          || previous.activation_bundle_id !== sample.activation_bundle_id);
+        if ((interrupted || changedProcess) && tail.length && tail.at(-1)!.at < at - 1) {
+          tail.push({ at: at - 1, ...emptyRates, connections: null });
+        }
+        tail.push(point);
+        interrupted = false;
+      }
+      previous = sample ?? null;
       store.setState({ snapshot: event.metrics, runtimeStatus: replaceEqualDeep(state.runtimeStatus, event.runtime),
         rates, liveTail: tail, trafficError: null, runtimeError: null, liveStale: false });
     }, error => store.setState({ trafficError: error, runtimeError: error }), () => {
-      previous = null;
+      interrupted = true;
     });
     const freshness = setInterval(() => {
+      const rates = store.getState().rates;
+      if (Date.now() >= ratesExpireAt
+        && (rates.uploadBytesPerSecond !== null || rates.downloadBytesPerSecond !== null)) {
+        store.setState({ rates: emptyRates });
+      }
       if (Date.now() - receivedAt > 10_000 && !store.getState().liveStale) {
         store.setState({ liveStale: true, rates: emptyRates });
       }

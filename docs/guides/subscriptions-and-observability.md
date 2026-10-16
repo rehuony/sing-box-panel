@@ -654,10 +654,16 @@ payloads.
 ## Dashboard delivery and host metrics
 
 `GET /api/v1/metrics/stream` shares runtime and metric snapshots across clients
-on a two-second cadence. The lifecycle-owned collector reads the running core
-every two seconds with a reused, incarnation-bound Clash client. The optional
+on a one-second cadence. The lifecycle-owned collector reads the running core
+every second with a reused, incarnation-bound Clash client. The optional
 `metrics.live_sample` is process-local evidence with its own `sampled_at`, PID
-and start token. Live samples do not enter the persisted accounting totals.
+and start token. Its nullable `upload_bytes_per_second` and
+`download_bytes_per_second` fields are calculated by the collector from adjacent
+accepted observations and their actual elapsed time. They are short-interval
+averages, independent of which snapshots a browser receives. A first observation,
+process change, failed or rejected observation, or interval over three seconds
+has no rate. Existing cumulative fields remain available; the bundled Web client
+uses the new rate fields directly. Live samples do not enter the persisted accounting totals.
 Collector availability and historical sampling quality remain separate from
 recorded period usage. Snapshots use narrow runtime
 projections rather than loading complete saved configurations.
@@ -673,8 +679,11 @@ Live data is stale after ten seconds without a snapshot; history after 45 second
 Error feedback has a five-second grace period. Last observations remain visible;
 a history delay is shown locally with its update time, not as a panel disconnect.
 Linux host CPU/memory/disk metrics remain separate from sing-box process samples;
-unsupported hosts report unavailable values. The toolbar retains localized
-`0s` / `0 B/s` display defaults while missing evidence remains unavailable.
+unsupported hosts report unavailable values. The toolbar retains the localized
+`0s` uptime default. Missing or expired rates show `—`; measured idle and verified
+stopped states show `0 B/s`. Rates expire three seconds after their sample, even
+when fresh stream envelopes repeat the same observation; this does not mark
+the entire runtime stream stale before its ten-second threshold.
 
 System services read three narrowly scoped read-only host-counter mounts while
 retaining procfs isolation; see [systemd packaging](../../systemd/README.md#system-service)
@@ -688,7 +697,7 @@ The Dashboard owns this subscription; other routes do not query historical data.
 Each event includes one-hour / 24-hour histories, runtime transitions, two recent
 activity records and `persisted_through`. Both metric ranges and that accepted
 sample watermark come from one database read transaction. The watermark replaces
-overlapping live tails when history catches up. Live tails are bounded to 120
+overlapping connection-chart tails when history catches up. Live tails are bounded to 120
 seconds and break at missing samples, process changes, counter regression
 or reconnects. They never enter period totals or interpolate missing evidence.
 
@@ -702,16 +711,23 @@ most 4096 newest transitions, or fewer when necessary to fit the frame limit.
 Any truncation retains a `runtime_24h.next` cursor at the last included transition;
 the omitted older interval is unknown, not inferred from the preceding state.
 
-The dashboard shows host summaries, transfer history and one-hour active
-connections. Graph gaps remain gaps. The 24-hour runtime strip uses 48 equal
+The dashboard shows host summaries, live transfer rates, transfer history and
+one-hour active connections. Traffic defaults to Live: the last two minutes of
+samples received while the page is visible, with seconds on the time axis.
+Historical refreshes never replace these samples with bucket averages. The
+one-hour and 24-hour views show only historical one-minute and five-minute
+averages, respectively. Live samples remain in memory
+only and start accumulating again after a page reload. Graph gaps remain gaps.
+The 24-hour runtime strip uses 48 equal
 segments and persisted transitions; unknown intervals are not guessed healthy.
 Traffic charts choose a shared B/s, KB/s, MB/s, GB/s, TB/s or PB/s unit from the
 largest displayed upload/download rate. The heading, axis and details update
 together when live data or the selected history changes; the vertical range
-rescales with headroom. A final history bucket crossing the persistence watermark
-is plotted at that watermark, retaining its original full-bucket rate denominator.
-Adjacent live samples join that point; explicit missing values and live intervals
-over three seconds still break the line.
+rescales with headroom. Historical traffic keeps the full bucket denominator,
+including partial buckets. The connection chart can join its final historical
+bucket at the persistence watermark to subsequent live observations. Explicit
+missing values and live intervals over three seconds break the line; small
+points keep individual live traffic observations visible.
 Traffic and connection chart details follow the pointer and stay inside the chart,
 showing metric values and units without timestamps. Arrow keys inspect samples;
 Escape or leaving the chart dismisses the details.
@@ -756,7 +772,7 @@ traffic delta; earlier missing history is not backfilled with invented values.
 
 Apply, start, and restart first pass process health, then wait up to five
 seconds for `/version` to report the exact selected core version. While the
-process runs, the panel reads `/connections` every two seconds into memory and
+process runs, the panel reads `/connections` every second into memory and
 persists checkpoints every ten seconds. Incarnation changes and rejected evidence
 may persist immediately: an intervening high-water observation is flushed before
 a counter regression so decimation cannot conceal it. Sampling failure clears

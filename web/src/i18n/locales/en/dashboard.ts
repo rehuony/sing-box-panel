@@ -56,6 +56,7 @@ export const dashboard = {
   range: {
     label: 'Time range',
     option: {
+      'live': 'Live',
       '1h': '1h',
       '6h': '6h',
       '24h': '24h',
@@ -65,6 +66,7 @@ export const dashboard = {
     },
   },
   state: {
+    liveLoading: 'Waiting for live samples…',
     liveStale: 'Live data delayed · last updated {{time}}',
     historyStale: 'History delayed · last updated {{time}}',
     historyLoading: 'Loading matching history…',

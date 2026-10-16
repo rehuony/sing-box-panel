@@ -8,9 +8,11 @@ import 'uplot/dist/uPlot.min.css';
 export function TrendChart({
   chart,
   kind,
+  live = false,
 }: {
   chart: TrendChartData;
   kind: 'traffic' | 'connections';
+  live?: boolean;
 }) {
   const { t, i18n } = useTranslation();
   const hostRef = useRef<HTMLDivElement>(null);
@@ -34,7 +36,9 @@ export function TrendChart({
   useEffect(() => {
     const host = hostRef.current;
     if (!host) return;
-    const time = new Intl.DateTimeFormat(i18n.language, { hour: '2-digit', minute: '2-digit' });
+    const time = new Intl.DateTimeFormat(i18n.language, {
+      hour: '2-digit', minute: '2-digit', ...(live ? { second: '2-digit' } as const : {}),
+    });
     function create() {
       plotRef.current?.destroy();
       plotRef.current = null;
@@ -48,7 +52,7 @@ export function TrendChart({
           width,
           height,
           ms: 1,
-          padding: [8, 8, 0, 0],
+          padding: [8, live ? 28 : 8, 0, 0],
           legend: { show: false },
           cursor: { drag: { x: false, y: false }, points: { size: 6 } },
           scales: {
@@ -96,7 +100,7 @@ export function TrendChart({
               fill: `color-mix(in srgb, ${color('--color-primary')} 8%, transparent)`,
               width: 2,
               spanGaps: false,
-              points: { show: false },
+              points: { show: live, size: 3 },
             },
             ...(kind === 'traffic'
               ? [
@@ -105,7 +109,7 @@ export function TrendChart({
                     stroke: getComputedStyle(host!).getPropertyValue('--trend-upload').trim(),
                     width: 1.7,
                     spanGaps: false,
-                    points: { show: false },
+                    points: { show: live, size: 3 },
                   },
                 ]
               : []),
@@ -155,7 +159,7 @@ export function TrendChart({
       plotRef.current?.destroy();
       plotRef.current = null;
     };
-  }, [kind, i18n.language, t]);
+  }, [kind, live, i18n.language, t]);
   useEffect(() => {
     updatePlot();
   }, [data, from, to]);

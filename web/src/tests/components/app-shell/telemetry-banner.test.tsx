@@ -60,6 +60,7 @@ function trafficSnapshot(
 ): MetricsSnapshot {
   return {
     ...testMetrics,
+    collected_at: sampledAt,
     live_sample: {
       activation_bundle_id: 'bundle_18',
       pid: 8124,
@@ -69,6 +70,8 @@ function trafficSnapshot(
       active_connections: 37,
       upload_total: uploadTotal,
       download_total: downloadTotal,
+      upload_bytes_per_second: 200,
+      download_bytes_per_second: 300,
       accepted: true,
     },
   };
@@ -181,8 +184,8 @@ describe('telemetryBanner', () => {
     expect(screen.queryByText('Stopped')).not.toBeInTheDocument();
     expect(screen.queryByText('6 KB')).not.toBeInTheDocument();
     expect(screen.getByRole('group', { name: 'Uptime: 0s. Runtime evidence is stale' })).toBeInTheDocument();
-    expect(screen.getByRole('group', { name: 'Upload: 0 B/s' })).toBeInTheDocument();
-    expect(screen.getByRole('group', { name: 'Download: 0 B/s' })).toBeInTheDocument();
+    expect(screen.getByRole('group', { name: 'Upload: —' })).toBeInTheDocument();
+    expect(screen.getByRole('group', { name: 'Download: —' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Start' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Stop' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Restart' })).not.toBeInTheDocument();

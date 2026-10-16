@@ -5,7 +5,7 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import '@/i18n';
 import { TrendChart } from '@/pages/dashboard-page/trend-chart';
 import { testMetricsHistory } from '@/tests/api/mock-api-client';
-import { trendChartData } from '@/pages/dashboard-page/trend-chart-data';
+import { liveTrafficChartData, trendChartData } from '@/pages/dashboard-page/trend-chart-data';
 
 vi.mock('uplot', () => ({
   default: vi.fn(class {
@@ -95,20 +95,26 @@ describe('chart details', () => {
   });
 
   it('updates plotted values and an open tooltip together when live traffic changes units', async () => {
-    const chart = (downloadBytesPerSecond: number) => trendChartData(null, 'traffic', [{
+    const chart = (downloadBytesPerSecond: number) => liveTrafficChartData([{
       at: 1000, downloadBytesPerSecond, uploadBytesPerSecond: 512, connections: 2,
     }]);
-    const { rerender } = render(<TrendChart chart={chart(1024)} kind='traffic' />);
+    const { rerender } = render(<TrendChart chart={chart(1024)} kind='traffic' live />);
+    const options = vi.mocked(UPlot).mock.calls[0]![0];
+    const formatTimes = options.axes![0]!.values as UPlot.Axis.DynamicValues;
+    const plot = vi.mocked(UPlot).mock.results[0]!.value as UPlot;
+    expect(formatTimes(plot, [1000], 0, 0, 0)).toEqual([
+      new Intl.DateTimeFormat('en', { hour: '2-digit', minute: '2-digit', second: '2-digit' }).format(new Date(1000)),
+    ]);
+    expect(options.series.slice(1).every(series => series.points?.show)).toBe(true);
     moveCursor(0, 100, 40);
     const tooltip = screen.getByRole('status');
     await waitFor(() => expect(tooltip).toHaveTextContent('Download1.0 KB/sUpload0.50 KB/s'));
 
-    rerender(<TrendChart chart={chart(2 * 1024 ** 2)} kind='traffic' />);
+    rerender(<TrendChart chart={chart(2 * 1024 ** 2)} kind='traffic' live />);
     expect(tooltip).toHaveTextContent('Download2.0 MB/sUpload0.000488 MB/s');
-    const plot = vi.mocked(UPlot).mock.results[0]!.value as UPlot;
     expect(plot.setData).toHaveBeenLastCalledWith([[1000], [2], [512 / 1024 ** 2]]);
 
-    rerender(<TrendChart chart={chart(512)} kind='traffic' />);
+    rerender(<TrendChart chart={chart(512)} kind='traffic' live />);
     expect(tooltip).toHaveTextContent('Download512 B/sUpload512 B/s');
     expect(UPlot).toHaveBeenCalledTimes(1);
   });

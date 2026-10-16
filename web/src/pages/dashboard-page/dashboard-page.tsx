@@ -9,8 +9,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useDashboardSubscription, useOptionalSharedTelemetry } from '@/components/app-shell/telemetry-context';
 
 import { TrendChart } from './trend-chart';
-import { trendChartData } from './trend-chart-data';
 import { buildRuntimeSlots } from './runtime-timeline';
+import { liveTrafficChartData, trendChartData } from './trend-chart-data';
 import './dashboard-page.css';
 
 const emptyTail: import('@/components/app-shell/use-telemetry').LivePoint[] = [];
@@ -124,11 +124,14 @@ function DashboardMetrics() {
 function DashboardCharts() {
   const { t } = useTranslation();
   const current = useOptionalSharedTelemetry(s => s.dashboardSnapshot);
+  const metrics = useOptionalSharedTelemetry(s => s.snapshot);
   const tail = useOptionalSharedTelemetry(s => s.liveTail) ?? emptyTail;
-  const [range, setRange] = useState<'1h' | '24h'>('1h');
+  const [range, setRange] = useState<'live' | '1h' | '24h'>('live');
   const trafficHistory = current ? range === '1h' ? current.history_1h : current.history_24h : null;
   const watermark = current?.persisted_through;
-  const traffic = useMemo(() => trendChartData(trafficHistory, 'traffic', tail, watermark), [trafficHistory, tail, watermark]);
+  const traffic = useMemo(() => range === 'live'
+    ? liveTrafficChartData(tail)
+    : trendChartData(trafficHistory, 'traffic', emptyTail), [range, trafficHistory, tail]);
   const connections = useMemo(() => trendChartData(current?.history_1h ?? null, 'connections', tail, watermark), [current?.history_1h, tail, watermark]);
   return (
     <div className='dashboard-charts'>
@@ -146,21 +149,21 @@ function DashboardCharts() {
             ）
           </h2>
           <TabsList className='dashboard-range' aria-label={t('dashboard.range.label')}>
-            {(['1h', '24h'] as const).map((value) => (
+            {(['live', '1h', '24h'] as const).map((value) => (
               <TabsTrigger key={value} value={value}>
                 {t(`dashboard.range.option.${value}`)}
               </TabsTrigger>
             ))}
           </TabsList>
         </header>
-        {(['1h', '24h'] as const).map((value) => (
+        {(['live', '1h', '24h'] as const).map((value) => (
           <TabsContent key={value} value={value} className='dashboard-traffic__chart'>
-            <TrendChart chart={traffic} kind='traffic' />
-            {current === null
+            <TrendChart chart={traffic} kind='traffic' live={range === 'live'} />
+            {(range === 'live' ? metrics === null : current === null)
               ? (
                   <div className='dashboard-stream-loading'>
                     <Spinner />
-                    <span>{t('dashboard.state.historyLoading')}</span>
+                    <span>{t(range === 'live' ? 'dashboard.state.liveLoading' : 'dashboard.state.historyLoading')}</span>
                   </div>
                 )
               : null}

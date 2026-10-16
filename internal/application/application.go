@@ -94,7 +94,7 @@ func newApplication(database *store.Store) *Application {
 		removeFile:   os.Remove,
 		runtime:      NewRuntimeIdentityResolver(database),
 	}
-	app.metricsFeed = newSnapshotFeed(2*time.Second, app.metricsSnapshot)
+	app.metricsFeed = newSnapshotFeed(LiveTrafficSampleInterval, app.metricsSnapshot)
 	app.dashboardFeed = newSnapshotFeed(30*time.Second, app.DashboardSnapshot)
 	return app
 }

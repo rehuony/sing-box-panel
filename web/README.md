@@ -209,8 +209,13 @@ Period traffic reads the recorded monthly ledger independently of live sampling:
 empty periods show zero, stopped/stale collection retains usage and quota status,
 and no period-completeness label is displayed.
 Chart updates reuse uPlot instances and batch cursor feedback per animation frame.
-Live chart tails cover at most 120 seconds beyond the consistent persisted
-watermark, preserve gaps and never contribute to accounted traffic totals.
+The default Live traffic chart retains the last 120 seconds of received samples,
+independently of the historical persistence watermark. One-hour and 24-hour
+traffic views show historical one-minute and five-minute averages. The collector
+supplies rates from adjacent observations on a one-second sampling cadence;
+the browser does not derive rates from stream delivery intervals. Missing rates
+or samples older than three seconds show `—`, while measured zero remains zero.
+Live chart samples preserve gaps and never contribute to accounted traffic totals.
 
 Version, subscription source, node, channel, key, and panel-log lists use the
 shared `components/list-pagination` footer. It combines the page-size selector,

@@ -1088,7 +1088,7 @@ export function createDemoApiClient(): ApiClient {
           runtime: structuredClone(state.runtime),
         };
         await new Promise<void>((resolve) => {
-          const timer = setTimeout(done, 2000);
+          const timer = setTimeout(done, 1000);
           function done() {
             clearTimeout(timer);
             signal?.removeEventListener('abort', done);
