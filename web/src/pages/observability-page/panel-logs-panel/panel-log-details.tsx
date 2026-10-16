@@ -5,10 +5,11 @@ import type { PanelLog } from '@/api/api-client';
 
 import { Button } from '@/components/ui/button';
 import { toast } from '@/components/ui/toast-manager';
+import { PanelLogLevel } from '@/components/panel-log-level';
+import { formatLogTime, logTitle } from '@/utils/panel-log-presentation';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 
-import { PanelLogLevel } from './panel-log-level';
-import { formatLogTime, logTitle, metadataLabel, metadataValue } from './panel-log-presentation';
+import { metadataLabel, metadataValue } from './panel-log-presentation';
 
 export function PanelLogDetails({ item, open, onOpenChange, onClosed, returnFocus }: {
   item: PanelLog | null;
