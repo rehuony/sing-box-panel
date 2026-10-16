@@ -1,0 +1,103 @@
+.login-scene {
+  --scene-outline: color-mix(in oklch, var(--color-brand-navy) 26%, transparent);
+  --scene-face: oklch(99% 0.005 286);
+  --scene-pupil: oklch(20.8% 0.042 265.755);
+
+  position: relative;
+  width: 100%;
+  min-width: 0;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.login-scene__illustration {
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.login-scene__character--main {
+  --scene-body: var(--color-accent);
+}
+
+.login-scene__character--orange {
+  --scene-body: var(--color-brand-orange);
+}
+
+.login-scene__character--ink {
+  --scene-body: var(--color-brand-navy);
+}
+
+.login-scene__ground {
+  fill: color-mix(in oklch, var(--color-accent) 5%, transparent);
+}
+
+.login-scene__shadow {
+  fill: color-mix(in oklch, var(--color-brand-navy) 11%, transparent);
+}
+
+.login-scene__body {
+  fill: var(--scene-body);
+  stroke: var(--scene-outline);
+  stroke-width: 1.5px;
+}
+
+.login-scene__body-shade {
+  fill: color-mix(in oklch, var(--color-brand-navy) 15%, transparent);
+}
+
+.login-scene__highlight {
+  stroke: var(--scene-face);
+  stroke-width: 3px;
+  stroke-linecap: round;
+  opacity: 0.22;
+}
+
+.login-scene__feet {
+  stroke: var(--scene-pupil);
+  stroke-width: 13px;
+  stroke-linecap: round;
+}
+
+.login-scene__eye {
+  fill: var(--scene-face);
+}
+
+.login-scene__pupil {
+  fill: var(--scene-pupil);
+}
+
+.login-scene__expression {
+  stroke: var(--scene-face);
+  stroke-width: 3px;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.login-scene__character--orange .login-scene__expression {
+  stroke: var(--scene-pupil);
+}
+
+.login-scene__mouth {
+  stroke-width: 2.5px;
+}
+
+:root.dark .login-scene,
+:root[data-resolved-theme='dark'] .login-scene {
+  --scene-outline: color-mix(in oklch, var(--color-ink) 24%, transparent);
+}
+
+:root.dark .login-scene__character--ink,
+:root[data-resolved-theme='dark'] .login-scene__character--ink {
+  --scene-body: color-mix(in oklch, var(--color-brand-navy) 82%, var(--color-ink));
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .login-scene *,
+  .login-scene *::before,
+  .login-scene *::after {
+    animation: none !important;
+    transition: none !important;
+  }
+}

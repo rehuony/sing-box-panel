@@ -1,6 +1,5 @@
 import type { ComponentPropsWithoutRef } from 'react';
 
-import { useSyncExternalStore } from 'react';
 import {
   Activity as StaticActivityIcon,
   Boxes as StaticBoxesIcon,
@@ -10,14 +9,14 @@ import {
   SlidersHorizontal as StaticSlidersIcon,
 } from 'lucide-react';
 
+import { usePrefersReducedMotion } from '@/hooks/use-prefers-reduced-motion';
+
 import { BoxesIcon } from './icons/boxes-icon';
 import { GaugeIcon } from './icons/gauge-icon';
 import { RadioIcon } from './icons/radio-icon';
 import { SlidersIcon } from './icons/sliders-icon';
 import { ActivityIcon } from './icons/activity-icon';
 import { SettingsIcon } from './icons/settings-icon';
-
-const REDUCED_MOTION_QUERY = '(prefers-reduced-motion: reduce)';
 
 const ICONS = {
   configuration: {
@@ -52,29 +51,6 @@ export interface AnimatedIconProps extends Omit<ComponentPropsWithoutRef<'span'>
   size?: number;
   active: boolean;
   name: AnimatedIconName;
-}
-
-function subscribeToReducedMotion(onStoreChange: () => void): () => void {
-  if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
-    return () => undefined;
-  }
-
-  const mediaQuery = window.matchMedia(REDUCED_MOTION_QUERY);
-  mediaQuery.addEventListener('change', onStoreChange);
-
-  return () => mediaQuery.removeEventListener('change', onStoreChange);
-}
-
-function getReducedMotionSnapshot(): boolean {
-  if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
-    return true;
-  }
-
-  return window.matchMedia(REDUCED_MOTION_QUERY).matches;
-}
-
-function usePrefersReducedMotion(): boolean {
-  return useSyncExternalStore(subscribeToReducedMotion, getReducedMotionSnapshot, () => true);
 }
 
 function AnimatedIcon({ active, className, name, size = 20, ...props }: AnimatedIconProps) {

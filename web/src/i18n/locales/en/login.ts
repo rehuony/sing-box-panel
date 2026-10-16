@@ -1,5 +1,6 @@
 export const login = {
   title: 'Sign in to your account',
+  tagline: 'Every connection starts here.',
   checking: 'Checking panel session…',
   email: { label: 'Email', placeholder: 'Enter your email address' },
   password: { label: 'Password', placeholder: 'Enter your password', show: 'Show password', hide: 'Hide password' },

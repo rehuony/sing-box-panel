@@ -16,6 +16,7 @@ import { useAuthSession } from '@/stores/auth-session.store';
 import { Field, FieldGroup, FieldLabel } from '@/components/ui/field';
 import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupInput } from '@/components/ui/input-group';
 
+import { LoginScene } from './login-scene';
 import './login-page.css';
 
 interface LoginLocationState {
@@ -45,6 +46,7 @@ export function LoginPage() {
   const [error, setError] = useState('');
   const [invalidField, setInvalidField] = useState<'email' | 'password' | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [focusedField, setFocusedField] = useState<'email' | 'password' | null>(null);
   const controllerRef = useRef<AbortController | null>(null);
   const toastIdRef = useRef<string | null>(null);
   const emailRef = useRef<HTMLInputElement>(null);
@@ -57,30 +59,6 @@ export function LoginPage() {
   }, []);
 
   if (status === 'authenticated') return <Navigate replace to={returnTarget} />;
-  if (status === 'checking') {
-    return (
-      <main className='login-page' aria-busy='true'>
-        <section className='login-card login-card--status'>
-          <div className='login-card__brand'><PanelLogo compact /></div>
-          <LoadingState fullScreen={false} label={t('login.checking')} />
-        </section>
-      </main>
-    );
-  }
-  if (status === 'unavailable') {
-    return (
-      <main className='login-page'>
-        <section className='login-card login-card--unavailable'>
-          <header className='login-card__brand'>
-            <PanelLogo compact />
-            <h1>{t('login.unavailable.title')}</h1>
-            <p className='login-card__description' role='alert'>{t('login.unavailable.description')}</p>
-          </header>
-          <Button onClick={retrySession} type='button'>{t('login.unavailable.retry')}</Button>
-        </section>
-      </main>
-    );
-  }
 
   function clearError() {
     setError('');
@@ -136,43 +114,85 @@ export function LoginPage() {
   }
 
   return (
-    <main className='login-page'>
-      <section className='login-card' aria-labelledby='login-title'>
-        <header className='login-card__brand'>
-          <PanelLogo compact />
-          <h1 id='login-title'>{t('login.title')}</h1>
-        </header>
-        <form noValidate onSubmit={handleSubmit} aria-busy={isSubmitting}>
-          {error && <p className='sr-only' id='login-error'>{error}</p>}
-          <FieldGroup>
-            <Field className='login-card__input-field' data-invalid={invalidField === 'email'} data-disabled={isSubmitting}>
-              <FieldLabel htmlFor='login-email'>{t('login.email.label')}</FieldLabel>
-              <Input ref={emailRef} id='login-email' name='email' type='text' inputMode='email' autoComplete='username' autoCapitalize='none' autoCorrect='off' spellCheck={false} required maxLength={254} autoFocus disabled={isSubmitting} placeholder={t('login.email.placeholder')} value={email} onChange={(event) => {
-                setEmail(event.target.value);
-                clearError();
-              }} aria-invalid={invalidField === 'email'} aria-describedby={error && invalidField !== 'password' ? 'login-error' : undefined} />
-            </Field>
-            <Field className='login-card__input-field' data-invalid={invalidField === 'password'} data-disabled={isSubmitting}>
-              <FieldLabel htmlFor='login-password'>{t('login.password.label')}</FieldLabel>
-              <InputGroup>
-                <InputGroupInput ref={passwordRef} id='login-password' name='password' type={showPassword ? 'text' : 'password'} autoComplete='current-password' required disabled={isSubmitting} placeholder={t('login.password.placeholder')} value={password} onChange={(event) => {
-                  setPassword(event.target.value);
-                  clearError();
-                }} aria-invalid={invalidField === 'password'} aria-describedby={error && invalidField !== 'email' ? 'login-error' : undefined} />
-                <InputGroupAddon align='inline-end'>
-                  <InputGroupButton size='icon-sm' aria-label={t(showPassword ? 'login.password.hide' : 'login.password.show')} aria-pressed={showPassword} disabled={isSubmitting} onClick={() => setShowPassword(current => !current)}>
-                    {showPassword ? <EyeOff /> : <Eye />}
-                  </InputGroupButton>
-                </InputGroupAddon>
-              </InputGroup>
-            </Field>
-          </FieldGroup>
-          <Button className='login-card__submit' disabled={isSubmitting} size='lg' type='submit'>
-            {isSubmitting && <Spinner data-icon='inline-start' />}
-            {t(isSubmitting ? 'login.submit.pending' : 'login.submit.label')}
-          </Button>
-        </form>
-      </section>
+    <main className='login-page' aria-busy={status === 'checking' || undefined}>
+      <div className='login-window'>
+        <div className='login-showcase'>
+          <PanelLogo />
+          <LoginScene
+            focusedField={focusedField}
+            passwordVisible={showPassword}
+            isSubmitting={isSubmitting}
+            hasError={Boolean(error)}
+            status={status === 'anonymous' ? 'ready' : status}
+          />
+          <p className='login-showcase__tagline'>{t('login.tagline')}</p>
+        </div>
+        <section className='login-panel' aria-labelledby={status === 'checking' ? undefined : 'login-title'}>
+          <div className='login-panel__content'>
+            {status === 'checking'
+              ? <LoadingState fullScreen={false} label={t('login.checking')} />
+              : status === 'unavailable'
+                ? (
+                    <div className='login-panel__unavailable'>
+                      <header className='login-panel__header'>
+                        <h1 id='login-title'>{t('login.unavailable.title')}</h1>
+                        <p className='login-panel__description' role='alert'>
+                          {t('login.unavailable.description')}
+                        </p>
+                      </header>
+                      <Button size='lg' onClick={retrySession} type='button'>
+                        {t('login.unavailable.retry')}
+                      </Button>
+                    </div>
+                  )
+                : (
+                    <>
+                      <header className='login-panel__header'>
+                        <h1 id='login-title'>{t('login.title')}</h1>
+                      </header>
+                      <form noValidate onSubmit={handleSubmit} aria-busy={isSubmitting}>
+                        {error && <p className='sr-only' id='login-error'>{error}</p>}
+                        <FieldGroup>
+                          <Field data-invalid={invalidField === 'email'} data-disabled={isSubmitting}
+                            onFocus={() => setFocusedField('email')}
+                            onBlur={event => {
+                              if (!event.currentTarget.contains(event.relatedTarget)) setFocusedField(null);
+                            }}>
+                            <FieldLabel htmlFor='login-email'>{t('login.email.label')}</FieldLabel>
+                            <Input ref={emailRef} id='login-email' name='email' type='text' inputMode='email' autoComplete='username' autoCapitalize='none' autoCorrect='off' spellCheck={false} required maxLength={254} autoFocus disabled={isSubmitting} placeholder={t('login.email.placeholder')} value={email} onChange={(event) => {
+                              setEmail(event.target.value);
+                              clearError();
+                            }} aria-invalid={invalidField === 'email'} aria-describedby={error && invalidField !== 'password' ? 'login-error' : undefined} />
+                          </Field>
+                          <Field data-invalid={invalidField === 'password'} data-disabled={isSubmitting}
+                            onFocus={() => setFocusedField('password')}
+                            onBlur={event => {
+                              if (!event.currentTarget.contains(event.relatedTarget)) setFocusedField(null);
+                            }}>
+                            <FieldLabel htmlFor='login-password'>{t('login.password.label')}</FieldLabel>
+                            <InputGroup>
+                              <InputGroupInput ref={passwordRef} id='login-password' name='password' type={showPassword ? 'text' : 'password'} autoComplete='current-password' required disabled={isSubmitting} placeholder={t('login.password.placeholder')} value={password} onChange={(event) => {
+                                setPassword(event.target.value);
+                                clearError();
+                              }} aria-invalid={invalidField === 'password'} aria-describedby={error && invalidField !== 'email' ? 'login-error' : undefined} />
+                              <InputGroupAddon align='inline-end'>
+                                <InputGroupButton className='login-panel__password-toggle' size='icon-sm' aria-label={t(showPassword ? 'login.password.hide' : 'login.password.show')} aria-pressed={showPassword} disabled={isSubmitting} onClick={() => setShowPassword(current => !current)}>
+                                  {showPassword ? <EyeOff /> : <Eye />}
+                                </InputGroupButton>
+                              </InputGroupAddon>
+                            </InputGroup>
+                          </Field>
+                        </FieldGroup>
+                        <Button className='login-panel__submit' disabled={isSubmitting} size='lg' type='submit'>
+                          {isSubmitting && <Spinner data-icon='inline-start' />}
+                          {t(isSubmitting ? 'login.submit.pending' : 'login.submit.label')}
+                        </Button>
+                      </form>
+                    </>
+                  )}
+          </div>
+        </section>
+      </div>
     </main>
   );
 }

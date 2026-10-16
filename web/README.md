@@ -165,6 +165,17 @@ for fast loads without delaying ready content. Loading stays within the pending
 content region, retaining navigation, toolbars and any usable data. Reduced motion
 shows the indicator immediately and keeps it still.
 
+Login uses one responsive frame for session checking, sign-in, and service
+unavailability. Its decorative geometric characters respond to pointer and form
+focus. All three remain front-facing and close their eyes while the password
+field or visibility toggle is focused, or while the password is visible. They
+reopen their eyes when the password is hidden and focus leaves that field. The
+scene receives presentation state only, never credentials. Motion stops at rest;
+when their eyes are open, each character's pupils track a fine mouse pointer
+across the page while staying inside fixed eye whites. Reduced motion
+switches poses without animation. Form focus, error notifications, and
+authentication behavior remain independent of the scene.
+
 At runtime the browser client uses same-origin `/api/v1` endpoints for the
 session, live dashboard context, the single saved configuration, panel settings,
 subscription publication, persistent logs and exact core-artifact operations. Cookie-backed writes retain
