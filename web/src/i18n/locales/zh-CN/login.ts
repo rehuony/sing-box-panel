@@ -1,5 +1,6 @@
 export const login = {
   title: '登录你的账户',
+  tagline: '连接，从这里开始。',
   checking: '正在检查面板会话…',
   email: { label: '邮箱', placeholder: '请输入邮箱地址' },
   password: { label: '密码', placeholder: '输入你的密码', show: '显示密码', hide: '隐藏密码' },
