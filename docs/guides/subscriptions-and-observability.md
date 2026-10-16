@@ -668,8 +668,10 @@ Collector availability and historical sampling quality remain separate from
 recorded period usage. Snapshots use narrow runtime
 projections rather than loading complete saved configurations.
 
-Live, history and log streams have independent browser ownership. Hidden tabs
-stop streams and polling; visible pages reconnect. Normal rotation sends
+Live, history and log streams have independent browser ownership. The live metrics
+stream stays connected across browser tab switches and continues collecting
+received samples. Hidden tabs pause history, logs and polling; those subscriptions
+resume when visible. Normal rotation sends
 `event: control` with `{"type":"reconnect"}` before the one-minute authentication
 limit. Older clients may ignore that event. The client reconnects immediately;
 unexpected failures use jittered exponential backoff capped at 30 seconds.
@@ -713,7 +715,9 @@ the omitted older interval is unknown, not inferred from the preceding state.
 
 The dashboard shows host summaries, live transfer rates, transfer history and
 one-hour active connections. Traffic defaults to Live: the last two minutes of
-samples received while the page is visible, with seconds on the time axis.
+received samples, including while the browser tab is hidden, with seconds on the
+time axis. Browser suspension or network failures can still leave actual sampling
+gaps; missing observations are not filled in.
 Historical refreshes never replace these samples with bucket averages. The
 one-hour and 24-hour views show only historical one-minute and five-minute
 averages, respectively. Live samples remain in memory

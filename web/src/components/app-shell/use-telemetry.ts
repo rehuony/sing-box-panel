@@ -97,7 +97,7 @@ export function useTelemetryStore(): TelemetryStore {
   }, [client, store, revision, visible]);
 
   useEffect(() => {
-    if (!visible) return;
+    // Keep live samples flowing across tab switches; only history pauses below.
     let previous: TrafficSample | null = null;
     let receivedAt = Date.now();
     let ratesExpireAt = 0;
@@ -150,7 +150,7 @@ export function useTelemetryStore(): TelemetryStore {
       stop();
       clearInterval(freshness);
     };
-  }, [client, store, visible]);
+  }, [client, store]);
 
   useEffect(() => {
     if (!visible || !needsDashboard) return;
