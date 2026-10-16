@@ -1340,7 +1340,7 @@ paths:
   /metrics/stream:
     get:
       operationId: streamMetrics
-      summary: Stream current metrics and runtime evidence every two seconds
+      summary: Stream current metrics and runtime evidence every second
       responses:
         '200':
           description: Server-sent metrics events, each containing metrics and runtime objects. Initial snapshot failures return a Problem response before opening the stream. Heartbeat comments arrive every ten seconds. A control event with type reconnect precedes normal rotation within one minute; clients should immediately renew authentication. Shared collection is independent of client writes, and the last subscriber cancels pending collection.
@@ -3025,7 +3025,7 @@ components:
       type: object
       additionalProperties: false
       description: Process-local live observation. Never included in persisted accounting totals.
-      required: [activation_bundle_id, pid, process_start_token, sampled_at, memory_bytes, active_connections, upload_total, download_total, accepted]
+      required: [activation_bundle_id, pid, process_start_token, sampled_at, memory_bytes, active_connections, upload_total, download_total, upload_bytes_per_second, download_bytes_per_second, accepted]
       properties:
         activation_bundle_id: {type: string}
         pid: {type: integer, minimum: 1}
@@ -3035,6 +3035,14 @@ components:
         active_connections: {type: integer, format: int64, minimum: 0}
         upload_total: {type: integer, format: int64, minimum: 0}
         download_total: {type: integer, format: int64, minimum: 0}
+        upload_bytes_per_second:
+          type: [number, "null"]
+          minimum: 0
+          description: Upload bytes per second over the actual interval between adjacent accepted collector observations of the same process incarnation. Collection runs every second; null for the first observation, after a failed or rejected observation, or when the interval exceeds three seconds.
+        download_bytes_per_second:
+          type: [number, "null"]
+          minimum: 0
+          description: Download bytes per second over the same collector interval as upload_bytes_per_second; null when that interval is unavailable.
         accepted: {type: boolean}
     MetricsSnapshot:
       type: object

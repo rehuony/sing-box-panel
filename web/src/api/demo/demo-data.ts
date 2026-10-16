@@ -490,6 +490,7 @@ export function demoMetrics(
           sampled_at: now.toISOString(), memory_bytes: 68_157_440, active_connections: 18,
           upload_total: Math.floor(now.getTime() / 1000) * 12482,
           download_total: Math.floor(now.getTime() / 1000) * 48621, accepted: true,
+          upload_bytes_per_second: 12482, download_bytes_per_second: 48621,
         }
       : undefined,
     quota_bytes: quotaBytes,

@@ -751,7 +751,7 @@ func startTrafficSampler(ctx context.Context, services *runtimeServices) <-chan 
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		ticker := time.NewTicker(2 * time.Second)
+		ticker := time.NewTicker(application.LiveTrafficSampleInterval)
 		defer ticker.Stop()
 		defer services.commands.CloseTrafficCollector()
 		for {

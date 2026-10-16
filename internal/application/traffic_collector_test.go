@@ -75,32 +75,53 @@ func TestLiveTrafficSamplingPreservesPersistenceAndRegressionEvidence(t *testing
 		}
 		return result
 	}
+	assertRate := func(want *float64) {
+		t.Helper()
+		live := app.collector.live.Load()
+		if live == nil {
+			t.Fatal("missing live sample")
+		}
+		if want == nil {
+			if live.UploadBytesPerSecond != nil || live.DownloadBytesPerSecond != nil {
+				t.Fatal("discontinuous evidence produced a live rate")
+			}
+			return
+		}
+		if live.UploadBytesPerSecond == nil || live.DownloadBytesPerSecond == nil ||
+			*live.UploadBytesPerSecond != *want || *live.DownloadBytesPerSecond != *want*2 {
+			t.Fatalf("live rates: upload=%v download=%v, want %v and %v", live.UploadBytesPerSecond, live.DownloadBytesPerSecond, *want, *want*2)
+		}
+	}
+	zero, five, twenty := 0.0, 5.0, 20.0
 	first := collect(100)
 	pooled := app.collector.client
 	if !first.Sample.Accepted {
 		t.Fatal(first)
 	}
-	for i := 1; i <= 4; i++ {
-		at = at.Add(2 * time.Second)
-		if result := collect(int64(100 + i*10)); result.Sample.ID != 0 {
+	assertRate(nil)
+	for i := 1; i <= 9; i++ {
+		at = at.Add(time.Second)
+		if result := collect(int64(100 + i*5)); result.Sample.ID != 0 {
 			t.Fatal("intermediate live sample entered accounting")
 		}
 	}
-	if app.collector.live.Load().UploadTotal != 140 || app.collector.client != pooled {
+	assertRate(&five) // Rate is ready even when no viewer received intermediate samples.
+	if app.collector.live.Load().UploadTotal != 145 || app.collector.client != pooled {
 		t.Fatal("live sampling or process-client reuse failed")
 	}
 	latest, err := db.LatestAcceptedTrafficSample(t.Context())
 	if err != nil || latest.ID != first.Sample.ID {
 		t.Fatal("live samples changed persistence", err)
 	}
-	at = at.Add(2 * time.Second) // UTC month boundary
+	at = at.Add(time.Second) // UTC month boundary, still the ten-second checkpoint.
 	persisted := collect(150)
 	if persisted.Sample.UploadDelta == nil || *persisted.Sample.UploadDelta != 50 || persisted.Sample.Coverage != store.CoveragePartial || persisted.Period.OutboundBytes != 50 || persisted.Period.InboundBytes != 100 {
 		t.Fatalf("cross-month evidence=%+v", persisted.Sample)
 	}
-	at = at.Add(2 * time.Second)
+	at = at.Add(time.Second)
 	collect(170)
-	at = at.Add(2 * time.Second)
+	assertRate(&twenty)
+	at = at.Add(time.Second)
 	rejected := collect(160)
 	if rejected.Sample.Accepted || rejected.Sample.DiagnosticCode != "counter_decreased" {
 		t.Fatalf("regression hidden by decimation: %+v", rejected.Sample)
@@ -108,31 +129,60 @@ func TestLiveTrafficSamplingPreservesPersistenceAndRegressionEvidence(t *testing
 	if app.collector.live.Load().Accepted {
 		t.Fatal("regressed live evidence accepted")
 	}
-	at = at.Add(2 * time.Second)
-	counter.Store(180)
+	assertRate(nil)
+	at = at.Add(time.Second)
+	collect(180)
+	assertRate(nil) // Crossing a rejected observation cannot produce a live rate.
+	at = at.Add(500 * time.Millisecond)
+	collect(190)
+	assertRate(&twenty) // Use elapsed time, not the nominal one-second cadence.
+	at = at.Add(250 * time.Millisecond)
+	counter.Store(200)
 	unavailable.Store(true)
 	if _, err = app.SampleLimitedTraffic(t.Context(), observation, false); err == nil || app.collector.live.Load() != nil {
 		t.Fatal("failed collection retained live evidence")
 	}
 	unavailable.Store(false)
+	at = at.Add(250 * time.Millisecond)
+	collect(200)
+	assertRate(nil) // A short collection failure also invalidates the live baseline.
+	at = at.Add(500 * time.Millisecond)
+	collect(210)
+	assertRate(&twenty)
 	at = at.Add(10 * time.Second)
-	recovered := collect(190)
-	if recovered.Sample.UploadDelta == nil || *recovered.Sample.UploadDelta != 20 {
+	recovered := collect(220)
+	assertRate(nil)
+	if recovered.Sample.UploadDelta == nil || *recovered.Sample.UploadDelta != 50 {
 		t.Fatalf("regression corrupted checkpoint: %+v", recovered.Sample)
 	}
-	duplicate := collect(190)
+	duplicate := collect(220)
 	if duplicate.Sample.Accepted || duplicate.Sample.DiagnosticCode != "sample_out_of_order" {
 		t.Fatalf("duplicate time=%+v", duplicate.Sample)
 	}
+	assertRate(nil)
 	observation.ProcessStartToken = "restarted-process"
 	if _, err = db.RecordRuntimeObservation(t.Context(), observation); err != nil {
 		t.Fatal(err)
 	}
-	at = at.Add(2 * time.Second)
+	at = at.Add(time.Second)
 	restarted := collect(5)
 	if !restarted.Sample.Accepted || restarted.Sample.UploadDelta != nil || app.collector.client == pooled {
 		t.Fatalf("incarnation transition=%+v", restarted.Sample)
 	}
+	assertRate(nil)
+	at = at.Add(time.Second)
+	collect(10)
+	assertRate(&five)
+	app.ClearLiveTrafficSample()
+	at = at.Add(500 * time.Millisecond)
+	collect(20)
+	assertRate(nil)
+	at = at.Add(500 * time.Millisecond)
+	collect(30)
+	assertRate(&twenty)
+	at = at.Add(time.Second)
+	collect(30)
+	assertRate(&zero) // A measured idle interval remains distinct from unavailable data.
 	quota := int64(1)
 	app.settings.Traffic.QuotaGiB = &quota
 	at = at.Add(10 * time.Second)

@@ -16,8 +16,8 @@ export function formatBytes(value: number | null | undefined, locale = 'en'): st
 }
 
 export function formatRate(value: number | null, locale = 'en', perSecond = '/s'): string {
-  const rate = value !== null && Number.isFinite(value) && value >= 0 ? value : 0;
-  return `${formatBytes(rate, locale)}${perSecond}`;
+  if (value === null || !Number.isFinite(value) || value < 0) return EM_DASH;
+  return `${formatBytes(value, locale)}${perSecond}`;
 }
 
 interface DurationLabels {

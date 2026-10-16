@@ -1,6 +1,6 @@
 import { MemoryRouter } from 'react-router-dom';
 import { describe, expect, it, vi } from 'vitest';
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
 
 import type { TelemetryState } from '@/components/app-shell/use-telemetry';
 
@@ -46,7 +46,7 @@ function show({
 }
 
 describe('dashboard evidence', () => {
-  it('updates the traffic heading from live peaks and the selected history range', () => {
+  it('defaults to live peaks, retains them through history refresh, and separates historical averages', () => {
     const store = show({ dashboard: {
       ...testDashboardSnapshot,
       history_24h: {
@@ -54,17 +54,35 @@ describe('dashboard evidence', () => {
         buckets: [{ ...testDashboardSnapshot.history_24h.buckets[0]!, download_bytes: 300 * 1024 ** 3 }],
       },
     } });
+    expect(screen.getByRole('tab', { name: 'Live' })).toHaveAttribute('aria-selected', 'true');
     expect(screen.getByRole('heading', { name: 'Traffic（B/s）' })).toBeVisible();
     act(() => store.setState({ liveTail: [{
       at: Date.parse(testDashboardSnapshot.collected_at) + 2000,
       downloadBytesPerSecond: 1024 ** 2, uploadBytesPerSecond: 0, connections: 10,
     }] }));
     expect(screen.getByRole('heading', { name: 'Traffic（MB/s）' })).toBeVisible();
+    act(() => store.setState({ dashboardSnapshot: {
+      ...store.getState().dashboardSnapshot!,
+      persisted_through: new Date(Date.parse(testDashboardSnapshot.collected_at) + 4000).toISOString(),
+    } }));
+    expect(screen.getByRole('heading', { name: 'Traffic（MB/s）' })).toBeVisible();
     fireEvent.click(screen.getByRole('tab', { name: '24h' }));
     expect(screen.getByRole('heading', { name: 'Traffic（GB/s）' })).toBeVisible();
-    act(() => store.setState({ liveTail: [] }));
     fireEvent.click(screen.getByRole('tab', { name: '1h' }));
     expect(screen.getByRole('heading', { name: 'Traffic（B/s）' })).toBeVisible();
+    fireEvent.click(screen.getByRole('tab', { name: 'Live' }));
+    expect(screen.getByRole('heading', { name: 'Traffic（MB/s）' })).toBeVisible();
+  });
+
+  it('uses live metrics readiness independently of history readiness', () => {
+    const store = show({ dashboard: null, metrics: null });
+    const traffic = within(screen.getByRole('tabpanel'));
+    expect(traffic.getByText('Waiting for live samples…')).toBeVisible();
+    act(() => store.setState({ snapshot: testMetrics }));
+    expect(traffic.queryByText('Waiting for live samples…')).not.toBeInTheDocument();
+    expect(traffic.getByText('No samples in this range')).toBeVisible();
+    fireEvent.click(screen.getByRole('tab', { name: '1h' }));
+    expect(within(screen.getByRole('tabpanel')).getByText('Loading matching history…')).toBeVisible();
   });
 
   it('shows host metrics and recorded usage while live collection is unavailable', () => {

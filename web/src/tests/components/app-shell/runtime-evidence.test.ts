@@ -35,9 +35,12 @@ describe('runtime evidence helpers', () => {
     expect(formatUptime(undefined, now, { ...labels, second: '秒' })).toBe('0秒');
   });
 
-  it.each([null, Number.NaN, Number.POSITIVE_INFINITY, -1, 0])('formats an unavailable or zero rate (%s) with its unit', value => {
-    expect(formatRate(value)).toBe('0 B/s');
-    expect(formatRate(value, 'zh-CN')).toBe('0 B/s');
+  it.each([null, Number.NaN, Number.POSITIVE_INFINITY, -1])('keeps an unavailable rate (%s) distinct from zero', value => {
+    expect(formatRate(value)).toBe('—');
+  });
+
+  it('formats a measured zero rate with its unit', () => {
+    expect(formatRate(0)).toBe('0 B/s');
   });
 
   it('requires a new process token when verifying a restart', () => {

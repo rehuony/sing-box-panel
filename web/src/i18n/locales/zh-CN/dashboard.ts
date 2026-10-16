@@ -56,6 +56,7 @@ export const dashboard = {
   range: {
     label: '时间范围',
     option: {
+      'live': '实时',
       '1h': '1 小时',
       '6h': '6 小时',
       '24h': '24 小时',
@@ -65,6 +66,7 @@ export const dashboard = {
     },
   },
   state: {
+    liveLoading: '正在等待实时采样…',
     liveStale: '实时数据延迟 · 上次更新 {{time}}',
     historyStale: '历史数据延迟 · 上次更新 {{time}}',
     historyLoading: '正在加载匹配的历史数据…',

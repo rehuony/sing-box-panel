@@ -5,9 +5,14 @@
 The refactor preserves REST/SSE routes, persisted traffic accounting and the
 existing visual system. Ordinary reads use a session-local TanStack Query cache;
 runtime, metrics and dashboard history use separate Zustand subscriptions.
-Live collection runs every two seconds, accounting checkpoints remain ten
+Live collection runs every second, accounting checkpoints remain ten
 seconds, and subscribed clients share each history snapshot. The chart's live
-tail is display-only and is replaced at the history persistence watermark.
+traffic view retains two minutes of received collector rates independently of
+history refreshes; the connection chart still replaces its overlapping tail at
+the persistence watermark. Rate calculation belongs to the collector, so skipped
+browser snapshots cannot dilute the current rate. The historical verification
+results below describe the earlier two-second cadence, not a benchmark of the
+current one-second stream.
 
 The behavior and proxy configuration are documented in
 [Subscriptions and observability](../guides/subscriptions-and-observability.md)

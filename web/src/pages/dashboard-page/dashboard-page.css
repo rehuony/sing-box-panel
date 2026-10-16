@@ -123,6 +123,10 @@
 .dashboard-traffic__chart:not([hidden]) {
   display: flex;
   min-width: 0;
+  position: relative;
+}
+.dashboard-traffic__chart > .dashboard-stream-loading {
+  inset: 0;
 }
 .trend-chart {
   --trend-upload: #2895a6;

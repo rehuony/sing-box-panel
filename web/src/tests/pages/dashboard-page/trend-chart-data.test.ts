@@ -3,38 +3,31 @@ import { describe, expect, it } from 'vitest';
 import type { LivePoint } from '@/components/app-shell/use-telemetry';
 
 import { testMetricsHistory } from '@/tests/api/mock-api-client';
-import { trendChartData } from '@/pages/dashboard-page/trend-chart-data';
-import { deriveTrafficRates } from '@/components/app-shell/use-telemetry';
-
-const sample = {
-  activation_bundle_id: 'bundle', pid: 42, process_start_token: 'process',
-  sampled_at: '2026-08-26T07:40:00Z', upload_total: 100, download_total: 200,
-  memory_bytes: 1, active_connections: 2, accepted: true,
-};
+import { liveTrafficChartData, trendChartData } from '@/pages/dashboard-page/trend-chart-data';
 
 describe('live traffic evidence', () => {
-  it('uses real sampling times and rejects gaps, restarts, rollbacks and invalid evidence', () => {
-    const next = { ...sample, sampled_at: '2026-08-26T07:40:02Z', upload_total: 120, download_total: 240 };
-    expect(deriveTrafficRates(sample, next)).toEqual({ uploadBytesPerSecond: 10, downloadBytesPerSecond: 20 });
-    for (const invalid of [sample, { ...next, sampled_at: '2026-08-26T07:40:10Z' },
-      { ...next, pid: 43 }, { ...next, process_start_token: 'restart' }, { ...next, activation_bundle_id: 'new' },
-      { ...next, upload_total: 1 }, { ...next, accepted: false }]) {
-      expect(deriveTrafficRates(sample, invalid).uploadBytesPerSecond).toBeNull();
-    }
+  it('keeps only the latest two minutes without averaging peaks or filling gaps', () => {
+    const point = (at: number, downloadBytesPerSecond: number | null): LivePoint => ({
+      at, downloadBytesPerSecond, uploadBytesPerSecond: downloadBytesPerSecond, connections: 2,
+    });
+    const chart = liveTrafficChartData([
+      point(1000, 1024 ** 3), point(2000, 1024), point(3000, 512),
+      point(4000, null), point(121000, 0), point(122000, 256),
+    ]);
+    expect(chart.from).toBe(2000);
+    expect(chart.to).toBe(122000);
+    expect(chart.unit).toBe('KB/s');
+    expect(chart.data[0]).toEqual([2000, 3000, 4000, 120999, 121000, 122000]);
+    expect(chart.data[1]).toEqual([1, 0.5, null, null, 0, 0.25]);
   });
-  it('replaces overlap at the persisted watermark and keeps explicit gaps', () => {
-    const at = Date.parse(testMetricsHistory.to);
-    const tail = [
-      { at, connections: 2, uploadBytesPerSecond: 1024, downloadBytesPerSecond: 2048 },
-      { at: at + 2000, connections: null, uploadBytesPerSecond: null, downloadBytesPerSecond: null },
-      { at: at + 4000, connections: 3, uploadBytesPerSecond: 2048, downloadBytesPerSecond: 4096 },
-    ];
-    const first = trendChartData(testMetricsHistory, 'traffic', tail, testMetricsHistory.to);
-    expect(first.data[0]).not.toContain(at + 1);
-    expect(first.data[1].slice(-2)).toEqual([null, 4]);
-    const persisted = trendChartData(testMetricsHistory, 'traffic', tail, new Date(at + 4000).toISOString());
-    expect(persisted.data[0]).toEqual(testMetricsHistory.buckets.map(bucket => Date.parse(bucket.to)));
-    expect(persisted.data[1].at(-1)).toBeNull();
+
+  it('does not mix live rates into historical traffic averages', () => {
+    const tail = [{
+      at: Date.parse(testMetricsHistory.to) + 1000,
+      connections: 2, uploadBytesPerSecond: 1024 ** 2, downloadBytesPerSecond: 1024 ** 3,
+    }];
+    expect(trendChartData(testMetricsHistory, 'traffic', tail, testMetricsHistory.to))
+      .toEqual(trendChartData(testMetricsHistory, 'traffic', []));
   });
 });
 
@@ -51,20 +44,19 @@ describe('history and live chart continuity', () => {
     at, connections: 15, downloadBytesPerSecond: 4096, uploadBytesPerSecond: 2048,
   });
 
-  it.each(['traffic', 'connections'] as const)('joins %s to the overlapping history bucket', kind => {
+  it('joins connections to the overlapping history bucket', () => {
     const through = end - 6000;
     const tail = [point(through), point(through + 2000), point(through + 4000), point(end)];
-    const chart = trendChartData(history, kind, tail, new Date(through).toISOString());
+    const chart = trendChartData(history, 'connections', tail, new Date(through).toISOString());
     expect(chart.data[0].slice(0, 3)).toEqual([Date.parse(history.buckets[0]!.to), through, through + 2000]);
-    // Keep the full 300-second denominator, rather than inflating a partial bucket.
-    expect(chart.data[1].slice(0, 3)).toEqual(kind === 'traffic' ? [1, 1, 4] : [12, 12, 15]);
+    expect(chart.data[1].slice(0, 3)).toEqual([12, 12, 15]);
     expect(chart.data[0].filter(at => at === through)).toHaveLength(1);
     expect(chart.data[1]).not.toContain(null);
   });
 
   it('does not connect across a delayed live tail or fill missing historical buckets', () => {
-    const chart = trendChartData(testMetricsHistory, 'traffic', [point(end + 30_000)], testMetricsHistory.to);
-    expect(chart.data[1]).toEqual([2048 / 300 / 1024, null, null, 4]);
+    const chart = trendChartData(testMetricsHistory, 'connections', [point(end + 30_000)], testMetricsHistory.to);
+    expect(chart.data[1]).toEqual([12.5, null, null, 15]);
     expect(chart.data[0].at(-2)).toBe(end + 29_999);
   });
 
@@ -78,15 +70,15 @@ describe('history and live chart continuity', () => {
 
   it('replaces live points when history catches up and keeps timestamps strictly increasing', () => {
     const tail = [point(end - 2000), point(end), point(end + 2000)];
-    const before = trendChartData(history, 'traffic', tail, new Date(end - 4000).toISOString());
-    expect(before.data[1]).toEqual([1, 1, 4, 4, 4]);
-    const after = trendChartData(history, 'traffic', tail, history.to);
-    expect(after.data[1]).toEqual([1, 1, 4]);
+    const before = trendChartData(history, 'connections', tail, new Date(end - 4000).toISOString());
+    expect(before.data[1]).toEqual([12, 12, 15, 15, 15]);
+    const after = trendChartData(history, 'connections', tail, history.to);
+    expect(after.data[1]).toEqual([12, 12, 15]);
     expect(after.data[0]).toEqual([Date.parse(history.buckets[0]!.to), end, end + 2000]);
   });
 
   it('keeps only non-overlapping history without a persistence watermark', () => {
-    const chart = trendChartData(history, 'traffic', [point(end - 2000)], null);
+    const chart = trendChartData(history, 'connections', [point(end - 2000)], null);
     expect(chart.data[0]).toEqual([Date.parse(history.buckets[0]!.to), end - 2001, end - 2000]);
   });
 });
@@ -100,14 +92,14 @@ describe('adaptive traffic units', () => {
     [2.5 * 1024 ** 3, 'GB/s', 2.5],
     [1024 ** 4, 'TB/s', 1],
   ] as const)('scales both directions for a peak of %s bytes/s', (rate, unit, scaled) => {
-    const chart = trendChartData(null, 'traffic', [{
+    const chart = liveTrafficChartData([{
       at: 1000, connections: 2, downloadBytesPerSecond: rate / 2, uploadBytesPerSecond: rate,
     }]);
     expect(chart.unit).toBe(unit);
     expect(chart.data).toEqual([[1000], [scaled / 2], [scaled]]);
   });
 
-  it('chooses units from the selected history and live samples, preserving zeros and nulls', () => {
+  it('chooses units from selected history, preserving zeros and nulls', () => {
     const history = {
       ...testMetricsHistory,
       buckets: [

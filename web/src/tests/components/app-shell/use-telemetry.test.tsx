@@ -5,7 +5,7 @@ import { useEffect, useState } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { act, renderHook, waitFor } from '@testing-library/react';
 
-import type { ApiClient, RuntimeStatus } from '@/api/api-client';
+import type { ApiClient, MetricsSnapshot, RuntimeStatus } from '@/api/api-client';
 
 import { StreamRotation } from '@/api/http/event-stream';
 import { ApiClientProvider } from '@/api/api-client-context';
@@ -37,8 +37,103 @@ function waitForAbort(signal?: AbortSignal): Promise<void> {
   });
 }
 
+function liveMetrics(second: number, rate: number, collectedSecond = second): MetricsSnapshot {
+  const base = Date.parse('2026-10-16T00:00:00Z');
+  return {
+    ...testMetrics,
+    collected_at: new Date(base + collectedSecond * 1000).toISOString(),
+    live_sample: {
+      activation_bundle_id: 'bundle_18', pid: 8124, process_start_token: 'process-8124',
+      sampled_at: new Date(base + second * 1000).toISOString(),
+      memory_bytes: 1000, active_connections: 2, accepted: true,
+      upload_total: second * 10000, download_total: second * 20000,
+      upload_bytes_per_second: rate, download_bytes_per_second: rate * 2,
+    },
+  };
+}
+
 describe('useTelemetry', () => {
   afterEach(() => vi.useRealTimers());
+
+  it('uses collector rates immediately and after skipped stream samples, preserving process boundaries', async () => {
+    let next!: () => void;
+    const pending = new Promise<void>(resolve => {
+      next = resolve;
+    });
+    let restart!: () => void;
+    const restarted = new Promise<void>(resolve => {
+      restart = resolve;
+    });
+    const client = createMockApiClient({
+      streamMetrics: vi.fn(async function* (signal) {
+        yield { metrics: liveMetrics(0, 200), runtime: testRuntimeStatus };
+        await pending;
+        yield { metrics: liveMetrics(4, 900), runtime: testRuntimeStatus };
+        await restarted;
+        const metrics = liveMetrics(5, 500);
+        metrics.live_sample!.process_start_token = 'restarted-process';
+        yield { metrics, runtime: testRuntimeStatus };
+        await waitForAbort(signal);
+      }),
+    });
+    const { result } = renderHook(() => useTelemetry(), { wrapper: wrapper(client) });
+    await waitFor(() => expect(result.current.rates.uploadBytesPerSecond).toBe(200));
+    await act(async () => next());
+    expect(result.current.rates).toEqual({ uploadBytesPerSecond: 900, downloadBytesPerSecond: 1800 });
+    await act(async () => restart());
+    expect(result.current.rates.uploadBytesPerSecond).toBe(500);
+    expect(result.current.liveTail.at(-2)?.uploadBytesPerSecond).toBeNull();
+    expect(result.current.liveTail.at(-1)?.uploadBytesPerSecond).toBe(500);
+  });
+
+  it('expires rates without new samples and rejects old samples inside fresh envelopes', async () => {
+    vi.useFakeTimers();
+    let repeat!: () => void;
+    const repeated = new Promise<void>(resolve => {
+      repeat = resolve;
+    });
+    let recover!: () => void;
+    const recovered = new Promise<void>(resolve => {
+      recover = resolve;
+    });
+    const client = createMockApiClient({
+      streamMetrics: vi.fn(async function* (signal) {
+        yield { metrics: liveMetrics(0, 200), runtime: testRuntimeStatus };
+        await repeated;
+        yield { metrics: liveMetrics(0, 200, 4), runtime: testRuntimeStatus };
+        await recovered;
+        yield { metrics: liveMetrics(5, 0), runtime: testRuntimeStatus };
+        await waitForAbort(signal);
+      }),
+    });
+    const { result } = renderHook(() => useTelemetry(), { wrapper: wrapper(client) });
+    await act(async () => {});
+    expect(result.current.rates.uploadBytesPerSecond).toBe(200);
+    await act(async () => vi.advanceTimersByTimeAsync(3000));
+    expect(result.current.rates.uploadBytesPerSecond).toBeNull();
+    await act(async () => repeat());
+    expect(result.current.liveStale).toBe(false);
+    expect(result.current.rates.uploadBytesPerSecond).toBeNull();
+    await act(async () => recover());
+    expect(result.current.rates.uploadBytesPerSecond).toBe(0);
+  });
+
+  it('shows the first fresh collector rate after reconnect without drawing across the interruption', async () => {
+    vi.useFakeTimers();
+    let calls = 0;
+    const client = createMockApiClient({
+      streamMetrics: vi.fn(async function* (signal) {
+        const first = ++calls === 1;
+        yield { metrics: liveMetrics(first ? 0 : 1, first ? 200 : 400), runtime: testRuntimeStatus };
+        if (first) throw new Error('stream interrupted');
+        await waitForAbort(signal);
+      }),
+    });
+    const { result } = renderHook(() => useTelemetry(), { wrapper: wrapper(client) });
+    await act(async () => vi.advanceTimersByTimeAsync(1000));
+    expect(result.current.rates.uploadBytesPerSecond).toBe(400);
+    expect(result.current.liveTail.map(point => point.uploadBytesPerSecond)).toEqual([200, null, 400]);
+  });
 
   it('hydrates live and dashboard streams without periodic GET requests', async () => {
     const client = createMockApiClient({
