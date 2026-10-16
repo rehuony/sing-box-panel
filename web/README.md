@@ -219,6 +219,15 @@ the browser does not derive rates from stream delivery intervals. Missing rates
 or samples older than three seconds show `—`, while measured zero remains zero.
 Live chart samples preserve gaps and never contribute to accounted traffic totals.
 
+The runtime timeline keeps 48 half-hour segments with time marks anchored to the
+dashboard snapshot, including dates at both endpoints. Narrow cards retain the
+start, midpoint and end marks. Segment tooltips expose the complete interval and
+observed state on hover or keyboard focus. Recent activity keeps two compact rows
+with the same localized event names and severity badges as panel logs. Each row
+opens the panel-log tab; its tooltip exposes the full name and occurrence time.
+Activity times include dates for earlier days and years for earlier years, and
+update at local midnight independently of delayed runtime snapshots.
+
 Version, subscription source, node, channel, key, and panel-log lists use the
 shared `components/list-pagination` footer. It combines the page-size selector,
 circular previous/next buttons, current-page input, and read-only total.
@@ -235,8 +244,9 @@ matches before applying other filters, counting, and pagination. The demo client
 uses the same semantics and includes runtime transitions with their saved context.
 Enabled buttons, selectors, menu options, tabs, and choice controls use a pointer
 cursor. Disabled controls retain unavailable feedback; text inputs remain editable.
-Keyboard focus does not add accent-colored borders, outlines, or halos to controls
-or content regions. Neutral field focus borders, menu highlights, selection states,
+Dashboard activity links and runtime segments use explicit keyboard focus outlines
+for inspection. Other controls and content regions do not add accent-colored focus
+borders or halos. Neutral field focus borders, menu highlights, selection states,
 and validation feedback remain separate from this presentation rule; keyboard
 navigation and focus restoration are preserved.
 

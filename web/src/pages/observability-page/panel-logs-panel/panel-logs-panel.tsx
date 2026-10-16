@@ -11,13 +11,14 @@ import { ErrorNotice } from '@/components/error-notice';
 import { SelectField } from '@/components/select-field';
 import { LoadingState } from '@/components/loading-state';
 import { usePageVisible } from '@/hooks/use-page-visible';
+import { PanelLogLevel } from '@/components/panel-log-level';
 import { ListPagination } from '@/components/list-pagination';
 import { ToolbarActions } from '@/components/workspace-toolbar';
 import { Empty, EmptyHeader, EmptyTitle } from '@/components/ui/empty';
+import { formatLogTime, logTitle } from '@/utils/panel-log-presentation';
 
-import { PanelLogLevel } from './panel-log-level';
 import { PanelLogDetails } from './panel-log-details';
-import { formatLogTime, logTitle, matchingEventCodes } from './panel-log-presentation';
+import { matchingEventCodes } from './panel-log-presentation';
 
 export function PanelLogsPanel({ active = true, toolbarTarget }: {
   active?: boolean;

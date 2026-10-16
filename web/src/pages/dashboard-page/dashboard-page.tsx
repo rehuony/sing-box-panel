@@ -1,11 +1,14 @@
 import { Link } from 'react-router-dom';
-import { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useEffect, useMemo, useState } from 'react';
 import { Cpu, HardDrive, MemoryStick, Radio } from 'lucide-react';
 
 import { Spinner } from '@/components/ui/spinner';
 import { ErrorNotice } from '@/components/error-notice';
+import { PanelLogLevel } from '@/components/panel-log-level';
+import { formatLogTime, logTitle } from '@/utils/panel-log-presentation';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { useDashboardSubscription, useOptionalSharedTelemetry } from '@/components/app-shell/telemetry-context';
 
 import { TrendChart } from './trend-chart';
@@ -197,31 +200,88 @@ function DashboardCharts() {
   );
 }
 
+function formatActivityTime(value: string, locale: string, today: Date): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  const sameYear = date.getFullYear() === today.getFullYear();
+  const sameDay = sameYear && date.getMonth() === today.getMonth() && date.getDate() === today.getDate();
+  return new Intl.DateTimeFormat(locale, {
+    ...(!sameYear ? { year: 'numeric' } as const : {}),
+    ...(!sameDay ? { month: '2-digit', day: '2-digit' } as const : {}),
+    hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+  }).format(date);
+}
+
 function DashboardHistory() {
   const { t, i18n } = useTranslation();
   const locale = i18n.language;
   const current = useOptionalSharedTelemetry(s => s.dashboardSnapshot);
   const [initialEnd] = useState(() => Date.now());
+  const [today, setToday] = useState(() => new Date(initialEnd));
   const end = current ? Date.parse(current.collected_at) : initialEnd;
+  const start = end - 86_400_000;
+  useEffect(() => {
+    const tomorrow = new Date(today);
+    tomorrow.setHours(24, 0, 0, 0);
+    const timer = setTimeout(() => setToday(new Date()), Math.max(0, tomorrow.getTime() - Date.now()));
+    return () => clearTimeout(timer);
+  }, [today]);
   const slots = useMemo(
-    () => buildRuntimeSlots(current?.runtime_24h ?? null, end - 86_400_000, end), [current?.runtime_24h, end],
+    () => buildRuntimeSlots(current?.runtime_24h ?? null, start, end), [current?.runtime_24h, start, end],
   );
+  const timeFormat = new Intl.DateTimeFormat(locale, { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
+  const endpointFormat = new Intl.DateTimeFormat(locale, {
+    ...(new Date(start).getFullYear() !== new Date(end).getFullYear() ? { year: 'numeric' } as const : {}),
+    month: '2-digit', day: '2-digit',
+  });
   return (
     <div className='dashboard-bottom'>
-      <section className='dashboard-card runtime-timeline-card'>
+      <section
+        className='dashboard-card runtime-timeline-card'
+        aria-label={t('dashboard.timeline.title')}
+        aria-busy={current === null}
+      >
         <header>
           <h2>{t('dashboard.timeline.title')}</h2>
           <small>{t('dashboard.metric.lastDay')}</small>
         </header>
-        <div className='runtime-timeline' aria-label={t('dashboard.timeline.ariaLabel')}>
-          {slots.map((slot) => (
-            <span
-              key={slot.id}
-              data-state={slot.state}
-              tabIndex={0}
-              title={`${new Date(slot.start).toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' })}–${new Date(slot.end).toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' })} · ${t(`dashboard.timeline.state.${slot.state}`)}`}
-            />
-          ))}
+        <div className='runtime-timeline__plot'>
+          <div className='runtime-timeline' role='group' aria-label={t('dashboard.timeline.ariaLabel')}>
+            {slots.map((slot) => {
+              const from = formatLogTime(new Date(slot.start).toISOString(), locale);
+              const to = formatLogTime(new Date(slot.end).toISOString(), locale);
+              const label = `${from} – ${to} · ${t(`dashboard.timeline.state.${slot.state}`)}`;
+              return (
+                <Tooltip key={slot.id}>
+                  <TooltipTrigger
+                    className='runtime-timeline__slot'
+                    data-state={slot.state}
+                    aria-label={label}
+                    disabled={current === null}
+                  />
+                  <TooltipContent role='tooltip'>{label}</TooltipContent>
+                </Tooltip>
+              );
+            })}
+          </div>
+          <div className='runtime-timeline__axis'>
+            {[0, 6, 12, 18, 24].map((hour) => {
+              const at = new Date(start + hour * 3_600_000);
+              const endpoint = hour === 0 || hour === 24;
+              return (
+                <time
+                  key={hour}
+                  dateTime={at.toISOString()}
+                  data-endpoint={endpoint ? '' : undefined}
+                  data-intermediate={hour === 6 || hour === 18 ? '' : undefined}
+                >
+                  {endpoint ? <span>{endpointFormat.format(at)}</span> : null}
+                  {endpoint ? ' ' : null}
+                  <span>{timeFormat.format(at)}</span>
+                </time>
+              );
+            })}
+          </div>
         </div>
         {current === null
           ? (
@@ -234,29 +294,49 @@ function DashboardHistory() {
         <div className='runtime-timeline__legend'>
           {(['running', 'failed', 'stopped', 'unknown'] as const).map((state) => (
             <span key={state} data-state={state}>
-              <i />
+              <i aria-hidden />
               {t(`dashboard.timeline.state.${state}`)}
             </span>
           ))}
         </div>
       </section>
-      <section className='dashboard-card'>
+      <section
+        className='dashboard-card dashboard-activity-card'
+        aria-label={t('dashboard.activity.title')}
+        aria-busy={current === null}
+      >
         <header>
           <h2>{t('dashboard.activity.title')}</h2>
-          <Link to='/observability?tab=panel'>{t('dashboard.activity.viewAll')}</Link>
+          <Link to='/observability#logs-panel'>{t('dashboard.activity.viewAll')}</Link>
         </header>
-        <ol className='dashboard-activity'>
-          {current?.activity.items.map((entry) => (
-            <li key={entry.id}>
-              <Link to='/observability#logs-panel'>{entry.message}</Link>
-              <time dateTime={entry.time}>
-                {new Date(entry.time).toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' })}
-              </time>
-              <span data-status={entry.level}>{entry.level.toUpperCase()}</span>
-            </li>
-          ))}
-        </ol>
-        {current?.activity.items.length === 0 ? <small>{t('dashboard.activity.empty')}</small> : null}
+        <div className='dashboard-activity-body'>
+          <ol className='dashboard-activity'>
+            {current?.activity.items.map((entry) => {
+              const title = logTitle(entry, t);
+              const fullTime = formatLogTime(entry.time, locale);
+              return (
+                <li key={entry.id}>
+                  <Tooltip>
+                    <TooltipTrigger render={<Link className='dashboard-activity__link' to='/observability#logs-panel' />}>
+                      <span className='dashboard-activity__level'><PanelLogLevel level={entry.level} /></span>
+                      <span className='dashboard-activity__title'>{title}</span>
+                      <time dateTime={entry.time} aria-label={fullTime}>
+                        {formatActivityTime(entry.time, locale, today)}
+                      </time>
+                    </TooltipTrigger>
+                    <TooltipContent role='tooltip'>
+                      <span className='dashboard-activity__details'>
+                        <span>{title}</span>
+                        <span>{fullTime}</span>
+                      </span>
+                    </TooltipContent>
+                  </Tooltip>
+                </li>
+              );
+            })}
+          </ol>
+          {current?.activity.items.length === 0 ? <small className='dashboard-activity__empty'>{t('dashboard.activity.empty')}</small> : null}
+        </div>
         {current === null
           ? (
               <div className='dashboard-stream-loading dashboard-stream-loading--compact'>
