@@ -20,8 +20,9 @@ const (
 	// ApplicationID identifies the current incompatible storage epoch.
 	ApplicationID = 0x53425034
 
-	// CurrentSchemaVersion is the only schema this package can open.
-	CurrentSchemaVersion = 17
+	// CurrentSchemaVersion is the only schema this package can open. Version 18
+	// is the baseline; databases written by earlier versions are rejected.
+	CurrentSchemaVersion = 18
 
 	defaultBusyTimeoutMillis  = 5_000
 	defaultMaxOpenConnections = 4

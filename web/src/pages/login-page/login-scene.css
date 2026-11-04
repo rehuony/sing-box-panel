@@ -18,7 +18,7 @@
 }
 
 .login-scene__character--main {
-  --scene-body: var(--color-accent);
+  --scene-body: var(--color-primary);
 }
 
 .login-scene__character--orange {
@@ -30,7 +30,7 @@
 }
 
 .login-scene__ground {
-  fill: color-mix(in oklch, var(--color-accent) 5%, transparent);
+  fill: color-mix(in oklch, var(--color-primary) 5%, transparent);
 }
 
 .login-scene__shadow {

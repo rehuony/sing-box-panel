@@ -24,7 +24,7 @@ operation belongs to the `systemd` service commands.
 The `core`, `channel`, `source`, `token`, `log`, and `metrics` command groups
 have been removed, including their shell completions; no hidden aliases remain.
 Use version management, subscriptions, logs, and the dashboard in the Web UI.
-Automation can use the unchanged authenticated [HTTP API](../../api/openapi.yaml).
+Automation can use the unchanged authenticated [HTTP API](../api/openapi.yaml).
 Update scripts and regenerate installed shell completions after upgrading.
 `version` reports the panel executable's version and `update` updates that
 executable; sing-box version management belongs to the Web UI.
@@ -76,7 +76,7 @@ CLI settings file. Start/restart can read the installed unit's own settings to
 prepare a requested data relocation or restore missing resources. System uninstall
 also reads that installation's data locations to protect retained data before
 removing its dedicated account; `--keep-user` preserves the account and ownership.
-See [service lifecycle and permissions](../../systemd/README.md).
+See [service lifecycle and permissions](../systemd/README.md).
 `systemd status` also works with unavailable settings; its
 optional location report marks unreadable files or invalid `data_dir` fields as
 unavailable without hiding systemd's status.
@@ -433,7 +433,7 @@ stop aborts data cleanup; unrelated instances are never stopped to clear a lock.
 The executable and files outside the selected data directory remain outside the
 cleanup scope, except for the selected settings and matching managed service.
 Uninstalling a matching managed system service also cleans up its dedicated
-account under the [systemd lifecycle rules](../../systemd/README.md); unrelated
+account under the [systemd lifecycle rules](../systemd/README.md); unrelated
 OS accounts and journal records are retained. The conventional
 `sing-box-panel` settings directory is removed only if empty; shared parent
 directories are never recursively removed.
@@ -600,4 +600,4 @@ prior cancellation leaves the running executable unchanged.
 
 The invoking user must be able to write the executable's directory. Replacing
 the file does not restart an already-running systemd service. See
-[Release process](../development/release.md) for the signing and publication procedure.
+[Release process](release.md) for the signing and publication procedure.

@@ -61,7 +61,6 @@ export function appearanceTokens(appearance: AppearanceSettings, dark = false): 
     : DEFAULT_APPEARANCE.radius;
   return {
     '--appearance-color': color,
-    '--color-accent': accent,
     '--primary': accent,
     '--primary-foreground': contrastRatio(accent, '#ffffff') >= 4.5 ? '#ffffff' : '#17151e',
     '--ring': accent,

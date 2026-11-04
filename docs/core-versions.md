@@ -67,7 +67,7 @@ Opening Web version management reads the cache and initializes it only if missin
 “Check GitHub for updates” forces a refresh. Cached downloads and installed versions
 remain visible during refresh. The server-side client honors proxy environment
 variables and the optional GitHub token in panel settings; credentials do not
-bypass rate limits. See [database compatibility](../getting-started.md#database-compatibility).
+bypass rate limits. See [database compatibility](getting-started.md#database-compatibility).
 
 ## Checks and recorded hashes
 
@@ -196,7 +196,7 @@ Regenerate shell completions after upgrading; removed commands have no aliases.
 HTTP management endpoints continue to locate objects by internal asset or artifact
 ID. The multipart import endpoint no
 longer accepts a `sha256` field and the catalog endpoint no longer accepts an
-`installable` query. Update API clients to the [OpenAPI contract](../../api/openapi.yaml).
+`installable` query. Update API clients to the [OpenAPI contract](../api/openapi.yaml).
 
 ## Maintaining support
 
@@ -250,7 +250,7 @@ Both official Linux amd64/arm64 **musl** archives were downloaded and checked
 against their release asset sizes and SHA-256 digests. Static Go build metadata
 confirms version 1.14.3, the pinned commit, Go 1.26.8 and the same feature tags as
 1.14.2, including `with_musl`. Exact artifact pins and Go module checksums are in
-[`catalog.json`](../../internal/singbox/catalog.json).
+[`catalog.json`](../internal/singbox/catalog.json).
 
 The official 1.14.3 binary independently generates its native Schema through the
 normal generation workflow, together with the panel presentation overlay and Web
@@ -283,7 +283,7 @@ user-provided dashboard files exist; neither change adds a form field.
 Both official Linux amd64/arm64 **musl** archives were checked against their
 release asset sizes and SHA-256 digests. Their reported version, commit and build
 tags match the catalog, including `with_musl`. Exact artifact pins and Go module
-checksums are recorded in [`catalog.json`](../../internal/singbox/catalog.json).
+checksums are recorded in [`catalog.json`](../internal/singbox/catalog.json).
 The official 1.14.2 binary independently generates its native Schema; the panel's
 presentation overlay and Web validator are produced by the normal generation
 workflow. Tests cover exact-version selection, application validation, inbound
@@ -323,8 +323,8 @@ also records WebSocket/TUN fixes. Their behavior remains the exact core's respon
 
 ### Field table and maintenance
 
-The [complete field table](../../cmd/singbox-support/schema-sources/1.13-fields.csv) is generated from
-[`schema-sources/1.13.json`](../../cmd/singbox-support/schema-sources/1.13.json).
+The [complete field table](../tools/singbox-support/schema-sources/1.13-fields.csv) is generated from
+[`schema-sources/1.13.json`](../tools/singbox-support/schema-sources/1.13.json).
 It records configuration paths, JSON shapes and enum values, branch optionality,
 constraints and exact source line links. Shared `$defs` expand once; later rows
 refer to that definition. `[]` means an array element, `.*` a map value, and
@@ -404,13 +404,13 @@ For both architectures all three releases report the same feature set:
 `with_dhcp`, `with_gvisor`, `with_musl`, `with_naive_outbound`, `with_ocm`,
 `with_quic`, `with_tailscale`, `with_utls`, `with_wireguard`. They report Go 1.25.12,
 CGO enabled and their respective pinned commits. Exact package names, URLs,
-sizes and maintenance hashes are in the [support catalog](../../internal/singbox/catalog.json).
+sizes and maintenance hashes are in the [support catalog](../internal/singbox/catalog.json).
 Feature presence does not make a protocol work without its required credentials,
 network or operating-system permissions.
 
 ### Executable acceptance evidence
 
-The shared [configuration fixtures](../../internal/singbox/testdata/configuration-1.13)
+The shared [configuration fixtures](../internal/singbox/testdata/configuration-1.13)
 cover every top-level section through representative DNS actions/legacy servers,
 TLS/inline ACME and transports, WireGuard and resolved service configurations.
 They are checked against each exact Schema and each actual Linux binary.

@@ -1,0 +1,215 @@
+/* Element defaults shared by every page. */
+
+:root {
+  color: var(--foreground);
+  font-family: var(--font-body);
+  font-optical-sizing: auto;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  background: var(--color-canvas);
+  height: 100%;
+  overflow-x: clip;
+}
+
+body {
+  background:
+    radial-gradient(ellipse at 0% 0%, var(--color-primary-soft), transparent 55%),
+    linear-gradient(145deg, var(--color-paper), var(--color-canvas) 50%, var(--color-canvas-deep));
+  background-attachment: fixed;
+  color: var(--color-text);
+  font-size: var(--text-base);
+  height: 100%;
+  line-height: 1.5;
+  margin: 0;
+  overflow: clip;
+}
+
+input[type='checkbox'],
+input[type='radio'] {
+  accent-color: var(--color-primary);
+}
+
+#root {
+  height: 100%;
+  min-width: 0;
+}
+
+[data-slot='sheet-overlay'] {
+  z-index: var(--z-modal);
+}
+
+[data-slot='sheet-content'] {
+  z-index: calc(var(--z-modal) + 1);
+}
+
+[data-sidebar='sidebar'][role='dialog'] {
+  z-index: calc(var(--z-modal) + 1);
+}
+
+@layer base {
+  button,
+  input,
+  textarea {
+    color: inherit;
+    font: inherit;
+  }
+}
+
+button,
+a {
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+
+:where(
+  button,
+  a[href],
+  summary,
+  select,
+  [role='button'],
+  [role='tab'],
+  [role='combobox'],
+  [role='option'],
+  [role='menuitem'],
+  [role='menuitemcheckbox'],
+  [role='menuitemradio'],
+  [role='checkbox'],
+  [role='radio'],
+  [role='switch'],
+  input[type='checkbox'],
+  input[type='radio'],
+  input[type='button'],
+  input[type='submit'],
+  input[type='reset'],
+  input[type='color']
+):where(:not(:disabled):not([aria-disabled='true']):not([data-disabled='']):not([data-disabled='true'])) {
+  cursor: pointer;
+}
+
+:where(button, input, select, textarea, [role]):where(
+  :disabled,
+  [aria-disabled='true'],
+  [data-disabled=''],
+  [data-disabled='true']
+) {
+  cursor: not-allowed;
+}
+
+button:disabled,
+[aria-disabled='true'] {
+  opacity: 0.55;
+}
+
+button:not(:disabled):active {
+  opacity: 0.92;
+}
+
+a[href]:active {
+  opacity: 0.92;
+}
+
+summary:active {
+  opacity: 0.92;
+}
+
+summary[aria-disabled='true'] {
+  background: var(--color-surface-raised);
+  color: var(--color-text-muted);
+  cursor: not-allowed;
+  opacity: 0.55;
+  pointer-events: none;
+}
+
+img,
+svg {
+  max-width: 100%;
+}
+
+h1,
+h2,
+h3 {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+/* Keyboard focus must not add an accent outline or halo to content regions. */
+:focus-visible:not([data-slot]) {
+  outline: none;
+}
+
+:where(input:not([type='checkbox'], [type='radio'], [type='range'], [type='color']), textarea):not(
+    [data-slot]
+  ):focus-visible {
+  border-color: var(--input-focus);
+  box-shadow: none;
+  outline: 1px solid var(--input-focus);
+  outline-offset: -1px;
+}
+
+::selection {
+  background: var(--primary);
+  color: var(--primary-foreground);
+  text-shadow: none;
+}
+
+* {
+  scrollbar-color: var(--color-border-strong) transparent;
+  scrollbar-width: thin;
+}
+
+.visually-hidden,
+.sr-only {
+  border: 0;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  height: 1px;
+  inset: 0 auto auto 0;
+  margin: -1px;
+  overflow: hidden;
+  padding: 0;
+  position: absolute;
+  white-space: nowrap;
+  width: 1px;
+}
+
+@media (max-width: 700px) {
+  body {
+    font-size: 1rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+@media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
+  body {
+    background: var(--color-canvas);
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+  html {
+    @apply font-sans;
+  }
+}

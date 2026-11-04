@@ -1,8 +1,6 @@
 package store
 
 import (
-	"context"
-	"encoding/json"
 	"testing"
 	"time"
 )
@@ -81,71 +79,6 @@ func TestMonthlyTrafficBooksCrossMonthDeltaAtObservation(t *testing.T) {
 	got, err = db.RecordTrafficSample(t.Context(), input)
 	if err != nil || got.Period.OutboundBytes != 907 || got.Period.InboundBytes != 1811 {
 		t.Fatalf("proven August delta: %+v %v", got, err)
-	}
-}
-
-func TestVersion11UpgradePreservesSingleMonthTotalsAndBackfillsOnlyMissingMonths(t *testing.T) {
-	ctx := context.Background()
-	db := openTestStore(t, ctx)
-	start := time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC)
-	bundle := seedTrafficActivationBundle(t, ctx, db, start)
-	input := TrafficSampleInput{ActivationBundleID: bundle.ID, PID: 101, ProcessStartToken: "migration-process", PeriodStart: start, PeriodEnd: start.AddDate(0, 1, 0), SampledAt: start.Add(time.Hour), UploadTotal: 100, DownloadTotal: 200}
-	if _, err := db.RecordTrafficSample(ctx, input); err != nil {
-		t.Fatal(err)
-	}
-	input.SampledAt = input.SampledAt.Add(time.Second)
-	input.UploadTotal += 10
-	input.DownloadTotal += 20
-	if _, err := db.RecordTrafficSample(ctx, input); err != nil {
-		t.Fatal(err)
-	}
-	// The full single-month total is larger than the retained sample window.
-	legacy := TrafficPeriod{ID: "traffic_202608_202609", PeriodStart: start, PeriodEnd: start.AddDate(0, 1, 0), InboundBytes: 2000, OutboundBytes: 1000, CreatedAt: start, Counters: json.RawMessage(`{"traffic_evidence_available":true,"latest_sample_at":"2026-08-01T01:00:01Z"}`)}
-	if _, err := db.UpsertTrafficPeriod(ctx, legacy); err != nil {
-		t.Fatal(err)
-	}
-	// A later multi-month run may have more samples than the saved single-month record.
-	input.SampledAt = input.SampledAt.Add(time.Second)
-	input.UploadTotal += 7
-	input.DownloadTotal += 9
-	if _, err := db.RecordTrafficSample(ctx, input); err != nil {
-		t.Fatal(err)
-	}
-	input.PeriodStart = start.AddDate(0, 1, 0)
-	input.PeriodEnd = start.AddDate(0, 2, 0)
-	input.SampledAt = input.PeriodStart.Add(time.Hour)
-	if _, err := db.RecordTrafficSample(ctx, input); err != nil {
-		t.Fatal(err)
-	}
-	input.SampledAt = input.SampledAt.Add(time.Second)
-	input.UploadTotal += 3
-	input.DownloadTotal += 5
-	if _, err := db.RecordTrafficSample(ctx, input); err != nil {
-		t.Fatal(err)
-	}
-	restoreLegacyTrafficAccounting(t, db)
-	path := db.Path()
-	if _, err := db.db.ExecContext(ctx, "DROP TABLE traffic_months; DROP TABLE auth_sessions; PRAGMA user_version=11"); err != nil {
-		t.Fatal(err)
-	}
-	if err := db.Close(); err != nil {
-		t.Fatal(err)
-	}
-	upgraded, err := Open(ctx, path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer upgraded.Close()
-	got, err := upgraded.AggregateTrafficPeriod(ctx, start, start.AddDate(0, 3, 0), input.SampledAt)
-	if err != nil || got.OutboundBytes != 1010 || got.InboundBytes != 2014 {
-		t.Fatalf("migration lost or duplicated bytes: %+v %v", got, err)
-	}
-	preserved, err := upgraded.GetTrafficPeriod(ctx, legacy.ID)
-	if err != nil || preserved.OutboundBytes != 1000 {
-		t.Fatalf("legacy history changed: %+v %v", preserved, err)
-	}
-	if info, err := upgraded.SchemaInfo(ctx); err != nil || info.Version != CurrentSchemaVersion {
-		t.Fatal(info, err)
 	}
 }
 

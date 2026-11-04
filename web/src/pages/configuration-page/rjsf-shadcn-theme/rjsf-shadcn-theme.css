@@ -491,7 +491,7 @@
 }
 .schema-dialog-tabs__nav > [data-active] {
   background: var(--color-accent-soft);
-  color: var(--color-accent);
+  color: var(--color-primary);
   box-shadow: none;
 }
 .schema-dialog-tabs__nav > [data-slot='tabs-trigger']::after {

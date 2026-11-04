@@ -8,16 +8,6 @@ import (
 	"time"
 )
 
-const authenticationSchema = `
-CREATE TABLE auth_sessions (
- token_hash BLOB PRIMARY KEY CHECK(length(token_hash) = 32),
- csrf_token TEXT NOT NULL,
- expires_at INTEGER NOT NULL,
- credential_hash BLOB NOT NULL CHECK(length(credential_hash) = 32)
-) STRICT;
-CREATE INDEX auth_sessions_expiry ON auth_sessions(expires_at);
-`
-
 type AuthSession struct {
 	TokenHash      [32]byte
 	CSRFToken      string

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Package application exposes use cases shared by CLI and HTTP transports.
+// Package application implements the use cases behind the HTTP API, the
+// server's background work and installation maintenance.
 package application
 
 import (

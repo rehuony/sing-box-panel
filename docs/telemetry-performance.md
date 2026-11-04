@@ -15,8 +15,8 @@ results below describe the earlier two-second cadence, not a benchmark of the
 current one-second stream.
 
 The behavior and proxy configuration are documented in
-[Subscriptions and observability](../guides/subscriptions-and-observability.md)
-and the [Web application](../../web/README.md).
+[Subscriptions and observability](subscriptions-and-observability.md)
+and the [Web application](../web/README.md).
 
 ## Automated verification, 2026-09-27
 

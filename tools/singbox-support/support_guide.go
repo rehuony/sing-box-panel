@@ -14,7 +14,7 @@ import (
 )
 
 const (
-	supportGuidePath  = "docs/guides/core-versions.md"
+	supportGuidePath  = "docs/core-versions.md"
 	supportTableStart = "<!-- singbox-support-table:start -->"
 	supportTableEnd   = "<!-- singbox-support-table:end -->"
 )

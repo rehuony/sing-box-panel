@@ -688,7 +688,7 @@ when fresh stream envelopes repeat the same observation; this does not mark
 the entire runtime stream stale before its ten-second threshold.
 
 System services read three narrowly scoped read-only host-counter mounts while
-retaining procfs isolation; see [systemd packaging](../../systemd/README.md#system-service)
+retaining procfs isolation; see [systemd packaging](../systemd/README.md#system-service)
 for the required unit refresh when upgrading an older installation.
 
 `GET /api/v1/dashboard/stream` sends a shared projection immediately (or a fresh
@@ -818,13 +818,6 @@ loading/error handling applies rather than inventing zero usage.
 bundles and is the sum of recorded upload and download bytes; quota exhaustion
 uses that same total even while collection is stopped.
 
-Schema 15 removes monthly completeness state and redundant checkpoint totals.
-Upgrades from versions 11–14 preserve accumulated bytes, the latest checkpoint
-and archived periods, and remove retired period coverage metadata transactionally.
-Version 11 first seeds the original monthly ledger from single-month totals and
-verifiable retained samples. Historical amounts are not replayed under the new
-cross-month rule; that rule applies to observations recorded after upgrade.
-
 Raw samples follow the required `traffic.sample_retention_days` setting, which
 is initialized to 90 and accepts 1 through 366 days. A settings file without
 the field is rejected. The server removes expired raw samples during startup
@@ -872,7 +865,7 @@ browser core import uses bounded multipart upload and a private staging
 directory; it never asks a browser to submit a server-local path.
 
 See [Configuration and runtime](configuration-and-runtime.md) for activation
-semantics and [HTTP API and security](../development/architecture.md#http-api-and-security) for management
+semantics and [HTTP API and security](architecture.md#http-api-and-security) for management
 authentication and request boundaries.
 
 ### Reverse proxy streaming

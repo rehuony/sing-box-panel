@@ -4,14 +4,10 @@ package store
 import (
 	"context"
 	"database/sql"
-	_ "embed"
 	"encoding/json"
 	"fmt"
 	"time"
 )
-
-//go:embed traffic_months.sql
-var trafficMonthsSchema string
 
 func monthStart(at time.Time) time.Time {
 	at = at.UTC()

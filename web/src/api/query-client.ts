@@ -27,19 +27,61 @@ export function retryableRead(error: unknown): boolean {
     || (error instanceof ApiRequestError && [408, 429, 500, 502, 503, 504].includes(error.status));
 }
 
-function affectedQueries(method: string): string[] {
-  if (/^(?:startRuntime|stopRuntime|restartRuntime|rollbackRuntime|activateStartupArtifact|enableCore|disableCore)$/.test(method)) return ['runtime', 'system', 'context', 'nodes', 'installed'];
-  if (/^(?:installCore|importCoreArchive|removeCoreArtifact)$/.test(method)) return ['installed', 'schema', 'system', 'context'];
-  if (method === 'refreshCatalog') return ['catalog'];
-  if (/^(?:create|update|delete|refresh|restore)SubscriptionSource/.test(method)) return ['sources', 'nodes', 'channels'];
-  if (/^(?:create|update|delete|set)SubscriptionNode/.test(method)) return ['nodes', 'channels'];
-  if (/^(?:create|update|delete)SubscriptionChannel/.test(method)) return ['channels'];
-  if (/^(?:create|delete|revoke|rotate|set)SubscriptionToken/.test(method)) return ['tokens'];
-  if (/^(?:create|update|delete|replace)SubscriptionUser/.test(method)) return ['users', 'tokens'];
-  if (['clearCoreLog', 'deleteCoreLogFile'].includes(method)) return ['coreLogFiles'];
-  if (method === 'saveConfigurationFile') return ['context', 'system'];
-  if (method === 'savePanelSettings') return ['system', 'context', 'nodes', 'settings'];
-  return [];
+type QueryRoot
+  = | 'catalog' | 'channels' | 'context' | 'coreLogFiles' | 'installed' | 'nodes'
+    | 'runtime' | 'schema' | 'settings' | 'sources' | 'system' | 'tokens' | 'users';
+
+const runtimeChange: readonly QueryRoot[] = ['runtime', 'system', 'context', 'nodes', 'installed'];
+const coreArtifactChange: readonly QueryRoot[] = ['installed', 'schema', 'system', 'context'];
+const sourceChange: readonly QueryRoot[] = ['sources', 'nodes', 'channels'];
+const nodeChange: readonly QueryRoot[] = ['nodes', 'channels'];
+const userChange: readonly QueryRoot[] = ['users', 'tokens'];
+
+// Keyed by ApiClient method, so renaming or removing a write is a type error
+// here instead of a silently skipped invalidation.
+const invalidations: Partial<Record<keyof ApiClient, readonly QueryRoot[]>> = {
+  startRuntime: runtimeChange,
+  stopRuntime: runtimeChange,
+  restartRuntime: runtimeChange,
+  rollbackRuntime: runtimeChange,
+  activateStartupArtifact: runtimeChange,
+  enableCore: runtimeChange,
+  disableCore: runtimeChange,
+  installCore: coreArtifactChange,
+  importCoreArchive: coreArtifactChange,
+  removeCoreArtifact: coreArtifactChange,
+  refreshCatalog: ['catalog'],
+  createSubscriptionSource: sourceChange,
+  updateSubscriptionSource: sourceChange,
+  deleteSubscriptionSource: sourceChange,
+  refreshSubscriptionSource: sourceChange,
+  createSubscriptionSourceVersion: sourceChange,
+  restoreSubscriptionSourceVersion: sourceChange,
+  createSubscriptionNode: nodeChange,
+  updateSubscriptionNode: nodeChange,
+  deleteSubscriptionNode: nodeChange,
+  setSubscriptionNodeOrder: nodeChange,
+  setSubscriptionNodeVisibility: nodeChange,
+  createSubscriptionChannel: ['channels'],
+  updateSubscriptionChannel: ['channels'],
+  deleteSubscriptionChannel: ['channels'],
+  createSubscriptionToken: ['tokens'],
+  deleteSubscriptionToken: ['tokens'],
+  revokeSubscriptionToken: ['tokens'],
+  rotateSubscriptionToken: ['tokens'],
+  setSubscriptionTokenEnabled: ['tokens'],
+  createSubscriptionUser: userChange,
+  updateSubscriptionUser: userChange,
+  deleteSubscriptionUser: userChange,
+  replaceSubscriptionUserGrants: userChange,
+  clearCoreLog: ['coreLogFiles'],
+  deleteCoreLogFile: ['coreLogFiles'],
+  saveConfigurationFile: ['context', 'system'],
+  savePanelSettings: ['system', 'context', 'nodes', 'settings'],
+};
+
+function affectedQueries(method: string): readonly QueryRoot[] {
+  return Object.hasOwn(invalidations, method) ? invalidations[method as keyof ApiClient] ?? [] : [];
 }
 
 /**

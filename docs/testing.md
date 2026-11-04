@@ -76,7 +76,7 @@ identical Schema contents share one digest and validator. Equivalent form behavi
 can use one representative Schema. Native Linux amd64/arm64 core contracts still
 exercise every reviewed version's official artifact; shared Schema content does
 not replace those checks. The current version list comes from the generated
-[support table](../guides/core-versions.md#exact-configuration-support).
+[support table](core-versions.md#exact-configuration-support).
 
 Use controlled promises for asynchronous outcomes and virtual time for timers,
 expiry and retries. Unmount before restoring timers; abort streams and remove

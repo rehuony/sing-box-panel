@@ -91,7 +91,7 @@ Ordinary CI and signed releases exercise this same file API across a real
 self-update and restart. The release fixture includes whitespace and a number
 beyond JavaScript's safe integer range; the scenario also retains unfinished
 JSON through the update before correcting it. The saved text and runtime snapshot identity survive the restart unchanged.
-Store/API integration tests separately verify the immutable snapshot bytes and digest. See [Release process](../development/release.md#verification-scope) for the native checks.
+Store/API integration tests separately verify the immutable snapshot bytes and digest. See [Release process](release.md#verification-scope) for the native checks.
 
 ## Switching versions without rewriting JSON
 
@@ -207,9 +207,9 @@ the operator are not translated. English continues to use the existing labels
 and any descriptions supplied by the schema.
 
 The copy is maintained in
-[`configuration-fields.ts`](../../web/src/i18n/locales/zh-CN/configuration-fields.ts),
+[`configuration-fields.ts`](../web/src/i18n/locales/zh-CN/configuration-fields.ts),
 with context-specific meanings in
-[`configuration-field-help.ts`](../../web/src/pages/configuration-page/configuration-field-help.ts).
+[`configuration-field-help.ts`](../web/src/pages/configuration-page/configuration-field-help.ts).
 For example, `final` selects a DNS server in DNS settings and an outbound in
 route settings; `method` describes encryption for Shadowsocks and rejection
 behavior for a reject action. Presentation annotations are added only to a
@@ -245,7 +245,7 @@ certificates and traversing their directories without changing file ownership
 or modes, including symlink targets. The capability covers the service's visible
 filesystem; service sandbox restrictions still apply. Older installed units need
 to be refreshed before this takes effect. Check the effective service identity,
-capabilities and drop-ins; see [systemd permissions](../../systemd/README.md#system-service).
+capabilities and drop-ins; see [systemd permissions](../systemd/README.md#system-service).
 
 Click an entry to select it, then use the toolbar's Confirm button to validate and
 use that path. Double-click a directory, or press Enter / Right Arrow on its row,
@@ -322,9 +322,10 @@ starting again after disable.
 
 ## Lifecycle and rollback
 
-Use the Web UI's runtime controls to inspect status, start, restart, roll back,
-or stop the selected core. The authenticated runtime API supports the same
-operations; the CLI manages the panel service itself.
+Use the Web UI's runtime controls to inspect status, start, restart or stop the
+selected core. The authenticated runtime API supports the same operations and is
+the only rollback entry point (`POST /api/v1/core/rollback`); the Web UI has no
+rollback control. The CLI manages the panel service itself.
 
 Start and Restart use the last successfully selected binary identity and the current saved
 file. A changed file is snapshotted for binary preflight in the serialized runtime
@@ -494,7 +495,7 @@ interruption. Backup restoration coordinates the settings file and saved sing-bo
 second copy of settings. Startup recovers before serving requests. Incomplete
 updates block file commands; a conflicting external edit is never overwritten
 by automatic recovery. Keep the selected file and its directory writable by the
-service account; see [systemd permissions](../../systemd/README.md#system-service).
+service account; see [systemd permissions](../systemd/README.md#system-service).
 
 The public-node host accepts a public IP or domain override; otherwise the
 bounded public-IP detector provides the input placeholder and publication host.

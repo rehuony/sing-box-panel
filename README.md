@@ -32,7 +32,8 @@ Node.js, pnpm, or a separate SQLite CLI.
   the selected exact binary, and add structured editing only for versions that
   have a committed native or project-reviewed JSON Schema.
 - Keep canonical revisions, checked startup artifacts, applied bundles, and
-  rollback bundles separate and immutable.
+  rollback bundles separate and immutable; roll back to the previous bundle
+  through the authenticated API.
 - Publish live, authorized subscriptions in sing-box, Mihomo, and Loon formats
   from the last applied local nodes and current third-party source versions.
 - Manage core versions, configuration and subscriptions through the embedded React
@@ -166,12 +167,12 @@ settings precedence, and systemd deployment paths.
 | Workflow | Guide |
 | --- | --- |
 | Build, initialize, and run the panel | [Getting started](docs/getting-started.md) |
-| Use commands, automation output, and shell completion | [CLI reference](docs/guides/cli.md) |
-| Install exact versions and inspect configuration capabilities | [Core versions](docs/guides/core-versions.md) |
-| Edit, check, apply, restart, and roll back configuration | [Configuration and runtime](docs/guides/configuration-and-runtime.md) |
-| Publish subscriptions and inspect operational data | [Subscriptions and observability](docs/guides/subscriptions-and-observability.md) |
-| Integrate with the API and operate its security boundary | [HTTP API and security](docs/development/architecture.md#http-api-and-security) |
-| Build, sign, test, and publish release artifacts | [Release process](docs/development/release.md) |
+| Use commands, automation output, and shell completion | [CLI reference](docs/cli.md) |
+| Install exact versions and inspect configuration capabilities | [Core versions](docs/core-versions.md) |
+| Edit, check, apply, and restart configuration; roll back through the API | [Configuration and runtime](docs/configuration-and-runtime.md) |
+| Publish subscriptions and inspect operational data | [Subscriptions and observability](docs/subscriptions-and-observability.md) |
+| Integrate with the API and operate its security boundary | [HTTP API and security](docs/architecture.md#http-api-and-security) |
+| Build, sign, test, and publish release artifacts | [Release process](docs/release.md) |
 
 The [documentation index](docs/README.md) also links the component-level
 sources of truth for OpenAPI, version capabilities, systemd packaging, release
@@ -181,12 +182,15 @@ builds, and the web application.
 
 ```text
 .github/             Workflows, community templates, code ownership, and signing keys
-api/                 OpenAPI source contract
-cmd/                 Panel entry point and repository development tools
+api/                 OpenAPI contract and shared subscription templates
+cmd/                 Service entry points
+docs/                Guides, architecture, testing, and release process
 internal/            Go implementation packages
 scripts/             End-user installation, release, and local test scripts
 systemd/             Embedded systemd templates and packaging guidance
+tools/               Maintainer commands run through go tool
 web/                 React/Vite application managed with pnpm
+DESIGN.md            Visual identity, design tokens, and interface rules
 ```
 
 ## Contributing

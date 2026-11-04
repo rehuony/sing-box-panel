@@ -934,7 +934,7 @@
   flex: 0 0 auto;
 }
 .subscriptions-tabs [data-active] {
-  color: var(--color-accent);
+  color: var(--color-primary);
 }
 .subscriptions-tab-panel {
   flex: 1;

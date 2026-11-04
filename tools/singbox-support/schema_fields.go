@@ -14,12 +14,12 @@ import (
 	"strings"
 )
 
-const reviewedSchemaFieldsPath = "cmd/singbox-support/schema-sources/1.13-fields.csv"
+const reviewedSchemaFieldsPath = "tools/singbox-support/schema-sources/1.13-fields.csv"
 
 // Each shared definition is expanded once. Subsequent uses name the definition
 // in the shape column, so recursive rules do not produce an infinite table.
 func reviewedSchemaFields(root string) ([]byte, error) {
-	raw, err := os.ReadFile(filepath.Join(root, "cmd/singbox-support/schema-sources/1.13.json"))
+	raw, err := os.ReadFile(filepath.Join(root, "tools/singbox-support/schema-sources/1.13.json"))
 	if err != nil {
 		return nil, err
 	}

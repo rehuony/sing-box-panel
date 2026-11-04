@@ -5,15 +5,11 @@ package store
 import (
 	"context"
 	"database/sql"
-	_ "embed"
 	"errors"
 	"fmt"
 	"strings"
 	"time"
 )
-
-//go:embed traffic_checkpoint.sql
-var trafficCheckpointSchema string
 
 type TrafficSampleInput struct {
 	ActivationBundleID string

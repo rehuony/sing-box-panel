@@ -1,6 +1,6 @@
 // Reviewed against sing-box v1.13.21 and v1.14.1 configuration documentation.
 // Display copy only: never use these names as JSON keys or validation rules.
-// Provenance and maintenance notes: docs/guides/configuration-and-runtime.md.
+// Provenance and maintenance notes: docs/configuration-and-runtime.md.
 export const configurationFieldCopy: Record<string, readonly [label: string, description: string]> = {
   $schema: ['配置规范地址', '指定编辑器使用的 JSON Schema 地址；不会改变 sing-box 的运行配置。'],
   Password: ['密码', '与服务端配置匹配的认证密码。'],

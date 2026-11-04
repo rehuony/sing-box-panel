@@ -20,8 +20,9 @@ type SchemaInfo struct {
 	Version       int
 }
 
-// initializeSchema creates an empty database or transactionally upgrades versions
-// 11–16 of this storage epoch. Unrelated and newer formats remain rejected.
+// initializeSchema creates the baseline schema in an empty database or verifies
+// the identity of an existing one. Earlier, unrelated and newer formats are
+// rejected without conversion.
 func (s *Store) initializeSchema(ctx context.Context) error {
 	return s.WithTx(ctx, func(tx *sql.Tx) error {
 		applicationID, err := pragmaInt(ctx, tx, "application_id")
@@ -30,48 +31,6 @@ func (s *Store) initializeSchema(ctx context.Context) error {
 		}
 		version, err := pragmaInt(ctx, tx, "user_version")
 		if err != nil {
-			return err
-		}
-		if applicationID == ApplicationID && version == 11 {
-			if _, err := tx.ExecContext(ctx, legacyTrafficMonthsSchema); err != nil {
-				return err
-			}
-			if err := seedTrafficMonths(ctx, tx); err != nil {
-				return err
-			}
-			version = 12
-		}
-		if applicationID == ApplicationID && version == 12 {
-			if _, err := tx.ExecContext(ctx, `UPDATE subscription_channels
-				SET config_json = json_remove(config_json, '$.export_token_ids')
-				WHERE json_type(config_json, '$.export_token_ids') IS NOT NULL`); err != nil {
-				return fmt.Errorf("remove subscription export key bindings: %w", err)
-			}
-			version = 13
-		}
-		if applicationID == ApplicationID && version == 13 {
-			if err := migrateSubscriptionPolicies(ctx, tx); err != nil {
-				return fmt.Errorf("migrate subscription policy ordering: %w", err)
-			}
-			version = 14
-		}
-		if applicationID == ApplicationID && version == 14 {
-			if err := migrateTrafficAccounting(ctx, tx); err != nil {
-				return fmt.Errorf("migrate traffic accounting: %w", err)
-			}
-			version = 15
-		}
-		if applicationID == ApplicationID && version == 15 {
-			if _, err := tx.ExecContext(ctx, subscriptionNodeOrdersSchema); err != nil {
-				return fmt.Errorf("migrate subscription node orders: %w", err)
-			}
-			version = 16
-		}
-		if applicationID == ApplicationID && version == 16 {
-			if _, err := tx.ExecContext(ctx, authenticationSchema); err != nil {
-				return fmt.Errorf("migrate authentication sessions: %w", err)
-			}
-			_, err := tx.ExecContext(ctx, "PRAGMA user_version = 17")
 			return err
 		}
 		if applicationID != 0 {
@@ -84,7 +43,7 @@ func (s *Store) initializeSchema(ctx context.Context) error {
 		if version != 0 || hasObjects {
 			return fmt.Errorf("%w: refusing to adopt an unidentified non-empty database", ErrUnexpectedApplicationID)
 		}
-		if _, err := tx.ExecContext(ctx, databaseSchema+"\n"+trafficMonthsSchema+"\n"+trafficCheckpointSchema+"\n"+subscriptionNodeOrdersSchema+"\n"+authenticationSchema); err != nil {
+		if _, err := tx.ExecContext(ctx, databaseSchema); err != nil {
 			return fmt.Errorf("initialize SQLite schema: %w", err)
 		}
 		if _, err := tx.ExecContext(ctx, fmt.Sprintf("PRAGMA application_id = %d; PRAGMA user_version = %d", ApplicationID, CurrentSchemaVersion)); err != nil {

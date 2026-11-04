@@ -41,7 +41,7 @@
 }
 .panel-settings-tabs > [data-slot='tabs-list'] [data-active] {
   background: var(--color-accent-soft);
-  color: var(--color-accent);
+  color: var(--color-primary);
 }
 .panel-settings-tabs > [data-slot='tabs-list'] [data-active]::after {
   display: none;
@@ -148,7 +148,7 @@
   position: absolute;
   width: 28px;
   height: 28px;
-  border: 1px solid var(--color-accent);
+  border: 1px solid var(--color-primary);
   border-radius: 6px;
 }
 .settings-radius {

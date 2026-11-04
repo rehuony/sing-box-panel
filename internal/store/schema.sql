@@ -1,4 +1,4 @@
--- Current database schema. Initialization only; existing formats are never converted.
+-- Database schema baseline. Earlier storage formats are rejected, never converted.
 
 CREATE TABLE canonical_revisions (
     id TEXT PRIMARY KEY CHECK (id <> ''),
@@ -425,3 +425,42 @@ INSERT INTO runtime_transitions(
     strftime('%Y-%m-%dT%H:%M:%f000000Z', 'now'),
     strftime('%Y-%m-%dT%H:%M:%f000000Z', 'now')
 );
+
+CREATE TABLE traffic_months (
+    month_start TEXT PRIMARY KEY CHECK (month_start <> ''),
+    inbound_bytes INTEGER NOT NULL CHECK (inbound_bytes >= 0),
+    outbound_bytes INTEGER NOT NULL CHECK (outbound_bytes >= 0),
+    first_observed_at TEXT NOT NULL CHECK (first_observed_at <> ''),
+    last_sample_at TEXT NOT NULL CHECK (last_sample_at >= first_observed_at)
+) STRICT;
+
+CREATE TABLE traffic_checkpoint (
+    singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+    pid INTEGER NOT NULL CHECK (pid > 0),
+    process_start_token TEXT NOT NULL CHECK (process_start_token <> ''),
+    activation_bundle_id TEXT NOT NULL
+        REFERENCES activation_bundles(id) ON DELETE RESTRICT,
+    last_upload_total INTEGER NOT NULL CHECK (last_upload_total >= 0),
+    last_download_total INTEGER NOT NULL CHECK (last_download_total >= 0),
+    sampled_at TEXT NOT NULL CHECK (sampled_at <> '')
+) STRICT;
+
+CREATE TABLE subscription_node_orders (
+    collection_id TEXT PRIMARY KEY CHECK (collection_id <> ''),
+    node_ids_json TEXT NOT NULL CHECK (json_valid(node_ids_json) AND json_type(node_ids_json) = 'array'),
+    revision INTEGER NOT NULL CHECK (revision > 0)
+) STRICT;
+
+CREATE TRIGGER subscription_source_delete_node_order AFTER DELETE ON subscription_sources
+BEGIN
+    DELETE FROM subscription_node_orders WHERE collection_id = OLD.id;
+END;
+
+CREATE TABLE auth_sessions (
+    token_hash BLOB PRIMARY KEY CHECK (length(token_hash) = 32),
+    csrf_token TEXT NOT NULL,
+    expires_at INTEGER NOT NULL,
+    credential_hash BLOB NOT NULL CHECK (length(credential_hash) = 32)
+) STRICT;
+
+CREATE INDEX auth_sessions_expiry ON auth_sessions(expires_at);

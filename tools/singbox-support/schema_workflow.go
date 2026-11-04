@@ -82,7 +82,7 @@ func generateSchemas(root string) error {
 			entry, err = generateNativeSchema(temporaryRoot, version, outputRoot)
 		case singbox.SchemaSourceReviewed113:
 			var raw []byte
-			raw, err = canonicalJSONFile(filepath.Join(root, "cmd/singbox-support/schema-sources/1.13.json"))
+			raw, err = canonicalJSONFile(filepath.Join(root, "tools/singbox-support/schema-sources/1.13.json"))
 			if err == nil {
 				entry, err = writeConfigurationSchema(version, raw, outputRoot)
 			}
@@ -357,7 +357,7 @@ func checkReviewedSchemas(root string, catalog sourceCatalog) error {
 		if version.SchemaSource != singbox.SchemaSourceReviewed113 {
 			continue
 		}
-		raw, err := canonicalJSONFile(filepath.Join(root, "cmd/singbox-support/schema-sources/1.13.json"))
+		raw, err := canonicalJSONFile(filepath.Join(root, "tools/singbox-support/schema-sources/1.13.json"))
 		if err != nil {
 			return err
 		}

@@ -39,8 +39,8 @@ describe('appearance tokens', () => {
     for (const color of [...THEME_PRESETS, '#FFFFFF', '#FFFF00', '#00FF00', '#000000', '#AAAAAA']) {
       for (const dark of [false, true]) {
         const tokens = appearanceTokens({ ...DEFAULT_APPEARANCE, color }, dark);
-        expect(contrastRatio(tokens['--color-accent']!, tokens['--color-accent-soft']!)).toBeGreaterThanOrEqual(4.5);
-        expect(contrastRatio(tokens['--color-accent']!, tokens['--color-accent-ink']!)).toBeGreaterThanOrEqual(4.5);
+        expect(contrastRatio(tokens['--primary']!, tokens['--color-accent-soft']!)).toBeGreaterThanOrEqual(4.5);
+        expect(contrastRatio(tokens['--primary']!, tokens['--color-accent-ink']!)).toBeGreaterThanOrEqual(4.5);
         expect(tokens['--appearance-color']).toBe(color);
         expect(tokens).not.toHaveProperty('--color-success');
         expect(tokens).not.toHaveProperty('--color-brand-navy');

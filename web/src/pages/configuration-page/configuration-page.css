@@ -558,7 +558,7 @@
 }
 .configuration-general__nav [data-active] {
   background: var(--color-accent-soft);
-  color: var(--color-accent);
+  color: var(--color-primary);
 }
 .configuration-general__nav [data-active]::after {
   display: none;

@@ -84,7 +84,7 @@
 }
 .editor-search__field [aria-pressed='true'] {
   background: var(--color-accent-soft);
-  color: var(--color-accent);
+  color: var(--color-primary);
 }
 .editor-search__actions {
   display: flex;

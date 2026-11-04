@@ -3,10 +3,10 @@ module github.com/rehuony/sing-box-panel
 go 1.26.0
 
 tool (
-	github.com/rehuony/sing-box-panel/cmd/sign-release
-	github.com/rehuony/sing-box-panel/cmd/singbox-support
-	github.com/rehuony/sing-box-panel/cmd/third-party-notices
-	github.com/rehuony/sing-box-panel/cmd/verify-openapi
+	github.com/rehuony/sing-box-panel/tools/sign-release
+	github.com/rehuony/sing-box-panel/tools/singbox-support
+	github.com/rehuony/sing-box-panel/tools/third-party-notices
+	github.com/rehuony/sing-box-panel/tools/verify-openapi
 )
 
 require (

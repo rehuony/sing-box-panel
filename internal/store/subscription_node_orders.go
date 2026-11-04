@@ -5,16 +5,12 @@ package store
 import (
 	"context"
 	"database/sql"
-	_ "embed"
 	"encoding/json"
 	"errors"
 	"slices"
 
 	"github.com/rehuony/sing-box-panel/internal/subscription"
 )
-
-//go:embed subscription_node_orders.sql
-var subscriptionNodeOrdersSchema string
 
 func (s *Store) SetSubscriptionNodeOrder(ctx context.Context, collectionID string, ids []string, expected int64) (subscription.NodeOrder, error) {
 	if (collectionID != "manual" && validateSubscriptionID(collectionID, "source") != nil) || ids == nil || len(ids) > subscription.MaximumNodes || expected < 0 || expected >= 9007199254740991 {

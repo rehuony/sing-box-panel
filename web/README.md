@@ -6,6 +6,8 @@ on backend implementation packages.
 Install the [development toolchains](../CONTRIBUTING.md#development-setup) first.
 Schema preparation requires Go for offline export, including when running frontend tests.
 
+## Development
+
 ```sh
 corepack enable pnpm
 pnpm install --frozen-lockfile --ignore-scripts --verify-store-integrity
@@ -21,7 +23,7 @@ projects; `pnpm run build` builds the application.
 Run `pnpm run lint:fix` to apply the configured TypeScript, React, CSS, and HTML
 formatting rules before checking the remaining code-quality diagnostics.
 Test environments, timeout bounds and coverage ownership are documented in
-[Testing](../docs/development/testing.md).
+[Testing](../docs/testing.md).
 
 Run `pnpm demo` to start the complete interface with an in-memory API client.
 Demo mode never contacts the backend, so it is suitable for working on pages,
@@ -33,13 +35,29 @@ its password, including in another demo instance. These verifiers are only for
 demo data; production uses server-side Argon2id. Unsupported backup verifiers are
 rejected before changing demo state.
 
-Production login lazily collects a FingerprintJS visitor ID with the locally
-bundled SDK and sends it only in `X-Client-Fingerprint`. Collection is bounded to
-1.5 seconds, SDK monitoring is disabled, and the ID is kept only in page memory.
-Collection failure falls back to login without a fingerprint; server peer/global
-limits always apply. Fingerprints do not authenticate a user. See the
-[authentication contract](../docs/development/architecture.md#management-authentication)
-for limits, proxy behavior and privacy boundaries.
+## Source layout
+
+`src/api/api-client.ts` exposes the client interface and simple generated
+transport types directly. Modules in `src/api/contracts/` own additional
+domain-specific query filters and derived types. Routes are assembled in
+`src/routes/app.routes.tsx`; complex component entries remain narrow boundaries
+around their companion files. Each locale groups navigation, account, language,
+and theme labels in `shell.ts`, with shared and startup messages in `common.ts`.
+
+The first visit selects Simplified Chinese for a `zh-CN` browser preference and
+English otherwise; an explicit user selection is persisted and takes precedence
+on later visits.
+
+`components/server-path-input` owns the shared server filesystem selector.
+Configuration and subscription-node forms use it through context-aware presentation
+annotations in `configuration-path-fields`, including scalar/list representations
+and nested dialogs. Filesystem reads go through the injected `ApiClient`; demo
+mode uses a fixed in-memory directory tree. The chooser preserves hand-entered
+values until confirmation and rechecks the selected path with the server.
+See [server path selection](../docs/configuration-and-runtime.md#selecting-server-paths)
+for filesystem scope and path semantics.
+
+## Generated inputs
 
 Transport types under `src/api/generated/` are build artifacts generated from
 `../api/openapi.yaml`. Development, typecheck, test, and build commands refresh
@@ -47,6 +65,60 @@ them automatically; they are not committed or edited by hand. The custom HTTP
 client remains hand-written. `pnpm run generate` prepares both transport types
 and configuration Schema assets; ordinary development and validation commands
 include this step, so no separate preparation command is needed.
+
+Configuration contracts under `src/schemas/.generated/` are exported offline
+from the committed backend Schema assets by `pnpm run generate`. They are
+build outputs and are not committed or edited by hand. Development, demo,
+typecheck, test and build commands run generation before loading their imports;
+Vite itself does not generate them. The generated manifest binds each reviewed
+exact version to its source kind, file and SHA-256 digest. Identical Schema
+contents share one exported asset and one Ajv 2020 browser validator. Generation
+leaves the output directory untouched when all contents already match.
+`pnpm run schema:check` recomputes and compares the expected outputs without
+changing that directory. Generated validators contain no CommonJS `require`.
+Application code imports the stable `src/schemas/index.ts` public entry instead
+of importing generated files directly. This entry reads the manifest and lazily
+loads shared Schema and validator modules with Vite's `import.meta.glob`; the
+generator writes only the manifest and assets.
+The [support table](../docs/core-versions.md#exact-configuration-support)
+lists the reviewed exact versions; sharing a digest does not support another
+version. A version without a committed Schema
+remains available in the Advanced JSON editor; structured editing is enabled
+only when the exact-version local Schema and served digest match. The
+configuration version selector lists compatible installed core versions,
+prefers the enabled version, and otherwise selects the highest installed exact
+version. Without an installed core, Advanced JSON editing and saving remain
+available while structured editing and validation direct the operator to
+version management.
+
+## Build output and embedding
+
+`pnpm run build` produces a deterministic SPA bundle in `web/dist/`. The Go
+Web package embeds that directory and uses `index.html` for client-side
+routes. `dist/` is generated output and is not a source of truth, but it must
+exist before any Go package that embeds the Web application is loaded.
+Content-hashed JavaScript and CSS assets are served with a one-year immutable
+cache lifetime. HTML and SPA fallback responses remain `no-store`, so new builds
+advertise their new asset hashes immediately.
+`public/favicon.svg` is the single static icon source used by HTML, the React
+logo, release bundles, and the repository README.
+
+## HTTP client and authentication
+
+At runtime the browser client uses same-origin `/api/v1` endpoints for the
+session, live dashboard context, the single saved configuration, panel settings,
+subscription publication, persistent logs and exact core-artifact operations. Cookie-backed writes retain
+the session CSRF token, and saved-file writes include the numeric revision in the request.
+
+Production login lazily collects a FingerprintJS visitor ID with the locally
+bundled SDK and sends it only in `X-Client-Fingerprint`. Collection is bounded to
+1.5 seconds, SDK monitoring is disabled, and the ID is kept only in page memory.
+Collection failure falls back to login without a fingerprint; server peer/global
+limits always apply. Fingerprints do not authenticate a user. See the
+[authentication contract](../docs/architecture.md#management-authentication)
+for limits, proxy behavior and privacy boundaries.
+
+## Data loading and caching
 
 Navigation preloads route modules on sidebar hover, keyboard focus and pointer
 press, sharing each pending download with navigation. A failed speculative import
@@ -80,122 +152,13 @@ three concurrent operations and one final list refresh. The backend also limits
 remote refresh concurrency to three across callers. Drafts retain their revision
 until explicitly saved/restored so background reads cannot bypass conflict checks.
 
-`src/api/api-client.ts` exposes the client interface and simple generated
-transport types directly. Modules in `src/api/contracts/` own additional
-domain-specific query filters and derived types. Routes are assembled in
-`src/routes/app.routes.tsx`; complex component entries remain narrow boundaries
-around their companion files. Each locale groups navigation, account, language,
-and theme labels in `shell.ts`, with shared and startup messages in `common.ts`.
-
-`components/server-path-input` owns the shared server filesystem selector.
-Configuration and subscription-node forms use it through context-aware presentation
-annotations in `configuration-path-fields`, including scalar/list representations
-and nested dialogs. Filesystem reads go through the injected `ApiClient`; demo
-mode uses a fixed in-memory directory tree. The chooser preserves hand-entered
-values until confirmation and rechecks the selected path with the server.
-See [server path selection](../docs/guides/configuration-and-runtime.md#selecting-server-paths)
-for filesystem scope and path semantics.
-
-Path pickers and log-file filters reuse the shared Input, InputGroup and Select
-styles for control height, borders, spacing and focus feedback. Opening a Select
-with the mouse keeps options visually neutral, including the selected item;
-the checkmark still identifies the current value. Options highlight on hover or
-keyboard-visible focus, without changing the value until an option is chosen.
-
-Configuration contracts under `src/schemas/.generated/` are exported offline
-from the committed backend Schema assets by `pnpm run generate`. They are
-build outputs and are not committed or edited by hand. Development, demo,
-typecheck, test and build commands run generation before loading their imports;
-Vite itself does not generate them. The generated manifest binds each reviewed
-exact version to its source kind, file and SHA-256 digest. Identical Schema
-contents share one exported asset and one Ajv 2020 browser validator. Generation
-leaves the output directory untouched when all contents already match.
-`pnpm run schema:check` recomputes and compares the expected outputs without
-changing that directory. Generated validators contain no CommonJS `require`.
-Application code imports the stable `src/schemas/index.ts` public entry instead
-of importing generated files directly. This entry reads the manifest and lazily
-loads shared Schema and validator modules with Vite's `import.meta.glob`; the
-generator writes only the manifest and assets.
-The [support table](../docs/guides/core-versions.md#exact-configuration-support)
-lists the reviewed exact versions; sharing a digest does not support another
-version. A version without a committed Schema
-remains available in the Advanced JSON editor; structured editing is enabled
-only when the exact-version local Schema and served digest match. The
-configuration version selector lists compatible installed core versions,
-prefers the enabled version, and otherwise selects the highest installed exact
-version. Without an installed core, Advanced JSON editing and saving remain
-available while structured editing and validation direct the operator to
-version management.
-
-`pnpm run build` produces a deterministic SPA bundle in `web/dist/`. The Go
-Web package embeds that directory and uses `index.html` for client-side
-routes. `dist/` is generated output and is not a source of truth, but it must
-exist before any Go package that embeds the Web application is loaded.
-Content-hashed JavaScript and CSS assets are served with a one-year immutable
-cache lifetime. HTML and SPA fallback responses remain `no-store`, so new builds
-advertise their new asset hashes immediately.
-`public/favicon.svg` is the single static icon source used by HTML, the React
-logo, release bundles, and the repository README.
-
-The HTML entry includes a `sing-box-panel-appearance` meta element containing
-only the saved `theme`, `color`, and `radius`. The server reads this public visual
-projection from the current settings for each document request, including login
-and deep links; if reading fails, it uses the startup appearance so login remains
-available. Full panel settings and credentials remain authenticated.
-The global `ThemeProvider` applies these values before the first interface paint
-and owns the shared color, contrast, and radius tokens for every route. Login
-inherits the same page background and surface tokens as the panel. Authenticated
-settings loads and saves update this shared state; unsaved appearance previews
-are cleared when leaving settings or ending the session. The appearance selector
-edits the server default in the settings draft; only saving settings writes it to
-the backend. The sidebar shortcut immediately changes a separate browser preference
-through a Zustand store with `persist`, using the existing `sing-box-panel.theme`
-localStorage key and raw light/dark/system values. It makes no API requests and
-never edits or dirties the settings draft. The store synchronously restores that
-choice on page load, overriding the server theme even after settings load, save,
-or discard. Missing, invalid, or inaccessible local values leave the server default
-in effect; loading a server default does not write a browser override. Color and
-radius still follow the server settings and their previews. An explicit local
-system choice follows live OS changes. Without server metadata (Vite/demo), the
-default palette provides the initial appearance beneath any local theme override.
-Session checks, route loading, and initial page/Tab data loading share
-`LoadingState`: a compact theme-colored spinner above a muted status label,
-without a card or secondary explanation. Its brief delayed fade-in avoids flashes
-for fast loads without delaying ready content. Loading stays within the pending
-content region, retaining navigation, toolbars and any usable data. Reduced motion
-shows the indicator immediately and keeps it still.
-
-Login uses one responsive frame for session checking, sign-in, and service
-unavailability. Its decorative geometric characters respond to pointer and form
-focus. All three remain front-facing and close their eyes while the password
-field or visibility toggle is focused, or while the password is visible. They
-reopen their eyes when the password is hidden and focus leaves that field. The
-scene receives presentation state only, never credentials. Motion stops at rest;
-when their eyes are open, each character's pupils track a fine mouse pointer
-across the page while staying inside fixed eye whites. Reduced motion
-switches poses without animation. Form focus, error notifications, and
-authentication behavior remain independent of the scene.
-
-At runtime the browser client uses same-origin `/api/v1` endpoints for the
-session, live dashboard context, the single saved configuration, panel settings,
-subscription publication, persistent logs and exact core-artifact operations. Cookie-backed writes retain
-the session CSRF token, and saved-file writes include the numeric revision in the request.
-
 Operations await the completed API resource; version/source actions update in
 place and failures retain previous usable state. Runtime controls verify observed
 process identity before reporting success. Version management displays the cached
 catalog immediately, initializes a missing cache, and offers a forced refresh;
 the running server handles periodic refresh using the configured interval.
-Panel logs show five centered, single-line columns: occurrence time, level,
-event summary, event source, and a details action. Known event names follow the
-interface language; unknown events retain their original messages. The summary
-contains only the event name, with overflowing text truncated. A read-only modal
-shows the selected record's stable snapshot, recorded context, and collapsible
-JSON, with a Copy log action. Basic information and context sit
-side by side on desktop and stack on narrow screens; the header and actions stay
-visible while the details scroll. Closing it preserves list state and
-restores keyboard focus. Native process output and telemetry use authenticated
-streams with bounded buffering and reconnect.
+
+## Telemetry
 
 Telemetry uses a stable Zustand store with separate subscriptions for runtime,
 metrics, history and connection health. History is subscribed only by the
@@ -228,6 +191,70 @@ opens the panel-log tab; its tooltip exposes the full name and occurrence time.
 Activity times include dates for earlier days and years for earlier years, and
 update at local midnight independently of delayed runtime snapshots.
 
+## Shell, theme and loading
+
+The HTML entry includes a `sing-box-panel-appearance` meta element containing
+only the saved `theme`, `color`, and `radius`. The server reads this public visual
+projection from the current settings for each document request, including login
+and deep links; if reading fails, it uses the startup appearance so login remains
+available. Full panel settings and credentials remain authenticated.
+The global `ThemeProvider` applies these values before the first interface paint
+and owns the shared color, contrast, and radius tokens for every route. Login
+inherits the same page background and surface tokens as the panel. Authenticated
+settings loads and saves update this shared state; unsaved appearance previews
+are cleared when leaving settings or ending the session. The appearance selector
+edits the server default in the settings draft; only saving settings writes it to
+the backend. The sidebar shortcut immediately changes a separate browser preference
+through a Zustand store with `persist`, using the existing `sing-box-panel.theme`
+localStorage key and raw light/dark/system values. It makes no API requests and
+never edits or dirties the settings draft. The store synchronously restores that
+choice on page load, overriding the server theme even after settings load, save,
+or discard. Missing, invalid, or inaccessible local values leave the server default
+in effect; loading a server default does not write a browser override. Color and
+radius still follow the server settings and their previews. An explicit local
+system choice follows live OS changes. Without server metadata (Vite/demo), the
+default palette provides the initial appearance beneath any local theme override.
+Session checks, route loading, and initial page/Tab data loading share
+`LoadingState`, whose appearance follows the loading-region pattern in
+[`DESIGN.md`](../DESIGN.md). Its brief delayed fade-in avoids flashes
+for fast loads without delaying ready content. Loading stays within the pending
+content region, retaining navigation, toolbars and any usable data. Reduced motion
+shows the indicator immediately and keeps it still.
+
+Colours, type, surfaces, radius and motion come from the tokens described in
+[`DESIGN.md`](../DESIGN.md); `src/styles/global.css` imports `tokens.css`,
+`base.css` and `components.css`. New configurations default to the system color
+scheme. The server embeds nonce-authorized background styles so the saved palette
+also appears before JavaScript starts. Explicit light/dark preferences remain
+supported. Reduced motion, reduced transparency, and increased contrast
+preferences are respected.
+
+The six main pages omit the visible page-title band while retaining a screen
+reader heading. Their content fills the space below the runtime toolbar and
+ends at the same bottom inset as the sidebar. Tables and forms scroll within
+that space when needed, keeping panel actions reachable. The dashboard scrolls
+in the full-height shell behind the floating runtime toolbar; the toolbar
+surroundings remain transparent and the scrollbar sits at the viewport edge.
+
+## Login
+
+Login uses one responsive frame for session checking, sign-in, and service
+unavailability. Its decorative geometric characters respond to pointer and form
+focus. All three remain front-facing and close their eyes while the password
+field or visibility toggle is focused, or while the password is visible. They
+reopen their eyes when the password is hidden and focus leaves that field. The
+scene receives presentation state only, never credentials. Motion stops at rest;
+when their eyes are open, each character's pupils track a fine mouse pointer
+across the page while staying inside fixed eye whites. Reduced motion
+switches poses without animation. Form focus, error notifications, and
+authentication behavior remain independent of the scene.
+
+## Shared controls and lists
+
+Path pickers and log-file filters reuse the shared Input, InputGroup and Select
+components, so their sizes and states follow the field and single-choice patterns
+in [`DESIGN.md`](../DESIGN.md). Options never change the value until one is chosen.
+
 Version, subscription source, node, channel, key, and panel-log lists use the
 shared `components/list-pagination` footer. It combines the page-size selector,
 circular previous/next buttons, current-page input, and read-only total.
@@ -242,19 +269,48 @@ Panel-log search matches both Chinese and English event names by passing exact
 `search_codes` alongside the original `search` text. The server unions those
 matches before applying other filters, counting, and pagination. The demo client
 uses the same semantics and includes runtime transitions with their saved context.
-Enabled buttons, selectors, menu options, tabs, and choice controls use a pointer
-cursor. Disabled controls retain unavailable feedback; text inputs remain editable.
 Dashboard activity links and runtime segments use explicit keyboard focus outlines
-for inspection. Other controls and content regions do not add accent-colored focus
-borders or halos. Neutral field focus borders, menu highlights, selection states,
-and validation feedback remain separate from this presentation rule; keyboard
-navigation and focus restoration are preserved.
+for inspection; keyboard navigation and focus restoration are preserved everywhere.
 
-Tests inject an `ApiClient`, keeping pages independent from `fetch` while the
-HTTP client has focused tests for base-path routing, CSRF, problem details, and
-revision preconditions. The first visit selects Simplified Chinese for a
-`zh-CN` browser preference and English otherwise; an explicit user selection
-is persisted and takes precedence on later visits.
+Workspace tables for versions, sources, keys, channels and panel logs use the data
+table pattern and table measurements in [`DESIGN.md`](../DESIGN.md).
+
+## Pages and navigation
+
+The six navigation entries host 15 views using local tabs/dialogs instead
+of feedback-page copies. Sources, manual nodes, subscription keys and native
+channel rules share node provenance and independent visibility. Channel preview
+and delivery have one server renderer; remote rule references are fetched only
+by subscribing clients. Native editors preserve unknown fields and scalar/list
+representations. Appearance is a saveable preview transaction shared by controls,
+charts and overlays, with semantic status colors kept independent.
+
+Management tabs use URL fragments: `#cores-installed` / `#cores-catalog`,
+`#configuration-visual` / `#configuration-advanced` (visual sections append `/route`,
+`/inbounds`, etc.), `#panel-service`, `#panel-traffic`, `#panel-logs`,
+`#panel-interface`, `#panel-maintenance`, `#panel-backup` (earlier section names
+such as `#panel-authentication` open the category that now contains them), and
+`#logs-core` / `#logs-panel`. Direct links, reloads and browser history restore the
+selected tab; legacy log query links still open their requested view. Tab switches
+preserve unrelated query parameters and route state. Subscription tabs retain
+`#subscription-sources`, `#subscription-tokens`, and `#subscription-channels`.
+
+## Panel logs
+
+Panel logs show five centered, single-line columns: occurrence time, level,
+event summary, event source, and a details action. Known event names follow the
+interface language; unknown events retain their original messages. The summary
+contains only the event name, with overflowing text truncated. A read-only modal
+shows the selected record's stable snapshot, recorded context, and collapsible
+JSON, with a Copy log action. Basic information and context sit
+side by side on desktop and stack on narrow screens; the header and actions stay
+visible while the details scroll. Closing it preserves list state and
+restores keyboard focus. Native process output and telemetry use authenticated
+streams with bounded buffering and reconnect.
+
+## Configuration editor
+
+### Drafts and validation
 
 The configuration UI combines version-scoped RJSF controls with a lossless
 sing-box JSON editor. It preserves unknown fields and unmodified large-number
@@ -267,6 +323,8 @@ unsaved-change guard.
 Start/Restart validate saved bytes using the selected exact binary before
 replacing the process. Immutable snapshots support runtime verification and recovery;
 the editor has one current document with no historical selection or restoration.
+
+### Modules and field help
 
 Configuration modules are edited individually, with optional object settings
 added on demand. Sections with child tabs keep collection actions in the toolbar
@@ -291,7 +349,7 @@ errors remain visible beside the control.
 Chinese field names and help cover the committed schema inventory, including
 list and optional-object headings. Help shows the description without a separate key heading and uses
 context-specific wording for DNS, routing and protocol options. See the
-[field-help contract and sources](../docs/guides/configuration-and-runtime.md#field-names-and-inline-help).
+[field-help contract and sources](../docs/configuration-and-runtime.md#field-names-and-inline-help).
 Panel settings use the same `InfoTooltip` and information icon for field help.
 It reuses the existing `Tooltip` component, including its styling and shared
 provider: opening another tooltip dismisses the previous one. Hover previews
@@ -300,6 +358,8 @@ navigation and show no focus border or ring. Clicking an open help
 trigger keeps its tooltip visible. Leaving the trigger and tooltip, losing
 focus, Escape or outside press dismisses it. Action-button tooltips retain their
 ordinary click-to-dismiss behavior.
+### Entry dialogs
+
 Adding a record or choosing its Edit action opens a dialog; confirming updates
 the draft and cancelling discards the pending changes. Simple entry dialogs use a
 compact, content-height layout with each label, help icon and control on one row
@@ -353,8 +413,10 @@ choices appear in Basic settings, SSH authentication in Authentication, and deto
 selection in Connection options. One mounted schema form preserves pending fields
 across section changes and retains the protocol as a hidden discriminator so
 generation uses the current protocol and encryption method. See the
-[configuration guide](../docs/guides/configuration-and-runtime.md#reviewed-configuration-schemas)
+[configuration guide](../docs/configuration-and-runtime.md#reviewed-configuration-schemas)
 for the generated formats.
+### Previews and unsaved changes
+
 Managed entry editors include their lossless JSON preview in the same tab bar.
 The preview follows the active theme, fills the available detail area and scrolls
 internally. Its upper-right Copy button copies the current entry draft without
@@ -381,35 +443,6 @@ configuration secrets are written to browser storage. Server startup persists an
 empty configuration if none exists. The file API uses its own numeric compare-and-swap revision;
 immutable canonical revisions remain internal runtime evidence.
 
-The interface uses the saved accent color with floating frosted navigation and
-runtime controls. New configurations default to the system color scheme. The
-server embeds nonce-authorized background styles so the saved palette also
-appears before JavaScript starts. Explicit light/dark preferences remain supported. Larger material surfaces use blur and translucent fills;
-content stays on readable surfaces. Navigation selection uses a non-bouncing
-spring, and controls respond on press. Reduced motion, reduced transparency,
-and increased contrast preferences are respected.
-
-The six main pages omit the visible page-title band while retaining a screen
-reader heading. Their content fills the space below the runtime toolbar and
-ends at the same bottom inset as the sidebar. Tables and forms scroll within
-that space when needed, keeping panel actions reachable. The dashboard scrolls
-in the full-height shell behind the floating runtime toolbar; the toolbar
-surroundings remain transparent and the scrollbar sits at the viewport edge.
-
-Workspace tables share a 16px toolbar-to-header gap, 44px headers, and a 65px
-minimum row height including the divider. Headers have no bottom divider;
-dividers appear only below data rows. Rows expand when wrapped content
-needs more space. These dimensions cover versions, sources, keys, channels,
-and panel logs.
-
-The six navigation entries host 15 review views using local tabs/dialogs instead
-of feedback-page copies. Sources, manual nodes, subscription keys and native
-channel rules share node provenance and independent visibility. Channel preview
-and delivery have one server renderer; remote rule references are fetched only
-by subscribing clients. Native editors preserve unknown fields and scalar/list
-representations. Appearance is a saveable preview transaction shared by controls,
-charts and overlays, with semantic status colors kept independent.
-
 ## Error feedback
 
 Request failures and validation errors use the shared Toaster instead of in-flow
@@ -421,10 +454,8 @@ marked with `aria-invalid`, and retain visually hidden descriptions where
 current control or shift the surrounding layout. Service-unavailable screens
 keep their retry action available after the notification is dismissed.
 
-Management tabs use URL fragments: `#cores-installed` / `#cores-catalog`,
-`#configuration-visual` / `#configuration-advanced` (visual sections append `/route`,
-`/inbounds`, etc.), `#panel-security` / `#panel-nodes` / `#panel-appearance`, and
-`#logs-core` / `#logs-panel`. Direct links, reloads and browser history restore the
-selected tab; legacy log query links still open their requested view. Tab switches
-preserve unrelated query parameters and route state. Subscription tabs retain
-`#subscription-sources`, `#subscription-tokens`, and `#subscription-channels`.
+## Testing
+
+Tests inject an `ApiClient`, keeping pages independent from `fetch` while the
+HTTP client has focused tests for base-path routing, CSRF, problem details, and
+revision preconditions.

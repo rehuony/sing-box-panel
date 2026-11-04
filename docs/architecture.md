@@ -1,75 +1,126 @@
 # Repository architecture
 
 This guide owns package boundaries, product requirements, and HTTP trust boundaries.
-Operator workflows live in the [documentation index](../README.md); exact HTTP
-operations and schemas remain in [OpenAPI](../../api/openapi.yaml).
+Operator workflows live in the [documentation index](README.md); exact HTTP
+operations and schemas remain in [OpenAPI](../api/openapi.yaml).
 
-- [Dependency direction](#dependency-direction) and [package ownership](#domain-package-layout)
+- [Repository layout](#repository-layout), [package layout](#package-layout) and [dependency direction](#dependency-direction)
 - [Version support](#adding-a-sing-box-version) and [test ownership](#test-ownership)
 - [Product contract](#product-contract)
 - [HTTP API and security](#http-api-and-security)
 
-## Dependency direction
+## Repository layout
+
+The product is moving from one binary that manages a single host to one panel
+service and multiple node services. The panel connects to every node,
+aggregates their data, manages each node's configuration and publishes
+subscriptions; a node reports its local configuration and system state and
+carries out the panel's management commands. Today one binary still does both.
+
+| Path | Contents |
+| --- | --- |
+| `cmd/sing-box-panel/` | The service entry point: it joins the CLI, the server and the embedded Web assets. Service entry points are the only commands under `cmd/`; the node service adds `cmd/sing-box-node/` |
+| `internal/` | All Go packages, private to this module |
+| `api/` | The management HTTP contract (`openapi.yaml`) and the `apiassets` package that embeds the subscription templates and configuration field order shared with the Web editor |
+| `web/` | The panel's React application and the `webui` package that embeds its production build |
+| `systemd/` | The `systemdassets` package with the hardened unit, sysusers and tmpfiles templates |
+| `tools/` | Maintainer commands run through `go tool`: release signing, sing-box support generation, third-party notices and OpenAPI verification |
+| `scripts/` | Installer, isolated release build and native release and core contract tests |
+| `docs/` | One guide per topic, indexed in [the documentation index](README.md) |
+
+`api/`, `systemd/` and `web/` are Go packages at the root because Go embedding
+cannot read files from a parent directory.
+
+## Package layout
 
 The backend keeps one main package per domain and introduces another package
-only for a concrete dependency or side-effect boundary:
+only for a concrete dependency or side-effect boundary. A cohesive domain stays
+in one package and uses file prefixes to make ownership visible; file length
+alone is not a reason to create another package. Each layer depends only on the
+layers above it.
+
+The last column records which service owns each package once the panel and node
+services separate. *Split* packages hold both sides today and are divided then;
+place new code with its future owner.
+
+| Layer | Package | Responsibility | Owner after the split |
+| --- | --- | --- | --- |
+| Foundations | `buildinfo`, `console`, `jsonstrict` | Build identity, terminal output, strict JSON decoding | Shared |
+| | `release`, `selfupdate` | Release-version validation and signatures; download and atomic binary replacement | Shared |
+| | `auth` | Administrator credential validation and password hashing | Panel |
+| | `filesystem` | Read-only, non-recursive host path selection for server path fields | Node |
+| | `hostmetrics`, `publicip` | Host-wide operating-system counters; a bounded, cached public endpoint hint for published nodes | Node |
+| | `panelprocess` | Private local control of a running service without an OS service manager; reuses the server's lifetime and lease and never launches background processes | Shared |
+| Domain | `configuration` | Strict, lossless sing-box JSON parsing and canonical serialization | Shared |
+| | `subscription` | Documents, normalized nodes, source parsing and fetching, rendering and inbound conversion contracts, in `document_*`, `node_*`, `source_*`, `render_*` and `inbound_*` files | Panel |
+| | `coreartifact`, `catalog` | Immutable identities of installable sing-box artifacts; discovery of exact stable upstream release artifacts | Shared |
+| | `singbox` | Reviewed support catalog, exact-version Schema manifest, canonical native and reviewed Schema assets shared by content digest, inbound conversion and behavior-family dispatch; exact versions are catalog data, not forwarding packages | Shared |
+| Infrastructure | `settings` | The shared panel settings file: validation, defaults, atomic replacement and writer locking | Split |
+| | `store` | SQLite storage: the baseline schema, immutable runtime evidence, subscription state and operational records; database-directory locks exclude installation cleanup while another owner holds a connection | Split |
+| | `artifactstore` | Verification and publication of immutable installed core files | Node |
+| | `runtime` | Managed processes, reference-counted disposable configuration files and the restricted Clash API monitoring client; durable snapshot bytes stay in `store` | Node |
+| | `corelogs` | Bounded, private, sanitized native process output | Node |
+| Use cases | `application` | Use cases and runtime identity resolution backed by persistent state, recovery of Web settings saves and atomic settings/configuration backup restoration | Split |
+| | `installation`, `systemd` | Inspection and removal of one instance's persistent files; the Linux systemd lifecycle used by the CLI | Shared |
+| Transport and composition | `httpapi` | The management API, Web delivery and subscription output | Panel |
+| | `cli` | Panel settings, service and installation maintenance, binary version and update commands | Split |
+| | `server` | Server composition, serialized runtime controls, bounded recovery and periodic subscription refresh | Split |
+
+`store`, `catalog`, `artifactstore`, `coreartifact` and `runtime` stay separate
+because each is a durable dependency or side-effect boundary. `internal/testutil`
+provides persisted runtime fixtures for transport tests. Transport packages
+translate input and output but do not own use-case rules. Infrastructure
+packages own process, network, filesystem and database effects. The web client
+depends on the documented HTTP contract rather than Go implementation details.
+
+## Dependency direction
+
+Production imports between the module's packages, as reported by
+`go list -f '{{.ImportPath}}: {{join .Imports " "}}' ./internal/... ./cmd/... ./tools/...`:
 
 ```text
-configuration --\
-subscription ---+--> singbox --> application --> cli / httpapi / server
-coreartifact ---/
+auth, buildinfo, console, coreartifact, filesystem, hostmetrics,
+jsonstrict, panelprocess, publicip, release        (no module imports)
 
-catalog / artifactstore / runtime / store --> application / server
-release --> selfupdate / release commands
+configuration  -> jsonstrict, apiassets
+subscription   -> configuration, coreartifact, apiassets
+catalog        -> coreartifact
+artifactstore  -> catalog, coreartifact
+singbox        -> subscription, coreartifact
+runtime        -> singbox, coreartifact
+settings       -> auth, jsonstrict
+selfupdate     -> release
+store          -> configuration, subscription, coreartifact, jsonstrict
+corelogs       -> store
+
+application    -> artifactstore, auth, catalog, configuration, coreartifact,
+                  corelogs, filesystem, hostmetrics, jsonstrict, panelprocess,
+                  publicip, runtime, settings, singbox, store, subscription
+installation   -> application, jsonstrict, panelprocess, settings, store
+systemd        -> installation, settings, store, systemdassets
+
+httpapi        -> application, auth, buildinfo, catalog, configuration,
+                  coreartifact, corelogs, filesystem, jsonstrict, settings,
+                  singbox, store, subscription
+cli            -> auth, buildinfo, console, installation, panelprocess,
+                  selfupdate, settings, store, systemd
+server         -> application, artifactstore, buildinfo, console, corelogs,
+                  httpapi, installation, jsonstrict, panelprocess, publicip,
+                  runtime, settings, store
+
+cmd/sing-box-panel        -> buildinfo, cli, selfupdate, server, webui
+tools/sign-release        -> release
+tools/singbox-support     -> coreartifact, singbox
 ```
 
-`configuration` and `subscription` never import `singbox`. Transport packages
-translate input and output but do not own use-case rules. `application`
-composes use cases and stable package contracts. Infrastructure packages own
-process, network, filesystem, and database effects. The web client depends on
-the documented HTTP contract rather than Go implementation details.
-
-## Domain package layout
-
-A cohesive domain stays in one package and uses file prefixes to make ownership
-visible. File length alone is not a reason to create another package.
-
-- `internal/settings` owns the shared panel settings file, validation, defaults,
-  atomic replacement and writer locking. `application` owns recovery for Web
-  settings saves and atomic settings/configuration backup restoration.
-- `internal/configuration` owns strict, lossless sing-box JSON parsing and
-  canonical serialization. `store` retains immutable
-  snapshots as runtime evidence and initializes the current schema and transactionally upgrades version 11 with monthly totals.
-- `internal/subscription` owns documents, normalized nodes, source parsing and
-  fetching, rendering, and inbound conversion contracts. Files use
-  `document_*`, `node_*`, `source_*`, `render_*`, and `inbound_*` prefixes.
-- `internal/singbox` owns the reviewed support catalog, exact-version Schema
-  manifest, canonical native and reviewed Schema assets shared by content digest,
-  inbound conversion, and behavior-family dispatch. Exact versions exist as
-  catalog data rather than forwarding packages.
-- `internal/runtime` owns managed processes, reference-counted disposable
-  configuration files and its restricted Clash API monitoring client. Durable
-  snapshot bytes remain in `store`; file cleanup follows check and child lifetimes.
-- `internal/application` owns use cases and runtime identity resolution backed
-  by persistent state.
-- `internal/server` owns server composition, serialized runtime controls, bounded recovery,
-  and periodic subscription refresh.
-- `internal/panelprocess` owns private local process control; it reuses the
-  server's lifetime and lease and does not launch background processes.
-- `internal/installation` inventories and cleans one selected instance's
-  persistent paths. Database-directory locks in `internal/store` exclude
-  cleanup while the panel or another CLI command owns a database connection.
-- `internal/release` owns release-version validation and signatures;
-  `internal/selfupdate` remains the download and atomic-replacement boundary.
-
-Packages such as `store`, `catalog`, `artifactstore`, `coreartifact`, and
-`runtime` remain separate because they represent durable dependency or
-side-effect boundaries. The top-level `systemd` resource package remains
-separate because Go embedding cannot read files from a parent directory.
+`configuration` and `subscription` never import `singbox`. `cli` does not use
+`application`: it opens `store`, `settings` and `installation` directly for local
+maintenance and starts the server through a function supplied by
+`cmd/sing-box-panel`. `httpapi` and `corelogs` also read `store` directly.
 
 ## Adding a sing-box version
 
-Follow [Maintaining support](../guides/core-versions.md#maintaining-support)
+Follow [Maintaining support](core-versions.md#maintaining-support)
 for exact-version review, source and artifact pins, Schema generation and native
 Linux verification. Runtime eligibility, configuration Schema and inbound
 conversion are separate capabilities; unreviewed versions never inherit nearby
@@ -103,18 +154,16 @@ the product-behavior reference; OpenAPI and executable tests remain authoritativ
 for the implemented API. The matrix records the delivered behavior; the validation
 record distinguishes automated and browser evidence from native-runtime limits.
 
-### Accepted baseline and precedence
+### Baseline and precedence
 
-The accepted design is [sing-box-panel in Figma](https://www.figma.com/design/ppQe6qWogFBlM2gEhxAoEh/sing-box-panel).
-The final review contains 15 formal screens, 402 components and 46 local overlays.
-Earlier references to 16 screens, three log tabs, six settings categories, user
-management, draft/history workflows or generic node-origin badges are superseded.
-Development storage has
-no automatic upgrade path. Authentication, checked configuration snapshots and
+The screens below are the implemented baseline; their visual rules live in
+[`DESIGN.md`](../DESIGN.md). User management, draft/history workflows, three log
+tabs and generic node-origin badges are not part of the product. Storage has no
+upgrade path from earlier formats. Authentication, checked configuration snapshots and
 panel release signatures remain enforced; the core installation trust boundary
-is described in [Core versions](../guides/core-versions.md#checks-and-recorded-hashes).
+is described in [Core versions](core-versions.md#checks-and-recorded-hashes).
 
-The formal screens are login, dashboard, installed/available versions, sources,
+The screens are login, dashboard, installed/available versions, sources,
 manual nodes, source detail, subscription keys, channels, channel detail, visual
 configuration, JSON configuration, panel settings, core logs and panel logs.
 Detail tabs and feedback are local states, not duplicate screens.
@@ -126,8 +175,8 @@ below exercise the corresponding source, API and runtime boundaries.
 
 | ID | Screen and accepted behavior | Contract / implementation boundary | Verification coverage | Status |
 | --- | --- | --- | --- | --- |
-| UI-01 | Floating 248px sidebar, 64px header; no visible page-title band; desktop content starts 16px below the header and fills the remaining height with its bottom aligned to the sidebar; six navigation entries in dashboard/version/subscription/configuration/panel/log order | App shell, responsive layout, shared controls | Desktop and narrow viewports, keyboard, internal scrolling without clipped controls | implemented |
-| UI-02 | Shared 40px standard and 32px compact action buttons with 16px icons, matching square icon buttons and at least 44px touch targets; primary save, outlined secondary actions and semantic destructive actions; consistent hover/pressed/focus; centered dialogs; compact semantic-color Toast for all operation, loading and validation errors, without inserting error banners into page flow; repeated persistent failures reuse one notification and recovery closes it; all dropdown fields use the shared custom Select, including protocol, source and channel forms, with consistent popup styling and keyboard interaction | Shared UI and feedback | Real actions, focus return, Escape, visible validation, disabled options, no false success | implemented |
+| UI-01 | App shell with the layout and shell parameters of [`DESIGN.md`](../DESIGN.md); no visible page-title band; content fills the remaining height; six navigation entries in dashboard/version/subscription/configuration/panel/log order | App shell, responsive layout, shared controls | Desktop and narrow viewports, keyboard, internal scrolling without clipped controls | implemented |
+| UI-02 | Shared action buttons in the sizes and variants of [`DESIGN.md`](../DESIGN.md), with matching square icon buttons and 44px touch targets; primary save, outlined secondary actions and semantic destructive actions; consistent hover/pressed/focus; centered dialogs; compact semantic-color Toast for all operation, loading and validation errors, without inserting error banners into page flow; repeated persistent failures reuse one notification and recovery closes it; all dropdown fields use the shared custom Select, including protocol, source and channel forms, with consistent popup styling and keyboard interaction | Shared UI and feedback | Real actions, focus return, Escape, visible validation, disabled options, no false success | implemented |
 | UI-03 | Data tables and item lists use regular-weight names, body text, statuses and row actions; table headers use medium weight; dropdown options use regular weight, with existing compact metadata sizes preserved | Shared table typography and feature-owned list styles | Browser checks across versions, sources, keys, channels, configuration rows and logs | implemented |
 | AUTH-01 | Email/password login with visible labels, password visibility, fixed seven-day persistence and reduced-motion support | Existing authenticated session, CSRF/origin/rate-limit boundaries | Login/logout/error tests, credentials never exposed | implemented |
 | RUN-01 | One status badge: demo fixed, real running/stopped/failed accurately; transparent start/stop/restart icon buttons with clear spacing; theme/language/logout in sidebar footer share the same button and icon sizes without decorative borders or fills; keyboard focus remains visible; narrow header keeps uptime and transfer rates in one row of compact pills | Runtime observation and lifecycle, shared header | Unknown/stale never reported running; check failure keeps current process | implemented |
@@ -154,7 +203,7 @@ below exercise the corresponding source, API and runtime boundaries.
 | SET-02 | Listen/address/domain, administrator credentials and optional GitHub token; independent email/new-password drafts, shared save; server-only secrets | Bootstrap/security settings and catalog client | Restart semantics, session invalidation, no token in response/log/browser persistence | implemented |
 | SET-03 | Public node host auto placeholder/custom override; hidden subscription source access values preserved; inbound credentials edited natively; protocol obfuscation stays protocol-specific | Publication settings and native configuration | IPv4/IPv6/domain, failed auto detection cannot export bind/loopback, imported credentials unchanged | implemented |
 | SET-04 | Traffic quota, language, theme, five presets/custom color picker with HEX and explicit apply/cancel after closing; default #6D4ED1, radius 0–32 default12 | Persisted preferences and preview transaction | Save/reload; unsaved category/route changes require confirmation; cancellation retains draft, confirmed departure restores saved; reset only color/radius | implemented |
-| SET-05 | Theme links accent/background/border/focus/charts; R cards/dialogs, R/2 controls, min(32,7R/6) shell; badges/logo/status independent | Shared CSS tokens and accessible color derivation | Text contrast ≥4.5 for arbitrary light/dark colors, radius bounds, all component states | implemented |
+| SET-05 | Theme links accent/background/border/focus/charts through the derivation and radius steps in [`DESIGN.md`](../DESIGN.md); badges/logo/status independent | Shared CSS tokens and accessible color derivation | Text contrast ≥4.5 for arbitrary light/dark colors, radius bounds, all component states | implemented |
 | LOG-01 | Real-time core raw logs only; timestamp muted, full message matches level; all native levels, file/date/level selectors consistent and right aligned; one top-right status pill toggles live output and pause, without a separate icon or surrounding container | Core log file/tail API | Real file reading/stream/reconnect/pause/filter, independent scroll | implemented |
 | LOG-02 | Panel log shows operation outcomes and runtime events; time, message, log level and source only | Unified event query with sanitized operation outcomes | Consistent displayed/filter levels; pagination/filter | implemented |
 
@@ -163,11 +212,11 @@ below exercise the corresponding source, API and runtime boundaries.
 | Requirements | Owning implementation and guide | Focused evidence |
 | --- | --- | --- |
 | UI-01/02, AUTH-01, RUN-01 | `web/src/components/app-shell`, shared `components/ui`, `pages/login-page`; existing HTTP session and origin protections | App-shell, route and login tests; 18 desktop layout cases; real centered dialogs, Toast, focus and return journeys |
-| DASH-01/02 | `pages/dashboard-page`, `internal/hostmetrics`, `httpapi/metrics_stream.go`, persisted runtime transitions; [observability guide](../guides/subscriptions-and-observability.md) | Metrics sampling/stream tests, chart and timeline tests, browser missing-data and layout review |
-| CORE-01/02 | `pages/cores-page`, application core commands and runtime preflight; [core guide](../guides/core-versions.md) | `httpapi/core_enable_test.go`, artifact verification and runtime tests; inline action and platform UI tests |
-| CFG-01/02 | `application/configuration_file.go`, `store/configuration_file.go`, `server/configuration_runtime.go`, visual/JSON editors; [configuration guide](../guides/configuration-and-runtime.md) | File CAS and lossless tests; `server/configuration_runtime_test.go`; real HTTP browser invalid-text save/reload; schema form union/unknown-field round trips |
+| DASH-01/02 | `pages/dashboard-page`, `internal/hostmetrics`, `httpapi/metrics_stream.go`, persisted runtime transitions; [observability guide](subscriptions-and-observability.md) | Metrics sampling/stream tests, chart and timeline tests, browser missing-data and layout review |
+| CORE-01/02 | `pages/cores-page`, application core commands and runtime preflight; [core guide](core-versions.md) | `httpapi/core_enable_test.go`, artifact verification and runtime tests; inline action and platform UI tests |
+| CFG-01/02 | `application/configuration_file.go`, `store/configuration_file.go`, `server/configuration_runtime.go`, visual/JSON editors; [configuration guide](configuration-and-runtime.md) | File CAS and lossless tests; `server/configuration_runtime_test.go`; real HTTP browser invalid-text save/reload; schema form union/unknown-field round trips |
 | SUB-01, NODE-01–04 | Source/node services, `singbox/inbound_convert.go`, `subscription/manual_node.go`, node editor/grid | Source refresh tests; `httpapi/subscription_nodes_test.go`, `manual_node_validation_test.go`, 1.14 inbound/TLS tests; browser hide/restore and conditional node form |
-| KEY-01 | Store key accounting, public delivery and key panel; [subscription guide](../guides/subscriptions-and-observability.md) | 24-request concurrency tests, cross-channel quota HTTP tests, expiry/revocation/304/failure accounting, explicit secret-read authorization, persistence and UI tests |
+| KEY-01 | Store key accounting, public delivery and key panel; [subscription guide](subscriptions-and-observability.md) | 24-request concurrency tests, cross-channel quota HTTP tests, expiry/revocation/304/failure accounting, explicit secret-read authorization, persistence and UI tests |
 | CHAN-01–03, RULE-01–03, TPL-01 | `subscription/channel_*`, channel policy API, channel workspace and nested editors | Native renderer and URL tests; `httpapi/subscription_channel_policy_test.go`; browser persisted group/reference reload, nested return, preview/copy and source visibility |
 | SET-01–05 | `application/panel_settings.go`, `panel_backup.go`, `store/panel_settings.go`, `pages/panel-settings-page`, `theme/appearance.ts` | CAS/redaction/validation/atomic backup tests; appearance contrast/bounds tests; browser preview, category retention, save/reload, leaving restores saved appearance |
 | LOG-01/02 | `internal/corelogs`, runtime output observer, `store/panel_logs.go`, product log API and two log panels | File/rotation/custom-output tests; operation logs/cursors and authenticated file API tests; frontend pause/filter and log rendering tests |
@@ -178,18 +227,13 @@ persistence, security boundaries and runtime semantics.
 
 ### Persistence and preserved guarantees
 
-The current `internal/store/schema.sql` creates the editable configuration,
-immutable runtime evidence, subscription state and operational records directly.
+`internal/store/schema.sql` is the storage baseline, schema version 18. It
+creates the editable configuration, immutable runtime evidence, subscription
+state, shared subscription node order, durable monthly traffic accounting, the
+process-counter checkpoint, login sessions and operational records directly.
 Settings live in the selected `setting.json`; SQLite keeps only transaction
 markers for interrupted settings/identity updates and configuration restores.
-`traffic_months.sql` adds durable monthly traffic accounting. Version 11 of the
-same application identity upgrades transactionally through version 12 (traffic months),
-version 13 (removal of channel export-key bindings), and version 14 (subscription
-policy ordering and removal of retired overrides), then version 15 (recorded
-traffic accounting without period completeness state or redundant checkpoints),
-then version 16 (shared subscription node order) and version 17 (persistent login sessions).
-`traffic_checkpoint.sql` defines the current process-counter checkpoint. Unknown and
-newer storage formats remain rejected.
+Earlier, unknown and newer storage formats are rejected without conversion.
 
 Authenticated management, CSRF/origin controls, safe source acquisition,
 immutable checked startup artifacts and exact core-version checks remain in place.
@@ -203,6 +247,7 @@ The CLI is limited to panel settings, panel and systemd service control, install
 maintenance, and binary version/update commands. Core versions and runtime,
 subscriptions, logs, and metrics use the Web UI and authenticated HTTP API.
 Configuration history, revision, diff and restore commands remain absent.
+Rollback to the previous bundle is available only through the authenticated API.
 Internal immutable evidence remains for checked startup and runtime recovery. Unknown native configuration fields and numeric
 lexemes survive editing. Neither hide nor delete-publication actions delete an
 underlying core inbound.
@@ -245,7 +290,7 @@ underlying core inbound.
 
 Demo outcomes are explicitly separate from production results. Production
 feedback follows completed operations and observed runtime state rather than hardcoded
-Figma samples.
+samples.
 
 ## HTTP API and security
 
@@ -257,7 +302,7 @@ listener is loopback-only.
 
 The management API is rooted at `/api/v1`. The authoritative operation,
 schema, status-code, and problem-detail contract is
-[`api/openapi.yaml`](../../api/openapi.yaml); this guide describes its trust
+[`api/openapi.yaml`](../api/openapi.yaml); this guide describes its trust
 boundaries without duplicating the endpoint inventory.
 
 Every response includes `X-Request-ID`, matching `request_id` in problem responses.
@@ -385,7 +430,7 @@ They do not read file contents, create or modify paths, or use a separate direct
 allowlist. Responses are not cached; directory scans and page sizes are bounded.
 `internal/filesystem` owns these read-only effects, with application use cases and
 HTTP translation above it. See the configuration guide's
-[server path selection](../guides/configuration-and-runtime.md#selecting-server-paths).
+[server path selection](configuration-and-runtime.md#selecting-server-paths).
 
 The server applies bounded request bodies, strict JSON decoding where the
 contract requires it, constant-time token comparison, security response
@@ -397,7 +442,7 @@ bounded multipart file and stages it in a
 mode-0700 private data-directory location rather than accepting a server-local
 path. Archive verification rejects path traversal, symbolic links, non-regular
 entries, duplicate binaries, excessive expansion, and non-canonical gzip/tar
-input. See [Core versions](../guides/core-versions.md#checks-and-recorded-hashes)
+input. See [Core versions](core-versions.md#checks-and-recorded-hashes)
 for the artifact trust boundary.
 
 Third-party subscription refresh validates DNS and every redirect destination
@@ -467,5 +512,5 @@ version, Advanced JSON saving remains available but visual editing and binary
 validation require the operator to install one.
 A `412` response preserves the local draft for review.
 
-See the [Web application reference](../../web/README.md) for frontend ownership
+See the [Web application reference](../web/README.md) for frontend ownership
 and build behavior.
