@@ -54,7 +54,7 @@ verify the immutable snapshot bytes, digest and metadata across database reopen.
 On a native Linux amd64 or arm64 development machine, run as a non-root user:
 
 ```sh
-make bootstrap release-smoke
+make deps release-smoke
 ```
 
 The non-root requirement keeps initialization inside temporary XDG directories
@@ -69,7 +69,7 @@ metadata, never configuration text, credential values, or complete settings.
 Build the current working tree, including uncommitted source changes:
 
 ```sh
-make bootstrap
+make deps
 make build
 ```
 

@@ -85,7 +85,7 @@ logic has 5 seconds, React 10 seconds, and build contracts 30 seconds. Schema
 imports belong in suite preparation. Retries remain disabled.
 
 CI bounds workers to two and runs build contracts sequentially. Test isolation
-remains enabled. `make check-web` builds the Web application once, including
+remains enabled. `make check-frontend` builds the Web application once, including
 generation and TypeScript checking, then runs lint, all Vitest projects,
 Schema generation consistency and third-party notices. `make check` shares that
 build with Go and API/installer checks. Linux-only guarantees remain in their

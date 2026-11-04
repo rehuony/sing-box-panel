@@ -1,0 +1,121 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+package httpapi
+
+import (
+	"net/http"
+	"time"
+
+	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/subscription"
+)
+
+func (handler *Handler) listSubscriptionTokens(w http.ResponseWriter, request *http.Request) {
+	input, ok := handler.subscriptionListRequest(w, request, "offset")
+	if !ok {
+		return
+	}
+	tokens, err := handler.services.Subscriptions.ListSubscriptionTokens(request.Context(), input)
+	if err != nil {
+		writeSubscriptionProblem(w, request, "subscription_token_list_failed", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, tokens)
+}
+
+func (handler *Handler) createSubscriptionToken(w http.ResponseWriter, request *http.Request) {
+	if !handler.subscriptionMutationRequest(w, request) {
+		return
+	}
+	var input subscription.CreateSubscriptionTokenRequest
+	if !decodeStrictRequest(w, request, maximumSubscriptionRequestBytes, &input) {
+		return
+	}
+	created, err := handler.services.Subscriptions.CreateSubscriptionToken(request.Context(), input)
+	if err != nil {
+		writeSubscriptionProblem(w, request, "subscription_token_create_failed", err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, created)
+}
+
+func (handler *Handler) getSubscriptionToken(w http.ResponseWriter, request *http.Request, identifier string) {
+	if !handler.subscriptionReadRequest(w, request) {
+		return
+	}
+	token, err := handler.services.Subscriptions.SubscriptionToken(request.Context(), identifier)
+	if err != nil {
+		writeSubscriptionProblem(w, request, "subscription_token_read_failed", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, token)
+}
+
+func (handler *Handler) rotateSubscriptionToken(w http.ResponseWriter, request *http.Request, identifier string) {
+	if !handler.subscriptionMutationRequest(w, request) {
+		return
+	}
+	var input struct {
+		ExpiresAt *time.Time `json:"expires_at"`
+	}
+	if !decodeStrictRequest(w, request, maximumSubscriptionRequestBytes, &input) {
+		return
+	}
+	rotation, err := handler.services.Subscriptions.RotateSubscriptionToken(request.Context(), identifier, input.ExpiresAt)
+	if err != nil {
+		writeSubscriptionProblem(w, request, "subscription_token_rotate_failed", err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, rotation)
+}
+
+func (handler *Handler) revokeSubscriptionToken(w http.ResponseWriter, request *http.Request, identifier string) {
+	if !handler.subscriptionMutationRequest(w, request) || !requireEmptyCoreBody(w, request) {
+		return
+	}
+	token, err := handler.services.Subscriptions.RevokeSubscriptionToken(request.Context(), identifier)
+	if err != nil {
+		writeSubscriptionProblem(w, request, "subscription_token_revoke_failed", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, token)
+}
+
+func (handler *Handler) setSubscriptionTokenEnabled(
+	w http.ResponseWriter,
+	request *http.Request,
+	identifier string,
+	enabled bool,
+) {
+	if !handler.subscriptionMutationRequest(w, request) || !requireEmptyCoreBody(w, request) {
+		return
+	}
+	token, err := handler.services.Subscriptions.SetSubscriptionTokenEnabled(request.Context(), identifier, enabled)
+	if err != nil {
+		writeSubscriptionProblem(w, request, "subscription_token_state_failed", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, token)
+}
+
+func (handler *Handler) deleteSubscriptionToken(w http.ResponseWriter, request *http.Request, identifier string) {
+	if !handler.subscriptionMutationRequest(w, request) || !requireEmptyCoreBody(w, request) {
+		return
+	}
+	if err := handler.services.Subscriptions.DeleteSubscriptionToken(request.Context(), identifier); err != nil {
+		writeSubscriptionProblem(w, request, "subscription_token_delete_failed", err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (handler *Handler) getSubscriptionTokenSecret(w http.ResponseWriter, request *http.Request, identifier string) {
+	if !handler.subscriptionReadRequest(w, request) {
+		return
+	}
+	secret, err := handler.services.Subscriptions.SubscriptionTokenSecret(request.Context(), identifier)
+	if err != nil {
+		writeSubscriptionProblem(w, request, "subscription_token_secret_read_failed", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, secret)
+}

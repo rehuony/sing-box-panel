@@ -347,7 +347,7 @@ jobs:
           SOURCE_SHA: ${{ needs.guard.outputs.source-sha }}
         run: |
           set -euo pipefail
-          make bootstrap web-build
+          make deps build-frontend
           scripts/test/smoke-release.sh \
             --release-dir "${RUNNER_TEMP}/sing-box-panel-release" \
             --version "${RELEASE_VERSION}" \

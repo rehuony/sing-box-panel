@@ -10,9 +10,9 @@ import (
 	"syscall"
 
 	"github.com/rehuony/sing-box-panel/internal/buildinfo"
-	"github.com/rehuony/sing-box-panel/internal/cli"
 	"github.com/rehuony/sing-box-panel/internal/selfupdate"
-	"github.com/rehuony/sing-box-panel/internal/server"
+	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/cli"
+	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/server"
 	webui "github.com/rehuony/sing-box-panel/web"
 )
 

@@ -218,7 +218,7 @@ From `web`, `pnpm run generate` exports the committed backend contracts
 offline and compiles one browser validator per distinct Schema. Frontend Schema
 assets and validators are build outputs and are not committed. Web development,
 typecheck, test and build commands prepare them before loading generated imports;
-`make web-build` includes this step. Production never fetches Schema definitions
+`make build-frontend` includes this step. Production never fetches Schema definitions
 from the network. Native Linux amd64 and arm64
 `make core-contract` runs the real binaries, including 1.13 positive and negative
 configuration fixtures. `make release-smoke` exercises the panel release flow on
@@ -351,7 +351,7 @@ existing `schema_overlay.go` workflow separately adds `x-panel` presentation
 annotations; it cannot widen accepted fields or values. `make support-generate`
 regenerates the CSV and exact-version manifest entries, sharing identical Schema
 contents by SHA-256. Offline `make support-check` rejects source/output drift.
-`make web-build` produces standalone browser validators for the distinct Schema
+`make build-frontend` produces standalone browser validators for the distinct Schema
 contents. These are reviewed schemas, not official
 native-schema output: sing-box 1.13 has no `schema` command.
 
@@ -410,7 +410,7 @@ network or operating-system permissions.
 
 ### Executable acceptance evidence
 
-The shared [configuration fixtures](../internal/singbox/testdata/configuration-1.13)
+The shared [configuration fixtures](../internal/sing-box-panel/schema/testdata/configuration-1.13)
 cover every top-level section through representative DNS actions/legacy servers,
 TLS/inline ACME and transports, WireGuard and resolved service configurations.
 They are checked against each exact Schema and each actual Linux binary.

@@ -1,0 +1,45 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+package artifacts
+
+import (
+	"path/filepath"
+
+	"github.com/rehuony/sing-box-panel/internal/atomicfile"
+	"github.com/rehuony/sing-box-panel/internal/coreartifact"
+)
+
+func (store *Store) publish(stagedBinaryPath, stagedArchivePath string, digest coreartifact.SHA256) (string, string, error) {
+	digestText := digest.String()
+	parent := filepath.Join(store.root, "sha256")
+	finalDirectory := filepath.Join(parent, digestText)
+	finalBinaryPath := filepath.Join(finalDirectory, "sing-box")
+	finalArchivePath := filepath.Join(finalDirectory, "artifact.tar.gz")
+	for _, directory := range []string{parent, finalDirectory} {
+		if err := ensureStoreDirectory(directory, 0o700); err != nil {
+			return "", "", fail(StepPublish, "unsafe_directory", err)
+		}
+	}
+	if err := publishFile(stagedArchivePath, finalArchivePath, 0o600); err != nil {
+		return "", "", err
+	}
+	// Persist the archive directory entry before publishing the executable.
+	// A crash may leave archive-only state, which an idempotent retry repairs,
+	// but a durably visible executable never precedes its source archive.
+	if err := atomicfile.SyncDir(finalDirectory); err != nil {
+		return "", "", fail(StepPublish, "sync", err)
+	}
+	if err := publishFile(stagedBinaryPath, finalBinaryPath, 0o700); err != nil {
+		return "", "", err
+	}
+	if err := atomicfile.SyncDir(finalDirectory); err != nil {
+		return "", "", fail(StepPublish, "sync", err)
+	}
+	if err := atomicfile.SyncDir(parent); err != nil {
+		return "", "", fail(StepPublish, "sync", err)
+	}
+	if err := atomicfile.SyncDir(store.root); err != nil {
+		return "", "", fail(StepPublish, "sync", err)
+	}
+	return finalBinaryPath, finalArchivePath, nil
+}

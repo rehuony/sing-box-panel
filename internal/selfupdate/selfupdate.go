@@ -16,6 +16,7 @@ import (
 	"runtime"
 	"time"
 
+	"github.com/rehuony/sing-box-panel/internal/atomicfile"
 	releasecontract "github.com/rehuony/sing-box-panel/internal/release"
 	"golang.org/x/mod/semver"
 )
@@ -255,7 +256,7 @@ func (updater *Updater) Update(ctx context.Context, currentVersion string, repor
 	if err := os.Rename(temporaryPath, targetPath); err != nil {
 		return Result{}, fmt.Errorf("replace current executable: %w", err)
 	}
-	if err := syncDirectory(filepath.Dir(targetPath)); err != nil {
+	if err := atomicfile.SyncDir(filepath.Dir(targetPath)); err != nil {
 		return Result{}, err
 	}
 

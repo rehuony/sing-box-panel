@@ -1,7 +1,7 @@
 import { isLosslessNumber } from 'lossless-json';
 
 import { compareText } from './compare-text';
-import order from '../../../api/configuration-order.json';
+import order from '../../../internal/configuration/configuration-order.json';
 
 export const configurationFieldOrder = order.fields;
 

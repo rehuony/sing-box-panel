@@ -1,0 +1,10 @@
+# Generates internal/nodeapi with the plugin versions pinned in go.mod. Paths
+# are relative to the repository root; run through `make generate`.
+version: v2
+plugins:
+  - local: ["go", "tool", "protoc-gen-go"]
+    out: .
+    opt: module=github.com/rehuony/sing-box-panel
+  - local: ["go", "tool", "protoc-gen-go-grpc"]
+    out: .
+    opt: module=github.com/rehuony/sing-box-panel

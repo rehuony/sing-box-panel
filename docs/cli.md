@@ -76,7 +76,7 @@ CLI settings file. Start/restart can read the installed unit's own settings to
 prepare a requested data relocation or restore missing resources. System uninstall
 also reads that installation's data locations to protect retained data before
 removing its dedicated account; `--keep-user` preserves the account and ownership.
-See [service lifecycle and permissions](../systemd/README.md).
+See [service lifecycle and permissions](systemd.md).
 `systemd status` also works with unavailable settings; its
 optional location report marks unreadable files or invalid `data_dir` fields as
 unavailable without hiding systemd's status.
@@ -433,7 +433,7 @@ stop aborts data cleanup; unrelated instances are never stopped to clear a lock.
 The executable and files outside the selected data directory remain outside the
 cleanup scope, except for the selected settings and matching managed service.
 Uninstalling a matching managed system service also cleans up its dedicated
-account under the [systemd lifecycle rules](../systemd/README.md); unrelated
+account under the [systemd lifecycle rules](systemd.md); unrelated
 OS accounts and journal records are retained. The conventional
 `sing-box-panel` settings directory is removed only if empty; shared parent
 directories are never recursively removed.

@@ -10,6 +10,8 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+
+	"github.com/rehuony/sing-box-panel/internal/atomicfile"
 )
 
 func main() {
@@ -28,7 +30,9 @@ func run(ctx context.Context, arguments []string, stdout, stderr io.Writer) int 
 		findRoot: findRepositoryRoot,
 		generate: generateNotices,
 		readFile: os.ReadFile,
-		write:    writeAtomically,
+		write: func(path string, content []byte) error {
+			return atomicfile.Write(path, content, 0o644, atomicfile.Options{})
+		},
 	})
 }
 
@@ -106,33 +110,4 @@ func findRepositoryRoot() (string, error) {
 func regularFile(path string) bool {
 	info, err := os.Stat(path)
 	return err == nil && info.Mode().IsRegular()
-}
-
-func writeAtomically(path string, content []byte) error {
-	directory := filepath.Dir(path)
-	temporary, err := os.CreateTemp(directory, ".third-party-notices.*")
-	if err != nil {
-		return fmt.Errorf("create temporary notices file: %w", err)
-	}
-	temporaryPath := temporary.Name()
-	defer os.Remove(temporaryPath)
-	if err := temporary.Chmod(0o644); err != nil {
-		temporary.Close()
-		return fmt.Errorf("set temporary notices permissions: %w", err)
-	}
-	if _, err := temporary.Write(content); err != nil {
-		temporary.Close()
-		return fmt.Errorf("write temporary notices: %w", err)
-	}
-	if err := temporary.Sync(); err != nil {
-		temporary.Close()
-		return fmt.Errorf("sync temporary notices: %w", err)
-	}
-	if err := temporary.Close(); err != nil {
-		return fmt.Errorf("close temporary notices: %w", err)
-	}
-	if err := os.Rename(temporaryPath, path); err != nil {
-		return fmt.Errorf("replace notices file: %w", err)
-	}
-	return nil
 }

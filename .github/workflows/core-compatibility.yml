@@ -8,11 +8,13 @@ on:
       - ".github/workflows/core-compatibility.yml"
       - "go.mod"
       - "go.sum"
-      - "internal/artifactstore/**"
+      - "internal/atomicfile/**"
       - "internal/configuration/**"
       - "internal/coreartifact/**"
+      - "internal/sing-box-node/artifacts/**"
+      - "internal/sing-box-panel/schema/**"
+      - "internal/sing-box-panel/subscription/**"
       - "internal/singbox/**"
-      - "internal/subscription/**"
       - "web/**"
       - "Makefile"
       - "scripts/test/core-contract.sh"
@@ -73,7 +75,7 @@ jobs:
           pnpm --version
 
       - name: Build the required Web distribution
-        run: make bootstrap web-build
+        run: make deps build-frontend
 
       - name: Check generated support catalog
         run: go tool singbox-support check

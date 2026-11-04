@@ -5,7 +5,6 @@ package selfupdate
 import (
 	"fmt"
 	"io"
-	"os"
 )
 
 func readBounded(reader io.Reader, maximum int64) ([]byte, error) {
@@ -17,16 +16,4 @@ func readBounded(reader io.Reader, maximum int64) ([]byte, error) {
 		return nil, fmt.Errorf("response exceeds %d bytes", maximum)
 	}
 	return data, nil
-}
-
-func syncDirectory(path string) error {
-	directory, err := os.Open(path)
-	if err != nil {
-		return fmt.Errorf("open executable directory: %w", err)
-	}
-	defer directory.Close()
-	if err := directory.Sync(); err != nil {
-		return fmt.Errorf("sync executable directory: %w", err)
-	}
-	return nil
 }

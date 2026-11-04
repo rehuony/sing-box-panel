@@ -1,0 +1,442 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+// Package settings owns the panel configuration file contract.
+package settings
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"net"
+	"net/url"
+	"os"
+	pathpkg "path"
+	"path/filepath"
+	"regexp"
+	"runtime"
+	"strconv"
+	"strings"
+
+	"github.com/rehuony/sing-box-panel/internal/atomicfile"
+	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/auth"
+)
+
+// MaximumBytes limits settings documents read from disk or supplied by the CLI.
+const MaximumBytes = 1 << 20
+
+var basePathPattern = regexp.MustCompile(`^/[A-Za-z0-9._~/-]+$`)
+
+// Settings is the shared file contract for panel configuration. Sing-box
+// documents, subscriptions and runtime evidence belong in SQLite.
+type Settings struct {
+	sourcePath string
+	// InitialPassword is returned only when this invocation published credentials,
+	// even if later initialization failed. It is never included in a saved file.
+	InitialPassword string       `json:"-"`
+	Panel           Panel        `json:"panel"`
+	Server          Server       `json:"server"`
+	DataDir         string       `json:"data_dir"`
+	Auth            Auth         `json:"auth"`
+	GitHub          GitHub       `json:"github"`
+	Traffic         Traffic      `json:"traffic"`
+	Subscription    Subscription `json:"subscription"`
+	Logs            Logs         `json:"logs"`
+}
+
+type Server struct {
+	Host           string `json:"host"`
+	Port           int    `json:"port"`
+	BasePath       string `json:"base_path"`
+	ExternalOrigin string `json:"external_origin"`
+}
+
+type Auth struct {
+	Email        string `json:"email"`
+	PasswordHash string `json:"password_hash"`
+}
+
+type GitHub struct {
+	Token                       string `json:"token"`
+	CatalogRefreshIntervalHours int    `json:"catalog_refresh_interval_hours"`
+}
+
+type Traffic struct {
+	QuotaGiB            *int64 `json:"quota_gib"`
+	PeriodMonths        int    `json:"period_months"`
+	SampleRetentionDays int    `json:"sample_retention_days"`
+}
+
+type Subscription struct {
+	PrivateSourceCIDRs []string `json:"private_source_cidrs"`
+}
+
+type Logs struct {
+	CoreRetentionDays  int `json:"core_retention_days"`
+	CoreMaxFiles       int `json:"core_max_files"`
+	CoreMaxFileSizeMiB int `json:"core_max_file_size_mib"`
+}
+
+// Defaults returns safe defaults for the current effective user.
+func Defaults() Settings {
+	dataDir := defaultDataDir()
+	return Settings{
+		Panel:   DefaultPanel(),
+		Server:  Server{Host: "127.0.0.1", Port: 3000},
+		DataDir: dataDir,
+		GitHub:  GitHub{CatalogRefreshIntervalHours: 12},
+		Traffic: Traffic{PeriodMonths: 1, SampleRetentionDays: 90},
+		Subscription: Subscription{
+			PrivateSourceCIDRs: []string{},
+		},
+		Logs: Logs{CoreRetentionDays: 7, CoreMaxFileSizeMiB: 32},
+	}
+}
+
+// DefaultPath returns the root or XDG settings path.
+func DefaultPath() string {
+	if os.Geteuid() == 0 {
+		return "/etc/sing-box-panel/setting.json"
+	}
+	configHome := strings.TrimSpace(os.Getenv("XDG_CONFIG_HOME"))
+	if configHome == "" {
+		home, err := os.UserHomeDir()
+		if err != nil || home == "" {
+			return "setting.json"
+		}
+		configHome = filepath.Join(home, ".config")
+	}
+	return filepath.Join(configHome, "sing-box-panel", "setting.json")
+}
+
+func defaultDataDir() string {
+	if os.Geteuid() == 0 {
+		return "/var/lib/sing-box-panel"
+	}
+	dataHome := strings.TrimSpace(os.Getenv("XDG_DATA_HOME"))
+	if dataHome == "" {
+		home, err := os.UserHomeDir()
+		if err != nil || home == "" {
+			return "data"
+		}
+		dataHome = filepath.Join(home, ".local", "share")
+	}
+	return filepath.Join(dataHome, "sing-box-panel")
+}
+
+// Load parses and validates one settings file.
+func Load(path string) (Settings, error) {
+	data, err := Read(path)
+	if err != nil {
+		return Settings{}, err
+	}
+	return parse(path, data)
+}
+
+func parse(path string, data []byte) (Settings, error) {
+	absolutePath, err := filepath.Abs(path)
+	if err != nil {
+		return Settings{}, err
+	}
+	value := Settings{sourcePath: absolutePath, Panel: DefaultPanel(), Logs: Logs{CoreRetentionDays: 7, CoreMaxFileSizeMiB: 32}}
+	if err := decodeSettings(path, data, &value); err != nil {
+		return Settings{}, err
+	}
+	value.DataDir, err = resolveDataDir(path, value.DataDir)
+	if err != nil {
+		return Settings{}, err
+	}
+	if value.Server.ExternalOrigin != "" {
+		origin, err := NormalizeOrigin(value.Server.ExternalOrigin)
+		if err != nil {
+			return Settings{}, fmt.Errorf("validate settings %q: server.external_origin: %w", path, err)
+		}
+		value.Server.ExternalOrigin = origin
+	}
+	if email, err := auth.NormalizeEmail(value.Auth.Email); err == nil {
+		value.Auth.Email = email
+	}
+	if err := value.Validate(); err != nil {
+		return Settings{}, fmt.Errorf("validate settings %q: %w", path, err)
+	}
+	return value, nil
+}
+
+// LoadOrInitialize loads settings, creating defaults only when the selected file
+// is absent. Concurrent callers use the same atomically published settings.
+func LoadOrInitialize(path string) (value Settings, created bool, err error) {
+	return LoadOrInitializeContext(context.Background(), path)
+}
+
+// LoadOrInitializeContext preserves startup recovery and cancellation.
+func LoadOrInitializeContext(ctx context.Context, path string) (value Settings, created bool, err error) {
+	if err := ctx.Err(); err != nil {
+		return Settings{}, false, err
+	}
+	value, err = LoadForStartup(path)
+	if !errors.Is(err, os.ErrNotExist) {
+		return value, false, err
+	}
+	value, err = initialize(ctx, path, false, true, "")
+	if errors.Is(err, os.ErrExist) && value.InitialPassword == "" {
+		value, err = Load(path)
+		return value, false, err
+	}
+	return value, value.InitialPassword != "", err
+}
+
+// Validate verifies the complete resolved settings contract.
+func (value Settings) Validate() error {
+	if err := value.Panel.Validate(); err != nil {
+		return err
+	}
+	if net.ParseIP(value.Server.Host) == nil && value.Server.Host != "localhost" {
+		return errors.New("server.host must be an IP address or localhost")
+	}
+	if value.Server.Port < 1 || value.Server.Port > 65535 {
+		return errors.New("server.port must be between 1 and 65535")
+	}
+	if value.Server.BasePath != "" {
+		if !basePathPattern.MatchString(value.Server.BasePath) ||
+			strings.HasSuffix(value.Server.BasePath, "/") ||
+			strings.Contains(value.Server.BasePath, "//") ||
+			pathpkg.Clean(value.Server.BasePath) != value.Server.BasePath {
+			return errors.New("server.base_path must be empty or a normalized URL path containing only unreserved characters")
+		}
+	}
+	if value.Server.ExternalOrigin != "" {
+		origin, err := NormalizeOrigin(value.Server.ExternalOrigin)
+		if err != nil {
+			return fmt.Errorf("server.external_origin: %w", err)
+		}
+		if origin != value.Server.ExternalOrigin {
+			return errors.New("server.external_origin must be a normalized HTTP or HTTPS origin")
+		}
+	}
+	if value.DataDir == "" || !filepath.IsAbs(value.DataDir) {
+		return errors.New("data_dir must resolve to an absolute path")
+	}
+	if _, err := auth.NormalizeEmail(value.Auth.Email); err != nil {
+		return fmt.Errorf("auth.email: %w", err)
+	}
+	if err := auth.ValidateHash(value.Auth.PasswordHash); err != nil {
+		return fmt.Errorf("auth.password_hash: %w", err)
+	}
+	if value.GitHub.CatalogRefreshIntervalHours < 1 || value.GitHub.CatalogRefreshIntervalHours > 24*30 {
+		return errors.New("github.catalog_refresh_interval_hours must be between 1 and 720")
+	}
+	if err := ValidateTrafficQuota(value.Traffic.QuotaGiB); err != nil {
+		return err
+	}
+	if value.Traffic.PeriodMonths < 1 || value.Traffic.PeriodMonths > 120 {
+		return errors.New("traffic.period_months must be between 1 and 120")
+	}
+	if value.Traffic.SampleRetentionDays < 1 || value.Traffic.SampleRetentionDays > 366 {
+		return errors.New("traffic.sample_retention_days must be between 1 and 366")
+	}
+	for _, raw := range value.Subscription.PrivateSourceCIDRs {
+		if _, _, err := net.ParseCIDR(raw); err != nil {
+			return fmt.Errorf("subscription.private_source_cidrs contains invalid CIDR %q", raw)
+		}
+	}
+	if value.Logs.CoreRetentionDays < 1 || value.Logs.CoreRetentionDays > 3650 || value.Logs.CoreMaxFiles < 0 || value.Logs.CoreMaxFiles > 1024 || value.Logs.CoreMaxFileSizeMiB < 1 || value.Logs.CoreMaxFileSizeMiB > 1024 {
+		return errors.New("core log retention must be 1–3650 days, 0–1024 files and 1–1024 MiB per file")
+	}
+	if runtime.GOOS == "windows" {
+		return errors.New("Windows is not supported")
+	}
+	return nil
+}
+
+// NormalizeOrigin validates an HTTP Origin value and returns its canonical
+// scheme and authority. Paths, credentials, queries, and fragments are never
+// part of an origin and are rejected instead of silently discarded.
+func NormalizeOrigin(raw string) (string, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return "", errors.New("origin must not be empty")
+	}
+	parsed, err := url.Parse(raw)
+	if err != nil {
+		return "", fmt.Errorf("parse origin: %w", err)
+	}
+	scheme := strings.ToLower(parsed.Scheme)
+	if scheme != "http" && scheme != "https" {
+		return "", errors.New("origin scheme must be http or https")
+	}
+	if parsed.Opaque != "" || parsed.User != nil || parsed.Host == "" || parsed.Path != "" ||
+		parsed.RawPath != "" || parsed.ForceQuery || parsed.RawQuery != "" || parsed.Fragment != "" {
+		return "", errors.New("origin must contain only a scheme and authority")
+	}
+	host := strings.ToLower(parsed.Hostname())
+	if host == "" || strings.Contains(host, "%") {
+		return "", errors.New("origin host is invalid")
+	}
+	port := parsed.Port()
+	if port != "" {
+		numericPort, err := strconv.Atoi(port)
+		if err != nil || numericPort < 1 || numericPort > 65535 {
+			return "", errors.New("origin port must be between 1 and 65535")
+		}
+		if (scheme == "http" && port == "80") || (scheme == "https" && port == "443") {
+			port = ""
+		}
+	}
+	if ip := net.ParseIP(host); ip != nil {
+		host = ip.String()
+	}
+	authority := host
+	if port != "" {
+		authority = net.JoinHostPort(host, port)
+	} else if strings.Contains(host, ":") {
+		authority = "[" + host + "]"
+	}
+	return scheme + "://" + authority, nil
+}
+
+// Initialize writes a new settings file and creates its data directory.
+func Initialize(path string, overwrite bool) (Settings, error) {
+	return initialize(context.Background(), path, overwrite, true, "")
+}
+
+// InitializeFile creates default settings without creating the data directory
+// or opening its database. Existing files require an explicit overwrite.
+func InitializeFile(ctx context.Context, path string, overwrite bool) (Settings, error) {
+	return initialize(ctx, path, overwrite, false, "")
+}
+
+// EnsureFile initializes only an absent regular-file destination. The caller
+// validates existing settings according to the operation it intends to perform.
+func EnsureFile(ctx context.Context, path, defaultDataDir string) (Settings, bool, error) {
+	if info, err := os.Lstat(path); err == nil {
+		if !info.Mode().IsRegular() {
+			return Settings{}, false, fmt.Errorf("settings destination %q must be a regular file", path)
+		}
+		return Settings{}, false, nil
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return Settings{}, false, err
+	}
+	value, err := initialize(ctx, path, false, false, defaultDataDir)
+	if errors.Is(err, os.ErrExist) && value.InitialPassword == "" {
+		return Settings{}, false, nil
+	}
+	return value, value.InitialPassword != "", err
+}
+
+func initialize(ctx context.Context, path string, overwrite, createDataDirectory bool, defaultDataDir string) (Settings, error) {
+	if err := ctx.Err(); err != nil {
+		return Settings{}, err
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+		return Settings{}, err
+	}
+	lock, err := Lock(ctx, path)
+	if err != nil {
+		return Settings{}, err
+	}
+	defer lock.Close()
+	if err := CheckPending(path); err != nil {
+		return Settings{}, err
+	}
+	if location, err := ReadDataLocation(path); err == nil && location.Move != nil {
+		return Settings{}, errors.New("finish the data directory migration before initializing settings")
+	} else if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return Settings{}, err
+	}
+	if info, err := os.Lstat(path); err == nil {
+		if !overwrite {
+			return Settings{}, fmt.Errorf("settings file %q already exists: %w", path, os.ErrExist)
+		}
+		if !info.Mode().IsRegular() {
+			return Settings{}, fmt.Errorf("settings destination %q must be a regular file", path)
+		}
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return Settings{}, fmt.Errorf("inspect settings %q: %w", path, err)
+	}
+	value := Defaults()
+	if defaultDataDir != "" {
+		value.DataDir = defaultDataDir
+	}
+	if !overwrite {
+		if location, err := ReadDataLocation(path); err == nil {
+			value.DataDir = location.DataDir
+		}
+	}
+	value.sourcePath, err = filepath.Abs(path)
+	if err != nil {
+		return Settings{}, err
+	}
+	token, err := auth.GeneratePassword()
+	if err != nil {
+		return Settings{}, err
+	}
+	value.Auth.Email = "admin@example.com"
+	value.Auth.PasswordHash, err = auth.HashPassword(ctx, token)
+	if err != nil {
+		return Settings{}, err
+	}
+	if err := value.Validate(); err != nil {
+		return Settings{}, err
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return Settings{}, fmt.Errorf("create settings directory: %w", err)
+	}
+	if createDataDirectory {
+		if err := os.MkdirAll(value.DataDir, 0o700); err != nil {
+			return Settings{}, fmt.Errorf("create data directory: %w", err)
+		}
+	}
+	data, err := json.MarshalIndent(value, "", "  ")
+	if err != nil {
+		return Settings{}, fmt.Errorf("encode settings: %w", err)
+	}
+	data = append(data, '\n')
+	if err := ctx.Err(); err != nil {
+		return Settings{}, err
+	}
+	if old, err := ConfiguredDataDir(path); err == nil {
+		if err := RememberDataLocation(path, old); err != nil {
+			return Settings{}, err
+		}
+	}
+	if err := atomicWrite(path, data, overwrite); err != nil {
+		// A directory sync can fail after publication. Report the failure, but
+		// retain the one-time credential if the selected file contains it.
+		if saved, readErr := ReadRaw(path); readErr == nil && bytes.Equal(saved, data) {
+			value.InitialPassword = token
+			return value, err
+		}
+		return Settings{}, err
+	}
+	value.InitialPassword = token
+	if err := RememberDataLocation(path, value.DataDir); err != nil {
+		return value, err
+	}
+	return value, nil
+}
+
+// atomicWrite publishes settings bytes. Root writers keep the owner of the
+// file they replace; see preserveOwner.
+func atomicWrite(path string, data []byte, overwrite bool) error {
+	return atomicfile.Write(path, data, 0o600, atomicfile.Options{
+		Prepare:   func(file *os.File) error { return preserveOwner(file, path) },
+		Exclusive: !overwrite,
+	})
+}
+
+// Path identifies the file from which these settings were loaded.
+func (value Settings) Path() string { return value.sourcePath }
+
+// Parse validates settings bytes using path as the base for relative paths.
+func Parse(path string, data []byte) (Settings, error) { return parse(path, data) }
+
+// LoadForStartup lets the server locate its database before recovering a pending
+// settings transaction. Other callers should use Load.
+func LoadForStartup(path string) (Settings, error) {
+	data, err := ReadRaw(path)
+	if err != nil {
+		return Settings{}, err
+	}
+	return parse(path, data)
+}

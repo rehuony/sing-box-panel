@@ -15,108 +15,161 @@ The product is moving from one binary that manages a single host to one panel
 service and multiple node services. The panel connects to every node,
 aggregates their data, manages each node's configuration and publishes
 subscriptions; a node reports its local configuration and system state and
-carries out the panel's management commands. Today one binary still does both.
+carries out the panel's management commands. Today one binary still does both;
+the target services, protocol and package layout are in
+[Panel and node architecture](panel-node-architecture.md).
 
 | Path | Contents |
 | --- | --- |
-| `cmd/sing-box-panel/` | The service entry point: it joins the CLI, the server and the embedded Web assets. Service entry points are the only commands under `cmd/`; the node service adds `cmd/sing-box-node/` |
-| `internal/` | All Go packages, private to this module |
-| `api/` | The management HTTP contract (`openapi.yaml`) and the `apiassets` package that embeds the subscription templates and configuration field order shared with the Web editor |
+| `cmd/sing-box-panel/` | The panel binary's `main.go`, which joins the CLI, the server and the embedded Web assets |
+| `cmd/sing-box-node/` | The node binary's `main.go` |
+| `internal/` | Every package, and the only `internal` directory: the panel's packages in `internal/sing-box-panel/`, the node's in `internal/sing-box-node/` and shared packages beside them |
+| `api/` | Contracts only: the management HTTP contract (`openapi.yaml`) and the panel–node protobuf module (`proto/`, with its `buf.yaml` and `buf.gen.yaml`; package `sbp.node.v1`) |
 | `web/` | The panel's React application and the `webui` package that embeds its production build |
-| `systemd/` | The `systemdassets` package with the hardened unit, sysusers and tmpfiles templates |
-| `tools/` | Maintainer commands run through `go tool`: release signing, sing-box support generation, third-party notices and OpenAPI verification |
+| `tools/` | Maintainer commands run through `go tool`: sing-box support generation, release signing, third-party notices and OpenAPI verification |
 | `scripts/` | Installer, isolated release build and native release and core contract tests |
 | `docs/` | One guide per topic, indexed in [the documentation index](README.md) |
+| `.github/` | Workflows, community and security policies, templates, code ownership and the release trust root |
 
-`api/`, `systemd/` and `web/` are Go packages at the root because Go embedding
-cannot read files from a parent directory.
+`web/` is a Go package at the root because Go embedding cannot read files
+from a parent directory. Other embedded assets live in the package that owns
+them: subscription templates in `internal/sing-box-panel/subscription`,
+the configuration field order in `internal/configuration`, systemd templates in
+`internal/sing-box-panel/systemd` and Schema assets in
+`internal/sing-box-panel/schema`. The Web editor reads the templates and
+field order from the same files.
 
 ## Package layout
 
-The backend keeps one main package per domain and introduces another package
-only for a concrete dependency or side-effect boundary. A cohesive domain stays
-in one package and uses file prefixes to make ownership visible; file length
-alone is not a reason to create another package. Each layer depends only on the
-layers above it.
+`cmd/` holds only the two binaries' `main` packages. Each service's packages
+sit in `internal/<binary>/`, named after the binary that runs them, and shared
+packages sit directly in `internal/`; no Go file sits outside a package
+directory. The two services meet only through `internal/nodeapi`, and shared
+packages import neither service. Within a layer
+the backend keeps one main package per domain and introduces another package
+only for a concrete dependency or side-effect boundary; file prefixes make
+ownership visible inside a cohesive package.
 
-The last column records which service owns each package once the panel and node
-services separate. *Split* packages hold both sides today and are divided then;
-place new code with its future owner.
+The panel binary still runs this host's sing-box in process. Its `localnode`
+package stands in for a connected node until node sessions carry commands; it
+is the only panel package that imports the node's packages. The panel's
+`installation` and `systemd` packages maintain only the panel's files and unit
+until each service gets its own installer component and unit.
+`tools/singbox-support` maintains the panel's Schema assets and inbound
+conversion catalog and so imports panel packages; tools are programs that
+nothing imports.
 
-| Layer | Package | Responsibility | Owner after the split |
-| --- | --- | --- | --- |
-| Foundations | `buildinfo`, `console`, `jsonstrict` | Build identity, terminal output, strict JSON decoding | Shared |
-| | `release`, `selfupdate` | Release-version validation and signatures; download and atomic binary replacement | Shared |
-| | `auth` | Administrator credential validation and password hashing | Panel |
-| | `filesystem` | Read-only, non-recursive host path selection for server path fields | Node |
-| | `hostmetrics`, `publicip` | Host-wide operating-system counters; a bounded, cached public endpoint hint for published nodes | Node |
-| | `panelprocess` | Private local control of a running service without an OS service manager; reuses the server's lifetime and lease and never launches background processes | Shared |
-| Domain | `configuration` | Strict, lossless sing-box JSON parsing and canonical serialization | Shared |
-| | `subscription` | Documents, normalized nodes, source parsing and fetching, rendering and inbound conversion contracts, in `document_*`, `node_*`, `source_*`, `render_*` and `inbound_*` files | Panel |
-| | `coreartifact`, `catalog` | Immutable identities of installable sing-box artifacts; discovery of exact stable upstream release artifacts | Shared |
-| | `singbox` | Reviewed support catalog, exact-version Schema manifest, canonical native and reviewed Schema assets shared by content digest, inbound conversion and behavior-family dispatch; exact versions are catalog data, not forwarding packages | Shared |
-| Infrastructure | `settings` | The shared panel settings file: validation, defaults, atomic replacement and writer locking | Split |
-| | `store` | SQLite storage: the baseline schema, immutable runtime evidence, subscription state and operational records; database-directory locks exclude installation cleanup while another owner holds a connection | Split |
-| | `artifactstore` | Verification and publication of immutable installed core files | Node |
-| | `runtime` | Managed processes, reference-counted disposable configuration files and the restricted Clash API monitoring client; durable snapshot bytes stay in `store` | Node |
-| | `corelogs` | Bounded, private, sanitized native process output | Node |
-| Use cases | `application` | Use cases and runtime identity resolution backed by persistent state, recovery of Web settings saves and atomic settings/configuration backup restoration | Split |
-| | `installation`, `systemd` | Inspection and removal of one instance's persistent files; the Linux systemd lifecycle used by the CLI | Shared |
-| Transport and composition | `httpapi` | The management API, Web delivery and subscription output | Panel |
-| | `cli` | Panel settings, service and installation maintenance, binary version and update commands | Split |
-| | `server` | Server composition, serialized runtime controls, bounded recovery and periodic subscription refresh | Split |
+| Tree | Package | Responsibility |
+| --- | --- | --- |
+| Shared (`internal/`) | `buildinfo`, `console`, `jsonstrict` | Build identity and its display, terminal output, strict JSON decoding and canonical objects |
+| | `atomicfile` | Crash-safe file publication and directory syncs for both services and the tools |
+| | `release`, `selfupdate` | Release-version validation and signatures; download and atomic binary replacement |
+| | `procctl` | Private local control of a running service without an OS service manager; the service lifetime and lease, never background processes |
+| | `database` | SQLite opening, connection pragmas, baseline schema identity and data-directory locks shared by both stores |
+| | `logredact` | Credential and configuration-body redaction for log text and metadata, applied by both services |
+| | `configuration` | Strict, lossless sing-box JSON parsing, canonical serialization and the presentation field order |
+| | `coreartifact` | Immutable identities of installable sing-box artifacts |
+| | `singbox` | Reviewed exact-version support catalog and runtime compatibility; exact versions are catalog data, not forwarding packages |
+| | `nodeapi` | Generated `sbp.node.v1` protocol code, the protocol version and the session proof |
+| Node (`internal/sing-box-node/`) | `cli` | The node's command tree |
+| | `artifacts` | Verification and publication of immutable installed core files |
+| | `runtime` | Managed processes, reference-counted disposable configuration files and the restricted Clash API monitoring client |
+| | `corelogs` | Bounded, private, sanitized native process output |
+| | `host` | Host-wide metrics, the bounded public IP hint and read-only, non-recursive filesystem selection |
+| Panel (`internal/sing-box-panel/`) | `store` | Panel SQLite: the baseline schema, configuration revisions, runtime evidence of the local node, subscription state and operational records, and record identifiers |
+| | `auth` | Administrator credential hashing and login sessions |
+| | `settings` | The panel settings file and its service: validation, defaults, atomic saves and recovery, change notification, backup export and restore |
+| | `telemetry` | The panel log and operation outcomes, metrics and runtime history, traffic periods and quota, the dashboard projection |
+| | `corecache` | Upstream catalog discovery, staged core uploads and recorded core artifacts |
+| | `schema` | The exact-version Schema manifest and assets for the editor and validators |
+| | `nodeconfig` | The editable configuration file, canonical revisions, Schema support and preview |
+| | `subscription` | Sources, manual nodes, inbound conversion, channels, keys, users, templates and renderers, preview and `/sub` delivery |
+| | `localnode` | Transitional in-process node: core installs, checks and activation, process supervision and recovery, core logs, host metrics and traffic collection |
+| | `app` | The one composition of the panel's services over a store and a settings file, used by the server and the transport tests |
+| | `httpapi` | The management API, Web delivery and subscription output over `app.Services` |
+| | `installation`, `systemd` | Inspection, moves and removal of the panel's persistent files; the Linux systemd lifecycle used by the CLI |
+| | `cli`, `server` | The panel's command tree; the server lifecycle around the composed services, the local node and the HTTP server |
+| | `testutil` | Fixtures shared by panel tests |
 
-`store`, `catalog`, `artifactstore`, `coreartifact` and `runtime` stay separate
-because each is a durable dependency or side-effect boundary. `internal/testutil`
-provides persisted runtime fixtures for transport tests. Transport packages
-translate input and output but do not own use-case rules. Infrastructure
-packages own process, network, filesystem and database effects. The web client
-depends on the documented HTTP contract rather than Go implementation details.
+The panel `store` imports no domain package; services above it validate domain
+rules and the store keeps structural integrity and transactional invariants.
+Transport packages translate input and output but do not own use-case rules.
+Infrastructure packages own process, network, filesystem and database effects.
+The web client depends on the documented HTTP contract rather than Go
+implementation details.
 
 ## Dependency direction
 
 Production imports between the module's packages, as reported by
-`go list -f '{{.ImportPath}}: {{join .Imports " "}}' ./internal/... ./cmd/... ./tools/...`:
+`go list -f '{{.ImportPath}}: {{join .Imports " "}}' ./internal/... ./cmd/... ./tools/...`.
+`panel:` and `node:` abbreviate `internal/sing-box-panel/` and
+`internal/sing-box-node/`:
 
 ```text
-auth, buildinfo, console, coreartifact, filesystem, hostmetrics,
-jsonstrict, panelprocess, publicip, release        (no module imports)
+atomicfile, buildinfo, console, coreartifact, database, jsonstrict, nodeapi,
+procctl, release, singbox, node:host          (no module imports)
 
-configuration  -> jsonstrict, apiassets
-subscription   -> configuration, coreartifact, apiassets
-catalog        -> coreartifact
-artifactstore  -> catalog, coreartifact
-singbox        -> subscription, coreartifact
-runtime        -> singbox, coreartifact
-settings       -> auth, jsonstrict
-selfupdate     -> release
-store          -> configuration, subscription, coreartifact, jsonstrict
-corelogs       -> store
+configuration      -> jsonstrict
+logredact          -> jsonstrict
+selfupdate         -> atomicfile, release
+node:artifacts     -> atomicfile, coreartifact
+node:runtime       -> atomicfile, coreartifact, singbox
+node:corelogs      -> logredact
+node:cli           -> buildinfo, nodeapi
 
-application    -> artifactstore, auth, catalog, configuration, coreartifact,
-                  corelogs, filesystem, hostmetrics, jsonstrict, panelprocess,
-                  publicip, runtime, settings, singbox, store, subscription
-installation   -> application, jsonstrict, panelprocess, settings, store
-systemd        -> installation, settings, store, systemdassets
+panel:store        -> configuration, coreartifact, database, jsonstrict, logredact
+panel:auth         -> panel:store
+panel:settings     -> atomicfile, configuration, jsonstrict, panel:auth, panel:store
+panel:telemetry    -> panel:settings, panel:store
+panel:schema       -> coreartifact, singbox
+panel:corecache    -> coreartifact, jsonstrict, panel:settings, panel:store,
+                      panel:telemetry
+panel:nodeconfig   -> configuration, panel:corecache, panel:schema, panel:store
+panel:subscription -> configuration, coreartifact, jsonstrict, panel:schema,
+                      panel:settings, panel:store, panel:telemetry, singbox
+panel:localnode    -> node:artifacts, node:corelogs, node:host, node:runtime,
+                      configuration, coreartifact, jsonstrict, panel:corecache,
+                      panel:nodeconfig, panel:schema, panel:settings,
+                      panel:store, panel:telemetry, procctl
+panel:app          -> panel:auth, panel:corecache, panel:localnode,
+                      panel:nodeconfig, panel:settings, panel:store,
+                      panel:subscription, panel:telemetry
+panel:httpapi      -> buildinfo, configuration, coreartifact, jsonstrict,
+                      panel:app, panel:auth, panel:corecache, panel:localnode,
+                      panel:nodeconfig, panel:schema, panel:settings,
+                      panel:store, panel:subscription, panel:telemetry
+panel:installation -> database, jsonstrict, panel:localnode, panel:settings,
+                      panel:store, procctl
+panel:systemd      -> atomicfile, database, panel:installation, panel:settings
+panel:cli          -> buildinfo, console, panel:auth, panel:installation,
+                      panel:settings, panel:store, panel:systemd, procctl,
+                      selfupdate
+panel:server       -> buildinfo, console, panel:app, panel:corecache,
+                      panel:httpapi, panel:installation, panel:localnode,
+                      panel:nodeconfig, panel:settings, panel:store,
+                      panel:subscription, panel:telemetry, procctl
 
-httpapi        -> application, auth, buildinfo, catalog, configuration,
-                  coreartifact, corelogs, filesystem, jsonstrict, settings,
-                  singbox, store, subscription
-cli            -> auth, buildinfo, console, installation, panelprocess,
-                  selfupdate, settings, store, systemd
-server         -> application, artifactstore, buildinfo, console, corelogs,
-                  httpapi, installation, jsonstrict, panelprocess, publicip,
-                  runtime, settings, store
-
-cmd/sing-box-panel        -> buildinfo, cli, selfupdate, server, webui
+cmd/sing-box-panel        -> buildinfo, panel:cli, panel:server, selfupdate, webui
+cmd/sing-box-node         -> buildinfo, node:cli
+tools/singbox-support     -> atomicfile, coreartifact, panel:schema,
+                             panel:subscription, singbox
+tools/third-party-notices -> atomicfile
 tools/sign-release        -> release
-tools/singbox-support     -> coreartifact, singbox
 ```
 
-`configuration` and `subscription` never import `singbox`. `cli` does not use
-`application`: it opens `store`, `settings` and `installation` directly for local
-maintenance and starts the server through a function supplied by
-`cmd/sing-box-panel`. `httpapi` and `corelogs` also read `store` directly.
+Settings sit below the services that read them: `telemetry` reads the traffic
+quota, period and sample retention and `corecache` reads the catalog token and
+refresh interval from `settings` directly, and `settings` depends on no other
+service. The HTTP route that restores a panel backup records its operation
+outcome.
+
+`internal/layout` enforces the layout over `go list`: `cmd/` holds only the two
+`main` packages, shared packages depend on neither service, the node imports no
+panel package, only the panel's `localnode` imports node packages, and
+`sing-box-node` neither depends on the panel nor embeds the Web application.
+`configuration` imports neither `singbox` nor the panel Schema. The panel `cli`
+opens `store`, `settings` and `installation` directly for local maintenance and
+starts the server through a function supplied by `cmd/sing-box-panel`.
 
 ## Adding a sing-box version
 
@@ -127,7 +180,8 @@ conversion are separate capabilities; unreviewed versions never inherit nearby
 capabilities.
 
 Do not add exact-version forwarding directories. Version identity belongs in
-the catalog; reusable behavior belongs in private `singbox` family functions.
+the catalog; reusable behavior belongs in private family functions of the
+package that owns the capability.
 
 ## Test ownership
 
@@ -135,9 +189,9 @@ the catalog; reusable behavior belongs in private `singbox` family functions.
   production package. Shared test helpers remain in that package's
   `test_helpers_test.go`.
 - sing-box behavior differences use catalog- or family-driven table tests in
-  `internal/singbox`. The real-binary contract is
-  `internal/singbox/core_contract_test.go` and runs in dedicated native Linux
-  CI jobs.
+  `internal/singbox` and the panel `schema` and `subscription` packages. The
+  real-binary contract is `internal/sing-box-panel/schema/core_contract_test.go`
+  and runs in dedicated native Linux CI jobs.
 - React tests mirror the `web/src` ownership structure. API client tests are
   split by the same contract domains as the implementation.
 - External inputs must skip in ordinary local tests and fail when their
@@ -212,22 +266,22 @@ below exercise the corresponding source, API and runtime boundaries.
 | Requirements | Owning implementation and guide | Focused evidence |
 | --- | --- | --- |
 | UI-01/02, AUTH-01, RUN-01 | `web/src/components/app-shell`, shared `components/ui`, `pages/login-page`; existing HTTP session and origin protections | App-shell, route and login tests; 18 desktop layout cases; real centered dialogs, Toast, focus and return journeys |
-| DASH-01/02 | `pages/dashboard-page`, `internal/hostmetrics`, `httpapi/metrics_stream.go`, persisted runtime transitions; [observability guide](subscriptions-and-observability.md) | Metrics sampling/stream tests, chart and timeline tests, browser missing-data and layout review |
-| CORE-01/02 | `pages/cores-page`, application core commands and runtime preflight; [core guide](core-versions.md) | `httpapi/core_enable_test.go`, artifact verification and runtime tests; inline action and platform UI tests |
-| CFG-01/02 | `application/configuration_file.go`, `store/configuration_file.go`, `server/configuration_runtime.go`, visual/JSON editors; [configuration guide](configuration-and-runtime.md) | File CAS and lossless tests; `server/configuration_runtime_test.go`; real HTTP browser invalid-text save/reload; schema form union/unknown-field round trips |
-| SUB-01, NODE-01–04 | Source/node services, `singbox/inbound_convert.go`, `subscription/manual_node.go`, node editor/grid | Source refresh tests; `httpapi/subscription_nodes_test.go`, `manual_node_validation_test.go`, 1.14 inbound/TLS tests; browser hide/restore and conditional node form |
+| DASH-01/02 | `pages/dashboard-page`, `internal/sing-box-node/host`, `httpapi/metrics_stream.go`, persisted runtime transitions; [observability guide](subscriptions-and-observability.md) | Metrics sampling/stream tests, chart and timeline tests, browser missing-data and layout review |
+| CORE-01/02 | `pages/cores-page`, `localnode` core commands and runtime preflight; [core guide](core-versions.md) | `httpapi/core_enable_test.go`, artifact verification and runtime tests; inline action and platform UI tests |
+| CFG-01/02 | `nodeconfig/file.go`, `store/configuration_file.go`, `localnode/services_configuration_runtime.go`, visual/JSON editors; [configuration guide](configuration-and-runtime.md) | File CAS and lossless tests; `localnode/configuration_runtime_test.go`; real HTTP browser invalid-text save/reload; schema form union/unknown-field round trips |
+| SUB-01, NODE-01–04 | Source/node services, `subscription/inbound_convert.go`, `subscription/manual_node.go`, node editor/grid | Source refresh tests; `httpapi/subscription_nodes_test.go`, `manual_node_validation_test.go`, 1.14 inbound/TLS tests; browser hide/restore and conditional node form |
 | KEY-01 | Store key accounting, public delivery and key panel; [subscription guide](subscriptions-and-observability.md) | 24-request concurrency tests, cross-channel quota HTTP tests, expiry/revocation/304/failure accounting, explicit secret-read authorization, persistence and UI tests |
 | CHAN-01–03, RULE-01–03, TPL-01 | `subscription/channel_*`, channel policy API, channel workspace and nested editors | Native renderer and URL tests; `httpapi/subscription_channel_policy_test.go`; browser persisted group/reference reload, nested return, preview/copy and source visibility |
-| SET-01–05 | `application/panel_settings.go`, `panel_backup.go`, `store/panel_settings.go`, `pages/panel-settings-page`, `theme/appearance.ts` | CAS/redaction/validation/atomic backup tests; appearance contrast/bounds tests; browser preview, category retention, save/reload, leaving restores saved appearance |
-| LOG-01/02 | `internal/corelogs`, runtime output observer, `store/panel_logs.go`, product log API and two log panels | File/rotation/custom-output tests; operation logs/cursors and authenticated file API tests; frontend pause/filter and log rendering tests |
+| SET-01–05 | `settings/service_panel.go`, `service_backup.go`, `store/panel_settings.go`, `pages/panel-settings-page`, `theme/appearance.ts` | CAS/redaction/validation/atomic backup tests; appearance contrast/bounds tests; browser preview, category retention, save/reload, leaving restores saved appearance |
+| LOG-01/02 | `internal/sing-box-node/corelogs`, runtime output observer, `store/panel_logs.go`, product log API and two log panels | File/rotation/custom-output tests; operation logs/cursors and authenticated file API tests; frontend pause/filter and log rendering tests |
 
-Paths in this table are relative to `internal/` or `web/src/` where the context is
-unambiguous. API details remain in `api/openapi.yaml`; the owning guides describe
+Go paths in this table are relative to `internal/sing-box-panel/` unless they
+name another tree; Web paths are relative to `web/src/`. API details remain in `api/openapi.yaml`; the owning guides describe
 persistence, security boundaries and runtime semantics.
 
 ### Persistence and preserved guarantees
 
-`internal/store/schema.sql` is the storage baseline, schema version 18. It
+`internal/sing-box-panel/store/schema.sql` is the storage baseline, schema version 18. It
 creates the editable configuration, immutable runtime evidence, subscription
 state, shared subscription node order, durable monthly traffic accounting, the
 process-counter checkpoint, login sessions and operational records directly.
@@ -255,7 +309,8 @@ underlying core inbound.
 ### Verification workflows
 
 - `make check` runs Go tests and vet, Web lint/tests/build, OpenAPI coverage,
-  generated support checks, shell syntax checks and installer scenarios.
+  protobuf lint and generated-code drift, generated support checks, shell
+  syntax checks and installer scenarios.
 - `make test-race` checks concurrent state changes and runtime controls.
 - Store tests cover fresh-schema initialization, reopening the current format,
   rejection of unsupported formats without conversion, transactional saved-file
@@ -428,7 +483,7 @@ The authenticated filesystem browsing and resolution endpoints expose host path
 metadata within the panel process's OS permissions and filesystem namespace.
 They do not read file contents, create or modify paths, or use a separate directory
 allowlist. Responses are not cached; directory scans and page sizes are bounded.
-`internal/filesystem` owns these read-only effects, with application use cases and
+`internal/sing-box-node/host` owns these read-only effects, with `localnode` use cases and
 HTTP translation above it. See the configuration guide's
 [server path selection](configuration-and-runtime.md#selecting-server-paths).
 

@@ -3,7 +3,7 @@
 This directory owns the React/Vite frontend. It deliberately has no dependency
 on backend implementation packages.
 
-Install the [development toolchains](../CONTRIBUTING.md#development-setup) first.
+Install the [development toolchains](../.github/CONTRIBUTING.md#development-setup) first.
 Schema preparation requires Go for offline export, including when running frontend tests.
 
 ## Development
@@ -14,7 +14,7 @@ pnpm install --frozen-lockfile --ignore-scripts --verify-store-integrity
 pnpm demo
 ```
 
-Use `make check-web` from the repository root for a production build, types,
+Use `make check-frontend` from the repository root for a production build, types,
 lint, all tests, Schema consistency and notices checks. For a focused check,
 run `pnpm test --project logic`, `pnpm test --project react`, or
 `pnpm test --project contracts` from this directory. `pnpm test` runs all three

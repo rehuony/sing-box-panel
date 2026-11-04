@@ -83,7 +83,7 @@ Their underlying script interface is:
 scripts/build.sh snapshot --output /absolute/path/to/new-output
 scripts/build.sh release --version v0.1.0 --output /absolute/path/to/new-output
 scripts/build.sh verify
-bash scripts/test/release-contract.sh # requires web/dist from make web-build
+bash scripts/test/release-contract.sh # requires web/dist from make build-frontend
 ```
 
 Release smoke tests require Bash, curl, Git, Go, jq, OpenSSL, Python 3 and

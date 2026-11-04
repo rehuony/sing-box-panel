@@ -1,0 +1,63 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+// Package telemetry owns the panel's operational records: the panel log and
+// operation outcomes, metrics and runtime history, traffic periods and quota,
+// and the dashboard projection.
+package telemetry
+
+import (
+	"context"
+	"crypto/rand"
+	"time"
+
+	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/settings"
+	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/store"
+)
+
+// Service records and reads panel telemetry.
+type Service struct {
+	database      *store.Store
+	now           func() time.Time
+	random        func([]byte) (int, error)
+	logObserver   func(store.LogEntry)
+	classify      Classifier
+	settings      *settings.Service
+	dashboardFeed *Feed[DashboardStreamSnapshot]
+}
+
+// Options supplies a Service's collaborators.
+type Options struct {
+	// Classify names failures that other services know to be safe to record.
+	Classify Classifier
+	// Observe receives every recorded log entry, such as for console output.
+	Observe func(store.LogEntry)
+	// Now and Random default to the system clock and crypto/rand.
+	Now    func() time.Time
+	Random func([]byte) (int, error)
+}
+
+// New records telemetry in database. Traffic accounting reads its quota,
+// period and sample retention from panelSettings.
+func New(database *store.Store, panelSettings *settings.Service, options Options) *Service {
+	service := &Service{
+		database:    database,
+		now:         time.Now,
+		random:      rand.Read,
+		logObserver: options.Observe,
+		classify:    options.Classify,
+		settings:    panelSettings,
+	}
+	if options.Now != nil {
+		service.now = options.Now
+	}
+	if options.Random != nil {
+		service.random = options.Random
+	}
+	service.dashboardFeed = NewFeed(30*time.Second, service.DashboardSnapshot)
+	return service
+}
+
+// Bind sets the lifetime of shared reads before requests are served.
+func (service *Service) Bind(ctx context.Context) {
+	service.dashboardFeed.Bind(ctx)
+}

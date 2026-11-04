@@ -245,7 +245,7 @@ certificates and traversing their directories without changing file ownership
 or modes, including symlink targets. The capability covers the service's visible
 filesystem; service sandbox restrictions still apply. Older installed units need
 to be refreshed before this takes effect. Check the effective service identity,
-capabilities and drop-ins; see [systemd permissions](../systemd/README.md#system-service).
+capabilities and drop-ins; see [systemd permissions](systemd.md#system-service).
 
 Click an entry to select it, then use the toolbar's Confirm button to validate and
 use that path. Double-click a directory, or press Enter / Right Arrow on its row,
@@ -495,7 +495,7 @@ interruption. Backup restoration coordinates the settings file and saved sing-bo
 second copy of settings. Startup recovers before serving requests. Incomplete
 updates block file commands; a conflicting external edit is never overwritten
 by automatic recovery. Keep the selected file and its directory writable by the
-service account; see [systemd permissions](../systemd/README.md#system-service).
+service account; see [systemd permissions](systemd.md#system-service).
 
 The public-node host accepts a public IP or domain override; otherwise the
 bounded public-IP detector provides the input placeholder and publication host.
@@ -594,7 +594,7 @@ seen by `config set`, an arbitrary former custom directory cannot be inferred.
 
 Visual configuration forms and edits, node JSON previews, explicit formatting,
 and sing-box channel output use the shared field priorities in
-`api/configuration-order.json`. Nodes place identity first, then listen/server
+`internal/configuration/configuration-order.json`. Nodes place identity first, then listen/server
 addresses and socket options, authentication, protocol options, and TLS/transport
 blocks. Common fields retain the same relative order across protocols. TLS blocks
 group enablement and server identity, negotiation (ALPN and versions), certificates

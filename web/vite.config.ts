@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import tailwindcss from '@tailwindcss/vite';
 
 export default defineConfig({
-  server: { fs: { allow: [fileURLToPath(new URL('.', import.meta.url)), fileURLToPath(new URL('../api', import.meta.url))] } },
+  server: { fs: { allow: [fileURLToPath(new URL('.', import.meta.url)), fileURLToPath(new URL('../internal/configuration', import.meta.url)), fileURLToPath(new URL('../internal/sing-box-panel/subscription/templates', import.meta.url))] } },
   base: './',
   publicDir: 'public',
   plugins: [react(), tailwindcss()],

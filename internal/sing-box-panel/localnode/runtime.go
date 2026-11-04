@@ -1,0 +1,355 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+package localnode
+
+import (
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"errors"
+	"fmt"
+	"strings"
+
+	"github.com/rehuony/sing-box-panel/internal/coreartifact"
+	coreruntime "github.com/rehuony/sing-box-panel/internal/sing-box-node/runtime"
+	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/store"
+)
+
+var ErrMonitoringTierUnavailable = errors.New("requested monitoring tier is unavailable")
+
+type EnabledCore struct {
+	CoreArtifactID   string `json:"core_artifact_id"`
+	ExactCoreVersion string `json:"exact_core_version"`
+}
+
+type RuntimeStatus struct {
+	EnabledCore               *EnabledCore     `json:"enabled_core,omitempty"`
+	LoadedCanonicalRevisionID string           `json:"loaded_canonical_revision_id,omitempty"`
+	DesiredRunning            bool             `json:"desired_running"`
+	DesiredBundleID           string           `json:"desired_bundle_id,omitempty"`
+	AppliedBundleID           string           `json:"applied_bundle_id,omitempty"`
+	RollbackBundleID          string           `json:"rollback_bundle_id,omitempty"`
+	TargetGeneration          int64            `json:"target_generation"`
+	ObservationState          string           `json:"observation_state"`
+	Running                   *RuntimeIdentity `json:"running,omitempty"`
+}
+
+type RuntimeRecoveryRequest struct {
+	ExpectedBundleID    string
+	ExpectedGeneration  int64
+	ExpectedObservation *store.RuntimeObservation
+	StableRunProven     bool
+	CleanBoundaryProven bool
+	Transition          *store.RuntimeTransitionInput
+}
+
+type RuntimeRecoveryResult struct {
+	Intent     *store.RuntimeIntent `json:"-"`
+	BundleID   string               `json:"bundle_id,omitempty"`
+	Generation int64                `json:"generation,omitempty"`
+	EpisodeID  string               `json:"episode_id,omitempty"`
+	Attempt    int                  `json:"attempt,omitempty"`
+	Exhausted  bool                 `json:"exhausted"`
+}
+
+type ActivationPreparation struct {
+	StartupArtifact store.StartupArtifact  `json:"startup_artifact"`
+	Bundle          store.ActivationBundle `json:"bundle"`
+}
+
+// ActivationSummary is safe for management transports. It deliberately omits
+// startup bytes, rendered subscription content, source credentials, and
+// discovered addresses while retaining every immutable identity and digest an
+// operator needs to audit an apply.
+type ActivationSummary struct {
+	StartupArtifactID   string               `json:"startup_artifact_id"`
+	CanonicalRevisionID string               `json:"canonical_revision_id"`
+	ExactCoreVersion    string               `json:"exact_core_version"`
+	CoreArtifactID      string               `json:"core_artifact_id"`
+	ConfigSHA256        string               `json:"config_sha256"`
+	ActivationBundleID  string               `json:"activation_bundle_id"`
+	ActivationSHA256    string               `json:"activation_sha256"`
+	MonitoringTier      store.MonitoringTier `json:"monitoring_tier"`
+}
+
+func (preparation ActivationPreparation) Summary() ActivationSummary {
+	return ActivationSummary{
+		StartupArtifactID:   preparation.StartupArtifact.ID,
+		CanonicalRevisionID: preparation.StartupArtifact.CanonicalRevisionID,
+		ExactCoreVersion:    preparation.StartupArtifact.ExactCoreVersion,
+		CoreArtifactID:      preparation.StartupArtifact.CoreArtifactID,
+		ConfigSHA256:        preparation.StartupArtifact.ConfigSHA256,
+		ActivationBundleID:  preparation.Bundle.ID,
+		ActivationSHA256:    preparation.Bundle.SHA256,
+		MonitoringTier:      preparation.Bundle.MonitoringTier,
+	}
+}
+
+type RuntimeMaterial struct {
+	Bundle     coreruntime.AppliedBundle
+	Activation store.ActivationBundle
+	Startup    store.StartupArtifact
+	Core       store.CoreArtifact
+}
+
+// PrepareActivationBundle binds already-checked startup bytes to one runtime
+// monitoring policy. Subscription publication remains live and independent.
+func (application *Node) PrepareActivationBundle(
+	ctx context.Context,
+	startupArtifactID string,
+	monitoring store.MonitoringTier,
+) (ActivationPreparation, error) {
+	startup, err := application.database.GetStartupArtifact(ctx, startupArtifactID)
+	if err != nil {
+		return ActivationPreparation{}, err
+	}
+	if startup.State != store.StartupArtifactReady {
+		return ActivationPreparation{}, store.ErrActivationBundleNotReady
+	}
+	if monitoring == "" {
+		monitoring = store.MonitoringProcessOnly
+	}
+	if monitoring != store.MonitoringProcessOnly && monitoring != store.MonitoringLimited {
+		return ActivationPreparation{}, fmt.Errorf("%w: invalid monitoring tier %q", ErrMonitoringTierUnavailable, monitoring)
+	}
+	if monitoring == store.MonitoringLimited {
+		if _, err := coreruntime.ParseClashEndpoint(startup.ConfigBytes); err != nil {
+			return ActivationPreparation{}, fmt.Errorf("%w: %v", ErrMonitoringTierUnavailable, err)
+		}
+	}
+	if err := application.verifyActivationCandidate(ctx, startup); err != nil {
+		return ActivationPreparation{}, err
+	}
+
+	bundleID := stableRuntimeID("bundle", startup.ID, string(monitoring))
+	if existing, getErr := application.database.GetActivationBundle(ctx, bundleID); getErr == nil {
+		return ActivationPreparation{StartupArtifact: startup, Bundle: existing}, nil
+	} else if !errors.Is(getErr, store.ErrActivationBundleNotFound) {
+		return ActivationPreparation{}, getErr
+	}
+
+	createdAt := application.now().UTC()
+	bundle := store.ActivationBundle{
+		ID: bundleID, StartupArtifactID: startup.ID, MonitoringTier: monitoring, CreatedAt: createdAt,
+	}
+	stored, err := application.database.SaveActivationBundle(ctx, bundle)
+	if err != nil {
+		return ActivationPreparation{}, err
+	}
+	return ActivationPreparation{StartupArtifact: startup, Bundle: stored}, nil
+}
+
+// verifyActivationCandidate rechecks every mutable eligibility decision at
+// bundle-preparation time. Old bundles remain immutable, while a stale head or
+// changed binary identity cannot produce a new bundle.
+func (application *Node) verifyActivationCandidate(
+	ctx context.Context,
+	startup store.StartupArtifact,
+) error {
+	if err := application.configs.RequireParsedFile(ctx); err != nil {
+		return err
+	}
+	head, err := application.database.Head(ctx)
+	if err != nil {
+		return err
+	}
+	if head == nil || head.ID != startup.CanonicalRevisionID {
+		return fmt.Errorf(
+			"%w: startup artifact canonical revision is not the current head",
+			store.ErrActivationBundleNotReady,
+		)
+	}
+	core, err := application.database.GetCoreArtifact(ctx, startup.CoreArtifactID)
+	if err != nil {
+		return err
+	}
+	if core.ExactVersion != startup.ExactCoreVersion ||
+		core.ReportedVersion != startup.ExactCoreVersion {
+		return fmt.Errorf(
+			"%w: exact core artifact is no longer eligible",
+			store.ErrActivationBundleNotReady,
+		)
+	}
+	return nil
+}
+
+// PrepareRuntimeIntent is called only by the process owning the runtime lock.
+func (application *Node) PrepareRuntimeIntent(ctx context.Context, kind store.RuntimeIntentKind, bundleID string) (store.RuntimeIntent, error) {
+	return application.database.RequestRuntimeIntent(ctx, store.RuntimeIntentInput{Kind: kind, BundleID: strings.TrimSpace(bundleID), CreatedAt: application.now().UTC()})
+}
+
+// RequestRuntimeRecovery asks the store to fence the observed failed process
+// incarnation and schedule one bounded recovery attempt. The store rechecks all
+// desired-state and generation inputs atomically against concurrent user
+// runtime commands.
+func (application *Node) RequestRuntimeRecovery(
+	ctx context.Context,
+	request RuntimeRecoveryRequest,
+) (RuntimeRecoveryResult, error) {
+	episodeID, err := store.NewID(application.random, "recovery")
+	if err != nil {
+		return RuntimeRecoveryResult{}, err
+	}
+	decision, err := application.database.RequestRuntimeRecovery(ctx, store.RuntimeRecoveryInput{
+		NewEpisodeID:        episodeID,
+		ExpectedBundleID:    strings.TrimSpace(request.ExpectedBundleID),
+		ExpectedGeneration:  request.ExpectedGeneration,
+		ExpectedObservation: request.ExpectedObservation,
+		StableRunProven:     request.StableRunProven,
+		CleanBoundaryProven: request.CleanBoundaryProven,
+		CreatedAt:           application.now().UTC(),
+		Transition:          request.Transition,
+	})
+	if err != nil {
+		return RuntimeRecoveryResult{}, err
+	}
+	result := RuntimeRecoveryResult{
+		BundleID: decision.BundleID, Generation: decision.Generation,
+		EpisodeID: decision.EpisodeID, Attempt: decision.Attempt, Exhausted: decision.Exhausted,
+	}
+	result.Intent = decision.Intent
+	return result, nil
+}
+
+func (application *Node) RuntimeStatus(ctx context.Context) (RuntimeStatus, error) {
+	hub, err := application.database.RuntimeHubState(ctx)
+	if err != nil {
+		return RuntimeStatus{}, err
+	}
+	result := RuntimeStatus{
+		DesiredRunning: hub.DesiredRunning, DesiredBundleID: hub.DesiredBundleID,
+		AppliedBundleID: hub.AppliedBundleID, RollbackBundleID: hub.RollbackBundleID,
+		TargetGeneration: hub.TargetGeneration, ObservationState: "stopped",
+	}
+	if hub.AppliedBundleID != "" {
+		startup, err := application.database.RuntimeCore(ctx, hub.AppliedBundleID)
+		if err != nil {
+			return RuntimeStatus{}, err
+		}
+		result.EnabledCore = &EnabledCore{CoreArtifactID: startup.CoreArtifactID, ExactCoreVersion: startup.ExactCoreVersion}
+	}
+	identity, err := application.runtime.Resolve(ctx)
+	switch {
+	case err == nil:
+		result.ObservationState = "running"
+		result.Running = &identity
+		startup, err := application.database.RuntimeCore(ctx, identity.ActivationBundleID)
+		if err != nil {
+			return RuntimeStatus{}, err
+		}
+		result.LoadedCanonicalRevisionID = startup.CanonicalRevisionID
+	case errors.Is(err, ErrNoRunningCore):
+	case errors.Is(err, ErrStaleObservation):
+		result.ObservationState = "stale"
+	case errors.Is(err, ErrInspectionUnavailable):
+		result.ObservationState = "inspection_unavailable"
+	default:
+		return RuntimeStatus{}, err
+	}
+	return result, nil
+}
+
+// LoadRuntimeMaterial resolves every immutable input for a runtime request. It
+// never chooses a version or artifact from desired/global state.
+func (application *Node) LoadRuntimeMaterial(
+	ctx context.Context,
+	activationBundleID string,
+) (RuntimeMaterial, error) {
+	activation, err := application.database.GetActivationBundle(ctx, activationBundleID)
+	if err != nil {
+		return RuntimeMaterial{}, err
+	}
+	startup, err := application.database.GetStartupArtifact(ctx, activation.StartupArtifactID)
+	if err != nil {
+		return RuntimeMaterial{}, err
+	}
+	if startup.State != store.StartupArtifactReady {
+		return RuntimeMaterial{}, store.ErrActivationBundleNotReady
+	}
+	return application.runtimeMaterial(ctx, activation.ID, activation, startup)
+}
+
+// LoadStartupCheckMaterial accepts only a pending immutable candidate. The
+// durable checker owns its sole transition to ready or failed.
+func (application *Node) LoadStartupCheckMaterial(
+	ctx context.Context,
+	startupArtifactID string,
+) (RuntimeMaterial, error) {
+	startup, err := application.database.GetStartupArtifact(ctx, startupArtifactID)
+	if err != nil {
+		return RuntimeMaterial{}, err
+	}
+	if startup.State != store.StartupArtifactPending {
+		return RuntimeMaterial{}, store.ErrStartupArtifactState
+	}
+	return application.runtimeMaterial(ctx, startup.ID, store.ActivationBundle{}, startup)
+}
+
+func (application *Node) runtimeMaterial(
+	ctx context.Context,
+	bundleID string,
+	activation store.ActivationBundle,
+	startup store.StartupArtifact,
+) (RuntimeMaterial, error) {
+	core, err := application.database.GetCoreArtifact(ctx, startup.CoreArtifactID)
+	if err != nil {
+		return RuntimeMaterial{}, err
+	}
+	if core.ExactVersion != startup.ExactCoreVersion ||
+		core.ReportedVersion != startup.ExactCoreVersion {
+		return RuntimeMaterial{}, store.ErrActivationBundleNotReady
+	}
+	version, err := coreartifact.ParseExactVersion(core.ExactVersion)
+	if err != nil {
+		return RuntimeMaterial{}, err
+	}
+	// BinarySHA256 is installation metadata, not runtime evidence.
+	binaryDigest, _ := coreartifact.ParseSHA256(core.BinarySHA256)
+	configDigest, err := coreartifact.ParseSHA256(startup.ConfigSHA256)
+	if err != nil {
+		return RuntimeMaterial{}, err
+	}
+	return RuntimeMaterial{
+		Activation: activation, Startup: startup, Core: core,
+		Bundle: coreruntime.AppliedBundle{
+			ID: bundleID, ArtifactID: core.ID, ExactVersion: version,
+			ArtifactDigest: binaryDigest, BinaryPath: core.BinaryPath,
+			StartupConfig: append([]byte(nil), startup.ConfigBytes...), StartupConfigDigest: configDigest,
+		},
+	}, nil
+}
+
+func (application *Node) CompleteStartupCheck(
+	ctx context.Context,
+	startupArtifactID string,
+	succeeded bool,
+) (store.StartupArtifact, error) {
+	return application.database.CompleteStartupArtifactCheck(
+		ctx, startupArtifactID, succeeded, application.now().UTC(),
+	)
+}
+
+func stableRuntimeID(prefix string, parts ...string) string {
+	hash := sha256.New()
+	for _, part := range append([]string{prefix}, parts...) {
+		_, _ = hash.Write([]byte(part))
+		_, _ = hash.Write([]byte{0})
+	}
+	return prefix + "_" + hex.EncodeToString(hash.Sum(nil))
+}
+
+func IsActivationBundleNotReady(err error) bool {
+	return errors.Is(err, store.ErrActivationBundleNotReady)
+}
+
+func IsMonitoringTierUnavailable(err error) bool {
+	return errors.Is(err, ErrMonitoringTierUnavailable)
+}
+
+func IsNoAppliedBundle(err error) bool {
+	return errors.Is(err, store.ErrNoAppliedBundle)
+}
+
+func IsNoRollbackBundle(err error) bool {
+	return errors.Is(err, store.ErrNoRollbackBundle)
+}

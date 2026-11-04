@@ -48,7 +48,7 @@ it is not a real-network soak result.
 Command:
 
 ```sh
-go test ./internal/store -run '^$' \
+go test ./internal/sing-box-panel/store -run '^$' \
   -bench '^BenchmarkMetricsHistoryNinetyDays' -benchtime=1x -benchmem
 ```
 
@@ -74,7 +74,7 @@ isolated browser-review database:
 
 ```sh
 SBP_BROWSER_REVIEW=1 SBP_BROWSER_NODES=500 \
-  go test ./internal/server -run '^TestBrowserReview$' -v -timeout 30m
+  go test ./internal/sing-box-panel/server -run '^TestBrowserReview$' -v -timeout 30m
 ```
 
 Verified in the Codex browser at desktop size and 390×844: 500-node source

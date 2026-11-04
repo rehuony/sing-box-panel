@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	panelschema "github.com/rehuony/sing-box-panel/internal/sing-box-panel/schema"
 	"github.com/rehuony/sing-box-panel/internal/singbox"
 )
 
@@ -46,8 +47,8 @@ func TestConfigurationSchemaAssetsShareOnlyIdenticalFinalContent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(content), `"x-panel"`) || first.SchemaSHA256 == digestHex(raw) ||
-		first.SchemaSHA256 != digestHex(content) || first.SchemaFile != "schema-"+digestHex(content)+".json" {
+	if !strings.Contains(string(content), `"x-panel"`) || first.SchemaSHA256 == panelschema.ContentDigest(raw) ||
+		first.SchemaSHA256 != panelschema.ContentDigest(content) || first.SchemaFile != "schema-"+panelschema.ContentDigest(content)+".json" {
 		t.Fatal("asset identity does not bind the final overlaid schema")
 	}
 	changed, err := writeConfigurationSchema(singbox.Version{

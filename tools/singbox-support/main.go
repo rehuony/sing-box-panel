@@ -17,6 +17,8 @@ import (
 	"strings"
 
 	"github.com/rehuony/sing-box-panel/internal/coreartifact"
+	panelschema "github.com/rehuony/sing-box-panel/internal/sing-box-panel/schema"
+	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/subscription"
 	"github.com/rehuony/sing-box-panel/internal/singbox"
 )
 
@@ -126,13 +128,13 @@ func check(root string) error {
 	if err := syncSupportGuide(root, catalog, true); err != nil {
 		return err
 	}
-	if err := singbox.ValidateConfigurationSchemaAssets(); err != nil {
+	if err := panelschema.ValidateConfigurationSchemaAssets(); err != nil {
 		return fmt.Errorf("validate configuration schema assets: %w", err)
 	}
 	if err := checkReviewedSchemas(root, catalog); err != nil {
 		return err
 	}
-	if err := singbox.ValidateFamilies(); err != nil {
+	if err := subscription.ValidateFamilies(); err != nil {
 		return err
 	}
 	expectedInboundVersions := make([]string, 0, len(catalog.Versions))
@@ -141,7 +143,7 @@ func check(root string) error {
 			expectedInboundVersions = append(expectedInboundVersions, version.ExactVersion)
 		}
 	}
-	if got := singbox.NewInboundRegistry().Versions(); !slices.Equal(got, expectedInboundVersions) {
+	if got := subscription.NewInboundRegistry().Versions(); !slices.Equal(got, expectedInboundVersions) {
 		return fmt.Errorf("inbound registry versions %v differ from catalog %v", got, expectedInboundVersions)
 	}
 	return nil
@@ -199,7 +201,7 @@ func validateCatalog(catalog sourceCatalog) error {
 		switch version.SchemaSource {
 		case "":
 		case singbox.SchemaSourceNative:
-			if !singbox.SupportsNativeConfigurationSchema(version.ExactVersion) {
+			if !panelschema.SupportsNativeConfigurationSchema(version.ExactVersion) {
 				return fmt.Errorf("version %s has no native schema command", version.ExactVersion)
 			}
 		case singbox.SchemaSourceReviewed113:

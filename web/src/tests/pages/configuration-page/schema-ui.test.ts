@@ -272,7 +272,7 @@ const fixtures = [
   'null-sections.json', 'log-defaults.json', 'log-null-fields.json',
 ].map((name) => ({
   name,
-  text: readFileSync(resolve(process.cwd(), `../internal/singbox/testdata/configuration-1.13/${name}`), 'utf8'),
+  text: readFileSync(resolve(process.cwd(), `../internal/sing-box-panel/schema/testdata/configuration-1.13/${name}`), 'utf8'),
 }));
 
 beforeAll(async () => {

@@ -7,8 +7,6 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -22,25 +20,15 @@ import (
 	"strings"
 	"time"
 
+	"github.com/rehuony/sing-box-panel/internal/atomicfile"
+	panelschema "github.com/rehuony/sing-box-panel/internal/sing-box-panel/schema"
 	"github.com/rehuony/sing-box-panel/internal/singbox"
 )
 
-const schemaAssetsPath = "internal/singbox/schemas"
-
-type generatedSchemaManifest struct {
-	SchemaVersion int                            `json:"schema_version"`
-	Entries       []generatedSchemaManifestEntry `json:"entries"`
-}
-
-type generatedSchemaManifestEntry struct {
-	ExactVersion string `json:"exact_version"`
-	SchemaSHA256 string `json:"schema_sha256"`
-	SchemaFile   string `json:"schema_file"`
-	Source       string `json:"source"`
-}
+const schemaAssetsPath = "internal/sing-box-panel/schema/schemas"
 
 func exportWebSchemas(outputDirectory string) error {
-	assets, err := singbox.ConfigurationSchemaWebAssets()
+	assets, err := panelschema.ConfigurationSchemaWebAssets()
 	if err != nil {
 		return fmt.Errorf("load committed schema assets: %w", err)
 	}
@@ -70,12 +58,12 @@ func generateSchemas(root string) error {
 	}
 	defer os.RemoveAll(temporaryRoot)
 	outputRoot := filepath.Join(temporaryRoot, "assets")
-	manifest := generatedSchemaManifest{
+	manifest := panelschema.Manifest{
 		SchemaVersion: 1,
-		Entries:       make([]generatedSchemaManifestEntry, 0),
+		Entries:       make([]panelschema.ManifestEntry, 0),
 	}
 	for _, version := range catalog.Versions {
-		var entry generatedSchemaManifestEntry
+		var entry panelschema.ManifestEntry
 		var err error
 		switch version.SchemaSource {
 		case singbox.SchemaSourceNative:
@@ -118,40 +106,40 @@ func generateNativeSchema(
 	temporaryRoot string,
 	version singbox.Version,
 	outputRoot string,
-) (generatedSchemaManifestEntry, error) {
+) (panelschema.ManifestEntry, error) {
 	profile, found := version.Profiles[runtime.GOARCH]
 	if !found {
-		return generatedSchemaManifestEntry{}, fmt.Errorf("sing-box %s has no linux/%s generation profile", version.ExactVersion, runtime.GOARCH)
+		return panelschema.ManifestEntry{}, fmt.Errorf("sing-box %s has no linux/%s generation profile", version.ExactVersion, runtime.GOARCH)
 	}
 	binaryPath, err := downloadReleaseBinary(temporaryRoot, version, profile)
 	if err != nil {
-		return generatedSchemaManifestEntry{}, err
+		return panelschema.ManifestEntry{}, err
 	}
 	rawPath := filepath.Join(temporaryRoot, "schema-"+version.ExactVersion+".json")
 	command := exec.Command(binaryPath, "schema", "-o", rawPath)
 	command.Dir = temporaryRoot
 	command.Env = []string{"HOME=" + temporaryRoot, "LANG=C", "LC_ALL=C", "PATH=/usr/bin:/bin"}
 	if output, err := command.CombinedOutput(); err != nil {
-		return generatedSchemaManifestEntry{}, fmt.Errorf("generate sing-box %s native schema: %w\n%s", version.ExactVersion, err, output)
+		return panelschema.ManifestEntry{}, fmt.Errorf("generate sing-box %s native schema: %w\n%s", version.ExactVersion, err, output)
 	}
 	raw, err := canonicalJSONFile(rawPath)
 	if err != nil {
-		return generatedSchemaManifestEntry{}, err
+		return panelschema.ManifestEntry{}, err
 	}
 	return writeConfigurationSchema(version, raw, outputRoot)
 }
 
-func writeConfigurationSchema(version singbox.Version, raw []byte, outputRoot string) (generatedSchemaManifestEntry, error) {
+func writeConfigurationSchema(version singbox.Version, raw []byte, outputRoot string) (panelschema.ManifestEntry, error) {
 	schema, err := applyConfigurationSchemaPresentationOverlay(raw)
 	if err != nil {
-		return generatedSchemaManifestEntry{}, fmt.Errorf("apply presentation overlay to sing-box %s: %w", version.ExactVersion, err)
+		return panelschema.ManifestEntry{}, fmt.Errorf("apply presentation overlay to sing-box %s: %w", version.ExactVersion, err)
 	}
-	digest := digestHex(schema)
+	digest := panelschema.ContentDigest(schema)
 	schemaName := "schema-" + digest + ".json"
 	if err := writeFileIfChanged(filepath.Join(outputRoot, schemaName), schema); err != nil {
-		return generatedSchemaManifestEntry{}, err
+		return panelschema.ManifestEntry{}, err
 	}
-	return generatedSchemaManifestEntry{
+	return panelschema.ManifestEntry{
 		ExactVersion: version.ExactVersion,
 		SchemaSHA256: digest,
 		SchemaFile:   schemaName,
@@ -179,7 +167,7 @@ func downloadReleaseBinary(temporaryRoot string, version singbox.Version, profil
 	if err != nil {
 		return "", err
 	}
-	if int64(len(archive)) != profile.Size || digestHex(archive) != profile.SHA256 {
+	if int64(len(archive)) != profile.Size || panelschema.ContentDigest(archive) != profile.SHA256 {
 		return "", fmt.Errorf("downloaded sing-box %s release differs from the catalog", version.ExactVersion)
 	}
 	compressed, err := gzip.NewReader(bytes.NewReader(archive))
@@ -313,29 +301,7 @@ func writeFileIfChanged(filename string, content []byte) error {
 	if err := os.MkdirAll(filepath.Dir(filename), 0o755); err != nil {
 		return err
 	}
-	temporary, err := os.CreateTemp(filepath.Dir(filename), ".schema-*")
-	if err != nil {
-		return err
-	}
-	temporaryName := temporary.Name()
-	defer os.Remove(temporaryName)
-	if _, err := temporary.Write(content); err != nil {
-		temporary.Close()
-		return err
-	}
-	if err := temporary.Chmod(0o644); err != nil {
-		temporary.Close()
-		return err
-	}
-	if err := temporary.Close(); err != nil {
-		return err
-	}
-	return os.Rename(temporaryName, filename)
-}
-
-func digestHex(content []byte) string {
-	digest := sha256.Sum256(content)
-	return hex.EncodeToString(digest[:])
+	return atomicfile.Write(filename, content, 0o644, atomicfile.Options{})
 }
 
 // Reviewed constraints are source data, independently maintained from x-panel.
@@ -365,7 +331,7 @@ func checkReviewedSchemas(root string, catalog sourceCatalog) error {
 		if err != nil {
 			return err
 		}
-		contract, err := singbox.ConfigurationSchema(version.ExactVersion)
+		contract, err := panelschema.ConfigurationSchema(version.ExactVersion)
 		if err != nil {
 			return err
 		}

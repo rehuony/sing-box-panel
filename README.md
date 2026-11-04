@@ -106,7 +106,7 @@ explicitly:
 A user service requires administrator-enabled lingering if it must continue
 after logout. An already running service keeps its existing process after a
 binary upgrade; restart it explicitly when ready. See the authoritative
-[systemd packaging guide](systemd/README.md) for ownership and hardening.
+[systemd packaging guide](docs/systemd.md) for ownership and hardening.
 
 The no-argument latest-version lookup requires at least one published,
 non-prerelease GitHub Release. Before the first stable release is published,
@@ -133,12 +133,13 @@ Install the locked frontend dependencies, run the repository checks, and build
 the web-enabled binary:
 
 ```sh
-make bootstrap
+make deps
 make check build
 ```
 
-For daily work, `make` builds `bin/sing-box-panel`, `make check` runs the ordinary
-checks, and `make fmt` formats Go sources. See [Contributing](CONTRIBUTING.md#validation)
+For daily work, `make build` builds `bin/sing-box-panel` and `bin/sing-box-node`,
+`make check` runs the ordinary checks, and `make fmt` formats Go sources; plain
+`make` lists every target. See [Contributing](.github/CONTRIBUTING.md#validation)
 for focused checks and generated-file maintenance.
 
 Initialize an isolated development instance and start the server:
@@ -182,12 +183,11 @@ builds, and the web application.
 
 ```text
 .github/             Workflows, community templates, code ownership, and signing keys
-api/                 OpenAPI contract and shared subscription templates
-cmd/                 Service entry points
-docs/                Guides, architecture, testing, and release process
-internal/            Go implementation packages
+api/                 HTTP (OpenAPI) and panel–node (protobuf) contracts
+cmd/                 The panel and node binaries' main.go files
+docs/                Guides, architecture, testing, packaging, and release process
+internal/            Go packages: sing-box-panel/ and sing-box-node/ per service, shared ones beside them
 scripts/             End-user installation, release, and local test scripts
-systemd/             Embedded systemd templates and packaging guidance
 tools/               Maintainer commands run through go tool
 web/                 React/Vite application managed with pnpm
 DESIGN.md            Visual identity, design tokens, and interface rules
@@ -195,10 +195,10 @@ DESIGN.md            Visual identity, design tokens, and interface rules
 
 ## Contributing
 
-Read the [contribution guide](CONTRIBUTING.md) before opening an issue or pull
-request. Participation is governed by the [Code of Conduct](CODE_OF_CONDUCT.md),
+Read the [contribution guide](.github/CONTRIBUTING.md) before opening an issue or pull
+request. Participation is governed by the [Code of Conduct](.github/CODE_OF_CONDUCT.md),
 and vulnerabilities must be reported privately according to the
-[Security Policy](SECURITY.md).
+[Security Policy](.github/SECURITY.md).
 
 ## License
 

@@ -1,0 +1,219 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+package subscription
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"strings"
+	"time"
+
+	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/store"
+)
+
+func (application *Service) CreateSubscriptionSource(
+	ctx context.Context,
+	request CreateSubscriptionSourceRequest,
+) (SubscriptionSource, error) {
+	id, err := store.NewID(application.random, "source")
+	if err != nil {
+		return SubscriptionSource{}, err
+	}
+	now := application.now().UTC()
+	source := store.SubscriptionSource{
+		ID: id, Name: request.Name, SourceKind: request.SourceKind,
+		Config:  request.Config,
+		Enabled: request.Enabled, CreatedAt: now, UpdatedAt: now,
+	}
+	var schedule *store.SubscriptionRefreshSchedule
+	if source.SourceKind == store.SubscriptionSourceRemote {
+		if _, err := decodeRemoteSubscriptionSourceConfig(source.Config); err != nil {
+			return SubscriptionSource{}, err
+		}
+		if source.Enabled {
+			schedule = &store.SubscriptionRefreshSchedule{SourceID: source.ID, ExpectedUpdatedAt: source.UpdatedAt, NextAt: now}
+		}
+	}
+	stored, err := application.database.CreateSubscriptionSourceWithSchedule(ctx, source, schedule)
+	if err != nil {
+		return SubscriptionSource{}, err
+	}
+	return applicationSubscriptionSource(stored), nil
+}
+
+func (application *Service) SubscriptionSource(
+	ctx context.Context,
+	sourceID string,
+) (SubscriptionSource, error) {
+	stored, err := application.database.GetSubscriptionSource(ctx, strings.TrimSpace(sourceID))
+	if err != nil {
+		return SubscriptionSource{}, err
+	}
+	return applicationSubscriptionSource(stored), nil
+}
+
+func (application *Service) ListSubscriptionSources(
+	ctx context.Context,
+	request SubscriptionListRequest,
+) (SubscriptionSourcePage, error) {
+	stored, err := application.database.ListSubscriptionSources(ctx, store.SubscriptionSourceListFilter{
+		Cursor: storeSubscriptionCursor(request.Cursor), Limit: request.Limit,
+	})
+	if err != nil {
+		return SubscriptionSourcePage{}, err
+	}
+	page := SubscriptionSourcePage{Items: make([]SubscriptionSourceSummary, len(stored.Items))}
+	for index, source := range stored.Items {
+		page.Items[index] = applicationSubscriptionSourceSummary(source)
+	}
+	page.Next = applicationSubscriptionCursor(stored.Next)
+	return page, nil
+}
+
+func (application *Service) UpdateSubscriptionSource(
+	ctx context.Context,
+	sourceID string,
+	request UpdateSubscriptionSourceRequest,
+) (SubscriptionSource, error) {
+	updatedAt := application.nextSubscriptionUpdateTime(request.ExpectedUpdatedAt)
+	prospective := store.SubscriptionSource{
+		ID: strings.TrimSpace(sourceID), Name: request.Name, SourceKind: request.SourceKind,
+		Config: request.Config, Enabled: request.Enabled, UpdatedAt: updatedAt,
+	}
+	schedule, err := application.configuredSubscriptionSourceRefreshSchedule(prospective)
+	if err != nil {
+		return SubscriptionSource{}, err
+	}
+	stored, err := application.database.UpdateSubscriptionSource(ctx, store.UpdateSubscriptionSourceInput{
+		ID: strings.TrimSpace(sourceID), Name: request.Name, SourceKind: request.SourceKind,
+		Config: request.Config, Enabled: request.Enabled,
+		ExpectedUpdatedAt: request.ExpectedUpdatedAt,
+		UpdatedAt:         updatedAt,
+		RefreshSchedule:   schedule,
+	})
+	if err != nil {
+		return SubscriptionSource{}, err
+	}
+	return applicationSubscriptionSource(stored), nil
+}
+
+func (application *Service) CreateSubscriptionSourceVersion(
+	ctx context.Context,
+	sourceID string,
+	request CreateSubscriptionSourceVersionRequest,
+) (SubscriptionSourceVersionSave, error) {
+	sourceID = strings.TrimSpace(sourceID)
+	nodes, detected, err := ParseSource(request.Format, request.RawBody, sourceID)
+	if err != nil {
+		return SubscriptionSourceVersionSave{}, err
+	}
+	normalizedNodes, err := json.Marshal(nodes)
+	if err != nil {
+		return SubscriptionSourceVersionSave{}, fmt.Errorf("encode normalized subscription nodes: %w", err)
+	}
+	versionID, err := store.NewID(application.random, "version")
+	if err != nil {
+		return SubscriptionSourceVersionSave{}, err
+	}
+	now := application.now().UTC()
+	source, err := application.database.GetSubscriptionSource(ctx, sourceID)
+	if err != nil {
+		return SubscriptionSourceVersionSave{}, err
+	}
+	updatedAt := application.nextSubscriptionUpdateTime(request.ExpectedUpdatedAt)
+	source.UpdatedAt = updatedAt
+	schedule, err := application.configuredSubscriptionSourceRefreshSchedule(source)
+	if err != nil {
+		return SubscriptionSourceVersionSave{}, err
+	}
+	fetchedAt := request.FetchedAt.UTC()
+	if request.FetchedAt.IsZero() {
+		fetchedAt = now
+	}
+	stored, err := application.database.SaveSubscriptionSourceVersion(ctx, store.SaveSubscriptionSourceVersionInput{
+		Version: store.SubscriptionSourceVersion{
+			ID: versionID, SourceID: sourceID, Format: string(detected),
+			RawBody: request.RawBody, NormalizedNodes: normalizedNodes,
+			Diagnostics: json.RawMessage(`[]`), FetchedAt: fetchedAt, CreatedAt: now,
+		},
+		ExpectedSourceUpdatedAt: request.ExpectedUpdatedAt,
+		UpdatedAt:               updatedAt,
+		RefreshSchedule:         schedule,
+	})
+	if err != nil {
+		return SubscriptionSourceVersionSave{}, err
+	}
+	return SubscriptionSourceVersionSave{
+		Source:  applicationSubscriptionSource(stored.Source),
+		Version: applicationSubscriptionSourceVersion(stored.Version, true),
+	}, nil
+}
+
+func (application *Service) SubscriptionSourceVersion(
+	ctx context.Context,
+	sourceID string,
+	versionID string,
+) (SubscriptionSourceVersion, error) {
+	stored, err := application.database.GetSubscriptionSourceVersion(
+		ctx, strings.TrimSpace(sourceID), strings.TrimSpace(versionID),
+	)
+	if err != nil {
+		return SubscriptionSourceVersion{}, err
+	}
+	return applicationSubscriptionSourceVersion(stored, true), nil
+}
+
+func (application *Service) ListSubscriptionSourceVersions(
+	ctx context.Context,
+	sourceID string,
+	request SubscriptionListRequest,
+) (SubscriptionSourceVersionPage, error) {
+	stored, err := application.database.ListSubscriptionSourceVersions(ctx, store.SubscriptionSourceVersionListFilter{
+		SourceID: strings.TrimSpace(sourceID), Cursor: storeSubscriptionCursor(request.Cursor), Limit: request.Limit,
+	})
+	if err != nil {
+		return SubscriptionSourceVersionPage{}, err
+	}
+	page := SubscriptionSourceVersionPage{Items: make([]SubscriptionSourceVersion, len(stored.Items))}
+	for index, version := range stored.Items {
+		page.Items[index] = applicationSubscriptionSourceVersion(version, false)
+	}
+	page.Next = applicationSubscriptionCursor(stored.Next)
+	return page, nil
+}
+
+func (application *Service) RestoreSubscriptionSourceVersion(
+	ctx context.Context,
+	sourceID string,
+	versionID string,
+	expectedUpdatedAt time.Time,
+) (SubscriptionSource, error) {
+	sourceID = strings.TrimSpace(sourceID)
+	updatedAt := application.nextSubscriptionUpdateTime(expectedUpdatedAt)
+	source, err := application.database.GetSubscriptionSource(ctx, sourceID)
+	if err != nil {
+		return SubscriptionSource{}, err
+	}
+	source.UpdatedAt = updatedAt
+	schedule, err := application.configuredSubscriptionSourceRefreshSchedule(source)
+	if err != nil {
+		return SubscriptionSource{}, err
+	}
+	stored, err := application.database.ActivateSubscriptionSourceVersionWithSchedule(
+		ctx, sourceID, strings.TrimSpace(versionID), expectedUpdatedAt,
+		updatedAt, schedule,
+	)
+	if err != nil {
+		return SubscriptionSource{}, err
+	}
+	return applicationSubscriptionSource(stored), nil
+}
+
+func (application *Service) DeleteSubscriptionSource(
+	ctx context.Context,
+	sourceID string,
+	expectedUpdatedAt time.Time,
+) error {
+	return application.database.DeleteSubscriptionSource(ctx, strings.TrimSpace(sourceID), expectedUpdatedAt)
+}

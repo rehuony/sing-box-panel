@@ -370,7 +370,7 @@ characters. Literal backslash sequences and required YAML escaping keep their
 original meaning.
 
 Defaults are shared by the editor and renderer from the native files in
-`api/templates`. They use ordinary DNS without geographic
+`internal/sing-box-panel/subscription/templates`. They use ordinary DNS without geographic
 splitting, IPv4, local proxy listeners, and no default-enabled TUN or MITM.
 Mihomo includes DNS caching and HTTP/TLS/QUIC sniffing without overriding the
 request destination; Loon retains local bypass and rejects unsupported UDP.
@@ -688,7 +688,7 @@ when fresh stream envelopes repeat the same observation; this does not mark
 the entire runtime stream stale before its ten-second threshold.
 
 System services read three narrowly scoped read-only host-counter mounts while
-retaining procfs isolation; see [systemd packaging](../systemd/README.md#system-service)
+retaining procfs isolation; see [systemd packaging](systemd.md#system-service)
 for the required unit refresh when upgrading an older installation.
 
 `GET /api/v1/dashboard/stream` sends a shared projection immediately (or a fresh

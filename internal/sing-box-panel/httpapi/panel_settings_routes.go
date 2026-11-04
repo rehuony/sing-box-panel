@@ -1,0 +1,65 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+package httpapi
+
+import (
+	"errors"
+	"net/http"
+
+	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/auth"
+	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/settings"
+	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/store"
+)
+
+func (handler *Handler) getPanelSettings(w http.ResponseWriter, request *http.Request) {
+	if !handler.requireCommands(w, request) {
+		return
+	}
+	if _, ok := strictCoreQuery(w, request); !ok {
+		return
+	}
+	value, err := handler.services.Settings.PanelSettings(request.Context())
+	if err != nil {
+		writePanelSettingsProblem(w, request, err)
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	writeJSON(w, http.StatusOK, value)
+}
+
+func (handler *Handler) savePanelSettings(w http.ResponseWriter, request *http.Request) {
+	if !handler.requireCommands(w, request) {
+		return
+	}
+	if _, ok := strictCoreQuery(w, request); !ok {
+		return
+	}
+	var input settings.PanelSettingsWrite
+	if !decodeStrictRequest(w, request, 64<<10, &input) {
+		return
+	}
+	value, err := handler.services.Settings.SavePanelSettings(request.Context(), input)
+	if err != nil {
+		writePanelSettingsProblem(w, request, err)
+		return
+	}
+	if value.ReauthenticationRequired {
+		handler.clearSessionCookie(w, request)
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	writeJSON(w, http.StatusOK, value)
+}
+
+func writePanelSettingsProblem(w http.ResponseWriter, request *http.Request, err error) {
+	switch {
+	case errors.Is(err, auth.ErrBusy):
+		w.Header().Set("Retry-After", "1")
+		writeProblem(w, request, http.StatusTooManyRequests, "login_rate_limited", "Authentication busy", "Try again shortly.")
+	case errors.Is(err, settings.ErrPanelSettingsInvalid):
+		writeProblem(w, request, http.StatusUnprocessableEntity, "panel_settings_invalid", "Invalid settings", "Check the settings values and try again.")
+	case errors.Is(err, store.ErrPanelSettingsConflict):
+		writeProblem(w, request, http.StatusPreconditionFailed, "panel_settings_conflict", "Settings changed", "Reload the current settings before saving.")
+	default:
+		writeProblem(w, request, http.StatusInternalServerError, "panel_settings_failed", "Settings unavailable", "The settings operation could not be completed.")
+	}
+}

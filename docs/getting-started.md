@@ -13,7 +13,7 @@ package-pinned pnpm 11.21.0. Go and Web dependencies are locked by `go.mod`,
 From the repository root:
 
 ```sh
-make bootstrap
+make deps
 make check build
 ```
 
@@ -21,10 +21,10 @@ make check build
 formatting and modules, and runs `go vet`, Go tests, Web linting and tests,
 third-party notice checks, offline configuration-schema validation, OpenAPI
 checks, shell syntax checks, and network-independent installer contract tests.
-`make check-go`, `make check-web`, and `make check-contracts` run the individual
-groups described in [Contributing](../CONTRIBUTING.md#validation).
-`make build` (also the default for plain `make`) uses the same Web-first boundary
-and writes `bin/sing-box-panel`. Go compilation requires the generated `web/dist` tree;
+`make check-backend`, `make check-frontend`, and `make check-contracts` run the individual
+groups described in [Contributing](../.github/CONTRIBUTING.md#validation).
+`make build` uses the same Web-first boundary and writes `bin/sing-box-panel` and
+`bin/sing-box-node`; plain `make` lists the available targets. Go compilation requires the generated `web/dist` tree;
 that generated tree is the only UI source accepted by the Go build.
 
 ## Initialize settings and storage
@@ -54,7 +54,7 @@ configuration, or subscription data.
 ### Database compatibility
 
 The panel database uses SQLite `application_id = 0x53425034` and storage schema
-version 18, defined in `internal/store/schema.sql`. Empty databases are
+version 18, defined in `internal/sing-box-panel/store/schema.sql`. Empty databases are
 initialized directly. Version 18 is the storage baseline and has no upgrade path:
 databases written by earlier versions, unidentified databases, other application
 identities and newer schemas are rejected without changing their data. Use a
@@ -223,5 +223,5 @@ grants `CAP_DAC_READ_SEARCH` for reading root-owned certificates without changin
 their ownership or permissions; the user unit grants no capabilities.
 TUN, transparent proxying, raw sockets, and
 privileged ports require a reviewed local override. See the authoritative
-[systemd packaging guide](../systemd/README.md) before deploying a
+[systemd packaging guide](systemd.md) before deploying a
 system service.

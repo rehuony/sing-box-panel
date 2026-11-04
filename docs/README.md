@@ -18,6 +18,7 @@ Schema and packaging contracts remain beside their owning components.
 | Task | Reference |
 | --- | --- |
 | Understand package ownership and dependency direction | [Architecture](architecture.md) |
+| Design the panel and node services, their protocol and state ownership | [Panel and node architecture](panel-node-architecture.md) |
 | Review product behavior and its verification coverage | [Product contract](architecture.md#product-contract) |
 | Run test layers and maintain deterministic coverage | [Testing](testing.md) |
 | Review data refresh, streaming and interaction performance evidence | [Telemetry performance](telemetry-performance.md) |
@@ -34,12 +35,12 @@ inventories live beside their Schema source rather than as separate guides.
 | Component | Authoritative source |
 | --- | --- |
 | Toolchain and verification commands | [`go.mod`](../go.mod), [`web/package.json`](../web/package.json), [`Makefile`](../Makefile) |
-| CLI behavior | Cobra commands under [`internal/cli`](../internal/cli) and live `--help` |
+| CLI behavior | Cobra commands under [`internal/sing-box-panel/cli`](../internal/sing-box-panel/cli) and [`internal/sing-box-node/cli`](../internal/sing-box-node/cli) and live `--help` |
 | HTTP operations, payloads and problem details | [`api/openapi.yaml`](../api/openapi.yaml) |
 | Exact core releases and official artifact pins | [`internal/singbox/catalog.json`](../internal/singbox/catalog.json) |
-| Exact-version Schema sources and shared content digests | [Schema manifest](../internal/singbox/schemas/manifest.json) |
+| Exact-version Schema sources and shared content digests | [Schema manifest](../internal/sing-box-panel/schema/schemas/manifest.json) |
 | Reviewed 1.13 fields and upstream provenance | [Source definition](../tools/singbox-support/schema-sources/1.13.json), [generated field table](../tools/singbox-support/schema-sources/1.13-fields.csv) |
-| Service layouts, ownership and hardening | [systemd packaging](../systemd/README.md) |
+| Service layouts, ownership and hardening | [systemd packaging](systemd.md) |
 | Installer, packaging scripts and generated release files | [Project scripts](../scripts/README.md) |
 | Frontend ownership, embedding and HTTP client boundaries | [Web application](../web/README.md) |
 | Visual identity, design tokens and interface rules | [`DESIGN.md`](../DESIGN.md) |
