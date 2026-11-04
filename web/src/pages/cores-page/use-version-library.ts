@@ -6,6 +6,7 @@ import type { RuntimeStatus } from '@/api/api-client';
 
 import { queries } from '@/api/queries';
 import { useApiClient } from '@/api/api-client-context';
+import { nodePlatform, useNodeSelection } from '@/stores/node-selection.store';
 import { useOptionalSharedTelemetry } from '@/components/app-shell/telemetry-context';
 
 export function useVersionLibrary() {
@@ -23,8 +24,7 @@ export function useVersionLibrary() {
   const [refreshError, setRefreshError] = useState<unknown>(null);
   const [runtime, setRuntime] = useState<RuntimeStatus | null>(null);
   const [runtimeError, setRuntimeError] = useState<unknown>(null);
-  const system = useQuery(queries.system(client));
-  const platform = system.data?.platform;
+  const platform = nodePlatform(useNodeSelection().selected);
   const installed = useQuery(queries.installed(client, platform));
   const catalog = useQuery(queries.catalog(client, platform));
   const readRuntime = useCallback(async (signal: AbortSignal) => {
@@ -69,10 +69,9 @@ export function useVersionLibrary() {
     artifacts: installed.data ?? [],
     catalog: catalog.data ?? null,
     runtime: telemetry?.runtimeStatus ?? runtime,
-    platformLoading: system.isPending,
-    installedLoading: system.isPending || installed.isFetching,
-    catalogLoading: system.isPending || catalog.isFetching,
-    error: system.error ?? installed.error ?? runtimeError,
+    installedLoading: installed.isFetching,
+    catalogLoading: catalog.isFetching,
+    error: installed.error ?? runtimeError,
     catalogError: refreshError ?? catalog.error,
     refreshInstalled,
     refreshCatalog,

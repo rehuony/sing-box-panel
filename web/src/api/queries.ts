@@ -10,12 +10,12 @@ type Platform = NonNullable<SystemStatus['platform']>;
 
 export const queries = {
   settings: (client: ApiClient) => queryOptions({ queryKey: ['settings'], queryFn: ({ signal }) => client.getPanelSettings(signal), staleTime: Infinity, gcTime: 0, refetchOnWindowFocus: false }),
-  coreLogFiles: (client: ApiClient) => queryOptions({ queryKey: ['coreLogFiles'], queryFn: ({ signal }) => client.listCoreLogFiles(signal), staleTime: 5000 }),
-  system: (client: ApiClient) => queryOptions({ queryKey: ['system'], queryFn: ({ signal }) => client.getSystemStatus(signal), staleTime: 30_000 }),
-  context: (client: ApiClient) => queryOptions({ queryKey: ['context'], queryFn: ({ signal }) => client.getDashboardContext(signal), staleTime: 5_000 }),
-  runtime: (client: ApiClient) => queryOptions({ queryKey: ['runtime'], queryFn: ({ signal }) => client.getRuntimeStatus(signal), staleTime: 0 }),
+  fleetNodes: (client: ApiClient) => queryOptions({ queryKey: ['fleetNodes'], queryFn: ({ signal }) => client.listFleetNodes(signal), staleTime: 15_000 }),
+  // Node-scoped reads carry the node in their key, so nodes never share data.
+  coreLogFiles: (client: ApiClient) => queryOptions({ queryKey: ['coreLogFiles', client.nodeID], queryFn: ({ signal }) => client.listCoreLogFiles(signal), staleTime: 5000 }),
+  runtime: (client: ApiClient) => queryOptions({ queryKey: ['runtime', client.nodeID], queryFn: ({ signal }) => client.getRuntimeStatus(signal), staleTime: 0 }),
   installed: (client: ApiClient, platform: Platform | undefined) => queryOptions({
-    queryKey: ['installed', platform],
+    queryKey: ['installed', client.nodeID, platform],
     queryFn: ({ signal }) => platform ? listInstalledCoreArtifacts(client, platform, signal) : Promise.resolve([]),
     enabled: platform !== undefined, staleTime: 15_000,
   }),

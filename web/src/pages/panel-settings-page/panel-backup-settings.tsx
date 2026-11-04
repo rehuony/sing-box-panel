@@ -10,8 +10,6 @@ import { useApiClient } from '@/api/api-client-context';
 import { ErrorNotice } from '@/components/error-notice';
 import { AuthSessionContext } from '@/stores/auth-session.store';
 import { usePanelSettings } from '@/stores/panel-settings.store';
-import { ControlPlaneContext } from '@/stores/control-plane.store';
-import { ConfigurationSessionContext } from '@/stores/configuration-session.store';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 
 import { backupFile } from './panel-backup';
@@ -29,14 +27,11 @@ export function PanelBackupSettings({ busy, onBusyChange, onRestored }: {
   const api = useApiClient();
   const { view } = usePanelSettings();
   const auth = use(AuthSessionContext);
-  const control = use(ControlPlaneContext);
-  const configurationSession = use(ConfigurationSessionContext);
   const inputRef = useRef<HTMLInputElement>(null);
   const [error, setError] = useState<unknown>(null);
   const [pending, setPending] = useState<{
     backup: PanelBackup;
     settingsRevision: number;
-    configurationRevision: number;
   } | null>(null);
   const [working, setWorking] = useState(false);
   const locked = working || busy;
@@ -63,11 +58,11 @@ export function PanelBackupSettings({ busy, onBusyChange, onRestored }: {
     setWorking(true);
     setError(null);
     try {
-      if (file.size > 13 * 1024 * 1024 + 4096) throw new Error(t('panelSettings.backupInvalid'));
+      if (file.size > 2 * 1024 * 1024) throw new Error(t('panelSettings.backupInvalid'));
       const backup = backupFile(JSON.parse(await file.text()));
       if (!backup) throw new Error(t('panelSettings.backupInvalid'));
-      const [settings, configuration] = await Promise.all([api.getPanelSettings(), api.getConfigurationFile()]);
-      setPending({ backup, settingsRevision: settings.revision, configurationRevision: configuration.revision });
+      const settings = await api.getPanelSettings();
+      setPending({ backup, settingsRevision: settings.revision });
     } catch (cause) {
       setError(cause);
     } finally {
@@ -85,18 +80,11 @@ export function PanelBackupSettings({ busy, onBusyChange, onRestored }: {
       const result = await api.restorePanelBackup({
         backup: pending.backup,
         settings_revision: pending.settingsRevision,
-        configuration_revision: pending.configurationRevision,
       });
       setPending(null);
       await onRestored(result.settings);
       toast.add({ title: t('panelSettings.backupRestored'), type: 'success' });
-      if (result.reauthentication_required) {
-        auth?.retrySession();
-      } else {
-        const file = await api.getConfigurationFile();
-        configurationSession?.getState().replaceDraft({ file, content: file.content });
-        await control?.refresh();
-      }
+      if (result.reauthentication_required) auth?.retrySession();
     } catch (cause) {
       setError(cause);
     } finally {

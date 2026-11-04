@@ -49,9 +49,7 @@ func TestPanelBackupAuthenticationCSRFAndRevisionConflict(t *testing.T) {
 		t.Fatal(err)
 	}
 	view, _ := app.Settings.PanelSettings(t.Context())
-	file, _ := app.Configs.ConfigurationFile(t.Context())
-	backup.SingBoxConfiguration = "  exact raw text\n"
-	input := settings.PanelRestoreRequest{Backup: backup, SettingsRevision: view.Revision, ConfigurationRevision: file.Revision}
+	input := settings.PanelRestoreRequest{Backup: backup, SettingsRevision: view.Revision}
 	restore := func(csrf bool) *httptest.ResponseRecorder {
 		encoded, _ := json.Marshal(input)
 		req := httptest.NewRequest(http.MethodPost, "/api/v1/panel/restore", bytes.NewReader(encoded))
@@ -73,10 +71,6 @@ func TestPanelBackupAuthenticationCSRFAndRevisionConflict(t *testing.T) {
 	}
 	if got := restore(true); got.Code != 412 {
 		t.Fatalf("stale revisions: %d", got.Code)
-	}
-	stored, _ := app.Configs.ConfigurationFile(t.Context())
-	if stored.Content != backup.SingBoxConfiguration {
-		t.Fatal("text was altered")
 	}
 	input.Backup.Version = 1
 	if got := restore(true); got.Code != 422 {

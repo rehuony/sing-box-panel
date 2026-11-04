@@ -13,7 +13,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/localnode"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/store"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/telemetry"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/testutil"
@@ -71,20 +70,13 @@ func TestObservabilityHTTPReadsOnlyPersistedEvidence(t *testing.T) {
 		t.Fatalf("clear logs status=%d body=%s", clearedLogs.Code, clearedLogs.Body.String())
 	}
 
-	metrics := authenticatedRequest(t, handler, http.MethodGet, "/api/v1/metrics", "", "")
-	if metrics.Code != http.StatusOK {
-		t.Fatalf("metrics status=%d body=%s", metrics.Code, metrics.Body.String())
-	}
-	var snapshot localnode.MetricsSnapshot
-	if err := json.Unmarshal(metrics.Body.Bytes(), &snapshot); err != nil {
-		t.Fatal(err)
-	}
-	if snapshot.Available || snapshot.ReasonCode != "not_applied" || snapshot.CurrentTrafficData.InboundBytes != 0 || snapshot.CurrentTrafficData.OutboundBytes != 0 {
-		t.Fatalf("metrics fabricated values: %+v", snapshot)
-	}
-	trafficStatus := authenticatedRequest(t, handler, http.MethodGet, "/api/v1/traffic/status", "", "")
-	if trafficStatus.Code != http.StatusOK || !strings.Contains(trafficStatus.Body.String(), `"reason_code":"not_applied"`) {
-		t.Fatalf("traffic status=%d body=%s", trafficStatus.Code, trafficStatus.Body.String())
+	// Live views need node telemetry, which nodes do not report yet; they
+	// answer with a problem rather than with values that look like data.
+	for _, target := range []string{"/api/v1/metrics", "/api/v1/traffic/status", "/api/v1/metrics/stream"} {
+		live := authenticatedRequest(t, handler, http.MethodGet, target, "", "")
+		if live.Code != http.StatusServiceUnavailable {
+			t.Fatalf("%s status=%d body=%s", target, live.Code, live.Body.String())
+		}
 	}
 
 	from := url.QueryEscape(now.Add(-4 * time.Hour).Format(time.RFC3339Nano))

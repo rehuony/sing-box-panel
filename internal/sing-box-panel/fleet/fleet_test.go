@@ -3,14 +3,19 @@
 package fleet_test
 
 import (
+	"bytes"
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/tls"
+	"errors"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
+	"os"
 	"path/filepath"
+	goruntime "runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -21,11 +26,14 @@ import (
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/rehuony/sing-box-panel/internal/buildinfo"
 	"github.com/rehuony/sing-box-panel/internal/nodeapi"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-node/agent"
+	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/corecache"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/fleet"
+	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/nodeconfig"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/settings"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/store"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/telemetry"
@@ -50,9 +58,17 @@ func (value *clock) Advance(by time.Duration) {
 
 const basePath = "/panel"
 
+// testFleet is a served fleet and the cache its nodes install from.
+type testFleet struct {
+	service  *fleet.Service
+	cores    *corecache.Service
+	endpoint string
+	dataDir  string
+}
+
 // startFleet serves a fleet and a stand-in Web server on one loopback port,
 // with the node service under basePath.
-func startFleet(t *testing.T, now func() time.Time) (*fleet.Service, string) {
+func startFleet(t *testing.T, now func() time.Time) testFleet {
 	t.Helper()
 	dataDir := t.TempDir()
 	database, err := store.Open(t.Context(), filepath.Join(dataDir, "panel.db"))
@@ -69,7 +85,9 @@ func startFleet(t *testing.T, now func() time.Time) (*fleet.Service, string) {
 	value.Server.BasePath = basePath
 	value.Nodes.Endpoint = listener.Addr().String()
 	panelSettings := settings.NewService(database, "", value, settings.Options{})
-	service := fleet.New(database, panelSettings, telemetry.New(database, panelSettings, telemetry.Options{}), fleet.Options{
+	records := telemetry.New(database, panelSettings, telemetry.Options{})
+	cores := corecache.New(database, records, panelSettings, corecache.Options{DataDir: dataDir})
+	service := fleet.New(database, panelSettings, records, nodeconfig.New(database, cores), cores, fleet.Options{
 		Build: buildinfo.Info{Version: "test"}, Now: now,
 	})
 	web, nodes := fleet.SplitListener(listener)
@@ -85,7 +103,7 @@ func startFleet(t *testing.T, now func() time.Time) (*fleet.Service, string) {
 			t.Errorf("serve: %v", err)
 		}
 	})
-	return service, listener.Addr().String()
+	return testFleet{service: service, cores: cores, endpoint: listener.Addr().String(), dataDir: dataDir}
 }
 
 func waitState(t *testing.T, service *fleet.Service, id, want string) {
@@ -104,7 +122,11 @@ func waitState(t *testing.T, service *fleet.Service, id, want string) {
 }
 
 func TestNodeSharesTheWebPortAndLosesSessionWhenRemoved(t *testing.T) {
-	service, endpoint := startFleet(t, nil)
+	if goruntime.GOOS != "linux" {
+		t.Skip("the node runs its core runtime only on Linux")
+	}
+	served := startFleet(t, nil)
+	service, endpoint := served.service, served.endpoint
 	response, err := http.Get("http://" + endpoint + "/")
 	if err != nil {
 		t.Fatal(err)
@@ -265,7 +287,8 @@ func requireCode(t *testing.T, err error, want codes.Code) {
 
 func TestSessionsRequireProofAndReplaceEachOther(t *testing.T) {
 	now := &clock{now: time.Date(2026, time.November, 4, 12, 0, 0, 0, time.UTC)}
-	service, endpoint := startFleet(t, now.Now)
+	served := startFleet(t, now.Now)
+	service, endpoint := served.service, served.endpoint
 	node := &rawNode{client: dialRaw(t, endpoint, basePath, true)}
 
 	expired, err := service.AddNode(t.Context(), "expired")
@@ -319,4 +342,108 @@ func TestSessionsRequireProofAndReplaceEachOther(t *testing.T) {
 	// The node service lives only under the base path.
 	_, err = dialRaw(t, endpoint, "", true).Enroll(t.Context(), &nodeapi.EnrollRequest{})
 	requireCode(t, err, codes.Unimplemented)
+}
+
+func TestInstallStreamsTheCachedArchiveUnderAGrantThatEndsWithTheCommand(t *testing.T) {
+	served := startFleet(t, nil)
+	service := served.service
+	offline, err := service.AddNode(t.Context(), "offline")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.RuntimeStatus(t.Context(), offline.Node.ID); !errors.Is(err, fleet.ErrNodeOffline) {
+		t.Fatalf("command to an offline node = %v, want ErrNodeOffline", err)
+	}
+
+	enrollment, err := service.AddNode(t.Context(), "edge")
+	if err != nil {
+		t.Fatal(err)
+	}
+	node := &rawNode{client: dialRaw(t, served.endpoint, basePath, true)}
+	if err := node.enroll(t, enrollment.Code); err != nil {
+		t.Fatal(err)
+	}
+	stream, err := node.connect(t, node.key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitState(t, service, node.id, fleet.StateOnline)
+
+	// Larger than one FetchArtifact frame.
+	archive := bytes.Repeat([]byte("sing-box archive "), 10_000)
+	staged := filepath.Join(served.dataDir, "imports", "core-upload-test")
+	if err := os.MkdirAll(filepath.Dir(staged), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(staged, archive, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cached, err := served.cores.CacheUpload(t.Context(), staged, corecache.CoreUpload{
+		SourceDescription: "test archive", ExactVersion: "1.13.19", Architecture: "amd64",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	grants := make(chan string, 1)
+	answered := make(chan error, 1)
+	go func() {
+		answered <- func() error {
+			frame, err := stream.Recv()
+			if err != nil {
+				return err
+			}
+			command := frame.GetCommand()
+			install := command.GetInstallCore()
+			if install == nil || install.GetArtifact().GetId() != cached.ID || install.GetSize() != int64(len(archive)) {
+				return fmt.Errorf("unexpected command %v", frame)
+			}
+			fetch, err := node.client.FetchArtifact(t.Context(), &nodeapi.FetchArtifactRequest{
+				Grant: install.GetFetchGrant(), ArtifactId: cached.ID,
+			})
+			if err != nil {
+				return err
+			}
+			var received []byte
+			for {
+				chunk, err := fetch.Recv()
+				if errors.Is(err, io.EOF) {
+					break
+				}
+				if err != nil {
+					return err
+				}
+				if len(received) == 0 && (chunk.GetArtifact().GetId() != cached.ID || chunk.GetSize() != int64(len(archive))) {
+					return fmt.Errorf("first frame does not identify the artifact: %v", chunk.GetArtifact())
+				}
+				received = append(received, chunk.GetData()...)
+			}
+			if !bytes.Equal(received, archive) {
+				return fmt.Errorf("received %d bytes, want the %d cached bytes", len(received), len(archive))
+			}
+			grants <- install.GetFetchGrant()
+			return stream.Send(&nodeapi.ConnectRequest{Frame: &nodeapi.ConnectRequest_Result{Result: &nodeapi.Result{
+				RequestId: command.GetRequestId(),
+				Outcome: &nodeapi.Result_Core{Core: &nodeapi.CoreOutcome{Installed: []*nodeapi.InstalledCore{{
+					Artifact: install.GetArtifact(), BinarySha256: strings.Repeat("c", 64), BinaryPath: "/node/cores/sing-box",
+					FeatureFingerprint: "{}", InstalledAt: timestamppb.Now(),
+				}}}},
+			}}})
+		}()
+	}()
+	installed, err := service.InstallCore(t.Context(), node.id, cached)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := <-answered; err != nil {
+		t.Fatal(err)
+	}
+	if installed.ID != cached.ID || installed.ExactVersion != "1.13.19" || installed.BinaryPath != "/node/cores/sing-box" {
+		t.Fatalf("installed = %+v, want the cached artifact %s", installed, cached.ID)
+	}
+	fetch, err := node.client.FetchArtifact(t.Context(), &nodeapi.FetchArtifactRequest{Grant: <-grants, ArtifactId: cached.ID})
+	if err == nil {
+		_, err = fetch.Recv()
+	}
+	requireCode(t, err, codes.PermissionDenied)
 }

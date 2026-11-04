@@ -19,7 +19,6 @@ import (
 
 	"github.com/rehuony/sing-box-panel/internal/buildinfo"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/app"
-	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/nodeconfig"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/settings"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/store"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/subscription"
@@ -221,18 +220,14 @@ func TestSubscriptionManagementHTTPCRUDStrictnessAndCAS(t *testing.T) {
 	}
 }
 
-func TestSubscriptionPreviewHTTPUsesSelectedUserAndAppliedVersion(t *testing.T) {
-	database, app, handler, channel, startup := newSubscriptionPublicationHTTPFixture(t, "")
+func TestSubscriptionPreviewHTTPUsesSelectedUser(t *testing.T) {
+	_, app, handler, channel, publish := newSubscriptionPublicationHTTPFixture(t, "")
 	ctx := context.Background()
 	user, err := app.Subscriptions.CreateSubscriptionUser(ctx, subscription.CreateSubscriptionUserRequest{Name: "preview", Enabled: true})
 	if err != nil {
 		t.Fatal(err)
 	}
-	prepared, err := app.Node.PrepareActivationBundle(ctx, startup.ID, store.MonitoringProcessOnly)
-	if err != nil {
-		t.Fatal(err)
-	}
-	applySubscriptionHTTPBundle(t, database, app, prepared.Bundle.ID)
+	publish()
 	catalog, err := app.Subscriptions.SubscriptionNodeCatalog(ctx)
 	if err != nil || len(catalog.Nodes) != 1 {
 		t.Fatalf("catalog = %+v, %v", catalog, err)
@@ -244,7 +239,6 @@ func TestSubscriptionPreviewHTTPUsesSelectedUserAndAppliedVersion(t *testing.T) 
 		"/api/v1/subscription/channels/"+channel.ID+"/preview",
 		`{"user_id":"`+user.ID+`"}`, "")
 	if preview.Code != http.StatusOK || !strings.Contains(preview.Body.String(), `"node_count":1`) ||
-		!strings.Contains(preview.Body.String(), `"startup_artifact_id":"`+startup.ID+`"`) ||
 		!strings.Contains(preview.Body.String(), `"user_id":"`+user.ID+`"`) {
 		t.Fatalf("preview status=%d body=%s", preview.Code, preview.Body.String())
 	}
@@ -252,7 +246,7 @@ func TestSubscriptionPreviewHTTPUsesSelectedUserAndAppliedVersion(t *testing.T) 
 
 func TestPublicSubscriptionHTTPFrozenPublicationAndTokenLifecycle(t *testing.T) {
 	ctx := context.Background()
-	database, app, handler, channel, startup := newSubscriptionPublicationHTTPFixture(t, "/panel")
+	database, app, handler, channel, publish := newSubscriptionPublicationHTTPFixture(t, "/panel")
 	user, err := app.Subscriptions.CreateSubscriptionUser(ctx, subscription.CreateSubscriptionUserRequest{
 		Name: "public HTTP user", Enabled: true,
 	})
@@ -265,14 +259,6 @@ func TestPublicSubscriptionHTTPFrozenPublicationAndTokenLifecycle(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	conversion, err := subscription.NewInboundRegistry().Convert(
-		startup.ExactCoreVersion,
-		subscription.InboundRequest{FinalStartupJSON: startup.ConfigBytes, PublicHost: channel.PublicHost},
-	)
-	if err != nil || len(conversion.Nodes) != 1 {
-		t.Fatalf("local nodes=%+v err=%v", conversion.Nodes, err)
-	}
-	localNodes := conversion.Nodes
 	publicPath := "/panel/sub/" + created.Token + "/" + channel.ID
 	beforeApply := publicSubscriptionRequest(handler, publicPath)
 	if beforeApply.Code != http.StatusServiceUnavailable || !strings.Contains(beforeApply.Body.String(), `"code":"not_applied"`) ||
@@ -280,12 +266,12 @@ func TestPublicSubscriptionHTTPFrozenPublicationAndTokenLifecycle(t *testing.T) 
 		t.Fatalf("before apply status=%d body=%s", beforeApply.Code, beforeApply.Body.String())
 	}
 
-	prepared, err := app.Node.PrepareActivationBundle(ctx, startup.ID, store.MonitoringProcessOnly)
-	if err != nil {
-		t.Fatal(err)
+	publish()
+	catalog, err := app.Subscriptions.SubscriptionNodeCatalog(ctx)
+	if err != nil || len(catalog.Nodes) != 1 {
+		t.Fatalf("catalog = %+v, %v", catalog, err)
 	}
-	applySubscriptionHTTPBundle(t, database, app, prepared.Bundle.ID)
-	if _, err := app.Subscriptions.ReplaceSubscriptionUserGrants(ctx, user.ID, []string{localNodes[0].Key}, user.UpdatedAt); err != nil {
+	if _, err := app.Subscriptions.ReplaceSubscriptionUserGrants(ctx, user.ID, []string{catalog.Nodes[0].Key}, user.UpdatedAt); err != nil {
 		t.Fatal(err)
 	}
 
@@ -329,7 +315,7 @@ func TestPublicSubscriptionHTTPFrozenPublicationAndTokenLifecycle(t *testing.T) 
 		}
 	}
 
-	// Channel policy is evaluated live against the applied local node version.
+	// Channel policy is evaluated live against the published nodes.
 	update := authenticatedRequest(t, handler, http.MethodPut,
 		"/panel/api/v1/subscription/channels/"+channel.ID,
 		`{"name":"sing-box","format":"sing-box","public_host":"publish.example","config":{"exclude_tags":["publish"]},"enabled":true}`,
@@ -420,45 +406,16 @@ func newSubscriptionHTTPServices(t *testing.T, basePath string) (*store.Store, a
 	return database, app, handler
 }
 
+// newSubscriptionPublicationHTTPFixture returns a channel and publish, which
+// adds the manual node that the channel publishes; until then the panel has
+// nothing to publish.
 func newSubscriptionPublicationHTTPFixture(
 	t *testing.T,
 	basePath string,
-) (*store.Store, app.Services, *Handler, subscription.SubscriptionChannel, store.StartupArtifact) {
+) (*store.Store, app.Services, *Handler, subscription.SubscriptionChannel, func()) {
 	t.Helper()
 	ctx := context.Background()
 	database, app, handler := newSubscriptionHTTPServices(t, basePath)
-	now := time.Now().UTC()
-	core := store.CoreArtifact{
-		ID: "core-http-publication", ExactVersion: "1.13.19", OperatingSystem: "linux",
-		Architecture: "arm64", Variant: "musl", SourceKind: store.CoreArtifactSourceOfficial,
-		RepositoryID: 1, ReleaseID: 2, AssetID: 3, ArchiveSHA256: strings.Repeat("a", 64),
-		BinarySHA256: strings.Repeat("b", 64), BinaryPath: "/secure/core-http-publication/sing-box",
-		ReportedVersion:    "1.13.19",
-		FeatureFingerprint: json.RawMessage(`{"status":"reported","features":["badlinkname","tfogo_checklinkname0","with_acme","with_ccm","with_clash_api","with_dhcp","with_gvisor","with_naive_outbound","with_ocm","with_purego","with_quic","with_tailscale","with_utls","with_wireguard"]}`),
-		CreatedAt:          now,
-	}
-	if _, err := database.UpsertCoreArtifact(ctx, core); err != nil {
-		t.Fatal(err)
-	}
-	startupBytes := []byte(`{"inbounds":[{"type":"shadowsocks","tag":"publish","listen":"::","listen_port":443,"method":"aes-256-gcm","password":"secret"}],"outbounds":[{"type":"shadowsocks","tag":"publish","server":"publish.example","server_port":443,"method":"aes-256-gcm","password":"secret"}]}`)
-	revision, err := app.Configs.SaveConfigurationFile(ctx, nodeconfig.ConfigurationFileWrite{Content: string(startupBytes)})
-	if err != nil {
-		t.Fatal(err)
-	}
-	startup, err := database.CreateStartupArtifact(ctx, store.StartupArtifact{
-		ID:                  "startup-http-publication",
-		CanonicalRevisionID: revision.CanonicalRevisionID, ExactCoreVersion: core.ExactVersion,
-		CoreArtifactID: core.ID,
-		ConfigBytes:    startupBytes,
-		CreatedAt:      now.Add(time.Second),
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	startup, err = database.CompleteStartupArtifactCheck(ctx, startup.ID, true, now.Add(2*time.Second))
-	if err != nil {
-		t.Fatal(err)
-	}
 	channel, err := app.Subscriptions.CreateSubscriptionChannel(ctx, subscription.CreateSubscriptionChannelRequest{
 		Name: "sing-box", Format: store.SubscriptionFormatSingBox, PublicHost: "publish.example",
 		Config: json.RawMessage(`{}`), Enabled: true,
@@ -466,12 +423,13 @@ func newSubscriptionPublicationHTTPFixture(
 	if err != nil {
 		t.Fatal(err)
 	}
-	return database, app, handler, channel, startup
-}
-
-func applySubscriptionHTTPBundle(t *testing.T, database *store.Store, _ app.Services, bundleID string) {
-	t.Helper()
-	testutil.ApplyBundle(t, database, bundleID)
+	publish := func() {
+		t.Helper()
+		if _, err := app.Subscriptions.CreateSubscriptionNode(ctx, json.RawMessage(`{"type":"shadowsocks","tag":"publish","server":"publish.example","server_port":443,"method":"aes-256-gcm","password":"secret"}`)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return database, app, handler, channel, publish
 }
 
 func publicSubscriptionRequest(handler http.Handler, target string) *httptest.ResponseRecorder {

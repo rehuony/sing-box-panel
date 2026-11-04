@@ -1,5 +1,5 @@
+import type { ApiClient, SystemStatus } from '../api-client';
 import type { HttpApiContext, SessionPayload } from './shared';
-import type { ApiClient, DashboardContext, SystemStatus } from '../api-client';
 
 import { ApiRequestError } from '../api-client';
 import { loginFingerprint } from './login-fingerprint';
@@ -59,12 +59,6 @@ export function createSessionHttpApi(context: HttpApiContext) {
     subscribeSessionInvalidated,
     getSystemStatus(signal) {
       return request<SystemStatus>(fetcher, `${baseUrl}/system/status`, {
-        method: 'GET',
-        signal,
-      });
-    },
-    getDashboardContext(signal) {
-      return request<DashboardContext>(fetcher, `${baseUrl}/dashboard/context`, {
         method: 'GET',
         signal,
       });

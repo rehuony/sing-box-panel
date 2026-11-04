@@ -1,7 +1,8 @@
 # Configuration and runtime
 
-sing-box-panel exposes one editable `config.json` and maintains immutable valid
-JSON revisions as internal runtime evidence. Selecting another
+sing-box-panel keeps one editable `config.json` for each node and maintains
+immutable valid JSON revisions as internal runtime evidence. The panel owns the
+file; the node receives exact revision bytes only to check or run them. Selecting another
 core never creates another configuration branch, and saving configuration
 never changes the live process implicitly.
 
@@ -10,7 +11,7 @@ never changes the live process implicitly.
 The control plane separates four layers:
 
 1. The **configuration file** stores exact UTF-8 text, including unfinished JSON.
-   Authenticated `GET/PUT /api/v1/config/file` uses a numeric compare-and-swap
+   Authenticated `GET/PUT /api/v1/nodes/{nodeId}/config/file` uses a numeric compare-and-swap
    revision, preserves whitespace and large numbers, and never starts a process.
 2. A **configuration revision** stores one immutable strict JSON object. Valid
    file saves synchronize that head atomically. Invalid saves keep prior history
@@ -39,21 +40,18 @@ depend on the selected exact version. The 1.14 contract includes `log`, `dns`,
 `certificate_providers`, `http_clients`, `network_namespaces`, and `experimental`. The panel does not add
 `_panel`, disabled-item markers, or another storage envelope to these bytes.
 
-Before serving requests, panel startup saves `{}` and its immutable JSON revision
-if no configuration has ever been saved. This also initializes an existing data
-directory whose configuration is still absent. Repeated starts preserve saved
-text, revision identity, and timestamps, including unfinished or blank drafts.
-Initialization does not select or start a core; enabling still validates the
-configuration against the selected binary.
+Adding a node saves `{}` and its immutable JSON revision as the node's first
+configuration. Initialization does not select or start a core; enabling still
+validates the configuration against the selected binary on the node.
 
-The Web editor manages this document through `GET/PUT /api/v1/config/file`.
+The Web editor manages this document through `GET/PUT /api/v1/nodes/{nodeId}/config/file`.
 The numeric file revision is a compare-and-swap guard: `0` means no save yet,
-and startup initialization advances a new file to `1`.
+and adding a node advances its file to `1`.
 Reads return the stored text exactly, including unfinished
 JSON, together with `revision`, `syntax_valid`, and `canonical_revision_id`.
 A stale save fails instead of merging implicitly. The logical name `config.json`
-is not a filesystem path: the text lives in the `configuration_file` table of
-`panel.db` inside `data_dir`. There is no second writable runtime configuration
+is not a filesystem path: the text lives in the `node_configurations` table of
+the panel's `panel.db`, and the file stays editable while the node is offline. There is no second writable runtime configuration
 on disk and no sing-box configuration CLI.
 
 Valid saves synchronize the editable document and immutable revision in one
@@ -108,12 +106,12 @@ artifact. The selected binary then checks the snapshot; a native check failure
 marks the startup artifact failed. Both failures leave the currently applied
 runtime untouched. There is no separate editable startup JSON or
 version-specific transformation path. The Web UI requests the check
-through `POST /api/v1/config/compile`.
+through `POST /api/v1/nodes/{nodeId}/config/compile`.
 
 ## Reviewed configuration schemas
 
 The authenticated endpoint
-`GET /api/v1/core/artifacts/{artifactId}/configuration-schema` returns the
+`GET /api/v1/nodes/{nodeId}/core/artifacts/{artifactId}/configuration-schema` returns the
 reviewed Draft 2020-12 JSON Schema for the artifact's exact version. Schema
 selection deliberately ignores the artifact commit, binary digest, feature
 fingerprint, variant, and architecture: the official configuration contract is
@@ -232,11 +230,12 @@ original labels rather than receiving guessed explanations.
 
 ### Selecting server paths
 
-Filesystem fields in configuration and subscription-node forms, and the panel's
-data directory setting, share a Browse control while remaining editable.
-The dialog browses the panel server's filesystem
-namespace (inside its container or service sandbox when applicable), subject to
-the panel process's OS permissions. It provides parent and breadcrumb navigation,
+Filesystem fields in configuration and subscription-node forms share a Browse
+control while remaining editable.
+The dialog browses the selected node's filesystem namespace (inside its
+container or service sandbox when applicable), subject to the node process's
+OS permissions. The panel's own data directory is a plain path field, because
+the panel host has no browse API. It provides parent and breadcrumb navigation,
 direct path entry, name filtering, hidden-file visibility and pagination.
 
 The packaged systemd service runs as `sing-box-panel`, even when installed or
@@ -288,12 +287,12 @@ omitted from listings. The existing local-file upload controls remain uploads.
 A check snapshots immutable configuration bytes and runs
 `sing-box check` against the selected binary without touching the live
 core. The configuration page offers Save configuration and Validate configuration;
-validation uses `POST /api/v1/config/compile` and returns the completed artifact state.
+validation uses `POST /api/v1/nodes/{nodeId}/config/compile` and returns the completed artifact state.
 There is no separate Apply action on that page. Use Enable in version management
 to select a binary, then Start or Restart to load the current saved configuration.
 Those operations perform preflight in the serialized runtime controller before changing
 the running process. The Web UI uses
-`POST /api/v1/core/artifacts/{artifactId}/enable` and the runtime endpoints.
+`POST /api/v1/nodes/{nodeId}/core/artifacts/{artifactId}/enable` and the runtime endpoints.
 Startup artifacts and activation bundles remain internal evidence.
 Enable switches binaries with the current saved document while preserving
 stopped/running state and returns after the operation completes.
@@ -308,12 +307,12 @@ configuration exposes a secret-protected Clash API on a loopback address and
 completes the `/version` handshake, otherwise `process_only`, which checks
 process health only. Nothing is injected into the file to create that endpoint.
 
-`GET /api/v1/core/runtime` reports `enabled_core` separately from
+`GET /api/v1/nodes/{nodeId}/core/status` reports `enabled_core` separately from
 `running`. The former persists while stopped; the latter remains evidence of a
 verified live process. A checked selection while stopped does not claim a loaded
 configuration or create a running process identity.
 
-`POST /api/v1/core/artifacts/{artifactId}/disable` queues a fenced stop for the
+`POST /api/v1/nodes/{nodeId}/core/artifacts/{artifactId}/disable` queues a fenced stop for the
 currently selected artifact. Successful completion clears desired, applied and
 rollback pointers and removes the current symlink; it keeps immutable artifacts
 and lifecycle history. Requests for an artifact that is no longer selected are
@@ -324,7 +323,7 @@ starting again after disable.
 
 Use the Web UI's runtime controls to inspect status, start, restart or stop the
 selected core. The authenticated runtime API supports the same operations and is
-the only rollback entry point (`POST /api/v1/core/rollback`); the Web UI has no
+the only rollback entry point (`POST /api/v1/nodes/{nodeId}/core/rollback`); the Web UI has no
 rollback control. The CLI manages the panel service itself.
 
 Start and Restart use the last successfully selected binary identity and the current saved
@@ -426,8 +425,8 @@ replace settings with current defaults (including a new administrator password).
 Session Cookie `Secure` follows the active `server.external_origin`: HTTPS enables
 it and HTTP disables it. When no external origin is configured, the actual request
 TLS state determines it. Forwarded headers cannot override this policy. Origin
-changes take effect after restart. Existing backup version 2 remains supported
-only when its settings omit the removed fields; no migration is performed.
+changes take effect after restart. Backups whose settings contain the removed
+fields are rejected; no migration is performed.
 
 | Settings field | Web field | Generated default |
 | --- | --- | --- |
@@ -528,19 +527,20 @@ are not duplicated as independent settings:
 
 ```text
 data_dir/
-  panel.db                # product state, nodes, metrics and panel logs
+  panel.db                # product state, nodes and their configurations, metrics and panel logs
   node-tls.pem            # key and self-signed certificate for direct node connections (0600)
-  artifacts/              # installed sing-box cores
-  runtime/configs/        # disposable snapshots held by checks and processes
+  artifact-cache/         # verified core archives that nodes install from
   imports/                # temporary core uploads
-  logs/core/              # managed core log files
   panel-control.sock      # private process control
-  runtime-executor.lock    # process ownership
+  runtime-executor.lock   # process ownership
 ```
 
-The sing-box subprocess working directory is `data_dir/runtime`, so relative
-paths inside its native configuration resolve there. The panel settings file
-and its write/recovery sidecars remain beside the selected `--config` path.
+Each node keeps its installed cores, disposable configuration snapshots and
+core logs in its own data directory and runs sing-box with that directory's
+`runtime/` as the working directory, so relative paths inside a native
+configuration resolve there on the node; see [Nodes](cli.md#nodes). The panel
+settings file and its write/recovery sidecars remain beside the selected
+`--config` path.
 
 API revision, detected public IP, configured-secret flags and restart status are
 response metadata and are not settings fields. File reads include credentials;
@@ -578,7 +578,7 @@ and does not require the saved sing-box text to be syntactically complete.
 
 The former shared credential fields `panel.identity_name` and `panel.identity_key`,
 the API fields `identity_name`, `identity_key`, `clear_identity_key` and
-`identity_key_configured`, and `POST /api/v1/config/inbound-defaults` have been
+`identity_key_configured`, and `POST /api/v1/nodes/{nodeId}/config/inbound-defaults` have been
 removed. This development-stage change has no compatibility fallback: settings
 files, API writes and backups containing the removed fields are rejected. Remove
 those panel fields before loading an existing file or backup. Existing native
@@ -601,27 +601,25 @@ continue to follow panel settings and their previews.
 
 ### Backup and restore
 
-Panel settings → Backup and restore exports the **saved** panel settings and
-exact saved sing-box text; unsaved drafts are excluded. `GET /api/v1/panel/backup`
-returns authenticated, no-store plaintext JSON with `format`, `version` (2),
-`exported_at`, `panel_settings`, and `sing_box_configuration`. The file includes
-credentials, listener settings and data directory paths. External referenced
-files, binaries, logs, metrics, login sessions and subscription business records are not included.
-Version 1 and old token-based authentication settings are rejected without conversion.
+Panel settings → Backup and restore exports the **saved** panel settings;
+unsaved drafts are excluded. `GET /api/v1/panel/backup` returns authenticated,
+no-store plaintext JSON with `format`, `version` (3), `exported_at` and
+`panel_settings`. The file includes credentials, listener settings and data
+directory paths. Node configurations, external referenced files, binaries,
+logs, metrics, login sessions and subscription business records are not
+included. Earlier versions and old token-based authentication settings are
+rejected without conversion.
 
 Selecting a file previews overwritten settings and source/destination service
 addresses and directories before confirmation. `POST /api/v1/panel/restore`
-requires this backup plus both target `settings_revision` and
-`configuration_revision`. Unsupported formats, invalid settings, oversized
-content (1 MiB settings and 2 MiB sing-box text), or revision conflicts leave both
-sources unchanged. The existing settings journal and SQLite commit marker make
-restoration atomic and recover interrupted writes. Native sing-box text, including
-formatting and unfinished edits, is preserved exactly.
+requires this backup plus the target `settings_revision`. Unsupported formats,
+invalid settings, oversized content (1 MiB) or a revision conflict leave the
+settings unchanged. The settings journal and SQLite commit marker make
+restoration atomic and recover interrupted writes.
 
-Restore refreshes settings and the configuration editor. A changed administrator email or password hash requires signing in again; listener/path changes require a manual restart.
-The running core keeps its current configuration and running/stopped state.
-Review machine-specific paths and apply the restored sing-box configuration
-manually; relative panel data paths resolve beside the target settings file.
+Restore refreshes settings. A changed administrator email or password hash
+requires signing in again; listener/path changes require a manual restart.
+Relative panel data paths resolve beside the target settings file.
 
 ### Data directory changes
 

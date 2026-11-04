@@ -885,7 +885,7 @@ func TestCleanupProtectsOtherServiceSettingsAndAliases(t *testing.T) {
 
 func TestSystemPruneRemovesAllDataWithInvalidRuntimeSettings(t *testing.T) {
 	path := commandSettingsFixture(t)
-	saveConfigurationFixture(t, path, "{}")
+	createPanelDatabaseFixture(t, path)
 	dataDir, err := settings.LoadDataDir(path)
 	if err != nil {
 		t.Fatal(err)

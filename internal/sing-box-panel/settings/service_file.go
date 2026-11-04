@@ -11,6 +11,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/rehuony/sing-box-panel/internal/database"
 	"github.com/rehuony/sing-box-panel/internal/jsonstrict"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/auth"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/store"
@@ -167,7 +168,7 @@ func (app *Service) RecoverPanelSettingsFileLocked(ctx context.Context) error {
 
 // commitSettingsFile requires the file lock. The durable journal is published
 // before either resource changes and cleared only after a known commit outcome.
-func (app *Service) commitSettingsFile(ctx context.Context, before, after []byte, configuration *store.ConfigurationFileUpdate) error {
+func (app *Service) commitSettingsFile(ctx context.Context, before, after []byte) error {
 	next, err := Parse(app.settingsPath, after)
 	if err != nil {
 		return err
@@ -177,7 +178,7 @@ func (app *Service) commitSettingsFile(ctx context.Context, before, after []byte
 		return err
 	}
 	credentialsChanged := auth.Fingerprint(previous.Auth.Email, previous.Auth.PasswordHash) != auth.Fingerprint(next.Auth.Email, next.Auth.PasswordHash)
-	id, err := store.NewID(app.random, "settings")
+	id, err := database.NewID(app.random, "settings")
 	if err != nil {
 		return err
 	}
@@ -188,7 +189,7 @@ func (app *Service) commitSettingsFile(ctx context.Context, before, after []byte
 	if err := WriteAtomic(app.settingsPath+".pending", journal); err != nil {
 		return err
 	}
-	err = app.database.CommitPanelSettingsFile(ctx, app.settingsPath, id, configuration, credentialsChanged, func() error {
+	err = app.database.CommitPanelSettingsFile(ctx, app.settingsPath, id, credentialsChanged, func() error {
 		current, err := ReadRaw(app.settingsPath)
 		if err != nil {
 			return err

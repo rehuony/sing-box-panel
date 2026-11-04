@@ -3,7 +3,7 @@ import type {
   CatalogAssetList,
   ChannelPolicy,
   CoreArtifact,
-  DashboardContext,
+  FleetNode,
   LogEntry,
   MetricsHistory,
   MetricsSnapshot,
@@ -367,52 +367,21 @@ export function createDemoData(now = new Date()): DemoData {
   };
 }
 
-export function demoSystemStatus(data: DemoData): SystemStatus {
-  return {
-    platform: { os: 'linux', arch: 'amd64' },
-    panel_version: 'demo',
-    canonical_revision: data.canonical.sequence,
-    applied_bundle_id: data.runtime.applied_bundle_id ?? null,
-    running: data.runtime.observation_state === 'running',
-    running_version: data.runtime.running?.exact_core_version ?? null,
-    running_artifact: data.runtime.running?.core_artifact_id ?? null,
-    configuration_state: data.runtime.running?.exact_core_version === '1.14.0'
-      ? 'schema@1.14.0'
-      : 'raw',
-  };
-}
+export const demoNode: FleetNode = {
+  id: 'node_demo',
+  name: 'demo-node',
+  state: 'online',
+  created_at: '2026-08-20T08:00:00Z',
+  enrolled_at: '2026-08-20T08:05:00Z',
+  last_seen_at: '2026-08-26T07:12:00Z',
+  hostname: 'demo-node',
+  os: 'linux',
+  arch: 'amd64',
+  build_version: 'demo',
+};
 
-export function demoDashboardContext(data: DemoData): DashboardContext {
-  const running = data.runtime.running;
-  return {
-    view: { exactVersion: running?.exact_core_version ?? '1.14.0' },
-    running: running === undefined
-      ? null
-      : {
-          exactVersion: running.exact_core_version,
-          artifactName: running.core_artifact_id,
-          digest: running.binary_sha256.slice(0, 16),
-        },
-    canonical: {
-      revision: data.canonical.sequence,
-      savedAt: data.canonical.created_at,
-      hasUnappliedChanges: data.canonical.id !== data.startupArtifacts[0]?.canonical_revision_id,
-    },
-    applied: data.runtime.applied_bundle_id === undefined
-      ? null
-      : {
-          bundle: data.runtime.applied_bundle_id,
-          revision: data.canonical.sequence,
-          appliedAt: data.runtime.running?.started_at ?? data.canonical.created_at,
-        },
-    configuration: {
-      supported: running?.exact_core_version === '1.14.0',
-      label: running?.exact_core_version === '1.14.0' ? 'Schema 1.14.0' : 'Raw JSON',
-      warning: running?.exact_core_version === '1.14.0'
-        ? null
-        : 'Structured editing is available for sing-box 1.14 and newer.',
-    },
-  };
+export function demoSystemStatus(): SystemStatus {
+  return { platform: { os: 'linux', arch: 'amd64' }, panel_version: 'demo' };
 }
 
 function aggregateDemoTrafficPeriod(data: DemoData, start: string, end: string, now: Date): TrafficPeriod {

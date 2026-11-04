@@ -14,6 +14,7 @@ import (
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/durationpb"
 
+	"github.com/rehuony/sing-box-panel/internal/database"
 	"github.com/rehuony/sing-box-panel/internal/nodeapi"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/store"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/telemetry"
@@ -146,11 +147,11 @@ func (server *nodeServer) Connect(stream nodeapi.NodeService_ConnectServer) erro
 	if !nodeapi.VerifyProof(node.PublicKey, panelID, node.ID, nonce, frame.GetProof()) {
 		return status.Error(codes.Unauthenticated, "session proof is invalid")
 	}
-	sessionID, err := store.NewID(service.random, "session")
+	sessionID, err := database.NewID(service.random, "session")
 	if err != nil {
 		return status.Error(codes.Internal, "generate session")
 	}
-	current := &session{cancel: cancel}
+	current := newSession(ctx, cancel, stream)
 	service.sessions.replace(node.ID, current)
 	defer service.sessions.remove(node.ID, current)
 	err = service.database.RecordNodeSession(ctx, node.ID, node.PublicKey, store.NodeSession{
@@ -169,7 +170,7 @@ func (server *nodeServer) Connect(stream nodeapi.NodeService_ConnectServer) erro
 		_ = service.database.EndNodeSession(endCtx, node.ID, sessionID, service.now().UTC())
 		service.recordNodeEvent(store.LogLevelInfo, "node.disconnected", "Node disconnected", node.ID)
 	}()
-	if err := stream.Send(&nodeapi.ConnectResponse{Frame: &nodeapi.ConnectResponse_Welcome{Welcome: &nodeapi.Welcome{
+	if err := current.send(&nodeapi.ConnectResponse{Frame: &nodeapi.ConnectResponse_Welcome{Welcome: &nodeapi.Welcome{
 		SessionId: sessionID, PanelBuildVersion: service.build.Version,
 		Protocol:        &nodeapi.ProtocolVersion{Major: nodeapi.ProtocolMajor, Minor: nodeapi.ProtocolMinor},
 		MetricsInterval: durationpb.New(MetricsInterval),
@@ -190,9 +191,10 @@ func (server *nodeServer) Connect(stream nodeapi.NodeService_ConnectServer) erro
 			}
 			return err
 		case frame := <-frames:
-			// Commands, results and events arrive in later protocol phases;
-			// a repeated handshake frame is a protocol violation.
-			if frame.GetHello() != nil || frame.GetProof() != nil {
+			switch {
+			case frame.GetResult() != nil:
+				current.deliver(frame.GetResult())
+			case frame.GetHello() != nil || frame.GetProof() != nil:
 				return status.Error(codes.InvalidArgument, "handshake frames are not allowed after Welcome")
 			}
 		case <-validation.C:
@@ -250,4 +252,49 @@ func (service *Service) recordNodeEvent(level store.LogLevel, code, message, nod
 		Source: store.LogSourcePanel, Level: level, Code: code, Message: message,
 		Metadata: telemetry.LogMetadata(map[string]any{"node_id": nodeID}),
 	})
+}
+
+// artifactChunkSize is the size of the data in each FetchArtifact frame.
+const artifactChunkSize = 64 << 10
+
+// FetchArtifact streams a cached core archive to a node holding a grant for
+// it. The first frame carries the artifact's identity and size.
+func (server *nodeServer) FetchArtifact(request *nodeapi.FetchArtifactRequest, stream nodeapi.NodeService_FetchArtifactServer) error {
+	service := server.service
+	nodeID, ok := service.grants.check(request.GetGrant(), request.GetArtifactId(), service.now())
+	if !ok {
+		return status.Error(codes.PermissionDenied, "artifact grant is invalid or expired")
+	}
+	file, artifact, err := service.cores.OpenCachedArtifact(stream.Context(), request.GetArtifactId())
+	if errors.Is(err, store.ErrCachedArtifactNotFound) {
+		return status.Error(codes.NotFound, "the artifact is no longer cached")
+	}
+	if err != nil {
+		service.recordNodeEvent(store.LogLevelError, "core.artifact.open_failed", "Cached core archive could not be opened", nodeID)
+		return status.Error(codes.Internal, "open cached artifact")
+	}
+	defer file.Close()
+	identity, err := artifactIdentity(artifact)
+	if err != nil {
+		return status.Error(codes.Internal, "read cached artifact identity")
+	}
+	frame := &nodeapi.FetchArtifactResponse{Artifact: identity, Size: artifact.Size}
+	buffer := make([]byte, artifactChunkSize)
+	for {
+		n, err := file.Read(buffer)
+		if n > 0 || frame.Artifact != nil {
+			// Send encodes the frame before it returns, so buffer can be reused.
+			frame.Data = buffer[:n]
+			if err := stream.Send(frame); err != nil {
+				return err
+			}
+			frame = &nodeapi.FetchArtifactResponse{}
+		}
+		if errors.Is(err, io.EOF) {
+			return nil
+		}
+		if err != nil {
+			return status.Error(codes.Internal, "read cached artifact")
+		}
+	}
 }

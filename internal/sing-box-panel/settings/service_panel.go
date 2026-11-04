@@ -206,7 +206,7 @@ func (app *Service) SavePanelSettings(ctx context.Context, input PanelSettingsWr
 	if err != nil {
 		return PanelSettingsSaveResult{}, err
 	}
-	if err := app.commitSettingsFile(ctx, before, after, nil); err != nil {
+	if err := app.commitSettingsFile(ctx, before, after); err != nil {
 		return PanelSettingsSaveResult{}, err
 	}
 	app.publishSettings(configurationFile)

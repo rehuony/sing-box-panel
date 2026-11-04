@@ -129,7 +129,7 @@ func TestInstanceCommandsIgnoreInvalidRuntimeSettings(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	saveConfigurationFixture(t, path, "{}")
+	createPanelDatabaseFixture(t, path)
 	valid, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)

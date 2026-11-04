@@ -40,7 +40,7 @@ func (app *Service) subscriptionCatalog(ctx context.Context) (SubscriptionNodeCa
 	var conversion InboundResult
 	listeners := make(map[string]string)
 	if state.AppliedBundleID != "" {
-		startupJSON, err := app.subscriptionStartupJSONWithCore(state.Startup, state.Core)
+		startupJSON, err := subscriptionStartupJSON(state.Startup)
 		if err != nil {
 			return SubscriptionNodeCatalog{}, nil, err
 		}

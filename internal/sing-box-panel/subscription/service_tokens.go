@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/rehuony/sing-box-panel/internal/database"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/store"
 )
 
@@ -20,7 +21,7 @@ func (application *Service) CreateSubscriptionToken(
 	if err != nil {
 		return CreatedSubscriptionToken{}, err
 	}
-	id, err := store.NewID(application.random, "token")
+	id, err := database.NewID(application.random, "token")
 	if err != nil {
 		return CreatedSubscriptionToken{}, err
 	}
@@ -112,7 +113,7 @@ func (application *Service) RotateSubscriptionToken(
 	if err != nil {
 		return SubscriptionTokenRotation{}, err
 	}
-	replacementID, err := store.NewID(application.random, "token")
+	replacementID, err := database.NewID(application.random, "token")
 	if err != nil {
 		return SubscriptionTokenRotation{}, err
 	}

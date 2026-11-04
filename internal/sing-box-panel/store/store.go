@@ -14,9 +14,9 @@ const (
 	// ApplicationID identifies the current incompatible storage epoch.
 	ApplicationID = 0x53425034
 
-	// CurrentSchemaVersion is the only schema this package can open. Version 19
+	// CurrentSchemaVersion is the only schema this package can open. Version 20
 	// is the baseline; databases written by earlier versions are rejected.
-	CurrentSchemaVersion = 19
+	CurrentSchemaVersion = 20
 )
 
 // Store owns the panel database.

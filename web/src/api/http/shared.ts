@@ -1,3 +1,5 @@
+import i18n from '@/i18n';
+
 import type { Session } from '../api-client';
 
 import { ApiRequestError } from '../api-client';
@@ -20,6 +22,8 @@ export interface HttpApiOptions {
 export interface HttpApiContext {
   baseUrl: string;
   fetcher: typeof fetch;
+  /** The base URL of the selected node's resources; it fails without a node. */
+  nodeUrl: () => string;
   clearSession: () => void;
   invalidateSession: () => void;
   quoteETag: (value: string) => string;
@@ -77,6 +81,9 @@ export function createHttpApiContext(options: HttpApiOptions): HttpApiContext {
 
   return {
     baseUrl,
+    nodeUrl: () => {
+      throw new ApiRequestError(i18n.t('nodes.notSelected'), { status: 0, code: 'node_not_selected' });
+    },
     fetcher,
     async request<T>(requestFetcher: typeof fetch, url: string, init: RequestInit): Promise<T> {
       const readOnly = init.method === 'GET';
@@ -138,4 +145,10 @@ export function createHttpApiContext(options: HttpApiOptions): HttpApiContext {
       return () => sessionInvalidatedListeners.delete(listener);
     },
   };
+}
+
+/** Returns context with its node resources addressed to nodeID. */
+export function withNode(context: HttpApiContext, nodeID: string): HttpApiContext {
+  const nodeUrl = `${context.baseUrl}/nodes/${encodeURIComponent(nodeID)}`;
+  return { ...context, nodeUrl: () => nodeUrl };
 }

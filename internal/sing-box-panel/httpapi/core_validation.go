@@ -5,12 +5,11 @@ package httpapi
 import (
 	"net/http"
 	"net/url"
-	"path/filepath"
 	"strconv"
 	"strings"
 
 	"github.com/rehuony/sing-box-panel/internal/coreartifact"
-	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/localnode"
+	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/corecache"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/store"
 )
 
@@ -94,30 +93,26 @@ func validOptionalArchitecture(value string) bool {
 	return value == "" || value == "amd64" || value == "arm64"
 }
 func validOptionalCoreArtifactSource(value string) bool {
-	return value == "" || value == string(store.CoreArtifactSourceOfficial) || value == string(store.CoreArtifactSourceUserVerified)
+	return value == "" || value == store.CachedArtifactOfficial || value == store.CachedArtifactUserVerified
 }
 func validOptionalVariant(value string) bool {
 	return value == "" || value == "musl"
 }
 
-func validCoreImportRequest(request localnode.CoreImportRequest) bool {
-	if !filepath.IsAbs(request.SourcePath) || filepath.Clean(request.SourcePath) != request.SourcePath {
-		return false
-	}
-	version, err := coreartifact.ParseExactVersion(request.ExactVersion)
+func validCoreUpload(upload corecache.CoreUpload) bool {
+	version, err := coreartifact.ParseExactVersion(upload.ExactVersion)
 	if err != nil || version.IsZero() {
 		return false
 	}
-	architecture := coreartifact.Architecture(request.Architecture)
+	architecture := coreartifact.Architecture(upload.Architecture)
 	if architecture != coreartifact.ArchitectureAMD64 && architecture != coreartifact.ArchitectureARM64 {
 		return false
 	}
-	variant := coreartifact.Variant(request.Variant)
+	variant := coreartifact.Variant(upload.Variant)
 	if variant == "" {
 		variant = coreartifact.VariantMusl
 	}
-	_, err = coreartifact.NewUserSource(request.SourceDescription)
-	if err != nil {
+	if _, err := coreartifact.NewUserSource(upload.SourceDescription); err != nil {
 		return false
 	}
 	return variant == coreartifact.VariantMusl

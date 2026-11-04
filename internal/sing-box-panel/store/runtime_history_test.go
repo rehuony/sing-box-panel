@@ -43,7 +43,8 @@ func TestRuntimeHistoryPaginationFiltersPrecedingAndDedupe(t *testing.T) {
 		t.Fatal(err)
 	}
 	now := initialized.OccurredAt.Add(time.Minute)
-	bundle, observation := seedAppliedRuntime(t, ctx, database, now)
+	bundle := struct{ ID string }{ID: "bundle_history"}
+	observation := runtimeProcess{PID: 4242, ProcessStartToken: "start-token", StartedAt: now}
 
 	states := []RuntimeTransitionState{
 		RuntimeTransitionRunning,
@@ -110,7 +111,7 @@ func TestRuntimeHistoryPaginationFiltersPrecedingAndDedupe(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(next.Items) != 2 || next.Items[0].ID != stored[0].ID || next.Next != nil {
+	if len(next.Items) != 1 || next.Items[0].ID != stored[0].ID || next.Next != nil {
 		t.Fatalf("second runtime history page = %+v", next)
 	}
 
@@ -141,121 +142,11 @@ func TestRuntimeHistoryPaginationFiltersPrecedingAndDedupe(t *testing.T) {
 	}
 }
 
-func TestRuntimeObservationHeartbeatDoesNotProveStableRun(t *testing.T) {
-	ctx := testContext(t)
-	database := openTestStore(t, ctx)
-	initialized, err := database.LatestRuntimeTransition(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, observation := seedAppliedRuntime(t, ctx, database, initialized.OccurredAt.Add(time.Minute))
-	heartbeatAt := observation.ObservedAt.Add(30 * time.Second)
-	heartbeat, err := database.HeartbeatRuntimeObservation(
-		ctx, observation.PID, observation.ProcessStartToken, heartbeatAt,
-	)
-	if err != nil || !heartbeat {
-		t.Fatalf("HeartbeatRuntimeObservation() = %t, %v", heartbeat, err)
-	}
-	afterHeartbeat, err := database.RuntimeObservation(ctx)
-	if err != nil || !afterHeartbeat.ObservedAt.Equal(heartbeatAt) || afterHeartbeat.StableObservedAt != nil {
-		t.Fatalf("runtime observation after heartbeat = %+v, %v", afterHeartbeat, err)
-	}
-
-	stableAt := observation.StartedAt.Add(RuntimeRecoveryStableWindow)
-	confirmed, err := database.ConfirmRuntimeObservation(
-		ctx, observation.PID, observation.ProcessStartToken, stableAt,
-	)
-	if err != nil || !confirmed {
-		t.Fatalf("ConfirmRuntimeObservation() = %t, %v", confirmed, err)
-	}
-	stable, err := database.RuntimeObservation(ctx)
-	if err != nil || stable.StableObservedAt == nil || !stable.StableObservedAt.Equal(stableAt) {
-		t.Fatalf("stable runtime observation = %+v, %v", stable, err)
-	}
-}
-
-func TestRuntimeObservationTransitionFencePreservesNewIncarnation(t *testing.T) {
-	ctx := testContext(t)
-	database := openTestStore(t, ctx)
-	initialized, err := database.LatestRuntimeTransition(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, oldObservation := seedAppliedRuntime(t, ctx, database, initialized.OccurredAt.Add(time.Minute))
-	newObservation := oldObservation
-	newObservation.PID++
-	newObservation.ProcessStartToken = "runtime-history-new-incarnation"
-	newObservation.StartedAt = oldObservation.StartedAt.Add(time.Minute)
-	newObservation.ObservedAt = newObservation.StartedAt.Add(time.Second)
-	if _, err := database.RecordRuntimeObservation(ctx, newObservation); err != nil {
-		t.Fatal(err)
-	}
-	transition := runtimeTransitionTestInput(
-		"stale-incarnation-stop",
-		RuntimeTransitionStopped,
-		"stop_succeeded",
-		oldObservation.ActivationBundleID,
-		oldObservation,
-		newObservation.ObservedAt.Add(time.Second),
-	)
-	cleared, err := database.ClearRuntimeObservationAndTransitions(
-		ctx,
-		oldObservation.PID,
-		oldObservation.ProcessStartToken,
-		[]RuntimeTransitionInput{transition},
-	)
-	if err != nil || cleared {
-		t.Fatalf("stale runtime clear = %t, %v", cleared, err)
-	}
-	stored, err := database.RuntimeObservation(ctx)
-	if err != nil || stored.PID != newObservation.PID || stored.ProcessStartToken != newObservation.ProcessStartToken {
-		t.Fatalf("new runtime observation after stale clear = %+v, %v", stored, err)
-	}
-	page, err := database.ListRuntimeTransitions(ctx, RuntimeHistoryFilter{Reason: "stop_succeeded", Limit: 10})
-	if err != nil || len(page.Items) != 0 {
-		t.Fatalf("history after stale clear = %+v, %v", page, err)
-	}
-}
-
-func TestRuntimeRecoveryAtomicallyRecordsFailedIncarnation(t *testing.T) {
-	ctx := testContext(t)
-	database := openTestStore(t, ctx)
-	initialized, err := database.LatestRuntimeTransition(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	now := initialized.OccurredAt.Add(time.Minute)
-	bundle, observation := seedAppliedRuntime(t, ctx, database, now)
-	transition := runtimeTransitionTestInput(
-		"recovery-failed-incarnation",
-		RuntimeTransitionFailed,
-		"unexpected_exit",
-		bundle.ID,
-		observation,
-		observation.ObservedAt.Add(time.Second),
-	)
-	decision, err := database.RequestRuntimeRecovery(ctx, RuntimeRecoveryInput{
-
-		NewEpisodeID:        "runtime-history-episode",
-		ExpectedBundleID:    bundle.ID,
-		ExpectedGeneration:  1,
-		ExpectedObservation: &observation,
-		CreatedAt:           transition.OccurredAt,
-		Transition:          &transition,
-	})
-	if err != nil || decision.EpisodeID == "" {
-		t.Fatalf("RequestRuntimeRecovery() = %+v, %v", decision, err)
-	}
-	if _, err := database.RuntimeObservation(ctx); !errors.Is(err, ErrRuntimeObservationNotFound) {
-		t.Fatalf("runtime observation after recovery = %v", err)
-	}
-	page, err := database.ListRuntimeTransitions(ctx, RuntimeHistoryFilter{
-		Reason: "unexpected_exit",
-		Limit:  10,
-	})
-	if err != nil || len(page.Items) != 1 || page.Items[0].PID != observation.PID {
-		t.Fatalf("failed runtime history after recovery = %+v, %v", page, err)
-	}
+// runtimeProcess identifies the core process a transition records.
+type runtimeProcess struct {
+	PID               int
+	ProcessStartToken string
+	StartedAt         time.Time
 }
 
 func runtimeTransitionTestInput(
@@ -263,7 +154,7 @@ func runtimeTransitionTestInput(
 	state RuntimeTransitionState,
 	reason string,
 	bundleID string,
-	observation RuntimeObservation,
+	observation runtimeProcess,
 	occurredAt time.Time,
 ) RuntimeTransitionInput {
 	startedAt := observation.StartedAt

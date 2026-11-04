@@ -12,6 +12,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/rehuony/sing-box-panel/internal/configuration"
+	"github.com/rehuony/sing-box-panel/internal/database"
 )
 
 var (
@@ -20,8 +21,8 @@ var (
 	ErrConfigurationFileUnparsed = errors.New("saved configuration must be corrected before using structured or runtime operations")
 )
 
-// ConfigurationFile is the one editable file, separate from checked runtime
-// bytes. An empty canonical ID means this saved text cannot be compiled.
+// ConfigurationFile is a node's editable configuration file. An empty
+// canonical ID means the saved text does not parse.
 type ConfigurationFile struct {
 	Revision            int64
 	Content             string
@@ -47,24 +48,28 @@ func readConfigurationFile(row interface{ Scan(...any) error }) (ConfigurationFi
 
 const configurationFileColumns = `revision, content, canonical_revision_id, updated_at`
 
-func (s *Store) ConfigurationFile(ctx context.Context) (ConfigurationFile, error) {
-	return readConfigurationFile(s.db.QueryRowContext(ctx, `SELECT `+configurationFileColumns+` FROM configuration_file WHERE singleton=1`))
+// ConfigurationFile returns nodeID's file; revision 0 before the first save.
+func (s *Store) ConfigurationFile(ctx context.Context, nodeID string) (ConfigurationFile, error) {
+	return readConfigurationFile(s.db.QueryRowContext(ctx, `SELECT `+configurationFileColumns+` FROM node_configurations WHERE node_id = ?`, nodeID))
 }
 
 // SaveConfigurationFile preserves exact text, even when JSON is incomplete.
 // Valid documents advance the immutable canonical head in the same
 // transaction. Invalid documents never substitute an old valid configuration.
-func (s *Store) SaveConfigurationFile(ctx context.Context, expected int64, content string, revision NewCanonicalRevision) (ConfigurationFile, error) {
+func (s *Store) SaveConfigurationFile(ctx context.Context, nodeID string, expected int64, content string, revision NewCanonicalRevision) (ConfigurationFile, error) {
 	var result ConfigurationFile
 	err := s.WithTx(ctx, func(tx *sql.Tx) error {
 		var err error
-		result, err = saveConfigurationFileTx(ctx, tx, expected, content, revision)
+		result, err = saveConfigurationFileTx(ctx, tx, nodeID, expected, content, revision)
 		return err
 	})
+	if err != nil && strings.Contains(err.Error(), "FOREIGN KEY constraint failed") {
+		return ConfigurationFile{}, ErrNodeNotFound
+	}
 	return result, err
 }
 
-// ConfigurationFileUpdate joins a settings change to the same saved-file CAS.
+// ConfigurationFileUpdate is a prepared save of a configuration file.
 type ConfigurationFileUpdate struct {
 	ExpectedRevision int64
 	Content          string
@@ -75,11 +80,11 @@ type ConfigurationFileUpdate struct {
 // file revision, with new revision and command identifiers read from random.
 // The caller commits it alone or together with other state.
 func NewConfigurationFileUpdate(random func([]byte) (int, error), now time.Time, expected int64, content string) (*ConfigurationFileUpdate, error) {
-	revisionID, err := NewID(random, "rev")
+	revisionID, err := database.NewID(random, "rev")
 	if err != nil {
 		return nil, err
 	}
-	commandID, err := NewID(random, "cmd")
+	commandID, err := database.NewID(random, "cmd")
 	if err != nil {
 		return nil, err
 	}
@@ -88,7 +93,7 @@ func NewConfigurationFileUpdate(random func([]byte) (int, error), now time.Time,
 	}}, nil
 }
 
-func saveConfigurationFileTx(ctx context.Context, tx *sql.Tx, expected int64, content string, revision NewCanonicalRevision) (ConfigurationFile, error) {
+func saveConfigurationFileTx(ctx context.Context, tx *sql.Tx, nodeID string, expected int64, content string, revision NewCanonicalRevision) (ConfigurationFile, error) {
 	if expected < 0 || len(content) > configuration.MaximumBytes || !utf8.ValidString(content) || strings.ContainsRune(content, '\x00') {
 		return ConfigurationFile{}, ErrConfigurationFileInvalid
 	}
@@ -107,7 +112,7 @@ func saveConfigurationFileTx(ctx context.Context, tx *sql.Tx, expected int64, co
 	}
 	var result ConfigurationFile
 	err = func() error {
-		current, err := readConfigurationFile(tx.QueryRowContext(ctx, `SELECT `+configurationFileColumns+` FROM configuration_file WHERE singleton=1`))
+		current, err := readConfigurationFile(tx.QueryRowContext(ctx, `SELECT `+configurationFileColumns+` FROM node_configurations WHERE node_id = ?`, nodeID))
 		if err != nil {
 			return err
 		}
@@ -120,35 +125,28 @@ func saveConfigurationFileTx(ctx context.Context, tx *sql.Tx, expected int64, co
 		}
 		var canonicalID string
 		if parseErr == nil {
-			stored, err := saveCanonicalRevisionTx(ctx, tx, prepared)
+			stored, err := saveCanonicalRevisionTx(ctx, tx, nodeID, prepared)
 			if err != nil {
 				return err
 			}
 			canonicalID = stored.ID
 		}
 		result = ConfigurationFile{Revision: current.Revision + 1, Content: content, CanonicalRevisionID: canonicalID, UpdatedAt: revision.CreatedAt.UTC()}
-		return writeConfigurationFileTx(ctx, tx, result)
+		return writeConfigurationFileTx(ctx, tx, nodeID, result)
 	}()
 	return result, err
 }
 
-func writeConfigurationFileTx(ctx context.Context, tx *sql.Tx, value ConfigurationFile) error {
-	_, err := tx.ExecContext(ctx, `INSERT INTO configuration_file(singleton, revision, content, canonical_revision_id, updated_at) VALUES(1, ?, ?, ?, ?)
-        ON CONFLICT(singleton) DO UPDATE SET revision=excluded.revision, content=excluded.content, canonical_revision_id=excluded.canonical_revision_id, updated_at=excluded.updated_at`,
-		value.Revision, value.Content, nullIfEmpty(value.CanonicalRevisionID), value.UpdatedAt.UTC().Format(time.RFC3339Nano))
+func writeConfigurationFileTx(ctx context.Context, tx *sql.Tx, nodeID string, value ConfigurationFile) error {
+	_, err := tx.ExecContext(ctx, `INSERT INTO node_configurations(node_id, revision, content, canonical_revision_id, head_revision_id, updated_at)
+        VALUES(?, ?, ?, ?, ?, ?)
+        ON CONFLICT(node_id) DO UPDATE SET revision=excluded.revision, content=excluded.content,
+            canonical_revision_id=excluded.canonical_revision_id,
+            head_revision_id=coalesce(excluded.canonical_revision_id, node_configurations.head_revision_id),
+            updated_at=excluded.updated_at`,
+		nodeID, value.Revision, value.Content, nullIfEmpty(value.CanonicalRevisionID), nullIfEmpty(value.CanonicalRevisionID), value.UpdatedAt.UTC().Format(time.RFC3339Nano))
 	if err != nil {
 		return fmt.Errorf("save configuration file: %w", err)
-	}
-	return nil
-}
-
-func requireCurrentConfigurationFileTx(ctx context.Context, tx *sql.Tx, canonicalID string) error {
-	current, err := readConfigurationFile(tx.QueryRowContext(ctx, `SELECT `+configurationFileColumns+` FROM configuration_file WHERE singleton=1`))
-	if err != nil {
-		return err
-	}
-	if current.Revision > 0 && current.CanonicalRevisionID != canonicalID {
-		return ErrCompiledStartupEvidenceStale
 	}
 	return nil
 }

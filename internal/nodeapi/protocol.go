@@ -48,3 +48,9 @@ func VerifyProof(publicKey ed25519.PublicKey, panelID, nodeID string, nonce []by
 	}
 	return ed25519.Verify(publicKey, ProofMessage(panelID, nodeID, nonce), proof.GetSignature())
 }
+
+// ResultOutcome is one outcome of a Result, for code that builds results.
+type ResultOutcome = isResult_Outcome
+
+// CommandBody is one body of a Command, for code that builds commands.
+type CommandBody = isCommand_Body

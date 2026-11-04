@@ -6,19 +6,20 @@ import type { CoreArtifact } from '@/api/api-client';
 import { queries } from '@/api/queries';
 import { useApiClient } from '@/api/api-client-context';
 import { installedCoreVersions } from '@/utils/installed-core-artifacts';
+import { nodePlatform, useNodeSelection } from '@/stores/node-selection.store';
 
 export function useInstalledConfigurationVersions() {
   const client = useApiClient();
-  const system = useQuery(queries.system(client));
-  const installed = useQuery(queries.installed(client, system.data?.platform));
+  const platform = nodePlatform(useNodeSelection().selected);
+  const installed = useQuery(queries.installed(client, platform));
   const runtime = useQuery(queries.runtime(client));
   const state = {
-    status: system.isPending || (system.data?.platform && installed.isPending) || runtime.isPending
+    status: (platform && installed.isPending) || runtime.isPending
       ? 'loading' as const
-      : system.error || installed.error || runtime.error ? 'error' as const : 'ready' as const,
+      : installed.error || runtime.error ? 'error' as const : 'ready' as const,
     artifacts: installed.data ?? [],
     runtime: runtime.data ?? null,
-    error: system.error ?? installed.error ?? runtime.error,
+    error: installed.error ?? runtime.error,
   };
   const versions = useMemo(() => installedCoreVersions(state.artifacts), [state.artifacts]);
   const artifactsByVersion = useMemo(() => {

@@ -88,10 +88,13 @@ Frames are `oneof` envelopes:
 | Panel → node | `Challenge`, `Welcome`, `Command { request_id, deadline, body }`, `Cancel { request_id }`, `TelemetryControl` |
 | Node → panel | `Hello`, `Proof`, `Result { request_id, outcome or problem }`, `Event` (state report, runtime transition, metrics sample, traffic counters, log batch) |
 
-The command bodies are check configuration, apply configuration, start, stop,
-restart, roll back, install core, remove core, browse and resolve filesystem
-paths, read core log files and follow core logs. A follow command emits events
-tagged with its request ID until the panel cancels it.
+The command bodies are typed: check configuration; enable and disable a core;
+check and activate a startup artifact; start, stop, restart and roll back;
+install, remove and list cores; list startup artifacts; read the runtime
+status; browse and resolve filesystem paths; and list, read, delete and clear
+core log files. A command that uses the configuration carries the node's saved
+revision: its ID, file revision, SHA-256 and bytes. The panel follows a core log
+by reading it again each second, so the protocol has no follow command.
 
 Panel and node are released together. Within `v1` the contract changes only
 additively, and `Hello` carries a minor protocol version. The panel accepts a
@@ -154,12 +157,13 @@ baseline schema. Neither has an upgrade path from the single-host format.
 
 ## Commands and consistency
 
-- Every command carries a request ID. The node runs runtime-changing commands through its prepare, perform and complete intent with a generation, so a repeated request ID returns the recorded result and an interrupted command recovers after a node restart.
+- Every command carries a request ID. The node records each result under its request ID for a day, so a repeated request returns the recorded result, and it runs runtime-changing commands through its prepare, perform and complete intent with a generation, so an interrupted command recovers after a node restart.
+- The panel checks a revision against the selected core's exact Schema before sending it. The node accepts a revision ID only with the same bytes and rejects bytes that do not match the digest.
 - A management mutation for a node waits for that node's result within the command deadline and returns the completed result, as single-host mutations do today.
 - An offline node rejects commands at once with a `node_offline` problem. Commands are never queued. Saving a node's configuration stays a panel-local write and works while the node is offline.
 - When a session drops while a command is in flight, the API returns a `node_result_unknown` problem. The node's next state report settles the outcome. The UI shows reported state and never assumes success.
 - Applying a configuration sends the revision, its digest and bytes, and the selected artifact identity. The node checks that the artifact is installed and verified, runs `sing-box check`, replaces the process through the existing preflight, keeps the previous bundle for rollback, and reports the new bundle. A failed check leaves the running process untouched.
-- Installing a core sends the artifact identity, its digest and a short-lived fetch grant. The node streams the artifact with `FetchArtifact`, verifies it and publishes it atomically.
+- Installing a core first caches the archive on the panel, then sends its identity, size and a fetch grant that lasts only while the command runs. The node streams the archive with `FetchArtifact`, verifies its digest and the exact version the binary reports, publishes it atomically and records it under the same artifact ID as the panel.
 
 ## Failure behavior
 
@@ -238,8 +242,9 @@ internal/
     runtime/             process supervision, intents, recovery, Clash API monitor
     corelogs/            bounded native process output
     host/                host metrics, public IP, read-only filesystem
-    store/               node SQLite: bundles, intents, recovery, counters
-    settings/ cli/ server/
+    service/             the node's use cases: installs, checks, activation, supervision, recovery, core logs, filesystem
+    store/               node SQLite: revisions, bundles, intents, recovery, command results
+    settings/ cli/
 
   Infrastructure: knows nothing of sing-box, subscriptions or the fleet
   atomicfile/ buildinfo/ console/ jsonstrict/ release/ selfupdate/
@@ -263,8 +268,7 @@ web/                     panel React application
 `main` packages, shared packages depend on neither service, each service
 imports the other only through `internal/nodeapi`, and `cmd/sing-box-node`
 embeds neither the Web UI nor Schema assets. Placements
-that exist only until the panel stops running sing-box in process, and until
-each service has its own installer, are listed in the
+that exist only until each service has its own installer are listed in the
 [architecture guide](architecture.md#package-layout).
 
 ## Packaging

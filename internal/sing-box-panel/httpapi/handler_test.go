@@ -3,7 +3,6 @@
 package httpapi
 
 import (
-	"context"
 	"encoding/json"
 	"io/fs"
 	"net/http"
@@ -24,7 +23,7 @@ import (
 
 func newTestHandler(t *testing.T, options HandlerOptions) *Handler {
 	t.Helper()
-	if options.Services.Node == nil {
+	if options.Services.Fleet == nil {
 		database, err := store.Open(t.Context(), filepath.Join(t.TempDir(), "panel.db"))
 		if err != nil {
 			t.Fatal(err)
@@ -51,7 +50,9 @@ func testHandler(t *testing.T) *Handler {
 
 func TestRemovedConfigurationRoutesAreNotExposed(t *testing.T) {
 	handler := testHandler(t)
-	for _, path := range []string{"/api/v1/config/canonical", "/api/v1/config/revisions", "/api/v1/config/revisions/diff", "/api/v1/config/revisions/old/restore"} {
+	for _, path := range []string{"/api/v1/config/canonical", "/api/v1/config/revisions", "/api/v1/config/revisions/diff", "/api/v1/config/revisions/old/restore",
+		// Single-host resources now live under /api/v1/nodes/{nodeId}.
+		"/api/v1/config/file", "/api/v1/core/status", "/api/v1/core/artifacts", "/api/v1/filesystem/entries", "/api/v1/core/logs/files", "/api/v1/dashboard/context"} {
 		for _, method := range []string{http.MethodGet, http.MethodPut, http.MethodPatch, http.MethodPost} {
 			response := authenticatedRequest(t, handler, method, path, "", "")
 			if response.Code != http.StatusNotFound {
@@ -429,8 +430,8 @@ func TestIndexStyleNonceIsUniqueAndMatchesPolicy(t *testing.T) {
 }
 
 // newTestServices composes the panel services over database and value the way
-// the server does, without public IP detection.
+// the server does.
 func newTestServices(t *testing.T, database *store.Store, value settings.Settings) app.Services {
 	t.Helper()
-	return app.New(database, value, app.Options{PublicIP: func(context.Context) string { return "" }})
+	return app.New(database, value, app.Options{})
 }

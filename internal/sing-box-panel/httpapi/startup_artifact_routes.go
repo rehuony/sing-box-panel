@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/localnode"
+	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/fleet"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/store"
 )
 
@@ -29,9 +29,8 @@ func (handler *Handler) listStartupArtifacts(w http.ResponseWriter, request *htt
 		writeProblem(w, request, http.StatusBadRequest, "startup_artifact_filter_invalid", "Startup artifact filter invalid", "The startup artifact filter contains an invalid identity or exact version.")
 		return
 	}
-	state := store.StartupArtifactState(query.Get("state"))
-	if state != "" && state != store.StartupArtifactPending && state != store.StartupArtifactReady &&
-		state != store.StartupArtifactFailed {
+	state := query.Get("state")
+	if state != "" && state != "pending" && state != "ready" && state != "failed" {
 		writeProblem(w, request, http.StatusBadRequest, "startup_artifact_filter_invalid", "Startup artifact filter invalid", "state must be pending, ready, or failed.")
 		return
 	}
@@ -43,12 +42,12 @@ func (handler *Handler) listStartupArtifacts(w http.ResponseWriter, request *htt
 	if !ok {
 		return
 	}
-	page, err := handler.services.Node.ListStartupArtifacts(request.Context(), localnode.StartupArtifactListRequest{
+	page, err := handler.services.Fleet.ListStartupArtifacts(request.Context(), requestNodeID(request), fleet.StartupArtifactListRequest{
 		CanonicalRevisionID: query.Get("canonical_revision_id"), ExactCoreVersion: query.Get("core_version"),
 		CoreArtifactID: query.Get("core_artifact_id"), State: state, Cursor: cursor, Limit: limit,
 	})
 	if err != nil {
-		writeProblem(w, request, http.StatusBadRequest, "startup_artifact_filter_invalid", "Startup artifact filter invalid", err.Error())
+		writeNodeProblem(w, request, "startup_artifact_list_failed", err)
 		return
 	}
 	writeJSON(w, http.StatusOK, page)
@@ -59,7 +58,7 @@ func startupArtifactCursor(
 	request *http.Request,
 	rawTime string,
 	identifier string,
-) (*localnode.StartupArtifactCursor, bool) {
+) (*fleet.StartupArtifactCursor, bool) {
 	if rawTime == "" && identifier == "" {
 		return nil, true
 	}
@@ -72,5 +71,5 @@ func startupArtifactCursor(
 		writeProblem(w, request, http.StatusBadRequest, "query_invalid", "Query invalid", "before_time must be an RFC 3339 timestamp.")
 		return nil, false
 	}
-	return &localnode.StartupArtifactCursor{CreatedAt: createdAt.UTC(), ID: identifier}, true
+	return &fleet.StartupArtifactCursor{CreatedAt: createdAt.UTC(), ID: identifier}, true
 }

@@ -111,7 +111,7 @@ func (application *Service) renderSubscriptionState(ctx context.Context, state s
 	var conversion InboundResult
 	var startupJSON []byte
 	if state.AppliedBundleID != "" {
-		startupJSON, err = application.subscriptionStartupJSONWithCore(state.Startup, state.Core)
+		startupJSON, err = subscriptionStartupJSON(state.Startup)
 		if err != nil {
 			return RenderResult{}, fmt.Errorf("prepare applied local subscription version: %w", err)
 		}
@@ -185,13 +185,7 @@ func (application *Service) RecordPublicSubscriptionUse(
 	return err
 }
 
-func (application *Service) subscriptionStartupJSONWithCore(
-	startup store.StartupArtifact,
-	core store.CoreArtifact,
-) ([]byte, error) {
-	if core.ID != startup.CoreArtifactID || core.ExactVersion != startup.ExactCoreVersion {
-		return nil, fmt.Errorf("%w: startup and core identity do not match", ErrInvalidStartup)
-	}
+func subscriptionStartupJSON(startup store.AppliedStartup) ([]byte, error) {
 	if _, err := DecodeDocumentObject(startup.ConfigBytes); err != nil {
 		return nil, fmt.Errorf("%w: compiled startup is not one strict JSON object", ErrInvalidStartup)
 	}

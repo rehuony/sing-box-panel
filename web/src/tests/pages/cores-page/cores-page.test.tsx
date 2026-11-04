@@ -11,35 +11,25 @@ import { Toaster } from '@/components/ui/toast';
 import { ApiRequestError } from '@/api/api-client';
 import { CoresPage } from '@/pages/cores-page/cores-page';
 import { ApiClientProvider } from '@/api/api-client-context';
-import { ControlPlaneContext } from '@/stores/control-plane.store';
+import { NodeSelectionContext } from '@/stores/node-selection.store';
 import {
   createMockApiClient,
   testArtifacts,
   testCatalog,
-  testDashboardContext,
+  testNode,
   testRuntimeStatus,
-  testSystemStatus,
 } from '@/tests/api/mock-api-client';
 
-function renderCores(client: ApiClient) {
+function renderCores(client: ApiClient, node = testNode) {
   render(
     <MemoryRouter>
       <ApiClientProvider client={client}>
-        <ControlPlaneContext
-          value={{
-            status: 'ready',
-            context: testDashboardContext,
-            message: null,
-            refresh: vi.fn().mockResolvedValue(undefined),
-            setViewVersion: vi.fn(),
-            viewVersion: testDashboardContext.view.exactVersion,
-          }}
-        >
+        <NodeSelectionContext value={{ status: 'success', error: null, nodes: [node], selected: node, select: vi.fn() }}>
           <Routes>
             <Route path='/' element={<CoresPage />} />
             <Route path='/configuration' element={<p>Configuration editor</p>} />
           </Routes>
-        </ControlPlaneContext>
+        </NodeSelectionContext>
       </ApiClientProvider>
     </MemoryRouter>,
   );
@@ -279,10 +269,9 @@ describe('inline version library', () => {
     expect(screen.getByRole('button', { name: 'Next page' })).toBeDisabled();
   });
   it('never defaults an unknown platform to ARM64', async () => {
-    const client = createMockApiClient({
-      getSystemStatus: vi.fn().mockResolvedValue({ ...testSystemStatus, platform: undefined }),
-    });
-    renderCores(client);
+    const client = createMockApiClient();
+    // A node that has not connected yet has not reported its platform.
+    renderCores(client, { ...testNode, os: '', arch: '' });
     await waitFor(() => expect(screen.getByRole('tabpanel')).toHaveAttribute('aria-busy', 'false'));
     expect(screen.getByRole('button', { name: 'Import archive' })).toBeDisabled();
     expect(client.listCatalogAssets).not.toHaveBeenCalled();

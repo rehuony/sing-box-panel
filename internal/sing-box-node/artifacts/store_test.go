@@ -161,13 +161,14 @@ func TestInstallRejectsSymlinkedContentStoreDirectory(t *testing.T) {
 	}
 	version := artifactVersion(t, "1.13.19")
 	archive := makeArchive(t, tarEntry{name: "bundle/sing-box", data: minimalELF(coreartifact.ArchitectureAMD64), kind: tar.TypeReg})
-	store, err := New(Options{
-		Root: root, Downloader: &memoryDownloader{data: archive},
+	opened, err := New(Options{
+		Root:      root,
 		Inspector: &fakeInspector{report: VersionReport{Version: version, FeatureFingerprint: FeatureFingerprint{Status: FeatureFingerprintReported, Features: []string{"with_musl"}}}},
 	})
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
+	store := testStore{Store: opened, downloader: &memoryDownloader{data: archive}}
 	if err := os.Symlink(outside, filepath.Join(root, "sha256")); err != nil {
 		t.Fatalf("Symlink: %v", err)
 	}
@@ -193,7 +194,7 @@ func TestNewRejectsWorldWritableNonStickyRootParent(t *testing.T) {
 	if err := os.Chmod(parent, 0o777); err != nil {
 		t.Fatalf("Chmod: %v", err)
 	}
-	_, err := New(Options{Root: filepath.Join(parent, "artifacts"), Downloader: &memoryDownloader{}, Inspector: &fakeInspector{}})
+	_, err := New(Options{Root: filepath.Join(parent, "artifacts"), Inspector: &fakeInspector{}})
 	if !errors.Is(err, ErrCorruptStore) {
 		t.Fatalf("New(untrusted parent) error = %v, want ErrCorruptStore", err)
 	}
@@ -339,50 +340,33 @@ func TestInstallRejectsCorruptOrConcatenatedGzipStreams(t *testing.T) {
 	}
 }
 
-func TestImportLocalComputesHashAndMarksIdentity(t *testing.T) {
+func TestInstallRecordsUserSourceAndRejectsDigestMismatch(t *testing.T) {
 	t.Parallel()
 	version := artifactVersion(t, "1.13.19")
 	archive := makeArchive(t, tarEntry{name: "bundle/sing-box", data: minimalELF(coreartifact.ArchitectureAMD64), kind: tar.TypeReg})
-	sourcePath := filepath.Join(t.TempDir(), "sing-box.tar.gz")
-	if err := os.WriteFile(sourcePath, archive, 0o600); err != nil {
-		t.Fatalf("WriteFile: %v", err)
-	}
 	store := newTestStore(t, &memoryDownloader{}, &fakeInspector{report: VersionReport{Version: version, FeatureFingerprint: FeatureFingerprint{Status: FeatureFingerprintReported, Features: []string{"with_musl"}}}}, Limits{})
-	request := ImportRequest{
-		SourcePath: sourcePath, SourceDescription: "manually verified archive",
-		ExpectedVersion:      version,
-		ExpectedArchitecture: coreartifact.ArchitectureAMD64, Variant: coreartifact.VariantMusl,
-	}
-	result, err := store.ImportLocal(context.Background(), request)
+	source, err := coreartifact.NewUserSource("manually verified archive")
 	if err != nil {
-		t.Fatalf("ImportLocal: %v", err)
+		t.Fatal(err)
 	}
-	if result.Identity.Source().Kind() != coreartifact.SourceUser {
-		t.Fatalf("import source kind = %q, want %q", result.Identity.Source().Kind(), coreartifact.SourceUser)
+	candidate := Candidate{
+		Source: source, SHA256: bytesDigest(archive), Size: int64(len(archive)), Version: version,
+		Architecture: coreartifact.ArchitectureAMD64, Variant: coreartifact.VariantMusl,
+		Write: func(_ context.Context, destination io.Writer) (int64, error) {
+			written, err := destination.Write(archive)
+			return int64(written), err
+		},
 	}
-	if result.Identity.Digest() != bytesDigest(archive) {
-		t.Fatal("import did not record actual archive hash")
+	result, err := store.Install(context.Background(), candidate)
+	if err != nil {
+		t.Fatalf("Install: %v", err)
 	}
-}
-
-func TestImportLocalRejectsSymlinkSource(t *testing.T) {
-	t.Parallel()
-	directory := t.TempDir()
-	target := filepath.Join(directory, "target.tar.gz")
-	if err := os.WriteFile(target, []byte("data"), 0o600); err != nil {
-		t.Fatalf("WriteFile: %v", err)
+	if result.Identity.Source().Kind() != coreartifact.SourceUser || result.Identity.Digest() != bytesDigest(archive) {
+		t.Fatalf("installed identity = %+v", result.Identity)
 	}
-	link := filepath.Join(directory, "link.tar.gz")
-	if err := os.Symlink(target, link); err != nil {
-		t.Skipf("symlinks unavailable: %v", err)
-	}
-	store := newTestStore(t, &memoryDownloader{}, &fakeInspector{}, Limits{})
-	_, err := store.ImportLocal(context.Background(), ImportRequest{
-		SourcePath: link, SourceDescription: "link",
-		ExpectedVersion: artifactVersion(t, "1.13.19"), ExpectedArchitecture: coreartifact.ArchitectureAMD64, Variant: coreartifact.VariantMusl,
-	})
-	if err == nil {
-		t.Fatalf("ImportLocal accepted symlink source")
+	candidate.SHA256 = bytesDigest([]byte("other archive"))
+	if _, err := store.Install(context.Background(), candidate); !errors.Is(err, ErrArchive) {
+		t.Fatalf("Install(digest mismatch) error = %v, want ErrArchive", err)
 	}
 }
 
@@ -473,15 +457,15 @@ func (inspector *fakeInspector) Inspect(_ context.Context, _ string, _ int64) (V
 	return inspector.report, inspector.err
 }
 
-func newTestStore(t *testing.T, downloader Downloader, inspector VersionInspector, limits Limits) *Store {
+func newTestStore(t *testing.T, downloader Downloader, inspector VersionInspector, limits Limits) testStore {
 	t.Helper()
 	store, err := New(Options{
-		Root: filepath.Join(t.TempDir(), "artifacts"), Downloader: downloader, Inspector: inspector, Limits: limits,
+		Root: filepath.Join(t.TempDir(), "artifacts"), Inspector: inspector, Limits: limits,
 	})
 	if err != nil {
 		t.Fatalf("New Store: %v", err)
 	}
-	return store
+	return testStore{Store: store, downloader: downloader}
 }
 
 const officialRepositoryID = 111

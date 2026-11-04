@@ -20,6 +20,18 @@ export const shell = {
   version: 'v{{version}}',
 } as const;
 
+export const nodes = {
+  empty: 'No nodes yet. Run sing-box-panel node add NAME on the panel host and enroll the node with the printed command.',
+  label: 'Node',
+  loadFailed: 'Nodes could not be loaded.',
+  notSelected: 'Add a node to manage its cores and configuration.',
+  state: {
+    offline: 'Offline',
+    online: 'Online',
+    pending: 'Not enrolled',
+  },
+} as const;
+
 export const app = {
   title: 'Sing-Box Panel',
 } as const;

@@ -8,7 +8,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/localnode"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/store"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/subscription"
 )
@@ -102,7 +101,7 @@ func writeSubscriptionProblem(w http.ResponseWriter, request *http.Request, code
 	case errors.Is(err, store.ErrSubscriptionNodeNotFound), errors.Is(err, store.ErrSubscriptionChannelNotFound), errors.Is(err, store.ErrSubscriptionSourceNotFound),
 		errors.Is(err, store.ErrSubscriptionSourceVersionNotFound),
 		errors.Is(err, store.ErrSubscriptionUserNotFound),
-		errors.Is(err, store.ErrSubscriptionTokenNotFound), localnode.IsStartupArtifactNotFound(err):
+		errors.Is(err, store.ErrSubscriptionTokenNotFound):
 		writeProblem(w, request, http.StatusNotFound, "subscription_resource_not_found", "Subscription resource not found", "The requested subscription resource does not exist.")
 	case errors.Is(err, store.ErrSubscriptionConflict):
 		writeProblem(w, request, http.StatusPreconditionFailed, "subscription_version_conflict", "Subscription version conflict", "The subscription resource changed; load its current ETag and retry.")

@@ -6,6 +6,8 @@ import (
 	"context"
 	"errors"
 	"sync"
+
+	"github.com/rehuony/sing-box-panel/internal/nodeapi"
 )
 
 // Reasons a session ends from the panel's side.
@@ -18,6 +20,57 @@ var (
 // session is one authenticated node session.
 type session struct {
 	cancel context.CancelCauseFunc
+	// done closes when the session ends.
+	done <-chan struct{}
+	// send delivers one frame to the node; frames are sent one at a time.
+	send func(*nodeapi.ConnectResponse) error
+
+	mu      sync.Mutex
+	pending map[string]chan *nodeapi.Result
+}
+
+func newSession(ctx context.Context, cancel context.CancelCauseFunc, stream nodeapi.NodeService_ConnectServer) *session {
+	var sendMu sync.Mutex
+	return &session{
+		cancel: cancel, done: ctx.Done(), pending: map[string]chan *nodeapi.Result{},
+		send: func(frame *nodeapi.ConnectResponse) error {
+			sendMu.Lock()
+			defer sendMu.Unlock()
+			return stream.Send(frame)
+		},
+	}
+}
+
+// expect registers a command whose result deliver hands over.
+func (current *session) expect(requestID string) chan *nodeapi.Result {
+	current.mu.Lock()
+	defer current.mu.Unlock()
+	result := make(chan *nodeapi.Result, 1)
+	current.pending[requestID] = result
+	return result
+}
+
+func (current *session) forget(requestID string) {
+	current.mu.Lock()
+	defer current.mu.Unlock()
+	delete(current.pending, requestID)
+}
+
+// deliver hands a node's result to the command waiting for it, if any.
+func (current *session) deliver(result *nodeapi.Result) {
+	current.mu.Lock()
+	defer current.mu.Unlock()
+	if waiting := current.pending[result.GetRequestId()]; waiting != nil {
+		waiting <- result
+		delete(current.pending, result.GetRequestId())
+	}
+}
+
+// get returns the node's current session, if any.
+func (registry *sessions) get(nodeID string) *session {
+	registry.mu.Lock()
+	defer registry.mu.Unlock()
+	return registry.byNode[nodeID]
 }
 
 // sessions holds the current session of each connected node.

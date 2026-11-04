@@ -35,24 +35,22 @@ describe('backup import boundary', () => {
   async function fixture() {
     const view = await createMockApiClient().getPanelSettings();
     return {
-      format: 'sing-box-panel-backup', version: 2, exported_at: '2026-09-23T01:00:00Z',
+      format: 'sing-box-panel-backup', version: 3, exported_at: '2026-09-23T01:00:00Z',
       panel_settings: demoBackupSettings(view, { github: '', passwordHash: 'demo-password-hash' }),
-      sing_box_configuration: '  { unfinished raw text',
     };
   }
-  it('preserves incomplete configuration text and accepts only the supported envelope', async () => {
+  it('accepts only the supported envelope', async () => {
     const backup = await fixture();
     expect(backupFile(backup)).toBe(backup);
-    for (const value of [null, {}, [], { ...backup, version: 1 }, { ...backup, exported_at: 'invalid' }, { ...backup, panel_settings: {} }, {
+    for (const value of [null, {}, [], { ...backup, version: 2 }, { ...backup, exported_at: 'invalid' }, { ...backup, panel_settings: {} }, {
       ...backup,
       panel_settings: { ...backup.panel_settings, auth: { ...backup.panel_settings.auth, secure_cookie: false } },
     }]) {
       expect(backupFile(value)).toBeNull();
     }
   });
-  it('rejects oversized configuration or settings before preparing a restore', async () => {
+  it('rejects oversized settings before preparing a restore', async () => {
     const backup = await fixture();
-    expect(backupFile({ ...backup, sing_box_configuration: 'é'.repeat(1024 * 1024 + 1) })).toBeNull();
     expect(backupFile({ ...backup, panel_settings: { ...backup.panel_settings, extra: 'x'.repeat(1024 * 1024) } })).toBeNull();
   });
 });

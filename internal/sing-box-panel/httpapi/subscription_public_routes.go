@@ -21,7 +21,7 @@ func (handler *Handler) publicSubscription(w http.ResponseWriter, request *http.
 		methodNotAllowed(w, request)
 		return
 	}
-	if handler.services.Node == nil {
+	if handler.services.Subscriptions == nil {
 		writePublicSubscriptionProblem(w, request, errPublicSubscriptionUnavailable)
 		return
 	}

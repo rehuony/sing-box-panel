@@ -3,6 +3,7 @@
 package artifacts
 
 import (
+	"context"
 	"errors"
 	"io"
 	"os"
@@ -131,4 +132,47 @@ func (writer *boundedArchiveWriter) Write(data []byte) (int, error) {
 	written, err := writer.destination.Write(data)
 	writer.written += int64(written)
 	return written, err
+}
+
+// copyBounded copies at most maximumBytes and fails with ErrTooLarge beyond
+// them, checking ctx between reads.
+func copyBounded(ctx context.Context, destination io.Writer, source io.Reader, maximumBytes int64) (int64, error) {
+	buffer := make([]byte, 32<<10)
+	var total int64
+	for {
+		if err := ctx.Err(); err != nil {
+			return total, err
+		}
+		remaining := maximumBytes - total
+		if remaining < 0 {
+			return total, ErrTooLarge
+		}
+		readSize := len(buffer)
+		if int64(readSize) > remaining+1 {
+			readSize = int(remaining + 1)
+		}
+		count, readErr := source.Read(buffer[:readSize])
+		if count > 0 {
+			if total+int64(count) > maximumBytes {
+				return total, ErrTooLarge
+			}
+			written, writeErr := destination.Write(buffer[:count])
+			total += int64(written)
+			if writeErr != nil {
+				return total, writeErr
+			}
+			if written != count {
+				return total, io.ErrShortWrite
+			}
+		}
+		if readErr == io.EOF {
+			return total, nil
+		}
+		if readErr != nil {
+			return total, readErr
+		}
+		if count == 0 {
+			return total, io.ErrNoProgress
+		}
+	}
 }

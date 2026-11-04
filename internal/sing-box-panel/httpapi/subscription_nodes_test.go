@@ -92,12 +92,8 @@ func TestManualNodesCRUDVisibilityAndPublicationWithoutCore(t *testing.T) {
 
 func TestSourceNodeVisibilitySurvivesRefreshAndDoesNotBroadenLegacyGrants(t *testing.T) {
 	ctx := context.Background()
-	db, app, handler, channel, startup := newSubscriptionPublicationHTTPFixture(t, "")
-	prepared, err := app.Node.PrepareActivationBundle(ctx, startup.ID, store.MonitoringProcessOnly)
-	if err != nil {
-		t.Fatal(err)
-	}
-	applySubscriptionHTTPBundle(t, db, app, prepared.Bundle.ID)
+	_, app, handler, channel, publish := newSubscriptionPublicationHTTPFixture(t, "")
+	publish()
 	source, err := app.Subscriptions.CreateSubscriptionSource(ctx, subscription.CreateSubscriptionSourceRequest{Name: "Global Edge", SourceKind: store.SubscriptionSourceLocal, Enabled: true})
 	if err != nil {
 		t.Fatal(err)
@@ -111,8 +107,7 @@ func TestSourceNodeVisibilitySurvivesRefreshAndDoesNotBroadenLegacyGrants(t *tes
 		t.Fatal(err)
 	}
 	remote := catalog.Nodes[len(catalog.Nodes)-1]
-	local := catalog.Nodes[0]
-	if remote.SourceName != "手动节点" || remote.SourceID != source.ID || remote.Name != "東京" || local.Origin != "local" {
+	if remote.SourceName != "手动节点" || remote.SourceID != source.ID || remote.Name != "東京" {
 		t.Fatalf("provenance %+v", catalog.Nodes)
 	}
 	if _, err := app.Subscriptions.SetSubscriptionNodeVisibility(ctx, remote.ID, true, 0); err != nil {
@@ -138,10 +133,6 @@ func TestSourceNodeVisibilitySurvivesRefreshAndDoesNotBroadenLegacyGrants(t *tes
 	response := publicSubscriptionRequest(handler, "/sub/"+key.Token+"/"+channel.ID)
 	if response.Code != 200 || strings.Contains(response.Body.String(), "second.example") {
 		t.Fatalf("grant widened %d %s", response.Code, response.Body.String())
-	}
-	denied := authenticatedRequest(t, handler, http.MethodDelete, "/api/v1/subscription/nodes/"+local.ID, `{"revision":1}`, "")
-	if denied.Code != 422 {
-		t.Fatalf("local deletion %d %s", denied.Code, denied.Body.String())
 	}
 	if err := app.Subscriptions.DeleteSubscriptionNode(ctx, after.ID, 1); err != store.ErrSubscriptionNodeInvalid {
 		t.Fatalf("external mutation %v", err)

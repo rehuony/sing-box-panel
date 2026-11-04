@@ -59,7 +59,6 @@ func TestBrowserReview(t *testing.T) {
 		t.Fatal(err)
 	}
 	commands := app.New(db, configuration, app.Options{})
-	commands.Node.SetTelemetryContext(ctx)
 	nodeCount := 2
 	if raw := os.Getenv("SBP_BROWSER_NODES"); raw != "" {
 		count, err := strconv.Atoi(raw)
@@ -74,10 +73,13 @@ func TestBrowserReview(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	// Fleet nodes without sessions, so node-scoped pages show offline nodes.
+	for _, name := range []string{"edge-tokyo", "edge-frankfurt"} {
+		testutil.CreateNode(t, db, name)
+	}
 	build := buildinfo.Info{Version: "browser-review"}
 	handler := httpapi.NewHandler(httpapi.HandlerOptions{
 		Settings: configuration, Build: build, Services: commands,
-		Status: &statusProvider{database: db, configs: commands.Configs, build: build},
 		Assets: os.DirFS("../../../web/dist"),
 	})
 	listener, err := net.Listen("tcp", "127.0.0.1:3337")

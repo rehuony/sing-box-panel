@@ -81,7 +81,8 @@ func TestPanelLogsExposeHistoricalPublicRuntimeContext(t *testing.T) {
 	ctx := testContext(t)
 	db := openTestStore(t, ctx)
 	now := time.Now().UTC().Add(time.Minute)
-	bundle, observation := seedAppliedRuntime(t, ctx, db, now)
+	bundle := trafficBundle{ID: "bundle-panel-logs"}
+	observation := runtimeProcess{PID: 4242, ProcessStartToken: "start-token", StartedAt: now}
 	now = observation.StartedAt.Add(time.Minute)
 	input := runtimeTransitionTestInput("panel-detail", RuntimeTransitionUnknown, "termination_result_uncertain", bundle.ID, observation, now.Add(time.Second))
 	input.UncertainSince = &now

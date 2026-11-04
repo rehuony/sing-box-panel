@@ -9,10 +9,9 @@ import (
 )
 
 type Store struct {
-	root       string
-	downloader Downloader
-	inspector  VersionInspector
-	limits     Limits
+	root      string
+	inspector VersionInspector
+	limits    Limits
 }
 
 func New(options Options) (*Store, error) {
@@ -46,14 +45,8 @@ func New(options Options) (*Store, error) {
 	if err := checkContentLayout(options.Root); err != nil {
 		return nil, err
 	}
-	if options.Downloader == nil {
-		options.Downloader, err = NewSafeDownloader(SafeDownloaderOptions{Timeout: options.Limits.DownloadTimeout})
-		if err != nil {
-			return nil, err
-		}
-	}
 	if options.Inspector == nil {
 		options.Inspector = ExecVersionInspector{Timeout: options.Limits.VersionTimeout}
 	}
-	return &Store{root: options.Root, downloader: options.Downloader, inspector: options.Inspector, limits: options.Limits}, nil
+	return &Store{root: options.Root, inspector: options.Inspector, limits: options.Limits}, nil
 }

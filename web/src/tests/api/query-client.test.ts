@@ -15,13 +15,13 @@ describe('session query cache', () => {
     try {
       await Promise.all([
         cache.fetchQuery(queries.sources(client)), cache.fetchQuery(queries.sources(client)),
-        cache.fetchQuery(queries.system(client)),
+        cache.fetchQuery(queries.fleetNodes(client)),
       ]);
       expect(raw.listSubscriptionSources).toHaveBeenCalledOnce();
       await client.refreshSubscriptionSource('one');
-      await Promise.all([cache.fetchQuery(queries.sources(client)), cache.fetchQuery(queries.system(client))]);
+      await Promise.all([cache.fetchQuery(queries.sources(client)), cache.fetchQuery(queries.fleetNodes(client))]);
       expect(raw.listSubscriptionSources).toHaveBeenCalledTimes(2);
-      expect(raw.getSystemStatus).toHaveBeenCalledOnce();
+      expect(raw.listFleetNodes).toHaveBeenCalledOnce();
     } finally {
       cache.clear();
     }
@@ -51,7 +51,7 @@ describe('session query cache', () => {
     const cache = createQueryClient();
     const raw = createMockApiClient();
     const client = withQueryInvalidation(raw, cache);
-    await cache.fetchQuery(queries.system(client));
+    await cache.fetchQuery(queries.fleetNodes(client));
     await client.logout();
     expect(cache.getQueryCache().getAll()).toHaveLength(0);
     cache.clear();

@@ -8,8 +8,6 @@ import (
 	"errors"
 	"testing"
 	"time"
-
-	"github.com/rehuony/sing-box-panel/internal/configuration"
 )
 
 func TestTrafficPeriodsAreMonotonicAndQueryable(t *testing.T) {
@@ -193,13 +191,7 @@ func TestMetricsHistoryPreservesPartialAndMissingCoverage(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	secondBundle, err := database.SaveActivationBundle(ctx, ActivationBundle{
-		ID: "bundle-history-second", StartupArtifactID: bundle.StartupArtifactID,
-		MonitoringTier: MonitoringLimited, CreatedAt: from.Add(30 * time.Second),
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	secondBundle := trafficBundle{ID: "bundle-history-second"}
 	input.ActivationBundleID = secondBundle.ID
 	input.SampledAt = from.Add(30 * time.Second)
 	input.UploadTotal, input.DownloadTotal = 220, 440
@@ -338,37 +330,12 @@ type trafficTestHelper interface {
 	Fatal(args ...any)
 }
 
-func seedTrafficActivationBundle(t trafficTestHelper, ctx context.Context, database *Store, now time.Time) ActivationBundle {
+// trafficBundle names the activation bundle that traffic samples record.
+type trafficBundle struct{ ID string }
+
+// seedTrafficActivationBundle returns the bundle that traffic fixtures
+// record; the panel keeps no bundles of its own.
+func seedTrafficActivationBundle(t trafficTestHelper, _ context.Context, _ *Store, _ time.Time) trafficBundle {
 	t.Helper()
-	revision, err := saveTestConfiguration(ctx, database, 0, NewCanonicalRevision{
-		ID: "revision-traffic", SchemaVersion: configuration.SchemaVersion,
-		Document: configuration.Empty().CanonicalJSON(), CommandID: "command-traffic", CreatedAt: now,
-	},
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
-	core := testCoreArtifact("core-traffic", 808, 'b', "amd64", now.Add(time.Second))
-	if _, err := database.UpsertCoreArtifact(ctx, core); err != nil {
-		t.Fatal(err)
-	}
-	startup, err := database.CreateStartupArtifact(ctx, StartupArtifact{
-		ID: "startup-traffic", CanonicalRevisionID: revision.ID, ExactCoreVersion: core.ExactVersion,
-		CoreArtifactID: core.ID, ConfigBytes: []byte(`{}`), CreatedAt: now.Add(2 * time.Second),
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	startup, err = database.CompleteStartupArtifactCheck(ctx, startup.ID, true, now.Add(3*time.Second))
-	if err != nil {
-		t.Fatal(err)
-	}
-	bundle, err := database.SaveActivationBundle(ctx, ActivationBundle{
-		ID: "bundle-traffic", StartupArtifactID: startup.ID,
-		MonitoringTier: MonitoringProcessOnly, CreatedAt: now.Add(4 * time.Second),
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	return bundle
+	return trafficBundle{ID: "bundle-traffic"}
 }

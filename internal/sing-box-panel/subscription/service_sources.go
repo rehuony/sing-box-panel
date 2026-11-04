@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/rehuony/sing-box-panel/internal/database"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/store"
 )
 
@@ -16,7 +17,7 @@ func (application *Service) CreateSubscriptionSource(
 	ctx context.Context,
 	request CreateSubscriptionSourceRequest,
 ) (SubscriptionSource, error) {
-	id, err := store.NewID(application.random, "source")
+	id, err := database.NewID(application.random, "source")
 	if err != nil {
 		return SubscriptionSource{}, err
 	}
@@ -112,7 +113,7 @@ func (application *Service) CreateSubscriptionSourceVersion(
 	if err != nil {
 		return SubscriptionSourceVersionSave{}, fmt.Errorf("encode normalized subscription nodes: %w", err)
 	}
-	versionID, err := store.NewID(application.random, "version")
+	versionID, err := database.NewID(application.random, "version")
 	if err != nil {
 		return SubscriptionSourceVersionSave{}, err
 	}

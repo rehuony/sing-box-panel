@@ -56,14 +56,14 @@ describe('createDemoApiClient', () => {
     expect(settings.service).not.toHaveProperty('log_retention_days');
     expect(settings.service).not.toHaveProperty('secure_cookie');
     const file = await target.getConfigurationFile();
-    const request = { backup, settings_revision: settings.revision, configuration_revision: file.revision };
+    const request = { backup, settings_revision: settings.revision };
     await expect(target.restorePanelBackup({
-      ...request, configuration_revision: file.revision + 1,
+      ...request, settings_revision: settings.revision + 1,
     })).rejects.toMatchObject({ status: 412 });
     expect(await target.getPanelSettings()).toEqual(settings);
-    expect(await target.getConfigurationFile()).toEqual(file);
     await target.restorePanelBackup(request);
-    expect((await target.getConfigurationFile()).content).toBe(backup.sing_box_configuration);
+    // Node configurations are not part of a panel backup.
+    expect(await target.getConfigurationFile()).toEqual(file);
     expect((await target.exportPanelBackup()).panel_settings).toEqual(backup.panel_settings);
   });
 
@@ -85,10 +85,7 @@ describe('createDemoApiClient', () => {
     });
     const target = freshClient ? createDemoApiClient() : source;
     settings = await target.getPanelSettings();
-    const file = await target.getConfigurationFile();
-    const restored = await target.restorePanelBackup({
-      backup, settings_revision: settings.revision, configuration_revision: file.revision,
-    });
+    const restored = await target.restorePanelBackup({ backup, settings_revision: settings.revision });
     expect(restored.reauthentication_required).toBe(true);
     expect(await target.getSession()).toBeNull();
     await expect(target.login({ email: settings.admin_email, password: freshClient ? 'demo-password-123' : replacedPassword }))
@@ -143,9 +140,8 @@ describe('createDemoApiClient', () => {
     const backup = await client.exportPanelBackup();
     const panel = backup.panel_settings.panel as Record<string, unknown>;
     panel[field] = 'removed';
-    backup.sing_box_configuration = '{"inbounds":[]}';
     await expect(client.restorePanelBackup({
-      backup, settings_revision: settings.revision, configuration_revision: configuration.revision,
+      backup, settings_revision: settings.revision,
     })).rejects.toMatchObject({ status: 422, code: 'panel_backup_invalid' });
     expect(await client.getPanelSettings()).toEqual(settings);
     expect(await client.getConfigurationFile()).toEqual(configuration);
@@ -218,12 +214,11 @@ describe('createDemoApiClient', () => {
     const backup = structuredClone(before);
     const native = backup.panel_settings as Record<string, Record<string, unknown>>;
     native[String(section)][String(field)] = value;
-    backup.sing_box_configuration = '{"log":{"level":"debug"}}';
     const settings = await client.getPanelSettings();
     const configuration = await client.getConfigurationFile();
     const session = await client.getSession();
     await expect(client.restorePanelBackup({
-      backup, settings_revision: settings.revision, configuration_revision: configuration.revision,
+      backup, settings_revision: settings.revision,
     })).rejects.toMatchObject({ status: 422, code: 'panel_backup_invalid' });
     expect(await client.getPanelSettings()).toEqual(settings);
     expect(await client.getConfigurationFile()).toEqual(configuration);

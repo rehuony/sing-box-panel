@@ -57,6 +57,27 @@
   padding: var(--space-md);
 }
 
+.panel-node-picker {
+  width: 100%;
+}
+
+.panel-node-picker__name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.panel-node-picker__state {
+  color: var(--muted-foreground);
+}
+
+.panel-node-picker__note {
+  color: var(--muted-foreground);
+  font-size: var(--text-compact);
+  line-height: 1.4;
+  padding-inline: var(--space-2xs);
+}
+
 .panel-sidebar__header .panel-logo {
   overflow: hidden;
   padding-inline: var(--space-2xs);

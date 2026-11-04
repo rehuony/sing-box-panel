@@ -9,7 +9,6 @@ import { Button } from '@/components/ui/button';
 import { Slider } from '@/components/ui/slider';
 import { ErrorNotice } from '@/components/error-notice';
 import { LoadingState } from '@/components/loading-state';
-import { ServerPathInput } from '@/components/server-path-input';
 import { usePanelSettings } from '@/stores/panel-settings.store';
 import { DEFAULT_APPEARANCE, THEME_PRESETS } from '@/theme/appearance';
 import { FieldGroup, FieldLegend, FieldSet } from '@/components/ui/field';
@@ -190,9 +189,9 @@ function SettingsEditor({ initial }: { initial: PanelSettingsView }) {
           <TabsContent value='maintenance'>
             <SettingsGroup title={t('panelSettings.storage')}>
               <SettingsField id='data-dir' invalid={invalidField === 'data-dir'} label={t('panelSettings.dataDir')} help={t('panelSettings.dataDirHelp')}>
-                <ServerPathInput id='data-dir' mode='directory' aria-label={t('panelSettings.dataDir')}
-                  aria-invalid={invalidField === 'data-dir' || undefined} required value={service.data_dir}
-                  onValueChange={value => updateService('data_dir', value)} />
+                {/* The panel host has no browse API; the Browse control picks paths on a node. */}
+                <Input id='data-dir' aria-invalid={invalidField === 'data-dir' || undefined} required autoComplete='off'
+                  spellCheck={false} value={service.data_dir} onChange={e => updateService('data_dir', e.target.value)} />
               </SettingsField>
             </SettingsGroup>
             <SettingsGroup title={t('panelSettings.updates')}>

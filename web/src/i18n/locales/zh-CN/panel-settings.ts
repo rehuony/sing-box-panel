@@ -48,9 +48,9 @@ export const panelSettings = {
   backupImport: '选择备份文件',
   backupInvalid: '备份格式不支持或文件内容超出限制。',
   backupConfirm: '恢复配置备份',
-  backupOverwrite: '恢复将覆盖已保存的面板与 sing-box 配置，包括登录凭据及本地未保存的草稿。',
+  backupOverwrite: '恢复将覆盖已保存的面板配置，包括登录凭据。节点配置不在备份中。',
   backupDate: '导出时间',
-  backupActivation: '登录凭据变化后需重新登录；服务地址和数据目录变化需手动重启面板。sing-box 配置仅保存，运行状态保持不变，请检查后手动应用。',
+  backupActivation: '登录凭据变化后需重新登录；服务地址和数据目录变化需手动重启面板。',
   backupRestore: '确认恢复',
-  backupRestored: '配置已恢复，请检查后手动应用',
+  backupRestored: '面板配置已恢复',
 } as const;

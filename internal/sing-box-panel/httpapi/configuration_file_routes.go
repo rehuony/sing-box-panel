@@ -18,7 +18,7 @@ func (handler *Handler) configurationFile(w http.ResponseWriter, request *http.R
 	if _, ok := strictCoreQuery(w, request); !ok {
 		return
 	}
-	result, err := handler.services.Configs.ConfigurationFile(request.Context())
+	result, err := handler.services.Configs.ConfigurationFile(request.Context(), requestNodeID(request))
 	if err != nil {
 		writeConfigurationFileProblem(w, request, err)
 		return
@@ -39,7 +39,7 @@ func (handler *Handler) saveConfigurationFile(w http.ResponseWriter, request *ht
 	if !decodeStrictRequest(w, request, configuration.MaximumBytes*6+1024, &input) {
 		return
 	}
-	result, err := handler.services.Configs.SaveConfigurationFile(request.Context(), input)
+	result, err := handler.services.Configs.SaveConfigurationFile(request.Context(), requestNodeID(request), input)
 	if err != nil {
 		writeConfigurationFileProblem(w, request, err)
 		return

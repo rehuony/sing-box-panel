@@ -20,10 +20,12 @@ type Options struct {
 	DataDir string
 	// RemoveFile removes staged uploads; it defaults to os.Remove.
 	RemoveFile func(string) error
+	// Downloader fetches official assets; it defaults to a SafeDownloader.
+	Downloader Downloader
 }
 
-// Service owns the core version catalog, staged core uploads and the
-// recorded core artifacts.
+// Service owns the core version catalog, staged core uploads and the cache
+// of core archives that nodes install from.
 type Service struct {
 	database   *store.Store
 	telemetry  *telemetry.Service
@@ -31,6 +33,7 @@ type Service struct {
 	dataDir    string
 	now        func() time.Time
 	removeFile func(string) error
+	downloader Downloader
 	catalogMu  sync.Mutex
 }
 
@@ -39,7 +42,7 @@ type Service struct {
 func New(database *store.Store, records *telemetry.Service, panelSettings *settings.Service, options Options) *Service {
 	service := &Service{
 		database: database, telemetry: records, settings: panelSettings, dataDir: options.DataDir,
-		now: time.Now, removeFile: os.Remove,
+		now: time.Now, removeFile: os.Remove, downloader: options.Downloader,
 	}
 	if options.RemoveFile != nil {
 		service.removeFile = options.RemoveFile

@@ -6,16 +6,20 @@ import (
 	"crypto/rand"
 	"time"
 
+	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/corecache"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/store"
 )
 
-// Service reads and writes the editable configuration file.
+// Service reads and writes each node's editable configuration file.
 type Service struct {
 	database *store.Store
+	cores    *corecache.Service
 	now      func() time.Time
 	random   func([]byte) (int, error)
 }
 
-func New(database *store.Store) *Service {
-	return &Service{database: database, now: time.Now, random: rand.Read}
+// New serves the configuration files in database. Configuration support
+// follows the exact versions of the cores the panel cached in cores.
+func New(database *store.Store, cores *corecache.Service) *Service {
+	return &Service{database: database, cores: cores, now: time.Now, random: rand.Read}
 }

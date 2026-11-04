@@ -80,12 +80,9 @@ func TestOpenConfiguresEveryConnectionAndReopens(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = reopened.Close() })
 
-	bootstrap, err := reopened.Bootstrap(ctx)
-	if err != nil {
-		t.Fatalf("Bootstrap() error = %v", err)
-	}
-	if bootstrap.Head != nil || bootstrap.Hub.HeadRevisionID != "" {
-		t.Fatalf("Bootstrap() head = %+v / %q, want no head", bootstrap.Head, bootstrap.Hub.HeadRevisionID)
+	nodes, err := reopened.Nodes(ctx)
+	if err != nil || len(nodes) != 0 {
+		t.Fatalf("Nodes() after reopen = %+v, %v; want none", nodes, err)
 	}
 }
 
@@ -200,25 +197,25 @@ func TestConfigurationSaveAndSnapshotAreAtomic(t *testing.T) {
 	ctx := testContext(t)
 	database := openTestStore(t, ctx)
 	revision := NewCanonicalRevision{ID: "snapshot-1", SchemaVersion: configuration.SchemaVersion, CommandID: "save-1"}
-	first, err := database.SaveConfigurationFile(ctx, 0, `{"value":9007199254740993}`, revision)
+	first, err := database.SaveConfigurationFile(ctx, testNodeID, 0, `{"value":9007199254740993}`, revision)
 	if err != nil {
 		t.Fatal(err)
 	}
 	assertHeadAndCounts(t, ctx, database, first.CanonicalRevisionID, 1)
 	// Duplicate snapshot identity must roll back both the text and runtime head.
-	if _, err := database.SaveConfigurationFile(ctx, first.Revision, `{"value":2}`, revision); err == nil {
+	if _, err := database.SaveConfigurationFile(ctx, testNodeID, first.Revision, `{"value":2}`, revision); err == nil {
 		t.Fatal("duplicate identity accepted")
 	}
-	unchanged, err := database.ConfigurationFile(ctx)
+	unchanged, err := database.ConfigurationFile(ctx, testNodeID)
 	if err != nil || unchanged != first {
 		t.Fatalf("partial save: %+v %v", unchanged, err)
 	}
 	revision.ID, revision.CommandID = "snapshot-2", "save-2"
-	second, err := database.SaveConfigurationFile(ctx, first.Revision, `{"value":2}`, revision)
+	second, err := database.SaveConfigurationFile(ctx, testNodeID, first.Revision, `{"value":2}`, revision)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := database.SaveConfigurationFile(ctx, first.Revision, `{}`, revision); !errors.Is(err, ErrConfigurationFileConflict) {
+	if _, err := database.SaveConfigurationFile(ctx, testNodeID, first.Revision, `{}`, revision); !errors.Is(err, ErrConfigurationFileConflict) {
 		t.Fatalf("stale save: %v", err)
 	}
 	assertHeadAndCounts(t, ctx, database, second.CanonicalRevisionID, 2)
@@ -231,7 +228,7 @@ func TestConfigurationSaveAndSnapshotAreAtomic(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer reopened.Close()
-	persisted, err := reopened.ConfigurationFile(ctx)
+	persisted, err := reopened.ConfigurationFile(ctx, testNodeID)
 	if err != nil || persisted != second {
 		t.Fatalf("reopen: %+v %v", persisted, err)
 	}
@@ -246,6 +243,9 @@ func TestConfigurationCASAcrossStores(t *testing.T) {
 		t.Fatalf("first Open() error = %v", err)
 	}
 	t.Cleanup(func() { _ = first.Close() })
+	if err := createTestNode(ctx, first); err != nil {
+		t.Fatal(err)
+	}
 	second, err := Open(ctx, path)
 	if err != nil {
 		t.Fatalf("second Open() error = %v", err)
@@ -306,6 +306,9 @@ func openTestStore(t *testing.T, ctx context.Context) *Store {
 		t.Fatalf("Open() error = %v", err)
 	}
 	t.Cleanup(func() { _ = store.Close() })
+	if err := createTestNode(ctx, store); err != nil {
+		t.Fatalf("create test node: %v", err)
+	}
 	return store
 }
 
@@ -346,7 +349,7 @@ func assertHeadAndCounts(
 	wantRevisions int,
 ) {
 	t.Helper()
-	head, err := store.Head(ctx)
+	head, err := store.Head(ctx, testNodeID)
 	if err != nil {
 		t.Fatalf("Head() error = %v", err)
 	}

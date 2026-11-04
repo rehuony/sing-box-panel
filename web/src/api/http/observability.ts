@@ -90,23 +90,23 @@ async function* readLogEvents(response: Response): AsyncGenerator<LogStreamEvent
 }
 
 export function createObservabilityHttpApi(context: HttpApiContext) {
-  const { baseUrl, buildQuery, fetcher, openEventStream, request, writeHeaders } = context;
+  const { baseUrl, buildQuery, fetcher, nodeUrl, openEventStream, request, writeHeaders } = context;
   return {
     listCoreLogFiles(signal) {
-      return request<{ items: CoreLogFile[] }>(fetcher, `${baseUrl}/core/logs/files`, {
+      return request<{ items: CoreLogFile[] }>(fetcher, `${nodeUrl()}/core/logs/files`, {
         method: 'GET',
         signal,
       });
     },
     deleteCoreLogFile(file, signal) {
-      return request<void>(fetcher, `${baseUrl}/core/logs/files${buildQuery({ file })}`, {
+      return request<void>(fetcher, `${nodeUrl()}/core/logs/files${buildQuery({ file })}`, {
         method: 'DELETE',
         headers: writeHeaders(),
         signal,
       });
     },
     clearCoreLog(file, signal) {
-      return request<void>(fetcher, `${baseUrl}/core/logs/content${buildQuery({ file })}`, {
+      return request<void>(fetcher, `${nodeUrl()}/core/logs/content${buildQuery({ file })}`, {
         method: 'DELETE',
         signal,
         headers: writeHeaders(),
@@ -115,14 +115,14 @@ export function createObservabilityHttpApi(context: HttpApiContext) {
     readCoreLog(file, offset = -1, generation, signal) {
       return request<CoreLogChunk>(
         fetcher,
-        `${baseUrl}/core/logs/content${buildQuery({ file, offset, generation: generation || undefined })}`,
+        `${nodeUrl()}/core/logs/content${buildQuery({ file, offset, generation: generation || undefined })}`,
         { method: 'GET', signal },
       );
     },
     async* streamCoreLog(file, offset = -1, generation, signal) {
       const response = await openEventStream(
         fetcher,
-        `${baseUrl}/core/logs/stream${buildQuery({ file, offset, generation: generation || undefined })}`,
+        `${nodeUrl()}/core/logs/stream${buildQuery({ file, offset, generation: generation || undefined })}`,
         { method: 'GET', signal },
       );
       yield* readJSONEvents<CoreLogChunk>(response, 'output');

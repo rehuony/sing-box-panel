@@ -8,7 +8,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"time"
 
 	"github.com/rehuony/sing-box-panel/internal/coreartifact"
@@ -105,10 +104,6 @@ func (limits Limits) validate() error {
 	return nil
 }
 
-type Downloader interface {
-	Download(ctx context.Context, rawURL string, destination io.Writer, maximumBytes int64) (int64, error)
-}
-
 type VersionReport struct {
 	Version            coreartifact.ExactVersion
 	FeatureFingerprint FeatureFingerprint
@@ -125,19 +120,7 @@ type Options struct {
 	// Root's parent must already exist and have trusted ownership/mode. New
 	// creates only the final Root directory and returns its canonical path from
 	// Store.Root.
-	Root       string
-	Downloader Downloader
-	Inspector  VersionInspector
-	Limits     Limits
-}
-
-// ImportRequest describes an administrator-trusted local archive. ImportLocal
-// runs an isolated copy's `version` command. Content hashes record installed
-// bytes for storage and identity; they are not an execution approval gate.
-type ImportRequest struct {
-	SourcePath           string
-	SourceDescription    string
-	ExpectedVersion      coreartifact.ExactVersion
-	ExpectedArchitecture coreartifact.Architecture
-	Variant              coreartifact.Variant
+	Root      string
+	Inspector VersionInspector
+	Limits    Limits
 }

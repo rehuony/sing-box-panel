@@ -101,10 +101,11 @@ func TestRepresentativeHTTPResponsesConformToOpenAPI(t *testing.T) {
 		Services: newTestServices(t, database, value),
 	})
 
-	serveConformingRequest(t, router, handler, http.MethodPut, "/api/v1/config/file",
+	configurationFile := testNodePath(t, database) + "/config/file"
+	serveConformingRequest(t, router, handler, http.MethodPut, configurationFile,
 		`{"revision":0,"content":"{}"}`, http.StatusOK, true, nil)
 
-	fileResponse := serveConformingRequest(t, router, handler, http.MethodGet, "/api/v1/config/file", "", http.StatusOK, true, nil)
+	fileResponse := serveConformingRequest(t, router, handler, http.MethodGet, configurationFile, "", http.StatusOK, true, nil)
 	var file nodeconfig.ConfigurationFile
 	if err := json.Unmarshal(fileResponse.Body.Bytes(), &file); err != nil {
 		t.Fatal(err)
@@ -113,8 +114,7 @@ func TestRepresentativeHTTPResponsesConformToOpenAPI(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	serveConformingRequest(t, router, handler, http.MethodPut, "/api/v1/config/file", string(fileBody), http.StatusOK, true, nil)
-	serveConformingRequest(t, router, handler, http.MethodGet, "/api/v1/core/status", "", http.StatusOK, true, nil)
+	serveConformingRequest(t, router, handler, http.MethodPut, configurationFile, string(fileBody), http.StatusOK, true, nil)
 	panel := serveConformingRequest(t, router, handler, http.MethodGet, "/api/v1/panel/settings", "", http.StatusOK, true, nil)
 	var panelView settings.PanelSettingsView
 	if err := json.Unmarshal(panel.Body.Bytes(), &panelView); err != nil {

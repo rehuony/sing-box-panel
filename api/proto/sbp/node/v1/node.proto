@@ -107,13 +107,15 @@ message Welcome {
 }
 
 // Command asks the node to do one thing. A repeated request ID returns the
-// node's recorded result instead of running the command again.
+// node's recorded result instead of running the command again. Commands that
+// snapshot the configuration carry the panel's saved revision, so the node
+// always runs what the panel holds.
 message Command {
   string request_id = 1;
   google.protobuf.Timestamp deadline = 2;
+  reserved 11, 21;
   oneof body {
     CheckConfiguration check_configuration = 10;
-    ApplyConfiguration apply_configuration = 11;
     StartRuntime start_runtime = 12;
     StopRuntime stop_runtime = 13;
     RestartRuntime restart_runtime = 14;
@@ -123,12 +125,20 @@ message Command {
     BrowseFilesystem browse_filesystem = 18;
     ResolveFilesystemPath resolve_filesystem_path = 19;
     ReadCoreLog read_core_log = 20;
-    FollowCoreLog follow_core_log = 21;
+    GetRuntimeStatus get_runtime_status = 22;
+    EnableCore enable_core = 23;
+    DisableCore disable_core = 24;
+    CheckStartup check_startup = 25;
+    ActivateStartup activate_startup = 26;
+    ListStartupArtifacts list_startup_artifacts = 27;
+    ListCores list_cores = 28;
+    ListCoreLogs list_core_logs = 29;
+    DeleteCoreLog delete_core_log = 30;
+    ClearCoreLog clear_core_log = 31;
   }
 }
 
-// Cancel ends a follow command or abandons a command whose deadline the panel
-// no longer waits for.
+// Cancel abandons a command whose result the panel no longer waits for.
 message Cancel {
   string request_id = 1;
 }
@@ -142,14 +152,14 @@ message TelemetryControl {
 // ArtifactIdentity is the immutable identity of one installable core
 // artifact. Digest, platform, variant and reported version all belong to it.
 message ArtifactIdentity {
-  // The panel's stable artifact ID.
+  // The artifact ID, derived from the identity on both sides.
   string id = 1;
   ArtifactSourceKind source_kind = 2;
   int64 repository_id = 3;
   int64 release_id = 4;
   int64 asset_id = 5;
   string user_source = 6;
-  // Lowercase hexadecimal SHA-256 of the archive or binary bytes.
+  // Lowercase hexadecimal SHA-256 of the archive bytes.
   string sha256 = 7;
   string os = 8;
   string arch = 9;
@@ -164,7 +174,7 @@ enum ArtifactSourceKind {
 }
 
 // ConfigurationRevision carries exact configuration bytes. The node uses them
-// only to check or apply them.
+// only to check or run them.
 message ConfigurationRevision {
   string revision_id = 1;
   int64 revision = 2;
@@ -173,25 +183,68 @@ message ConfigurationRevision {
   bytes content = 4;
 }
 
+// CheckConfiguration records the revision and checks it with the core.
 message CheckConfiguration {
   ConfigurationRevision configuration = 1;
   string artifact_id = 2;
 }
 
-message ApplyConfiguration {
+// StartRuntime starts the core with the revision, reusing the applied bundle
+// when the revision is the one it runs.
+message StartRuntime {
   ConfigurationRevision configuration = 1;
-  string artifact_id = 2;
 }
-
-message StartRuntime {}
 
 message StopRuntime {}
 
-message RestartRuntime {}
+// RestartRuntime checks the revision with the applied core and replaces the
+// running process.
+message RestartRuntime {
+  ConfigurationRevision configuration = 1;
+}
 
 message RollbackRuntime {
   // The bundle to return to; empty selects the node's rollback bundle.
   string bundle_id = 1;
+}
+
+// EnableCore selects the core, checking the revision with it and replacing
+// a running process.
+message EnableCore {
+  ConfigurationRevision configuration = 1;
+  string artifact_id = 2;
+}
+
+// DisableCore stops the process and clears the core selection.
+message DisableCore {
+  string artifact_id = 1;
+}
+
+message CheckStartup {
+  string startup_artifact_id = 1;
+}
+
+message ActivateStartup {
+  string startup_artifact_id = 1;
+  MonitoringTier monitoring_tier = 2;
+}
+
+enum MonitoringTier {
+  MONITORING_TIER_UNSPECIFIED = 0;
+  MONITORING_TIER_LIMITED = 1;
+  MONITORING_TIER_PROCESS_ONLY = 2;
+}
+
+message GetRuntimeStatus {}
+
+message ListStartupArtifacts {
+  google.protobuf.Timestamp before_time = 1;
+  string before_id = 2;
+  uint32 limit = 3;
+  string core_artifact_id = 4;
+  StartupArtifactState state = 5;
+  string revision_id = 6;
+  string exact_core_version = 7;
 }
 
 message InstallCore {
@@ -203,6 +256,18 @@ message InstallCore {
 
 message RemoveCore {
   string artifact_id = 1;
+}
+
+message ListCores {
+  google.protobuf.Timestamp before_time = 1;
+  string before_id = 2;
+  uint32 limit = 3;
+  string exact_version = 4;
+  string arch = 5;
+  string variant = 6;
+  ArtifactSourceKind source_kind = 7;
+  // Set to return only the core with this ID.
+  string id = 8;
 }
 
 message BrowseFilesystem {
@@ -227,20 +292,27 @@ enum FilesystemMode {
   FILESYSTEM_MODE_SOCKET = 4;
 }
 
+message ListCoreLogs {}
+
 message ReadCoreLog {
-  // An empty file lists the available core log files.
   string file = 1;
   int64 offset = 2;
-  uint32 limit = 3;
+  // The generation from an earlier read; a changed file resets the offset.
+  string generation = 3;
 }
 
-// FollowCoreLog emits LogBatch events tagged with the command's request ID
-// until the panel cancels it.
-message FollowCoreLog {}
+message DeleteCoreLog {
+  string file = 1;
+}
+
+message ClearCoreLog {
+  string file = 1;
+}
 
 // Result answers one command.
 message Result {
   string request_id = 1;
+  reserved 16;
   oneof outcome {
     Problem problem = 2;
     CheckOutcome check = 10;
@@ -249,7 +321,7 @@ message Result {
     BrowseOutcome browse = 13;
     ResolveOutcome resolve = 14;
     CoreLogOutcome core_log = 15;
-    FollowOutcome follow = 16;
+    StartupArtifactsOutcome startup_artifacts = 17;
   }
 }
 
@@ -262,19 +334,85 @@ message Problem {
 }
 
 message CheckOutcome {
-  // The checked startup artifact the node recorded.
-  string startup_artifact_id = 1;
-  bool valid = 2;
-  string diagnostics = 3;
+  StartupArtifact startup = 1;
 }
 
+// StartupArtifact is a configuration snapshot checked, or waiting to be
+// checked, with one exact core.
+message StartupArtifact {
+  string id = 1;
+  string revision_id = 2;
+  string exact_core_version = 3;
+  string core_artifact_id = 4;
+  string config_sha256 = 5;
+  StartupArtifactState state = 6;
+  google.protobuf.Timestamp checked_at = 7;
+  google.protobuf.Timestamp created_at = 8;
+}
+
+enum StartupArtifactState {
+  STARTUP_ARTIFACT_STATE_UNSPECIFIED = 0;
+  STARTUP_ARTIFACT_STATE_PENDING = 1;
+  STARTUP_ARTIFACT_STATE_READY = 2;
+  STARTUP_ARTIFACT_STATE_FAILED = 3;
+}
+
+message StartupArtifactsOutcome {
+  repeated StartupArtifact items = 1;
+  // The cursor of the next page; absent on the last page.
+  google.protobuf.Timestamp next_before_time = 2;
+  string next_before_id = 3;
+}
+
+// RuntimeOutcome is the node's runtime state after a command, with the
+// activation and startup artifact the command produced, if any.
 message RuntimeOutcome {
-  RuntimeState runtime = 1;
-  Bundle applied = 2;
+  RuntimeStatus status = 1;
+  Activation activation = 2;
+  StartupArtifact startup = 3;
+}
+
+message RuntimeStatus {
+  string enabled_core_artifact_id = 1;
+  string enabled_exact_core_version = 2;
+  string loaded_revision_id = 3;
+  bool desired_running = 4;
+  string desired_bundle_id = 5;
+  string applied_bundle_id = 6;
+  string rollback_bundle_id = 7;
+  int64 target_generation = 8;
+  string observation_state = 9;
+  RunningCore running = 10;
+}
+
+message RunningCore {
+  int64 pid = 1;
+  string process_start_token = 2;
+  string exact_core_version = 3;
+  string core_artifact_id = 4;
+  string archive_sha256 = 5;
+  string binary_sha256 = 6;
+  string activation_bundle_id = 7;
+  google.protobuf.Timestamp started_at = 8;
+}
+
+// Activation identifies an applied startup artifact and its bundle.
+message Activation {
+  string startup_artifact_id = 1;
+  string revision_id = 2;
+  string exact_core_version = 3;
+  string core_artifact_id = 4;
+  string config_sha256 = 5;
+  string activation_bundle_id = 6;
+  string activation_sha256 = 7;
+  MonitoringTier monitoring_tier = 8;
 }
 
 message CoreOutcome {
   repeated InstalledCore installed = 1;
+  // The cursor of the next page; absent on the last page.
+  google.protobuf.Timestamp next_before_time = 2;
+  string next_before_id = 3;
 }
 
 message BrowseOutcome {
@@ -300,27 +438,36 @@ message ResolveOutcome {
   string path = 1;
   string parent = 2;
   string kind = 3;
+  bool exists = 4;
+  bool symlink = 5;
 }
 
 message CoreLogOutcome {
   repeated CoreLogFile files = 1;
-  repeated LogLine lines = 2;
-  int64 next_offset = 3;
+  CoreLogChunk chunk = 2;
 }
 
 message CoreLogFile {
   string name = 1;
   int64 size = 2;
-  google.protobuf.Timestamp modified_at = 3;
+  google.protobuf.Timestamp updated_at = 3;
+  bool deletable = 4;
 }
 
-message FollowOutcome {}
+message CoreLogChunk {
+  string file = 1;
+  string text = 2;
+  int64 next_offset = 3;
+  int64 size = 4;
+  string generation = 5;
+  bool reset = 6;
+}
 
 // Event reports node state. Sequence orders events within one node process so
 // the panel can discard duplicates after reconnecting.
 message Event {
   uint64 sequence = 1;
-  // Set when the event belongs to a follow command.
+  // Set when the event answers a command.
   string request_id = 2;
   oneof body {
     StateReport state_report = 10;
@@ -352,18 +499,18 @@ message Host {
 }
 
 message RuntimeState {
-  RuntimeStatus status = 1;
+  ProcessState status = 1;
   string artifact_id = 2;
   string bundle_id = 3;
   int64 pid = 4;
   google.protobuf.Timestamp started_at = 5;
 }
 
-enum RuntimeStatus {
-  RUNTIME_STATUS_UNSPECIFIED = 0;
-  RUNTIME_STATUS_RUNNING = 1;
-  RUNTIME_STATUS_STOPPED = 2;
-  RUNTIME_STATUS_FAILED = 3;
+enum ProcessState {
+  PROCESS_STATE_UNSPECIFIED = 0;
+  PROCESS_STATE_RUNNING = 1;
+  PROCESS_STATE_STOPPED = 2;
+  PROCESS_STATE_FAILED = 3;
 }
 
 // Bundle is an activated configuration: the checked startup artifact and the
@@ -383,10 +530,13 @@ message InstalledCore {
   ArtifactIdentity artifact = 1;
   string binary_sha256 = 2;
   google.protobuf.Timestamp installed_at = 3;
+  string binary_path = 4;
+  // The canonical JSON feature fingerprint the binary reported.
+  string feature_fingerprint = 5;
 }
 
 message RuntimeTransition {
-  RuntimeStatus status = 1;
+  ProcessState status = 1;
   string reason = 2;
   string bundle_id = 3;
   google.protobuf.Timestamp occurred_at = 4;

@@ -7,8 +7,9 @@ import { AppShell } from '@/components/app-shell';
 import { NotFoundPage } from '@/pages/not-found-page';
 import { LoadingState } from '@/components/loading-state';
 import { useAuthSession } from '@/stores/auth-session.store';
-import { ControlPlaneProvider } from '@/stores/control-plane-provider';
+import { NodeSelectionProvider } from '@/stores/node-selection-provider';
 import { PanelSettingsProvider } from '@/stores/panel-settings-provider';
+import { ConfigurationSessionProvider } from '@/stores/configuration-session-provider';
 
 import { loadPage } from './page-loaders';
 
@@ -45,9 +46,11 @@ function ProtectedRoute() {
   if (status === 'unavailable') return <LoginPage />;
 
   return (
-    <ControlPlaneProvider>
-      <PanelSettingsProvider><Outlet /></PanelSettingsProvider>
-    </ControlPlaneProvider>
+    <NodeSelectionProvider>
+      <ConfigurationSessionProvider>
+        <PanelSettingsProvider><Outlet /></PanelSettingsProvider>
+      </ConfigurationSessionProvider>
+    </NodeSelectionProvider>
   );
 }
 

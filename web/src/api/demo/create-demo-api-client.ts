@@ -37,9 +37,9 @@ import {
 } from './demo-subscription-nodes';
 import {
   createDemoData,
-  demoDashboardContext,
   demoMetrics,
   demoMetricsHistory,
+  demoNode,
   demoSystemStatus,
   demoTrafficPeriod,
 } from './demo-data';
@@ -325,20 +325,21 @@ export function createDemoApiClient(): ApiClient {
   }
   const client: ApiClient = {
     supportsNativeChannelValidation: false,
+    nodeID: null,
+    // The demo manages one node, so every scope shares its state.
+    forNode: nodeID => ({ ...client, nodeID }),
+    listFleetNodes: signal => respond({ items: [demoNode] }, signal),
     ...createDemoFilesystemApi(),
     getConfigurationFile: (signal) => respond(configurationFile, signal),
     async saveConfigurationFile(input, signal) {
       assertActive(signal);
       return respond(updateConfigurationFile(input), signal);
     },
-    exportPanelBackup: signal => respond({ format: 'sing-box-panel-backup', version: 2, exported_at: updatedAt(), panel_settings: demoBackupSettings(panelSettings, panelSecrets), sing_box_configuration: configurationFile.content }, signal),
+    exportPanelBackup: signal => respond({ format: 'sing-box-panel-backup', version: 3, exported_at: updatedAt(), panel_settings: demoBackupSettings(panelSettings, panelSecrets) }, signal),
     async restorePanelBackup(input, signal) {
       assertActive(signal);
-      if (input.settings_revision !== panelSettings.revision || input.configuration_revision !== configurationFile.revision) conflict('Saved configuration');
+      if (input.settings_revision !== panelSettings.revision) conflict('Saved configuration');
       const restored = demoRestoreSettings(input.backup, panelSettings.revision + 1);
-      updateConfigurationFile({
-        revision: configurationFile.revision, content: input.backup.sing_box_configuration,
-      });
       const reauthenticate = restored.secrets.passwordHash !== panelSecrets.passwordHash
         || restored.view.admin_email !== panelSettings.admin_email;
       restored.view.restart_required = restored.view.preferences.listen_host !== '127.0.0.1' || restored.view.preferences.listen_port !== 3000 || restored.view.preferences.external_origin !== '' || restored.view.service.data_dir !== '/var/lib/sing-box-panel' || restored.view.service.base_path !== '';
@@ -404,8 +405,7 @@ export function createDemoApiClient(): ApiClient {
       for (const listener of sessionListeners) listener();
       await respond(undefined, signal);
     },
-    getSystemStatus: (signal) => respond(demoSystemStatus(state), signal),
-    getDashboardContext: (signal) => respond(demoDashboardContext(state), signal),
+    getSystemStatus: (signal) => respond(demoSystemStatus(), signal),
     listCatalogAssets(filter = {}, signal) {
       const assets = state.catalog.assets.filter(
         (asset) =>
@@ -619,7 +619,7 @@ export function createDemoApiClient(): ApiClient {
       assertActive(signal);
       requireParsedFile();
       const artifact = requireItem(state.cores, artifactID, 'Core artifact');
-      const platform = demoSystemStatus(state).platform;
+      const platform = { os: demoNode.os, arch: demoNode.arch };
       if (
         artifact.os !== platform?.os
         || artifact.arch !== platform?.arch

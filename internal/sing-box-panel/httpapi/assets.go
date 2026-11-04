@@ -55,7 +55,7 @@ func (handler *Handler) serveIndex(w http.ResponseWriter, request *http.Request)
 	w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self' 'nonce-"+nonce+"'; img-src 'self' data:; connect-src 'self'")
 	data = bytes.ReplaceAll(data, []byte("__SBP_BASE_PATH__"), []byte(handler.settings.Server.BasePath))
 	appearance := handler.settings.Panel.Appearance
-	if handler.services.Node != nil {
+	if handler.services.Settings != nil {
 		if saved, err := handler.services.Settings.PanelAppearance(request.Context()); err == nil {
 			appearance = saved
 		}

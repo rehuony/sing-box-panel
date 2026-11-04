@@ -20,25 +20,6 @@ import (
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/telemetry"
 )
 
-func TestSubscriptionStartupRequiresMatchingCoreIdentity(t *testing.T) {
-	t.Parallel()
-
-	app := &Service{}
-	startup := store.StartupArtifact{
-		CoreArtifactID: "core-a", ExactCoreVersion: "1.13.19", ConfigBytes: []byte(`{}`),
-	}
-	if _, err := app.subscriptionStartupJSONWithCore(startup, store.CoreArtifact{
-		ID: "core-b", ExactVersion: "1.13.19",
-	}); !errors.Is(err, ErrInvalidStartup) {
-		t.Fatalf("mismatched core error = %v, want ErrInvalidStartup", err)
-	}
-	if raw, err := app.subscriptionStartupJSONWithCore(startup, store.CoreArtifact{
-		ID: "core-a", ExactVersion: "1.13.19",
-	}); err != nil || string(raw) != `{}` {
-		t.Fatalf("matching core raw = %s, error = %v", raw, err)
-	}
-}
-
 func TestApplicationSubscriptionChannelAndSourceCRUD(t *testing.T) {
 	ctx := context.Background()
 	database, err := store.Open(ctx, filepath.Join(t.TempDir(), "panel.db"))

@@ -16,7 +16,6 @@ import { AnimatedIcon } from '@/components/animated-icon';
 import { LoadingState } from '@/components/loading-state';
 import { useSidebar } from '@/components/ui/sidebar-context';
 import { useAuthSession } from '@/stores/auth-session.store';
-import { useControlPlane } from '@/stores/control-plane.store';
 import { useUnsavedChangesContext } from '@/stores/unsaved-changes.store';
 import {
   Tooltip,
@@ -36,6 +35,7 @@ import {
   SidebarProvider,
 } from '@/components/ui/sidebar';
 
+import { NodePicker } from './node-picker';
 import { LanguageMenu } from './language-menu';
 import { TelemetryBanner } from './telemetry-banner';
 import { ThemeCycleButton } from './theme-cycle-button';
@@ -123,7 +123,6 @@ export function AppShell() {
   const { t } = useTranslation();
   const { logout, session } = useAuthSession();
   const { confirmNavigation } = useUnsavedChangesContext();
-  const controlPlane = useControlPlane();
   const location = useLocation();
   const mainRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -144,7 +143,7 @@ export function AppShell() {
     const observer = new ResizeObserver(measure);
     observer.observe(scroll);
     return () => observer.disconnect();
-  }, [controlPlane.status]);
+  }, []);
 
   async function signOut() {
     setLoggingOut(true);
@@ -176,6 +175,7 @@ export function AppShell() {
         <Sidebar className='panel-sidebar' collapsible='offcanvas' variant='floating'>
           <SidebarHeader className='panel-sidebar__header'>
             <PanelLogo />
+            <NodePicker />
           </SidebarHeader>
           <SidebarContent>
             <SidebarGroup>
@@ -220,7 +220,6 @@ export function AppShell() {
                     title={t('shell.error.logout')}
                   />
                 )}
-            {controlPlane.message && <ErrorNotice title={t('shell.error.description')} error={controlPlane.message} />}
             <main id='main-content' ref={mainRef} tabIndex={-1}>
               <Suspense fallback={<WorkspaceLoadingState />}>
                 <Outlet />

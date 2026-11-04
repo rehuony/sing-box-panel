@@ -8,11 +8,8 @@ export function backupFile(value: unknown): PanelBackup | null {
   const file = record(value);
   const settings = record(file.panel_settings);
   if (Object.hasOwn(record(settings.auth), 'secure_cookie')) return null;
-  if (file.format !== 'sing-box-panel-backup' || file.version !== 2 || typeof file.exported_at !== 'string' || !Number.isFinite(Date.parse(file.exported_at)) || typeof file.sing_box_configuration !== 'string' || typeof settings.data_dir !== 'string' || typeof record(settings.auth).email !== 'string' || typeof record(settings.auth).password_hash !== 'string' || typeof record(settings.server).host !== 'string' || typeof record(settings.server).port !== 'number') return null;
+  if (file.format !== 'sing-box-panel-backup' || file.version !== 3 || typeof file.exported_at !== 'string' || !Number.isFinite(Date.parse(file.exported_at)) || typeof settings.data_dir !== 'string' || typeof record(settings.auth).email !== 'string' || typeof record(settings.auth).password_hash !== 'string' || typeof record(settings.server).host !== 'string' || typeof record(settings.server).port !== 'number') return null;
   const backup = file as PanelBackup;
-  if (new TextEncoder().encode(backup.sing_box_configuration).length > 2 * 1024 * 1024
-    || new TextEncoder().encode(JSON.stringify(backup.panel_settings)).length > 1024 * 1024) {
-    return null;
-  }
+  if (new TextEncoder().encode(JSON.stringify(backup.panel_settings)).length > 1024 * 1024) return null;
   return backup;
 }

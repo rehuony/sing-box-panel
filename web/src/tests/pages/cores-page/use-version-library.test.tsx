@@ -6,10 +6,11 @@ import { act, renderHook, waitFor } from '@testing-library/react';
 import type { ApiClient, RuntimeStatus } from '@/api/api-client';
 
 import { ApiClientProvider } from '@/api/api-client-context';
+import { NodeSelectionContext } from '@/stores/node-selection.store';
 import { useVersionLibrary } from '@/pages/cores-page/use-version-library';
 import { useSharedTelemetry } from '@/components/app-shell/telemetry-context';
 import { TelemetryProvider } from '@/components/app-shell/telemetry-provider';
-import { createMockApiClient, testArtifacts, testRuntimeStatus } from '@/tests/api/mock-api-client';
+import { createMockApiClient, testArtifacts, testNode, testRuntimeStatus } from '@/tests/api/mock-api-client';
 
 const stopped: RuntimeStatus = {
   ...testRuntimeStatus,
@@ -22,7 +23,9 @@ function mount(client: ApiClient) {
   return renderHook(() => ({ library: useVersionLibrary(), telemetry: useSharedTelemetry() }), {
     wrapper: ({ children }: PropsWithChildren) => (
       <ApiClientProvider client={client}>
-        <TelemetryProvider>{children}</TelemetryProvider>
+        <NodeSelectionContext value={{ status: 'success', error: null, nodes: [testNode], selected: testNode, select: vi.fn() }}>
+          <TelemetryProvider>{children}</TelemetryProvider>
+        </NodeSelectionContext>
       </ApiClientProvider>
     ),
   });

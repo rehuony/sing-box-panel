@@ -18,7 +18,7 @@ import { ApiClientProvider } from '@/api/api-client-context';
 import { TestRouter as MemoryRouter } from '@/tests/test-router';
 import { AuthSessionProvider } from '@/stores/auth-session-provider';
 import { createDemoApiClient } from '@/api/demo/create-demo-api-client';
-import { createMockApiClient, testDashboardContext, testSession } from '@/tests/api/mock-api-client';
+import { createMockApiClient, testNode, testSession } from '@/tests/api/mock-api-client';
 
 function LocationProbe() {
   const location = useLocation();
@@ -74,27 +74,18 @@ describe('application routes', () => {
     }
   });
 
-  it('renders the workspace as soon as the session is ready while context loads independently', async () => {
+  it('renders the workspace once the session and the node list are ready', async () => {
     let resolveSession!: (value: typeof testSession) => void;
-    let resolveContext!: (value: typeof testDashboardContext) => void;
     const session = new Promise<typeof testSession>(resolve => {
       resolveSession = resolve;
     });
-    const context = new Promise<typeof testDashboardContext>(resolve => {
-      resolveContext = resolve;
-    });
-    const client = createMockApiClient({
-      getSession: vi.fn(() => session),
-      getDashboardContext: vi.fn(() => context),
-    });
+    const client = createMockApiClient({ getSession: vi.fn(() => session) });
     renderRoutes('/', client);
     const checking = await screen.findByText('Checking panel session…');
     expect(checking.closest('main')).toHaveAttribute('aria-busy', 'true');
     await act(async () => resolveSession(testSession));
     expect(await screen.findByRole('button', { name: 'Sign out' })).toBeVisible();
-    await act(async () => resolveContext(testDashboardContext));
-    await screen.findByRole('button', { name: 'Sign out' });
-    expect(screen.queryByText('Reading panel context')).not.toBeInTheDocument();
+    expect(client.forNode).toHaveBeenCalledWith(testNode.id);
   });
 
   it('keeps the shared saved appearance when signing out and loading login again', async () => {

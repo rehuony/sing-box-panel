@@ -22,7 +22,7 @@ import type {
   CatalogRefresh,
   ConfigurationFile,
   ConfigurationFileWrite,
-  DashboardContext,
+  Node as FleetNode,
   LoginInputWritable as LoginInput,
   PanelBackup,
   PanelRestoreRequest,
@@ -87,7 +87,7 @@ export type {
   CatalogRefresh,
   ConfigurationFile,
   ConfigurationFileWrite,
-  DashboardContext,
+  Node as FleetNode,
   DynamicObject as JsonObject,
   LoginInputWritable as LoginInput,
   PanelBackup,
@@ -110,9 +110,11 @@ export * from './contracts/canonical';
 
 export * from './contracts/core';
 
-export type DashboardConfiguration = DashboardContext['configuration'];
-
 export interface ApiClient {
+  /** The node whose resources this client addresses; null for the panel-wide client. */
+  readonly nodeID: string | null;
+  /** Returns a client that addresses the resources of nodeID. */
+  forNode: (nodeID: string) => ApiClient;
   logout: (signal?: AbortSignal) => Promise<void>;
   /** Whether channel drafts can be validated by the native renderer before saving. */
   readonly supportsNativeChannelValidation: boolean;
@@ -122,19 +124,19 @@ export interface ApiClient {
   startRuntime: (signal?: AbortSignal) => Promise<RuntimeStatus>;
   getSystemStatus: (signal?: AbortSignal) => Promise<SystemStatus>;
   restartRuntime: (signal?: AbortSignal) => Promise<RuntimeStatus>;
-
   exportPanelBackup: (signal?: AbortSignal) => Promise<PanelBackup>;
+
   subscribeSessionInvalidated: (listener: () => void) => () => void;
   getRuntimeStatus: (signal?: AbortSignal) => Promise<RuntimeStatus>;
   clearCoreLog: (file: string, signal?: AbortSignal) => Promise<void>;
   getLog: (entryID: string, signal?: AbortSignal) => Promise<LogEntry>;
   getTrafficStatus: (signal?: AbortSignal) => Promise<MetricsSnapshot>;
-
   login: (input: LoginInput, signal?: AbortSignal) => Promise<Session>;
+
   getPanelSettings: (signal?: AbortSignal) => Promise<PanelSettingsView>;
   deleteCoreLogFile: (file: string, signal?: AbortSignal) => Promise<void>;
-  getDashboardContext: (signal?: AbortSignal) => Promise<DashboardContext>;
   listLogs: (filter?: LogFilter, signal?: AbortSignal) => Promise<LogPage>;
+  listFleetNodes: (signal?: AbortSignal) => Promise<{ items: FleetNode[] }>;
   getConfigurationFile: (signal?: AbortSignal) => Promise<ConfigurationFile>;
   installCore: (assetID: number, signal?: AbortSignal) => Promise<CoreArtifact>;
   listCoreLogFiles: (signal?: AbortSignal) => Promise<{ items: CoreLogFile[] }>;

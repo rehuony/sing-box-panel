@@ -8,8 +8,8 @@ import type {
   CatalogAssetList,
   ConfigurationSupport,
   CoreArtifactPage,
-  DashboardContext,
   DashboardStreamSnapshot,
+  FleetNode,
   MetricsHistory,
   MetricsSnapshot,
   RuntimeHistoryPage,
@@ -31,36 +31,19 @@ export const testSession: Session = { email: 'admin@example.com', csrfToken: 'cs
 export const testSystemStatus: SystemStatus = {
   platform: { os: 'linux', arch: 'arm64' },
   panel_version: '0.1.0',
-  canonical_revision: 42,
-  applied_bundle_id: 'bundle_18',
-  running: true,
-  running_version: '1.13.19',
-  running_artifact: 'core_1',
-  configuration_state: 'sing-box-1.13.19@1',
 };
 
-export const testDashboardContext: DashboardContext = {
-  view: { exactVersion: '1.13.19' },
-  running: {
-    exactVersion: '1.13.19',
-    artifactName: 'core_1',
-    digest: '8d5f2a1c7782e544',
-  },
-  canonical: {
-    revision: 42,
-    savedAt: '2026-08-26T07:30:00Z',
-    hasUnappliedChanges: true,
-  },
-  applied: {
-    bundle: 'bundle_18',
-    revision: 41,
-    appliedAt: '2026-08-26T07:12:00Z',
-  },
-  configuration: {
-    supported: true,
-    label: 'Raw JSON',
-    warning: null,
-  },
+export const testNode: FleetNode = {
+  id: 'node_edge',
+  name: 'edge',
+  state: 'online',
+  created_at: '2026-08-20T08:00:00Z',
+  enrolled_at: '2026-08-20T08:05:00Z',
+  last_seen_at: '2026-08-26T07:12:00Z',
+  hostname: 'edge',
+  os: 'linux',
+  arch: 'arm64',
+  build_version: '0.1.0',
 };
 
 export const testRevision: CanonicalSnapshot = {
@@ -284,6 +267,9 @@ export function createMockApiClient(overrides: Partial<ApiClient> = {}): Mocked<
   } satisfies ConfigurationSupport;
   const client: ApiClient = {
     supportsNativeChannelValidation: true,
+    nodeID: null,
+    forNode: vi.fn<ApiClient['forNode']>(),
+    listFleetNodes: vi.fn<ApiClient['listFleetNodes']>().mockResolvedValue({ items: [testNode] }),
     listFilesystemEntries: vi.fn<ApiClient['listFilesystemEntries']>().mockResolvedValue({ path: '/', parent: '/', requested_path: '/', fallback: false, items: [], total: 0, offset: 0, limit: 50 }),
     resolveFilesystemPath: vi.fn<ApiClient['resolveFilesystemPath']>().mockImplementation(async input => ({ path: input.path, parent: '/', kind: input.mode === 'output-file' ? 'file' : input.mode, exists: true, symlink: false })),
     enableCore: vi.fn<ApiClient['enableCore']>().mockResolvedValue(testRuntimeStatus),
@@ -338,7 +324,6 @@ export function createMockApiClient(overrides: Partial<ApiClient> = {}): Mocked<
     getSystemStatus: vi.fn<ApiClient['getSystemStatus']>().mockResolvedValue(testSystemStatus),
     login: vi.fn<ApiClient['login']>().mockResolvedValue(testSession),
     logout: vi.fn<ApiClient['logout']>().mockResolvedValue(undefined),
-    getDashboardContext: vi.fn<ApiClient['getDashboardContext']>().mockResolvedValue(testDashboardContext),
 
     listCatalogAssets: vi.fn<ApiClient['listCatalogAssets']>().mockResolvedValue(testCatalog),
     refreshCatalog: vi.fn<ApiClient['refreshCatalog']>().mockResolvedValue({
@@ -477,5 +462,8 @@ export function createMockApiClient(overrides: Partial<ApiClient> = {}): Mocked<
     listTrafficPeriods: vi.fn<ApiClient['listTrafficPeriods']>(),
     getTrafficPeriod: vi.fn<ApiClient['getTrafficPeriod']>(),
   };
-  return { ...client, ...overrides } as Mocked<ApiClient>;
+  const result = { ...client, ...overrides } as Mocked<ApiClient>;
+  // A node's client shares the mocks, so tests observe node-scoped calls.
+  if (!overrides.forNode) result.forNode.mockImplementation(nodeID => ({ ...result, nodeID }));
+  return result;
 }

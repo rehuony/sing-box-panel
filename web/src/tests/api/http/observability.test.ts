@@ -13,7 +13,7 @@ describe('createHttpApiClient observability domain', () => {
       .mockResolvedValueOnce(new Response(': keepalive\n\n', {
         headers: { 'Content-Type': 'text/event-stream' },
       }));
-    const client = createHttpApiClient({ fetcher });
+    const client = createHttpApiClient({ fetcher }).forNode('node_a');
     const snapshots = [];
     for await (const event of client.streamMetrics()) snapshots.push(event);
     expect(snapshots).toEqual([snapshot]);
@@ -26,7 +26,7 @@ describe('createHttpApiClient observability domain', () => {
     const fetcher = vi.fn<typeof fetch>().mockResolvedValue(new Response(JSON.stringify({
       code: 'metrics_snapshot_unavailable', detail: 'The metrics snapshot could not be collected.',
     }), { status: 500, headers: { 'Content-Type': 'application/problem+json' } }));
-    const client = createHttpApiClient({ fetcher });
+    const client = createHttpApiClient({ fetcher }).forNode('node_a');
     await expect(client.streamMetrics()[Symbol.asyncIterator]().next()).rejects.toMatchObject({
       code: 'metrics_snapshot_unavailable', status: 500,
     });
@@ -39,10 +39,10 @@ describe('createHttpApiClient observability domain', () => {
       .mockResolvedValueOnce(new Response(JSON.stringify({ code: 'core_log_clear_failed' }), {
         status: 503, headers: { 'Content-Type': 'application/problem+json' },
       }));
-    const client = createHttpApiClient({ baseUrl: '/panel/api/v1', fetcher });
+    const client = createHttpApiClient({ baseUrl: '/panel/api/v1', fetcher }).forNode('node_a');
     await client.getSession();
     await client.clearCoreLog('2026-09-23-000.log');
-    expect(fetcher).toHaveBeenLastCalledWith('/panel/api/v1/core/logs/content?file=2026-09-23-000.log', expect.objectContaining({
+    expect(fetcher).toHaveBeenLastCalledWith('/panel/api/v1/nodes/node_a/core/logs/content?file=2026-09-23-000.log', expect.objectContaining({
       method: 'DELETE', credentials: 'same-origin', headers: expect.objectContaining({ 'X-CSRF-Token': 'log-csrf-token' }),
     }));
     await expect(client.clearCoreLog('2026-09-23-000.log')).rejects.toMatchObject({ status: 503, code: 'core_log_clear_failed' });
@@ -51,17 +51,17 @@ describe('createHttpApiClient observability domain', () => {
     const fetcher = vi.fn<typeof fetch>()
       .mockResolvedValueOnce(new Response(JSON.stringify({ csrfToken: 'log-csrf-token' })))
       .mockResolvedValueOnce(new Response(null, { status: 204 }));
-    const client = createHttpApiClient({ baseUrl: '/panel/api/v1', fetcher });
+    const client = createHttpApiClient({ baseUrl: '/panel/api/v1', fetcher }).forNode('node_a');
     await client.getSession();
     await client.deleteCoreLogFile('2026-09-18-000.log');
-    expect(fetcher).toHaveBeenLastCalledWith('/panel/api/v1/core/logs/files?file=2026-09-18-000.log', expect.objectContaining({
+    expect(fetcher).toHaveBeenLastCalledWith('/panel/api/v1/nodes/node_a/core/logs/files?file=2026-09-18-000.log', expect.objectContaining({
       method: 'DELETE', credentials: 'same-origin', headers: expect.objectContaining({ 'X-CSRF-Token': 'log-csrf-token' }),
     }));
   });
   it('requests filtered numbered panel-log pages', async () => {
     const page = { items: [], total: 27 };
     const fetcher = vi.fn<typeof fetch>().mockResolvedValue(new Response(JSON.stringify(page)));
-    const client = createHttpApiClient({ fetcher });
+    const client = createHttpApiClient({ fetcher }).forNode('node_a');
     await expect(client.listPanelLogs({ offset: 20, limit: 10, search: 'refresh', level: 'info' })).resolves.toEqual(page);
     expect(fetcher).toHaveBeenCalledWith(
       '/api/v1/logs/panel?offset=20&limit=10&search=refresh&level=info', expect.objectContaining({ method: 'GET' }),
@@ -72,7 +72,7 @@ describe('createHttpApiClient observability domain', () => {
     const fetcher = vi.fn<typeof fetch>().mockImplementation(async () =>
       new Response(JSON.stringify({ items: [], total: 0 })),
     );
-    const client = createHttpApiClient({ fetcher });
+    const client = createHttpApiClient({ fetcher }).forNode('node_a');
     await client.listPanelLogs({ search: '核心启动', searchCodes: ['runtime.start.completed', 'start_succeeded'] });
     const url = new URL(String(fetcher.mock.calls[0]![0]), 'https://panel.test');
     expect(url.searchParams.get('search')).toBe('核心启动');
@@ -88,7 +88,7 @@ describe('createHttpApiClient observability domain', () => {
         headers: { 'Content-Type': 'application/json' },
       }),
     );
-    const client = createHttpApiClient({ baseUrl: '/panel/api/v1', fetcher });
+    const client = createHttpApiClient({ baseUrl: '/panel/api/v1', fetcher }).forNode('node_a');
 
     await client.listLogs({
       source: 'core',
@@ -133,7 +133,7 @@ describe('createHttpApiClient observability domain', () => {
         headers: { 'Content-Type': 'text/event-stream' },
       }),
     );
-    const client = createHttpApiClient({ baseUrl: '/panel/api/v1', fetcher });
+    const client = createHttpApiClient({ baseUrl: '/panel/api/v1', fetcher }).forNode('node_a');
     const events = [];
 
     for await (const event of client.streamLogs({
@@ -177,7 +177,7 @@ describe('createHttpApiClient observability domain', () => {
         },
       ),
     );
-    const client = createHttpApiClient({ fetcher });
+    const client = createHttpApiClient({ fetcher }).forNode('node_a');
     const invalidated = vi.fn();
     client.subscribeSessionInvalidated(invalidated);
     const iterator = client.streamLogs()[Symbol.asyncIterator]();
@@ -193,7 +193,7 @@ describe('createHttpApiClient observability domain', () => {
         headers: { 'Content-Type': 'text/event-stream' },
       }),
     );
-    const client = createHttpApiClient({ baseUrl: '/panel/api/v1', fetcher });
+    const client = createHttpApiClient({ baseUrl: '/panel/api/v1', fetcher }).forNode('node_a');
     const snapshots = [];
 
     for await (const snapshot of client.streamDashboard()) snapshots.push(snapshot);
@@ -217,7 +217,7 @@ describe('createHttpApiClient observability domain', () => {
       status: 500,
       headers: { 'Content-Type': 'application/problem+json' },
     }));
-    const client = createHttpApiClient({ fetcher });
+    const client = createHttpApiClient({ fetcher }).forNode('node_a');
 
     await expect(client.streamDashboard()[Symbol.asyncIterator]().next()).rejects.toMatchObject({
       code: 'dashboard_snapshot_unavailable',
@@ -229,7 +229,7 @@ describe('createHttpApiClient observability domain', () => {
     const fetcher = vi.fn<typeof fetch>().mockResolvedValue(new Response(': keepalive\n\n', {
       headers: { 'Content-Type': 'text/event-stream' },
     }));
-    const client = createHttpApiClient({ fetcher });
+    const client = createHttpApiClient({ fetcher }).forNode('node_a');
 
     await expect(client.streamDashboard()[Symbol.asyncIterator]().next()).rejects.toMatchObject({
       code: 'stream_invalid',
@@ -245,7 +245,7 @@ describe('createHttpApiClient observability domain', () => {
           headers: { 'Content-Type': 'application/json' },
         }),
     );
-    const client = createHttpApiClient({ baseUrl: '/panel/api/v1', fetcher });
+    const client = createHttpApiClient({ baseUrl: '/panel/api/v1', fetcher }).forNode('node_a');
 
     await client.clearLogs({ source: 'security', before: '2026-08-26T08:00:00Z' });
     await client.deleteLog('log/one');
@@ -292,7 +292,7 @@ describe('createHttpApiClient observability domain', () => {
           },
         ),
     );
-    const client = createHttpApiClient({ baseUrl: '/panel/api/v1', fetcher });
+    const client = createHttpApiClient({ baseUrl: '/panel/api/v1', fetcher }).forNode('node_a');
 
     const history = await client.getMetricsHistory({
       from: '2026-08-26T00:00:00Z',
@@ -337,7 +337,7 @@ describe('native output and panel activity', () => {
           headers: { 'Content-Type': 'text/event-stream' },
         }),
       );
-    const client = createHttpApiClient({ fetcher });
+    const client = createHttpApiClient({ fetcher }).forNode('node_a');
     const events = [];
     for await (const event of client.streamCoreLog(chunk.file, 5, 'generation-1')) events.push(event);
     expect(events).toEqual([chunk]);
@@ -349,7 +349,7 @@ describe('native output and panel activity', () => {
       .mockImplementation(
         async () => new Response('{}', { headers: { 'Content-Type': 'application/json' } }),
       );
-    const client = createHttpApiClient({ fetcher });
+    const client = createHttpApiClient({ fetcher }).forNode('node_a');
     await client.listPanelLogs({
       search: 'a&b',
       beforeID: 'log:x',

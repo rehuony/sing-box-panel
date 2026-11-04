@@ -48,9 +48,9 @@ export const panelSettings = {
   backupImport: 'Choose backup file',
   backupInvalid: 'The backup format is unsupported or its content exceeds the size limit.',
   backupConfirm: 'Restore configuration backup',
-  backupOverwrite: 'Restoring replaces saved panel and sing-box configurations, including credentials and local unsaved drafts.',
+  backupOverwrite: 'Restoring replaces the saved panel settings, including credentials. Node configurations are not part of the backup.',
   backupDate: 'Exported at',
-  backupActivation: 'Changed credentials require signing in again. Service address and data directory changes require a manual panel restart. The sing-box configuration is only saved; review and apply it manually.',
+  backupActivation: 'Changed credentials require signing in again. Service address and data directory changes require a manual panel restart.',
   backupRestore: 'Restore configuration',
-  backupRestored: 'Configuration restored; review and apply it manually',
+  backupRestored: 'Panel settings restored',
 } as const;

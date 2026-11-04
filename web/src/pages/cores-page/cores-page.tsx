@@ -13,7 +13,6 @@ import { toast } from '@/components/ui/toast-manager';
 import { useApiClient } from '@/api/api-client-context';
 import { LoadingState } from '@/components/loading-state';
 import { ListPagination } from '@/components/list-pagination';
-import { useControlPlane } from '@/stores/control-plane.store';
 import { WorkspaceToolbar } from '@/components/workspace-toolbar';
 import { describeRequestError, ErrorNotice } from '@/components/error-notice';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -34,7 +33,6 @@ export function CoresPage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const client = useApiClient();
-  const control = useControlPlane();
   const library = useVersionLibrary();
   const [tab, setTab] = useHashTab('cores-', ['installed', 'catalog'] as const, 'installed');
   const [search, setSearch] = useState('');
@@ -91,7 +89,7 @@ export function CoresPage() {
     try {
       await action(signal);
       if (signal.aborted) return false;
-      await Promise.all([library.refreshInstalled(), control.refresh(signal)]);
+      await library.refreshInstalled();
       toast.add({ title: t('cores.library.completed'), type: 'success' });
       return true;
     } catch (reason) {
@@ -135,8 +133,7 @@ export function CoresPage() {
   const runtimeUncertain
     = !library.runtime
       || ['stale', 'inspection_unavailable'].includes(library.runtime.observation_state);
-  const listLoading = library.platformLoading
-    || (tab === 'installed' ? library.installedLoading : library.catalogLoading);
+  const listLoading = tab === 'installed' ? library.installedLoading : library.catalogLoading;
   const refreshLabel = t(tab === 'installed' ? 'cores.refreshInstalled' : 'cores.refreshCatalog');
   return (
     <div className='core-page panel-page'>

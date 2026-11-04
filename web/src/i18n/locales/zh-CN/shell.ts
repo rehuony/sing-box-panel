@@ -20,6 +20,18 @@ export const shell = {
   version: 'v{{version}}',
 } as const;
 
+export const nodes = {
+  empty: '暂无节点。请在面板主机上运行 sing-box-panel node add NAME，并用输出的命令接入节点。',
+  label: '节点',
+  loadFailed: '无法加载节点。',
+  notSelected: '请先添加节点，再管理其内核与配置。',
+  state: {
+    offline: '离线',
+    online: '在线',
+    pending: '未接入',
+  },
+} as const;
+
 export const app = {
   title: 'Sing-Box Panel',
 } as const;

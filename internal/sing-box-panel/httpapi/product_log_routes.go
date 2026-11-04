@@ -6,12 +6,11 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"os"
 	"strconv"
 	"strings"
 	"time"
 
-	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/localnode"
+	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/fleet"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/store"
 )
 
@@ -22,9 +21,9 @@ func (handler *Handler) listCoreLogFiles(w http.ResponseWriter, r *http.Request)
 	if _, ok := strictCoreQuery(w, r); !ok {
 		return
 	}
-	files, err := handler.services.Node.CoreLogFiles()
+	files, err := handler.services.Fleet.CoreLogFiles(r.Context(), requestNodeID(r))
 	if err != nil {
-		writeProblem(w, r, 503, "core_logs_unavailable", "Core logs unavailable", "Captured process output could not be read.")
+		writeCoreLogProblem(w, r, "core_logs_unavailable", err)
 		return
 	}
 	writeJSON(w, 200, map[string]any{"items": files})
@@ -38,18 +37,8 @@ func (handler *Handler) deleteCoreLogFile(w http.ResponseWriter, r *http.Request
 	if !ok || !requireEmptyCoreBody(w, r) {
 		return
 	}
-	err := handler.services.Node.DeleteCoreLogFile(r.Context(), query.Get("file"))
-	if err != nil {
-		switch {
-		case errors.Is(err, localnode.ErrCoreLogCurrentFile):
-			writeProblem(w, r, http.StatusConflict, "core_log_current", "Current log is protected", "Log files from the current UTC day cannot be deleted.")
-		case errors.Is(err, localnode.ErrCoreLogInvalidFile):
-			writeProblem(w, r, http.StatusBadRequest, "core_log_invalid", "Invalid log file", "Select a managed core log file.")
-		case errors.Is(err, os.ErrNotExist):
-			writeProblem(w, r, http.StatusNotFound, "core_log_not_found", "Log file not found", "The selected log file no longer exists.")
-		default:
-			writeProblem(w, r, http.StatusServiceUnavailable, "core_log_delete_failed", "Log deletion failed", "The selected log file could not be deleted.")
-		}
+	if err := handler.services.Fleet.DeleteCoreLog(r.Context(), requestNodeID(r), query.Get("file")); err != nil {
+		writeCoreLogProblem(w, r, "core_log_delete_failed", err)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -63,20 +52,24 @@ func (handler *Handler) clearCoreLog(w http.ResponseWriter, r *http.Request) {
 	if !ok || !requireEmptyCoreBody(w, r) {
 		return
 	}
-	if err := handler.services.Node.ClearCoreLog(r.Context(), query.Get("file")); err != nil {
-		switch {
-		case errors.Is(err, localnode.ErrCoreLogInvalidFile):
-			writeProblem(w, r, http.StatusBadRequest, "core_log_invalid", "Invalid log file", "Select a managed core log file.")
-		case errors.Is(err, os.ErrNotExist):
-			writeProblem(w, r, http.StatusNotFound, "core_log_not_found", "Log file not found", "The selected log file no longer exists.")
-		default:
-			writeProblem(w, r, http.StatusServiceUnavailable, "core_log_clear_failed", "Log clearing failed", "The selected log file could not be cleared.")
-		}
+	if err := handler.services.Fleet.ClearCoreLog(r.Context(), requestNodeID(r), query.Get("file")); err != nil {
+		writeCoreLogProblem(w, r, "core_log_clear_failed", err)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// writeCoreLogProblem names a missing file as a missing log file.
+func writeCoreLogProblem(w http.ResponseWriter, r *http.Request, code string, err error) {
+	if fleet.IsProblem(err, "filesystem_not_found") {
+		writeProblem(w, r, http.StatusNotFound, "core_log_not_found", "Log file not found", "The selected log file no longer exists.")
+		return
+	}
+	writeNodeProblem(w, r, code, err)
+}
+
+// readCoreLog reads a node's core log. The stream reads the node again every
+// second until it closes after a minute for the client to reconnect.
 func (handler *Handler) readCoreLog(w http.ResponseWriter, r *http.Request, stream bool) {
 	if !handler.requireCommands(w, r) {
 		return
@@ -98,15 +91,10 @@ func (handler *Handler) readCoreLog(w http.ResponseWriter, r *http.Request, stre
 			return
 		}
 	}
-	chunk, err := handler.services.Node.CoreLogContent(query.Get("file"), offset, query.Get("generation"))
+	nodeID := requestNodeID(r)
+	chunk, err := handler.services.Fleet.ReadCoreLog(r.Context(), nodeID, query.Get("file"), offset, query.Get("generation"))
 	if err != nil {
-		status := 503
-		if errors.Is(err, localnode.ErrCoreLogInvalidFile) {
-			status = 400
-		} else if errors.Is(err, os.ErrNotExist) {
-			status = 404
-		}
-		writeProblem(w, r, status, "core_log_unavailable", "Core log unavailable", "The selected captured output file is unavailable.")
+		writeCoreLogProblem(w, r, "core_log_unavailable", err)
 		return
 	}
 	if !stream {
@@ -157,7 +145,7 @@ func (handler *Handler) readCoreLog(w http.ResponseWriter, r *http.Request, stre
 			_ = writeFrame("event: control\ndata: {\"type\":\"reconnect\"}\n\n")
 			return
 		case <-ticker.C:
-			chunk, err = handler.services.Node.CoreLogContent(chunk.File, chunk.NextOffset, chunk.Generation)
+			chunk, err = handler.services.Fleet.ReadCoreLog(r.Context(), nodeID, chunk.File, chunk.NextOffset, chunk.Generation)
 			if err != nil {
 				return
 			}

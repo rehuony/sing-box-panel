@@ -9,8 +9,6 @@ import (
 	"net/http"
 
 	"github.com/rehuony/sing-box-panel/internal/configuration"
-	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/corecache"
-	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/localnode"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/nodeconfig"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/schema"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/store"
@@ -28,7 +26,7 @@ func (handler *Handler) previewConfiguration(w http.ResponseWriter, request *htt
 		writeProblem(w, request, http.StatusUnprocessableEntity, "configuration_preview_invalid", "Configuration preview invalid", "A valid core_artifact_id is required.")
 		return
 	}
-	result, err := handler.services.Configs.PreviewConfiguration(request.Context(), input)
+	result, err := handler.services.Configs.PreviewConfiguration(request.Context(), requestNodeID(request), input)
 	if err != nil {
 		writeConfigurationProblem(w, request, "configuration_preview_failed", err)
 		return
@@ -40,7 +38,9 @@ func (handler *Handler) compileConfiguration(w http.ResponseWriter, request *htt
 	if !handler.requireCommands(w, request) {
 		return
 	}
-	var input localnode.ConfigurationCompileRequest
+	var input struct {
+		CoreArtifactID string `json:"core_artifact_id"`
+	}
 	if !decodeStrictRequest(w, request, maximumRuntimeRequestBytes, &input) {
 		return
 	}
@@ -48,9 +48,9 @@ func (handler *Handler) compileConfiguration(w http.ResponseWriter, request *htt
 		writeProblem(w, request, http.StatusUnprocessableEntity, "configuration_compile_invalid", "Configuration compile invalid", "A valid core_artifact_id is required.")
 		return
 	}
-	result, err := handler.services.Node.CompileConfiguration(request.Context(), input)
+	result, err := handler.services.Fleet.CompileConfiguration(request.Context(), requestNodeID(request), input.CoreArtifactID)
 	if err != nil {
-		writeConfigurationProblem(w, request, "configuration_compile_failed", err)
+		writeNodeProblem(w, request, "configuration_compile_failed", err)
 		return
 	}
 	writeJSON(w, http.StatusOK, result)
@@ -58,10 +58,6 @@ func (handler *Handler) compileConfiguration(w http.ResponseWriter, request *htt
 
 func (handler *Handler) coreConfigurationSupport(w http.ResponseWriter, request *http.Request, identifier string) {
 	if !handler.requireCommands(w, request) {
-		return
-	}
-	if !store.ValidIdentifier(identifier) {
-		writeProblem(w, request, http.StatusBadRequest, "core_artifact_id_invalid", "Core artifact ID invalid", "The core artifact ID is invalid.")
 		return
 	}
 	if _, ok := strictCoreQuery(w, request); !ok {
@@ -77,10 +73,6 @@ func (handler *Handler) coreConfigurationSupport(w http.ResponseWriter, request 
 
 func (handler *Handler) coreConfigurationSchema(w http.ResponseWriter, request *http.Request, identifier string) {
 	if !handler.requireCommands(w, request) {
-		return
-	}
-	if !store.ValidIdentifier(identifier) {
-		writeProblem(w, request, http.StatusBadRequest, "core_artifact_id_invalid", "Core artifact ID invalid", "The core artifact ID is invalid.")
 		return
 	}
 	if _, ok := strictCoreQuery(w, request); !ok {
@@ -115,16 +107,14 @@ func writeConfigurationProblem(w http.ResponseWriter, request *http.Request, cod
 		writeProblem(w, request, http.StatusConflict, "configuration_not_saved", "Configuration not saved", "Save a sing-box configuration in Configuration before enabling or checking a core.")
 	case errors.Is(err, store.ErrConfigurationFileUnparsed):
 		writeProblem(w, request, http.StatusUnprocessableEntity, "configuration_file_unparsed", "Saved configuration invalid", "Correct the saved JSON before checking or running the configuration.")
-	case corecache.IsCoreArtifactNotFound(err):
+	case errors.Is(err, store.ErrCachedArtifactNotFound):
 		writeProblem(w, request, http.StatusNotFound, "core_artifact_not_found", "Core artifact not found", "The selected immutable core artifact does not exist.")
 	case errors.Is(err, schema.ErrConfigurationSchemaUnavailable):
 		writeProblem(w, request, http.StatusConflict, "configuration_schema_unavailable", "Configuration schema unavailable", err.Error())
 	case errors.Is(err, configuration.ErrInvalidDocument):
 		writeProblem(w, request, http.StatusUnprocessableEntity, "configuration_invalid", "Configuration invalid", err.Error())
-	case errors.Is(err, localnode.ErrConfigurationSchemaValidation):
+	case errors.Is(err, nodeconfig.ErrConfigurationSchemaValidation):
 		writeProblem(w, request, http.StatusUnprocessableEntity, "configuration_schema_validation_failed", "Configuration schema validation failed", err.Error())
-	case errors.Is(err, store.ErrCompiledStartupEvidenceStale):
-		writeProblem(w, request, http.StatusPreconditionFailed, "configuration_changed", "Configuration changed", "The global configuration changed during compilation; retry with the current revision.")
 	default:
 		writeProblem(w, request, http.StatusInternalServerError, code, "Configuration operation failed", "The configuration operation could not be completed.")
 	}

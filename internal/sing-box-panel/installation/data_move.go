@@ -14,7 +14,6 @@ import (
 
 	"github.com/rehuony/sing-box-panel/internal/database"
 	"github.com/rehuony/sing-box-panel/internal/procctl"
-	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/localnode"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/settings"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/store"
 )
@@ -175,9 +174,6 @@ func migrateDataDirectory(ctx context.Context, settingsPath string, location *se
 			return err
 		}
 		defer panelDatabase.Close()
-		if err := requireStoppedCore(ctx, panelDatabase); err != nil {
-			return err
-		}
 		locks, err := lockDataMoveTree(ctx, source)
 		if err != nil {
 			return err
@@ -238,7 +234,7 @@ func migrateDataDirectory(ctx context.Context, settingsPath string, location *se
 		if err != nil {
 			return err
 		}
-		err = moved.RebaseDataPaths(ctx, source, target, owner.ID)
+		err = moved.RecordDataMove(ctx, source, target, owner.ID)
 		if err == nil {
 			err = moved.VerifyDataMove(ctx, owner.ID, source, target)
 		}
@@ -337,27 +333,6 @@ func requirePhysicalDataFile(dir string) error {
 	}
 	if !info.Mode().IsRegular() {
 		return errors.New("migration requires a regular database file inside the data directory")
-	}
-	return nil
-}
-
-func requireStoppedCore(ctx context.Context, panelDatabase *store.Store) error {
-	observation, err := panelDatabase.RuntimeObservation(ctx)
-	if errors.Is(err, store.ErrRuntimeObservationNotFound) {
-		return nil
-	}
-	if err != nil {
-		return err
-	}
-	token, err := localnode.NewRuntimeIdentityResolver(panelDatabase).ProcessStartToken(ctx, observation.PID)
-	if errors.Is(err, os.ErrNotExist) {
-		return nil
-	}
-	if err != nil {
-		return fmt.Errorf("cannot prove the managed core has exited: %w", err)
-	}
-	if token == observation.ProcessStartToken {
-		return errors.New("stop the managed core before moving its data directory")
 	}
 	return nil
 }

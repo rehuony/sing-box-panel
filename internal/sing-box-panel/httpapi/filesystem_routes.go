@@ -3,12 +3,10 @@
 package httpapi
 
 import (
-	"errors"
-	"io/fs"
 	"net/http"
 	"strconv"
 
-	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/localnode"
+	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/fleet"
 )
 
 func (handler *Handler) listFilesystemEntries(w http.ResponseWriter, request *http.Request) {
@@ -24,20 +22,20 @@ func (handler *Handler) listFilesystemEntries(w http.ResponseWriter, request *ht
 	if !ok {
 		return
 	}
-	input := localnode.PathQuery{Path: query.Get("path"), Search: query.Get("search"), ShowHidden: hidden, Limit: 50}
+	input := fleet.PathQuery{Path: query.Get("path"), Search: query.Get("search"), ShowHidden: hidden, Limit: 50}
 	for name, target := range map[string]*int{"offset": &input.Offset, "limit": &input.Limit} {
 		if query.Has(name) {
 			value, err := strconv.ParseInt(query.Get(name), 10, 32)
 			if err != nil || value < 0 || (name == "limit" && (value < 1 || value > 200)) {
-				writeFilesystemProblem(w, request, localnode.ErrInvalidPath)
+				writeInvalidFilesystemQuery(w, request)
 				return
 			}
 			*target = int(value)
 		}
 	}
-	page, err := handler.services.Node.ListFilesystemEntries(request.Context(), input)
+	page, err := handler.services.Fleet.Browse(request.Context(), requestNodeID(request), input)
 	if err != nil {
-		writeFilesystemProblem(w, request, err)
+		writeNodeProblem(w, request, "filesystem_failed", err)
 		return
 	}
 	writeJSON(w, http.StatusOK, page)
@@ -52,27 +50,20 @@ func (handler *Handler) resolveFilesystemPath(w http.ResponseWriter, request *ht
 	if !ok {
 		return
 	}
-	selection, err := handler.services.Node.ResolveFilesystemPath(request.Context(), query.Get("path"), localnode.PathMode(query.Get("mode")))
+	switch query.Get("mode") {
+	case "file", "directory", "output-file", "socket":
+	default:
+		writeInvalidFilesystemQuery(w, request)
+		return
+	}
+	selection, err := handler.services.Fleet.Resolve(request.Context(), requestNodeID(request), query.Get("path"), query.Get("mode"))
 	if err != nil {
-		writeFilesystemProblem(w, request, err)
+		writeNodeProblem(w, request, "filesystem_failed", err)
 		return
 	}
 	writeJSON(w, http.StatusOK, selection)
 }
 
-func writeFilesystemProblem(w http.ResponseWriter, request *http.Request, err error) {
-	status, code, detail := http.StatusInternalServerError, "filesystem_failed", "The filesystem operation could not be completed."
-	switch {
-	case errors.Is(err, localnode.ErrInvalidPath):
-		status, code, detail = http.StatusBadRequest, "filesystem_invalid", "Check the path, selection mode and pagination parameters."
-	case errors.Is(err, fs.ErrPermission):
-		status, code, detail = http.StatusForbidden, "filesystem_forbidden", "The panel process cannot access this path."
-	case errors.Is(err, fs.ErrNotExist), errors.Is(err, localnode.ErrBrokenLink):
-		status, code, detail = http.StatusNotFound, "filesystem_not_found", "The path or symbolic link target no longer exists."
-	case errors.Is(err, localnode.ErrPathType):
-		status, code, detail = http.StatusUnprocessableEntity, "filesystem_type_mismatch", "The target has the wrong type for this field."
-	case errors.Is(err, localnode.ErrDirectoryTooLarge):
-		status, code, detail = http.StatusUnprocessableEntity, "filesystem_directory_too_large", "This directory exceeds the 20000-entry browsing limit. Enter a subdirectory path directly."
-	}
-	writeProblem(w, request, status, code, "Filesystem selection unavailable", detail)
+func writeInvalidFilesystemQuery(w http.ResponseWriter, request *http.Request) {
+	writeProblem(w, request, http.StatusBadRequest, "filesystem_invalid", "Filesystem selection unavailable", "Check the path, selection mode and pagination parameters.")
 }

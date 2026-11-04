@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 // Package fleet owns the panel's nodes: the registry, enrollment, the node
-// listener and its authenticated sessions.
+// listener, its authenticated sessions and the commands sent over them.
 package fleet
 
 import (
@@ -17,7 +17,10 @@ import (
 	"unicode/utf8"
 
 	"github.com/rehuony/sing-box-panel/internal/buildinfo"
+	"github.com/rehuony/sing-box-panel/internal/database"
 	"github.com/rehuony/sing-box-panel/internal/nodeapi"
+	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/corecache"
+	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/nodeconfig"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/settings"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/store"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/telemetry"
@@ -77,10 +80,13 @@ type Service struct {
 	database *store.Store
 	settings *settings.Service
 	records  *telemetry.Service
+	configs  *nodeconfig.Service
+	cores    *corecache.Service
 	build    buildinfo.Info
 	now      func() time.Time
 	random   func([]byte) (int, error)
 	sessions sessions
+	grants   grants
 
 	identityMu sync.Mutex
 	identity   *Identity
@@ -88,10 +94,13 @@ type Service struct {
 }
 
 // New manages the nodes recorded in database. The node TLS identity lives
-// in the data directory of panelSettings.
-func New(database *store.Store, panelSettings *settings.Service, records *telemetry.Service, options Options) *Service {
+// in the data directory of panelSettings; configs holds each node's
+// configuration and cores the archives nodes install from.
+func New(database *store.Store, panelSettings *settings.Service, records *telemetry.Service,
+	configs *nodeconfig.Service, cores *corecache.Service, options Options,
+) *Service {
 	service := &Service{
-		database: database, settings: panelSettings, records: records, build: options.Build,
+		database: database, settings: panelSettings, records: records, configs: configs, cores: cores, build: options.Build,
 		now: time.Now, random: rand.Read, sessions: sessions{byNode: map[string]*session{}},
 	}
 	if options.Now != nil {
@@ -122,7 +131,7 @@ func (service *Service) PanelID(ctx context.Context) (string, error) {
 	service.identityMu.Lock()
 	defer service.identityMu.Unlock()
 	if service.panelID == "" {
-		candidate, err := store.NewID(service.random, "panel")
+		candidate, err := database.NewID(service.random, "panel")
 		if err != nil {
 			return "", err
 		}
@@ -179,7 +188,7 @@ func (service *Service) AddNode(ctx context.Context, name string) (result Enroll
 	if err != nil {
 		return Enrollment{}, err
 	}
-	id, err := store.NewID(service.random, "node")
+	id, err := database.NewID(service.random, "node")
 	if err != nil {
 		return Enrollment{}, err
 	}
@@ -188,6 +197,9 @@ func (service *Service) AddNode(ctx context.Context, name string) (result Enroll
 		ID: id, Name: name, CreatedAt: now, TokenHash: nodeapi.TokenHash(code.Token), ExpiresAt: now.Add(EnrollmentLifetime),
 	})
 	if err != nil {
+		return Enrollment{}, err
+	}
+	if err := service.configs.InitializeConfigurationFile(ctx, record.ID); err != nil {
 		return Enrollment{}, err
 	}
 	return service.enrollment(record, code), nil

@@ -16,12 +16,6 @@ import (
 
 func matchObservabilityRoute(path string) (resource string, identifier string, matched bool) {
 	switch path {
-	case "/api/v1/core/logs/files":
-		return "core-log-files", "", true
-	case "/api/v1/core/logs/content":
-		return "core-log-content", "", true
-	case "/api/v1/core/logs/stream":
-		return "core-log-stream", "", true
 	case "/api/v1/logs/panel":
 		return "panel-logs", "", true
 
@@ -62,16 +56,6 @@ func matchObservabilityRoute(path string) (resource string, identifier string, m
 
 func (handler *Handler) observabilityHandler(method, resource, identifier string) http.HandlerFunc {
 	switch {
-	case resource == "core-log-files" && method == http.MethodGet:
-		return handler.listCoreLogFiles
-	case resource == "core-log-files" && method == http.MethodDelete:
-		return handler.deleteCoreLogFile
-	case resource == "core-log-content" && method == http.MethodGet:
-		return func(w http.ResponseWriter, r *http.Request) { handler.readCoreLog(w, r, false) }
-	case resource == "core-log-content" && method == http.MethodDelete:
-		return handler.clearCoreLog
-	case resource == "core-log-stream" && method == http.MethodGet:
-		return func(w http.ResponseWriter, r *http.Request) { handler.readCoreLog(w, r, true) }
 	case resource == "panel-logs" && method == http.MethodGet:
 		return handler.listPanelLogs
 
@@ -347,12 +331,13 @@ func (handler *Handler) currentMetrics(w http.ResponseWriter, request *http.Requ
 	if _, ok := strictCoreQuery(w, request); !ok {
 		return
 	}
-	result, err := handler.services.Node.Metrics(request.Context())
-	if err != nil {
-		writeProblem(w, request, http.StatusServiceUnavailable, "metrics_unavailable", "Metrics unavailable", "Collector-backed metrics could not be read.")
-		return
-	}
-	writeJSON(w, http.StatusOK, result)
+	writeNodeTelemetryUnavailable(w, request, "metrics_unavailable", "Metrics unavailable")
+}
+
+// writeNodeTelemetryUnavailable answers the live views that need node
+// telemetry, which nodes do not report to the panel yet.
+func writeNodeTelemetryUnavailable(w http.ResponseWriter, request *http.Request, code, title string) {
+	writeProblem(w, request, http.StatusServiceUnavailable, code, title, "Nodes do not report live metrics and traffic to the panel yet.")
 }
 
 func (handler *Handler) metricsHistory(w http.ResponseWriter, request *http.Request) {
@@ -398,12 +383,7 @@ func (handler *Handler) trafficStatus(w http.ResponseWriter, request *http.Reque
 	if _, ok := strictCoreQuery(w, request); !ok {
 		return
 	}
-	result, err := handler.services.Node.TrafficStatus(request.Context())
-	if err != nil {
-		writeProblem(w, request, http.StatusServiceUnavailable, "traffic_status_unavailable", "Traffic status unavailable", "Collector-backed traffic status could not be read.")
-		return
-	}
-	writeJSON(w, http.StatusOK, result)
+	writeNodeTelemetryUnavailable(w, request, "traffic_status_unavailable", "Traffic status unavailable")
 }
 
 func (handler *Handler) listTrafficPeriods(w http.ResponseWriter, request *http.Request) {

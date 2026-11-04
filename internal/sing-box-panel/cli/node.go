@@ -3,7 +3,6 @@
 package cli
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"path/filepath"
@@ -119,7 +118,7 @@ func withFleet(cmd *cobra.Command, state *options, action func(*fleet.Service) e
 		return &Error{Kind: ErrorUnavailable, Code: "database_unavailable", Message: err.Error(), Cause: err}
 	}
 	defer database.Close()
-	services := app.New(database, value, app.Options{PublicIP: func(context.Context) string { return "" }})
+	services := app.New(database, value, app.Options{})
 	err = action(services.Fleet)
 	switch {
 	case err == nil:

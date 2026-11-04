@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/rehuony/sing-box-panel/internal/database"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/store"
 )
 
@@ -15,7 +16,7 @@ func (application *Service) CreateSubscriptionUser(
 	ctx context.Context,
 	request CreateSubscriptionUserRequest,
 ) (SubscriptionUser, error) {
-	id, err := store.NewID(application.random, "user")
+	id, err := database.NewID(application.random, "user")
 	if err != nil {
 		return SubscriptionUser{}, err
 	}

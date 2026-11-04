@@ -12,7 +12,6 @@ import { ApiClientProvider } from '@/api/api-client-context';
 import { TestRouter as MemoryRouter } from '@/tests/test-router';
 import { demoBackupSettings } from '@/api/demo/demo-panel-backup';
 import { createMockApiClient } from '@/tests/api/mock-api-client';
-import { createDemoFilesystemApi } from '@/api/demo/demo-filesystem';
 import { PanelSettingsProvider } from '@/stores/panel-settings-provider';
 import { ThemeCycleButton } from '@/components/app-shell/theme-cycle-button';
 import { PanelSettingsPage } from '@/pages/panel-settings-page/panel-settings-page';
@@ -117,18 +116,13 @@ describe('panel settings', () => {
     })));
   });
 
-  it('selects the data directory through the shared picker without saving settings', async () => {
+  it('edits the panel data directory as text, since node pickers browse nodes', async () => {
     const user = userEvent.setup();
-    const client = setup(createMockApiClient(createDemoFilesystemApi()));
+    const client = setup();
     await user.click(await screen.findByRole('tab', { name: 'System maintenance' }));
-    await user.click(screen.getByRole('button', { name: 'Browse server path: Data directory' }));
-    const dialog = within(screen.getByRole('dialog'));
-    await user.click(dialog.getByRole('button', { name: 'Edit path' }));
-    fireEvent.change(dialog.getByLabelText('Location'), { target: { value: '/etc/sing-box' } });
-    await user.click(dialog.getByRole('button', { name: 'Go' }));
-    await waitFor(() => expect(dialog.queryByText('Loading directory…')).not.toBeInTheDocument());
-    await user.click(dialog.getByRole('button', { name: 'Confirm' }));
-    await waitFor(() => expect(screen.getByLabelText('Data directory', { selector: 'input' })).toHaveValue('/etc/sing-box'));
+    expect(screen.queryByRole('button', { name: 'Browse server path: Data directory' })).not.toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText('Data directory', { selector: 'input' }), { target: { value: '/etc/sing-box' } });
+    expect(screen.getByLabelText('Data directory', { selector: 'input' })).toHaveValue('/etc/sing-box');
     expect(client.savePanelSettings).not.toHaveBeenCalled();
   });
 
@@ -143,16 +137,15 @@ describe('panel settings', () => {
     expect(client.savePanelSettings).not.toHaveBeenCalled();
   });
 
-  it('previews a backup, requires confirmation and submits both destination revisions', async () => {
+  it('previews a backup, requires confirmation and submits the destination revision', async () => {
     const user = userEvent.setup();
     const client = setup();
     const view = await client.getPanelSettings();
-    const configuration = await client.getConfigurationFile();
     const native = demoBackupSettings(view, { github: '', passwordHash: 'backup-secret' });
     native.data_dir = '/srv/other-machine';
     const backup = {
-      format: 'sing-box-panel-backup', version: 2, exported_at: '2026-09-23T01:00:00Z',
-      panel_settings: native, sing_box_configuration: '  { unfinished raw text',
+      format: 'sing-box-panel-backup', version: 3, exported_at: '2026-09-23T01:00:00Z',
+      panel_settings: native,
     };
     vi.mocked(client.restorePanelBackup).mockResolvedValue({
       settings: { ...view, revision: view.revision + 1 }, reauthentication_required: false,
@@ -167,7 +160,7 @@ describe('panel settings', () => {
     expect(client.restorePanelBackup).not.toHaveBeenCalled();
     await user.click(within(dialog).getByRole('button', { name: 'Restore configuration' }));
     await waitFor(() => expect(client.restorePanelBackup).toHaveBeenCalledWith({
-      backup, settings_revision: view.revision, configuration_revision: configuration.revision,
+      backup, settings_revision: view.revision,
     }));
     await waitFor(() => expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument());
     expect(screen.getByRole('button', { name: 'Save settings' })).toBeDisabled();

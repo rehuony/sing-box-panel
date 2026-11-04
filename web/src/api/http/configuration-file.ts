@@ -2,16 +2,16 @@ import type { HttpApiContext } from './shared';
 import type { ApiClient, ConfigurationFile } from '../api-client';
 
 export function createConfigurationFileHttpApi(context: HttpApiContext) {
-  const { baseUrl, fetcher, request, writeJSONHeaders } = context;
+  const { fetcher, nodeUrl, request, writeJSONHeaders } = context;
   return {
     getConfigurationFile(signal) {
-      return request<ConfigurationFile>(fetcher, `${baseUrl}/config/file`, {
+      return request<ConfigurationFile>(fetcher, `${nodeUrl()}/config/file`, {
         method: 'GET',
         signal,
       });
     },
     saveConfigurationFile(input, signal) {
-      return request<ConfigurationFile>(fetcher, `${baseUrl}/config/file`, {
+      return request<ConfigurationFile>(fetcher, `${nodeUrl()}/config/file`, {
         method: 'PUT',
         signal,
         headers: writeJSONHeaders(),

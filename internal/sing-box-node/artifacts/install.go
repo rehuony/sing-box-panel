@@ -14,91 +14,48 @@ import (
 	"github.com/rehuony/sing-box-panel/internal/coreartifact"
 )
 
-// OfficialArchive is one upstream release asset that the caller has already
-// validated against the pinned official repository.
-type OfficialArchive struct {
-	RepositoryID int64
-	ReleaseID    int64
-	AssetID      int64
-	DownloadURL  string
+// Candidate is a core archive the panel verified and streams to this node.
+type Candidate struct {
+	Source coreartifact.Source
+	// SHA256 is the archive digest the panel recorded; the received bytes
+	// must match it.
+	SHA256       coreartifact.SHA256
 	Size         int64
 	Version      coreartifact.ExactVersion
 	Architecture coreartifact.Architecture
 	Variant      coreartifact.Variant
+	// Write streams the archive into destination and returns the byte count.
+	Write func(ctx context.Context, destination io.Writer) (int64, error)
 }
 
-func (store *Store) InstallOfficial(ctx context.Context, asset OfficialArchive) (Result, error) {
-	if store == nil || ctx == nil {
+// Install receives, verifies and publishes candidate: the archive must have
+// the declared size and digest, hold a safe sing-box binary for the declared
+// platform, and that binary must report the declared exact version.
+func (store *Store) Install(ctx context.Context, candidate Candidate) (Result, error) {
+	if store == nil || ctx == nil || candidate.Write == nil {
 		return Result{}, fail(StepPrepare, "invalid_request", nil)
 	}
-	if asset.DownloadURL == "" || asset.Size <= 0 || asset.Version.IsZero() {
+	if candidate.Size <= 0 || candidate.Version.IsZero() || candidate.SHA256.IsZero() {
 		return Result{}, fail(StepPrepare, "invalid_candidate", nil)
 	}
-	if asset.Size > store.limits.MaximumArchiveBytes {
+	if candidate.Size > store.limits.MaximumArchiveBytes {
 		return Result{}, fail(StepDownload, "declared_size", ErrTooLarge)
 	}
-	source, err := coreartifact.NewOfficialSource(asset.RepositoryID, asset.ReleaseID, asset.AssetID)
-	if err != nil {
-		return Result{}, fail(StepPrepare, "source_identity", err)
-	}
 	return store.install(ctx, installRequest{
-		source: source, expectedSize: asset.Size,
-		version: asset.Version, architecture: asset.Architecture, variant: asset.Variant,
-		writeArchive: func(operationContext context.Context, destination io.Writer) (int64, error) {
-			return store.downloader.Download(operationContext, asset.DownloadURL, destination, store.limits.MaximumArchiveBytes)
-		},
-	})
-}
-
-func (store *Store) ImportLocal(ctx context.Context, request ImportRequest) (Result, error) {
-	if store == nil || ctx == nil {
-		return Result{}, fail(StepPrepare, "invalid_request", ErrUnsafeSource)
-	}
-	source, err := coreartifact.NewUserSource(request.SourceDescription)
-	if err != nil {
-		return Result{}, fail(StepPrepare, "source_identity", err)
-	}
-	if request.SourcePath == "" || !filepath.IsAbs(request.SourcePath) || filepath.Clean(request.SourcePath) != request.SourcePath {
-		return Result{}, fail(StepPrepare, "invalid_source_path", ErrUnsafeSource)
-	}
-	pathInfo, err := os.Lstat(request.SourcePath)
-	if err != nil || !pathInfo.Mode().IsRegular() || pathInfo.Mode()&os.ModeSymlink != 0 {
-		return Result{}, fail(StepPrepare, "unsafe_source_file", errors.Join(ErrUnsafeSource, err))
-	}
-	return store.install(ctx, installRequest{
-		source:  source,
-		version: request.ExpectedVersion, architecture: request.ExpectedArchitecture, variant: request.Variant,
-		writeArchive: func(operationContext context.Context, destination io.Writer) (int64, error) {
-			file, err := os.Open(request.SourcePath)
-			if err != nil {
-				return 0, err
-			}
-			defer file.Close()
-			info, err := file.Stat()
-			currentPathInfo, pathErr := os.Lstat(request.SourcePath)
-			if err != nil || pathErr != nil {
-				return 0, errors.Join(err, pathErr)
-			}
-			if !info.Mode().IsRegular() || !currentPathInfo.Mode().IsRegular() ||
-				currentPathInfo.Mode()&os.ModeSymlink != 0 || !os.SameFile(pathInfo, info) ||
-				!os.SameFile(info, currentPathInfo) {
-				return 0, ErrUnsafeSource
-			}
-			if info.Size() > store.limits.MaximumArchiveBytes {
-				return 0, ErrTooLarge
-			}
-			return copyBounded(operationContext, destination, file, store.limits.MaximumArchiveBytes)
-		},
+		source: candidate.Source, expectedSize: candidate.Size, expectedDigest: candidate.SHA256,
+		version: candidate.Version, architecture: candidate.Architecture, variant: candidate.Variant,
+		writeArchive: candidate.Write,
 	})
 }
 
 type installRequest struct {
-	source       coreartifact.Source
-	expectedSize int64
-	version      coreartifact.ExactVersion
-	architecture coreartifact.Architecture
-	variant      coreartifact.Variant
-	writeArchive func(context.Context, io.Writer) (int64, error)
+	source         coreartifact.Source
+	expectedSize   int64
+	expectedDigest coreartifact.SHA256
+	version        coreartifact.ExactVersion
+	architecture   coreartifact.Architecture
+	variant        coreartifact.Variant
+	writeArchive   func(context.Context, io.Writer) (int64, error)
 }
 
 func (store *Store) install(ctx context.Context, request installRequest) (Result, error) {
@@ -155,6 +112,9 @@ func (store *Store) install(ctx context.Context, request installRequest) (Result
 	var actualSum [32]byte
 	copy(actualSum[:], hash.Sum(nil))
 	actualDigest := coreartifact.NewSHA256(actualSum)
+	if actualDigest != request.expectedDigest {
+		return Result{}, fail(StepDownload, "digest_mismatch", ErrArchive)
+	}
 
 	identity, err := coreartifact.NewIdentity(request.source, actualDigest, coreartifact.OperatingSystemLinux, request.architecture, request.variant, request.version)
 	if err != nil {

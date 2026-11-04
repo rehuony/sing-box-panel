@@ -37,25 +37,26 @@ func configurationFileView(file store.ConfigurationFile) ConfigurationFile {
 	return result
 }
 
-func (application *Service) ConfigurationFile(ctx context.Context) (ConfigurationFile, error) {
-	file, err := application.database.ConfigurationFile(ctx)
+func (application *Service) ConfigurationFile(ctx context.Context, nodeID string) (ConfigurationFile, error) {
+	file, err := application.database.ConfigurationFile(ctx, nodeID)
 	if err != nil {
 		return ConfigurationFile{}, err
 	}
 	return configurationFileView(file), nil
 }
 
-// InitializeConfigurationFile saves the empty document before the server accepts
-// requests. Existing saved text, including incomplete JSON, is left untouched.
-func (application *Service) InitializeConfigurationFile(ctx context.Context) error {
-	file, err := application.database.ConfigurationFile(ctx)
+// InitializeConfigurationFile saves the empty document as a new node's first
+// configuration. Existing saved text, including incomplete JSON, is left
+// untouched.
+func (application *Service) InitializeConfigurationFile(ctx context.Context, nodeID string) error {
+	file, err := application.database.ConfigurationFile(ctx, nodeID)
 	if err != nil {
 		return err
 	}
 	if file.Revision > 0 {
 		return nil
 	}
-	_, err = application.SaveConfigurationFile(ctx, ConfigurationFileWrite{Content: string(configuration.Empty().CanonicalJSON())})
+	_, err = application.SaveConfigurationFile(ctx, nodeID, ConfigurationFileWrite{Content: string(configuration.Empty().CanonicalJSON())})
 	if errors.Is(err, store.ErrConfigurationFileConflict) {
 		// Another writer created the document after the read; preserve its save.
 		return nil
@@ -63,26 +64,31 @@ func (application *Service) InitializeConfigurationFile(ctx context.Context) err
 	return err
 }
 
-func (application *Service) SaveConfigurationFile(ctx context.Context, input ConfigurationFileWrite) (ConfigurationFile, error) {
+func (application *Service) SaveConfigurationFile(ctx context.Context, nodeID string, input ConfigurationFileWrite) (ConfigurationFile, error) {
 	update, err := store.NewConfigurationFileUpdate(application.random, application.now(), input.Revision, input.Content)
 	if err != nil {
 		return ConfigurationFile{}, err
 	}
-	file, err := application.database.SaveConfigurationFile(ctx, update.ExpectedRevision, update.Content, update.Revision)
+	file, err := application.database.SaveConfigurationFile(ctx, nodeID, update.ExpectedRevision, update.Content, update.Revision)
 	if err != nil {
 		return ConfigurationFile{}, err
 	}
 	return configurationFileView(file), nil
 }
 
-// RequireParsedFile rejects a saved file that is not valid configuration.
-func (application *Service) RequireParsedFile(ctx context.Context) error {
-	file, err := application.database.ConfigurationFile(ctx)
+// CurrentRevision returns the revision of nodeID's saved file, which must
+// parse, and the file revision it belongs to.
+func (application *Service) CurrentRevision(ctx context.Context, nodeID string) (store.CanonicalRevision, int64, error) {
+	file, err := application.database.ConfigurationFile(ctx, nodeID)
 	if err != nil {
-		return err
+		return store.CanonicalRevision{}, 0, err
 	}
-	if file.Revision > 0 && file.CanonicalRevisionID == "" {
-		return store.ErrConfigurationFileUnparsed
+	if file.Revision == 0 {
+		return store.CanonicalRevision{}, 0, ErrConfigurationNotSaved
 	}
-	return nil
+	if file.CanonicalRevisionID == "" {
+		return store.CanonicalRevision{}, 0, store.ErrConfigurationFileUnparsed
+	}
+	revision, err := application.database.GetCanonicalRevision(ctx, file.CanonicalRevisionID)
+	return revision, file.Revision, err
 }

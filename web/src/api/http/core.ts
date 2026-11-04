@@ -3,11 +3,11 @@ import type { ApiClient, CatalogAssetFilter, CatalogAssetList, CatalogRefresh, C
 
 export function createCoreHttpApi(context: HttpApiContext) {
   const {
-    baseUrl, buildQuery, fetcher, request, writeHeaders, writeJSONHeaders,
+    baseUrl, buildQuery, fetcher, nodeUrl, request, writeHeaders, writeJSONHeaders,
   } = context;
 
   function runtimeAction(operation: 'start' | 'stop' | 'restart', signal?: AbortSignal) {
-    return request<RuntimeStatus>(fetcher, `${baseUrl}/core/${operation}`, {
+    return request<RuntimeStatus>(fetcher, `${nodeUrl()}/core/${operation}`, {
       method: 'POST', headers: writeHeaders(), signal,
     });
   }
@@ -38,17 +38,17 @@ export function createCoreHttpApi(context: HttpApiContext) {
         source_kind: filter.sourceKind,
         variant: filter.variant,
       });
-      return request<CoreArtifactPage>(fetcher, `${baseUrl}/core/artifacts${query}`, {
+      return request<CoreArtifactPage>(fetcher, `${nodeUrl()}/core/artifacts${query}`, {
         method: 'GET', signal,
       });
     },
     getCoreArtifact(artifactID, signal) {
-      return request<CoreArtifact>(fetcher, `${baseUrl}/core/artifacts/${encodeURIComponent(artifactID)}`, {
+      return request<CoreArtifact>(fetcher, `${nodeUrl()}/core/artifacts/${encodeURIComponent(artifactID)}`, {
         method: 'GET', signal,
       });
     },
     installCore(assetID, signal) {
-      return request<CoreArtifact>(fetcher, `${baseUrl}/core/install`, {
+      return request<CoreArtifact>(fetcher, `${nodeUrl()}/core/install`, {
         method: 'POST', body: JSON.stringify({ asset_id: assetID }), headers: writeJSONHeaders(), signal,
       });
     },
@@ -59,27 +59,27 @@ export function createCoreHttpApi(context: HttpApiContext) {
       form.set('exact_version', input.exactVersion);
       form.set('architecture', input.architecture);
       form.set('variant', input.variant);
-      return request<CoreArtifact>(fetcher, `${baseUrl}/core/import`, {
+      return request<CoreArtifact>(fetcher, `${nodeUrl()}/core/import`, {
         method: 'POST', body: form, headers: writeHeaders(), signal,
       });
     },
     removeCoreArtifact(artifactID, signal) {
-      return request<void>(fetcher, `${baseUrl}/core/artifacts/${encodeURIComponent(artifactID)}`, {
+      return request<void>(fetcher, `${nodeUrl()}/core/artifacts/${encodeURIComponent(artifactID)}`, {
         method: 'DELETE', headers: writeHeaders(), signal,
       });
     },
     getConfigurationSupport(artifactID, signal) {
-      return request<ConfigurationSupport>(fetcher, `${baseUrl}/core/artifacts/${encodeURIComponent(artifactID)}/configuration-support`, {
+      return request<ConfigurationSupport>(fetcher, `${nodeUrl()}/core/artifacts/${encodeURIComponent(artifactID)}/configuration-support`, {
         method: 'GET', signal,
       });
     },
     getConfigurationSchema(artifactID, signal) {
-      return request<ConfigurationSchemaContract>(fetcher, `${baseUrl}/core/artifacts/${encodeURIComponent(artifactID)}/configuration-schema`, {
+      return request<ConfigurationSchemaContract>(fetcher, `${nodeUrl()}/core/artifacts/${encodeURIComponent(artifactID)}/configuration-schema`, {
         method: 'GET', signal,
       });
     },
     previewConfiguration(input, signal) {
-      return request<ConfigurationPreview>(fetcher, `${baseUrl}/config/preview`, {
+      return request<ConfigurationPreview>(fetcher, `${nodeUrl()}/config/preview`, {
         method: 'POST',
         body: JSON.stringify({
           core_artifact_id: input.coreArtifactID,
@@ -88,7 +88,7 @@ export function createCoreHttpApi(context: HttpApiContext) {
       });
     },
     compileConfiguration(input, signal) {
-      return request<ConfigurationCompile>(fetcher, `${baseUrl}/config/compile`, {
+      return request<ConfigurationCompile>(fetcher, `${nodeUrl()}/config/compile`, {
         method: 'POST',
         body: JSON.stringify({
           core_artifact_id: input.coreArtifactID,
@@ -106,24 +106,24 @@ export function createCoreHttpApi(context: HttpApiContext) {
         before_id: filter.beforeID,
         limit: filter.limit ?? 100,
       });
-      return request<StartupArtifactPage>(fetcher, `${baseUrl}/config/artifacts${query}`, {
+      return request<StartupArtifactPage>(fetcher, `${nodeUrl()}/config/artifacts${query}`, {
         method: 'GET', signal,
       });
     },
     checkStartupArtifact(artifactID, signal) {
-      return request<StartupArtifactSummary>(fetcher, `${baseUrl}/core/check`, {
+      return request<StartupArtifactSummary>(fetcher, `${nodeUrl()}/core/check`, {
         method: 'POST', body: JSON.stringify({ startup_artifact_id: artifactID }), headers: writeJSONHeaders(), signal,
       });
     },
     activateStartupArtifact(artifactID, monitoringTier, signal) {
-      return request<RuntimeResponse>(fetcher, `${baseUrl}/config/apply`, {
+      return request<RuntimeResponse>(fetcher, `${nodeUrl()}/config/apply`, {
         method: 'POST',
         body: JSON.stringify({ startup_artifact_id: artifactID, monitoring_tier: monitoringTier }),
         headers: writeJSONHeaders(), signal,
       });
     },
     getRuntimeStatus(signal) {
-      return request<RuntimeStatus>(fetcher, `${baseUrl}/core/status`, { method: 'GET', signal });
+      return request<RuntimeStatus>(fetcher, `${nodeUrl()}/core/status`, { method: 'GET', signal });
     },
     getRuntimeHistory(filter = {}, signal) {
       const query = buildQuery({
@@ -144,12 +144,12 @@ export function createCoreHttpApi(context: HttpApiContext) {
       return runtimeAction('start', signal);
     },
     enableCore(artifactID, signal) {
-      return request<RuntimeStatus>(fetcher, `${baseUrl}/core/artifacts/${encodeURIComponent(artifactID)}/enable`, {
+      return request<RuntimeStatus>(fetcher, `${nodeUrl()}/core/artifacts/${encodeURIComponent(artifactID)}/enable`, {
         method: 'POST', headers: writeHeaders(), signal,
       });
     },
     disableCore(artifactID, signal) {
-      return request<RuntimeStatus>(fetcher, `${baseUrl}/core/artifacts/${encodeURIComponent(artifactID)}/disable`, {
+      return request<RuntimeStatus>(fetcher, `${nodeUrl()}/core/artifacts/${encodeURIComponent(artifactID)}/disable`, {
         method: 'POST', headers: writeHeaders(), signal,
       });
     },
@@ -160,7 +160,7 @@ export function createCoreHttpApi(context: HttpApiContext) {
       return runtimeAction('restart', signal);
     },
     rollbackRuntime(activationBundleID, signal) {
-      return request<RuntimeStatus>(fetcher, `${baseUrl}/core/rollback`, {
+      return request<RuntimeStatus>(fetcher, `${nodeUrl()}/core/rollback`, {
         method: 'POST',
         body: JSON.stringify({ activation_bundle_id: activationBundleID }),
         headers: writeJSONHeaders(),

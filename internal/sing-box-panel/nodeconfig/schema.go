@@ -5,6 +5,8 @@ package nodeconfig
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"strings"
 
 	"github.com/rehuony/sing-box-panel/internal/configuration"
@@ -36,7 +38,7 @@ type ConfigurationPreview struct {
 	Config            json.RawMessage        `json:"config"`
 }
 
-func (application *Service) configurationSupport(core store.CoreArtifact) ConfigurationSupport {
+func (application *Service) configurationSupport(core store.CachedArtifact) ConfigurationSupport {
 	_, err := schema.ConfigurationSchema(core.ExactVersion)
 	if err != nil {
 		return ConfigurationSupport{
@@ -58,7 +60,7 @@ func (application *Service) ConfigurationSupport(
 	ctx context.Context,
 	coreArtifactID string,
 ) (ConfigurationSupport, error) {
-	core, err := application.database.GetCoreArtifact(ctx, strings.TrimSpace(coreArtifactID))
+	core, err := application.cores.CachedArtifact(ctx, strings.TrimSpace(coreArtifactID))
 	if err != nil {
 		return ConfigurationSupport{}, err
 	}
@@ -71,7 +73,7 @@ func (application *Service) ConfigurationSchema(
 	ctx context.Context,
 	coreArtifactID string,
 ) (ConfigurationSchema, error) {
-	core, err := application.database.GetCoreArtifact(ctx, strings.TrimSpace(coreArtifactID))
+	core, err := application.cores.CachedArtifact(ctx, strings.TrimSpace(coreArtifactID))
 	if err != nil {
 		return ConfigurationSchema{}, err
 	}
@@ -86,39 +88,54 @@ func (application *Service) ConfigurationSchema(
 	}, nil
 }
 
-// PreviewConfiguration snapshots the current valid file for the selected core
-// without persisting startup bytes.
+// PreviewConfiguration snapshots nodeID's current valid file for the selected
+// core without persisting startup bytes.
 func (application *Service) PreviewConfiguration(
 	ctx context.Context,
+	nodeID string,
 	request ConfigurationPreviewRequest,
 ) (ConfigurationPreview, error) {
-	core, err := application.database.GetCoreArtifact(ctx, strings.TrimSpace(request.CoreArtifactID))
+	core, err := application.cores.CachedArtifact(ctx, strings.TrimSpace(request.CoreArtifactID))
 	if err != nil {
 		return ConfigurationPreview{}, err
 	}
-	file, err := application.database.ConfigurationFile(ctx)
+	revision, _, err := application.CurrentRevision(ctx, nodeID)
 	if err != nil {
 		return ConfigurationPreview{}, err
 	}
-	if file.Revision == 0 {
-		return ConfigurationPreview{}, ErrConfigurationNotSaved
-	}
-	if file.CanonicalRevisionID == "" {
-		return ConfigurationPreview{}, store.ErrConfigurationFileUnparsed
-	}
-	revision, err := application.database.GetCanonicalRevision(ctx, file.CanonicalRevisionID)
-	if err != nil {
-		return ConfigurationPreview{}, err
-	}
-
 	document, err := configuration.Parse(revision.Document)
 	if err != nil {
 		return ConfigurationPreview{}, err
 	}
 	return ConfigurationPreview{
 		CanonicalRevision: Snapshot(revision),
-		CoreArtifact:      corecache.CoreArtifactFromStore(core),
-		Support:           application.configurationSupport(core),
-		Config:            append(json.RawMessage(nil), document.CanonicalJSON()...),
+		CoreArtifact: corecache.CoreArtifact{
+			ID: core.ID, ExactVersion: core.ExactVersion, OperatingSystem: core.OS, Architecture: core.Arch,
+			Variant: core.Variant, SourceKind: core.SourceKind, UserSource: core.UserSource,
+			RepositoryID: core.RepositoryID, ReleaseID: core.ReleaseID, AssetID: core.AssetID,
+			ArchiveSHA256: core.SHA256, ReportedVersion: core.ExactVersion, FeatureFingerprint: json.RawMessage(`{}`), CreatedAt: core.CreatedAt,
+		},
+		Support: application.configurationSupport(core),
+		Config:  append(json.RawMessage(nil), document.CanonicalJSON()...),
 	}, nil
 }
+
+// ValidateForCore checks a revision against the exact Schema of the core,
+// when the panel has one, before the revision reaches a node.
+func (application *Service) ValidateForCore(ctx context.Context, revision store.CanonicalRevision, coreArtifactID string) error {
+	core, err := application.cores.CachedArtifact(ctx, strings.TrimSpace(coreArtifactID))
+	if err != nil {
+		return err
+	}
+	if !application.configurationSupport(core).Structured {
+		return nil
+	}
+	if err := schema.ValidateConfiguration(core.ExactVersion, revision.Document); err != nil {
+		return fmt.Errorf("%w: %v", ErrConfigurationSchemaValidation, err)
+	}
+	return nil
+}
+
+// ErrConfigurationSchemaValidation rejects a configuration that the core's
+// exact Schema does not accept.
+var ErrConfigurationSchemaValidation = errors.New("configuration schema validation failed")

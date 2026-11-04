@@ -9,9 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/rehuony/sing-box-panel/internal/configuration"
-	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/localnode"
-	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/nodeconfig"
+	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/fleet"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/store"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/telemetry"
 )
@@ -23,9 +21,9 @@ func (handler *Handler) coreRuntimeStatus(w http.ResponseWriter, request *http.R
 	if _, ok := strictCoreQuery(w, request); !ok {
 		return
 	}
-	status, err := handler.services.Node.RuntimeStatus(request.Context())
+	status, err := handler.services.Fleet.RuntimeStatus(request.Context(), requestNodeID(request))
 	if err != nil {
-		writeRuntimeProblem(w, request, "runtime_status_failed", err)
+		writeNodeProblem(w, request, "runtime_status_failed", err)
 		return
 	}
 	writeJSON(w, http.StatusOK, status)
@@ -165,9 +163,9 @@ func (handler *Handler) checkStartup(w http.ResponseWriter, request *http.Reques
 		writeProblem(w, request, http.StatusUnprocessableEntity, "startup_artifact_id_invalid", "Startup artifact ID invalid", "startup_artifact_id must identify one immutable candidate.")
 		return
 	}
-	result, err := handler.services.Node.CheckStartup(request.Context(), input.StartupArtifactID)
+	result, err := handler.services.Fleet.CheckStartup(request.Context(), requestNodeID(request), input.StartupArtifactID)
 	if err != nil {
-		writeRuntimeProblem(w, request, "startup_check_failed", err)
+		writeNodeProblem(w, request, "startup_check_failed", err)
 		return
 	}
 	writeJSON(w, http.StatusOK, result)
@@ -180,15 +178,9 @@ func (handler *Handler) enableCoreArtifact(w http.ResponseWriter, request *http.
 	if _, ok := strictCoreQuery(w, request); !ok || !requireEmptyCoreBody(w, request) {
 		return
 	}
-	result, err := handler.services.Node.EnableCore(request.Context(), id)
+	result, err := handler.services.Fleet.EnableCore(request.Context(), requestNodeID(request), id)
 	if err != nil {
-		if errors.Is(err, localnode.ErrCorePlatformMismatch) {
-			writeProblem(w, request, http.StatusConflict, "core_enable_blocked", "Core cannot be enabled", "The artifact must be verified and match the deployed panel operating system and architecture.")
-		} else if errors.Is(err, store.ErrCoreArtifactNotFound) {
-			writeProblem(w, request, http.StatusNotFound, "core_artifact_not_found", "Core artifact not found", "The requested artifact does not exist.")
-		} else {
-			writeRuntimeProblem(w, request, "core_enable_failed", err)
-		}
+		writeNodeProblem(w, request, "core_enable_failed", err)
 		return
 	}
 	writeJSON(w, http.StatusOK, result)
@@ -201,15 +193,9 @@ func (handler *Handler) disableCoreArtifact(w http.ResponseWriter, request *http
 	if _, ok := strictCoreQuery(w, request); !ok || !requireEmptyCoreBody(w, request) {
 		return
 	}
-	result, err := handler.services.Node.DisableCore(request.Context(), id)
+	result, err := handler.services.Fleet.DisableCore(request.Context(), requestNodeID(request), id)
 	if err != nil {
-		if errors.Is(err, store.ErrCoreArtifactNotFound) {
-			writeProblem(w, request, http.StatusNotFound, "core_artifact_not_found", "Core artifact not found", "The requested artifact does not exist.")
-		} else if errors.Is(err, store.ErrCoreNotEnabled) {
-			writeProblem(w, request, http.StatusConflict, "core_not_enabled", "Core is not enabled", "The enabled version changed; reload the current runtime status before retrying.")
-		} else {
-			writeRuntimeProblem(w, request, "core_disable_failed", err)
-		}
+		writeNodeProblem(w, request, "core_disable_failed", err)
 		return
 	}
 	writeJSON(w, http.StatusOK, result)
@@ -223,19 +209,19 @@ func (handler *Handler) activateCore(w http.ResponseWriter, request *http.Reques
 		return
 	}
 	var input struct {
-		StartupArtifactID string               `json:"startup_artifact_id"`
-		MonitoringTier    store.MonitoringTier `json:"monitoring_tier"`
+		StartupArtifactID string `json:"startup_artifact_id"`
+		MonitoringTier    string `json:"monitoring_tier"`
 	}
 	if !decodeStrictRequest(w, request, maximumRuntimeRequestBytes, &input) {
 		return
 	}
-	if !store.ValidIdentifier(input.StartupArtifactID) || !validMonitoringTier(input.MonitoringTier, true) {
+	if !store.ValidIdentifier(input.StartupArtifactID) || !validMonitoringTier(input.MonitoringTier) {
 		writeProblem(w, request, http.StatusUnprocessableEntity, "activation_request_invalid", "Activation request invalid", "A startup artifact ID and a supported monitoring tier are required.")
 		return
 	}
-	result, err := handler.services.Node.ActivateRuntime(request.Context(), input.StartupArtifactID, input.MonitoringTier)
+	result, err := handler.services.Fleet.ActivateStartup(request.Context(), requestNodeID(request), input.StartupArtifactID, input.MonitoringTier)
 	if err != nil {
-		writeRuntimeProblem(w, request, "runtime_activate_failed", err)
+		writeNodeProblem(w, request, "runtime_activate_failed", err)
 		return
 	}
 	writeJSON(w, http.StatusOK, result)
@@ -248,24 +234,25 @@ func (handler *Handler) runtimeLifecycle(w http.ResponseWriter, request *http.Re
 	if _, ok := strictCoreQuery(w, request); !ok {
 		return
 	}
-	var result localnode.RuntimeStatus
+	nodeID := requestNodeID(request)
+	var result fleet.RuntimeStatus
 	var err error
 	switch operation {
 	case "start":
 		if !requireEmptyCoreBody(w, request) {
 			return
 		}
-		result, err = handler.services.Node.StartRuntime(request.Context())
+		result, err = handler.services.Fleet.StartRuntime(request.Context(), nodeID)
 	case "stop":
 		if !requireEmptyCoreBody(w, request) {
 			return
 		}
-		result, err = handler.services.Node.StopRuntime(request.Context())
+		result, err = handler.services.Fleet.StopRuntime(request.Context(), nodeID)
 	case "restart":
 		if !requireEmptyCoreBody(w, request) {
 			return
 		}
-		result, err = handler.services.Node.RestartRuntime(request.Context())
+		result, err = handler.services.Fleet.RestartRuntime(request.Context(), nodeID)
 	case "rollback":
 		var input struct {
 			ActivationBundleID string `json:"activation_bundle_id"`
@@ -277,45 +264,19 @@ func (handler *Handler) runtimeLifecycle(w http.ResponseWriter, request *http.Re
 			writeProblem(w, request, http.StatusUnprocessableEntity, "rollback_bundle_id_invalid", "Rollback bundle ID invalid", "activation_bundle_id must identify the immutable rollback bundle shown during confirmation.")
 			return
 		}
-		result, err = handler.services.Node.RollbackRuntime(request.Context(), input.ActivationBundleID)
+		result, err = handler.services.Fleet.RollbackRuntime(request.Context(), nodeID, input.ActivationBundleID)
 	default:
 		err = errors.New("unsupported runtime operation")
 	}
 	if err != nil {
-		writeRuntimeProblem(w, request, "runtime_"+operation+"_failed", err)
+		writeNodeProblem(w, request, "runtime_"+operation+"_failed", err)
 		return
 	}
 	writeJSON(w, http.StatusOK, result)
 }
 
-func validMonitoringTier(value store.MonitoringTier, allowDefault bool) bool {
-	if value == "" {
-		return allowDefault
-	}
-	return value == store.MonitoringLimited || value == store.MonitoringProcessOnly
-}
-
-func writeRuntimeProblem(w http.ResponseWriter, request *http.Request, code string, err error) {
-	switch {
-	case errors.Is(err, nodeconfig.ErrConfigurationNotSaved), errors.Is(err, store.ErrConfigurationFileUnparsed), errors.Is(err, configuration.ErrInvalidDocument), errors.Is(err, localnode.ErrConfigurationSchemaValidation), errors.Is(err, store.ErrCompiledStartupEvidenceStale):
-		writeConfigurationProblem(w, request, code, err)
-	case localnode.IsStartupArtifactNotFound(err):
-		writeProblem(w, request, http.StatusNotFound, "startup_artifact_not_found", "Startup artifact not found", "The requested startup artifact does not exist.")
-	case errors.Is(err, store.ErrStartupArtifactState):
-		writeProblem(w, request, http.StatusConflict, "startup_artifact_state_invalid", "Startup artifact state invalid", err.Error())
-	case localnode.IsActivationBundleNotReady(err):
-		writeProblem(w, request, http.StatusConflict, "activation_bundle_not_ready", "Activation bundle not ready", "The immutable startup artifact or core binding is not ready.")
-	case localnode.IsMonitoringTierUnavailable(err):
-		writeProblem(w, request, http.StatusConflict, "monitoring_tier_unavailable", "Monitoring tier unavailable", err.Error())
-	case localnode.IsNoAppliedBundle(err):
-		writeProblem(w, request, http.StatusConflict, "no_applied_bundle", "No applied bundle", "No successfully applied bundle is available for this operation.")
-	case localnode.IsNoRollbackBundle(err):
-		writeProblem(w, request, http.StatusConflict, "no_rollback_bundle", "No rollback bundle", "No rollback bundle is available.")
-	case errors.Is(err, store.ErrRuntimeIntentStale):
-		writeProblem(w, request, http.StatusPreconditionFailed, "rollback_bundle_changed", "Rollback bundle changed", "The rollback evidence changed after confirmation; reload the current runtime status before retrying.")
-	case errors.Is(err, localnode.ErrStaleObservation), errors.Is(err, localnode.ErrInspectionUnavailable):
-		writeProblem(w, request, http.StatusServiceUnavailable, "runtime_inspection_unavailable", "Runtime inspection unavailable", "The live core identity could not be verified.")
-	default:
-		writeProblem(w, request, http.StatusInternalServerError, code, "Runtime operation failed", "The runtime operation could not be completed.")
-	}
+// validMonitoringTier accepts a supported tier or none, which selects the
+// node's default.
+func validMonitoringTier(value string) bool {
+	return value == "" || value == "limited" || value == "process_only"
 }

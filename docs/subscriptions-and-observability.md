@@ -135,7 +135,9 @@ so manually refresh an existing subscription to see it immediately.
 ## Applied local nodes and versioned sources
 
 Local nodes are derived only from the immutable startup bytes referenced by
-the currently applied activation bundle. Draft, failed, and unapplied
+a node's currently applied activation bundle. Nodes do not report their applied
+bundles to the panel yet, so until they do the panel publishes sources and
+manual nodes only. Draft, failed, and unapplied
 configuration is never published. Rollback changes the applied bundle pointer
 and therefore restores the matching local-node input without re-projecting the
 current revision.
@@ -504,16 +506,18 @@ actions column or operation detail dialogs. Rows use their API log level for bot
 presentation and filtering. Retry an unsuccessful action from its original control;
 old payloads and temporary uploads are never replayed.
 
-`/api/v1/core/logs/files`, `/api/v1/core/logs/content` and
-`/api/v1/core/logs/stream` expose only managed file names and bounded byte
-cursors. The collector captures child stdout/stderr. If native `log.output` is
+`/api/v1/nodes/{nodeId}/core/logs/files`, `/api/v1/nodes/{nodeId}/core/logs/content` and
+`/api/v1/nodes/{nodeId}/core/logs/stream` expose only the node's managed file names and
+bounded byte cursors; the panel relays each read to the node and keeps no
+copy, and the stream reads the node again each second. The node's collector
+captures child stdout/stderr. If native `log.output` is
 set, it follows new bytes from that regular file, handling creation, truncation
 and rotation without reading pre-existing contents or modifying native config.
 Disabled output is not followed; symbolic-link files and capture-directory loops
 are rejected. On child exit, pending output is drained and its final partial
 line is flushed before completion is reported.
 
-Relative `log.output` paths resolve from `<data-dir>/runtime`, the child process's
+Relative `log.output` paths resolve from the node's `<data-dir>/runtime`, the child process's
 working directory, rather than from the saved configuration's directory. For
 example, `box.log` resolves to `<data-dir>/runtime/box.log`. Absolute paths remain
 absolute. The native process must be able to write the destination and the panel
@@ -524,7 +528,7 @@ operator's management, including its permissions, retention and raw contents.
 The panel separately sanitizes and retains its captured copy under
 `<data-dir>/logs/core`. Deleting a captured copy never removes the original file.
 
-`DELETE /api/v1/core/logs/files?file=<managed-name>` requires management
+`DELETE /api/v1/nodes/{nodeId}/core/logs/files?file=<managed-name>` requires management
 authentication and the usual CSRF token for cookie sessions. The file list's
 `deletable` field is computed against the server's current UTC date. The browser
 only shows deletion for eligible files; the server rechecks the date and rejects
@@ -532,7 +536,7 @@ all of today's segments with `409 core_log_current`, even after size rotation.
 Invalid names and non-regular files are rejected; missing files return 404.
 Deletion outcomes are recorded as panel activity.
 
-`DELETE /api/v1/core/logs/content?file=<managed-name>` clears the selected
+`DELETE /api/v1/nodes/{nodeId}/core/logs/content?file=<managed-name>` clears the selected
 capture's contents with the same authentication, CSRF and file validation as
 deletion, but permits today's files. It truncates in place so append writers
 continue normally. Clients must discard pending reads and streams before this
@@ -652,6 +656,12 @@ plaintext, URL credentials, and known secret fields are not stored as log
 payloads.
 
 ## Dashboard delivery and host metrics
+
+Nodes do not report metrics, traffic or runtime transitions to the panel yet.
+Until they do, `GET /api/v1/metrics`, `GET /api/v1/metrics/stream` and
+`GET /api/v1/traffic/status` answer `503` problems, and the dashboard, runtime
+history and traffic periods show only what the panel already stores. The rest
+of this section describes the collection that moves to each node.
 
 `GET /api/v1/metrics/stream` shares runtime and metric snapshots across clients
 on a one-second cadence. The lifecycle-owned collector reads the running core

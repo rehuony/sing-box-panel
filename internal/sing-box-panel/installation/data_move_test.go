@@ -4,7 +4,6 @@ package installation
 
 import (
 	"bytes"
-	"database/sql"
 	"encoding/json"
 	"errors"
 	"os"
@@ -77,32 +76,13 @@ func selectMovedDataDir(t *testing.T, path, target string) {
 	}
 }
 
-func TestDataDirectoryMovePreservesDataAndRebasesReferences(t *testing.T) {
+func TestDataDirectoryMovePreservesData(t *testing.T) {
 	path, source := fixture(t)
 	target := filepath.Join(filepath.Dir(source), "moved-data")
 	for _, name := range []string{"artifacts/core/sing-box", "imports/core-upload-test", "logs/core/example.log", "runtime/configs/current.json"} {
 		putFile(t, filepath.Join(source, name))
 	}
 	if err := os.Chmod(filepath.Join(source, "artifacts/core/sing-box"), 0700); err != nil {
-		t.Fatal(err)
-	}
-	db, err := store.Open(t.Context(), filepath.Join(source, "panel.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	err = db.WithTx(t.Context(), func(tx *sql.Tx) error {
-		_, err := tx.ExecContext(t.Context(), `INSERT INTO core_artifacts(id,exact_version,operating_system,architecture,source_kind,user_source,archive_sha256,binary_sha256,binary_path,reported_version,created_at)
-		VALUES('core','1.14.0','linux','arm64','user_verified','fixture',?,?,?,'1.14.0','2026-09-19T00:00:00Z')`, strings.Repeat("a", 64), strings.Repeat("b", 64), filepath.Join(source, "artifacts/core/sing-box"))
-		if err != nil {
-			return err
-		}
-
-		return err
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := db.Close(); err != nil {
 		t.Fatal(err)
 	}
 	selectMovedDataDir(t, path, target)
@@ -124,20 +104,13 @@ func TestDataDirectoryMovePreservesDataAndRebasesReferences(t *testing.T) {
 			t.Fatalf("lost %s: %v", name, err)
 		}
 	}
-	db, err = store.Open(t.Context(), filepath.Join(target, "panel.db"))
+	db, err := store.Open(t.Context(), filepath.Join(target, "panel.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer db.Close()
-	physicalTarget, err := filepath.EvalSymlinks(target)
-	if err != nil {
+	if err := db.Close(); err != nil {
 		t.Fatal(err)
 	}
-	core, err := db.GetCoreArtifact(t.Context(), "core")
-	if err != nil || core.BinaryPath != filepath.Join(physicalTarget, "artifacts/core/sing-box") {
-		t.Fatalf("core path: %s %v", core.BinaryPath, err)
-	}
-
 }
 
 func TestDataMoveRefusesBusyOrConflictingStorage(t *testing.T) {
@@ -227,7 +200,7 @@ func TestDataMoveRecoversInterruptedCopyAndCleanup(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				if err := moved.RebaseDataPaths(t.Context(), source, target, owner.ID); err != nil {
+				if err := moved.RecordDataMove(t.Context(), source, target, owner.ID); err != nil {
 					t.Fatal(err)
 				}
 				moved.Close()
@@ -305,7 +278,7 @@ func TestSettingsRecoveryPrecedesDataDirectoryMove(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := db.CommitPanelSettingsFile(t.Context(), path, "pending-settings", nil, false, func() error { return settings.ReplaceLocked(path, after) }); err != nil {
+	if err := db.CommitPanelSettingsFile(t.Context(), path, "pending-settings", false, func() error { return settings.ReplaceLocked(path, after) }); err != nil {
 		t.Fatal(err)
 	}
 	db.Close()

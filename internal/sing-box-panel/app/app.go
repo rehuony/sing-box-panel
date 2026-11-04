@@ -6,13 +6,10 @@
 package app
 
 import (
-	"context"
-
 	"github.com/rehuony/sing-box-panel/internal/buildinfo"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/auth"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/corecache"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/fleet"
-	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/localnode"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/nodeconfig"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/settings"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/store"
@@ -29,7 +26,6 @@ type Services struct {
 	Subscriptions *subscription.Service
 	Telemetry     *telemetry.Service
 	Fleet         *fleet.Service
-	Node          *localnode.Node
 }
 
 // Options adjusts the composition.
@@ -39,32 +35,24 @@ type Options struct {
 	// Observe receives every recorded panel log entry, such as for console
 	// output.
 	Observe func(store.LogEntry)
-	// PublicIP replaces the local node's public IP detection.
-	PublicIP func(context.Context) string
+	// Downloader replaces the downloader of official core archives.
+	Downloader corecache.Downloader
 }
 
 // New composes the panel's services over database and the settings file
 // selected by configuration.
 func New(database *store.Store, configuration settings.Settings, options Options) Services {
-	var node *localnode.Node
-	publicIP, publicIPCache := options.PublicIP, options.PublicIP
-	if publicIP == nil {
-		publicIP = func(ctx context.Context) string { return node.PublicIP(ctx) }
-		publicIPCache = func(ctx context.Context) string { return node.CachedPublicIP(ctx) }
-	}
-	panelSettings := settings.NewService(database, configuration.Path(), configuration, settings.Options{PublicIP: publicIP})
-	records := telemetry.New(database, panelSettings, telemetry.Options{Classify: localnode.ClassifyOperationFailure, Observe: options.Observe})
-	configs := nodeconfig.New(database)
-	cores := corecache.New(database, records, panelSettings, corecache.Options{DataDir: configuration.DataDir})
-	node = localnode.New(database, records, panelSettings, configs, cores)
+	panelSettings := settings.NewService(database, configuration.Path(), configuration, settings.Options{})
+	records := telemetry.New(database, panelSettings, telemetry.Options{Classify: fleet.ClassifyOperationFailure, Observe: options.Observe})
+	cores := corecache.New(database, records, panelSettings, corecache.Options{DataDir: configuration.DataDir, Downloader: options.Downloader})
+	configs := nodeconfig.New(database, cores)
 	return Services{
 		Sessions:      auth.NewSessions(database, panelSettings),
 		Settings:      panelSettings,
 		Configs:       configs,
 		Cores:         cores,
-		Subscriptions: subscription.New(database, panelSettings, records, subscription.Options{PublicIP: publicIP, PublicIPCache: publicIPCache}),
+		Subscriptions: subscription.New(database, panelSettings, records, subscription.Options{}),
 		Telemetry:     records,
-		Fleet:         fleet.New(database, panelSettings, records, fleet.Options{Build: options.Build}),
-		Node:          node,
+		Fleet:         fleet.New(database, panelSettings, records, configs, cores, fleet.Options{Build: options.Build}),
 	}
 }

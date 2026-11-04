@@ -254,14 +254,14 @@ type SubscriptionTokenRotation struct {
 }
 
 type SubscriptionPreview struct {
-	UserID              string                     `json:"user_id"`
-	AppliedBundleID     string                     `json:"applied_bundle_id"`
-	Channel             SubscriptionChannel        `json:"channel"`
-	StartupArtifactID   string                     `json:"startup_artifact_id"`
-	CanonicalRevisionID string                     `json:"canonical_revision_id"`
-	ExactCoreVersion    string                     `json:"exact_core_version"`
-	ArtifactState       store.StartupArtifactState `json:"artifact_state"`
-	Result              SubscriptionPreviewResult  `json:"result"`
+	UserID              string                    `json:"user_id"`
+	AppliedBundleID     string                    `json:"applied_bundle_id"`
+	Channel             SubscriptionChannel       `json:"channel"`
+	StartupArtifactID   string                    `json:"startup_artifact_id"`
+	CanonicalRevisionID string                    `json:"canonical_revision_id"`
+	ExactCoreVersion    string                    `json:"exact_core_version"`
+	ArtifactState       string                    `json:"artifact_state"`
+	Result              SubscriptionPreviewResult `json:"result"`
 }
 
 // SubscriptionPreviewResult is an authenticated projection of rendered bytes and

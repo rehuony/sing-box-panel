@@ -31,7 +31,7 @@ func TestLegacyContentLayoutRequiresReinitializationWithoutMovingFiles(t *testin
 				t.Fatalf("open legacy store: %v", err)
 			}
 			asset := officialAsset(artifactVersion(t, "1.13.19"), 7)
-			if _, err := store.InstallOfficial(context.Background(), asset); !errors.Is(err, ErrLegacyLayout) {
+			if _, err := (testStore{Store: store, downloader: &memoryDownloader{}}).InstallOfficial(context.Background(), asset); !errors.Is(err, ErrLegacyLayout) {
 				t.Fatalf("install into legacy store: %v", err)
 			}
 			if err := store.SetCurrent(context.Background(), legacy); !errors.Is(err, ErrCorruptStore) {

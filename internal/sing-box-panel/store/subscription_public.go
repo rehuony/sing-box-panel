@@ -44,8 +44,7 @@ type PublicSubscriptionState struct {
 	UserID          string
 	AppliedBundleID string
 	Channel         SubscriptionChannel
-	Startup         StartupArtifact
-	Core            CoreArtifact
+	Startup         AppliedStartup
 	Grants          []string
 	Sources         []PublicSubscriptionSourceVersion
 }
@@ -53,9 +52,24 @@ type PublicSubscriptionState struct {
 type SubscriptionNodeCatalogState struct {
 	SubscriptionNodeControls
 	AppliedBundleID string
-	Startup         StartupArtifact
-	Core            CoreArtifact
+	Startup         AppliedStartup
 	Sources         []PublicSubscriptionSourceVersion
+}
+
+// ErrNoAppliedBundle means there is nothing to publish: no applied local
+// configuration, source or manual node.
+var ErrNoAppliedBundle = errors.New("no applied configuration is available")
+
+// AppliedStartup is the applied startup configuration that local inbounds
+// come from. Until nodes report their applied configurations to the panel,
+// no state carries one and subscriptions publish sources and manual nodes.
+type AppliedStartup struct {
+	ID                  string
+	CanonicalRevisionID string
+	ExactCoreVersion    string
+	CoreArtifactID      string
+	ConfigBytes         []byte
+	State               string
 }
 
 func (s *Store) LoadSubscriptionNodeCatalogState(ctx context.Context) (SubscriptionNodeCatalogState, error) {
@@ -65,10 +79,6 @@ func (s *Store) LoadSubscriptionNodeCatalogState(ctx context.Context) (Subscript
 	}
 	defer func() { _ = tx.Rollback() }()
 	var state SubscriptionNodeCatalogState
-	state.AppliedBundleID, state.Startup, state.Core, err = loadAppliedSubscriptionCore(ctx, tx)
-	if err != nil && !errors.Is(err, ErrNoAppliedBundle) {
-		return state, err
-	}
 	state.Sources, err = loadSubscriptionSourceVersions(ctx, tx, false)
 	if err != nil {
 		return state, err
@@ -215,10 +225,6 @@ func loadSubscriptionPublicationState(
 	if err != nil || publicDelivery && !state.Channel.Enabled {
 		return ErrSubscriptionChannelNotFound
 	}
-	state.AppliedBundleID, state.Startup, state.Core, err = loadAppliedSubscriptionCore(ctx, tx)
-	if err != nil && (!errors.Is(err, ErrNoAppliedBundle) || state.UserID != "") {
-		return err
-	}
 
 	grantRows, err := tx.QueryContext(ctx, `SELECT node_key FROM subscription_user_node_grants WHERE user_id = ? ORDER BY node_key`, state.UserID)
 	if err != nil {
@@ -253,26 +259,6 @@ func loadSubscriptionPublicationState(
 		return ErrNoAppliedBundle
 	}
 	return nil
-}
-
-func loadAppliedSubscriptionCore(ctx context.Context, tx *sql.Tx) (string, StartupArtifact, CoreArtifact, error) {
-	var id sql.NullString
-	if err := tx.QueryRowContext(ctx, `SELECT applied_bundle_id FROM hub_state WHERE singleton = 1`).Scan(&id); err != nil {
-		return "", StartupArtifact{}, CoreArtifact{}, err
-	}
-	if !id.Valid || id.String == "" {
-		return "", StartupArtifact{}, CoreArtifact{}, ErrNoAppliedBundle
-	}
-	bundle, err := getActivationBundle(ctx, tx, id.String)
-	if err != nil {
-		return "", StartupArtifact{}, CoreArtifact{}, err
-	}
-	startup, err := getStartupArtifact(ctx, tx, bundle.StartupArtifactID)
-	if err != nil {
-		return "", StartupArtifact{}, CoreArtifact{}, err
-	}
-	core, err := getCoreArtifact(ctx, tx, startup.CoreArtifactID)
-	return id.String, startup, core, err
 }
 
 func loadSubscriptionSourceVersions(ctx context.Context, tx *sql.Tx, enabledOnly bool) ([]PublicSubscriptionSourceVersion, error) {

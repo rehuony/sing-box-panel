@@ -95,7 +95,7 @@ func (handler *Handler) login(w http.ResponseWriter, request *http.Request) {
 		writeProblem(w, request, http.StatusBadRequest, "invalid_login", "Invalid login", "The login payload is invalid.")
 		return
 	}
-	if handler.services.Node == nil {
+	if handler.services.Sessions == nil {
 		handler.authenticationUnavailable(w, request)
 		return
 	}
@@ -172,7 +172,7 @@ func (handler *Handler) authenticated(next http.HandlerFunc) http.HandlerFunc {
 			writeProblem(w, request, http.StatusUnauthorized, "authentication_required", "Authentication required", "A valid management session is required.")
 			return
 		}
-		if handler.services.Node == nil {
+		if handler.services.Sessions == nil {
 			handler.authenticationUnavailable(w, request)
 			return
 		}

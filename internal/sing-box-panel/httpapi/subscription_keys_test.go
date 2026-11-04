@@ -13,7 +13,7 @@ import (
 
 func TestChannelScopedKeysShareDownloadLimitAcrossChannels(t *testing.T) {
 	ctx := context.Background()
-	db, app, handler, channel, startup := newSubscriptionPublicationHTTPFixture(t, "")
+	_, app, handler, channel, publish := newSubscriptionPublicationHTTPFixture(t, "")
 	response := authenticatedRequest(t, handler, http.MethodPost, "/api/v1/subscription/tokens", `{"label":"Shared key","download_limit":2}`, "")
 	if response.Code != http.StatusCreated {
 		t.Fatalf("create: %d %s", response.Code, response.Body.String())
@@ -33,11 +33,7 @@ func TestChannelScopedKeysShareDownloadLimitAcrossChannels(t *testing.T) {
 	if err != nil || unchanged.BodyResponseCount != 0 {
 		t.Fatalf("failed response consumed quota: %+v %v", unchanged, err)
 	}
-	prepared, err := app.Node.PrepareActivationBundle(ctx, startup.ID, store.MonitoringProcessOnly)
-	if err != nil {
-		t.Fatal(err)
-	}
-	applySubscriptionHTTPBundle(t, db, app, prepared.Bundle.ID)
+	publish()
 	second, err := app.Subscriptions.CreateSubscriptionChannel(ctx, subscription.CreateSubscriptionChannelRequest{Name: "Second", Format: store.SubscriptionFormatSingBox, PublicHost: "second.example", Enabled: true})
 	if err != nil {
 		t.Fatal(err)

@@ -28,10 +28,6 @@ const (
 	nodeBinary  = modulePath + "/cmd/sing-box-node"
 	panelTree   = modulePath + "/internal/sing-box-panel"
 	nodeTree    = modulePath + "/internal/sing-box-node"
-	// The panel still runs this host's sing-box in process through localnode,
-	// the only panel package allowed to import the node until node sessions
-	// carry commands.
-	localNode = panelTree + "/localnode"
 )
 
 func within(path, tree string) bool {
@@ -88,14 +84,14 @@ func TestServiceDependencyRules(t *testing.T) {
 			continue
 		}
 		from := classify(pkg.ImportPath)
-		// The services import each other only through localnode.
+		// The services meet only through the shared protocol packages.
 		for _, dependency := range pkg.Imports {
 			if !strings.HasPrefix(dependency, modulePath+"/") {
 				continue
 			}
 			switch to := classify(dependency); {
-			case from == panel && to == node && pkg.ImportPath != localNode:
-				t.Errorf("panel package %s imports node package %s; only localnode may", pkg.ImportPath, dependency)
+			case from == panel && to == node:
+				t.Errorf("panel package %s imports node package %s", pkg.ImportPath, dependency)
 			case from == node && to == panel:
 				t.Errorf("node package %s imports panel package %s", pkg.ImportPath, dependency)
 			}

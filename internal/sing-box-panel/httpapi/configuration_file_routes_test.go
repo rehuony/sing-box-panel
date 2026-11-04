@@ -27,8 +27,9 @@ func TestConfigurationFileHTTPPreservesIncompleteJSONAndRequiresCAS(t *testing.T
 	config.Auth.Email = testutil.AdminEmail
 	config.Auth.PasswordHash = testutil.PasswordHash
 	handler := newTestHandler(t, HandlerOptions{Settings: config, Services: newTestServices(t, db, config)})
+	target := testNodePath(t, db) + "/config/file"
 	request := func(method, body, token string) *httptest.ResponseRecorder {
-		req := httptest.NewRequest(method, "/api/v1/config/file", strings.NewReader(body))
+		req := httptest.NewRequest(method, target, strings.NewReader(body))
 		req.Header.Set("Content-Type", "application/json")
 		if token != "" {
 			testutil.Authorize(t, handler, req)

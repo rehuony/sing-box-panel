@@ -12,7 +12,6 @@ import (
 	"testing"
 
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/auth"
-	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/nodeconfig"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/settings"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/store"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/testutil"
@@ -41,15 +40,14 @@ func commandSettingsFixture(t *testing.T) string {
 	return settingsPath
 }
 
-func saveConfigurationFixture(t *testing.T, path, content string) nodeconfig.ConfigurationFile {
+// createPanelDatabaseFixture creates the panel database of the settings
+// file at path.
+func createPanelDatabaseFixture(t *testing.T, path string) {
 	t.Helper()
 	database, _ := openPanelFixture(t, path)
-	defer database.Close()
-	file, err := nodeconfig.New(database).SaveConfigurationFile(t.Context(), nodeconfig.ConfigurationFileWrite{Revision: 0, Content: content})
-	if err != nil {
+	if err := database.Close(); err != nil {
 		t.Fatal(err)
 	}
-	return file
 }
 
 // openPanelFixture opens the panel database of the settings file at path and

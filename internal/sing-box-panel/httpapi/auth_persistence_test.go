@@ -178,11 +178,7 @@ func TestCookiePersistenceRotationAndRestart(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			configuration, err := app.Configs.ConfigurationFile(t.Context())
-			if err != nil {
-				t.Fatal(err)
-			}
-			body, _ = json.Marshal(settings.PanelRestoreRequest{Backup: backup, SettingsRevision: view.Revision, ConfigurationRevision: configuration.Revision})
+			body, _ = json.Marshal(settings.PanelRestoreRequest{Backup: backup, SettingsRevision: view.Revision})
 			request = newRequest("POST", "/api/v1/panel/restore", body)
 			request.AddCookie(current.Result().Cookies()[0])
 			request.Header.Set("Content-Type", "application/json")

@@ -11,10 +11,13 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
+	"io"
 	mathrand "math/rand/v2"
 	"net"
 	"os"
+	"path/filepath"
 	"runtime"
+	"sync"
 	"time"
 
 	"google.golang.org/grpc"
@@ -24,7 +27,10 @@ import (
 
 	"github.com/rehuony/sing-box-panel/internal/buildinfo"
 	"github.com/rehuony/sing-box-panel/internal/nodeapi"
+	"github.com/rehuony/sing-box-panel/internal/procctl"
+	"github.com/rehuony/sing-box-panel/internal/sing-box-node/service"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-node/settings"
+	"github.com/rehuony/sing-box-panel/internal/sing-box-node/store"
 )
 
 const (
@@ -86,23 +92,56 @@ func Enroll(ctx context.Context, dataDir, rawCode string, build buildinfo.Info) 
 	return enrollment, nil
 }
 
-// Run holds a session with the panel the node in dataDir is enrolled with
-// until ctx ends, reconnecting with backoff.
-func Run(ctx context.Context, dataDir string, options Options) error {
+// Run starts the node: it opens the node database, starts and recovers the
+// runtime, and holds a session with the panel the node in dataDir is enrolled
+// with until ctx ends, reconnecting with backoff.
+func Run(ctx context.Context, dataDir string, options Options) (runErr error) {
 	enrollment, err := settings.Load(dataDir)
 	if err != nil {
 		return err
 	}
+	lease, err := procctl.AcquireLease(dataDir)
+	if err != nil {
+		return err
+	}
+	defer func() { runErr = errors.Join(runErr, lease.Close()) }()
+	database, err := store.Open(ctx, filepath.Join(dataDir, "node.db"))
+	if err != nil {
+		return fmt.Errorf("open node database: %w", err)
+	}
+	defer func() { runErr = errors.Join(runErr, database.Close()) }()
+	node, err := service.New(database, service.Options{DataDir: dataDir, Events: func(event service.Event) {
+		options.logf("%s %s: %s %v", event.Level, event.Code, event.Message, event.Metadata)
+	}})
+	if err != nil {
+		return err
+	}
+	runtime, err := node.Start(ctx)
+	if err != nil {
+		if ctx.Err() != nil {
+			return nil
+		}
+		return err
+	}
+	defer func() { runErr = errors.Join(runErr, runtime.Close()) }()
+	runtime.StartRecovery(ctx)
+	detection := make(chan struct{})
+	go func() { defer close(detection); node.RunPublicIPDetection(ctx) }()
+	defer func() { <-detection }()
+
 	connection, err := dial(enrollment.Endpoint, enrollment.Path, enrollment.Pin)
 	if err != nil {
 		return err
 	}
 	defer connection.Close()
 	client := nodeapi.NewNodeServiceClient(connection)
+	commands := &executor{node: node, database: database, fetch: fetchArtifact(client), now: time.Now}
+	var inFlight sync.WaitGroup
+	defer inFlight.Wait()
 	backoff := minimumBackoff
 	for {
 		started := time.Now()
-		err := holdSession(ctx, client, enrollment, options)
+		err := holdSession(ctx, client, enrollment, commands, &inFlight, options)
 		if ctx.Err() != nil {
 			return nil
 		}
@@ -120,9 +159,12 @@ func Run(ctx context.Context, dataDir string, options Options) error {
 	}
 }
 
-// holdSession authenticates one session and serves it until it ends.
-func holdSession(ctx context.Context, client nodeapi.NodeServiceClient, enrollment settings.Enrollment, options Options) error {
-	ctx, cancel := context.WithCancel(ctx)
+// holdSession authenticates one session and serves its commands until it
+// ends. Commands run on lifetime, not on the session: a command in flight
+// finishes even when the session drops, and the panel learns its outcome
+// from the node's state.
+func holdSession(lifetime context.Context, client nodeapi.NodeServiceClient, enrollment settings.Enrollment, commands *executor, inFlight *sync.WaitGroup, options Options) error {
+	ctx, cancel := context.WithCancel(lifetime)
 	defer cancel()
 	stream, err := client.Connect(ctx)
 	if err != nil {
@@ -164,20 +206,68 @@ func holdSession(ctx context.Context, client nodeapi.NodeServiceClient, enrollme
 	if options.Connected != nil {
 		options.Connected()
 	}
+	var sendMu sync.Mutex
+	send := func(frame *nodeapi.ConnectRequest) error {
+		sendMu.Lock()
+		defer sendMu.Unlock()
+		return stream.Send(frame)
+	}
+	var runningMu sync.Mutex
+	running := map[string]context.CancelFunc{}
 	for {
 		frame, err := stream.Recv()
 		if err != nil {
 			return err
 		}
-		if command := frame.GetCommand(); command != nil {
-			// This node build carries out no commands yet.
-			if err := stream.Send(&nodeapi.ConnectRequest{Frame: &nodeapi.ConnectRequest_Result{Result: &nodeapi.Result{
-				RequestId: command.GetRequestId(),
-				Outcome: &nodeapi.Result_Problem{Problem: &nodeapi.Problem{
-					Code: "command_unsupported", Title: "Command unsupported", Detail: "This node does not carry out commands yet.",
-				}},
-			}}}); err != nil {
-				return err
+		switch {
+		case frame.GetCommand() != nil:
+			command := frame.GetCommand()
+			commandContext, stop := context.WithCancel(lifetime)
+			runningMu.Lock()
+			running[command.GetRequestId()] = stop
+			runningMu.Unlock()
+			inFlight.Add(1)
+			go func() {
+				defer inFlight.Done()
+				defer func() {
+					runningMu.Lock()
+					delete(running, command.GetRequestId())
+					runningMu.Unlock()
+					stop()
+				}()
+				result := commands.execute(commandContext, command)
+				_ = send(&nodeapi.ConnectRequest{Frame: &nodeapi.ConnectRequest_Result{Result: result}})
+			}()
+		case frame.GetCancel() != nil:
+			runningMu.Lock()
+			if stop := running[frame.GetCancel().GetRequestId()]; stop != nil {
+				stop()
+			}
+			runningMu.Unlock()
+		}
+	}
+}
+
+// fetchArtifact streams a cached core artifact the panel granted.
+func fetchArtifact(client nodeapi.NodeServiceClient) func(context.Context, string, string, io.Writer) (int64, error) {
+	return func(ctx context.Context, grant, artifactID string, destination io.Writer) (int64, error) {
+		stream, err := client.FetchArtifact(ctx, &nodeapi.FetchArtifactRequest{Grant: grant, ArtifactId: artifactID})
+		if err != nil {
+			return 0, err
+		}
+		var total int64
+		for {
+			chunk, err := stream.Recv()
+			if errors.Is(err, io.EOF) {
+				return total, nil
+			}
+			if err != nil {
+				return total, err
+			}
+			written, err := destination.Write(chunk.GetData())
+			total += int64(written)
+			if err != nil {
+				return total, err
 			}
 		}
 	}

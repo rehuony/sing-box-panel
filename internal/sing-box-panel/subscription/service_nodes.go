@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 
+	"github.com/rehuony/sing-box-panel/internal/database"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/schema"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/store"
 )
@@ -17,7 +18,7 @@ type SubscriptionNodeWrite struct {
 }
 
 func (app *Service) CreateSubscriptionNode(ctx context.Context, raw json.RawMessage) (SubscriptionNodeDetail, error) {
-	id, err := store.NewID(app.random, "manual")
+	id, err := database.NewID(app.random, "manual")
 	if err != nil {
 		return SubscriptionNodeDetail{}, err
 	}

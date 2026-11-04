@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/rehuony/sing-box-panel/internal/database"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/store"
 )
 
@@ -67,7 +68,7 @@ func (application *Service) RecordLog(ctx context.Context, request LogRecordRequ
 	if application == nil || application.database == nil {
 		return store.LogEntry{}, errors.New("application database is unavailable")
 	}
-	id, err := store.NewID(application.random, "log")
+	id, err := database.NewID(application.random, "log")
 	if err != nil {
 		return store.LogEntry{}, fmt.Errorf("generate log entry id: %w", err)
 	}

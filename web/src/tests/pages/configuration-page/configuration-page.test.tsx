@@ -11,13 +11,13 @@ import { toast } from '@/components/ui/toast-manager';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { ApiClientProvider } from '@/api/api-client-context';
 import { TestRouter as MemoryRouter } from '@/tests/test-router';
-import { ControlPlaneProvider } from '@/stores/control-plane-provider';
+import { NodeSelectionProvider } from '@/stores/node-selection-provider';
 import { representativeSchemaVersions } from '@/tests/schemas/schema-fixtures';
 import { ConfigurationPage } from '@/pages/configuration-page/configuration-page';
+import { ConfigurationSessionProvider } from '@/stores/configuration-session-provider';
 import {
   createMockApiClient,
   testArtifacts,
-  testDashboardContext,
   testRevision,
   testStartupArtifact,
 } from '@/tests/api/mock-api-client';
@@ -41,7 +41,9 @@ function renderPage(client: ApiClient, initialEntry = '/configuration') {
     <MemoryRouter initialEntries={[initialEntry]}>
       <ApiClientProvider client={client}>
         <TooltipProvider delay={0}>
-          <ControlPlaneProvider><ConfigurationPage /></ControlPlaneProvider>
+          <NodeSelectionProvider>
+            <ConfigurationSessionProvider><ConfigurationPage /></ConfigurationSessionProvider>
+          </NodeSelectionProvider>
         </TooltipProvider>
       </ApiClientProvider>
     </MemoryRouter>,
@@ -61,7 +63,6 @@ async function createStructuredClient(overrides: Partial<ApiClient> = {}, exactV
     ...testArtifacts.items[0], id: 'core_114', exact_version: exactVersion, reported_version: exactVersion,
   };
   return createMockApiClient({
-    getDashboardContext: vi.fn().mockResolvedValue({ ...testDashboardContext, view: { exactVersion } }),
     getConfigurationSchema: vi.fn().mockResolvedValue({
       exact_version: exactVersion, schema_sha256: reviewed.schemaSHA256, schema: reviewed.schema,
     }),

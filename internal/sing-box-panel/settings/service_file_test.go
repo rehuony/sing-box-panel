@@ -135,7 +135,7 @@ func TestSettingsFileJournalRecoversCommitAndRollback(t *testing.T) {
 					}
 				}
 				if committed {
-					if err := app.database.CommitPanelSettingsFile(t.Context(), app.settingsPath, "interrupted", nil, false, func() error { return nil }); err != nil {
+					if err := app.database.CommitPanelSettingsFile(t.Context(), app.settingsPath, "interrupted", false, func() error { return nil }); err != nil {
 						t.Fatal(err)
 					}
 				}
@@ -187,13 +187,12 @@ func TestSettingsFileRecoveryPreservesConflictingManualEdit(t *testing.T) {
 	}
 }
 
-func TestSettingsFilePermissionFailureDoesNotChangeConfiguration(t *testing.T) {
+func TestSettingsFilePermissionFailureFailsTheSave(t *testing.T) {
 	if os.Geteuid() == 0 {
 		t.Skip("requires unprivileged permissions")
 	}
 	app := panelFileApp(t)
 	view, _ := app.PanelSettings(t.Context())
-	before, _ := app.database.ConfigurationFile(t.Context())
 	dir := filepath.Dir(app.settingsPath)
 	if err := os.Chmod(dir, 0500); err != nil {
 		t.Fatal(err)
@@ -201,10 +200,6 @@ func TestSettingsFilePermissionFailureDoesNotChangeConfiguration(t *testing.T) {
 	defer os.Chmod(dir, 0700)
 	if _, err := app.SavePanelSettings(context.Background(), PanelSettingsWrite{Revision: view.Revision, Preferences: view.Preferences, GitHubToken: "not-saved"}); err == nil {
 		t.Fatal("read-only settings saved")
-	}
-	after, _ := app.database.ConfigurationFile(t.Context())
-	if before.Content != after.Content || before.Revision != after.Revision {
-		t.Fatal("failed file save changed configuration")
 	}
 }
 
@@ -265,7 +260,7 @@ func TestSettingsRecoveryUsesCommitIdentityAcrossPathAliases(t *testing.T) {
 	if err := WriteAtomic(app.settingsPath+".pending", journal); err != nil {
 		t.Fatal(err)
 	}
-	if err := app.database.CommitPanelSettingsFile(t.Context(), app.settingsPath, "committed-through-original-path", nil, false, func() error {
+	if err := app.database.CommitPanelSettingsFile(t.Context(), app.settingsPath, "committed-through-original-path", false, func() error {
 		return ReplaceLocked(app.settingsPath, after)
 	}); err != nil {
 		t.Fatal(err)
@@ -347,33 +342,5 @@ func TestCatalogRefreshIntervalAppliesWithoutRestart(t *testing.T) {
 	}
 	if saved.Settings.RestartRequired || saved.Settings.Service.CatalogRefreshIntervalHours != 24 {
 		t.Fatalf("dynamic catalog refresh interval result=%+v", saved)
-	}
-}
-
-func TestPanelSettingsSavePreservesNativeConfiguration(t *testing.T) {
-	for _, content := range []string{
-		`{"inbounds":[{"type":"anytls","tag":"a","users":[{"name":"alice","password":"explicit-secret"}]},{"type":"vless","tag":"v","users":[{"name":"bob","uuid":"explicit-uuid"}]}]}`,
-		"{ unfinished native configuration",
-	} {
-		t.Run(content, func(t *testing.T) {
-			app := panelFileApp(t)
-			before, err := saveConfigurationFile(t.Context(), app, content)
-			if err != nil {
-				t.Fatal(err)
-			}
-			view, err := app.PanelSettings(t.Context())
-			if err != nil {
-				t.Fatal(err)
-			}
-			view.Preferences.PublicNodeHost = "nodes.example.com"
-			view.Preferences.Language = "en"
-			if _, err := app.SavePanelSettings(t.Context(), PanelSettingsWrite{Revision: view.Revision, Preferences: view.Preferences, GitHubToken: "updated-github-token"}); err != nil {
-				t.Fatal(err)
-			}
-			after, err := app.database.ConfigurationFile(t.Context())
-			if err != nil || !reflect.DeepEqual(before, after) {
-				t.Fatalf("settings save changed native configuration: %v", err)
-			}
-		})
 	}
 }

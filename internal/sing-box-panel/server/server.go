@@ -99,15 +99,7 @@ func Run(ctx context.Context, settingsPath string, build buildinfo.Info, assets 
 	}
 	output := console.FromContext(ctx)
 	services = app.New(database, configuration, app.Options{Build: build, Observe: func(entry store.LogEntry) { output.Event(entry.Time, string(entry.Level), entry.Code, entry.Message) }})
-	if err := services.Configs.InitializeConfigurationFile(ctx); err != nil {
-		return startupError(ctx, "initialize sing-box configuration", err)
-	}
-	records, node := services.Telemetry, services.Node
-	publicIPContext, stopPublicIP := context.WithCancel(ctx)
-	publicIPDone := make(chan struct{})
-	go func() { defer close(publicIPDone); node.RunPublicIPDetection(publicIPContext) }()
-	defer func() { stopPublicIP(); <-publicIPDone }()
-	node.SetTelemetryContext(ctx)
+	records := services.Telemetry
 	defer func() {
 		level, code, message := store.LogLevelInfo, "panel.stopped", "Panel server stopped"
 		if runErr != nil {
@@ -151,22 +143,10 @@ func Run(ctx context.Context, settingsPath string, build buildinfo.Info, assets 
 		stopSampleRetention()
 		<-sampleRetentionDone
 	}()
-	runtime, err := node.Start(ctx)
-	if err != nil {
-		if ctx.Err() != nil && errors.Is(err, context.Canceled) {
-			return nil
-		}
-		return err
-	}
-	defer func() {
-		runErr = errors.Join(runErr, runtime.Close())
-	}()
-	control.SetRuntimeHandler(runtime.Handler())
 	handler := httpapi.NewHandler(httpapi.HandlerOptions{
 		Settings: configuration,
 		Build:    build,
 		Assets:   assets,
-		Status:   &statusProvider{database: database, build: build, configs: services.Configs, runtime: runtime},
 		Services: services,
 	})
 	listener, err := net.Listen("tcp", net.JoinHostPort(configuration.Server.Host, fmt.Sprint(configuration.Server.Port)))
@@ -197,7 +177,6 @@ func Run(ctx context.Context, settingsPath string, build buildinfo.Info, assets 
 	catalogContext, stopCatalog := context.WithCancel(ctx)
 	catalogDone := startCatalogRefresh(catalogContext, catalogRefreshServices{cores: services.Cores, settings: services.Settings})
 	defer func() { stopCatalog(); <-catalogDone }()
-	runtime.StartRecovery(ctx)
 	records.RecordEvent(telemetry.LogRecordRequest{
 		Source: store.LogSourcePanel, Level: store.LogLevelInfo, Code: "panel.ready",
 		Message:  "Panel HTTP server is ready",

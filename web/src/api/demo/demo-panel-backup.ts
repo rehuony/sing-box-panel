@@ -42,7 +42,7 @@ export function demoRestoreSettings(
   backup: PanelBackup, revision: number,
 ): { view: PanelSettingsView; secrets: DemoPanelSecrets } {
   const native = backup.panel_settings as unknown as ReturnType<typeof demoBackupSettings>;
-  if (backup.format !== 'sing-box-panel-backup' || backup.version !== 2 || !native?.server || !native.auth || !native.panel || !native.traffic || !native.github || !native.subscription || !native.logs || typeof backup.sing_box_configuration !== 'string' || typeof native.auth.password_hash !== 'string'
+  if (backup.format !== 'sing-box-panel-backup' || backup.version !== 3 || !native?.server || !native.auth || !native.panel || !native.traffic || !native.github || !native.subscription || !native.logs || typeof native.auth.password_hash !== 'string'
     || !/^demo-sha256:[a-f\d]{64}$/.test(native.auth.password_hash)) {
     throw new ApiRequestError('Invalid configuration backup.', { status: 422, code: 'panel_backup_invalid' });
   }

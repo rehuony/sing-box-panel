@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/corecache"
-	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/localnode"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/store"
 )
 
@@ -108,16 +107,16 @@ func (handler *Handler) listCoreArtifacts(w http.ResponseWriter, request *http.R
 	if !ok {
 		return
 	}
-	page, err := handler.services.Cores.ListCoreArtifacts(request.Context(), corecache.CoreArtifactListFilter{
+	page, err := handler.services.Fleet.ListCores(request.Context(), requestNodeID(request), corecache.CoreArtifactListFilter{
 		ExactVersion: query.Get("exact_version"),
 		Architecture: query.Get("architecture"),
 		Variant:      query.Get("variant"),
-		SourceKind:   store.CoreArtifactSourceKind(query.Get("source_kind")),
+		SourceKind:   query.Get("source_kind"),
 		Cursor:       cursor,
 		Limit:        limit,
 	})
 	if err != nil {
-		writeProblem(w, request, http.StatusInternalServerError, "core_artifact_list_failed", "Core artifact operation failed", "The core artifacts could not be listed.")
+		writeNodeProblem(w, request, "core_artifact_list_failed", err)
 		return
 	}
 	writeJSON(w, http.StatusOK, page)
@@ -148,20 +147,12 @@ func (handler *Handler) getCoreArtifact(w http.ResponseWriter, request *http.Req
 	if !handler.requireCommands(w, request) {
 		return
 	}
-	if !store.ValidIdentifier(identifier) {
-		writeProblem(w, request, http.StatusBadRequest, "core_artifact_id_invalid", "Core artifact ID invalid", "The core artifact ID is invalid.")
-		return
-	}
 	if _, ok := strictCoreQuery(w, request); !ok {
 		return
 	}
-	artifact, err := handler.services.Cores.CoreArtifact(request.Context(), identifier)
+	artifact, err := handler.services.Fleet.Core(request.Context(), requestNodeID(request), identifier)
 	if err != nil {
-		if corecache.IsCoreArtifactNotFound(err) {
-			writeProblem(w, request, http.StatusNotFound, "core_artifact_not_found", "Core artifact not found", "The requested core artifact does not exist.")
-			return
-		}
-		writeProblem(w, request, http.StatusInternalServerError, "core_artifact_read_failed", "Core artifact operation failed", "The core artifact could not be read.")
+		writeNodeProblem(w, request, "core_artifact_read_failed", err)
 		return
 	}
 	writeJSON(w, http.StatusOK, artifact)
@@ -171,22 +162,11 @@ func (handler *Handler) deleteCoreArtifact(w http.ResponseWriter, request *http.
 	if !handler.requireCommands(w, request) {
 		return
 	}
-	if !store.ValidIdentifier(identifier) {
-		writeProblem(w, request, http.StatusBadRequest, "core_artifact_id_invalid", "Core artifact ID invalid", "The core artifact ID is invalid.")
-		return
-	}
 	if _, ok := strictCoreQuery(w, request); !ok || !requireEmptyCoreBody(w, request) {
 		return
 	}
-	if err := handler.services.Node.RemoveCoreArtifact(request.Context(), identifier); err != nil {
-		switch {
-		case corecache.IsCoreArtifactNotFound(err):
-			writeProblem(w, request, http.StatusNotFound, "core_artifact_not_found", "Core artifact not found", "The requested core artifact does not exist.")
-		case corecache.IsCoreArtifactInUse(err):
-			writeProblem(w, request, http.StatusConflict, "core_artifact_in_use", "Core artifact is in use", "The core artifact is referenced and cannot be removed.")
-		default:
-			writeProblem(w, request, http.StatusInternalServerError, "core_artifact_delete_failed", "Core artifact operation failed", "The core artifact could not be removed.")
-		}
+	if err := handler.services.Fleet.RemoveCore(request.Context(), requestNodeID(request), identifier); err != nil {
+		writeNodeProblem(w, request, "core_artifact_delete_failed", err)
 		return
 	}
 	w.Header().Set("Cache-Control", "no-store")
@@ -230,9 +210,14 @@ func (handler *Handler) installCore(w http.ResponseWriter, request *http.Request
 		writeProblem(w, request, http.StatusUnprocessableEntity, "core_install_invalid", "Core install request invalid", "The catalog asset cannot be installed.")
 		return
 	}
-	result, err := handler.services.Node.InstallCore(request.Context(), *input.AssetID)
+	cached, err := handler.services.Cores.CacheOfficial(request.Context(), *input.AssetID)
 	if err != nil {
-		writeProblem(w, request, http.StatusInternalServerError, "core_install_failed", "Core install failed", "The core could not be installed.")
+		writeProblem(w, request, http.StatusBadGateway, "core_download_failed", "Core download failed", "The panel could not download and verify the release asset.")
+		return
+	}
+	result, err := handler.services.Fleet.InstallCore(request.Context(), requestNodeID(request), cached)
+	if err != nil {
+		writeNodeProblem(w, request, "core_install_failed", err)
 		return
 	}
 	writeJSON(w, http.StatusOK, result)
@@ -300,23 +285,32 @@ func (handler *Handler) importCore(w http.ResponseWriter, request *http.Request)
 		}
 		fields[name] = string(value)
 	}
-	importRequest := localnode.CoreImportRequest{
-		SourcePath: stagedPath, SourceDescription: fields["source_description"],
-		ExactVersion: fields["exact_version"],
-		Architecture: fields["architecture"], Variant: fields["variant"], DeleteSource: true,
+	upload := corecache.CoreUpload{
+		SourceDescription: fields["source_description"], ExactVersion: fields["exact_version"],
+		Architecture: fields["architecture"], Variant: fields["variant"],
 	}
-	if stagedPath == "" || !validCoreImportRequest(importRequest) {
+	if stagedPath == "" || !validCoreUpload(upload) {
 		writeProblem(w, request, http.StatusUnprocessableEntity, "core_import_invalid", "Core import request invalid", "The local core archive cannot be imported with the supplied metadata.")
 		return
 	}
-	result, err := handler.services.Node.ImportCore(request.Context(), importRequest)
+	// CacheUpload consumes the staged file.
+	path := stagedPath
+	stagedPath = ""
+	cached, err := handler.services.Cores.CacheUpload(request.Context(), path, upload)
 	if err != nil {
-		writeProblem(w, request, http.StatusInternalServerError, "core_import_failed", "Core import failed", "The core archive could not be imported.")
+		writeProblem(w, request, http.StatusInternalServerError, "core_import_failed", "Core import failed", "The core archive could not be cached.")
+		return
+	}
+	result, err := handler.services.Fleet.InstallCore(request.Context(), requestNodeID(request), cached)
+	if err != nil {
+		writeNodeProblem(w, request, "core_import_failed", err)
 		return
 	}
 	writeJSON(w, http.StatusOK, result)
 }
 
+// stageCoreUpload writes an uploaded archive to the panel's private upload
+// staging directory, where the core cache accepts it from.
 func (handler *Handler) stageCoreUpload(source io.Reader) (string, error) {
 	directory := filepath.Join(handler.settings.DataDir, "imports")
 	if err := os.MkdirAll(directory, 0o700); err != nil {

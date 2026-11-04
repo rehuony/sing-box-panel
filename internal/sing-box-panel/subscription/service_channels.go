@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/rehuony/sing-box-panel/internal/database"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/store"
 )
 
@@ -18,7 +19,7 @@ func (application *Service) CreateSubscriptionChannel(
 	if err != nil {
 		return SubscriptionChannel{}, err
 	}
-	id, err := store.NewID(application.random, "channel")
+	id, err := database.NewID(application.random, "channel")
 	if err != nil {
 		return SubscriptionChannel{}, err
 	}

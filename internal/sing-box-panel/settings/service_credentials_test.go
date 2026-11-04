@@ -66,7 +66,7 @@ func TestCredentialChangesSerializeWithLoginsAndRevokeAllSessions(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if backup.Version != 2 {
+	if backup.Version != PanelBackupVersion {
 		t.Fatal("backup version")
 	}
 	// Returning to another account through restore must revoke the newer session.
@@ -79,11 +79,7 @@ func TestCredentialChangesSerializeWithLoginsAndRevokeAllSessions(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	configuration, err := app.database.ConfigurationFile(t.Context())
-	if err != nil {
-		t.Fatal(err)
-	}
-	result, err := app.RestorePanelBackup(t.Context(), PanelRestoreRequest{Backup: backup, SettingsRevision: same.Settings.Revision, ConfigurationRevision: configuration.Revision})
+	result, err := app.RestorePanelBackup(t.Context(), PanelRestoreRequest{Backup: backup, SettingsRevision: same.Settings.Revision})
 	if err != nil || !result.ReauthenticationRequired {
 		t.Fatal("restore credentials", err)
 	}

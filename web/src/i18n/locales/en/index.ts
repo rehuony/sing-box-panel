@@ -12,7 +12,7 @@ import { configuration } from './configuration';
 import { observability } from './observability';
 import { subscriptions } from './subscriptions';
 import { panelSettings } from './panel-settings';
-import { account, app, language, nav, shell, sidebar, theme } from './shell';
+import { account, app, language, nav, nodes, shell, sidebar, theme } from './shell';
 
 export const en = {
   productLogs,
@@ -28,6 +28,7 @@ export const en = {
   language,
   theme,
   nav,
+  nodes,
   notFound,
   observability,
   login,

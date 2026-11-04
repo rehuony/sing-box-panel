@@ -23,7 +23,7 @@ describe('createHttpApiClient session domain', () => {
       status: 200,
       headers: { 'Content-Type': 'application/json' },
     }));
-    const client = createHttpApiClient({ baseUrl: '/panel/api/v1', fetcher });
+    const client = createHttpApiClient({ baseUrl: '/panel/api/v1', fetcher }).forNode('node_a');
 
     await expect(client.getSystemStatus()).resolves.toEqual(status);
     expect(fetcher).toHaveBeenCalledWith(
@@ -45,7 +45,7 @@ describe('createHttpApiClient session domain', () => {
         },
       ),
     );
-    const client = createHttpApiClient({ baseUrl: '/api/v1/', fetcher });
+    const client = createHttpApiClient({ baseUrl: '/api/v1/', fetcher }).forNode('node_a');
 
     await expect(client.getSession()).resolves.toBeNull();
     expect(fetcher).toHaveBeenCalledWith(
@@ -67,9 +67,9 @@ describe('createHttpApiClient session domain', () => {
         },
       ),
     );
-    const client = createHttpApiClient({ fetcher });
+    const client = createHttpApiClient({ fetcher }).forNode('node_a');
 
-    await expect(client.getDashboardContext()).rejects.toMatchObject({
+    await expect(client.getSystemStatus()).rejects.toMatchObject({
       code: 'runtime_unavailable',
       message: 'The runtime executor lease is not held.',
       status: 503,
@@ -83,7 +83,7 @@ describe('createHttpApiClient session domain', () => {
         headers: { 'Content-Type': 'application/json' },
       }),
     );
-    const client = createHttpApiClient({ fetcher });
+    const client = createHttpApiClient({ fetcher }).forNode('node_a');
 
     await client.login({ email: 'admin@example.com', password: 'test-password-123' });
 
@@ -106,7 +106,7 @@ describe('createHttpApiClient session domain', () => {
       status: 429,
       headers: { 'Retry-After': '60', 'Content-Type': 'application/problem+json' },
     })).mockResolvedValueOnce(new Response(JSON.stringify({ displayName: 'Administrator' })));
-    const client = createHttpApiClient({ fetcher });
+    const client = createHttpApiClient({ fetcher }).forNode('node_a');
     await expect(client.login({ email: 'admin@example.com', password: 'test-password-123' })).rejects.toMatchObject({ status: 429, code: 'login_rate_limited' });
     expect(fetcher).toHaveBeenCalledOnce();
     expect(fetcher).toHaveBeenCalledWith('/api/v1/auth/session', expect.objectContaining({
@@ -124,7 +124,7 @@ describe('createHttpApiClient session domain', () => {
       return undefined;
     });
     const fetcher = vi.fn<typeof fetch>();
-    const client = createHttpApiClient({ fetcher });
+    const client = createHttpApiClient({ fetcher }).forNode('node_a');
     await expect(client.login({ email: 'admin@example.com', password: 'test-password-123' }, controller.signal)).rejects.toMatchObject({ name: 'AbortError' });
     expect(fetcher).not.toHaveBeenCalled();
   });
@@ -142,7 +142,7 @@ describe('createHttpApiClient session domain', () => {
         ),
       )
       .mockResolvedValueOnce(new Response(null, { status: 204 }));
-    const client = createHttpApiClient({ fetcher });
+    const client = createHttpApiClient({ fetcher }).forNode('node_a');
 
     await client.login({ email: 'admin@example.com', password: 'test-password-123' });
     await client.logout();
@@ -174,17 +174,17 @@ describe('createHttpApiClient session domain', () => {
         status: 200,
         headers: { 'Content-Type': 'application/json' },
       }));
-    const client = createHttpApiClient({ fetcher });
+    const client = createHttpApiClient({ fetcher }).forNode('node_a');
     const invalidated = vi.fn();
     client.subscribeSessionInvalidated(invalidated);
 
     await client.login({ email: 'admin@example.com', password: 'test-password-123' });
-    await expect(client.getDashboardContext()).rejects.toMatchObject({ status: 401 });
+    await expect(client.getSystemStatus()).rejects.toMatchObject({ status: 401 });
     await client.stopRuntime();
 
     expect(invalidated).toHaveBeenCalledOnce();
     expect(fetcher).toHaveBeenLastCalledWith(
-      '/api/v1/core/stop',
+      '/api/v1/nodes/node_a/core/stop',
       expect.objectContaining({
         headers: { Accept: 'application/json' },
         method: 'POST',
@@ -197,7 +197,7 @@ describe('createHttpApiClient session domain', () => {
       JSON.stringify({ code: 'unauthorized', detail: 'Session already expired.' }),
       { status: 401, headers: { 'Content-Type': 'application/problem+json' } },
     ));
-    const client = createHttpApiClient({ fetcher });
+    const client = createHttpApiClient({ fetcher }).forNode('node_a');
     const invalidated = vi.fn();
     client.subscribeSessionInvalidated(invalidated);
 
@@ -212,7 +212,7 @@ describe('createHttpApiClient session domain', () => {
         return new Response(JSON.stringify({ code: 'authentication_unavailable' }), { status: 503 });
       })
       .mockResolvedValueOnce(new Response(null, { status: 204 }));
-    const client = createHttpApiClient({ fetcher });
+    const client = createHttpApiClient({ fetcher }).forNode('node_a');
     const invalidated = vi.fn();
     client.subscribeSessionInvalidated(invalidated);
     await client.getSession();

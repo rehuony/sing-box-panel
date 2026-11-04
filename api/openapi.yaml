@@ -18,11 +18,13 @@ servers:
 security:
   - sessionCookie: []
 paths:
-  /filesystem/entries:
+  /nodes/{nodeId}/filesystem/entries:
+    parameters:
+      - $ref: '#/components/parameters/NodeID'
     get:
       operationId: listFilesystemEntries
       description: >-
-        Read-only browsing within the panel process filesystem namespace and OS permissions.
+        Read-only browsing within the node process filesystem namespace and OS permissions.
         Relative paths use data_dir/runtime. An existing file opens its parent;
         missing paths ascend to the nearest existing directory with fallback=true.
         Permission errors do not ascend. Symlinks and dot components retain their
@@ -69,7 +71,9 @@ paths:
           $ref: '#/components/responses/Problem'
         "503":
           $ref: '#/components/responses/Problem'
-  /filesystem/resolve:
+  /nodes/{nodeId}/filesystem/resolve:
+    parameters:
+      - $ref: '#/components/parameters/NodeID'
     get:
       operationId: resolveFilesystemPath
       description: >-
@@ -171,7 +175,9 @@ paths:
           $ref: '#/components/responses/Problem'
         "422":
           $ref: '#/components/responses/Problem'
-  /config/file:
+  /nodes/{nodeId}/config/file:
+    parameters:
+      - $ref: '#/components/parameters/NodeID'
     get:
       operationId: getConfigurationFile
       responses:
@@ -280,13 +286,9 @@ paths:
       responses:
         "200":
           $ref: "#/components/responses/SystemStatus"
-  /dashboard/context:
-    get:
-      operationId: getDashboardContext
-      responses:
-        "200":
-          $ref: "#/components/responses/DashboardContext"
-  /config/preview:
+  /nodes/{nodeId}/config/preview:
+    parameters:
+      - $ref: '#/components/parameters/NodeID'
     post:
       operationId: previewConfiguration
       parameters:
@@ -315,7 +317,9 @@ paths:
             application/problem+json:
               schema:
                 $ref: "#/components/schemas/Problem"
-  /config/compile:
+  /nodes/{nodeId}/config/compile:
+    parameters:
+      - $ref: '#/components/parameters/NodeID'
     post:
       operationId: compileConfiguration
       parameters:
@@ -344,7 +348,9 @@ paths:
             application/problem+json:
               schema:
                 $ref: "#/components/schemas/Problem"
-  /config/artifacts:
+  /nodes/{nodeId}/config/artifacts:
+    parameters:
+      - $ref: '#/components/parameters/NodeID'
     get:
       operationId: listStartupArtifacts
       parameters:
@@ -358,7 +364,9 @@ paths:
       responses:
         "200":
           $ref: "#/components/responses/StartupArtifactPage"
-  /config/apply:
+  /nodes/{nodeId}/config/apply:
+    parameters:
+      - $ref: '#/components/parameters/NodeID'
     post:
       operationId: applyStartupArtifact
       parameters:
@@ -397,7 +405,9 @@ paths:
       responses:
         "200":
           $ref: "#/components/responses/CatalogRefresh"
-  /core/artifacts:
+  /nodes/{nodeId}/core/artifacts:
+    parameters:
+      - $ref: '#/components/parameters/NodeID'
     get:
       operationId: listCoreArtifacts
       parameters:
@@ -411,8 +421,9 @@ paths:
       responses:
         "200":
           $ref: "#/components/responses/CoreArtifactPage"
-  /core/artifacts/{artifactId}:
+  /nodes/{nodeId}/core/artifacts/{artifactId}:
     parameters:
+      - $ref: '#/components/parameters/NodeID'
       - $ref: "#/components/parameters/ArtifactID"
     get:
       operationId: getCoreArtifact
@@ -426,12 +437,13 @@ paths:
       responses:
         "204":
           $ref: "#/components/responses/NoContent"
-  /core/artifacts/{artifactId}/enable:
+  /nodes/{nodeId}/core/artifacts/{artifactId}/enable:
     parameters:
+      - $ref: '#/components/parameters/NodeID'
       - $ref: "#/components/parameters/ArtifactID"
     post:
       operationId: enableCoreArtifact
-      description: Validate and select this platform-matching binary using the saved configuration. Panel startup initializes an absent configuration to an empty JSON object. Preserve stopped state; replace a running core only after validation. The enabled version persists independently of process state.
+      description: Validate and select this platform-matching binary using the saved configuration. Adding a node initializes its configuration to an empty JSON object. Preserve stopped state; replace a running core only after validation. The enabled version persists independently of process state.
       parameters:
         - $ref: "#/components/parameters/CSRFToken"
       responses:
@@ -443,8 +455,9 @@ paths:
             application/problem+json:
               schema:
                 $ref: "#/components/schemas/Problem"
-  /core/artifacts/{artifactId}/disable:
+  /nodes/{nodeId}/core/artifacts/{artifactId}/disable:
     parameters:
+      - $ref: '#/components/parameters/NodeID'
       - $ref: "#/components/parameters/ArtifactID"
     post:
       operationId: disableCoreArtifact
@@ -454,8 +467,9 @@ paths:
       responses:
         "200":
           $ref: "#/components/responses/RuntimeStatus"
-  /core/artifacts/{artifactId}/configuration-support:
+  /nodes/{nodeId}/core/artifacts/{artifactId}/configuration-support:
     parameters:
+      - $ref: '#/components/parameters/NodeID'
       - $ref: "#/components/parameters/ArtifactID"
     get:
       operationId: getCoreArtifactConfigurationSupport
@@ -466,8 +480,9 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ConfigurationSupport"
-  /core/artifacts/{artifactId}/configuration-schema:
+  /nodes/{nodeId}/core/artifacts/{artifactId}/configuration-schema:
     parameters:
+      - $ref: '#/components/parameters/NodeID'
       - $ref: "#/components/parameters/ArtifactID"
     get:
       operationId: getCoreArtifactConfigurationSchema
@@ -492,7 +507,9 @@ paths:
               description: Validator bound to the exact version and Schema digest.
               schema:
                 type: string
-  /core/install:
+  /nodes/{nodeId}/core/install:
+    parameters:
+      - $ref: '#/components/parameters/NodeID'
     post:
       operationId: installCoreArtifact
       parameters:
@@ -513,7 +530,9 @@ paths:
       responses:
         "200":
           $ref: "#/components/responses/CoreArtifact"
-  /core/import:
+  /nodes/{nodeId}/core/import:
+    parameters:
+      - $ref: '#/components/parameters/NodeID'
     post:
       operationId: importCoreArtifact
       parameters:
@@ -540,7 +559,9 @@ paths:
       responses:
         "200":
           $ref: "#/components/responses/CoreArtifact"
-  /core/status:
+  /nodes/{nodeId}/core/status:
+    parameters:
+      - $ref: '#/components/parameters/NodeID'
     get:
       operationId: getCoreRuntimeStatus
       responses:
@@ -561,7 +582,9 @@ paths:
       responses:
         "200":
           $ref: "#/components/responses/RuntimeHistoryPage"
-  /core/check:
+  /nodes/{nodeId}/core/check:
+    parameters:
+      - $ref: '#/components/parameters/NodeID'
     post:
       operationId: checkStartupArtifact
       parameters:
@@ -571,7 +594,9 @@ paths:
       responses:
         "200":
           $ref: "#/components/responses/StartupArtifactSummary"
-  /core/activate:
+  /nodes/{nodeId}/core/activate:
+    parameters:
+      - $ref: '#/components/parameters/NodeID'
     post:
       operationId: activateStartupArtifact
       parameters:
@@ -581,7 +606,9 @@ paths:
       responses:
         "200":
           $ref: "#/components/responses/RuntimeResponse"
-  /core/start:
+  /nodes/{nodeId}/core/start:
+    parameters:
+      - $ref: '#/components/parameters/NodeID'
     post:
       operationId: startCoreRuntime
       parameters:
@@ -589,7 +616,9 @@ paths:
       responses:
         "200":
           $ref: "#/components/responses/RuntimeStatus"
-  /core/stop:
+  /nodes/{nodeId}/core/stop:
+    parameters:
+      - $ref: '#/components/parameters/NodeID'
     post:
       operationId: stopCoreRuntime
       parameters:
@@ -597,7 +626,9 @@ paths:
       responses:
         "200":
           $ref: "#/components/responses/RuntimeStatus"
-  /core/restart:
+  /nodes/{nodeId}/core/restart:
+    parameters:
+      - $ref: '#/components/parameters/NodeID'
     post:
       operationId: restartCoreRuntime
       parameters:
@@ -605,7 +636,9 @@ paths:
       responses:
         "200":
           $ref: "#/components/responses/RuntimeStatus"
-  /core/rollback:
+  /nodes/{nodeId}/core/rollback:
+    parameters:
+      - $ref: '#/components/parameters/NodeID'
     post:
       operationId: rollbackCoreRuntime
       parameters:
@@ -1230,11 +1263,13 @@ paths:
           $ref: '#/components/responses/Problem'
         "503":
           $ref: '#/components/responses/Problem'
-  /core/logs/files:
+  /nodes/{nodeId}/core/logs/files:
+    parameters:
+      - $ref: '#/components/parameters/NodeID'
     delete:
       operationId: deleteCoreLogFile
       summary: Delete one managed core output file outside the current UTC day
-      description: Deletes only the panel's captured copy, never the native log.output file. All segments from the current UTC day are protected. Cookie sessions require CSRF protection.
+      description: Deletes only the node's captured copy, never the native log.output file. All segments from the current UTC day are protected. Cookie sessions require CSRF protection.
       parameters:
         - $ref: '#/components/parameters/CSRFToken'
         - name: file
@@ -1268,7 +1303,9 @@ paths:
                 properties:
                   items: {type: array, items: {$ref: '#/components/schemas/CoreLogFile'}}
         default: {$ref: '#/components/responses/Problem'}
-  /core/logs/content:
+  /nodes/{nodeId}/core/logs/content:
+    parameters:
+      - $ref: '#/components/parameters/NodeID'
     delete:
       operationId: clearCoreLog
       summary: Clear the persisted contents of one managed core output file
@@ -1306,7 +1343,9 @@ paths:
             application/json:
               schema: {$ref: '#/components/schemas/CoreLogChunk'}
         default: {$ref: '#/components/responses/Problem'}
-  /core/logs/stream:
+  /nodes/{nodeId}/core/logs/stream:
+    parameters:
+      - $ref: '#/components/parameters/NodeID'
     get:
       operationId: streamCoreLog
       parameters:
@@ -1731,6 +1770,10 @@ components:
       name: nodeId
       in: path
       required: true
+      description: >-
+        The node. Operations that command it answer 503 node_offline while it
+        is disconnected, since commands are not queued, and 502
+        node_result_unknown when its session ends before it answers.
       schema: {type: string}
     ChannelID:
       name: channelId
@@ -1831,11 +1874,8 @@ components:
       description: Current management session.
       content: {application/json: {schema: {$ref: "#/components/schemas/Session"}}}
     SystemStatus:
-      description: Current control-plane status.
+      description: The panel's build and platform.
       content: {application/json: {schema: {$ref: "#/components/schemas/SystemStatus"}}}
-    DashboardContext:
-      description: Dashboard projection of durable and observed state.
-      content: {application/json: {schema: {$ref: "#/components/schemas/DashboardContext"}}}
     StartupArtifactPage:
       description: Page of immutable startup artifacts.
       content: {application/json: {schema: {$ref: "#/components/schemas/StartupArtifactPage"}}}
@@ -2048,7 +2088,7 @@ components:
           $ref: '#/components/schemas/AppearanceSettings'
     ConfigurationFile:
       type: object
-      description: The saved sing-box document. Panel startup initializes an absent document to {} at revision 1 and preserves existing saved text.
+      description: The saved sing-box document. Adding a node initializes its document to {} at revision 1.
       additionalProperties: false
       required: [revision, content, syntax_valid]
       properties:
@@ -2146,27 +2186,22 @@ components:
     PanelBackup:
       type: object
       additionalProperties: false
-      required: [format, version, exported_at, panel_settings, sing_box_configuration]
+      required: [format, version, exported_at, panel_settings]
       properties:
         format: {type: string, enum: [sing-box-panel-backup]}
-        version: {type: integer, enum: [2]}
+        version: {type: integer, enum: [3]}
         exported_at: {type: string, format: date-time}
         panel_settings:
           type: object
           additionalProperties: true
           description: Complete native setting.json, including credentials. Validated using the settings-file contract; at most 1 MiB.
-        sing_box_configuration:
-          type: string
-          description: Exact saved UTF-8 text, including incomplete JSON; at most 2 MiB in UTF-8.
-          maxLength: 2097152
     PanelRestoreRequest:
       type: object
       additionalProperties: false
-      required: [backup, settings_revision, configuration_revision]
+      required: [backup, settings_revision]
       properties:
         backup: {$ref: '#/components/schemas/PanelBackup'}
         settings_revision: {type: integer, format: int64, minimum: 0, maximum: 9007199254740991}
-        configuration_revision: {type: integer, format: int64, minimum: 0}
     PanelRestoreResult:
       type: object
       additionalProperties: false
@@ -2315,7 +2350,7 @@ components:
     SystemStatus:
       type: object
       additionalProperties: false
-      required: [panel_version, canonical_revision, applied_bundle_id, running, running_version, running_artifact, configuration_state]
+      required: [platform, panel_version]
       properties:
         platform:
           type: object
@@ -2325,62 +2360,6 @@ components:
             os: {type: string}
             arch: {type: string}
         panel_version: {type: string}
-        canonical_revision: {type: integer, format: int64}
-        applied_bundle_id: {type: [string, "null"]}
-        running: {type: boolean}
-        running_version: {type: [string, "null"]}
-        running_artifact: {type: [string, "null"]}
-        configuration_state: {type: string}
-    DashboardContext:
-      type: object
-      additionalProperties: false
-      required: [view, running, canonical, applied, configuration]
-      properties:
-        view:
-          type: object
-          additionalProperties: false
-          required: [exactVersion]
-          properties: {exactVersion: {type: string}}
-        running:
-          oneOf:
-            - type: "null"
-            - $ref: "#/components/schemas/DashboardRuntime"
-        canonical:
-          type: object
-          additionalProperties: false
-          required: [revision, savedAt, hasUnappliedChanges]
-          properties:
-            revision: {type: integer, format: int64}
-            savedAt: {type: string, format: date-time}
-            hasUnappliedChanges: {type: boolean}
-        applied:
-          oneOf:
-            - type: "null"
-            - $ref: "#/components/schemas/DashboardApplied"
-        configuration:
-          type: object
-          additionalProperties: false
-          required: [supported, label, warning]
-          properties:
-            supported: {type: boolean}
-            label: {type: string}
-            warning: {type: [string, "null"]}
-    DashboardRuntime:
-      type: object
-      additionalProperties: false
-      required: [exactVersion, artifactName, digest]
-      properties:
-        exactVersion: {type: string}
-        artifactName: {type: string}
-        digest: {type: string}
-    DashboardApplied:
-      type: object
-      additionalProperties: false
-      required: [bundle, revision, appliedAt]
-      properties:
-        bundle: {type: string}
-        revision: {type: integer, format: int64}
-        appliedAt: {type: string, format: date-time}
     CreatedAtCursor:
       type: object
       additionalProperties: false

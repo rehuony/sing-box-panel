@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/store"
+	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/testutil"
 )
 
 func TestInitializeConfigurationFileCreatesOnlyMissingDocument(t *testing.T) {
@@ -31,22 +32,23 @@ func TestInitializeConfigurationFileCreatesOnlyMissingDocument(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
+			nodeID := testutil.CreateNode(t, db, "edge")
 			t.Cleanup(func() { _ = db.Close() })
-			app := New(db)
+			app := New(db, nil)
 			if test.saved {
-				if _, err := app.SaveConfigurationFile(ctx, ConfigurationFileWrite{Content: test.content}); err != nil {
+				if _, err := app.SaveConfigurationFile(ctx, nodeID, ConfigurationFileWrite{Content: test.content}); err != nil {
 					t.Fatal(err)
 				}
 			}
-			before, err := db.ConfigurationFile(ctx)
+			before, err := db.ConfigurationFile(ctx, nodeID)
 			if err != nil {
 				t.Fatal(err)
 			}
 			for attempt := range 2 {
-				if err := app.InitializeConfigurationFile(ctx); err != nil {
+				if err := app.InitializeConfigurationFile(ctx, nodeID); err != nil {
 					t.Fatal(err)
 				}
-				after, err := db.ConfigurationFile(ctx)
+				after, err := db.ConfigurationFile(ctx, nodeID)
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -58,7 +60,7 @@ func TestInitializeConfigurationFileCreatesOnlyMissingDocument(t *testing.T) {
 					if after.Content != "{}" || after.Revision != 1 || after.CanonicalRevisionID == "" || after.UpdatedAt.IsZero() {
 						t.Fatalf("empty configuration was not persisted: %+v", after)
 					}
-					head, err := db.Head(ctx)
+					head, err := db.Head(ctx, nodeID)
 					if err != nil || head == nil || head.ID != after.CanonicalRevisionID || head.Sequence != 1 || string(head.Document) != "{}" {
 						t.Fatalf("initial canonical revision: %+v %v", head, err)
 					}
@@ -75,25 +77,26 @@ func TestInitializeConfigurationFilePreservesConcurrentSave(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	nodeID := testutil.CreateNode(t, db, "edge")
 	t.Cleanup(func() { _ = db.Close() })
-	app := New(db)
-	other := New(db)
+	app := New(db, nil)
+	other := New(db, nil)
 	var saved ConfigurationFile
 	readRandom := app.random
 	app.random = func(bytes []byte) (int, error) {
 		if saved.Revision == 0 {
 			var err error
-			saved, err = other.SaveConfigurationFile(ctx, ConfigurationFileWrite{Content: "{\n"})
+			saved, err = other.SaveConfigurationFile(ctx, nodeID, ConfigurationFileWrite{Content: "{\n"})
 			if err != nil {
 				t.Fatal(err)
 			}
 		}
 		return readRandom(bytes)
 	}
-	if err := app.InitializeConfigurationFile(ctx); err != nil {
+	if err := app.InitializeConfigurationFile(ctx, nodeID); err != nil {
 		t.Fatal(err)
 	}
-	file, err := app.ConfigurationFile(ctx)
+	file, err := app.ConfigurationFile(ctx, nodeID)
 	if err != nil || !reflect.DeepEqual(file, saved) {
 		t.Fatalf("concurrent save was replaced: got=%+v want=%+v err=%v", file, saved, err)
 	}
@@ -105,14 +108,15 @@ func TestInitializeConfigurationFilePropagatesSaveFailure(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	nodeID := testutil.CreateNode(t, db, "edge")
 	t.Cleanup(func() { _ = db.Close() })
-	app := New(db)
+	app := New(db, nil)
 	want := errors.New("random source unavailable")
 	app.random = func([]byte) (int, error) { return 0, want }
-	if err := app.InitializeConfigurationFile(ctx); !errors.Is(err, want) {
+	if err := app.InitializeConfigurationFile(ctx, nodeID); !errors.Is(err, want) {
 		t.Fatalf("initialization error=%v, want %v", err, want)
 	}
-	file, err := app.ConfigurationFile(ctx)
+	file, err := app.ConfigurationFile(ctx, nodeID)
 	if err != nil || file.Revision != 0 || file.CanonicalRevisionID != "" {
 		t.Fatalf("failed initialization saved configuration: %+v %v", file, err)
 	}
@@ -125,26 +129,27 @@ func TestConfigurationFilePreservesInvalidTextAndRuntimeSnapshots(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
+	nodeID := testutil.CreateNode(t, db, "edge")
 	defer db.Close()
-	app := New(db)
-	initial, err := app.SaveConfigurationFile(ctx, ConfigurationFileWrite{Content: `{"x":9007199254740993}`})
+	app := New(db, nil)
+	initial, err := app.SaveConfigurationFile(ctx, nodeID, ConfigurationFileWrite{Content: `{"x":9007199254740993}`})
 	if err != nil {
 		t.Fatal(err)
 	}
-	file, err := app.ConfigurationFile(ctx)
+	file, err := app.ConfigurationFile(ctx, nodeID)
 	if err != nil || file.CanonicalRevisionID != initial.CanonicalRevisionID || file.Revision != 1 {
 		t.Fatalf("initial: %+v %v", file, err)
 	}
 	raw := "{\n  \"x\": 9007199254740993,\n"
-	saved, err := app.SaveConfigurationFile(ctx, ConfigurationFileWrite{Revision: file.Revision, Content: raw})
+	saved, err := app.SaveConfigurationFile(ctx, nodeID, ConfigurationFileWrite{Revision: file.Revision, Content: raw})
 	if err != nil || saved.Content != raw || saved.SyntaxValid || saved.CanonicalRevisionID != "" {
 		t.Fatalf("invalid save: %+v %v", saved, err)
 	}
-	head, err := db.Head(ctx)
+	head, err := db.Head(ctx, nodeID)
 	if err != nil || head.ID != initial.CanonicalRevisionID {
 		t.Fatalf("immutable history changed: %+v %v", head, err)
 	}
-	if _, err := app.SaveConfigurationFile(ctx, ConfigurationFileWrite{Revision: file.Revision, Content: "{}"}); !errors.Is(err, store.ErrConfigurationFileConflict) {
+	if _, err := app.SaveConfigurationFile(ctx, nodeID, ConfigurationFileWrite{Revision: file.Revision, Content: "{}"}); !errors.Is(err, store.ErrConfigurationFileConflict) {
 		t.Fatalf("CAS: %v", err)
 	}
 	db2, err := store.Open(ctx, path)
@@ -152,24 +157,24 @@ func TestConfigurationFilePreservesInvalidTextAndRuntimeSnapshots(t *testing.T) 
 		t.Fatal(err)
 	}
 	defer db2.Close()
-	reloaded, err := New(db2).ConfigurationFile(ctx)
+	reloaded, err := New(db2, nil).ConfigurationFile(ctx, nodeID)
 	if err != nil || reloaded.Content != raw || reloaded.Revision != saved.Revision {
 		t.Fatalf("reload: %+v %v", reloaded, err)
 	}
 	corrected := "{\n  \"x\": 9007199254740993\n}\n"
-	fixed, err := app.SaveConfigurationFile(ctx, ConfigurationFileWrite{Revision: saved.Revision, Content: corrected})
+	fixed, err := app.SaveConfigurationFile(ctx, nodeID, ConfigurationFileWrite{Revision: saved.Revision, Content: corrected})
 	if err != nil || !fixed.SyntaxValid || fixed.Content != corrected || fixed.CanonicalRevisionID != initial.CanonicalRevisionID {
 		t.Fatalf("correction: %+v %v", fixed, err)
 	}
-	noChange, err := app.SaveConfigurationFile(ctx, ConfigurationFileWrite{Revision: fixed.Revision, Content: corrected})
+	noChange, err := app.SaveConfigurationFile(ctx, nodeID, ConfigurationFileWrite{Revision: fixed.Revision, Content: corrected})
 	if err != nil || noChange.Revision != fixed.Revision {
 		t.Fatalf("no change: %+v %v", noChange, err)
 	}
-	replaced, err := app.SaveConfigurationFile(ctx, ConfigurationFileWrite{Revision: fixed.Revision, Content: `{"x":9007199254740994}`})
+	replaced, err := app.SaveConfigurationFile(ctx, nodeID, ConfigurationFileWrite{Revision: fixed.Revision, Content: `{"x":9007199254740994}`})
 	if err != nil {
 		t.Fatal(err)
 	}
-	file, err = app.ConfigurationFile(ctx)
+	file, err = app.ConfigurationFile(ctx, nodeID)
 	if err != nil || file.CanonicalRevisionID != replaced.CanonicalRevisionID || file.Revision != fixed.Revision+1 {
 		t.Fatalf("saved snapshot: %+v %v", file, err)
 	}
@@ -181,13 +186,14 @@ func TestConfigurationFileConcurrentSavesHaveOneWinner(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	nodeID := testutil.CreateNode(t, db, "edge")
 	defer db.Close()
-	app := New(db)
+	app := New(db, nil)
 	var wg sync.WaitGroup
 	errorsByWriter := make([]error, 2)
 	for i := range 2 {
 		wg.Go(func() {
-			_, errorsByWriter[i] = app.SaveConfigurationFile(ctx, ConfigurationFileWrite{Content: []string{"{", "["}[i]})
+			_, errorsByWriter[i] = app.SaveConfigurationFile(ctx, nodeID, ConfigurationFileWrite{Content: []string{"{", "["}[i]})
 		})
 	}
 	wg.Wait()

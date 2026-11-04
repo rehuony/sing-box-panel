@@ -51,6 +51,8 @@ func TestReleaseConfigurationFileContractSurvivesReopen(t *testing.T) {
 		return database, newTestHandler(t, HandlerOptions{Settings: value, Services: newTestServices(t, database, value)})
 	}
 	database, handler := open()
+	nodeID := testutil.CreateNode(t, database, "edge")
+	target := "/api/v1/nodes/" + nodeID + "/config/file"
 	var expectedRevision int64
 	var history store.CanonicalRevision
 	for _, content := range []string{string(fixture), "{\n  \"log\": ", string(fixture)} {
@@ -58,7 +60,7 @@ func TestReleaseConfigurationFileContractSurvivesReopen(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		response := serveConformingRequest(t, router, handler, http.MethodPut, "/api/v1/config/file", string(body), http.StatusOK, true, nil)
+		response := serveConformingRequest(t, router, handler, http.MethodPut, target, string(body), http.StatusOK, true, nil)
 		var saved nodeconfig.ConfigurationFile
 		if err := json.Unmarshal(response.Body.Bytes(), &saved); err != nil {
 			t.Fatal(err)
@@ -68,12 +70,12 @@ func TestReleaseConfigurationFileContractSurvivesReopen(t *testing.T) {
 		if saved.Revision != expectedRevision || saved.Content != content || saved.SyntaxValid != valid || (saved.CanonicalRevisionID != "") != valid {
 			t.Fatalf("file save changed text or state at revision %d", expectedRevision)
 		}
-		serveConformingRequest(t, router, handler, http.MethodPut, "/api/v1/config/file", string(body), http.StatusPreconditionFailed, true, nil)
+		serveConformingRequest(t, router, handler, http.MethodPut, target, string(body), http.StatusPreconditionFailed, true, nil)
 		if err := database.Close(); err != nil {
 			t.Fatal(err)
 		}
 		database, handler = open()
-		response = serveConformingRequest(t, router, handler, http.MethodGet, "/api/v1/config/file", "", http.StatusOK, true, nil)
+		response = serveConformingRequest(t, router, handler, http.MethodGet, target, "", http.StatusOK, true, nil)
 		var persisted nodeconfig.ConfigurationFile
 		if err := json.Unmarshal(response.Body.Bytes(), &persisted); err != nil {
 			t.Fatal(err)
@@ -81,7 +83,7 @@ func TestReleaseConfigurationFileContractSurvivesReopen(t *testing.T) {
 		if !reflect.DeepEqual(persisted, saved) {
 			t.Fatalf("editable file changed after reopening at revision %d", expectedRevision)
 		}
-		current, err := database.Head(t.Context())
+		current, err := database.Head(t.Context(), nodeID)
 		if err != nil || current == nil {
 			t.Fatalf("runtime snapshot: %v", err)
 		}

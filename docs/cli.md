@@ -296,8 +296,11 @@ enroll` generates the node's Ed25519 key and saves it with the enrollment in
 `enrollment.json` (mode 0600) in its data directory, `--data-dir`, which
 defaults to `/var/lib/sing-box-node` for root and
 `$XDG_DATA_HOME/sing-box-node` otherwise. `sing-box-node run` dials the panel,
-authenticates the session with that key and reconnects with backoff until it
-is stopped. A node shows `pending` until it enrolls, then `online` while it
+authenticates the session with that key, carries out the panel's commands and
+reconnects with backoff until it is stopped. The node keeps `node.db`, its
+installed cores in `artifacts/`, disposable configurations in `runtime/` and
+its core logs in `logs/core/` in the same data directory, and runs the managed
+sing-box with `runtime/` as its working directory. A node shows `pending` until it enrolls, then `online` while it
 holds a session and `offline` otherwise. Removing a node, or enrolling it
 again, ends its current session.
 

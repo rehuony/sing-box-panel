@@ -2,8 +2,14 @@
 package store
 
 import (
+	"bytes"
 	"encoding/json"
+	"errors"
+	"fmt"
+	"strings"
 	"time"
+
+	"github.com/rehuony/sing-box-panel/internal/jsonstrict"
 )
 
 type rowScanner interface {
@@ -47,4 +53,42 @@ func CloneTime(value *time.Time) *time.Time {
 	}
 	clone := *value
 	return &clone
+}
+
+func compactJSON(value json.RawMessage, defaultValue string) (json.RawMessage, error) {
+	if len(value) == 0 {
+		value = json.RawMessage(defaultValue)
+	}
+	if !json.Valid(value) {
+		return nil, errors.New("invalid JSON")
+	}
+	var compacted bytes.Buffer
+	if err := json.Compact(&compacted, value); err != nil {
+		return nil, fmt.Errorf("compact JSON: %w", err)
+	}
+	return append(json.RawMessage(nil), compacted.Bytes()...), nil
+}
+
+func validProcessStartToken(value string) bool {
+	return value != "" && len(value) <= 128 && strings.TrimSpace(value) == value && !strings.ContainsAny(value, "\x00\r\n")
+}
+
+func canonicalJSONObject(value json.RawMessage, fallback string) (json.RawMessage, error) {
+	object, err := jsonstrict.CanonicalObject(value, fallback, 4<<20)
+	if err != nil {
+		return nil, errors.New("value must be one strict JSON object")
+	}
+	return object, nil
+}
+
+func canonicalJSONArrayWithLimit(value json.RawMessage, fallback string, maximum int64) (json.RawMessage, error) {
+	if len(value) == 0 {
+		value = json.RawMessage(fallback)
+	}
+	var array []any
+	if err := jsonstrict.Decode(value, maximum, &array); err != nil || array == nil {
+		return nil, errors.New("value must be one strict JSON array")
+	}
+	encoded, err := json.Marshal(array)
+	return bytes.Clone(encoded), err
 }

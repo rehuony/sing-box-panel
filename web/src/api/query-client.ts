@@ -28,11 +28,11 @@ export function retryableRead(error: unknown): boolean {
 }
 
 type QueryRoot
-  = | 'catalog' | 'channels' | 'context' | 'coreLogFiles' | 'installed' | 'nodes'
-    | 'runtime' | 'schema' | 'settings' | 'sources' | 'system' | 'tokens' | 'users';
+  = | 'catalog' | 'channels' | 'coreLogFiles' | 'installed' | 'nodes'
+    | 'runtime' | 'schema' | 'settings' | 'sources' | 'tokens' | 'users';
 
-const runtimeChange: readonly QueryRoot[] = ['runtime', 'system', 'context', 'nodes', 'installed'];
-const coreArtifactChange: readonly QueryRoot[] = ['installed', 'schema', 'system', 'context'];
+const runtimeChange: readonly QueryRoot[] = ['runtime', 'nodes', 'installed'];
+const coreArtifactChange: readonly QueryRoot[] = ['installed', 'schema'];
 const sourceChange: readonly QueryRoot[] = ['sources', 'nodes', 'channels'];
 const nodeChange: readonly QueryRoot[] = ['nodes', 'channels'];
 const userChange: readonly QueryRoot[] = ['users', 'tokens'];
@@ -76,8 +76,7 @@ const invalidations: Partial<Record<keyof ApiClient, readonly QueryRoot[]>> = {
   replaceSubscriptionUserGrants: userChange,
   clearCoreLog: ['coreLogFiles'],
   deleteCoreLogFile: ['coreLogFiles'],
-  saveConfigurationFile: ['context', 'system'],
-  savePanelSettings: ['system', 'context', 'nodes', 'settings'],
+  savePanelSettings: ['nodes', 'settings'],
 };
 
 function affectedQueries(method: string): readonly QueryRoot[] {

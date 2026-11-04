@@ -4,11 +4,9 @@
 package httpapi
 
 import (
-	"context"
 	"io/fs"
 	"net/http"
 	"strings"
-	"time"
 	"unicode/utf8"
 
 	"github.com/rehuony/sing-box-panel/internal/buildinfo"
@@ -23,20 +21,10 @@ const (
 	sessionCookie     = "sbp_session"
 )
 
-type StatusProvider interface {
-	SystemStatus(context.Context) (SystemStatus, error)
-	DashboardContext(context.Context) (DashboardContext, error)
-}
-
+// SystemStatus describes the panel's own build and platform.
 type SystemStatus struct {
-	Platform           SystemPlatform `json:"platform"`
-	PanelVersion       string         `json:"panel_version"`
-	CanonicalRevision  int64          `json:"canonical_revision"`
-	AppliedBundleID    *string        `json:"applied_bundle_id"`
-	Running            bool           `json:"running"`
-	RunningVersion     *string        `json:"running_version"`
-	RunningArtifact    *string        `json:"running_artifact"`
-	ConfigurationState string         `json:"configuration_state"`
+	Platform     SystemPlatform `json:"platform"`
+	PanelVersion string         `json:"panel_version"`
 }
 
 // Platform describes the deployed panel binary, never the browser's machine.
@@ -45,47 +33,10 @@ type SystemPlatform struct {
 	Arch string `json:"arch"`
 }
 
-type DashboardContext struct {
-	View          DashboardView          `json:"view"`
-	Running       *DashboardRuntime      `json:"running"`
-	Canonical     DashboardCanonical     `json:"canonical"`
-	Applied       *DashboardApplied      `json:"applied"`
-	Configuration DashboardConfiguration `json:"configuration"`
-}
-
-type DashboardView struct {
-	ExactVersion string `json:"exactVersion"`
-}
-
-type DashboardRuntime struct {
-	ExactVersion string `json:"exactVersion"`
-	ArtifactName string `json:"artifactName"`
-	Digest       string `json:"digest"`
-}
-
-type DashboardCanonical struct {
-	Revision            int64     `json:"revision"`
-	SavedAt             time.Time `json:"savedAt"`
-	HasUnappliedChanges bool      `json:"hasUnappliedChanges"`
-}
-
-type DashboardApplied struct {
-	Bundle    string    `json:"bundle"`
-	Revision  int64     `json:"revision"`
-	AppliedAt time.Time `json:"appliedAt"`
-}
-
-type DashboardConfiguration struct {
-	Supported bool    `json:"supported"`
-	Label     string  `json:"label"`
-	Warning   *string `json:"warning"`
-}
-
 type HandlerOptions struct {
 	Settings settings.Settings
 	Build    buildinfo.Info
 	Assets   fs.FS
-	Status   StatusProvider
 	Services app.Services
 }
 
@@ -93,7 +44,6 @@ type Handler struct {
 	settings settings.Settings
 	build    buildinfo.Info
 	logins   *loginLimiter
-	status   StatusProvider
 	services app.Services
 	assetFS  fs.FS
 	assets   http.Handler
@@ -108,7 +58,6 @@ func NewHandler(options HandlerOptions) *Handler {
 		settings: options.Settings,
 		build:    options.Build,
 		logins:   newLoginLimiter(),
-		status:   options.Status,
 		services: options.Services,
 		assetFS:  options.Assets,
 		assets:   assets,
@@ -166,8 +115,6 @@ func (handler *Handler) ServeHTTP(w http.ResponseWriter, request *http.Request) 
 		handler.authenticated(handler.logout)(w, request)
 	case request.Method == http.MethodGet && path == "/api/v1/system/status":
 		handler.authenticated(handler.systemStatus)(w, request)
-	case request.Method == http.MethodGet && path == "/api/v1/dashboard/context":
-		handler.authenticated(handler.dashboardContext)(w, request)
 	case handler.handleApplicationRoute(w, request, path):
 		return
 	case strings.HasPrefix(path, "/api/"):
