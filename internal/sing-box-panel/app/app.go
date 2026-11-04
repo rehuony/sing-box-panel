@@ -8,8 +8,10 @@ package app
 import (
 	"context"
 
+	"github.com/rehuony/sing-box-panel/internal/buildinfo"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/auth"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/corecache"
+	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/fleet"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/localnode"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/nodeconfig"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/settings"
@@ -26,11 +28,14 @@ type Services struct {
 	Cores         *corecache.Service
 	Subscriptions *subscription.Service
 	Telemetry     *telemetry.Service
+	Fleet         *fleet.Service
 	Node          *localnode.Node
 }
 
 // Options adjusts the composition.
 type Options struct {
+	// Build is the panel's build, reported to nodes.
+	Build buildinfo.Info
 	// Observe receives every recorded panel log entry, such as for console
 	// output.
 	Observe func(store.LogEntry)
@@ -59,6 +64,7 @@ func New(database *store.Store, configuration settings.Settings, options Options
 		Cores:         cores,
 		Subscriptions: subscription.New(database, panelSettings, records, subscription.Options{PublicIP: publicIP, PublicIPCache: publicIPCache}),
 		Telemetry:     records,
+		Fleet:         fleet.New(database, panelSettings, records, fleet.Options{Build: options.Build}),
 		Node:          node,
 	}
 }

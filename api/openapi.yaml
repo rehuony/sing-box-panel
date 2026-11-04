@@ -619,6 +619,98 @@ paths:
       responses:
         "200":
           $ref: "#/components/responses/RuntimeStatus"
+  /nodes:
+    get:
+      operationId: listNodes
+      description: Registered nodes with their enrollment and session state.
+      responses:
+        "200":
+          description: Nodes ordered by name.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/NodePage'}
+    post:
+      operationId: createNode
+      description: >-
+        Registers a node and returns its one-time enrollment code, which the
+        node redeems with sing-box-node enroll. Responses are no-store.
+      parameters:
+        - $ref: '#/components/parameters/CSRFToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/NodeNameRequest'}
+      responses:
+        "201":
+          $ref: '#/components/responses/NodeEnrollment'
+        "409":
+          $ref: '#/components/responses/Problem'
+        "422":
+          $ref: '#/components/responses/Problem'
+  /nodes/{nodeId}:
+    parameters:
+      - $ref: '#/components/parameters/NodeID'
+    get:
+      operationId: getNode
+      responses:
+        "200":
+          description: The node.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Node'}
+        "404":
+          $ref: '#/components/responses/Problem'
+    put:
+      operationId: updateNode
+      description: Renames the node.
+      parameters:
+        - $ref: '#/components/parameters/CSRFToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/NodeNameRequest'}
+      responses:
+        "200":
+          description: The renamed node.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Node'}
+        "404":
+          $ref: '#/components/responses/Problem'
+        "409":
+          $ref: '#/components/responses/Problem'
+        "422":
+          $ref: '#/components/responses/Problem'
+    delete:
+      operationId: deleteNode
+      description: Removes the node and its key and ends its session.
+      parameters:
+        - $ref: '#/components/parameters/CSRFToken'
+      responses:
+        "204":
+          $ref: '#/components/responses/NoContent'
+        "404":
+          $ref: '#/components/responses/Problem'
+  /nodes/{nodeId}/enrollment:
+    parameters:
+      - $ref: '#/components/parameters/NodeID'
+    post:
+      operationId: createNodeEnrollment
+      description: >-
+        Issues a new one-time enrollment code for the node. Enrolling with it
+        replaces the node's key and ends its session; the current key stays
+        valid until then. Responses are no-store.
+      parameters:
+        - $ref: '#/components/parameters/CSRFToken'
+      responses:
+        "201":
+          $ref: '#/components/responses/NodeEnrollment'
+        "404":
+          $ref: '#/components/responses/Problem'
+        "409":
+          $ref: '#/components/responses/Problem'
   /subscription/nodes:
     get:
       operationId: listSubscriptionNodes
@@ -1839,6 +1931,11 @@ components:
       content: {application/json: {schema: {$ref: "#/components/schemas/TrafficPeriod"}}}
     NoContent:
       description: Operation completed without a response body.
+    NodeEnrollment:
+      description: The node and its one-time enrollment code. Never cached.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/NodeEnrollment'}
     Problem:
       description: RFC 9457 problem response.
       content:
@@ -1982,6 +2079,70 @@ components:
         content:
           type: string
           maxLength: 2097152
+    Node:
+      type: object
+      additionalProperties: false
+      required: [id, name, state, created_at, enrolled_at, last_seen_at, hostname, os, arch, build_version]
+      properties:
+        id: {type: string}
+        name: {type: string, minLength: 1, maxLength: 64}
+        state:
+          type: string
+          enum: [pending, online, offline]
+          description: pending until the node first enrolls; online while it holds an authenticated session.
+        created_at: {type: string, format: date-time}
+        enrolled_at:
+          type: [string, "null"]
+          format: date-time
+        last_seen_at:
+          type: [string, "null"]
+          format: date-time
+        hostname:
+          type: string
+          description: Reported by the node when it enrolls.
+        os:
+          type: string
+          description: The node host's GOOS, reported in its latest session.
+        arch:
+          type: string
+          description: The node host's GOARCH, reported in its latest session.
+        build_version:
+          type: string
+          description: The node's build version, reported in its latest session.
+    NodePage:
+      type: object
+      additionalProperties: false
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: {$ref: '#/components/schemas/Node'}
+    NodeNameRequest:
+      type: object
+      additionalProperties: false
+      required: [name]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 64
+          description: Unique ignoring case; no control characters or surrounding spaces.
+    NodeEnrollment:
+      type: object
+      additionalProperties: false
+      required: [node, code, command, expires_at]
+      properties:
+        node: {$ref: '#/components/schemas/Node'}
+        code:
+          type: string
+          description: >-
+            One-time code naming the panel endpoint and base path, how to trust it
+            and the enrollment token. Shown once; the panel keeps only a hash
+            of the token.
+        command:
+          type: string
+          description: The command that enrolls the node with this code.
+        expires_at: {type: string, format: date-time}
     PanelBackup:
       type: object
       additionalProperties: false

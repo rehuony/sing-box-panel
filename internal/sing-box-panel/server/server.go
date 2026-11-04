@@ -17,6 +17,7 @@ import (
 	"github.com/rehuony/sing-box-panel/internal/console"
 	"github.com/rehuony/sing-box-panel/internal/procctl"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/app"
+	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/fleet"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/httpapi"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/installation"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/settings"
@@ -97,7 +98,7 @@ func Run(ctx context.Context, settingsPath string, build buildinfo.Info, assets 
 		return errors.New("settings changed data directory during startup; restart with a stable settings file")
 	}
 	output := console.FromContext(ctx)
-	services = app.New(database, configuration, app.Options{Observe: func(entry store.LogEntry) { output.Event(entry.Time, string(entry.Level), entry.Code, entry.Message) }})
+	services = app.New(database, configuration, app.Options{Build: build, Observe: func(entry store.LogEntry) { output.Event(entry.Time, string(entry.Level), entry.Code, entry.Message) }})
 	if err := services.Configs.InitializeConfigurationFile(ctx); err != nil {
 		return startupError(ctx, "initialize sing-box configuration", err)
 	}
@@ -181,6 +182,15 @@ func Run(ctx context.Context, settingsPath string, build buildinfo.Info, assets 
 		IdleTimeout:       idleTimeout,
 		MaxHeaderBytes:    maxHeaderBytes,
 	}
+	// Node sessions share the Web listener; see fleet.SplitListener.
+	webListener, nodeListeners := fleet.SplitListener(listener)
+	fleetContext, stopFleet := context.WithCancel(ctx)
+	fleetResult := make(chan error, 1)
+	go func() { fleetResult <- services.Fleet.Serve(fleetContext, nodeListeners) }()
+	defer func() {
+		stopFleet()
+		runErr = errors.Join(runErr, <-fleetResult)
+	}()
 	subscriptionContext, stopSubscriptions := context.WithCancel(ctx)
 	subscriptionDone := startSubscriptionRefresh(subscriptionContext, services.Subscriptions, records)
 	defer func() { stopSubscriptions(); <-subscriptionDone }()
@@ -195,7 +205,7 @@ func Run(ctx context.Context, settingsPath string, build buildinfo.Info, assets 
 	})
 	serveResult := make(chan error, 1)
 	go func() {
-		serveResult <- httpServer.Serve(listener)
+		serveResult <- httpServer.Serve(webListener)
 	}()
 	control.Ready(listener.Addr().String())
 	output.Ready("http://"+listener.Addr().String()+configuration.Server.BasePath+"/", settingsPath, configuration.DataDir)
@@ -207,6 +217,16 @@ func Run(ctx context.Context, settingsPath string, build buildinfo.Info, assets 
 			return nil
 		}
 		return fmt.Errorf("serve panel HTTP server: %w", err)
+	case err := <-fleetResult:
+		// Report the node service failure once; the deferred wait must not
+		// block on a result that was already received.
+		fleetResult <- nil
+		cancel()
+		stopErr := stopHTTPServer(httpServer, serveResult)
+		if err == nil {
+			return stopErr
+		}
+		return errors.Join(fmt.Errorf("serve node connections: %w", err), stopErr)
 	case <-ctx.Done():
 		return stopHTTPServer(httpServer, serveResult)
 	}

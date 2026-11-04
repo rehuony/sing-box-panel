@@ -14,6 +14,7 @@ sing-box-panel
 ├─ server start | stop | status
 ├─ systemd install | uninstall | status | start | stop | restart | logs
 ├─ config init | show | get | set | verify
+├─ node add | list | enroll | rename | remove
 └─ completion bash | zsh | fish
 ```
 
@@ -265,6 +266,40 @@ workflows to the Web UI, and regenerate shell completions after upgrading.
 The Web editor continues to
 store exact sing-box text in SQLite with revision conflict detection; this
 change does not create a separately editable sing-box file on disk.
+
+## Nodes
+
+`node` commands manage the nodes this panel controls. They open the panel
+database directly and work while the panel server runs. `NODE` is a node ID or
+a node name, which is unique ignoring case.
+
+```sh
+sing-box-panel node add edge-1      # register a node; prints its enrollment command
+sing-box-panel node list            # name, state, ID and last session time
+sing-box-panel node enroll edge-1   # issue a new code; using it replaces the node's key
+sing-box-panel node rename edge-1 edge-tokyo
+sing-box-panel node remove edge-tokyo
+```
+
+`add` and `enroll` print a one-time command, valid for one hour, to run on the
+node host:
+
+```sh
+sing-box-node enroll --code sbp1....
+sing-box-node run
+```
+
+The code names the panel endpoint and base path, how the node trusts it and a
+one-time token; the panel keeps only a hash of the token. See
+[Nodes](configuration-and-runtime.md#nodes) for how the panel derives them. `sing-box-node
+enroll` generates the node's Ed25519 key and saves it with the enrollment in
+`enrollment.json` (mode 0600) in its data directory, `--data-dir`, which
+defaults to `/var/lib/sing-box-node` for root and
+`$XDG_DATA_HOME/sing-box-node` otherwise. `sing-box-node run` dials the panel,
+authenticates the session with that key and reconnects with backoff until it
+is stopped. A node shows `pending` until it enrolls, then `online` while it
+holds a session and `offline` otherwise. Removing a node, or enrolling it
+again, ends its current session.
 
 ## Foreground panel control
 

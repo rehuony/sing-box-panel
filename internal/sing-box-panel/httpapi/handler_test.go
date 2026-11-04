@@ -51,7 +51,7 @@ func testHandler(t *testing.T) *Handler {
 
 func TestRemovedConfigurationRoutesAreNotExposed(t *testing.T) {
 	handler := testHandler(t)
-	for _, path := range []string{"/api/v1/nodes", "/api/v1/config/canonical", "/api/v1/config/revisions", "/api/v1/config/revisions/diff", "/api/v1/config/revisions/old/restore"} {
+	for _, path := range []string{"/api/v1/config/canonical", "/api/v1/config/revisions", "/api/v1/config/revisions/diff", "/api/v1/config/revisions/old/restore"} {
 		for _, method := range []string{http.MethodGet, http.MethodPut, http.MethodPatch, http.MethodPost} {
 			response := authenticatedRequest(t, handler, method, path, "", "")
 			if response.Code != http.StatusNotFound {

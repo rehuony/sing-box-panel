@@ -434,6 +434,8 @@ only when its settings omit the removed fields; no migration is performed.
 | `server.host` / `server.port` | Listener host / port | `127.0.0.1` / `3000` |
 | `server.external_origin` | External origin | Empty |
 | `server.base_path` | Base path | Empty |
+| `nodes.endpoint` | File only | Empty; derived from the server settings |
+| `nodes.trust` | File only | Empty; derived from the server settings |
 | `data_dir` | Data directory (absolute path) | Root or XDG data directory |
 | `auth.email` | Administrator email | `admin@example.com` |
 | `auth.password_hash` | Password (hash stored only) | Argon2id hash of a random password |
@@ -452,6 +454,72 @@ only when its settings omit the removed fields; no migration is performed.
 | `panel.appearance.color` | Color | `#6D4ED1` |
 | `panel.appearance.radius` | Radius | `12` |
 
+### Nodes
+
+Nodes connect to the same `server.host:server.port` as the Web application;
+the panel opens no other port. The node service sits under `server.base_path`:
+with base path `/panel`, nodes call `/panel/sbp.node.v1.NodeService/Connect`.
+The panel tells connections apart by their first bytes:
+
+| Connection opens with | Typical sender | Goes to |
+| --- | --- | --- |
+| A TLS handshake | A node dialing the panel directly | The node service, with the panel's self-signed certificate |
+| The HTTP/2 cleartext preface, from loopback | A reverse proxy on the panel host using `grpc_pass grpc://` | The node service |
+| The HTTP/2 cleartext preface, from any other peer | — | Closed, so node traffic never crosses a network unencrypted |
+| Anything else | A browser or `proxy_pass` | The Web application |
+
+Enrollment codes name the endpoint, base path and trust mode that nodes use:
+
+- The endpoint is `nodes.endpoint`, else the host and port of an HTTPS
+  `server.external_origin` (port 443 by default), else `server.host:server.port`.
+  Set one of the first two when `server.host` is an unspecified address such as
+  `0.0.0.0`.
+- The trust mode is `nodes.trust`, else `system` when the endpoint comes from an
+  HTTPS external origin, else `pin`. With `pin`, nodes pin the public key of the
+  panel's self-signed certificate; with `system`, they verify the endpoint's
+  certificate with the system's certificate authorities. `system` needs
+  `nodes.endpoint` or an HTTPS external origin.
+
+Nodes keep the endpoint, path and trust mode from their enrollment. Changing
+the external origin, base path or listener address therefore requires
+enrolling nodes again with new codes.
+
+#### Behind Nginx
+
+With a publicly trusted certificate on Nginx, set `server.external_origin` to
+the public HTTPS origin; nodes then dial it with system trust and need no other
+node setting. Route the node service to the panel with `grpc_pass` and the Web
+application with `proxy_pass`, for example with `server.base_path` set to
+`/panel`:
+
+```nginx
+server {
+    listen 443 ssl;
+    http2 on;    # gRPC needs HTTP/2; before Nginx 1.25.1 write "listen 443 ssl http2;"
+    server_name www.example.com;
+    ssl_certificate     /etc/letsencrypt/live/www.example.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/www.example.com/privkey.pem;
+
+    location /panel/sbp.node.v1.NodeService/ {
+        grpc_pass grpc://127.0.0.1:3000;
+        # Node sessions stay open; Nginx closes a stream that carries no
+        # data for longer than these timeouts, after which the node reconnects.
+        grpc_read_timeout 1h;
+        grpc_send_timeout 1h;
+    }
+    location /panel/ {
+        proxy_pass http://127.0.0.1:3000;
+    }
+}
+```
+
+The `grpc_pass` location must be the longer prefix so it wins over the Web
+location. Without a base path, use `location /sbp.node.v1.NodeService/` and
+`location /`. Keep the existing Web proxy settings, such as those in
+[reverse proxy streaming](subscriptions-and-observability.md#reverse-proxy-streaming).
+A proxy on another host must reach the panel over TLS instead, with
+`grpc_pass grpcs://`.
+
 `data_dir` remains the common root: ordinary users default to
 `$XDG_DATA_HOME/sing-box-panel` (or `~/.local/share/sing-box-panel`), and root
 defaults to `/var/lib/sing-box-panel`. A relative `data_dir` resolves beside
@@ -460,7 +528,8 @@ are not duplicated as independent settings:
 
 ```text
 data_dir/
-  panel.db                # product state, metrics and panel logs
+  panel.db                # product state, nodes, metrics and panel logs
+  node-tls.pem            # key and self-signed certificate for direct node connections (0600)
   artifacts/              # installed sing-box cores
   runtime/configs/        # disposable snapshots held by checks and processes
   imports/                # temporary core uploads

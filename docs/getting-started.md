@@ -54,8 +54,8 @@ configuration, or subscription data.
 ### Database compatibility
 
 The panel database uses SQLite `application_id = 0x53425034` and storage schema
-version 18, defined in `internal/sing-box-panel/store/schema.sql`. Empty databases are
-initialized directly. Version 18 is the storage baseline and has no upgrade path:
+version 19, defined in `internal/sing-box-panel/store/schema.sql`. Empty databases are
+initialized directly. Version 19 is the storage baseline and has no upgrade path:
 databases written by earlier versions, unidentified databases, other application
 identities and newer schemas are rejected without changing their data. Use a
 fresh data directory when the stored schema is older. The panel never deletes an

@@ -156,7 +156,7 @@ func TestRootCompletionOnlyOffersPanelMaintenanceCommands(t *testing.T) {
 				name, _, _ := strings.Cut(line, "\t")
 				names = append(names, name)
 			}
-			want := "completion config help init server system systemd update version"
+			want := "completion config help init node server system systemd update version"
 			if got := strings.Join(names, " "); got != want {
 				t.Fatalf("completion names = %q, want %q", got, want)
 			}

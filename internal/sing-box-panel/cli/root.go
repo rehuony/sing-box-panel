@@ -72,6 +72,7 @@ func NewRootCommand(deps Dependencies) *cobra.Command {
 		newUpdateCommand(state, deps.Build, deps.Update),
 		newServerCommand(state, deps.RunServer),
 		newConfigCommand(state),
+		newNodeCommand(state),
 		newSystemCommand(state, systemdService),
 		newSystemdCommand(state, systemdService),
 		newCompletionCommand(root),

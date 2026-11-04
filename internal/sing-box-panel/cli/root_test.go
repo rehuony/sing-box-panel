@@ -370,6 +370,7 @@ var visibleLeafCapabilities = []string{
 	"init", "version", "update",
 	"server start", "server stop", "server status",
 	"config init", "config show", "config get", "config set", "config verify",
+	"node add", "node list", "node enroll", "node rename", "node remove",
 	"system df", "system prune",
 	"systemd install", "systemd uninstall", "systemd status", "systemd start", "systemd stop", "systemd restart", "systemd logs",
 	"completion bash", "completion zsh", "completion fish",

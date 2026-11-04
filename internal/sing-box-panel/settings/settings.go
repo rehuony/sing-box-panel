@@ -12,21 +12,18 @@ import (
 	"net"
 	"net/url"
 	"os"
-	pathpkg "path"
 	"path/filepath"
-	"regexp"
 	"runtime"
 	"strconv"
 	"strings"
 
 	"github.com/rehuony/sing-box-panel/internal/atomicfile"
+	"github.com/rehuony/sing-box-panel/internal/nodeapi"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/auth"
 )
 
 // MaximumBytes limits settings documents read from disk or supplied by the CLI.
 const MaximumBytes = 1 << 20
-
-var basePathPattern = regexp.MustCompile(`^/[A-Za-z0-9._~/-]+$`)
 
 // Settings is the shared file contract for panel configuration. Sing-box
 // documents, subscriptions and runtime evidence belong in SQLite.
@@ -37,6 +34,7 @@ type Settings struct {
 	InitialPassword string       `json:"-"`
 	Panel           Panel        `json:"panel"`
 	Server          Server       `json:"server"`
+	Nodes           Nodes        `json:"nodes"`
 	DataDir         string       `json:"data_dir"`
 	Auth            Auth         `json:"auth"`
 	GitHub          GitHub       `json:"github"`
@@ -50,6 +48,63 @@ type Server struct {
 	Port           int    `json:"port"`
 	BasePath       string `json:"base_path"`
 	ExternalOrigin string `json:"external_origin"`
+}
+
+// Node trust modes written into enrollment codes.
+const (
+	// NodeTrustPin makes nodes pin the public key of the panel's self-signed
+	// certificate.
+	NodeTrustPin = "pin"
+	// NodeTrustSystem makes nodes verify the endpoint with the system's
+	// trusted certificate authorities, for a panel behind a reverse proxy
+	// with a publicly trusted certificate.
+	NodeTrustSystem = "system"
+)
+
+// Nodes overrides how enrollment codes tell nodes to reach the panel. Nodes
+// connect to the Web listener; empty fields follow the server settings.
+type Nodes struct {
+	// Endpoint is the host:port that nodes dial.
+	Endpoint string `json:"endpoint"`
+	// Trust is NodeTrustPin, NodeTrustSystem or empty.
+	Trust string `json:"trust"`
+}
+
+// NodeEndpoint returns the host:port that enrollment codes name:
+// nodes.endpoint, else the host of an HTTPS external origin, else the Web
+// listener.
+func (value Settings) NodeEndpoint() string {
+	if value.Nodes.Endpoint != "" {
+		return value.Nodes.Endpoint
+	}
+	if endpoint, ok := httpsOriginEndpoint(value.Server.ExternalOrigin); ok {
+		return endpoint
+	}
+	return net.JoinHostPort(value.Server.Host, strconv.Itoa(value.Server.Port))
+}
+
+// NodeTrust returns how nodes verify the panel: nodes.trust, else system
+// trust for an endpoint taken from an HTTPS external origin, else a pin.
+func (value Settings) NodeTrust() string {
+	if value.Nodes.Trust != "" {
+		return value.Nodes.Trust
+	}
+	if _, ok := httpsOriginEndpoint(value.Server.ExternalOrigin); ok && value.Nodes.Endpoint == "" {
+		return NodeTrustSystem
+	}
+	return NodeTrustPin
+}
+
+func httpsOriginEndpoint(origin string) (string, bool) {
+	parsed, err := url.Parse(origin)
+	if err != nil || parsed.Scheme != "https" || parsed.Hostname() == "" {
+		return "", false
+	}
+	port := parsed.Port()
+	if port == "" {
+		port = "443"
+	}
+	return net.JoinHostPort(parsed.Hostname(), port), true
 }
 
 type Auth struct {
@@ -197,13 +252,8 @@ func (value Settings) Validate() error {
 	if value.Server.Port < 1 || value.Server.Port > 65535 {
 		return errors.New("server.port must be between 1 and 65535")
 	}
-	if value.Server.BasePath != "" {
-		if !basePathPattern.MatchString(value.Server.BasePath) ||
-			strings.HasSuffix(value.Server.BasePath, "/") ||
-			strings.Contains(value.Server.BasePath, "//") ||
-			pathpkg.Clean(value.Server.BasePath) != value.Server.BasePath {
-			return errors.New("server.base_path must be empty or a normalized URL path containing only unreserved characters")
-		}
+	if value.Server.BasePath != "" && nodeapi.ValidPathPrefix(value.Server.BasePath) != nil {
+		return errors.New("server.base_path must be empty or a normalized URL path containing only unreserved characters")
 	}
 	if value.Server.ExternalOrigin != "" {
 		origin, err := NormalizeOrigin(value.Server.ExternalOrigin)
@@ -213,6 +263,9 @@ func (value Settings) Validate() error {
 		if origin != value.Server.ExternalOrigin {
 			return errors.New("server.external_origin must be a normalized HTTP or HTTPS origin")
 		}
+	}
+	if err := value.validateNodes(); err != nil {
+		return err
 	}
 	if value.DataDir == "" || !filepath.IsAbs(value.DataDir) {
 		return errors.New("data_dir must resolve to an absolute path")
@@ -245,6 +298,24 @@ func (value Settings) Validate() error {
 	}
 	if runtime.GOOS == "windows" {
 		return errors.New("Windows is not supported")
+	}
+	return nil
+}
+
+func (value Settings) validateNodes() error {
+	if value.Nodes.Endpoint != "" {
+		if err := nodeapi.ValidEndpoint(value.Nodes.Endpoint); err != nil {
+			return fmt.Errorf("nodes.endpoint must be a host:port address: %w", err)
+		}
+	}
+	switch value.Nodes.Trust {
+	case "", NodeTrustPin:
+	case NodeTrustSystem:
+		if _, ok := httpsOriginEndpoint(value.Server.ExternalOrigin); !ok && value.Nodes.Endpoint == "" {
+			return errors.New("nodes.trust system needs nodes.endpoint or an HTTPS server.external_origin naming the publicly trusted host")
+		}
+	default:
+		return errors.New("nodes.trust must be empty, pin or system")
 	}
 	return nil
 }

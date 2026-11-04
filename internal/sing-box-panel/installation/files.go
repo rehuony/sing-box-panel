@@ -15,6 +15,7 @@ import (
 
 	"github.com/rehuony/sing-box-panel/internal/database"
 	"github.com/rehuony/sing-box-panel/internal/procctl"
+	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/fleet"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/settings"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/store"
 )
@@ -46,6 +47,7 @@ var knownDataPaths = []struct{ name, role string }{
 	{"runtime", "runtime configuration and process files"},
 	{"imports", "staged core uploads"},
 	{"logs/core", "core logs"},
+	{fleet.IdentityFile, "TLS key and certificate for direct node connections"},
 	{"panel-control.sock", "local process control"},
 	{"panel.db-shm", "database shared memory"},
 	{"panel.db-wal", "database write-ahead log"},

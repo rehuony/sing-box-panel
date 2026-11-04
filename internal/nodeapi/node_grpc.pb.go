@@ -35,7 +35,8 @@ const (
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 //
-// NodeService is served by the panel on its node listener.
+// NodeService is served by the panel on its Web port, under its base path:
+// with base path /panel, nodes call /panel/sbp.node.v1.NodeService/Connect.
 type NodeServiceClient interface {
 	// Enroll exchanges a one-time enrollment token and the node's public key
 	// for a node identity.
@@ -103,7 +104,8 @@ type NodeService_FetchArtifactClient = grpc.ServerStreamingClient[FetchArtifactR
 // All implementations must embed UnimplementedNodeServiceServer
 // for forward compatibility.
 //
-// NodeService is served by the panel on its node listener.
+// NodeService is served by the panel on its Web port, under its base path:
+// with base path /panel, nodes call /panel/sbp.node.v1.NodeService/Connect.
 type NodeServiceServer interface {
 	// Enroll exchanges a one-time enrollment token and the node's public key
 	// for a node identity.

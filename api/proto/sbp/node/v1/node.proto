@@ -13,7 +13,8 @@ import "google/protobuf/timestamp.proto";
 
 option go_package = "github.com/rehuony/sing-box-panel/internal/nodeapi";
 
-// NodeService is served by the panel on its node listener.
+// NodeService is served by the panel on its Web port, under its base path:
+// with base path /panel, nodes call /panel/sbp.node.v1.NodeService/Connect.
 service NodeService {
   // Enroll exchanges a one-time enrollment token and the node's public key
   // for a node identity.

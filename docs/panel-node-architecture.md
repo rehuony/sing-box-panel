@@ -46,9 +46,14 @@ managed through the same path.
               sing-box
 ```
 
-The panel's Web listener and its node listener are separate. The node
-listener defaults to loopback like the Web listener; the operator binds it to a
-reachable address before enrolling remote nodes.
+The panel serves the Web application and the node service on one port, with
+the node service under the panel's base path. It tells connections apart by
+their first bytes: a TLS handshake is a node dialing directly, the HTTP/2
+cleartext preface from loopback is a reverse proxy on the panel host
+forwarding nodes with `grpc_pass`, and anything else is the Web application.
+Cleartext HTTP/2 from any other peer is closed. Behind a reverse proxy with a
+publicly trusted certificate, nodes reach the panel through the proxy's HTTPS
+origin, like browsers do.
 
 ## Panel–node protocol
 
@@ -96,16 +101,18 @@ breaking change moves to a new package.
 
 ## Identity and trust
 
-**Panel identity.** At initialization the panel generates its node-listener
-TLS key and a self-signed certificate. By default nodes pin that certificate's
-public key. When the operator terminates the node listener's TLS at a reverse
-proxy with a publicly trusted certificate, the enrollment code selects system
-trust instead of a pin.
+**Panel identity.** On first use the panel generates a TLS key and a
+self-signed certificate for direct node connections in its data directory, and
+a stable panel ID in its database. Nodes that dial the panel directly pin the
+certificate's public key. When the panel has an HTTPS external origin, such as
+a reverse proxy with a publicly trusted certificate, the enrollment code names
+that origin and selects system trust instead of a pin.
 
 **Enrollment.** An administrator adds a node in the Web UI or with the panel
 CLI. The panel stores the node record and a hash of a one-time enrollment token
-with a short expiry. It shows one command, `sing-box-node enroll --code <code>`,
-where the code encodes the panel endpoint, the trust mode or pin and the token.
+that expires after one hour. It shows one command, `sing-box-node enroll --code <code>`,
+where the code encodes the panel endpoint and base path, the trust mode or pin
+and the token.
 The node generates an Ed25519 key in its data directory (mode 0600) and calls
 `Enroll` with the token, its public key and its platform. The panel stores the
 public key and consumes the token. Enrolling again requires a new code and

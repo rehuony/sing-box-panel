@@ -15,8 +15,10 @@ The product is moving from one binary that manages a single host to one panel
 service and multiple node services. The panel connects to every node,
 aggregates their data, manages each node's configuration and publishes
 subscriptions; a node reports its local configuration and system state and
-carries out the panel's management commands. Today one binary still does both;
-the target services, protocol and package layout are in
+carries out the panel's management commands. Nodes already enroll with the
+panel and hold authenticated sessions, but the panel still runs this host's
+sing-box in process until sessions carry commands; the target services,
+protocol and package layout are in
 [Panel and node architecture](panel-node-architecture.md).
 
 | Path | Contents |
@@ -70,8 +72,10 @@ nothing imports.
 | | `configuration` | Strict, lossless sing-box JSON parsing, canonical serialization and the presentation field order |
 | | `coreartifact` | Immutable identities of installable sing-box artifacts |
 | | `singbox` | Reviewed exact-version support catalog and runtime compatibility; exact versions are catalog data, not forwarding packages |
-| | `nodeapi` | Generated `sbp.node.v1` protocol code, the protocol version and the session proof |
-| Node (`internal/sing-box-node/`) | `cli` | The node's command tree |
+| | `nodeapi` | Generated `sbp.node.v1` protocol code, the protocol version, the session proof and the enrollment code format |
+| Node (`internal/sing-box-node/`) | `cli` | The node's command tree: `enroll` and `run` |
+| | `settings` | The node's data directory and its enrollment: panel endpoint, trust, IDs and the Ed25519 identity key |
+| | `agent` | Enrollment and the authenticated session with the panel, with reconnection; the node only dials out |
 | | `artifacts` | Verification and publication of immutable installed core files |
 | | `runtime` | Managed processes, reference-counted disposable configuration files and the restricted Clash API monitoring client |
 | | `corelogs` | Bounded, private, sanitized native process output |
@@ -85,6 +89,7 @@ nothing imports.
 | | `nodeconfig` | The editable configuration file, canonical revisions, Schema support and preview |
 | | `subscription` | Sources, manual nodes, inbound conversion, channels, keys, users, templates and renderers, preview and `/sub` delivery |
 | | `localnode` | Transitional in-process node: core installs, checks and activation, process supervision and recovery, core logs, host metrics and traffic collection |
+| | `fleet` | The node registry, enrollment codes, the TLS identity nodes pin, the node gRPC service sharing the Web port under the base path, and authenticated node sessions |
 | | `app` | The one composition of the panel's services over a store and a settings file, used by the server and the transport tests |
 | | `httpapi` | The management API, Web delivery and subscription output over `app.Services` |
 | | `installation`, `systemd` | Inspection, moves and removal of the panel's persistent files; the Linux systemd lifecycle used by the CLI |
@@ -106,20 +111,24 @@ Production imports between the module's packages, as reported by
 `internal/sing-box-node/`:
 
 ```text
-atomicfile, buildinfo, console, coreartifact, database, jsonstrict, nodeapi,
-procctl, release, singbox, node:host          (no module imports)
+atomicfile, buildinfo, console, coreartifact, database, jsonstrict, procctl,
+release, singbox, node:host                   (no module imports)
 
 configuration      -> jsonstrict
 logredact          -> jsonstrict
+nodeapi            -> jsonstrict
 selfupdate         -> atomicfile, release
 node:artifacts     -> atomicfile, coreartifact
 node:runtime       -> atomicfile, coreartifact, singbox
 node:corelogs      -> logredact
-node:cli           -> buildinfo, nodeapi
+node:settings      -> atomicfile, jsonstrict, nodeapi
+node:agent         -> buildinfo, nodeapi, node:settings
+node:cli           -> buildinfo, nodeapi, node:agent, node:settings
 
 panel:store        -> configuration, coreartifact, database, jsonstrict, logredact
 panel:auth         -> panel:store
-panel:settings     -> atomicfile, configuration, jsonstrict, panel:auth, panel:store
+panel:settings     -> atomicfile, configuration, jsonstrict, nodeapi, panel:auth,
+                      panel:store
 panel:telemetry    -> panel:settings, panel:store
 panel:schema       -> coreartifact, singbox
 panel:corecache    -> coreartifact, jsonstrict, panel:settings, panel:store,
@@ -131,19 +140,22 @@ panel:localnode    -> node:artifacts, node:corelogs, node:host, node:runtime,
                       configuration, coreartifact, jsonstrict, panel:corecache,
                       panel:nodeconfig, panel:schema, panel:settings,
                       panel:store, panel:telemetry, procctl
-panel:app          -> panel:auth, panel:corecache, panel:localnode,
-                      panel:nodeconfig, panel:settings, panel:store,
-                      panel:subscription, panel:telemetry
-panel:httpapi      -> buildinfo, configuration, coreartifact, jsonstrict,
-                      panel:app, panel:auth, panel:corecache, panel:localnode,
-                      panel:nodeconfig, panel:schema, panel:settings,
+panel:fleet        -> atomicfile, buildinfo, nodeapi, panel:settings, panel:store,
+                      panel:telemetry
+panel:app          -> buildinfo, panel:auth, panel:corecache, panel:fleet,
+                      panel:localnode, panel:nodeconfig, panel:settings,
                       panel:store, panel:subscription, panel:telemetry
-panel:installation -> database, jsonstrict, panel:localnode, panel:settings,
-                      panel:store, procctl
+panel:httpapi      -> buildinfo, configuration, coreartifact, jsonstrict,
+                      panel:app, panel:auth, panel:corecache, panel:fleet,
+                      panel:localnode, panel:nodeconfig, panel:schema,
+                      panel:settings, panel:store, panel:subscription,
+                      panel:telemetry
+panel:installation -> database, jsonstrict, panel:fleet, panel:localnode,
+                      panel:settings, panel:store, procctl
 panel:systemd      -> atomicfile, database, panel:installation, panel:settings
-panel:cli          -> buildinfo, console, panel:auth, panel:installation,
-                      panel:settings, panel:store, panel:systemd, procctl,
-                      selfupdate
+panel:cli          -> buildinfo, console, panel:app, panel:auth, panel:fleet,
+                      panel:installation, panel:settings, panel:store,
+                      panel:systemd, procctl, selfupdate
 panel:server       -> buildinfo, console, panel:app, panel:corecache,
                       panel:httpapi, panel:installation, panel:localnode,
                       panel:nodeconfig, panel:settings, panel:store,
@@ -168,8 +180,9 @@ outcome.
 panel package, only the panel's `localnode` imports node packages, and
 `sing-box-node` neither depends on the panel nor embeds the Web application.
 `configuration` imports neither `singbox` nor the panel Schema. The panel `cli`
-opens `store`, `settings` and `installation` directly for local maintenance and
-starts the server through a function supplied by `cmd/sing-box-panel`.
+opens `store`, `settings` and `installation` directly for local maintenance,
+manages nodes through `app`, and starts the server through a function supplied
+by `cmd/sing-box-panel`.
 
 ## Adding a sing-box version
 
@@ -281,10 +294,11 @@ persistence, security boundaries and runtime semantics.
 
 ### Persistence and preserved guarantees
 
-`internal/sing-box-panel/store/schema.sql` is the storage baseline, schema version 18. It
+`internal/sing-box-panel/store/schema.sql` is the storage baseline, schema version 19. It
 creates the editable configuration, immutable runtime evidence, subscription
 state, shared subscription node order, durable monthly traffic accounting, the
-process-counter checkpoint, login sessions and operational records directly.
+process-counter checkpoint, login sessions, the node registry with enrollment
+token hashes and node public keys, and operational records directly.
 Settings live in the selected `setting.json`; SQLite keeps only transaction
 markers for interrupted settings/identity updates and configuration restores.
 Earlier, unknown and newer storage formats are rejected without conversion.

@@ -13,6 +13,7 @@ import (
 // OperationLogContext contains only bounded identifiers and timing, never request bodies.
 type OperationLogContext struct {
 	StartedAt          time.Time
+	NodeID             string
 	File               string
 	CoreID             string
 	StartupArtifactID  string
@@ -26,7 +27,7 @@ func (details OperationLogContext) metadata(operationErr error, classify Classif
 		metadata["duration_ms"] = max(0, time.Since(details.StartedAt).Milliseconds())
 	}
 	for key, value := range map[string]string{
-		"file": details.File, "core_id": details.CoreID,
+		"node_id": details.NodeID, "file": details.File, "core_id": details.CoreID,
 		"startup_artifact_id": details.StartupArtifactID, "activation_bundle_id": details.ActivationBundleID,
 	} {
 		// Invalid or oversized request targets must not discard the failure event.

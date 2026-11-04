@@ -464,3 +464,27 @@ CREATE TABLE auth_sessions (
 ) STRICT;
 
 CREATE INDEX auth_sessions_expiry ON auth_sessions(expires_at);
+
+CREATE TABLE fleet_identity (
+    singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+    panel_id TEXT NOT NULL CHECK (length(panel_id) BETWEEN 1 AND 256)
+) STRICT;
+
+CREATE TABLE nodes (
+    id TEXT PRIMARY KEY CHECK (length(id) BETWEEN 1 AND 256),
+    name TEXT NOT NULL UNIQUE COLLATE NOCASE CHECK (length(name) BETWEEN 1 AND 256),
+    created_at TEXT NOT NULL,
+    public_key BLOB CHECK (public_key IS NULL OR length(public_key) = 32),
+    enrolled_at TEXT,
+    enrollment_token_hash BLOB UNIQUE CHECK (enrollment_token_hash IS NULL OR length(enrollment_token_hash) = 32),
+    enrollment_expires_at TEXT,
+    hostname TEXT NOT NULL DEFAULT '' CHECK (length(hostname) <= 256),
+    os TEXT NOT NULL DEFAULT '' CHECK (length(os) <= 64),
+    arch TEXT NOT NULL DEFAULT '' CHECK (length(arch) <= 64),
+    build_version TEXT NOT NULL DEFAULT '' CHECK (length(build_version) <= 256),
+    protocol_minor INTEGER NOT NULL DEFAULT 0 CHECK (protocol_minor >= 0),
+    last_seen_at TEXT,
+    session_id TEXT CHECK (session_id IS NULL OR length(session_id) BETWEEN 1 AND 256),
+    CHECK ((enrollment_token_hash IS NULL) = (enrollment_expires_at IS NULL)),
+    CHECK ((public_key IS NULL) = (enrolled_at IS NULL))
+) STRICT;

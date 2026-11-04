@@ -139,6 +139,8 @@ func (handler *Handler) handleApplicationRoute(w http.ResponseWriter, request *h
 		default:
 			next = methodNotAllowed
 		}
+	} else if route := handler.fleetRoute(request.Method, path); route != nil {
+		next = route
 	} else if resource, identifier, operation, matched := matchSubscriptionRoute(path); matched {
 		next = handler.subscriptionManagementHandler(request.Method, resource, identifier, operation)
 	}
