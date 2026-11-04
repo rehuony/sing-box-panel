@@ -54,3 +54,16 @@ type ResultOutcome = isResult_Outcome
 
 // CommandBody is one body of a Command, for code that builds commands.
 type CommandBody = isCommand_Body
+
+// ChangesState reports whether a command body can change the node's state.
+// The node records the results of such commands under their request IDs, and
+// the panel lets them finish even when the client that asked goes away.
+func ChangesState(body CommandBody) bool {
+	switch body.(type) {
+	case *Command_GetRuntimeStatus, *Command_ListStartupArtifacts, *Command_ListCores,
+		*Command_BrowseFilesystem, *Command_ResolveFilesystemPath,
+		*Command_ListCoreLogs, *Command_ReadCoreLog:
+		return false
+	}
+	return true
+}

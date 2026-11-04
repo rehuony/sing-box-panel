@@ -120,17 +120,24 @@ func (application *Service) PreviewConfiguration(
 	}, nil
 }
 
-// ValidateForCore checks a revision against the exact Schema of the core,
-// when the panel has one, before the revision reaches a node.
+// ValidateForCore checks a revision against the exact Schema of a cached
+// core before the revision reaches a node.
 func (application *Service) ValidateForCore(ctx context.Context, revision store.CanonicalRevision, coreArtifactID string) error {
 	core, err := application.cores.CachedArtifact(ctx, strings.TrimSpace(coreArtifactID))
 	if err != nil {
 		return err
 	}
-	if !application.configurationSupport(core).Structured {
+	return ValidateForVersion(revision, core.ExactVersion)
+}
+
+// ValidateForVersion checks a revision against the Schema of an exact
+// sing-box version. A version without a committed Schema accepts any
+// revision; the node's sing-box check still gates it.
+func ValidateForVersion(revision store.CanonicalRevision, exactVersion string) error {
+	if _, err := schema.ConfigurationSchema(exactVersion); err != nil {
 		return nil
 	}
-	if err := schema.ValidateConfiguration(core.ExactVersion, revision.Document); err != nil {
+	if err := schema.ValidateConfiguration(exactVersion, revision.Document); err != nil {
 		return fmt.Errorf("%w: %v", ErrConfigurationSchemaValidation, err)
 	}
 	return nil

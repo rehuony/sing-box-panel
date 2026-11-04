@@ -47,7 +47,7 @@ func (executor *executor) execute(ctx context.Context, command *nodeapi.Command)
 		ctx, cancel = context.WithDeadline(ctx, deadline.AsTime())
 		defer cancel()
 	}
-	recorded := changesState(command)
+	recorded := nodeapi.ChangesState(command.GetBody())
 	if recorded {
 		if raw, ok, err := executor.database.CommandResult(ctx, requestID); err == nil && ok {
 			var result nodeapi.Result
@@ -63,16 +63,6 @@ func (executor *executor) execute(ctx context.Context, command *nodeapi.Command)
 		}
 	}
 	return result
-}
-
-func changesState(command *nodeapi.Command) bool {
-	switch command.GetBody().(type) {
-	case *nodeapi.Command_GetRuntimeStatus, *nodeapi.Command_ListStartupArtifacts, *nodeapi.Command_ListCores,
-		*nodeapi.Command_BrowseFilesystem, *nodeapi.Command_ResolveFilesystemPath,
-		*nodeapi.Command_ListCoreLogs, *nodeapi.Command_ReadCoreLog:
-		return false
-	}
-	return true
 }
 
 func (executor *executor) run(ctx context.Context, command *nodeapi.Command) nodeapi.ResultOutcome {

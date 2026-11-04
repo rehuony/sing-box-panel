@@ -17,6 +17,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/rehuony/sing-box-panel/internal/buildinfo"
+	"github.com/rehuony/sing-box-panel/internal/configuration"
 	"github.com/rehuony/sing-box-panel/internal/database"
 	"github.com/rehuony/sing-box-panel/internal/nodeapi"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/corecache"
@@ -193,13 +194,16 @@ func (service *Service) AddNode(ctx context.Context, name string) (result Enroll
 		return Enrollment{}, err
 	}
 	now := service.now().UTC()
-	record, err := service.database.CreateNode(ctx, store.NewNode{
-		ID: id, Name: name, CreatedAt: now, TokenHash: nodeapi.TokenHash(code.Token), ExpiresAt: now.Add(EnrollmentLifetime),
-	})
+	// The node starts with the empty document, saved with it.
+	initial, err := store.NewConfigurationFileUpdate(service.random, now, 0, string(configuration.Empty().CanonicalJSON()))
 	if err != nil {
 		return Enrollment{}, err
 	}
-	if err := service.configs.InitializeConfigurationFile(ctx, record.ID); err != nil {
+	record, err := service.database.CreateNode(ctx, store.NewNode{
+		ID: id, Name: name, CreatedAt: now, TokenHash: nodeapi.TokenHash(code.Token), ExpiresAt: now.Add(EnrollmentLifetime),
+		Configuration: initial,
+	})
+	if err != nil {
 		return Enrollment{}, err
 	}
 	return service.enrollment(record, code), nil

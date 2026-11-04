@@ -43,11 +43,22 @@ func IsProblem(err error, code string) bool {
 }
 
 // run sends body to nodeID and waits for the node's result until ctx ends or
-// the command's deadline passes.
+// the command's deadline passes. A command that can change the node's state
+// keeps only ctx's deadline: cancelling ctx, as a client that disconnects
+// does, would otherwise interrupt a change that already started on the node.
 func (service *Service) run(ctx context.Context, nodeID string, body nodeapi.CommandBody) (*nodeapi.Result, error) {
 	current := service.sessions.get(nodeID)
 	if current == nil {
 		return nil, ErrNodeOffline
+	}
+	if nodeapi.ChangesState(body) {
+		deadline, ok := ctx.Deadline()
+		ctx = context.WithoutCancel(ctx)
+		if ok {
+			var cancel context.CancelFunc
+			ctx, cancel = context.WithDeadline(ctx, deadline)
+			defer cancel()
+		}
 	}
 	requestID, err := database.NewID(service.random, "request")
 	if err != nil {

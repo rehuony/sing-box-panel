@@ -158,7 +158,8 @@ baseline schema. Neither has an upgrade path from the single-host format.
 ## Commands and consistency
 
 - Every command carries a request ID. The node records each result under its request ID for a day, so a repeated request returns the recorded result, and it runs runtime-changing commands through its prepare, perform and complete intent with a generation, so an interrupted command recovers after a node restart.
-- The panel checks a revision against the selected core's exact Schema before sending it. The node accepts a revision ID only with the same bytes and rejects bytes that do not match the digest.
+- The panel checks a revision against the exact Schema of the core it is for before sending it: the selected core for enable and check, and the core the node reports enabled for start and restart. The node accepts a revision ID only with the same bytes and rejects bytes that do not match the digest.
+- A command that can change the node's state keeps only its deadline once sent: a browser that disconnects does not cancel a change the node already started.
 - A management mutation for a node waits for that node's result within the command deadline and returns the completed result, as single-host mutations do today.
 - An offline node rejects commands at once with a `node_offline` problem. Commands are never queued. Saving a node's configuration stays a panel-local write and works while the node is offline.
 - When a session drops while a command is in flight, the API returns a `node_result_unknown` problem. The node's next state report settles the outcome. The UI shows reported state and never assumes success.

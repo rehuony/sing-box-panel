@@ -61,6 +61,7 @@ const basePath = "/panel"
 // testFleet is a served fleet and the cache its nodes install from.
 type testFleet struct {
 	service  *fleet.Service
+	configs  *nodeconfig.Service
 	cores    *corecache.Service
 	endpoint string
 	dataDir  string
@@ -87,7 +88,8 @@ func startFleet(t *testing.T, now func() time.Time) testFleet {
 	panelSettings := settings.NewService(database, "", value, settings.Options{})
 	records := telemetry.New(database, panelSettings, telemetry.Options{})
 	cores := corecache.New(database, records, panelSettings, corecache.Options{DataDir: dataDir})
-	service := fleet.New(database, panelSettings, records, nodeconfig.New(database, cores), cores, fleet.Options{
+	configs := nodeconfig.New(database, cores)
+	service := fleet.New(database, panelSettings, records, configs, cores, fleet.Options{
 		Build: buildinfo.Info{Version: "test"}, Now: now,
 	})
 	web, nodes := fleet.SplitListener(listener)
@@ -103,7 +105,7 @@ func startFleet(t *testing.T, now func() time.Time) testFleet {
 			t.Errorf("serve: %v", err)
 		}
 	})
-	return testFleet{service: service, cores: cores, endpoint: listener.Addr().String(), dataDir: dataDir}
+	return testFleet{service: service, configs: configs, cores: cores, endpoint: listener.Addr().String(), dataDir: dataDir}
 }
 
 func waitState(t *testing.T, service *fleet.Service, id, want string) {
@@ -351,6 +353,9 @@ func TestInstallStreamsTheCachedArchiveUnderAGrantThatEndsWithTheCommand(t *test
 	if err != nil {
 		t.Fatal(err)
 	}
+	if file, err := served.configs.ConfigurationFile(t.Context(), offline.Node.ID); err != nil || file.Revision != 1 || file.Content != "{}" {
+		t.Fatalf("a new node's configuration = %+v, %v; want the saved empty document", file, err)
+	}
 	if _, err := service.RuntimeStatus(t.Context(), offline.Node.ID); !errors.Is(err, fleet.ErrNodeOffline) {
 		t.Fatalf("command to an offline node = %v, want ErrNodeOffline", err)
 	}
@@ -446,4 +451,43 @@ func TestInstallStreamsTheCachedArchiveUnderAGrantThatEndsWithTheCommand(t *test
 		_, err = fetch.Recv()
 	}
 	requireCode(t, err, codes.PermissionDenied)
+}
+
+func TestStateChangingCommandsOutliveTheirCaller(t *testing.T) {
+	served := startFleet(t, nil)
+	enrollment, err := served.service.AddNode(t.Context(), "edge")
+	if err != nil {
+		t.Fatal(err)
+	}
+	node := &rawNode{client: dialRaw(t, served.endpoint, basePath, true)}
+	if err := node.enroll(t, enrollment.Code); err != nil {
+		t.Fatal(err)
+	}
+	stream, err := node.connect(t, node.key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitState(t, served.service, node.id, fleet.StateOnline)
+
+	ctx, cancel := context.WithCancel(t.Context())
+	stopped := make(chan error, 1)
+	go func() {
+		_, err := served.service.StopRuntime(ctx, node.id)
+		stopped <- err
+	}()
+	frame, err := stream.Recv()
+	if err != nil || frame.GetCommand().GetStopRuntime() == nil {
+		t.Fatalf("expected a stop command, got %v, %v", frame, err)
+	}
+	// The client goes away while the node is stopping the core.
+	cancel()
+	if err := stream.Send(&nodeapi.ConnectRequest{Frame: &nodeapi.ConnectRequest_Result{Result: &nodeapi.Result{
+		RequestId: frame.GetCommand().GetRequestId(),
+		Outcome:   &nodeapi.Result_Runtime{Runtime: &nodeapi.RuntimeOutcome{Status: &nodeapi.RuntimeStatus{ObservationState: "stopped"}}},
+	}}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-stopped; err != nil {
+		t.Fatalf("stop after the caller went away = %v, want the node's result", err)
+	}
 }

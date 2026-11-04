@@ -14,6 +14,7 @@ import (
 
 	"github.com/rehuony/sing-box-panel/internal/nodeapi"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/corecache"
+	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/nodeconfig"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/store"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/telemetry"
 )
@@ -32,7 +33,7 @@ func (service *Service) RuntimeStatus(ctx context.Context, nodeID string) (Runti
 // StartRuntime starts the node's core with its saved configuration.
 func (service *Service) StartRuntime(ctx context.Context, nodeID string) (result RuntimeStatus, err error) {
 	defer service.recordCommand(ctx, "runtime.start", "Core start", nodeID, &err)
-	configuration, err := service.configuration(ctx, nodeID, "")
+	configuration, err := service.enabledConfiguration(ctx, nodeID)
 	if err != nil {
 		return RuntimeStatus{}, err
 	}
@@ -51,7 +52,7 @@ func (service *Service) StopRuntime(ctx context.Context, nodeID string) (result 
 // process.
 func (service *Service) RestartRuntime(ctx context.Context, nodeID string) (result RuntimeStatus, err error) {
 	defer service.recordCommand(ctx, "runtime.restart", "Core restart", nodeID, &err)
-	configuration, err := service.configuration(ctx, nodeID, "")
+	configuration, err := service.enabledConfiguration(ctx, nodeID)
 	if err != nil {
 		return RuntimeStatus{}, err
 	}
@@ -70,7 +71,7 @@ func (service *Service) RollbackRuntime(ctx context.Context, nodeID, bundleID st
 // with it.
 func (service *Service) EnableCore(ctx context.Context, nodeID, artifactID string) (result RuntimeStatus, err error) {
 	defer service.recordCommand(ctx, "core.enable", "Core selection", nodeID, &err)
-	configuration, err := service.configuration(ctx, nodeID, artifactID)
+	configuration, err := service.configuration(ctx, nodeID, service.forCore(ctx, artifactID))
 	if err != nil {
 		return RuntimeStatus{}, err
 	}
@@ -93,7 +94,7 @@ func (service *Service) CompileConfiguration(ctx context.Context, nodeID, artifa
 	if err != nil {
 		return ConfigurationCompile{}, err
 	}
-	configuration, err := service.configuration(ctx, nodeID, artifactID)
+	configuration, err := service.configuration(ctx, nodeID, service.forCore(ctx, artifactID))
 	if err != nil {
 		return ConfigurationCompile{}, err
 	}
@@ -316,17 +317,39 @@ func (service *Service) runtimeCommand(ctx context.Context, nodeID string, body 
 	return runtimeView(runtime), nil
 }
 
-// configuration returns the node's saved revision as a command carries it.
-// With a core, the revision must also pass that core's exact Schema.
-func (service *Service) configuration(ctx context.Context, nodeID, artifactID string) (*nodeapi.ConfigurationRevision, error) {
+// enabledConfiguration returns the node's saved revision for the core the
+// node reports enabled, checked against that core's exact Schema. Without an
+// enabled core the node rejects the command itself.
+func (service *Service) enabledConfiguration(ctx context.Context, nodeID string) (*nodeapi.ConfigurationRevision, error) {
+	status, err := service.runtimeCommand(ctx, nodeID, &nodeapi.Command_GetRuntimeStatus{GetRuntimeStatus: &nodeapi.GetRuntimeStatus{}})
+	if err != nil {
+		return nil, err
+	}
+	enabled := status.Status.EnabledCore
+	return service.configuration(ctx, nodeID, func(revision store.CanonicalRevision) error {
+		if enabled == nil {
+			return nil
+		}
+		return nodeconfig.ValidateForVersion(revision, enabled.ExactCoreVersion)
+	})
+}
+
+// forCore validates a revision against the exact Schema of a cached core.
+func (service *Service) forCore(ctx context.Context, artifactID string) func(store.CanonicalRevision) error {
+	return func(revision store.CanonicalRevision) error {
+		return service.configs.ValidateForCore(ctx, revision, artifactID)
+	}
+}
+
+// configuration returns the node's saved revision as a command carries it,
+// once validate accepts it.
+func (service *Service) configuration(ctx context.Context, nodeID string, validate func(store.CanonicalRevision) error) (*nodeapi.ConfigurationRevision, error) {
 	revision, fileRevision, err := service.configs.CurrentRevision(ctx, nodeID)
 	if err != nil {
 		return nil, err
 	}
-	if artifactID != "" {
-		if err := service.configs.ValidateForCore(ctx, revision, artifactID); err != nil {
-			return nil, err
-		}
+	if err := validate(revision); err != nil {
+		return nil, err
 	}
 	digest := sha256.Sum256(revision.Document)
 	return &nodeapi.ConfigurationRevision{

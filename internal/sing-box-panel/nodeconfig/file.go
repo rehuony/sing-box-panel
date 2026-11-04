@@ -45,25 +45,6 @@ func (application *Service) ConfigurationFile(ctx context.Context, nodeID string
 	return configurationFileView(file), nil
 }
 
-// InitializeConfigurationFile saves the empty document as a new node's first
-// configuration. Existing saved text, including incomplete JSON, is left
-// untouched.
-func (application *Service) InitializeConfigurationFile(ctx context.Context, nodeID string) error {
-	file, err := application.database.ConfigurationFile(ctx, nodeID)
-	if err != nil {
-		return err
-	}
-	if file.Revision > 0 {
-		return nil
-	}
-	_, err = application.SaveConfigurationFile(ctx, nodeID, ConfigurationFileWrite{Content: string(configuration.Empty().CanonicalJSON())})
-	if errors.Is(err, store.ErrConfigurationFileConflict) {
-		// Another writer created the document after the read; preserve its save.
-		return nil
-	}
-	return err
-}
-
 func (application *Service) SaveConfigurationFile(ctx context.Context, nodeID string, input ConfigurationFileWrite) (ConfigurationFile, error) {
 	update, err := store.NewConfigurationFileUpdate(application.random, application.now(), input.Revision, input.Content)
 	if err != nil {

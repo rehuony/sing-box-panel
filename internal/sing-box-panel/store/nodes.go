@@ -42,6 +42,9 @@ type NewNode struct {
 	CreatedAt time.Time
 	TokenHash [32]byte
 	ExpiresAt time.Time
+	// Configuration, when set, is the node's first configuration file,
+	// saved in the same transaction as the node.
+	Configuration *ConfigurationFileUpdate
 }
 
 // NodeEnrollment is what a node presents when it enrolls.
@@ -80,10 +83,20 @@ func (s *Store) PanelID(ctx context.Context, candidate string) (string, error) {
 }
 
 func (s *Store) CreateNode(ctx context.Context, input NewNode) (Node, error) {
-	row := s.db.QueryRowContext(ctx, `INSERT INTO nodes(id, name, created_at, enrollment_token_hash, enrollment_expires_at)
-		VALUES(?,?,?,?,?) RETURNING `+nodeColumns,
-		input.ID, input.Name, formatTime(input.CreatedAt), input.TokenHash[:], formatTime(input.ExpiresAt))
-	return scanNodeResult(row)
+	var node Node
+	err := s.WithTx(ctx, func(tx *sql.Tx) error {
+		var err error
+		node, err = scanNodeResult(tx.QueryRowContext(ctx, `INSERT INTO nodes(id, name, created_at, enrollment_token_hash, enrollment_expires_at)
+			VALUES(?,?,?,?,?) RETURNING `+nodeColumns,
+			input.ID, input.Name, formatTime(input.CreatedAt), input.TokenHash[:], formatTime(input.ExpiresAt)))
+		if err != nil || input.Configuration == nil {
+			return err
+		}
+		initial := input.Configuration
+		_, err = saveConfigurationFileTx(ctx, tx, node.ID, initial.ExpectedRevision, initial.Content, initial.Revision)
+		return err
+	})
+	return node, err
 }
 
 func (s *Store) Nodes(ctx context.Context) ([]Node, error) {
