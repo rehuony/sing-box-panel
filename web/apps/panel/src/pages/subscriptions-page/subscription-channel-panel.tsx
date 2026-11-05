@@ -1,9 +1,11 @@
 import { useTranslation } from 'react-i18next';
 import { CirclePlus, Search } from 'lucide-react';
+import { Input } from '@shared/components/ui/input';
 import { Button } from '@shared/components/ui/button';
 import { toast } from '@shared/components/ui/toast-manager';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useCallback, useDeferredValue, useEffect, useRef, useState } from 'react';
+import { InputGroup, InputGroupAddon, InputGroupInput } from '@shared/components/ui/input-group';
 import {
   Dialog,
   DialogContent,
@@ -170,7 +172,7 @@ export function SubscriptionChannelPanel({ active = true, toolbarTarget }: {
   const current = Math.min(page, pages);
   if (page !== current) setPage(current);
   return (
-    <section className='subscription-source-workspace'>
+    <section className='flex h-full min-h-0 min-w-0 flex-1 flex-col'>
       {linkChannel && (
         <ChannelLinkDialog
           channelID={linkChannel.id}
@@ -196,8 +198,8 @@ export function SubscriptionChannelPanel({ active = true, toolbarTarget }: {
         : (
             <>
               <ToolbarActions active={active} target={toolbarTarget}>
-                <div className='subscription-source-toolbar workspace-toolbar-content'>
-                  <div className='subscription-toolbar-actions'>
+                <div className='flex w-full min-w-0 flex-1 items-center justify-end gap-4 max-[900px]:gap-2 has-[[data-detail-tabs]]:flex-wrap'>
+                  <div className='flex min-w-0 flex-none items-center gap-2 ms-auto *:data-[slot=button]:border-transparent *:data-[slot=button]:bg-transparent'>
                     <Button
                       aria-label={t('channels.add')}
                       title={t('channels.add')}
@@ -214,9 +216,9 @@ export function SubscriptionChannelPanel({ active = true, toolbarTarget }: {
                       <CirclePlus aria-hidden='true' />
                     </Button>
                   </div>
-                  <div className='subscription-search'>
-                    <Search />
-                    <input
+                  <InputGroup className='h-(--control-height-sm) min-w-30 w-60 max-[900px]:w-50'>
+                    <InputGroupAddon><Search aria-hidden='true' /></InputGroupAddon>
+                    <InputGroupInput className='h-full min-h-0'
                       aria-label={t('channels.search')}
                       placeholder={t('channels.search')}
                       value={search}
@@ -225,11 +227,11 @@ export function SubscriptionChannelPanel({ active = true, toolbarTarget }: {
                         setPage(1);
                       }}
                     />
-                  </div>
+                  </InputGroup>
                 </div>
               </ToolbarActions>
-              <div className='subscription-source-table-scroll subscription-state-region' aria-busy={list.isPending}>
-                <table className='workspace-table subscription-source-table'>
+              <div className='min-h-0 flex-1 overflow-auto flex flex-col *:[table]:flex-none' aria-busy={list.isPending}>
+                <table className='workspace-table w-full min-w-240 table-fixed border-collapse [&_td]:border-b [&_td]:px-4 [&_td]:text-center [&_td:first-child_button]:w-full [&_td:first-child_button]:justify-start [&_td:first-child_button]:truncate [&_td:first-child_button]:text-left [&_td:last-child]:whitespace-nowrap [&_td:last-child>[data-slot=button]+[data-slot=button]]:ms-2 [&_th]:bg-[var(--color-surface-raised)] [&_th]:px-4 [&_th]:text-center [&_th]:text-muted-foreground [&_tr>:first-child]:w-[32%] [&_tr>:first-child]:text-left [&_tr>:nth-child(2)]:w-[16%] [&_tr>:nth-child(3)]:w-[20%] [&_tr>:nth-child(4)]:w-[32%] max-[900px]:[&_td]:px-2 max-[900px]:[&_th]:px-2'>
                   <thead>
                     <tr>
                       <th>{t('channels.name')}</th>
@@ -284,14 +286,14 @@ export function SubscriptionChannelPanel({ active = true, toolbarTarget }: {
             </>
           )}
       <Dialog open={creating} onOpenChange={(open) => !busy && setCreating(open)}>
-        <DialogContent className='subscription-source-dialog'>
+        <DialogContent className='w-160 max-w-[calc(100vw-32px)] sm:max-w-160'>
           <DialogHeader>
             <DialogTitle>{t('channels.add')}</DialogTitle>
             <DialogDescription className='sr-only'>{t('channels.title')}</DialogDescription>
           </DialogHeader>
-          <div className='subscription-settings-fields'>
+          <div className='grid grid-cols-[minmax(120px,1fr)_minmax(200px,2fr)] items-center gap-x-6 gap-y-(--form-field-gap) pt-2 pb-(--form-field-gap) max-[720px]:grid-cols-[minmax(100px,1fr)_minmax(0,2fr)] max-[720px]:gap-3 max-[480px]:grid-cols-1 max-[480px]:gap-2 [&_[aria-invalid=true]]:outline-1 [&_[aria-invalid=true]]:outline-[var(--color-danger)] [&_[data-slot=select-trigger]]:w-full [&_input:not([type=checkbox])]:w-full [&_input:not([type=checkbox])]:min-w-0 [&_input[type=checkbox]]:justify-self-start [&_textarea]:max-h-45 [&_textarea]:min-h-[90px] [&_textarea]:resize-y [&_textarea]:rounded-[var(--radius-control)] [&_textarea]:border-0 [&_textarea]:bg-[var(--color-surface-raised)] [&_textarea]:p-3'>
             <label htmlFor='channel-name'>{t('channels.name')}</label>
-            <input
+            <Input
               id='channel-name'
               value={name}
               onChange={(event) => setName(event.target.value)}

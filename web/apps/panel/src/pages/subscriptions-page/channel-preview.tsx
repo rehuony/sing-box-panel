@@ -41,17 +41,17 @@ export function ChannelPreview({ preview, error, onClose }: Props) {
   }
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className='channel-preview-dialog'>
+      <DialogContent className='flex h-[min(640px,calc(100dvh-32px))] w-240 max-w-[calc(100vw-32px)] flex-col overflow-hidden sm:max-w-240'>
         <DialogHeader>
           <div className='flex flex-wrap items-center gap-2 pr-8'>
             <DialogTitle className='pr-0'>{t('channels.preview')}</DialogTitle>
             {issueCount > 0 && (
               <Popover>
                 <PopoverTrigger render={<Button variant='ghost' size='sm' />} aria-label={t('channels.previewIssues', { count: issueCount })}>
-                  <TriangleAlert data-icon='inline-start' className='text-status-warning-foreground' />
+                  <TriangleAlert data-icon='inline-start' className='text-[var(--color-warning-text)]' />
                   {t('channels.previewIssues', { count: issueCount })}
                 </PopoverTrigger>
-                <PopoverContent align='start' className='channel-preview-issues'>
+                <PopoverContent align='start' className='max-h-[min(32rem,var(--available-height))] w-[min(28rem,calc(100vw-2rem),var(--available-width))] overflow-y-auto overscroll-contain p-4'>
                   <PopoverTitle>{t('channels.previewIssues', { count: issueCount })}</PopoverTitle>
                   {failure && (
                     <div className='grid gap-1'>
@@ -75,9 +75,9 @@ export function ChannelPreview({ preview, error, onClose }: Props) {
           </div>
           <DialogDescription className='sr-only'>{preview?.result.format ?? t('channels.preview')}</DialogDescription>
         </DialogHeader>
-        <div className='channel-dialog-scroll'>
+        <div className='-mx-6 flex min-h-0 flex-1 flex-col overflow-auto overscroll-contain px-6 py-0.5'>
           {preview
-            ? <pre className='channel-preview-code' key={preview.result.format}>{preview.result.content}</pre>
+            ? <pre className='m-0 min-h-full overflow-auto rounded-[var(--radius-control)] border-none bg-[var(--color-surface-raised)] p-4 font-mono text-xs leading-[1.7] whitespace-pre text-foreground' key={preview.result.format}>{preview.result.content}</pre>
             : <SubscriptionContentState kind='preview' title={t('channels.previewFailed')} />}
 
         </div>

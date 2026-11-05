@@ -1,13 +1,16 @@
 export const pageLoaders = {
-  '/': () => import('@/pages/dashboard-page/dashboard-page').then(page => ({ default: page.DashboardPage })),
-  '/configuration': () => import('@/pages/configuration-page/configuration-page').then(page => ({ default: page.ConfigurationPage })),
-  '/cores': () => import('@/pages/cores-page/cores-page').then(page => ({ default: page.CoresPage })),
-  '/panel': () => import('@/pages/panel-settings-page/panel-settings-page').then(page => ({ default: page.PanelSettingsPage })),
-  '/subscriptions': () => import('@/pages/subscriptions-page/subscriptions-page').then(page => ({ default: page.SubscriptionsPage })),
-  '/observability': () => import('@/pages/observability-page/observability-page').then(page => ({ default: page.ObservabilityPage })),
+  'nodes': () => import('@/pages/fleet-page/fleet-page').then(page => ({ default: page.FleetPage })),
+  'node-overview': () => import('@/pages/node-overview-page/node-overview-page').then(page => ({ default: page.NodeOverviewPage })),
+  'node-cores': () => import('@/pages/cores-page/cores-page').then(page => ({ default: page.CoresPage })),
+  'node-configuration': () => import('@/pages/configuration-page/configuration-page').then(page => ({ default: page.ConfigurationPage })),
+  'node-logs': () => import('@/pages/node-logs-page/node-logs-page').then(page => ({ default: page.NodeLogsPage })),
+  'node-settings': () => import('@/pages/node-settings-page/node-settings-page').then(page => ({ default: page.NodeSettingsPage })),
+  'subscriptions': () => import('@/pages/subscriptions-page/subscriptions-page').then(page => ({ default: page.SubscriptionsPage })),
+  'logs': () => import('@/pages/panel-logs-page/panel-logs-page').then(page => ({ default: page.PanelLogsPage })),
+  'settings': () => import('@/pages/panel-settings-page/panel-settings-page').then(page => ({ default: page.PanelSettingsPage })),
 };
 
-type PagePath = keyof typeof pageLoaders;
+export type PagePath = keyof typeof pageLoaders;
 type PageModule = Awaited<ReturnType<typeof pageLoaders[PagePath]>>;
 
 const preloads = new Map<PagePath, Promise<PageModule>>();

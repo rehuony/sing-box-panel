@@ -14,11 +14,11 @@ const badgeVariants = cva(
         secondary:
           'bg-secondary text-secondary-foreground [a]:hover:bg-secondary/80',
         success:
-          'border-status-success-border bg-status-success-soft text-status-success-foreground',
+          'border-[var(--color-success-border)] bg-[var(--color-success-soft)] text-[var(--color-success-text)]',
         warning:
-          'border-status-warning-border bg-status-warning-soft text-status-warning-foreground',
+          'border-[var(--color-warning-border)] bg-[var(--color-warning-soft)] text-[var(--color-warning-text)]',
         info:
-          'border-status-info-border bg-status-info-soft text-status-info-foreground',
+          'border-[var(--color-info-border)] bg-[var(--color-info-soft)] text-[var(--color-info-text)]',
         destructive:
           'bg-destructive/10 text-destructive dark:bg-destructive/20 [a]:hover:bg-destructive/20',
         outline:

@@ -50,3 +50,10 @@ if (typeof Range.prototype.getClientRects !== 'function') {
   Range.prototype.getClientRects = () => [] as unknown as DOMRectList;
   Range.prototype.getBoundingClientRect = () => new DOMRect();
 }
+
+// jsdom implements no Web Animations. Scroll areas still query them, so they
+// get an empty list; popups keep finishing at once, as without the API.
+if (typeof Element.prototype.getAnimations !== 'function') {
+  Element.prototype.getAnimations = () => [];
+  Object.defineProperty(globalThis, 'BASE_UI_ANIMATIONS_DISABLED', { configurable: true, value: true });
+}

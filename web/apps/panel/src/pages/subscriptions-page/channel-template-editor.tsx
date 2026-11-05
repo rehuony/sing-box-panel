@@ -70,14 +70,14 @@ export function ChannelTemplateEditor({ template, format, onClose, onPreview, on
       if (busy) details.cancel();
       else if (!open) onClose();
     }}>
-      <DialogContent className='channel-template-dialog'>
+      <DialogContent className='flex h-[min(640px,calc(100dvh-32px))] w-240 max-w-[calc(100vw-32px)] flex-col overflow-hidden sm:max-w-240'>
         <DialogHeader>
           <DialogTitle>{t('channels.editTemplate')}</DialogTitle>
           <DialogDescription>{t('channels.templateDraftHint')}</DialogDescription>
         </DialogHeader>
         <textarea
           aria-label={t('channels.templateCode')}
-          className='subscription-code-input channel-template-code'
+          className='block w-full max-w-full overflow-auto rounded-[var(--radius-control)] border-none bg-[var(--color-surface-raised)] p-4 font-mono text-xs leading-[1.7] whitespace-pre text-foreground min-h-25 flex-1 resize-none'
           value={content}
           disabled={busy}
           autoComplete='off'

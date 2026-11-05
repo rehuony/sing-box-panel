@@ -6,19 +6,22 @@ import { LoginPage } from '@/pages/login-page';
 import { AppShell } from '@/components/app-shell';
 import { NotFoundPage } from '@/pages/not-found-page';
 import { LoadingState } from '@/components/loading-state';
+import { NodeWorkspace } from '@/components/node-workspace';
 import { useAuthSession } from '@/stores/auth-session.store';
-import { NodeSelectionProvider } from '@/stores/node-selection-provider';
 import { PanelSettingsProvider } from '@/stores/panel-settings-provider';
-import { ConfigurationSessionProvider } from '@/stores/configuration-session-provider';
+import { ConfigurationSessionsProvider } from '@/stores/configuration-session-provider';
 
 import { loadPage } from './page-loaders';
 
-const PanelSettingsPage = lazy(() => loadPage('/panel'));
-const ConfigurationPage = lazy(() => loadPage('/configuration'));
-const CoresPage = lazy(() => loadPage('/cores'));
-const DashboardPage = lazy(() => loadPage('/'));
-const ObservabilityPage = lazy(() => loadPage('/observability'));
-const SubscriptionsPage = lazy(() => loadPage('/subscriptions'));
+const FleetPage = lazy(() => loadPage('nodes'));
+const NodeOverviewPage = lazy(() => loadPage('node-overview'));
+const CoresPage = lazy(() => loadPage('node-cores'));
+const ConfigurationPage = lazy(() => loadPage('node-configuration'));
+const NodeLogsPage = lazy(() => loadPage('node-logs'));
+const NodeSettingsPage = lazy(() => loadPage('node-settings'));
+const SubscriptionsPage = lazy(() => loadPage('subscriptions'));
+const PanelLogsPage = lazy(() => loadPage('logs'));
+const PanelSettingsPage = lazy(() => loadPage('settings'));
 
 function RouteLoadingState() {
   const { t } = useTranslation();
@@ -46,11 +49,9 @@ function ProtectedRoute() {
   if (status === 'unavailable') return <LoginPage />;
 
   return (
-    <NodeSelectionProvider>
-      <ConfigurationSessionProvider>
-        <PanelSettingsProvider><Outlet /></PanelSettingsProvider>
-      </ConfigurationSessionProvider>
-    </NodeSelectionProvider>
+    <ConfigurationSessionsProvider>
+      <PanelSettingsProvider><Outlet /></PanelSettingsProvider>
+    </ConfigurationSessionsProvider>
   );
 }
 
@@ -60,12 +61,19 @@ export function AppRoutes() {
       <Routes>
         <Route element={<ProtectedRoute />}>
           <Route element={<AppShell />}>
-            <Route element={<DashboardPage />} index />
-            <Route element={<ConfigurationPage />} path='configuration' />
-            <Route element={<CoresPage />} path='cores' />
-            <Route element={<PanelSettingsPage />} path='panel' />
+            <Route element={<Navigate replace to='/nodes' />} index />
+            <Route element={<FleetPage />} path='nodes' />
+            <Route element={<NodeWorkspace />} path='nodes/:nodeId'>
+              <Route element={<NodeOverviewPage />} index />
+              <Route element={<CoresPage />} path='cores' />
+              <Route element={<ConfigurationPage />} path='configuration' />
+              <Route element={<NodeLogsPage />} path='logs' />
+              <Route element={<NodeSettingsPage />} path='settings' />
+              <Route element={<NotFoundPage />} path='*' />
+            </Route>
             <Route element={<SubscriptionsPage />} path='subscriptions' />
-            <Route element={<ObservabilityPage />} path='observability' />
+            <Route element={<PanelLogsPage />} path='logs' />
+            <Route element={<PanelSettingsPage />} path='settings' />
             <Route element={<NotFoundPage />} path='*' />
           </Route>
         </Route>

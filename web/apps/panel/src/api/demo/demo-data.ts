@@ -26,11 +26,15 @@ import { demoSourceNodeDetails, nodeSummary } from './demo-subscription-nodes';
 
 export interface DemoData {
   logs: LogEntry[];
+  /** Nodes the demo only lists: they are offline or not enrolled, so they answer no commands. */
+  peers: DemoPeer[];
   cores: CoreArtifact[];
   runtime: RuntimeStatus;
   catalog: CatalogAssetList;
+  /** The interactive demo node; null once it is removed. */
+  primary: FleetNode | null;
   users: SubscriptionUser[];
-  /** The demo node's settings, including its own traffic quota and period. */
+  /** The interactive demo node's settings, including its own traffic quota and period. */
   nodeSettings: NodeSettings;
   tokens: SubscriptionToken[];
   canonical: CanonicalSnapshot;
@@ -41,6 +45,13 @@ export interface DemoData {
   runtimeHistory: RuntimeHistoryPage;
   startupArtifacts: StartupArtifactSummary[];
   sourceVersions: Map<string, SubscriptionSourceVersion[]>;
+}
+
+export interface DemoPeer {
+  node: FleetNode;
+  settings: NodeSettings;
+  /** The bytes recorded in the node's current period before it went offline. */
+  usage: { inbound_bytes: number; outbound_bytes: number };
 }
 
 export const demoCanonicalDocument = {
@@ -105,6 +116,19 @@ function demoChannelPolicy(format: 'sing-box' | 'mihomo'): ChannelPolicy {
     }],
   };
 }
+
+export const demoNode: FleetNode = {
+  id: 'node_demo',
+  name: 'demo-node',
+  state: 'online',
+  created_at: '2026-08-20T08:00:00Z',
+  enrolled_at: '2026-08-20T08:05:00Z',
+  last_seen_at: '2026-08-26T07:12:00Z',
+  hostname: 'demo-node',
+  os: 'linux',
+  arch: 'amd64',
+  build_version: 'demo',
+};
 
 export function createDemoData(now = new Date()): DemoData {
   const canonicalJSON = JSON.stringify(demoCanonicalDocument);
@@ -365,23 +389,55 @@ export function createDemoData(now = new Date()): DemoData {
     startupArtifacts,
     tokens,
     trafficPeriods,
+    primary: { ...structuredClone(demoNode), public_ip: '198.51.100.7' },
     nodeSettings: { revision: 1, public_host: '', traffic: { quota_gib: 500, period_months: 1, reset_day: 1 } },
+    peers: demoPeers(now),
     users,
   };
 }
 
-export const demoNode: FleetNode = {
-  id: 'node_demo',
-  name: 'demo-node',
-  state: 'online',
-  created_at: '2026-08-20T08:00:00Z',
-  enrolled_at: '2026-08-20T08:05:00Z',
-  last_seen_at: '2026-08-26T07:12:00Z',
-  hostname: 'demo-node',
-  os: 'linux',
-  arch: 'amd64',
-  build_version: 'demo',
-};
+function demoPeers(now: Date): DemoPeer[] {
+  return [{
+    node: {
+      id: 'node_demo_frankfurt',
+      name: 'edge-frankfurt',
+      state: 'offline',
+      created_at: '2026-08-21T09:00:00Z',
+      enrolled_at: '2026-08-21T09:04:00Z',
+      last_seen_at: ago(now, 190),
+      reported_at: ago(now, 190),
+      hostname: 'fra-edge-01',
+      os: 'linux',
+      arch: 'arm64',
+      build_version: 'demo',
+      public_ip: '203.0.113.24',
+      runtime: {
+        enabled_core: { core_artifact_id: 'core_demo_frankfurt', exact_core_version: '1.13.4' },
+        desired_running: true,
+        target_generation: 3,
+        observation_state: 'running',
+      },
+    },
+    settings: { revision: 1, public_host: 'fra.example.net', traffic: { quota_gib: 1000, period_months: 1, reset_day: 15 } },
+    usage: { inbound_bytes: 412 * 2 ** 30, outbound_bytes: 96 * 2 ** 30 },
+  }, {
+    node: {
+      id: 'node_demo_singapore',
+      name: 'edge-singapore',
+      state: 'pending',
+      created_at: ago(now, 40),
+      enrolled_at: null,
+      last_seen_at: null,
+      reported_at: null,
+      hostname: '',
+      os: '',
+      arch: '',
+      build_version: '',
+    },
+    settings: { revision: 1, public_host: '', traffic: { quota_gib: null, period_months: 1, reset_day: 1 } },
+    usage: { inbound_bytes: 0, outbound_bytes: 0 },
+  }];
+}
 
 export function demoSystemStatus(): SystemStatus {
   return { platform: { os: 'linux', arch: 'amd64' }, panel_version: 'demo' };
@@ -424,32 +480,59 @@ export function demoTrafficPeriod(data: DemoData, periodID: string, now = new Da
   return aggregateDemoTrafficPeriod(data, start, end, now);
 }
 
-/** The demo node's period that contains now, starting on its reset day. */
-function demoCurrentPeriod(data: DemoData, now: Date): TrafficPeriod {
-  const { period_months: months, reset_day: day } = data.nodeSettings.traffic;
+/** The period that contains now, starting on the settings' reset day. */
+function currentPeriodRange(traffic: NodeSettings['traffic'], now: Date): { start: string; end: string } {
+  const { period_months: months, reset_day: day } = traffic;
   let month = (now.getUTCFullYear() - 1970) * 12 + now.getUTCMonth();
   if (now.getUTCDate() < day) month -= 1;
   const startMonth = month - ((month % months) + months) % months;
-  const start = new Date(Date.UTC(1970, startMonth, day)).toISOString();
-  const end = new Date(Date.UTC(1970, startMonth + months, day)).toISOString();
+  return {
+    start: new Date(Date.UTC(1970, startMonth, day)).toISOString(),
+    end: new Date(Date.UTC(1970, startMonth + months, day)).toISOString(),
+  };
+}
+
+/** The interactive demo node's period that contains now. */
+function demoCurrentPeriod(data: DemoData, now: Date): TrafficPeriod {
+  const { start, end } = currentPeriodRange(data.nodeSettings.traffic, now);
   return aggregateDemoTrafficPeriod(data, start, end, now);
 }
 
+/** A listed node's current period, holding the usage it recorded before it went offline. */
+export function demoPeerPeriod(peer: DemoPeer, now = new Date()): TrafficPeriod {
+  const { start, end } = currentPeriodRange(peer.settings.traffic, now);
+  return {
+    id: demoPeriodID(start, end), period_start: start, period_end: end, ...peer.usage,
+    counters: { aggregation: 'daily' }, created_at: start,
+  };
+}
+
 function demoQuota(data: DemoData, period: TrafficPeriod): { quota_bytes?: number; quota_exceeded: boolean } {
-  const quota = data.nodeSettings.traffic.quota_gib;
+  return quotaStatus(data.nodeSettings, period);
+}
+
+function quotaStatus(settings: NodeSettings, period: TrafficPeriod): { quota_bytes?: number; quota_exceeded: boolean } {
+  const quota = settings.traffic.quota_gib;
   if (quota === null || quota <= 0) return { quota_exceeded: false };
   const bytes = quota * 2 ** 30;
   return { quota_bytes: bytes, quota_exceeded: period.inbound_bytes + period.outbound_bytes >= bytes };
 }
 
-/** The demo fleet's traffic: its one node against the node's own quota. */
+/** The demo fleet's traffic: each node against its own quota, and the summed usage. */
 export function demoTrafficStatus(data: DemoData, now = new Date()): TrafficStatus {
-  const period = demoCurrentPeriod(data, now);
+  const nodes: TrafficStatus['nodes'] = data.peers.map((peer) => {
+    const period = demoPeerPeriod(peer, now);
+    return { node_id: peer.node.id, current_traffic_period: period, ...quotaStatus(peer.settings, period) };
+  });
+  if (data.primary !== null) {
+    const period = demoCurrentPeriod(data, now);
+    nodes.unshift({ node_id: data.primary.id, current_traffic_period: period, ...demoQuota(data, period) });
+  }
   return {
     collected_at: now.toISOString(),
-    upload_bytes: period.outbound_bytes,
-    download_bytes: period.inbound_bytes,
-    nodes: [{ node_id: demoNode.id, current_traffic_period: period, ...demoQuota(data, period) }],
+    upload_bytes: nodes.reduce((sum, node) => sum + node.current_traffic_period.outbound_bytes, 0),
+    download_bytes: nodes.reduce((sum, node) => sum + node.current_traffic_period.inbound_bytes, 0),
+    nodes,
   };
 }
 

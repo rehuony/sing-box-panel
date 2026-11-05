@@ -6,11 +6,11 @@ import type { CoreArtifact } from '@/api/api-client';
 import { queries } from '@/api/queries';
 import { useApiClient } from '@/api/api-client-context';
 import { installedCoreVersions } from '@/utils/installed-core-artifacts';
-import { nodePlatform, useNodeSelection } from '@/stores/node-selection.store';
+import { nodePlatform, useCurrentNode } from '@/stores/current-node.store';
 
 export function useInstalledConfigurationVersions() {
   const client = useApiClient();
-  const platform = nodePlatform(useNodeSelection().selected);
+  const platform = nodePlatform(useCurrentNode());
   const installed = useQuery(queries.installed(client, platform));
   const runtime = useQuery(queries.runtime(client));
   const state = {

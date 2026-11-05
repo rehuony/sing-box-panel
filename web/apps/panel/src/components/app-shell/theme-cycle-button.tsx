@@ -34,7 +34,6 @@ export function ThemeCycleButton() {
         render={(
           <Button
             aria-label={label}
-            className='telemetry-theme-button'
             data-theme-preference={preference}
             onClick={cycleTheme}
             size='icon-sm'

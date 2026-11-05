@@ -1,3 +1,6 @@
+/* The schema form theme. Its rules follow how rjsf nests fields, objects, unions
+   and arrays, which the templates cannot express as utilities on one instance. */
+
 .schema-form {
   container: schema-form / inline-size;
   min-width: 0;
@@ -20,7 +23,7 @@
   min-width: 0;
 }
 .schema-form__grid > * + * {
-  border-top: 1px solid var(--color-rule-2);
+  border-top: 1px solid var(--border);
 }
 .schema-form__field {
   display: grid;
@@ -78,8 +81,8 @@
   margin: 0;
   padding: 16px 0 4px;
   font-size: var(--text-sm);
-  font-weight: 550;
-  color: var(--color-text);
+  font-weight: 500;
+  color: var(--foreground);
 }
 .schema-form__object > .schema-form__grid {
   clear: both;
@@ -90,7 +93,7 @@
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  border-bottom: 1px solid var(--color-rule-2);
+  border-bottom: 1px solid var(--border);
 }
 .schema-form__object-label {
   min-width: 0;
@@ -156,7 +159,7 @@
 }
 .schema-form__item-summary,
 .schema-form__item-type {
-  color: var(--color-text-muted);
+  color: var(--muted-foreground);
   font-size: var(--text-sm);
 }
 .schema-form__list-row,
@@ -168,14 +171,14 @@
   gap: 16px;
   min-height: 60px;
   padding: 8px 12px;
-  border-bottom: 1px solid var(--color-rule-2);
+  border-bottom: 1px solid var(--border);
 }
 .schema-form__list-header {
   min-height: 36px;
   border: 0;
   border-radius: var(--radius-control);
   background: var(--color-surface-raised);
-  color: var(--color-text-muted);
+  color: var(--muted-foreground);
   font-size: var(--text-xs);
   font-weight: 500;
 }
@@ -232,7 +235,7 @@
 .schema-form__empty {
   padding: 40px 12px;
   text-align: center;
-  color: var(--color-text-muted);
+  color: var(--muted-foreground);
   font-size: var(--text-sm);
 }
 @container schema-form (max-width: 560px) {
@@ -281,7 +284,7 @@
   }
 }
 .schema-form__details {
-  border-top: 1px solid var(--color-rule-2);
+  border-top: 1px solid var(--border);
 }
 .schema-form__details > summary {
   cursor: pointer;
@@ -298,7 +301,7 @@
   margin-block: 6px 12px;
   margin-inline-start: 4px;
   padding-inline-start: 20px;
-  border-inline-start: 2px solid var(--color-rule-2);
+  border-inline-start: 2px solid var(--border);
 }
 .schema-form__map-header,
 .schema-form__map-entry {
@@ -310,7 +313,7 @@
 .schema-form__map-header {
   clear: both;
   padding-top: 12px;
-  color: var(--color-text-muted);
+  color: var(--muted-foreground);
   font-size: var(--text-xs);
 }
 .schema-form__map-entry {
@@ -381,12 +384,12 @@
 }
 .schema-form__union--compact .schema-form__variant-select {
   padding: 4px 8px;
-  color: var(--color-text-muted);
+  color: var(--muted-foreground);
   font-size: var(--text-xs);
 }
 .schema-form__union--compact .schema-form__variant-select:hover,
 .schema-form__union--compact .schema-form__variant-select[aria-expanded='true'] {
-  color: var(--color-text);
+  color: var(--foreground);
 }
 .schema-form__union--compact > .schema-form__union-value > .schema-form__field {
   display: block;
@@ -415,7 +418,7 @@
   color: var(--color-danger);
 }
 .schema-form__discriminated > .schema-form__field {
-  border-bottom: 1px solid var(--color-rule-2);
+  border-bottom: 1px solid var(--border);
 }
 .schema-form__discriminated > .schema-form__object > [data-slot='field-legend'] {
   display: none;
@@ -453,7 +456,7 @@
 }
 .configuration-entry-dialog > [data-slot='dialog-footer'] {
   padding: 16px 24px;
-  border-top: 1px solid var(--color-rule-2);
+  border-top: 1px solid var(--border);
 }
 .configuration-entry-dialog > [data-slot='dialog-footer'] > button {
   border-radius: var(--radius-control);
@@ -474,7 +477,7 @@
   justify-content: flex-start;
   gap: 4px;
   padding: 12px 12px 16px 24px;
-  border-right: 1px solid var(--color-rule-2);
+  border-right: 1px solid var(--border);
   border-radius: 0;
   background: transparent;
   overflow-y: auto;
@@ -490,8 +493,8 @@
   font-weight: 400;
 }
 .schema-dialog-tabs__nav > [data-active] {
-  background: var(--color-accent-soft);
-  color: var(--color-primary);
+  background: var(--accent);
+  color: var(--primary);
   box-shadow: none;
 }
 .schema-dialog-tabs__nav > [data-slot='tabs-trigger']::after {
@@ -536,7 +539,7 @@
   border: 0;
 }
 .schema-form__dialog-root > .schema-form__grid > :where(:not([hidden]):has(~ :not([hidden]))) {
-  border-bottom: 1px solid var(--color-rule-2);
+  border-bottom: 1px solid var(--border);
 }
 .schema-form__dialog-root > .schema-form__grid > :has(> .schema-form__optional) {
   border-bottom: 0;
@@ -577,7 +580,7 @@
   gap: 20px;
 }
 .schema-dialog-tabs[data-compact='false'] .configuration-entry-dialog__identity {
-  border-bottom: 1px solid var(--color-rule-2);
+  border-bottom: 1px solid var(--border);
 }
 .configuration-entry-dialog__identity > [data-slot='field'] {
   flex: 1;

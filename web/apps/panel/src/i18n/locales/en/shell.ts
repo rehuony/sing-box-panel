@@ -10,19 +10,17 @@ export const shell = {
     page: 'Loading workspace…',
     title: 'Reading panel context',
   },
-  notSelected: 'Not selected',
   panelStatus: {
     loading: 'Checking panel status',
     online: 'Panel online',
     unavailable: 'Panel status unavailable',
   },
+  openNavigation: 'Open navigation',
   skip: 'Skip to main content',
   version: 'v{{version}}',
 } as const;
 
 export const nodes = {
-  empty: 'No nodes yet. Run sing-box-panel node add NAME on the panel host and enroll the node with the printed command.',
-  label: 'Node',
   loadFailed: 'Nodes could not be loaded.',
   notSelected: 'Add a node to manage its cores and configuration.',
   state: {
@@ -37,11 +35,9 @@ export const app = {
 } as const;
 
 export const nav = {
-  panel: 'Panel settings',
-  configuration: 'Configuration',
-  cores: 'Versions',
-  dashboard: 'Dashboard',
-  observability: 'Runtime logs',
+  logs: 'Logs',
+  nodes: 'Nodes',
+  settings: 'Settings',
   subscriptions: 'Subscriptions',
 } as const;
 

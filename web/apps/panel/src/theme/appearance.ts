@@ -59,35 +59,24 @@ export function appearanceTokens(appearance: AppearanceSettings, dark = false): 
   const radius = Number.isFinite(appearance.radius)
     ? Math.max(0, Math.min(32, Math.round(appearance.radius)))
     : DEFAULT_APPEARANCE.radius;
+  const onAccent = contrastRatio(accent, '#ffffff') >= 4.5 ? '#ffffff' : '#17151e';
   return {
     '--appearance-color': color,
     '--primary': accent,
-    '--primary-foreground': contrastRatio(accent, '#ffffff') >= 4.5 ? '#ffffff' : '#17151e',
-    '--ring': accent,
-    '--sidebar-primary': accent,
-    '--sidebar-primary-foreground': contrastRatio(accent, '#ffffff') >= 4.5 ? '#ffffff' : '#17151e',
-    '--sidebar-accent': soft,
-    '--sidebar-accent-foreground': accent,
-    '--sidebar-ring': accent,
-
+    '--primary-foreground': onAccent,
     '--color-accent-hover': hex(mix(foreground, target, 0.12)),
-    '--color-accent-soft': soft,
-    '--color-accent-ink': contrastRatio(accent, '#ffffff') >= 4.5 ? '#ffffff' : '#17151e',
-    '--color-focus': accent,
-    '--color-paper': hex(mix(base, surface, 0.98)),
-    '--color-paper-2': hex(mix(base, surface, 0.96)),
-    '--color-paper-3': hex(mix(base, surface, 0.92)),
-    '--color-rule': hex(mix(base, surface, dark ? 0.58 : 0.74)),
+    '--accent': soft,
+    '--color-canvas': hex(mix(base, surface, dark ? 0.98 : 0.96)),
     '--card': hex(mix(base, surface, 0.995)),
     '--popover': hex(mix(base, surface, 0.995)),
     '--muted': hex(mix(base, surface, 0.96)),
-    '--color-rule-2': hex(mix(base, surface, dark ? 0.68 : 0.84)),
+    // The dark raised surface is fixed; an empty value leaves the stylesheet's.
+    '--color-surface-raised': dark ? '' : hex(mix(base, surface, 0.96)),
     '--border': hex(mix(base, surface, dark ? 0.68 : 0.84)),
     '--input': hex(mix(base, surface, dark ? 0.68 : 0.84)),
+    '--color-border-strong': hex(mix(base, surface, dark ? 0.58 : 0.74)),
     '--radius-card': `${radius}px`,
-    '--radius-panel': `${radius}px`,
     '--radius-control': `${radius / 2}px`,
-    '--radius-sm': `${radius / 2}px`,
     '--radius-window': `${Math.min(32, radius * 7 / 6)}px`,
   };
 }

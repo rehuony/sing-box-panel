@@ -14,7 +14,7 @@ export class SearchPanelHost implements Panel {
     private onDestroy: () => void,
   ) {
     this.state = view.state;
-    this.dom.className = 'editor-search-host';
+    this.dom.className = '@container';
   }
 
   getSnapshot = () => this.state;

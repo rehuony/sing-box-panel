@@ -1,1 +1,1 @@
-export { ToolbarActions, WorkspaceToolbar } from './workspace-toolbar';
+export { ToolbarActions, WorkspaceToolbar, WorkspaceToolbarActions } from './workspace-toolbar';

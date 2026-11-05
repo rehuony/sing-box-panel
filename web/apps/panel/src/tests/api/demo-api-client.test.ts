@@ -249,7 +249,8 @@ describe('createDemoApiClient', () => {
       const status = await client.getTrafficStatus();
       expect(status.nodes[0].quota_bytes).toBe(metrics.quota_bytes);
       expect(status.nodes[0].current_traffic_period).toEqual(metrics.current_traffic_period);
-      expect(status.upload_bytes).toBe(metrics.current_traffic_period.outbound_bytes);
+      const upload = status.nodes.reduce((sum, node) => sum + node.current_traffic_period.outbound_bytes, 0);
+      expect(status.upload_bytes).toBe(upload);
       expect(status).not.toHaveProperty('quota_bytes');
     }
     await expect(client.saveNodeSettings({ ...settings, revision: settings.revision - 1 }))

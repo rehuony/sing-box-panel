@@ -83,7 +83,7 @@ export function StatusPage({ session, onSignedOut }: StatusPageProps) {
         </div>
         <Button variant='outline' onClick={() => void signOut()}>{t('status.signOut')}</Button>
       </header>
-      <p className='min-h-5 text-sm text-status-warning-foreground' role='status'>{stale ? t('status.stale') : ''}</p>
+      <p className='min-h-5 text-sm text-[var(--color-warning-text)]' role='status'>{stale ? t('status.stale') : ''}</p>
       {status === null
         ? (
             <div className='flex min-h-48 items-center justify-center' aria-busy='true'>

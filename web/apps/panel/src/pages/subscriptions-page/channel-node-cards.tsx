@@ -48,7 +48,7 @@ function SortableCard({ item, onToggle }: { item: ChannelNodeCard; onToggle: Pro
       aria-describedby={item.disabledReason ? reasonId : attributes['aria-describedby']}
       aria-keyshortcuts='F2'
       tabIndex={item.disabled ? -1 : 0}
-      className='subscription-node-card channel-node-card select-none'
+      className='relative isolate flex min-h-46 min-w-0 flex-col gap-2 overflow-hidden rounded-[var(--radius-card)] border bg-[var(--color-surface-raised)] p-3 [&>header]:relative [&>header]:z-1 [&>header]:flex [&>header]:items-center [&>header]:gap-1.5 cursor-pointer touch-pan-y outline-none select-none hover:not-data-[disabled=true]:border-primary focus-visible:ring-2 focus-visible:ring-ring data-[disabled=true]:cursor-default data-[disabled=true]:opacity-50 data-[dragging=true]:opacity-30 data-[selected=true]:border-primary data-[selected=true]:shadow-[0_0_0_1px_var(--primary)] select-none'
       data-selected={item.selected}
       data-disabled={item.disabled || undefined}
       data-dragging={isDragging || undefined}
@@ -90,7 +90,7 @@ export function ChannelNodeCards({ items, onToggle, onMove, onDraggingChange }: 
       renderOverlay={(id) => {
         const dragged = items.find((item) => item.id === id);
         return dragged && (
-          <div className='subscription-node-card channel-node-card channel-node-card-overlay' data-selected={dragged.selected} aria-hidden='true'>
+          <div className='relative isolate flex min-h-46 min-w-0 flex-col gap-2 overflow-hidden rounded-[var(--radius-card)] border bg-[var(--color-surface-raised)] p-3 [&>header]:relative [&>header]:z-1 [&>header]:flex [&>header]:items-center [&>header]:gap-1.5 cursor-pointer touch-pan-y outline-none select-none hover:not-data-[disabled=true]:border-primary focus-visible:ring-2 focus-visible:ring-ring data-[disabled=true]:cursor-default data-[disabled=true]:opacity-50 data-[dragging=true]:opacity-30 data-[selected=true]:border-primary data-[selected=true]:shadow-[0_0_0_1px_var(--primary)] h-full cursor-grabbing shadow-[var(--shadow-panel)]' data-selected={dragged.selected} aria-hidden='true'>
             <SubscriptionNodeCardContent
               node={dragged.node}
               group={dragged.group}
@@ -102,7 +102,7 @@ export function ChannelNodeCards({ items, onToggle, onMove, onDraggingChange }: 
         );
       }}
     >
-      <div className='subscription-node-grid channel-candidates'
+      <div data-slot='channel-candidates' className='grid grid-cols-[repeat(auto-fill,min(100%,18rem))] content-start gap-3 p-0.5 content-start'
         onPointerDownCapture={() => {
           if (!draggingRef.current) suppressClickRef.current = false;
         }}

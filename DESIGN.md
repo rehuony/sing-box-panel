@@ -2,7 +2,7 @@
 
 The design system of the sing-box-panel web interface: roles, scales, formulas, patterns and rules. It extends the global design guide and repeats nothing from it. Every value is the one the tokens in code use; a change to one changes the other in the same work.
 
-The interface serves two scopes. The panel scope covers the fleet: the node overview, subscriptions and panel settings. The node scope covers one node: its overview, core versions, configuration and logs.
+The interface serves two scopes. The panel scope covers the fleet: the node overview, subscriptions, the panel log and panel settings. The node scope covers one node: its overview, core versions, configuration, logs and settings.
 
 ## 1. Character
 
@@ -46,9 +46,9 @@ Light values sit in the root scope, dark values in the dark scope. A derived tok
 | Success | `--color-success`, `-soft`, `-text`, `-border` | `oklch(59% 0.14 165)`, `oklch(95% 0.03 165)`, `oklch(42% 0.11 165)`, `oklch(82% 0.06 165)` | `oklch(72% 0.14 165)`, `oklch(27% 0.055 165)`, `oklch(83% 0.105 165)`, `oklch(46% 0.08 165)` | Healthy and completed states |
 | Warning | `--color-warning`, `-soft`, `-text`, `-border` | `oklch(65% 0.16 62)`, `oklch(96% 0.035 72)`, `oklch(46% 0.12 62)`, `oklch(83% 0.07 62)` | `oklch(78% 0.14 72)`, `oklch(28% 0.055 72)`, `oklch(84% 0.11 72)`, `oklch(48% 0.08 72)` | Degraded or stale states, pending action, one-time secrets |
 | Danger | `--color-danger`, `-soft`, `-text`, `-border` | `oklch(56% 0.18 20)`, `oklch(95% 0.035 20)`, `oklch(43% 0.14 20)`, `oklch(82% 0.07 20)` | `oklch(70% 0.17 20)`, `oklch(28% 0.06 20)`, `oklch(83% 0.105 20)`, `oklch(48% 0.08 20)` | Failed or unreachable states, errors, destructive actions |
-| Info | `--color-info`, `-soft`; `--status-info-foreground`, `-border` | `oklch(58% 0.15 248)`, `oklch(95% 0.03 248)`, `oklch(44% 0.12 248)`, `oklch(82% 0.06 248)` | `oklch(72% 0.13 248)`, `oklch(28% 0.055 248)`, `oklch(82% 0.095 248)`, `oklch(47% 0.075 248)` | Neutral notices, third chart series |
+| Info | `--color-info`, `-soft`, `-text`, `-border` | `oklch(58% 0.15 248)`, `oklch(95% 0.03 248)`, `oklch(44% 0.12 248)`, `oklch(82% 0.06 248)` | `oklch(72% 0.13 248)`, `oklch(28% 0.055 248)`, `oklch(82% 0.095 248)`, `oklch(47% 0.075 248)` | Neutral notices, third chart series |
 | Scrim | `--color-scrim` | `oklch(22% 0.018 274 / 34%)` | `oklch(7% 0.01 274 / 68%)` | Behind modal layers |
-| Code surface | `--color-code-surface` | `oklch(20.8% 0.042 265.755)` | `oklch(17% 0.03 265.755)` | Code, configuration and log output in both themes |
+| Syntax | `--color-syntax-property`, `-string`, `-number`, `-keyword` | `#245fa1`, `#21774b`, `#9a541e`, `#8c4989` | `#88bdf3`, `#9ac99d`, `#e7b685`, `#d5a0d7` | JSON syntax in the configuration editor |
 | Brand | `--color-brand-navy`, `--color-brand-orange` | `oklch(20.8% 0.042 265.755)`, `oklch(70.5% 0.18 47.6)` | `oklch(17% 0.03 265.755)`, `oklch(76% 0.16 55)` | Logo mark, second chart series |
 
 Derivation, with mix(A, S, w) as A mixed into S at weight w:
@@ -135,7 +135,7 @@ R is the saved radius, an integer from 0 to 32, default 12.
 | Table header row | — | 44px, no divider |
 | Table data row | `--workspace-row-height` | 64px plus a 1px divider; grows when content wraps |
 | Page sizes | — | 5, 10, 50 |
-| Breakpoints | — | 1180, 900, 768, 520, 360px |
+| Breakpoints | — | 640, 768 (the rail becomes a sheet), 1024px; views also respond to their own width |
 
 ## 5. Surfaces and motion
 
@@ -143,10 +143,9 @@ R is the saved radius, an integer from 0 to 32, default 12.
 | --- | --- | --- | --- |
 | Canvas | `--color-canvas`, flat | — | Window background |
 | Content | `--color-surface` | `--border` hairline; `--shadow-card` only where a hairline is not enough | Cards, tables, forms, object rows |
-| Raised | `--color-surface-raised` | Tint | Nested blocks, hovered rows |
+| Raised | `--color-surface-raised` | Tint | Nested blocks, hovered rows, code, configuration and log output |
 | Popover | `--popover` | Hairline and the popover shadow | Menus, select lists, popovers, tooltips |
 | Floating | `--color-surface` | Hairline and `--shadow-panel` | Rail, dialogs, alert dialogs, sheets, toasts |
-| Code | `--color-code-surface` | `--color-code-editor-border` | Code, configuration and log output |
 
 | Shadow | Light | Dark |
 | --- | --- | --- |
@@ -168,7 +167,6 @@ R is the saved radius, an integer from 0 to 32, default 12.
 | Layer | Token | Value |
 | --- | --- | --- |
 | Sticky content | `--z-sticky` | 200 |
-| Sticky navigation | `--z-sticky-nav` | 300 |
 | Modal | `--z-modal` | 400 |
 | Popover above modal | `--z-popover` | 450 |
 
@@ -183,7 +181,9 @@ R is the saved radius, an integer from 0 to 32, default 12.
 | Data table | 44px header, 64px rows, row actions at the end | Paged or scrolled within its region | Loading, empty and error centred in the region; selection by soft fill |
 | Pagination | Page-size choice, previous and next, page input, total | — | Enter or blur commits a page, Escape cancels |
 | Toolbar row | Tabs or filters at the start, actions at the end | List toolbar, object row | Stays in place while content scrolls |
-| Object row | Back, name, state, context values, actions | Node, source, channel | Actions act on the named object only |
+| Object row | Back, name, state, context values, actions | Node, source, channel | Actions act on the named object only; below 1024px the context values move to a second line that scrolls sideways |
+| Node card | Name as the card's link, host, state indicator, core version, status, period usage meter | — | Hover strengthens the hairline; keyboard focus rings the card; the meter turns warning from 90% and danger once the quota is reached |
+| Enrollment code | Command and code, each with a copy action, then a one-line warning note with the expiry | — | Shown once; closing discards it |
 | Dialog | Title, close, scrolling body, footer with actions at the end | Standard 30rem; wide with a section rail on the left | Cancel first, auxiliary next, primary last; Escape closes the innermost layer |
 | Notification | Compact toast with a status colour | Success, warning, danger, info | Dismisses after 3 seconds, pausing on hover and focus; a repeated failure reuses one toast |
 | Loading region | Accent spinner over a muted label | — | Short delayed fade-in inside the pending region only |
@@ -193,9 +193,11 @@ R is the saved radius, an integer from 0 to 32, default 12.
 ## 7. Layout
 
 - The shell has two regions: a floating navigation rail and the workspace. There is no global header; each view's first row is its toolbar row or its object row.
-- The rail lists panel-scope destinations only. Theme, language and sign-out sit at its foot as equal embedded actions.
-- Nodes are first-class objects. The node list is searchable and paged, with state, core version and traffic columns. Opening a node shows its object row, then tabs for overview, core versions, configuration and logs.
+- The rail lists panel-scope destinations only: nodes, subscriptions, logs and settings. Theme, language and sign-out sit at its foot as equal embedded actions.
+- Nodes are first-class objects. The node overview is a searchable, paged grid of node cards; its toolbar row carries the fleet's online count and summed period usage, never a summed quota, and each card carries the node's name and host, state, core version, and its own period usage against its own quota. Opening a node shows its object row, then tabs for overview, core versions, configuration, logs and settings.
+- A node's settings tab edits its name, published host and traffic quota and period in one saved group, and keeps re-enrollment and removal in a separate destructive section.
 - Runtime controls belong to the node they act on and sit in that node's object row.
+- A node that is offline or not enrolled keeps what it last reported in its object row, marked stale with when it was last seen, and every tab that commands the node shows one region state in place of its view; its settings tab stays available, and a node not yet enrolled offers its enrollment code there.
 - A panel-scope view never shows one node's runtime state as global state.
 - Views have no title band: the rail and the object row name the place.
 
@@ -217,14 +219,15 @@ Overrides of the global guide:
 | Global rule | Project value | Reason |
 | --- | --- | --- |
 | Control heights from the set 36, 40, 44 | 40, 32, 44, and 28 for embedded actions | Compact actions fit table rows and toolbars without enlarging them; touch keeps 44 |
+| Adjust instances with utilities, not page-level CSS | The schema form theme and the colour picker's own parts keep one stylesheet beside their component | Their rules follow markup that rjsf nests recursively or that a library renders, which utilities on one instance cannot address |
 
 ## 9. Tokens in code
 
-- `web/packages/shared/src/styles/tokens.css` holds every token and nothing else: the root scope, the dark scope `:root.dark, :root[data-resolved-theme='dark']`, the reduced-transparency, more-contrast and coarse-pointer overrides, and the `@theme inline` block that exposes tokens to Tailwind. `base.css` holds element defaults and `components.css` shared component classes; `global.css` imports Tailwind and the three files in that order.
-- Component roles use the shadcn names (`--background`, `--foreground`, `--card`, `--popover`, `--primary`, `--muted`, `--accent`, `--border`, `--ring`, `--chart-*`, `--sidebar-*`), read through utilities such as `bg-card`, `text-muted-foreground` and `border-border`. Product tokens use the `--color-*`, `--space-*`, `--radius-*`, `--control-height*`, `--shadow-*`, `--dur-*`, `--ease-*` and `--z-*` prefixes and are read with `var()`. A product token never reuses a component role name with another meaning; new code uses the names in sections 2 to 5, and older aliases resolve to them.
+- `web/packages/shared/src/styles/tokens.css` holds every token and nothing else: the root scope, the dark scope `:root.dark, :root[data-resolved-theme='dark']`, the more-contrast and coarse-pointer overrides, and the `@theme inline` block that exposes tokens to Tailwind. `base.css` holds element defaults and `components.css` shared component classes; `global.css` imports Tailwind and the three files in that order.
+- Component roles use the shadcn names (`--background`, `--foreground`, `--card`, `--popover`, `--primary`, `--muted`, `--accent`, `--border`, `--ring`, `--chart-*`, `--sidebar-*`), read through utilities such as `bg-card`, `text-muted-foreground` and `border-border`. Product tokens use the `--color-*`, `--space-*`, `--radius-*`, `--control-height*`, `--shadow-*`, `--dur-*`, `--ease-*` and `--z-*` prefixes and are read with `var()`. A product token never reuses a component role name with another meaning, and no token is an alias of another: code reads the names in sections 2 to 5.
 - Utilities follow the scales: `rounded-md` is R/2, `rounded-lg` and `rounded-xl` are R, `rounded-[var(--radius-window)]` is the floating step; sizes are `text-2xs`, `text-xs`, `text-compact`, `text-sm`, `text-base`, `text-xl`, `text-2xl` and `text-3xl`; weights are `font-normal`, `font-medium` and `font-semibold`.
-- `web/apps/panel/src/theme/appearance.ts` derives the tokens in section 2's derivation table and the radius tokens from the saved `{ theme, color, radius }`; the defaults are `system`, `#6D4ED1` and 12, and the presets `#6D4ED1`, `#2563EB`, `#0891B2`, `#15803D`, `#C65B13` and `#BE185D`. `ThemeProvider` writes them on the document root before first paint, from the appearance meta the server fills.
-- The component library is shadcn `base-nova` on Base UI with lucide icons (`web/components.json`); patterns map to `components/ui` primitives and the shared components beside them. Tokens the shadcn CLI adds go into `tokens.css`.
+- `web/apps/panel/src/theme/appearance.ts` derives the tokens in section 2's derivation table and the radius tokens from the saved `{ theme, color, radius }`; the defaults are `system`, `#6D4ED1` and 12, and the presets `#6D4ED1`, `#2563EB`, `#0891B2`, `#15803D`, `#C65B13` and `#BE185D`. `ThemeProvider` writes them on the document root, from the appearance meta the server fills; before scripts load, the server paints only `--color-canvas` with the same blend.
+- The component library is shadcn `base-nova` on Base UI with lucide icons (`web/packages/shared/components.json`); patterns map to `components/ui` primitives and the shared components beside them. Tokens the shadcn CLI adds go into `tokens.css`.
 - Code that paints, such as charts, reads tokens with `getComputedStyle(document.documentElement)` and redraws when the theme or appearance changes.
 - To add a token: give it light and dark values in `tokens.css`, derive it in `appearance.ts` when it depends on the accent, register it in `@theme inline` when components need a utility, and add its row here, in one change.
 

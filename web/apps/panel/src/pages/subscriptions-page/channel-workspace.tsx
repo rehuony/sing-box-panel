@@ -83,9 +83,9 @@ export function ChannelWorkspace({ active = true, toolbarTarget, channel, nodes,
     applyOptions,
   } = useChannelDraft(channel, nodes, onSaved);
   return (
-    <div className='channel-workspace'>
+    <div className='@container/channel-editor flex h-full min-h-0 min-w-0 flex-col gap-2 [&_[data-slot=button][data-variant=ghost]]:border-transparent'>
       <ToolbarActions active={active} target={toolbarTarget}>
-        <div className='channel-workspace-actions workspace-toolbar-content'>
+        <div className='ms-auto flex min-w-0 flex-none items-center justify-end gap-2'>
           <Button size='icon-sm' variant='ghost' aria-label={t('channels.back')} title={t('channels.back')} disabled={busy} onClick={() => confirmNavigation(onBack)}><ArrowLeft /></Button>
           <Button size='icon-sm' variant='ghost' aria-label={t('channels.distribution')} title={t('channels.distribution')} disabled={busy} onClick={() => setOptionsOpen(true)}><Settings2 /></Button>
           <Button size='icon-sm' variant='ghost' aria-label={t('channels.preview')} title={t('channels.preview')} disabled={busy} onClick={() => void showPreview()}><Eye /></Button>
@@ -95,43 +95,44 @@ export function ChannelWorkspace({ active = true, toolbarTarget, channel, nodes,
           </Button>
         </div>
       </ToolbarActions>
-      <div className='channel-rules-workspace'>
-        {needsUpgrade && <p role='status' className='channel-delivery-hint'>{t('channels.legacyUpgradeHint')}</p>}
+      <div className='flex min-h-0 flex-1 flex-col gap-3 overflow-hidden @max-[740px]/channel-editor:overflow-y-auto @max-[740px]/channel-editor:pe-1'>
+        {needsUpgrade && <p role='status' className='text-sm text-muted-foreground'>{t('channels.legacyUpgradeHint')}</p>}
         {conflict && <ErrorNotice error={t('channels.formatConflict')} />}
-        <div className='channel-policy-layout'>
-          <aside className='channel-group-sidebar' aria-label={t('channels.groups')}>
-            <div className='channel-group-sidebar-heading'>
+        <div className='grid min-h-0 flex-1 grid-cols-[220px_minmax(0,1fr)] gap-4 @max-[740px]/channel-editor:flex @max-[740px]/channel-editor:flex-none @max-[740px]/channel-editor:flex-col'>
+          <aside className='flex min-h-0 min-w-0 flex-col gap-4 overflow-hidden border-r pe-4 @max-[740px]/channel-editor:overflow-visible @max-[740px]/channel-editor:border-r-0 @max-[740px]/channel-editor:p-0' aria-label={t('channels.groups')}>
+            <div className='flex flex-none flex-wrap items-center gap-2 [&>button]:ms-auto [&>h2]:text-sm [&>h2]:font-medium'>
               <h2>{t('channels.groups')}</h2>
               <Badge variant='secondary'>{policy.groups.length}</Badge>
               <Button size='icon-sm' variant='ghost' aria-label={t('channels.addGroup')} title={t('channels.addGroup')} disabled={busy} onClick={addGroup}><CirclePlus /></Button>
             </div>
-            <div className='channel-group-list'>
+            <div className='-m-0.5 flex min-h-0 flex-1 flex-col gap-2.5 overflow-y-auto p-0.5 @max-[740px]/channel-editor:m-0 @max-[740px]/channel-editor:grid @max-[740px]/channel-editor:max-h-55 @max-[740px]/channel-editor:flex-none @max-[740px]/channel-editor:grid-cols-[repeat(auto-fill,minmax(200px,1fr))]'>
               {policy.groups.map((value) => (
-                <div className='channel-group-card' key={value.id}>
+                <div className='group/card relative min-w-0 flex-none' key={value.id}>
                   <Button
                     variant='ghost'
-                    className='channel-group-item'
+                    className='min-h-16 w-full flex-col items-stretch gap-1 px-3 py-2.5 text-left font-normal whitespace-normal active:scale-100 aria-pressed:bg-accent aria-pressed:text-primary'
+                    data-group-item
                     size='content'
                     aria-pressed={group?.id === value.id}
                     disabled={busy}
                     onClick={() => setGroupID(value.id)}
                   >
-                    <span className='channel-group-item-name' title={`${value.name} · ${t(`channels.groupTypes.${value.type}`)}`}>
+                    <span className='flex items-center gap-2 pe-7 wrap-anywhere' title={`${value.name} · ${t(`channels.groupTypes.${value.type}`)}`}>
                       {value.type === 'url-test' ? <Gauge aria-hidden='true' /> : value.type === 'fallback' ? <ListRestart aria-hidden='true' /> : <MousePointer2 aria-hidden='true' />}
                       {value.name || t('channels.groupName')}
                     </span>
-                    <span className='channel-group-metadata'>
-                      <span className='channel-group-summary' title={t('channels.groupSummary', { nodes: value.node_ids.length + value.builtin_nodes.length + (value.group_ids?.length ?? 0), rules: value.rules.length })}>
+                    <span className='flex min-h-5 min-w-0 items-center gap-1.5'>
+                      <span className='min-w-0 truncate text-xs text-muted-foreground' title={t('channels.groupSummary', { nodes: value.node_ids.length + value.builtin_nodes.length + (value.group_ids?.length ?? 0), rules: value.rules.length })}>
                         {t('channels.groupSummary', { nodes: value.node_ids.length + value.builtin_nodes.length + (value.group_ids?.length ?? 0), rules: value.rules.length })}
                       </span>
-                      <span className='channel-group-badges'>
+                      <span className='ms-auto flex flex-none items-center gap-1.5 empty:hidden *:data-[slot=badge]:font-normal'>
                         {!value.enabled && <Badge variant='secondary'>{t('channels.disabled')}</Badge>}
                         {policy.default_exit.kind === 'group' && policy.default_exit.id === value.id && <Badge variant='success'>{t('channels.finalExit')}</Badge>}
                       </span>
                     </span>
                   </Button>
                   <Button
-                    size='icon-sm' variant='ghost' className='channel-group-settings'
+                    size='icon-sm' variant='ghost' className='pointer-events-none absolute end-1 top-1 border-transparent bg-transparent opacity-0 transition-opacity duration-[var(--dur-short)] group-hover/card:pointer-events-auto group-hover/card:opacity-100 group-has-focus-visible/card:pointer-events-auto group-has-focus-visible/card:opacity-100 [@media(hover:none)]:pointer-events-auto [@media(hover:none)]:opacity-100'
                     aria-label={t('channels.groupSettings', { name: value.name })}
                     title={t('channels.groupSettings', { name: value.name })}
                     aria-haspopup='dialog' disabled={busy}
@@ -143,11 +144,11 @@ export function ChannelWorkspace({ active = true, toolbarTarget, channel, nodes,
               ))}
             </div>
             {group && (
-              <div className='channel-group-actions'>
+              <div className='flex flex-none flex-wrap items-center gap-2 pt-1'>
                 <Button size='icon-sm' variant='ghost' aria-label={t('channels.moveGroupUp')} title={t('channels.moveGroupUp')} disabled={busy || groupIndex === 0} onClick={() => reorder(groupIndex, -1)}><ArrowUp /></Button>
                 <Button size='icon-sm' variant='ghost' aria-label={t('channels.moveGroupDown')} title={t('channels.moveGroupDown')} disabled={busy || groupIndex === policy.groups.length - 1} onClick={() => reorder(groupIndex, 1)}><ArrowDown /></Button>
                 <Button
-                  size='icon-sm' variant='ghost' className='channel-group-final-exit'
+                  size='icon-sm' variant='ghost' className='ms-auto border-transparent bg-transparent aria-pressed:text-primary'
                   aria-label={t(finalGroup ? 'channels.clearFinalExit' : 'channels.setFinalExit')}
                   title={t(finalGroup ? 'channels.clearFinalExit' : 'channels.setFinalExit')}
                   aria-pressed={finalGroup} disabled={busy}
@@ -162,7 +163,7 @@ export function ChannelWorkspace({ active = true, toolbarTarget, channel, nodes,
                 >
                   <Flag fill={finalGroup ? 'currentColor' : 'none'} />
                 </Button>
-                <Button variant='ghost' size='icon-sm' className='channel-delete-action' aria-label={t('channels.deleteGroup')} title={t('channels.deleteGroup')} disabled={busy} onClick={() => {
+                <Button variant='ghost' size='icon-sm' className='text-[var(--color-danger)]' aria-label={t('channels.deleteGroup')} title={t('channels.deleteGroup')} disabled={busy} onClick={() => {
                   if (policy.default_exit.kind === 'group' && policy.default_exit.id === group.id) {
                     toast.add({ title: t('channels.groupExitInUse'), type: 'error' });
                     return;
@@ -189,12 +190,12 @@ export function ChannelWorkspace({ active = true, toolbarTarget, channel, nodes,
       </div>
       {groupSettings && (
         <Dialog open onOpenChange={(open) => !open && setGroupSettings(null)}>
-          <DialogContent className='channel-group-settings-dialog'>
+          <DialogContent className='w-110 max-w-[calc(100vw-32px)] sm:max-w-110'>
             <DialogHeader>
               <DialogTitle>{t('channels.groupSettingsTitle')}</DialogTitle>
               <DialogDescription className='sr-only'>{groupSettings.name}</DialogDescription>
             </DialogHeader>
-            <form className='channel-group-settings-form' onSubmit={(event) => {
+            <form className='flex flex-col gap-6' onSubmit={(event) => {
               event.preventDefault();
               if (busy || !groupSettings.name.trim()) return;
               setPolicy((current) => ({
@@ -205,7 +206,7 @@ export function ChannelWorkspace({ active = true, toolbarTarget, channel, nodes,
               }));
               setGroupSettings(null);
             }}>
-              <FieldGroup className='channel-group-settings-fields'>
+              <FieldGroup className='gap-4 *:data-[slot=field]:grid *:data-[slot=field]:min-h-(--control-height-sm) *:data-[slot=field]:grid-cols-[112px_minmax(0,1fr)] *:data-[slot=field]:items-center *:data-[slot=field]:gap-4 [&_[data-slot=field-label]]:font-normal [&_[data-slot=input]]:w-full [&_[data-slot=input]]:min-w-0 [&_[data-slot=select-trigger]]:w-full [&_[data-slot=select-trigger]]:min-w-0'>
                 <Field orientation='horizontal'>
                   <FieldLabel htmlFor='group-name'>{t('channels.groupName')}</FieldLabel>
                   <Input id='group-name' maxLength={128} disabled={busy} value={groupSettings.name} onChange={(event) => setGroupSettings({ ...groupSettings, name: event.target.value })} />

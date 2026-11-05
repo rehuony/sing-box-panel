@@ -16,16 +16,16 @@ interface Props {
 export function ChannelNodeActions({ count, disabled, canSelectAll, onClear, onSelectAll, onRemove, onAdd }: Props) {
   const { t } = useTranslation();
   return (
-    <div className='channel-selection-actions channel-node-actions'>
+    <div className='flex min-w-0 flex-none flex-wrap items-center gap-2 flex-nowrap'>
       {count > 0 && (
-        <div className='channel-node-selection'>
-          <span className='channel-node-selection-count' role='status' aria-label={t('channels.selectedNodes', { count })}>{count}</span>
+        <div className='flex flex-none items-center gap-1 rounded-[var(--radius-card)] bg-[var(--color-surface-raised)] ps-2.5 [&_[data-slot=separator]]:h-4 [&_[data-slot=separator]]:self-center [&_[data-slot=separator]]:border-s [&_[data-slot=separator]]:border-dashed [&_[data-slot=separator]]:bg-transparent'>
+          <span className='me-1.5 min-w-[1ch] text-xs text-muted-foreground tabular-nums' role='status' aria-label={t('channels.selectedNodes', { count })}>{count}</span>
           <Separator orientation='vertical' aria-hidden='true' />
           <Button size='icon-sm' variant='ghost' disabled={disabled} aria-label={t('channels.clearNodes')} title={t('channels.clearNodes')} onClick={onClear}>
             <X />
           </Button>
           {onRemove && (
-            <Button size='icon-sm' variant='ghost' className='channel-delete-action' disabled={disabled} aria-label={t('channels.removeNodes')} title={t('channels.removeNodes')} onClick={onRemove}>
+            <Button size='icon-sm' variant='ghost' className='text-[var(--color-danger)]' disabled={disabled} aria-label={t('channels.removeNodes')} title={t('channels.removeNodes')} onClick={onRemove}>
               <Trash2 />
             </Button>
           )}

@@ -24,11 +24,11 @@ export function SubscriptionContentState({ loading = false, kind = 'nodes', titl
 }) {
   const { t } = useTranslation();
   if (loading) {
-    return <LoadingState className='subscription-content-state' label={t('common.loading')} fullScreen={false} />;
+    return <LoadingState className='min-h-40 flex-1' label={t('common.loading')} fullScreen={false} />;
   }
   const Icon = stateIcons[kind];
   return (
-    <Empty className='subscription-content-state'>
+    <Empty className='min-h-40 flex-1'>
       <EmptyHeader>
         <EmptyMedia variant='icon' aria-hidden='true'>
           <Icon />

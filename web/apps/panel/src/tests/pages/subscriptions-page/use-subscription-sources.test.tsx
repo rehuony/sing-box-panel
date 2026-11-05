@@ -120,17 +120,10 @@ describe('subscription sources', () => {
     expect(result.current.inManualCollection(node)).toBe(true);
     expect(result.current.inManualCollection({ ...node, source_id: 'remote' })).toBe(false);
   });
-  it('uses only valid recorded starts and retains them when later history reads fail', async () => {
-    const started = '2026-09-20T01:00:00Z';
-    const { result, client } = await mount({ getRuntimeHistory: vi.fn().mockResolvedValueOnce({ items: [{ process_started_at: started }] }).mockRejectedValue(new Error('offline')) });
-    expect(result.current.displayedSources[0].updated_at).toBe(started);
-    await act(async () => result.current.reload());
-    expect(result.current.displayedSources[0].updated_at).toBe(started);
-    expect(client.getRuntimeHistory).toHaveBeenCalledOnce();
-  });
-  it.each([{ items: [] }, { items: [{ process_started_at: 'invalid' }] }])('does not invent a manual update time from %j', async ({ items }) => {
-    const { result } = await mount({ getRuntimeHistory: vi.fn().mockResolvedValue({ items }) });
+  it('does not take the manual collection’s update time from one node’s runtime', async () => {
+    const { result, client } = await mount();
     expect(result.current.displayedSources[0].updated_at).toBe('');
+    expect(client.getRuntimeHistory).not.toHaveBeenCalled();
   });
   it('refreshes persisted data after all refresh outcomes without changing node visibility', async () => {
     const notice = vi.spyOn(toast, 'add');

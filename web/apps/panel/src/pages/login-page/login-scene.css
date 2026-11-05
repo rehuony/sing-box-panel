@@ -18,7 +18,7 @@
 }
 
 .login-scene__character--main {
-  --scene-body: var(--color-primary);
+  --scene-body: var(--primary);
 }
 
 .login-scene__character--orange {
@@ -30,7 +30,7 @@
 }
 
 .login-scene__ground {
-  fill: color-mix(in oklch, var(--color-primary) 5%, transparent);
+  fill: color-mix(in oklch, var(--primary) 5%, transparent);
 }
 
 .login-scene__shadow {
@@ -85,12 +85,12 @@
 
 :root.dark .login-scene,
 :root[data-resolved-theme='dark'] .login-scene {
-  --scene-outline: color-mix(in oklch, var(--color-ink) 24%, transparent);
+  --scene-outline: color-mix(in oklch, var(--foreground) 24%, transparent);
 }
 
 :root.dark .login-scene__character--ink,
 :root[data-resolved-theme='dark'] .login-scene__character--ink {
-  --scene-body: color-mix(in oklch, var(--color-brand-navy) 82%, var(--color-ink));
+  --scene-body: color-mix(in oklch, var(--color-brand-navy) 82%, var(--foreground));
 }
 
 @media (prefers-reduced-motion: reduce) {

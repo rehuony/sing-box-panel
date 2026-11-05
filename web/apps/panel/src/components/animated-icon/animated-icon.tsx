@@ -3,41 +3,29 @@ import type { ComponentPropsWithoutRef } from 'react';
 import {
   Activity as StaticActivityIcon,
   Boxes as StaticBoxesIcon,
-  Gauge as StaticGaugeIcon,
   Radio as StaticRadioIcon,
   Settings as StaticSettingsIcon,
-  SlidersHorizontal as StaticSlidersIcon,
 } from 'lucide-react';
 
 import { usePrefersReducedMotion } from '@/hooks/use-prefers-reduced-motion';
 
 import { BoxesIcon } from './icons/boxes-icon';
-import { GaugeIcon } from './icons/gauge-icon';
 import { RadioIcon } from './icons/radio-icon';
-import { SlidersIcon } from './icons/sliders-icon';
 import { ActivityIcon } from './icons/activity-icon';
 import { SettingsIcon } from './icons/settings-icon';
 
 const ICONS = {
-  configuration: {
-    animated: SlidersIcon,
-    fallback: StaticSlidersIcon,
+  logs: {
+    animated: ActivityIcon,
+    fallback: StaticActivityIcon,
   },
-  panel: {
-    animated: SettingsIcon,
-    fallback: StaticSettingsIcon,
-  },
-  cores: {
+  nodes: {
     animated: BoxesIcon,
     fallback: StaticBoxesIcon,
   },
-  dashboard: {
-    animated: GaugeIcon,
-    fallback: StaticGaugeIcon,
-  },
-  observability: {
-    animated: ActivityIcon,
-    fallback: StaticActivityIcon,
+  settings: {
+    animated: SettingsIcon,
+    fallback: StaticSettingsIcon,
   },
   subscriptions: {
     animated: RadioIcon,

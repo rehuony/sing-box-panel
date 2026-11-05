@@ -548,7 +548,7 @@ the Web API continues to redact them. Traffic quotas and periods are not panel
 settings: each node has its own; see
 [Limited monitoring and traffic](subscriptions-and-observability.md#limited-monitoring-and-traffic).
 
-Raw sample/core-log retention, public-node host, appearance, language, GitHub token and catalog refresh policy
+Raw sample/core-log retention, appearance, language, GitHub token and catalog refresh policy
 are applied after saving. Background cleanup/refresh workers receive change
 notifications and read consistent snapshots. The shared metrics state refreshes
 once after saving, then continues over SSE. Credentials invalidate old sessions.

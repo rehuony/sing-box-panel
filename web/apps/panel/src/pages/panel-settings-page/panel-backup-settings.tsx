@@ -96,10 +96,10 @@ export function PanelBackupSettings({ busy, onBusyChange, onRestored }: {
   const source = record(pending?.backup.panel_settings);
   const server = record(source.server);
   return (
-    <div className='settings-backup'>
-      <h2>{t('panelSettings.backup')}</h2>
+    <div className='max-w-190'>
+      <h2 className='mb-4 text-sm font-semibold'>{t('panelSettings.backup')}</h2>
       {error != null && <ErrorNotice error={error} />}
-      <div className='settings-backup-actions'>
+      <div className='flex flex-wrap gap-3'>
         <Button type='button' variant='outline' disabled={locked} onClick={() => void exportBackup()}>
           <Download aria-hidden='true' />
           {t('panelSettings.backupExport')}
@@ -121,7 +121,7 @@ export function PanelBackupSettings({ busy, onBusyChange, onRestored }: {
             <AlertDialogTitle>{t('panelSettings.backupConfirm')}</AlertDialogTitle>
             <AlertDialogDescription>{t('panelSettings.backupOverwrite')}</AlertDialogDescription>
           </AlertDialogHeader>
-          <dl className='settings-backup-summary'>
+          <dl className='grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-2.5 text-sm [&_dd]:wrap-anywhere [&_dt]:text-[var(--color-text-secondary)]'>
             <dt>{t('panelSettings.backupDate')}</dt>
             <dd>{pending?.backup.exported_at}</dd>
             <dt>{t('panelSettings.listenHost')}</dt>
@@ -165,7 +165,7 @@ export function PanelBackupSettings({ busy, onBusyChange, onRestored }: {
               {String(source.data_dir ?? '')}
             </dd>
           </dl>
-          <p className='settings-notice'>{t('panelSettings.backupActivation')}</p>
+          <p className='mb-4 text-sm leading-relaxed text-[var(--color-text-secondary)]'>{t('panelSettings.backupActivation')}</p>
           <AlertDialogFooter>
             <AlertDialogCancel disabled={locked}>{t('common.cancel')}</AlertDialogCancel>
             <AlertDialogAction variant='destructive' disabled={locked} onClick={() => void restore()}>{t('panelSettings.backupRestore')}</AlertDialogAction>

@@ -28,8 +28,9 @@ describe('production CSS preload recovery', () => {
           if (id.startsWith('@/pages/')) {
             return `import 'virtual:page.css';
               const Page = () => null;
-              export { Page as DashboardPage, Page as ConfigurationPage, Page as CoresPage,
-                Page as PanelSettingsPage, Page as SubscriptionsPage, Page as ObservabilityPage };`;
+              export { Page as FleetPage, Page as NodeOverviewPage, Page as CoresPage, Page as ConfigurationPage,
+                Page as NodeLogsPage, Page as NodeSettingsPage, Page as SubscriptionsPage, Page as PanelLogsPage,
+                Page as PanelSettingsPage };`;
           }
         },
       }],
@@ -58,13 +59,13 @@ describe('production CSS preload recovery', () => {
       URL,
       importMeta: { url: 'https://panel.example/assets/entry.js' },
     });
-    browser.routes!.preloadPage('/cores');
+    browser.routes!.preloadPage('node-cores');
     const stylesheet = testDocument.querySelector('link[rel="stylesheet"]');
     expect(stylesheet).not.toBeNull();
     stylesheet!.dispatchEvent(new Event('error'));
     await new Promise(resolve => setImmediate(resolve));
     expect(reload).not.toHaveBeenCalled();
-    void browser.routes!.loadPage('/panel');
+    void browser.routes!.loadPage('settings');
     await vi.waitFor(() => expect(reload).toHaveBeenCalledOnce());
     expect(testDocument.querySelectorAll('link[rel="stylesheet"]')).toHaveLength(1);
   });

@@ -165,7 +165,7 @@ export function SubscriptionNodeForm({
       }}
       dialogSectionContent={{
         basic: (
-          <FieldGroup className='schema-form schema-form__grid subscription-node-form__controls'>
+          <FieldGroup className='schema-form schema-form__grid border-b'>
             <NodeSelectField
               label={t('subscriptions.nodes.protocol')}
               disabled={disabled}
@@ -227,7 +227,7 @@ export function SubscriptionNodeForm({
         ),
         authentication: protocol === 'ssh'
           ? (
-              <FieldGroup className='schema-form schema-form__grid subscription-node-form__controls'>
+              <FieldGroup className='schema-form schema-form__grid border-b'>
                 <NodeSelectField
                   label={t('subscriptions.nodes.authentication')}
                   disabled={disabled}
@@ -258,7 +258,7 @@ export function SubscriptionNodeForm({
           : undefined,
         connection: keys.includes('detour')
           ? (
-              <FieldGroup className='schema-form schema-form__grid subscription-node-form__controls'>
+              <FieldGroup className='schema-form schema-form__grid border-b'>
                 <NodeSelectField
                   label={t('subscriptions.nodes.detour')}
                   help={t('subscriptions.nodes.detourHelp')}

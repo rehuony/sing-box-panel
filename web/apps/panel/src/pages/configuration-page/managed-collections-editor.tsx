@@ -15,7 +15,6 @@ import {
   Trash2,
   Wrench,
 } from 'lucide-react';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@shared/components/ui/table';
 import {
   Dialog,
   DialogClose,
@@ -62,6 +61,7 @@ import {
   schemaProperties,
   uiSchemaFromPanel,
 } from './schema-ui';
+import { ConfigurationList, ConfigurationListActions, ConfigurationListAddButton, ConfigurationListAddRow, ConfigurationListCell, ConfigurationListRow, ConfigurationListSummary, ConfigurationListText } from './configuration-list';
 
 type ManagedCollection = 'endpoints' | 'inbounds' | 'outbounds' | 'services';
 
@@ -211,34 +211,36 @@ function EntryRow({
   const { t } = useTranslation();
   const details = entryDetails(entry.value, collection);
   return (
-    <TableRow>
-      <TableCell><span className='configuration-list__text' title={entry.tag}>{entry.tag}</span></TableCell>
-      <TableCell className='configuration-list__secondary'><span className='configuration-list__text'>{entry.type === 'untyped' ? t('configuration.managed.untyped') : entry.type}</span></TableCell>
-      <TableCell className='configuration-list__secondary'>
-        <div className='configuration-list__summary'>
+    <ConfigurationListRow>
+      <ConfigurationListCell>
+        <ConfigurationListText title={entry.tag}>{entry.tag}</ConfigurationListText>
+      </ConfigurationListCell>
+      <ConfigurationListCell secondary><ConfigurationListText>{entry.type === 'untyped' ? t('configuration.managed.untyped') : entry.type}</ConfigurationListText></ConfigurationListCell>
+      <ConfigurationListCell secondary>
+        <ConfigurationListSummary>
           {!entry.valid
             ? (
                 <Badge variant='destructive'>{t('configuration.managed.needsRepair')}</Badge>
               )
             : null}
           {details.map((badge) => (
-            <span className='configuration-list__text' key={badge} title={badge}>{badge}</span>
+            <ConfigurationListText key={badge} title={badge}>{badge}</ConfigurationListText>
           ))}
           {entry.valid && details.length === 0 ? '—' : null}
-        </div>
-      </TableCell>
-      <TableCell>
-        <div className='configuration-list__actions'>
+        </ConfigurationListSummary>
+      </ConfigurationListCell>
+      <ConfigurationListCell>
+        <ConfigurationListActions>
           <Button disabled={disabled} onClick={onEdit} size='sm' type='button' variant='ghost'>{t('common.edit')}</Button>
           <Button aria-label={t('configuration.general.moveUp', { name: entry.tag })} title={t('common.moveUp')} disabled={disabled || !canMoveUp} onClick={onMoveUp} size='icon-sm' type='button' variant='ghost'><ArrowUp aria-hidden='true' /></Button>
           <Button aria-label={t('configuration.general.moveDown', { name: entry.tag })} title={t('common.moveDown')} disabled={disabled || !canMoveDown} onClick={onMoveDown} size='icon-sm' type='button' variant='ghost'><ArrowDown aria-hidden='true' /></Button>
           {!entry.valid && (
             <Button aria-label={t('configuration.managed.repair')} title={t('configuration.managed.repair')} disabled={disabled} onClick={onRepair} size='icon-sm' type='button' variant='ghost'><Wrench aria-hidden='true' /></Button>
           )}
-          <Button aria-label={t('common.delete')} title={t('common.delete')} className='configuration-list__remove' disabled={disabled} onClick={onDelete} size='icon-sm' type='button' variant='ghost'><Trash2 aria-hidden='true' /></Button>
-        </div>
-      </TableCell>
-    </TableRow>
+          <Button aria-label={t('common.delete')} title={t('common.delete')} className='text-[var(--color-danger)]' disabled={disabled} onClick={onDelete} size='icon-sm' type='button' variant='ghost'><Trash2 aria-hidden='true' /></Button>
+        </ConfigurationListActions>
+      </ConfigurationListCell>
+    </ConfigurationListRow>
   );
 }
 
@@ -364,9 +366,9 @@ export function ManagedCollectionsEditor({
   );
 
   return (
-    <div className='managed-editor'>
+    <div className='flex min-w-0 flex-col gap-2'>
       {selectedCollection === undefined && (
-        <div className='managed-editor__collections' role='tablist' aria-label={t('configuration.managed.collections')}>
+        <div className='mr-auto flex min-w-0 items-center gap-2 overflow-x-auto [scrollbar-width:none] *:whitespace-nowrap' role='tablist' aria-label={t('configuration.managed.collections')}>
           {collectionSchemas.map(([name, schema]) => (
             <Button
               aria-selected={name === activeCollection} key={name}
@@ -380,51 +382,45 @@ export function ManagedCollectionsEditor({
       )}
       {activeSchema === undefined || itemSchema === null
         ? (
-            <div className='configuration-empty-copy' role='status'>
+            <div className='flex min-h-48 flex-col items-center justify-center gap-2 p-6 text-center text-muted-foreground' role='status'>
               <CircleAlert aria-hidden='true' />
               {t('configuration.schema.noManagedFields')}
             </div>
           )
         : (
-            <Table className='configuration-list' aria-label={t(`configuration.managed.collection.${activeCollection}`)}>
-              <TableHeader>
-                <TableRow>
-                  <TableHead scope='col'>{t('configuration.fields.tag')}</TableHead>
-                  <TableHead scope='col'>{t('configuration.fields.type')}</TableHead>
-                  <TableHead scope='col'>{t(activeCollection === 'inbounds' ? 'configuration.managed.listenAddress' : activeCollection === 'outbounds' ? 'configuration.managed.serverAddress' : 'configuration.general.summary')}</TableHead>
-                  <TableHead scope='col'>{t('common.actions')}</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {views.map((entry, index) => (
-                  <EntryRow
-                    disabled={disabled} entry={entry} collection={activeCollection}
-                    canMoveUp={index > 0} canMoveDown={index < views.length - 1}
-                    onMoveUp={() => move(index, -1)} onMoveDown={() => move(index, 1)}
-                    key={`${entry.id}:${encodeCanonicalValue(entry.value)}`}
-                    onDelete={() => setDeletingIndex(index)}
-                    onEdit={() => {
-                      setEditing({ index, draft: { [activeCollection]: [items[index]] } });
-                      setEditOpen(true);
-                    }}
-                    onRepair={() => repair(index)}
-                  />
-                ))}
-                <TableRow className='configuration-list__add-row'>
-                  <TableCell colSpan={4}>
-                    <Button
-                      aria-label={t('configuration.managed.add')}
-                      className='configuration-list__add'
-                      disabled={disabled || types.length === 0} onClick={openCreate}
-                      size='content' type='button' variant='outline'
-                    >
-                      <Plus aria-hidden='true' data-icon='inline-start' />
-                      {t('common.add')}
-                    </Button>
-                  </TableCell>
-                </TableRow>
-              </TableBody>
-            </Table>
+            <ConfigurationList
+              aria-label={t(`configuration.managed.collection.${activeCollection}`)}
+              labels={[
+                t('configuration.fields.tag'),
+                t('configuration.fields.type'),
+                t(activeCollection === 'inbounds' ? 'configuration.managed.listenAddress' : activeCollection === 'outbounds' ? 'configuration.managed.serverAddress' : 'configuration.general.summary'),
+                t('common.actions'),
+              ]}
+            >
+              {views.map((entry, index) => (
+                <EntryRow
+                  disabled={disabled} entry={entry} collection={activeCollection}
+                  canMoveUp={index > 0} canMoveDown={index < views.length - 1}
+                  onMoveUp={() => move(index, -1)} onMoveDown={() => move(index, 1)}
+                  key={`${entry.id}:${encodeCanonicalValue(entry.value)}`}
+                  onDelete={() => setDeletingIndex(index)}
+                  onEdit={() => {
+                    setEditing({ index, draft: { [activeCollection]: [items[index]] } });
+                    setEditOpen(true);
+                  }}
+                  onRepair={() => repair(index)}
+                />
+              ))}
+              <ConfigurationListAddRow>
+                <ConfigurationListAddButton
+                  aria-label={t('configuration.managed.add')}
+                  disabled={disabled || types.length === 0} onClick={openCreate}
+                >
+                  <Plus aria-hidden='true' data-icon='inline-start' />
+                  {t('common.add')}
+                </ConfigurationListAddButton>
+              </ConfigurationListAddRow>
+            </ConfigurationList>
           )}
 
       <Dialog open={editOpen} onOpenChange={setEditOpen} onOpenChangeComplete={(open) => {

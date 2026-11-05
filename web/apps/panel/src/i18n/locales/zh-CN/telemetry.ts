@@ -38,7 +38,7 @@ export const telemetry = {
     version: '版本',
     versionShort: '版本',
   },
-  moreActions: '更多面板操作',
+  moreActions: '运行操作',
   refresh: '刷新运行与流量状态',
   refreshFailed: '状态刷新失败，请重试',
   refreshStatus: '刷新状态',
@@ -58,7 +58,6 @@ export const telemetry = {
     compact: '重连中…',
     detail: '实时数据暂时中断，正在保留上次观测并重新连接。',
   },
-  toggleNavigation: '打开导航',
   unit: {
     day: '天',
     hour: '小时',

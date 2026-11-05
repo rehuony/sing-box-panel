@@ -1,10 +1,8 @@
-import type { ReactNode } from 'react';
-
 import { useTranslation } from 'react-i18next';
 import { Input } from '@shared/components/ui/input';
 import { Button } from '@shared/components/ui/button';
 import { Slider } from '@shared/components/ui/slider';
-import { FieldGroup, FieldLegend, FieldSet } from '@shared/components/ui/field';
+import { ScrollArea } from '@shared/components/ui/scroll-area';
 import { ToggleGroup, ToggleGroupItem } from '@shared/components/ui/toggle-group';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@shared/components/ui/tabs';
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '@shared/components/ui/select';
@@ -13,24 +11,15 @@ import type { PanelSettingsView } from '@/api/api-client';
 
 import { ErrorNotice } from '@/components/error-notice';
 import { LoadingState } from '@/components/loading-state';
+import { ShellNavigationTrigger } from '@/components/app-shell';
 import { usePanelSettings } from '@/stores/panel-settings.store';
 import { DEFAULT_APPEARANCE, THEME_PRESETS } from '@/theme/appearance';
+import { SettingsField, SettingsGroup } from '@/components/settings-field';
 
-import { SettingsField } from './settings-field';
 import { settingsCategories } from './settings-categories';
 import { PanelBackupSettings } from './panel-backup-settings';
 import { AppearanceColorPicker } from './appearance-color-picker';
 import { usePanelSettingsDraft } from './use-panel-settings-draft';
-import './panel-settings-page.css';
-
-function SettingsGroup({ title, children }: { title: string; children: ReactNode }) {
-  return (
-    <FieldSet className='settings-group'>
-      <FieldLegend>{title}</FieldLegend>
-      <FieldGroup>{children}</FieldGroup>
-    </FieldSet>
-  );
-}
 
 function SettingsEditor({ initial }: { initial: PanelSettingsView }) {
   const { t } = useTranslation();
@@ -60,18 +49,18 @@ function SettingsEditor({ initial }: { initial: PanelSettingsView }) {
     submit,
   } = usePanelSettingsDraft(initial);
   return (
-    <form className='panel-settings-card' noValidate onSubmit={submit}>
-      <div className='settings-mobile-category'>
+    <form className='flex min-h-0 flex-1 flex-col rounded-[var(--radius-card)] border bg-card px-4 pt-4 pb-2 sm:px-6 sm:pt-6' noValidate onSubmit={submit}>
+      <div className='mb-4 sm:hidden'>
         <Select value={category} onValueChange={value => value && setCategory(value)}>
-          <SelectTrigger aria-label={t('panelSettings.category')}><SelectValue>{t(`panelSettings.${category}`)}</SelectValue></SelectTrigger>
+          <SelectTrigger aria-label={t('panelSettings.category')} className='w-full'><SelectValue>{t(`panelSettings.${category}`)}</SelectValue></SelectTrigger>
           <SelectContent>{settingsCategories.map(key => <SelectItem key={key} value={key}>{t(`panelSettings.${key}`)}</SelectItem>)}</SelectContent>
         </Select>
       </div>
-      <Tabs className='panel-settings-tabs' orientation='vertical' value={category} onValueChange={value => setCategory(String(value))}>
-        <TabsList aria-label={t('panelSettings.title')} variant='line'>
+      <Tabs className='min-h-0 flex-1 gap-7 max-sm:flex-col max-sm:gap-4' orientation='vertical' value={category} onValueChange={value => setCategory(String(value))}>
+        <TabsList aria-label={t('panelSettings.title')} className='h-full w-52 flex-none items-stretch justify-start gap-2 overflow-y-auto border-r pr-5 max-[1000px]:w-40 max-sm:hidden *:data-[slot=tabs-trigger]:min-h-(--control-height) *:data-[slot=tabs-trigger]:flex-none *:data-[slot=tabs-trigger]:justify-start *:data-[slot=tabs-trigger]:px-4 *:data-[slot=tabs-trigger]:py-2 *:data-[slot=tabs-trigger]:text-left *:data-[slot=tabs-trigger]:whitespace-normal *:data-[slot=tabs-trigger]:after:hidden *:data-[slot=tabs-trigger]:data-active:bg-accent *:data-[slot=tabs-trigger]:data-active:text-primary' variant='line'>
           {settingsCategories.map(key => <TabsTrigger value={key} key={key}>{t(`panelSettings.${key}`)}</TabsTrigger>)}
         </TabsList>
-        <div className='panel-settings-content'>
+        <ScrollArea className='-mr-4 min-w-0 flex-1 sm:-mr-6' viewportClassName='pt-1 pr-5 pb-6 pl-1 sm:pr-7 *:data-[slot=tabs-content]:flex *:data-[slot=tabs-content]:flex-col *:data-[slot=tabs-content]:gap-5'>
           {invalidField && <ErrorNotice error={t('panelSettings.invalidField')} />}
           <TabsContent value='service'>
             <SettingsGroup title={t('panelSettings.access')}>
@@ -114,7 +103,7 @@ function SettingsEditor({ initial }: { initial: PanelSettingsView }) {
                 <Input id='core-log-max-files' aria-invalid={invalidField === 'core-log-max-files' || undefined} type='number' min={0} max={1024} required value={service.core_log_max_files ?? 0} onChange={e => updateService('core_log_max_files', Number(e.target.value))} />
               </SettingsField>
               <SettingsField id='core-log-size' invalid={invalidField === 'core-log-size'} label={t('panelSettings.coreLogSize')}>
-                <div className='settings-inline'>
+                <div className='flex items-center gap-3 *:data-[slot=input]:min-w-0 *:data-[slot=input]:flex-1'>
                   <Input id='core-log-size' aria-invalid={invalidField === 'core-log-size' || undefined} type='number' min={1} max={1024} required value={service.core_log_max_file_size_mib ?? 32} onChange={e => updateService('core_log_max_file_size_mib', Number(e.target.value))} />
                   <span>MiB</span>
                 </div>
@@ -136,23 +125,23 @@ function SettingsEditor({ initial }: { initial: PanelSettingsView }) {
                 </Select>
               </SettingsField>
               <SettingsField id='accent-color' label={t('panelSettings.color')} invalid={!colorValid}>
-                <div className='settings-colors'>
-                  <ToggleGroup spacing={0} aria-label={t('panelSettings.color')} value={[preferences.appearance.color]} onValueChange={values => {
+                <div className='@container flex min-h-10 items-center gap-2'>
+                  <ToggleGroup className='min-w-24 flex-1 justify-between @max-[250px]:min-w-18' spacing={0} aria-label={t('panelSettings.color')} value={[preferences.appearance.color]} onValueChange={values => {
                     if (values[0]) appearance({ color: values[0] });
                   }}>
-                    {THEME_PRESETS.slice(0, 5).map((color, index) => <ToggleGroupItem key={color} value={color} aria-label={t(`panelSettings.colors.${index}`)}><span className='settings-color-swatch' style={{ background: color }} /></ToggleGroupItem>)}
+                    {THEME_PRESETS.slice(0, 5).map((color, index) => <ToggleGroupItem className='relative h-10 w-8 min-w-6 shrink bg-transparent p-0 aria-pressed:bg-transparent aria-pressed:before:absolute aria-pressed:before:size-7 aria-pressed:before:rounded-[var(--radius-control)] aria-pressed:before:border aria-pressed:before:border-primary aria-pressed:before:content-[""] @max-[250px]:nth-[n+4]:hidden' key={color} value={color} aria-label={t(`panelSettings.colors.${index}`)}><span className='block size-5 rounded-full' style={{ background: color }} /></ToggleGroupItem>)}
                   </ToggleGroup>
                   <AppearanceColorPicker id='accent-color' value={preferences.appearance.color} onChange={color => appearance({ color })} />
                 </div>
               </SettingsField>
               <SettingsField id='radius' invalid={invalidField === 'radius'} label={t('panelSettings.radius')} help={t('panelSettings.radiusHelp')}>
-                <div className='settings-radius'>
+                <div className='grid grid-cols-[minmax(24px,1fr)_56px_auto] items-center gap-1.5 min-[361px]:grid-cols-[minmax(40px,1fr)_56px_auto] min-[361px]:gap-2'>
                   <Slider aria-label={t('panelSettings.radius')} min={0} max={32} step={1} value={[preferences.appearance.radius]} onValueChange={value => appearance({ radius: Array.isArray(value) ? value[0]! : value })} />
-                  <div className='settings-radius-value'>
-                    <Input id='radius' aria-invalid={invalidField === 'radius' || undefined} type='number' min={0} max={32} step={1} required value={preferences.appearance.radius} onChange={e => appearance({ radius: Math.max(0, Math.min(32, Math.round(Number(e.target.value)))) })} />
-                    <span aria-hidden='true'>px</span>
+                  <div className='flex h-(--control-height) items-center gap-1 rounded-[var(--radius-control)] border border-input bg-transparent pr-1.5 focus-within:border-[var(--input-focus)] dark:bg-[color-mix(in_oklab,var(--input)_30%,transparent)]'>
+                    <Input id='radius' className='h-full min-h-0 [appearance:textfield] border-0 bg-transparent py-0 pr-0 pl-1.5 text-right tabular-nums shadow-none outline-none focus-visible:outline-none dark:bg-transparent [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none' aria-invalid={invalidField === 'radius' || undefined} type='number' min={0} max={32} step={1} required value={preferences.appearance.radius} onChange={e => appearance({ radius: Math.max(0, Math.min(32, Math.round(Number(e.target.value)))) })} />
+                    <span aria-hidden='true' className='text-sm text-muted-foreground'>px</span>
                   </div>
-                  <Button className='settings-reset' type='button' variant='outline' onClick={() => appearance({ color: DEFAULT_APPEARANCE.color, radius: DEFAULT_APPEARANCE.radius })}>{t('panelSettings.reset')}</Button>
+                  <Button type='button' variant='outline' onClick={() => appearance({ color: DEFAULT_APPEARANCE.color, radius: DEFAULT_APPEARANCE.radius })}>{t('panelSettings.reset')}</Button>
                 </div>
               </SettingsField>
             </SettingsGroup>
@@ -182,7 +171,7 @@ function SettingsEditor({ initial }: { initial: PanelSettingsView }) {
             </SettingsGroup>
             <SettingsGroup title={t('panelSettings.updates')}>
               <SettingsField id='github-token' invalid={invalidField === 'github-token'} label={t('panelSettings.github')} help={t('panelSettings.githubHelp')}>
-                <div className='settings-inline'>
+                <div className='flex items-center gap-3 *:data-[slot=input]:min-w-0 *:data-[slot=input]:flex-1'>
                   <Input id='github-token' aria-invalid={invalidField === 'github-token' || undefined} aria-description={initial.github_token_configured && !clearGithub ? t('panelSettings.configured') : undefined} className={initial.github_token_configured && !clearGithub ? 'placeholder:text-foreground' : undefined} type='password' autoComplete='new-password' maxLength={8192} disabled={clearGithub} value={github} placeholder={clearGithub ? t('panelSettings.removed') : initial.github_token_configured ? '••••••••••••' : undefined} onChange={e => setGithub(e.target.value)} />
                   {initial.github_token_configured && (
                     <Button type='button' variant='ghost' onClick={() => {
@@ -200,10 +189,10 @@ function SettingsEditor({ initial }: { initial: PanelSettingsView }) {
             </SettingsGroup>
           </TabsContent>
           <TabsContent value='backup'><PanelBackupSettings busy={saving} onBusyChange={setSaving} onRestored={restored} /></TabsContent>
-        </div>
+        </ScrollArea>
       </Tabs>
-      <footer className='panel-settings-footer'>
-        {initial.restart_required && <p className='panel-settings-status' role='status'>{t('panelSettings.restartPending')}</p>}
+      <footer className='mt-2 flex flex-none flex-wrap items-center justify-end gap-x-3 gap-y-2 border-t pt-2'>
+        {initial.restart_required && <p className='mr-auto min-w-0 flex-1 text-sm text-muted-foreground wrap-anywhere max-sm:basis-full' role='status'>{t('panelSettings.restartPending')}</p>}
         <Button disabled={saving || !dirty} type='submit'>{t(saving ? 'panelSettings.saving' : 'panelSettings.save')}</Button>
       </footer>
     </form>
@@ -214,8 +203,9 @@ export function PanelSettingsPage() {
   const { t } = useTranslation();
   const { view, error, reload } = usePanelSettings();
   return (
-    <section className='panel-settings-page panel-page'>
+    <section className='flex min-h-0 min-w-0 flex-1 flex-col gap-4'>
       <h1 className='sr-only'>{t('panelSettings.title')}</h1>
+      <div className='flex md:hidden'><ShellNavigationTrigger /></div>
       {error
         ? (
             <>

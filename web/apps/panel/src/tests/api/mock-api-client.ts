@@ -12,6 +12,7 @@ import type {
   FleetNode,
   MetricsHistory,
   MetricsSnapshot,
+  NodeSettings,
   RuntimeHistoryPage,
   RuntimeStatus,
   Session,
@@ -45,6 +46,12 @@ export const testNode: FleetNode = {
   os: 'linux',
   arch: 'arm64',
   build_version: '0.1.0',
+};
+
+export const testNodeSettings: NodeSettings = {
+  revision: 1,
+  public_host: '',
+  traffic: { quota_gib: null, period_months: 1, reset_day: 1 },
 };
 
 export const testRevision: CanonicalSnapshot = {
@@ -277,6 +284,10 @@ export function createMockApiClient(overrides: Partial<ApiClient> = {}): Mocked<
     nodeID: null,
     forNode: vi.fn<ApiClient['forNode']>(),
     listFleetNodes: vi.fn<ApiClient['listFleetNodes']>().mockResolvedValue({ items: [testNode] }),
+    createNode: vi.fn<ApiClient['createNode']>(),
+    renameNode: vi.fn<ApiClient['renameNode']>(),
+    deleteNode: vi.fn<ApiClient['deleteNode']>(),
+    createNodeEnrollment: vi.fn<ApiClient['createNodeEnrollment']>(),
     listFilesystemEntries: vi.fn<ApiClient['listFilesystemEntries']>().mockResolvedValue({ path: '/', parent: '/', requested_path: '/', fallback: false, items: [], total: 0, offset: 0, limit: 50 }),
     resolveFilesystemPath: vi.fn<ApiClient['resolveFilesystemPath']>().mockImplementation(async input => ({ path: input.path, parent: '/', kind: input.mode === 'output-file' ? 'file' : input.mode, exists: true, symlink: false })),
     enableCore: vi.fn<ApiClient['enableCore']>().mockResolvedValue(testRuntimeStatus),
@@ -462,8 +473,8 @@ export function createMockApiClient(overrides: Partial<ApiClient> = {}): Mocked<
     getTrafficStatus: vi.fn<ApiClient['getTrafficStatus']>().mockResolvedValue(testTrafficStatus),
     listTrafficPeriods: vi.fn<ApiClient['listTrafficPeriods']>(),
     getTrafficPeriod: vi.fn<ApiClient['getTrafficPeriod']>(),
-    getNodeSettings: vi.fn<ApiClient['getNodeSettings']>(),
-    saveNodeSettings: vi.fn<ApiClient['saveNodeSettings']>(),
+    getNodeSettings: vi.fn<ApiClient['getNodeSettings']>().mockResolvedValue(testNodeSettings),
+    saveNodeSettings: vi.fn<ApiClient['saveNodeSettings']>(async input => ({ ...input, revision: input.revision + 1 })),
   };
   const result = { ...client, ...overrides } as Mocked<ApiClient>;
   // A node's client shares the mocks, so tests observe node-scoped calls.

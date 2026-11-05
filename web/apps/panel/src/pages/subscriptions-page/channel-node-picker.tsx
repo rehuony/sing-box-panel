@@ -2,6 +2,7 @@ import { Search } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@shared/components/ui/button';
 import { useDeferredValue, useMemo, useState } from 'react';
+import { InputGroup, InputGroupAddon, InputGroupInput } from '@shared/components/ui/input-group';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@shared/components/ui/dialog';
 
 import type { ChannelRuleGroup, SubscriptionFormat, SubscriptionNodeSummary } from '@/api/api-client';
@@ -81,19 +82,19 @@ export function ChannelNodePicker({ nodes, group, groups, format, onClose, onAdd
       }
     }}>
       <DialogContent
-        className='channel-node-picker'
+        className='flex h-[min(640px,calc(100dvh-32px))] w-240 max-w-[calc(100vw-32px)] flex-col overflow-hidden sm:max-w-240 max-[600px]:p-4'
         showCloseButton={false}
         onKeyDown={(event) => {
           // The dialog normally traps arrow keys before DND-KIT's document listener.
           if (dragging && (event.key.startsWith('Arrow') || event.key === 'Escape')) event.preventBaseUIHandler();
         }}
       >
-        <div className='channel-node-picker-header'>
+        <div className='flex min-w-0 flex-none items-center justify-between gap-4 max-[600px]:gap-1.5 [&_[data-slot=dialog-header]]:flex-none [&_[data-slot=dialog-title]]:pr-0 [&_[data-slot=dialog-title]]:whitespace-nowrap max-[600px]:[&_[data-slot=dialog-title]]:text-sm'>
           <DialogHeader>
             <DialogTitle>{t('channels.addNodes')}</DialogTitle>
             <DialogDescription className='sr-only'>{t('channels.pickNodesHint')}</DialogDescription>
           </DialogHeader>
-          <div className='channel-node-picker-toolbar'>
+          <div className='flex min-w-0 items-center justify-end gap-2 max-[600px]:gap-1.5'>
             <ChannelNodeActions
               count={count}
               canSelectAll={items.some((item) => !item.disabled && !item.selected)}
@@ -102,13 +103,13 @@ export function ChannelNodePicker({ nodes, group, groups, format, onClose, onAdd
                 ...current, ...items.filter((item) => !item.disabled).map((item) => item.id),
               ])])}
             />
-            <div className='subscription-search'>
-              <Search aria-hidden='true' />
-              <input aria-label={t('channels.searchNodes')} placeholder={t('channels.searchNodes')} value={search} onChange={(event) => setSearch(event.target.value)} />
-            </div>
+            <InputGroup className='h-(--control-height-sm) w-60 min-w-0 flex-[0_1_240px] max-[600px]:[&>[data-slot=input-group-addon]]:hidden'>
+              <InputGroupAddon><Search aria-hidden='true' /></InputGroupAddon>
+              <InputGroupInput className='h-full min-h-0' aria-label={t('channels.searchNodes')} placeholder={t('channels.searchNodes')} value={search} onChange={(event) => setSearch(event.target.value)} />
+            </InputGroup>
           </div>
         </div>
-        <div className='channel-node-picker-scroll subscription-state-region'>
+        <div className='min-h-0 flex-1 overflow-y-auto overscroll-contain p-0.5 flex flex-col *:[table]:flex-none'>
           <ChannelNodeCards
             items={items}
             onToggle={(id) => setSelected((current) =>

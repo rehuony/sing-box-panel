@@ -26,10 +26,10 @@ describe('initial appearance', () => {
 describe('appearance tokens', () => {
   it('defaults to system and matches the server first-paint palette', () => {
     expect(DEFAULT_APPEARANCE.theme).toBe('system');
-    const names = ['--color-paper', '--color-paper-2', '--color-paper-3', '--color-accent-soft'];
+    const names = ['--color-canvas', '--accent'];
     for (const [dark, expected] of [
-      [false, ['#fefcfa', '#fdf8f6', '#faf2ec', '#faf0ea']],
-      [true, ['#1b181e', '#1f1a1e', '#261c1d', '#34221c']],
+      [false, ['#fdf8f6', '#faf0ea']],
+      [true, ['#1b181e', '#34221c']],
     ] as const) {
       const tokens = appearanceTokens({ ...DEFAULT_APPEARANCE, color: '#C65B13' }, dark);
       expect(names.map(name => tokens[name])).toEqual(expected);
@@ -39,8 +39,8 @@ describe('appearance tokens', () => {
     for (const color of [...THEME_PRESETS, '#FFFFFF', '#FFFF00', '#00FF00', '#000000', '#AAAAAA']) {
       for (const dark of [false, true]) {
         const tokens = appearanceTokens({ ...DEFAULT_APPEARANCE, color }, dark);
-        expect(contrastRatio(tokens['--primary']!, tokens['--color-accent-soft']!)).toBeGreaterThanOrEqual(4.5);
-        expect(contrastRatio(tokens['--primary']!, tokens['--color-accent-ink']!)).toBeGreaterThanOrEqual(4.5);
+        expect(contrastRatio(tokens['--primary']!, tokens['--accent']!)).toBeGreaterThanOrEqual(4.5);
+        expect(contrastRatio(tokens['--primary']!, tokens['--primary-foreground']!)).toBeGreaterThanOrEqual(4.5);
         expect(tokens['--appearance-color']).toBe(color);
         expect(tokens).not.toHaveProperty('--color-success');
         expect(tokens).not.toHaveProperty('--color-brand-navy');

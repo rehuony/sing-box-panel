@@ -83,7 +83,6 @@ export function LanguageMenu() {
         render={(
           <Button
             aria-label={t('language.menu')}
-            className='telemetry-language-button'
             size='icon-sm'
             variant='ghost'
           />

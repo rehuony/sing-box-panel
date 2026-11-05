@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { Toaster } from '@shared/components/ui/toast';
 import { beforeAll, describe, expect, it, vi } from 'vitest';
 import { TooltipProvider } from '@shared/components/ui/tooltip';
-import { act, render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 
 import type { ApiClient } from '@/api/api-client';
 
@@ -58,23 +58,23 @@ beforeAll(async () => {
 describe('application routes', () => {
   it('requests preloading on sidebar hover and focus without navigating', async () => {
     const user = userEvent.setup();
-    renderRoutes('/');
-    const link = await screen.findByRole('link', { name: 'Versions' });
+    renderRoutes('/nodes');
+    const link = await screen.findByRole('link', { name: 'Subscriptions' });
     const load = vi.spyOn(pageLoaderModule, 'preloadPage');
     try {
       await user.hover(link);
-      expect(load).toHaveBeenLastCalledWith('/cores');
-      expect(screen.getByLabelText('Current route')).toHaveTextContent(/^\/$/);
+      expect(load).toHaveBeenLastCalledWith('subscriptions');
+      expect(screen.getByLabelText('Current route')).toHaveTextContent(/^\/nodes$/);
       act(() => link.focus());
-      expect(load).toHaveBeenLastCalledWith('/cores');
+      expect(load).toHaveBeenLastCalledWith('subscriptions');
       await act(() => vi.dynamicImportSettled());
-      expect(screen.getByLabelText('Current route')).toHaveTextContent(/^\/$/);
+      expect(screen.getByLabelText('Current route')).toHaveTextContent(/^\/nodes$/);
     } finally {
       load.mockRestore();
     }
   });
 
-  it('renders the workspace once the session and the node list are ready', async () => {
+  it('opens the node overview once the session is ready', async () => {
     let resolveSession!: (value: typeof testSession) => void;
     const session = new Promise<typeof testSession>(resolve => {
       resolveSession = resolve;
@@ -84,8 +84,35 @@ describe('application routes', () => {
     const checking = await screen.findByText('Checking panel session…');
     expect(checking.closest('main')).toHaveAttribute('aria-busy', 'true');
     await act(async () => resolveSession(testSession));
-    expect(await screen.findByRole('button', { name: 'Sign out' })).toBeVisible();
+    expect(await screen.findByRole('link', { name: testNode.name })).toBeVisible();
+    expect(screen.getByLabelText('Current route')).toHaveTextContent(/^\/nodes$/);
+    expect(client.forNode).not.toHaveBeenCalled();
+  });
+
+  it('scopes a node workspace to its node and keeps its name and state in the first row', async () => {
+    const user = userEvent.setup();
+    const client = createMockApiClient();
+    renderRoutes('/nodes', client);
+    await user.click(await screen.findByRole('link', { name: testNode.name }));
+    const row = await screen.findByRole('banner', { name: `Node ${testNode.name}` });
+    expect(row).toHaveTextContent('Online');
     expect(client.forNode).toHaveBeenCalledWith(testNode.id);
+    await user.click(screen.getByRole('link', { name: 'Core versions' }));
+    expect(await screen.findByRole('tab', { name: 'Installed' })).toBeInTheDocument();
+    expect(screen.getByLabelText('Current route')).toHaveTextContent(`/nodes/${testNode.id}/cores`);
+    expect(screen.getByRole('banner', { name: `Node ${testNode.name}` })).toBeInTheDocument();
+  });
+
+  it('shows an offline node’s state in place of views that command it, and keeps its settings', async () => {
+    const user = userEvent.setup();
+    const offline = { ...testNode, state: 'offline' as const };
+    const client = createMockApiClient({ listFleetNodes: vi.fn().mockResolvedValue({ items: [offline] }) });
+    renderRoutes(`/nodes/${testNode.id}/cores`, client);
+    expect(await screen.findByText('Node offline')).toBeVisible();
+    expect(client.listCoreArtifacts).not.toHaveBeenCalled();
+    expect(screen.queryByRole('button', { name: 'Stop' })).not.toBeInTheDocument();
+    await user.click(within(screen.getByRole('navigation', { name: 'Node views' })).getByRole('link', { name: 'Settings' }));
+    expect(await screen.findByRole('textbox', { name: 'Published host' })).toBeInTheDocument();
   });
 
   it('keeps the shared saved appearance when signing out and loading login again', async () => {
@@ -140,7 +167,7 @@ describe('application routes', () => {
       getSession: vi.fn().mockResolvedValue(null),
       login: vi.fn().mockResolvedValue(testSession),
     });
-    renderRoutes('/configuration?editor=advanced#deploy', client);
+    renderRoutes(`/nodes/${testNode.id}/configuration?editor=advanced#deploy`, client);
     await user.type(await screen.findByLabelText('Email'), 'admin@example.com');
     await user.type(screen.getByLabelText('Password'), 'local-token');
     await user.click(screen.getByRole('button', { name: 'Sign in' }));
@@ -148,7 +175,7 @@ describe('application routes', () => {
     await waitFor(
       () =>
         expect(screen.getByLabelText('Current route')).toHaveTextContent(
-          '/configuration?editor=advanced#deploy',
+          `/nodes/${testNode.id}/configuration?editor=advanced#deploy`,
         ),
     );
     expect(
@@ -157,22 +184,17 @@ describe('application routes', () => {
     expect(await screen.findByRole('tab', { name: 'Advanced JSON' })).toBeInTheDocument();
   });
 
-  it('navigates primary management pages through the shared shell', async () => {
+  it('navigates panel destinations through the shared shell', async () => {
     const user = userEvent.setup();
-    renderRoutes('/');
-    const coreVersions = await screen.findByRole(
-      'link',
-      { name: 'Versions' },
-    );
-    const scroller = document.querySelector<HTMLDivElement>('.panel-content-scroll')!;
+    renderRoutes('/nodes');
+    const subscriptions = await screen.findByRole('link', { name: 'Subscriptions' });
+    const scroller = document.querySelector<HTMLDivElement>('[data-slot="scroll-area-viewport"]')!;
     scroller.scrollTop = 400;
-    await user.click(coreVersions);
-    expect(await screen.findByRole('heading', { name: 'Versions' })).toBeInTheDocument();
-    expect(await screen.findByRole('tab', { name: 'Installed' })).toBeInTheDocument();
-    expect(screen.queryByText('Panel online')).not.toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Panel settings' })).toBeInTheDocument();
+    await user.click(subscriptions);
+    expect(await screen.findByRole('heading', { name: 'Subscriptions' })).toBeInTheDocument();
+    for (const name of ['Nodes', 'Logs', 'Settings']) expect(screen.getByRole('link', { name })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Sign out' })).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Open account menu' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('banner')).not.toBeInTheDocument();
     expect(document.getElementById('main-content')).toHaveFocus();
     expect(scroller.scrollTop).toBe(0);
   });
@@ -183,7 +205,7 @@ describe('application routes', () => {
     Object.defineProperty(window, 'innerWidth', { configurable: true, value: 390 });
 
     try {
-      renderRoutes('/');
+      renderRoutes('/nodes');
       await user.click(await screen.findByRole('button', { name: 'Open navigation' }));
       expect(screen.getByRole('button', { name: /Theme:/ })).toBeInTheDocument();
       expect(screen.getByRole('button', { name: 'Open language menu' })).toBeInTheDocument();
@@ -196,10 +218,10 @@ describe('application routes', () => {
     }
   });
 
-  it.each(['/missing', '/tasks', '/tasks?task=task_1'])('renders the authenticated not-found page for %s', async path => {
+  it.each(['/missing', '/tasks?task=task_1', `/nodes/${testNode.id}/missing`])('renders the authenticated not-found page for %s', async path => {
     renderRoutes(path);
     expect(
-      await screen.findByRole('heading', { name: 'This console area does not exist.' }),
+      await screen.findByRole('heading', { name: 'This page does not exist' }),
     ).toBeInTheDocument();
   });
 
@@ -210,7 +232,7 @@ describe('application routes', () => {
       .mockRejectedValueOnce(new Error('service unavailable'))
       .mockResolvedValueOnce(testSession);
     const client = createMockApiClient({ getSession });
-    renderRoutes('/configuration', client);
+    renderRoutes(`/nodes/${testNode.id}/configuration`, client);
 
     expect(
       await screen.findByRole('heading', { name: 'The panel service could not be reached.' }),
@@ -320,8 +342,8 @@ describe('application routes', () => {
   });
 
   it('opens panel logs without a legacy operation dialog', async () => {
-    renderRoutes('/observability?tab=panel&task=legacy');
-    expect(await screen.findByRole('tab', { name: 'Panel logs' })).toHaveAttribute('aria-selected', 'true');
+    renderRoutes('/logs?task=legacy');
+    expect(await screen.findByRole('heading', { name: 'Logs' })).toBeInTheDocument();
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
   it.each([
@@ -334,7 +356,7 @@ describe('application routes', () => {
     const client = createDemoApiClient();
     const settings = await client.getPanelSettings();
     await client.savePanelSettings({ revision: settings.revision, preferences: { ...settings.preferences, language: 'en' } });
-    renderRoutes('/panel', client);
+    renderRoutes('/settings', client);
     const email = nextEmail ?? 'admin@example.com';
     const password = nextPassword ?? 'demo-password-123';
     const emailInput = await screen.findByLabelText('Email');

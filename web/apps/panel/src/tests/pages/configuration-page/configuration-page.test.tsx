@@ -11,14 +11,15 @@ import type { ApiClient, ConfigurationCompile, ConfigurationFile, ConfigurationS
 
 import { reviewedSchemaManifest } from '@/schemas';
 import { ApiClientProvider } from '@/api/api-client-context';
+import { CurrentNodeContext } from '@/stores/current-node.store';
 import { TestRouter as MemoryRouter } from '@/tests/test-router';
-import { NodeSelectionProvider } from '@/stores/node-selection-provider';
 import { representativeSchemaVersions } from '@/tests/schemas/schema-fixtures';
 import { ConfigurationPage } from '@/pages/configuration-page/configuration-page';
 import { ConfigurationSessionProvider } from '@/stores/configuration-session-provider';
 import {
   createMockApiClient,
   testArtifacts,
+  testNode,
   testRevision,
   testStartupArtifact,
 } from '@/tests/api/mock-api-client';
@@ -42,9 +43,9 @@ function renderPage(client: ApiClient, initialEntry = '/configuration') {
     <MemoryRouter initialEntries={[initialEntry]}>
       <ApiClientProvider client={client}>
         <TooltipProvider delay={0}>
-          <NodeSelectionProvider>
+          <CurrentNodeContext value={testNode}>
             <ConfigurationSessionProvider><ConfigurationPage /></ConfigurationSessionProvider>
-          </NodeSelectionProvider>
+          </CurrentNodeContext>
         </TooltipProvider>
       </ApiClientProvider>
     </MemoryRouter>,
@@ -109,7 +110,7 @@ describe('configurationPage', () => {
     expect(screen.getByRole('tab', { name: 'Visual editor' })).toHaveAttribute('aria-selected', 'true');
     expect(screen.getByRole('combobox', { name: 'Configuration version' })).toBeDisabled();
     expect(screen.getByRole('combobox', { name: 'Configuration version' })).toHaveTextContent('None');
-    expect(screen.getByRole('link', { name: 'Go to version management' })).toHaveAttribute('href', '/cores#cores-catalog');
+    expect(screen.getByRole('link', { name: 'Go to version management' })).toHaveAttribute('href', '/nodes/node_edge/cores#cores-catalog');
     expect(screen.getByRole('button', { name: 'Validate configuration' })).toBeDisabled();
     expect(client.getConfigurationSchema).not.toHaveBeenCalled();
     await user.click(screen.getByRole('tab', { name: 'Advanced JSON' }));

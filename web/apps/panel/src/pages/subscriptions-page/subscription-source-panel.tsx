@@ -1,8 +1,10 @@
 import { useCallback, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
+import { Input } from '@shared/components/ui/input';
 import { Button } from '@shared/components/ui/button';
 import { ArrowLeft, CirclePlus, RefreshCw, Search } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@shared/components/ui/tabs';
+import { InputGroup, InputGroupAddon, InputGroupInput } from '@shared/components/ui/input-group';
 import {
   Dialog,
   DialogContent,
@@ -71,9 +73,9 @@ export function SubscriptionSourcePanel({ active = true, toolbarTarget }: {
   } = useSubscriptionSources(active);
   const openNode = useCallback((node: import('@/api/api-client').SubscriptionNodeSummary) => setEditor({ node }), [setEditor]);
   const fields = form && (
-    <div className='subscription-settings-fields'>
+    <div className='grid grid-cols-[minmax(120px,1fr)_minmax(200px,2fr)] items-center gap-x-6 gap-y-(--form-field-gap) pt-2 pb-(--form-field-gap) max-[720px]:grid-cols-[minmax(100px,1fr)_minmax(0,2fr)] max-[720px]:gap-3 max-[480px]:grid-cols-1 max-[480px]:gap-2 [&_[aria-invalid=true]]:outline-1 [&_[aria-invalid=true]]:outline-[var(--color-danger)] [&_[data-slot=select-trigger]]:w-full [&_input:not([type=checkbox])]:w-full [&_input:not([type=checkbox])]:min-w-0 [&_input[type=checkbox]]:justify-self-start [&_textarea]:max-h-45 [&_textarea]:min-h-[90px] [&_textarea]:resize-y [&_textarea]:rounded-[var(--radius-control)] [&_textarea]:border-0 [&_textarea]:bg-[var(--color-surface-raised)] [&_textarea]:p-3'>
       <label htmlFor='source-name'>{t('subscriptions.common.name')}</label>
-      <input
+      <Input
         disabled={busy}
         id='source-name'
         onChange={(event) => setForm({ ...form, name: event.target.value })}
@@ -82,7 +84,7 @@ export function SubscriptionSourcePanel({ active = true, toolbarTarget }: {
       {(!form.source || form.source.source_kind === 'remote') && (
         <>
           <label htmlFor='source-url'>{t('subscriptions.sources.url')}</label>
-          <input
+          <Input
             autoComplete='off'
             disabled={busy}
             id='source-url'
@@ -122,16 +124,16 @@ export function SubscriptionSourcePanel({ active = true, toolbarTarget }: {
 
   return (
     <Tabs
-      className='subscription-source-workspace'
+      className='flex h-full min-h-0 min-w-0 flex-1 flex-col'
       value={tab}
       onValueChange={(value) => value === 'settings' ? void openSettings() : confirmNavigation(() => setTab('nodes'))}
     >
       {error != null && <ErrorNotice error={error} title={t('subscriptions.source.loadFailed')} />}
       <ToolbarActions active={active} target={toolbarTarget}>
-        <div className='subscription-source-toolbar workspace-toolbar-content'>
+        <div className='flex w-full min-w-0 flex-1 items-center justify-end gap-4 max-[900px]:gap-2 has-[[data-detail-tabs]]:flex-wrap'>
           {selected && selected !== 'manual' && (
-            <div className='subscription-detail-tabs'>
-              <TabsList className='subscriptions-tabs' aria-label={t('subscriptions.sources.settings')}>
+            <div className='me-auto flex min-w-0 flex-none items-center gap-2 max-[900px]:gap-0.5' data-detail-tabs>
+              <TabsList className='max-w-full flex-none justify-start self-start overflow-x-auto [scrollbar-width:none] *:data-[slot=tabs-trigger]:flex-none' aria-label={t('subscriptions.sources.settings')}>
                 <TabsTrigger value='nodes' disabled={busy}>
                   {t('subscriptions.sources.nodes')}
                 </TabsTrigger>
@@ -141,7 +143,7 @@ export function SubscriptionSourcePanel({ active = true, toolbarTarget }: {
               </TabsList>
             </div>
           )}
-          <div className='subscription-toolbar-actions'>
+          <div className='flex min-w-0 flex-none items-center gap-2 ms-auto *:data-[slot=button]:border-transparent *:data-[slot=button]:bg-transparent'>
             {selected && (
               <Button
                 aria-label={t('subscriptions.sources.back')}
@@ -205,9 +207,9 @@ export function SubscriptionSourcePanel({ active = true, toolbarTarget }: {
             )}
           </div>
           {(tab === 'nodes' || !selected) && (
-            <div className='subscription-search'>
-              <Search aria-hidden='true' />
-              <input
+            <InputGroup className='h-(--control-height-sm) min-w-30 w-60 max-[900px]:w-50'>
+              <InputGroupAddon><Search aria-hidden='true' /></InputGroupAddon>
+              <InputGroupInput className='h-full min-h-0'
                 aria-label={t('subscriptions.sources.search')}
                 onChange={(event) => {
                   setSearch(event.target.value);
@@ -216,7 +218,7 @@ export function SubscriptionSourcePanel({ active = true, toolbarTarget }: {
                 placeholder={t('subscriptions.sources.search')}
                 value={search}
               />
-            </div>
+            </InputGroup>
           )}
         </div>
       </ToolbarActions>
@@ -224,7 +226,7 @@ export function SubscriptionSourcePanel({ active = true, toolbarTarget }: {
         ? (
             tab === 'settings' && form
               ? (
-                  <TabsContent value='settings' className='subscription-source-settings'>
+                  <TabsContent value='settings' className='flex min-h-0 min-w-0 flex-none flex-col overflow-auto [&>footer]:flex [&>footer]:justify-end [&>footer]:gap-3 [&>footer]:pt-2'>
                     {formError && (
                       <ErrorNotice error={formError} />
                     )}
@@ -237,7 +239,7 @@ export function SubscriptionSourcePanel({ active = true, toolbarTarget }: {
                   </TabsContent>
                 )
               : (
-                  <TabsContent value='nodes' className='subscription-node-list'>
+                  <TabsContent value='nodes' className='flex h-full min-h-0 min-w-0 flex-1 flex-col'>
                     <SubscriptionNodeGrid
                       key={selected}
                       onReorder={(ids) => reorderNodes(selected, ids)}
@@ -257,8 +259,8 @@ export function SubscriptionSourcePanel({ active = true, toolbarTarget }: {
           )
         : (
             <>
-              <div className='subscription-source-table-scroll subscription-state-region' aria-busy={sourceLoading}>
-                <table className='workspace-table subscription-source-table'>
+              <div className='min-h-0 flex-1 overflow-auto flex flex-col *:[table]:flex-none' aria-busy={sourceLoading}>
+                <table className='workspace-table w-full min-w-240 table-fixed border-collapse [&_td]:border-b [&_td]:px-4 [&_td]:text-center [&_td:first-child_button]:w-full [&_td:first-child_button]:justify-start [&_td:first-child_button]:truncate [&_td:first-child_button]:text-left [&_td:last-child]:whitespace-nowrap [&_td:last-child>[data-slot=button]+[data-slot=button]]:ms-2 [&_th]:bg-[var(--color-surface-raised)] [&_th]:px-4 [&_th]:text-center [&_th]:text-muted-foreground [&_tr>:first-child]:w-[32%] [&_tr>:first-child]:text-left [&_tr>:nth-child(2)]:w-[16%] [&_tr>:nth-child(3)]:w-[20%] [&_tr>:nth-child(4)]:w-[32%] max-[900px]:[&_td]:px-2 max-[900px]:[&_th]:px-2'>
                   <thead>
                     <tr>
                       <th>{t('subscriptions.tabs.sources')}</th>
@@ -351,7 +353,7 @@ export function SubscriptionSourcePanel({ active = true, toolbarTarget }: {
         }}
         open={creating}
       >
-        <DialogContent className='subscription-source-dialog' finalFocus={addSourceRef}>
+        <DialogContent className='w-160 max-w-[calc(100vw-32px)] sm:max-w-160' finalFocus={addSourceRef}>
           <DialogHeader>
             <DialogTitle>{t('subscriptions.source.attach')}</DialogTitle>
             <DialogDescription className='sr-only'>

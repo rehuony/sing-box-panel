@@ -6,6 +6,7 @@ import {
 
 import { reviewedSchemaManifest } from '@/schemas';
 
+import type { DemoPeer } from './demo-data';
 import type {
   ApiClient,
   CanonicalSnapshot,
@@ -13,7 +14,10 @@ import type {
   ConfigurationFile,
   ConfigurationFileWrite,
   CoreArtifact,
+  FleetNode,
   LogEntry,
+  NodeEnrollment,
+  NodeSettings,
   PanelLog,
   PanelSettingsView,
   Session,
@@ -40,6 +44,7 @@ import {
   demoMetrics,
   demoMetricsHistory,
   demoNode,
+  demoPeerPeriod,
   demoSystemStatus,
   demoTrafficPeriod,
   demoTrafficStatus,
@@ -84,6 +89,60 @@ function conflict(resource: string): never {
     status: 412,
     code: 'precondition_failed',
   });
+}
+
+function nodeNotFound(nodeID: string): never {
+  throw new ApiRequestError(`Node ${nodeID} does not exist in this demo.`, { status: 404, code: 'node_not_found' });
+}
+
+function nodeOffline(): ApiRequestError {
+  return new ApiRequestError('The node is not connected. Commands are not queued; retry when it is online.', {
+    status: 503, code: 'node_offline',
+  });
+}
+
+/** The node-scoped calls that command a node, so a node that is not connected cannot answer them. */
+const nodeCommands = [
+  'listCoreArtifacts', 'getCoreArtifact', 'installCore', 'importCoreArchive', 'removeCoreArtifact',
+  'getConfigurationSupport', 'getConfigurationSchema', 'previewConfiguration', 'compileConfiguration',
+  'listStartupArtifacts', 'checkStartupArtifact', 'activateStartupArtifact', 'getRuntimeStatus',
+  'getRuntimeHistory', 'enableCore', 'disableCore', 'rollbackRuntime', 'startRuntime', 'stopRuntime',
+  'restartRuntime', 'listCoreLogFiles', 'deleteCoreLogFile', 'clearCoreLog', 'readCoreLog', 'getMetrics',
+  'getMetricsHistory', 'listFilesystemEntries', 'resolveFilesystemPath', 'getConfigurationFile',
+  'saveConfigurationFile',
+] as const satisfies readonly (keyof ApiClient)[];
+const nodeStreams = ['streamCoreLog', 'streamMetrics', 'streamDashboard'] as const satisfies readonly (keyof ApiClient)[];
+
+function nextNodeSettings(current: NodeSettings, input: NodeSettings): NodeSettings {
+  if (input.revision !== current.revision) {
+    throw new ApiRequestError('Reload the node\'s settings before saving.', {
+      status: 412, code: 'node_settings_conflict',
+    });
+  }
+  const traffic = input.traffic;
+  const quota = traffic.quota_gib === 0 ? null : traffic.quota_gib;
+  if ((quota !== null && !(Number.isInteger(quota) && quota >= 1 && quota <= 8589934591))
+    || !Number.isInteger(traffic.period_months) || traffic.period_months < 1 || traffic.period_months > 120
+    || !Number.isInteger(traffic.reset_day) || traffic.reset_day < 1 || traffic.reset_day > 28
+    || input.public_host.length > 253 || /[\s/:@?#]/.test(input.public_host.replace(/^\[.*\]$/, ''))) {
+    throw new ApiRequestError('Node settings invalid.', { status: 422, code: 'node_settings_invalid' });
+  }
+  return {
+    revision: current.revision + 1,
+    public_host: input.public_host.toLowerCase(),
+    traffic: { ...traffic, quota_gib: quota },
+  };
+}
+
+function demoEnrollment(node: FleetNode): NodeEnrollment {
+  const token = Array.from(crypto.getRandomValues(new Uint8Array(18)), byte => byte.toString(16).padStart(2, '0')).join('');
+  const code = `demo-${token}`;
+  return {
+    node: structuredClone(node),
+    code,
+    command: `sing-box-node enroll --code ${code}`,
+    expires_at: new Date(Date.now() + 3_600_000).toISOString(),
+  };
 }
 
 function requireItem<T extends { id: string }>(items: T[], id: string, resource: string): T {
@@ -322,12 +381,64 @@ export function createDemoApiClient(): ApiClient {
       });
     }
   }
+  function fleetNodes(): FleetNode[] {
+    const now = updatedAt();
+    const primary = state.primary === null
+      ? []
+      : [{ ...state.primary, last_seen_at: now, reported_at: now, runtime: structuredClone(state.runtime) }];
+    return [...primary, ...state.peers.map(peer => peer.node)].sort((a, b) => a.name.localeCompare(b.name));
+  }
+  function fleetNode(nodeID: string): FleetNode {
+    return fleetNodes().find(node => node.id === nodeID) ?? nodeNotFound(nodeID);
+  }
+  function validNodeName(name: string, except?: string): string {
+    if (name.length < 1 || [...name].length > 64 || name.trim() !== name || /\p{Cc}/u.test(name)) {
+      throw new ApiRequestError('Node name invalid.', { status: 422, code: 'node_name_invalid' });
+    }
+    if (fleetNodes().some(node => node.id !== except && node.name.toLowerCase() === name.toLowerCase())) {
+      throw new ApiRequestError('Another node has this name.', { status: 409, code: 'node_name_conflict' });
+    }
+    return name;
+  }
+  function peerOf(nodeID: string): DemoPeer {
+    return state.peers.find(peer => peer.node.id === nodeID) ?? nodeNotFound(nodeID);
+  }
   const client: ApiClient = {
     supportsNativeChannelValidation: false,
     nodeID: null,
-    // The demo manages one node, so every scope shares its state.
-    forNode: nodeID => ({ ...client, nodeID }),
-    listFleetNodes: signal => respond({ items: [demoNode] }, signal),
+    // The interactive node shares the demo's state; listed nodes answer as offline.
+    forNode: nodeID => nodeID === state.primary?.id ? { ...client, nodeID } : peerClient(nodeID),
+    listFleetNodes: signal => respond({ items: fleetNodes() }, signal),
+    async createNode(name, signal) {
+      assertActive(signal);
+      const now = updatedAt();
+      const node: FleetNode = {
+        id: nextID(state, 'node'), name: validNodeName(name), state: 'pending', created_at: now,
+        enrolled_at: null, last_seen_at: null, reported_at: null, hostname: '', os: '', arch: '', build_version: '',
+      };
+      state.peers.push({
+        node,
+        settings: { revision: 1, public_host: '', traffic: { quota_gib: null, period_months: 1, reset_day: 1 } },
+        usage: { inbound_bytes: 0, outbound_bytes: 0 },
+      });
+      return respond(demoEnrollment(node), signal);
+    },
+    async renameNode(nodeID, name, signal) {
+      assertActive(signal);
+      fleetNode(nodeID);
+      validNodeName(name, nodeID);
+      if (state.primary?.id === nodeID) state.primary.name = name;
+      else peerOf(nodeID).node.name = name;
+      return respond(fleetNode(nodeID), signal);
+    },
+    async deleteNode(nodeID, signal) {
+      assertActive(signal);
+      fleetNode(nodeID);
+      if (state.primary?.id === nodeID) state.primary = null;
+      else state.peers = state.peers.filter(peer => peer.node.id !== nodeID);
+      return respond(undefined, signal);
+    },
+    createNodeEnrollment: async (nodeID, signal) => respond(demoEnrollment(fleetNode(nodeID)), signal),
     ...createDemoFilesystemApi(),
     getConfigurationFile: (signal) => respond(configurationFile, signal),
     async saveConfigurationFile(input, signal) {
@@ -1128,24 +1239,7 @@ export function createDemoApiClient(): ApiClient {
     getTrafficStatus: (signal) => respond(demoTrafficStatus(state), signal),
     getNodeSettings: (signal) => respond(structuredClone(state.nodeSettings), signal),
     async saveNodeSettings(input, signal) {
-      if (input.revision !== state.nodeSettings.revision) {
-        throw new ApiRequestError('Reload the node\'s settings before saving.', {
-          status: 412, code: 'node_settings_conflict',
-        });
-      }
-      const traffic = input.traffic;
-      const quota = traffic.quota_gib === 0 ? null : traffic.quota_gib;
-      if ((quota !== null && !(Number.isInteger(quota) && quota >= 1 && quota <= 8589934591))
-        || !Number.isInteger(traffic.period_months) || traffic.period_months < 1 || traffic.period_months > 120
-        || !Number.isInteger(traffic.reset_day) || traffic.reset_day < 1 || traffic.reset_day > 28
-        || input.public_host.length > 253 || /[\s/:@?#]/.test(input.public_host.replace(/^\[.*\]$/, ''))) {
-        throw new ApiRequestError('Node settings invalid.', { status: 422, code: 'node_settings_invalid' });
-      }
-      state.nodeSettings = {
-        revision: state.nodeSettings.revision + 1,
-        public_host: input.public_host.toLowerCase(),
-        traffic: { ...traffic, quota_gib: quota },
-      };
+      state.nodeSettings = nextNodeSettings(state.nodeSettings, input);
       return respond(structuredClone(state.nodeSettings), signal);
     },
     getMetricsHistory(filter, signal) {
@@ -1167,6 +1261,37 @@ export function createDemoApiClient(): ApiClient {
     getTrafficPeriod: (periodID, signal) =>
       respond(demoTrafficPeriod(state, periodID) ?? notFound('Traffic period', periodID), signal),
   };
+
+  // Listed nodes are offline or not enrolled: they keep the panel's settings
+  // and recorded traffic, and answer every command with node_offline.
+  function peerClient(nodeID: string): ApiClient {
+    const commands = Object.fromEntries(nodeCommands.map(name => [name, async () => {
+      peerOf(nodeID);
+      throw nodeOffline();
+    }]));
+    const streams = Object.fromEntries(nodeStreams.map(name => [name, async function* () {
+      peerOf(nodeID);
+      yield* [];
+      throw nodeOffline();
+    }]));
+    return {
+      ...client,
+      ...commands,
+      ...streams,
+      nodeID,
+      getNodeSettings: async signal => respond(peerOf(nodeID).settings, signal),
+      async saveNodeSettings(input, signal) {
+        const peer = peerOf(nodeID);
+        peer.settings = nextNodeSettings(peer.settings, input);
+        return respond(peer.settings, signal);
+      },
+      listTrafficPeriods: async (_filter, signal) => respond({ items: [demoPeerPeriod(peerOf(nodeID))] }, signal),
+      async getTrafficPeriod(periodID, signal) {
+        const period = demoPeerPeriod(peerOf(nodeID));
+        return respond(period.id === periodID ? period : notFound('Traffic period', periodID), signal);
+      },
+    } as ApiClient;
+  }
 
   return client;
 }

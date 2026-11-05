@@ -38,7 +38,7 @@ export const telemetry = {
     version: 'Version',
     versionShort: 'Ver.',
   },
-  moreActions: 'More panel actions',
+  moreActions: 'Runtime actions',
   refresh: 'Refresh runtime and traffic status',
   refreshFailed: 'Status refresh failed; try again',
   refreshStatus: 'Refresh status',
@@ -58,7 +58,6 @@ export const telemetry = {
     compact: 'Reconnecting…',
     detail: 'Live updates are interrupted. Keeping the last observation while reconnecting.',
   },
-  toggleNavigation: 'Open navigation',
   unit: {
     day: 'd',
     hour: 'h',

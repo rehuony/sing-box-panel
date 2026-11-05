@@ -8,24 +8,26 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@shared/components/ui/
 import { Tooltip, TooltipContent, TooltipTrigger } from '@shared/components/ui/tooltip';
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '@shared/components/ui/select';
 
+import { nodePath } from '@/utils/node-path';
 import { useHashTab } from '@/hooks/use-hash-tab';
 import { useApiClient } from '@/api/api-client-context';
 import { LoadingState } from '@/components/loading-state';
+import { useCurrentNode } from '@/stores/current-node.store';
+import { useOptionalSharedTelemetry } from '@/components/node-workspace';
 import { describeRequestError, ErrorNotice } from '@/components/error-notice';
 import { useConfigurationSessionStore } from '@/stores/configuration-session.store';
-import { useOptionalSharedTelemetry } from '@/components/app-shell/telemetry-context';
 
 import { DynamicGeneralEditor } from './dynamic-general-editor';
 import { useConfigurationSchema } from './use-configuration-schema';
 import { useCanonicalConfiguration } from './use-canonical-configuration';
 import { useInstalledConfigurationVersions } from './use-installed-configuration-versions';
-import './configuration-page.css';
 
 const AdvancedConfigurationEditor = lazy(() => import('./advanced-configuration-editor').then(module => ({ default: module.AdvancedConfigurationEditor })));
 
 export function ConfigurationPage() {
   const { t } = useTranslation();
   const client = useApiClient();
+  const node = useCurrentNode();
   const runtime = useOptionalSharedTelemetry(s => s.runtimeStatus);
   const canonical = useCanonicalConfiguration();
   const installed = useInstalledConfigurationVersions();
@@ -116,20 +118,20 @@ export function ConfigurationPage() {
             ? t('configuration.file.nextStart')
             : t('configuration.file.saved');
   const loadingEditor = (
-    <LoadingState className='configuration-editor-loading' label={t('configuration.loading')} fullScreen={false} />
+    <LoadingState className='h-full' label={t('configuration.loading')} fullScreen={false} />
   );
   return (
-    <div className='configuration-page panel-page'>
+    <div className='@container flex min-h-0 min-w-0 flex-1 flex-col gap-4'>
       <h1 className='sr-only'>{t('configuration.title')}</h1>
-      <section className='configuration-workspace' aria-label={t('configuration.title')} aria-busy={loading}>
-        <Tabs className='configuration-tabs' value={editor} onValueChange={setSelectedEditor}>
-          <div className='configuration-tabs__rail'>
+      <section className='flex min-h-0 flex-1 flex-col rounded-[var(--radius-card)] border bg-card px-(--configuration-inset) pt-(--configuration-inset) pb-2 [--configuration-inset:24px] @max-[40rem]:[--configuration-inset:16px]' aria-label={t('configuration.title')} aria-busy={loading}>
+        <Tabs className='min-h-0 flex-1 gap-0' value={editor} onValueChange={setSelectedEditor}>
+          <div className='flex min-w-0 flex-none items-center justify-between gap-2 border-b pb-4 max-sm:flex-wrap'>
             <TabsList aria-label={t('configuration.sections')}>
               {installed.status === 'ready' && !noInstalledVersions && schema.status === 'unavailable'
                 ? (
                     <Tooltip>
                       <TooltipTrigger
-                        render={<span className='configuration-disabled-tab' tabIndex={0} />}
+                        render={<span className='inline-flex rounded-[var(--radius-control)]' tabIndex={0} />}
                       >
                         <TabsTrigger disabled value='visual'>{t('configuration.file.visual')}</TabsTrigger>
                       </TooltipTrigger>
@@ -151,14 +153,14 @@ export function ConfigurationPage() {
                   )}
               <TabsTrigger disabled={!fileReady} value='advanced'>{t('configuration.tab.advanced')}</TabsTrigger>
             </TabsList>
-            <div className='configuration-schema-version'>
+            <div className='ml-auto flex max-w-full min-w-0 max-sm:ml-0'>
               <Select
                 disabled={installed.status !== 'ready' || noInstalledVersions}
                 value={schemaVersion || null}
                 onValueChange={value => setSelectedSchemaVersion(value)}
               >
-                <SelectTrigger id='configuration-schema-version' aria-labelledby='configuration-schema-version-label'>
-                  <span className='configuration-schema-version__label' id='configuration-schema-version-label'>{t('configuration.schema.version')}</span>
+                <SelectTrigger className='w-auto max-w-full gap-3 *:data-[slot=select-value]:min-w-18 *:data-[slot=select-value]:max-w-40 *:data-[slot=select-value]:flex-none *:data-[slot=select-value]:font-mono' id='configuration-schema-version' aria-labelledby='configuration-schema-version-label'>
+                  <span className='min-w-0 truncate border-r pr-3 text-xs text-[var(--color-text-secondary)]' id='configuration-schema-version-label'>{t('configuration.schema.version')}</span>
                   <SelectValue placeholder={t('configuration.schema.noInstalledOption')} />
                 </SelectTrigger>
                 <SelectContent align='end'>
@@ -172,7 +174,7 @@ export function ConfigurationPage() {
             </div>
           </div>
           {schema.status === 'error' && (
-            <p className='configuration-schema-notice' role='alert'>
+            <p className='m-0 border-b px-4 py-2 text-xs text-[var(--color-text-secondary)]' role='alert'>
               {t('configuration.schema.failClosed')}
               :
               {' '}
@@ -180,18 +182,18 @@ export function ConfigurationPage() {
             </p>
           )}
           {canonical.state.status === 'error'
-            ? <div className='configuration-tabs__content'><ErrorNotice error={canonical.state.error} title={t('configuration.error.unavailable')} /></div>
+            ? <div className='min-h-0 flex-1 overflow-hidden pt-2'><ErrorNotice error={canonical.state.error} title={t('configuration.error.unavailable')} /></div>
             : (
                 <>
-                  <TabsContent className='configuration-tabs__content' value='visual'>
+                  <TabsContent className='min-h-0 flex-1 overflow-hidden pt-2 has-[>[data-configuration-general]]:mr-[calc(-1*var(--configuration-inset))] has-[>[data-configuration-general]]:pt-0' value='visual'>
                     {installed.status === 'error'
                       ? <ErrorNotice error={installed.error} title={t('configuration.error.versionsUnavailable')} />
                       : noInstalledVersions
                         ? (
-                            <div className='configuration-empty-versions' role='status'>
-                              <h2>{t('configuration.schema.noInstalledTitle')}</h2>
-                              <p>{t('configuration.schema.noInstalledDescription')}</p>
-                              <Link className={buttonVariants()} data-slot='button' data-size='default' data-variant='default' to='/cores#cores-catalog'>
+                            <div className='flex h-full min-h-48 flex-col items-center justify-center gap-3 text-center' role='status'>
+                              <h2 className='m-0 text-base font-semibold'>{t('configuration.schema.noInstalledTitle')}</h2>
+                              <p className='m-0 max-w-160 text-muted-foreground'>{t('configuration.schema.noInstalledDescription')}</p>
+                              <Link className={buttonVariants()} data-slot='button' data-size='default' data-variant='default' to={`${nodePath(node.id, 'cores')}#cores-catalog`}>
                                 {t('configuration.schema.manageVersions')}
                               </Link>
                             </div>
@@ -208,7 +210,7 @@ export function ConfigurationPage() {
                               )
                             : null}
                   </TabsContent>
-                  <TabsContent className='configuration-tabs__content' value='advanced'>
+                  <TabsContent className='min-h-0 flex-1 overflow-hidden pt-2' value='advanced'>
                     {editor === 'advanced' && (fileReady
                       ? (
                           <Suspense fallback={loadingEditor}>
@@ -223,8 +225,8 @@ export function ConfigurationPage() {
                 </>
               )}
         </Tabs>
-        <footer className='configuration-footer'>
-          <span className='configuration-file-state' role='status' title={fileStatus}>{fileStatus}</span>
+        <footer className='flex flex-none flex-nowrap items-center gap-x-3 gap-y-2 border-t pt-2 *:data-[slot=button]:shrink-0 @max-[40rem]:flex-wrap @max-[40rem]:gap-1.5 @max-[40rem]:*:data-[slot=button]:flex-auto'>
+          <span className='mr-auto min-w-0 flex-1 truncate text-sm text-muted-foreground @max-[40rem]:basis-full @max-[40rem]:text-xs' role='status' title={fileStatus}>{fileStatus}</span>
           <Button variant='outline' disabled={locked || canonical.dirty || invalid || file?.revision === 0 || schemaVersion === ''} onClick={() => void check()} title={canonical.dirty ? t('configuration.file.saveFirst') : undefined} type='button'>{checking ? t('configuration.file.checking') : t('configuration.file.check')}</Button>
           <Button disabled={locked || (!canonical.dirty && (file?.revision ?? 0) > 0)} onClick={() => void canonical.save()} type='button'>{canonical.saving ? t('configuration.saving') : t('configuration.file.save')}</Button>
         </footer>

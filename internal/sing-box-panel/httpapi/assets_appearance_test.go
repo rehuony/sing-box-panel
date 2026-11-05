@@ -94,8 +94,8 @@ func TestAnonymousHTMLSharesCurrentPanelAppearance(t *testing.T) {
 func TestInitialAppearancePalette(t *testing.T) {
 	// These values also appear in the frontend appearance tests to guard the
 	// first-paint/React handoff against changes to either side's blend rules.
-	light := "color-scheme:light;--color-paper:#fefcfa;--color-paper-2:#fdf8f6;--color-paper-3:#faf2ec;--color-accent-soft:#faf0ea;--color-canvas:var(--color-paper-2);--color-canvas-deep:var(--color-paper-3);"
-	dark := "color-scheme:dark;--color-paper:#1b181e;--color-paper-2:#1f1a1e;--color-paper-3:#261c1d;--color-accent-soft:#34221c;--color-canvas:var(--color-paper);--color-canvas-deep:oklch(13% 0.014 274);"
+	light := "color-scheme:light;--color-canvas:#fdf8f6;"
+	dark := "color-scheme:dark;--color-canvas:#1b181e;"
 	for _, theme := range []string{"light", "dark", "system"} {
 		css := initialAppearanceCSS(settings.Appearance{Theme: theme, Color: "#C65B13", Radius: 12})
 		if (theme != "dark" && !strings.Contains(css, light)) || (theme != "light" && !strings.Contains(css, dark)) {

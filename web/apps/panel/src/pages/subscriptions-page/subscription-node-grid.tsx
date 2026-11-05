@@ -43,7 +43,7 @@ const SourceNodeCard = memo(({ node, busy, readOnly, selected, onSelect, onOpen,
     if (!(target instanceof Element)) return false;
     const control = target.closest('button, input, select, textarea, a, [role="button"]');
     // The hidden overlay is itself the card surface: click restores, drag reorders.
-    return !control || control.classList.contains('subscription-node-hidden');
+    return !control || control.hasAttribute('data-hidden-overlay');
   }
   return (
     <article
@@ -56,7 +56,7 @@ const SourceNodeCard = memo(({ node, busy, readOnly, selected, onSelect, onOpen,
       aria-pressed={undefined}
       aria-keyshortcuts='F2'
       tabIndex={busy || readOnly ? -1 : 0}
-      className={cn('subscription-node-card subscription-node-sortable', node.hidden && 'is-hidden')}
+      className={cn('relative isolate flex min-h-46 min-w-0 flex-col gap-2 overflow-hidden rounded-[var(--radius-card)] border bg-[var(--color-surface-raised)] p-3 [&>header]:relative [&>header]:z-1 [&>header]:flex [&>header]:items-center [&>header]:gap-1.5 cursor-grab touch-pan-y select-none data-[dragging=true]:opacity-30', node.hidden && '[&>header]:pointer-events-none [&>header_[data-slot=button]]:pointer-events-auto [&_[data-node-dot]]:bg-[var(--color-text-faint)] [&_[data-node-dot]]:shadow-[0_0_0_3px_var(--color-surface-raised)]')}
       data-dragging={isDragging || undefined}
       style={{ transform: CSS.Transform.toString(transform), transition: reducedMotion ? 'none' : transition }}
       onMouseDown={(event) => {
@@ -105,7 +105,8 @@ const SourceNodeCard = memo(({ node, busy, readOnly, selected, onSelect, onOpen,
       {node.hidden && (
         <Button
           aria-label={t('subscriptions.nodes.show', { name: node.name })}
-          className='subscription-node-hidden'
+          className='absolute inset-0 grid content-center justify-items-center gap-2 bg-card pt-9 text-xs font-normal text-[var(--color-text-secondary)] shadow-[inset_0_1px_0_var(--border)] [&_svg]:size-5'
+          data-hidden-overlay
           disabled={busy}
           onClick={() => onVisibility?.(node)}
           size='content'
@@ -171,8 +172,8 @@ export function SubscriptionNodeGrid({
     }
   }
   return (
-    <div className='subscription-node-list'>
-      <div className='subscription-node-list__scroll subscription-state-region' aria-busy={loading}>
+    <div className='flex h-full min-h-0 min-w-0 flex-1 flex-col'>
+      <div className='min-h-0 flex-1 overflow-auto flex flex-col *:[table]:flex-none' aria-busy={loading}>
         {filtered.length === 0
           ? (
               loading ? <SubscriptionContentState loading /> : !error && <SubscriptionContentState kind={search ? 'search' : 'nodes'} title={t(search ? 'channels.noMatchingNodes' : 'subscriptions.nodes.empty')} />
@@ -185,10 +186,10 @@ export function SubscriptionNodeGrid({
                 renderOverlay={(id) => {
                   const node = byID.get(id);
                   return node && (
-                    <article className={cn('subscription-node-card subscription-node-drag-overlay', node.hidden && 'is-hidden')} aria-hidden='true'>
+                    <article className={cn('relative isolate flex min-h-46 min-w-0 flex-col gap-2 overflow-hidden rounded-[var(--radius-card)] border bg-[var(--color-surface-raised)] p-3 [&>header]:relative [&>header]:z-1 [&>header]:flex [&>header]:items-center [&>header]:gap-1.5 h-full cursor-grabbing shadow-[var(--shadow-panel)]', node.hidden && '[&>header]:pointer-events-none [&>header_[data-slot=button]]:pointer-events-auto [&_[data-node-dot]]:bg-[var(--color-text-faint)] [&_[data-node-dot]]:shadow-[0_0_0_3px_var(--color-surface-raised)]')} aria-hidden='true'>
                       <SubscriptionNodeCardContent node={node} />
                       {node.hidden && (
-                        <div className='subscription-node-hidden'>
+                        <div className='absolute inset-0 grid content-center justify-items-center gap-2 bg-card pt-9 text-xs font-normal text-[var(--color-text-secondary)] shadow-[inset_0_1px_0_var(--border)] [&_svg]:size-5'>
                           <EyeOff />
                           <span>{t('subscriptions.nodes.hidden')}</span>
                         </div>
@@ -197,7 +198,7 @@ export function SubscriptionNodeGrid({
                   );
                 }}
               >
-                <div className='subscription-node-grid'>
+                <div data-slot='subscription-node-grid' className='grid grid-cols-[repeat(auto-fill,min(100%,18rem))] content-start gap-3 p-0.5'>
                   {pageNodes.map((node) => (
                     <SourceNodeCard
                       key={node.id}

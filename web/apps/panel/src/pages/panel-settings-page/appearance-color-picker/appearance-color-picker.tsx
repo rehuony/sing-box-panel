@@ -44,14 +44,14 @@ export function AppearanceColorPicker({ id, value, onChange }: {
         pendingColorRef.current = null;
       }
     }}>
-      <DialogTrigger aria-label={t('panelSettings.customColor')} render={<Button id={id} type='button' variant='outline' className='settings-custom-color' />}>
-        <span className='settings-color-swatch' style={{ backgroundColor: value }} aria-hidden='true' />
+      <DialogTrigger aria-label={t('panelSettings.customColor')} render={<Button id={id} type='button' variant='outline' className='shrink-0 gap-2 rounded-[var(--radius-control)] px-3' />}>
+        <span className='block size-4 flex-none rounded-full shadow-[inset_0_0_0_1px_var(--border)]' style={{ backgroundColor: value }} aria-hidden='true' />
         {t('panelSettings.customColor')}
       </DialogTrigger>
-      <DialogContent className='appearance-color-dialog'>
+      <DialogContent className='w-[min(420px,calc(100vw-32px))] gap-5'>
         <DialogHeader><DialogTitle>{t('panelSettings.customColorTitle')}</DialogTitle></DialogHeader>
-        <HexColorPicker className='appearance-color-picker' color={pickerColor} onChange={updateColor} />
-        <Field className='appearance-color-hex' data-invalid={!valid}>
+        <HexColorPicker className='appearance-color-picker h-auto! w-full! gap-5' color={pickerColor} onChange={updateColor} />
+        <Field className='grid grid-cols-[auto_minmax(0,1fr)] items-center gap-x-4 gap-y-2' data-invalid={!valid}>
           <FieldLabel htmlFor={hexId}>HEX</FieldLabel>
           <Input
             id={hexId}
@@ -59,6 +59,7 @@ export function AppearanceColorPicker({ id, value, onChange }: {
             aria-invalid={!valid}
             aria-describedby={!valid ? `${hexId}-error` : undefined}
             autoComplete='off'
+            className='font-mono'
             spellCheck={false}
             maxLength={7}
             value={draft}

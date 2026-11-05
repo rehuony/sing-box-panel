@@ -4,7 +4,7 @@
   block-size: 100dvh;
   padding: 40px 24px;
   overflow: auto;
-  background: var(--color-paper);
+  background: var(--color-canvas);
 }
 
 .login-window {
@@ -13,7 +13,7 @@
   width: min(100%, 1120px);
   min-block-size: 620px;
   overflow: clip;
-  border: 1px solid color-mix(in oklch, var(--color-rule-2) 65%, transparent);
+  border: 1px solid color-mix(in oklch, var(--border) 65%, transparent);
   border-radius: var(--radius-window);
   background: var(--color-surface);
   box-shadow: var(--shadow-panel);
@@ -26,7 +26,7 @@
   min-width: 0;
   gap: 32px;
   padding: 40px;
-  background: radial-gradient(ellipse at 70% 28%, var(--color-paper) 0%, transparent 65%), var(--color-accent-soft);
+  background: radial-gradient(ellipse at 70% 28%, var(--color-canvas) 0%, transparent 65%), var(--accent);
 }
 
 .login-showcase .panel-logo {
@@ -52,7 +52,7 @@
 .login-showcase__tagline {
   margin: 0;
   max-width: 440px;
-  color: var(--color-text);
+  color: var(--foreground);
   font-family: var(--font-display);
   font-size: clamp(28px, 2.6vw, 36px);
   font-weight: 600;
@@ -90,7 +90,7 @@
 
 .login-panel__header h1 {
   margin: 0;
-  color: var(--color-text);
+  color: var(--foreground);
   font-family: var(--font-display);
   font-size: 28px;
   font-weight: 600;
@@ -100,7 +100,7 @@
 }
 
 .login-panel__description {
-  color: var(--color-text-muted);
+  color: var(--muted-foreground);
   font-size: var(--text-sm);
   line-height: 1.7;
   margin: 0;

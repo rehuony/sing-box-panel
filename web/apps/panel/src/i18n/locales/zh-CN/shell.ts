@@ -10,19 +10,17 @@ export const shell = {
     page: '正在载入工作台…',
     title: '正在读取面板上下文',
   },
-  notSelected: '尚未选择',
   panelStatus: {
     loading: '正在检查面板状态',
     online: '面板在线',
     unavailable: '面板状态不可用',
   },
+  openNavigation: '打开导航',
   skip: '跳到主要内容',
   version: 'v{{version}}',
 } as const;
 
 export const nodes = {
-  empty: '暂无节点。请在面板主机上运行 sing-box-panel node add NAME，并用输出的命令接入节点。',
-  label: '节点',
   loadFailed: '无法加载节点。',
   notSelected: '请先添加节点，再管理其内核与配置。',
   state: {
@@ -37,12 +35,10 @@ export const app = {
 } as const;
 
 export const nav = {
-  panel: '面板配置',
-  configuration: '配置管理',
-  cores: '版本管理',
-  dashboard: '仪表盘',
-  observability: '运行日志',
-  subscriptions: '订阅管理',
+  logs: '日志',
+  nodes: '节点',
+  settings: '设置',
+  subscriptions: '订阅',
 } as const;
 
 export const account = {

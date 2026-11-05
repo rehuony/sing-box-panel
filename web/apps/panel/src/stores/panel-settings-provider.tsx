@@ -30,7 +30,7 @@ export function PanelSettingsProvider({ children }: { children: ReactNode }) {
     void setAppLanguage(view.preferences.language);
   }, [view, setAppearance]);
 
-  const isSettings = pathname === '/panel';
+  const isSettings = pathname === '/settings';
   useLayoutEffect(() => {
     if (!isSettings) preview(null);
     return () => preview(null);

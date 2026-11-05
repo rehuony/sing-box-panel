@@ -54,7 +54,7 @@ describe('subscriptionsPage', () => {
     await user.type(screen.getByLabelText('Group name'), ' edited');
     await user.click(screen.getByRole('button', { name: 'Apply' }));
     const back = screen.getByRole('button', { name: 'Back' });
-    expect(back.closest('.workspace-toolbar')).not.toBeNull();
+    expect(back.closest('[data-slot="workspace-toolbar"]')).not.toBeNull();
     await user.click(screen.getByRole('tab', { name: 'Sources' }));
     const confirmation = screen.getByRole('alertdialog', { name: 'Discard unsaved changes?' });
     expect(within(confirmation).queryByRole('button', { name: 'Close' })).not.toBeInTheDocument();

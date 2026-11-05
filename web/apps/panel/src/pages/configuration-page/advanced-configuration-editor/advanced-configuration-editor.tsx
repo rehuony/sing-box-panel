@@ -17,7 +17,6 @@ import { SearchPanelHost } from './search-panel-host';
 import { EditorSearchPanel } from './editor-search-panel';
 import { chineseEditorPhrases, editorTheme } from './editor-theme';
 import { encodeCanonicalDraft, parseCanonicalDraft } from '../use-canonical-configuration';
-import './advanced-configuration-editor.css';
 
 export interface AdvancedConfigurationEditorProps {
   text: string;
@@ -119,16 +118,16 @@ export function AdvancedConfigurationEditor({ disabled, text, error, onChange }:
   }
 
   return (
-    <div className='advanced-configuration-editor'>
+    <div className='relative flex h-full min-h-0 min-w-0 flex-col'>
       <div className='floating-toolbar'>
-        <Button aria-label={t('configuration.advanced.search')} title={t('configuration.advanced.search')} onClick={() => run(openSearchPanel)} size='icon-sm' type='button' variant='ghost'><Search aria-hidden='true' /></Button>
-        <Button aria-label={t('configuration.advanced.format')} title={t('configuration.advanced.format')} disabled={disabled || error !== null} onClick={() => run(formatDocument)} size='icon-sm' type='button' variant='ghost'>
+        <Button aria-label={t('configuration.advanced.search')} title={t('configuration.advanced.search')} onClick={() => run(openSearchPanel)} size='icon-xs' type='button' variant='ghost'><Search aria-hidden='true' /></Button>
+        <Button aria-label={t('configuration.advanced.format')} title={t('configuration.advanced.format')} disabled={disabled || error !== null} onClick={() => run(formatDocument)} size='icon-xs' type='button' variant='ghost'>
           <Braces aria-hidden='true' />
         </Button>
-        <Button aria-label={t('configuration.advanced.fold')} title={t('configuration.advanced.fold')} onClick={() => run(foldAll)} size='icon-sm' type='button' variant='ghost'><FoldVertical aria-hidden='true' /></Button>
-        <Button aria-label={t('configuration.advanced.unfold')} title={t('configuration.advanced.unfold')} onClick={() => run(unfoldAll)} size='icon-sm' type='button' variant='ghost'><UnfoldVertical aria-hidden='true' /></Button>
+        <Button aria-label={t('configuration.advanced.fold')} title={t('configuration.advanced.fold')} onClick={() => run(foldAll)} size='icon-xs' type='button' variant='ghost'><FoldVertical aria-hidden='true' /></Button>
+        <Button aria-label={t('configuration.advanced.unfold')} title={t('configuration.advanced.unfold')} onClick={() => run(unfoldAll)} size='icon-xs' type='button' variant='ghost'><UnfoldVertical aria-hidden='true' /></Button>
       </div>
-      <div className='advanced-configuration-editor__code' ref={hostRef} />
+      <div className='min-h-0 min-w-0 flex-1 overflow-hidden rounded-[var(--radius-control)]' ref={hostRef} />
       {searchPanel && createPortal(<EditorSearchPanel host={searchPanel} />, searchPanel.dom)}
       {error === null ? null : <ErrorNotice id='configuration-json-error' error={error instanceof Error ? error.message : t('configuration.advanced.invalidJSON')} />}
     </div>

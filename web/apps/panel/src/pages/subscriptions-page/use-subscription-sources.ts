@@ -10,7 +10,6 @@ import { useApiClient } from '@/api/api-client-context';
 import { usePageVisible } from '@/hooks/use-page-visible';
 import { useUnsavedChanges } from '@/hooks/use-unsaved-changes';
 import { describeRequestError } from '@/components/error-notice';
-import { useOptionalSharedTelemetry } from '@/components/app-shell/telemetry-context';
 
 interface SourceForm {
   url: string;
@@ -38,11 +37,6 @@ function sourceForm(source: SubscriptionSource): SourceForm {
   };
 }
 
-function latestStart(...values: (string | undefined)[]): string | undefined {
-  return values.filter((value): value is string => value !== undefined && Number.isFinite(Date.parse(value)))
-    .sort((a, b) => Date.parse(b) - Date.parse(a))[0];
-}
-
 const nodeOrderMutationKey = ['subscription-node-order'];
 
 export function useSubscriptionSources(active = true) {
@@ -56,10 +50,6 @@ export function useSubscriptionSources(active = true) {
   const nodeQuery = useQuery({ ...queries.nodes(client), enabled, refetchInterval: enabled ? 15_000 : false });
   const sources = sourceQuery.data ?? [];
   const nodes = nodeQuery.data?.nodes ?? [];
-  const runningStartedAt = useOptionalSharedTelemetry(s => s.runtimeStatus?.running?.started_at);
-  const [lastStartedAt, setLastStartedAt] = useState<string>();
-  const latestStartedAt = latestStart(runningStartedAt ?? undefined, lastStartedAt);
-  if (latestStartedAt !== lastStartedAt) setLastStartedAt(latestStartedAt);
   const [selected, setSelected] = useState<string | null>(null);
   const [tab, setTab] = useState<'nodes' | 'settings'>('nodes');
   const [search, setSearch] = useState('');
@@ -90,16 +80,6 @@ export function useSubscriptionSources(active = true) {
     lifetimeRef.current = controller;
     return () => controller.abort();
   }, []);
-  useEffect(() => {
-    if (!enabled) return;
-    const controller = new AbortController();
-    void client.getRuntimeHistory({ state: 'running', limit: 1 }, controller.signal).then(history => {
-      if (!controller.signal.aborted) {
-        setLastStartedAt(current => latestStart(current, history.items[0]?.process_started_at));
-      }
-    }).catch(() => undefined);
-    return () => controller.abort();
-  }, [client, enabled]);
   const signal = () => lifetimeRef.current?.signal;
   const reload = () => {
     void load().catch(reason => toast.add({ title: describeRequestError(reason), type: 'error' }));
@@ -272,7 +252,7 @@ export function useSubscriptionSources(active = true) {
       id: 'manual',
       name: t('subscriptions.nodes.manual'),
       source_kind: 'local',
-      updated_at: latestStartedAt ?? '',
+      updated_at: '',
       enabled: true,
     },
     ...sources.filter((source) => source.source_kind === 'remote'),

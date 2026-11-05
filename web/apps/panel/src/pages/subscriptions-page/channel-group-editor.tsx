@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { Button } from '@shared/components/ui/button';
 import { CirclePlus, Pencil, Search, Trash2 } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@shared/components/ui/tabs';
+import { InputGroup, InputGroupAddon, InputGroupInput } from '@shared/components/ui/input-group';
 
 import type {
   ChannelRouteExit,
@@ -96,7 +97,7 @@ export function ChannelGroupEditor({
     });
   }
   return (
-    <section className='channel-group-editor' aria-label={t('channels.editGroup')}>
+    <section className='min-h-0 min-w-0 overflow-hidden @max-[740px]/channel-editor:overflow-visible' aria-label={t('channels.editGroup')}>
       {addingNodes && (
         <ChannelNodePicker
           nodes={nodes}
@@ -114,17 +115,17 @@ export function ChannelGroupEditor({
             setAddingNodes(false);
           }} />
       )}
-      <fieldset className='channel-group-fields' disabled={busy}>
+      <fieldset className='flex h-full min-h-0 min-w-0 flex-col @max-[740px]/channel-editor:h-auto' disabled={busy}>
         <Tabs value={tab} onValueChange={(value) => {
           if (value === 'nodes' || value === 'rules') onTabChange(value);
-        }} className='channel-group-tabs'>
-          <div className='channel-group-toolbar'>
-            <TabsList className='subscriptions-tabs' aria-label={t('channels.editGroup')}>
+        }} className='min-h-0 min-w-0 flex-1 gap-0'>
+          <div className='mb-5 flex min-w-0 flex-none flex-wrap items-center gap-2 pe-1 has-[[data-rule-tools]]:mb-2 *:data-[slot=tabs-list]:flex-none'>
+            <TabsList className='max-w-full flex-none justify-start self-start overflow-x-auto [scrollbar-width:none] *:data-[slot=tabs-trigger]:flex-none' aria-label={t('channels.editGroup')}>
               <TabsTrigger value='nodes'>{t('channels.candidates')}</TabsTrigger>
               <TabsTrigger value='rules'>{t('channels.matches')}</TabsTrigger>
             </TabsList>
             {tab === 'rules' && (
-              <div className='channel-selection-actions channel-group-rule-tools'>
+              <div className='flex min-w-0 flex-none flex-wrap items-center gap-2 ms-auto' data-rule-tools>
                 <Button size='sm' variant='ghost' onClick={() => newRule(false)}>
                   <CirclePlus data-icon='inline-start' />
                   {t('channels.addRule')}
@@ -136,7 +137,7 @@ export function ChannelGroupEditor({
               </div>
             )}
             {tab === 'nodes' && (
-              <div className='channel-group-node-tools'>
+              <div className='ms-auto flex min-w-0 flex-wrap items-center gap-2 max-[720px]:flex-[1_1_100%]'>
                 <ChannelNodeActions
                   count={selectedIDs.size}
                   disabled={busy}
@@ -156,14 +157,14 @@ export function ChannelGroupEditor({
                   }}
                   onAdd={() => setAddingNodes(true)}
                 />
-                <div className='subscription-search'>
-                  <Search aria-hidden='true' />
-                  <input aria-label={t('channels.searchNodes')} placeholder={t('channels.searchNodes')} value={search} onChange={(event) => setSearch(event.target.value)} />
-                </div>
+                <InputGroup className='h-(--control-height-sm) min-w-30 w-60 max-[900px]:w-50 max-[720px]:flex-1'>
+                  <InputGroupAddon><Search aria-hidden='true' /></InputGroupAddon>
+                  <InputGroupInput className='h-full min-h-0' aria-label={t('channels.searchNodes')} placeholder={t('channels.searchNodes')} value={search} onChange={(event) => setSearch(event.target.value)} />
+                </InputGroup>
               </div>
             )}
           </div>
-          <TabsContent value='nodes' className='channel-group-content'>
+          <TabsContent value='nodes' className='flex min-h-0 flex-col overflow-y-auto overscroll-contain p-0.5 @max-[740px]/channel-editor:overflow-visible'>
             <ChannelNodeCards
               items={cards}
               onToggle={(id) => setSelected((current) =>
@@ -176,13 +177,13 @@ export function ChannelGroupEditor({
               <SubscriptionContentState kind={search ? 'search' : 'candidates'} title={t(search ? 'channels.noMatchingNodes' : 'channels.emptyCandidates')} />
             )}
           </TabsContent>
-          <TabsContent value='rules' className='channel-group-content'>
-            <ul className='channel-rule-rows' aria-label={t('channels.matches')}>
+          <TabsContent value='rules' className='flex min-h-0 flex-col overflow-y-auto overscroll-contain p-0.5 @max-[740px]/channel-editor:overflow-visible'>
+            <ul className='m-0 grid list-none p-0' aria-label={t('channels.matches')}>
               {[...group.rules].sort(compareChannelRules).map((item) => (
-                <li className='channel-rule-row' key={item.id} data-disabled={!item.enabled || undefined}>
-                  <div className='channel-rule-label' title={item.remote?.url ?? item.value}>
-                    <span className='channel-rule-name' title={item.remote?.name ?? item.value}>{item.remote?.name ?? item.value}</span>
-                    <span className='channel-rule-summary' title={[
+                <li className='grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 py-3.5 [&+&]:border-t' key={item.id} data-disabled={!item.enabled || undefined}>
+                  <div className='flex min-w-0 items-center gap-3 text-left' title={item.remote?.url ?? item.value}>
+                    <span className='max-w-1/2 min-w-0 flex-none truncate font-medium in-data-[disabled=true]:text-muted-foreground' title={item.remote?.name ?? item.value}>{item.remote?.name ?? item.value}</span>
+                    <span className='min-w-0 truncate text-xs text-muted-foreground [&>span+span]:ms-3 [&>span+span]:border-s [&>span+span]:ps-3' title={[
                       `${t('channels.sortIndex')}: ${item.sort_index ?? 0}`,
                       t(item.kind === 'remote' ? 'channels.ruleSet' : `channels.${item.kind}`),
                       exitLabel(item.exit),
@@ -202,9 +203,9 @@ export function ChannelGroupEditor({
                       <ErrorNotice error={t('channels.formatPending')} />
                     )}
                   </div>
-                  <div className='subscription-toolbar-actions'>
+                  <div className='flex min-w-0 flex-none items-center gap-2'>
                     <Button variant='ghost' size='icon-sm' aria-label={t('channels.editRule')} title={t('channels.editRule')} onClick={() => setRule(item)}><Pencil /></Button>
-                    <Button variant='ghost' size='icon-sm' className='channel-delete-action' aria-label={t('channels.deleteRule')} title={t('channels.deleteRule')} onClick={() => onChange({ ...group, rules: group.rules.filter((value) => value.id !== item.id) })}><Trash2 /></Button>
+                    <Button variant='ghost' size='icon-sm' className='text-[var(--color-danger)]' aria-label={t('channels.deleteRule')} title={t('channels.deleteRule')} onClick={() => onChange({ ...group, rules: group.rules.filter((value) => value.id !== item.id) })}><Trash2 /></Button>
                   </div>
                 </li>
               ))}

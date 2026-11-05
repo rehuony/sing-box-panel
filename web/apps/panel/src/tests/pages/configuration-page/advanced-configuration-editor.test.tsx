@@ -72,7 +72,7 @@ describe('advanced JSON editor', () => {
     await user.click(screen.getByRole('button', { name: 'Close' }));
     await user.click(screen.getByRole('button', { name: 'Find / replace' }));
     expect(screen.getByRole('textbox', { name: 'Find' })).toHaveValue('test');
-    expect(document.querySelectorAll('.editor-search')).toHaveLength(1);
+    expect(document.querySelectorAll('[data-slot="editor-search"]')).toHaveLength(1);
     expect(document.querySelector('.cm-search')).not.toBeInTheDocument();
   });
 

@@ -4,14 +4,11 @@ import { beforeAll, describe, expect, it, vi } from 'vitest';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 
 import type { ApiClient, SubscriptionNodeSummary } from '@/api/api-client';
-import type { TelemetryState } from '@/components/app-shell/use-telemetry';
 
 import '@/i18n';
 import * as reviewedSchemas from '@/schemas';
 import { ApiClientProvider } from '@/api/api-client-context';
 import { TestRouter as MemoryRouter } from '@/tests/test-router';
-import { TelemetryContext } from '@/components/app-shell/telemetry-context';
-import { createTelemetryStore } from '@/components/app-shell/use-telemetry';
 import { SubscriptionNodeGrid } from '@/pages/subscriptions-page/subscription-node-grid';
 import { SubscriptionNodeEditor } from '@/pages/subscriptions-page/subscription-node-editor';
 import { SubscriptionSourcePanel } from '@/pages/subscriptions-page/subscription-source-panel';
@@ -216,28 +213,6 @@ describe('subscription sources and nodes', () => {
     } finally {
       loadSchema.mockRestore();
     }
-  });
-
-  it('prefers a newer live start and retains the recorded start after stopping', async () => {
-    const client = createMockApiClient();
-    const renderPanel = (startedAt?: string) => (
-      <ApiClientProvider client={client}>
-        <TelemetryContext value={createTelemetryStore({
-          runtimeStatus: startedAt ? { running: { started_at: startedAt } } : null,
-        } as Partial<TelemetryState>)}>
-          <SubscriptionSourcePanel />
-        </TelemetryContext>
-      </ApiClientProvider>
-    );
-    const { rerender } = render(renderPanel('2026-09-20T00:00:00Z'), { wrapper: MemoryRouter });
-    const row = (await screen.findByRole('cell', { name: 'Manual nodes' })).closest('tr')!;
-    const format = (date: string) => new Intl.DateTimeFormat('en', {
-      dateStyle: 'short', timeStyle: 'short',
-    }).format(new Date(date));
-    expect(row).toHaveTextContent(format('2026-09-20T00:00:00Z'));
-    await waitFor(() => expect(client.getSubscriptionNodeCatalog).toHaveBeenCalled());
-    rerender(renderPanel());
-    expect(row).toHaveTextContent(format('2026-09-20T00:00:00Z'));
   });
 
   it('returns focus after cancel and starts a fresh source form when reopened', async () => {

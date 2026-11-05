@@ -71,7 +71,7 @@ function mount(
 async function openGroupSettings(user: ReturnType<typeof userEvent.setup>) {
   if (screen.queryByRole('dialog', { name: 'Strategy group settings' })) return;
   const sidebar = screen.getByRole('complementary', { name: 'Strategy groups' });
-  const selected = sidebar.querySelector('.channel-group-item[aria-pressed="true"]')!;
+  const selected = sidebar.querySelector('[data-group-item][aria-pressed="true"]')!;
   await user.click(within(selected.parentElement!).getByRole('button', { name: /^Configure / }));
 }
 describe('channel workspace', () => {

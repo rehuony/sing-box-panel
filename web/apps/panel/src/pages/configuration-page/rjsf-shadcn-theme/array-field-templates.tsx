@@ -6,12 +6,12 @@ import { createContext, use, useState } from 'react';
 import Form, { getDefaultRegistry } from '@rjsf/core';
 import { Button } from '@shared/components/ui/button';
 import { ArrowDown, ArrowUp, MoreHorizontal, Plus } from 'lucide-react';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@shared/components/ui/table';
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@shared/components/ui/dialog';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem, DropdownMenuTrigger } from '@shared/components/ui/dropdown-menu';
 
 import { SchemaDialogLayout } from './schema-dialog-layout';
 import { resolvedSchema, schemaDiscriminatorValues, selfContainedSchema, uiSchemaFromPanel } from '../schema-ui';
+import { ConfigurationList, ConfigurationListActions, ConfigurationListAddButton, ConfigurationListAddRow, ConfigurationListCell, ConfigurationListRow, ConfigurationListText } from '../configuration-list';
 
 const DefaultArrayField = getDefaultRegistry().fields.ArrayField;
 const ArrayFieldActionsContext = createContext<{ create: () => void; edit: (index: number) => void } | null>(null);
@@ -158,34 +158,32 @@ export function PanelArrayFieldTemplate(props: ArrayFieldTemplateProps) {
     : undefined;
   const addButton = canAdd
     ? (
-        <Button className={standalone ? 'configuration-list__add' : undefined} disabled={disabled || readonly} onClick={records !== null && actions !== null ? actions.create : onAddClick} size={standalone ? 'content' : 'sm'} type='button' variant={records === null ? 'ghost' : 'outline'}>
-          <Plus aria-hidden data-icon='inline-start' />
-          {t('common.add')}
-        </Button>
+        standalone
+          ? (
+              <ConfigurationListAddButton
+                disabled={disabled || readonly}
+                onClick={actions !== null ? actions.create : onAddClick}
+              >
+                <Plus aria-hidden data-icon='inline-start' />
+                {t('common.add')}
+              </ConfigurationListAddButton>
+            )
+          : (
+              <Button disabled={disabled || readonly} onClick={records !== null && actions !== null ? actions.create : onAddClick} size='sm' type='button' variant={records === null ? 'ghost' : 'outline'}>
+                <Plus aria-hidden data-icon='inline-start' />
+                {t('common.add')}
+              </Button>
+            )
       )
     : null;
   if (standalone) {
     return (
-      <fieldset className='schema-form__array schema-form__array--standalone' id={`${fieldPathId.$id}-group`}>
+      <fieldset className='min-w-0 p-0' id={`${fieldPathId.$id}-group`}>
         <ArrayEditorContext value={{ records, standalone, edit: (index) => actions?.edit(index) }}>
-          <Table className='configuration-list'>
-            <TableHeader>
-              <TableRow>
-                <TableHead scope='col'>{t('configuration.fields.tag')}</TableHead>
-                <TableHead scope='col'>{t('configuration.fields.type')}</TableHead>
-                <TableHead scope='col'>{t('configuration.general.summary')}</TableHead>
-                <TableHead scope='col'>{t('common.actions')}</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {items}
-              {addButton && (
-                <TableRow className='configuration-list__add-row'>
-                  <TableCell colSpan={4}>{addButton}</TableCell>
-                </TableRow>
-              )}
-            </TableBody>
-          </Table>
+          <ConfigurationList labels={[t('configuration.fields.tag'), t('configuration.fields.type'), t('configuration.general.summary'), t('common.actions')]}>
+            {items}
+            {addButton && <ConfigurationListAddRow>{addButton}</ConfigurationListAddRow>}
+          </ConfigurationList>
         </ArrayEditorContext>
       </fieldset>
     );
@@ -236,19 +234,21 @@ export function PanelArrayFieldItemTemplate({ buttonsProps, children, index, reg
   if (record !== undefined && state?.standalone) {
     const name = itemLabel(record, index);
     return (
-      <TableRow>
-        <TableCell><span className='configuration-list__text' title={name}>{name}</span></TableCell>
-        <TableCell className='configuration-list__secondary'><span className='configuration-list__text'>{String(record.type ?? record.action ?? '—')}</span></TableCell>
-        <TableCell className='configuration-list__secondary'><span className='configuration-list__text' title={itemSummary(record)}>{itemSummary(record) || '—'}</span></TableCell>
-        <TableCell>
-          <div className='configuration-list__actions'>
+      <ConfigurationListRow>
+        <ConfigurationListCell>
+          <ConfigurationListText title={name}>{name}</ConfigurationListText>
+        </ConfigurationListCell>
+        <ConfigurationListCell secondary><ConfigurationListText>{String(record.type ?? record.action ?? '—')}</ConfigurationListText></ConfigurationListCell>
+        <ConfigurationListCell secondary><ConfigurationListText title={itemSummary(record)}>{itemSummary(record) || '—'}</ConfigurationListText></ConfigurationListCell>
+        <ConfigurationListCell>
+          <ConfigurationListActions>
             <Button disabled={buttonsProps.disabled || buttonsProps.readonly} onClick={() => state.edit(index)} size='sm' type='button' variant='ghost'>{t('common.edit')}</Button>
             <Button aria-label={t('configuration.general.moveUp', { name })} title={t('common.moveUp')} disabled={buttonsProps.disabled || buttonsProps.readonly || !buttonsProps.hasMoveUp} onClick={buttonsProps.onMoveUpItem} size='icon-sm' type='button' variant='ghost'><ArrowUp aria-hidden='true' /></Button>
             <Button aria-label={t('configuration.general.moveDown', { name })} title={t('common.moveDown')} disabled={buttonsProps.disabled || buttonsProps.readonly || !buttonsProps.hasMoveDown} onClick={buttonsProps.onMoveDownItem} size='icon-sm' type='button' variant='ghost'><ArrowDown aria-hidden='true' /></Button>
             <ArrayFieldItemButtonsTemplate {...buttonsProps} hasMoveUp={false} hasMoveDown={false} />
-          </div>
-        </TableCell>
-      </TableRow>
+          </ConfigurationListActions>
+        </ConfigurationListCell>
+      </ConfigurationListRow>
     );
   }
   if (record !== undefined) {

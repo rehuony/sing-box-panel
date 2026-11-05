@@ -92,7 +92,7 @@ export function CoreImportDialog({
             <Field data-disabled={busy} data-invalid={!!fileError}>
               <FieldLabel htmlFor={`${id}-archive`} className='sr-only'>{t('cores.import.archive')}</FieldLabel>
               <div
-                className='core-import-dropzone'
+                className='relative flex min-h-40 min-w-0 flex-col items-center justify-center gap-3.5 rounded-[var(--radius-control)] border border-dashed bg-muted px-5 py-6 text-foreground transition-[background-color,border-color] duration-150 has-focus-visible:outline-1 has-focus-visible:-outline-offset-1 has-focus-visible:outline-[var(--input-focus)] data-[disabled=true]:opacity-50 data-[dragging=true]:border-primary data-[dragging=true]:bg-accent data-[invalid=true]:border-destructive [&:not([data-disabled=true]):hover]:border-primary [&:not([data-disabled=true]):hover]:bg-accent [&>svg]:pointer-events-none [&>svg]:size-8 [&>svg]:stroke-[1.5] [&>svg]:text-muted-foreground'
                 data-dragging={dragging}
                 data-disabled={busy}
                 data-invalid={!!fileError}
@@ -114,18 +114,18 @@ export function CoreImportDialog({
                 }}
               >
                 {archive ? <FileArchive aria-hidden='true' /> : <CloudUpload aria-hidden='true' />}
-                <div className='core-import-dropzone__copy' id={`${id}-archive-hint`} aria-live='polite'>
-                  <span className='core-import-dropzone__title' title={archive?.name}>
+                <div className='pointer-events-none flex max-w-full min-w-0 flex-col gap-1.5 text-center' id={`${id}-archive-hint`} aria-live='polite'>
+                  <span className='font-medium wrap-anywhere' title={archive?.name}>
                     {dragging ? t('cores.import.dropArchive') : archive?.name ?? t('cores.import.dragArchive')}
                   </span>
-                  <span className='core-import-dropzone__hint'>
+                  <span className='text-xs text-muted-foreground'>
                     {t(archive ? 'cores.import.replaceArchive' : 'cores.import.chooseArchive')}
                     {' · .tar.gz / .tgz'}
                   </span>
                 </div>
                 <Input
                   id={`${id}-archive`}
-                  className='core-import-dropzone__input'
+                  className='absolute inset-0 size-full cursor-pointer opacity-0 disabled:cursor-default'
                   type='file'
                   accept='.tar.gz,.tgz'
                   disabled={busy}

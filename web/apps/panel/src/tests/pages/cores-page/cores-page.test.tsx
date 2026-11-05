@@ -12,7 +12,7 @@ import type { ApiClient } from '@/api/api-client';
 import { ApiRequestError } from '@/api/api-client';
 import { CoresPage } from '@/pages/cores-page/cores-page';
 import { ApiClientProvider } from '@/api/api-client-context';
-import { NodeSelectionContext } from '@/stores/node-selection.store';
+import { CurrentNodeContext } from '@/stores/current-node.store';
 import {
   createMockApiClient,
   testArtifacts,
@@ -25,12 +25,12 @@ function renderCores(client: ApiClient, node = testNode) {
   render(
     <MemoryRouter>
       <ApiClientProvider client={client}>
-        <NodeSelectionContext value={{ status: 'success', error: null, nodes: [node], selected: node, select: vi.fn() }}>
+        <CurrentNodeContext value={node}>
           <Routes>
             <Route path='/' element={<CoresPage />} />
-            <Route path='/configuration' element={<p>Configuration editor</p>} />
+            <Route path='/nodes/:nodeId/configuration' element={<p>Configuration editor</p>} />
           </Routes>
-        </NodeSelectionContext>
+        </CurrentNodeContext>
       </ApiClientProvider>
     </MemoryRouter>,
   );

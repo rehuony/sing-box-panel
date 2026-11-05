@@ -47,6 +47,8 @@ var webLicenseIDs = map[string]struct{}{
 	"ISC":          {},
 	"MIT":          {},
 	"MIT AND ISC":  {},
+	// The bundled Geist fonts.
+	"OFL-1.1": {},
 }
 
 type component struct {

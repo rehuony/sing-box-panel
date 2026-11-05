@@ -6,8 +6,8 @@ import type { RuntimeStatus } from '@/api/api-client';
 
 import { queries } from '@/api/queries';
 import { useApiClient } from '@/api/api-client-context';
-import { nodePlatform, useNodeSelection } from '@/stores/node-selection.store';
-import { useOptionalSharedTelemetry } from '@/components/app-shell/telemetry-context';
+import { useOptionalSharedTelemetry } from '@/components/node-workspace';
+import { nodePlatform, useCurrentNode } from '@/stores/current-node.store';
 
 export function useVersionLibrary() {
   const client = useApiClient();
@@ -24,7 +24,7 @@ export function useVersionLibrary() {
   const [refreshError, setRefreshError] = useState<unknown>(null);
   const [runtime, setRuntime] = useState<RuntimeStatus | null>(null);
   const [runtimeError, setRuntimeError] = useState<unknown>(null);
-  const platform = nodePlatform(useNodeSelection().selected);
+  const platform = nodePlatform(useCurrentNode());
   const installed = useQuery(queries.installed(client, platform));
   const catalog = useQuery(queries.catalog(client, platform));
   const readRuntime = useCallback(async (signal: AbortSignal) => {

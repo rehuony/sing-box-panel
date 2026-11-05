@@ -54,13 +54,13 @@ export function ConfigurationSectionEditor({
     required: schema.required?.filter((key) => Object.hasOwn(remaining, key)),
   };
   return (
-    <Tabs className='configuration-section-tabs' defaultValue={groups[0]}>
-      <div className='configuration-section-toolbar'>
-        <TabsList aria-label={t(`configuration.general.labels.${name}`, { defaultValue: name })} className='configuration-section-tabs__nav' variant='line'>
+    <Tabs className='flex min-w-0 flex-col gap-2' defaultValue={groups[0]}>
+      <div className='flex h-[65px] min-w-0 shrink-0 items-center justify-end gap-3 border-b'>
+        <TabsList aria-label={t(`configuration.general.labels.${name}`, { defaultValue: name })} className='min-w-0 flex-1 justify-start *:data-[slot=tabs-trigger]:flex-none @max-[40rem]:overflow-x-auto @max-[40rem]:[scrollbar-width:none]' variant='line'>
           {groups.map((key) => <TabsTrigger key={key} value={key}>{t(name === 'dns' && key === 'rules' ? 'configuration.general.dnsRules' : `configuration.fields.${key}`, { defaultValue: key })}</TabsTrigger>)}
           {Object.keys(remaining).length > 0 ? <TabsTrigger value='settings'>{t(`configuration.general.${name === 'dns' ? 'dnsSettings' : 'routeSettings'}`)}</TabsTrigger> : null}
         </TabsList>
-        <div className='configuration-section-tabs__actions' ref={setActionContainer} />
+        <div className='ml-auto flex shrink-0 items-center' ref={setActionContainer} />
       </div>
       {groups.map((key) => <TabsContent key={key} value={key}>{form(properties[key], record[key], `/${name}/${key}`)}</TabsContent>)}
       {Object.keys(remaining).length > 0 ? <TabsContent value='settings'>{form(settingsSchema, record, `/${name}`)}</TabsContent> : null}

@@ -14,7 +14,7 @@ const browserLogic = [
 
 // Package scripts generate local schemas before Vitest loads the test modules.
 export default defineConfig({
-  server: { fs: { allow: [fileURLToPath(new URL('.', import.meta.url)), fileURLToPath(new URL('../../packages/shared/src', import.meta.url)), fileURLToPath(new URL('../../../internal/configuration', import.meta.url)), fileURLToPath(new URL('../../../internal/sing-box-panel/subscription/templates', import.meta.url))] } },
+  server: { fs: { allow: [fileURLToPath(new URL('.', import.meta.url)), fileURLToPath(new URL('../../packages/shared/src', import.meta.url)), fileURLToPath(new URL('../../node_modules', import.meta.url)), fileURLToPath(new URL('../../../internal/configuration', import.meta.url)), fileURLToPath(new URL('../../../internal/sing-box-panel/subscription/templates', import.meta.url))] } },
   plugins: [react()],
   resolve: { tsconfigPaths: true },
   test: {

@@ -1,5 +1,6 @@
 import { CirclePlus } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import { Input } from '@shared/components/ui/input';
 import { Button } from '@shared/components/ui/button';
 import { toast } from '@shared/components/ui/toast-manager';
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -136,15 +137,15 @@ export function SubscriptionTokenPanel({ list, active = true, toolbarTarget }: {
   }
 
   return (
-    <section className='subscription-panel subscription-keys' aria-label={t('subscriptions.tabs.tokens')}>
+    <section className='min-h-full min-w-0 flex h-full min-h-0 flex-col' aria-label={t('subscriptions.tabs.tokens')}>
       <ToolbarActions active={active} target={toolbarTarget}>
-        <div className='subscription-keys__toolbar workspace-toolbar-content'>
+        <div className='flex min-h-10 min-w-0 flex-1 items-center justify-end gap-2'>
           <Button aria-label={t('subscriptions.keys.create')} title={t('subscriptions.keys.create')} size='icon-sm' variant='ghost' disabled={busy} onClick={() => setCreating(true)}><CirclePlus aria-hidden='true' /></Button>
         </div>
       </ToolbarActions>
       {error ? <ErrorNotice error={error} title={t('subscriptions.token.loadFailed')} /> : null}
-      <div className='subscription-keys__scroll subscription-state-region' aria-busy={loading}>
-        <table className='workspace-table subscription-table'>
+      <div className='relative min-h-0 flex-1 overflow-auto flex flex-col *:[table]:flex-none' aria-busy={loading}>
+        <table className='workspace-table w-full min-w-256 table-fixed border-collapse [&_td]:px-4 [&_td]:text-center [&_td]:whitespace-nowrap [&_td:first-child]:max-w-60 [&_td:first-child]:truncate [&_td:first-child]:text-left [&_tbody_tr]:border-b [&_th]:px-4 [&_th]:text-center [&_th]:whitespace-nowrap [&_th:first-child]:text-left [&_th:nth-child(1)]:w-[20%] [&_th:nth-child(2)]:w-[22%] [&_th:nth-child(3)]:w-[12%] [&_th:nth-child(4)]:w-[12%] [&_th:nth-child(5)]:w-[34%] [&>thead]:bg-[var(--color-surface-raised)] [&>thead]:text-muted-foreground'>
           <thead>
             <tr>
               <th>{t('subscriptions.common.name')}</th>
@@ -162,9 +163,9 @@ export function SubscriptionTokenPanel({ list, active = true, toolbarTarget }: {
                 </td>
                 <td>{formatDate(key.expires_at)}</td>
                 <td>{usage(key)}</td>
-                <td><span className={`state-label ${key.active ? 'state-label--success' : ''}`}>{keyState(key)}</span></td>
+                <td><span className={key.active ? 'text-xs text-[var(--color-success-text)]' : 'text-xs'}>{keyState(key)}</span></td>
                 <td>
-                  <div className='subscription-keys__actions'>
+                  <div className='inline-grid w-full max-w-80 grid-cols-4 gap-2'>
                     <Button variant='outline' size='sm' disabled={busy || loading} onClick={() => void reveal(key)}>{t('subscriptions.keys.view')}</Button>
                     <Button variant='outline' size='sm' disabled={busy || loading || !!key.revoked_at} onClick={() => void run('toggle', key)}>{t(key.enabled ? 'subscriptions.common.disable' : 'subscriptions.common.enable')}</Button>
                     {(['rotate', 'delete'] as const).map(action => (
@@ -197,16 +198,16 @@ export function SubscriptionTokenPanel({ list, active = true, toolbarTarget }: {
             <DialogTitle>{t('subscriptions.keys.create')}</DialogTitle>
             <DialogDescription className='sr-only'>{t('subscriptions.keys.shared')}</DialogDescription>
           </DialogHeader>
-          <form className='subscription-key-form' onSubmit={event => {
+          <form className='grid grid-cols-[minmax(100px,1fr)_minmax(0,2fr)] items-center gap-(--form-field-gap) [&_[data-slot=dialog-footer]]:col-span-full' onSubmit={event => {
             event.preventDefault();
             void create();
           }}>
             <label htmlFor='key-name'>{t('subscriptions.common.name')}</label>
-            <input id='key-name' value={label} onChange={event => setLabel(event.target.value)} required disabled={busy} maxLength={128} />
+            <Input id='key-name' value={label} onChange={event => setLabel(event.target.value)} required disabled={busy} maxLength={128} />
             <label htmlFor='key-expiry'>{t('subscriptions.keys.expiry')}</label>
-            <input id='key-expiry' type='datetime-local' value={expiry} onChange={event => setExpiry(event.target.value)} disabled={busy} />
+            <Input id='key-expiry' type='datetime-local' value={expiry} onChange={event => setExpiry(event.target.value)} disabled={busy} />
             <label htmlFor='key-quota' title={t('subscriptions.keys.shared')}>{t('subscriptions.keys.quota')}</label>
-            <input id='key-quota' type='number' min={1} max={1_000_000_000} step={1} placeholder={t('subscriptions.keys.unlimited')} value={limit} onChange={event => setLimit(event.target.value)} disabled={busy} />
+            <Input id='key-quota' type='number' min={1} max={1_000_000_000} step={1} placeholder={t('subscriptions.keys.unlimited')} value={limit} onChange={event => setLimit(event.target.value)} disabled={busy} />
             <DialogFooter>
               <Button type='button' variant='outline' disabled={busy} onClick={() => setCreating(false)}>{t('subscriptions.keys.cancel')}</Button>
               <Button type='submit' disabled={busy}>{t('subscriptions.keys.create')}</Button>
@@ -229,7 +230,7 @@ export function SubscriptionTokenPanel({ list, active = true, toolbarTarget }: {
           {issued
             ? (
                 <>
-                  <dl className='subscription-key-details'>
+                  <dl className='grid grid-cols-[minmax(100px,1fr)_minmax(0,2fr)] items-center gap-(--form-field-gap) [&_dd]:m-0 [&_dd]:min-w-0 [&_dd]:wrap-anywhere [&_dt]:text-muted-foreground'>
                     <dt>{t('subscriptions.keys.key')}</dt>
                     <dd><code>{issued.token}</code></dd>
                     <dt>{t('subscriptions.keys.expiry')}</dt>

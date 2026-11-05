@@ -79,7 +79,7 @@ describe('channel node picker', () => {
     const { dialog, onAdd, onClose } = mount();
     const originalRect = HTMLElement.prototype.getBoundingClientRect;
     vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
-      if (this.matches('.channel-candidates > [role="checkbox"]')) {
+      if (this.matches('[data-slot="channel-candidates"] > [role="checkbox"]')) {
         const index = Array.from(this.parentElement!.children).indexOf(this);
         return DOMRect.fromRect({ x: (index % 2) * 300, y: Math.floor(index / 2) * 200, width: 288, height: 184 });
       }

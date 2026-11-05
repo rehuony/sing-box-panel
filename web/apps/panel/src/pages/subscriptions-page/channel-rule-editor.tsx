@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Zap } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import { Input } from '@shared/components/ui/input';
 import { Button } from '@shared/components/ui/button';
 import { toast } from '@shared/components/ui/toast-manager';
 import {
@@ -107,18 +108,18 @@ export function ChannelRuleEditor({ rule, format, onClose, onSave, otherRuleName
   }
   return (
     <Dialog open onOpenChange={(open) => !open && !busy && onClose()}>
-      <DialogContent className='channel-rule-dialog'>
+      <DialogContent className='flex max-h-[min(576px,calc(100dvh-48px))] w-170 max-w-[calc(100vw-48px)] flex-col overflow-hidden sm:max-w-170 [&>[data-slot=dialog-footer]]:flex-none [&>[data-slot=dialog-header]]:flex-none'>
         <DialogHeader>
           <DialogTitle>{t(remote ? 'channels.editRemote' : 'channels.editRule')}</DialogTitle>
           <DialogDescription className='sr-only'>{t('channels.matches')}</DialogDescription>
         </DialogHeader>
-        <div className='channel-dialog-scroll'>
-          <div className='subscription-settings-fields'>
+        <div className='-mx-6 flex min-h-0 flex-1 flex-col overflow-auto overscroll-contain px-6 py-0.5'>
+          <div className='grid grid-cols-[minmax(120px,1fr)_minmax(200px,2fr)] items-center gap-x-6 gap-y-(--form-field-gap) pt-2 pb-(--form-field-gap) max-[720px]:grid-cols-[minmax(100px,1fr)_minmax(0,2fr)] max-[720px]:gap-3 max-[480px]:grid-cols-1 max-[480px]:gap-2 [&_[aria-invalid=true]]:outline-1 [&_[aria-invalid=true]]:outline-[var(--color-danger)] [&_[data-slot=select-trigger]]:w-full [&_input:not([type=checkbox])]:w-full [&_input:not([type=checkbox])]:min-w-0 [&_input[type=checkbox]]:justify-self-start [&_textarea]:max-h-45 [&_textarea]:min-h-[90px] [&_textarea]:resize-y [&_textarea]:rounded-[var(--radius-control)] [&_textarea]:border-0 [&_textarea]:bg-[var(--color-surface-raised)] [&_textarea]:p-3'>
             <div className='flex items-center gap-1'>
               <label htmlFor='rule-sort-index'>{t('channels.sortIndex')}</label>
               <InfoTooltip label={t('channels.sortIndexHelp')}>{t('channels.sortIndexHint')}</InfoTooltip>
             </div>
-            <input id='rule-sort-index' type='text'
+            <Input id='rule-sort-index' type='text'
               aria-invalid={attempted && !validIndex}
               value={sortIndex}
               onChange={event => setSortIndex(event.target.value)} />
@@ -126,7 +127,7 @@ export function ChannelRuleEditor({ rule, format, onClose, onSave, otherRuleName
               ? (
                   <>
                     <label htmlFor='rule-name'>{t('channels.ruleName')}</label>
-                    <input
+                    <Input
                       id='rule-name'
                       aria-invalid={duplicateName}
                       aria-describedby={duplicateName ? 'rule-name-error' : undefined}
@@ -135,8 +136,8 @@ export function ChannelRuleEditor({ rule, format, onClose, onSave, otherRuleName
                     />
                     {duplicateName && <p id='rule-name-error' role='alert' className='col-span-full text-sm text-destructive'>{t('channels.duplicateRuleName')}</p>}
                     <label htmlFor='rule-url'>{t('channels.url')}</label>
-                    <div className='channel-rule-url'>
-                      <input
+                    <div className='relative min-w-0 rounded-[var(--radius-control)] bg-[var(--color-surface-raised)] [&>input]:w-full [&>input]:min-w-0 [&>input]:pe-11 [&>[data-slot=button]]:absolute [&>[data-slot=button]]:end-1 [&>[data-slot=button]]:top-1/2 [&>[data-slot=button]]:-translate-y-1/2 [&>[data-slot=button]]:border-transparent [&>[data-slot=button]]:bg-transparent [&>[data-slot=button]]:text-muted-foreground [&>[data-slot=button]:hover]:text-primary [&>[data-slot=button][aria-pressed=true]]:text-primary [&>[data-slot=button][aria-pressed=true]>svg]:fill-current'>
+                      <Input
                         id='rule-url'
                         autoComplete='off'
                         title={directRuleURL(remote.url)}
@@ -234,7 +235,7 @@ export function ChannelRuleEditor({ rule, format, onClose, onSave, otherRuleName
                       )}
                     />
                     <label htmlFor='rule-value'>{t('channels.matchValue')}</label>
-                    <input
+                    <Input
                       id='rule-value'
                       value={draft.value ?? ''}
                       onChange={(event) => setDraft({ ...draft, value: event.target.value })}

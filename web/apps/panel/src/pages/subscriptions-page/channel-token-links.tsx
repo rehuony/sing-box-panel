@@ -82,7 +82,7 @@ export function ChannelLinkDialog({ channelID, onClose }: {
   }
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className='subscription-source-dialog'>
+      <DialogContent className='w-160 max-w-[calc(100vw-32px)] sm:max-w-160'>
         <DialogHeader>
           <DialogTitle>{t('channels.copyURL')}</DialogTitle>
           <DialogDescription className='sr-only'>{t('channels.subscriptionKey')}</DialogDescription>
@@ -92,7 +92,7 @@ export function ChannelLinkDialog({ channelID, onClose }: {
           ? <SubscriptionContentState loading />
           : available.length > 0
             ? (
-                <div className='subscription-settings-fields'>
+                <div className='grid grid-cols-[minmax(120px,1fr)_minmax(200px,2fr)] items-center gap-x-6 gap-y-(--form-field-gap) pt-2 pb-(--form-field-gap) max-[720px]:grid-cols-[minmax(100px,1fr)_minmax(0,2fr)] max-[720px]:gap-3 max-[480px]:grid-cols-1 max-[480px]:gap-2 [&_[aria-invalid=true]]:outline-1 [&_[aria-invalid=true]]:outline-[var(--color-danger)] [&_[data-slot=select-trigger]]:w-full [&_input:not([type=checkbox])]:w-full [&_input:not([type=checkbox])]:min-w-0 [&_input[type=checkbox]]:justify-self-start [&_textarea]:max-h-45 [&_textarea]:min-h-[90px] [&_textarea]:resize-y [&_textarea]:rounded-[var(--radius-control)] [&_textarea]:border-0 [&_textarea]:bg-[var(--color-surface-raised)] [&_textarea]:p-3'>
                   <label htmlFor='channel-link-key'>{t('channels.subscriptionKey')}</label>
                   <SelectField id='channel-link-key' value={selectedID} onValueChange={setSelected} disabled={busy}
                     items={available.map((token) => ({ value: token.id, label: token.label }))} />

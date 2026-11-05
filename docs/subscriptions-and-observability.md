@@ -831,7 +831,8 @@ lifetime counters. The raw sample's nullable deltas and coverage metadata remain
 available for historical charts, independently of daily accounting.
 
 Each node has its own public host, quota and period, read and saved with
-`GET` and `PUT /api/v1/nodes/{nodeId}/settings`:
+`GET` and `PUT /api/v1/nodes/{nodeId}/settings`. The Web interface edits them
+on the node's settings tab, saved together with the node's name:
 
 | Field | Meaning | Default |
 | --- | --- | --- |

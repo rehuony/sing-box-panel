@@ -1,21 +1,5 @@
 import type { FilesystemPage, FilesystemQuery, FilesystemResolveInput, FilesystemSelection } from './contracts/filesystem';
 import type {
-  CatalogRefresh,
-  ConfigurationFile,
-  ConfigurationFileWrite,
-  Node as FleetNode,
-  LoginInputWritable as LoginInput,
-  PanelBackup,
-  PanelRestoreRequest,
-  PanelRestoreResult,
-  PanelSettingsSaveResult,
-  PanelSettingsView,
-  PanelSettingsWriteWritable as PanelSettingsWrite,
-  Session,
-  SubscriptionSourceRefreshResult,
-  SystemStatus,
-} from './generated';
-import type {
   CoreLogChunk,
   CoreLogFile,
   DashboardStreamSnapshot,
@@ -36,6 +20,23 @@ import type {
   TrafficPeriodPage,
   TrafficStatus,
 } from './contracts/observability';
+import type {
+  CatalogRefresh,
+  ConfigurationFile,
+  ConfigurationFileWrite,
+  Node as FleetNode,
+  LoginInputWritable as LoginInput,
+  NodeEnrollment,
+  PanelBackup,
+  PanelRestoreRequest,
+  PanelRestoreResult,
+  PanelSettingsSaveResult,
+  PanelSettingsView,
+  PanelSettingsWriteWritable as PanelSettingsWrite,
+  Session,
+  SubscriptionSourceRefreshResult,
+  SystemStatus,
+} from './generated';
 import type {
   CatalogAssetFilter,
   CatalogAssetList,
@@ -92,6 +93,7 @@ export type {
   Node as FleetNode,
   DynamicObject as JsonObject,
   LoginInputWritable as LoginInput,
+  NodeEnrollment,
   PanelBackup,
   PanelPreferences,
   PanelRestoreRequest,
@@ -133,14 +135,18 @@ export interface ApiClient {
   getRuntimeStatus: (signal?: AbortSignal) => Promise<RuntimeStatus>;
   getTrafficStatus: (signal?: AbortSignal) => Promise<TrafficStatus>;
   clearCoreLog: (file: string, signal?: AbortSignal) => Promise<void>;
-  getLog: (entryID: string, signal?: AbortSignal) => Promise<LogEntry>;
+  /** Removes the node and its key and ends its session. */
+  deleteNode: (nodeID: string, signal?: AbortSignal) => Promise<void>;
 
+  getLog: (entryID: string, signal?: AbortSignal) => Promise<LogEntry>;
   login: (input: LoginInput, signal?: AbortSignal) => Promise<Session>;
   getPanelSettings: (signal?: AbortSignal) => Promise<PanelSettingsView>;
   deleteCoreLogFile: (file: string, signal?: AbortSignal) => Promise<void>;
   listLogs: (filter?: LogFilter, signal?: AbortSignal) => Promise<LogPage>;
   listFleetNodes: (signal?: AbortSignal) => Promise<{ items: FleetNode[] }>;
   getConfigurationFile: (signal?: AbortSignal) => Promise<ConfigurationFile>;
+  /** Registers a node and returns its one-time enrollment code. */
+  createNode: (name: string, signal?: AbortSignal) => Promise<NodeEnrollment>;
   installCore: (assetID: number, signal?: AbortSignal) => Promise<CoreArtifact>;
   listCoreLogFiles: (signal?: AbortSignal) => Promise<{ items: CoreLogFile[] }>;
   removeCoreArtifact: (artifactID: string, signal?: AbortSignal) => Promise<void>;
@@ -151,8 +157,11 @@ export interface ApiClient {
   getCoreArtifact: (artifactID: string, signal?: AbortSignal) => Promise<CoreArtifact>;
   getTrafficPeriod: (periodID: string, signal?: AbortSignal) => Promise<TrafficPeriod>;
   getSubscriptionNodeCatalog: (signal?: AbortSignal) => Promise<SubscriptionNodeCatalog>;
-
+  renameNode: (nodeID: string, name: string, signal?: AbortSignal) => Promise<FleetNode>;
   saveNodeSettings: (input: NodeSettings, signal?: AbortSignal) => Promise<NodeSettings>;
+
+  /** Issues a new one-time enrollment code; the node's current key stays valid until it is redeemed. */
+  createNodeEnrollment: (nodeID: string, signal?: AbortSignal) => Promise<NodeEnrollment>;
   listPanelLogs: (filter?: PanelLogFilter, signal?: AbortSignal) => Promise<PanelLogPage>;
   getSubscriptionUser: (userID: string, signal?: AbortSignal) => Promise<SubscriptionUser>;
   clearLogs: (filter?: LogClearFilter, signal?: AbortSignal) => Promise<{ deleted: number }>;

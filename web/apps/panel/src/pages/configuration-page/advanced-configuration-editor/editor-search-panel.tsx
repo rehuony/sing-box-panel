@@ -39,18 +39,18 @@ export function EditorSearchPanel({ host }: { host: SearchPanelHost }) {
   }
 
   return (
-    <section className='editor-search' aria-label={t('configuration.advanced.search')} onKeyDown={event => {
+    <section className='grid grid-cols-[var(--control-height-xs)_minmax(0,1fr)] gap-1 rounded-[var(--radius-control)] border bg-card p-1 font-sans text-xs text-foreground' data-slot='editor-search' aria-label={t('configuration.advanced.search')} onKeyDown={event => {
       if (event.key === 'Escape') {
         event.preventDefault();
         event.stopPropagation();
         closeSearchPanel(host.view);
       }
     }}>
-      <Button className='editor-search__expand' size='icon-xs' variant='ghost' type='button' aria-label={t('configuration.advanced.toggleReplace')} aria-expanded={showReplace} onClick={() => setShowReplace(!showReplace)}>
+      <Button className='row-start-1 mt-0.5 self-start' size='icon-xs' variant='ghost' type='button' aria-label={t('configuration.advanced.toggleReplace')} aria-expanded={showReplace} onClick={() => setShowReplace(!showReplace)}>
         {showReplace ? <ChevronDown /> : <ChevronRight />}
       </Button>
-      <div className='editor-search__row'>
-        <div className='editor-search__field'>
+      <div className='col-start-2 grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-1 pointer-coarse:grid-cols-1 @max-[420px]:grid-cols-1'>
+        <div className='flex min-w-0 items-center rounded-[var(--radius-control)] border bg-[var(--color-surface-raised)] px-0.5 focus-within:border-[var(--input-focus)] *:aria-pressed:bg-accent *:aria-pressed:text-primary [&>input]:h-[calc(var(--control-height-sm)-2px)] [&>input]:min-h-0 [&>input]:w-0 [&>input]:flex-1 [&>input]:rounded-none [&>input]:border-0 [&>input]:bg-transparent [&>input]:p-1 [&>input]:text-sm [&>input]:shadow-none [&>input]:outline-none dark:[&>input]:bg-transparent'>
           <Input ref={inputRef} main-field='true' aria-label={t('configuration.advanced.find')} placeholder={t('configuration.advanced.find')} aria-invalid={invalid} autoComplete='off' spellCheck={false} value={query.search} onChange={event => update({ search: event.target.value })} onKeyDown={event => {
             if (event.key === 'Enter') {
               event.preventDefault();
@@ -65,8 +65,8 @@ export function EditorSearchPanel({ host }: { host: SearchPanelHost }) {
             <Button key={key} size='icon-xs' variant='ghost' type='button' aria-label={t(`configuration.advanced.${label}`)} title={t(`configuration.advanced.${label}`)} aria-pressed={query[key]} onClick={() => update({ [key]: !query[key] })}><Icon /></Button>
           ))}
         </div>
-        <div className='editor-search__actions'>
-          <span className='editor-search__count' role='status'>
+        <div className='flex items-center justify-start gap-0.5 pointer-coarse:justify-end @max-[420px]:flex-wrap @max-[420px]:justify-end'>
+          <span className='flex-1 px-1 whitespace-nowrap text-muted-foreground @max-[420px]:whitespace-normal' role='status'>
             {invalid ? t('configuration.advanced.invalidRegex') : !query.search ? '' : matches.length === 0 ? t('configuration.advanced.noResults') : matches.length > 10_000 ? '10000+' : current ? `${current} / ${matches.length}` : t('configuration.advanced.matches', { count: matches.length })}
           </span>
           <Button size='icon-xs' variant='ghost' type='button' aria-label={t('configuration.advanced.previous')} title={t('configuration.advanced.previous')} disabled={!actionable} onClick={() => findPrevious(host.view)}><ArrowUp /></Button>
@@ -76,8 +76,8 @@ export function EditorSearchPanel({ host }: { host: SearchPanelHost }) {
         </div>
       </div>
       {showReplace && (
-        <div className='editor-search__row'>
-          <div className='editor-search__field'>
+        <div className='col-start-2 grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-1 pointer-coarse:grid-cols-1 @max-[420px]:grid-cols-1'>
+          <div className='flex min-w-0 items-center rounded-[var(--radius-control)] border bg-[var(--color-surface-raised)] px-0.5 focus-within:border-[var(--input-focus)] *:aria-pressed:bg-accent *:aria-pressed:text-primary [&>input]:h-[calc(var(--control-height-sm)-2px)] [&>input]:min-h-0 [&>input]:w-0 [&>input]:flex-1 [&>input]:rounded-none [&>input]:border-0 [&>input]:bg-transparent [&>input]:p-1 [&>input]:text-sm [&>input]:shadow-none [&>input]:outline-none dark:[&>input]:bg-transparent'>
             <Input aria-label={t('configuration.advanced.replace')} placeholder={t('configuration.advanced.replace')} autoComplete='off' spellCheck={false} disabled={state.readOnly} value={query.replace} onChange={event => update({ replace: event.target.value })} onKeyDown={event => {
               if (event.key === 'Enter') {
                 event.preventDefault();
@@ -85,7 +85,7 @@ export function EditorSearchPanel({ host }: { host: SearchPanelHost }) {
               }
             }} />
           </div>
-          <div className='editor-search__actions'>
+          <div className='flex items-center justify-start gap-0.5 pointer-coarse:justify-end @max-[420px]:flex-wrap @max-[420px]:justify-end'>
             <Button size='icon-xs' variant='ghost' type='button' aria-label={t('configuration.advanced.replace')} title={t('configuration.advanced.replace')} disabled={!actionable || state.readOnly} onClick={() => replaceNext(host.view)}><Replace /></Button>
             <Button size='icon-xs' variant='ghost' type='button' aria-label={t('configuration.advanced.replaceAll')} title={t('configuration.advanced.replaceAll')} disabled={!actionable || state.readOnly} onClick={() => replaceAll(host.view)}><ReplaceAll /></Button>
           </div>

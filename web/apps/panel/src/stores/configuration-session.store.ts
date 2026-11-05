@@ -49,6 +49,7 @@ export function createConfigurationSessionStore() {
 export type ConfigurationSessionStore = ReturnType<typeof createConfigurationSessionStore>;
 
 export const ConfigurationSessionContext = createContext<ConfigurationSessionStore | null>(null);
+export const ConfigurationSessionsContext = createContext<Map<string, ConfigurationSessionStore> | null>(null);
 
 export function useConfigurationSessionStore<T>(selector: (state: ConfigurationSessionState) => T): T {
   const store = use(ConfigurationSessionContext);
