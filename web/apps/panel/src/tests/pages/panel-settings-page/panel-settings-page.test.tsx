@@ -3,20 +3,25 @@ import { Toaster } from '@shared/components/ui/toast';
 import { Link, Route, Routes } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { TooltipProvider } from '@shared/components/ui/tooltip';
+import { ThemeCycleButton } from '@shared/components/theme-cycle-button';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 
-import { ThemeProvider } from '@/theme';
-import { ApiRequestError } from '@/api/api-client';
+import { ThemeProvider, useTheme } from '@/theme';
 import '@/i18n';
+import { ApiRequestError } from '@/api/api-client';
 import { ApiClientProvider } from '@/api/api-client-context';
 import { TestRouter as MemoryRouter } from '@/tests/test-router';
 import { demoBackupSettings } from '@/api/demo/demo-panel-backup';
 import { createMockApiClient } from '@/tests/api/mock-api-client';
 import { PanelSettingsProvider } from '@/stores/panel-settings-provider';
-import { ThemeCycleButton } from '@/components/app-shell/theme-cycle-button';
 import { PanelSettingsPage } from '@/pages/panel-settings-page/panel-settings-page';
 
-function setup(client = createMockApiClient(), initialEntry = '/panel') {
+function PanelThemeButton() {
+  const { cycleTheme, preference } = useTheme();
+  return <ThemeCycleButton onCycle={cycleTheme} preference={preference} />;
+}
+
+function setup(client = createMockApiClient(), initialEntry = '/settings') {
   render(
     <MemoryRouter initialEntries={[initialEntry]}>
       <ApiClientProvider client={client}>
@@ -24,11 +29,11 @@ function setup(client = createMockApiClient(), initialEntry = '/panel') {
           <TooltipProvider>
             <Toaster>
               <PanelSettingsProvider>
-                <ThemeCycleButton />
+                <PanelThemeButton />
                 <Link to='/'>Leave settings</Link>
-                <Link to='/panel'>Open settings</Link>
+                <Link to='/settings'>Open settings</Link>
                 <Routes>
-                  <Route path='/panel' element={<PanelSettingsPage />} />
+                  <Route path='/settings' element={<PanelSettingsPage />} />
                   <Route path='/' element={<div>Dashboard</div>} />
                 </Routes>
               </PanelSettingsProvider>
@@ -47,7 +52,7 @@ describe('panel settings', () => {
   it('loads and saves server defaults independently of the persisted sidebar choice', async () => {
     window.localStorage.setItem('sing-box-panel.theme', 'dark');
     const user = userEvent.setup();
-    const client = setup(createMockApiClient(), '/panel#panel-interface');
+    const client = setup(createMockApiClient(), '/settings#panel-interface');
     const theme = await screen.findByRole('combobox', { name: 'Theme' });
     expect(theme).toHaveTextContent('System');
     expect(document.documentElement).toHaveAttribute('data-theme', 'dark');

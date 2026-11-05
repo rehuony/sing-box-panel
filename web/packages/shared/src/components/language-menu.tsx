@@ -67,6 +67,7 @@ function LanguageGlyph({ active }: { active: boolean }) {
   );
 }
 
+/** Chooses the interface language; the choice is remembered in this browser. */
 export function LanguageMenu() {
   const { i18n, t } = useTranslation();
   const [open, setOpen] = useState(false);

@@ -2,13 +2,12 @@ import { Copy } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Label } from '@shared/components/ui/label';
 import { Button } from '@shared/components/ui/button';
+import { formatDateTime } from '@shared/lib/format-time';
 import { Textarea } from '@shared/components/ui/textarea';
 import { toast } from '@shared/components/ui/toast-manager';
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@shared/components/ui/dialog';
 
 import type { NodeEnrollment } from '@/api/api-client';
-
-import { formatDateTime } from '@/utils/format-relative-time';
 
 function CopyValue({ id, label, value }: { id: string; label: string; value: string }) {
   const { t } = useTranslation();

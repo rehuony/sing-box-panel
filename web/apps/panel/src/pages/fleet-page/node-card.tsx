@@ -1,12 +1,12 @@
 import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
+import { formatDateTime, formatRelativeTime } from '@shared/lib/format-time';
 
 import type { FleetNode, NodeTrafficUsage } from '@/api/api-client';
 
 import { nodePath } from '@/utils/node-path';
 import { formatBytes } from '@/utils/telemetry-format';
 import { NodeStateBadge } from '@/components/node-state-badge';
-import { formatDateTime, formatRelativeTime } from '@/utils/format-relative-time';
 
 function UsageMeter({ usage }: { usage: NodeTrafficUsage | undefined }) {
   const { i18n, t } = useTranslation();

@@ -4,7 +4,7 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "generate": "openapi-ts -i ../../../api/openapi.yaml -o src/api/generated -p @hey-api/typescript --no-log-file && node --experimental-strip-types scripts/configuration-schema.ts",
+    "generate": "openapi-ts -i ../../../api/panel-openapi.yaml -o src/api/generated -p @hey-api/typescript --no-log-file && node --experimental-strip-types scripts/configuration-schema.ts",
     "schema:check": "node --experimental-strip-types scripts/configuration-schema.ts --check",
     "dev": "pnpm run generate && vite",
     "demo": "pnpm run generate && vite --mode demo",

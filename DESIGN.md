@@ -2,7 +2,7 @@
 
 The design system of the sing-box-panel web interface: roles, scales, formulas, patterns and rules. It extends the global design guide and repeats nothing from it. Every value is the one the tokens in code use; a change to one changes the other in the same work.
 
-The interface serves two scopes. The panel scope covers the fleet: the node overview, subscriptions, the panel log and panel settings. The node scope covers one node: its overview, core versions, configuration, logs and settings.
+The panel interface serves two scopes. The panel scope covers the fleet: the node overview, subscriptions, the panel log and panel settings. The node scope covers one node: its overview, core versions, configuration, logs and settings. The node console is a separate interface that one node serves on its own host for its enrollment with a panel; it uses the same tokens, type and components.
 
 ## 1. Character
 
@@ -200,6 +200,8 @@ R is the saved radius, an integer from 0 to 32, default 12.
 - A node that is offline or not enrolled keeps what it last reported in its object row, marked stale with when it was last seen, and every tab that commands the node shows one region state in place of its view; its settings tab stays available, and a node not yet enrolled offers its enrollment code there.
 - A panel-scope view never shows one node's runtime state as global state.
 - Views have no title band: the rail and the object row name the place.
+- The node console is one centered column at most 40rem wide, without a rail. Its first row holds the wordmark and the node's hostname, with theme, language and sign-out as equal embedded actions at its end.
+- Signed in, a console whose node is not enrolled leads with the enrollment code form and shows nothing empty around it; an enrolled node leads with its connection state, then its panel and its own details, and ends with a destructive section for re-enrollment and unenrollment.
 
 ## 8. Rules
 

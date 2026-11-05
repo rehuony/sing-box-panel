@@ -34,7 +34,7 @@ operation belongs to the `systemd` service commands.
 The `core`, `channel`, `source`, `token`, `log`, and `metrics` command groups
 have been removed, including their shell completions; no hidden aliases remain.
 Use version management, subscriptions, logs, and the dashboard in the Web UI.
-Automation can use the unchanged authenticated [HTTP API](../api/openapi.yaml).
+Automation can use the unchanged authenticated [HTTP API](../api/panel-openapi.yaml).
 Update scripts and regenerate installed shell completions after upgrading.
 `version` reports the panel executable's version and `update` updates that
 executable; sing-box version management belongs to the Web UI.

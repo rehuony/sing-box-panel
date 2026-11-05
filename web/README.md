@@ -89,7 +89,7 @@ for filesystem scope and path semantics.
 ## Generated inputs
 
 Transport types under `src/api/generated/` are build artifacts generated from
-`../../../api/openapi.yaml`. Development, typecheck, test, and build commands refresh
+`../../../api/panel-openapi.yaml`. Development, typecheck, test, and build commands refresh
 them automatically; they are not committed or edited by hand. The custom HTTP
 client remains hand-written. `pnpm run generate` prepares both transport types
 and configuration Schema assets; ordinary development and validation commands

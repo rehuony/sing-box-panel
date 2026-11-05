@@ -10,17 +10,15 @@ import {
   TooltipTrigger,
 } from '@shared/components/ui/tooltip';
 
-import { useTheme } from '@/theme';
-
 const themeIcons = {
   dark: Moon,
   light: Sun,
   system: MonitorCog,
 } satisfies Record<ThemePreference, typeof Sun>;
 
-export function ThemeCycleButton() {
+/** Cycles the theme preference through light, system and dark; the application owns the preference. */
+export function ThemeCycleButton({ onCycle, preference }: { onCycle: () => void; preference: ThemePreference }) {
   const { t } = useTranslation();
-  const { cycleTheme, preference } = useTheme();
   const nextPreference = nextThemePreference(preference);
   const Icon = themeIcons[preference];
   const label = t('theme.cycle', {
@@ -35,7 +33,7 @@ export function ThemeCycleButton() {
           <Button
             aria-label={label}
             data-theme-preference={preference}
-            onClick={cycleTheme}
+            onClick={onCycle}
             size='icon-sm'
             variant='ghost'
           />

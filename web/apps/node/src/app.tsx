@@ -1,13 +1,15 @@
+import { Power, Unplug } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@shared/components/ui/button';
 import { Spinner } from '@shared/components/ui/spinner';
 import { useCallback, useEffect, useState } from 'react';
-import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyTitle } from '@shared/components/ui/empty';
+import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@shared/components/ui/empty';
 
 import type { Session } from '@/api/generated';
 
 import { LoginPage } from '@/pages/login-page';
 import { StatusPage } from '@/pages/status-page';
+import { ConsoleFrame } from '@/components/console-frame';
 import { ConsoleRequestError, getSession } from '@/api/console-client';
 
 type ConsoleState
@@ -40,10 +42,12 @@ export function App() {
   switch (state.kind) {
     case 'checking':
       return (
-        <main className='flex min-h-svh items-center justify-center' aria-busy='true'>
-          <Spinner />
-          <span className='sr-only'>{t('console.checking')}</span>
-        </main>
+        <ConsoleFrame>
+          <div aria-busy='true' className='flex flex-1 items-center justify-center'>
+            <Spinner />
+            <span className='sr-only'>{t('console.checking')}</span>
+          </div>
+        </ConsoleFrame>
       );
     case 'signed-out':
       return <LoginPage onSignedIn={session => setState({ kind: 'signed-in', session })} />;
@@ -51,9 +55,12 @@ export function App() {
       return <StatusPage session={state.session} onSignedOut={() => void check()} />;
     default:
       return (
-        <main className='flex min-h-svh items-center justify-center p-4'>
-          <Empty>
+        <ConsoleFrame>
+          <Empty className='mt-[min(12vh,6rem)] flex-none rounded-[var(--radius-card)] border border-solid bg-card'>
             <EmptyHeader>
+              <EmptyMedia className='mb-3 size-12 rounded-[var(--radius-card)] border bg-[var(--color-surface-raised)] text-muted-foreground [&_svg]:size-6'>
+                {state.kind === 'disabled' ? <Power aria-hidden='true' strokeWidth={1.5} /> : <Unplug aria-hidden='true' strokeWidth={1.5} />}
+              </EmptyMedia>
               <EmptyTitle>
                 <h1>{t(`console.${state.kind}.title`)}</h1>
               </EmptyTitle>
@@ -63,7 +70,7 @@ export function App() {
               <Button variant='outline' onClick={() => void check()}>{t('common.retry')}</Button>
             </EmptyContent>
           </Empty>
-        </main>
+        </ConsoleFrame>
       );
   }
 }

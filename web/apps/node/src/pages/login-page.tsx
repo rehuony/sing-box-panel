@@ -6,10 +6,10 @@ import { Input } from '@shared/components/ui/input';
 import { Button } from '@shared/components/ui/button';
 import { Spinner } from '@shared/components/ui/spinner';
 import { Field, FieldLabel } from '@shared/components/ui/field';
-import { Card, CardContent, CardHeader, CardTitle } from '@shared/components/ui/card';
 
 import type { Session } from '@/api/generated';
 
+import { ConsoleFrame } from '@/components/console-frame';
 import { ConsoleRequestError, login } from '@/api/console-client';
 
 interface LoginPageProps {
@@ -47,35 +47,32 @@ export function LoginPage({ onSignedIn }: LoginPageProps) {
   }
 
   return (
-    <main className='flex min-h-svh items-center justify-center p-4'>
-      <Card className='w-full max-w-sm'>
-        <CardHeader>
-          <CardTitle>
-            <h1 className='text-xl font-semibold'>{t('login.title')}</h1>
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <form className='flex flex-col gap-4' noValidate onSubmit={event => void handleSubmit(event)}>
-            <Field>
-              <FieldLabel htmlFor='console-password'>{t('login.password')}</FieldLabel>
-              <Input
-                id='console-password'
-                type='password'
-                autoComplete='current-password'
-                value={password}
-                aria-invalid={error ? true : undefined}
-                aria-describedby='console-login-error'
-                onChange={event => setPassword(event.target.value)}
-              />
-            </Field>
-            <p id='console-login-error' className='min-h-5 text-sm text-destructive' role='alert'>{error}</p>
-            <Button type='submit' aria-busy={submitting || undefined}>
-              {submitting && <Spinner />}
-              {t('login.submit')}
-            </Button>
-          </form>
-        </CardContent>
-      </Card>
-    </main>
+    <ConsoleFrame>
+      <section aria-labelledby='console-login-title' className='mx-auto mt-[min(12vh,6rem)] flex w-full max-w-sm flex-col gap-4 rounded-[var(--radius-card)] border bg-card p-5'>
+        <h1 className='text-xl font-semibold' id='console-login-title'>{t('login.title')}</h1>
+        <form className='flex flex-col gap-4' noValidate onSubmit={event => void handleSubmit(event)}>
+          <Field>
+            <FieldLabel htmlFor='console-password'>{t('login.password')}</FieldLabel>
+            <Input
+              id='console-password'
+              type='password'
+              autoComplete='current-password'
+              value={password}
+              aria-invalid={error ? true : undefined}
+              aria-describedby='console-login-error'
+              onChange={(event) => {
+                setPassword(event.target.value);
+                if (error) setError('');
+              }}
+            />
+          </Field>
+          <p id='console-login-error' className='min-h-5 text-sm text-[var(--color-danger-text)]' role='alert'>{error}</p>
+          <Button type='submit'>
+            {submitting && <Spinner data-icon='inline-start' />}
+            {t('login.submit')}
+          </Button>
+        </form>
+      </section>
+    </ConsoleFrame>
   );
 }

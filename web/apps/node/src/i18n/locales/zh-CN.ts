@@ -11,17 +11,80 @@ export const zhCN: NodeTranslation = {
     retry: '重试',
     unavailable: '—',
   },
+  connection: {
+    lastError: '最近错误',
+    panel: '面板 {{address}}',
+    retryAt: '下次尝试',
+    since: '{{time}}起',
+    state: {
+      connected: '已连接',
+      connecting: '连接中',
+      disconnected: '已断开',
+      unenrolled: '未接入',
+    },
+    title: '连接',
+  },
   console: {
     checking: '正在检查控制台会话…',
     disabled: {
       description: '此节点的控制台已关闭。使用 sing-box-node console enable 开启。',
       title: '控制台已关闭',
     },
+    loading: '正在读取节点状态…',
+    signOut: '退出登录',
+    stale: '节点没有响应，显示的是上一次的状态。',
     title: '节点控制台',
     unavailable: {
       description: '节点没有响应。请确认 sing-box-node 正在运行。',
       title: '控制台不可用',
     },
+  },
+  danger: {
+    reenroll: '重新接入',
+    reenrollConfirm: '此节点已接入 {{address}}。用新代码接入会替换当前的接入并结束现有会话；运行时保留已应用的配置。',
+    reenrollDescription: '用面板给出的新代码替换此节点当前的接入。',
+    reenrollTitle: '重新接入此节点',
+    title: '接入与解除',
+    unenroll: '解除接入',
+    unenrollConfirm: '节点会结束与 {{address}} 的会话并删除接入信息。面板会保留该节点并显示为离线，直到在面板中移除；运行时保留已应用的配置。',
+    unenrollDescription: '结束与面板的会话，并删除此节点的接入信息。',
+    unenrollFailed: '节点无法解除接入，请重试。',
+    unenrollTitle: '解除与 {{address}} 的接入？',
+  },
+  details: {
+    hostname: '主机名',
+    node: '此节点',
+    nodeId: '节点 ID',
+    panelAddress: '面板地址',
+    platform: '平台',
+    protocol: '协议',
+    title: '面板与节点',
+    trust: {
+      label: '信任方式',
+      pin: '固定证书',
+      system: '系统证书颁发机构',
+    },
+    version: '版本',
+  },
+  enroll: {
+    code: '接入代码',
+    description: '先在面板中添加此节点，再粘贴面板显示的一次性代码。代码只能使用一次，一小时后过期。',
+    error: {
+      empty: '请粘贴面板给出的接入代码。',
+      failed: '节点无法接入，请重试。',
+      invalid: '这不是有效的接入代码，请从面板重新复制。',
+      rejected: '面板没有接受此代码，它可能已被使用或已过期；请在面板中重新签发。',
+      unreachable: '代码中的面板没有响应。请确认本机可以访问它，然后重试。',
+    },
+    placeholder: '粘贴面板给出的代码',
+    submit: '接入',
+    title: '接入此节点',
+  },
+  language: {
+    english: 'English',
+    label: '语言',
+    menu: '打开语言菜单',
+    simplifiedChinese: '简体中文',
   },
   login: {
     error: {
@@ -34,41 +97,12 @@ export const zhCN: NodeTranslation = {
     submit: '登录',
     title: '登录节点控制台',
   },
-  status: {
-    connection: {
-      lastError: '最近错误',
-      retryAt: '下次尝试',
-      since: '开始于',
-      stateLabel: '状态',
-      state: {
-        connected: '已连接',
-        connecting: '连接中',
-        disconnected: '已断开',
-        unenrolled: '未注册',
-      },
-      title: '连接',
-    },
-    node: {
-      platform: '平台',
-      protocol: '协议',
-      title: '节点',
-      version: '版本',
-    },
-    panel: {
-      endpoint: '面板地址',
-      nodeId: '节点 ID',
-      title: '面板',
-      trust: {
-        label: '信任方式',
-        pin: '固定证书',
-        system: '系统证书颁发机构',
-      },
-    },
-    signOut: '退出登录',
-    stale: '节点没有响应，显示的是上一次的状态。',
-    unenrolled: {
-      description: '先在面板中添加此节点，再在本机运行面板给出的命令：sing-box-node enroll --code <code>。',
-      title: '未注册',
+  theme: {
+    cycle: '当前主题：{{current}}。切换为{{next}}',
+    preference: {
+      dark: '深色',
+      light: '亮色',
+      system: '系统',
     },
   },
 };

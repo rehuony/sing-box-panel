@@ -4,6 +4,7 @@ import { CloudOff, KeyRound, SearchX } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ScrollArea } from '@shared/components/ui/scroll-area';
 import { buttonVariants } from '@shared/components/ui/button-variants';
+import { formatDateTime, formatRelativeTime } from '@shared/lib/format-time';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, NavLink, Outlet, useLocation, useParams } from 'react-router-dom';
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@shared/components/ui/empty';
@@ -23,7 +24,6 @@ import { CurrentNodeContext } from '@/stores/current-node.store';
 import { NodeEnrollmentDialog } from '@/components/node-enrollment-dialog';
 import { describeRequestError, ErrorNotice } from '@/components/error-notice';
 import { ApiClientContext } from '@/api/api-client-context/api-client-context';
-import { formatDateTime, formatRelativeTime } from '@/utils/format-relative-time';
 import { ConfigurationSessionProvider } from '@/stores/configuration-session-provider';
 
 import { NodeObjectRow } from './node-object-row';

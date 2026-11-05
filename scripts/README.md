@@ -106,7 +106,7 @@ These native checks are separate from the cross-platform `make ci` target.
 
 The release configuration fixture is `testdata/release-configuration.json`.
 The HTTP contract test uses the same fixture against the real handler,
-reopened SQLite database, and `api/openapi.yaml`. The native scenario additionally
+reopened SQLite database, and `api/panel-openapi.yaml`. The native scenario additionally
 tests actual process restart and binary replacement. When changing a public
 configuration contract, update that contract, its implementation, this fixture
 when needed, and the shared smoke scenario together. Do not add a second

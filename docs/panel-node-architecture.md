@@ -248,7 +248,7 @@ directory. The services meet only through `internal/nodeapi`.
 
 ```text
 api/
-  openapi.yaml           browser ↔ panel HTTP contract
+  panel-openapi.yaml     browser ↔ panel HTTP contract
   node-openapi.yaml      browser ↔ node console HTTP contract
   proto/                 panel ↔ node buf module (buf.yaml, buf.gen.yaml)
     sbp/node/v1/         package sbp.node.v1

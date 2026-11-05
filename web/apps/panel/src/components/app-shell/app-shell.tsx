@@ -9,8 +9,10 @@ import { Suspense, useEffect, useRef, useState } from 'react';
 
 import '@/i18n';
 import { ScrollArea } from '@shared/components/ui/scroll-area';
+import { LanguageMenu } from '@shared/components/language-menu';
 import { NavLink, Outlet, useLocation } from 'react-router-dom';
 import { useSidebar } from '@shared/components/ui/sidebar-context';
+import { ThemeCycleButton } from '@shared/components/theme-cycle-button';
 import {
   Tooltip,
   TooltipContent,
@@ -31,6 +33,7 @@ import {
 
 import type { PagePath } from '@/routes/page-loaders';
 
+import { useTheme } from '@/theme';
 import { PanelLogo } from '@/components/panel-logo';
 import { preloadPage } from '@/routes/page-loaders';
 import { ErrorNotice } from '@/components/error-notice';
@@ -38,9 +41,6 @@ import { AnimatedIcon } from '@/components/animated-icon';
 import { LoadingState } from '@/components/loading-state';
 import { useAuthSession } from '@/stores/auth-session.store';
 import { useUnsavedChangesContext } from '@/stores/unsaved-changes.store';
-
-import { LanguageMenu } from './language-menu';
-import { ThemeCycleButton } from './theme-cycle-button';
 
 const navigationItems = [
   { icon: 'nodes', labelKey: 'nav.nodes', page: 'nodes', to: '/nodes' },
@@ -112,6 +112,7 @@ function WorkspaceLoadingState() {
 export function AppShell() {
   const { t } = useTranslation();
   const { logout, session } = useAuthSession();
+  const { cycleTheme, preference } = useTheme();
   const { confirmNavigation } = useUnsavedChangesContext();
   const location = useLocation();
   const mainRef = useRef<HTMLDivElement>(null);
@@ -172,7 +173,7 @@ export function AppShell() {
           </SidebarGroup>
         </SidebarContent>
         <SidebarFooter className='flex-row items-center gap-2 p-3'>
-          <ThemeCycleButton />
+          <ThemeCycleButton onCycle={cycleTheme} preference={preference} />
           <LanguageMenu />
           <Tooltip>
             <TooltipTrigger

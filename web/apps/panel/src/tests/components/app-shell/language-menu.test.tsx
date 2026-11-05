@@ -1,10 +1,10 @@
 import userEvent from '@testing-library/user-event';
 import { setAppLanguage } from '@shared/i18n/language';
+import { LanguageMenu } from '@shared/components/language-menu';
 import { render, screen, waitFor } from '@testing-library/react';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import '@/i18n';
-import { LanguageMenu } from '@/components/app-shell/language-menu';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 describe('language menu', () => {
   beforeEach(async () => {

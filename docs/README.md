@@ -36,7 +36,7 @@ inventories live beside their Schema source rather than as separate guides.
 | --- | --- |
 | Toolchain and verification commands | [`go.mod`](../go.mod), [`web/package.json`](../web/package.json), [`Makefile`](../Makefile) |
 | CLI behavior | Cobra commands under [`internal/sing-box-panel/cli`](../internal/sing-box-panel/cli) and [`internal/sing-box-node/cli`](../internal/sing-box-node/cli) and live `--help` |
-| HTTP operations, payloads and problem details | Panel: [`api/openapi.yaml`](../api/openapi.yaml); node console: [`api/node-openapi.yaml`](../api/node-openapi.yaml) |
+| HTTP operations, payloads and problem details | Panel: [`api/panel-openapi.yaml`](../api/panel-openapi.yaml); node console: [`api/node-openapi.yaml`](../api/node-openapi.yaml) |
 | Exact core releases and official artifact pins | [`internal/singbox/catalog.json`](../internal/singbox/catalog.json) |
 | Exact-version Schema sources and shared content digests | [Schema manifest](../internal/sing-box-panel/schema/schemas/manifest.json) |
 | Reviewed 1.13 fields and upstream provenance | [Source definition](../tools/singbox-support/schema-sources/1.13.json), [generated field table](../tools/singbox-support/schema-sources/1.13-fields.csv) |

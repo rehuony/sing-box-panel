@@ -121,9 +121,10 @@ paths:
         replace the node's enrollment, if any. The node ends its current session
         and connects to the panel the code names; the response reports the
         saved enrollment with the connection state connecting. The node's
-        runtime keeps its applied configuration. Rejected or used codes return
-        422 enrollment_rejected; an unreachable panel returns 502
-        enrollment_failed and leaves the current enrollment in place.
+        runtime keeps its applied configuration. A malformed code returns 422
+        enrollment_code_invalid; a code the panel rejects or that was already
+        used returns 422 enrollment_rejected; an unreachable panel returns 502
+        enrollment_failed. Each failure leaves the current enrollment in place.
       parameters:
         - $ref: "#/components/parameters/CSRFToken"
       requestBody:

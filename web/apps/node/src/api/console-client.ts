@@ -52,3 +52,17 @@ export async function logout(csrfToken: string): Promise<void> {
 export async function getStatus(): Promise<ConsoleStatus> {
   return (await request<ConsoleStatus>('/status'))!;
 }
+
+/** Redeems an enrollment code from the panel; the node replaces any enrollment it has. */
+export async function enroll(code: string, csrfToken: string): Promise<ConsoleStatus> {
+  return (await request<ConsoleStatus>('/enrollment', {
+    body: JSON.stringify({ code }),
+    headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken },
+    method: 'POST',
+  }))!;
+}
+
+/** Removes the node's enrollment and ends its session with the panel. */
+export async function unenroll(csrfToken: string): Promise<ConsoleStatus> {
+  return (await request<ConsoleStatus>('/enrollment', { headers: { 'X-CSRF-Token': csrfToken }, method: 'DELETE' }))!;
+}

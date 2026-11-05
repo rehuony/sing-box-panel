@@ -196,7 +196,7 @@ Regenerate shell completions after upgrading; removed commands have no aliases.
 HTTP management endpoints continue to locate objects by internal asset or artifact
 ID. The multipart import endpoint no
 longer accepts a `sha256` field and the catalog endpoint no longer accepts an
-`installable` query. Update API clients to the [OpenAPI contract](../api/openapi.yaml).
+`installable` query. Update API clients to the [OpenAPI contract](../api/panel-openapi.yaml).
 
 ## Maintaining support
 

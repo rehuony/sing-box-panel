@@ -43,7 +43,7 @@ runtime identity, or release behavior.
 - Keep transport, application, domain, persistence, and presentation
   responsibilities separate.
 - Add or update focused tests with behavioral changes.
-- Keep `api/openapi.yaml`, `api/node-openapi.yaml`, CLI help, Web clients, and user documentation aligned
+- Keep `api/panel-openapi.yaml`, `api/node-openapi.yaml`, CLI help, Web clients, and user documentation aligned
   with public contract changes.
 - Run `make notices` when production dependencies change and include the
   resulting `THIRD_PARTY_NOTICES` update.

@@ -142,7 +142,8 @@ prepare_source_snapshot() {
     return 1
   fi
   if [[ ! -d "${source_root}/web" || -L "${source_root}/web" ]] ||
-    [[ ! -f "${source_root}/api/openapi.yaml" || -L "${source_root}/api/openapi.yaml" ]]; then
+    [[ ! -f "${source_root}/api/panel-openapi.yaml" || -L "${source_root}/api/panel-openapi.yaml" ]] ||
+    [[ ! -f "${source_root}/api/node-openapi.yaml" || -L "${source_root}/api/node-openapi.yaml" ]]; then
     echo "HEAD does not contain the regular Web and OpenAPI build inputs" >&2
     return 1
   fi

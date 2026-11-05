@@ -2,7 +2,7 @@
 
 This guide owns package boundaries, product requirements, and HTTP trust boundaries.
 Operator workflows live in the [documentation index](README.md); exact HTTP
-operations and schemas remain in [OpenAPI](../api/openapi.yaml).
+operations and schemas remain in [OpenAPI](../api/panel-openapi.yaml).
 
 - [Repository layout](#repository-layout), [package layout](#package-layout) and [dependency direction](#dependency-direction)
 - [Version support](#adding-a-sing-box-version) and [test ownership](#test-ownership)
@@ -26,7 +26,7 @@ services, protocol and package layout are in
 | `cmd/sing-box-panel/` | The panel binary's `main.go`, which joins the CLI, the server and the embedded Web assets |
 | `cmd/sing-box-node/` | The node binary's `main.go` |
 | `internal/` | Every package, and the only `internal` directory: the panel's packages in `internal/sing-box-panel/`, the node's in `internal/sing-box-node/` and shared packages beside them |
-| `api/` | Contracts only: the panel's management HTTP contract (`openapi.yaml`), the node console's HTTP contract (`node-openapi.yaml`) and the panel–node protobuf module (`proto/`, with its `buf.yaml` and `buf.gen.yaml`; package `sbp.node.v1`) |
+| `api/` | Contracts only: the panel's management HTTP contract (`panel-openapi.yaml`), the node console's HTTP contract (`node-openapi.yaml`) and the panel–node protobuf module (`proto/`, with its `buf.yaml` and `buf.gen.yaml`; package `sbp.node.v1`) |
 | `web/` | The pnpm workspace of the Web applications: the panel's in `apps/panel` and the node console's in `apps/node`, each with the Go package that embeds its production build, and the code both share in `packages/shared` |
 | `tools/` | Maintainer commands run through `go tool`: sing-box support generation, release signing, third-party notices and OpenAPI verification |
 | `scripts/` | Installer, isolated release build and native release and core contract tests |
@@ -308,7 +308,7 @@ below exercise the corresponding source, API and runtime boundaries.
 | LOG-01/02 | `internal/sing-box-node/corelogs`, runtime output observer, `store/panel_logs.go`, product log API, `pages/node-logs-page` and `pages/panel-logs-page` | File/rotation/custom-output tests; operation logs/cursors and authenticated file API tests; frontend pause/filter and log rendering tests |
 
 Go paths in this table are relative to `internal/sing-box-panel/` unless they
-name another tree; Web paths are relative to `web/apps/panel/src/`. API details remain in `api/openapi.yaml`; the owning guides describe
+name another tree; Web paths are relative to `web/apps/panel/src/`. API details remain in `api/panel-openapi.yaml`; the owning guides describe
 persistence, security boundaries and runtime semantics.
 
 ### Persistence and preserved guarantees
@@ -397,7 +397,7 @@ listener is loopback-only.
 
 The management API is rooted at `/api/v1`. The authoritative operation,
 schema, status-code, and problem-detail contract is
-[`api/openapi.yaml`](../api/openapi.yaml); this guide describes its trust
+[`api/panel-openapi.yaml`](../api/panel-openapi.yaml); this guide describes its trust
 boundaries without duplicating the endpoint inventory.
 
 Every response includes `X-Request-ID`, matching `request_id` in problem responses.

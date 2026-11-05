@@ -231,7 +231,7 @@ func loadOpenAPIContract(t *testing.T) *openapi3.T {
 	if !ok {
 		t.Fatal("locate operation registry test source")
 	}
-	contractPath := filepath.Join(filepath.Dir(filename), "..", "..", "..", "api", "openapi.yaml")
+	contractPath := filepath.Join(filepath.Dir(filename), "..", "..", "..", "api", "panel-openapi.yaml")
 	contract, err := openapi3.NewLoader().LoadFromFile(contractPath)
 	if err != nil {
 		t.Fatalf("load OpenAPI contract: %v", err)
