@@ -119,21 +119,21 @@ manifest from being reused for a different version.
 
 Snapshot and release builds share the implementation in
 `scripts/build.sh`. It exports committed `HEAD` into a
-temporary source tree and builds the Web application inside that complete
+temporary source tree and builds both Web applications inside that complete
 snapshot with locked dependencies. Keeping `web/` beneath the snapshot's
 `go.mod` is required because `pnpm run generate` prepares OpenAPI types and
 invokes the offline Go Schema exporter before TypeScript checking and Vite
 bundling. The committed backend
-manifest and Schema assets produce `web/src/schemas/.generated/` inside the
+manifest and Schema assets produce `web/apps/panel/src/schemas/.generated/` inside the
 snapshot; no generated frontend files are taken from the caller's working tree.
 Go module, build, and package-manager state is isolated from the caller's normal
 caches.
 
 Both Linux binaries use `CGO_ENABLED=0`, fixed CPU baselines, `-trimpath`, and
 `-buildvcs=false`. Module download and repository-only tools may run first,
-but the verified Web distribution—including `index.html`, the single public
+but each verified Web distribution—including `index.html`, the single public
 `favicon.svg`, and bundled assets—is present before the Go package containing
-the Web embed is loaded or either panel binary is compiled. Files are assembled
+its embed is loaded or any binary is compiled. Files are assembled
 and verified in a staging directory, then the whole directory is renamed into
 place so a failed build cannot leave a partial destination.
 

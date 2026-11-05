@@ -9,8 +9,9 @@ info:
     and answers only requests whose Host names a loopback host (localhost,
     127.0.0.0/8 or ::1, any port); other hosts receive 421. While disabled in
     its settings file, a running console answers 503 console_disabled. It
-    cannot edit the node's configuration or control its runtime. Responses are
-    no-store.
+    cannot edit the node's configuration or control its runtime. API responses
+    are no-store. Paths outside /api serve the console's Web application, its
+    index for any route.
   license:
     name: GPL-3.0-or-later
     identifier: GPL-3.0-or-later

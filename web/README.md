@@ -1,31 +1,46 @@
 # Sing-Box Panel web shell
 
-This directory owns the React/Vite frontend. It deliberately has no dependency
-on backend implementation packages.
+This directory owns the React/Vite frontends as one pnpm workspace. They
+deliberately have no dependency on backend implementation packages.
 
 Install the [development toolchains](../.github/CONTRIBUTING.md#development-setup) first.
 Schema preparation requires Go for offline export, including when running frontend tests.
+
+## Workspace
+
+| Package | Path | Owns |
+| --- | --- | --- |
+| `@sing-box-panel/panel` | `apps/panel` | The panel's application, embedded by `sing-box-panel` through the Go package in `apps/panel` |
+| `@sing-box-panel/node` | `apps/node` | The node console's application, embedded by `sing-box-node` through the Go package in `apps/node` |
+| `@sing-box-panel/shared` | `packages/shared` | What both applications use: the `components/ui` controls, `lib/utils`, `hooks/use-mobile`, the styles and tokens, the theme preference primitives, language detection and i18n setup, and the favicon |
+
+Each application imports its own code through `@/` and the shared package
+through `@shared/`, both mapped in its `tsconfig.json`. Shared code imports
+neither application, and neither application imports the other; ESLint
+enforces both, because each binary embeds only its own application. The
+workspace root holds the toolchain: the lockfile, the development dependencies,
+the ESLint configuration, and scripts that run each application's own.
 
 ## Development
 
 ```sh
 corepack enable pnpm
 pnpm install --frozen-lockfile --ignore-scripts --verify-store-integrity
-pnpm demo
+pnpm --filter @sing-box-panel/panel run demo
 ```
 
 Use `make check-frontend` from the repository root for a production build, types,
-lint, all tests, Schema consistency and notices checks. For a focused check,
-run `pnpm test --project logic`, `pnpm test --project react`, or
-`pnpm test --project contracts` from this directory. `pnpm test` runs all three
-projects; `pnpm run build` builds the application.
+lint, all tests, Schema consistency and notices checks. From this directory,
+`pnpm run build` builds both applications and `pnpm test` runs every package's
+tests. For a focused panel check, run `pnpm exec vitest run --project logic`,
+`--project react`, or `--project contracts` from `apps/panel`.
 
 Run `pnpm run lint:fix` to apply the configured TypeScript, React, CSS, and HTML
 formatting rules before checking the remaining code-quality diagnostics.
 Test environments, timeout bounds and coverage ownership are documented in
 [Testing](../docs/testing.md).
 
-Run `pnpm demo` to start the complete interface with an in-memory API client.
+Run `pnpm run demo` in `apps/panel` to start the complete panel interface with an in-memory API client.
 Demo mode never contacts the backend, so it is suitable for working on pages,
 responsive states, themes, and interaction styles without a running panel. Its
 state lives only in the browser process and resets when the development server
@@ -35,7 +50,21 @@ its password, including in another demo instance. These verifiers are only for
 demo data; production uses server-side Argon2id. Unsupported backup verifiers are
 rejected before changing demo state.
 
+## Node console
+
+`apps/node` is the node console's application, served by `sing-box-node run`
+on the console's loopback address. It signs in with the console password and
+shows the node, the panel it is enrolled with and the state of its session,
+refreshed every five seconds; the last status stays visible, marked stale,
+when the node stops answering. Its transport types under `src/api/generated/`
+are generated from `../../../api/node-openapi.yaml`. It follows the system's
+light or dark appearance. `pnpm run dev` there proxies `/api` to a console on
+`127.0.0.1:3001`.
+
 ## Source layout
+
+The sections below describe the panel's application; its paths are relative
+to `apps/panel/` and shared modules are named with `@shared/`.
 
 `src/api/api-client.ts` exposes the client interface and simple generated
 transport types directly. Modules in `src/api/contracts/` own additional
@@ -60,7 +89,7 @@ for filesystem scope and path semantics.
 ## Generated inputs
 
 Transport types under `src/api/generated/` are build artifacts generated from
-`../api/openapi.yaml`. Development, typecheck, test, and build commands refresh
+`../../../api/openapi.yaml`. Development, typecheck, test, and build commands refresh
 them automatically; they are not committed or edited by hand. The custom HTTP
 client remains hand-written. `pnpm run generate` prepares both transport types
 and configuration Schema assets; ordinary development and validation commands
@@ -93,15 +122,17 @@ version management.
 
 ## Build output and embedding
 
-`pnpm run build` produces a deterministic SPA bundle in `web/dist/`. The Go
-Web package embeds that directory and uses `index.html` for client-side
-routes. `dist/` is generated output and is not a source of truth, but it must
-exist before any Go package that embeds the Web application is loaded.
+`pnpm run build` produces a deterministic SPA bundle for each application in
+`apps/panel/dist/` and `apps/node/dist/`. Each application's Go package embeds
+its directory, and its binary uses `index.html` for client-side routes. `dist/`
+is generated output and is not a source of truth, but it must exist before the
+Go package that embeds it is loaded.
 Content-hashed JavaScript and CSS assets are served with a one-year immutable
 cache lifetime. HTML and SPA fallback responses remain `no-store`, so new builds
 advertise their new asset hashes immediately.
-`public/favicon.svg` is the single static icon source used by HTML, the React
-logo, release bundles, and the repository README.
+`packages/shared/public/favicon.svg` is the single static icon source used by
+both applications' HTML, the React logo, release bundles, and the repository
+README.
 
 ## HTTP client and authentication
 

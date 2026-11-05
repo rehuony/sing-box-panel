@@ -27,14 +27,14 @@ services, protocol and package layout are in
 | `cmd/sing-box-node/` | The node binary's `main.go` |
 | `internal/` | Every package, and the only `internal` directory: the panel's packages in `internal/sing-box-panel/`, the node's in `internal/sing-box-node/` and shared packages beside them |
 | `api/` | Contracts only: the panel's management HTTP contract (`openapi.yaml`), the node console's HTTP contract (`node-openapi.yaml`) and the panel–node protobuf module (`proto/`, with its `buf.yaml` and `buf.gen.yaml`; package `sbp.node.v1`) |
-| `web/` | The panel's React application and the `webui` package that embeds its production build |
+| `web/` | The pnpm workspace of the Web applications: the panel's in `apps/panel` and the node console's in `apps/node`, each with the Go package that embeds its production build, and the code both share in `packages/shared` |
 | `tools/` | Maintainer commands run through `go tool`: sing-box support generation, release signing, third-party notices and OpenAPI verification |
 | `scripts/` | Installer, isolated release build and native release and core contract tests |
 | `docs/` | One guide per topic, indexed in [the documentation index](README.md) |
 | `.github/` | Workflows, community and security policies, templates, code ownership and the release trust root |
 
-`web/` is a Go package at the root because Go embedding cannot read files
-from a parent directory. Other embedded assets live in the package that owns
+Each Web application's Go package sits in its own directory under `web/apps/`
+because Go embedding cannot read files from a parent directory. Other embedded assets live in the package that owns
 them: subscription templates in `internal/sing-box-panel/subscription`,
 the configuration field order in `internal/configuration`, each service's systemd
 templates in `internal/sing-box-panel/systemd` and `internal/sing-box-node/systemd`, and Schema assets in
@@ -177,7 +177,7 @@ panel:server       -> buildinfo, console, procctl, panel:app, panel:corecache,
                       panel:settings, panel:store, panel:subscription,
                       panel:telemetry
 
-cmd/sing-box-panel        -> buildinfo, panel:cli, panel:server, selfupdate, webui
+cmd/sing-box-panel        -> buildinfo, panel:cli, panel:server, selfupdate, web/apps/panel
 cmd/sing-box-node         -> buildinfo, node:cli
 tools/singbox-support     -> atomicfile, coreartifact, panel:schema,
                              panel:subscription, singbox
@@ -221,7 +221,7 @@ package that owns the capability.
   `internal/singbox` and the panel `schema` and `subscription` packages. The
   real-binary contract is `internal/sing-box-panel/schema/core_contract_test.go`
   and runs in dedicated native Linux CI jobs.
-- React tests mirror the `web/src` ownership structure. API client tests are
+- React tests mirror each package's `src` ownership structure. API client tests are
   split by the same contract domains as the implementation.
 - External inputs must skip in ordinary local tests and fail when their
   dedicated job requires them; do not recreate a centralized Docker E2E suite.
@@ -294,7 +294,7 @@ below exercise the corresponding source, API and runtime boundaries.
 
 | Requirements | Owning implementation and guide | Focused evidence |
 | --- | --- | --- |
-| UI-01/02, AUTH-01, RUN-01 | `web/src/components/app-shell`, shared `components/ui`, `pages/login-page`; existing HTTP session and origin protections | App-shell, route and login tests; 18 desktop layout cases; real centered dialogs, Toast, focus and return journeys |
+| UI-01/02, AUTH-01, RUN-01 | `web/apps/panel/src/components/app-shell`, shared `components/ui`, `pages/login-page`; existing HTTP session and origin protections | App-shell, route and login tests; 18 desktop layout cases; real centered dialogs, Toast, focus and return journeys |
 | DASH-01/02 | `pages/dashboard-page`, `internal/sing-box-node/host`, node `service/traffic.go` and `agent/reports.go`, `fleet/state.go`, `telemetry/nodes.go`, `httpapi/metrics_stream.go`, replicated runtime transitions; [observability guide](subscriptions-and-observability.md) | Node traffic accounting test, `fleet` state report, history and telemetry control test, per-node traffic store tests, chart and timeline tests, browser missing-data and layout review |
 | CORE-01/02 | `pages/cores-page`, `fleet` core commands, `corecache` archive cache, `internal/sing-box-node/service` core commands and runtime preflight; [core guide](core-versions.md) | `fleet` install and grant tests, node artifact verification and runtime tests; inline action and platform UI tests |
 | CFG-01/02 | `nodeconfig/file.go`, `store/configuration_file.go`, `internal/sing-box-node/service/configuration_runtime.go`, visual/JSON editors; [configuration guide](configuration-and-runtime.md) | File CAS and lossless tests; node `configuration_runtime_test.go`; real HTTP browser invalid-text save/reload; schema form union/unknown-field round trips |
@@ -305,7 +305,7 @@ below exercise the corresponding source, API and runtime boundaries.
 | LOG-01/02 | `internal/sing-box-node/corelogs`, runtime output observer, `store/panel_logs.go`, product log API and two log panels | File/rotation/custom-output tests; operation logs/cursors and authenticated file API tests; frontend pause/filter and log rendering tests |
 
 Go paths in this table are relative to `internal/sing-box-panel/` unless they
-name another tree; Web paths are relative to `web/src/`. API details remain in `api/openapi.yaml`; the owning guides describe
+name another tree; Web paths are relative to `web/apps/panel/src/`. API details remain in `api/openapi.yaml`; the owning guides describe
 persistence, security boundaries and runtime semantics.
 
 ### Persistence and preserved guarantees

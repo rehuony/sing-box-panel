@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="web/public/favicon.svg" width="128" height="128" alt="sing-box-panel icon">
+  <img src="web/packages/shared/public/favicon.svg" width="128" height="128" alt="sing-box-panel icon">
   <h1>sing-box-panel</h1>
   <p>A Linux control plane for one exact, verifiable sing-box runtime.</p>
   <div>
@@ -135,7 +135,7 @@ Building from source requires:
 
 A production build targets Linux and embeds its web assets. The managed
 sing-box binary is installed or imported separately through the panel. The
-supported build workflow generates `web/dist` before compiling the panel; Go
+supported build workflow generates `web/apps/panel/dist` and `web/apps/node/dist` before compiling the binaries; Go
 has no alternate UI input.
 
 ## Quick start

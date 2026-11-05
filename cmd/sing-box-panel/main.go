@@ -13,7 +13,7 @@ import (
 	"github.com/rehuony/sing-box-panel/internal/selfupdate"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/cli"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/server"
-	webui "github.com/rehuony/sing-box-panel/web"
+	panelweb "github.com/rehuony/sing-box-panel/web/apps/panel"
 )
 
 func main() {
@@ -42,7 +42,7 @@ func run() int {
 		Build:  build,
 		Update: updater.Update,
 		RunServer: func(ctx context.Context, path string) error {
-			return server.Run(ctx, path, build, webui.Assets())
+			return server.Run(ctx, path, build, panelweb.Assets())
 		},
 	})
 	if err := root.ExecuteContext(ctx); err != nil {

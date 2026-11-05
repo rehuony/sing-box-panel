@@ -15,6 +15,7 @@ import (
 	"github.com/rehuony/sing-box-panel/internal/sing-box-node/agent"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-node/httpapi"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-node/settings"
+	nodeweb "github.com/rehuony/sing-box-panel/web/apps/node"
 	"github.com/spf13/cobra"
 )
 
@@ -93,7 +94,9 @@ func newRunCommand(deps Dependencies, dataDir *string) *cobra.Command {
 					return fmt.Errorf("console: %w", err)
 				}
 				defer listener.Close()
-				handler := httpapi.NewHandler(httpapi.Options{DataDir: *dataDir, Link: link, Build: deps.Build, Logf: logger.Printf})
+				handler := httpapi.NewHandler(httpapi.Options{
+					DataDir: *dataDir, Link: link, Build: deps.Build, Assets: nodeweb.Assets(), Logf: logger.Printf,
+				})
 				options.Console = func(ctx context.Context) error {
 					logger.Printf("console listening on http://%s", listener.Addr())
 					return httpapi.Serve(ctx, listener, handler)

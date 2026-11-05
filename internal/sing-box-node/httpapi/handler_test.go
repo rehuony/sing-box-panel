@@ -14,6 +14,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"testing/fstest"
 
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/getkin/kin-openapi/openapi3filter"
@@ -176,4 +177,35 @@ func TestConsoleAdmitsOnlyItsOperatorOnALoopbackHost(t *testing.T) {
 	expect(serve(http.MethodGet, "/api/v1/status", "", nil), http.StatusUnauthorized, "session_expired")
 	setConsole(false, "console-password-two")
 	expect(login("console-password-two"), http.StatusServiceUnavailable, "console_disabled")
+}
+
+func TestConsoleServesItsApplicationOnlyToLoopbackHosts(t *testing.T) {
+	handler := NewHandler(Options{DataDir: t.TempDir(), Assets: fstest.MapFS{
+		"index.html":               {Data: []byte("<!doctype html><title>console</title>")},
+		"assets/index-Bbjcgd42.js": {Data: []byte("console.log(1)")},
+		"favicon.svg":              {Data: []byte("<svg/>")},
+	}})
+	get := func(path, host string) *httptest.ResponseRecorder {
+		request := httptest.NewRequest(http.MethodGet, path, nil)
+		request.Host = host
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, request)
+		return response
+	}
+	// Any application route is the application's index, which is never cached.
+	if response := get("/status", "127.0.0.1:3001"); response.Code != http.StatusOK ||
+		!strings.Contains(response.Body.String(), "<title>console</title>") || response.Header().Get("Cache-Control") != "no-store" {
+		t.Fatalf("route = %d %q %q", response.Code, response.Header().Get("Cache-Control"), response.Body.String())
+	}
+	if response := get("/assets/index-Bbjcgd42.js", "localhost:3001"); response.Code != http.StatusOK ||
+		response.Header().Get("Cache-Control") != "public, max-age=31536000, immutable" {
+		t.Fatalf("hashed asset = %d %q", response.Code, response.Header().Get("Cache-Control"))
+	}
+	if response := get("/", "attacker.example:3001"); response.Code != http.StatusMisdirectedRequest {
+		t.Fatalf("rebinding host = %d", response.Code)
+	}
+	if response := get("/api/v1/missing", "127.0.0.1:3001"); response.Code != http.StatusNotFound ||
+		!strings.Contains(response.Body.String(), "operation_not_found") {
+		t.Fatalf("unknown API = %d %s", response.Code, response.Body.String())
+	}
 }

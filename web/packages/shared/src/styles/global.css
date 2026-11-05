@@ -1,0 +1,11 @@
+@import 'tailwindcss';
+@import 'tw-animate-css';
+@import 'shadcn/tailwind.css';
+@import './tokens.css';
+@import './base.css';
+@import './components.css';
+
+/* Applications scan their own sources; the shared components live here. */
+@source '../';
+
+@custom-variant dark (&:is(.dark *));

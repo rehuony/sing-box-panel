@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Package httpapi serves the node's local console: an API on a loopback
-// address through which whoever knows the console password enrolls the node
-// with a panel, re-enrolls or unenrolls it, and sees its link with the panel.
-// It cannot edit the node's configuration or control its runtime; the panel
-// does that.
+// Package httpapi serves the node's local console: the console's Web
+// application and an API on a loopback address through which whoever knows
+// the console password enrolls the node with a panel, re-enrolls or
+// unenrolls it, and sees its link with the panel. It cannot edit the node's
+// configuration or control its runtime; the panel does that.
 package httpapi
 
 import (
@@ -13,10 +13,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"net"
 	"net/http"
 	"net/netip"
 	"os"
+	"regexp"
 	"runtime"
 	"strings"
 	"time"
@@ -43,6 +45,8 @@ type Options struct {
 	DataDir string
 	Link    *agent.Link
 	Build   buildinfo.Info
+	// Assets is the console's Web application; nil serves the API only.
+	Assets fs.FS
 	// Logf records enrollment changes; nil discards them.
 	Logf func(format string, args ...any)
 }
@@ -56,6 +60,7 @@ type Handler struct {
 	now      func() time.Time
 	logins   *webauth.LoginLimiter
 	sessions *sessions
+	assets   fs.FS
 }
 
 func NewHandler(options Options) *Handler {
@@ -65,7 +70,7 @@ func NewHandler(options Options) *Handler {
 	}
 	return &Handler{
 		dataDir: options.DataDir, link: options.Link, build: options.Build, logf: logf, now: time.Now,
-		logins: webauth.NewLoginLimiter(time.Now), sessions: newSessions(),
+		logins: webauth.NewLoginLimiter(time.Now), sessions: newSessions(), assets: options.Assets,
 	}
 }
 
@@ -107,6 +112,10 @@ func (handler *Handler) ServeHTTP(w http.ResponseWriter, request *http.Request) 
 		}
 	}
 	switch {
+	case found == nil && !strings.HasPrefix(request.URL.Path, "/api/") && handler.assets != nil &&
+		(request.Method == http.MethodGet || request.Method == http.MethodHead):
+		handler.serveAsset(w, request)
+		return
 	case found == nil && pathFound:
 		w.Header().Set("Allow", allowedMethods(request.URL.Path))
 		writeProblem(w, http.StatusMethodNotAllowed, "method_not_allowed", "Method not allowed", "The API operation does not support this method.")
@@ -131,6 +140,25 @@ func (handler *Handler) ServeHTTP(w http.ResponseWriter, request *http.Request) 
 		}
 	}
 	found.serve(handler, w, request, console, current)
+}
+
+// hashedAsset is a content-hashed bundle file, which never changes.
+var hashedAsset = regexp.MustCompile(`^assets/[^/]+-[A-Za-z0-9_-]{8}\.(js|css)$`)
+
+// serveAsset serves a file of the Web application, or its index for any
+// other path so the application can route it.
+func (handler *Handler) serveAsset(w http.ResponseWriter, request *http.Request) {
+	path := strings.TrimPrefix(request.URL.Path, "/")
+	if info, err := fs.Stat(handler.assets, path); path == "" || err != nil || info.IsDir() {
+		path = "index.html"
+	}
+	switch {
+	case path == "index.html":
+		w.Header().Set("Cache-Control", "no-store")
+	case hashedAsset.MatchString(path):
+		w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+	}
+	http.ServeFileFS(w, request, handler.assets, path)
 }
 
 func allowedMethods(path string) string {

@@ -11,7 +11,7 @@ import (
 )
 
 // initialAppearanceCSS paints the saved background before any JavaScript loads.
-// Keep these blends aligned with web/src/theme/appearance.ts. The selector stops
+// Keep these blends aligned with web/apps/panel/src/theme/appearance.ts. The selector stops
 // applying as soon as ThemeProvider takes ownership of the document.
 func initialAppearanceCSS(appearance settings.Appearance) string {
 	if (settings.Panel{Language: "en", Appearance: appearance}).Validate() != nil {

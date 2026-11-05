@@ -95,7 +95,7 @@ Their underlying script interface is:
 scripts/build.sh snapshot --output /absolute/path/to/new-output
 scripts/build.sh release --version v0.1.0 --output /absolute/path/to/new-output
 scripts/build.sh verify
-bash scripts/test/release-contract.sh # requires web/dist from make build-frontend
+bash scripts/test/release-contract.sh # requires both web/apps/*/dist from make build-frontend
 ```
 
 Release smoke tests require Bash, curl, Git, Go, jq, OpenSSL, Python 3 and
@@ -141,12 +141,12 @@ The script:
    scripts, and an isolated store; the explicit build command runs `generate`
    for OpenAPI types and Schema assets before TypeScript checking and Vite
    bundling. The Schema exporter uses the snapshot's parent Go module, creating
-   `web/src/schemas/.generated/` from the
+   `web/apps/panel/src/schemas/.generated/` from the
    committed backend manifest and Schema assets without reading generated files
    from the caller's working tree;
-4. requires the fresh Web distribution to contain `index.html`, the single
-   public `favicon.svg`, and bundled assets before loading the Go package that
-   embeds `web/dist`;
+4. requires each fresh Web distribution, the panel's and the node console's,
+   to contain `index.html`, the single public `favicon.svg`, and bundled
+   assets before loading the Go package that embeds it;
 5. cross-builds `sing-box-panel` and `sing-box-node` for Linux amd64 and
    arm64 with `CGO_ENABLED=0`, fixed CPU baselines, `-trimpath`, and
    `-buildvcs=false`;

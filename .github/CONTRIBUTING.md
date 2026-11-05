@@ -49,8 +49,8 @@ runtime identity, or release behavior.
   resulting `THIRD_PARTY_NOTICES` update.
 - Follow the version-onboarding and release guides for core-version or packaging
   changes instead of adding compatibility fallbacks.
-- Do not commit settings, databases, generated binaries, `web/dist`, frontend
-  outputs under `web/src/api/generated` or `web/src/schemas/.generated`, release
+- Do not commit settings, databases, generated binaries, `web/apps/*/dist`, frontend
+  outputs under `web/apps/*/src/api/generated` or `web/apps/panel/src/schemas/.generated`, release
   private keys, credentials, tokens, or secret-bearing diagnostics.
 
 ## Validation

@@ -10,8 +10,9 @@ export default antfu(
       '**/*.md',
       '**/*.json',
       'pnpm-lock.yaml',
-      'src/api/generated/**',
-      'src/schemas/.generated/**',
+      '**/dist/**',
+      '**/src/api/generated/**',
+      '**/src/schemas/.generated/**',
     ],
     jsonc: false,
     markdown: false,
@@ -82,6 +83,32 @@ export default antfu(
         },
       ],
       'style/nonblock-statement-body-position': ['error', 'beside'],
+    },
+  },
+  // Shared code serves both applications, and each application ships alone:
+  // the node binary embeds only the node console.
+  {
+    files: ['packages/shared/**/*.{js,jsx,ts,tsx}'],
+    rules: {
+      'no-restricted-imports': ['error', {
+        patterns: [{ group: ['@/*', '**/apps/**'], message: 'Shared code must not import an application.' }],
+      }],
+    },
+  },
+  {
+    files: ['apps/panel/**/*.{js,jsx,ts,tsx}'],
+    rules: {
+      'no-restricted-imports': ['error', {
+        patterns: [{ group: ['**/apps/node/**', '**/node/src/**'], message: 'The panel must not import the node console.' }],
+      }],
+    },
+  },
+  {
+    files: ['apps/node/**/*.{js,jsx,ts,tsx}'],
+    rules: {
+      'no-restricted-imports': ['error', {
+        patterns: [{ group: ['**/apps/panel/**', '**/panel/src/**'], message: 'The node console must not import the panel.' }],
+      }],
     },
   },
 );

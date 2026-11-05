@@ -57,8 +57,9 @@ assertions. A security or data-integrity boundary must retain a direct check.
 
 ## Commands and environments
 
-`pnpm test` runs all three Vitest projects. Use `pnpm test --project logic`,
-`pnpm test --project react`, or `pnpm test --project contracts` from `web` to run
+`pnpm test` in `web` runs every package's tests, the panel's three Vitest
+projects among them. Use `pnpm exec vitest run --project logic`, `--project react`,
+or `--project contracts` from `web/apps/panel` to run
 one boundary.
 Logic uses Node; React Hooks and component smoke use jsdom; build contracts
 use Node with an explicit jsdom override for CSS preload recovery.

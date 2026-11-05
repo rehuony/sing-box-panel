@@ -174,6 +174,8 @@ build_web_distribution() {
   local web_root="$1"
   local expected_pnpm
   local actual_pnpm
+  local application
+  local distribution
 
   if ! command -v corepack >/dev/null 2>&1; then
     echo "corepack is required to build the pinned Web dependencies" >&2
@@ -205,17 +207,21 @@ build_web_distribution() {
     echo "pnpm did not recreate node_modules from the frozen lock file" >&2
     return 1
   fi
-  if [[ ! -s "${web_root}/dist/index.html" ]] ||
-    [[ ! -s "${web_root}/dist/favicon.svg" ]] ||
-    [[ ! -d "${web_root}/dist/assets" ]] ||
-    ! find "${web_root}/dist/assets" -type f -print -quit | grep -q .; then
-    echo "the Web build did not create dist/index.html, favicon.svg, and assets" >&2
-    return 1
-  fi
-  if find "${web_root}/dist" -type l -print -quit | grep -q .; then
-    echo "the Web distribution must not contain symbolic links" >&2
-    return 1
-  fi
+  # Each binary embeds its own application: the panel's and the node console's.
+  for application in panel node; do
+    distribution="${web_root}/apps/${application}/dist"
+    if [[ ! -s "${distribution}/index.html" ]] ||
+      [[ ! -s "${distribution}/favicon.svg" ]] ||
+      [[ ! -d "${distribution}/assets" ]] ||
+      ! find "${distribution}/assets" -type f -print -quit | grep -q .; then
+      echo "the ${application} Web build did not create dist/index.html, favicon.svg, and assets" >&2
+      return 1
+    fi
+    if find "${distribution}" -type l -print -quit | grep -q .; then
+      echo "the ${application} Web distribution must not contain symbolic links" >&2
+      return 1
+    fi
+  done
 }
 
 # release_commands lists the binaries a release builds, each for amd64 and arm64.

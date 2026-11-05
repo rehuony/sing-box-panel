@@ -205,9 +205,9 @@ the operator are not translated. English continues to use the existing labels
 and any descriptions supplied by the schema.
 
 The copy is maintained in
-[`configuration-fields.ts`](../web/src/i18n/locales/zh-CN/configuration-fields.ts),
+[`configuration-fields.ts`](../web/apps/panel/src/i18n/locales/zh-CN/configuration-fields.ts),
 with context-specific meanings in
-[`configuration-field-help.ts`](../web/src/pages/configuration-page/configuration-field-help.ts).
+[`configuration-field-help.ts`](../web/apps/panel/src/pages/configuration-page/configuration-field-help.ts).
 For example, `final` selects a DNS server in DNS settings and an outbound in
 route settings; `method` describes encryption for Shadowsocks and rejection
 behavior for a reject action. Presentation annotations are added only to a

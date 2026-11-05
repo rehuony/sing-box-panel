@@ -229,8 +229,8 @@ panel CLI's command line: it exchanges an enrollment code, re-enrolls the node
 with a new code, unenrolls it, and shows the node's link with its panel. It
 cannot edit the node's configuration or control its runtime; the panel does
 that. [`api/node-openapi.yaml`](../api/node-openapi.yaml) is its HTTP contract.
-A console Web UI, built from `web/` beside the panel's and embedded only in the
-node binary, follows the contract.
+The console's Web application, `web/apps/node`, is embedded only in the node
+binary and served on the same loopback address.
 
 - **Off by default.** `sing-box-node console enable` turns it on and generates a password when there is none; the settings and the password's Argon2id hash sit in `console.json` (mode 0600) in the node's data directory. An enabled console starts with `sing-box-node run`, and a node with an enabled console starts unenrolled and waits to be enrolled from it.
 - **Loopback only.** The console listens only on a loopback IP address, and answers only requests whose `Host` names a loopback host, so a page under another name that resolves to the node cannot reach it. Operators on other machines use an SSH tunnel.
@@ -299,13 +299,14 @@ internal/
 
   layout/                the dependency-rule test over go list
 tools/                   maintainer commands; singbox-support maintains panel Schema assets
-web/                     panel React application; the node console application joins it
+web/                     pnpm workspace: apps/panel, apps/node (each embedded by its binary), packages/shared
 ```
 
 `internal/layout` enforces the rules over `go list`: `cmd/` holds only the two
 `main` packages, shared packages depend on neither service, each service
 imports the other only through `internal/nodeapi`, and `cmd/sing-box-node`
-embeds neither the panel's Web UI nor Schema assets. Placements
+embeds neither the panel's Web UI nor Schema assets, and `cmd/sing-box-panel`
+does not embed the node console's. Placements
 that exist only until each service has its own installer are listed in the
 [architecture guide](architecture.md#package-layout).
 

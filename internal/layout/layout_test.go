@@ -45,10 +45,11 @@ func classify(path string) owner {
 	}
 }
 
-// Assets that only the panel serves. The node binary must not embed them.
-var panelOnlyAssets = []string{
-	modulePath + "/web",
-}
+// Each binary embeds only its own Web application.
+var (
+	panelOnlyAssets = []string{modulePath + "/web/apps/panel"}
+	nodeOnlyAssets  = []string{modulePath + "/web/apps/node"}
+)
 
 type listedPackage struct {
 	ImportPath string
@@ -101,6 +102,15 @@ func TestServiceDependencyRules(t *testing.T) {
 			for _, dependency := range pkg.Deps {
 				if strings.HasPrefix(dependency, modulePath+"/") && classify(dependency) != shared {
 					t.Errorf("shared package %s depends on service package %s", pkg.ImportPath, dependency)
+				}
+			}
+		}
+		if pkg.ImportPath == panelBinary {
+			for _, dependency := range pkg.Deps {
+				for _, asset := range nodeOnlyAssets {
+					if dependency == asset {
+						t.Errorf("sing-box-panel embeds node asset package %s", asset)
+					}
 				}
 			}
 		}

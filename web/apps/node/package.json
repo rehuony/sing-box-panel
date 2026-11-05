@@ -1,0 +1,23 @@
+{
+  "name": "@sing-box-panel/node",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "generate": "openapi-ts -i ../../../api/node-openapi.yaml -o src/api/generated -p @hey-api/typescript --no-log-file",
+    "dev": "pnpm run generate && vite",
+    "build": "pnpm run generate && tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "typecheck": "pnpm run generate && tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@sing-box-panel/shared": "workspace:*",
+    "i18next": "26.4.0",
+    "lucide-react": "0.511.0",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
+    "react-i18next": "17.0.12"
+  }
+}

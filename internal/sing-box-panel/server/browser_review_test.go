@@ -80,7 +80,7 @@ func TestBrowserReview(t *testing.T) {
 	build := buildinfo.Info{Version: "browser-review"}
 	handler := httpapi.NewHandler(httpapi.HandlerOptions{
 		Settings: configuration, Build: build, Services: commands,
-		Assets: os.DirFS("../../../web/dist"),
+		Assets: os.DirFS("../../../web/apps/panel/dist"),
 	})
 	listener, err := net.Listen("tcp", "127.0.0.1:3337")
 	if err != nil {

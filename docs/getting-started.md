@@ -24,7 +24,7 @@ checks, shell syntax checks, and network-independent installer contract tests.
 `make check-backend`, `make check-frontend`, and `make check-contracts` run the individual
 groups described in [Contributing](../.github/CONTRIBUTING.md#validation).
 `make build` uses the same Web-first boundary and writes `bin/sing-box-panel` and
-`bin/sing-box-node`; plain `make` lists the available targets. Go compilation requires the generated `web/dist` tree;
+`bin/sing-box-node`; plain `make` lists the available targets. Go compilation requires the generated `web/apps/panel/dist` and `web/apps/node/dist` trees;
 that generated tree is the only UI source accepted by the Go build.
 
 ## Initialize settings and storage

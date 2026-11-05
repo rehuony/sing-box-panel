@@ -5,10 +5,10 @@
 /bin/
 /dist/
 /coverage/
-/web/dist/
 /web/node_modules/
-/web/src/api/generated/
-/web/src/schemas/.generated/
+/web/apps/*/dist/
+/web/apps/*/src/api/generated/
+/web/apps/panel/src/schemas/.generated/
 /setting.json
 /data/
 

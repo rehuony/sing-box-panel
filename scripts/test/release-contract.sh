@@ -29,8 +29,8 @@ done
 script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 workspace_root="$(cd -- "${script_dir}/../.." && pwd -P)"
 cd -- "${workspace_root}"
-if [[ ! -s web/dist/index.html ]]; then
-  printf 'build web/dist before running release contracts (make release-smoke)\n' >&2
+if [[ ! -s web/apps/panel/dist/index.html || ! -s web/apps/node/dist/index.html ]]; then
+  printf 'build both web/apps/*/dist before running release contracts (make release-smoke)\n' >&2
   exit 1
 fi
 source_commit="$(git rev-parse --verify 'HEAD^{commit}')"

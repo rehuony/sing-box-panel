@@ -3,7 +3,7 @@
 WEB_PNPM       := cd web && corepack pnpm
 PROTO_DIR      := api/proto
 RELEASE_SCRIPT := scripts/build.sh
-GO_SOURCE_DIRS := cmd internal tools web
+GO_SOURCE_DIRS := cmd internal tools web/apps
 
 .PHONY: help check check-backend check-frontend check-contracts test test-backend test-frontend \
 	test-race fuzz-smoke core-contract ci build build-panel build-node build-frontend \
@@ -31,7 +31,7 @@ help:
 	@echo "  make build                       - Build both binaries and the Web application"
 	@echo "  make build-panel                 - Build bin/sing-box-panel"
 	@echo "  make build-node                  - Build bin/sing-box-node"
-	@echo "  make build-frontend              - Build the Web application into web/dist"
+	@echo "  make build-frontend              - Build the panel and node Web applications"
 	@echo ""
 	@echo "Development:"
 	@echo "  make fmt                         - Format Go sources"
@@ -75,7 +75,7 @@ check-backend: build-frontend
 check-frontend: build-frontend
 	@echo "🔍 Checking Web sources..."
 	$(WEB_PNPM) run lint
-	$(WEB_PNPM) exec vitest run
+	$(WEB_PNPM) --recursive run test
 	$(WEB_PNPM) run schema:check
 	go tool third-party-notices --check
 
@@ -145,7 +145,7 @@ build-node:
 build-frontend:
 	@echo "🔨 Building Web application..."
 	$(WEB_PNPM) run build
-	@echo "✅ Web application built: ./web/dist"
+	@echo "✅ Web applications built: ./web/apps/panel/dist and ./web/apps/node/dist"
 
 # =============================================================================
 # Development
@@ -240,6 +240,6 @@ deps-frontend:
 
 clean:
 	@echo "🧹 Cleaning..."
-	rm -rf bin web/dist
+	rm -rf bin web/apps/panel/dist web/apps/node/dist
 	go clean -testcache
 	@echo "✅ Cleaned"
