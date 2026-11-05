@@ -4,12 +4,14 @@ package httpapi
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/fleet"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/store"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/telemetry"
 )
@@ -23,25 +25,14 @@ func matchObservabilityRoute(path string) (resource string, identifier string, m
 		return "logs", "", true
 	case "/api/v1/logs/stream":
 		return "log-stream", "", true
-	case "/api/v1/metrics":
-		return "metrics", "", true
-	case "/api/v1/metrics/stream":
-		return "metrics-stream", "", true
-	case "/api/v1/dashboard/stream":
-		return "dashboard-stream", "", true
-	case "/api/v1/metrics/history":
-		return "metrics-history", "", true
 	case "/api/v1/traffic/status":
 		return "traffic-status", "", true
-	case "/api/v1/traffic/periods":
-		return "traffic-periods", "", true
 	}
 	for _, candidate := range []struct {
 		prefix   string
 		resource string
 	}{
 		{prefix: "/api/v1/logs/", resource: "logs"},
-		{prefix: "/api/v1/traffic/periods/", resource: "traffic-periods"},
 	} {
 		if strings.HasPrefix(path, candidate.prefix) {
 			identifier := strings.TrimPrefix(path, candidate.prefix)
@@ -69,20 +60,8 @@ func (handler *Handler) observabilityHandler(method, resource, identifier string
 		return func(w http.ResponseWriter, request *http.Request) { handler.getDurableLog(w, request, identifier) }
 	case resource == "logs" && identifier != "" && method == http.MethodDelete:
 		return func(w http.ResponseWriter, request *http.Request) { handler.deleteDurableLog(w, request, identifier) }
-	case resource == "metrics-stream" && method == http.MethodGet:
-		return handler.streamMetrics
-	case resource == "dashboard-stream" && method == http.MethodGet:
-		return handler.streamDashboard
-	case resource == "metrics" && method == http.MethodGet:
-		return handler.currentMetrics
-	case resource == "metrics-history" && method == http.MethodGet:
-		return handler.metricsHistory
 	case resource == "traffic-status" && method == http.MethodGet:
 		return handler.trafficStatus
-	case resource == "traffic-periods" && identifier == "" && method == http.MethodGet:
-		return handler.listTrafficPeriods
-	case resource == "traffic-periods" && identifier != "" && method == http.MethodGet:
-		return func(w http.ResponseWriter, request *http.Request) { handler.getTrafficPeriod(w, request, identifier) }
 	default:
 		return methodNotAllowed
 	}
@@ -331,13 +310,12 @@ func (handler *Handler) currentMetrics(w http.ResponseWriter, request *http.Requ
 	if _, ok := strictCoreQuery(w, request); !ok {
 		return
 	}
-	writeNodeTelemetryUnavailable(w, request, "metrics_unavailable", "Metrics unavailable")
-}
-
-// writeNodeTelemetryUnavailable answers the live views that need node
-// telemetry, which nodes do not report to the panel yet.
-func writeNodeTelemetryUnavailable(w http.ResponseWriter, request *http.Request, code, title string) {
-	writeProblem(w, request, http.StatusServiceUnavailable, code, title, "Nodes do not report live metrics and traffic to the panel yet.")
+	result, err := handler.services.Fleet.NodeMetrics(request.Context(), requestNodeID(request))
+	if err != nil {
+		writeProblem(w, request, http.StatusServiceUnavailable, "metrics_unavailable", "Metrics unavailable", "The node's metrics could not be read.")
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
 }
 
 func (handler *Handler) metricsHistory(w http.ResponseWriter, request *http.Request) {
@@ -367,7 +345,7 @@ func (handler *Handler) metricsHistory(w http.ResponseWriter, request *http.Requ
 		return
 	}
 	result, err := handler.services.Telemetry.MetricsHistory(request.Context(), store.MetricsHistoryFilter{
-		From: *from, To: *to, BucketSeconds: bucketSeconds, ActivationBundleID: bundleID,
+		NodeID: requestNodeID(request), From: *from, To: *to, BucketSeconds: bucketSeconds, ActivationBundleID: bundleID,
 	})
 	if err != nil {
 		writeProblem(w, request, http.StatusBadRequest, "metrics_history_filter_invalid", "Metrics history filter invalid", err.Error())
@@ -383,16 +361,60 @@ func (handler *Handler) trafficStatus(w http.ResponseWriter, request *http.Reque
 	if _, ok := strictCoreQuery(w, request); !ok {
 		return
 	}
-	writeNodeTelemetryUnavailable(w, request, "traffic_status_unavailable", "Traffic status unavailable")
+	status, err := handler.services.Telemetry.TrafficStatus(request.Context(), time.Now().UTC())
+	if err != nil {
+		writeProblem(w, request, http.StatusServiceUnavailable, "traffic_status_unavailable", "Traffic status unavailable", "The recorded traffic could not be read.")
+		return
+	}
+	writeJSON(w, http.StatusOK, status)
+}
+
+func (handler *Handler) trafficSettings(w http.ResponseWriter, request *http.Request) {
+	if !handler.requireCommands(w, request) {
+		return
+	}
+	if _, ok := strictCoreQuery(w, request); !ok {
+		return
+	}
+	result, err := handler.services.Fleet.TrafficSettings(request.Context(), requestNodeID(request))
+	if err != nil {
+		writeFleetProblem(w, request, err)
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	writeJSON(w, http.StatusOK, result)
+}
+
+func (handler *Handler) saveTrafficSettings(w http.ResponseWriter, request *http.Request) {
+	if !handler.requireCommands(w, request) {
+		return
+	}
+	if _, ok := strictCoreQuery(w, request); !ok {
+		return
+	}
+	var input fleet.TrafficSettings
+	if !decodeStrictRequest(w, request, 4096, &input) {
+		return
+	}
+	result, err := handler.services.Fleet.SaveTrafficSettings(request.Context(), requestNodeID(request), input)
+	switch {
+	case errors.Is(err, store.ErrNodeTrafficSettingsConflict):
+		writeProblem(w, request, http.StatusPreconditionFailed, "traffic_settings_conflict", "Traffic settings changed", "Reload the node's traffic settings before saving.")
+	case errors.Is(err, store.ErrNodeTrafficSettingsInvalid):
+		writeProblem(w, request, http.StatusUnprocessableEntity, "traffic_settings_invalid", "Traffic settings invalid", err.Error())
+	case err != nil:
+		writeFleetProblem(w, request, err)
+	default:
+		w.Header().Set("Cache-Control", "no-store")
+		writeJSON(w, http.StatusOK, result)
+	}
 }
 
 func (handler *Handler) listTrafficPeriods(w http.ResponseWriter, request *http.Request) {
 	if !handler.requireCommands(w, request) {
 		return
 	}
-	query, ok := strictCoreQuery(
-		w, request, "activation_bundle_id", "from", "to", "before_time", "before_id", "limit",
-	)
+	query, ok := strictCoreQuery(w, request, "from", "to", "before_time", "before_id", "limit")
 	if !ok {
 		return
 	}
@@ -419,8 +441,7 @@ func (handler *Handler) listTrafficPeriods(w http.ResponseWriter, request *http.
 		return
 	}
 	page, err := handler.services.Telemetry.ListTrafficPeriodPage(request.Context(), store.TrafficPeriodFilter{
-		ActivationBundleID: query.Get("activation_bundle_id"), OverlapsStart: from, OverlapsEnd: to,
-		Cursor: cursor, Limit: limit,
+		NodeID: requestNodeID(request), OverlapsStart: from, OverlapsEnd: to, Cursor: cursor, Limit: limit,
 	})
 	if err != nil {
 		writeProblem(w, request, http.StatusBadRequest, "traffic_filter_invalid", "Traffic filter invalid", err.Error())
@@ -456,7 +477,7 @@ func (handler *Handler) getTrafficPeriod(w http.ResponseWriter, request *http.Re
 	if _, ok := strictCoreQuery(w, request); !ok {
 		return
 	}
-	period, err := handler.services.Telemetry.TrafficPeriod(request.Context(), identifier)
+	period, err := handler.services.Telemetry.TrafficPeriod(request.Context(), requestNodeID(request), identifier)
 	if err != nil {
 		if telemetry.IsTrafficPeriodNotFound(err) {
 			writeProblem(w, request, http.StatusNotFound, "traffic_period_not_found", "Traffic period not found", "The requested traffic period does not exist.")

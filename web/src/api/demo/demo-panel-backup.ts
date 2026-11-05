@@ -23,8 +23,6 @@ export function demoBackupSettings(view: PanelSettingsView, secrets: DemoPanelSe
     auth: { email: view.admin_email, password_hash: secrets.passwordHash },
     github: { token: secrets.github, catalog_refresh_interval_hours: s.catalog_refresh_interval_hours },
     traffic: {
-      quota_gib: p.traffic_quota_gib,
-      period_months: s.traffic_period_months,
       sample_retention_days: s.sample_retention_days,
     },
     subscription: {
@@ -62,7 +60,6 @@ export function demoRestoreSettings(
         listen_port: native.server.port,
         external_origin: native.server.external_origin,
         public_node_host: native.panel.public_node_host,
-        traffic_quota_gib: native.traffic.quota_gib,
         language: native.panel.language,
         appearance: native.panel.appearance,
       },
@@ -70,7 +67,6 @@ export function demoRestoreSettings(
         data_dir: native.data_dir,
         base_path: native.server.base_path,
         catalog_refresh_interval_hours: native.github.catalog_refresh_interval_hours,
-        traffic_period_months: native.traffic.period_months,
         sample_retention_days: native.traffic.sample_retention_days,
         private_source_cidrs: native.subscription.private_source_cidrs,
         core_log_retention_days: native.logs.core_retention_days ?? 7,

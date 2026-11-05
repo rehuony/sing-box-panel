@@ -82,7 +82,7 @@ func TestLoadRejectsAmbiguousSettings(t *testing.T) {
   "data_dir":"data",
   "auth":{"token":"one","token":"two"},
   "github":{"token":"","catalog_refresh_interval_hours":12},
-  "traffic":{"quota_gib":null,"period_months":1},
+  "traffic":{},
   "subscription":{"private_source_cidrs":[]},
   "logs":{"core_retention_days":7}
 }`
@@ -103,7 +103,7 @@ func TestLoadRejectsMissingOrInvalidTrafficSampleRetention(t *testing.T) {
   "data_dir":"data",
   "auth":{"email":"admin@example.com","password_hash":"` + testutil.PasswordHash + `"},
   "github":{"token":"","catalog_refresh_interval_hours":12},
-  "traffic":{"quota_gib":null,"period_months":1},
+  "traffic":{},
   "subscription":{"private_source_cidrs":[]},
   "logs":{"core_retention_days":7}
 }`
@@ -122,7 +122,7 @@ func TestLoadRejectsMissingOrInvalidTrafficSampleRetention(t *testing.T) {
 		t.Fatalf("Validate() oversized retention error = %v", err)
 	}
 
-	invalid := strings.Replace(legacy, `"period_months":1`, `"period_months":1,"sample_retention_days":0`, 1)
+	invalid := strings.Replace(legacy, `"traffic":{}`, `"traffic":{"sample_retention_days":0}`, 1)
 	if err := os.WriteFile(path, []byte(invalid), 0o600); err != nil {
 		t.Fatal(err)
 	}

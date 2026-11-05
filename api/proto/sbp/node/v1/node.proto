@@ -84,6 +84,10 @@ message Hello {
   ProtocolVersion protocol = 2;
   string build_version = 3;
   Platform platform = 4;
+  // The random identity of the node's database. Runtime history IDs and
+  // traffic counters are scoped to it, so a node whose database was
+  // recreated starts both again.
+  string instance_id = 5;
 }
 
 message Challenge {
@@ -104,6 +108,9 @@ message Welcome {
   ProtocolVersion protocol = 3;
   // The baseline interval between metrics samples.
   google.protobuf.Duration metrics_interval = 4;
+  // The ID of the newest runtime transition of this node instance that the
+  // panel holds. The node sends the transitions after it, oldest first.
+  int64 runtime_history_after = 5;
 }
 
 // Command asks the node to do one thing. A repeated request ID returns the
@@ -463,32 +470,32 @@ message CoreLogChunk {
   bool reset = 6;
 }
 
-// Event reports node state. Sequence orders events within one node process so
-// the panel can discard duplicates after reconnecting.
+// Event reports node state. Each event replaces or extends what the panel
+// knows, so an event repeated after reconnecting is harmless.
 message Event {
-  uint64 sequence = 1;
-  // Set when the event answers a command.
+  reserved 1, 13, 14;
+  // Set when the event reports the state a command left.
   string request_id = 2;
   oneof body {
     StateReport state_report = 10;
     RuntimeTransition runtime_transition = 11;
     MetricsSample metrics_sample = 12;
-    LogBatch log_batch = 13;
-    DroppedEvents dropped_events = 14;
   }
 }
 
 // StateReport is the node's full observed state. It is sent first after every
-// handshake and again whenever the state changes.
+// handshake, and again whenever the state changes.
 message StateReport {
+  reserved 2;
   Host host = 1;
-  RuntimeState runtime = 2;
   Bundle applied = 3;
   Bundle rollback = 4;
   repeated InstalledCore installed = 5;
-  // The configuration the node already ran before enrollment. The panel seeds
-  // the node's editable file from it on first connection.
+  // The configuration of the applied bundle, sent only in the first report
+  // of a session. The panel seeds a node's editable file from it while that
+  // file is still the empty document it was created with.
   ConfigurationRevision existing_configuration = 6;
+  RuntimeStatus runtime = 7;
 }
 
 message Host {
@@ -498,32 +505,26 @@ message Host {
   string public_ip = 3;
 }
 
-message RuntimeState {
-  ProcessState status = 1;
-  string artifact_id = 2;
-  string bundle_id = 3;
-  int64 pid = 4;
-  google.protobuf.Timestamp started_at = 5;
-}
-
 enum ProcessState {
   PROCESS_STATE_UNSPECIFIED = 0;
   PROCESS_STATE_RUNNING = 1;
   PROCESS_STATE_STOPPED = 2;
   PROCESS_STATE_FAILED = 3;
+  PROCESS_STATE_UNKNOWN = 4;
 }
 
 // Bundle is an activated configuration: the checked startup artifact and the
 // core that runs it. The node keeps the bytes of its applied and rollback
 // bundles.
 message Bundle {
+  reserved 4;
   string bundle_id = 1;
   string startup_artifact_id = 2;
   string revision_id = 3;
-  int64 revision = 4;
   string configuration_sha256 = 5;
   string artifact_id = 6;
   google.protobuf.Timestamp applied_at = 7;
+  MonitoringTier monitoring_tier = 8;
 }
 
 message InstalledCore {
@@ -535,11 +536,19 @@ message InstalledCore {
   string feature_fingerprint = 5;
 }
 
+// RuntimeTransition is one entry of the node's append-only runtime history.
 message RuntimeTransition {
+  // The entry's ID in the node instance's history; IDs only grow.
+  int64 id = 5;
   ProcessState status = 1;
   string reason = 2;
   string bundle_id = 3;
   google.protobuf.Timestamp occurred_at = 4;
+  int64 generation = 6;
+  int64 pid = 7;
+  google.protobuf.Timestamp process_started_at = 8;
+  // Set for the unknown state: since when the process state is uncertain.
+  google.protobuf.Timestamp uncertain_since = 9;
 }
 
 message MetricsSample {
@@ -554,28 +563,18 @@ message MetricsSample {
   TrafficCounters traffic = 9;
 }
 
-// TrafficCounters are cumulative since the node's durable checkpoint. The
-// panel computes deltas, periods and quota from them.
+// TrafficCounters describe the running core. The byte counts are cumulative
+// for the node instance across core restarts, kept in a durable node
+// checkpoint, so the panel computes exact deltas, periods and quota from any
+// two samples. Absent while no core runs with limited monitoring.
 message TrafficCounters {
   string bundle_id = 1;
   uint64 upload_bytes = 2;
   uint64 download_bytes = 3;
   uint32 connections = 4;
-}
-
-message LogBatch {
-  repeated LogLine lines = 1;
-}
-
-message LogLine {
-  google.protobuf.Timestamp time = 1;
-  string level = 2;
-  string message = 3;
-}
-
-// DroppedEvents reports outbox overflow.
-message DroppedEvents {
-  uint64 count = 1;
+  int64 pid = 5;
+  string process_start_token = 6;
+  uint64 memory_bytes = 7;
 }
 
 message FetchArtifactRequest {

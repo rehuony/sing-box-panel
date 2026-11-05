@@ -105,15 +105,6 @@ function SettingsEditor({ initial }: { initial: PanelSettingsView }) {
           </TabsContent>
           <TabsContent value='traffic'>
             <SettingsGroup title={t('panelSettings.traffic')}>
-              <SettingsField id='quota' invalid={invalidField === 'quota'} label={t('panelSettings.quota')}>
-                <div className='settings-inline'>
-                  <Input id='quota' aria-invalid={invalidField === 'quota' || undefined} type='number' min={0} max={8589934591} step={1} placeholder={t('panelSettings.unlimited')} value={preferences.traffic_quota_gib ?? ''} onChange={e => update('traffic_quota_gib', e.target.value === '' ? null : Number(e.target.value))} />
-                  <span>GiB</span>
-                </div>
-              </SettingsField>
-              <SettingsField id='traffic-period' invalid={invalidField === 'traffic-period'} label={t('panelSettings.trafficPeriod')}>
-                <Input id='traffic-period' aria-invalid={invalidField === 'traffic-period' || undefined} type='number' min={1} max={120} required value={service.traffic_period_months} onChange={e => updateService('traffic_period_months', Number(e.target.value))} />
-              </SettingsField>
               <SettingsField id='sample-retention' invalid={invalidField === 'sample-retention'} label={t('panelSettings.sampleRetention')}>
                 <Input id='sample-retention' aria-invalid={invalidField === 'sample-retention' || undefined} type='number' min={1} max={366} required value={service.sample_retention_days} onChange={e => updateService('sample_retention_days', Number(e.target.value))} />
               </SettingsField>

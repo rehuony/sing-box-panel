@@ -14,7 +14,7 @@ import (
 func TestGetFieldReturnsStoredValuesWithoutResolvingOrValidatingSettings(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "setting.json")
 	// This incomplete document is readable even though it cannot start a panel.
-	document := `{"server":{"port":0,"host":" localhost "},"data_dir":"./private-data","auth":{"password_hash":"stored-hash"},"traffic":{"quota_gib":null},"subscription":{"private_source_cidrs":["10.0.0.0/8"]}}`
+	document := `{"server":{"port":0,"host":" localhost "},"data_dir":"./private-data","auth":{"password_hash":"stored-hash"},"traffic":{"sample_retention_days":30},"subscription":{"private_source_cidrs":["10.0.0.0/8"]}}`
 	if err := os.WriteFile(path, []byte(document), 0600); err != nil {
 		t.Fatal(err)
 	}
@@ -24,7 +24,7 @@ func TestGetFieldReturnsStoredValuesWithoutResolvingOrValidatingSettings(t *test
 		{"server", `{"port":0,"host":" localhost "}`},
 		{"data_dir", `"./private-data"`},
 		{"auth.password_hash", `"stored-hash"`},
-		{"traffic.quota_gib", "null"},
+		{"traffic.sample_retention_days", "30"},
 		{"subscription.private_source_cidrs", `["10.0.0.0/8"]`},
 	} {
 		t.Run(test.field, func(t *testing.T) {

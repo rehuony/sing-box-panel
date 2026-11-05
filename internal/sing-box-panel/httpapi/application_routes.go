@@ -49,12 +49,6 @@ func (handler *Handler) handleApplicationRoute(w http.ResponseWriter, request *h
 		} else {
 			next = methodNotAllowed
 		}
-	} else if path == "/api/v1/core/runtime/history" {
-		if request.Method == http.MethodGet {
-			next = handler.coreRuntimeHistory
-		} else {
-			next = methodNotAllowed
-		}
 	} else if resource, identifier, matched := matchObservabilityRoute(path); matched {
 		next = handler.observabilityHandler(request.Method, resource, identifier)
 	} else if route := handler.nodeRoute(request.Method, path); route != nil {

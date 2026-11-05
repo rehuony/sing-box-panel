@@ -6,7 +6,7 @@ package procctl
 
 import "os"
 
-func openAndLockRuntimeExecutorLease(string) (*os.File, error) {
+func openAndLockLease(string) (*os.File, error) {
 	return nil, ErrLeaseUnsupported
 }
 

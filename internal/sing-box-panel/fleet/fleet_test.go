@@ -63,6 +63,8 @@ type testFleet struct {
 	service  *fleet.Service
 	configs  *nodeconfig.Service
 	cores    *corecache.Service
+	records  *telemetry.Service
+	database *store.Store
 	endpoint string
 	dataDir  string
 }
@@ -105,7 +107,10 @@ func startFleet(t *testing.T, now func() time.Time) testFleet {
 			t.Errorf("serve: %v", err)
 		}
 	})
-	return testFleet{service: service, configs: configs, cores: cores, endpoint: listener.Addr().String(), dataDir: dataDir}
+	return testFleet{
+		service: service, configs: configs, cores: cores, records: records, database: database,
+		endpoint: listener.Addr().String(), dataDir: dataDir,
+	}
 }
 
 func waitState(t *testing.T, service *fleet.Service, id, want string) {
@@ -181,6 +186,16 @@ func TestNodeSharesTheWebPortAndLosesSessionWhenRemoved(t *testing.T) {
 		t.Fatal("the node did not connect")
 	}
 	waitState(t, service, enrolled.NodeID, fleet.StateOnline)
+	// The node reports its state as soon as its session opens.
+	for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(20 * time.Millisecond) {
+		node, err := service.Node(t.Context(), enrolled.NodeID)
+		if err == nil && node.ReportedAt != nil && node.Runtime != nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("the node did not report its state: %+v, %v", node, err)
+		}
+	}
 
 	if err := service.DeleteNode(t.Context(), enrolled.NodeID); err != nil {
 		t.Fatal(err)
@@ -247,9 +262,22 @@ func (node *rawNode) enroll(t *testing.T, code string) error {
 	return err
 }
 
-// connect runs the handshake with key and returns the stream after Welcome,
-// or the status that ended the handshake.
+// connect runs the handshake with key and sends an empty state report,
+// which opens the session to commands. It returns the stream, or the status
+// that ended the handshake.
 func (node *rawNode) connect(t *testing.T, key ed25519.PrivateKey) (nodeapi.NodeService_ConnectClient, error) {
+	t.Helper()
+	stream, _, err := node.handshake(t, key)
+	if err != nil {
+		return nil, err
+	}
+	sendEvent(t, stream, &nodeapi.Event{Body: &nodeapi.Event_StateReport{StateReport: &nodeapi.StateReport{}}})
+	return stream, nil
+}
+
+// handshake authenticates a session as the node instance "instance-a" and
+// returns the stream and the panel's Welcome.
+func (node *rawNode) handshake(t *testing.T, key ed25519.PrivateKey) (nodeapi.NodeService_ConnectClient, *nodeapi.Welcome, error) {
 	t.Helper()
 	stream, err := node.client.Connect(t.Context())
 	if err != nil {
@@ -257,12 +285,13 @@ func (node *rawNode) connect(t *testing.T, key ed25519.PrivateKey) (nodeapi.Node
 	}
 	if err := stream.Send(&nodeapi.ConnectRequest{Frame: &nodeapi.ConnectRequest_Hello{Hello: &nodeapi.Hello{
 		NodeId: node.id, Protocol: &nodeapi.ProtocolVersion{Major: nodeapi.ProtocolMajor}, Platform: &nodeapi.Platform{Os: "linux", Arch: "amd64"},
+		InstanceId: "instance-a",
 	}}}); err != nil {
 		t.Fatal(err)
 	}
 	frame, err := stream.Recv()
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	challenge := frame.GetChallenge()
 	if err := stream.Send(&nodeapi.ConnectRequest{Frame: &nodeapi.ConnectRequest_Proof{
@@ -272,12 +301,19 @@ func (node *rawNode) connect(t *testing.T, key ed25519.PrivateKey) (nodeapi.Node
 	}
 	frame, err = stream.Recv()
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if frame.GetWelcome() == nil {
 		t.Fatalf("expected Welcome, got %v", frame)
 	}
-	return stream, nil
+	return stream, frame.GetWelcome(), nil
+}
+
+func sendEvent(t *testing.T, stream nodeapi.NodeService_ConnectClient, event *nodeapi.Event) {
+	t.Helper()
+	if err := stream.Send(&nodeapi.ConnectRequest{Frame: &nodeapi.ConnectRequest_Event{Event: event}}); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func requireCode(t *testing.T, err error, want codes.Code) {
@@ -489,5 +525,178 @@ func TestStateChangingCommandsOutliveTheirCaller(t *testing.T) {
 	}
 	if err := <-stopped; err != nil {
 		t.Fatalf("stop after the caller went away = %v, want the node's result", err)
+	}
+}
+
+func TestNodeReportsStateHistoryAndTraffic(t *testing.T) {
+	served := startFleet(t, nil)
+	service := served.service
+	enrollment, err := service.AddNode(t.Context(), "edge")
+	if err != nil {
+		t.Fatal(err)
+	}
+	node := &rawNode{client: dialRaw(t, served.endpoint, basePath, true)}
+	if err := node.enroll(t, enrollment.Code); err != nil {
+		t.Fatal(err)
+	}
+	stream, welcome, err := node.handshake(t, node.key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if welcome.GetRuntimeHistoryAfter() != 0 || welcome.GetMetricsInterval().AsDuration() != fleet.MetricsInterval {
+		t.Fatalf("first Welcome = %v", welcome)
+	}
+	// Commands wait for the node's state; this one gives up before it arrives.
+	waiting, cancel := context.WithTimeout(t.Context(), 100*time.Millisecond)
+	defer cancel()
+	if _, err := service.RuntimeStatus(waiting, node.id); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("command before the first state report = %v, want it to wait", err)
+	}
+
+	startedAt := time.Now().UTC().Add(-time.Minute).Truncate(time.Second)
+	existing := []byte(`{"log":{"level":"warn"}}`)
+	sendEvent(t, stream, &nodeapi.Event{Body: &nodeapi.Event_StateReport{StateReport: &nodeapi.StateReport{
+		Host: &nodeapi.Host{Hostname: "edge-host", PublicIp: "203.0.113.7"},
+		Runtime: &nodeapi.RuntimeStatus{ObservationState: "running", AppliedBundleId: "bundle_a", Running: &nodeapi.RunningCore{
+			Pid: 42, ProcessStartToken: "start-a", ActivationBundleId: "bundle_a", StartedAt: timestamppb.New(startedAt),
+		}},
+		Applied:               &nodeapi.Bundle{BundleId: "bundle_a", MonitoringTier: nodeapi.MonitoringTier_MONITORING_TIER_LIMITED},
+		ExistingConfiguration: &nodeapi.ConfigurationRevision{RevisionId: "rev_node", Content: existing},
+	}}})
+	for _, transition := range []*nodeapi.RuntimeTransition{
+		{Id: 1, Status: nodeapi.ProcessState_PROCESS_STATE_UNKNOWN, Reason: "history_initialized",
+			OccurredAt: timestamppb.New(startedAt.Add(-time.Hour)), UncertainSince: timestamppb.New(startedAt.Add(-time.Hour))},
+		{Id: 2, Status: nodeapi.ProcessState_PROCESS_STATE_RUNNING, Reason: "start_succeeded", BundleId: "bundle_a",
+			Pid: 42, ProcessStartedAt: timestamppb.New(startedAt), OccurredAt: timestamppb.New(startedAt)},
+	} {
+		sendEvent(t, stream, &nodeapi.Event{Body: &nodeapi.Event_RuntimeTransition{RuntimeTransition: transition}})
+	}
+	sampledAt := time.Now().UTC().Add(-15 * time.Second)
+	for index, totals := range [][2]uint64{{1000, 5000}, {1300, 5900}} {
+		sendEvent(t, stream, &nodeapi.Event{Body: &nodeapi.Event_MetricsSample{MetricsSample: &nodeapi.MetricsSample{
+			SampledAt: timestamppb.New(sampledAt.Add(time.Duration(index) * 10 * time.Second)), CpuCount: 2,
+			Traffic: &nodeapi.TrafficCounters{BundleId: "bundle_a", Pid: 42, ProcessStartToken: "start-a",
+				UploadBytes: totals[0], DownloadBytes: totals[1], Connections: 3, MemoryBytes: 1 << 20},
+		}}})
+	}
+
+	// The panel records events in order, so the last one settles the rest.
+	var metrics telemetry.MetricsSnapshot
+	for deadline := time.Now().Add(5 * time.Second); ; time.Sleep(20 * time.Millisecond) {
+		metrics, err = service.NodeMetrics(t.Context(), node.id)
+		if err == nil && metrics.CurrentTrafficData.OutboundBytes == 300 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("node metrics = %+v, %v; want the delta of the two samples", metrics, err)
+		}
+	}
+	if !metrics.Available || metrics.AppliedBundleID != "bundle_a" || metrics.CurrentTrafficData.InboundBytes != 900 ||
+		metrics.LiveSample == nil || metrics.LiveSample.ActiveConnections != 3 || metrics.Host == nil || metrics.Host.CPUCount != 2 {
+		t.Fatalf("node metrics = %+v", metrics)
+	}
+	view, err := service.Node(t.Context(), node.id)
+	if err != nil || view.ReportedAt == nil || view.PublicIP != "203.0.113.7" || view.Runtime == nil ||
+		view.Runtime.ObservationState != "running" || view.Runtime.Running == nil || view.Runtime.Running.PID != 42 {
+		t.Fatalf("node view = %+v, %v", view, err)
+	}
+	if file, err := served.configs.ConfigurationFile(t.Context(), node.id); err != nil || file.Revision != 2 || file.Content != string(existing) {
+		t.Fatalf("configuration = %+v, %v; want the configuration the node runs", file, err)
+	}
+	history, err := served.records.RuntimeHistory(t.Context(), telemetry.RuntimeHistoryRequest{NodeID: node.id, Limit: 10})
+	if err != nil || len(history.Items) != 2 || history.Items[0].Reason != "start_succeeded" || !history.HistoryStartedAt.Equal(startedAt.Add(-time.Hour)) {
+		t.Fatalf("runtime history = %+v, %v", history, err)
+	}
+
+	// A viewer of live metrics raises the node to one sample a second.
+	_, unsubscribe := service.SubscribeMetrics(node.id)
+	for _, want := range []time.Duration{fleet.LiveMetricsInterval, fleet.MetricsInterval} {
+		frame, err := stream.Recv()
+		if err != nil || frame.GetTelemetryControl().GetMetricsInterval().AsDuration() != want {
+			t.Fatalf("telemetry control = %v, %v; want %s", frame, err, want)
+		}
+		unsubscribe()
+	}
+
+	// A new session sends only the history the panel lacks.
+	_ = stream.CloseSend()
+	_, welcome, err = node.handshake(t, node.key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if welcome.GetRuntimeHistoryAfter() != 2 {
+		t.Fatalf("runtime history after reconnecting = %d, want 2", welcome.GetRuntimeHistoryAfter())
+	}
+}
+
+func TestCacheSweepKeepsTheArchivesNodesUse(t *testing.T) {
+	served := startFleet(t, nil)
+	cachedAt := time.Now().UTC().Add(-2 * fleet.InstallTimeout)
+	cache := func(id, kind, digest string) {
+		t.Helper()
+		artifact := store.CachedArtifact{
+			ID: id, SourceKind: kind, SHA256: digest, Size: 10, OS: "linux", Arch: "amd64", Variant: "musl",
+			ExactVersion: "1.13.19", CreatedAt: cachedAt,
+		}
+		if kind == store.CachedArtifactOfficial {
+			artifact.RepositoryID, artifact.ReleaseID, artifact.AssetID = 1, 2, int64(len(id))
+		} else {
+			artifact.UserSource = "uploaded"
+		}
+		if _, err := served.database.RecordCachedArtifact(t.Context(), artifact); err != nil {
+			t.Fatal(err)
+		}
+		path := filepath.Join(served.dataDir, "artifact-cache", digest+".tar.gz")
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte("archive"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	installed, unused, uploaded := strings.Repeat("a", 64), strings.Repeat("b", 64), strings.Repeat("c", 64)
+	cache("artifact_installed", store.CachedArtifactOfficial, installed)
+	cache("artifact_unused", store.CachedArtifactOfficial, unused)
+	cache("artifact_uploaded", store.CachedArtifactUserVerified, uploaded)
+
+	// A node that went offline still has what it last reported installed.
+	enrollment, err := served.service.AddNode(t.Context(), "edge")
+	if err != nil {
+		t.Fatal(err)
+	}
+	node := &rawNode{client: dialRaw(t, served.endpoint, basePath, true)}
+	if err := node.enroll(t, enrollment.Code); err != nil {
+		t.Fatal(err)
+	}
+	stream, _, err := node.handshake(t, node.key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sendEvent(t, stream, &nodeapi.Event{Body: &nodeapi.Event_StateReport{StateReport: &nodeapi.StateReport{
+		Installed: []*nodeapi.InstalledCore{{Artifact: &nodeapi.ArtifactIdentity{Id: "artifact_installed"}}},
+	}}})
+	for deadline := time.Now().Add(5 * time.Second); ; time.Sleep(20 * time.Millisecond) {
+		if view, err := served.service.Node(t.Context(), node.id); err == nil && view.ReportedAt != nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the node's report was not recorded")
+		}
+	}
+	_ = stream.CloseSend()
+	waitState(t, served.service, node.id, fleet.StateOffline)
+
+	removed, err := served.service.SweepArtifactCache(t.Context())
+	if err != nil || removed != 1 {
+		t.Fatalf("sweep removed %d, %v; want only the unused official archive", removed, err)
+	}
+	for id, kept := range map[string]bool{"artifact_installed": true, "artifact_unused": false, "artifact_uploaded": true} {
+		_, err := served.database.CachedArtifact(t.Context(), id)
+		if kept != (err == nil) {
+			t.Fatalf("cached %s after the sweep: %v, want kept=%v", id, err, kept)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(served.dataDir, "artifact-cache", unused+".tar.gz")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("the unused archive's file remains: %v", err)
 	}
 }

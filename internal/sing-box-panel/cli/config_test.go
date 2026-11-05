@@ -294,7 +294,7 @@ func TestPanelConfigGetField(t *testing.T) {
 		{"server.port", "3000", "3000"},
 		{"server.host", "127.0.0.1", `"127.0.0.1"`},
 		{"github.token", "", `""`},
-		{"traffic.quota_gib", "null", "null"},
+		{"traffic.sample_retention_days", "90", "90"},
 		{"subscription.private_source_cidrs", "[]", "[]"},
 		{"server", `{"host":"127.0.0.1","port":3000,"base_path":""}`, `{"host":"127.0.0.1","port":3000,"base_path":""}`},
 		{"auth.password_hash", testutil.PasswordHash, string(hash)},
@@ -361,7 +361,6 @@ func TestPanelConfigSetClearsOptionalValues(t *testing.T) {
 	for _, tc := range []struct{ field, populated, cleared, output string }{
 		{"github.token", "secret-token", "", "\n"},
 		{"server.external_origin", "https://panel.example.com", "", "\n"},
-		{"traffic.quota_gib", "42", "null", "null\n"},
 		{"subscription.private_source_cidrs", `["10.0.0.0/8"]`, "[]", "[]\n"},
 	} {
 		for _, value := range []string{tc.populated, tc.cleared} {

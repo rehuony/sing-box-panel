@@ -4,7 +4,6 @@ package settings
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -62,49 +61,4 @@ func resolveDataDir(path, dataDir string) (string, error) {
 		return "", fmt.Errorf("resolve settings %q data_dir: %w", path, err)
 	}
 	return resolved, nil
-}
-
-// LoadTrafficQuota reads the shared file quota only when a metrics query needs
-// it, without validating unrelated runtime fields.
-func LoadTrafficQuota(path string) (*int64, error) {
-	value, err := LoadTrafficAccounting(path)
-	return value.QuotaGiB, err
-}
-
-// LoadTrafficAccounting reads quota and period from one file snapshot without
-// making read-only metrics commands depend on unrelated runtime settings.
-func LoadTrafficAccounting(path string) (Traffic, error) {
-	var fields map[string]json.RawMessage
-	if err := readSettings(path, &fields); err != nil {
-		return Traffic{}, err
-	}
-	var traffic map[string]json.RawMessage
-	if raw, exists := fields["traffic"]; exists {
-		if err := json.Unmarshal(raw, &traffic); err != nil {
-			return Traffic{}, fmt.Errorf("parse settings %q traffic: %w", path, err)
-		}
-	}
-	value := Traffic{PeriodMonths: 1}
-	for field, destination := range map[string]any{"quota_gib": &value.QuotaGiB, "period_months": &value.PeriodMonths} {
-		if raw, exists := traffic[field]; exists {
-			if err := json.Unmarshal(raw, destination); err != nil {
-				return Traffic{}, fmt.Errorf("parse settings %q traffic.%s: %w", path, field, err)
-			}
-		}
-	}
-	if err := ValidateTrafficQuota(value.QuotaGiB); err != nil {
-		return Traffic{}, err
-	}
-	if value.PeriodMonths < 1 || value.PeriodMonths > 120 {
-		return Traffic{}, errors.New("traffic.period_months must be between 1 and 120")
-	}
-	return value, nil
-}
-
-// ValidateTrafficQuota ensures a quota can be safely converted from GiB to bytes.
-func ValidateTrafficQuota(quota *int64) error {
-	if quota != nil && (*quota < 0 || *quota > (1<<63-1)/(1<<30)) {
-		return errors.New("traffic.quota_gib must be null or a non-negative value representable in bytes")
-	}
-	return nil
 }

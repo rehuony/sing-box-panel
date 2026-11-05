@@ -52,7 +52,7 @@ var knownDataPaths = []struct{ name, role string }{
 	{"panel.db-shm", "database shared memory"},
 	{"panel.db-wal", "database write-ahead log"},
 	{"panel.db", "database (configuration, panel logs and product state)"},
-	{procctl.LeaseFileName, "runtime ownership lock"},
+	{procctl.LeaseFileName, "process ownership lock"},
 }
 
 // Inspect never initializes settings or databases and never runs migrations.

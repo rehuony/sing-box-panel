@@ -13,18 +13,17 @@ import (
 
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/store"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/telemetry"
+	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/testutil"
 )
 
 func TestRuntimeHistoryHTTPUsesStablePairedCursor(t *testing.T) {
 	handler, database := newCoreHTTPFixture(t)
-	initialized, err := database.LatestRuntimeTransition(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	now := initialized.OccurredAt.Add(time.Minute)
+	nodeID := testutil.CreateNode(t, database, "edge")
+	historyPath := "/api/v1/nodes/" + nodeID + "/core/runtime/history"
+	now := time.Now().UTC().Add(-time.Minute)
 	for index, reason := range []string{"startup_reconciled_stopped", "stop_succeeded"} {
-		if _, err := database.AppendRuntimeTransition(context.Background(), store.RuntimeTransitionInput{
-			DedupeKey:  "runtime-http-" + strconv.Itoa(index),
+		if err := database.RecordRuntimeTransition(context.Background(), store.RuntimeTransitionInput{
+			NodeID: nodeID, InstanceID: "instance", SourceID: int64(index + 1),
 			State:      store.RuntimeTransitionStopped,
 			Reason:     reason,
 			OccurredAt: now.Add(time.Duration(index) * time.Second),
@@ -39,7 +38,7 @@ func TestRuntimeHistoryHTTPUsesStablePairedCursor(t *testing.T) {
 	response := authenticatedRequest(t,
 		handler,
 		http.MethodGet,
-		"/api/v1/core/runtime/history?"+query.Encode(),
+		historyPath+"?"+query.Encode(),
 		"",
 		"",
 	)
@@ -63,7 +62,7 @@ func TestRuntimeHistoryHTTPUsesStablePairedCursor(t *testing.T) {
 	nextResponse := authenticatedRequest(t,
 		handler,
 		http.MethodGet,
-		"/api/v1/core/runtime/history?"+nextQuery.Encode(),
+		historyPath+"?"+nextQuery.Encode(),
 		"",
 		"",
 	)
@@ -79,8 +78,8 @@ func TestRuntimeHistoryHTTPUsesStablePairedCursor(t *testing.T) {
 	}
 
 	for _, target := range []string{
-		"/api/v1/core/runtime/history?before_time=" + url.QueryEscape(now.Format(time.RFC3339Nano)),
-		"/api/v1/core/runtime/history?state=starting",
+		historyPath + "?before_time=" + url.QueryEscape(now.Format(time.RFC3339Nano)),
+		historyPath + "?state=starting",
 	} {
 		invalid := authenticatedRequest(t, handler, http.MethodGet, target, "", "")
 		if invalid.Code != http.StatusBadRequest {

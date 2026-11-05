@@ -8,10 +8,12 @@ import type { ApiClient, CoreLogChunk, CoreLogFile,
   LogStreamEvent,
   MetricsHistory,
   MetricsSnapshot,
+  NodeTrafficSettings,
   PanelLogPage,
   TrafficPeriod,
   TrafficPeriodFilter,
-  TrafficPeriodPage } from '../api-client';
+  TrafficPeriodPage,
+  TrafficStatus } from '../api-client';
 
 import { ApiRequestError } from '../api-client';
 import { readJSONEvents } from './event-stream';
@@ -90,7 +92,7 @@ async function* readLogEvents(response: Response): AsyncGenerator<LogStreamEvent
 }
 
 export function createObservabilityHttpApi(context: HttpApiContext) {
-  const { baseUrl, buildQuery, fetcher, nodeUrl, openEventStream, request, writeHeaders } = context;
+  const { baseUrl, buildQuery, fetcher, nodeUrl, openEventStream, request, writeHeaders, writeJSONHeaders } = context;
   return {
     listCoreLogFiles(signal) {
       return request<{ items: CoreLogFile[] }>(fetcher, `${nodeUrl()}/core/logs/files`, {
@@ -175,7 +177,7 @@ export function createObservabilityHttpApi(context: HttpApiContext) {
       });
     },
     async* streamMetrics(signal) {
-      const response = await openEventStream(fetcher, `${baseUrl}/metrics/stream`, {
+      const response = await openEventStream(fetcher, `${nodeUrl()}/metrics/stream`, {
         method: 'GET',
         signal,
       });
@@ -195,7 +197,7 @@ export function createObservabilityHttpApi(context: HttpApiContext) {
       }
     },
     async* streamDashboard(signal) {
-      const response = await openEventStream(fetcher, `${baseUrl}/dashboard/stream`, {
+      const response = await openEventStream(fetcher, `${nodeUrl()}/dashboard/stream`, {
         method: 'GET',
         signal,
       });
@@ -212,7 +214,7 @@ export function createObservabilityHttpApi(context: HttpApiContext) {
       }
     },
     getMetrics(signal) {
-      return request<MetricsSnapshot>(fetcher, `${baseUrl}/metrics`, {
+      return request<MetricsSnapshot>(fetcher, `${nodeUrl()}/metrics`, {
         method: 'GET',
         signal,
       });
@@ -224,35 +226,45 @@ export function createObservabilityHttpApi(context: HttpApiContext) {
         bucket_seconds: filter.bucketSeconds,
         activation_bundle_id: filter.activationBundleID,
       });
-      return request<MetricsHistory>(fetcher, `${baseUrl}/metrics/history${query}`, {
+      return request<MetricsHistory>(fetcher, `${nodeUrl()}/metrics/history${query}`, {
         method: 'GET',
         signal,
       });
     },
     getTrafficStatus(signal) {
-      return request<MetricsSnapshot>(fetcher, `${baseUrl}/traffic/status`, {
+      return request<TrafficStatus>(fetcher, `${baseUrl}/traffic/status`, {
         method: 'GET',
         signal,
       });
     },
     listTrafficPeriods(filter: TrafficPeriodFilter = {}, signal) {
       const query = buildQuery({
-        activation_bundle_id: filter.activationBundleID,
         from: filter.from,
         to: filter.to,
         before_time: filter.beforeTime,
         before_id: filter.beforeID,
         limit: filter.limit ?? 50,
       });
-      return request<TrafficPeriodPage>(fetcher, `${baseUrl}/traffic/periods${query}`, {
+      return request<TrafficPeriodPage>(fetcher, `${nodeUrl()}/traffic/periods${query}`, {
         method: 'GET',
         signal,
+      });
+    },
+    getNodeTrafficSettings(signal) {
+      return request<NodeTrafficSettings>(fetcher, `${nodeUrl()}/traffic/settings`, { method: 'GET', signal });
+    },
+    saveNodeTrafficSettings(input, signal) {
+      return request<NodeTrafficSettings>(fetcher, `${nodeUrl()}/traffic/settings`, {
+        method: 'PUT',
+        signal,
+        headers: writeJSONHeaders(),
+        body: JSON.stringify(input),
       });
     },
     getTrafficPeriod(periodID, signal) {
       return request<TrafficPeriod>(
         fetcher,
-        `${baseUrl}/traffic/periods/${encodeURIComponent(periodID)}`,
+        `${nodeUrl()}/traffic/periods/${encodeURIComponent(periodID)}`,
         { method: 'GET', signal },
       );
     },

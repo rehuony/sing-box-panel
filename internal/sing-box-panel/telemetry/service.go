@@ -8,6 +8,7 @@ package telemetry
 import (
 	"context"
 	"crypto/rand"
+	"sync"
 	"time"
 
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/settings"
@@ -16,13 +17,17 @@ import (
 
 // Service records and reads panel telemetry.
 type Service struct {
-	database      *store.Store
-	now           func() time.Time
-	random        func([]byte) (int, error)
-	logObserver   func(store.LogEntry)
-	classify      Classifier
-	settings      *settings.Service
-	dashboardFeed *Feed[DashboardStreamSnapshot]
+	database    *store.Store
+	now         func() time.Time
+	random      func([]byte) (int, error)
+	logObserver func(store.LogEntry)
+	classify    Classifier
+	settings    *settings.Service
+	live        liveNodes
+
+	dashboardsMu sync.Mutex
+	root         context.Context
+	dashboards   map[string]*Feed[DashboardStreamSnapshot]
 }
 
 // Options supplies a Service's collaborators.
@@ -46,6 +51,9 @@ func New(database *store.Store, panelSettings *settings.Service, options Options
 		logObserver: options.Observe,
 		classify:    options.Classify,
 		settings:    panelSettings,
+		live:        liveNodes{nodes: map[string]*liveNode{}},
+		root:        context.Background(),
+		dashboards:  map[string]*Feed[DashboardStreamSnapshot]{},
 	}
 	if options.Now != nil {
 		service.now = options.Now
@@ -53,11 +61,15 @@ func New(database *store.Store, panelSettings *settings.Service, options Options
 	if options.Random != nil {
 		service.random = options.Random
 	}
-	service.dashboardFeed = NewFeed(30*time.Second, service.DashboardSnapshot)
 	return service
 }
 
 // Bind sets the lifetime of shared reads before requests are served.
 func (service *Service) Bind(ctx context.Context) {
-	service.dashboardFeed.Bind(ctx)
+	service.dashboardsMu.Lock()
+	defer service.dashboardsMu.Unlock()
+	service.root = ctx
+	for _, feed := range service.dashboards {
+		feed.Bind(ctx)
+	}
 }

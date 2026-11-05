@@ -8,10 +8,13 @@ export type {
   MetricsHistory,
   MetricsHistoryBucket,
   MetricsSnapshot,
+  NodeTrafficSettings,
+  NodeTrafficUsage,
   TrafficPeriod,
   TrafficPeriodCursor,
   TrafficPeriodPage,
   TrafficSample,
+  TrafficStatus,
 } from '../generated';
 
 export type LogSource = LogEntry['source'];
@@ -48,7 +51,6 @@ export interface TrafficPeriodFilter {
   limit?: number;
   beforeID?: string;
   beforeTime?: string;
-  activationBundleID?: string;
 }
 
 export interface MetricsHistoryFilter {

@@ -26,8 +26,8 @@ describe('settings validation', () => {
       .toEqual({ category: 'service', field: 'public-host' });
     expect(invalidSettingsField(view.preferences, { ...view.service, catalog_refresh_interval_hours: 0 }, ''))
       .toEqual({ category: 'maintenance', field: 'catalog-refresh-interval' });
-    expect(invalidSettingsField(view.preferences, { ...view.service, traffic_period_months: 0 }, ''))
-      .toEqual({ category: 'traffic', field: 'traffic-period' });
+    expect(invalidSettingsField(view.preferences, { ...view.service, sample_retention_days: 0 }, ''))
+      .toEqual({ category: 'traffic', field: 'sample-retention' });
   });
 });
 

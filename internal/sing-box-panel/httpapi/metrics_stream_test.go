@@ -15,7 +15,7 @@ import (
 func TestMetricsStreamReportsInitialCollectionFailure(t *testing.T) {
 	handler, database := newCoreHTTPFixture(t)
 	response := httptest.NewRecorder()
-	request := httptest.NewRequest(http.MethodGet, "/api/v1/metrics/stream", nil)
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/nodes/node_edge/metrics/stream", nil)
 	testutil.Authorize(t, handler, request)
 	if err := database.Close(); err != nil {
 		t.Fatal(err)

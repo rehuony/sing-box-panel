@@ -82,14 +82,14 @@ func TestPanelLogsExposeHistoricalPublicRuntimeContext(t *testing.T) {
 	db := openTestStore(t, ctx)
 	now := time.Now().UTC().Add(time.Minute)
 	bundle := trafficBundle{ID: "bundle-panel-logs"}
-	observation := runtimeProcess{PID: 4242, ProcessStartToken: "start-token", StartedAt: now}
+	observation := runtimeProcess{PID: 4242, StartedAt: now}
 	now = observation.StartedAt.Add(time.Minute)
-	input := runtimeTransitionTestInput("panel-detail", RuntimeTransitionUnknown, "termination_result_uncertain", bundle.ID, observation, now.Add(time.Second))
+	input := runtimeTransitionTestInput(2, RuntimeTransitionUnknown, "termination_result_uncertain", bundle.ID, observation, now.Add(time.Second))
 	input.UncertainSince = &now
-	if _, err := db.AppendRuntimeTransition(ctx, input); err != nil {
+	if err := db.RecordRuntimeTransition(ctx, input); err != nil {
 		t.Fatal(err)
 	}
-	page, err := db.ListPanelLogs(ctx, PanelLogFilter{SearchCodes: []string{input.Reason}})
+	page, err := db.ListPanelLogs(ctx, PanelLogFilter{SearchCodes: []string{input.Reason}, NodeID: testNodeID})
 	if err != nil || len(page.Items) != 1 {
 		t.Fatalf("panel logs: %+v, %v", page, err)
 	}
@@ -98,11 +98,19 @@ func TestPanelLogsExposeHistoricalPublicRuntimeContext(t *testing.T) {
 	if err := json.Unmarshal(item.Metadata, &metadata); err != nil {
 		t.Fatal(err)
 	}
-	if item.Source != "runtime" || item.Status != "unknown" || len(metadata) != 5 || metadata["activation_bundle_id"] != bundle.ID || metadata["pid"] != float64(observation.PID) || metadata["generation"] != float64(input.Generation) || metadata["process_started_at"] != formatTime(*input.ProcessStartedAt) || metadata["uncertain_since"] != formatTime(now) {
+	if item.Source != "runtime" || item.Status != "unknown" || len(metadata) != 6 || metadata["node_id"] != testNodeID ||
+		metadata["activation_bundle_id"] != bundle.ID || metadata["pid"] != float64(observation.PID) ||
+		metadata["generation"] != float64(input.Generation) || metadata["process_started_at"] != formatTime(*input.ProcessStartedAt) ||
+		metadata["uncertain_since"] != formatTime(now) {
 		t.Fatalf("historical context: %+v, %s", item, item.Metadata)
 	}
-	if strings.Contains(string(item.Metadata), "process_start_token") || strings.Contains(string(item.Metadata), input.ProcessStartToken) {
-		t.Fatalf("internal evidence leaked: %s", item.Metadata)
+	if other, err := db.ListPanelLogs(ctx, PanelLogFilter{SearchCodes: []string{input.Reason}, NodeID: "node_other"}); err != nil || len(other.Items) != 0 {
+		t.Fatalf("another node's logs: %+v, %v", other, err)
+	}
+	marker := RuntimeTransitionInput{NodeID: testNodeID, InstanceID: "instance-a", SourceID: 1, State: RuntimeTransitionUnknown,
+		Reason: "history_initialized", OccurredAt: now, UncertainSince: &now}
+	if err := db.RecordRuntimeTransition(ctx, marker); err != nil {
+		t.Fatal(err)
 	}
 	page, err = db.ListPanelLogs(ctx, PanelLogFilter{SearchCodes: []string{"history_initialized"}})
 	if err != nil || len(page.Items) != 1 || strings.Contains(string(page.Items[0].Metadata), `"pid"`) {

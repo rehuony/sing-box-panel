@@ -21,6 +21,7 @@ import type {
   SubscriptionToken,
   SystemStatus,
   TrafficPeriod,
+  TrafficStatus,
 } from '@/api/api-client';
 
 import { reviewedSchemaManifest } from '@/schemas';
@@ -192,8 +193,15 @@ export const testMetrics: MetricsSnapshot = {
   applied_bundle_id: 'bundle_18',
   monitoring_tier: 'limited',
   collected_at: '2026-08-26T07:34:00Z',
-  quota_exceeded: false,
   current_traffic_period: testTrafficPeriod,
+  quota_exceeded: false,
+};
+
+export const testTrafficStatus: TrafficStatus = {
+  collected_at: '2026-08-26T07:34:00Z',
+  upload_bytes: testTrafficPeriod.outbound_bytes,
+  download_bytes: testTrafficPeriod.inbound_bytes,
+  nodes: [{ node_id: 'node_a', current_traffic_period: testTrafficPeriod, quota_exceeded: false }],
 };
 
 export const testMetricsHistory: MetricsHistory = {
@@ -299,7 +307,7 @@ export function createMockApiClient(overrides: Partial<ApiClient> = {}): Mocked<
     restorePanelBackup: vi.fn<ApiClient['restorePanelBackup']>(),
     getPanelSettings: vi.fn<ApiClient['getPanelSettings']>().mockResolvedValue({ admin_email: 'admin@example.com',
       revision: 0,
-      service: { data_dir: '/var/lib/sing-box-panel', base_path: '', catalog_refresh_interval_hours: 12, traffic_period_months: 1, sample_retention_days: 90, private_source_cidrs: [] },
+      service: { data_dir: '/var/lib/sing-box-panel', base_path: '', catalog_refresh_interval_hours: 12, sample_retention_days: 90, private_source_cidrs: [] },
       github_token_configured: false,
       restart_required: false,
       preferences: {
@@ -307,7 +315,6 @@ export function createMockApiClient(overrides: Partial<ApiClient> = {}): Mocked<
         listen_port: 3000,
         external_origin: '',
         public_node_host: '',
-        traffic_quota_gib: null,
         language: 'en',
         appearance: { ...DEFAULT_APPEARANCE },
       },
@@ -315,7 +322,7 @@ export function createMockApiClient(overrides: Partial<ApiClient> = {}): Mocked<
     savePanelSettings: vi.fn<ApiClient['savePanelSettings']>().mockImplementation(async (input) => ({ reauthentication_required: false, settings: { admin_email: 'admin@example.com',
       revision: input.revision + 1,
       preferences: input.preferences,
-      service: input.service ?? { data_dir: '/var/lib/sing-box-panel', base_path: '', catalog_refresh_interval_hours: 12, traffic_period_months: 1, sample_retention_days: 90, private_source_cidrs: [] },
+      service: input.service ?? { data_dir: '/var/lib/sing-box-panel', base_path: '', catalog_refresh_interval_hours: 12, sample_retention_days: 90, private_source_cidrs: [] },
       github_token_configured: Boolean(input.github_token),
       restart_required: false,
     } })),
@@ -458,9 +465,11 @@ export function createMockApiClient(overrides: Partial<ApiClient> = {}): Mocked<
     }),
     getMetrics: vi.fn<ApiClient['getMetrics']>().mockResolvedValue(testMetrics),
     getMetricsHistory: vi.fn<ApiClient['getMetricsHistory']>().mockResolvedValue(testMetricsHistory),
-    getTrafficStatus: vi.fn<ApiClient['getTrafficStatus']>().mockResolvedValue(testMetrics),
+    getTrafficStatus: vi.fn<ApiClient['getTrafficStatus']>().mockResolvedValue(testTrafficStatus),
     listTrafficPeriods: vi.fn<ApiClient['listTrafficPeriods']>(),
     getTrafficPeriod: vi.fn<ApiClient['getTrafficPeriod']>(),
+    getNodeTrafficSettings: vi.fn<ApiClient['getNodeTrafficSettings']>(),
+    saveNodeTrafficSettings: vi.fn<ApiClient['saveNodeTrafficSettings']>(),
   };
   const result = { ...client, ...overrides } as Mocked<ApiClient>;
   // A node's client shares the mocks, so tests observe node-scoped calls.

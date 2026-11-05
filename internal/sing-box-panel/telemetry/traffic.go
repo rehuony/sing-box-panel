@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/settings"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/store"
 )
 
@@ -19,48 +18,88 @@ type TrafficSampleRetentionResult struct {
 	Cutoff  time.Time `json:"cutoff"`
 }
 
-// CurrentTrafficUsage is shared by metrics and public subscription headers.
-// A successful empty ledger is zero; a storage or settings failure remains an error.
-func (service *Service) CurrentTrafficUsage(ctx context.Context, at time.Time) (store.TrafficPeriod, *int64, error) {
-	policy, err := service.TrafficAccounting(ctx)
-	if err != nil {
-		return store.TrafficPeriod{}, nil, err
-	}
-	start, end, err := NaturalTrafficPeriod(at, policy.PeriodMonths)
-	if err != nil {
-		return store.TrafficPeriod{}, nil, err
-	}
-	period, err := service.database.AggregateTrafficPeriod(ctx, start, end, at)
-	if err != nil {
-		return store.TrafficPeriod{}, nil, err
-	}
-	var quota *int64
-	if policy.QuotaGiB != nil && *policy.QuotaGiB > 0 {
-		value := *policy.QuotaGiB * gibibyte
-		quota = &value
-	}
-	return period, quota, nil
+// NodeTrafficUsage is one node's recorded traffic in its current period,
+// against its own quota.
+type NodeTrafficUsage struct {
+	NodeID        string              `json:"node_id"`
+	Period        store.TrafficPeriod `json:"current_traffic_period"`
+	QuotaBytes    *int64              `json:"quota_bytes,omitempty"`
+	QuotaExceeded bool                `json:"quota_exceeded"`
 }
 
-// TrafficAccounting reads the traffic quota and period from the panel
-// settings at each operation boundary.
-func (service *Service) TrafficAccounting(ctx context.Context) (settings.Traffic, error) {
-	if service.settings == nil {
-		return settings.Traffic{}, errors.New("traffic policy is unavailable")
-	}
-	return service.settings.TrafficAccounting(ctx)
+// TrafficStatus is every node's recorded traffic in its own current period.
+// Quotas belong to nodes, so the fleet sums only usage.
+type TrafficStatus struct {
+	CollectedAt   time.Time          `json:"collected_at"`
+	UploadBytes   int64              `json:"upload_bytes"`
+	DownloadBytes int64              `json:"download_bytes"`
+	Nodes         []NodeTrafficUsage `json:"nodes"`
 }
 
-// NaturalTrafficPeriod returns the UTC calendar period of months that contains at.
-func NaturalTrafficPeriod(at time.Time, months int) (time.Time, time.Time, error) {
-	if at.IsZero() || months < 1 || months > 120 {
+// NodeTraffic returns a node's recorded traffic in the period that contains
+// at. A successful empty ledger is zero; a storage failure remains an error.
+func (service *Service) NodeTraffic(ctx context.Context, nodeID string, at time.Time) (NodeTrafficUsage, error) {
+	node, err := service.database.Node(ctx, nodeID)
+	if err != nil {
+		return NodeTrafficUsage{}, err
+	}
+	return service.nodeTraffic(ctx, node, at)
+}
+
+func (service *Service) nodeTraffic(ctx context.Context, node store.Node, at time.Time) (NodeTrafficUsage, error) {
+	start, end, err := TrafficPeriod(at, node.Traffic)
+	if err != nil {
+		return NodeTrafficUsage{}, err
+	}
+	period, err := service.database.AggregateTrafficPeriod(ctx, node.ID, start, end, at)
+	if err != nil {
+		return NodeTrafficUsage{}, err
+	}
+	usage := NodeTrafficUsage{NodeID: node.ID, Period: period}
+	if node.Traffic.QuotaGiB != nil {
+		quota := *node.Traffic.QuotaGiB * gibibyte
+		usage.QuotaBytes = &quota
+		usage.QuotaExceeded = period.InboundBytes+period.OutboundBytes >= quota
+	}
+	return usage, nil
+}
+
+// TrafficStatus returns every node's traffic in its current period and their
+// summed usage, as public subscription headers report it.
+func (service *Service) TrafficStatus(ctx context.Context, at time.Time) (TrafficStatus, error) {
+	nodes, err := service.database.Nodes(ctx)
+	if err != nil {
+		return TrafficStatus{}, err
+	}
+	status := TrafficStatus{CollectedAt: at.UTC(), Nodes: make([]NodeTrafficUsage, 0, len(nodes))}
+	for _, node := range nodes {
+		usage, err := service.nodeTraffic(ctx, node, at)
+		if err != nil {
+			return TrafficStatus{}, err
+		}
+		status.Nodes = append(status.Nodes, usage)
+		status.UploadBytes += usage.Period.OutboundBytes
+		status.DownloadBytes += usage.Period.InboundBytes
+	}
+	return status, nil
+}
+
+// TrafficPeriod returns the node's period that contains at: periods of
+// value.PeriodMonths months start at 00:00 UTC on value.ResetDay, aligned to
+// months counted from January 1970.
+func TrafficPeriod(at time.Time, value store.NodeTrafficSettings) (time.Time, time.Time, error) {
+	months, day := value.PeriodMonths, value.ResetDay
+	if at.IsZero() || months < 1 || months > store.MaximumTrafficPeriodMonths || day < 1 || day > store.MaximumTrafficResetDay {
 		return time.Time{}, time.Time{}, fmt.Errorf("invalid traffic period configuration")
 	}
 	at = at.UTC()
 	monthIndex := (at.Year()-1970)*12 + int(at.Month()) - 1
+	if at.Day() < day {
+		monthIndex--
+	}
 	startIndex := monthIndex - floorMod(monthIndex, months)
-	start := time.Date(1970, time.January, 1, 0, 0, 0, 0, time.UTC).AddDate(0, startIndex, 0)
-	return start, start.AddDate(0, months, 0), nil
+	start := time.Date(1970, time.Month(1+startIndex), day, 0, 0, 0, 0, time.UTC)
+	return start, time.Date(1970, time.Month(1+startIndex+months), day, 0, 0, 0, 0, time.UTC), nil
 }
 
 func floorMod(value, divisor int) int {
@@ -100,15 +139,8 @@ func (application *Service) EnforceTrafficSampleRetention(ctx context.Context) (
 	return TrafficSampleRetentionResult{Deleted: deleted, Cutoff: cutoff}, nil
 }
 
-func (application *Service) TrafficPeriod(ctx context.Context, periodID string) (store.TrafficPeriod, error) {
-	return application.database.GetTrafficPeriod(ctx, periodID)
-}
-
-func (application *Service) ListTrafficPeriods(
-	ctx context.Context,
-	filter store.TrafficPeriodFilter,
-) ([]store.TrafficPeriod, error) {
-	return application.database.ListTrafficPeriods(ctx, filter)
+func (application *Service) TrafficPeriod(ctx context.Context, nodeID, periodID string) (store.TrafficPeriod, error) {
+	return application.database.GetTrafficPeriod(ctx, nodeID, periodID)
 }
 
 func (application *Service) ListTrafficPeriodPage(

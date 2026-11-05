@@ -202,3 +202,26 @@ CREATE TABLE command_results (
 ) STRICT;
 
 CREATE INDEX command_results_completed ON command_results(completed_at);
+
+-- node_instance identifies this database. Runtime history IDs and traffic
+-- counters belong to it, so a recreated database starts both again.
+CREATE TABLE node_instance (
+    singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+    id TEXT NOT NULL CHECK (length(id) = 32 AND id NOT GLOB '*[^0-9a-f]*')
+) STRICT;
+
+INSERT INTO node_instance(singleton, id) VALUES (1, lower(hex(randomblob(16))));
+
+-- traffic_checkpoint holds the instance's cumulative traffic and the last
+-- counters read from the core process they were last added from.
+CREATE TABLE traffic_checkpoint (
+    singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+    pid INTEGER NOT NULL CHECK (pid > 0),
+    process_start_token TEXT NOT NULL CHECK (process_start_token <> ''),
+    activation_bundle_id TEXT NOT NULL CHECK (activation_bundle_id <> ''),
+    process_upload INTEGER NOT NULL CHECK (process_upload >= 0),
+    process_download INTEGER NOT NULL CHECK (process_download >= 0),
+    upload_total INTEGER NOT NULL CHECK (upload_total >= 0),
+    download_total INTEGER NOT NULL CHECK (download_total >= 0),
+    sampled_at TEXT NOT NULL CHECK (sampled_at <> '')
+) STRICT;

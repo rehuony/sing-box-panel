@@ -75,6 +75,7 @@ func (handler *Handler) coreRuntimeHistory(w http.ResponseWriter, request *http.
 		return
 	}
 	page, err := handler.services.Telemetry.RuntimeHistory(request.Context(), telemetry.RuntimeHistoryRequest{
+		NodeID:             requestNodeID(request),
 		From:               from,
 		To:                 to,
 		State:              state,

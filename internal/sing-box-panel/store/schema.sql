@@ -78,75 +78,6 @@ CREATE TABLE subscription_source_versions (
     UNIQUE(source_id, sha256)
 ) STRICT;
 
-CREATE TABLE traffic_periods (
-    id TEXT PRIMARY KEY CHECK (id <> ''),
-    activation_bundle_id TEXT,
-    period_start TEXT NOT NULL CHECK (period_start <> ''),
-    period_end TEXT NOT NULL CHECK (period_end <> ''),
-    inbound_bytes INTEGER NOT NULL DEFAULT 0 CHECK (inbound_bytes >= 0),
-    outbound_bytes INTEGER NOT NULL DEFAULT 0 CHECK (outbound_bytes >= 0),
-    counters_json TEXT NOT NULL DEFAULT '{}'
-        CHECK (json_valid(counters_json)),
-    created_at TEXT NOT NULL CHECK (created_at <> ''),
-    CHECK (period_end > period_start)
-) STRICT;
-
-CREATE TABLE traffic_samples (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    activation_bundle_id TEXT NOT NULL,
-    pid INTEGER NOT NULL CHECK (pid > 0),
-    process_start_token TEXT NOT NULL CHECK (process_start_token <> ''),
-    sampled_at TEXT NOT NULL CHECK (sampled_at <> ''),
-    memory_bytes INTEGER NOT NULL CHECK (memory_bytes >= 0),
-    active_connections INTEGER NOT NULL CHECK (active_connections >= 0),
-    upload_total INTEGER NOT NULL CHECK (upload_total >= 0),
-    download_total INTEGER NOT NULL CHECK (download_total >= 0),
-    upload_delta INTEGER CHECK (upload_delta IS NULL OR upload_delta >= 0),
-    download_delta INTEGER CHECK (download_delta IS NULL OR download_delta >= 0),
-    interval_start TEXT,
-    interval_end TEXT,
-    coverage TEXT NOT NULL DEFAULT 'partial'
-        CHECK (coverage IN ('complete', 'partial')),
-    accepted INTEGER NOT NULL CHECK (accepted IN (0, 1)),
-    diagnostic_code TEXT NOT NULL DEFAULT '' CHECK (length(diagnostic_code) <= 128),
-    CHECK (
-        (interval_start IS NULL AND interval_end IS NULL)
-        OR
-        (interval_start IS NOT NULL AND interval_start <> ''
-            AND interval_end IS NOT NULL AND interval_end > interval_start
-            AND interval_end = sampled_at
-            AND upload_delta IS NOT NULL AND download_delta IS NOT NULL)
-    ),
-    CHECK (accepted = 1 OR interval_start IS NULL),
-    CHECK (coverage <> 'complete' OR interval_start IS NOT NULL)
-) STRICT;
-
-CREATE TABLE runtime_transitions (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    dedupe_key TEXT NOT NULL UNIQUE
-        CHECK (dedupe_key <> '' AND length(dedupe_key) <= 256),
-    state TEXT NOT NULL
-        CHECK (state IN ('running', 'stopped', 'failed', 'unknown')),
-    reason TEXT NOT NULL
-        CHECK (reason <> '' AND length(reason) <= 128),
-    activation_bundle_id TEXT,
-    generation INTEGER CHECK (generation IS NULL OR generation >= 0),
-    pid INTEGER CHECK (pid IS NULL OR pid > 0),
-    process_start_token TEXT,
-    process_started_at TEXT,
-    occurred_at TEXT NOT NULL CHECK (occurred_at <> ''),
-    uncertain_since TEXT,
-    CHECK (
-        (pid IS NULL AND process_start_token IS NULL AND process_started_at IS NULL)
-        OR
-        (pid IS NOT NULL AND process_start_token IS NOT NULL AND process_start_token <> ''
-            AND process_started_at IS NOT NULL AND process_started_at <> '')
-    ),
-    CHECK (state <> 'running' OR (activation_bundle_id IS NOT NULL AND pid IS NOT NULL)),
-    CHECK (state <> 'unknown' OR uncertain_since IS NOT NULL),
-    CHECK (uncertain_since IS NULL OR uncertain_since <= occurred_at)
-) STRICT;
-
 CREATE TABLE "subscription_tokens" (
     id TEXT PRIMARY KEY CHECK (id <> ''),
     user_id TEXT REFERENCES subscription_users(id) ON DELETE RESTRICT,
@@ -224,40 +155,6 @@ CREATE TABLE "log_entries" (
 CREATE INDEX subscription_source_versions_source_created
     ON subscription_source_versions(source_id, created_at DESC, id DESC);
 
-CREATE INDEX traffic_periods_range
-    ON traffic_periods(period_start, period_end);
-
-CREATE INDEX traffic_samples_timeline
-    ON traffic_samples(sampled_at DESC, id DESC);
-
-CREATE INDEX traffic_samples_bundle_timeline
-    ON traffic_samples(activation_bundle_id, sampled_at DESC, id DESC);
-
-CREATE INDEX traffic_samples_history
-    ON traffic_samples(sampled_at, id);
-
-CREATE INDEX traffic_samples_bundle_history
-    ON traffic_samples(activation_bundle_id, sampled_at, id);
-
-CREATE INDEX traffic_samples_interval_history
-    ON traffic_samples(interval_start, interval_end, id)
-    WHERE interval_start IS NOT NULL;
-
-CREATE INDEX traffic_periods_page
-    ON traffic_periods(period_start DESC, id DESC);
-
-CREATE INDEX runtime_transitions_timeline
-    ON runtime_transitions(occurred_at DESC, id DESC);
-
-CREATE INDEX runtime_transitions_state_timeline
-    ON runtime_transitions(state, occurred_at DESC, id DESC);
-
-CREATE INDEX runtime_transitions_reason_timeline
-    ON runtime_transitions(reason, occurred_at DESC, id DESC);
-
-CREATE INDEX runtime_transitions_bundle_timeline
-    ON runtime_transitions(activation_bundle_id, occurred_at DESC, id DESC);
-
 CREATE INDEX subscription_tokens_user_created
     ON subscription_tokens(user_id, created_at DESC, id DESC);
 
@@ -290,46 +187,6 @@ BEGIN
            AND version.source_id = NEW.id
     ) THEN RAISE(ABORT, 'subscription current version belongs to another source') END;
 END;
-
-CREATE TRIGGER runtime_transitions_reject_update
-BEFORE UPDATE ON runtime_transitions
-BEGIN
-    SELECT RAISE(ABORT, 'runtime transitions are append-only');
-END;
-
-CREATE TRIGGER runtime_transitions_reject_delete
-BEFORE DELETE ON runtime_transitions
-BEGIN
-    SELECT RAISE(ABORT, 'runtime transitions are append-only');
-END;
-
-INSERT INTO runtime_transitions(
-    dedupe_key, state, reason, occurred_at, uncertain_since
-) VALUES (
-    'history_initialized',
-    'unknown',
-    'history_initialized',
-    strftime('%Y-%m-%dT%H:%M:%f000000Z', 'now'),
-    strftime('%Y-%m-%dT%H:%M:%f000000Z', 'now')
-);
-
-CREATE TABLE traffic_months (
-    month_start TEXT PRIMARY KEY CHECK (month_start <> ''),
-    inbound_bytes INTEGER NOT NULL CHECK (inbound_bytes >= 0),
-    outbound_bytes INTEGER NOT NULL CHECK (outbound_bytes >= 0),
-    first_observed_at TEXT NOT NULL CHECK (first_observed_at <> ''),
-    last_sample_at TEXT NOT NULL CHECK (last_sample_at >= first_observed_at)
-) STRICT;
-
-CREATE TABLE traffic_checkpoint (
-    singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
-    pid INTEGER NOT NULL CHECK (pid > 0),
-    process_start_token TEXT NOT NULL CHECK (process_start_token <> ''),
-    activation_bundle_id TEXT NOT NULL,
-    last_upload_total INTEGER NOT NULL CHECK (last_upload_total >= 0),
-    last_download_total INTEGER NOT NULL CHECK (last_download_total >= 0),
-    sampled_at TEXT NOT NULL CHECK (sampled_at <> '')
-) STRICT;
 
 CREATE TABLE subscription_node_orders (
     collection_id TEXT PRIMARY KEY CHECK (collection_id <> ''),
@@ -371,6 +228,16 @@ CREATE TABLE nodes (
     protocol_minor INTEGER NOT NULL DEFAULT 0 CHECK (protocol_minor >= 0),
     last_seen_at TEXT,
     session_id TEXT CHECK (session_id IS NULL OR length(session_id) BETWEEN 1 AND 256),
+    instance_id TEXT CHECK (instance_id IS NULL OR length(instance_id) BETWEEN 1 AND 64),
+    -- The node's own traffic quota and period: a null quota is unlimited, and
+    -- each period of traffic_period_months starts on traffic_reset_day (UTC).
+    traffic_quota_gib INTEGER CHECK (traffic_quota_gib IS NULL OR traffic_quota_gib BETWEEN 1 AND 8589934591),
+    traffic_period_months INTEGER NOT NULL DEFAULT 1 CHECK (traffic_period_months BETWEEN 1 AND 120),
+    traffic_reset_day INTEGER NOT NULL DEFAULT 1 CHECK (traffic_reset_day BETWEEN 1 AND 28),
+    traffic_settings_revision INTEGER NOT NULL DEFAULT 1 CHECK (traffic_settings_revision >= 1),
+    state_report BLOB,
+    reported_at TEXT,
+    CHECK ((state_report IS NULL) = (reported_at IS NULL)),
     CHECK ((enrollment_token_hash IS NULL) = (enrollment_expires_at IS NULL)),
     CHECK ((public_key IS NULL) = (enrolled_at IS NULL))
 ) STRICT;
@@ -389,6 +256,8 @@ CREATE TABLE cached_artifacts (
     variant TEXT NOT NULL CHECK (variant <> ''),
     exact_version TEXT NOT NULL CHECK (exact_version <> ''),
     created_at TEXT NOT NULL CHECK (created_at <> ''),
+    -- When an install last asked for the archive.
+    used_at TEXT NOT NULL CHECK (used_at >= created_at),
     CHECK (
         (source_kind = 'official' AND user_source IS NULL
             AND repository_id IS NOT NULL AND release_id IS NOT NULL AND asset_id IS NOT NULL)
@@ -397,3 +266,122 @@ CREATE TABLE cached_artifacts (
             AND repository_id IS NULL AND release_id IS NULL AND asset_id IS NULL)
     )
 ) STRICT;
+
+-- Each node's runtime history, replicated from the node's own append-only
+-- history: source_id is the entry's ID in the node instance's database.
+CREATE TABLE runtime_transitions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    node_id TEXT NOT NULL REFERENCES nodes(id) ON DELETE CASCADE,
+    instance_id TEXT NOT NULL CHECK (length(instance_id) BETWEEN 1 AND 64),
+    source_id INTEGER NOT NULL CHECK (source_id > 0),
+    state TEXT NOT NULL
+        CHECK (state IN ('running', 'stopped', 'failed', 'unknown')),
+    reason TEXT NOT NULL
+        CHECK (reason <> '' AND length(reason) <= 128),
+    activation_bundle_id TEXT,
+    generation INTEGER CHECK (generation IS NULL OR generation >= 0),
+    pid INTEGER CHECK (pid IS NULL OR pid > 0),
+    process_started_at TEXT,
+    occurred_at TEXT NOT NULL CHECK (occurred_at <> ''),
+    uncertain_since TEXT,
+    UNIQUE (node_id, instance_id, source_id),
+    CHECK ((pid IS NULL) = (process_started_at IS NULL)),
+    CHECK (state <> 'running' OR (activation_bundle_id IS NOT NULL AND pid IS NOT NULL)),
+    CHECK (state <> 'unknown' OR uncertain_since IS NOT NULL),
+    CHECK (uncertain_since IS NULL OR uncertain_since <= occurred_at)
+) STRICT;
+
+CREATE INDEX runtime_transitions_timeline
+    ON runtime_transitions(node_id, occurred_at DESC, id DESC);
+
+CREATE INDEX runtime_transitions_bundle_timeline
+    ON runtime_transitions(node_id, activation_bundle_id, occurred_at DESC, id DESC);
+
+CREATE TRIGGER runtime_transitions_reject_update
+BEFORE UPDATE ON runtime_transitions
+BEGIN
+    SELECT RAISE(ABORT, 'runtime transitions are append-only');
+END;
+
+-- Traffic samples carry each node's cumulative counters. A delta is proven
+-- only between samples of one node instance.
+CREATE TABLE traffic_samples (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    node_id TEXT NOT NULL REFERENCES nodes(id) ON DELETE CASCADE,
+    instance_id TEXT NOT NULL CHECK (length(instance_id) BETWEEN 1 AND 64),
+    activation_bundle_id TEXT NOT NULL,
+    pid INTEGER NOT NULL CHECK (pid > 0),
+    process_start_token TEXT NOT NULL CHECK (process_start_token <> ''),
+    sampled_at TEXT NOT NULL CHECK (sampled_at <> ''),
+    memory_bytes INTEGER NOT NULL CHECK (memory_bytes >= 0),
+    active_connections INTEGER NOT NULL CHECK (active_connections >= 0),
+    upload_total INTEGER NOT NULL CHECK (upload_total >= 0),
+    download_total INTEGER NOT NULL CHECK (download_total >= 0),
+    upload_delta INTEGER CHECK (upload_delta IS NULL OR upload_delta >= 0),
+    download_delta INTEGER CHECK (download_delta IS NULL OR download_delta >= 0),
+    interval_start TEXT,
+    interval_end TEXT,
+    coverage TEXT NOT NULL DEFAULT 'partial'
+        CHECK (coverage IN ('complete', 'partial')),
+    accepted INTEGER NOT NULL CHECK (accepted IN (0, 1)),
+    diagnostic_code TEXT NOT NULL DEFAULT '' CHECK (length(diagnostic_code) <= 128),
+    CHECK (
+        (interval_start IS NULL AND interval_end IS NULL)
+        OR
+        (interval_start IS NOT NULL AND interval_start <> ''
+            AND interval_end IS NOT NULL AND interval_end > interval_start
+            AND interval_end = sampled_at
+            AND upload_delta IS NOT NULL AND download_delta IS NOT NULL)
+    ),
+    CHECK (accepted = 1 OR interval_start IS NULL),
+    CHECK (coverage <> 'complete' OR interval_start IS NOT NULL)
+) STRICT;
+
+CREATE INDEX traffic_samples_history
+    ON traffic_samples(node_id, sampled_at, id);
+
+CREATE INDEX traffic_samples_bundle_history
+    ON traffic_samples(node_id, activation_bundle_id, sampled_at, id);
+
+CREATE INDEX traffic_samples_interval_history
+    ON traffic_samples(node_id, interval_start, interval_end, id)
+    WHERE interval_start IS NOT NULL;
+
+CREATE INDEX traffic_samples_age
+    ON traffic_samples(sampled_at);
+
+-- The last accepted sample of each node, which the next delta starts from.
+CREATE TABLE traffic_checkpoint (
+    node_id TEXT PRIMARY KEY REFERENCES nodes(id) ON DELETE CASCADE,
+    instance_id TEXT NOT NULL CHECK (length(instance_id) BETWEEN 1 AND 64),
+    last_upload_total INTEGER NOT NULL CHECK (last_upload_total >= 0),
+    last_download_total INTEGER NOT NULL CHECK (last_download_total >= 0),
+    sampled_at TEXT NOT NULL CHECK (sampled_at <> '')
+) STRICT;
+
+-- Each node's accepted traffic, booked in the UTC day it was observed, so
+-- any period that starts on a day boundary sums whole rows.
+CREATE TABLE traffic_days (
+    node_id TEXT NOT NULL REFERENCES nodes(id) ON DELETE CASCADE,
+    day_start TEXT NOT NULL CHECK (day_start <> ''),
+    inbound_bytes INTEGER NOT NULL CHECK (inbound_bytes >= 0),
+    outbound_bytes INTEGER NOT NULL CHECK (outbound_bytes >= 0),
+    first_observed_at TEXT NOT NULL CHECK (first_observed_at <> ''),
+    last_sample_at TEXT NOT NULL CHECK (last_sample_at >= first_observed_at),
+    PRIMARY KEY (node_id, day_start)
+) STRICT;
+
+-- The traffic periods each node has recorded, in the period settings in
+-- force when they were recorded. Their totals are read from traffic_days.
+CREATE TABLE traffic_periods (
+    node_id TEXT NOT NULL REFERENCES nodes(id) ON DELETE CASCADE,
+    id TEXT NOT NULL CHECK (id <> ''),
+    period_start TEXT NOT NULL CHECK (period_start <> ''),
+    period_end TEXT NOT NULL CHECK (period_end <> ''),
+    created_at TEXT NOT NULL CHECK (created_at <> ''),
+    CHECK (period_end > period_start),
+    PRIMARY KEY (node_id, id)
+) STRICT;
+
+CREATE INDEX traffic_periods_page
+    ON traffic_periods(node_id, period_start DESC, id DESC);

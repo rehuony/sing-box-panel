@@ -143,7 +143,7 @@ Restart the panel to reload startup fields such as its listener and data path.
 Credentials and panel preferences use this same file at operation boundaries.`,
 		Example: `  sing-box-panel config set server.port 9090
   sing-box-panel config set server.external_origin ''
-  sing-box-panel config set traffic.quota_gib null
+  sing-box-panel config set traffic.sample_retention_days 30
   sing-box-panel config set auth.password --stdin
   sing-box-panel config set --file ./new-setting.json
   sing-box-panel --config ./setting.json config set --file - < ./new-setting.json`,

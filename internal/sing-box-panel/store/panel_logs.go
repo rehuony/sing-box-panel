@@ -28,6 +28,8 @@ type PanelLogFilter struct {
 	Since, Until *time.Time
 	Search       string
 	SearchCodes  []string
+	// NodeID keeps only the entries about one node.
+	NodeID string
 }
 
 const MaximumPanelLogSearchCodes = 128
@@ -68,6 +70,10 @@ func (s *Store) ListPanelLogs(ctx context.Context, filter PanelLogFilter) (Panel
 		clauses = append(clauses, "level = ?")
 		args = append(args, filter.Level)
 	}
+	if filter.NodeID != "" {
+		clauses = append(clauses, "json_extract(metadata_json, '$.node_id') = ?")
+		args = append(args, filter.NodeID)
+	}
 	if filter.Since != nil {
 		clauses = append(clauses, "occurred_at >= ?")
 		args = append(args, formatTime(*filter.Since))
@@ -96,7 +102,7 @@ func (s *Store) ListPanelLogs(ctx context.Context, filter PanelLogFilter) (Panel
  SELECT 'log:'||id AS id,occurred_at,source,level,code,message,'' AS status,metadata_json FROM log_entries
  UNION ALL
  SELECT 'runtime:'||id,occurred_at,'runtime',CASE WHEN state='failed' THEN 'error' ELSE 'info' END,reason,reason,state,
- json_patch('{}', json_object('pid',pid,'process_started_at',process_started_at,
+ json_patch('{}', json_object('node_id',node_id,'pid',pid,'process_started_at',process_started_at,
  'generation',generation,'activation_bundle_id',activation_bundle_id,'uncertain_since',uncertain_since))
  FROM runtime_transitions
  ) `

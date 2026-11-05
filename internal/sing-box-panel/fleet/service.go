@@ -57,6 +57,10 @@ type Node struct {
 	OS           string     `json:"os"`
 	Arch         string     `json:"arch"`
 	BuildVersion string     `json:"build_version"`
+	// The state the node last reported; stale while the node is offline.
+	ReportedAt *time.Time     `json:"reported_at"`
+	PublicIP   string         `json:"public_ip"`
+	Runtime    *RuntimeStatus `json:"runtime,omitempty"`
 }
 
 // Enrollment is a one-time code that enrolls, or re-enrolls, a node.
@@ -89,6 +93,10 @@ type Service struct {
 	sessions sessions
 	grants   grants
 
+	viewersMu    sync.Mutex
+	viewers      map[string]int
+	metricsFeeds map[string]*telemetry.Feed[MetricsStreamSnapshot]
+
 	identityMu sync.Mutex
 	identity   *Identity
 	panelID    string
@@ -103,6 +111,7 @@ func New(database *store.Store, panelSettings *settings.Service, records *teleme
 	service := &Service{
 		database: database, settings: panelSettings, records: records, configs: configs, cores: cores, build: options.Build,
 		now: time.Now, random: rand.Read, sessions: sessions{byNode: map[string]*session{}},
+		viewers: map[string]int{}, metricsFeeds: map[string]*telemetry.Feed[MetricsStreamSnapshot]{},
 	}
 	if options.Now != nil {
 		service.now = options.Now
@@ -249,6 +258,7 @@ func (service *Service) DeleteNode(ctx context.Context, id string) (err error) {
 		return err
 	}
 	service.sessions.close(id, errNodeRemoved)
+	service.records.ForgetNode(id)
 	return nil
 }
 
@@ -298,11 +308,16 @@ func (service *Service) view(record store.Node) Node {
 	case record.SessionID != "":
 		state = StateOnline
 	}
-	return Node{
+	view := Node{
 		ID: record.ID, Name: record.Name, State: state, CreatedAt: record.CreatedAt,
 		EnrolledAt: record.EnrolledAt, LastSeenAt: record.LastSeenAt,
 		Hostname: record.Hostname, OS: record.OS, Arch: record.Arch, BuildVersion: record.BuildVersion,
 	}
+	if reported := nodeState(record); reported != nil {
+		runtime := runtimeStatusView(reported.Report.GetRuntime())
+		view.ReportedAt, view.PublicIP, view.Runtime = &reported.ReportedAt, reported.Report.GetHost().GetPublicIp(), &runtime
+	}
+	return view
 }
 
 func validName(name string) bool {
@@ -315,4 +330,42 @@ func validName(name string) bool {
 		}
 	}
 	return true
+}
+
+// TrafficSettings is a node's own traffic quota and period: a null quota is
+// unlimited, and each period of PeriodMonths starts at 00:00 UTC on ResetDay.
+// Revision guards saves against concurrent changes.
+type TrafficSettings struct {
+	Revision     int64  `json:"revision"`
+	QuotaGiB     *int64 `json:"quota_gib"`
+	PeriodMonths int    `json:"period_months"`
+	ResetDay     int    `json:"reset_day"`
+}
+
+func (service *Service) TrafficSettings(ctx context.Context, id string) (TrafficSettings, error) {
+	record, err := service.database.Node(ctx, id)
+	if err != nil {
+		return TrafficSettings{}, err
+	}
+	return trafficSettingsView(record.Traffic), nil
+}
+
+// SaveTrafficSettings replaces the node's traffic settings if they are still
+// at value.Revision. Periods and quota status follow at once; recorded
+// traffic is unchanged.
+func (service *Service) SaveTrafficSettings(ctx context.Context, id string, value TrafficSettings) (result TrafficSettings, err error) {
+	defer func() {
+		service.records.RecordOperation(ctx, "node.traffic_settings.save", "Node traffic settings save", err, telemetry.OperationLogContext{NodeID: id})
+	}()
+	record, err := service.database.SaveNodeTrafficSettings(ctx, id, value.Revision, store.NodeTrafficSettings{
+		QuotaGiB: value.QuotaGiB, PeriodMonths: value.PeriodMonths, ResetDay: value.ResetDay,
+	})
+	if err != nil {
+		return TrafficSettings{}, err
+	}
+	return trafficSettingsView(record.Traffic), nil
+}
+
+func trafficSettingsView(value store.NodeTrafficSettings) TrafficSettings {
+	return TrafficSettings{Revision: value.Revision, QuotaGiB: value.QuotaGiB, PeriodMonths: value.PeriodMonths, ResetDay: value.ResetDay}
 }

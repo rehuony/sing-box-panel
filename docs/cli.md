@@ -169,7 +169,7 @@ sing-box-panel config set server.host 127.0.0.1 --config ./setting.json
 sing-box-panel config set panel.language en --config ./setting.json
 sing-box-panel config set auth.password --stdin --config ./setting.json < ./password.txt
 sing-box-panel config set github.token '' --config ./setting.json
-sing-box-panel config set traffic.quota_gib null --config ./setting.json
+sing-box-panel config set traffic.sample_retention_days 30 --config ./setting.json
 sing-box-panel config set --config ./setting.json --file ./new-setting.json
 sing-box-panel config set --config ./setting.json --file - < ./new-setting.json
 ```
@@ -204,8 +204,7 @@ sing-box-panel config set --config ./setting.json --file - < ./new-setting.json
   only its final line ending.
   Clear optional strings with an empty argument, for example
   `config set github.token ''` or `config set server.external_origin ''`.
-  Use `config set traffic.quota_gib null` for a nullable value and `[]` for an
-  empty array. Required values, including the administrator password, cannot be
+  Use `[]` for an empty array. Required values, including the administrator password, cannot be
   cleared. Clearing a value does not restore initialization defaults.
   The existing file must be a JSON object; the complete result must validate.
   This can repair an invalid field value, but cannot repair malformed JSON.
@@ -243,7 +242,7 @@ settings values.
 `set --file` can replace an invalid existing file or create a missing file;
 field updates require an existing JSON object. Neither form restarts a running
 panel. Restart to reload startup fields such as the listener and data path.
-Tokens, Web preferences and quota are read from
+Tokens and Web preferences are read from
 this file at operation boundaries. File edits invalidate an older Web form's
 revision, so its next save returns a conflict instead of overwriting the edit.
 See [the field mapping and effect timing](configuration-and-runtime.md#shared-settings-file).

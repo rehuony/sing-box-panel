@@ -28,6 +28,7 @@ import (
 	"github.com/rehuony/sing-box-panel/internal/buildinfo"
 	"github.com/rehuony/sing-box-panel/internal/nodeapi"
 	"github.com/rehuony/sing-box-panel/internal/procctl"
+	"github.com/rehuony/sing-box-panel/internal/sing-box-node/host"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-node/service"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-node/settings"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-node/store"
@@ -40,6 +41,9 @@ const (
 	enrollTimeout     = 30 * time.Second
 	minimumBackoff    = time.Second
 	maximumBackoff    = time.Minute
+	// maximumCommands bounds the commands a node runs at once; more wait
+	// for a slot until their deadline.
+	maximumCommands = 8
 )
 
 // Options supplies the agent's collaborators.
@@ -125,9 +129,16 @@ func Run(ctx context.Context, dataDir string, options Options) (runErr error) {
 	}
 	defer func() { runErr = errors.Join(runErr, runtime.Close()) }()
 	runtime.StartRecovery(ctx)
-	detection := make(chan struct{})
-	go func() { defer close(detection); node.RunPublicIPDetection(ctx) }()
-	defer func() { <-detection }()
+	// Detection and collection stop when Run returns, for any reason.
+	backgroundContext, stopBackground := context.WithCancel(ctx)
+	var background sync.WaitGroup
+	defer func() { stopBackground(); background.Wait() }()
+	background.Go(func() { node.RunPublicIPDetection(backgroundContext) })
+	background.Go(func() { node.RunTrafficCollection(backgroundContext) })
+	instanceID, err := database.InstanceID(ctx)
+	if err != nil {
+		return err
+	}
 
 	connection, err := dial(enrollment.Endpoint, enrollment.Path, enrollment.Pin)
 	if err != nil {
@@ -135,13 +146,18 @@ func Run(ctx context.Context, dataDir string, options Options) (runErr error) {
 	}
 	defer connection.Close()
 	client := nodeapi.NewNodeServiceClient(connection)
-	commands := &executor{node: node, database: database, fetch: fetchArtifact(client), now: time.Now}
+	commands := &executor{
+		node: node, database: database, fetch: fetchArtifact(client), now: time.Now,
+		slots: make(chan struct{}, maximumCommands),
+	}
 	var inFlight sync.WaitGroup
 	defer inFlight.Wait()
+	identity := sessionIdentity{enrollment: enrollment, instanceID: instanceID}
+	sampler := &host.Sampler{}
 	backoff := minimumBackoff
 	for {
 		started := time.Now()
-		err := holdSession(ctx, client, enrollment, commands, &inFlight, options)
+		err := holdSession(ctx, client, identity, commands, sampler, dataDir, &inFlight, options)
 		if ctx.Err() != nil {
 			return nil
 		}
@@ -159,11 +175,20 @@ func Run(ctx context.Context, dataDir string, options Options) (runErr error) {
 	}
 }
 
-// holdSession authenticates one session and serves its commands until it
-// ends. Commands run on lifetime, not on the session: a command in flight
-// finishes even when the session drops, and the panel learns its outcome
-// from the node's state.
-func holdSession(lifetime context.Context, client nodeapi.NodeServiceClient, enrollment settings.Enrollment, commands *executor, inFlight *sync.WaitGroup, options Options) error {
+// sessionIdentity is who the node is to its panel.
+type sessionIdentity struct {
+	enrollment settings.Enrollment
+	instanceID string
+}
+
+// holdSession authenticates one session, reports the node's state and serves
+// its commands until it ends. Commands run on lifetime, not on the session:
+// a command in flight finishes even when the session drops, and the panel
+// learns its outcome from the node's state.
+func holdSession(lifetime context.Context, client nodeapi.NodeServiceClient, identity sessionIdentity, commands *executor,
+	sampler *host.Sampler, dataDir string, inFlight *sync.WaitGroup, options Options,
+) error {
+	enrollment := identity.enrollment
 	ctx, cancel := context.WithCancel(lifetime)
 	defer cancel()
 	stream, err := client.Connect(ctx)
@@ -173,6 +198,7 @@ func holdSession(lifetime context.Context, client nodeapi.NodeServiceClient, enr
 	handshake := time.AfterFunc(handshakeTimeout, cancel)
 	if err := stream.Send(&nodeapi.ConnectRequest{Frame: &nodeapi.ConnectRequest_Hello{Hello: &nodeapi.Hello{
 		NodeId: enrollment.NodeID, Protocol: protocol(), BuildVersion: options.Build.Version, Platform: platform(),
+		InstanceId: identity.instanceID,
 	}}}); err != nil {
 		return err
 	}
@@ -196,15 +222,12 @@ func holdSession(lifetime context.Context, client nodeapi.NodeServiceClient, enr
 	if err != nil {
 		return err
 	}
-	if frame.GetWelcome() == nil {
+	welcome := frame.GetWelcome()
+	if welcome == nil {
 		return errors.New("the panel did not welcome the session")
 	}
 	if !handshake.Stop() {
 		return errors.New("handshake timed out")
-	}
-	options.logf("connected to panel %s as node %s", enrollment.Endpoint, enrollment.NodeID)
-	if options.Connected != nil {
-		options.Connected()
 	}
 	var sendMu sync.Mutex
 	send := func(frame *nodeapi.ConnectRequest) error {
@@ -212,14 +235,52 @@ func holdSession(lifetime context.Context, client nodeapi.NodeServiceClient, enr
 		defer sendMu.Unlock()
 		return stream.Send(frame)
 	}
+	// The panel accepts commands once it has the node's state.
+	reports := newReporter(commands.node, commands.database, sampler, dataDir, send, welcome.GetRuntimeHistoryAfter())
+	if err := reports.start(ctx); err != nil {
+		return fmt.Errorf("report state: %w", err)
+	}
+	options.logf("connected to panel %s as node %s", enrollment.Endpoint, enrollment.NodeID)
+	if options.Connected != nil {
+		options.Connected()
+	}
+	reporting := make(chan error, 1)
+	go func() { reporting <- reports.run(ctx, welcome.GetMetricsInterval().AsDuration()) }()
+	defer func() { cancel(); <-reporting }()
+	frames := make(chan *nodeapi.ConnectResponse)
+	received := make(chan error, 1)
+	go func() {
+		for {
+			frame, err := stream.Recv()
+			if err != nil {
+				received <- err
+				return
+			}
+			select {
+			case frames <- frame:
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
 	var runningMu sync.Mutex
 	running := map[string]context.CancelFunc{}
 	for {
-		frame, err := stream.Recv()
-		if err != nil {
+		var frame *nodeapi.ConnectResponse
+		select {
+		case err := <-received:
 			return err
+		case err := <-reporting:
+			reporting <- err
+			if err == nil {
+				err = ctx.Err()
+			}
+			return fmt.Errorf("report state: %w", err)
+		case frame = <-frames:
 		}
 		switch {
+		case frame.GetTelemetryControl() != nil:
+			reports.setInterval(frame.GetTelemetryControl().GetMetricsInterval().AsDuration())
 		case frame.GetCommand() != nil:
 			command := frame.GetCommand()
 			commandContext, stop := context.WithCancel(lifetime)
@@ -236,6 +297,10 @@ func holdSession(lifetime context.Context, client nodeapi.NodeServiceClient, enr
 					stop()
 				}()
 				result := commands.execute(commandContext, command)
+				if nodeapi.ChangesState(command.GetBody()) {
+					// The panel sees the state a command left before its result.
+					_ = reports.reportChange(ctx, command.GetRequestId())
+				}
 				_ = send(&nodeapi.ConnectRequest{Frame: &nodeapi.ConnectRequest_Result{Result: result}})
 			}()
 		case frame.GetCancel() != nil:

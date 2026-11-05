@@ -200,7 +200,7 @@ describe('createHttpApiClient observability domain', () => {
 
     expect(snapshots).toEqual([testDashboardSnapshot]);
     expect(fetcher).toHaveBeenCalledWith(
-      '/panel/api/v1/dashboard/stream',
+      '/panel/api/v1/nodes/node_a/dashboard/stream',
       expect.objectContaining({
         credentials: 'same-origin',
         headers: { Accept: 'text/event-stream' },
@@ -301,7 +301,6 @@ describe('createHttpApiClient observability domain', () => {
       activationBundleID: 'bundle_18',
     });
     await client.listTrafficPeriods({
-      activationBundleID: 'bundle_18',
       from: '2026-08-26T00:00:00Z',
       to: '2026-08-27T00:00:00Z',
       beforeTime: '2026-08-26T12:00:00Z',
@@ -316,12 +315,12 @@ describe('createHttpApiClient observability domain', () => {
     });
     expect(fetcher).toHaveBeenNthCalledWith(
       1,
-      '/panel/api/v1/metrics/history?from=2026-08-26T00%3A00%3A00Z&to=2026-08-26T01%3A00%3A00Z&bucket_seconds=300&activation_bundle_id=bundle_18',
+      '/panel/api/v1/nodes/node_a/metrics/history?from=2026-08-26T00%3A00%3A00Z&to=2026-08-26T01%3A00%3A00Z&bucket_seconds=300&activation_bundle_id=bundle_18',
       expect.objectContaining({ method: 'GET' }),
     );
     expect(fetcher).toHaveBeenNthCalledWith(
       2,
-      '/panel/api/v1/traffic/periods?activation_bundle_id=bundle_18&from=2026-08-26T00%3A00%3A00Z&to=2026-08-27T00%3A00%3A00Z&before_time=2026-08-26T12%3A00%3A00Z&before_id=period_42&limit=20',
+      '/panel/api/v1/nodes/node_a/traffic/periods?from=2026-08-26T00%3A00%3A00Z&to=2026-08-27T00%3A00%3A00Z&before_time=2026-08-26T12%3A00%3A00Z&before_id=period_42&limit=20',
       expect.objectContaining({ method: 'GET' }),
     );
   });

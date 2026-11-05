@@ -32,6 +32,8 @@ type executor struct {
 	// fetch streams one cached core artifact from the panel.
 	fetch func(ctx context.Context, grant, artifactID string, destination io.Writer) (int64, error)
 	now   func() time.Time
+	// slots bounds the commands that run at once.
+	slots chan struct{}
 }
 
 // execute runs command and returns its result. A command that changes state
@@ -46,6 +48,12 @@ func (executor *executor) execute(ctx context.Context, command *nodeapi.Command)
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithDeadline(ctx, deadline.AsTime())
 		defer cancel()
+	}
+	select {
+	case executor.slots <- struct{}{}:
+		defer func() { <-executor.slots }()
+	case <-ctx.Done():
+		return &nodeapi.Result{RequestId: requestID, Outcome: problem("node_busy", "The node was running too many commands to start this one before its deadline.")}
 	}
 	recorded := nodeapi.ChangesState(command.GetBody())
 	if recorded {

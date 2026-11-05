@@ -41,8 +41,6 @@ func TestPanelSettingsFileSharedWithManualAndCLIChanges(t *testing.T) {
 	value.Panel.PublicNodeHost = "nodes.example.com"
 	value.Subscription.PrivateSourceCIDRs = []string{"10.0.0.0/8"}
 	value.Server.BasePath = "/panel"
-	quota := int64(8589934591)
-	value.Traffic.QuotaGiB = &quota
 	raw, _ := json.Marshal(value)
 	if err := Replace(app.settingsPath, raw); err != nil {
 		t.Fatal(err)
@@ -286,7 +284,7 @@ func TestPanelServiceSettingsRoundTripAndValidation(t *testing.T) {
 	originalDir := view.Service.DataDir
 	service := PanelServiceSettings{
 		DataDir: filepath.Join(t.TempDir(), "panel-data"), BasePath: "/control",
-		CatalogRefreshIntervalHours: 24, TrafficPeriodMonths: 3, SampleRetentionDays: 120,
+		CatalogRefreshIntervalHours: 24, SampleRetentionDays: 120,
 		PrivateSourceCIDRs: []string{"10.0.0.0/24", "fd00::/64"},
 	}
 	view.Preferences.ExternalOrigin = "https://panel.example.com"

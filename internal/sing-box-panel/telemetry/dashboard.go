@@ -22,18 +22,19 @@ type DashboardStreamSnapshot struct {
 	Activity         store.PanelLogPage   `json:"activity"`
 }
 
-func (application *Service) DashboardSnapshot(ctx context.Context) (DashboardStreamSnapshot, error) {
+// DashboardSnapshot is one node's dashboard projection.
+func (application *Service) DashboardSnapshot(ctx context.Context, nodeID string) (DashboardStreamSnapshot, error) {
 	collectedAt := application.now().UTC()
 	oneDayAgo := collectedAt.Add(-24 * time.Hour)
-	history1H, history24H, watermark, err := application.database.DashboardMetricsHistory(ctx, collectedAt)
+	history1H, history24H, watermark, err := application.database.DashboardMetricsHistory(ctx, nodeID, collectedAt)
 	if err != nil {
 		return DashboardStreamSnapshot{}, err
 	}
-	runtime24H, err := application.dashboardRuntimeHistory(ctx, oneDayAgo, collectedAt)
+	runtime24H, err := application.dashboardRuntimeHistory(ctx, nodeID, oneDayAgo, collectedAt)
 	if err != nil {
 		return DashboardStreamSnapshot{}, err
 	}
-	activity, err := application.PanelLogs(ctx, store.PanelLogFilter{Limit: 2})
+	activity, err := application.PanelLogs(ctx, store.PanelLogFilter{Limit: 2, NodeID: nodeID})
 	if err != nil {
 		return DashboardStreamSnapshot{}, err
 	}
@@ -49,10 +50,11 @@ func (application *Service) DashboardSnapshot(ctx context.Context) (DashboardStr
 
 func (application *Service) dashboardRuntimeHistory(
 	ctx context.Context,
+	nodeID string,
 	from time.Time,
 	to time.Time,
 ) (RuntimeHistoryPage, error) {
-	request := RuntimeHistoryRequest{From: &from, To: &to, Limit: 200}
+	request := RuntimeHistoryRequest{NodeID: nodeID, From: &from, To: &to, Limit: 200}
 	combined := RuntimeHistoryPage{Items: []RuntimeTransition{}}
 	for len(combined.Items) < dashboardRuntimeHistoryLimit {
 		request.Limit = min(200, dashboardRuntimeHistoryLimit-len(combined.Items))
@@ -74,7 +76,17 @@ func (application *Service) dashboardRuntimeHistory(
 	return combined, nil
 }
 
-// SubscribeDashboard streams the dashboard projection.
-func (service *Service) SubscribeDashboard() (<-chan SnapshotResult[DashboardStreamSnapshot], func()) {
-	return service.dashboardFeed.Subscribe()
+// SubscribeDashboard streams one node's dashboard projection.
+func (service *Service) SubscribeDashboard(nodeID string) (<-chan SnapshotResult[DashboardStreamSnapshot], func()) {
+	service.dashboardsMu.Lock()
+	feed := service.dashboards[nodeID]
+	if feed == nil {
+		feed = NewFeed(30*time.Second, func(ctx context.Context) (DashboardStreamSnapshot, error) {
+			return service.DashboardSnapshot(ctx, nodeID)
+		})
+		feed.Bind(service.root)
+		service.dashboards[nodeID] = feed
+	}
+	service.dashboardsMu.Unlock()
+	return feed.Subscribe()
 }

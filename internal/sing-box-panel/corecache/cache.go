@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/rehuony/sing-box-panel/internal/atomicfile"
 	"github.com/rehuony/sing-box-panel/internal/coreartifact"
@@ -56,20 +57,18 @@ func (application *Service) CacheOfficial(ctx context.Context, assetID int64) (r
 	if err != nil {
 		return store.CachedArtifact{}, err
 	}
-	digest, err := application.storeArchive(func(destination io.Writer) (int64, error) {
+	return application.storeArchive(func(destination io.Writer) (int64, error) {
 		downloader, err := application.archiveDownloader()
 		if err != nil {
 			return 0, err
 		}
 		return downloader.Download(ctx, asset.DownloadURL, destination, MaximumArchiveBytes)
-	}, asset.Size)
-	if err != nil {
-		return store.CachedArtifact{}, err
-	}
-	if asset.HasAPIDigest && digest != asset.APIDigest {
-		return store.CachedArtifact{}, ErrArchiveDigest
-	}
-	return application.record(ctx, source, digest, asset.Size, asset.Architecture, asset.Variant, asset.Version)
+	}, asset.Size, func(digest coreartifact.SHA256) (store.CachedArtifact, error) {
+		if asset.HasAPIDigest && digest != asset.APIDigest {
+			return store.CachedArtifact{}, ErrArchiveDigest
+		}
+		return application.record(ctx, source, digest, asset.Size, asset.Architecture, asset.Variant, asset.Version)
+	})
 }
 
 // CacheUpload moves a staged upload into the cache as a user-verified
@@ -106,18 +105,16 @@ func (application *Service) CacheUpload(ctx context.Context, stagedPath string, 
 	if err != nil {
 		return store.CachedArtifact{}, err
 	}
-	digest, err := application.storeArchive(func(destination io.Writer) (int64, error) {
+	return application.storeArchive(func(destination io.Writer) (int64, error) {
 		file, err := os.Open(stagedPath)
 		if err != nil {
 			return 0, err
 		}
 		defer file.Close()
 		return io.Copy(destination, io.LimitReader(file, MaximumArchiveBytes+1))
-	}, info.Size())
-	if err != nil {
-		return store.CachedArtifact{}, err
-	}
-	return application.record(ctx, source, digest, info.Size(), architecture, variant, version)
+	}, info.Size(), func(digest coreartifact.SHA256) (store.CachedArtifact, error) {
+		return application.record(ctx, source, digest, info.Size(), architecture, variant, version)
+	})
 }
 
 // CachedArtifact returns one cached artifact.
@@ -163,6 +160,31 @@ func Identity(artifact store.CachedArtifact) (coreartifact.Identity, error) {
 		coreartifact.Architecture(artifact.Arch), coreartifact.Variant(artifact.Variant), version)
 }
 
+// RemoveCachedArtifact removes a cached archive and, unless another record
+// uses the same bytes, its file.
+func (application *Service) RemoveCachedArtifact(ctx context.Context, id string) error {
+	application.cacheMu.Lock()
+	defer application.cacheMu.Unlock()
+	artifact, err := application.database.CachedArtifact(ctx, id)
+	if err != nil {
+		return err
+	}
+	shared, err := application.database.DeleteCachedArtifact(ctx, id)
+	if err != nil || shared {
+		return err
+	}
+	if err := application.removeFile(application.archivePath(artifact.SHA256)); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	return nil
+}
+
+// OfficialArtifactsUnusedSince lists the official archives no install asked
+// for since before.
+func (application *Service) OfficialArtifactsUnusedSince(ctx context.Context, before time.Time) ([]store.CachedArtifact, error) {
+	return application.database.OfficialArtifactsUnusedSince(ctx, before)
+}
+
 func (application *Service) record(ctx context.Context, source coreartifact.Source, digest coreartifact.SHA256, size int64,
 	architecture coreartifact.Architecture, variant coreartifact.Variant, version coreartifact.ExactVersion) (store.CachedArtifact, error) {
 	identity, err := coreartifact.NewIdentity(source, digest, coreartifact.OperatingSystemLinux, architecture, variant, version)
@@ -187,15 +209,18 @@ func (application *Service) record(ctx context.Context, source coreartifact.Sour
 }
 
 // storeArchive writes an archive to the cache under its digest after
-// checking its size.
-func (application *Service) storeArchive(write func(io.Writer) (int64, error), expectedSize int64) (coreartifact.SHA256, error) {
+// checking its size, and records it. Placing the file and recording it hold
+// cacheMu, so a sweep cannot remove the file of a record being written.
+func (application *Service) storeArchive(write func(io.Writer) (int64, error), expectedSize int64,
+	record func(coreartifact.SHA256) (store.CachedArtifact, error),
+) (store.CachedArtifact, error) {
 	directory, err := application.cacheDirectory()
 	if err != nil {
-		return coreartifact.SHA256{}, err
+		return store.CachedArtifact{}, err
 	}
 	temporary, err := os.CreateTemp(directory, ".download-*")
 	if err != nil {
-		return coreartifact.SHA256{}, err
+		return store.CachedArtifact{}, err
 	}
 	defer os.Remove(temporary.Name())
 	hash := sha256.New()
@@ -203,18 +228,23 @@ func (application *Service) storeArchive(write func(io.Writer) (int64, error), e
 	syncErr := temporary.Sync()
 	closeErr := temporary.Close()
 	if err := errors.Join(writeErr, syncErr, closeErr); err != nil {
-		return coreartifact.SHA256{}, err
+		return store.CachedArtifact{}, err
 	}
 	if written <= 0 || written > MaximumArchiveBytes || written != expectedSize {
-		return coreartifact.SHA256{}, fmt.Errorf("core archive size %d does not match the declared %d bytes", written, expectedSize)
+		return store.CachedArtifact{}, fmt.Errorf("core archive size %d does not match the declared %d bytes", written, expectedSize)
 	}
 	var sum [32]byte
 	copy(sum[:], hash.Sum(nil))
 	digest := coreartifact.NewSHA256(sum)
+	application.cacheMu.Lock()
+	defer application.cacheMu.Unlock()
 	if err := os.Rename(temporary.Name(), application.archivePath(digest.String())); err != nil {
-		return coreartifact.SHA256{}, err
+		return store.CachedArtifact{}, err
 	}
-	return digest, atomicfile.SyncDir(directory)
+	if err := atomicfile.SyncDir(directory); err != nil {
+		return store.CachedArtifact{}, err
+	}
+	return record(digest)
 }
 
 func (application *Service) cacheDirectory() (string, error) {

@@ -81,13 +81,13 @@ describe('panel settings', () => {
     const user = userEvent.setup();
     setup();
     await user.click(await screen.findByRole('tab', { name: 'Traffic usage' }));
-    fireEvent.change(screen.getByRole('spinbutton', { name: 'Total traffic quota' }), { target: { value: '800' } });
+    fireEvent.change(screen.getByRole('spinbutton', { name: 'Metric retention (days)' }), { target: { value: '30' } });
     await user.click(screen.getByRole('tab', { name: 'Interface preferences' }));
     fireEvent.change(screen.getByRole('spinbutton', { name: 'Corner radius' }), { target: { value: '24' } });
     await user.click(screen.getByRole('button', { name: 'Reset defaults' }));
     expect(screen.getByRole('spinbutton', { name: 'Corner radius' })).toHaveValue(12);
     await user.click(screen.getByRole('tab', { name: 'Traffic usage' }));
-    expect(screen.getByRole('spinbutton', { name: 'Total traffic quota' })).toHaveValue(800);
+    expect(screen.getByRole('spinbutton', { name: 'Metric retention (days)' })).toHaveValue(30);
   });
 
   it('masks a configured GitHub token without submitting the display mask as a replacement', async () => {

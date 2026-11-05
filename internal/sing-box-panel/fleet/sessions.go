@@ -19,6 +19,14 @@ var (
 
 // session is one authenticated node session.
 type session struct {
+	nodeID     string
+	instanceID string
+	sessionID  string
+	// ready closes when the node's first state report is recorded; only
+	// then does the session accept commands.
+	ready     chan struct{}
+	readyOnce sync.Once
+
 	cancel context.CancelCauseFunc
 	// done closes when the session ends.
 	done <-chan struct{}
@@ -32,6 +40,7 @@ type session struct {
 func newSession(ctx context.Context, cancel context.CancelCauseFunc, stream nodeapi.NodeService_ConnectServer) *session {
 	var sendMu sync.Mutex
 	return &session{
+		ready:  make(chan struct{}),
 		cancel: cancel, done: ctx.Done(), pending: map[string]chan *nodeapi.Result{},
 		send: func(frame *nodeapi.ConnectResponse) error {
 			sendMu.Lock()
@@ -39,6 +48,11 @@ func newSession(ctx context.Context, cancel context.CancelCauseFunc, stream node
 			return stream.Send(frame)
 		},
 	}
+}
+
+// open lets the session accept commands.
+func (current *session) open() {
+	current.readyOnce.Do(func() { close(current.ready) })
 }
 
 // expect registers a command whose result deliver hands over.

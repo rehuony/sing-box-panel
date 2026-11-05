@@ -70,14 +70,12 @@ func TestDashboardStreamClosesTransportCleanly(t *testing.T) {
 }
 
 func TestDashboardStreamWritesImmediateAuthenticatedSnapshot(t *testing.T) {
-	handler, _ := newCoreHTTPFixture(t)
-	if _, err := handler.services.Telemetry.DashboardSnapshot(t.Context()); err != nil {
-		t.Fatalf("build dashboard snapshot: %v", err)
-	}
+	handler, database := newCoreHTTPFixture(t)
+	nodeID := testutil.CreateNode(t, database, "edge")
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	response := newFlushRecorder()
-	request := httptest.NewRequest(http.MethodGet, "/api/v1/dashboard/stream", nil).WithContext(ctx)
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/nodes/"+nodeID+"/dashboard/stream", nil).WithContext(ctx)
 	testutil.Authorize(t, handler, request)
 
 	done := make(chan struct{})
@@ -116,7 +114,7 @@ func TestDashboardStreamWritesImmediateAuthenticatedSnapshot(t *testing.T) {
 func TestDashboardStreamReportsAuthenticationStorageFailure(t *testing.T) {
 	handler, database := newCoreHTTPFixture(t)
 	response := httptest.NewRecorder()
-	request := httptest.NewRequest(http.MethodGet, "/api/v1/dashboard/stream", nil)
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/nodes/node_edge/dashboard/stream", nil)
 	testutil.Authorize(t, handler, request)
 	if err := database.Close(); err != nil {
 		t.Fatal(err)
@@ -164,7 +162,7 @@ func TestDashboardStreamUsesThirtySecondUpdatesAndExpiresForReauthentication(t *
 func TestDashboardStreamRequiresAuthentication(t *testing.T) {
 	handler, _ := newCoreHTTPFixture(t)
 	response := httptest.NewRecorder()
-	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/v1/dashboard/stream", nil))
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/v1/nodes/node_edge/dashboard/stream", nil))
 	if response.Code != http.StatusUnauthorized {
 		t.Fatalf("unauthenticated dashboard stream status=%d", response.Code)
 	}

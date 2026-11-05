@@ -236,61 +236,52 @@ describe('createDemoApiClient', () => {
     await expect(request).rejects.toMatchObject({ name: 'AbortError' });
   });
 
-  it('uses saved traffic quotas in metrics, traffic status and an already-open stream', async () => {
-    vi.useFakeTimers();
+  it('reports each node quota with its own usage and sums only usage for the fleet', async () => {
     const client = createDemoApiClient();
-    const controller = new AbortController();
-    const stream = client.streamMetrics(controller.signal)[Symbol.asyncIterator]();
-    let settings = await client.getPanelSettings();
-    const initial = (await stream.next()).value!.metrics;
-    expect(initial.quota_bytes).toBe(settings.preferences.traffic_quota_gib! * 2 ** 30);
-
-    try {
-      for (const quotaGiB of [2, null, 0, 250]) {
-        const before = await client.getMetrics();
-        settings = (await client.savePanelSettings({
-          revision: settings.revision,
-          preferences: { ...settings.preferences, traffic_quota_gib: quotaGiB },
-        })).settings;
-        const quotaBytes = quotaGiB ? quotaGiB * 2 ** 30 : undefined;
-        const metrics = await client.getMetrics();
-        expect(metrics.quota_bytes).toBe(quotaBytes);
-        expect(metrics.current_traffic_period).toEqual(before.current_traffic_period);
-        expect((await client.getTrafficStatus()).quota_bytes).toBe(quotaBytes);
-        const next = stream.next();
-        await vi.advanceTimersByTimeAsync(2000);
-        expect((await next).value!.metrics.quota_bytes).toBe(quotaBytes);
-        expect((await client.getPanelSettings()).preferences.traffic_quota_gib).toBe(quotaGiB);
-      }
-    } finally {
-      controller.abort();
-      await stream.return?.();
+    let settings = await client.getNodeTrafficSettings();
+    expect((await client.getMetrics()).quota_bytes).toBe(settings.quota_gib! * 2 ** 30);
+    for (const quotaGiB of [2, null, 0, 250]) {
+      const before = await client.getMetrics();
+      settings = await client.saveNodeTrafficSettings({ ...settings, quota_gib: quotaGiB });
+      const metrics = await client.getMetrics();
+      expect(metrics.quota_bytes).toBe(quotaGiB ? quotaGiB * 2 ** 30 : undefined);
+      expect(metrics.current_traffic_period).toEqual(before.current_traffic_period);
+      const status = await client.getTrafficStatus();
+      expect(status.nodes[0].quota_bytes).toBe(metrics.quota_bytes);
+      expect(status.nodes[0].current_traffic_period).toEqual(metrics.current_traffic_period);
+      expect(status.upload_bytes).toBe(metrics.current_traffic_period.outbound_bytes);
+      expect(status).not.toHaveProperty('quota_bytes');
     }
+    await expect(client.saveNodeTrafficSettings({ ...settings, revision: settings.revision - 1 }))
+      .rejects
+      .toMatchObject({ status: 412 });
   });
 
   it('derives quota exhaustion from both traffic counters and preserves unlimited quotas', () => {
     const data = createDemoData();
     data.trafficPeriods[0].inbound_bytes = 768 * 2 ** 20;
     data.trafficPeriods[0].outbound_bytes = 256 * 2 ** 20;
-    expect(demoMetrics(data, 1).quota_exceeded).toBe(true);
-    expect(demoMetrics(data, 2).quota_exceeded).toBe(false);
+    for (const [quota, exceeded] of [[1, true], [2, false]] as const) {
+      data.traffic.quota_gib = quota;
+      expect(demoMetrics(data).quota_exceeded).toBe(exceeded);
+    }
     for (const quota of [0, null]) {
-      const snapshot = demoMetrics(data, quota);
-      expect(snapshot.quota_bytes).toBeUndefined();
-      expect(snapshot.quota_exceeded).toBe(false);
+      data.traffic.quota_gib = quota;
+      expect(demoMetrics(data).quota_bytes).toBeUndefined();
+      expect(demoMetrics(data).quota_exceeded).toBe(false);
     }
   });
 
-  it('retains recorded usage and quota while stopped and starts empty periods at zero', () => {
+  it('retains recorded usage while stopped and starts empty periods at zero', () => {
     const data = createDemoData();
     const now = new Date();
-    const before = demoMetrics(data, 0.1, now);
+    const before = demoMetrics(data, now);
     data.runtime.observation_state = 'stopped';
-    const stopped = demoMetrics(data, 0.1, now);
+    const stopped = demoMetrics(data, now);
     expect(stopped.current_traffic_period).toEqual(before.current_traffic_period);
     expect(stopped.quota_exceeded).toBe(before.quota_exceeded);
     expect(stopped.available).toBe(false);
-    const next = demoMetrics(data, 0.1, new Date(before.current_traffic_period.period_end));
+    const next = demoMetrics(data, new Date(before.current_traffic_period.period_end));
     expect(next.current_traffic_period.inbound_bytes).toBe(0);
     expect(next.current_traffic_period.outbound_bytes).toBe(0);
     expect(next.quota_exceeded).toBe(false);
@@ -300,25 +291,22 @@ describe('createDemoApiClient', () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-09-28T08:00:00Z'));
     const client = createDemoApiClient();
-    let settings = await client.getPanelSettings();
+    let settings = await client.getNodeTrafficSettings();
     const original = (await client.getMetrics()).current_traffic_period;
     const periods = new Map([[original.id, original]]);
 
     for (const [months, id] of [
-      [3, 'traffic_monthly_202607_202610'],
-      [1, 'traffic_monthly_202609_202610'],
-      [6, 'traffic_monthly_202607_202701'],
-      [3, 'traffic_monthly_202607_202610'],
+      [3, 'traffic_20260701_20261001'],
+      [1, 'traffic_20260901_20261001'],
+      [6, 'traffic_20260701_20270101'],
+      [3, 'traffic_20260701_20261001'],
     ] as const) {
-      settings = (await client.savePanelSettings({
-        revision: settings.revision, preferences: settings.preferences,
-        service: { ...settings.service, traffic_period_months: months },
-      })).settings;
+      settings = await client.saveNodeTrafficSettings({ ...settings, period_months: months });
       const current = (await client.getMetrics()).current_traffic_period;
       expect(current).toMatchObject({
         id, inbound_bytes: original.inbound_bytes, outbound_bytes: original.outbound_bytes,
       });
-      expect((await client.getTrafficStatus()).current_traffic_period).toEqual(current);
+      expect((await client.getTrafficStatus()).nodes[0].current_traffic_period).toEqual(current);
       periods.set(current.id, current);
       for (const period of periods.values()) {
         await expect(client.getTrafficPeriod(period.id)).resolves.toEqual(period);
@@ -327,14 +315,26 @@ describe('createDemoApiClient', () => {
     }
   });
 
+  it('starts the period on the node reset day', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-09-10T08:00:00Z'));
+    const client = createDemoApiClient();
+    const settings = await client.getNodeTrafficSettings();
+    await client.saveNodeTrafficSettings({ ...settings, reset_day: 15 });
+    expect((await client.getMetrics()).current_traffic_period.id).toBe('traffic_20260815_20260915');
+    await expect(client.saveNodeTrafficSettings({ ...settings, revision: settings.revision + 1, reset_day: 29 }))
+      .rejects
+      .toMatchObject({ status: 422 });
+  });
+
   it('does not invent period details for invalid IDs or ranges without recorded months', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-09-28T08:00:00Z'));
     const client = createDemoApiClient();
     for (const id of [
-      'missing', 'traffic_monthly_202613_202701', 'traffic_monthly_202610_202609',
-      'traffic_monthly_202609_202609', 'traffic_monthly_202610_202611',
-      'traffic_monthly_202608_202609', 'traffic_monthly_200001_202701',
+      'missing', 'traffic_20261301_20270101', 'traffic_20261001_20260901',
+      'traffic_20260901_20260901', 'traffic_20261001_20261101',
+      'traffic_20260801_20260901', 'traffic_20000101_20270101',
     ]) {
       await expect(async () => client.getTrafficPeriod(id)).rejects.toMatchObject({ status: 404 });
     }

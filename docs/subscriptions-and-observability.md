@@ -101,26 +101,25 @@ Every successful public subscription response, including `304 Not Modified`,
 includes an HTTP response header in the following format:
 
 ```http
-Subscription-Userinfo: upload=123; download=456; total=107374182400
+Subscription-Userinfo: upload=123; download=456; total=0
 ```
 
 Values are integer bytes, separated by a semicolon and a space. `upload` is the
-current period's recorded outbound traffic, and `download` is its recorded
-inbound traffic. `total` uses the shared `traffic.quota_gib` setting multiplied
-by 1024³; an absent or zero quota produces `total=0` (unlimited). These are
-instance-wide counters shared by all keys and channels, including user-scoped
-keys. They do not represent individual user/node usage, subscription file sizes,
-or the key's download limit.
+recorded outbound traffic of every node in that node's own current period, and
+`download` is the same for inbound traffic. `total` is always `0`: each node has
+its own quota, and their sum would tell a client nothing about how much it can
+still use on the node it actually uses. These counters are shared by all keys
+and channels, including user-scoped keys. They do not represent individual
+user usage, subscription file sizes, or the key's download limit.
 
-Each request reads the current accounting settings and aggregates the current
-`traffic.period_months` period, using the existing UTC natural-month boundaries
-aligned from January 1970. At the next period boundary, only the new period's
-recorded usage is returned; no records means `upload=0; download=0`. Historical
-totals remain intact, and no reset job or running collector is required.
-Quota and period changes take effect on the next request.
+Each request reads every node's period settings and sums the recorded usage of
+each node's current period. When a node reaches its reset day, only its new
+period's usage counts; no records means zero. Historical totals remain intact,
+and no reset job or running collector is required. Period changes take effect
+on the next request.
 
-The header and dashboard report the same recorded sing-box usage even when
-sampling is stale or stopped. Zero means no recorded usage, not proof that no
+The header and `GET /api/v1/traffic/status` report the same recorded sing-box
+usage even when sampling is stale or stopped. Zero means no recorded usage, not proof that no
 traffic occurred. VPS interface totals and unrelated host traffic are not included.
 Configuration read or traffic storage failures return `503` instead of fabricated counters. Failed requests
 do not consume download quota or expose the traffic header; final authorization
@@ -135,9 +134,9 @@ so manually refresh an existing subscription to see it immediately.
 ## Applied local nodes and versioned sources
 
 Local nodes are derived only from the immutable startup bytes referenced by
-a node's currently applied activation bundle. Nodes do not report their applied
-bundles to the panel yet, so until they do the panel publishes sources and
-manual nodes only. Draft, failed, and unapplied
+a node's currently applied activation bundle. Nodes report their applied
+bundles, but the panel does not derive local nodes from them yet, so it
+publishes sources and manual nodes only. Draft, failed, and unapplied
 configuration is never published. Rollback changes the applied bundle pointer
 and therefore restores the matching local-node input without re-projecting the
 current revision.
@@ -657,22 +656,25 @@ payloads.
 
 ## Dashboard delivery and host metrics
 
-Nodes do not report metrics, traffic or runtime transitions to the panel yet.
-Until they do, `GET /api/v1/metrics`, `GET /api/v1/metrics/stream` and
-`GET /api/v1/traffic/status` answer `503` problems, and the dashboard, runtime
-history and traffic periods show only what the panel already stores. The rest
-of this section describes the collection that moves to each node.
+Each node reports its own metrics, traffic and runtime transitions over its
+session, and the panel serves them per node under `/api/v1/nodes/{nodeId}`:
+`metrics`, `metrics/stream`, `metrics/history`, `dashboard/stream`,
+`traffic/periods` and `core/runtime/history`. A node that is offline keeps its
+recorded history and traffic; its live views show no current sample.
 
-`GET /api/v1/metrics/stream` shares runtime and metric snapshots across clients
-on a one-second cadence. The lifecycle-owned collector reads the running core
+A node sends a metrics sample every ten seconds. While any client streams a
+node's `metrics/stream`, the panel tells that node to sample once a second and
+returns it to ten seconds when the last viewer leaves. The stream shares
+snapshots across clients on a one-second cadence, combining the node's latest
+sample with the runtime state it last reported. The node reads the running core
 every second with a reused, incarnation-bound Clash client. The optional
-`metrics.live_sample` is process-local evidence with its own `sampled_at`, PID
-and start token. Its nullable `upload_bytes_per_second` and
-`download_bytes_per_second` fields are calculated by the collector from adjacent
-accepted observations and their actual elapsed time. They are short-interval
-averages, independent of which snapshots a browser receives. A first observation,
-process change, failed or rejected observation, or interval over three seconds
-has no rate. Existing cumulative fields remain available; the bundled Web client
+`metrics.live_sample` is the node's latest reading, with its own `sampled_at`,
+PID and start token; it is shown only while the node reports that process
+running and for 30 seconds after the reading. Its nullable
+`upload_bytes_per_second` and `download_bytes_per_second` fields are calculated
+by the panel from adjacent samples of the same process and their actual
+elapsed time, so they exist only while a node samples once a second. A first
+sample, process change, decrease, or interval over three seconds has no rate. Existing cumulative fields remain available; the bundled Web client
 uses the new rate fields directly. Live samples do not enter the persisted accounting totals.
 Collector availability and historical sampling quality remain separate from
 recorded period usage. Snapshots use narrow runtime
@@ -701,13 +703,13 @@ System services read three narrowly scoped read-only host-counter mounts while
 retaining procfs isolation; see [systemd packaging](systemd.md#system-service)
 for the required unit refresh when upgrading an older installation.
 
-`GET /api/v1/dashboard/stream` sends a shared projection immediately (or a fresh
+`GET /api/v1/nodes/{nodeId}/dashboard/stream` sends one node's shared projection immediately (or a fresh
 cached value) and refreshes every 30 seconds only while subscribers exist.
 Assembly runs independently of live collection. A slow client retains just the
 latest pending snapshot, and cannot stall collection or grow an event backlog.
 The Dashboard owns this subscription; other routes do not query historical data.
-Each event includes one-hour / 24-hour histories, runtime transitions, two recent
-activity records and `persisted_through`. Both metric ranges and that accepted
+Each event includes the node's one-hour / 24-hour histories, runtime transitions,
+its two most recent activity records and `persisted_through`. Both metric ranges and that accepted
 sample watermark come from one database read transaction. The watermark replaces
 overlapping connection-chart tails when history catches up. Live tails are bounded to 120
 seconds and break at missing samples, process changes, counter regression
@@ -745,13 +747,12 @@ points keep individual live traffic observations visible.
 Traffic and connection chart details follow the pointer and stay inside the chart,
 showing metric values and units without timestamps. Arrow keys inspect samples;
 Escape or leaving the chart dismisses the details.
-An absent or zero traffic quota is rendered as unlimited (`∞ GiB`) while keeping
-the observed used-byte value; unavailable traffic evidence remains unknown rather
-than being rendered as zero.
+The node dashboard shows the node's recorded period traffic against the node's
+own quota; an unlimited quota is rendered as `∞ GiB` while keeping the observed
+used-byte value. Unavailable traffic evidence remains unknown rather than being
+rendered as zero.
 
-The demo uses the saved panel traffic quota for both metrics responses and the
-live metrics stream. Saving a new quota refreshes shared metrics once immediately; subsequent
-updates use the existing stream, including the usage percentage; an empty or zero quota remains unlimited.
+The demo node starts with a 500 GiB monthly quota that resets on the 1st.
 
 ## Limited monitoring and traffic
 
@@ -786,35 +787,52 @@ traffic delta; earlier missing history is not backfilled with invented values.
 
 Apply, start, and restart first pass process health, then wait up to five
 seconds for `/version` to report the exact selected core version. While the
-process runs, the panel reads `/connections` every second into memory and
-persists checkpoints every ten seconds. Incarnation changes and rejected evidence
-may persist immediately: an intervening high-water observation is flushed before
-a counter regression so decimation cannot conceal it. Sampling failure clears
-live evidence without changing accounting. Persisted samples older than 30 seconds
-make live metrics unavailable; recorded period usage remains available.
+process runs, the node reads `/connections` every second and adds each
+process's counter growth to cumulative totals for its database, kept in a
+durable node checkpoint saved every ten seconds and at each process change. A
+process's first reading is its baseline, so traffic before it is not guessed;
+traffic between the last reading and a process exit is not counted. A decrease
+within one process adds nothing and is reported. Sampling failure clears live
+evidence without changing accounting.
 
-Counters are checkpointed by PID, OS start token and activation bundle. The
-first observation in each segment is a baseline; only subsequent nonnegative
-counter differences are added. A restart preserves recorded totals, and a counter
-decrease or out-of-order observation is rejected without changing the checkpoint.
-The source is the managed sing-box instance's `/connections` upload/download
-counters, not host network interfaces, SSH, system updates or other VPS traffic.
+Nodes report those cumulative totals in their metrics samples, so the panel
+proves the delta between any two samples of the same node database, including
+across core restarts, configuration changes and periods the node was offline.
+The panel stores a node's samples at most every ten seconds, and at once when
+the core process changes. A recreated node database starts a new segment whose
+first totals are a baseline. A decrease or out-of-order sample within one
+segment is rejected without changing the checkpoint. Persisted samples older
+than 30 seconds make live metrics unavailable; recorded period usage remains
+available. The source is the managed sing-box instance's `/connections`
+upload/download counters, not host network interfaces, SSH, system updates or
+other VPS traffic.
 
-Each accepted delta is booked entirely in the UTC month of its later sample,
-including a cross-month interval or a collection gap longer than 30 seconds.
+Each accepted delta is booked entirely in the UTC day of its later sample,
+including a cross-day interval or a collection gap longer than 30 seconds.
 There is no proportional allocation. This keeps recorded increments from being
-lost or counted twice, but a cross-month interval can shift usage into the later
-month. Changing period settings does not reset checkpoints or re-add lifetime
-counters. The raw sample's nullable deltas and coverage metadata remain available
-for historical charts, independently of monthly accounting.
+lost or counted twice, but an interval across midnight can shift usage into
+the later day. Changing period settings does not reset checkpoints or re-add
+lifetime counters. The raw sample's nullable deltas and coverage metadata remain
+available for historical charts, independently of daily accounting.
 
-Periods span `traffic.period_months`, aligned to UTC natural months from January
-1970, and are recomputed immediately after saving a new month count. Monthly totals,
-samples and checkpoints update in one transaction. Current usage, monthly period
-details and paginated lists read the same durable monthly ledger, even after raw
+Each node has its own quota and period, read and saved with
+`GET` and `PUT /api/v1/nodes/{nodeId}/traffic/settings`:
+
+| Field | Meaning | Default |
+| --- | --- | --- |
+| `quota_gib` | The node's quota in GiB; `null` or `0` is unlimited | `null` |
+| `period_months` | Period length, 1 to 120 months, aligned to months counted from January 1970 | `1` |
+| `reset_day` | Day of the month, 1 to 28, on which each period starts at 00:00 UTC | `1` |
+
+A save carries the `revision` it read and fails with `412` when another save
+changed the settings first. Periods and quota status are recomputed at once
+from the node's daily ledger; saved traffic does not change. Each node has its
+own daily totals, samples, checkpoint and recorded periods, updated in one
+transaction; removing a node removes them. A node's current usage, period
+details and paginated period list read its durable daily ledger, even after raw
 samples expire or a previously selected period receives more recorded usage.
-Unsplit legacy period records retain their original values. The paired
-`period_start`/`id` cursor in `next` preserves stable pagination.
+Period IDs name their first and end days, such as `traffic_20261015_20261115`.
+The paired `period_start`/`id` cursor in `next` preserves stable pagination.
 
 Every successful metrics response includes `current_traffic_period`: an empty
 period has zero inbound and outbound bytes. Recorded usage and quota status remain
@@ -824,21 +842,23 @@ visible while sing-box is stopped, monitoring is unavailable or samples are stal
 `current_traffic_period` directly. The dashboard no longer evaluates period
 completeness. Before a successful response, or when storage fails, the existing
 loading/error handling applies rather than inventing zero usage.
-`traffic.quota_gib=null` or `0` is unlimited. Usage aggregates across activation
-bundles and is the sum of recorded upload and download bytes; quota exhaustion
-uses that same total even while collection is stopped.
+A node's metrics report its own `quota_bytes`, absent while unlimited, and
+`quota_exceeded`, set once the node's recorded upload and download together
+reach it, even while collection is stopped. `GET /api/v1/traffic/status` lists
+every node's current period, quota and `quota_exceeded`, and sums only usage
+into `upload_bytes` and `download_bytes`; quotas are never summed.
 
 Raw samples follow the required `traffic.sample_retention_days` setting, which
 is initialized to 90 and accepts 1 through 366 days. A settings file without
 the field is rejected. The server removes expired raw samples during startup
-and every 24 hours, and rechecks immediately after a Web settings save. Monthly
+and every 24 hours, and rechecks immediately after a Web settings save. Daily
 and traffic period totals remain retained after raw samples
 are removed.
 
 The authenticated history endpoint is:
 
 ```text
-GET /api/v1/metrics/history?from&to&bucket_seconds&activation_bundle_id
+GET /api/v1/nodes/{nodeId}/metrics/history?from&to&bucket_seconds&activation_bundle_id
 ```
 
 `from`, `to`, and a positive `bucket_seconds` are required; the bundle filter
@@ -849,16 +869,17 @@ and peak active connections, sample count, and `complete`, `partial`, or
 measurements, never synthetic zero traffic.
 
 Coverage is derived from persisted sampling intervals rather than sample
-count. A bucket is `complete` only when accepted same-process, same-bundle,
-same-period intervals of at most 30 seconds cover both bucket boundaries and
-the whole span between them. An uncovered gap, an over-limit interval, a
-process or bundle boundary, rejected counter evidence, or a retained sample
-without a provable interval makes the bucket `partial`; no evidence makes it
-`missing`. Traffic deltas remain nullable whenever the interval that would
+count. A bucket is `complete` only when accepted intervals of one node database
+within one month, each at most 30 seconds, cover both bucket boundaries and the
+whole span between them. An uncovered gap, an over-limit interval, a new node
+database, rejected counter evidence, or a retained sample without a provable
+interval makes the bucket `partial`; no evidence makes it `missing`. With the
+bundle filter, an interval counts toward the bundle of its later sample. Traffic deltas remain nullable whenever the interval that would
 justify them is unknown.
 
-The Web dashboard and authenticated metrics API expose the current traffic period
-and its recorded cumulative traffic, including zero before collection. Stopped or
+The Web dashboard and authenticated metrics API expose each node's current
+traffic period and its recorded cumulative traffic, including zero before
+collection. Stopped or
 stale collection does not hide these totals; availability and reason describe
 live collection only. Historical periods remain available through the authenticated
 traffic API. Metrics and traffic periods have no CLI command group.

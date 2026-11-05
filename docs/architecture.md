@@ -85,7 +85,7 @@ nothing imports.
 | Panel (`internal/sing-box-panel/`) | `store` | Panel SQLite: the baseline schema, each node's configuration and revisions, the cached core archives, subscription state and operational records |
 | | `auth` | Administrator credential hashing and login sessions |
 | | `settings` | The panel settings file and its service: validation, defaults, atomic saves and recovery, change notification, backup export and restore |
-| | `telemetry` | The panel log and operation outcomes, metrics and runtime history, traffic periods and quota, the dashboard projection |
+| | `telemetry` | The panel log and operation outcomes, metrics and runtime history, each node's traffic periods and quota, the dashboard projection |
 | | `corecache` | Upstream catalog discovery, staged core uploads and the verified archive cache that nodes install from |
 | | `schema` | The exact-version Schema manifest and assets for the editor and validators |
 | | `nodeconfig` | Each node's editable configuration file, canonical revisions, Schema support, preview and the exact-Schema check before a command |
@@ -174,7 +174,7 @@ tools/sign-release        -> release
 ```
 
 Settings sit below the services that read them: `telemetry` reads the traffic
-quota, period and sample retention and `corecache` reads the catalog token and
+sample retention and `corecache` reads the catalog token and
 refresh interval from `settings` directly, and `settings` depends on no other
 service. The HTTP route that restores a panel backup records its operation
 outcome.
@@ -273,7 +273,7 @@ below exercise the corresponding source, API and runtime boundaries.
 | SET-01 | Six grouped categories; shared draft and save, same-path hash navigation, cross-category validation, backup preview and atomic restore | Panel settings API/storage/bootstrap separation | Authenticated update, optimistic concurrency, invalid inputs, secrets redacted | implemented |
 | SET-02 | Listen/address/domain, administrator credentials and optional GitHub token; independent email/new-password drafts, shared save; server-only secrets | Bootstrap/security settings and catalog client | Restart semantics, session invalidation, no token in response/log/browser persistence | implemented |
 | SET-03 | Public node host auto placeholder/custom override; hidden subscription source access values preserved; inbound credentials edited natively; protocol obfuscation stays protocol-specific | Publication settings and native configuration | IPv4/IPv6/domain, failed auto detection cannot export bind/loopback, imported credentials unchanged | implemented |
-| SET-04 | Traffic quota, language, theme, five presets/custom color picker with HEX and explicit apply/cancel after closing; default #6D4ED1, radius 0–32 default12 | Persisted preferences and preview transaction | Save/reload; unsaved category/route changes require confirmation; cancellation retains draft, confirmed departure restores saved; reset only color/radius | implemented |
+| SET-04 | Language, theme, five presets/custom color picker with HEX and explicit apply/cancel after closing; default #6D4ED1, radius 0–32 default12 | Persisted preferences and preview transaction | Save/reload; unsaved category/route changes require confirmation; cancellation retains draft, confirmed departure restores saved; reset only color/radius | implemented |
 | SET-05 | Theme links accent/background/border/focus/charts through the derivation and radius steps in [`DESIGN.md`](../DESIGN.md); badges/logo/status independent | Shared CSS tokens and accessible color derivation | Text contrast ≥4.5 for arbitrary light/dark colors, radius bounds, all component states | implemented |
 | LOG-01 | Real-time core raw logs only; timestamp muted, full message matches level; all native levels, file/date/level selectors consistent and right aligned; one top-right status pill toggles live output and pause, without a separate icon or surrounding container | Core log file/tail API | Real file reading/stream/reconnect/pause/filter, independent scroll | implemented |
 | LOG-02 | Panel log shows operation outcomes and runtime events; time, message, log level and source only | Unified event query with sanitized operation outcomes | Consistent displayed/filter levels; pagination/filter | implemented |
@@ -283,7 +283,7 @@ below exercise the corresponding source, API and runtime boundaries.
 | Requirements | Owning implementation and guide | Focused evidence |
 | --- | --- | --- |
 | UI-01/02, AUTH-01, RUN-01 | `web/src/components/app-shell`, shared `components/ui`, `pages/login-page`; existing HTTP session and origin protections | App-shell, route and login tests; 18 desktop layout cases; real centered dialogs, Toast, focus and return journeys |
-| DASH-01/02 | `pages/dashboard-page`, `internal/sing-box-node/host`, `httpapi/metrics_stream.go`, persisted runtime transitions; [observability guide](subscriptions-and-observability.md) | Metrics sampling/stream tests, chart and timeline tests, browser missing-data and layout review |
+| DASH-01/02 | `pages/dashboard-page`, `internal/sing-box-node/host`, node `service/traffic.go` and `agent/reports.go`, `fleet/state.go`, `telemetry/nodes.go`, `httpapi/metrics_stream.go`, replicated runtime transitions; [observability guide](subscriptions-and-observability.md) | Node traffic accounting test, `fleet` state report, history and telemetry control test, per-node traffic store tests, chart and timeline tests, browser missing-data and layout review |
 | CORE-01/02 | `pages/cores-page`, `fleet` core commands, `corecache` archive cache, `internal/sing-box-node/service` core commands and runtime preflight; [core guide](core-versions.md) | `fleet` install and grant tests, node artifact verification and runtime tests; inline action and platform UI tests |
 | CFG-01/02 | `nodeconfig/file.go`, `store/configuration_file.go`, `internal/sing-box-node/service/configuration_runtime.go`, visual/JSON editors; [configuration guide](configuration-and-runtime.md) | File CAS and lossless tests; node `configuration_runtime_test.go`; real HTTP browser invalid-text save/reload; schema form union/unknown-field round trips |
 | SUB-01, NODE-01–04 | Source/node services, `subscription/inbound_convert.go`, `subscription/manual_node.go`, node editor/grid | Source refresh tests; `httpapi/subscription_nodes_test.go`, `manual_node_validation_test.go`, 1.14 inbound/TLS tests; browser hide/restore and conditional node form |
@@ -299,11 +299,12 @@ persistence, security boundaries and runtime semantics.
 ### Persistence and preserved guarantees
 
 `internal/sing-box-panel/store/schema.sql` is the panel's storage baseline,
-schema version 20. It creates each node's editable configuration and canonical
+schema version 21. It creates each node's editable configuration and canonical
 revisions, the cached core archives, subscription state, shared subscription
-node order, durable monthly traffic accounting, the process-counter
-checkpoint, login sessions, the node registry with enrollment token hashes and
-node public keys, and operational records directly. Each node keeps its
+node order, each node's runtime history, traffic samples, counter checkpoint
+and durable daily traffic accounting, login sessions, the node registry with
+enrollment token hashes, node public keys, each node's traffic quota and period and its last state report,
+and operational records directly. Each node keeps its
 runtime evidence in its own `node.db`, defined in
 `internal/sing-box-node/store/schema.sql`. Settings live in the selected
 `setting.json`; SQLite keeps only transaction markers for interrupted settings

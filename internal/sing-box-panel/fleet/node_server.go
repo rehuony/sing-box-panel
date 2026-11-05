@@ -27,8 +27,10 @@ const (
 	// still enrolled with the key it authenticated with, so a node removed by
 	// another process loses its session.
 	validationInterval = 30 * time.Second
-	// MetricsInterval is the baseline interval between metrics samples.
-	MetricsInterval = time.Minute
+	// MetricsInterval is the baseline interval between metrics samples. It
+	// matches the spacing of stored traffic samples, so history charts get
+	// one interval per sample.
+	MetricsInterval = 10 * time.Second
 )
 
 // nodeServer serves sbp.node.v1 to nodes.
@@ -117,7 +119,8 @@ func (server *nodeServer) Connect(stream nodeapi.NodeService_ConnectServer) erro
 	if err := checkProtocol(hello.GetProtocol()); err != nil {
 		return err
 	}
-	if !boundedText(hello.GetBuildVersion(), 256) || !validPlatform(hello.GetPlatform()) {
+	instanceID := hello.GetInstanceId()
+	if !boundedText(hello.GetBuildVersion(), 256) || !validPlatform(hello.GetPlatform()) || instanceID == "" || !boundedText(instanceID, 64) {
 		return status.Error(codes.InvalidArgument, "Hello is malformed")
 	}
 	node, err := service.database.Node(ctx, hello.GetNodeId())
@@ -152,10 +155,9 @@ func (server *nodeServer) Connect(stream nodeapi.NodeService_ConnectServer) erro
 		return status.Error(codes.Internal, "generate session")
 	}
 	current := newSession(ctx, cancel, stream)
-	service.sessions.replace(node.ID, current)
-	defer service.sessions.remove(node.ID, current)
+	current.nodeID, current.instanceID, current.sessionID = node.ID, instanceID, sessionID
 	err = service.database.RecordNodeSession(ctx, node.ID, node.PublicKey, store.NodeSession{
-		ID: sessionID, OS: hello.GetPlatform().GetOs(), Arch: hello.GetPlatform().GetArch(), BuildVersion: hello.GetBuildVersion(),
+		ID: sessionID, InstanceID: instanceID, OS: hello.GetPlatform().GetOs(), Arch: hello.GetPlatform().GetArch(), BuildVersion: hello.GetBuildVersion(),
 		ProtocolMinor: int(hello.GetProtocol().GetMinor()), SeenAt: service.now().UTC(),
 	})
 	if errors.Is(err, store.ErrNodeNotFound) {
@@ -170,13 +172,25 @@ func (server *nodeServer) Connect(stream nodeapi.NodeService_ConnectServer) erro
 		_ = service.database.EndNodeSession(endCtx, node.ID, sessionID, service.now().UTC())
 		service.recordNodeEvent(store.LogLevelInfo, "node.disconnected", "Node disconnected", node.ID)
 	}()
+	historyAfter, err := service.records.LatestRuntimeTransitionSource(ctx, node.ID, instanceID)
+	if err != nil {
+		return status.Error(codes.Internal, "read runtime history")
+	}
 	if err := current.send(&nodeapi.ConnectResponse{Frame: &nodeapi.ConnectResponse_Welcome{Welcome: &nodeapi.Welcome{
 		SessionId: sessionID, PanelBuildVersion: service.build.Version,
 		Protocol:        &nodeapi.ProtocolVersion{Major: nodeapi.ProtocolMajor, Minor: nodeapi.ProtocolMinor},
-		MetricsInterval: durationpb.New(MetricsInterval),
+		MetricsInterval: durationpb.New(MetricsInterval), RuntimeHistoryAfter: historyAfter,
 	}}}); err != nil {
 		return err
 	}
+	// Only a welcomed session receives commands and telemetry control.
+	service.sessions.replace(node.ID, current)
+	defer service.sessions.remove(node.ID, current)
+	service.viewersMu.Lock()
+	if service.viewers[node.ID] > 0 {
+		service.setMetricsInterval(node.ID, LiveMetricsInterval)
+	}
+	service.viewersMu.Unlock()
 	service.recordNodeEvent(store.LogLevelInfo, "node.connected", "Node connected", node.ID)
 
 	validation := time.NewTicker(validationInterval)
@@ -194,6 +208,8 @@ func (server *nodeServer) Connect(stream nodeapi.NodeService_ConnectServer) erro
 			switch {
 			case frame.GetResult() != nil:
 				current.deliver(frame.GetResult())
+			case frame.GetEvent() != nil:
+				service.receiveEvent(ctx, current, frame.GetEvent())
 			case frame.GetHello() != nil || frame.GetProof() != nil:
 				return status.Error(codes.InvalidArgument, "handshake frames are not allowed after Welcome")
 			}

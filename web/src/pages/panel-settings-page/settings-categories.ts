@@ -82,8 +82,6 @@ export function invalidSettingsField(
   if (!integer(s.catalog_refresh_interval_hours, 1, 720)) return fail('maintenance', 'catalog-refresh-interval');
   if (new TextEncoder().encode(github).length > 8192 || /[\0\r\n]/.test(github)) return fail('maintenance', 'github-token');
   if (p.public_node_host && !validPublishedHost(p.public_node_host)) return fail('service', 'public-host');
-  if (p.traffic_quota_gib !== null && !integer(p.traffic_quota_gib, 0, 8589934591)) return fail('traffic', 'quota');
-  if (!integer(s.traffic_period_months, 1, 120)) return fail('traffic', 'traffic-period');
   if (!integer(s.sample_retention_days, 1, 366)) return fail('traffic', 'sample-retention');
   if (!integer(s.core_log_retention_days ?? 7, 1, 3650)) return fail('logs', 'core-log-retention');
   if (!integer(s.core_log_max_files ?? 0, 0, 1024)) return fail('logs', 'core-log-max-files');

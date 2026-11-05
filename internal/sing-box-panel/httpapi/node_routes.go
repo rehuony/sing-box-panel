@@ -13,7 +13,8 @@ import (
 )
 
 // nodeRoute selects the handler of a resource of one node, a path under
-// /api/v1/nodes/{nodeId}/ in the config, core or filesystem groups, or nil
+// /api/v1/nodes/{nodeId}/ in the config, core, filesystem, metrics,
+// dashboard or traffic groups, or nil
 // when the path is not one. The handler reads the node from the nodeId path
 // value after checking that the node exists.
 func (handler *Handler) nodeRoute(method, path string) http.HandlerFunc {
@@ -84,7 +85,29 @@ func (handler *Handler) nodeResource(method, resource string) http.HandlerFunc {
 		byMethod[http.MethodDelete] = handler.clearCoreLog
 	case "/core/logs/stream":
 		byMethod[http.MethodGet] = func(w http.ResponseWriter, request *http.Request) { handler.readCoreLog(w, request, true) }
+	case "/core/runtime/history":
+		byMethod[http.MethodGet] = handler.coreRuntimeHistory
+	case "/metrics":
+		byMethod[http.MethodGet] = handler.currentMetrics
+	case "/metrics/stream":
+		byMethod[http.MethodGet] = handler.streamMetrics
+	case "/metrics/history":
+		byMethod[http.MethodGet] = handler.metricsHistory
+	case "/dashboard/stream":
+		byMethod[http.MethodGet] = handler.streamDashboard
+	case "/traffic/periods":
+		byMethod[http.MethodGet] = handler.listTrafficPeriods
+	case "/traffic/settings":
+		byMethod[http.MethodGet] = handler.trafficSettings
+		byMethod[http.MethodPut] = handler.saveTrafficSettings
 	default:
+		if identifier, ok := strings.CutPrefix(resource, "/traffic/periods/"); ok {
+			if identifier == "" || strings.Contains(identifier, "/") {
+				return nil
+			}
+			byMethod[http.MethodGet] = func(w http.ResponseWriter, request *http.Request) { handler.getTrafficPeriod(w, request, identifier) }
+			break
+		}
 		identifier, action, ok := matchCoreArtifactRoute(resource)
 		if !ok {
 			return nil

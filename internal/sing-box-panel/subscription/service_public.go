@@ -91,16 +91,15 @@ func (application *Service) PublicSubscription(
 	}, nil
 }
 
+// publicSubscriptionTraffic is the usage the subscription header reports:
+// every node's traffic in its own current period. Quotas belong to nodes, so
+// the header reports no total.
 func (application *Service) publicSubscriptionTraffic(ctx context.Context, at time.Time) (PublicSubscriptionTraffic, error) {
-	period, quota, err := application.telemetry.CurrentTrafficUsage(ctx, at)
+	status, err := application.telemetry.TrafficStatus(ctx, at)
 	if err != nil {
 		return PublicSubscriptionTraffic{}, err
 	}
-	result := PublicSubscriptionTraffic{UploadBytes: period.OutboundBytes, DownloadBytes: period.InboundBytes}
-	if quota != nil {
-		result.TotalBytes = *quota
-	}
-	return result, nil
+	return PublicSubscriptionTraffic{UploadBytes: status.UploadBytes, DownloadBytes: status.DownloadBytes}, nil
 }
 
 func (application *Service) renderSubscriptionState(ctx context.Context, state store.PublicSubscriptionState) (RenderResult, error) {

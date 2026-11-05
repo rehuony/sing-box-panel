@@ -88,18 +88,21 @@ func TestSetFieldSupportsTypedValuesAndMissingSections(t *testing.T) {
 		{"github.token", "12345"},
 		{"panel.appearance", `{"theme":"dark","color":"#123456","radius":8}`},
 		{"subscription.private_source_cidrs", `["10.0.0.0/8","fd00::/8"]`},
-		{"traffic.quota_gib", "42"},
+		{"traffic.sample_retention_days", "42"},
 	} {
 		if err := SetField(t.Context(), path, update.field, update.value); err != nil {
 			t.Fatalf("set %s: %v", update.field, err)
 		}
 	}
 	loaded, err := Load(path)
-	if err != nil || loaded.GitHub.Token != "12345" || loaded.Panel.Appearance.Theme != "dark" || loaded.Panel.Appearance.Radius != 8 || len(loaded.Subscription.PrivateSourceCIDRs) != 2 || loaded.Traffic.QuotaGiB == nil || *loaded.Traffic.QuotaGiB != 42 {
+	if err != nil || loaded.GitHub.Token != "12345" || loaded.Panel.Appearance.Theme != "dark" || loaded.Panel.Appearance.Radius != 8 || len(loaded.Subscription.PrivateSourceCIDRs) != 2 || loaded.Traffic.SampleRetentionDays != 42 {
 		t.Fatal("typed values were not preserved", err)
 	}
-	if err := SetField(t.Context(), path, "traffic.quota_gib", "null"); err != nil {
-		t.Fatal(err)
+	// Traffic quotas belong to nodes; the removed panel fields are rejected.
+	for _, removed := range []string{"traffic.quota_gib", "traffic.period_months"} {
+		if err := SetField(t.Context(), path, removed, "1"); err == nil {
+			t.Fatalf("set %s succeeded", removed)
+		}
 	}
 	before, _ := Read(path)
 	var document map[string]json.RawMessage
@@ -126,8 +129,8 @@ func TestSetFieldSupportsTypedValuesAndMissingSections(t *testing.T) {
 		t.Fatal("missing section materialized unrelated defaults")
 	}
 	loaded, err = Load(path)
-	if err != nil || loaded.Traffic.QuotaGiB != nil || loaded.Panel.Appearance.Theme != "light" {
-		t.Fatal("nullable value or missing section update failed", err)
+	if err != nil || loaded.Panel.Appearance.Theme != "light" {
+		t.Fatal("missing section update failed", err)
 	}
 }
 
@@ -136,7 +139,6 @@ func TestSetFieldClearsOptionalValuesWithoutRestoringDefaults(t *testing.T) {
 	for _, update := range []struct{ field, value, want string }{
 		{"github.token", "", `""`},
 		{"server.external_origin", "", `""`},
-		{"traffic.quota_gib", "null", "null"},
 		{"subscription.private_source_cidrs", "[]", "[]"},
 		{"subscription.private_source_cidrs", "null", "null"},
 	} {
@@ -212,7 +214,7 @@ func TestSetFieldRejectsInvalidChangesWithoutEchoingValues(t *testing.T) {
 		{"server", `{"host":"127.0.0.1","port":8443,"port":8444}`},
 		{"server.external_origin", "https://private-value/%"},
 		{"subscription.private_source_cidrs", `["private-value"]`},
-		{"traffic.quota_gib", `"private-value"`},
+		{"traffic.sample_retention_days", `"private-value"`},
 		{"auth.password_hash", "private-value"},
 		{"auth.password", "too-short"},
 		{"auth.password", ""},

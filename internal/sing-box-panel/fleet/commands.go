@@ -51,6 +51,14 @@ func (service *Service) run(ctx context.Context, nodeID string, body nodeapi.Com
 	if current == nil {
 		return nil, ErrNodeOffline
 	}
+	// The panel acts on a node only once it knows the node's state.
+	select {
+	case <-current.ready:
+	case <-current.done:
+		return nil, ErrNodeOffline
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
 	if nodeapi.ChangesState(body) {
 		deadline, ok := ctx.Deadline()
 		ctx = context.WithoutCancel(ctx)

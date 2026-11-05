@@ -24,24 +24,3 @@ func (app *Service) WithCredentials(ctx context.Context, action func(email, pass
 	}
 	return action(value.Auth.Email, value.Auth.PasswordHash)
 }
-
-// TrafficAccounting reads only the traffic quota and period from the settings
-// file, so accounting keeps working while unrelated fields are being edited.
-func (app *Service) TrafficAccounting(ctx context.Context) (Traffic, error) {
-	if app.settingsPath == "" {
-		value := app.settings.Traffic
-		if value.PeriodMonths == 0 {
-			value.PeriodMonths = 1
-		}
-		return value, ValidateTrafficQuota(value.QuotaGiB)
-	}
-	lock, err := Lock(ctx, app.settingsPath)
-	if err != nil {
-		return Traffic{}, err
-	}
-	defer lock.Close()
-	if err := app.Recover(ctx); err != nil {
-		return Traffic{}, err
-	}
-	return LoadTrafficAccounting(app.settingsPath)
-}

@@ -27,21 +27,26 @@ func TestObservabilityHTTPReadsOnlyPersistedEvidence(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	nodeID := testutil.CreateNode(t, database, "edge")
+	nodePath := "/api/v1/nodes/" + nodeID
 	now := time.Now().UTC().Truncate(time.Second)
-	period, err := database.UpsertTrafficPeriod(context.Background(), store.TrafficPeriod{
-		ID: "period-http", PeriodStart: now.Add(-time.Hour), PeriodEnd: now.Add(time.Hour),
-		InboundBytes: 12, OutboundBytes: 34, Counters: json.RawMessage(`{"inbound":{"mixed":12}}`), CreatedAt: now,
-	})
-	if err != nil {
-		t.Fatal(err)
+	thisMonth := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC)
+	lastMonth := thisMonth.AddDate(0, -1, 0)
+	record := func(at time.Time, upload, download int64) {
+		t.Helper()
+		start := time.Date(at.Year(), at.Month(), 1, 0, 0, 0, 0, time.UTC)
+		if _, err := database.RecordTrafficSample(context.Background(), store.TrafficSampleInput{
+			NodeID: nodeID, InstanceID: "instance", ActivationBundleID: "bundle", PID: 7, ProcessStartToken: "process",
+			SampledAt: at, PeriodStart: start, PeriodEnd: start.AddDate(0, 1, 0), UploadTotal: upload, DownloadTotal: download,
+		}); err != nil {
+			t.Fatal(err)
+		}
 	}
-	olderPeriod, err := database.UpsertTrafficPeriod(context.Background(), store.TrafficPeriod{
-		ID: "period-http-older", PeriodStart: now.Add(-3 * time.Hour), PeriodEnd: now.Add(-2 * time.Hour),
-		InboundBytes: 5, OutboundBytes: 8, Counters: json.RawMessage(`{}`), CreatedAt: now.Add(-3 * time.Hour),
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	record(lastMonth.Add(time.Hour), 0, 0)
+	record(lastMonth.Add(time.Hour+10*time.Second), 8, 5)
+	record(thisMonth, 42, 17)
+	periodID := "traffic_" + thisMonth.Format("20060102") + "_" + thisMonth.AddDate(0, 1, 0).Format("20060102")
+	olderPeriodID := "traffic_" + lastMonth.Format("20060102") + "_" + thisMonth.Format("20060102")
 
 	logs := authenticatedRequest(t, handler, http.MethodGet, "/api/v1/logs?source=panel&level=warn&limit=1", "", "")
 	if logs.Code != http.StatusOK || !strings.Contains(logs.Body.String(), entry.ID) {
@@ -70,19 +75,48 @@ func TestObservabilityHTTPReadsOnlyPersistedEvidence(t *testing.T) {
 		t.Fatalf("clear logs status=%d body=%s", clearedLogs.Code, clearedLogs.Body.String())
 	}
 
-	// Live views need node telemetry, which nodes do not report yet; they
-	// answer with a problem rather than with values that look like data.
-	for _, target := range []string{"/api/v1/metrics", "/api/v1/traffic/status", "/api/v1/metrics/stream"} {
-		live := authenticatedRequest(t, handler, http.MethodGet, target, "", "")
-		if live.Code != http.StatusServiceUnavailable {
-			t.Fatalf("%s status=%d body=%s", target, live.Code, live.Body.String())
+	// A node that never reported state has no live evidence, only its
+	// recorded traffic; the fleet's status sums every node.
+	metrics := authenticatedRequest(t, handler, http.MethodGet, nodePath+"/metrics", "", "")
+	if metrics.Code != http.StatusOK || !strings.Contains(metrics.Body.String(), `"reason_code":"not_applied"`) ||
+		!strings.Contains(metrics.Body.String(), `"outbound_bytes":34`) || strings.Contains(metrics.Body.String(), "live_sample") {
+		t.Fatalf("node metrics status=%d body=%s", metrics.Code, metrics.Body.String())
+	}
+	// A quota belongs to its node: the node's metrics report it, and saving
+	// it with a stale revision fails.
+	settings := authenticatedRequest(t, handler, http.MethodGet, nodePath+"/traffic/settings", "", "")
+	if settings.Code != http.StatusOK || settings.Body.String() != `{"revision":1,"quota_gib":null,"period_months":1,"reset_day":1}`+"\n" {
+		t.Fatalf("traffic settings status=%d body=%s", settings.Code, settings.Body.String())
+	}
+	saved := authenticatedRequest(t, handler, http.MethodPut, nodePath+"/traffic/settings", `{"revision":1,"quota_gib":1,"period_months":1,"reset_day":1}`, "")
+	if saved.Code != http.StatusOK || !strings.Contains(saved.Body.String(), `"revision":2`) {
+		t.Fatalf("save traffic settings status=%d body=%s", saved.Code, saved.Body.String())
+	}
+	for body, code := range map[string]int{
+		`{"revision":1,"quota_gib":2,"period_months":1,"reset_day":1}`:  http.StatusPreconditionFailed,
+		`{"revision":2,"quota_gib":2,"period_months":1,"reset_day":29}`: http.StatusUnprocessableEntity,
+	} {
+		if rejected := authenticatedRequest(t, handler, http.MethodPut, nodePath+"/traffic/settings", body, ""); rejected.Code != code {
+			t.Fatalf("save %s status=%d body=%s, want %d", body, rejected.Code, rejected.Body.String(), code)
 		}
 	}
+	metrics = authenticatedRequest(t, handler, http.MethodGet, nodePath+"/metrics", "", "")
+	if metrics.Code != http.StatusOK || !strings.Contains(metrics.Body.String(), `"quota_bytes":1073741824`) || !strings.Contains(metrics.Body.String(), `"quota_exceeded":false`) {
+		t.Fatalf("node metrics with a quota status=%d body=%s", metrics.Code, metrics.Body.String())
+	}
+	status := authenticatedRequest(t, handler, http.MethodGet, "/api/v1/traffic/status", "", "")
+	if status.Code != http.StatusOK || !strings.Contains(status.Body.String(), `"upload_bytes":34`) || !strings.Contains(status.Body.String(), `"download_bytes":12`) ||
+		!strings.Contains(status.Body.String(), `"quota_bytes":1073741824`) {
+		t.Fatalf("traffic status=%d body=%s", status.Code, status.Body.String())
+	}
+	if missing := authenticatedRequest(t, handler, http.MethodGet, "/api/v1/nodes/node_missing/metrics", "", ""); missing.Code != http.StatusNotFound {
+		t.Fatalf("metrics of a missing node status=%d body=%s", missing.Code, missing.Body.String())
+	}
 
-	from := url.QueryEscape(now.Add(-4 * time.Hour).Format(time.RFC3339Nano))
+	from := url.QueryEscape(lastMonth.Add(-time.Hour).Format(time.RFC3339Nano))
 	to := url.QueryEscape(now.Add(2 * time.Hour).Format(time.RFC3339Nano))
-	periods := authenticatedRequest(t, handler, http.MethodGet, "/api/v1/traffic/periods?from="+from+"&to="+to+"&limit=1", "", "")
-	if periods.Code != http.StatusOK || !strings.Contains(periods.Body.String(), period.ID) {
+	periods := authenticatedRequest(t, handler, http.MethodGet, nodePath+"/traffic/periods?from="+from+"&to="+to+"&limit=1", "", "")
+	if periods.Code != http.StatusOK || !strings.Contains(periods.Body.String(), periodID) {
 		t.Fatalf("periods status=%d body=%s", periods.Code, periods.Body.String())
 	}
 	var firstPage store.TrafficPeriodPage
@@ -91,18 +125,18 @@ func TestObservabilityHTTPReadsOnlyPersistedEvidence(t *testing.T) {
 	}
 	cursorTime := url.QueryEscape(firstPage.Next.PeriodStart.Format(time.RFC3339Nano))
 	cursorID := url.QueryEscape(firstPage.Next.ID)
-	nextPeriods := authenticatedRequest(t, handler, http.MethodGet, "/api/v1/traffic/periods?before_time="+cursorTime+"&before_id="+cursorID+"&limit=1", "", "")
-	if nextPeriods.Code != http.StatusOK || !strings.Contains(nextPeriods.Body.String(), olderPeriod.ID) {
+	nextPeriods := authenticatedRequest(t, handler, http.MethodGet, nodePath+"/traffic/periods?before_time="+cursorTime+"&before_id="+cursorID+"&limit=1", "", "")
+	if nextPeriods.Code != http.StatusOK || !strings.Contains(nextPeriods.Body.String(), olderPeriodID) {
 		t.Fatalf("next periods status=%d body=%s", nextPeriods.Code, nextPeriods.Body.String())
 	}
-	shownPeriod := authenticatedRequest(t, handler, http.MethodGet, "/api/v1/traffic/periods/"+period.ID, "", "")
+	shownPeriod := authenticatedRequest(t, handler, http.MethodGet, nodePath+"/traffic/periods/"+periodID, "", "")
 	if shownPeriod.Code != http.StatusOK || !strings.Contains(shownPeriod.Body.String(), `"outbound_bytes":34`) {
 		t.Fatalf("period status=%d body=%s", shownPeriod.Code, shownPeriod.Body.String())
 	}
 	history := authenticatedRequest(t,
 		handler,
 		http.MethodGet,
-		"/api/v1/metrics/history?from="+url.QueryEscape(now.Add(-time.Hour).Format(time.RFC3339Nano))+"&to="+url.QueryEscape(now.Format(time.RFC3339Nano))+"&bucket_seconds=900",
+		nodePath+"/metrics/history?from="+url.QueryEscape(now.Add(-time.Hour).Format(time.RFC3339Nano))+"&to="+url.QueryEscape(now.Format(time.RFC3339Nano))+"&bucket_seconds=900",
 		"",
 		"",
 	)
@@ -113,9 +147,10 @@ func TestObservabilityHTTPReadsOnlyPersistedEvidence(t *testing.T) {
 }
 
 func TestObservabilityHTTPIsAuthenticatedAndStrict(t *testing.T) {
-	handler, _ := newCoreHTTPFixture(t)
+	handler, database := newCoreHTTPFixture(t)
+	nodePath := "/api/v1/nodes/" + testutil.CreateNode(t, database, "edge")
 	unauthenticated := httptest.NewRecorder()
-	handler.ServeHTTP(unauthenticated, httptest.NewRequest(http.MethodGet, "/api/v1/metrics", nil))
+	handler.ServeHTTP(unauthenticated, httptest.NewRequest(http.MethodGet, nodePath+"/metrics", nil))
 	assertCoreHTTPProblem(t, unauthenticated, http.StatusUnauthorized, "authentication_required")
 
 	tests := []struct {
@@ -125,19 +160,19 @@ func TestObservabilityHTTPIsAuthenticatedAndStrict(t *testing.T) {
 		{target: "/api/v1/logs?since=not-a-time", code: "time_invalid"},
 		{target: "/api/v1/logs?after_time=2026-08-26T00%3A00%3A00Z", code: "log_cursor_invalid"},
 		{target: "/api/v1/logs?source=other", code: "log_filter_invalid"},
-		{target: "/api/v1/traffic/periods?from=2026-08-27T00%3A00%3A00Z&to=2026-08-26T00%3A00%3A00Z", code: "traffic_range_invalid"},
-		{target: "/api/v1/traffic/periods?before_time=2026-08-27T00%3A00%3A00Z", code: "traffic_cursor_invalid"},
-		{target: "/api/v1/metrics?latest=true", code: "query_invalid"},
-		{target: "/api/v1/metrics/history?from=2026-08-26T00%3A00%3A00Z&to=2026-08-27T00%3A00%3A00Z", code: "metrics_history_filter_invalid"},
-		{target: "/api/v1/metrics/history?from=2026-08-26T00%3A00%3A00Z&to=2026-11-27T00%3A00%3A00Z&bucket_seconds=3600", code: "metrics_history_filter_invalid"},
+		{target: nodePath + "/traffic/periods?from=2026-08-27T00%3A00%3A00Z&to=2026-08-26T00%3A00%3A00Z", code: "traffic_range_invalid"},
+		{target: nodePath + "/traffic/periods?before_time=2026-08-27T00%3A00%3A00Z", code: "traffic_cursor_invalid"},
+		{target: nodePath + "/metrics?latest=true", code: "query_invalid"},
+		{target: nodePath + "/metrics/history?from=2026-08-26T00%3A00%3A00Z&to=2026-08-27T00%3A00%3A00Z", code: "metrics_history_filter_invalid"},
+		{target: nodePath + "/metrics/history?from=2026-08-26T00%3A00%3A00Z&to=2026-11-27T00%3A00%3A00Z&bucket_seconds=3600", code: "metrics_history_filter_invalid"},
 	}
 	for _, test := range tests {
 		response := authenticatedRequest(t, handler, http.MethodGet, test.target, "", "")
 		assertCoreHTTPProblem(t, response, http.StatusBadRequest, test.code)
 	}
-	method := authenticatedRequest(t, handler, http.MethodPost, "/api/v1/metrics", "", "")
+	method := authenticatedRequest(t, handler, http.MethodPost, nodePath+"/metrics", "", "")
 	assertCoreHTTPProblem(t, method, http.StatusMethodNotAllowed, "method_not_allowed")
-	missing := authenticatedRequest(t, handler, http.MethodGet, "/api/v1/traffic/periods/missing", "", "")
+	missing := authenticatedRequest(t, handler, http.MethodGet, nodePath+"/traffic/periods/missing", "", "")
 	assertCoreHTTPProblem(t, missing, http.StatusNotFound, "traffic_period_not_found")
 }
 

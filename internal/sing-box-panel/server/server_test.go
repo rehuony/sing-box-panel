@@ -36,31 +36,31 @@ func TestRuntimeExecutorLeaseExcludesSecondOwner(t *testing.T) {
 	dataDirectory := t.TempDir()
 	first, err := procctl.AcquireLease(dataDirectory)
 	if err != nil {
-		t.Fatalf("acquire first runtime executor lease: %v", err)
+		t.Fatalf("acquire first data directory lease: %v", err)
 	}
 	t.Cleanup(func() { _ = first.Close() })
 
 	if _, err := procctl.AcquireLease(dataDirectory); !errors.Is(err, procctl.ErrLeaseHeld) {
-		t.Fatalf("acquire second runtime executor lease error = %v, want ErrRuntimeExecutorLeaseHeld", err)
+		t.Fatalf("acquire second data directory lease error = %v, want ErrLeaseHeld", err)
 	}
 
 	if err := first.Close(); err != nil {
-		t.Fatalf("release first runtime executor lease: %v", err)
+		t.Fatalf("release first data directory lease: %v", err)
 	}
 	third, err := procctl.AcquireLease(dataDirectory)
 	if err != nil {
-		t.Fatalf("acquire runtime executor lease after release: %v", err)
+		t.Fatalf("acquire data directory lease after release: %v", err)
 	}
 	if err := third.Close(); err != nil {
-		t.Fatalf("release third runtime executor lease: %v", err)
+		t.Fatalf("release third data directory lease: %v", err)
 	}
 
 	info, err := os.Stat(filepath.Join(dataDirectory, procctl.LeaseFileName))
 	if err != nil {
-		t.Fatalf("stat runtime executor lease: %v", err)
+		t.Fatalf("stat data directory lease: %v", err)
 	}
 	if got := info.Mode().Perm(); got != 0o600 {
-		t.Fatalf("runtime executor lease permissions = %#o, want 0600", got)
+		t.Fatalf("data directory lease permissions = %#o, want 0600", got)
 	}
 }
 

@@ -54,8 +54,9 @@ configuration, or subscription data.
 ### Database compatibility
 
 The panel database uses SQLite `application_id = 0x53425034` and storage schema
-version 20, defined in `internal/sing-box-panel/store/schema.sql`; each node
-keeps its own `node.db` with `application_id = 0x5342504E`, defined in
+version 21, defined in `internal/sing-box-panel/store/schema.sql`; each node
+keeps its own `node.db` with `application_id = 0x5342504E` and storage schema
+version 2, defined in
 `internal/sing-box-node/store/schema.sql`. Empty databases are initialized
 directly. Each schema is a storage baseline with no upgrade path:
 databases written by earlier versions, unidentified databases, other application
@@ -92,8 +93,7 @@ To edit one field without replacing the document, use
 `./bin/sing-box-panel --config ./setting.json config set server.port 9090`.
 Read its stored value with `config get server.port`. Field keys use dots as
 separators. String values are literal text; numbers, arrays and objects use JSON.
-Clear an optional string with `config set github.token ''`, or a nullable value
-with `config set traffic.quota_gib null`. Use `config set auth.password --stdin`
+Clear an optional string with `config set github.token ''`. Use `config set auth.password --stdin`
 to hash and save a custom administrator password without echoing it. See
 [Panel settings](cli.md#panel-settings) for field types and password handling.
 Only active settings are generated. Removed subscription author/provider and

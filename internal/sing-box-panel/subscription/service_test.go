@@ -348,7 +348,7 @@ func newSubscriptionTestService(database *store.Store) *Service {
 	return New(database, panelSettings, telemetry.New(database, panelSettings, telemetry.Options{}), Options{})
 }
 
-// useSettings serves panelSettings; traffic accounting follows it.
+// useSettings serves panelSettings.
 func (app *Service) useSettings(panelSettings *settings.Service) {
 	app.settings = panelSettings
 	app.telemetry = telemetry.New(app.database, panelSettings, telemetry.Options{})

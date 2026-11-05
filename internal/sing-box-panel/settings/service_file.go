@@ -32,8 +32,8 @@ func panelFields(p PanelPreferences) Panel {
 func panelValues(value Settings) storedPanelSettings {
 	return storedPanelSettings{
 		Preferences: PanelPreferences{ListenHost: value.Server.Host, ListenPort: value.Server.Port, ExternalOrigin: value.Server.ExternalOrigin,
-			PublicNodeHost: value.Panel.PublicNodeHost, TrafficQuotaGiB: value.Traffic.QuotaGiB,
-			Language: value.Panel.Language, Appearance: value.Panel.Appearance},
+			PublicNodeHost: value.Panel.PublicNodeHost,
+			Language:       value.Panel.Language, Appearance: value.Panel.Appearance},
 		GitHubToken: value.GitHub.Token, Auth: value.Auth,
 	}
 }
@@ -42,7 +42,6 @@ func applyPanelValues(value *Settings, panel storedPanelSettings) {
 	value.Server.Host, value.Server.Port, value.Server.ExternalOrigin = panel.Preferences.ListenHost, panel.Preferences.ListenPort, panel.Preferences.ExternalOrigin
 	value.Auth = panel.Auth
 	value.GitHub.Token = panel.GitHubToken
-	value.Traffic.QuotaGiB = panel.Preferences.TrafficQuotaGiB
 	value.Panel = panelFields(panel.Preferences)
 }
 

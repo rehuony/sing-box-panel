@@ -33,6 +33,13 @@ type Node struct {
 	LastSeenAt          *time.Time
 	// SessionID names the node's current session; empty while it has none.
 	SessionID string
+	// InstanceID identifies the node database of its latest session.
+	InstanceID string
+	Traffic    NodeTrafficSettings
+	// StateReport is the encoded state the node last reported, kept to show
+	// while the node is offline; nil before its first report.
+	StateReport []byte
+	ReportedAt  *time.Time
 }
 
 // NewNode is a node record with a pending enrollment token.
@@ -61,6 +68,7 @@ type NodeEnrollment struct {
 // NodeSession is what a node reports when its session is authenticated.
 type NodeSession struct {
 	ID            string
+	InstanceID    string
 	OS            string
 	Arch          string
 	BuildVersion  string
@@ -69,7 +77,9 @@ type NodeSession struct {
 }
 
 const nodeColumns = `id, name, created_at, public_key, enrolled_at, enrollment_expires_at,
-	hostname, os, arch, build_version, protocol_minor, last_seen_at, session_id`
+	hostname, os, arch, build_version, protocol_minor, last_seen_at, session_id,
+	instance_id, state_report, reported_at,
+	traffic_quota_gib, traffic_period_months, traffic_reset_day, traffic_settings_revision`
 
 // PanelID returns the panel's stable identity, recording candidate the first
 // time it is asked.
@@ -129,6 +139,57 @@ func (s *Store) RenameNode(ctx context.Context, id, name string) (Node, error) {
 	return scanNodeResult(s.db.QueryRowContext(ctx, `UPDATE nodes SET name = ? WHERE id = ? RETURNING `+nodeColumns, name, id))
 }
 
+// NodeTrafficSettings is a node's own traffic quota and period.
+type NodeTrafficSettings struct {
+	// QuotaGiB is the quota in GiB; nil is unlimited.
+	QuotaGiB *int64
+	// PeriodMonths is the length of each period.
+	PeriodMonths int
+	// ResetDay is the day of the month, 1 to 28, on which periods start at
+	// 00:00 UTC.
+	ResetDay int
+	// Revision increases with every saved change.
+	Revision int64
+}
+
+// Limits of node traffic settings.
+const (
+	MaximumTrafficQuotaGiB     = (1<<63 - 1) / (1 << 30)
+	MaximumTrafficPeriodMonths = 120
+	MaximumTrafficResetDay     = 28
+)
+
+var (
+	ErrNodeTrafficSettingsInvalid  = errors.New("traffic quota must be unlimited or 1 to 8589934591 GiB, the period 1 to 120 months and the reset day 1 to 28")
+	ErrNodeTrafficSettingsConflict = errors.New("the node's traffic settings changed since they were read")
+)
+
+// SaveNodeTrafficSettings replaces the node's traffic settings when their
+// revision is still expectedRevision. A zero quota is stored as unlimited.
+func (s *Store) SaveNodeTrafficSettings(ctx context.Context, id string, expectedRevision int64, value NodeTrafficSettings) (Node, error) {
+	if value.QuotaGiB != nil && *value.QuotaGiB == 0 {
+		value.QuotaGiB = nil
+	}
+	if (value.QuotaGiB != nil && (*value.QuotaGiB < 1 || *value.QuotaGiB > MaximumTrafficQuotaGiB)) ||
+		value.PeriodMonths < 1 || value.PeriodMonths > MaximumTrafficPeriodMonths || value.ResetDay < 1 || value.ResetDay > MaximumTrafficResetDay {
+		return Node{}, ErrNodeTrafficSettingsInvalid
+	}
+	var quota any
+	if value.QuotaGiB != nil {
+		quota = *value.QuotaGiB
+	}
+	node, err := scanNodeResult(s.db.QueryRowContext(ctx, `UPDATE nodes SET traffic_quota_gib = ?, traffic_period_months = ?,
+		traffic_reset_day = ?, traffic_settings_revision = traffic_settings_revision + 1
+		WHERE id = ? AND traffic_settings_revision = ? RETURNING `+nodeColumns,
+		quota, value.PeriodMonths, value.ResetDay, id, expectedRevision))
+	if errors.Is(err, ErrNodeNotFound) {
+		if _, lookupErr := s.Node(ctx, id); lookupErr == nil {
+			return Node{}, ErrNodeTrafficSettingsConflict
+		}
+	}
+	return node, err
+}
+
 func (s *Store) DeleteNode(ctx context.Context, id string) error {
 	result, err := s.db.ExecContext(ctx, `DELETE FROM nodes WHERE id = ?`, id)
 	if err != nil {
@@ -168,8 +229,16 @@ func (s *Store) EnrollNode(ctx context.Context, tokenHash [32]byte, input NodeEn
 // with publicKey. It fails with ErrNodeNotFound once the node was deleted or
 // enrolled with another key.
 func (s *Store) RecordNodeSession(ctx context.Context, id string, publicKey []byte, input NodeSession) error {
-	return expectOneNode(s.db.ExecContext(ctx, `UPDATE nodes SET session_id = ?, os = ?, arch = ?, build_version = ?, protocol_minor = ?, last_seen_at = ?
-		WHERE id = ? AND public_key = ?`, input.ID, input.OS, input.Arch, input.BuildVersion, input.ProtocolMinor, formatTime(input.SeenAt), id, publicKey))
+	return expectOneNode(s.db.ExecContext(ctx, `UPDATE nodes SET session_id = ?, instance_id = ?, os = ?, arch = ?, build_version = ?, protocol_minor = ?, last_seen_at = ?
+		WHERE id = ? AND public_key = ?`, input.ID, input.InstanceID, input.OS, input.Arch, input.BuildVersion, input.ProtocolMinor,
+		formatTime(input.SeenAt), id, publicKey))
+}
+
+// RecordNodeStateReport stores the encoded state the node reported in
+// session sessionID, while that is still its session.
+func (s *Store) RecordNodeStateReport(ctx context.Context, id, sessionID string, report []byte, reportedAt time.Time) error {
+	return expectOneNode(s.db.ExecContext(ctx, `UPDATE nodes SET state_report = ?, reported_at = ?, last_seen_at = ?
+		WHERE id = ? AND session_id = ?`, report, formatTime(reportedAt), formatTime(reportedAt), id, sessionID))
 }
 
 // TouchNode records that the node enrolled with publicKey was seen at seenAt,
@@ -220,12 +289,18 @@ func scanNodeResult(row *sql.Row) (Node, error) {
 func scanNode(row rowScanner) (Node, error) {
 	var node Node
 	var createdAt string
-	var enrolledAt, expiresAt, lastSeenAt, sessionID sql.NullString
+	var enrolledAt, expiresAt, lastSeenAt, sessionID, instanceID, reportedAt sql.NullString
+	var quota sql.NullInt64
 	if err := row.Scan(&node.ID, &node.Name, &createdAt, &node.PublicKey, &enrolledAt, &expiresAt,
-		&node.Hostname, &node.OS, &node.Arch, &node.BuildVersion, &node.ProtocolMinor, &lastSeenAt, &sessionID); err != nil {
+		&node.Hostname, &node.OS, &node.Arch, &node.BuildVersion, &node.ProtocolMinor, &lastSeenAt, &sessionID,
+		&instanceID, &node.StateReport, &reportedAt,
+		&quota, &node.Traffic.PeriodMonths, &node.Traffic.ResetDay, &node.Traffic.Revision); err != nil {
 		return Node{}, err
 	}
-	node.SessionID = sessionID.String
+	if quota.Valid {
+		node.Traffic.QuotaGiB = &quota.Int64
+	}
+	node.SessionID, node.InstanceID = sessionID.String, instanceID.String
 	var err error
 	if node.CreatedAt, err = parseTime(createdAt); err != nil {
 		return Node{}, err
@@ -233,7 +308,7 @@ func scanNode(row rowScanner) (Node, error) {
 	for _, field := range []struct {
 		raw    sql.NullString
 		target **time.Time
-	}{{enrolledAt, &node.EnrolledAt}, {expiresAt, &node.EnrollmentExpiresAt}, {lastSeenAt, &node.LastSeenAt}} {
+	}{{enrolledAt, &node.EnrolledAt}, {expiresAt, &node.EnrollmentExpiresAt}, {lastSeenAt, &node.LastSeenAt}, {reportedAt, &node.ReportedAt}} {
 		if !field.raw.Valid {
 			continue
 		}

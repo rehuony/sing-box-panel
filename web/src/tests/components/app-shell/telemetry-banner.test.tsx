@@ -88,7 +88,7 @@ function renderBanner(client: ApiClient) {
   client.streamMetrics = vi.fn(async function* (signal) {
     const runtime = await client.getRuntimeStatus(signal);
     for (let index = 0; index < 2; index++) {
-      const metrics = await client.getTrafficStatus(signal);
+      const metrics = await client.getMetrics(signal);
       yield { metrics, runtime };
     }
     await waitForAbort(signal);
@@ -171,7 +171,7 @@ describe('telemetryBanner', () => {
         target_generation: 3,
         observation_state: 'stale',
       }),
-      getTrafficStatus: vi.fn().mockResolvedValue({
+      getMetrics: vi.fn().mockResolvedValue({
         ...testMetrics,
         available: false,
         reason_code: 'stale_collector_sample',
@@ -197,7 +197,7 @@ describe('telemetryBanner', () => {
     const second = trafficSnapshot('2026-08-30T11:00:02Z', 1_400, 2_600);
     const client = createMockApiClient({
       getRuntimeStatus: vi.fn().mockResolvedValue(runningStatus()),
-      getTrafficStatus: vi.fn()
+      getMetrics: vi.fn()
         .mockResolvedValueOnce(first)
         .mockResolvedValue(second),
     });
@@ -229,7 +229,7 @@ describe('telemetryBanner', () => {
     let finish!: (status: RuntimeStatus) => void;
     const client = createMockApiClient({
       getRuntimeStatus: vi.fn().mockResolvedValue(stoppedStatus),
-      getTrafficStatus: vi.fn().mockResolvedValue({ ...testMetrics, available: false }),
+      getMetrics: vi.fn().mockResolvedValue({ ...testMetrics, available: false }),
       startRuntime: vi.fn(() => new Promise<RuntimeStatus>(resolve => {
         finish = resolve;
       })),
@@ -249,7 +249,7 @@ describe('telemetryBanner', () => {
       getRuntimeStatus: vi.fn()
         .mockResolvedValueOnce(runningStatus('process-old'))
         .mockResolvedValue(runningStatus('process-new')),
-      getTrafficStatus: vi.fn().mockResolvedValue({ ...testMetrics, available: false }),
+      getMetrics: vi.fn().mockResolvedValue({ ...testMetrics, available: false }),
       restartRuntime: vi.fn().mockResolvedValue(runningStatus('process-new')),
     });
 
@@ -287,7 +287,7 @@ describe('telemetryBanner', () => {
     const client = createMockApiClient({
       [`${action}Runtime`]: runtimeAction,
       getRuntimeStatus,
-      getTrafficStatus: vi.fn().mockResolvedValue({ ...testMetrics, available: false }),
+      getMetrics: vi.fn().mockResolvedValue({ ...testMetrics, available: false }),
     });
     const { container } = renderBanner(client);
     await act(async () => Promise.resolve());
@@ -326,7 +326,7 @@ describe('telemetryBanner', () => {
     vi.useFakeTimers();
     const client = createMockApiClient({
       getRuntimeStatus: vi.fn().mockResolvedValue(stoppedStatus),
-      getTrafficStatus: vi.fn().mockResolvedValue({ ...testMetrics, available: false }),
+      getMetrics: vi.fn().mockResolvedValue({ ...testMetrics, available: false }),
       startRuntime: vi.fn().mockRejectedValue(new Error('Unable to start')),
     });
     renderBanner(client);

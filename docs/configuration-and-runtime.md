@@ -360,11 +360,14 @@ While that identity remains verified, the panel refreshes
 its persisted observation watermark every 30 seconds so a later recovery can
 distinguish current evidence from a stale process incarnation.
 
-Runtime lifecycle evidence is append-only and permanently retained in
-`runtime_transitions`. The authenticated
-`GET /api/v1/core/runtime/history` endpoint filters by time, state, reason, or
-activation bundle and paginates newest-first with the stable
-`occurred_at`/`id` cursor pair. Transitions use `running`, `stopped`, `failed`,
+Runtime lifecycle evidence is append-only and permanently retained in the
+node's `runtime_transitions`. The node sends each entry to the panel; after each
+handshake the panel names the newest entry it holds for that node database, and
+the node sends the rest, so history survives disconnections without a buffer
+limit. The panel keeps each node's copy until the node is removed. The
+authenticated `GET /api/v1/nodes/{nodeId}/core/runtime/history` endpoint filters
+by time, state, reason, or activation bundle and paginates newest-first with the
+stable `occurred_at`/`id` cursor pair. Transitions use `running`, `stopped`, `failed`,
 or `unknown`; an `unknown` record includes `uncertain_since` and represents an
 interval that cannot be classified as uptime or downtime.
 
@@ -440,8 +443,6 @@ fields are rejected; no migration is performed.
 | `auth.password_hash` | Password (hash stored only) | Argon2id hash of a random password |
 | `github.token` | GitHub token | Empty |
 | `github.catalog_refresh_interval_hours` | GitHub version check interval | `12` |
-| `traffic.quota_gib` | Traffic quota | `null`; `null` and `0` are unlimited |
-| `traffic.period_months` | Traffic period | `1` |
 | `traffic.sample_retention_days` | Metric retention | `90` |
 | `subscription.private_source_cidrs` | File/API only | `[]` |
 | `logs.core_retention_days` | Core capture retention (UTC dates including today) | `7` |
@@ -532,7 +533,7 @@ data_dir/
   artifact-cache/         # verified core archives that nodes install from
   imports/                # temporary core uploads
   panel-control.sock      # private process control
-  runtime-executor.lock   # process ownership
+  process.lock            # process ownership
 ```
 
 Each node keeps its installed cores, disposable configuration snapshots and
@@ -544,11 +545,11 @@ settings file and its write/recovery sidecars remain beside the selected
 
 API revision, detected public IP, configured-secret flags and restart status are
 response metadata and are not settings fields. File reads include credentials;
-the Web API continues to redact them. Quota accepts whole GiB from zero through
-8589934591, preserving the existing file range and preventing byte overflow.
+the Web API continues to redact them. Traffic quotas and periods are not panel
+settings: each node has its own; see
+[Limited monitoring and traffic](subscriptions-and-observability.md#limited-monitoring-and-traffic).
 
-Quota, natural-month period selection, raw sample/core-log retention,
-public-node host, appearance, language, GitHub token and catalog refresh policy
+Raw sample/core-log retention, public-node host, appearance, language, GitHub token and catalog refresh policy
 are applied after saving. Background cleanup/refresh workers receive change
 notifications and read consistent snapshots. The shared metrics state refreshes
 once after saving, then continues over SSE. Credentials invalidate old sessions.

@@ -4,7 +4,6 @@ package httpapi
 
 import (
 	"encoding/json"
-	"fmt"
 	"reflect"
 	"strings"
 	"testing"
@@ -12,25 +11,27 @@ import (
 
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/store"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/telemetry"
+	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/testutil"
 )
 
 func TestDashboardSnapshotFitsFrameLimitAndPreservesOmittedHistory(t *testing.T) {
 	handler, database := newCoreHTTPFixture(t)
+	nodeID := testutil.CreateNode(t, database, "edge")
 	now := time.Now().UTC()
 	started := now.Add(-25 * time.Hour)
 	for index := range 4100 {
 		at := now.Add(-24*time.Hour + time.Duration(index+1)*20*time.Second)
-		_, err := database.AppendRuntimeTransition(t.Context(), store.RuntimeTransitionInput{
-			DedupeKey: fmt.Sprintf("dashboard-size-%d", index),
-			State:     store.RuntimeTransitionUnknown, Reason: "inspection_unavailable",
-			Generation: int64(index + 1), PID: 12345, ProcessStartToken: "12345:67890",
+		err := database.RecordRuntimeTransition(t.Context(), store.RuntimeTransitionInput{
+			NodeID: nodeID, InstanceID: "instance", SourceID: int64(index + 1),
+			State: store.RuntimeTransitionUnknown, Reason: "inspection_unavailable",
+			Generation: int64(index + 1), PID: 12345,
 			ProcessStartedAt: &started, OccurredAt: at, UncertainSince: &at,
 		})
 		if err != nil {
 			t.Fatal(err)
 		}
 	}
-	snapshot, err := handler.services.Telemetry.DashboardSnapshot(t.Context())
+	snapshot, err := handler.services.Telemetry.DashboardSnapshot(t.Context(), nodeID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -66,7 +67,7 @@ func TestDashboardSnapshotFitsFrameLimitAndPreservesOmittedHistory(t *testing.T)
 	}
 	from, to := snapshot.History24H.From, snapshot.History24H.To
 	page, err := handler.services.Telemetry.RuntimeHistory(t.Context(), telemetry.RuntimeHistoryRequest{
-		From: &from, To: &to, Limit: 1,
+		NodeID: nodeID, From: &from, To: &to, Limit: 1,
 		Cursor: &store.RuntimeTransitionCursor{OccurredAt: next.OccurredAt, ID: next.ID},
 	})
 	if err != nil {
@@ -95,8 +96,8 @@ func TestDashboardSnapshotFitsFrameLimitAndPreservesOmittedHistory(t *testing.T)
 }
 
 func TestDashboardSnapshotEncodingPreservesSmallSnapshots(t *testing.T) {
-	handler, _ := newCoreHTTPFixture(t)
-	snapshot, err := handler.services.Telemetry.DashboardSnapshot(t.Context())
+	handler, database := newCoreHTTPFixture(t)
+	snapshot, err := handler.services.Telemetry.DashboardSnapshot(t.Context(), testutil.CreateNode(t, database, "edge"))
 	if err != nil {
 		t.Fatal(err)
 	}

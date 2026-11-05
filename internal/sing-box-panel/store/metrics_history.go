@@ -27,6 +27,7 @@ const (
 )
 
 type MetricsHistoryFilter struct {
+	NodeID             string
 	From               time.Time
 	To                 time.Time
 	BucketSeconds      int64
@@ -85,10 +86,10 @@ func metricsHistory(ctx context.Context, db metricsHistoryQuery, filter MetricsH
 		result.Buckets[index] = MetricsHistoryBucket{From: start, To: end, Coverage: CoverageMissing}
 	}
 
-	clauses := []string{"sampled_at >= ?", "sampled_at < ?"}
+	clauses := []string{"node_id = ?", "sampled_at >= ?", "sampled_at < ?"}
 	args := []any{
 		formatTime(prepared.From), prepared.BucketSeconds,
-		formatTime(prepared.From), formatTime(prepared.To),
+		prepared.NodeID, formatTime(prepared.From), formatTime(prepared.To),
 	}
 	if prepared.ActivationBundleID != "" {
 		clauses = append(clauses, "activation_bundle_id = ?")
@@ -146,6 +147,7 @@ func metricsHistory(ctx context.Context, db metricsHistoryQuery, filter MetricsH
 	}
 
 	evidenceClauses := []string{
+		"sample.node_id = ?",
 		"sample.interval_start IS NOT NULL",
 		"sample.accepted = 1",
 		"sample.interval_end > ?",
@@ -154,7 +156,7 @@ func metricsHistory(ctx context.Context, db metricsHistoryQuery, filter MetricsH
 	evidenceArgs := []any{
 		formatTime(prepared.From), formatTime(prepared.To),
 		prepared.BucketSeconds, bucketCount,
-		formatTime(prepared.From), formatTime(prepared.To),
+		prepared.NodeID, formatTime(prepared.From), formatTime(prepared.To),
 	}
 	if prepared.ActivationBundleID != "" {
 		evidenceClauses = append(evidenceClauses, "sample.activation_bundle_id = ?")
@@ -273,7 +275,7 @@ func metricsHistory(ctx context.Context, db metricsHistoryQuery, filter MetricsH
 		bucket.Coverage = CoveragePartial
 		bucketStart := float64(bucket.From.UnixNano()) / float64(time.Second)
 		bucketEnd := float64(bucket.To.UnixNano()) / float64(time.Second)
-		// Accepted intervals are serialized through the singleton traffic
+		// Accepted intervals of a node are serialized through its traffic
 		// checkpoint and therefore cannot overlap. Their clipped duration can
 		// cover the bucket exactly only when both boundaries and every point
 		// between them have complete interval evidence.
@@ -291,6 +293,9 @@ func metricsHistory(ctx context.Context, db metricsHistoryQuery, filter MetricsH
 }
 
 func prepareMetricsHistoryFilter(filter MetricsHistoryFilter) (MetricsHistoryFilter, int, error) {
+	if !ValidIdentifier(filter.NodeID) {
+		return MetricsHistoryFilter{}, 0, errors.New("metrics history requires a node")
+	}
 	if filter.From.IsZero() || filter.To.IsZero() || !filter.To.After(filter.From) {
 		return MetricsHistoryFilter{}, 0, errors.New("metrics history requires an increasing from/to range")
 	}
@@ -334,14 +339,14 @@ func (s *Store) DeleteTrafficSamplesBefore(ctx context.Context, cutoff time.Time
 
 // DashboardMetricsHistory reads both ranges and their accepted persistence
 // watermark from one SQLite snapshot, so clients can replace overlapping tails.
-func (s *Store) DashboardMetricsHistory(ctx context.Context, at time.Time) (MetricsHistory, MetricsHistory, *time.Time, error) {
+func (s *Store) DashboardMetricsHistory(ctx context.Context, nodeID string, at time.Time) (MetricsHistory, MetricsHistory, *time.Time, error) {
 	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
 	if err != nil {
 		return MetricsHistory{}, MetricsHistory{}, nil, err
 	}
 	defer tx.Rollback()
 	var raw sql.NullString
-	err = tx.QueryRowContext(ctx, `SELECT MAX(sampled_at) FROM traffic_samples WHERE accepted=1 AND sampled_at <= ?`, formatTime(at)).Scan(&raw)
+	err = tx.QueryRowContext(ctx, `SELECT MAX(sampled_at) FROM traffic_samples WHERE node_id = ? AND accepted=1 AND sampled_at <= ?`, nodeID, formatTime(at)).Scan(&raw)
 	if err != nil {
 		return MetricsHistory{}, MetricsHistory{}, nil, err
 	}
@@ -353,11 +358,11 @@ func (s *Store) DashboardMetricsHistory(ctx context.Context, at time.Time) (Metr
 		}
 		watermark = &parsed
 	}
-	hour, err := metricsHistory(ctx, tx, MetricsHistoryFilter{From: at.Add(-time.Hour), To: at, BucketSeconds: 60})
+	hour, err := metricsHistory(ctx, tx, MetricsHistoryFilter{NodeID: nodeID, From: at.Add(-time.Hour), To: at, BucketSeconds: 60})
 	if err != nil {
 		return MetricsHistory{}, MetricsHistory{}, nil, err
 	}
-	day, err := metricsHistory(ctx, tx, MetricsHistoryFilter{From: at.Add(-24 * time.Hour), To: at, BucketSeconds: 300})
+	day, err := metricsHistory(ctx, tx, MetricsHistoryFilter{NodeID: nodeID, From: at.Add(-24 * time.Hour), To: at, BucketSeconds: 300})
 	if err != nil {
 		return MetricsHistory{}, MetricsHistory{}, nil, err
 	}

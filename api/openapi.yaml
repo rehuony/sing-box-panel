@@ -567,9 +567,12 @@ paths:
       responses:
         "200":
           $ref: "#/components/responses/RuntimeStatus"
-  /core/runtime/history:
+  /nodes/{nodeId}/core/runtime/history:
+    parameters:
+      - $ref: '#/components/parameters/NodeID'
     get:
       operationId: getCoreRuntimeHistory
+      description: The node's runtime history as it reported it; entries survive the node going offline.
       parameters:
         - $ref: "#/components/parameters/From"
         - $ref: "#/components/parameters/To"
@@ -1462,27 +1465,33 @@ paths:
       responses:
         "200":
           $ref: "#/components/responses/LogDeleteResult"
-  /metrics:
+  /nodes/{nodeId}/metrics:
+    parameters:
+      - $ref: '#/components/parameters/NodeID'
     get:
       operationId: getMetrics
       responses:
         "200":
           $ref: "#/components/responses/MetricsSnapshot"
-  /metrics/stream:
+  /nodes/{nodeId}/metrics/stream:
+    parameters:
+      - $ref: '#/components/parameters/NodeID'
     get:
       operationId: streamMetrics
-      summary: Stream current metrics and runtime evidence every second
+      summary: Stream the node's current metrics and reported runtime every second
       responses:
         '200':
-          description: Server-sent metrics events, each containing metrics and runtime objects. Initial snapshot failures return a Problem response before opening the stream. Heartbeat comments arrive every ten seconds. A control event with type reconnect precedes normal rotation within one minute; clients should immediately renew authentication. Shared collection is independent of client writes, and the last subscriber cancels pending collection.
+          description: Server-sent metrics events, each containing metrics and runtime objects. While any client streams a node's metrics, the node samples once a second; otherwise it samples every ten seconds. Initial snapshot failures return a Problem response before opening the stream. Heartbeat comments arrive every ten seconds. A control event with type reconnect precedes normal rotation within one minute; clients should immediately renew authentication. Shared collection is independent of client writes, and the last subscriber cancels pending collection.
           content:
             text/event-stream:
               schema: {type: string}
         default: {$ref: '#/components/responses/Problem'}
-  /dashboard/stream:
+  /nodes/{nodeId}/dashboard/stream:
+    parameters:
+      - $ref: '#/components/parameters/NodeID'
     get:
       operationId: streamDashboard
-      summary: Stream the cached dashboard projection every thirty seconds
+      summary: Stream the node's cached dashboard projection every thirty seconds
       responses:
         '200':
           description: Server-sent dashboard events, each limited to 1 MiB including UTF-8 framing. Each data field is a DashboardStreamSnapshot. Runtime history includes at most 4096 newest transitions, or fewer to fit the byte limit, with a next cursor whenever older records are omitted. Initial snapshot failures return a Problem response. Heartbeat comments arrive every ten seconds. A control event with type reconnect precedes normal rotation within one minute; clients should immediately renew authentication. Shared collection is independent of client writes, and the last subscriber cancels pending collection.
@@ -1490,7 +1499,9 @@ paths:
             text/event-stream:
               schema: {type: string}
         default: {$ref: '#/components/responses/Problem'}
-  /metrics/history:
+  /nodes/{nodeId}/metrics/history:
+    parameters:
+      - $ref: '#/components/parameters/NodeID'
     get:
       operationId: getMetricsHistory
       description: Returns at most 512 buckets across a range no longer than 90 days; missing evidence remains null.
@@ -1505,14 +1516,50 @@ paths:
   /traffic/status:
     get:
       operationId: getTrafficStatus
+      description: Every node's recorded traffic in its own current period against its own quota, and the summed usage. Quotas belong to nodes and are never summed.
       responses:
         "200":
-          $ref: "#/components/responses/MetricsSnapshot"
-  /traffic/periods:
+          $ref: "#/components/responses/TrafficStatus"
+  /nodes/{nodeId}/traffic/settings:
+    parameters:
+      - $ref: '#/components/parameters/NodeID'
+    get:
+      operationId: getNodeTrafficSettings
+      responses:
+        "200":
+          description: The node's own traffic quota and period.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NodeTrafficSettings"
+    put:
+      operationId: saveNodeTrafficSettings
+      description: Replaces the node's traffic quota and period while revision is still current. Periods and quota status follow at once; recorded traffic is unchanged.
+      parameters:
+        - $ref: "#/components/parameters/CSRFToken"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/NodeTrafficSettings"
+      responses:
+        "200":
+          description: The saved settings with their new revision.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NodeTrafficSettings"
+        "412":
+          $ref: "#/components/responses/Problem"
+        "422":
+          $ref: "#/components/responses/Problem"
+  /nodes/{nodeId}/traffic/periods:
+    parameters:
+      - $ref: '#/components/parameters/NodeID'
     get:
       operationId: listTrafficPeriods
       parameters:
-        - $ref: "#/components/parameters/ActivationBundleFilter"
         - $ref: "#/components/parameters/From"
         - $ref: "#/components/parameters/To"
         - $ref: "#/components/parameters/BeforeTime"
@@ -1521,8 +1568,9 @@ paths:
       responses:
         "200":
           $ref: "#/components/responses/TrafficPeriodPage"
-  /traffic/periods/{periodId}:
+  /nodes/{nodeId}/traffic/periods/{periodId}:
     parameters:
+      - $ref: '#/components/parameters/NodeID'
       - $ref: "#/components/parameters/TrafficPeriodID"
     get:
       operationId: getTrafficPeriod
@@ -1533,17 +1581,18 @@ components:
   headers:
     SubscriptionUserinfo:
       description: >-
-        Semicolon-and-space-separated byte integers. upload is the current period's
-        recorded outbound bytes; download is its recorded inbound bytes. total is
-        the configured quota in GiB multiplied by 1073741824, or 0 for an absent or
-        zero quota (unlimited). New periods start with zero recorded usage without
-        deleting historical totals. This header contains no expire field or refresh
+        Semicolon-and-space-separated byte integers. upload is every node's recorded
+        outbound bytes in that node's current period; download is the same for
+        inbound bytes. total is always 0, because quotas belong to individual nodes
+        and their sum would not tell a client how much it can still use. A node's
+        new period starts with zero recorded usage without deleting historical
+        totals. This header contains no expire field or refresh
         interval; clients see updated values
         on their next successful subscription refresh.
       schema:
         type: string
         pattern: '^upload=[0-9]+; download=[0-9]+; total=[0-9]+$'
-        example: 'upload=123; download=456; total=107374182400'
+        example: 'upload=123; download=456; total=0'
   securitySchemes:
     sessionCookie:
       type: apiKey
@@ -1958,8 +2007,11 @@ components:
       description: Deleted log identity.
       content: {application/json: {schema: {$ref: "#/components/schemas/LogDeleteResult"}}}
     MetricsSnapshot:
-      description: Collector-backed metrics availability and latest evidence.
+      description: The node's latest reported metrics and recorded traffic.
       content: {application/json: {schema: {$ref: "#/components/schemas/MetricsSnapshot"}}}
+    TrafficStatus:
+      description: Each node's recorded traffic and quota, and the fleet's summed usage.
+      content: {application/json: {schema: {$ref: "#/components/schemas/TrafficStatus"}}}
     MetricsHistory:
       description: Bounded, gap-preserving historical metric buckets.
       content: {application/json: {schema: {$ref: "#/components/schemas/MetricsHistory"}}}
@@ -2062,7 +2114,7 @@ components:
     PanelPreferences:
       type: object
       additionalProperties: false
-      required: [listen_host, listen_port, external_origin, public_node_host, traffic_quota_gib, language, appearance]
+      required: [listen_host, listen_port, external_origin, public_node_host, language, appearance]
       properties:
         listen_host:
           type: string
@@ -2077,10 +2129,6 @@ components:
         public_node_host:
           type: string
           maxLength: 253
-        traffic_quota_gib:
-          type: [integer, 'null']
-          minimum: 0
-          maximum: 8589934591
         language:
           type: string
           enum: [zh-CN, en]
@@ -2149,6 +2197,16 @@ components:
         build_version:
           type: string
           description: The node's build version, reported in its latest session.
+        reported_at:
+          type: [string, "null"]
+          format: date-time
+          description: When the node last reported its state. The reported values stay visible while the node is offline and are then stale.
+        public_ip:
+          type: string
+          description: The public IP address the node last reported; empty when unknown.
+        runtime:
+          $ref: "#/components/schemas/RuntimeStatus"
+          description: The runtime state the node last reported; absent before its first report.
     NodePage:
       type: object
       additionalProperties: false
@@ -2212,7 +2270,7 @@ components:
     PanelServiceSettings:
       type: object
       additionalProperties: false
-      required: [data_dir, base_path, catalog_refresh_interval_hours, traffic_period_months, sample_retention_days, private_source_cidrs]
+      required: [data_dir, base_path, catalog_refresh_interval_hours, sample_retention_days, private_source_cidrs]
       properties:
         data_dir:
           type: string
@@ -2223,10 +2281,6 @@ components:
           type: integer
           minimum: 1
           maximum: 720
-        traffic_period_months:
-          type: integer
-          minimum: 1
-          maximum: 120
         sample_retention_days:
           type: integer
           minimum: 1
@@ -3164,7 +3218,7 @@ components:
     LiveTrafficSample:
       type: object
       additionalProperties: false
-      description: Process-local live observation. Never included in persisted accounting totals.
+      description: The node's latest traffic reading of its running core. upload_total and download_total are cumulative for the node's database across core restarts. Never included in persisted accounting totals.
       required: [activation_bundle_id, pid, process_start_token, sampled_at, memory_bytes, active_connections, upload_total, download_total, upload_bytes_per_second, download_bytes_per_second, accepted]
       properties:
         activation_bundle_id: {type: string}
@@ -3178,7 +3232,7 @@ components:
         upload_bytes_per_second:
           type: [number, "null"]
           minimum: 0
-          description: Upload bytes per second over the actual interval between adjacent accepted collector observations of the same process incarnation. Collection runs every second; null for the first observation, after a failed or rejected observation, or when the interval exceeds three seconds.
+          description: Upload bytes per second over the actual interval between adjacent samples the node reported for the same process incarnation. Nodes sample once a second while a client streams their metrics; null for the first sample, after a decrease, or when the interval exceeds three seconds.
         download_bytes_per_second:
           type: [number, "null"]
           minimum: 0
@@ -3204,18 +3258,81 @@ components:
             disk_used: {type: integer, format: int64, nullable: true, minimum: 0}
         available:
           type: boolean
-          description: Fresh collector evidence for the applied bundle; does not gate recorded period usage.
+          description: A traffic sample of the applied bundle from the last thirty seconds; does not gate recorded period usage.
         reason_code: {type: string, enum: [not_applied, process_only, no_collector_sample, stale_collector_sample]}
         applied_bundle_id: {type: string}
         monitoring_tier: {type: string, enum: [process_only, limited]}
         collected_at: {type: string, format: date-time}
         current_traffic_period:
           $ref: "#/components/schemas/TrafficPeriod"
-          description: Recorded sing-box upload and download usage in the configured UTC period, including zero before collection. Retained when live collection is unavailable.
+          description: The node's recorded sing-box upload and download usage in its current period, including zero before collection. Retained when live collection is unavailable.
         latest_sample: {$ref: "#/components/schemas/TrafficSample"}
         live_sample: {$ref: "#/components/schemas/LiveTrafficSample"}
-        quota_bytes: {type: integer, format: int64, minimum: 0}
+        quota_bytes:
+          type: integer
+          format: int64
+          minimum: 0
+          description: The node's quota; absent when unlimited.
         quota_exceeded: {type: boolean}
+    TrafficStatus:
+      type: object
+      additionalProperties: false
+      required: [collected_at, upload_bytes, download_bytes, nodes]
+      properties:
+        collected_at: {type: string, format: date-time}
+        upload_bytes:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Every node's recorded outbound bytes in its own current period.
+        download_bytes:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Every node's recorded inbound bytes in its own current period.
+        nodes:
+          type: array
+          items: {$ref: "#/components/schemas/NodeTrafficUsage"}
+    NodeTrafficUsage:
+      type: object
+      additionalProperties: false
+      required: [node_id, current_traffic_period, quota_exceeded]
+      properties:
+        node_id: {type: string}
+        current_traffic_period: {$ref: "#/components/schemas/TrafficPeriod"}
+        quota_bytes:
+          type: integer
+          format: int64
+          minimum: 0
+          description: The node's quota; absent when unlimited.
+        quota_exceeded:
+          type: boolean
+          description: Recorded upload and download together reached the node's quota.
+    NodeTrafficSettings:
+      type: object
+      additionalProperties: false
+      required: [revision, quota_gib, period_months, reset_day]
+      properties:
+        revision:
+          type: integer
+          format: int64
+          minimum: 1
+          description: The revision read; a save fails with 412 once another save changed it.
+        quota_gib:
+          type: [integer, "null"]
+          minimum: 0
+          maximum: 8589934591
+          description: The node's quota in GiB; null or 0 is unlimited.
+        period_months:
+          type: integer
+          minimum: 1
+          maximum: 120
+          description: The length of each period, aligned to months counted from January 1970.
+        reset_day:
+          type: integer
+          minimum: 1
+          maximum: 28
+          description: The day of the month on which each period starts, at 00:00 UTC.
     CoverageStatus:
       type: string
       enum: [complete, partial, missing]

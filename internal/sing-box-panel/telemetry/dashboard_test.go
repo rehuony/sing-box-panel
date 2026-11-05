@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/store"
+	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/testutil"
 )
 
 func TestDashboardRuntimeHistoryKeepsCursorAtTheRecordLimit(t *testing.T) {
@@ -18,11 +19,12 @@ func TestDashboardRuntimeHistoryKeepsCursorAtTheRecordLimit(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = database.Close() })
 	app := New(database, nil, Options{})
+	nodeID := testutil.CreateNode(t, database, "edge")
 	from := time.Date(2025, time.January, 1, 0, 0, 0, 0, time.UTC)
 	for index := range 4200 {
-		_, err := database.AppendRuntimeTransition(t.Context(), store.RuntimeTransitionInput{
-			DedupeKey: fmt.Sprintf("dashboard-limit-%d", index),
-			State:     store.RuntimeTransitionStopped, Reason: "controlled_stop",
+		err := database.RecordRuntimeTransition(t.Context(), store.RuntimeTransitionInput{
+			NodeID: nodeID, InstanceID: "instance", SourceID: int64(index + 1),
+			State: store.RuntimeTransitionStopped, Reason: "controlled_stop",
 			OccurredAt: from.Add(time.Duration(index) * time.Second),
 		})
 		if err != nil {
@@ -32,7 +34,7 @@ func TestDashboardRuntimeHistoryKeepsCursorAtTheRecordLimit(t *testing.T) {
 	for _, count := range []int{4095, 4096, 4097, 4100, 4200} {
 		t.Run(fmt.Sprint(count), func(t *testing.T) {
 			to := from.Add(time.Duration(count) * time.Second)
-			page, err := app.dashboardRuntimeHistory(t.Context(), from, to)
+			page, err := app.dashboardRuntimeHistory(t.Context(), nodeID, from, to)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -50,7 +52,7 @@ func TestDashboardRuntimeHistoryKeepsCursorAtTheRecordLimit(t *testing.T) {
 				t.Fatalf("cursor=%+v does not match last retained transition=%+v", page.Next, last)
 			}
 			remainder, err := app.RuntimeHistory(t.Context(), RuntimeHistoryRequest{
-				From: &from, To: &to, Limit: 200,
+				NodeID: nodeID, From: &from, To: &to, Limit: 200,
 				Cursor: &store.RuntimeTransitionCursor{OccurredAt: page.Next.OccurredAt, ID: page.Next.ID},
 			})
 			if err != nil {
@@ -70,15 +72,18 @@ func TestDashboardSnapshotUsesStableRangesWithoutInventingEvidence(t *testing.T)
 	}
 	t.Cleanup(func() { _ = database.Close() })
 	app := New(database, nil, Options{})
-	initialized, err := database.LatestRuntimeTransition(t.Context())
-	if err != nil {
+	nodeID := testutil.CreateNode(t, database, "edge")
+	initialized := time.Now().UTC().Add(-time.Minute)
+	if err := database.RecordRuntimeTransition(t.Context(), store.RuntimeTransitionInput{
+		NodeID: nodeID, InstanceID: "instance", SourceID: 1, State: store.RuntimeTransitionUnknown,
+		Reason: "history_initialized", OccurredAt: initialized, UncertainSince: &initialized,
+	}); err != nil {
 		t.Fatal(err)
 	}
-	// SQLite timestamps initialization; keep it inside the snapshot's time window.
-	now := initialized.OccurredAt.Add(time.Minute)
+	now := initialized.Add(time.Minute)
 	app.now = func() time.Time { return now }
 
-	snapshot, err := app.DashboardSnapshot(t.Context())
+	snapshot, err := app.DashboardSnapshot(t.Context(), nodeID)
 	if err != nil {
 		t.Fatal(err)
 	}

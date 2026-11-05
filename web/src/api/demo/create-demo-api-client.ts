@@ -42,6 +42,7 @@ import {
   demoNode,
   demoSystemStatus,
   demoTrafficPeriod,
+  demoTrafficStatus,
 } from './demo-data';
 
 interface DemoState extends ReturnType<typeof createDemoData> {
@@ -275,7 +276,7 @@ export function createDemoApiClient(): ApiClient {
   let panelSecrets = { passwordHash: 'demo-sha256:22d7a6af7944bae67c1a5266956fd64011985bb71f0216ecdfadf38655be4457', github: '' };
   let panelSettings: PanelSettingsView = {
     admin_email: 'admin@example.com',
-    service: { data_dir: '/var/lib/sing-box-panel', base_path: '', catalog_refresh_interval_hours: 12, traffic_period_months: 1, sample_retention_days: 90, private_source_cidrs: [], core_log_retention_days: 7, core_log_max_files: 0, core_log_max_file_size_mib: 32 },
+    service: { data_dir: '/var/lib/sing-box-panel', base_path: '', catalog_refresh_interval_hours: 12, sample_retention_days: 90, private_source_cidrs: [], core_log_retention_days: 7, core_log_max_files: 0, core_log_max_file_size_mib: 32 },
     revision: 0,
     github_token_configured: false,
     restart_required: false,
@@ -284,7 +285,6 @@ export function createDemoApiClient(): ApiClient {
       listen_port: 3000,
       external_origin: '',
       public_node_host: '',
-      traffic_quota_gib: 500,
       language: 'zh-CN',
       appearance: { ...DEFAULT_APPEARANCE },
     },
@@ -1082,9 +1082,7 @@ export function createDemoApiClient(): ApiClient {
     async* streamMetrics(signal) {
       while (!signal?.aborted) {
         yield {
-          metrics: demoMetrics(
-            state, panelSettings.preferences.traffic_quota_gib, new Date(), panelSettings.service.traffic_period_months,
-          ),
+          metrics: demoMetrics(state),
           runtime: structuredClone(state.runtime),
         };
         await new Promise<void>((resolve) => {
@@ -1131,13 +1129,23 @@ export function createDemoApiClient(): ApiClient {
         });
       }
     },
-    getMetrics: (signal) => respond(demoMetrics(
-      state, panelSettings.preferences.traffic_quota_gib, new Date(), panelSettings.service.traffic_period_months,
-    ), signal),
-    getTrafficStatus(signal) {
-      return respond(demoMetrics(
-        state, panelSettings.preferences.traffic_quota_gib, new Date(), panelSettings.service.traffic_period_months,
-      ), signal);
+    getMetrics: (signal) => respond(demoMetrics(state), signal),
+    getTrafficStatus: (signal) => respond(demoTrafficStatus(state), signal),
+    getNodeTrafficSettings: (signal) => respond(structuredClone(state.traffic), signal),
+    async saveNodeTrafficSettings(input, signal) {
+      if (input.revision !== state.traffic.revision) {
+        throw new ApiRequestError('Reload the node\'s traffic settings before saving.', {
+          status: 412, code: 'traffic_settings_conflict',
+        });
+      }
+      const quota = input.quota_gib === 0 ? null : input.quota_gib;
+      if ((quota !== null && !(Number.isInteger(quota) && quota >= 1 && quota <= 8589934591))
+        || !Number.isInteger(input.period_months) || input.period_months < 1 || input.period_months > 120
+        || !Number.isInteger(input.reset_day) || input.reset_day < 1 || input.reset_day > 28) {
+        throw new ApiRequestError('Traffic settings invalid.', { status: 422, code: 'traffic_settings_invalid' });
+      }
+      state.traffic = { ...input, quota_gib: quota, revision: state.traffic.revision + 1 };
+      return respond(structuredClone(state.traffic), signal);
     },
     getMetricsHistory(filter, signal) {
       const result = demoMetricsHistory(filter.from, filter.to, filter.bucketSeconds);
@@ -1147,9 +1155,7 @@ export function createDemoApiClient(): ApiClient {
     listTrafficPeriods(filter = {}, signal) {
       const filtered = state.trafficPeriods.filter(
         (period) =>
-          (filter.activationBundleID === undefined
-            || period.activation_bundle_id === filter.activationBundleID)
-          && (filter.from === undefined || period.period_end >= filter.from)
+          (filter.from === undefined || period.period_end >= filter.from)
           && (filter.to === undefined || period.period_start <= filter.to),
       );
       const limit = Math.max(1, filter.limit ?? 100);

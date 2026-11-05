@@ -10,17 +10,17 @@ import (
 	"sync"
 )
 
-const LeaseFileName = "runtime-executor.lock"
+const LeaseFileName = "process.lock"
 
 var (
-	ErrLeaseHeld        = errors.New("runtime executor lease is already held")
-	ErrLeaseUnsupported = errors.New("runtime executor lease is unsupported on this platform")
+	ErrLeaseHeld        = errors.New("data directory lease is already held")
+	ErrLeaseUnsupported = errors.New("data directory lease is unsupported on this platform")
 )
 
-// Lease is held for the complete server lifetime. The lock is
-// deliberately outside SQLite: runtime generations fence committed state, while
-// this lease guarantees that only one OS process can own the sing-box runtime
-// manager for a data directory.
+// Lease is held for the complete lifetime of a panel or node process. The
+// lock is deliberately outside SQLite: on a node, runtime generations fence
+// committed state, while this lease guarantees that only one OS process owns
+// a data directory and, there, the sing-box runtime manager.
 type Lease struct {
 	file *os.File
 	once sync.Once
@@ -29,16 +29,16 @@ type Lease struct {
 
 func AcquireLease(dataDirectory string) (*Lease, error) {
 	path := filepath.Join(dataDirectory, LeaseFileName)
-	file, err := openAndLockRuntimeExecutorLease(path)
+	file, err := openAndLockLease(path)
 	if err != nil {
 		if errors.Is(err, ErrLeaseHeld) {
 			return nil, fmt.Errorf(
-				"acquire runtime executor lease %q: another sing-box-panel process owns this data directory: %w",
+				"acquire data directory lease %q: another process owns this data directory: %w",
 				path,
 				err,
 			)
 		}
-		return nil, fmt.Errorf("acquire runtime executor lease %q: %w", path, err)
+		return nil, fmt.Errorf("acquire data directory lease %q: %w", path, err)
 	}
 	return &Lease{file: file}, nil
 }

@@ -136,7 +136,7 @@ export function createCoreHttpApi(context: HttpApiContext) {
         before_id: filter.beforeID,
         limit: filter.limit ?? 50,
       });
-      return request<RuntimeHistoryPage>(fetcher, `${baseUrl}/core/runtime/history${query}`, {
+      return request<RuntimeHistoryPage>(fetcher, `${nodeUrl()}/core/runtime/history${query}`, {
         method: 'GET', signal,
       });
     },

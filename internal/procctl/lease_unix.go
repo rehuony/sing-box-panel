@@ -12,7 +12,7 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-func openAndLockRuntimeExecutorLease(path string) (*os.File, error) {
+func openAndLockLease(path string) (*os.File, error) {
 	fd, err := unix.Open(path, unix.O_CREAT|unix.O_RDWR|unix.O_CLOEXEC|unix.O_NOFOLLOW, 0o600)
 	if err != nil {
 		return nil, err
@@ -20,7 +20,7 @@ func openAndLockRuntimeExecutorLease(path string) (*os.File, error) {
 	file := os.NewFile(uintptr(fd), path)
 	if file == nil {
 		_ = unix.Close(fd)
-		return nil, errors.New("construct runtime executor lease file")
+		return nil, errors.New("construct data directory lease file")
 	}
 	if err := unix.Flock(fd, unix.LOCK_EX|unix.LOCK_NB); err != nil {
 		_ = file.Close()
@@ -41,7 +41,7 @@ func unlockAndCloseRuntimeExecutorLease(file *os.File) error {
 	unlockErr := unix.Flock(int(file.Fd()), unix.LOCK_UN)
 	closeErr := file.Close()
 	if unlockErr != nil || closeErr != nil {
-		return fmt.Errorf("release runtime executor lease: %w", errors.Join(unlockErr, closeErr))
+		return fmt.Errorf("release data directory lease: %w", errors.Join(unlockErr, closeErr))
 	}
 	return nil
 }

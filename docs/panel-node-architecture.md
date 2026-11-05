@@ -72,10 +72,11 @@ code differs from the contract.
 
 The session handshake runs inside `Connect` before any command:
 
-1. The node sends `Hello` with its node ID, protocol version, build version and platform.
+1. The node sends `Hello` with its node ID, protocol version, build version, platform and instance ID, the random identity of its database.
 2. The panel answers `Challenge` with a random nonce and the panel ID.
 3. The node answers `Proof`, an Ed25519 signature over a fixed context string, the panel ID, the node ID and the nonce.
-4. The panel verifies it against the enrolled public key and answers `Welcome`, or closes the stream with a status code.
+4. The panel verifies it against the enrolled public key and answers `Welcome` with the baseline metrics interval and the newest runtime transition it holds for that instance, or closes the stream with a status code.
+5. The node sends a full `StateReport`, then the runtime transitions after the one the panel named. The panel accepts commands for the node once that report is recorded.
 
 A new authenticated session for a node replaces the previous one. gRPC
 keepalives detect dead sessions; the panel marks a node offline when its
@@ -86,7 +87,7 @@ Frames are `oneof` envelopes:
 | Direction | Frames |
 | --- | --- |
 | Panel → node | `Challenge`, `Welcome`, `Command { request_id, deadline, body }`, `Cancel { request_id }`, `TelemetryControl` |
-| Node → panel | `Hello`, `Proof`, `Result { request_id, outcome or problem }`, `Event` (state report, runtime transition, metrics sample, traffic counters, log batch) |
+| Node → panel | `Hello`, `Proof`, `Result { request_id, outcome or problem }`, `Event` (state report, runtime transition, metrics sample with traffic counters) |
 
 The command bodies are typed: check configuration; enable and disable a core;
 check and activate a startup artifact; start, stop, restart and roll back;
@@ -136,20 +137,21 @@ replaces the key. Deleting a node removes its key and closes its session.
 | Selected core per node | Panel (desired) | The node reports the installed and running artifacts |
 | Checked startup artifact, applied bundle and rollback bundle | Node, which keeps the bytes of the applied and previous bundles | The panel records their digests and the node's evidence |
 | Installed core files | Node | The panel records which node has which artifact |
-| Version catalog, official and imported artifacts | Panel, which caches and verifies them | Nodes fetch them from the panel |
+| Version catalog, official and imported artifacts | Panel, which caches and verifies them, and removes official archives that no node reports installed and no install asked for in the last ten minutes | Nodes fetch them from the panel |
 | Runtime process, intents and recovery | Node | The panel shows the reported state |
 | Host facts, metrics, public IP, filesystem | Node, live | The panel keeps bounded metrics history |
-| Traffic counters | Node, with a durable cumulative checkpoint | The panel computes deltas, periods and quota |
+| Traffic counters | Node, cumulative across core restarts in a durable checkpoint | The panel computes each node's deltas, its periods from its own reset day, and its usage against its own quota |
 | Core log files | Node, bounded and sanitized | The panel relays reads on demand and keeps no copy |
 | Panel log and operation outcomes | Panel | Node events are recorded with their node ID |
 | Subscriptions: sources, manual nodes, channels, keys, templates, order and visibility | Panel | — |
 | Panel settings, administrator credentials and sessions | Panel | — |
 | Node settings: panel endpoint, trust, data directory and identity key | Node | — |
 
-The panel's configuration for a node is authoritative. On first connection a
-node reports the configuration it already runs, if any, and that report seeds
-the panel's editable file for the node. After that, changes flow only from the
-panel. "Unapplied changes" means the panel's saved revision or selected core
+The panel's configuration for a node is authoritative. The first state report
+of each session carries the configuration of the bundle the node runs, if any;
+while the node's editable file is still the empty document it was created with,
+that report seeds it, so a node enrolled again keeps its configuration. After
+that, changes flow only from the panel. "Unapplied changes" means the panel's saved revision or selected core
 differs from what the node reports as applied.
 
 Both services use SQLite through `modernc.org/sqlite`, each with its own
@@ -161,8 +163,9 @@ baseline schema. Neither has an upgrade path from the single-host format.
 - The panel checks a revision against the exact Schema of the core it is for before sending it: the selected core for enable and check, and the core the node reports enabled for start and restart. The node accepts a revision ID only with the same bytes and rejects bytes that do not match the digest.
 - A command that can change the node's state keeps only its deadline once sent: a browser that disconnects does not cancel a change the node already started.
 - A management mutation for a node waits for that node's result within the command deadline and returns the completed result, as single-host mutations do today.
-- An offline node rejects commands at once with a `node_offline` problem. Commands are never queued. Saving a node's configuration stays a panel-local write and works while the node is offline.
+- An offline node rejects commands at once with a `node_offline` problem. Commands are never queued. A command to a node whose session has not yet reported its state waits for that report within its deadline. Saving a node's configuration stays a panel-local write and works while the node is offline.
 - When a session drops while a command is in flight, the API returns a `node_result_unknown` problem. The node's next state report settles the outcome. The UI shows reported state and never assumes success.
+- A node reports the state a state-changing command left before it sends the command's result, so the panel's reported state is current when the API answers.
 - Applying a configuration sends the revision, its digest and bytes, and the selected artifact identity. The node checks that the artifact is installed and verified, runs `sing-box check`, replaces the process through the existing preflight, keeps the previous bundle for rollback, and reports the new bundle. A failed check leaves the running process untouched.
 - Installing a core first caches the archive on the panel, then sends its identity, size and a fetch grant that lasts only while the command runs. The node streams the archive with `FetchArtifact`, verifies its digest and the exact version the binary reports, publishes it atomically and records it under the same artifact ID as the panel.
 
@@ -172,18 +175,23 @@ baseline schema. Neither has an upgrade path from the single-host format.
 | --- | --- |
 | Panel unreachable | Nodes keep running their applied bundles. A node that restarts, or whose host reboots, starts its last applied bundle without the panel. Subscriptions stop updating until the panel returns |
 | Node unreachable | The panel marks it offline with its last-seen time and keeps its last reported values visible, marked stale. Its inbounds stay published from the last applied revision, because a node that lost the panel may still carry traffic |
-| Reconnect | The node sends a full state report first, then buffered events. The panel reconciles observed state before accepting commands for the node |
-| Lost telemetry | Traffic stays exact through cumulative counters and the node checkpoint. Runtime transitions wait in a bounded node outbox, and an overflow is reported as a dropped count. Metrics samples are not buffered beyond a short window |
+| Reconnect | The node sends a full state report first, then the runtime transitions the panel lacks. The panel records the report before accepting commands for the node |
+| Lost telemetry | Traffic stays exact through cumulative counters and the node checkpoint: the first sample after a gap proves the traffic of the whole gap. Runtime transitions are the node's durable history and are sent again from where the panel's copy ends. Metrics samples are not buffered |
+| Recreated node database | The node's new instance ID starts a new traffic segment and a new history sequence; the panel keeps what it recorded before |
 
 ## Telemetry
 
-A node sends a state report when its state changes and a metrics sample at a
-low baseline interval. While a browser views a node's live metrics, the panel
-sends `TelemetryControl` to raise that node to one sample per second and lowers
-it again when the last viewer leaves. The fleet overview uses baseline samples.
-Traffic counters ride on metrics samples. The panel stores metrics history,
-traffic periods and runtime history per node, with the existing retention
-settings.
+A node sends a state report when its state changes: after a state-changing
+command, after a new runtime transition, and when a periodic check finds a
+change such as a new public IP. It sends a metrics sample every ten seconds.
+While a browser views a node's live metrics, the panel sends `TelemetryControl`
+to raise that node to one sample per second and lowers it again when the last
+viewer leaves. The fleet overview uses baseline samples. Traffic counters ride
+on metrics samples. The panel stores each node's last state report, keeping it
+visible while the node is offline, and stores metrics history, traffic periods
+and runtime history per node, with the existing retention settings. The
+subscription header reports the summed usage of every node's own current
+period and no total, because quotas belong to nodes.
 
 ## Subscriptions
 
@@ -201,8 +209,8 @@ compatibility, because the product has no stable release yet.
 
 | Scope | Resources |
 | --- | --- |
-| Fleet | `/nodes` (list, add with enrollment code, rename, delete), fleet dashboard, core catalog and artifact cache, subscriptions, panel settings, panel logs, authentication |
-| One node | `/nodes/{node_id}/…`: status, cores, configuration file and check, runtime controls, rollback, filesystem, core logs, metrics, traffic and runtime history |
+| Fleet | `/nodes` (list with each node's reported state, add with enrollment code, rename, delete), fleet traffic status with each node's usage and quota, core catalog and artifact cache, subscriptions, panel settings, panel logs, authentication |
+| One node | `/nodes/{node_id}/…`: status, cores, configuration file and check, runtime controls, rollback, filesystem, core logs, metrics and their stream and history, dashboard stream, traffic settings and periods, and runtime history |
 
 OpenAPI remains the authoritative HTTP contract. The Web UI follows
 [`DESIGN.md`](../DESIGN.md)'s node-first shell: a fleet overview, a node
@@ -238,7 +246,7 @@ internal/
     httpapi/             management API, Web delivery and /sub
     cli/ server/ testutil/
   sing-box-node/         node service: imports shared packages, never the panel
-    agent/               session, handshake, reconnect, command dispatch, telemetry outbox
+    agent/               session, handshake, reconnect, command dispatch, state and telemetry reports
     artifacts/           verified core installs
     runtime/             process supervision, intents, recovery, Clash API monitor
     corelogs/            bounded native process output

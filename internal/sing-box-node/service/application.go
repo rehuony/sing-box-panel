@@ -46,6 +46,7 @@ type Node struct {
 	random         func([]byte) (int, error)
 	removeFile     func(string) error
 	runtime        RuntimeResolver
+	traffic        trafficCollector
 }
 
 type RuntimeResolver interface {

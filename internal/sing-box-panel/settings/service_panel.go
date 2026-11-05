@@ -19,13 +19,12 @@ type AppearanceSettings = Appearance
 // PanelPreferences is safe to return to authenticated clients. Credentials are
 // write-only and stored separately from this response projection.
 type PanelPreferences struct {
-	ListenHost      string             `json:"listen_host"`
-	ListenPort      int                `json:"listen_port"`
-	ExternalOrigin  string             `json:"external_origin"`
-	PublicNodeHost  string             `json:"public_node_host"`
-	TrafficQuotaGiB *int64             `json:"traffic_quota_gib"`
-	Language        string             `json:"language"`
-	Appearance      AppearanceSettings `json:"appearance"`
+	ListenHost     string             `json:"listen_host"`
+	ListenPort     int                `json:"listen_port"`
+	ExternalOrigin string             `json:"external_origin"`
+	PublicNodeHost string             `json:"public_node_host"`
+	Language       string             `json:"language"`
+	Appearance     AppearanceSettings `json:"appearance"`
 }
 
 // PanelServiceSettings exposes every non-secret service option from setting.json.
@@ -34,7 +33,6 @@ type PanelServiceSettings struct {
 	DataDir                     string   `json:"data_dir"`
 	BasePath                    string   `json:"base_path"`
 	CatalogRefreshIntervalHours int      `json:"catalog_refresh_interval_hours"`
-	TrafficPeriodMonths         int      `json:"traffic_period_months"`
 	SampleRetentionDays         int      `json:"sample_retention_days"`
 	PrivateSourceCIDRs          []string `json:"private_source_cidrs"`
 	CoreLogRetentionDays        *int     `json:"core_log_retention_days,omitempty"`
@@ -45,8 +43,8 @@ type PanelServiceSettings struct {
 func serviceSettings(value Settings) PanelServiceSettings {
 	return PanelServiceSettings{
 		DataDir: value.DataDir, BasePath: value.Server.BasePath,
-		CatalogRefreshIntervalHours: value.GitHub.CatalogRefreshIntervalHours, TrafficPeriodMonths: value.Traffic.PeriodMonths,
-		SampleRetentionDays: value.Traffic.SampleRetentionDays, PrivateSourceCIDRs: append([]string{}, value.Subscription.PrivateSourceCIDRs...),
+		CatalogRefreshIntervalHours: value.GitHub.CatalogRefreshIntervalHours,
+		SampleRetentionDays:         value.Traffic.SampleRetentionDays, PrivateSourceCIDRs: append([]string{}, value.Subscription.PrivateSourceCIDRs...),
 		CoreLogRetentionDays: &value.Logs.CoreRetentionDays, CoreLogMaxFiles: &value.Logs.CoreMaxFiles, CoreLogMaxFileSizeMiB: &value.Logs.CoreMaxFileSizeMiB,
 	}
 }
@@ -54,7 +52,7 @@ func serviceSettings(value Settings) PanelServiceSettings {
 func (service PanelServiceSettings) apply(value *Settings) {
 	value.DataDir, value.Server.BasePath = service.DataDir, service.BasePath
 	value.GitHub.CatalogRefreshIntervalHours = service.CatalogRefreshIntervalHours
-	value.Traffic.PeriodMonths, value.Traffic.SampleRetentionDays = service.TrafficPeriodMonths, service.SampleRetentionDays
+	value.Traffic.SampleRetentionDays = service.SampleRetentionDays
 	value.Subscription.PrivateSourceCIDRs = slices.Clone(service.PrivateSourceCIDRs)
 	if service.CoreLogRetentionDays != nil {
 		value.Logs.CoreRetentionDays = *service.CoreLogRetentionDays
@@ -223,8 +221,7 @@ func validatePanelSettings(input PanelSettingsWrite) error {
 	if err := panelFields(p).Validate(); err != nil {
 		return ErrPanelSettingsInvalid
 	}
-	if input.Revision < 0 || (net.ParseIP(p.ListenHost) == nil && p.ListenHost != "localhost") || p.ListenPort < 1 || p.ListenPort > 65535 ||
-		ValidateTrafficQuota(p.TrafficQuotaGiB) != nil {
+	if input.Revision < 0 || (net.ParseIP(p.ListenHost) == nil && p.ListenHost != "localhost") || p.ListenPort < 1 || p.ListenPort > 65535 {
 		return ErrPanelSettingsInvalid
 	}
 	if p.ExternalOrigin != "" {

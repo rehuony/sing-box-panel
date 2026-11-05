@@ -1,24 +1,5 @@
 import type { FilesystemPage, FilesystemQuery, FilesystemResolveInput, FilesystemSelection } from './contracts/filesystem';
 import type {
-  CoreLogChunk,
-  CoreLogFile,
-  DashboardStreamSnapshot,
-  LogClearFilter,
-  LogEntry,
-  LogFilter,
-  LogPage,
-  LogStreamEvent,
-  LogStreamFilter,
-  MetricsHistory,
-  MetricsHistoryFilter,
-  MetricsSnapshot,
-  PanelLogFilter,
-  PanelLogPage,
-  TrafficPeriod,
-  TrafficPeriodFilter,
-  TrafficPeriodPage,
-} from './contracts/observability';
-import type {
   CatalogRefresh,
   ConfigurationFile,
   ConfigurationFileWrite,
@@ -34,6 +15,27 @@ import type {
   SubscriptionSourceRefreshResult,
   SystemStatus,
 } from './generated';
+import type {
+  CoreLogChunk,
+  CoreLogFile,
+  DashboardStreamSnapshot,
+  LogClearFilter,
+  LogEntry,
+  LogFilter,
+  LogPage,
+  LogStreamEvent,
+  LogStreamFilter,
+  MetricsHistory,
+  MetricsHistoryFilter,
+  MetricsSnapshot,
+  NodeTrafficSettings,
+  PanelLogFilter,
+  PanelLogPage,
+  TrafficPeriod,
+  TrafficPeriodFilter,
+  TrafficPeriodPage,
+  TrafficStatus,
+} from './contracts/observability';
 import type {
   CatalogAssetFilter,
   CatalogAssetList,
@@ -128,9 +130,9 @@ export interface ApiClient {
 
   subscribeSessionInvalidated: (listener: () => void) => () => void;
   getRuntimeStatus: (signal?: AbortSignal) => Promise<RuntimeStatus>;
+  getTrafficStatus: (signal?: AbortSignal) => Promise<TrafficStatus>;
   clearCoreLog: (file: string, signal?: AbortSignal) => Promise<void>;
   getLog: (entryID: string, signal?: AbortSignal) => Promise<LogEntry>;
-  getTrafficStatus: (signal?: AbortSignal) => Promise<MetricsSnapshot>;
   login: (input: LoginInput, signal?: AbortSignal) => Promise<Session>;
 
   getPanelSettings: (signal?: AbortSignal) => Promise<PanelSettingsView>;
@@ -140,6 +142,7 @@ export interface ApiClient {
   getConfigurationFile: (signal?: AbortSignal) => Promise<ConfigurationFile>;
   installCore: (assetID: number, signal?: AbortSignal) => Promise<CoreArtifact>;
   listCoreLogFiles: (signal?: AbortSignal) => Promise<{ items: CoreLogFile[] }>;
+  getNodeTrafficSettings: (signal?: AbortSignal) => Promise<NodeTrafficSettings>;
   removeCoreArtifact: (artifactID: string, signal?: AbortSignal) => Promise<void>;
   enableCore: (artifactID: string, signal?: AbortSignal) => Promise<RuntimeStatus>;
   deleteSubscriptionToken: (tokenID: string, signal?: AbortSignal) => Promise<void>;
@@ -147,8 +150,8 @@ export interface ApiClient {
   refreshCatalog: (force?: boolean, signal?: AbortSignal) => Promise<CatalogRefresh>;
   getCoreArtifact: (artifactID: string, signal?: AbortSignal) => Promise<CoreArtifact>;
   getTrafficPeriod: (periodID: string, signal?: AbortSignal) => Promise<TrafficPeriod>;
-
   getSubscriptionNodeCatalog: (signal?: AbortSignal) => Promise<SubscriptionNodeCatalog>;
+
   listPanelLogs: (filter?: PanelLogFilter, signal?: AbortSignal) => Promise<PanelLogPage>;
   getSubscriptionUser: (userID: string, signal?: AbortSignal) => Promise<SubscriptionUser>;
   clearLogs: (filter?: LogClearFilter, signal?: AbortSignal) => Promise<{ deleted: number }>;
@@ -170,6 +173,7 @@ export interface ApiClient {
   parseSubscriptionNode: (text: string, signal?: AbortSignal) => Promise<{ outbound_json: string }>;
   checkStartupArtifact: (artifactID: string, signal?: AbortSignal) => Promise<StartupArtifactSummary>;
   restorePanelBackup: (input: PanelRestoreRequest, signal?: AbortSignal) => Promise<PanelRestoreResult>;
+  saveNodeTrafficSettings: (input: NodeTrafficSettings, signal?: AbortSignal) => Promise<NodeTrafficSettings>;
   resolveFilesystemPath: (input: FilesystemResolveInput, signal?: AbortSignal) => Promise<FilesystemSelection>;
   getMetricsHistory: (
     filter: MetricsHistoryFilter,

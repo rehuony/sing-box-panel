@@ -27,6 +27,7 @@ type RuntimeTransitionCursor struct {
 }
 
 type RuntimeHistoryRequest struct {
+	NodeID             string
 	From               *time.Time
 	To                 *time.Time
 	State              store.RuntimeTransitionState
@@ -48,6 +49,7 @@ func (application *Service) RuntimeHistory(
 	request RuntimeHistoryRequest,
 ) (RuntimeHistoryPage, error) {
 	page, err := application.database.ListRuntimeTransitions(ctx, store.RuntimeHistoryFilter{
+		NodeID:             request.NodeID,
 		From:               request.From,
 		To:                 request.To,
 		State:              request.State,
@@ -88,4 +90,15 @@ func applicationRuntimeTransition(value store.RuntimeTransition) RuntimeTransiti
 		OccurredAt:         value.OccurredAt,
 		UncertainSince:     store.CloneTime(value.UncertainSince),
 	}
+}
+
+// RecordRuntimeTransition stores one entry of a node's runtime history.
+func (application *Service) RecordRuntimeTransition(ctx context.Context, input store.RuntimeTransitionInput) error {
+	return application.database.RecordRuntimeTransition(ctx, input)
+}
+
+// LatestRuntimeTransitionSource returns the newest entry the panel holds of a
+// node instance's history.
+func (application *Service) LatestRuntimeTransitionSource(ctx context.Context, nodeID, instanceID string) (int64, error) {
+	return application.database.LatestRuntimeTransitionSource(ctx, nodeID, instanceID)
 }

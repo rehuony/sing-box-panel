@@ -63,3 +63,16 @@ func (registry *grants) check(token, artifactID string, now time.Time) (string, 
 	}
 	return current.nodeID, true
 }
+
+// artifacts returns the artifacts that unexpired grants let nodes fetch.
+func (registry *grants) artifacts(now time.Time) map[string]bool {
+	registry.mu.Lock()
+	defer registry.mu.Unlock()
+	granted := map[string]bool{}
+	for _, current := range registry.byToken {
+		if now.Before(current.expiresAt) {
+			granted[current.artifactID] = true
+		}
+	}
+	return granted
+}

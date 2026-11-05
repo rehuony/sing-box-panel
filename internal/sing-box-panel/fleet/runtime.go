@@ -363,23 +363,7 @@ func (service *Service) recordCommand(ctx context.Context, code, message, nodeID
 }
 
 func runtimeView(outcome *nodeapi.RuntimeOutcome) RuntimeResponse {
-	status := outcome.GetStatus()
-	view := RuntimeResponse{Status: RuntimeStatus{
-		LoadedCanonicalRevisionID: status.GetLoadedRevisionId(), DesiredRunning: status.GetDesiredRunning(),
-		DesiredBundleID: status.GetDesiredBundleId(), AppliedBundleID: status.GetAppliedBundleId(),
-		RollbackBundleID: status.GetRollbackBundleId(), TargetGeneration: status.GetTargetGeneration(),
-		ObservationState: status.GetObservationState(),
-	}}
-	if status.GetEnabledCoreArtifactId() != "" {
-		view.Status.EnabledCore = &EnabledCore{CoreArtifactID: status.GetEnabledCoreArtifactId(), ExactCoreVersion: status.GetEnabledExactCoreVersion()}
-	}
-	if running := status.GetRunning(); running != nil {
-		view.Status.Running = &RunningCore{
-			PID: int(running.GetPid()), ProcessStartToken: running.GetProcessStartToken(), ExactCoreVersion: running.GetExactCoreVersion(),
-			CoreArtifactID: running.GetCoreArtifactId(), ArchiveSHA256: running.GetArchiveSha256(), BinarySHA256: running.GetBinarySha256(),
-			ActivationBundleID: running.GetActivationBundleId(), StartedAt: running.GetStartedAt().AsTime(),
-		}
-	}
+	view := RuntimeResponse{Status: runtimeStatusView(outcome.GetStatus())}
 	if activation := outcome.GetActivation(); activation != nil {
 		view.Activation = &ActivationSummary{
 			StartupArtifactID: activation.GetStartupArtifactId(), CanonicalRevisionID: activation.GetRevisionId(),
@@ -391,6 +375,26 @@ func runtimeView(outcome *nodeapi.RuntimeOutcome) RuntimeResponse {
 	if startup := outcome.GetStartup(); startup != nil {
 		summary := startupView(startup)
 		view.Startup = &summary
+	}
+	return view
+}
+
+func runtimeStatusView(status *nodeapi.RuntimeStatus) RuntimeStatus {
+	view := RuntimeStatus{
+		LoadedCanonicalRevisionID: status.GetLoadedRevisionId(), DesiredRunning: status.GetDesiredRunning(),
+		DesiredBundleID: status.GetDesiredBundleId(), AppliedBundleID: status.GetAppliedBundleId(),
+		RollbackBundleID: status.GetRollbackBundleId(), TargetGeneration: status.GetTargetGeneration(),
+		ObservationState: status.GetObservationState(),
+	}
+	if status.GetEnabledCoreArtifactId() != "" {
+		view.EnabledCore = &EnabledCore{CoreArtifactID: status.GetEnabledCoreArtifactId(), ExactCoreVersion: status.GetEnabledExactCoreVersion()}
+	}
+	if running := status.GetRunning(); running != nil {
+		view.Running = &RunningCore{
+			PID: int(running.GetPid()), ProcessStartToken: running.GetProcessStartToken(), ExactCoreVersion: running.GetExactCoreVersion(),
+			CoreArtifactID: running.GetCoreArtifactId(), ArchiveSHA256: running.GetArchiveSha256(), BinarySHA256: running.GetBinarySha256(),
+			ActivationBundleID: running.GetActivationBundleId(), StartedAt: running.GetStartedAt().AsTime(),
+		}
 	}
 	return view
 }

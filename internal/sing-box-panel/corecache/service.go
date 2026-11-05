@@ -35,6 +35,9 @@ type Service struct {
 	removeFile func(string) error
 	downloader Downloader
 	catalogMu  sync.Mutex
+	// cacheMu orders writes of the artifact cache against its sweep, so a
+	// sweep never removes the file of an archive being cached again.
+	cacheMu sync.Mutex
 }
 
 // New serves the core catalog over database. Catalog discovery reads its

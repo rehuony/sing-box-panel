@@ -14,7 +14,7 @@ import (
 
 var (
 	ErrRuntimeTransitionNotFound = errors.New("runtime transition not found")
-	ErrRuntimeTransitionConflict = errors.New("runtime transition dedupe key conflict")
+	ErrRuntimeTransitionConflict = errors.New("runtime transition conflicts with the recorded entry")
 )
 
 type RuntimeTransitionState string
@@ -26,31 +26,31 @@ const (
 	RuntimeTransitionUnknown RuntimeTransitionState = "unknown"
 )
 
-// RuntimeTransition is one immutable observation of the managed process
-// lifecycle. ProcessStartToken remains an internal fencing value and is not
-// exposed by the application transport.
+// RuntimeTransition is one immutable entry of a node's runtime history.
 type RuntimeTransition struct {
 	ID                 int64
-	DedupeKey          string
+	NodeID             string
 	State              RuntimeTransitionState
 	Reason             string
 	ActivationBundleID string
 	Generation         int64
 	PID                int
-	ProcessStartToken  string
 	ProcessStartedAt   *time.Time
 	OccurredAt         time.Time
 	UncertainSince     *time.Time
 }
 
+// RuntimeTransitionInput is one entry of a node instance's history, identified
+// by its ID there.
 type RuntimeTransitionInput struct {
-	DedupeKey          string
+	NodeID             string
+	InstanceID         string
+	SourceID           int64
 	State              RuntimeTransitionState
 	Reason             string
 	ActivationBundleID string
 	Generation         int64
 	PID                int
-	ProcessStartToken  string
 	ProcessStartedAt   *time.Time
 	OccurredAt         time.Time
 	UncertainSince     *time.Time
@@ -61,9 +61,11 @@ type RuntimeTransitionCursor struct {
 	ID         int64
 }
 
-// RuntimeHistoryFilter selects a newest-first page. From is inclusive, To and
-// Cursor are exclusive. Reason is an exact durable event code.
+// RuntimeHistoryFilter selects a newest-first page of one node's history.
+// From is inclusive, To and Cursor are exclusive. Reason is an exact durable
+// event code.
 type RuntimeHistoryFilter struct {
+	NodeID             string
 	From               *time.Time
 	To                 *time.Time
 	State              RuntimeTransitionState
@@ -80,82 +82,51 @@ type RuntimeHistoryPage struct {
 	HistoryStartedAt time.Time
 }
 
-type runtimeTransitionExecutor interface {
-	ExecContext(context.Context, string, ...any) (sql.Result, error)
-	QueryRowContext(context.Context, string, ...any) *sql.Row
-}
-
-// AppendRuntimeTransition is idempotent for one stable dedupe key. Reusing a
-// key for different event data fails closed instead of silently rewriting
-// append-only history.
-func (s *Store) AppendRuntimeTransition(
-	ctx context.Context,
-	input RuntimeTransitionInput,
-) (RuntimeTransition, error) {
+// RecordRuntimeTransition stores a replicated history entry. Recording the
+// same entry again does nothing; an entry whose source ID was recorded with
+// other data fails closed instead of rewriting history.
+func (s *Store) RecordRuntimeTransition(ctx context.Context, input RuntimeTransitionInput) error {
 	prepared, err := prepareRuntimeTransition(input)
 	if err != nil {
-		return RuntimeTransition{}, err
-	}
-	var transition RuntimeTransition
-	err = s.WithTx(ctx, func(tx *sql.Tx) error {
-		transition, err = appendRuntimeTransition(ctx, tx, prepared)
 		return err
+	}
+	return s.WithTx(ctx, func(tx *sql.Tx) error {
+		inserted, err := tx.ExecContext(ctx, `INSERT INTO runtime_transitions(
+            node_id, instance_id, source_id, state, reason, activation_bundle_id, generation,
+            pid, process_started_at, occurred_at, uncertain_since
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(node_id, instance_id, source_id) DO NOTHING`,
+			prepared.NodeID, prepared.InstanceID, prepared.SourceID, string(prepared.State), prepared.Reason,
+			nullIfEmpty(prepared.ActivationBundleID), nullRuntimeInt64(prepared.Generation), nullRuntimeInt(prepared.PID),
+			nullRuntimeTime(prepared.ProcessStartedAt), formatTime(prepared.OccurredAt), nullRuntimeTime(prepared.UncertainSince))
+		if err != nil {
+			return fmt.Errorf("record runtime transition: %w", err)
+		}
+		if count, err := inserted.RowsAffected(); err != nil || count == 1 {
+			return err
+		}
+		stored, err := scanRuntimeTransition(tx.QueryRowContext(ctx, `SELECT `+runtimeTransitionColumns+`
+           FROM runtime_transitions WHERE node_id = ? AND instance_id = ? AND source_id = ?`,
+			prepared.NodeID, prepared.InstanceID, prepared.SourceID))
+		if err != nil {
+			return fmt.Errorf("read recorded runtime transition: %w", err)
+		}
+		if !sameRuntimeTransition(stored, prepared) {
+			return fmt.Errorf("%w: %s/%d", ErrRuntimeTransitionConflict, prepared.InstanceID, prepared.SourceID)
+		}
+		return nil
 	})
-	return transition, err
 }
 
-func appendRuntimeTransition(
-	ctx context.Context,
-	executor runtimeTransitionExecutor,
-	input RuntimeTransitionInput,
-) (RuntimeTransition, error) {
-	_, err := executor.ExecContext(
-		ctx,
-		`INSERT INTO runtime_transitions(
-            dedupe_key, state, reason, activation_bundle_id, generation,
-            pid, process_start_token, process_started_at,
-            occurred_at, uncertain_since
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-         ON CONFLICT(dedupe_key) DO NOTHING`,
-		input.DedupeKey,
-		string(input.State),
-		input.Reason,
-		nullIfEmpty(input.ActivationBundleID),
-		nullRuntimeInt64(input.Generation),
-		nullRuntimeInt(input.PID),
-		nullIfEmpty(input.ProcessStartToken),
-		nullRuntimeTime(input.ProcessStartedAt),
-		formatTime(input.OccurredAt),
-		nullRuntimeTime(input.UncertainSince),
-	)
-	if err != nil {
-		return RuntimeTransition{}, fmt.Errorf("append runtime transition: %w", err)
+// LatestRuntimeTransitionSource returns the newest source ID recorded for the
+// node instance, or zero.
+func (s *Store) LatestRuntimeTransitionSource(ctx context.Context, nodeID, instanceID string) (int64, error) {
+	var latest sql.NullInt64
+	if err := s.db.QueryRowContext(ctx, `SELECT MAX(source_id) FROM runtime_transitions WHERE node_id = ? AND instance_id = ?`,
+		nodeID, instanceID).Scan(&latest); err != nil {
+		return 0, fmt.Errorf("read latest runtime transition: %w", err)
 	}
-	stored, err := runtimeTransitionByDedupeKey(ctx, executor, input.DedupeKey)
-	if err != nil {
-		return RuntimeTransition{}, err
-	}
-	if !sameRuntimeTransition(stored, input) {
-		return RuntimeTransition{}, fmt.Errorf("%w: %s", ErrRuntimeTransitionConflict, input.DedupeKey)
-	}
-	return stored, nil
-}
-
-func (s *Store) LatestRuntimeTransition(ctx context.Context) (RuntimeTransition, error) {
-	transition, err := scanRuntimeTransition(s.db.QueryRowContext(
-		ctx,
-		`SELECT `+runtimeTransitionColumns+`
-           FROM runtime_transitions
-          ORDER BY occurred_at DESC, id DESC
-          LIMIT 1`,
-	))
-	if errors.Is(err, sql.ErrNoRows) {
-		return RuntimeTransition{}, ErrRuntimeTransitionNotFound
-	}
-	if err != nil {
-		return RuntimeTransition{}, fmt.Errorf("read latest runtime transition: %w", err)
-	}
-	return transition, nil
+	return latest.Int64, nil
 }
 
 func (s *Store) ListRuntimeTransitions(
@@ -202,7 +173,7 @@ func (s *Store) ListRuntimeTransitions(
 		return RuntimeHistoryPage{}, fmt.Errorf("iterate listed runtime transitions: %w", err)
 	}
 
-	historyStartedAt, err := runtimeHistoryStartedAt(ctx, s.db)
+	historyStartedAt, err := runtimeHistoryStartedAt(ctx, s.db, filter.NodeID)
 	if err != nil {
 		return RuntimeHistoryPage{}, err
 	}
@@ -224,8 +195,8 @@ func (s *Store) ListRuntimeTransitions(
 	return page, nil
 }
 
-const runtimeTransitionColumns = `id, dedupe_key, state, reason,
-    activation_bundle_id, generation, pid, process_start_token,
+const runtimeTransitionColumns = `id, node_id, state, reason,
+    activation_bundle_id, generation, pid,
     process_started_at, occurred_at, uncertain_since`
 
 type runtimeTransitionScanner interface {
@@ -238,20 +209,18 @@ func scanRuntimeTransition(scanner runtimeTransitionScanner) (RuntimeTransition,
 		bundleID         sql.NullString
 		generation       sql.NullInt64
 		pid              sql.NullInt64
-		processToken     sql.NullString
 		processStartedAt sql.NullString
 		occurredAt       string
 		uncertainSince   sql.NullString
 	)
 	if err := scanner.Scan(
 		&transition.ID,
-		&transition.DedupeKey,
+		&transition.NodeID,
 		&transition.State,
 		&transition.Reason,
 		&bundleID,
 		&generation,
 		&pid,
-		&processToken,
 		&processStartedAt,
 		&occurredAt,
 		&uncertainSince,
@@ -261,7 +230,6 @@ func scanRuntimeTransition(scanner runtimeTransitionScanner) (RuntimeTransition,
 	transition.ActivationBundleID = valueOrEmpty(bundleID)
 	transition.Generation = generation.Int64
 	transition.PID = int(pid.Int64)
-	transition.ProcessStartToken = valueOrEmpty(processToken)
 	var err error
 	transition.OccurredAt, err = parseTime(occurredAt)
 	if err != nil {
@@ -284,44 +252,26 @@ func scanRuntimeTransition(scanner runtimeTransitionScanner) (RuntimeTransition,
 	return transition, nil
 }
 
-func runtimeTransitionByDedupeKey(
-	ctx context.Context,
-	executor runtimeTransitionExecutor,
-	dedupeKey string,
-) (RuntimeTransition, error) {
-	transition, err := scanRuntimeTransition(executor.QueryRowContext(
-		ctx,
-		`SELECT `+runtimeTransitionColumns+`
-           FROM runtime_transitions
-          WHERE dedupe_key = ?`,
-		dedupeKey,
-	))
+// runtimeHistoryStartedAt is when the node's history began: the first
+// initialization marker it reported, or the node's creation before it
+// reported any history.
+func runtimeHistoryStartedAt(ctx context.Context, q queryRower, nodeID string) (time.Time, error) {
+	var raw string
+	err := q.QueryRowContext(ctx, `SELECT occurred_at FROM runtime_transitions
+          WHERE node_id = ? AND reason = 'history_initialized'
+          ORDER BY occurred_at ASC, id ASC LIMIT 1`, nodeID).Scan(&raw)
 	if errors.Is(err, sql.ErrNoRows) {
-		return RuntimeTransition{}, ErrRuntimeTransitionNotFound
+		err = q.QueryRowContext(ctx, `SELECT created_at FROM nodes WHERE id = ?`, nodeID).Scan(&raw)
+		if errors.Is(err, sql.ErrNoRows) {
+			return time.Time{}, ErrNodeNotFound
+		}
 	}
 	if err != nil {
-		return RuntimeTransition{}, fmt.Errorf("read runtime transition: %w", err)
-	}
-	return transition, nil
-}
-
-func runtimeHistoryStartedAt(ctx context.Context, q queryRower) (time.Time, error) {
-	var raw string
-	if err := q.QueryRowContext(
-		ctx,
-		`SELECT occurred_at
-           FROM runtime_transitions
-          WHERE reason = 'history_initialized'
-          ORDER BY occurred_at ASC, id ASC
-          LIMIT 1`,
-	).Scan(&raw); errors.Is(err, sql.ErrNoRows) {
-		return time.Time{}, errors.New("runtime history initialization marker is missing")
-	} else if err != nil {
-		return time.Time{}, fmt.Errorf("read runtime history initialization: %w", err)
+		return time.Time{}, fmt.Errorf("read runtime history start: %w", err)
 	}
 	startedAt, err := parseTime(raw)
 	if err != nil {
-		return time.Time{}, fmt.Errorf("parse runtime history initialization: %w", err)
+		return time.Time{}, fmt.Errorf("parse runtime history start: %w", err)
 	}
 	return startedAt, nil
 }
@@ -360,6 +310,9 @@ func precedingRuntimeTransition(
 }
 
 func runtimeHistoryClauses(filter RuntimeHistoryFilter) ([]string, []any, error) {
+	if !ValidIdentifier(filter.NodeID) {
+		return nil, nil, errors.New("runtime history requires a node")
+	}
 	if filter.State != "" && !validRuntimeTransitionState(filter.State) {
 		return nil, nil, fmt.Errorf("invalid runtime transition state %q", filter.State)
 	}
@@ -382,8 +335,8 @@ func runtimeHistoryClauses(filter RuntimeHistoryFilter) ([]string, []any, error)
 		return nil, nil, errors.New("runtime history cursor is invalid")
 	}
 
-	clauses := []string{"1 = 1"}
-	args := make([]any, 0, 12)
+	clauses := []string{"node_id = ?"}
+	args := []any{filter.NodeID}
 	if filter.From != nil {
 		clauses = append(clauses, "occurred_at >= ?")
 		args = append(args, formatTime(filter.From.UTC()))
@@ -408,8 +361,8 @@ func runtimeHistoryClauses(filter RuntimeHistoryFilter) ([]string, []any, error)
 }
 
 func prepareRuntimeTransition(input RuntimeTransitionInput) (RuntimeTransitionInput, error) {
-	if !ValidIdentifier(input.DedupeKey) {
-		return RuntimeTransitionInput{}, errors.New("runtime transition dedupe key is invalid")
+	if !ValidIdentifier(input.NodeID) || input.InstanceID == "" || len(input.InstanceID) > 64 || input.SourceID < 1 {
+		return RuntimeTransitionInput{}, errors.New("runtime transition source is invalid")
 	}
 	if !validRuntimeTransitionState(input.State) {
 		return RuntimeTransitionInput{}, fmt.Errorf("invalid runtime transition state %q", input.State)
@@ -426,11 +379,8 @@ func prepareRuntimeTransition(input RuntimeTransitionInput) (RuntimeTransitionIn
 	if input.OccurredAt.IsZero() {
 		return RuntimeTransitionInput{}, errors.New("runtime transition occurred_at is required")
 	}
-	if input.PID == 0 {
-		if input.ProcessStartToken != "" || input.ProcessStartedAt != nil {
-			return RuntimeTransitionInput{}, errors.New("runtime transition process identity is incomplete")
-		}
-	} else if input.PID < 0 || !validProcessStartToken(input.ProcessStartToken) || input.ProcessStartedAt == nil || input.ProcessStartedAt.IsZero() {
+	if input.PID < 0 || (input.PID == 0) != (input.ProcessStartedAt == nil) ||
+		(input.ProcessStartedAt != nil && input.ProcessStartedAt.IsZero()) {
 		return RuntimeTransitionInput{}, errors.New("runtime transition process identity is invalid")
 	}
 	if input.State == RuntimeTransitionRunning && (input.ActivationBundleID == "" || input.PID == 0) {
@@ -492,13 +442,11 @@ func ValidIdentifier(value string) bool {
 }
 
 func sameRuntimeTransition(stored RuntimeTransition, input RuntimeTransitionInput) bool {
-	return stored.DedupeKey == input.DedupeKey &&
-		stored.State == input.State &&
+	return stored.State == input.State &&
 		stored.Reason == input.Reason &&
 		stored.ActivationBundleID == input.ActivationBundleID &&
 		stored.Generation == input.Generation &&
 		stored.PID == input.PID &&
-		stored.ProcessStartToken == input.ProcessStartToken &&
 		sameRuntimeTime(stored.ProcessStartedAt, input.ProcessStartedAt) &&
 		stored.OccurredAt.Equal(input.OccurredAt) &&
 		sameRuntimeTime(stored.UncertainSince, input.UncertainSince)

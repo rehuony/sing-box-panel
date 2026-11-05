@@ -117,10 +117,10 @@ type GitHub struct {
 	CatalogRefreshIntervalHours int    `json:"catalog_refresh_interval_hours"`
 }
 
+// Traffic holds the panel's traffic retention. Each node has its own quota
+// and period.
 type Traffic struct {
-	QuotaGiB            *int64 `json:"quota_gib"`
-	PeriodMonths        int    `json:"period_months"`
-	SampleRetentionDays int    `json:"sample_retention_days"`
+	SampleRetentionDays int `json:"sample_retention_days"`
 }
 
 type Subscription struct {
@@ -141,7 +141,7 @@ func Defaults() Settings {
 		Server:  Server{Host: "127.0.0.1", Port: 3000},
 		DataDir: dataDir,
 		GitHub:  GitHub{CatalogRefreshIntervalHours: 12},
-		Traffic: Traffic{PeriodMonths: 1, SampleRetentionDays: 90},
+		Traffic: Traffic{SampleRetentionDays: 90},
 		Subscription: Subscription{
 			PrivateSourceCIDRs: []string{},
 		},
@@ -278,12 +278,6 @@ func (value Settings) Validate() error {
 	}
 	if value.GitHub.CatalogRefreshIntervalHours < 1 || value.GitHub.CatalogRefreshIntervalHours > 24*30 {
 		return errors.New("github.catalog_refresh_interval_hours must be between 1 and 720")
-	}
-	if err := ValidateTrafficQuota(value.Traffic.QuotaGiB); err != nil {
-		return err
-	}
-	if value.Traffic.PeriodMonths < 1 || value.Traffic.PeriodMonths > 120 {
-		return errors.New("traffic.period_months must be between 1 and 120")
 	}
 	if value.Traffic.SampleRetentionDays < 1 || value.Traffic.SampleRetentionDays > 366 {
 		return errors.New("traffic.sample_retention_days must be between 1 and 366")

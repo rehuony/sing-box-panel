@@ -167,7 +167,7 @@ describe('useTelemetry', () => {
     });
     const view = await client.getPanelSettings();
     let updateRevision: (value: number) => void = () => {};
-    const next = { ...testMetrics, quota_bytes: 800 * 2 ** 30 };
+    const next = { ...testMetrics, collected_at: '2026-08-26T07:35:00Z' };
     vi.mocked(client.getMetrics).mockResolvedValue(next);
     function SettingsWrapper({ children }: PropsWithChildren) {
       const [revision, setRevision] = useState(view.revision);
@@ -187,7 +187,7 @@ describe('useTelemetry', () => {
     await waitFor(() => expect(result.current.snapshot).toBe(testMetrics));
     expect(client.getMetrics).not.toHaveBeenCalled();
     act(() => updateRevision(view.revision + 1));
-    await waitFor(() => expect(result.current.snapshot?.quota_bytes).toBe(next.quota_bytes));
+    await waitFor(() => expect(result.current.snapshot?.collected_at).toBe(next.collected_at));
     rerender();
     expect(client.getMetrics).toHaveBeenCalledOnce();
     expect(client.streamMetrics).toHaveBeenCalledOnce();

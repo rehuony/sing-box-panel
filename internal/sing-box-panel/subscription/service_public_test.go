@@ -5,17 +5,15 @@ package subscription
 import (
 	"database/sql"
 	"encoding/json"
-	"os"
 	"path/filepath"
 	"testing"
 	"time"
 
-	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/settings"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/store"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/testutil"
 )
 
-func TestPublicSubscriptionTrafficUsesLiveSettingsAndCurrentUTCPeriod(t *testing.T) {
+func TestPublicSubscriptionTrafficSumsEveryNodesOwnPeriod(t *testing.T) {
 	ctx := t.Context()
 	db, err := store.Open(ctx, filepath.Join(t.TempDir(), "panel.db"))
 	if err != nil {
@@ -36,67 +34,55 @@ func TestPublicSubscriptionTrafficUsesLiveSettingsAndCurrentUTCPeriod(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	configuration := settings.Defaults()
-	configuration.DataDir = t.TempDir()
-	configuration.Auth.Email = testutil.AdminEmail
-	configuration.Auth.PasswordHash = testutil.PasswordHash
 
-	// Seed durable month totals without live samples. The subscription
-	// must still report these after collection stops or raw samples expire.
-	recordMonth := func(month string, upload, download int64) {
+	// Seed durable daily totals of two nodes without live samples. Node b
+	// resets on the 15th and has a quota of its own, which the header must
+	// not present as a total.
+	nodes := []string{testutil.CreateNode(t, db, "edge-a"), testutil.CreateNode(t, db, "edge-b")}
+	quota := int64(100)
+	if _, err := db.SaveNodeTrafficSettings(ctx, nodes[1], 1, store.NodeTrafficSettings{QuotaGiB: &quota, PeriodMonths: 1, ResetDay: 15}); err != nil {
+		t.Fatal(err)
+	}
+	recordDay := func(node, day string, upload, download int64) {
 		t.Helper()
 		err := db.WithTx(ctx, func(tx *sql.Tx) error {
-			_, err := tx.ExecContext(ctx, `INSERT INTO traffic_months
-				(month_start,inbound_bytes,outbound_bytes,first_observed_at,last_sample_at)
-				VALUES(?,?,?,?,?)`, month, download, upload, month, month)
+			_, err := tx.ExecContext(ctx, `INSERT INTO traffic_days
+				(node_id,day_start,inbound_bytes,outbound_bytes,first_observed_at,last_sample_at)
+				VALUES(?,?,?,?,?,?)`, node, day, download, upload, day, day)
 			return err
 		})
 		if err != nil {
 			t.Fatal(err)
 		}
 	}
-	recordMonth("2026-07-01T00:00:00.000000000Z", 20, 40)
-	recordMonth("2026-08-01T00:00:00.000000000Z", 123, 456)
+	recordDay(nodes[0], "2026-07-31T00:00:00.000000000Z", 20, 40)
+	recordDay(nodes[0], "2026-08-10T00:00:00.000000000Z", 100, 400)
+	recordDay(nodes[1], "2026-08-14T00:00:00.000000000Z", 5, 6)
+	recordDay(nodes[1], "2026-08-20T00:00:00.000000000Z", 23, 56)
 	original, err := app.PublicSubscription(ctx, key.Token, channel.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	app.useSettings(testSettings(db, filepath.Join(t.TempDir(), "setting.json"), settings.Settings{}))
 
-	quota, zero, maximumQuota := int64(100), int64(0), int64((1<<63-1)/(1<<30))
 	for _, test := range []struct {
 		name     string
 		at       string
-		months   int
-		quota    *int64
-		addMonth bool
+		resetDay int
 		want     PublicSubscriptionTraffic
 	}{
-		{"monthly before UTC boundary", "2026-09-01T07:59:59+08:00", 1, &quota, false, PublicSubscriptionTraffic{123, 456, 107374182400}},
-		{"unlimited absent quota", "2026-08-31T23:59:59Z", 1, nil, false, PublicSubscriptionTraffic{123, 456, 0}},
-		{"unlimited zero quota", "2026-08-31T23:59:59Z", 1, &zero, false, PublicSubscriptionTraffic{123, 456, 0}},
-		{"largest quota", "2026-08-31T23:59:59Z", 1, &maximumQuota, false, PublicSubscriptionTraffic{123, 456, 9223372035781033984}},
-		{"new monthly period without samples", "2026-09-01T08:00:00+08:00", 1, &quota, false, PublicSubscriptionTraffic{0, 0, 107374182400}},
-		{"new month recorded usage", "2026-09-01T00:00:10Z", 1, &quota, true, PublicSubscriptionTraffic{7, 11, 107374182400}},
-		{"live change to three months", "2026-09-30T23:59:59Z", 3, &quota, true, PublicSubscriptionTraffic{150, 507, 107374182400}},
-		{"new three month period without samples", "2026-10-01T00:00:00Z", 3, &quota, true, PublicSubscriptionTraffic{0, 0, 107374182400}},
+		{"each node's own period", "2026-08-31T23:59:59Z", 15, PublicSubscriptionTraffic{123, 456, 0}},
+		{"one node starts a new UTC period", "2026-09-01T08:00:00+08:00", 15, PublicSubscriptionTraffic{23, 56, 0}},
+		{"before the reset day", "2026-08-14T12:00:00Z", 15, PublicSubscriptionTraffic{105, 406, 0}},
+		{"a changed reset day applies at once", "2026-08-31T23:59:59Z", 1, PublicSubscriptionTraffic{128, 462, 0}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			if err := db.WithTx(ctx, func(tx *sql.Tx) error {
-				_, err := tx.ExecContext(ctx, "DELETE FROM traffic_months WHERE month_start = '2026-09-01T00:00:00.000000000Z'")
-				return err
-			}); err != nil {
-				t.Fatal(err)
-			}
-			if test.addMonth {
-				recordMonth("2026-09-01T00:00:00.000000000Z", 7, 11)
-			}
-			configuration.Traffic.QuotaGiB, configuration.Traffic.PeriodMonths = test.quota, test.months
-			raw, err := json.Marshal(configuration)
+			settings, err := db.Node(ctx, nodes[1])
 			if err != nil {
 				t.Fatal(err)
 			}
-			if err := settings.Replace(app.settings.Path(), raw); err != nil {
+			if _, err := db.SaveNodeTrafficSettings(ctx, nodes[1], settings.Traffic.Revision, store.NodeTrafficSettings{
+				QuotaGiB: &quota, PeriodMonths: 1, ResetDay: test.resetDay,
+			}); err != nil {
 				t.Fatal(err)
 			}
 			at, err := time.Parse(time.RFC3339, test.at)
@@ -116,16 +102,10 @@ func TestPublicSubscriptionTrafficUsesLiveSettingsAndCurrentUTCPeriod(t *testing
 			}
 		})
 	}
-	start := time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC)
-	end := start.AddDate(0, 1, 0)
-	history, err := db.AggregateTrafficPeriod(ctx, start, end, end.Add(-time.Second))
-	if err != nil || history.OutboundBytes != 123 || history.InboundBytes != 456 {
-		t.Fatalf("reset changed historical totals: %+v, %v", history, err)
-	}
 
 	// Preview renders configuration only and must not depend on traffic storage.
 	if err := db.WithTx(ctx, func(tx *sql.Tx) error {
-		_, err := tx.ExecContext(ctx, "DROP TABLE traffic_months")
+		_, err := tx.ExecContext(ctx, "DROP TABLE traffic_days")
 		return err
 	}); err != nil {
 		t.Fatal(err)
@@ -135,24 +115,5 @@ func TestPublicSubscriptionTrafficUsesLiveSettingsAndCurrentUTCPeriod(t *testing
 	}
 	if _, err := app.PublicSubscription(ctx, key.Token, channel.ID); err == nil {
 		t.Fatal("traffic storage failure returned a successful subscription")
-	}
-}
-
-func TestPublicSubscriptionTrafficRejectsInvalidAccountingSettings(t *testing.T) {
-	app := newSubscriptionTestService(nil)
-	app.useSettings(testSettings(nil, filepath.Join(t.TempDir(), "setting.json"), settings.Settings{}))
-	for _, raw := range []string{
-		`{"traffic":{"quota_gib":-1}}`,
-		`{"traffic":{"quota_gib":8589934592}}`,
-		`{"traffic":{"period_months":0}}`,
-		`{"traffic":{"period_months":121}}`,
-		`{`,
-	} {
-		if err := os.WriteFile(app.settings.Path(), []byte(raw), 0o600); err != nil {
-			t.Fatal(err)
-		}
-		if _, err := app.publicSubscriptionTraffic(t.Context(), time.Now()); err == nil {
-			t.Fatalf("invalid accounting settings accepted: %s", raw)
-		}
 	}
 }

@@ -52,7 +52,9 @@ func TestRemovedConfigurationRoutesAreNotExposed(t *testing.T) {
 	handler := testHandler(t)
 	for _, path := range []string{"/api/v1/config/canonical", "/api/v1/config/revisions", "/api/v1/config/revisions/diff", "/api/v1/config/revisions/old/restore",
 		// Single-host resources now live under /api/v1/nodes/{nodeId}.
-		"/api/v1/config/file", "/api/v1/core/status", "/api/v1/core/artifacts", "/api/v1/filesystem/entries", "/api/v1/core/logs/files", "/api/v1/dashboard/context"} {
+		"/api/v1/config/file", "/api/v1/core/status", "/api/v1/core/artifacts", "/api/v1/filesystem/entries", "/api/v1/core/logs/files", "/api/v1/dashboard/context",
+		"/api/v1/metrics", "/api/v1/metrics/stream", "/api/v1/metrics/history", "/api/v1/dashboard/stream", "/api/v1/traffic/periods",
+		"/api/v1/core/runtime/history"} {
 		for _, method := range []string{http.MethodGet, http.MethodPut, http.MethodPatch, http.MethodPost} {
 			response := authenticatedRequest(t, handler, method, path, "", "")
 			if response.Code != http.StatusNotFound {

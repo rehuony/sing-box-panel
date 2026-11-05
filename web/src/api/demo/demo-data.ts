@@ -7,6 +7,7 @@ import type {
   LogEntry,
   MetricsHistory,
   MetricsSnapshot,
+  NodeTrafficSettings,
   RuntimeHistoryPage,
   RuntimeStatus,
   StartupArtifactSummary,
@@ -18,6 +19,7 @@ import type {
   SubscriptionUser,
   SystemStatus,
   TrafficPeriod,
+  TrafficStatus,
 } from '../api-client';
 
 import { demoSourceNodeDetails, nodeSummary } from './demo-subscription-nodes';
@@ -30,6 +32,8 @@ export interface DemoData {
   users: SubscriptionUser[];
   tokens: SubscriptionToken[];
   canonical: CanonicalSnapshot;
+  /** The demo node's own traffic quota and period. */
+  traffic: NodeTrafficSettings;
   grants: Map<string, string[]>;
   sources: SubscriptionSource[];
   channels: SubscriptionChannel[];
@@ -280,7 +284,7 @@ export function createDemoData(now = new Date()): DemoData {
   const periodStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
   const periodEnd = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1));
   const trafficPeriods: TrafficPeriod[] = [{
-    id: `traffic_monthly_${periodStart.toISOString().slice(0, 7).replace('-', '')}_${periodEnd.toISOString().slice(0, 7).replace('-', '')}`,
+    id: demoPeriodID(periodStart.toISOString(), periodEnd.toISOString()),
     period_start: periodStart.toISOString(),
     period_end: periodEnd.toISOString(),
     inbound_bytes: 268_435_456,
@@ -363,6 +367,7 @@ export function createDemoData(now = new Date()): DemoData {
     startupArtifacts,
     tokens,
     trafficPeriods,
+    traffic: { revision: 1, quota_gib: 500, period_months: 1, reset_day: 1 },
     users,
   };
 }
@@ -384,27 +389,35 @@ export function demoSystemStatus(): SystemStatus {
   return { platform: { os: 'linux', arch: 'amd64' }, panel_version: 'demo' };
 }
 
+function demoPeriodID(start: string, end: string): string {
+  return `traffic_${start.slice(0, 10).replaceAll('-', '')}_${end.slice(0, 10).replaceAll('-', '')}`;
+}
+
 function aggregateDemoTrafficPeriod(data: DemoData, start: string, end: string, now: Date): TrafficPeriod {
-  const months = data.trafficPeriods.filter(p =>
+  const recorded = data.trafficPeriods.filter(p =>
     p.period_start >= start && p.period_start < end && p.period_start <= now.toISOString(),
   );
   return {
-    id: `traffic_monthly_${start.slice(0, 7).replace('-', '')}_${end.slice(0, 7).replace('-', '')}`,
+    id: demoPeriodID(start, end),
     period_start: start, period_end: end,
-    inbound_bytes: months.reduce((sum, p) => sum + p.inbound_bytes, 0),
-    outbound_bytes: months.reduce((sum, p) => sum + p.outbound_bytes, 0),
-    counters: { aggregation: 'monthly' }, created_at: months.map(p => p.created_at).sort()[0] ?? start,
+    inbound_bytes: recorded.reduce((sum, p) => sum + p.inbound_bytes, 0),
+    outbound_bytes: recorded.reduce((sum, p) => sum + p.outbound_bytes, 0),
+    counters: { aggregation: 'daily' }, created_at: recorded.map(p => p.created_at).sort()[0] ?? start,
   };
 }
 
 export function demoTrafficPeriod(data: DemoData, periodID: string, now = new Date()): TrafficPeriod | undefined {
   const stored = data.trafficPeriods.find(p => p.id === periodID);
-  const range = /^traffic_monthly_(\d{4})(0[1-9]|1[0-2])_(\d{4})(0[1-9]|1[0-2])$/u.exec(periodID);
+  const range = /^traffic_(\d{4})(\d{2})(\d{2})_(\d{4})(\d{2})(\d{2})$/u.exec(periodID);
   if (!range) return stored;
-  const start = `${range[1]}-${range[2]}-01T00:00:00.000Z`;
-  const end = `${range[3]}-${range[4]}-01T00:00:00.000Z`;
-  const months = (Number(range[3]) - Number(range[1])) * 12 + Number(range[4]) - Number(range[2]);
-  if (months < 1 || months > 120 || start > now.toISOString()) return stored;
+  const start = `${range[1]}-${range[2]}-${range[3]}T00:00:00.000Z`;
+  const end = `${range[4]}-${range[5]}-${range[6]}T00:00:00.000Z`;
+  const months = (Number(range[4]) - Number(range[1])) * 12 + Number(range[5]) - Number(range[2]);
+  if (Number.isNaN(Date.parse(start)) || Number.isNaN(Date.parse(end)) || new Date(start).toISOString() !== start
+    || new Date(end).toISOString() !== end || range[3] !== range[6] || Number(range[3]) > 28
+    || months < 1 || months > 120 || start > now.toISOString()) {
+    return stored;
+  }
   if (!stored && !data.trafficPeriods.some(p =>
     p.period_start >= start && p.period_start < end && p.period_start <= now.toISOString(),
   )) {
@@ -413,16 +426,38 @@ export function demoTrafficPeriod(data: DemoData, periodID: string, now = new Da
   return aggregateDemoTrafficPeriod(data, start, end, now);
 }
 
-export function demoMetrics(
-  data: DemoData, quotaGiB: number | null, now = new Date(), periodMonths = 1,
-): MetricsSnapshot {
+/** The demo node's period that contains now, starting on its reset day. */
+function demoCurrentPeriod(data: DemoData, now: Date): TrafficPeriod {
+  const { period_months: months, reset_day: day } = data.traffic;
+  let month = (now.getUTCFullYear() - 1970) * 12 + now.getUTCMonth();
+  if (now.getUTCDate() < day) month -= 1;
+  const startMonth = month - ((month % months) + months) % months;
+  const start = new Date(Date.UTC(1970, startMonth, day)).toISOString();
+  const end = new Date(Date.UTC(1970, startMonth + months, day)).toISOString();
+  return aggregateDemoTrafficPeriod(data, start, end, now);
+}
+
+function demoQuota(data: DemoData, period: TrafficPeriod): { quota_bytes?: number; quota_exceeded: boolean } {
+  const quota = data.traffic.quota_gib;
+  if (quota === null || quota <= 0) return { quota_exceeded: false };
+  const bytes = quota * 2 ** 30;
+  return { quota_bytes: bytes, quota_exceeded: period.inbound_bytes + period.outbound_bytes >= bytes };
+}
+
+/** The demo fleet's traffic: its one node against the node's own quota. */
+export function demoTrafficStatus(data: DemoData, now = new Date()): TrafficStatus {
+  const period = demoCurrentPeriod(data, now);
+  return {
+    collected_at: now.toISOString(),
+    upload_bytes: period.outbound_bytes,
+    download_bytes: period.inbound_bytes,
+    nodes: [{ node_id: demoNode.id, current_traffic_period: period, ...demoQuota(data, period) }],
+  };
+}
+
+export function demoMetrics(data: DemoData, now = new Date()): MetricsSnapshot {
   const running = data.runtime.observation_state === 'running';
-  const month = (now.getUTCFullYear() - 1970) * 12 + now.getUTCMonth();
-  const startMonth = month - ((month % periodMonths) + periodMonths) % periodMonths;
-  const start = new Date(Date.UTC(1970, startMonth, 1)).toISOString();
-  const end = new Date(Date.UTC(1970, startMonth + periodMonths, 1)).toISOString();
-  const period = aggregateDemoTrafficPeriod(data, start, end, now);
-  const quotaBytes = quotaGiB !== null && quotaGiB > 0 ? quotaGiB * 2 ** 30 : undefined;
+  const period = demoCurrentPeriod(data, now);
   return {
     host: {
       sampled_at: now.toISOString(), cpu_count: 4, cpu_percent: 12.8, load_one: 0.64,
@@ -462,9 +497,7 @@ export function demoMetrics(
           upload_bytes_per_second: 12482, download_bytes_per_second: 48621,
         }
       : undefined,
-    quota_bytes: quotaBytes,
-    quota_exceeded: quotaBytes !== undefined
-      && period.inbound_bytes + period.outbound_bytes >= quotaBytes,
+    ...demoQuota(data, period),
   };
 }
 

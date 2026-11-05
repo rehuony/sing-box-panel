@@ -7,28 +7,17 @@ import (
 	"database/sql"
 	"encoding/json"
 	"net/http"
-	"os"
 	"testing"
 	"time"
 
-	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/settings"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/store"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/subscription"
+	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/testutil"
 )
 
 func TestPublicSubscriptionTrafficRefreshesOn304AndIsSharedAcrossChannels(t *testing.T) {
 	ctx := t.Context()
 	db, app, handler, channel, publish := newSubscriptionPublicationHTTPFixture(t, "/panel")
-	configuration := handler.settings
-	quota := int64(100)
-	configuration.Traffic.QuotaGiB = &quota
-	raw, err := json.Marshal(configuration)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := settings.Replace(configuration.Path(), raw); err != nil {
-		t.Fatal(err)
-	}
 	publish()
 	key, err := app.Subscriptions.CreateSubscriptionToken(ctx, subscription.CreateSubscriptionTokenRequest{Label: "traffic"})
 	if err != nil {
@@ -36,16 +25,23 @@ func TestPublicSubscriptionTrafficRefreshesOn304AndIsSharedAcrossChannels(t *tes
 	}
 	path := "/panel/sub/" + key.Token + "/" + channel.ID
 	first := publicSubscriptionRequest(handler, path)
-	if first.Code != http.StatusOK || first.Header().Get("Subscription-Userinfo") != "upload=0; download=0; total=107374182400" {
+	if first.Code != http.StatusOK || first.Header().Get("Subscription-Userinfo") != "upload=0; download=0; total=0" {
 		t.Fatalf("first response status=%d traffic=%q", first.Code, first.Header().Get("Subscription-Userinfo"))
 	}
 
+	// A node's own quota is not a subscription total: the header reports
+	// usage only.
+	nodeID := testutil.CreateNode(t, db, "edge")
+	quota := int64(100)
+	if _, err := db.SaveNodeTrafficSettings(ctx, nodeID, 1, store.NodeTrafficSettings{QuotaGiB: &quota, PeriodMonths: 1, ResetDay: 1}); err != nil {
+		t.Fatal(err)
+	}
 	// Use real collector writes while the core is stopped. Only proven deltas,
 	// not the first lifetime counters, belong to the subscription's period usage.
 	now := time.Now().UTC()
 	start := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC)
 	input := store.TrafficSampleInput{
-		ActivationBundleID: "bundle-traffic", PID: 101, ProcessStartToken: "traffic-process",
+		NodeID: nodeID, InstanceID: "instance", ActivationBundleID: "bundle-traffic", PID: 101, ProcessStartToken: "traffic-process",
 		PeriodStart: start, PeriodEnd: start.AddDate(0, 1, 0), SampledAt: start,
 		UploadTotal: 1000, DownloadTotal: 2000,
 	}
@@ -59,7 +55,7 @@ func TestPublicSubscriptionTrafficRefreshesOn304AndIsSharedAcrossChannels(t *tes
 	}
 	conditional := publicSubscriptionConditionalRequest(handler, path, first.Header().Get("ETag"))
 	if conditional.Code != http.StatusNotModified || conditional.Body.Len() != 0 || conditional.Header().Get("ETag") != first.Header().Get("ETag") ||
-		conditional.Header().Get("Subscription-Userinfo") != "upload=123; download=456; total=107374182400" {
+		conditional.Header().Get("Subscription-Userinfo") != "upload=123; download=456; total=0" {
 		t.Fatalf("conditional response status=%d traffic=%q", conditional.Code, conditional.Header().Get("Subscription-Userinfo"))
 	}
 	second, err := app.Subscriptions.CreateSubscriptionChannel(ctx, subscription.CreateSubscriptionChannelRequest{
@@ -79,7 +75,7 @@ func TestPublicSubscriptionTrafficRefreshesOn304AndIsSharedAcrossChannels(t *tes
 }
 
 func TestPublicSubscriptionFailuresDoNotExposeTrafficOrConsumeDownloads(t *testing.T) {
-	for _, failure := range []string{"authorization recheck", "traffic storage", "traffic settings"} {
+	for _, failure := range []string{"authorization recheck", "traffic storage"} {
 		for _, conditional := range []bool{false, true} {
 			name := failure + "/body"
 			if conditional {
@@ -88,6 +84,8 @@ func TestPublicSubscriptionFailuresDoNotExposeTrafficOrConsumeDownloads(t *testi
 			t.Run(name, func(t *testing.T) {
 				ctx := t.Context()
 				db, app, handler := newSubscriptionHTTPServices(t, "")
+				// The header reads the traffic of every node.
+				testutil.CreateNode(t, db, "edge")
 				if _, err := app.Subscriptions.CreateSubscriptionNode(ctx, json.RawMessage(`{"type":"socks","tag":"manual","server":"manual.example","server_port":1080}`)); err != nil {
 					t.Fatal(err)
 				}
@@ -118,11 +116,9 @@ func TestPublicSubscriptionFailuresDoNotExposeTrafficOrConsumeDownloads(t *testi
 						_, err = app.Subscriptions.RevokeSubscriptionToken(ctx, key.Metadata.ID)
 					case "traffic storage":
 						err = db.WithTx(ctx, func(tx *sql.Tx) error {
-							_, err := tx.ExecContext(ctx, "DROP TABLE traffic_months")
+							_, err := tx.ExecContext(ctx, "DROP TABLE traffic_days")
 							return err
 						})
-					case "traffic settings":
-						err = os.WriteFile(handler.settings.Path(), []byte(`{"traffic":{"quota_gib":-1}}`), 0o600)
 					}
 					if err != nil {
 						t.Fatal(err)

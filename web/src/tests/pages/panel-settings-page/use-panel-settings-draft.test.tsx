@@ -94,11 +94,11 @@ describe('panel settings draft', () => {
   it('prevents saves for invalid fields and selects their owning category', async () => {
     const { result, client } = await mount();
     act(() => {
-      result.current.draft.updateService('traffic_period_months', 0);
+      result.current.draft.updateService('sample_retention_days', 0);
       result.current.draft.setCategory('interface');
     });
     await act(() => result.current.draft.submit());
-    expect(result.current.draft.invalidField).toBe('traffic-period');
+    expect(result.current.draft.invalidField).toBe('sample-retention');
     expect(result.current.draft.category).toBe('traffic');
     expect(client.savePanelSettings).not.toHaveBeenCalled();
   });

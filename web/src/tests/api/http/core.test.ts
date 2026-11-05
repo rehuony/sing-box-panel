@@ -91,7 +91,7 @@ describe('createHttpApiClient core and configuration domain', () => {
     );
     expect(fetcher).toHaveBeenNthCalledWith(
       2,
-      '/panel/api/v1/core/runtime/history?from=2026-08-26T00%3A00%3A00Z&to=2026-08-27T00%3A00%3A00Z&state=unknown&reason=heartbeat_lost&activation_bundle_id=bundle_18&before_time=2026-08-26T12%3A00%3A00Z&before_id=42&limit=25',
+      '/panel/api/v1/nodes/node_a/core/runtime/history?from=2026-08-26T00%3A00%3A00Z&to=2026-08-27T00%3A00%3A00Z&state=unknown&reason=heartbeat_lost&activation_bundle_id=bundle_18&before_time=2026-08-26T12%3A00%3A00Z&before_id=42&limit=25',
       expect.objectContaining({ method: 'GET' }),
     );
   });

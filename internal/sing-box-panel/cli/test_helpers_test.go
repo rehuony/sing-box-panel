@@ -30,7 +30,7 @@ func commandSettingsFixture(t *testing.T) string {
       "data_dir":%q,
       "auth":{"email":"admin@example.com","password_hash":%q},
       "github":{"token":"","catalog_refresh_interval_hours":12},
-      "traffic":{"quota_gib":null,"period_months":1,"sample_retention_days":90},
+      "traffic":{"sample_retention_days":90},
       "subscription":{"private_source_cidrs":[]},
       "logs":{"core_retention_days":7}
     }`, dataDir, testutil.PasswordHash)

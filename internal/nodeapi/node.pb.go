@@ -242,6 +242,7 @@ const (
 	ProcessState_PROCESS_STATE_RUNNING     ProcessState = 1
 	ProcessState_PROCESS_STATE_STOPPED     ProcessState = 2
 	ProcessState_PROCESS_STATE_FAILED      ProcessState = 3
+	ProcessState_PROCESS_STATE_UNKNOWN     ProcessState = 4
 )
 
 // Enum value maps for ProcessState.
@@ -251,12 +252,14 @@ var (
 		1: "PROCESS_STATE_RUNNING",
 		2: "PROCESS_STATE_STOPPED",
 		3: "PROCESS_STATE_FAILED",
+		4: "PROCESS_STATE_UNKNOWN",
 	}
 	ProcessState_value = map[string]int32{
 		"PROCESS_STATE_UNSPECIFIED": 0,
 		"PROCESS_STATE_RUNNING":     1,
 		"PROCESS_STATE_STOPPED":     2,
 		"PROCESS_STATE_FAILED":      3,
+		"PROCESS_STATE_UNKNOWN":     4,
 	}
 )
 
@@ -780,11 +783,15 @@ func (*ConnectResponse_Cancel) isConnectResponse_Frame() {}
 func (*ConnectResponse_TelemetryControl) isConnectResponse_Frame() {}
 
 type Hello struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	NodeId        string                 `protobuf:"bytes,1,opt,name=node_id,json=nodeId,proto3" json:"node_id,omitempty"`
-	Protocol      *ProtocolVersion       `protobuf:"bytes,2,opt,name=protocol,proto3" json:"protocol,omitempty"`
-	BuildVersion  string                 `protobuf:"bytes,3,opt,name=build_version,json=buildVersion,proto3" json:"build_version,omitempty"`
-	Platform      *Platform              `protobuf:"bytes,4,opt,name=platform,proto3" json:"platform,omitempty"`
+	state        protoimpl.MessageState `protogen:"open.v1"`
+	NodeId       string                 `protobuf:"bytes,1,opt,name=node_id,json=nodeId,proto3" json:"node_id,omitempty"`
+	Protocol     *ProtocolVersion       `protobuf:"bytes,2,opt,name=protocol,proto3" json:"protocol,omitempty"`
+	BuildVersion string                 `protobuf:"bytes,3,opt,name=build_version,json=buildVersion,proto3" json:"build_version,omitempty"`
+	Platform     *Platform              `protobuf:"bytes,4,opt,name=platform,proto3" json:"platform,omitempty"`
+	// The random identity of the node's database. Runtime history IDs and
+	// traffic counters are scoped to it, so a node whose database was
+	// recreated starts both again.
+	InstanceId    string `protobuf:"bytes,5,opt,name=instance_id,json=instanceId,proto3" json:"instance_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -845,6 +852,13 @@ func (x *Hello) GetPlatform() *Platform {
 		return x.Platform
 	}
 	return nil
+}
+
+func (x *Hello) GetInstanceId() string {
+	if x != nil {
+		return x.InstanceId
+	}
+	return ""
 }
 
 type Challenge struct {
@@ -953,8 +967,11 @@ type Welcome struct {
 	Protocol          *ProtocolVersion       `protobuf:"bytes,3,opt,name=protocol,proto3" json:"protocol,omitempty"`
 	// The baseline interval between metrics samples.
 	MetricsInterval *durationpb.Duration `protobuf:"bytes,4,opt,name=metrics_interval,json=metricsInterval,proto3" json:"metrics_interval,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	// The ID of the newest runtime transition of this node instance that the
+	// panel holds. The node sends the transitions after it, oldest first.
+	RuntimeHistoryAfter int64 `protobuf:"varint,5,opt,name=runtime_history_after,json=runtimeHistoryAfter,proto3" json:"runtime_history_after,omitempty"`
+	unknownFields       protoimpl.UnknownFields
+	sizeCache           protoimpl.SizeCache
 }
 
 func (x *Welcome) Reset() {
@@ -1013,6 +1030,13 @@ func (x *Welcome) GetMetricsInterval() *durationpb.Duration {
 		return x.MetricsInterval
 	}
 	return nil
+}
+
+func (x *Welcome) GetRuntimeHistoryAfter() int64 {
+	if x != nil {
+		return x.RuntimeHistoryAfter
+	}
+	return 0
 }
 
 // Command asks the node to do one thing. A repeated request ID returns the
@@ -4123,20 +4147,17 @@ func (x *CoreLogChunk) GetReset_() bool {
 	return false
 }
 
-// Event reports node state. Sequence orders events within one node process so
-// the panel can discard duplicates after reconnecting.
+// Event reports node state. Each event replaces or extends what the panel
+// knows, so an event repeated after reconnecting is harmless.
 type Event struct {
-	state    protoimpl.MessageState `protogen:"open.v1"`
-	Sequence uint64                 `protobuf:"varint,1,opt,name=sequence,proto3" json:"sequence,omitempty"`
-	// Set when the event answers a command.
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Set when the event reports the state a command left.
 	RequestId string `protobuf:"bytes,2,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
 	// Types that are valid to be assigned to Body:
 	//
 	//	*Event_StateReport
 	//	*Event_RuntimeTransition
 	//	*Event_MetricsSample
-	//	*Event_LogBatch
-	//	*Event_DroppedEvents
 	Body          isEvent_Body `protobuf_oneof:"body"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -4170,13 +4191,6 @@ func (x *Event) ProtoReflect() protoreflect.Message {
 // Deprecated: Use Event.ProtoReflect.Descriptor instead.
 func (*Event) Descriptor() ([]byte, []int) {
 	return file_sbp_node_v1_node_proto_rawDescGZIP(), []int{51}
-}
-
-func (x *Event) GetSequence() uint64 {
-	if x != nil {
-		return x.Sequence
-	}
-	return 0
 }
 
 func (x *Event) GetRequestId() string {
@@ -4220,24 +4234,6 @@ func (x *Event) GetMetricsSample() *MetricsSample {
 	return nil
 }
 
-func (x *Event) GetLogBatch() *LogBatch {
-	if x != nil {
-		if x, ok := x.Body.(*Event_LogBatch); ok {
-			return x.LogBatch
-		}
-	}
-	return nil
-}
-
-func (x *Event) GetDroppedEvents() *DroppedEvents {
-	if x != nil {
-		if x, ok := x.Body.(*Event_DroppedEvents); ok {
-			return x.DroppedEvents
-		}
-	}
-	return nil
-}
-
 type isEvent_Body interface {
 	isEvent_Body()
 }
@@ -4254,36 +4250,25 @@ type Event_MetricsSample struct {
 	MetricsSample *MetricsSample `protobuf:"bytes,12,opt,name=metrics_sample,json=metricsSample,proto3,oneof"`
 }
 
-type Event_LogBatch struct {
-	LogBatch *LogBatch `protobuf:"bytes,13,opt,name=log_batch,json=logBatch,proto3,oneof"`
-}
-
-type Event_DroppedEvents struct {
-	DroppedEvents *DroppedEvents `protobuf:"bytes,14,opt,name=dropped_events,json=droppedEvents,proto3,oneof"`
-}
-
 func (*Event_StateReport) isEvent_Body() {}
 
 func (*Event_RuntimeTransition) isEvent_Body() {}
 
 func (*Event_MetricsSample) isEvent_Body() {}
 
-func (*Event_LogBatch) isEvent_Body() {}
-
-func (*Event_DroppedEvents) isEvent_Body() {}
-
 // StateReport is the node's full observed state. It is sent first after every
-// handshake and again whenever the state changes.
+// handshake, and again whenever the state changes.
 type StateReport struct {
 	state     protoimpl.MessageState `protogen:"open.v1"`
 	Host      *Host                  `protobuf:"bytes,1,opt,name=host,proto3" json:"host,omitempty"`
-	Runtime   *RuntimeState          `protobuf:"bytes,2,opt,name=runtime,proto3" json:"runtime,omitempty"`
 	Applied   *Bundle                `protobuf:"bytes,3,opt,name=applied,proto3" json:"applied,omitempty"`
 	Rollback  *Bundle                `protobuf:"bytes,4,opt,name=rollback,proto3" json:"rollback,omitempty"`
 	Installed []*InstalledCore       `protobuf:"bytes,5,rep,name=installed,proto3" json:"installed,omitempty"`
-	// The configuration the node already ran before enrollment. The panel seeds
-	// the node's editable file from it on first connection.
+	// The configuration of the applied bundle, sent only in the first report
+	// of a session. The panel seeds a node's editable file from it while that
+	// file is still the empty document it was created with.
 	ExistingConfiguration *ConfigurationRevision `protobuf:"bytes,6,opt,name=existing_configuration,json=existingConfiguration,proto3" json:"existing_configuration,omitempty"`
+	Runtime               *RuntimeStatus         `protobuf:"bytes,7,opt,name=runtime,proto3" json:"runtime,omitempty"`
 	unknownFields         protoimpl.UnknownFields
 	sizeCache             protoimpl.SizeCache
 }
@@ -4325,13 +4310,6 @@ func (x *StateReport) GetHost() *Host {
 	return nil
 }
 
-func (x *StateReport) GetRuntime() *RuntimeState {
-	if x != nil {
-		return x.Runtime
-	}
-	return nil
-}
-
 func (x *StateReport) GetApplied() *Bundle {
 	if x != nil {
 		return x.Applied
@@ -4356,6 +4334,13 @@ func (x *StateReport) GetInstalled() []*InstalledCore {
 func (x *StateReport) GetExistingConfiguration() *ConfigurationRevision {
 	if x != nil {
 		return x.ExistingConfiguration
+	}
+	return nil
+}
+
+func (x *StateReport) GetRuntime() *RuntimeStatus {
+	if x != nil {
+		return x.Runtime
 	}
 	return nil
 }
@@ -4421,82 +4406,6 @@ func (x *Host) GetPublicIp() string {
 	return ""
 }
 
-type RuntimeState struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Status        ProcessState           `protobuf:"varint,1,opt,name=status,proto3,enum=sbp.node.v1.ProcessState" json:"status,omitempty"`
-	ArtifactId    string                 `protobuf:"bytes,2,opt,name=artifact_id,json=artifactId,proto3" json:"artifact_id,omitempty"`
-	BundleId      string                 `protobuf:"bytes,3,opt,name=bundle_id,json=bundleId,proto3" json:"bundle_id,omitempty"`
-	Pid           int64                  `protobuf:"varint,4,opt,name=pid,proto3" json:"pid,omitempty"`
-	StartedAt     *timestamppb.Timestamp `protobuf:"bytes,5,opt,name=started_at,json=startedAt,proto3" json:"started_at,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *RuntimeState) Reset() {
-	*x = RuntimeState{}
-	mi := &file_sbp_node_v1_node_proto_msgTypes[54]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *RuntimeState) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*RuntimeState) ProtoMessage() {}
-
-func (x *RuntimeState) ProtoReflect() protoreflect.Message {
-	mi := &file_sbp_node_v1_node_proto_msgTypes[54]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use RuntimeState.ProtoReflect.Descriptor instead.
-func (*RuntimeState) Descriptor() ([]byte, []int) {
-	return file_sbp_node_v1_node_proto_rawDescGZIP(), []int{54}
-}
-
-func (x *RuntimeState) GetStatus() ProcessState {
-	if x != nil {
-		return x.Status
-	}
-	return ProcessState_PROCESS_STATE_UNSPECIFIED
-}
-
-func (x *RuntimeState) GetArtifactId() string {
-	if x != nil {
-		return x.ArtifactId
-	}
-	return ""
-}
-
-func (x *RuntimeState) GetBundleId() string {
-	if x != nil {
-		return x.BundleId
-	}
-	return ""
-}
-
-func (x *RuntimeState) GetPid() int64 {
-	if x != nil {
-		return x.Pid
-	}
-	return 0
-}
-
-func (x *RuntimeState) GetStartedAt() *timestamppb.Timestamp {
-	if x != nil {
-		return x.StartedAt
-	}
-	return nil
-}
-
 // Bundle is an activated configuration: the checked startup artifact and the
 // core that runs it. The node keeps the bytes of its applied and rollback
 // bundles.
@@ -4505,17 +4414,17 @@ type Bundle struct {
 	BundleId            string                 `protobuf:"bytes,1,opt,name=bundle_id,json=bundleId,proto3" json:"bundle_id,omitempty"`
 	StartupArtifactId   string                 `protobuf:"bytes,2,opt,name=startup_artifact_id,json=startupArtifactId,proto3" json:"startup_artifact_id,omitempty"`
 	RevisionId          string                 `protobuf:"bytes,3,opt,name=revision_id,json=revisionId,proto3" json:"revision_id,omitempty"`
-	Revision            int64                  `protobuf:"varint,4,opt,name=revision,proto3" json:"revision,omitempty"`
 	ConfigurationSha256 string                 `protobuf:"bytes,5,opt,name=configuration_sha256,json=configurationSha256,proto3" json:"configuration_sha256,omitempty"`
 	ArtifactId          string                 `protobuf:"bytes,6,opt,name=artifact_id,json=artifactId,proto3" json:"artifact_id,omitempty"`
 	AppliedAt           *timestamppb.Timestamp `protobuf:"bytes,7,opt,name=applied_at,json=appliedAt,proto3" json:"applied_at,omitempty"`
+	MonitoringTier      MonitoringTier         `protobuf:"varint,8,opt,name=monitoring_tier,json=monitoringTier,proto3,enum=sbp.node.v1.MonitoringTier" json:"monitoring_tier,omitempty"`
 	unknownFields       protoimpl.UnknownFields
 	sizeCache           protoimpl.SizeCache
 }
 
 func (x *Bundle) Reset() {
 	*x = Bundle{}
-	mi := &file_sbp_node_v1_node_proto_msgTypes[55]
+	mi := &file_sbp_node_v1_node_proto_msgTypes[54]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4527,7 +4436,7 @@ func (x *Bundle) String() string {
 func (*Bundle) ProtoMessage() {}
 
 func (x *Bundle) ProtoReflect() protoreflect.Message {
-	mi := &file_sbp_node_v1_node_proto_msgTypes[55]
+	mi := &file_sbp_node_v1_node_proto_msgTypes[54]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4540,7 +4449,7 @@ func (x *Bundle) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Bundle.ProtoReflect.Descriptor instead.
 func (*Bundle) Descriptor() ([]byte, []int) {
-	return file_sbp_node_v1_node_proto_rawDescGZIP(), []int{55}
+	return file_sbp_node_v1_node_proto_rawDescGZIP(), []int{54}
 }
 
 func (x *Bundle) GetBundleId() string {
@@ -4564,13 +4473,6 @@ func (x *Bundle) GetRevisionId() string {
 	return ""
 }
 
-func (x *Bundle) GetRevision() int64 {
-	if x != nil {
-		return x.Revision
-	}
-	return 0
-}
-
 func (x *Bundle) GetConfigurationSha256() string {
 	if x != nil {
 		return x.ConfigurationSha256
@@ -4592,6 +4494,13 @@ func (x *Bundle) GetAppliedAt() *timestamppb.Timestamp {
 	return nil
 }
 
+func (x *Bundle) GetMonitoringTier() MonitoringTier {
+	if x != nil {
+		return x.MonitoringTier
+	}
+	return MonitoringTier_MONITORING_TIER_UNSPECIFIED
+}
+
 type InstalledCore struct {
 	state        protoimpl.MessageState `protogen:"open.v1"`
 	Artifact     *ArtifactIdentity      `protobuf:"bytes,1,opt,name=artifact,proto3" json:"artifact,omitempty"`
@@ -4606,7 +4515,7 @@ type InstalledCore struct {
 
 func (x *InstalledCore) Reset() {
 	*x = InstalledCore{}
-	mi := &file_sbp_node_v1_node_proto_msgTypes[56]
+	mi := &file_sbp_node_v1_node_proto_msgTypes[55]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4618,7 +4527,7 @@ func (x *InstalledCore) String() string {
 func (*InstalledCore) ProtoMessage() {}
 
 func (x *InstalledCore) ProtoReflect() protoreflect.Message {
-	mi := &file_sbp_node_v1_node_proto_msgTypes[56]
+	mi := &file_sbp_node_v1_node_proto_msgTypes[55]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4631,7 +4540,7 @@ func (x *InstalledCore) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use InstalledCore.ProtoReflect.Descriptor instead.
 func (*InstalledCore) Descriptor() ([]byte, []int) {
-	return file_sbp_node_v1_node_proto_rawDescGZIP(), []int{56}
+	return file_sbp_node_v1_node_proto_rawDescGZIP(), []int{55}
 }
 
 func (x *InstalledCore) GetArtifact() *ArtifactIdentity {
@@ -4669,19 +4578,27 @@ func (x *InstalledCore) GetFeatureFingerprint() string {
 	return ""
 }
 
+// RuntimeTransition is one entry of the node's append-only runtime history.
 type RuntimeTransition struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Status        ProcessState           `protobuf:"varint,1,opt,name=status,proto3,enum=sbp.node.v1.ProcessState" json:"status,omitempty"`
-	Reason        string                 `protobuf:"bytes,2,opt,name=reason,proto3" json:"reason,omitempty"`
-	BundleId      string                 `protobuf:"bytes,3,opt,name=bundle_id,json=bundleId,proto3" json:"bundle_id,omitempty"`
-	OccurredAt    *timestamppb.Timestamp `protobuf:"bytes,4,opt,name=occurred_at,json=occurredAt,proto3" json:"occurred_at,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The entry's ID in the node instance's history; IDs only grow.
+	Id               int64                  `protobuf:"varint,5,opt,name=id,proto3" json:"id,omitempty"`
+	Status           ProcessState           `protobuf:"varint,1,opt,name=status,proto3,enum=sbp.node.v1.ProcessState" json:"status,omitempty"`
+	Reason           string                 `protobuf:"bytes,2,opt,name=reason,proto3" json:"reason,omitempty"`
+	BundleId         string                 `protobuf:"bytes,3,opt,name=bundle_id,json=bundleId,proto3" json:"bundle_id,omitempty"`
+	OccurredAt       *timestamppb.Timestamp `protobuf:"bytes,4,opt,name=occurred_at,json=occurredAt,proto3" json:"occurred_at,omitempty"`
+	Generation       int64                  `protobuf:"varint,6,opt,name=generation,proto3" json:"generation,omitempty"`
+	Pid              int64                  `protobuf:"varint,7,opt,name=pid,proto3" json:"pid,omitempty"`
+	ProcessStartedAt *timestamppb.Timestamp `protobuf:"bytes,8,opt,name=process_started_at,json=processStartedAt,proto3" json:"process_started_at,omitempty"`
+	// Set for the unknown state: since when the process state is uncertain.
+	UncertainSince *timestamppb.Timestamp `protobuf:"bytes,9,opt,name=uncertain_since,json=uncertainSince,proto3" json:"uncertain_since,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *RuntimeTransition) Reset() {
 	*x = RuntimeTransition{}
-	mi := &file_sbp_node_v1_node_proto_msgTypes[57]
+	mi := &file_sbp_node_v1_node_proto_msgTypes[56]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4693,7 +4610,7 @@ func (x *RuntimeTransition) String() string {
 func (*RuntimeTransition) ProtoMessage() {}
 
 func (x *RuntimeTransition) ProtoReflect() protoreflect.Message {
-	mi := &file_sbp_node_v1_node_proto_msgTypes[57]
+	mi := &file_sbp_node_v1_node_proto_msgTypes[56]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4706,7 +4623,14 @@ func (x *RuntimeTransition) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RuntimeTransition.ProtoReflect.Descriptor instead.
 func (*RuntimeTransition) Descriptor() ([]byte, []int) {
-	return file_sbp_node_v1_node_proto_rawDescGZIP(), []int{57}
+	return file_sbp_node_v1_node_proto_rawDescGZIP(), []int{56}
+}
+
+func (x *RuntimeTransition) GetId() int64 {
+	if x != nil {
+		return x.Id
+	}
+	return 0
 }
 
 func (x *RuntimeTransition) GetStatus() ProcessState {
@@ -4737,6 +4661,34 @@ func (x *RuntimeTransition) GetOccurredAt() *timestamppb.Timestamp {
 	return nil
 }
 
+func (x *RuntimeTransition) GetGeneration() int64 {
+	if x != nil {
+		return x.Generation
+	}
+	return 0
+}
+
+func (x *RuntimeTransition) GetPid() int64 {
+	if x != nil {
+		return x.Pid
+	}
+	return 0
+}
+
+func (x *RuntimeTransition) GetProcessStartedAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.ProcessStartedAt
+	}
+	return nil
+}
+
+func (x *RuntimeTransition) GetUncertainSince() *timestamppb.Timestamp {
+	if x != nil {
+		return x.UncertainSince
+	}
+	return nil
+}
+
 type MetricsSample struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	SampledAt     *timestamppb.Timestamp `protobuf:"bytes,1,opt,name=sampled_at,json=sampledAt,proto3" json:"sampled_at,omitempty"`
@@ -4754,7 +4706,7 @@ type MetricsSample struct {
 
 func (x *MetricsSample) Reset() {
 	*x = MetricsSample{}
-	mi := &file_sbp_node_v1_node_proto_msgTypes[58]
+	mi := &file_sbp_node_v1_node_proto_msgTypes[57]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4766,7 +4718,7 @@ func (x *MetricsSample) String() string {
 func (*MetricsSample) ProtoMessage() {}
 
 func (x *MetricsSample) ProtoReflect() protoreflect.Message {
-	mi := &file_sbp_node_v1_node_proto_msgTypes[58]
+	mi := &file_sbp_node_v1_node_proto_msgTypes[57]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4779,7 +4731,7 @@ func (x *MetricsSample) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MetricsSample.ProtoReflect.Descriptor instead.
 func (*MetricsSample) Descriptor() ([]byte, []int) {
-	return file_sbp_node_v1_node_proto_rawDescGZIP(), []int{58}
+	return file_sbp_node_v1_node_proto_rawDescGZIP(), []int{57}
 }
 
 func (x *MetricsSample) GetSampledAt() *timestamppb.Timestamp {
@@ -4845,21 +4797,26 @@ func (x *MetricsSample) GetTraffic() *TrafficCounters {
 	return nil
 }
 
-// TrafficCounters are cumulative since the node's durable checkpoint. The
-// panel computes deltas, periods and quota from them.
+// TrafficCounters describe the running core. The byte counts are cumulative
+// for the node instance across core restarts, kept in a durable node
+// checkpoint, so the panel computes exact deltas, periods and quota from any
+// two samples. Absent while no core runs with limited monitoring.
 type TrafficCounters struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	BundleId      string                 `protobuf:"bytes,1,opt,name=bundle_id,json=bundleId,proto3" json:"bundle_id,omitempty"`
-	UploadBytes   uint64                 `protobuf:"varint,2,opt,name=upload_bytes,json=uploadBytes,proto3" json:"upload_bytes,omitempty"`
-	DownloadBytes uint64                 `protobuf:"varint,3,opt,name=download_bytes,json=downloadBytes,proto3" json:"download_bytes,omitempty"`
-	Connections   uint32                 `protobuf:"varint,4,opt,name=connections,proto3" json:"connections,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state             protoimpl.MessageState `protogen:"open.v1"`
+	BundleId          string                 `protobuf:"bytes,1,opt,name=bundle_id,json=bundleId,proto3" json:"bundle_id,omitempty"`
+	UploadBytes       uint64                 `protobuf:"varint,2,opt,name=upload_bytes,json=uploadBytes,proto3" json:"upload_bytes,omitempty"`
+	DownloadBytes     uint64                 `protobuf:"varint,3,opt,name=download_bytes,json=downloadBytes,proto3" json:"download_bytes,omitempty"`
+	Connections       uint32                 `protobuf:"varint,4,opt,name=connections,proto3" json:"connections,omitempty"`
+	Pid               int64                  `protobuf:"varint,5,opt,name=pid,proto3" json:"pid,omitempty"`
+	ProcessStartToken string                 `protobuf:"bytes,6,opt,name=process_start_token,json=processStartToken,proto3" json:"process_start_token,omitempty"`
+	MemoryBytes       uint64                 `protobuf:"varint,7,opt,name=memory_bytes,json=memoryBytes,proto3" json:"memory_bytes,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
 }
 
 func (x *TrafficCounters) Reset() {
 	*x = TrafficCounters{}
-	mi := &file_sbp_node_v1_node_proto_msgTypes[59]
+	mi := &file_sbp_node_v1_node_proto_msgTypes[58]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4871,7 +4828,7 @@ func (x *TrafficCounters) String() string {
 func (*TrafficCounters) ProtoMessage() {}
 
 func (x *TrafficCounters) ProtoReflect() protoreflect.Message {
-	mi := &file_sbp_node_v1_node_proto_msgTypes[59]
+	mi := &file_sbp_node_v1_node_proto_msgTypes[58]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4884,7 +4841,7 @@ func (x *TrafficCounters) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TrafficCounters.ProtoReflect.Descriptor instead.
 func (*TrafficCounters) Descriptor() ([]byte, []int) {
-	return file_sbp_node_v1_node_proto_rawDescGZIP(), []int{59}
+	return file_sbp_node_v1_node_proto_rawDescGZIP(), []int{58}
 }
 
 func (x *TrafficCounters) GetBundleId() string {
@@ -4915,151 +4872,23 @@ func (x *TrafficCounters) GetConnections() uint32 {
 	return 0
 }
 
-type LogBatch struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Lines         []*LogLine             `protobuf:"bytes,1,rep,name=lines,proto3" json:"lines,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *LogBatch) Reset() {
-	*x = LogBatch{}
-	mi := &file_sbp_node_v1_node_proto_msgTypes[60]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *LogBatch) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*LogBatch) ProtoMessage() {}
-
-func (x *LogBatch) ProtoReflect() protoreflect.Message {
-	mi := &file_sbp_node_v1_node_proto_msgTypes[60]
+func (x *TrafficCounters) GetPid() int64 {
 	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
+		return x.Pid
 	}
-	return mi.MessageOf(x)
+	return 0
 }
 
-// Deprecated: Use LogBatch.ProtoReflect.Descriptor instead.
-func (*LogBatch) Descriptor() ([]byte, []int) {
-	return file_sbp_node_v1_node_proto_rawDescGZIP(), []int{60}
-}
-
-func (x *LogBatch) GetLines() []*LogLine {
+func (x *TrafficCounters) GetProcessStartToken() string {
 	if x != nil {
-		return x.Lines
-	}
-	return nil
-}
-
-type LogLine struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Time          *timestamppb.Timestamp `protobuf:"bytes,1,opt,name=time,proto3" json:"time,omitempty"`
-	Level         string                 `protobuf:"bytes,2,opt,name=level,proto3" json:"level,omitempty"`
-	Message       string                 `protobuf:"bytes,3,opt,name=message,proto3" json:"message,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *LogLine) Reset() {
-	*x = LogLine{}
-	mi := &file_sbp_node_v1_node_proto_msgTypes[61]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *LogLine) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*LogLine) ProtoMessage() {}
-
-func (x *LogLine) ProtoReflect() protoreflect.Message {
-	mi := &file_sbp_node_v1_node_proto_msgTypes[61]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use LogLine.ProtoReflect.Descriptor instead.
-func (*LogLine) Descriptor() ([]byte, []int) {
-	return file_sbp_node_v1_node_proto_rawDescGZIP(), []int{61}
-}
-
-func (x *LogLine) GetTime() *timestamppb.Timestamp {
-	if x != nil {
-		return x.Time
-	}
-	return nil
-}
-
-func (x *LogLine) GetLevel() string {
-	if x != nil {
-		return x.Level
+		return x.ProcessStartToken
 	}
 	return ""
 }
 
-func (x *LogLine) GetMessage() string {
+func (x *TrafficCounters) GetMemoryBytes() uint64 {
 	if x != nil {
-		return x.Message
-	}
-	return ""
-}
-
-// DroppedEvents reports outbox overflow.
-type DroppedEvents struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Count         uint64                 `protobuf:"varint,1,opt,name=count,proto3" json:"count,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *DroppedEvents) Reset() {
-	*x = DroppedEvents{}
-	mi := &file_sbp_node_v1_node_proto_msgTypes[62]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *DroppedEvents) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*DroppedEvents) ProtoMessage() {}
-
-func (x *DroppedEvents) ProtoReflect() protoreflect.Message {
-	mi := &file_sbp_node_v1_node_proto_msgTypes[62]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use DroppedEvents.ProtoReflect.Descriptor instead.
-func (*DroppedEvents) Descriptor() ([]byte, []int) {
-	return file_sbp_node_v1_node_proto_rawDescGZIP(), []int{62}
-}
-
-func (x *DroppedEvents) GetCount() uint64 {
-	if x != nil {
-		return x.Count
+		return x.MemoryBytes
 	}
 	return 0
 }
@@ -5074,7 +4903,7 @@ type FetchArtifactRequest struct {
 
 func (x *FetchArtifactRequest) Reset() {
 	*x = FetchArtifactRequest{}
-	mi := &file_sbp_node_v1_node_proto_msgTypes[63]
+	mi := &file_sbp_node_v1_node_proto_msgTypes[59]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5086,7 +4915,7 @@ func (x *FetchArtifactRequest) String() string {
 func (*FetchArtifactRequest) ProtoMessage() {}
 
 func (x *FetchArtifactRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_sbp_node_v1_node_proto_msgTypes[63]
+	mi := &file_sbp_node_v1_node_proto_msgTypes[59]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5099,7 +4928,7 @@ func (x *FetchArtifactRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FetchArtifactRequest.ProtoReflect.Descriptor instead.
 func (*FetchArtifactRequest) Descriptor() ([]byte, []int) {
-	return file_sbp_node_v1_node_proto_rawDescGZIP(), []int{63}
+	return file_sbp_node_v1_node_proto_rawDescGZIP(), []int{59}
 }
 
 func (x *FetchArtifactRequest) GetGrant() string {
@@ -5129,7 +4958,7 @@ type FetchArtifactResponse struct {
 
 func (x *FetchArtifactResponse) Reset() {
 	*x = FetchArtifactResponse{}
-	mi := &file_sbp_node_v1_node_proto_msgTypes[64]
+	mi := &file_sbp_node_v1_node_proto_msgTypes[60]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5141,7 +4970,7 @@ func (x *FetchArtifactResponse) String() string {
 func (*FetchArtifactResponse) ProtoMessage() {}
 
 func (x *FetchArtifactResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_sbp_node_v1_node_proto_msgTypes[64]
+	mi := &file_sbp_node_v1_node_proto_msgTypes[60]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5154,7 +4983,7 @@ func (x *FetchArtifactResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FetchArtifactResponse.ProtoReflect.Descriptor instead.
 func (*FetchArtifactResponse) Descriptor() ([]byte, []int) {
-	return file_sbp_node_v1_node_proto_rawDescGZIP(), []int{64}
+	return file_sbp_node_v1_node_proto_rawDescGZIP(), []int{60}
 }
 
 func (x *FetchArtifactResponse) GetArtifact() *ArtifactIdentity {
@@ -5212,23 +5041,26 @@ const file_sbp_node_v1_node_proto_rawDesc = "" +
 	"\acommand\x18\x03 \x01(\v2\x14.sbp.node.v1.CommandH\x00R\acommand\x12-\n" +
 	"\x06cancel\x18\x04 \x01(\v2\x13.sbp.node.v1.CancelH\x00R\x06cancel\x12L\n" +
 	"\x11telemetry_control\x18\x05 \x01(\v2\x1d.sbp.node.v1.TelemetryControlH\x00R\x10telemetryControlB\a\n" +
-	"\x05frame\"\xb2\x01\n" +
+	"\x05frame\"\xd3\x01\n" +
 	"\x05Hello\x12\x17\n" +
 	"\anode_id\x18\x01 \x01(\tR\x06nodeId\x128\n" +
 	"\bprotocol\x18\x02 \x01(\v2\x1c.sbp.node.v1.ProtocolVersionR\bprotocol\x12#\n" +
 	"\rbuild_version\x18\x03 \x01(\tR\fbuildVersion\x121\n" +
-	"\bplatform\x18\x04 \x01(\v2\x15.sbp.node.v1.PlatformR\bplatform\"<\n" +
+	"\bplatform\x18\x04 \x01(\v2\x15.sbp.node.v1.PlatformR\bplatform\x12\x1f\n" +
+	"\vinstance_id\x18\x05 \x01(\tR\n" +
+	"instanceId\"<\n" +
 	"\tChallenge\x12\x19\n" +
 	"\bpanel_id\x18\x01 \x01(\tR\apanelId\x12\x14\n" +
 	"\x05nonce\x18\x02 \x01(\fR\x05nonce\"%\n" +
 	"\x05Proof\x12\x1c\n" +
-	"\tsignature\x18\x01 \x01(\fR\tsignature\"\xd8\x01\n" +
+	"\tsignature\x18\x01 \x01(\fR\tsignature\"\x8c\x02\n" +
 	"\aWelcome\x12\x1d\n" +
 	"\n" +
 	"session_id\x18\x01 \x01(\tR\tsessionId\x12.\n" +
 	"\x13panel_build_version\x18\x02 \x01(\tR\x11panelBuildVersion\x128\n" +
 	"\bprotocol\x18\x03 \x01(\v2\x1c.sbp.node.v1.ProtocolVersionR\bprotocol\x12D\n" +
-	"\x10metrics_interval\x18\x04 \x01(\v2\x19.google.protobuf.DurationR\x0fmetricsInterval\"\xfa\v\n" +
+	"\x10metrics_interval\x18\x04 \x01(\v2\x19.google.protobuf.DurationR\x0fmetricsInterval\x122\n" +
+	"\x15runtime_history_after\x18\x05 \x01(\x03R\x13runtimeHistoryAfter\"\xfa\v\n" +
 	"\aCommand\x12\x1d\n" +
 	"\n" +
 	"request_id\x18\x01 \x01(\tR\trequestId\x126\n" +
@@ -5479,61 +5311,57 @@ const file_sbp_node_v1_node_proto_rawDesc = "" +
 	"\n" +
 	"generation\x18\x05 \x01(\tR\n" +
 	"generation\x12\x14\n" +
-	"\x05reset\x18\x06 \x01(\bR\x05reset\"\x9a\x03\n" +
-	"\x05Event\x12\x1a\n" +
-	"\bsequence\x18\x01 \x01(\x04R\bsequence\x12\x1d\n" +
+	"\x05reset\x18\x06 \x01(\bR\x05reset\"\x95\x02\n" +
+	"\x05Event\x12\x1d\n" +
 	"\n" +
 	"request_id\x18\x02 \x01(\tR\trequestId\x12=\n" +
 	"\fstate_report\x18\n" +
 	" \x01(\v2\x18.sbp.node.v1.StateReportH\x00R\vstateReport\x12O\n" +
 	"\x12runtime_transition\x18\v \x01(\v2\x1e.sbp.node.v1.RuntimeTransitionH\x00R\x11runtimeTransition\x12C\n" +
-	"\x0emetrics_sample\x18\f \x01(\v2\x1a.sbp.node.v1.MetricsSampleH\x00R\rmetricsSample\x124\n" +
-	"\tlog_batch\x18\r \x01(\v2\x15.sbp.node.v1.LogBatchH\x00R\blogBatch\x12C\n" +
-	"\x0edropped_events\x18\x0e \x01(\v2\x1a.sbp.node.v1.DroppedEventsH\x00R\rdroppedEventsB\x06\n" +
-	"\x04body\"\xde\x02\n" +
+	"\x0emetrics_sample\x18\f \x01(\v2\x1a.sbp.node.v1.MetricsSampleH\x00R\rmetricsSampleB\x06\n" +
+	"\x04bodyJ\x04\b\x01\x10\x02J\x04\b\r\x10\x0eJ\x04\b\x0e\x10\x0f\"\xe5\x02\n" +
 	"\vStateReport\x12%\n" +
-	"\x04host\x18\x01 \x01(\v2\x11.sbp.node.v1.HostR\x04host\x123\n" +
-	"\aruntime\x18\x02 \x01(\v2\x19.sbp.node.v1.RuntimeStateR\aruntime\x12-\n" +
+	"\x04host\x18\x01 \x01(\v2\x11.sbp.node.v1.HostR\x04host\x12-\n" +
 	"\aapplied\x18\x03 \x01(\v2\x13.sbp.node.v1.BundleR\aapplied\x12/\n" +
 	"\brollback\x18\x04 \x01(\v2\x13.sbp.node.v1.BundleR\brollback\x128\n" +
 	"\tinstalled\x18\x05 \x03(\v2\x1a.sbp.node.v1.InstalledCoreR\tinstalled\x12Y\n" +
-	"\x16existing_configuration\x18\x06 \x01(\v2\".sbp.node.v1.ConfigurationRevisionR\x15existingConfiguration\"r\n" +
+	"\x16existing_configuration\x18\x06 \x01(\v2\".sbp.node.v1.ConfigurationRevisionR\x15existingConfiguration\x124\n" +
+	"\aruntime\x18\a \x01(\v2\x1a.sbp.node.v1.RuntimeStatusR\aruntimeJ\x04\b\x02\x10\x03\"r\n" +
 	"\x04Host\x12\x1a\n" +
 	"\bhostname\x18\x01 \x01(\tR\bhostname\x121\n" +
 	"\bplatform\x18\x02 \x01(\v2\x15.sbp.node.v1.PlatformR\bplatform\x12\x1b\n" +
-	"\tpublic_ip\x18\x03 \x01(\tR\bpublicIp\"\xcc\x01\n" +
-	"\fRuntimeState\x121\n" +
-	"\x06status\x18\x01 \x01(\x0e2\x19.sbp.node.v1.ProcessStateR\x06status\x12\x1f\n" +
-	"\vartifact_id\x18\x02 \x01(\tR\n" +
-	"artifactId\x12\x1b\n" +
-	"\tbundle_id\x18\x03 \x01(\tR\bbundleId\x12\x10\n" +
-	"\x03pid\x18\x04 \x01(\x03R\x03pid\x129\n" +
-	"\n" +
-	"started_at\x18\x05 \x01(\v2\x1a.google.protobuf.TimestampR\tstartedAt\"\xa1\x02\n" +
+	"\tpublic_ip\x18\x03 \x01(\tR\bpublicIp\"\xd1\x02\n" +
 	"\x06Bundle\x12\x1b\n" +
 	"\tbundle_id\x18\x01 \x01(\tR\bbundleId\x12.\n" +
 	"\x13startup_artifact_id\x18\x02 \x01(\tR\x11startupArtifactId\x12\x1f\n" +
 	"\vrevision_id\x18\x03 \x01(\tR\n" +
-	"revisionId\x12\x1a\n" +
-	"\brevision\x18\x04 \x01(\x03R\brevision\x121\n" +
+	"revisionId\x121\n" +
 	"\x14configuration_sha256\x18\x05 \x01(\tR\x13configurationSha256\x12\x1f\n" +
 	"\vartifact_id\x18\x06 \x01(\tR\n" +
 	"artifactId\x129\n" +
 	"\n" +
-	"applied_at\x18\a \x01(\v2\x1a.google.protobuf.TimestampR\tappliedAt\"\x80\x02\n" +
+	"applied_at\x18\a \x01(\v2\x1a.google.protobuf.TimestampR\tappliedAt\x12D\n" +
+	"\x0fmonitoring_tier\x18\b \x01(\x0e2\x1b.sbp.node.v1.MonitoringTierR\x0emonitoringTierJ\x04\b\x04\x10\x05\"\x80\x02\n" +
 	"\rInstalledCore\x129\n" +
 	"\bartifact\x18\x01 \x01(\v2\x1d.sbp.node.v1.ArtifactIdentityR\bartifact\x12#\n" +
 	"\rbinary_sha256\x18\x02 \x01(\tR\fbinarySha256\x12=\n" +
 	"\finstalled_at\x18\x03 \x01(\v2\x1a.google.protobuf.TimestampR\vinstalledAt\x12\x1f\n" +
 	"\vbinary_path\x18\x04 \x01(\tR\n" +
 	"binaryPath\x12/\n" +
-	"\x13feature_fingerprint\x18\x05 \x01(\tR\x12featureFingerprint\"\xb8\x01\n" +
-	"\x11RuntimeTransition\x121\n" +
+	"\x13feature_fingerprint\x18\x05 \x01(\tR\x12featureFingerprint\"\x89\x03\n" +
+	"\x11RuntimeTransition\x12\x0e\n" +
+	"\x02id\x18\x05 \x01(\x03R\x02id\x121\n" +
 	"\x06status\x18\x01 \x01(\x0e2\x19.sbp.node.v1.ProcessStateR\x06status\x12\x16\n" +
 	"\x06reason\x18\x02 \x01(\tR\x06reason\x12\x1b\n" +
 	"\tbundle_id\x18\x03 \x01(\tR\bbundleId\x12;\n" +
 	"\voccurred_at\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\n" +
-	"occurredAt\"\xd4\x03\n" +
+	"occurredAt\x12\x1e\n" +
+	"\n" +
+	"generation\x18\x06 \x01(\x03R\n" +
+	"generation\x12\x10\n" +
+	"\x03pid\x18\a \x01(\x03R\x03pid\x12H\n" +
+	"\x12process_started_at\x18\b \x01(\v2\x1a.google.protobuf.TimestampR\x10processStartedAt\x12C\n" +
+	"\x0funcertain_since\x18\t \x01(\v2\x1a.google.protobuf.TimestampR\x0euncertainSince\"\xd4\x03\n" +
 	"\rMetricsSample\x129\n" +
 	"\n" +
 	"sampled_at\x18\x01 \x01(\v2\x1a.google.protobuf.TimestampR\tsampledAt\x12$\n" +
@@ -5554,20 +5382,15 @@ const file_sbp_node_v1_node_proto_rawDesc = "" +
 	"\f_memory_usedB\r\n" +
 	"\v_disk_totalB\f\n" +
 	"\n" +
-	"_disk_used\"\x9a\x01\n" +
+	"_disk_used\"\xff\x01\n" +
 	"\x0fTrafficCounters\x12\x1b\n" +
 	"\tbundle_id\x18\x01 \x01(\tR\bbundleId\x12!\n" +
 	"\fupload_bytes\x18\x02 \x01(\x04R\vuploadBytes\x12%\n" +
 	"\x0edownload_bytes\x18\x03 \x01(\x04R\rdownloadBytes\x12 \n" +
-	"\vconnections\x18\x04 \x01(\rR\vconnections\"6\n" +
-	"\bLogBatch\x12*\n" +
-	"\x05lines\x18\x01 \x03(\v2\x14.sbp.node.v1.LogLineR\x05lines\"i\n" +
-	"\aLogLine\x12.\n" +
-	"\x04time\x18\x01 \x01(\v2\x1a.google.protobuf.TimestampR\x04time\x12\x14\n" +
-	"\x05level\x18\x02 \x01(\tR\x05level\x12\x18\n" +
-	"\amessage\x18\x03 \x01(\tR\amessage\"%\n" +
-	"\rDroppedEvents\x12\x14\n" +
-	"\x05count\x18\x01 \x01(\x04R\x05count\"M\n" +
+	"\vconnections\x18\x04 \x01(\rR\vconnections\x12\x10\n" +
+	"\x03pid\x18\x05 \x01(\x03R\x03pid\x12.\n" +
+	"\x13process_start_token\x18\x06 \x01(\tR\x11processStartToken\x12!\n" +
+	"\fmemory_bytes\x18\a \x01(\x04R\vmemoryBytes\"M\n" +
 	"\x14FetchArtifactRequest\x12\x14\n" +
 	"\x05grant\x18\x01 \x01(\tR\x05grant\x12\x1f\n" +
 	"\vartifact_id\x18\x02 \x01(\tR\n" +
@@ -5594,12 +5417,13 @@ const file_sbp_node_v1_node_proto_rawDesc = "" +
 	"\"STARTUP_ARTIFACT_STATE_UNSPECIFIED\x10\x00\x12\"\n" +
 	"\x1eSTARTUP_ARTIFACT_STATE_PENDING\x10\x01\x12 \n" +
 	"\x1cSTARTUP_ARTIFACT_STATE_READY\x10\x02\x12!\n" +
-	"\x1dSTARTUP_ARTIFACT_STATE_FAILED\x10\x03*}\n" +
+	"\x1dSTARTUP_ARTIFACT_STATE_FAILED\x10\x03*\x98\x01\n" +
 	"\fProcessState\x12\x1d\n" +
 	"\x19PROCESS_STATE_UNSPECIFIED\x10\x00\x12\x19\n" +
 	"\x15PROCESS_STATE_RUNNING\x10\x01\x12\x19\n" +
 	"\x15PROCESS_STATE_STOPPED\x10\x02\x12\x18\n" +
-	"\x14PROCESS_STATE_FAILED\x10\x032\xf4\x01\n" +
+	"\x14PROCESS_STATE_FAILED\x10\x03\x12\x19\n" +
+	"\x15PROCESS_STATE_UNKNOWN\x10\x042\xf4\x01\n" +
 	"\vNodeService\x12A\n" +
 	"\x06Enroll\x12\x1a.sbp.node.v1.EnrollRequest\x1a\x1b.sbp.node.v1.EnrollResponse\x12H\n" +
 	"\aConnect\x12\x1b.sbp.node.v1.ConnectRequest\x1a\x1c.sbp.node.v1.ConnectResponse(\x010\x01\x12X\n" +
@@ -5618,7 +5442,7 @@ func file_sbp_node_v1_node_proto_rawDescGZIP() []byte {
 }
 
 var file_sbp_node_v1_node_proto_enumTypes = make([]protoimpl.EnumInfo, 5)
-var file_sbp_node_v1_node_proto_msgTypes = make([]protoimpl.MessageInfo, 65)
+var file_sbp_node_v1_node_proto_msgTypes = make([]protoimpl.MessageInfo, 61)
 var file_sbp_node_v1_node_proto_goTypes = []any{
 	(ArtifactSourceKind)(0),         // 0: sbp.node.v1.ArtifactSourceKind
 	(MonitoringTier)(0),             // 1: sbp.node.v1.MonitoringTier
@@ -5679,19 +5503,15 @@ var file_sbp_node_v1_node_proto_goTypes = []any{
 	(*Event)(nil),                   // 56: sbp.node.v1.Event
 	(*StateReport)(nil),             // 57: sbp.node.v1.StateReport
 	(*Host)(nil),                    // 58: sbp.node.v1.Host
-	(*RuntimeState)(nil),            // 59: sbp.node.v1.RuntimeState
-	(*Bundle)(nil),                  // 60: sbp.node.v1.Bundle
-	(*InstalledCore)(nil),           // 61: sbp.node.v1.InstalledCore
-	(*RuntimeTransition)(nil),       // 62: sbp.node.v1.RuntimeTransition
-	(*MetricsSample)(nil),           // 63: sbp.node.v1.MetricsSample
-	(*TrafficCounters)(nil),         // 64: sbp.node.v1.TrafficCounters
-	(*LogBatch)(nil),                // 65: sbp.node.v1.LogBatch
-	(*LogLine)(nil),                 // 66: sbp.node.v1.LogLine
-	(*DroppedEvents)(nil),           // 67: sbp.node.v1.DroppedEvents
-	(*FetchArtifactRequest)(nil),    // 68: sbp.node.v1.FetchArtifactRequest
-	(*FetchArtifactResponse)(nil),   // 69: sbp.node.v1.FetchArtifactResponse
-	(*durationpb.Duration)(nil),     // 70: google.protobuf.Duration
-	(*timestamppb.Timestamp)(nil),   // 71: google.protobuf.Timestamp
+	(*Bundle)(nil),                  // 59: sbp.node.v1.Bundle
+	(*InstalledCore)(nil),           // 60: sbp.node.v1.InstalledCore
+	(*RuntimeTransition)(nil),       // 61: sbp.node.v1.RuntimeTransition
+	(*MetricsSample)(nil),           // 62: sbp.node.v1.MetricsSample
+	(*TrafficCounters)(nil),         // 63: sbp.node.v1.TrafficCounters
+	(*FetchArtifactRequest)(nil),    // 64: sbp.node.v1.FetchArtifactRequest
+	(*FetchArtifactResponse)(nil),   // 65: sbp.node.v1.FetchArtifactResponse
+	(*durationpb.Duration)(nil),     // 66: google.protobuf.Duration
+	(*timestamppb.Timestamp)(nil),   // 67: google.protobuf.Timestamp
 }
 var file_sbp_node_v1_node_proto_depIdxs = []int32{
 	5,   // 0: sbp.node.v1.EnrollRequest.protocol:type_name -> sbp.node.v1.ProtocolVersion
@@ -5708,8 +5528,8 @@ var file_sbp_node_v1_node_proto_depIdxs = []int32{
 	5,   // 11: sbp.node.v1.Hello.protocol:type_name -> sbp.node.v1.ProtocolVersion
 	6,   // 12: sbp.node.v1.Hello.platform:type_name -> sbp.node.v1.Platform
 	5,   // 13: sbp.node.v1.Welcome.protocol:type_name -> sbp.node.v1.ProtocolVersion
-	70,  // 14: sbp.node.v1.Welcome.metrics_interval:type_name -> google.protobuf.Duration
-	71,  // 15: sbp.node.v1.Command.deadline:type_name -> google.protobuf.Timestamp
+	66,  // 14: sbp.node.v1.Welcome.metrics_interval:type_name -> google.protobuf.Duration
+	67,  // 15: sbp.node.v1.Command.deadline:type_name -> google.protobuf.Timestamp
 	20,  // 16: sbp.node.v1.Command.check_configuration:type_name -> sbp.node.v1.CheckConfiguration
 	21,  // 17: sbp.node.v1.Command.start_runtime:type_name -> sbp.node.v1.StartRuntime
 	22,  // 18: sbp.node.v1.Command.stop_runtime:type_name -> sbp.node.v1.StopRuntime
@@ -5730,17 +5550,17 @@ var file_sbp_node_v1_node_proto_depIdxs = []int32{
 	36,  // 33: sbp.node.v1.Command.list_core_logs:type_name -> sbp.node.v1.ListCoreLogs
 	38,  // 34: sbp.node.v1.Command.delete_core_log:type_name -> sbp.node.v1.DeleteCoreLog
 	39,  // 35: sbp.node.v1.Command.clear_core_log:type_name -> sbp.node.v1.ClearCoreLog
-	70,  // 36: sbp.node.v1.TelemetryControl.metrics_interval:type_name -> google.protobuf.Duration
+	66,  // 36: sbp.node.v1.TelemetryControl.metrics_interval:type_name -> google.protobuf.Duration
 	0,   // 37: sbp.node.v1.ArtifactIdentity.source_kind:type_name -> sbp.node.v1.ArtifactSourceKind
 	19,  // 38: sbp.node.v1.CheckConfiguration.configuration:type_name -> sbp.node.v1.ConfigurationRevision
 	19,  // 39: sbp.node.v1.StartRuntime.configuration:type_name -> sbp.node.v1.ConfigurationRevision
 	19,  // 40: sbp.node.v1.RestartRuntime.configuration:type_name -> sbp.node.v1.ConfigurationRevision
 	19,  // 41: sbp.node.v1.EnableCore.configuration:type_name -> sbp.node.v1.ConfigurationRevision
 	1,   // 42: sbp.node.v1.ActivateStartup.monitoring_tier:type_name -> sbp.node.v1.MonitoringTier
-	71,  // 43: sbp.node.v1.ListStartupArtifacts.before_time:type_name -> google.protobuf.Timestamp
+	67,  // 43: sbp.node.v1.ListStartupArtifacts.before_time:type_name -> google.protobuf.Timestamp
 	3,   // 44: sbp.node.v1.ListStartupArtifacts.state:type_name -> sbp.node.v1.StartupArtifactState
 	18,  // 45: sbp.node.v1.InstallCore.artifact:type_name -> sbp.node.v1.ArtifactIdentity
-	71,  // 46: sbp.node.v1.ListCores.before_time:type_name -> google.protobuf.Timestamp
+	67,  // 46: sbp.node.v1.ListCores.before_time:type_name -> google.protobuf.Timestamp
 	0,   // 47: sbp.node.v1.ListCores.source_kind:type_name -> sbp.node.v1.ArtifactSourceKind
 	2,   // 48: sbp.node.v1.BrowseFilesystem.mode:type_name -> sbp.node.v1.FilesystemMode
 	2,   // 49: sbp.node.v1.ResolveFilesystemPath.mode:type_name -> sbp.node.v1.FilesystemMode
@@ -5754,57 +5574,54 @@ var file_sbp_node_v1_node_proto_depIdxs = []int32{
 	44,  // 57: sbp.node.v1.Result.startup_artifacts:type_name -> sbp.node.v1.StartupArtifactsOutcome
 	43,  // 58: sbp.node.v1.CheckOutcome.startup:type_name -> sbp.node.v1.StartupArtifact
 	3,   // 59: sbp.node.v1.StartupArtifact.state:type_name -> sbp.node.v1.StartupArtifactState
-	71,  // 60: sbp.node.v1.StartupArtifact.checked_at:type_name -> google.protobuf.Timestamp
-	71,  // 61: sbp.node.v1.StartupArtifact.created_at:type_name -> google.protobuf.Timestamp
+	67,  // 60: sbp.node.v1.StartupArtifact.checked_at:type_name -> google.protobuf.Timestamp
+	67,  // 61: sbp.node.v1.StartupArtifact.created_at:type_name -> google.protobuf.Timestamp
 	43,  // 62: sbp.node.v1.StartupArtifactsOutcome.items:type_name -> sbp.node.v1.StartupArtifact
-	71,  // 63: sbp.node.v1.StartupArtifactsOutcome.next_before_time:type_name -> google.protobuf.Timestamp
+	67,  // 63: sbp.node.v1.StartupArtifactsOutcome.next_before_time:type_name -> google.protobuf.Timestamp
 	46,  // 64: sbp.node.v1.RuntimeOutcome.status:type_name -> sbp.node.v1.RuntimeStatus
 	48,  // 65: sbp.node.v1.RuntimeOutcome.activation:type_name -> sbp.node.v1.Activation
 	43,  // 66: sbp.node.v1.RuntimeOutcome.startup:type_name -> sbp.node.v1.StartupArtifact
 	47,  // 67: sbp.node.v1.RuntimeStatus.running:type_name -> sbp.node.v1.RunningCore
-	71,  // 68: sbp.node.v1.RunningCore.started_at:type_name -> google.protobuf.Timestamp
+	67,  // 68: sbp.node.v1.RunningCore.started_at:type_name -> google.protobuf.Timestamp
 	1,   // 69: sbp.node.v1.Activation.monitoring_tier:type_name -> sbp.node.v1.MonitoringTier
-	61,  // 70: sbp.node.v1.CoreOutcome.installed:type_name -> sbp.node.v1.InstalledCore
-	71,  // 71: sbp.node.v1.CoreOutcome.next_before_time:type_name -> google.protobuf.Timestamp
+	60,  // 70: sbp.node.v1.CoreOutcome.installed:type_name -> sbp.node.v1.InstalledCore
+	67,  // 71: sbp.node.v1.CoreOutcome.next_before_time:type_name -> google.protobuf.Timestamp
 	51,  // 72: sbp.node.v1.BrowseOutcome.items:type_name -> sbp.node.v1.FilesystemEntry
 	54,  // 73: sbp.node.v1.CoreLogOutcome.files:type_name -> sbp.node.v1.CoreLogFile
 	55,  // 74: sbp.node.v1.CoreLogOutcome.chunk:type_name -> sbp.node.v1.CoreLogChunk
-	71,  // 75: sbp.node.v1.CoreLogFile.updated_at:type_name -> google.protobuf.Timestamp
+	67,  // 75: sbp.node.v1.CoreLogFile.updated_at:type_name -> google.protobuf.Timestamp
 	57,  // 76: sbp.node.v1.Event.state_report:type_name -> sbp.node.v1.StateReport
-	62,  // 77: sbp.node.v1.Event.runtime_transition:type_name -> sbp.node.v1.RuntimeTransition
-	63,  // 78: sbp.node.v1.Event.metrics_sample:type_name -> sbp.node.v1.MetricsSample
-	65,  // 79: sbp.node.v1.Event.log_batch:type_name -> sbp.node.v1.LogBatch
-	67,  // 80: sbp.node.v1.Event.dropped_events:type_name -> sbp.node.v1.DroppedEvents
-	58,  // 81: sbp.node.v1.StateReport.host:type_name -> sbp.node.v1.Host
-	59,  // 82: sbp.node.v1.StateReport.runtime:type_name -> sbp.node.v1.RuntimeState
-	60,  // 83: sbp.node.v1.StateReport.applied:type_name -> sbp.node.v1.Bundle
-	60,  // 84: sbp.node.v1.StateReport.rollback:type_name -> sbp.node.v1.Bundle
-	61,  // 85: sbp.node.v1.StateReport.installed:type_name -> sbp.node.v1.InstalledCore
-	19,  // 86: sbp.node.v1.StateReport.existing_configuration:type_name -> sbp.node.v1.ConfigurationRevision
-	6,   // 87: sbp.node.v1.Host.platform:type_name -> sbp.node.v1.Platform
-	4,   // 88: sbp.node.v1.RuntimeState.status:type_name -> sbp.node.v1.ProcessState
-	71,  // 89: sbp.node.v1.RuntimeState.started_at:type_name -> google.protobuf.Timestamp
-	71,  // 90: sbp.node.v1.Bundle.applied_at:type_name -> google.protobuf.Timestamp
-	18,  // 91: sbp.node.v1.InstalledCore.artifact:type_name -> sbp.node.v1.ArtifactIdentity
-	71,  // 92: sbp.node.v1.InstalledCore.installed_at:type_name -> google.protobuf.Timestamp
-	4,   // 93: sbp.node.v1.RuntimeTransition.status:type_name -> sbp.node.v1.ProcessState
-	71,  // 94: sbp.node.v1.RuntimeTransition.occurred_at:type_name -> google.protobuf.Timestamp
-	71,  // 95: sbp.node.v1.MetricsSample.sampled_at:type_name -> google.protobuf.Timestamp
-	64,  // 96: sbp.node.v1.MetricsSample.traffic:type_name -> sbp.node.v1.TrafficCounters
-	66,  // 97: sbp.node.v1.LogBatch.lines:type_name -> sbp.node.v1.LogLine
-	71,  // 98: sbp.node.v1.LogLine.time:type_name -> google.protobuf.Timestamp
-	18,  // 99: sbp.node.v1.FetchArtifactResponse.artifact:type_name -> sbp.node.v1.ArtifactIdentity
-	7,   // 100: sbp.node.v1.NodeService.Enroll:input_type -> sbp.node.v1.EnrollRequest
-	9,   // 101: sbp.node.v1.NodeService.Connect:input_type -> sbp.node.v1.ConnectRequest
-	68,  // 102: sbp.node.v1.NodeService.FetchArtifact:input_type -> sbp.node.v1.FetchArtifactRequest
-	8,   // 103: sbp.node.v1.NodeService.Enroll:output_type -> sbp.node.v1.EnrollResponse
-	10,  // 104: sbp.node.v1.NodeService.Connect:output_type -> sbp.node.v1.ConnectResponse
-	69,  // 105: sbp.node.v1.NodeService.FetchArtifact:output_type -> sbp.node.v1.FetchArtifactResponse
-	103, // [103:106] is the sub-list for method output_type
-	100, // [100:103] is the sub-list for method input_type
-	100, // [100:100] is the sub-list for extension type_name
-	100, // [100:100] is the sub-list for extension extendee
-	0,   // [0:100] is the sub-list for field type_name
+	61,  // 77: sbp.node.v1.Event.runtime_transition:type_name -> sbp.node.v1.RuntimeTransition
+	62,  // 78: sbp.node.v1.Event.metrics_sample:type_name -> sbp.node.v1.MetricsSample
+	58,  // 79: sbp.node.v1.StateReport.host:type_name -> sbp.node.v1.Host
+	59,  // 80: sbp.node.v1.StateReport.applied:type_name -> sbp.node.v1.Bundle
+	59,  // 81: sbp.node.v1.StateReport.rollback:type_name -> sbp.node.v1.Bundle
+	60,  // 82: sbp.node.v1.StateReport.installed:type_name -> sbp.node.v1.InstalledCore
+	19,  // 83: sbp.node.v1.StateReport.existing_configuration:type_name -> sbp.node.v1.ConfigurationRevision
+	46,  // 84: sbp.node.v1.StateReport.runtime:type_name -> sbp.node.v1.RuntimeStatus
+	6,   // 85: sbp.node.v1.Host.platform:type_name -> sbp.node.v1.Platform
+	67,  // 86: sbp.node.v1.Bundle.applied_at:type_name -> google.protobuf.Timestamp
+	1,   // 87: sbp.node.v1.Bundle.monitoring_tier:type_name -> sbp.node.v1.MonitoringTier
+	18,  // 88: sbp.node.v1.InstalledCore.artifact:type_name -> sbp.node.v1.ArtifactIdentity
+	67,  // 89: sbp.node.v1.InstalledCore.installed_at:type_name -> google.protobuf.Timestamp
+	4,   // 90: sbp.node.v1.RuntimeTransition.status:type_name -> sbp.node.v1.ProcessState
+	67,  // 91: sbp.node.v1.RuntimeTransition.occurred_at:type_name -> google.protobuf.Timestamp
+	67,  // 92: sbp.node.v1.RuntimeTransition.process_started_at:type_name -> google.protobuf.Timestamp
+	67,  // 93: sbp.node.v1.RuntimeTransition.uncertain_since:type_name -> google.protobuf.Timestamp
+	67,  // 94: sbp.node.v1.MetricsSample.sampled_at:type_name -> google.protobuf.Timestamp
+	63,  // 95: sbp.node.v1.MetricsSample.traffic:type_name -> sbp.node.v1.TrafficCounters
+	18,  // 96: sbp.node.v1.FetchArtifactResponse.artifact:type_name -> sbp.node.v1.ArtifactIdentity
+	7,   // 97: sbp.node.v1.NodeService.Enroll:input_type -> sbp.node.v1.EnrollRequest
+	9,   // 98: sbp.node.v1.NodeService.Connect:input_type -> sbp.node.v1.ConnectRequest
+	64,  // 99: sbp.node.v1.NodeService.FetchArtifact:input_type -> sbp.node.v1.FetchArtifactRequest
+	8,   // 100: sbp.node.v1.NodeService.Enroll:output_type -> sbp.node.v1.EnrollResponse
+	10,  // 101: sbp.node.v1.NodeService.Connect:output_type -> sbp.node.v1.ConnectResponse
+	65,  // 102: sbp.node.v1.NodeService.FetchArtifact:output_type -> sbp.node.v1.FetchArtifactResponse
+	100, // [100:103] is the sub-list for method output_type
+	97,  // [97:100] is the sub-list for method input_type
+	97,  // [97:97] is the sub-list for extension type_name
+	97,  // [97:97] is the sub-list for extension extendee
+	0,   // [0:97] is the sub-list for field type_name
 }
 
 func init() { file_sbp_node_v1_node_proto_init() }
@@ -5861,17 +5678,15 @@ func file_sbp_node_v1_node_proto_init() {
 		(*Event_StateReport)(nil),
 		(*Event_RuntimeTransition)(nil),
 		(*Event_MetricsSample)(nil),
-		(*Event_LogBatch)(nil),
-		(*Event_DroppedEvents)(nil),
 	}
-	file_sbp_node_v1_node_proto_msgTypes[58].OneofWrappers = []any{}
+	file_sbp_node_v1_node_proto_msgTypes[57].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_sbp_node_v1_node_proto_rawDesc), len(file_sbp_node_v1_node_proto_rawDesc)),
 			NumEnums:      5,
-			NumMessages:   65,
+			NumMessages:   61,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

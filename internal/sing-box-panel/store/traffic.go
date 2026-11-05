@@ -14,6 +14,8 @@ import (
 
 var ErrTrafficPeriodNotFound = errors.New("traffic period not found")
 
+// TrafficPeriod is a node's recorded traffic in one period, or the fleet's
+// when it aggregates every node.
 type TrafficPeriod struct {
 	ID                 string          `json:"id"`
 	ActivationBundleID string          `json:"activation_bundle_id,omitempty"`
@@ -25,12 +27,13 @@ type TrafficPeriod struct {
 	CreatedAt          time.Time       `json:"created_at"`
 }
 
+// TrafficPeriodFilter selects a newest-first page of one node's periods.
 type TrafficPeriodFilter struct {
-	ActivationBundleID string
-	OverlapsStart      *time.Time
-	OverlapsEnd        *time.Time
-	Cursor             *TrafficPeriodCursor
-	Limit              int
+	NodeID        string
+	OverlapsStart *time.Time
+	OverlapsEnd   *time.Time
+	Cursor        *TrafficPeriodCursor
+	Limit         int
 }
 
 // TrafficPeriodCursor is an exclusive cursor in the stable newest-first
@@ -45,147 +48,160 @@ type TrafficPeriodPage struct {
 	Next  *TrafficPeriodCursor `json:"next,omitempty"`
 }
 
-// UpsertTrafficPeriod records an actual collector sample. Identity and period
-// boundaries are immutable, and byte totals may only increase.
-func (s *Store) UpsertTrafficPeriod(ctx context.Context, period TrafficPeriod) (TrafficPeriod, error) {
-	prepared, err := prepareTrafficPeriod(period)
-	if err != nil {
-		return TrafficPeriod{}, err
-	}
-	var stored TrafficPeriod
-	err = s.WithTx(ctx, func(tx *sql.Tx) error {
-		current, getErr := getTrafficPeriod(ctx, tx, prepared.ID)
-		switch {
-		case getErr == nil:
-			if current.ActivationBundleID != prepared.ActivationBundleID ||
-				!current.PeriodStart.Equal(prepared.PeriodStart) ||
-				!current.PeriodEnd.Equal(prepared.PeriodEnd) {
-				return errors.New("traffic period immutable identity does not match")
-			}
-			if prepared.InboundBytes < current.InboundBytes || prepared.OutboundBytes < current.OutboundBytes {
-				return errors.New("traffic counters cannot decrease")
-			}
-			if _, err := tx.ExecContext(
-				ctx,
-				`UPDATE traffic_periods
-                    SET inbound_bytes = ?, outbound_bytes = ?, counters_json = ?
-                  WHERE id = ?`,
-				prepared.InboundBytes,
-				prepared.OutboundBytes,
-				string(prepared.Counters),
-				prepared.ID,
-			); err != nil {
-				return fmt.Errorf("update traffic period: %w", err)
-			}
-		case errors.Is(getErr, ErrTrafficPeriodNotFound):
-			if _, err := tx.ExecContext(
-				ctx,
-				`INSERT INTO traffic_periods(
-                    id, activation_bundle_id, period_start, period_end,
-                    inbound_bytes, outbound_bytes, counters_json, created_at
-                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-				prepared.ID,
-				nullIfEmpty(prepared.ActivationBundleID),
-				formatTime(prepared.PeriodStart),
-				formatTime(prepared.PeriodEnd),
-				prepared.InboundBytes,
-				prepared.OutboundBytes,
-				string(prepared.Counters),
-				formatTime(prepared.CreatedAt),
-			); err != nil {
-				return fmt.Errorf("insert traffic period: %w", err)
-			}
-		default:
-			return getErr
-		}
-		stored, err = getTrafficPeriod(ctx, tx, prepared.ID)
-		return err
-	})
-	return stored, err
+// TrafficSampleInput is one traffic reading a node reported. Its byte totals
+// are cumulative for the node instance.
+type TrafficSampleInput struct {
+	NodeID             string
+	InstanceID         string
+	ActivationBundleID string
+	PID                int
+	ProcessStartToken  string
+	SampledAt          time.Time
+	PeriodStart        time.Time
+	PeriodEnd          time.Time
+	MemoryBytes        int64
+	ActiveConnections  int64
+	UploadTotal        int64
+	DownloadTotal      int64
 }
 
-func (s *Store) GetTrafficPeriod(ctx context.Context, periodID string) (TrafficPeriod, error) {
-	if strings.TrimSpace(periodID) == "" {
-		return TrafficPeriod{}, errors.New("traffic period id is empty")
+type TrafficSample struct {
+	ID                 int64          `json:"id"`
+	ActivationBundleID string         `json:"activation_bundle_id"`
+	PID                int            `json:"pid"`
+	ProcessStartToken  string         `json:"process_start_token"`
+	SampledAt          time.Time      `json:"sampled_at"`
+	MemoryBytes        int64          `json:"memory_bytes"`
+	ActiveConnections  int64          `json:"active_connections"`
+	UploadTotal        int64          `json:"upload_total"`
+	DownloadTotal      int64          `json:"download_total"`
+	UploadDelta        *int64         `json:"upload_delta"`
+	DownloadDelta      *int64         `json:"download_delta"`
+	IntervalStart      *time.Time     `json:"interval_start"`
+	IntervalEnd        *time.Time     `json:"interval_end"`
+	Coverage           CoverageStatus `json:"coverage"`
+	Accepted           bool           `json:"accepted"`
+	DiagnosticCode     string         `json:"diagnostic_code,omitempty"`
+}
+
+type TrafficSampleResult struct {
+	Sample TrafficSample `json:"sample"`
+	Period TrafficPeriod `json:"period"`
+}
+
+type trafficCheckpoint struct {
+	InstanceID               string
+	LastUpload, LastDownload int64
+	SampledAt                time.Time
+}
+
+// RecordTrafficSample turns a node's cumulative counters into period totals.
+// The period is the node's period that contains the sample.
+// A delta is proven only from the node's last accepted sample of the same
+// instance, so a recreated node database starts a new segment whose first
+// counters are not guessed as traffic. A decrease within one instance or
+// out-of-order evidence is kept as a rejected sample and cannot corrupt the
+// checkpoint.
+func (s *Store) RecordTrafficSample(ctx context.Context, input TrafficSampleInput) (TrafficSampleResult, error) {
+	prepared, err := prepareTrafficSampleInput(input)
+	if err != nil {
+		return TrafficSampleResult{}, err
 	}
+	var result TrafficSampleResult
+	err = s.WithTx(ctx, func(tx *sql.Tx) error {
+		checkpoint, checkpointErr := getTrafficCheckpoint(ctx, tx, prepared.NodeID)
+		if checkpointErr != nil && !errors.Is(checkpointErr, sql.ErrNoRows) {
+			return checkpointErr
+		}
+		hasCheckpoint := checkpointErr == nil
+		sameSegment := hasCheckpoint && checkpoint.InstanceID == prepared.InstanceID
+
+		accepted := true
+		diagnostic := ""
+		if hasCheckpoint && !prepared.SampledAt.After(checkpoint.SampledAt) {
+			accepted = false
+			diagnostic = "sample_out_of_order"
+		} else if sameSegment && (prepared.UploadTotal < checkpoint.LastUpload || prepared.DownloadTotal < checkpoint.LastDownload) {
+			accepted = false
+			diagnostic = "counter_decreased"
+		}
+		var uploadDelta, downloadDelta *int64
+		var intervalStart, intervalEnd *time.Time
+		coverage := CoveragePartial
+		if accepted && sameSegment {
+			upload := prepared.UploadTotal - checkpoint.LastUpload
+			download := prepared.DownloadTotal - checkpoint.LastDownload
+			uploadDelta, downloadDelta = &upload, &download
+			start, end := checkpoint.SampledAt, prepared.SampledAt
+			intervalStart, intervalEnd = &start, &end
+			if dayStart(prepared.SampledAt).Equal(dayStart(checkpoint.SampledAt)) && prepared.SampledAt.Sub(checkpoint.SampledAt) <= maximumCompleteSampleGap {
+				coverage = CoverageComplete
+			}
+		}
+		sample, err := insertTrafficSample(ctx, tx, prepared, uploadDelta, downloadDelta, intervalStart, intervalEnd, coverage, accepted, diagnostic)
+		if err != nil {
+			return err
+		}
+		result.Sample = sample
+		if accepted {
+			if err := recordTrafficDay(ctx, tx, prepared.NodeID, sample); err != nil {
+				return err
+			}
+			if err := upsertTrafficCheckpoint(ctx, tx, prepared); err != nil {
+				return err
+			}
+			if err := recordTrafficPeriod(ctx, tx, prepared); err != nil {
+				return err
+			}
+		}
+		result.Period, err = aggregateTrafficPeriod(ctx, tx, prepared.NodeID, prepared.PeriodStart, prepared.PeriodEnd, prepared.SampledAt)
+		return err
+	})
+	return result, err
+}
+
+// LatestAcceptedTrafficSample returns the node's newest accepted sample.
+func (s *Store) LatestAcceptedTrafficSample(ctx context.Context, nodeID string) (TrafficSample, error) {
+	return scanTrafficSample(s.db.QueryRowContext(ctx, `
+		SELECT id, activation_bundle_id, pid, process_start_token, sampled_at,
+               memory_bytes, active_connections, upload_total, download_total,
+               upload_delta, download_delta, interval_start, interval_end,
+               coverage, accepted, diagnostic_code
+          FROM traffic_samples WHERE node_id = ? AND accepted = 1
+          ORDER BY sampled_at DESC, id DESC LIMIT 1`, nodeID))
+}
+
+// AggregateTrafficPeriod returns the node's recorded traffic in a range of
+// whole UTC days, or every node's when nodeID is empty.
+func (s *Store) AggregateTrafficPeriod(ctx context.Context, nodeID string, start, end, at time.Time) (TrafficPeriod, error) {
+	return aggregateTrafficPeriod(ctx, s.db, nodeID, start, end, at)
+}
+
+// GetTrafficPeriod returns one of the node's recorded periods with its
+// current totals.
+func (s *Store) GetTrafficPeriod(ctx context.Context, nodeID, periodID string) (TrafficPeriod, error) {
 	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
 	if err != nil {
 		return TrafficPeriod{}, err
 	}
 	defer tx.Rollback()
-	period, err := getTrafficPeriod(ctx, tx, periodID)
-	if err != nil && !errors.Is(err, ErrTrafficPeriodNotFound) {
-		return TrafficPeriod{}, err
+	var start, end string
+	err = tx.QueryRowContext(ctx, `SELECT period_start, period_end FROM traffic_periods WHERE node_id = ? AND id = ?`,
+		nodeID, periodID).Scan(&start, &end)
+	if errors.Is(err, sql.ErrNoRows) {
+		return TrafficPeriod{}, fmt.Errorf("%w: %s", ErrTrafficPeriodNotFound, periodID)
 	}
-	at := time.Now().UTC()
-	start, end, monthly := monthlyTrafficRange(periodID, at)
-	if monthly {
-		if errors.Is(err, ErrTrafficPeriodNotFound) {
-			var exists bool
-			if queryErr := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM traffic_months
-                WHERE month_start>=? AND month_start<? AND month_start<=?)`,
-				formatTime(start), formatTime(end), formatTime(monthStart(at))).Scan(&exists); queryErr != nil {
-				return TrafficPeriod{}, queryErr
-			}
-			if !exists {
-				return TrafficPeriod{}, err
-			}
-		}
-		period, err = aggregateTrafficPeriod(ctx, tx, start, end, at)
+	if err != nil {
+		return TrafficPeriod{}, fmt.Errorf("get traffic period: %w", err)
 	}
+	period, err := periodTotals(ctx, tx, nodeID, start, end)
 	if err != nil {
 		return TrafficPeriod{}, err
 	}
 	return period, tx.Commit()
 }
 
-func monthlyTrafficRange(id string, at time.Time) (time.Time, time.Time, bool) {
-	parts := strings.Split(strings.TrimPrefix(id, "traffic_monthly_"), "_")
-	if !strings.HasPrefix(id, "traffic_monthly_") || len(parts) != 2 {
-		return time.Time{}, time.Time{}, false
-	}
-	start, startErr := time.Parse("200601", parts[0])
-	end, endErr := time.Parse("200601", parts[1])
-	months := (end.Year()-start.Year())*12 + int(end.Month()-start.Month())
-	return start, end, startErr == nil && endErr == nil && months >= 1 && months <= 120 && !at.Before(start)
-}
-
-func refreshMonthlyTrafficPeriod(ctx context.Context, q queryRower, period TrafficPeriod, at time.Time) (TrafficPeriod, error) {
-	start, end, monthly := monthlyTrafficRange(period.ID, at)
-	if !monthly {
-		return period, nil
-	}
-	return aggregateTrafficPeriod(ctx, q, start, end, at)
-}
-
-func (s *Store) CurrentTrafficPeriod(ctx context.Context, at time.Time) (TrafficPeriod, error) {
-	if at.IsZero() {
-		return TrafficPeriod{}, errors.New("traffic period lookup time is required")
-	}
-	period, err := scanTrafficPeriod(s.db.QueryRowContext(
-		ctx,
-		`SELECT id, activation_bundle_id, period_start, period_end,
-                inbound_bytes, outbound_bytes, counters_json, created_at
-           FROM traffic_periods
-          WHERE period_start <= ? AND period_end > ?
-          ORDER BY period_start DESC, id DESC LIMIT 1`,
-		formatTime(at.UTC()),
-		formatTime(at.UTC()),
-	))
-	if errors.Is(err, sql.ErrNoRows) {
-		return TrafficPeriod{}, ErrTrafficPeriodNotFound
-	}
-	if err != nil {
-		return TrafficPeriod{}, fmt.Errorf("get current traffic period: %w", err)
-	}
-	return s.GetTrafficPeriod(ctx, period.ID)
-}
-
-func (s *Store) ListTrafficPeriods(ctx context.Context, filter TrafficPeriodFilter) ([]TrafficPeriod, error) {
-	page, err := s.ListTrafficPeriodPage(ctx, filter)
-	return page.Items, err
-}
-
+// ListTrafficPeriodPage returns the node's recorded periods, newest first.
 func (s *Store) ListTrafficPeriodPage(ctx context.Context, filter TrafficPeriodFilter) (TrafficPeriodPage, error) {
 	limit, err := normalizePageLimit(filter.Limit)
 	if err != nil {
@@ -194,12 +210,8 @@ func (s *Store) ListTrafficPeriodPage(ctx context.Context, filter TrafficPeriodF
 	if err := validateTrafficPeriodCursor(filter.Cursor); err != nil {
 		return TrafficPeriodPage{}, err
 	}
-	clauses := []string{"1 = 1"}
-	args := make([]any, 0, 10)
-	if filter.ActivationBundleID != "" {
-		clauses = append(clauses, "activation_bundle_id = ?")
-		args = append(args, filter.ActivationBundleID)
-	}
+	clauses := []string{"node_id = ?"}
+	args := []any{filter.NodeID}
 	if filter.OverlapsStart != nil {
 		clauses = append(clauses, "period_end > ?")
 		args = append(args, formatTime(filter.OverlapsStart.UTC()))
@@ -219,39 +231,31 @@ func (s *Store) ListTrafficPeriodPage(ctx context.Context, filter TrafficPeriodF
 		return TrafficPeriodPage{}, err
 	}
 	defer tx.Rollback()
-	rows, err := tx.QueryContext(
-		ctx,
-		`SELECT id, activation_bundle_id, period_start, period_end,
-                inbound_bytes, outbound_bytes, counters_json, created_at
-           FROM traffic_periods
+	rows, err := tx.QueryContext(ctx, `SELECT period_start, period_end FROM traffic_periods
           WHERE `+strings.Join(clauses, " AND ")+`
-          ORDER BY period_start DESC, id DESC LIMIT ?`,
-		args...,
-	)
+          ORDER BY period_start DESC, id DESC LIMIT ?`, args...)
 	if err != nil {
 		return TrafficPeriodPage{}, fmt.Errorf("list traffic periods: %w", err)
 	}
-	defer rows.Close()
-	periods := make([]TrafficPeriod, 0, limit+1)
+	var ranges [][2]string
 	for rows.Next() {
-		period, err := scanTrafficPeriod(rows)
-		if err != nil {
+		var start, end string
+		if err := rows.Scan(&start, &end); err != nil {
+			_ = rows.Close()
 			return TrafficPeriodPage{}, fmt.Errorf("scan traffic period: %w", err)
 		}
-		periods = append(periods, period)
+		ranges = append(ranges, [2]string{start, end})
 	}
-	if err := rows.Err(); err != nil {
+	if err := errors.Join(rows.Err(), rows.Close()); err != nil {
 		return TrafficPeriodPage{}, fmt.Errorf("iterate traffic periods: %w", err)
 	}
-	if err := rows.Close(); err != nil {
-		return TrafficPeriodPage{}, err
-	}
-	at := time.Now().UTC()
-	for i := range periods {
-		periods[i], err = refreshMonthlyTrafficPeriod(ctx, tx, periods[i], at)
+	periods := make([]TrafficPeriod, 0, len(ranges))
+	for _, value := range ranges {
+		period, err := periodTotals(ctx, tx, filter.NodeID, value[0], value[1])
 		if err != nil {
 			return TrafficPeriodPage{}, err
 		}
+		periods = append(periods, period)
 	}
 	page := TrafficPeriodPage{Items: periods}
 	if len(periods) > limit {
@@ -260,6 +264,18 @@ func (s *Store) ListTrafficPeriodPage(ctx context.Context, filter TrafficPeriodF
 		page.Next = &TrafficPeriodCursor{PeriodStart: last.PeriodStart, ID: last.ID}
 	}
 	return page, tx.Commit()
+}
+
+func periodTotals(ctx context.Context, q queryRower, nodeID, rawStart, rawEnd string) (TrafficPeriod, error) {
+	start, err := parseTime(rawStart)
+	if err != nil {
+		return TrafficPeriod{}, fmt.Errorf("parse period_start: %w", err)
+	}
+	end, err := parseTime(rawEnd)
+	if err != nil {
+		return TrafficPeriod{}, fmt.Errorf("parse period_end: %w", err)
+	}
+	return aggregateTrafficPeriod(ctx, q, nodeID, start, end, time.Now().UTC())
 }
 
 func validateTrafficPeriodCursor(cursor *TrafficPeriodCursor) error {
@@ -272,78 +288,209 @@ func validateTrafficPeriodCursor(cursor *TrafficPeriodCursor) error {
 	return nil
 }
 
-func prepareTrafficPeriod(period TrafficPeriod) (TrafficPeriod, error) {
-	if strings.TrimSpace(period.ID) == "" || strings.TrimSpace(period.ID) != period.ID {
-		return TrafficPeriod{}, errors.New("traffic period id is invalid")
-	}
-	if period.PeriodStart.IsZero() || period.PeriodEnd.IsZero() || !period.PeriodEnd.After(period.PeriodStart) {
-		return TrafficPeriod{}, errors.New("traffic period boundaries are invalid")
-	}
-	if period.InboundBytes < 0 || period.OutboundBytes < 0 {
-		return TrafficPeriod{}, errors.New("traffic byte counters cannot be negative")
-	}
-	counters, err := canonicalJSONObject(period.Counters, `{}`)
-	if err != nil {
-		return TrafficPeriod{}, fmt.Errorf("traffic counters: %w", err)
-	}
-	period.PeriodStart = period.PeriodStart.UTC()
-	period.PeriodEnd = period.PeriodEnd.UTC()
-	period.Counters = counters
-	if period.CreatedAt.IsZero() {
-		period.CreatedAt = time.Now().UTC()
-	} else {
-		period.CreatedAt = period.CreatedAt.UTC()
-	}
-	return period, nil
+func dayStart(at time.Time) time.Time {
+	at = at.UTC()
+	return time.Date(at.Year(), at.Month(), at.Day(), 0, 0, 0, 0, time.UTC)
 }
 
-func getTrafficPeriod(ctx context.Context, q queryRower, periodID string) (TrafficPeriod, error) {
-	period, err := scanTrafficPeriod(q.QueryRowContext(
-		ctx,
-		`SELECT id, activation_bundle_id, period_start, period_end,
-                inbound_bytes, outbound_bytes, counters_json, created_at
-           FROM traffic_periods WHERE id = ?`,
-		periodID,
-	))
-	if errors.Is(err, sql.ErrNoRows) {
-		return TrafficPeriod{}, fmt.Errorf("%w: %s", ErrTrafficPeriodNotFound, periodID)
+// recordTrafficDay books each accepted delta in the node's UTC day of
+// observation. This ledger does not use the sampling quality metadata that
+// historical charts need.
+func recordTrafficDay(ctx context.Context, tx *sql.Tx, nodeID string, sample TrafficSample) error {
+	upload, download := int64(0), int64(0)
+	if sample.UploadDelta != nil && sample.DownloadDelta != nil {
+		upload, download = *sample.UploadDelta, *sample.DownloadDelta
 	}
-	if err != nil {
-		return TrafficPeriod{}, fmt.Errorf("get traffic period: %w", err)
-	}
-	return period, nil
+	_, err := tx.ExecContext(ctx, `INSERT INTO traffic_days
+        (node_id,day_start,inbound_bytes,outbound_bytes,first_observed_at,last_sample_at)
+        VALUES(?,?,?,?,?,?)
+        ON CONFLICT(node_id,day_start) DO UPDATE SET
+          inbound_bytes=traffic_days.inbound_bytes+excluded.inbound_bytes,
+          outbound_bytes=traffic_days.outbound_bytes+excluded.outbound_bytes,
+          last_sample_at=excluded.last_sample_at`,
+		nodeID, formatTime(dayStart(sample.SampledAt)), download, upload, formatTime(sample.SampledAt), formatTime(sample.SampledAt))
+	return err
 }
 
-func scanTrafficPeriod(row rowScanner) (TrafficPeriod, error) {
-	var period TrafficPeriod
-	var bundleID sql.NullString
-	var periodStart, periodEnd, counters, createdAt string
-	if err := row.Scan(
-		&period.ID,
-		&bundleID,
-		&periodStart,
-		&periodEnd,
-		&period.InboundBytes,
-		&period.OutboundBytes,
-		&counters,
-		&createdAt,
-	); err != nil {
+// aggregateTrafficPeriod returns recorded usage, including zero for an empty
+// range. It never depends on the availability of a running core or raw
+// samples. An empty nodeID aggregates every node.
+func aggregateTrafficPeriod(ctx context.Context, q queryRower, nodeID string, start, end, at time.Time) (TrafficPeriod, error) {
+	if start.IsZero() || !start.Equal(dayStart(start)) || !end.Equal(dayStart(end)) || !end.After(start) || at.Before(start) {
+		return TrafficPeriod{}, fmt.Errorf("invalid traffic period range")
+	}
+	var inbound, outbound int64
+	var first, last sql.NullString
+	err := q.QueryRowContext(ctx, `SELECT coalesce(sum(inbound_bytes),0),coalesce(sum(outbound_bytes),0),
+        min(first_observed_at),max(last_sample_at)
+        FROM traffic_days WHERE (? = '' OR node_id = ?) AND day_start>=? AND day_start<? AND day_start<=?`,
+		nodeID, nodeID, formatTime(start), formatTime(end), formatTime(dayStart(at))).Scan(&inbound, &outbound, &first, &last)
+	if err != nil {
 		return TrafficPeriod{}, err
 	}
-	var err error
-	period.ActivationBundleID = valueOrEmpty(bundleID)
-	period.PeriodStart, err = parseTime(periodStart)
-	if err != nil {
-		return TrafficPeriod{}, fmt.Errorf("parse period_start: %w", err)
+	firstAt := start
+	metadata := map[string]any{"aggregation": "daily"}
+	if first.Valid {
+		firstAt, err = parseTime(first.String)
+		if err != nil {
+			return TrafficPeriod{}, err
+		}
 	}
-	period.PeriodEnd, err = parseTime(periodEnd)
-	if err != nil {
-		return TrafficPeriod{}, fmt.Errorf("parse period_end: %w", err)
+	if last.Valid {
+		lastAt, err := parseTime(last.String)
+		if err != nil {
+			return TrafficPeriod{}, err
+		}
+		metadata["latest_sample_at"] = lastAt
 	}
-	period.CreatedAt, err = parseTime(createdAt)
+	counters, err := json.Marshal(metadata)
 	if err != nil {
-		return TrafficPeriod{}, fmt.Errorf("parse created_at: %w", err)
+		return TrafficPeriod{}, err
 	}
-	period.Counters = append(json.RawMessage(nil), counters...)
-	return period, nil
+	return TrafficPeriod{ID: trafficPeriodID(start, end), PeriodStart: start, PeriodEnd: end,
+		InboundBytes: inbound, OutboundBytes: outbound, Counters: counters, CreatedAt: firstAt}, nil
+}
+
+func prepareTrafficSampleInput(input TrafficSampleInput) (TrafficSampleInput, error) {
+	if !ValidIdentifier(input.NodeID) || input.InstanceID == "" || len(input.InstanceID) > 64 {
+		return TrafficSampleInput{}, errors.New("traffic sample node is invalid")
+	}
+	if strings.TrimSpace(input.ActivationBundleID) == "" || input.PID <= 0 || !validProcessStartToken(input.ProcessStartToken) {
+		return TrafficSampleInput{}, errors.New("traffic sample runtime identity is invalid")
+	}
+	if input.SampledAt.IsZero() || input.PeriodStart.IsZero() || input.PeriodEnd.IsZero() ||
+		!input.PeriodEnd.After(input.PeriodStart) || input.SampledAt.Before(input.PeriodStart) || !input.SampledAt.Before(input.PeriodEnd) {
+		return TrafficSampleInput{}, errors.New("traffic sample period is invalid")
+	}
+	if input.MemoryBytes < 0 || input.ActiveConnections < 0 || input.UploadTotal < 0 || input.DownloadTotal < 0 {
+		return TrafficSampleInput{}, errors.New("traffic sample counters are invalid")
+	}
+	input.SampledAt = input.SampledAt.UTC()
+	input.PeriodStart = input.PeriodStart.UTC()
+	input.PeriodEnd = input.PeriodEnd.UTC()
+	return input, nil
+}
+
+func getTrafficCheckpoint(ctx context.Context, tx *sql.Tx, nodeID string) (trafficCheckpoint, error) {
+	var checkpoint trafficCheckpoint
+	var sampled string
+	err := tx.QueryRowContext(ctx, `
+        SELECT instance_id,last_upload_total,last_download_total,sampled_at
+        FROM traffic_checkpoint WHERE node_id=?`, nodeID).Scan(
+		&checkpoint.InstanceID, &checkpoint.LastUpload, &checkpoint.LastDownload, &sampled)
+	if err != nil {
+		return trafficCheckpoint{}, err
+	}
+	checkpoint.SampledAt, err = parseTime(sampled)
+	return checkpoint, err
+}
+
+func insertTrafficSample(
+	ctx context.Context,
+	tx *sql.Tx,
+	input TrafficSampleInput,
+	uploadDelta, downloadDelta *int64,
+	intervalStart, intervalEnd *time.Time,
+	coverage CoverageStatus,
+	accepted bool,
+	diagnostic string,
+) (TrafficSample, error) {
+	result, err := tx.ExecContext(ctx, `
+        INSERT INTO traffic_samples(
+            node_id, instance_id, activation_bundle_id, pid, process_start_token, sampled_at, memory_bytes,
+            active_connections, upload_total, download_total, upload_delta, download_delta,
+			interval_start, interval_end, coverage, accepted, diagnostic_code
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		input.NodeID, input.InstanceID, input.ActivationBundleID, input.PID, input.ProcessStartToken, formatTime(input.SampledAt),
+		input.MemoryBytes, input.ActiveConnections, input.UploadTotal, input.DownloadTotal,
+		uploadDelta, downloadDelta, nullRuntimeTime(intervalStart), nullRuntimeTime(intervalEnd),
+		coverage, accepted, diagnostic,
+	)
+	if err != nil {
+		return TrafficSample{}, fmt.Errorf("insert traffic sample: %w", err)
+	}
+	id, err := result.LastInsertId()
+	if err != nil {
+		return TrafficSample{}, err
+	}
+	return TrafficSample{
+		ID: id, ActivationBundleID: input.ActivationBundleID, PID: input.PID,
+		ProcessStartToken: input.ProcessStartToken, SampledAt: input.SampledAt,
+		MemoryBytes: input.MemoryBytes, ActiveConnections: input.ActiveConnections,
+		UploadTotal: input.UploadTotal, DownloadTotal: input.DownloadTotal,
+		UploadDelta: uploadDelta, DownloadDelta: downloadDelta,
+		IntervalStart: intervalStart, IntervalEnd: intervalEnd, Coverage: coverage,
+		Accepted: accepted, DiagnosticCode: diagnostic,
+	}, nil
+}
+
+func upsertTrafficCheckpoint(ctx context.Context, tx *sql.Tx, input TrafficSampleInput) error {
+	_, err := tx.ExecContext(ctx, `
+        INSERT INTO traffic_checkpoint(node_id,instance_id,last_upload_total,last_download_total,sampled_at)
+        VALUES (?,?,?,?,?)
+        ON CONFLICT(node_id) DO UPDATE SET
+            instance_id=excluded.instance_id,
+            last_upload_total=excluded.last_upload_total,last_download_total=excluded.last_download_total,
+            sampled_at=excluded.sampled_at`,
+		input.NodeID, input.InstanceID, input.UploadTotal, input.DownloadTotal, formatTime(input.SampledAt))
+	if err != nil {
+		return fmt.Errorf("update traffic checkpoint: %w", err)
+	}
+	return nil
+}
+
+// recordTrafficPeriod remembers the period an accepted sample belongs to, in
+// the period length in force when it was recorded.
+func recordTrafficPeriod(ctx context.Context, tx *sql.Tx, input TrafficSampleInput) error {
+	_, err := tx.ExecContext(ctx, `
+        INSERT INTO traffic_periods(node_id,id,period_start,period_end,created_at) VALUES (?,?,?,?,?)
+        ON CONFLICT(node_id,id) DO NOTHING`,
+		input.NodeID, trafficPeriodID(input.PeriodStart, input.PeriodEnd), formatTime(input.PeriodStart),
+		formatTime(input.PeriodEnd), formatTime(input.SampledAt))
+	if err != nil {
+		return fmt.Errorf("record traffic period: %w", err)
+	}
+	return nil
+}
+
+func trafficPeriodID(start, end time.Time) string {
+	return "traffic_" + start.UTC().Format("20060102") + "_" + end.UTC().Format("20060102")
+}
+
+func scanTrafficSample(row rowScanner) (TrafficSample, error) {
+	var sample TrafficSample
+	var sampledAt string
+	var uploadDelta, downloadDelta sql.NullInt64
+	var intervalStart, intervalEnd sql.NullString
+	err := row.Scan(
+		&sample.ID, &sample.ActivationBundleID, &sample.PID, &sample.ProcessStartToken,
+		&sampledAt, &sample.MemoryBytes, &sample.ActiveConnections, &sample.UploadTotal,
+		&sample.DownloadTotal, &uploadDelta, &downloadDelta, &intervalStart, &intervalEnd, &sample.Coverage,
+		&sample.Accepted, &sample.DiagnosticCode,
+	)
+	if err != nil {
+		return TrafficSample{}, err
+	}
+	sample.SampledAt, err = parseTime(sampledAt)
+	if uploadDelta.Valid {
+		sample.UploadDelta = &uploadDelta.Int64
+	}
+	if downloadDelta.Valid {
+		sample.DownloadDelta = &downloadDelta.Int64
+	}
+	if intervalStart.Valid {
+		parsed, parseErr := parseTime(intervalStart.String)
+		if parseErr != nil {
+			return TrafficSample{}, fmt.Errorf("parse traffic interval_start: %w", parseErr)
+		}
+		sample.IntervalStart = &parsed
+	}
+	if intervalEnd.Valid {
+		parsed, parseErr := parseTime(intervalEnd.String)
+		if parseErr != nil {
+			return TrafficSample{}, fmt.Errorf("parse traffic interval_end: %w", parseErr)
+		}
+		sample.IntervalEnd = &parsed
+	}
+	return sample, err
 }
