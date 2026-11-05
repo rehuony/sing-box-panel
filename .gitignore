@@ -11,6 +11,7 @@
 /web/apps/panel/src/schemas/.generated/
 /setting.json
 /data/
+/.claude/dev/state/
 
 # Local Ed25519 release-signing secret; the paired public trust root is committed.
 /.github/keypair/release-signing-private-key.pem
