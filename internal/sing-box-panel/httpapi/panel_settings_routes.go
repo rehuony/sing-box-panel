@@ -6,9 +6,9 @@ import (
 	"errors"
 	"net/http"
 
-	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/auth"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/settings"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/store"
+	"github.com/rehuony/sing-box-panel/internal/webauth"
 )
 
 func (handler *Handler) getPanelSettings(w http.ResponseWriter, request *http.Request) {
@@ -52,7 +52,7 @@ func (handler *Handler) savePanelSettings(w http.ResponseWriter, request *http.R
 
 func writePanelSettingsProblem(w http.ResponseWriter, request *http.Request, err error) {
 	switch {
-	case errors.Is(err, auth.ErrBusy):
+	case errors.Is(err, webauth.ErrBusy):
 		w.Header().Set("Retry-After", "1")
 		writeProblem(w, request, http.StatusTooManyRequests, "login_rate_limited", "Authentication busy", "Try again shortly.")
 	case errors.Is(err, settings.ErrPanelSettingsInvalid):

@@ -14,8 +14,8 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/auth"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/testutil"
+	"github.com/rehuony/sing-box-panel/internal/webauth"
 )
 
 func settingsFieldFixture(t *testing.T) (string, Settings) {
@@ -249,7 +249,7 @@ func TestSetPasswordHashesPlaintextAndAcceptsExistingHash(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	matches, err := auth.VerifyPassword(t.Context(), testutil.ChangedPassword, loaded.Auth.PasswordHash)
+	matches, err := webauth.VerifyPassword(t.Context(), testutil.ChangedPassword, loaded.Auth.PasswordHash)
 	if err != nil || !matches {
 		t.Fatal("password cannot authenticate", err)
 	}

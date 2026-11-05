@@ -1,0 +1,311 @@
+openapi: 3.1.0
+info:
+  title: sing-box-node console API
+  version: 0.1.0
+  description: >-
+    Local console of one node: enrollment with a panel and the state of the
+    node's session with it. The console is disabled unless an operator enables
+    it with sing-box-node console enable, listens only on a loopback address,
+    and answers only requests whose Host names a loopback host (localhost,
+    127.0.0.0/8 or ::1, any port); other hosts receive 421. While disabled in
+    its settings file, a running console answers 503 console_disabled. It
+    cannot edit the node's configuration or control its runtime. Responses are
+    no-store.
+  license:
+    name: GPL-3.0-or-later
+    identifier: GPL-3.0-or-later
+servers:
+  - url: /api/v1
+security:
+  - sessionCookie: []
+paths:
+  /auth/session:
+    get:
+      operationId: getSession
+      description: Restore the CSRF token after a reload. Sessions live in the node's memory, so restarting the node signs every browser out.
+      responses:
+        "200":
+          $ref: "#/components/responses/Session"
+        "401":
+          $ref: "#/components/responses/Problem"
+        "421":
+          $ref: "#/components/responses/Problem"
+        "503":
+          $ref: "#/components/responses/Problem"
+    post:
+      operationId: createSession
+      description: >-
+        Password login. Requires a same-origin application/json request with a
+        body of at most 4 KiB, and rotates the current browser session.
+        Attempts are counted before verification, including successful and
+        malformed requests. Fixed one-minute windows permit 5 attempts per
+        direct peer and optional fingerprint, and 30 across the process; at
+        most 2 logins execute concurrently. Login reads and response writes
+        share a 5-second deadline. Limits return 429 with Retry-After. Changing
+        the password with sing-box-node console password ends every session.
+        Sessions last 12 hours.
+      security: []
+      parameters:
+        - name: Origin
+          in: header
+          required: true
+          schema: {type: string}
+          description: The console's own origin, http:// followed by the request's Host.
+        - name: X-Client-Fingerprint
+          in: header
+          required: false
+          schema: {type: string, pattern: '^[a-f0-9]{32}$', minLength: 32, maxLength: 32}
+          description: Optional untrusted supplementary rate-limit key, never an authentication factor.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginInput"
+      responses:
+        "200":
+          $ref: "#/components/responses/Session"
+        "400":
+          $ref: "#/components/responses/Problem"
+        "401":
+          $ref: "#/components/responses/Problem"
+        "403":
+          $ref: "#/components/responses/Problem"
+        "421":
+          $ref: "#/components/responses/Problem"
+        "429":
+          description: Login rate or concurrency limit reached.
+          headers:
+            Retry-After:
+              description: Seconds before attempting another login.
+              schema: {type: integer, minimum: 1}
+          content:
+            application/problem+json:
+              schema: {$ref: '#/components/schemas/Problem'}
+        "503":
+          $ref: "#/components/responses/Problem"
+    delete:
+      operationId: deleteSession
+      parameters:
+        - $ref: "#/components/parameters/CSRFToken"
+      responses:
+        "204":
+          description: The session ended.
+        "401":
+          $ref: "#/components/responses/Problem"
+        "403":
+          $ref: "#/components/responses/Problem"
+        "421":
+          $ref: "#/components/responses/Problem"
+        "503":
+          $ref: "#/components/responses/Problem"
+  /status:
+    get:
+      operationId: getConsoleStatus
+      description: The node, the panel it is enrolled with, and the state of its session with that panel.
+      responses:
+        "200":
+          $ref: "#/components/responses/ConsoleStatus"
+        "401":
+          $ref: "#/components/responses/Problem"
+        "421":
+          $ref: "#/components/responses/Problem"
+        "503":
+          $ref: "#/components/responses/Problem"
+  /enrollment:
+    post:
+      operationId: enrollNode
+      description: >-
+        Exchange an enrollment code from the panel for a new node identity and
+        replace the node's enrollment, if any. The node ends its current session
+        and connects to the panel the code names; the response reports the
+        saved enrollment with the connection state connecting. The node's
+        runtime keeps its applied configuration. Rejected or used codes return
+        422 enrollment_rejected; an unreachable panel returns 502
+        enrollment_failed and leaves the current enrollment in place.
+      parameters:
+        - $ref: "#/components/parameters/CSRFToken"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EnrollmentInput"
+      responses:
+        "200":
+          $ref: "#/components/responses/ConsoleStatus"
+        "401":
+          $ref: "#/components/responses/Problem"
+        "403":
+          $ref: "#/components/responses/Problem"
+        "413":
+          $ref: "#/components/responses/Problem"
+        "415":
+          $ref: "#/components/responses/Problem"
+        "421":
+          $ref: "#/components/responses/Problem"
+        "422":
+          $ref: "#/components/responses/Problem"
+        "500":
+          $ref: "#/components/responses/Problem"
+        "502":
+          $ref: "#/components/responses/Problem"
+        "503":
+          $ref: "#/components/responses/Problem"
+    delete:
+      operationId: unenrollNode
+      description: >-
+        Remove the node's enrollment and end its session. The panel keeps the
+        node, shown offline, until an administrator removes it; the node's
+        runtime keeps its applied configuration.
+      parameters:
+        - $ref: "#/components/parameters/CSRFToken"
+      responses:
+        "200":
+          $ref: "#/components/responses/ConsoleStatus"
+        "401":
+          $ref: "#/components/responses/Problem"
+        "403":
+          $ref: "#/components/responses/Problem"
+        "421":
+          $ref: "#/components/responses/Problem"
+        "500":
+          $ref: "#/components/responses/Problem"
+        "503":
+          $ref: "#/components/responses/Problem"
+components:
+  securitySchemes:
+    sessionCookie:
+      type: apiKey
+      in: cookie
+      name: sbn_session
+  parameters:
+    CSRFToken:
+      name: X-CSRF-Token
+      in: header
+      required: true
+      description: The session's CSRF token; state-changing requests also need a same-origin Origin header.
+      schema: {type: string, minLength: 1}
+  responses:
+    Session:
+      description: The console session.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Session'}
+    ConsoleStatus:
+      description: The node and its link with its panel.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/ConsoleStatus'}
+    Problem:
+      description: RFC 9457 problem response.
+      content:
+        application/problem+json:
+          schema: {$ref: '#/components/schemas/Problem'}
+  schemas:
+    LoginInput:
+      type: object
+      additionalProperties: false
+      required: [password]
+      properties:
+        password: {type: string, minLength: 1, maxLength: 512}
+    Session:
+      type: object
+      additionalProperties: false
+      required: [csrfToken, expiresAt]
+      properties:
+        csrfToken: {type: string, minLength: 1}
+        expiresAt: {type: string, format: date-time}
+    EnrollmentInput:
+      type: object
+      additionalProperties: false
+      required: [code]
+      properties:
+        code:
+          type: string
+          minLength: 1
+          maxLength: 4200
+          description: The enrollment code the panel shows when it adds or re-enrolls a node.
+    ConsoleStatus:
+      type: object
+      additionalProperties: false
+      required: [node, enrollment, connection]
+      properties:
+        node: {$ref: '#/components/schemas/NodeInfo'}
+        enrollment:
+          description: The panel the node is enrolled with; null when it is not enrolled.
+          oneOf:
+            - {$ref: '#/components/schemas/Enrollment'}
+            - {type: 'null'}
+        connection: {$ref: '#/components/schemas/Connection'}
+    NodeInfo:
+      type: object
+      additionalProperties: false
+      required: [version, protocol, os, arch, hostname]
+      properties:
+        version: {type: string}
+        protocol:
+          type: string
+          description: The panel–node protocol version the node speaks, as major.minor.
+        os: {type: string}
+        arch: {type: string}
+        hostname: {type: string}
+    Enrollment:
+      type: object
+      additionalProperties: false
+      required: [panel_endpoint, panel_path, panel_id, node_id, trust]
+      properties:
+        panel_endpoint:
+          type: string
+          description: The panel's node service address as host:port.
+        panel_path:
+          type: string
+          description: The panel's base path; empty when it has none.
+        panel_id: {type: string}
+        node_id: {type: string}
+        trust:
+          type: string
+          enum: [pin, system]
+          description: pin checks the panel certificate's public key; system uses the system's certificate authorities.
+    Connection:
+      type: object
+      additionalProperties: false
+      required: [state, since]
+      properties:
+        state:
+          type: string
+          enum: [unenrolled, connecting, connected, disconnected]
+          description: >-
+            connecting while a session opens; connected while one serves the
+            panel's commands; disconnected after a session ends, until the
+            retry at retry_at.
+        since:
+          type: string
+          format: date-time
+          description: When the node entered state.
+        last_error:
+          type: string
+          maxLength: 512
+          description: Why the latest session ended or could not open; cleared when a session opens.
+        retry_at:
+          type: string
+          format: date-time
+          description: When a disconnected node opens its next session.
+    Problem:
+      type: object
+      additionalProperties: false
+      required: [type, title, status, code]
+      properties:
+        type:
+          type: string
+          format: uri-reference
+        title:
+          type: string
+        status:
+          type: integer
+          minimum: 400
+          maximum: 599
+        code:
+          type: string
+        detail:
+          type: string

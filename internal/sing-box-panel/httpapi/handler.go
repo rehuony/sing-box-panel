@@ -7,11 +7,13 @@ import (
 	"io/fs"
 	"net/http"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"github.com/rehuony/sing-box-panel/internal/buildinfo"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/app"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/settings"
+	"github.com/rehuony/sing-box-panel/internal/webauth"
 )
 
 const (
@@ -43,7 +45,7 @@ type HandlerOptions struct {
 type Handler struct {
 	settings settings.Settings
 	build    buildinfo.Info
-	logins   *loginLimiter
+	logins   *webauth.LoginLimiter
 	services app.Services
 	assetFS  fs.FS
 	assets   http.Handler
@@ -57,7 +59,7 @@ func NewHandler(options HandlerOptions) *Handler {
 	return &Handler{
 		settings: options.Settings,
 		build:    options.Build,
-		logins:   newLoginLimiter(),
+		logins:   webauth.NewLoginLimiter(time.Now),
 		services: options.Services,
 		assetFS:  options.Assets,
 		assets:   assets,
@@ -73,10 +75,7 @@ func (handler *Handler) ServeHTTP(w http.ResponseWriter, request *http.Request) 
 	// invalid or ambiguous IDs rather than truncating unrelated IDs to one.
 	request.Header.Set("X-Request-ID", requestID)
 	w.Header().Set("X-Request-ID", requestID)
-	w.Header().Set("X-Content-Type-Options", "nosniff")
-	w.Header().Set("X-Frame-Options", "DENY")
-	w.Header().Set("Referrer-Policy", "no-referrer")
-	w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'")
+	webauth.SetSecurityHeaders(w.Header())
 	if handler.settings.Server.BasePath != "" && request.Method == http.MethodGet && request.URL.Path == handler.settings.Server.BasePath {
 		target := handler.settings.Server.BasePath + "/"
 		if request.URL.RawQuery != "" {

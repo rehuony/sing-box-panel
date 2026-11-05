@@ -20,6 +20,7 @@ import (
 	"github.com/rehuony/sing-box-panel/internal/atomicfile"
 	"github.com/rehuony/sing-box-panel/internal/nodeapi"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/auth"
+	"github.com/rehuony/sing-box-panel/internal/webauth"
 )
 
 // MaximumBytes limits settings documents read from disk or supplied by the CLI.
@@ -203,7 +204,7 @@ func parse(path string, data []byte) (Settings, error) {
 		return Settings{}, err
 	}
 	if value.Server.ExternalOrigin != "" {
-		origin, err := NormalizeOrigin(value.Server.ExternalOrigin)
+		origin, err := webauth.NormalizeOrigin(value.Server.ExternalOrigin)
 		if err != nil {
 			return Settings{}, fmt.Errorf("validate settings %q: server.external_origin: %w", path, err)
 		}
@@ -256,7 +257,7 @@ func (value Settings) Validate() error {
 		return errors.New("server.base_path must be empty or a normalized URL path containing only unreserved characters")
 	}
 	if value.Server.ExternalOrigin != "" {
-		origin, err := NormalizeOrigin(value.Server.ExternalOrigin)
+		origin, err := webauth.NormalizeOrigin(value.Server.ExternalOrigin)
 		if err != nil {
 			return fmt.Errorf("server.external_origin: %w", err)
 		}
@@ -273,8 +274,8 @@ func (value Settings) Validate() error {
 	if _, err := auth.NormalizeEmail(value.Auth.Email); err != nil {
 		return fmt.Errorf("auth.email: %w", err)
 	}
-	if err := auth.ValidateHash(value.Auth.PasswordHash); err != nil {
-		return fmt.Errorf("auth.password_hash: %w", err)
+	if err := webauth.ValidateHash(value.Auth.PasswordHash); err != nil {
+		return fmt.Errorf("auth.password_hash: %w; use config set auth.password --stdin", err)
 	}
 	if value.GitHub.CatalogRefreshIntervalHours < 1 || value.GitHub.CatalogRefreshIntervalHours > 24*30 {
 		return errors.New("github.catalog_refresh_interval_hours must be between 1 and 720")
@@ -312,52 +313,6 @@ func (value Settings) validateNodes() error {
 		return errors.New("nodes.trust must be empty, pin or system")
 	}
 	return nil
-}
-
-// NormalizeOrigin validates an HTTP Origin value and returns its canonical
-// scheme and authority. Paths, credentials, queries, and fragments are never
-// part of an origin and are rejected instead of silently discarded.
-func NormalizeOrigin(raw string) (string, error) {
-	raw = strings.TrimSpace(raw)
-	if raw == "" {
-		return "", errors.New("origin must not be empty")
-	}
-	parsed, err := url.Parse(raw)
-	if err != nil {
-		return "", fmt.Errorf("parse origin: %w", err)
-	}
-	scheme := strings.ToLower(parsed.Scheme)
-	if scheme != "http" && scheme != "https" {
-		return "", errors.New("origin scheme must be http or https")
-	}
-	if parsed.Opaque != "" || parsed.User != nil || parsed.Host == "" || parsed.Path != "" ||
-		parsed.RawPath != "" || parsed.ForceQuery || parsed.RawQuery != "" || parsed.Fragment != "" {
-		return "", errors.New("origin must contain only a scheme and authority")
-	}
-	host := strings.ToLower(parsed.Hostname())
-	if host == "" || strings.Contains(host, "%") {
-		return "", errors.New("origin host is invalid")
-	}
-	port := parsed.Port()
-	if port != "" {
-		numericPort, err := strconv.Atoi(port)
-		if err != nil || numericPort < 1 || numericPort > 65535 {
-			return "", errors.New("origin port must be between 1 and 65535")
-		}
-		if (scheme == "http" && port == "80") || (scheme == "https" && port == "443") {
-			port = ""
-		}
-	}
-	if ip := net.ParseIP(host); ip != nil {
-		host = ip.String()
-	}
-	authority := host
-	if port != "" {
-		authority = net.JoinHostPort(host, port)
-	} else if strings.Contains(host, ":") {
-		authority = "[" + host + "]"
-	}
-	return scheme + "://" + authority, nil
 }
 
 // Initialize writes a new settings file and creates its data directory.
@@ -432,12 +387,12 @@ func initialize(ctx context.Context, path string, overwrite, createDataDirectory
 	if err != nil {
 		return Settings{}, err
 	}
-	token, err := auth.GeneratePassword()
+	token, err := webauth.GeneratePassword()
 	if err != nil {
 		return Settings{}, err
 	}
 	value.Auth.Email = "admin@example.com"
-	value.Auth.PasswordHash, err = auth.HashPassword(ctx, token)
+	value.Auth.PasswordHash, err = webauth.HashPassword(ctx, token)
 	if err != nil {
 		return Settings{}, err
 	}

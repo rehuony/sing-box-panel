@@ -1,0 +1,91 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+package agent
+
+import (
+	"context"
+	"crypto/ed25519"
+	"crypto/rand"
+	"errors"
+	"testing"
+	"time"
+
+	"github.com/rehuony/sing-box-panel/internal/buildinfo"
+	"github.com/rehuony/sing-box-panel/internal/sing-box-node/settings"
+)
+
+func TestLinkStartsOverWhenTheEnrollmentChanges(t *testing.T) {
+	dataDir := t.TempDir()
+	enrollment := func(nodeID string) settings.Enrollment {
+		_, key, err := ed25519.GenerateKey(rand.Reader)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return settings.Enrollment{Endpoint: "panel.example:443", PanelID: "panel", NodeID: nodeID, Key: key}
+	}
+	if err := settings.Save(dataDir, enrollment("first")); err != nil {
+		t.Fatal(err)
+	}
+	link, err := OpenLink(dataDir, buildinfo.Info{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Each session runs until its enrollment changes; "failing" never opens.
+	sessions := make(chan string, 8)
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	go link.supervise(ctx, func(ctx context.Context, enrollment settings.Enrollment, connected func()) error {
+		sessions <- enrollment.NodeID
+		if enrollment.NodeID == "failing" {
+			return errors.New("the panel refused the session")
+		}
+		connected()
+		<-ctx.Done()
+		return ctx.Err()
+	}, func(string, ...any) {})
+	waitFor := func(want string, state ConnectionState) Status {
+		t.Helper()
+		select {
+		case got := <-sessions:
+			if got != want {
+				t.Fatalf("session of %q, want %q", got, want)
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatalf("no session of %q", want)
+		}
+		for deadline := time.Now().Add(5 * time.Second); ; time.Sleep(time.Millisecond) {
+			status := link.Status()
+			if status.State == state {
+				return status
+			}
+			if time.Now().After(deadline) {
+				t.Fatalf("status = %+v, want %s", status, state)
+			}
+		}
+	}
+	if status := waitFor("first", ConnectionConnected); status.Enrollment.NodeID != "first" || status.LastError != "" {
+		t.Fatalf("status = %+v", status)
+	}
+
+	failing := enrollment("failing")
+	link.replace(&failing)
+	if status := waitFor("failing", ConnectionDisconnected); status.LastError == "" || status.RetryAt == nil {
+		t.Fatalf("a failed session left %+v", status)
+	}
+	second := enrollment("second")
+	link.replace(&second)
+	waitFor("second", ConnectionConnected)
+
+	status, err := link.Unenroll()
+	if err != nil || status.State != ConnectionUnenrolled || status.Enrollment != nil {
+		t.Fatalf("unenroll = %+v, %v", status, err)
+	}
+	if _, err := settings.Load(dataDir); !errors.Is(err, settings.ErrNotEnrolled) {
+		t.Fatalf("the enrollment outlived unenrolling: %v", err)
+	}
+	select {
+	case got := <-sessions:
+		t.Fatalf("an unenrolled node opened a session of %q", got)
+	case <-time.After(50 * time.Millisecond):
+	}
+}

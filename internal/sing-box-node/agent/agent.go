@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 // Package agent connects a node to its panel: enrollment, the authenticated
-// session and reconnection. The node dials out; it never listens.
+// session and reconnection. The node dials out; it accepts no connection from
+// its panel.
 package agent
 
 import (
@@ -12,7 +13,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	mathrand "math/rand/v2"
 	"net"
 	"os"
 	"path/filepath"
@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/keepalive"
 	"google.golang.org/grpc/status"
@@ -48,17 +49,33 @@ const (
 
 // Options supplies the agent's collaborators.
 type Options struct {
-	Build buildinfo.Info
 	// Logf reports session changes; nil discards them.
 	Logf func(format string, args ...any)
 	// Connected, if set, is called after each authenticated Welcome.
 	Connected func()
+	// Console, if set, serves the local console beside the node's sessions
+	// until its context ends; its error stops the node. Through the console
+	// an unenrolled node can be enrolled.
+	Console func(ctx context.Context) error
 }
 
 func (options Options) logf(format string, args ...any) {
 	if options.Logf != nil {
 		options.Logf(format, args...)
 	}
+}
+
+// EnrollmentError is a code exchange with a panel that did not complete.
+type EnrollmentError struct {
+	Endpoint string
+	// Rejected reports that the panel refused the code; otherwise the panel
+	// could not be reached or could not enroll the node.
+	Rejected bool
+	Reason   string
+}
+
+func (err *EnrollmentError) Error() string {
+	return fmt.Sprintf("enroll with %s: %s", err.Endpoint, err.Reason)
 }
 
 // Enroll exchanges an enrollment code for a node identity with a new key and
@@ -85,7 +102,11 @@ func Enroll(ctx context.Context, dataDir, rawCode string, build buildinfo.Info) 
 		Platform: platform(), Hostname: hostname,
 	})
 	if err != nil {
-		return settings.Enrollment{}, fmt.Errorf("enroll with %s: %s", code.Endpoint, describe(err))
+		switch status.Code(err) {
+		case codes.InvalidArgument, codes.Unauthenticated, codes.PermissionDenied, codes.FailedPrecondition:
+			return settings.Enrollment{}, &EnrollmentError{Endpoint: code.Endpoint, Rejected: true, Reason: status.Convert(err).Message()}
+		}
+		return settings.Enrollment{}, &EnrollmentError{Endpoint: code.Endpoint, Reason: describe(err)}
 	}
 	enrollment := settings.Enrollment{
 		Endpoint: code.Endpoint, Path: code.Path, Pin: code.Pin, PanelID: response.GetPanelId(), NodeID: response.GetNodeId(), Key: privateKey,
@@ -97,13 +118,14 @@ func Enroll(ctx context.Context, dataDir, rawCode string, build buildinfo.Info) 
 }
 
 // Run starts the node: it opens the node database, starts and recovers the
-// runtime, and holds a session with the panel the node in dataDir is enrolled
-// with until ctx ends, reconnecting with backoff.
-func Run(ctx context.Context, dataDir string, options Options) (runErr error) {
-	enrollment, err := settings.Load(dataDir)
-	if err != nil {
-		return err
+// runtime, and holds a session with the panel the link is enrolled with until
+// ctx ends, reconnecting with backoff and starting over whenever the
+// enrollment changes. An unenrolled node waits for the console to enroll it.
+func Run(ctx context.Context, link *Link, options Options) (runErr error) {
+	if !link.Enrolled() && options.Console == nil {
+		return settings.ErrNotEnrolled
 	}
+	dataDir := link.dataDir
 	lease, err := procctl.AcquireLease(dataDir)
 	if err != nil {
 		return err
@@ -129,67 +151,70 @@ func Run(ctx context.Context, dataDir string, options Options) (runErr error) {
 	}
 	defer func() { runErr = errors.Join(runErr, runtime.Close()) }()
 	runtime.StartRecovery(ctx)
-	// Detection and collection stop when Run returns, for any reason.
-	backgroundContext, stopBackground := context.WithCancel(ctx)
-	var background sync.WaitGroup
-	defer func() { stopBackground(); background.Wait() }()
-	background.Go(func() { node.RunPublicIPDetection(backgroundContext) })
-	background.Go(func() { node.RunTrafficCollection(backgroundContext) })
 	instanceID, err := database.InstanceID(ctx)
 	if err != nil {
 		return err
 	}
+	// Background work stops when Run returns, for any reason; a console that
+	// fails stops the node.
+	ctx, stop := context.WithCancelCause(ctx)
+	var background sync.WaitGroup
+	defer func() { stop(nil); background.Wait() }()
+	background.Go(func() { node.RunPublicIPDetection(ctx) })
+	background.Go(func() { node.RunTrafficCollection(ctx) })
+	if options.Console != nil {
+		background.Go(func() {
+			if err := options.Console(ctx); err != nil {
+				stop(fmt.Errorf("console: %w", err))
+			}
+		})
+	}
 
-	connection, err := dial(enrollment.Endpoint, enrollment.Path, enrollment.Pin)
-	if err != nil {
-		return err
-	}
-	defer connection.Close()
-	client := nodeapi.NewNodeServiceClient(connection)
-	commands := &executor{
-		node: node, database: database, fetch: fetchArtifact(client), now: time.Now,
-		slots: make(chan struct{}, maximumCommands),
-	}
+	slots := make(chan struct{}, maximumCommands)
 	var inFlight sync.WaitGroup
 	defer inFlight.Wait()
-	identity := sessionIdentity{enrollment: enrollment, instanceID: instanceID}
 	sampler := &host.Sampler{}
-	backoff := minimumBackoff
-	for {
-		started := time.Now()
-		err := holdSession(ctx, client, identity, commands, sampler, dataDir, &inFlight, options)
-		if ctx.Err() != nil {
-			return nil
+	link.supervise(ctx, func(attempt context.Context, enrollment settings.Enrollment, connected func()) error {
+		connection, err := dial(enrollment.Endpoint, enrollment.Path, enrollment.Pin)
+		if err != nil {
+			return err
 		}
-		if time.Since(started) > maximumBackoff {
-			backoff = minimumBackoff
-		}
-		options.logf("session with panel %s ended: %s; reconnecting in %s", enrollment.Endpoint, describe(err), backoff.Round(time.Second))
-		wait := backoff/2 + mathrand.N(backoff/2+1)
-		select {
-		case <-ctx.Done():
-			return nil
-		case <-time.After(wait):
-		}
-		backoff = min(2*backoff, maximumBackoff)
+		defer connection.Close()
+		client := nodeapi.NewNodeServiceClient(connection)
+		commands := &executor{node: node, database: database, fetch: fetchArtifact(client), now: time.Now, slots: slots}
+		identity := sessionIdentity{enrollment: enrollment, instanceID: instanceID, build: link.build}
+		return holdSession(attempt, ctx, client, identity, commands, sampler, dataDir, &inFlight, func() {
+			options.logf("connected to panel %s as node %s", enrollment.Endpoint, enrollment.NodeID)
+			connected()
+			if options.Connected != nil {
+				options.Connected()
+			}
+		})
+	}, options.logf)
+	// Only a failed console ends the node with an error.
+	if cause := context.Cause(ctx); !errors.Is(cause, context.Canceled) && !errors.Is(cause, context.DeadlineExceeded) {
+		return cause
 	}
+	return nil
 }
 
 // sessionIdentity is who the node is to its panel.
 type sessionIdentity struct {
 	enrollment settings.Enrollment
 	instanceID string
+	build      buildinfo.Info
 }
 
 // holdSession authenticates one session, reports the node's state and serves
-// its commands until it ends. Commands run on lifetime, not on the session:
-// a command in flight finishes even when the session drops, and the panel
-// learns its outcome from the node's state.
-func holdSession(lifetime context.Context, client nodeapi.NodeServiceClient, identity sessionIdentity, commands *executor,
-	sampler *host.Sampler, dataDir string, inFlight *sync.WaitGroup, options Options,
+// its commands until it or attempt ends, and calls connected once it serves
+// commands. Commands run on lifetime, not on the session: a command in flight
+// finishes even when the session drops, and the panel learns its outcome from
+// the node's state.
+func holdSession(attempt, lifetime context.Context, client nodeapi.NodeServiceClient, identity sessionIdentity, commands *executor,
+	sampler *host.Sampler, dataDir string, inFlight *sync.WaitGroup, connected func(),
 ) error {
 	enrollment := identity.enrollment
-	ctx, cancel := context.WithCancel(lifetime)
+	ctx, cancel := context.WithCancel(attempt)
 	defer cancel()
 	stream, err := client.Connect(ctx)
 	if err != nil {
@@ -197,7 +222,7 @@ func holdSession(lifetime context.Context, client nodeapi.NodeServiceClient, ide
 	}
 	handshake := time.AfterFunc(handshakeTimeout, cancel)
 	if err := stream.Send(&nodeapi.ConnectRequest{Frame: &nodeapi.ConnectRequest_Hello{Hello: &nodeapi.Hello{
-		NodeId: enrollment.NodeID, Protocol: protocol(), BuildVersion: options.Build.Version, Platform: platform(),
+		NodeId: enrollment.NodeID, Protocol: protocol(), BuildVersion: identity.build.Version, Platform: platform(),
 		InstanceId: identity.instanceID,
 	}}}); err != nil {
 		return err
@@ -240,10 +265,7 @@ func holdSession(lifetime context.Context, client nodeapi.NodeServiceClient, ide
 	if err := reports.start(ctx); err != nil {
 		return fmt.Errorf("report state: %w", err)
 	}
-	options.logf("connected to panel %s as node %s", enrollment.Endpoint, enrollment.NodeID)
-	if options.Connected != nil {
-		options.Connected()
-	}
+	connected()
 	reporting := make(chan error, 1)
 	go func() { reporting <- reports.run(ctx, welcome.GetMetricsInterval().AsDuration()) }()
 	defer func() { cancel(); <-reporting }()

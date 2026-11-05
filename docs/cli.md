@@ -18,6 +18,14 @@ sing-box-panel
 └─ completion bash | zsh | fish
 ```
 
+The node binary has its own tree, described under [Nodes](#nodes):
+
+```text
+sing-box-node
+├─ version | enroll | run
+└─ console status | enable | disable | password
+```
+
 Every command is at most two words deep; each group adds one verb.
 `server start` runs the panel in the current terminal. Background
 operation belongs to the `systemd` service commands.
@@ -302,6 +310,27 @@ its core logs in `logs/core/` in the same data directory, and runs the managed
 sing-box with `runtime/` as its working directory. A node shows `pending` until it enrolls, then `online` while it
 holds a session and `offline` otherwise. Removing a node, or enrolling it
 again, ends its current session.
+
+A node can instead be enrolled from its local [console](panel-node-architecture.md#node-console),
+which is off by default:
+
+```sh
+sing-box-node console enable                 # listen on 127.0.0.1:3001; prints a generated password once
+sing-box-node console enable --listen [::1]:3001
+sing-box-node console password --stdin       # set the password; without --stdin, generate and print one
+sing-box-node console status [--json]
+sing-box-node console disable
+```
+
+The console settings and the password's Argon2id hash are kept in
+`console.json` (mode 0600) in the node's data directory. `--listen` accepts
+only a loopback IP address and port. An enabled console starts with
+`sing-box-node run`, which then also runs while the node is unenrolled and
+waits to be enrolled from the console; restart a running node after enabling
+the console or changing its address. A new password applies at once and signs
+every console session out, and a disabled console refuses requests at once.
+From another machine, forward the console through an SSH tunnel, such as
+`ssh -L 3001:127.0.0.1:3001 node-host`.
 
 ## Foreground panel control
 

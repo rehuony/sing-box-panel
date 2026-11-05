@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-package auth
+package webauth
 
 import (
 	"errors"
@@ -7,7 +7,6 @@ import (
 	"testing"
 
 	"github.com/alexedwards/argon2id"
-	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/testutil"
 )
 
 func TestPasswordHashPolicyAndWhitespace(t *testing.T) {
@@ -37,9 +36,15 @@ func TestPasswordHashPolicyAndWhitespace(t *testing.T) {
 		}
 	}
 }
+
 func TestHashBoundsAndVerificationConcurrency(t *testing.T) {
-	for _, hash := range []string{"", "token", strings.Replace(testutil.PasswordHash, "m=19456", "m=4294967295", 1), strings.Replace(testutil.PasswordHash, "t=2", "t=0", 1), strings.Replace(testutil.PasswordHash, "p=1", "p=0", 1)} {
-		if err := ValidateHash(hash); err == nil {
+	const password = "test-administrator-password"
+	hash, err := HashPassword(t.Context(), password)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, unsafe := range []string{"", "token", strings.Replace(hash, "m=19456", "m=4294967295", 1), strings.Replace(hash, "t=2", "t=0", 1), strings.Replace(hash, "p=1", "p=0", 1)} {
+		if err := ValidateHash(unsafe); err == nil {
 			t.Fatal("unsafe hash accepted")
 		}
 	}
@@ -51,7 +56,7 @@ func TestHashBoundsAndVerificationConcurrency(t *testing.T) {
 			<-passwordSlots
 		}
 	}()
-	if _, err := VerifyPassword(t.Context(), testutil.AdminPassword, testutil.PasswordHash); !errors.Is(err, ErrBusy) {
+	if _, err := VerifyPassword(t.Context(), password, hash); !errors.Is(err, ErrBusy) {
 		t.Fatal("hash concurrency unbounded", err)
 	}
 }

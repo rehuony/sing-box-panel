@@ -1,22 +1,24 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Package auth owns administrator credential validation and password hashing.
-package auth
+// Package webauth holds the protections every authenticated management HTTP
+// API shares, the panel's and the node console's: password hashing, login
+// admission and rate limits, same-origin and CSRF checks, and security
+// headers.
+package webauth
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
-	"crypto/sha256"
 	"encoding/base64"
 	"errors"
-	"net/mail"
-	"strings"
+	"io"
 	"unicode/utf8"
 
 	"github.com/alexedwards/argon2id"
 )
 
-// GeneratePassword creates the random credential used for initialization and recovery.
+// GeneratePassword creates a random credential for initialization and recovery.
 func GeneratePassword() (string, error) {
 	raw := make([]byte, 32)
 	if _, err := rand.Read(raw); err != nil {
@@ -28,18 +30,9 @@ func GeneratePassword() (string, error) {
 var (
 	ErrPassword   = errors.New("password must contain 12–128 Unicode characters")
 	ErrBusy       = errors.New("password verification is busy; try again")
+	ErrHash       = errors.New("password hash must be a supported Argon2id hash")
 	passwordSlots = make(chan struct{}, 2)
 )
-
-// NormalizeEmail treats the single administrator's email as a case-insensitive identifier.
-func NormalizeEmail(value string) (string, error) {
-	value = strings.ToLower(strings.TrimSpace(value))
-	address, err := mail.ParseAddress(value)
-	if err != nil || address.Address != value || address.Name != "" || len(value) > 254 || !strings.Contains(value, "@") {
-		return "", errors.New("email must be a valid email address")
-	}
-	return value, nil
-}
 
 func ValidatePassword(password string) error {
 	if !utf8.ValidString(password) || utf8.RuneCountInString(password) < 12 || utf8.RuneCountInString(password) > 128 {
@@ -51,11 +44,11 @@ func ValidatePassword(password string) error {
 // ValidateHash checks cost bounds without performing expensive password work.
 func ValidateHash(hash string) error {
 	if len(hash) > 512 {
-		return errors.New("invalid password hash")
+		return ErrHash
 	}
 	params, salt, key, err := argon2id.DecodeHash(hash)
 	if err != nil || params.Memory < 19*1024 || params.Memory > 64*1024 || params.Iterations < 2 || params.Iterations > 4 || params.Parallelism < 1 || params.Parallelism > 4 || len(salt) < 16 || len(salt) > 32 || len(key) != 32 {
-		return errors.New("password_hash must be a supported Argon2id hash; use config set auth.password --stdin")
+		return ErrHash
 	}
 	return nil
 }
@@ -105,6 +98,17 @@ func VerifyPassword(ctx context.Context, password, hash string) (matches bool, e
 	return matches, err
 }
 
-func Fingerprint(email, hash string) [32]byte {
-	return sha256.Sum256([]byte(email + "\x00" + hash))
+// ReadPassword reads a password from standard input. It removes only the
+// final line ending, never password spaces.
+func ReadPassword(reader io.Reader) ([]byte, error) {
+	data, err := io.ReadAll(io.LimitReader(reader, 515))
+	if err != nil {
+		clear(data)
+		return nil, errors.New("could not read password")
+	}
+	if len(data) > 514 {
+		clear(data)
+		return nil, ErrPassword
+	}
+	return bytes.TrimSuffix(bytes.TrimSuffix(data, []byte("\n")), []byte("\r")), nil
 }

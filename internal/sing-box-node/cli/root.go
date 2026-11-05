@@ -4,6 +4,7 @@
 package cli
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -12,6 +13,7 @@ import (
 	"github.com/rehuony/sing-box-panel/internal/buildinfo"
 	"github.com/rehuony/sing-box-panel/internal/nodeapi"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-node/agent"
+	"github.com/rehuony/sing-box-panel/internal/sing-box-node/httpapi"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-node/settings"
 	"github.com/spf13/cobra"
 )
@@ -36,7 +38,7 @@ func NewRootCommand(deps Dependencies) *cobra.Command {
 	root.SetOut(deps.Stdout)
 	root.SetErr(deps.Stderr)
 	dataDir := root.PersistentFlags().String("data-dir", settings.DefaultDataDir(), "node data directory")
-	root.AddCommand(newVersionCommand(deps.Build), newEnrollCommand(deps, dataDir), newRunCommand(deps, dataDir))
+	root.AddCommand(newVersionCommand(deps.Build), newEnrollCommand(deps, dataDir), newRunCommand(deps, dataDir), newConsoleCommand(dataDir))
 	return root
 }
 
@@ -63,11 +65,34 @@ func newEnrollCommand(deps Dependencies, dataDir *string) *cobra.Command {
 func newRunCommand(deps Dependencies, dataDir *string) *cobra.Command {
 	return &cobra.Command{
 		Use:   "run",
-		Short: "Connect to the enrolled panel and keep the session until stopped",
-		Args:  cobra.NoArgs,
+		Short: "Run the node and keep its session with the enrolled panel until stopped",
+		Long: "Run the node and keep its session with the enrolled panel until stopped.\n\n" +
+			"With the console enabled the node also serves it on its loopback address, and an unenrolled node waits to be enrolled from it.",
+		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			logger := log.New(cmd.ErrOrStderr(), "", log.LstdFlags)
-			return agent.Run(cmd.Context(), *dataDir, agent.Options{Build: deps.Build, Logf: logger.Printf})
+			link, err := agent.OpenLink(*dataDir, deps.Build)
+			if err != nil {
+				return err
+			}
+			console, err := settings.LoadConsole(*dataDir)
+			if err != nil {
+				return err
+			}
+			options := agent.Options{Logf: logger.Printf}
+			if console.Enabled {
+				listener, err := httpapi.Listen(console.Listen)
+				if err != nil {
+					return fmt.Errorf("console: %w", err)
+				}
+				defer listener.Close()
+				handler := httpapi.NewHandler(httpapi.Options{DataDir: *dataDir, Link: link, Build: deps.Build, Logf: logger.Printf})
+				options.Console = func(ctx context.Context) error {
+					logger.Printf("console listening on http://%s", listener.Addr())
+					return httpapi.Serve(ctx, listener, handler)
+				}
+			}
+			return agent.Run(cmd.Context(), link, options)
 		},
 	}
 }

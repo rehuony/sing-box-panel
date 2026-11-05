@@ -3,13 +3,9 @@
 package cli
 
 import (
-	"bytes"
-	"errors"
 	"fmt"
 	"io"
 	"os"
-
-	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/auth"
 )
 
 func readInputFile(stdin io.Reader, filePath string, maximum int64, label string) ([]byte, error) {
@@ -36,18 +32,4 @@ func readInputFile(stdin io.Reader, filePath string, maximum int64, label string
 		return nil, fmt.Errorf("%s input exceeds %d bytes", label, maximum)
 	}
 	return data, nil
-}
-
-// readPasswordStdin removes only the final line ending, never password spaces.
-func readPasswordStdin(reader io.Reader) ([]byte, error) {
-	data, err := io.ReadAll(io.LimitReader(reader, 515))
-	if err != nil {
-		clear(data)
-		return nil, errors.New("could not read password")
-	}
-	if len(data) > 514 {
-		clear(data)
-		return nil, auth.ErrPassword
-	}
-	return bytes.TrimSuffix(bytes.TrimSuffix(data, []byte("\n")), []byte("\r")), nil
 }

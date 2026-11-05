@@ -9,6 +9,7 @@ import (
 	"fmt"
 
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/settings"
+	"github.com/rehuony/sing-box-panel/internal/webauth"
 	"github.com/spf13/cobra"
 )
 
@@ -178,7 +179,7 @@ Credentials and panel preferences use this same file at operation boundaries.`,
 					var data []byte
 					var err error
 					if args[0] == "auth.password" {
-						data, err = readPasswordStdin(cmd.InOrStdin())
+						data, err = webauth.ReadPassword(cmd.InOrStdin())
 					} else {
 						data, err = readInputFile(cmd.InOrStdin(), "-", settings.MaximumBytes, "settings value")
 						data = bytes.TrimSuffix(bytes.TrimSuffix(data, []byte("\n")), []byte("\r"))

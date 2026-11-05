@@ -11,7 +11,7 @@ import (
 	"strings"
 
 	"github.com/rehuony/sing-box-panel/internal/jsonstrict"
-	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/auth"
+	"github.com/rehuony/sing-box-panel/internal/webauth"
 )
 
 // SetField updates one field or section selected by its dotted JSON keys without
@@ -21,7 +21,7 @@ import (
 func SetField(ctx context.Context, path, field, rawValue string) error {
 	tokens := settingsFieldPath(field)
 	if len(tokens) == 2 && tokens[0] == "auth" && tokens[1] == "password" {
-		hash, err := auth.HashPassword(ctx, rawValue)
+		hash, err := webauth.HashPassword(ctx, rawValue)
 		if err != nil {
 			return err
 		}

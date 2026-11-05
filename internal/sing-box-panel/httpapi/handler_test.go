@@ -19,6 +19,7 @@ import (
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/settings"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/store"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/testutil"
+	"github.com/rehuony/sing-box-panel/internal/webauth"
 )
 
 func newTestHandler(t *testing.T, options HandlerOptions) *Handler {
@@ -240,8 +241,8 @@ func TestInvalidLoginDoesNotCreateSession(t *testing.T) {
 func TestLoginRateLimitUsesRemoteAddressAndExpires(t *testing.T) {
 	handler := testHandler(t)
 	now := time.Date(2026, time.August, 26, 0, 0, 0, 0, time.UTC)
-	handler.logins.now = func() time.Time { return now }
-	for attempt := 0; attempt < loginAttemptLimit; attempt++ {
+	handler.logins = webauth.NewLoginLimiter(func() time.Time { return now })
+	for attempt := 0; attempt < webauth.LoginAttemptLimit; attempt++ {
 		request := httptest.NewRequest(http.MethodPost, "/api/v1/auth/session", strings.NewReader(`{"email":"admin@example.com","password":"wrong"}`))
 		request.Header.Set("Content-Type", "application/json")
 		request.Header.Set("Origin", "http://example.com")
@@ -265,7 +266,7 @@ func TestLoginRateLimitUsesRemoteAddressAndExpires(t *testing.T) {
 		t.Fatalf("blocked status = %d retry-after=%q body=%s", blockedResponse.Code, blockedResponse.Header().Get("Retry-After"), blockedResponse.Body.String())
 	}
 
-	now = now.Add(loginAttemptWindow)
+	now = now.Add(webauth.LoginAttemptWindow)
 	retry := httptest.NewRequest(http.MethodPost, "/api/v1/auth/session", strings.NewReader(`{"email":"admin@example.com","password":"test-administrator-password"}`))
 	retry.Header.Set("Content-Type", "application/json")
 	retry.Header.Set("Origin", "http://example.com")
@@ -279,7 +280,7 @@ func TestLoginRateLimitUsesRemoteAddressAndExpires(t *testing.T) {
 
 func TestSuccessfulLoginDoesNotResetAttemptBudget(t *testing.T) {
 	handler := testHandler(t)
-	for attempt := 0; attempt < loginAttemptLimit-1; attempt++ {
+	for attempt := 0; attempt < webauth.LoginAttemptLimit-1; attempt++ {
 		response := httptest.NewRecorder()
 		request := httptest.NewRequest(http.MethodPost, "/api/v1/auth/session", strings.NewReader(`{"email":"admin@example.com","password":"wrong"}`))
 		request.Header.Set("Content-Type", "application/json")

@@ -5,6 +5,7 @@ import (
 	"bufio"
 	"errors"
 	"fmt"
+	"github.com/rehuony/sing-box-panel/internal/webauth"
 	"io"
 	"net"
 	"net/http"
@@ -13,129 +14,38 @@ import (
 	"os"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"testing"
 	"testing/synctest"
 	"time"
 )
 
-func TestLoginClientNormalizesPeers(t *testing.T) {
-	for input, want := range map[string]string{
-		"192.0.2.1:123":                 "192.0.2.1",
-		"[::ffff:192.0.2.1]:456":        "192.0.2.1",
-		"[2001:db8:abcd:1::1]:123":      "2001:db8:abcd:1::/64",
-		"[2001:db8:abcd:1:ffff::2]:456": "2001:db8:abcd:1::/64",
-		"[fe80::1%en0]:123":             "fe80::/64",
-		"invalid":                       "unknown",
-	} {
-		if got := loginClient(input); got != want {
-			t.Errorf("%q: got %q want %q", input, got, want)
-		}
-	}
-}
-
-func TestLoginLimiterAtomicAdmission(t *testing.T) {
-	limiter := newLoginLimiter()
-	var admitted atomic.Int32
-	var group sync.WaitGroup
-	for range 100 {
-		group.Go(func() {
-			if ok, _ := limiter.begin("one-peer"); ok {
-				admitted.Add(1)
-				limiter.finish()
-			}
-		})
-	}
-	group.Wait()
-	if n := admitted.Load(); n == 0 || n > loginAttemptLimit {
-		t.Fatalf("admitted %d attempts", n)
-	}
-	for i := int(admitted.Load()); i < loginAttemptLimit; i++ {
-		if ok, _ := limiter.begin("one-peer"); !ok {
-			t.Fatal("concurrency rejections consumed the peer budget")
-		}
-		limiter.finish()
-	}
-	if ok, _ := limiter.begin("one-peer"); ok {
-		t.Fatal("exceeded peer budget")
-	}
-	if ok, _ := limiter.begin("other-peer"); !ok {
-		t.Fatal("work slot leaked")
-	}
-	limiter.finish()
-}
-
-func TestLoginLimiterGlobalBudgetAndExpiry(t *testing.T) {
-	limiter := newLoginLimiter()
-	now := time.Now()
-	limiter.now = func() time.Time { return now }
-	for i := range loginGlobalLimit {
-		if ok, _ := limiter.begin(fmt.Sprint(i)); !ok {
-			t.Fatalf("rejected peer %d", i)
-		}
-		limiter.finish()
-	}
-	if ok, retry := limiter.begin("fresh-peer"); ok || retry != time.Minute {
-		t.Fatalf("global limit: %v %v", ok, retry)
-	}
-	now = now.Add(time.Minute)
-	if ok, _ := limiter.begin("fresh-peer"); !ok {
-		t.Fatal("expired global budget did not recover")
-	}
-	limiter.finish()
-}
-
-func TestLoginLimiterDoesNotEvictActiveKeys(t *testing.T) {
-	limiter := newLoginLimiter()
-	now := time.Now()
-	limiter.now = func() time.Time { return now }
-	for i := range maxLoginClients {
-		if ok, _ := limiter.fingerprint(fmt.Sprint(i)); !ok {
-			t.Fatalf("rejected key %d", i)
-		}
-	}
-	if ok, _ := limiter.fingerprint("new-key"); ok {
-		t.Fatal("accepted a key past capacity")
-	}
-	if ok, _ := limiter.fingerprint("0"); !ok {
-		t.Fatal("lost existing key")
-	}
-	if len(limiter.entries) != maxLoginClients {
-		t.Fatal("live entries were evicted")
-	}
-	now = now.Add(time.Minute)
-	if ok, _ := limiter.fingerprint("new-key"); !ok {
-		t.Fatal("expired entries were not cleaned")
-	}
-}
-
 func TestLoginFingerprintAndPeerBudgetsCannotReplaceEachOther(t *testing.T) {
 	for _, mode := range []string{"rotate-peer", "rotate-fingerprint", "missing-fingerprint", "rotate-ipv6"} {
 		t.Run(mode, func(t *testing.T) {
 			handler := testHandler(t)
-			for i := range loginAttemptLimit + 1 {
+			for i := range webauth.LoginAttemptLimit + 1 {
 				request := httptest.NewRequest(http.MethodPost, "/api/v1/auth/session", strings.NewReader("{"))
 				request.Header.Set("Origin", "http://example.com")
 				request.Header.Set("Content-Type", "application/json")
-				request.Header.Set(loginFingerprintHeader, strings.Repeat("a", 32))
+				request.Header.Set(webauth.LoginFingerprintHeader, strings.Repeat("a", 32))
 				request.RemoteAddr = "192.0.2.1:1234"
 				switch mode {
 				case "rotate-peer":
 					request.RemoteAddr = fmt.Sprintf("192.0.2.%d:1234", i+1)
 				case "rotate-fingerprint":
-					request.Header.Set(loginFingerprintHeader, fmt.Sprintf("%032x", i))
+					request.Header.Set(webauth.LoginFingerprintHeader, fmt.Sprintf("%032x", i))
 				case "missing-fingerprint":
-					request.Header.Del(loginFingerprintHeader)
+					request.Header.Del(webauth.LoginFingerprintHeader)
 				case "rotate-ipv6":
 					request.RemoteAddr = fmt.Sprintf("[2001:db8::%x]:1234", i+1)
-					request.Header.Del(loginFingerprintHeader)
+					request.Header.Del(webauth.LoginFingerprintHeader)
 				}
 				request.Header.Set("Forwarded", fmt.Sprintf("for=198.51.100.%d", i+1))
 				request.Header.Set("X-Forwarded-For", fmt.Sprintf("198.51.100.%d", i+1))
 				response := httptest.NewRecorder()
 				handler.ServeHTTP(response, request)
 				want := http.StatusBadRequest
-				if i == loginAttemptLimit {
+				if i == webauth.LoginAttemptLimit {
 					want = http.StatusTooManyRequests
 				}
 				if response.Code != want {
@@ -151,7 +61,7 @@ func TestLoginRejectsInvalidFingerprintsBeforeReadingBody(t *testing.T) {
 		t.Run(fmt.Sprint(values), func(t *testing.T) {
 			handler := testHandler(t)
 			request := httptest.NewRequest(http.MethodPost, "/api/v1/auth/session", nil)
-			request.Header[loginFingerprintHeader] = values
+			request.Header[webauth.LoginFingerprintHeader] = values
 			request.Body = unreadLoginBody{t}
 			response := httptest.NewRecorder()
 			handler.ServeHTTP(response, request)
@@ -185,7 +95,7 @@ func TestConcurrentLoginsRejectBeforeReadingBody(t *testing.T) {
 	// Cleanup releases blocked readers even when an assertion fails.
 	defer group.Wait()
 	defer close(release)
-	for range maxConcurrentLogins {
+	for range webauth.MaxConcurrentLogins {
 		entered := make(chan struct{})
 		request := httptest.NewRequest(http.MethodPost, "/api/v1/auth/session", nil)
 		request.Header.Set("Origin", "http://example.com")
@@ -217,7 +127,7 @@ func TestSlowLoginResponsesReleaseSlotsAndBoundRejections(t *testing.T) {
 		}()
 		var completed []chan struct{}
 		var responses []*blockedLoginResponse
-		for attempt := range maxConcurrentLogins + 1 {
+		for attempt := range webauth.MaxConcurrentLogins + 1 {
 			writer, reader := net.Pipe()
 			peers = append(peers, writer, reader)
 			response := &blockedLoginResponse{ResponseRecorder: httptest.NewRecorder(), Conn: writer, entered: make(chan struct{})}
@@ -232,14 +142,14 @@ func TestSlowLoginResponsesReleaseSlotsAndBoundRejections(t *testing.T) {
 			// is rejected before admission and must still have a write deadline.
 			<-response.entered
 			want := http.StatusBadRequest
-			if attempt == maxConcurrentLogins {
+			if attempt == webauth.MaxConcurrentLogins {
 				want = http.StatusTooManyRequests
 			}
 			if response.Code != want {
 				t.Fatalf("attempt %d: status=%d want=%d", attempt, response.Code, want)
 			}
 		}
-		time.Sleep(loginTimeout)
+		time.Sleep(webauth.LoginTimeout)
 		synctest.Wait()
 		for index, done := range completed {
 			select {
@@ -279,11 +189,11 @@ func TestLoginRejectsUnreadNetworkBodiesPromptly(t *testing.T) {
 		t.Run(reason, func(t *testing.T) {
 			handler := testHandler(t)
 			if reason == "rate" {
-				for range loginAttemptLimit {
-					if ok, _ := handler.logins.begin("127.0.0.1"); !ok {
+				for range webauth.LoginAttemptLimit {
+					if ok, _ := handler.logins.Begin("127.0.0.1"); !ok {
 						t.Fatal("fixture admission failed")
 					}
-					handler.logins.finish()
+					handler.logins.Finish()
 				}
 			}
 			server := httptest.NewServer(handler)
@@ -342,7 +252,7 @@ func TestSlowLoginBodyTimesOutAndReleasesSlot(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer conn.Close()
-	_ = conn.SetDeadline(time.Now().Add(loginTimeout + 3*time.Second))
+	_ = conn.SetDeadline(time.Now().Add(webauth.LoginTimeout + 3*time.Second))
 	_, err = fmt.Fprintf(conn, "POST /api/v1/auth/session HTTP/1.1\r\nHost: %s\r\nOrigin: %s\r\nContent-Type: application/json\r\nContent-Length: 100\r\n\r\n{", server.Listener.Addr(), server.URL)
 	if err != nil {
 		t.Fatal(err)
@@ -364,10 +274,10 @@ func TestSlowLoginBodyTimesOutAndReleasesSlot(t *testing.T) {
 	case <-time.After(3 * time.Second):
 		t.Fatal("timed-out login handler did not finish")
 	}
-	handler.logins.mu.Lock()
-	defer handler.logins.mu.Unlock()
-	if handler.logins.inFlight != 0 {
-		t.Fatal("timed-out login retained its slot")
+	for slot := range webauth.MaxConcurrentLogins {
+		if ok, _ := handler.logins.Begin(fmt.Sprint("probe-", slot)); !ok {
+			t.Fatal("timed-out login retained its slot")
+		}
 	}
 }
 
@@ -381,7 +291,7 @@ func TestLoginSupportsHTTP2StreamDeadlines(t *testing.T) {
 		if index > 0 {
 			// A completed stream's expired deadline must not close the shared
 			// connection or prevent the next login from using it.
-			<-time.After(loginTimeout + 50*time.Millisecond)
+			<-time.After(webauth.LoginTimeout + 50*time.Millisecond)
 		}
 		request, err := http.NewRequest(http.MethodPost, server.URL+"/api/v1/auth/session", strings.NewReader(fmt.Sprintf(`{"email":"admin@example.com","password":%q}`, password)))
 		if err != nil {
@@ -389,7 +299,7 @@ func TestLoginSupportsHTTP2StreamDeadlines(t *testing.T) {
 		}
 		request.Header.Set("Origin", server.URL)
 		request.Header.Set("Content-Type", "application/json")
-		request.Header.Set(loginFingerprintHeader, strings.Repeat("a", 32))
+		request.Header.Set(webauth.LoginFingerprintHeader, strings.Repeat("a", 32))
 		var reused bool
 		request = request.WithContext(httptrace.WithClientTrace(request.Context(), &httptrace.ClientTrace{
 			GotConn: func(info httptrace.GotConnInfo) { reused = info.Reused },

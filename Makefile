@@ -85,6 +85,7 @@ check-contracts: build-frontend support-check proto-check
 	@for script in $$(find scripts -type f -name '*.sh'); do bash -n "$$script" || exit; done
 	bash scripts/test/installer-test.sh
 	go tool verify-openapi api/openapi.yaml
+	go tool verify-openapi api/node-openapi.yaml
 
 # Run Go and Web tests
 test: test-backend test-frontend

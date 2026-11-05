@@ -12,6 +12,7 @@ import (
 
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/auth"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/store"
+	"github.com/rehuony/sing-box-panel/internal/webauth"
 )
 
 type AppearanceSettings = Appearance
@@ -173,12 +174,12 @@ func (app *Service) SavePanelSettings(ctx context.Context, input PanelSettingsWr
 			value.Auth.Email = email
 		}
 		if credentials.NewPassword != "" {
-			same, err := auth.VerifyPassword(ctx, credentials.NewPassword, value.Auth.PasswordHash)
+			same, err := webauth.VerifyPassword(ctx, credentials.NewPassword, value.Auth.PasswordHash)
 			if err != nil {
 				return PanelSettingsSaveResult{}, err
 			}
 			if !same {
-				value.Auth.PasswordHash, err = auth.HashPassword(ctx, credentials.NewPassword)
+				value.Auth.PasswordHash, err = webauth.HashPassword(ctx, credentials.NewPassword)
 				if err != nil {
 					return PanelSettingsSaveResult{}, err
 				}
@@ -215,7 +216,7 @@ func validatePanelSettings(input PanelSettingsWrite) error {
 		return ErrPanelSettingsInvalid
 	}
 	if p.ExternalOrigin != "" {
-		origin, err := NormalizeOrigin(p.ExternalOrigin)
+		origin, err := webauth.NormalizeOrigin(p.ExternalOrigin)
 		if err != nil || origin != p.ExternalOrigin {
 			return ErrPanelSettingsInvalid
 		}
@@ -231,7 +232,7 @@ func validatePanelSettings(input PanelSettingsWrite) error {
 				return ErrPanelSettingsInvalid
 			}
 		}
-		if credentials.NewPassword != "" && auth.ValidatePassword(credentials.NewPassword) != nil {
+		if credentials.NewPassword != "" && webauth.ValidatePassword(credentials.NewPassword) != nil {
 			return ErrPanelSettingsInvalid
 		}
 	}

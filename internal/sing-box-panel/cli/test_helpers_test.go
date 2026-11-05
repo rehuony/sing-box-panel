@@ -11,10 +11,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/auth"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/settings"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/store"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/testutil"
+	"github.com/rehuony/sing-box-panel/internal/webauth"
 )
 
 func commandSettingsFixture(t *testing.T) string {
@@ -81,7 +81,7 @@ func initialPasswordFromOutput(t *testing.T, output, hash string) string {
 			password = match[1]
 		}
 	}
-	matches, err := auth.VerifyPassword(t.Context(), password, hash)
+	matches, err := webauth.VerifyPassword(t.Context(), password, hash)
 	if err != nil || !matches || strings.Count(output, password) != 1 || strings.Contains(output, hash) {
 		t.Fatal("initial password was not printed exactly once or does not match stored hash", err)
 	}

@@ -11,7 +11,7 @@ and adopts this layout as the split lands.
 - [Panel–node protocol](#panelnode-protocol) and [identity and trust](#identity-and-trust)
 - [State ownership](#state-ownership), [commands and consistency](#commands-and-consistency) and [failure behavior](#failure-behavior)
 - [Telemetry](#telemetry) and [subscriptions](#subscriptions)
-- [Management API and Web UI](#management-api-and-web-ui)
+- [Management API and Web UI](#management-api-and-web-ui) and [node console](#node-console)
 - [Code layout](#code-layout), [packaging](#packaging) and [preserved guarantees](#preserved-guarantees)
 
 ## Services
@@ -19,7 +19,7 @@ and adopts this layout as the split lands.
 | Service | Runs on | Responsibilities | Never does |
 | --- | --- | --- | --- |
 | Panel (`sing-box-panel`) | One host | Web UI and management API; node registry, enrollment and sessions; each node's editable configuration and revisions; the core version catalog and artifact cache; subscription sources, manual nodes, channels, keys, templates, rendering and `/sub` delivery; aggregated metrics, traffic, runtime history and panel logs | Run sing-box, read node hosts' files, fetch anything on a node's behalf except core artifacts |
-| Node (`sing-box-node`) | Every proxy host | One sing-box runtime: verified core installs, configuration check and activation, process supervision and recovery, rollback bundles; host metrics, public IP, read-only filesystem browsing, core logs and traffic counters; reports its host, configuration and runtime state; carries out panel commands | Listen for management connections, serve a Web UI, hold subscription data or administrator credentials |
+| Node (`sing-box-node`) | Every proxy host | One sing-box runtime: verified core installs, configuration check and activation, process supervision and recovery, rollback bundles; host metrics, public IP, read-only filesystem browsing, core logs and traffic counters; reports its host, configuration and runtime state; carries out panel commands; an optional loopback console for its enrollment | Accept connections from its panel or from other hosts, serve the panel's Web UI, hold subscription data or the panel's administrator credentials |
 
 The panel host runs no sing-box. A panel host that should also carry proxy
 traffic runs a node that connects to the panel over loopback, so every host is
@@ -120,11 +120,12 @@ and the token.
 The node generates an Ed25519 key in its data directory (mode 0600) and calls
 `Enroll` with the token, its public key and its platform. The panel stores the
 public key and consumes the token. Enrolling again requires a new code and
-replaces the key. Deleting a node removes its key and closes its session.
+replaces the key. Deleting a node removes its key and closes its session. The
+node's [console](#node-console) can exchange a code too, while the node runs.
 
 **Boundaries.**
 
-- A node has no management listener. Its only local control surface is the sing-box Clash API on loopback.
+- A node accepts no connection from its panel or from other hosts. Its local control surfaces are the sing-box Clash API and, when enabled, its console, both on loopback only.
 - A node validates every command itself. Filesystem browsing stays read-only and non-recursive; artifacts must match the digest the panel supplies; configurations pass `sing-box check` with the exact selected core before activation.
 - The panel sends a node only that node's configuration, artifacts and grants. Subscription tokens, source contents, administrator credentials and other nodes' data never leave the panel.
 - The panel stores node public keys, never node private keys. A compromised node cannot impersonate another node or read panel data.
@@ -145,7 +146,7 @@ replaces the key. Deleting a node removes its key and closes its session.
 | Panel log and operation outcomes | Panel | Node events are recorded with their node ID |
 | Subscriptions: sources, manual nodes, channels, keys, templates, order and visibility | Panel | — |
 | Panel settings, administrator credentials and sessions | Panel | — |
-| Node settings: panel endpoint, trust, data directory and identity key | Node | — |
+| Node settings: panel endpoint, trust, data directory and identity key; console settings and password hash | Node | — |
 
 The panel's configuration for a node is authoritative. The first state report
 of each session carries the configuration of the bundle the node runs, if any;
@@ -221,6 +222,22 @@ OpenAPI remains the authoritative HTTP contract. The Web UI follows
 [`DESIGN.md`](../DESIGN.md)'s node-first shell: a fleet overview, a node
 workspace (dashboard, cores, configuration, logs), subscriptions and settings.
 
+## Node console
+
+A node's console is how an operator on the node host enrolls it without the
+panel CLI's command line: it exchanges an enrollment code, re-enrolls the node
+with a new code, unenrolls it, and shows the node's link with its panel. It
+cannot edit the node's configuration or control its runtime; the panel does
+that. [`api/node-openapi.yaml`](../api/node-openapi.yaml) is its HTTP contract.
+A console Web UI, built from `web/` beside the panel's and embedded only in the
+node binary, follows the contract.
+
+- **Off by default.** `sing-box-node console enable` turns it on and generates a password when there is none; the settings and the password's Argon2id hash sit in `console.json` (mode 0600) in the node's data directory. An enabled console starts with `sing-box-node run`, and a node with an enabled console starts unenrolled and waits to be enrolled from it.
+- **Loopback only.** The console listens only on a loopback IP address, and answers only requests whose `Host` names a loopback host, so a page under another name that resolves to the node cannot reach it. Operators on other machines use an SSH tunnel.
+- **Same protections as the panel.** Login, its rate limits and concurrency bound, same-origin checks and the CSRF token come from the code the panel uses (`internal/webauth`). Sessions live in memory for 12 hours; changing the password ends all of them, and so does restarting the node.
+- **Settings apply at once.** Each request reads the console settings: a new password applies to the next login and a disabled console refuses every request; the listener closes when the node next starts.
+- **Enrollment changes end the session.** The node ends its session, saves the new enrollment and connects to the panel it names; a failed exchange leaves the current enrollment in place. Unenrolling removes the enrollment; the panel shows the node offline until an administrator removes it, and the node's runtime keeps its applied configuration either way.
+
 ## Code layout
 
 `cmd/` holds only each binary's `main.go`. Each service's packages live in
@@ -232,11 +249,12 @@ directory. The services meet only through `internal/nodeapi`.
 ```text
 api/
   openapi.yaml           browser ↔ panel HTTP contract
+  node-openapi.yaml      browser ↔ node console HTTP contract
   proto/                 panel ↔ node buf module (buf.yaml, buf.gen.yaml)
     sbp/node/v1/         package sbp.node.v1
 cmd/
   sing-box-panel/main.go panel entry: CLI, server and embedded Web UI
-  sing-box-node/main.go  node entry: CLI and agent
+  sing-box-node/main.go  node entry: CLI, agent and console
 internal/
   sing-box-panel/        panel service: imports shared packages, never the node
     app/                 the one composition of the panel's services
@@ -251,7 +269,8 @@ internal/
     httpapi/             management API, Web delivery and /sub
     cli/ server/ testutil/
   sing-box-node/         node service: imports shared packages, never the panel
-    agent/               session, handshake, reconnect, command dispatch, state and telemetry reports
+    agent/               enrollment link, session, handshake, reconnect, command dispatch, state and telemetry reports
+    httpapi/             loopback console API: login, enrollment and the link's status
     artifacts/           verified core installs
     runtime/             process supervision, intents, recovery, Clash API monitor
     corelogs/            bounded native process output
@@ -265,6 +284,7 @@ internal/
   procctl/               local service control and lease
   database/              SQLite opening, pragmas and data-directory locks shared by both stores
   logredact/             log redaction applied by both services
+  webauth/               password hashing, login limits, origin and CSRF checks of both management APIs
   installation/ systemd/
 
   Shared domain: both services use these and never import a service
@@ -275,13 +295,13 @@ internal/
 
   layout/                the dependency-rule test over go list
 tools/                   maintainer commands; singbox-support maintains panel Schema assets
-web/                     panel React application
+web/                     panel React application; the node console application joins it
 ```
 
 `internal/layout` enforces the rules over `go list`: `cmd/` holds only the two
 `main` packages, shared packages depend on neither service, each service
 imports the other only through `internal/nodeapi`, and `cmd/sing-box-node`
-embeds neither the Web UI nor Schema assets. Placements
+embeds neither the panel's Web UI nor Schema assets. Placements
 that exist only until each service has its own installer are listed in the
 [architecture guide](architecture.md#package-layout).
 
@@ -296,7 +316,7 @@ that exist only until each service has its own installer are listed in the
 
 The split keeps the documented single-host guarantees and moves each to its
 owner: authenticated management with CSRF and origin checks and login limits on
-the panel; SSRF-safe source acquisition on the panel; exact-version artifact
+the panel and the node console; SSRF-safe source acquisition on the panel; exact-version artifact
 verification on both sides of distribution; immutable checked startup artifacts
 and `sing-box check` before activation on the node; optimistic concurrency for
 configuration and settings writes on the panel; and completed-result responses

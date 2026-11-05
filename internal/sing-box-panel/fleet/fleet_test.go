@@ -159,19 +159,33 @@ func TestNodeSharesTheWebPortAndLosesSessionWhenRemoved(t *testing.T) {
 	if enrolled.NodeID != enrollment.Node.ID || enrolled.Path != basePath || enrolled.Pin == "" {
 		t.Fatalf("enrolled as %+v, want node %q under %s with a pin", enrolled, enrollment.Node.ID, basePath)
 	}
-	if _, err := agent.Enroll(t.Context(), t.TempDir(), enrollment.Code, build); err == nil {
-		t.Fatal("a used enrollment code was accepted again")
+	var rejected *agent.EnrollmentError
+	if _, err := agent.Enroll(t.Context(), t.TempDir(), enrollment.Code, build); !errors.As(err, &rejected) || !rejected.Rejected {
+		t.Fatalf("a used enrollment code: %v, want a rejection", err)
 	}
 
+	link, err := agent.OpenLink(nodeDir, build)
+	if err != nil {
+		t.Fatal(err)
+	}
 	ctx, cancel := context.WithCancel(t.Context())
-	logs := make(chan string, 16)
+	logs := make(chan string, 256)
 	connected := make(chan struct{}, 1)
 	done := make(chan error, 1)
 	go func() {
-		done <- agent.Run(ctx, nodeDir, agent.Options{
-			Build:     build,
-			Logf:      func(format string, args ...any) { logs <- format },
-			Connected: func() { connected <- struct{}{} },
+		done <- agent.Run(ctx, link, agent.Options{
+			Logf: func(format string, args ...any) {
+				select {
+				case logs <- format:
+				default:
+				}
+			},
+			Connected: func() {
+				select {
+				case connected <- struct{}{}:
+				default:
+				}
+			},
 		})
 	}()
 	defer func() {
@@ -204,12 +218,43 @@ func TestNodeSharesTheWebPortAndLosesSessionWhenRemoved(t *testing.T) {
 		select {
 		case line := <-logs:
 			if strings.HasPrefix(line, "session with panel") {
+				reenrollAndUnenroll(t, service, link, connected)
 				return
 			}
 		case <-time.After(10 * time.Second):
 			t.Fatal("removing the node did not end its session")
 		}
 	}
+}
+
+// reenrollAndUnenroll enrolls a running node as another node, as its console
+// does, and then removes its enrollment.
+func reenrollAndUnenroll(t *testing.T, service *fleet.Service, link *agent.Link, connected <-chan struct{}) {
+	t.Helper()
+	enrollment, err := service.AddNode(t.Context(), "edge-2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	status, err := link.Enroll(t.Context(), enrollment.Code)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status.Enrollment == nil || status.Enrollment.NodeID != enrollment.Node.ID || status.State != agent.ConnectionConnecting {
+		t.Fatalf("status after enrolling = %+v", status)
+	}
+	select {
+	case <-connected:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the re-enrolled node did not connect")
+	}
+	waitState(t, service, enrollment.Node.ID, fleet.StateOnline)
+	if status := link.Status(); status.State != agent.ConnectionConnected {
+		t.Fatalf("status after connecting = %+v", status)
+	}
+	if status, err = link.Unenroll(); err != nil || status.State != agent.ConnectionUnenrolled || status.Enrollment != nil {
+		t.Fatalf("unenroll = %+v, %v", status, err)
+	}
+	waitState(t, service, enrollment.Node.ID, fleet.StateOffline)
 }
 
 // rawNode speaks the protocol directly to exercise the panel's checks.

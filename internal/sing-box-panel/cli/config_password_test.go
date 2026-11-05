@@ -12,6 +12,7 @@ import (
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/settings"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/store"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/testutil"
+	"github.com/rehuony/sing-box-panel/internal/webauth"
 )
 
 func TestSetPasswordChangesRunningAuthenticationWithoutRestart(t *testing.T) {
@@ -65,7 +66,7 @@ func TestSetPasswordFieldHashesWithoutExposingValue(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				if matches, err := auth.VerifyPassword(t.Context(), password, value.Auth.PasswordHash); err != nil || !matches {
+				if matches, err := webauth.VerifyPassword(t.Context(), password, value.Auth.PasswordHash); err != nil || !matches {
 					t.Fatal("password not hashed using the backend authentication contract", err)
 				}
 				data, err := os.ReadFile(path)

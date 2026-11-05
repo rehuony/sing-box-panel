@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-package httpapi
+package webauth
 
 import (
 	"net"
@@ -11,10 +11,13 @@ import (
 )
 
 const (
-	loginAttemptLimit   = 5
-	loginAttemptWindow  = time.Minute
+	// LoginAttemptLimit is how many logins one peer or fingerprint may try
+	// within LoginAttemptWindow.
+	LoginAttemptLimit  = 5
+	LoginAttemptWindow = time.Minute
+	// MaxConcurrentLogins bounds the logins that verify a password at once.
+	MaxConcurrentLogins = 2
 	loginGlobalLimit    = 30
-	maxConcurrentLogins = 2
 	maxLoginClients     = 4096
 )
 
@@ -23,10 +26,10 @@ type loginAttempt struct {
 	expiresAt time.Time
 }
 
-// loginLimiter bounds work before reading a body, waiting for settings, or
+// LoginLimiter bounds work before reading a body, waiting for settings, or
 // hashing a password. Fingerprints are untrusted supplementary signals, never
 // replacements for the peer and process-wide budgets. State is memory-only.
-type loginLimiter struct {
+type LoginLimiter struct {
 	mu          sync.Mutex
 	entries     map[string]loginAttempt
 	global      loginAttempt
@@ -35,23 +38,25 @@ type loginLimiter struct {
 	now         func() time.Time
 }
 
-func newLoginLimiter() *loginLimiter {
-	return &loginLimiter{entries: make(map[string]loginAttempt), now: time.Now}
+// NewLoginLimiter returns a limiter that reads the time from now.
+func NewLoginLimiter(now func() time.Time) *LoginLimiter {
+	return &LoginLimiter{entries: make(map[string]loginAttempt), now: now}
 }
 
-// begin atomically consumes the peer/global budgets and reserves a work slot.
-// Rejected traffic from an exhausted peer cannot consume other peers' budget.
-func (limiter *loginLimiter) begin(client string) (bool, time.Duration) {
+// Begin atomically consumes the peer and global budgets and reserves a work
+// slot, which Finish releases. Rejected traffic from an exhausted peer
+// cannot consume other peers' budget.
+func (limiter *LoginLimiter) Begin(client string) (bool, time.Duration) {
 	limiter.mu.Lock()
 	defer limiter.mu.Unlock()
 	now := limiter.now()
 	if !limiter.global.expiresAt.After(now) {
-		limiter.global = loginAttempt{expiresAt: now.Add(loginAttemptWindow)}
+		limiter.global = loginAttempt{expiresAt: now.Add(LoginAttemptWindow)}
 	}
 	if limiter.global.attempts >= loginGlobalLimit {
 		return false, limiter.global.expiresAt.Sub(now)
 	}
-	if limiter.inFlight >= maxConcurrentLogins {
+	if limiter.inFlight >= MaxConcurrentLogins {
 		return false, time.Second
 	}
 	if allowed, retry := limiter.consumeLocked("peer:"+client, now); !allowed {
@@ -62,13 +67,15 @@ func (limiter *loginLimiter) begin(client string) (bool, time.Duration) {
 	return true, 0
 }
 
-func (limiter *loginLimiter) finish() {
+func (limiter *LoginLimiter) Finish() {
 	limiter.mu.Lock()
 	limiter.inFlight--
 	limiter.mu.Unlock()
 }
 
-func (limiter *loginLimiter) fingerprint(value string) (bool, time.Duration) {
+// Fingerprint consumes the budget of a client-supplied fingerprint; an empty
+// fingerprint has none.
+func (limiter *LoginLimiter) Fingerprint(value string) (bool, time.Duration) {
 	if value == "" {
 		return true, 0
 	}
@@ -78,23 +85,23 @@ func (limiter *loginLimiter) fingerprint(value string) (bool, time.Duration) {
 }
 
 // consumeLocked never evicts a live entry to admit an attacker-controlled key.
-func (limiter *loginLimiter) consumeLocked(key string, now time.Time) (bool, time.Duration) {
+func (limiter *LoginLimiter) consumeLocked(key string, now time.Time) (bool, time.Duration) {
 	if !limiter.nextCleanup.After(now) {
 		for key, attempt := range limiter.entries {
 			if !attempt.expiresAt.After(now) {
 				delete(limiter.entries, key)
 			}
 		}
-		limiter.nextCleanup = now.Add(loginAttemptWindow)
+		limiter.nextCleanup = now.Add(LoginAttemptWindow)
 	}
 	attempt, exists := limiter.entries[key]
 	if !exists && len(limiter.entries) >= maxLoginClients {
 		return false, limiter.nextCleanup.Sub(now)
 	}
 	if !attempt.expiresAt.After(now) {
-		attempt = loginAttempt{expiresAt: now.Add(loginAttemptWindow)}
+		attempt = loginAttempt{expiresAt: now.Add(LoginAttemptWindow)}
 	}
-	if attempt.attempts >= loginAttemptLimit {
+	if attempt.attempts >= LoginAttemptLimit {
 		return false, attempt.expiresAt.Sub(now)
 	}
 	attempt.attempts++
@@ -102,7 +109,9 @@ func (limiter *loginLimiter) consumeLocked(key string, now time.Time) (bool, tim
 	return true, 0
 }
 
-func loginClient(remoteAddress string) string {
+// LoginClient is the peer a login is charged to: its address, or its /64
+// network for IPv6. Forwarded headers are never trusted.
+func LoginClient(remoteAddress string) string {
 	host := strings.TrimSpace(remoteAddress)
 	if parsed, _, err := net.SplitHostPort(host); err == nil {
 		host = parsed

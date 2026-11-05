@@ -22,7 +22,7 @@ import (
 // EnrollmentFile in the data directory holds the node's enrollment.
 const EnrollmentFile = "enrollment.json"
 
-var ErrNotEnrolled = errors.New("this node is not enrolled; run sing-box-node enroll --code <code> first")
+var ErrNotEnrolled = errors.New("this node is not enrolled; run sing-box-node enroll --code <code>, or enable the console with sing-box-node console enable and enroll from it")
 
 // Enrollment is the panel a node is enrolled with and the node's identity
 // key. The key never leaves the node.
@@ -111,4 +111,13 @@ func Save(dataDir string, enrollment Enrollment) error {
 		return err
 	}
 	return atomicfile.Write(filepath.Join(dataDir, EnrollmentFile), append(raw, '\n'), 0o600, atomicfile.Options{})
+}
+
+// Remove deletes the enrollment in dataDir, if any.
+func Remove(dataDir string) error {
+	err := os.Remove(filepath.Join(dataDir, EnrollmentFile))
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("remove the enrollment: %w", err)
+	}
+	return atomicfile.SyncDir(dataDir)
 }

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/store"
+	"github.com/rehuony/sing-box-panel/internal/webauth"
 )
 
 const SessionLifetime = 7 * 24 * time.Hour
@@ -59,7 +60,7 @@ func (app *Sessions) withCredentials(ctx context.Context, action func(email, pas
 func (app *Sessions) Login(ctx context.Context, input LoginInput, previous string) (result AuthSession, err error) {
 	err = app.withCredentials(ctx, func(adminEmail, passwordHash string) error {
 		email, emailErr := NormalizeEmail(input.Email)
-		matches, err := VerifyPassword(ctx, input.Password, passwordHash)
+		matches, err := webauth.VerifyPassword(ctx, input.Password, passwordHash)
 		if err != nil {
 			return err
 		}

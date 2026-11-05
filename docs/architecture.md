@@ -26,7 +26,7 @@ services, protocol and package layout are in
 | `cmd/sing-box-panel/` | The panel binary's `main.go`, which joins the CLI, the server and the embedded Web assets |
 | `cmd/sing-box-node/` | The node binary's `main.go` |
 | `internal/` | Every package, and the only `internal` directory: the panel's packages in `internal/sing-box-panel/`, the node's in `internal/sing-box-node/` and shared packages beside them |
-| `api/` | Contracts only: the management HTTP contract (`openapi.yaml`) and the panel–node protobuf module (`proto/`, with its `buf.yaml` and `buf.gen.yaml`; package `sbp.node.v1`) |
+| `api/` | Contracts only: the panel's management HTTP contract (`openapi.yaml`), the node console's HTTP contract (`node-openapi.yaml`) and the panel–node protobuf module (`proto/`, with its `buf.yaml` and `buf.gen.yaml`; package `sbp.node.v1`) |
 | `web/` | The panel's React application and the `webui` package that embeds its production build |
 | `tools/` | Maintainer commands run through `go tool`: sing-box support generation, release signing, third-party notices and OpenAPI verification |
 | `scripts/` | Installer, isolated release build and native release and core contract tests |
@@ -73,9 +73,11 @@ nothing imports.
 | | `coreartifact` | Immutable identities of installable sing-box artifacts |
 | | `singbox` | Reviewed exact-version support catalog and runtime compatibility; exact versions are catalog data, not forwarding packages |
 | | `nodeapi` | Generated `sbp.node.v1` protocol code, the protocol version, the session proof and the enrollment code format |
-| Node (`internal/sing-box-node/`) | `cli` | The node's command tree: `enroll` and `run` |
-| | `settings` | The node's data directory and its enrollment: panel endpoint, trust, IDs and the Ed25519 identity key |
-| | `agent` | Enrollment and the authenticated session with the panel, with reconnection, and the command executor with its idempotent results; the node only dials out |
+| | `webauth` | What both management APIs share: Argon2id password hashing, login admission with its rate limits and deadline, same-origin and CSRF checks, and security headers |
+| Node (`internal/sing-box-node/`) | `cli` | The node's command tree: `enroll`, `run` and `console` |
+| | `settings` | The node's data directory, its enrollment (panel endpoint, trust, IDs and the Ed25519 identity key) and its console settings |
+| | `agent` | Enrollment, the link that holds it with the session's state, the authenticated session with the panel, with reconnection, and the command executor with its idempotent results; the node only dials out |
+| | `httpapi` | The loopback console API: password login, the link's status, enrollment and unenrollment |
 | | `store` | Node SQLite: received configuration revisions, installed cores, checked startup artifacts, activation bundles, runtime intents, observations and history, and command results |
 | | `service` | The node's use cases: core installs, checks and activation, process supervision and recovery, core logs, filesystem selection and the public IP hint |
 | | `artifacts` | Verification and publication of immutable installed core files |
@@ -83,7 +85,7 @@ nothing imports.
 | | `corelogs` | Bounded, private, sanitized native process output |
 | | `host` | Host-wide metrics, the bounded public IP hint and read-only, non-recursive filesystem selection |
 | Panel (`internal/sing-box-panel/`) | `store` | Panel SQLite: the baseline schema, each node's configuration and revisions, the cached core archives, subscription state and operational records |
-| | `auth` | Administrator credential hashing and login sessions |
+| | `auth` | The administrator's email and login sessions |
 | | `settings` | The panel settings file and its service: validation, defaults, atomic saves and recovery, change notification, backup export and restore |
 | | `telemetry` | The panel log and operation outcomes, metrics and runtime history, each node's traffic periods and quota, the dashboard projection |
 | | `corecache` | Upstream catalog discovery, staged core uploads and the verified archive cache that nodes install from |
@@ -113,7 +115,7 @@ Production imports between the module's packages, as reported by
 
 ```text
 atomicfile, buildinfo, console, coreartifact, database, jsonstrict, procctl,
-release, singbox, node:host                   (no module imports)
+release, singbox, webauth, node:host          (no module imports)
 
 configuration      -> jsonstrict
 logredact          -> jsonstrict
@@ -126,16 +128,19 @@ node:store         -> configuration, coreartifact, database, jsonstrict
 node:service       -> configuration, coreartifact, database, jsonstrict,
                       node:artifacts, node:corelogs, node:host, node:runtime,
                       node:store
-node:settings      -> atomicfile, jsonstrict, nodeapi
+node:settings      -> atomicfile, jsonstrict, nodeapi, webauth
 node:agent         -> buildinfo, coreartifact, nodeapi, procctl, node:artifacts,
                       node:corelogs, node:host, node:service, node:settings,
                       node:store
-node:cli           -> buildinfo, nodeapi, node:agent, node:settings
+node:httpapi       -> buildinfo, jsonstrict, nodeapi, node:agent, node:settings,
+                      webauth
+node:cli           -> buildinfo, nodeapi, node:agent, node:httpapi,
+                      node:settings, webauth
 
 panel:store        -> configuration, database, jsonstrict, logredact
-panel:auth         -> panel:store
+panel:auth         -> panel:store, webauth
 panel:settings     -> atomicfile, database, jsonstrict, nodeapi, panel:auth,
-                      panel:store
+                      panel:store, webauth
 panel:telemetry    -> database, panel:settings, panel:store
 panel:schema       -> coreartifact, singbox
 panel:corecache    -> atomicfile, coreartifact, jsonstrict, panel:settings,
@@ -144,22 +149,22 @@ panel:nodeconfig   -> configuration, panel:corecache, panel:schema, panel:store
 panel:subscription -> configuration, coreartifact, database, jsonstrict,
                       panel:schema, panel:settings, panel:store,
                       panel:telemetry, singbox
-panel:fleet        -> atomicfile, buildinfo, database, nodeapi, panel:corecache,
-                      panel:nodeconfig, panel:settings, panel:store,
-                      panel:telemetry
+panel:fleet        -> atomicfile, buildinfo, configuration, database, nodeapi,
+                      panel:corecache, panel:nodeconfig, panel:settings,
+                      panel:store, panel:telemetry
 panel:app          -> buildinfo, panel:auth, panel:corecache, panel:fleet,
                       panel:nodeconfig, panel:settings, panel:store,
                       panel:subscription, panel:telemetry
 panel:httpapi      -> buildinfo, configuration, coreartifact, jsonstrict,
                       panel:app, panel:auth, panel:corecache, panel:fleet,
                       panel:nodeconfig, panel:schema, panel:settings,
-                      panel:store, panel:subscription, panel:telemetry
+                      panel:store, panel:subscription, panel:telemetry, webauth
 panel:installation -> database, jsonstrict, procctl, panel:fleet,
                       panel:settings, panel:store
 panel:systemd      -> atomicfile, database, panel:installation, panel:settings
 panel:cli          -> buildinfo, console, procctl, selfupdate, panel:app,
-                      panel:auth, panel:fleet, panel:installation,
-                      panel:settings, panel:store, panel:systemd
+                      panel:fleet, panel:installation, panel:settings,
+                      panel:store, panel:systemd, webauth
 panel:server       -> buildinfo, console, procctl, panel:app, panel:corecache,
                       panel:fleet, panel:httpapi, panel:installation,
                       panel:settings, panel:store, panel:subscription,
@@ -182,7 +187,7 @@ outcome.
 `internal/layout` enforces the layout over `go list`: `cmd/` holds only the two
 `main` packages, shared packages depend on neither service, neither service
 imports the other's packages, and `sing-box-node` neither depends on the panel
-nor embeds the Web application.
+nor embeds the panel's Web application.
 `configuration` imports neither `singbox` nor the panel Schema. The panel `cli`
 opens `store`, `settings` and `installation` directly for local maintenance,
 manages nodes through `app`, and starts the server through a function supplied
@@ -454,6 +459,8 @@ HTTP/1 login responses close their connection so rejected requests cannot keep
 it occupied draining an unread body. HTTP/2 reuses the connection with per-stream
 read/write deadlines. These controls bound application authentication work; ingress
 connection/traffic floods still require network or reverse-proxy controls.
+The admission, limits and deadlines live in `internal/webauth`, and the node
+console applies the same ones to its password login.
 
 Management Bearer authentication is removed. Automation uses the same login endpoint
 with JSON and an `Origin`, retains the Cookie, then supplies `X-CSRF-Token` and
