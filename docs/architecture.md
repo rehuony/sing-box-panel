@@ -36,8 +36,8 @@ services, protocol and package layout are in
 `web/` is a Go package at the root because Go embedding cannot read files
 from a parent directory. Other embedded assets live in the package that owns
 them: subscription templates in `internal/sing-box-panel/subscription`,
-the configuration field order in `internal/configuration`, systemd templates in
-`internal/sing-box-panel/systemd` and Schema assets in
+the configuration field order in `internal/configuration`, each service's systemd
+templates in `internal/sing-box-panel/systemd` and `internal/sing-box-node/systemd`, and Schema assets in
 `internal/sing-box-panel/schema`. The Web editor reads the templates and
 field order from the same files.
 
@@ -54,9 +54,9 @@ ownership visible inside a cohesive package.
 
 The panel runs no sing-box: `fleet` sends each command to the node's session
 and maps its result to the management API's views, and the node's `service`
-package runs the core. The panel's `installation` and `systemd` packages
-maintain only the panel's files and unit until each service gets its own
-installer component and unit.
+package runs the core. Each service has its own systemd unit: the shared
+`systemd` package runs the lifecycle, and each service's `systemd` package
+supplies its templates and the state that identifies an installation.
 `tools/singbox-support` maintains the panel's Schema assets and inbound
 conversion catalog and so imports panel packages; tools are programs that
 nothing imports.
@@ -73,11 +73,14 @@ nothing imports.
 | | `coreartifact` | Immutable identities of installable sing-box artifacts |
 | | `singbox` | Reviewed exact-version support catalog and runtime compatibility; exact versions are catalog data, not forwarding packages |
 | | `nodeapi` | Generated `sbp.node.v1` protocol code, the protocol version, the session proof and the enrollment code format |
+| | `systemd` | One service's Linux systemd lifecycle over its definition: audited unit rendering, install, uninstall, status, control and logs, the dedicated system account and its ownership of the service's files |
+| | `pathguard` | Symlink-resolving containment and refusal of roots, homes and shared system directories, for directories a service owns, cleans, moves or binds |
 | | `webauth` | What both management APIs share: Argon2id password hashing, login admission with its rate limits and deadline, same-origin and CSRF checks, and security headers |
-| Node (`internal/sing-box-node/`) | `cli` | The node's command tree: `enroll`, `run` and `console` |
+| Node (`internal/sing-box-node/`) | `cli` | The node's command tree: `enroll`, `run`, `console` and `systemd` |
 | | `settings` | The node's data directory, its enrollment (panel endpoint, trust, IDs and the Ed25519 identity key) and its console settings |
 | | `agent` | Enrollment, the link that holds it with the session's state, the authenticated session with the panel, with reconnection, and the command executor with its idempotent results; the node only dials out |
 | | `httpapi` | The loopback console API: password login, the link's status, enrollment and unenrollment |
+| | `systemd` | The node's unit templates and its data directory as the state of its systemd installation, which must hold an enrollment or an enabled console before it starts |
 | | `store` | Node SQLite: received configuration revisions, installed cores, checked startup artifacts, activation bundles, runtime intents, observations and history, and command results |
 | | `service` | The node's use cases: core installs, checks and activation, process supervision and recovery, core logs, filesystem selection and the public IP hint |
 | | `artifacts` | Verification and publication of immutable installed core files |
@@ -95,7 +98,8 @@ nothing imports.
 | | `fleet` | The node registry, enrollment codes, the TLS identity nodes pin, the node gRPC service sharing the Web port under the base path, authenticated node sessions, the typed commands sent over them and the short-lived grants under which nodes fetch cached archives |
 | | `app` | The one composition of the panel's services over a store and a settings file, used by the server and the transport tests |
 | | `httpapi` | The management API, Web delivery and subscription output over `app.Services` |
-| | `installation`, `systemd` | Inspection, moves and removal of the panel's persistent files; the Linux systemd lifecycle used by the CLI |
+| | `installation` | Inspection, moves and removal of the panel's persistent files |
+| | `systemd` | The panel's unit templates and its settings file as the state of its systemd installation: data directory, created settings, owned sidecars and pending data moves |
 | | `cli`, `server` | The panel's command tree; the server lifecycle around the composed services, the node listener and the HTTP server |
 | | `testutil` | Fixtures shared by panel tests |
 
@@ -114,13 +118,14 @@ Production imports between the module's packages, as reported by
 `internal/sing-box-node/`:
 
 ```text
-atomicfile, buildinfo, console, coreartifact, database, jsonstrict, procctl,
-release, singbox, webauth, node:host          (no module imports)
+atomicfile, buildinfo, console, coreartifact, database, jsonstrict, pathguard,
+procctl, release, singbox, webauth, node:host (no module imports)
 
 configuration      -> jsonstrict
 logredact          -> jsonstrict
 nodeapi            -> jsonstrict
 selfupdate         -> atomicfile, release
+systemd            -> atomicfile, database, pathguard
 node:artifacts     -> atomicfile, coreartifact
 node:runtime       -> atomicfile, coreartifact, singbox
 node:corelogs      -> logredact
@@ -134,8 +139,9 @@ node:agent         -> buildinfo, coreartifact, nodeapi, procctl, node:artifacts,
                       node:store
 node:httpapi       -> buildinfo, jsonstrict, nodeapi, node:agent, node:settings,
                       webauth
+node:systemd       -> node:settings, systemd
 node:cli           -> buildinfo, nodeapi, node:agent, node:httpapi,
-                      node:settings, webauth
+                      node:settings, node:systemd, systemd, webauth
 
 panel:store        -> configuration, database, jsonstrict, logredact
 panel:auth         -> panel:store, webauth
@@ -159,12 +165,13 @@ panel:httpapi      -> buildinfo, configuration, coreartifact, jsonstrict,
                       panel:app, panel:auth, panel:corecache, panel:fleet,
                       panel:nodeconfig, panel:schema, panel:settings,
                       panel:store, panel:subscription, panel:telemetry, webauth
-panel:installation -> database, jsonstrict, procctl, panel:fleet,
+panel:installation -> database, jsonstrict, pathguard, procctl, panel:fleet,
                       panel:settings, panel:store
-panel:systemd      -> atomicfile, database, panel:installation, panel:settings
-panel:cli          -> buildinfo, console, procctl, selfupdate, panel:app,
-                      panel:fleet, panel:installation, panel:settings,
-                      panel:store, panel:systemd, webauth
+panel:systemd      -> panel:installation, panel:settings, systemd
+panel:cli          -> buildinfo, console, pathguard, procctl, selfupdate,
+                      panel:app, panel:fleet, panel:installation,
+                      panel:settings, panel:store, panel:systemd, systemd,
+                      webauth
 panel:server       -> buildinfo, console, procctl, panel:app, panel:corecache,
                       panel:fleet, panel:httpapi, panel:installation,
                       panel:settings, panel:store, panel:subscription,

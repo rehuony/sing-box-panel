@@ -51,18 +51,20 @@ ldflags="-s -w -X=github.com/rehuony/sing-box-panel/internal/buildinfo.version=$
 go_path="$(go env GOPATH)"
 go_module_cache="$(go env GOMODCACHE)"
 go_build_cache="$(go env GOCACHE)"
-for target_architecture in amd64 arm64; do
-  printf '[release contract] build linux/%s test candidate\n' "${target_architecture}"
-  env CGO_ENABLED=0 GOOS=linux GOARCH="${target_architecture}" \
-    GOAMD64=v1 GOARM64=v8.0 GOENV=off GOEXPERIMENT= GOFIPS140=off \
-    GOPATH="${go_path}" GOMODCACHE="${go_module_cache}" GOCACHE="${go_build_cache}" \
-    GOFLAGS=-mod=readonly GOTOOLCHAIN=local GOWORK=off \
-    go build -buildvcs=false -trimpath -ldflags="${ldflags}" \
-      -o "${release_dir}/sing-box-panel-linux-${target_architecture}" ./cmd/sing-box-panel
+for command in sing-box-panel sing-box-node; do
+  for target_architecture in amd64 arm64; do
+    printf '[release contract] build %s linux/%s test candidate\n' "${command}" "${target_architecture}"
+    env CGO_ENABLED=0 GOOS=linux GOARCH="${target_architecture}" \
+      GOAMD64=v1 GOARM64=v8.0 GOENV=off GOEXPERIMENT= GOFIPS140=off \
+      GOPATH="${go_path}" GOMODCACHE="${go_module_cache}" GOCACHE="${go_build_cache}" \
+      GOFLAGS=-mod=readonly GOTOOLCHAIN=local GOWORK=off \
+      go build -buildvcs=false -trimpath -ldflags="${ldflags}" \
+        -o "${release_dir}/${command}-linux-${target_architecture}" "./cmd/${command}"
+  done
 done
 (
   cd -- "${release_dir}"
-  sha256sum sing-box-panel-linux-amd64 sing-box-panel-linux-arm64 >SHA256SUMS
+  sha256sum sing-box-panel-linux-amd64 sing-box-panel-linux-arm64 sing-box-node-linux-amd64 sing-box-node-linux-arm64 >SHA256SUMS
 )
 go tool sign-release sign \
   --private-key "${test_root}/private.pem" --public-key "${test_root}/public-key" \

@@ -19,7 +19,7 @@ import (
 
 	"github.com/rehuony/sing-box-panel/internal/procctl"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/store"
-	panelSystemd "github.com/rehuony/sing-box-panel/internal/sing-box-panel/systemd"
+	"github.com/rehuony/sing-box-panel/internal/systemd"
 )
 
 func TestSystemPruneWaitsForPanelAndCoreShutdown(t *testing.T) {
@@ -83,7 +83,7 @@ func TestSystemPruneWaitsForPanelAndCoreShutdown(t *testing.T) {
 			control.Ready("fixture")
 			var stdout, stderr bytes.Buffer
 			root := NewRootCommand(Dependencies{CleanupHistoryPath: testHistoryPath(t), Stdout: &stdout, Stderr: &stderr,
-				Systemd: &fakeSystemdService{err: panelSystemd.ErrUnsupportedOS}})
+				Systemd: &fakeSystemdService{err: systemd.ErrUnsupportedOS}})
 			root.SetArgs([]string{"system", "prune", "-c", path, "--yes"})
 			ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 			defer cancel()

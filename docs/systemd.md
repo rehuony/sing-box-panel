@@ -1,40 +1,60 @@
 # systemd packaging
 
-The unit, sysusers and tmpfiles templates in
+The panel and each node run as their own systemd service. Their unit, sysusers
+and tmpfiles templates in
 [`internal/sing-box-panel/systemd/templates`](../internal/sing-box-panel/systemd/templates)
+and [`internal/sing-box-node/systemd/templates`](../internal/sing-box-node/systemd/templates)
 are packaging inputs. CI validates source, build behavior, and generated units with `systemd-analyze verify`;
 ordinary tests never create OS users or enable services. The explicitly opted-in
 container test described below verifies real account creation and removal.
 
-The binary also exposes the same templates through `sing-box-panel systemd`.
-Those commands are Linux-only and never invoke a shell. Every systemd scope is
-reported in command output; `--scope=auto` resolves to `system` for root and to
-`user` otherwise.
+Each binary exposes its own templates through its `systemd` command group:
+`sing-box-panel systemd` and `sing-box-node systemd`, with the same `install`,
+`uninstall`, `status`, `start`, `stop`, `restart` and `logs` commands. Both
+run one shared lifecycle, `internal/systemd`; what differs is each service's
+state. The panel's state is its settings file, named by `--config` in the unit's
+`ExecStart`, and the settings select its data directory. The node's state is its
+data directory itself, named by `--data-dir`, which holds its enrollment,
+console settings, `node.db` and installed cores. Those commands are Linux-only
+and never invoke a shell. Every systemd scope is reported in command output;
+`--scope=auto` resolves to `system` for root and to `user` otherwise.
 
-Units invoke `server start` in the foreground and set
+The panel's units invoke `server start` in the foreground and set
 `SING_BOX_PANEL_SUPERVISOR=systemd` to identify the panel's service owner.
 Manual terminal runs do not set that marker. They remain stoppable through
 `server stop` even when the terminal inherited a generic systemd invocation
-environment; the service itself is stopped through `systemd stop`.
+environment; the service itself is stopped through `systemd stop`. The node's
+units invoke `sing-box-node --data-dir DIR run`.
 
 ```sh
-# Dedicated system service, initially using the default data directory.
+# Dedicated system services, initially using the default data directories.
 sudo /usr/local/bin/sing-box-panel systemd install --scope=system --now
+sudo /usr/local/bin/sing-box-node systemd install --scope=system --now
 
-# Ordinary per-user service. The current executable, settings path, and data
+# Ordinary per-user services. The current executable, state path, and data
 # directory are rendered according to each directive's parsing rules.
 sing-box-panel systemd install --scope=user --now
+sing-box-node systemd install --scope=user --now
 ```
 
 The built-in systemd installer writes to `/etc/systemd/system`,
 `/etc/sysusers.d`, and `/etc/tmpfiles.d`; distro packages should continue to
-use the `/usr/lib` destinations below. System scope requires root and the
-executable `/usr/local/bin/sing-box-panel` and settings
-`/etc/sing-box-panel/setting.json`. Data defaults to `/var/lib/sing-box-panel`;
+use the `/usr/lib` destinations below. System scope requires root and fixes the
+executable and state: `/usr/local/bin/sing-box-panel` with settings
+`/etc/sing-box-panel/setting.json`, and `/usr/local/bin/sing-box-node` with data
+in `/var/lib/sing-box-node`. Panel data defaults to `/var/lib/sing-box-panel`;
 a configured dedicated directory is rendered into the unit and tmpfiles rule. It creates
 the dedicated account/directories, assigns ownership of the
-settings and data paths, reloads systemd, and enables the unit. User scope
+state and data paths, reloads systemd, and enables the unit. User scope
 writes only the current user's XDG systemd unit.
+
+A node service started with `--now`, or started later, needs a node that can
+run: one that is enrolled, or whose [console](panel-node-architecture.md#node-console)
+is enabled so it can be enrolled from there. Installation checks this before
+writing anything. Commands an administrator runs as root against a node's data
+directory, such as `sudo sing-box-node enroll` or `sudo sing-box-node console
+enable`, keep the files they write owned by the data directory's owner, so the
+`sing-box-node` account can still read them.
 
 Before writing files, installation checks required commands, manager access,
 permissions, paths, pending migrations and conflicting service files. It creates
@@ -48,10 +68,10 @@ write access to the directory itself, not to an otherwise shared parent.
 when required; the CLI never runs a package manager. `systemd-analyze` is a test
 and CI dependency, not a runtime requirement.
 
-When settings are created, the CLI prints the same aligned URL, email, initial
+When the panel's settings are created, the CLI prints the same aligned URL, email, initial
 password and paths as `config init` and `server start`, even if later service
 activation fails. Existing settings do not regenerate or redisplay a password.
-To recover access to a system service, run:
+To recover access to the panel's system service, run:
 
 ```sh
 sudo /usr/local/bin/sing-box-panel --config /etc/sing-box-panel/setting.json config set auth.password --stdin < ./password.txt
@@ -81,8 +101,9 @@ Start/restart read the exact managed destinations rather than the full resource
 inventory; inaccessible unrelated systemd directories do not block control.
 `system df` still reports inspection failures and the partial inventory.
 
-The ownership marker embedded in installed files remains stable across CLI
-renames so existing managed units stay recognizable.
+The ownership marker embedded in installed files, `# Managed by NAME system
+install.`, remains stable across CLI renames so existing managed units stay
+recognizable.
 
 `systemd uninstall` verifies the loaded state, stops active services, then disables
 the exact scope and removes only files
@@ -99,9 +120,9 @@ Even when all installed files are missing, uninstall checks the manager: a cache
 running unit must have a matching fragment path and stop successfully before
 uninstall can succeed. An absent inactive unit requires no changes.
 
-The `sing-box-panel` name is reserved for the installer's dedicated identity:
-the sysusers description, `/var/lib/sing-box-panel` home, `/usr/sbin/nologin`
-shell, and private non-root UID/GID must match. Installation reuses a matching
+Each service's name, `sing-box-panel` or `sing-box-node`, is reserved for its
+installer's dedicated identity: the sysusers description, `/var/lib/NAME` home,
+`/usr/sbin/nologin` shell, and private non-root UID/GID must match. Installation reuses a matching
 account and refuses unrelated or shared identities before preparing resources.
 Removal additionally requires the exact installer-owned sysusers declaration;
 this also recognizes accounts created by earlier versions. A missing declaration
@@ -117,8 +138,8 @@ sudo /usr/local/bin/sing-box-panel systemd uninstall --scope=system --keep-user
 ```
 
 Account cleanup requires `getent`, `chown`, `userdel`, and `groupdel` when needed.
-Before stopping the service, it verifies that the loaded settings are known and
-match the installed configuration. Nonempty drop-ins, unresolved settings, and
+Before stopping the service, it verifies that the loaded state path is known and
+matches the installed one. Nonempty drop-ins, unresolved settings, and
 `NeedDaemonReload=yes` block account removal; resolve them first or use
 `--keep-user`. The effective configuration and stopped state are checked again
 before ownership transfer. Disabling a unit refreshes systemd's enablement state
@@ -130,11 +151,11 @@ Inactive orphaned installer files can still be removed
 when their retained paths can be determined.
 
 For a pre-existing `NeedDaemonReload=yes`, inspect the unit with
-`systemctl cat sing-box-panel.service`, review its configuration, then run
+`systemctl cat NAME.service`, review its configuration, then run
 `systemctl daemon-reload` before retrying. Diagnostics include these commands
-and distinguish stale state from an unknown or mismatched settings path.
+and distinguish stale state from an unknown or mismatched state path.
 
-Settings writers and database owners are excluded with the existing locks. Before
+The panel's settings writers and both services' database owners are excluded with the existing locks. Before
 any ownership transfer, the installer checks `/proc` thread credentials for the
 service UID/GID, including supplementary groups. Busy or uninspectable processes
 abort cleanup; unrelated processes are never killed. This check does not depend
@@ -149,17 +170,17 @@ sysusers declaration. Repeated uninstall reports absent accounts as absent;
 failed inspection is unknown, not evidence of absence. A retry tolerates an
 already removed user or private group.
 Reinstalling creates the account again and restores its ownership of retained data.
-Only the settings directory and known default, configured, installed and migration
-data roots are reclaimed; manually assigned ownership elsewhere is outside this
-lifecycle. Keep the account when external resources still depend on its UID/GID.
+Only the panel's settings directory and each service's known default, configured,
+installed and migration data roots are reclaimed; manually assigned ownership
+elsewhere is outside this lifecycle. Keep the account when external resources still depend on its UID/GID.
 Unresolvable or unsafe data locations must be repaired, or use `--keep-user`.
 
 `systemd status` reports systemd's fragment path, state, and
-`NeedDaemonReload`, plus two on-disk facts labeled as such: the `--config`
-path in the single effective `[Service] ExecStart` line of the unit file on
-disk, and the data directory, database, and configuration storage declared by
-that settings file as it exists now. The CLI's own `--config` path is listed
-separately. Drop-in overrides, unreadable units, several effective commands, or
+`NeedDaemonReload`, plus on-disk facts labeled as such: the state path in the
+single effective `[Service] ExecStart` line of the unit file on disk (the
+panel's `--config`, the node's `--data-dir`) and, for the panel, the data
+directory, database, and configuration storage declared by that settings file
+as it exists now. The panel CLI's own `--config` path is listed separately. Drop-in overrides, unreadable units, several effective commands, or
 unresolved specifiers leave the unit-file settings path unknown rather than
 guessed, a unit edited after loading is flagged stale, and the running
 process's settings are never inspected or claimed. `systemd logs --lines N
@@ -167,29 +188,35 @@ process's settings are never inspected or claimed. `systemd logs --lines N
 
 ## System service
 
-The system template runs as the dedicated `sing-box-panel` user with
+The panel's system template runs as the dedicated `sing-box-panel` user with an
+empty `CapabilityBoundingSet` and `AmbientCapabilities`: the panel runs no
+sing-box and reads no certificate files. `ProtectSystem=strict`,
+`ProtectHome=true`, `NoNewPrivileges=true`, `ProtectProc=invisible` and the
+other sandbox restrictions stay enabled.
+
+The node's system template runs as the dedicated `sing-box-node` user with
 `CAP_DAC_READ_SEARCH` in both `CapabilityBoundingSet` and `AmbientCapabilities`.
-This allows the panel and its child core process to read root-owned certificate
+This allows the node and its child core process to read root-owned certificate
 files and traverse their directories without changing certificate owners or modes.
 The capability applies throughout the service's visible filesystem, not just
 `/etc/letsencrypt`; it does not bypass normal file-write permission checks.
-`ProtectSystem=strict`, `ProtectHome=true`, `NoNewPrivileges=true` and the other
-sandbox restrictions remain enabled. Hidden paths and mandatory access controls
-can still deny access. See [Linux capabilities](https://man7.org/linux/man-pages/man7/capabilities.7.html)
+The same sandbox restrictions remain enabled. Hidden paths and mandatory access
+controls can still deny access. See [Linux capabilities](https://man7.org/linux/man-pages/man7/capabilities.7.html)
 and [systemd execution settings](https://github.com/systemd/systemd/blob/main/man/systemd.exec.xml).
-A packager should install the following templates, relative to the templates
-directory above:
+A packager should install the following templates, relative to each service's
+templates directory above:
 
 | Source | Destination |
 | --- | --- |
-| `system/sing-box-panel.service` | `/usr/lib/systemd/system/sing-box-panel.service` |
-| `sysusers.d/sing-box-panel.conf` | `/usr/lib/sysusers.d/sing-box-panel.conf` |
-| `tmpfiles.d/sing-box-panel.conf` | `/usr/lib/tmpfiles.d/sing-box-panel.conf` |
+| `system/NAME.service` | `/usr/lib/systemd/system/NAME.service` |
+| `sysusers.d/NAME.conf` | `/usr/lib/sysusers.d/NAME.conf` |
+| `tmpfiles.d/NAME.conf` | `/usr/lib/tmpfiles.d/NAME.conf` |
 
-After creating the account and directories with the host's normal packaging
-tools, initialize `/etc/sing-box-panel/setting.json`. The runtime user must be
-able to atomically replace that file and create private lock/recovery sidecars
-in its directory, while no other user should be able to read its credentials:
+For the panel, after creating the account and directories with the host's
+normal packaging tools, initialize `/etc/sing-box-panel/setting.json`. The
+runtime user must be able to atomically replace that file and create private
+lock/recovery sidecars in its directory, while no other user should be able to
+read its credentials:
 
 ```sh
 chown sing-box-panel:sing-box-panel /etc/sing-box-panel /etc/sing-box-panel/setting.json
@@ -197,56 +224,60 @@ chmod 0700 /etc/sing-box-panel
 chmod 0600 /etc/sing-box-panel/setting.json
 ```
 
-The default unit is suitable for unprivileged proxy ports. TUN, transparent
-proxy, raw sockets, and ports below 1024 require an explicit local review. The
-[`tun-override.conf` example](../internal/sing-box-panel/systemd/templates/examples/tun-override.conf) shows the smallest expected capability and
-device override; it is deliberately outside the auto-loaded unit directory.
-Its capability assignments add to the default read capability. An explicit empty
-capability assignment in a local drop-in resets the corresponding set.
+For a node, enroll it or enable its console against `/var/lib/sing-box-node`
+and give that directory to the `sing-box-node` account before starting it.
 
-Host metrics keep `ProtectProc=invisible` and `ProcSubset=pid`. The system unit
-bind-mounts only `/proc/stat`, `/proc/meminfo`, and `/proc/loadavg` read-only into
-`/run/sing-box-panel/host-proc`, and sets `SING_BOX_PANEL_HOST_PROC` so the sampler
-reads these live counters. Direct and user-service runs use `/proc` by default.
-Missing counters remain unavailable; disk sampling is independent. Older system
-units hide these files without providing the mounts. Older units also grant no
-read capability, so upgrading the binary alone does not restore metrics or add
-root-owned certificate access. Refresh the installed unit
-using the upgraded binary, then restart the service. For an uncustomized generated
-system unit:
+The node's default unit is suitable for unprivileged proxy ports. TUN,
+transparent proxy, raw sockets, and ports below 1024 require an explicit local
+review. The [`tun-override.conf` example](../internal/sing-box-node/systemd/templates/examples/tun-override.conf)
+shows the smallest expected capability and device override; it is deliberately
+outside the auto-loaded unit directory. Its capability assignments add to the
+default read capability. An explicit empty capability assignment in a local
+drop-in resets the corresponding set.
+
+Host metrics are sampled by the node. Its system unit keeps
+`ProtectProc=invisible` and `ProcSubset=pid`, bind-mounts only `/proc/stat`,
+`/proc/meminfo`, and `/proc/loadavg` read-only into
+`/run/sing-box-node/host-proc`, and sets `SING_BOX_NODE_HOST_PROC` so the
+sampler reads these live counters. Direct and user-service runs use `/proc` by
+default. Missing counters remain unavailable; disk sampling is independent.
+Keep all three bind mounts and the environment setting together; do not expose
+the whole host `/proc` tree. Check drop-ins that reset capabilities.
+Certificate files, including Certbot's `live` symlinks and `archive` targets,
+keep their existing ownership and permissions. Refresh an installed unit with
+the binary that ships it, then restart the service:
 
 ```sh
-sudo /usr/local/bin/sing-box-panel systemd install --scope=system --force
-sudo /usr/local/bin/sing-box-panel systemd restart --scope=system
-systemctl show sing-box-panel -p User -p Group -p CapabilityBoundingSet -p AmbientCapabilities
+sudo /usr/local/bin/sing-box-node systemd install --scope=system --force
+sudo /usr/local/bin/sing-box-node systemd restart --scope=system
+systemctl show sing-box-node -p User -p Group -p CapabilityBoundingSet -p AmbientCapabilities
 ```
 
-Review customized units before replacement. Keep all three bind mounts and the
-environment setting together; do not expose the whole host `/proc` tree.
-Check drop-ins that reset capabilities. Certificate files, including Certbot's
-`live` symlinks and `archive` targets, keep their existing ownership and permissions.
+Review customized units before replacement.
 
 ## User service
 
-The static packaging user unit expects:
+The static packaging user units expect:
 
-- binary: `~/.local/bin/sing-box-panel`
-- settings: `~/.config/sing-box-panel/setting.json`
-- data: `~/.local/share/sing-box-panel`
+| Service | Binary | State | Data |
+| --- | --- | --- | --- |
+| Panel | `~/.local/bin/sing-box-panel` | settings `~/.config/sing-box-panel/setting.json` | `~/.local/share/sing-box-panel` |
+| Node | `~/.local/bin/sing-box-node` | its data directory | `~/.local/share/sing-box-node` |
 
-Create and initialize those paths before enabling the unit. The user template
-cannot provide TUN, transparent-proxy, raw-socket, or privileged-port access.
-It is intended for ordinary user-owned proxy listeners.
+Create and initialize those paths before enabling a unit. The user templates
+grant no capability and cannot provide TUN, transparent-proxy, raw-socket, or
+privileged-port access. They are intended for ordinary user-owned proxy
+listeners.
 
 Both services use restart-on-failure and stop the complete process group. Their
 sandbox permits only Unix, IPv4, IPv6, and netlink sockets and keeps the data
-and settings directories writable. The system template explicitly permits
-`/etc/sing-box-panel`; rendered user units permit the selected settings and data
-directories. After upgrading an older installation, rerun `systemd install` to
+directory, and the panel's settings directory, writable. The panel's system
+template explicitly permits `/etc/sing-box-panel`; rendered user units permit
+the selected state and data directories. After upgrading an older installation, rerun `systemd install` to
 refresh the unit and ownership before saving preferences through the Web UI.
 Use `--force` when replacing an older generated template after reviewing changes.
 
-After editing `data_dir`, an explicit `systemd restart` coordinates a stopped
+After editing the panel's `data_dir`, an explicit `systemd restart` coordinates a stopped
 relocation and refreshes generated working-directory, sandbox and tmpfiles paths.
 System services retain `ProtectHome=true`, so data destinations under `/home`,
 `/root` or `/run/user` are rejected before stopping the service. Explicit data
@@ -260,8 +291,10 @@ it. Installation also performs a pending move, refusing any active owner.
 
 ## Account lifecycle verification
 
-`go test ./internal/sing-box-panel/systemd ./internal/sing-box-panel/cli` covers account conflicts, retained data,
-partial failures, retries and output contracts using the existing command runner.
+`go test ./internal/systemd ./internal/sing-box-panel/systemd ./internal/sing-box-node/systemd ./internal/sing-box-panel/cli`
+covers account conflicts, retained data, partial failures, retries and output
+contracts using the existing command runner, through the panel's service and,
+for its runnable-state check and ownership, the node's.
 `TestSystemAccountLifecycleInContainer` additionally requires Linux, root,
 `/.dockerenv`, and `SING_BOX_PANEL_TEST_SYSTEM_ACCOUNTS=1`. Run it only in a disposable
 Docker container with systemd tools, shadow account tools, GNU chown, getent and

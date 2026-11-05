@@ -16,6 +16,7 @@ import (
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/installation"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/settings"
 	panelSystemd "github.com/rehuony/sing-box-panel/internal/sing-box-panel/systemd"
+	"github.com/rehuony/sing-box-panel/internal/systemd"
 )
 
 type accountCleanupService struct {
@@ -23,7 +24,7 @@ type accountCleanupService struct {
 	uninstallErr error
 }
 
-func (service *accountCleanupService) Uninstall(ctx context.Context, request panelSystemd.UninstallRequest) (panelSystemd.UninstallResult, error) {
+func (service *accountCleanupService) Uninstall(ctx context.Context, request systemd.UninstallRequest) (systemd.UninstallResult, error) {
 	result, err := service.fakeSystemdService.Uninstall(ctx, request)
 	for _, path := range result.RemovedPaths {
 		if removeErr := os.Remove(path); removeErr != nil {
@@ -41,7 +42,7 @@ func TestPrunePreservesAccountOutcomes(t *testing.T) {
 			if err := os.WriteFile(unit, []byte("fixture"), 0600); err != nil {
 				t.Fatal(err)
 			}
-			uninstalled := panelSystemd.UninstallResult{Scope: panelSystemd.ScopeSystem, RemovedPaths: []string{unit}, AccountInspected: true}
+			uninstalled := systemd.UninstallResult{Scope: systemd.ScopeSystem, RemovedPaths: []string{unit}, AccountInspected: true}
 			wantUser, wantGroup, outcome := "removed", "removed", "completed"
 			var uninstallErr error
 			switch scenario {
@@ -63,12 +64,12 @@ func TestPrunePreservesAccountOutcomes(t *testing.T) {
 				wantUser, wantGroup, outcome = "unknown", "unknown", "interrupted"
 			}
 			service := &accountCleanupService{fakeSystemdService: fakeSystemdService{
-				filesResult:     panelSystemd.FilesResult{Scope: panelSystemd.ScopeSystem, SettingsPath: config, Files: []panelSystemd.FileStatus{{Path: unit, State: "managed", Managed: true}}},
-				statusResult:    panelSystemd.Status{Scope: panelSystemd.ScopeSystem, LoadState: "loaded", UnitFileSettingsPath: config},
+				filesResult:     systemd.FilesResult{Scope: systemd.ScopeSystem, StatePath: config, Files: []systemd.FileStatus{{Path: unit, State: "managed", Managed: true}}},
+				statusResult:    systemd.Status{Scope: systemd.ScopeSystem, LoadState: "loaded", UnitFileStatePath: config},
 				uninstallResult: uninstalled,
 			}}
 			// Inject uninstall failure alone: inventory and status still succeed.
-			report, err := inspectInstanceFiles(t.Context(), config, panelSystemd.ScopeSystem, service, testHistoryPath(t))
+			report, err := inspectInstanceFiles(t.Context(), config, systemd.ScopeSystem, service, testHistoryPath(t))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -109,15 +110,15 @@ func TestPruneFailureDiagnosticsAcrossStreams(t *testing.T) {
 				t.Fatal(err)
 			}
 			service := &fakeSystemdService{
-				filesResult: panelSystemd.FilesResult{Scope: panelSystemd.ScopeSystem, SettingsPath: config,
-					Files: []panelSystemd.FileStatus{{Path: unit, State: "managed", Managed: true}}},
-				statusResult: panelSystemd.Status{Scope: panelSystemd.ScopeSystem, LoadState: "loaded", UnitFileSettingsPath: config, NeedDaemonReload: true},
+				filesResult: systemd.FilesResult{Scope: systemd.ScopeSystem, StatePath: config,
+					Files: []systemd.FileStatus{{Path: unit, State: "managed", Managed: true}}},
+				statusResult: systemd.Status{Scope: systemd.ScopeSystem, LoadState: "loaded", UnitFileStatePath: config, NeedDaemonReload: true},
 			}
 			var stdout, stderr bytes.Buffer
 			root := NewRootCommand(Dependencies{Stdout: &stdout, Stderr: &stderr, Systemd: service, CleanupHistoryPath: testHistoryPath(t)})
 			root.SetArgs([]string{"system", "prune", "--yes", "-c", config, "-o", format})
 			err := root.ExecuteContext(t.Context())
-			if !errors.Is(err, panelSystemd.ErrConflict) || ExitCode(err) != 4 {
+			if !errors.Is(err, systemd.ErrConflict) || ExitCode(err) != 4 {
 				t.Fatalf("lost failure classification: %v", err)
 			}
 			if writeErr := WriteError(&stderr, root, err); writeErr != nil {
@@ -153,7 +154,7 @@ func TestPruneDFRepeatAndReappearingHistory(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	service := &fakeSystemdService{err: panelSystemd.ErrUnsupportedOS}
+	service := &fakeSystemdService{err: systemd.ErrUnsupportedOS}
 	run := func(args ...string) string {
 		t.Helper()
 		args = append(args, "-c", config, "-o", "json")
@@ -237,7 +238,7 @@ type historyFailureService struct {
 	afterUninstall func()
 }
 
-func (service *historyFailureService) Uninstall(ctx context.Context, request panelSystemd.UninstallRequest) (panelSystemd.UninstallResult, error) {
+func (service *historyFailureService) Uninstall(ctx context.Context, request systemd.UninstallRequest) (systemd.UninstallResult, error) {
 	service.afterUninstall()
 	return service.fakeSystemdService.Uninstall(ctx, request)
 }
@@ -246,8 +247,8 @@ func TestFinalHistoryFailurePreservesCompletedResult(t *testing.T) {
 	config := commandSettingsFixture(t)
 	history := testHistoryPath(t)
 	service := &historyFailureService{fakeSystemdService: fakeSystemdService{
-		filesResult:  panelSystemd.FilesResult{Scope: panelSystemd.ScopeUser, SettingsPath: config},
-		statusResult: panelSystemd.Status{UnitFileSettingsPath: config},
+		filesResult:  systemd.FilesResult{Scope: systemd.ScopeUser, StatePath: config},
+		statusResult: systemd.Status{UnitFileStatePath: config},
 	}, afterUninstall: func() {
 		// A concurrent replacement makes the final history write fail without
 		// adding deletion authority or losing the already completed file removals.

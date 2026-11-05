@@ -98,7 +98,7 @@ make release VERSION=v0.1.0 OUT=/absolute/path/to/new-output-directory
 ```
 
 The public Ed25519 update-verification key is committed at
-`.github/keypair/release-signing-public-key` and is embedded in both binaries.
+`.github/keypair/release-signing-public-key` and is embedded in both panel binaries, the ones that update themselves.
 It is the repository's release trust root, not a secret or a per-build input.
 The release commit and date are always derived from `HEAD`; the date is the
 source commit timestamp and cannot be overridden by the caller.
@@ -107,6 +107,8 @@ The packaging command creates exactly:
 
 - `sing-box-panel-linux-amd64`
 - `sing-box-panel-linux-arm64`
+- `sing-box-node-linux-amd64`
+- `sing-box-node-linux-arm64`
 - `SHA256SUMS`
 
 The signing step adds `SHA256SUMS.sig`. Its Ed25519 signature binds the exact
@@ -273,7 +275,7 @@ For every release:
 3. Wait for both native core contracts, build, signing, and both native smoke
    jobs to succeed.
 4. Open the generated Draft Release and review its version, target commit,
-   generated notes, and four assets.
+   generated notes, and six assets.
 5. Publish the draft once. Only a published, non-prerelease GitHub Release is
    visible to `sing-box-panel update`.
 

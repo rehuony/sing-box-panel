@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 
 	"github.com/rehuony/sing-box-panel/internal/database"
+	"github.com/rehuony/sing-box-panel/internal/pathguard"
 	"github.com/rehuony/sing-box-panel/internal/procctl"
 )
 
@@ -131,7 +132,7 @@ func (tree *cleanupTree) remove(parent *os.Root, name, path string) (removeErr e
 				return err
 			}
 		}
-		if tree.settings != "" && pathWithin(path, tree.settings) {
+		if tree.settings != "" && pathguard.Within(path, tree.settings) {
 			tree.settingsDirs = append(tree.settingsDirs, directory)
 			retained = true
 			return nil

@@ -23,7 +23,8 @@ The node binary has its own tree, described under [Nodes](#nodes):
 ```text
 sing-box-node
 ├─ version | enroll | run
-└─ console status | enable | disable | password
+├─ console status | enable | disable | password
+└─ systemd install | uninstall | status | start | stop | restart | logs
 ```
 
 Every command is at most two words deep; each group adds one verb.
@@ -331,6 +332,21 @@ the console or changing its address. A new password applies at once and signs
 every console session out, and a disabled console refuses requests at once.
 From another machine, forward the console through an SSH tunnel, such as
 `ssh -L 3001:127.0.0.1:3001 node-host`.
+
+`sing-box-node systemd` manages the node's own service, with the same commands
+and flags as the panel's (`--scope`, `--force`, `--now`, `--keep-user`,
+`--lines`, `--since`) and `--json` in place of `--output json`. The data
+directory is the node's state: system scope uses `/var/lib/sing-box-node` and
+the dedicated `sing-box-node` account, and user scope the selected
+`--data-dir`. `install --now` and `start` need a node that is enrolled or has
+its console enabled. `status` reports the `--data-dir` written in the unit
+file on disk. See the [systemd packaging guide](systemd.md).
+
+```sh
+sudo sing-box-node systemd install --scope=system --now
+sudo sing-box-node systemd status
+sudo sing-box-node systemd uninstall --scope=system   # keeps the data directory
+```
 
 ## Foreground panel control
 

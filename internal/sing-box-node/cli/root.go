@@ -22,6 +22,8 @@ type Dependencies struct {
 	Stdout io.Writer
 	Stderr io.Writer
 	Build  buildinfo.Info
+	// Systemd is the node's systemd lifecycle; nil uses this host's.
+	Systemd systemdService
 }
 
 func NewRootCommand(deps Dependencies) *cobra.Command {
@@ -38,7 +40,12 @@ func NewRootCommand(deps Dependencies) *cobra.Command {
 	root.SetOut(deps.Stdout)
 	root.SetErr(deps.Stderr)
 	dataDir := root.PersistentFlags().String("data-dir", settings.DefaultDataDir(), "node data directory")
-	root.AddCommand(newVersionCommand(deps.Build), newEnrollCommand(deps, dataDir), newRunCommand(deps, dataDir), newConsoleCommand(dataDir))
+	service := deps.Systemd
+	if service == nil {
+		service = defaultSystemd()
+	}
+	root.AddCommand(newVersionCommand(deps.Build), newEnrollCommand(deps, dataDir), newRunCommand(deps, dataDir),
+		newConsoleCommand(dataDir), newSystemdCommand(dataDir, service))
 	return root
 }
 

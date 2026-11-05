@@ -16,7 +16,7 @@ import (
 func readHost(path string) (*Snapshot, *cpuTimes) {
 	// The system service keeps ProcSubset=pid and bind-mounts only these
 	// counters outside /proc. Direct and user-service runs use the normal procfs.
-	procRoot := os.Getenv("SING_BOX_PANEL_HOST_PROC")
+	procRoot := os.Getenv("SING_BOX_NODE_HOST_PROC")
 	if procRoot == "" {
 		procRoot = "/proc"
 	}

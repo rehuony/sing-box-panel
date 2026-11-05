@@ -11,38 +11,39 @@ import (
 	"strings"
 )
 
-// ValidateSettingsPath checks the on-disk settings identity without treating
-// stale or customized unit definitions as evidence of the effective settings.
-func (status Status) ValidateSettingsPath(expected string) error {
+// ValidateStatePath checks the on-disk state identity without treating stale
+// or customized unit definitions as evidence of the effective state. label
+// names the state path, such as "settings".
+func (status Status) ValidateStatePath(expected, label string) error {
 	command := "systemctl"
 	if status.Scope == ScopeUser {
 		command += " --user"
 	}
-	inspect := command + " cat " + UnitName
+	inspect := command + " cat " + status.Unit
 	if status.NeedDaemonReload {
 		return fmt.Errorf("%w: systemd reports NeedDaemonReload=yes\nInspect: %s\nNext: after reviewing the unit, run `%s daemon-reload` and retry", ErrConflict, inspect, command)
 	}
 	if status.LoadState == "not-found" {
 		return nil
 	}
-	if status.UnitFileSettingsPath == "" {
-		return fmt.Errorf("%w: service settings path is unknown (check ExecStart and drop-ins)\nInspect: %s", ErrConflict, inspect)
+	if status.UnitFileStatePath == "" {
+		return fmt.Errorf("%w: service %s path is unknown (check ExecStart and drop-ins)\nInspect: %s", ErrConflict, label, inspect)
 	}
-	if filepath.Clean(status.UnitFileSettingsPath) != filepath.Clean(expected) {
-		return fmt.Errorf("%w: service uses different settings\nExpected: %s\nUnit file: %s\nInspect: %s", ErrConflict, expected, status.UnitFileSettingsPath, inspect)
+	if filepath.Clean(status.UnitFileStatePath) != filepath.Clean(expected) {
+		return fmt.Errorf("%w: service uses different %s\nExpected: %s\nUnit file: %s\nInspect: %s", ErrConflict, label, expected, status.UnitFileStatePath, inspect)
 	}
 	return nil
 }
 
-func (manager *Manager) Status(ctx context.Context, requested Scope) (Status, error) {
+func (manager *Manager[T]) Status(ctx context.Context, requested Scope) (Status, error) {
 	status, err := manager.queryStatus(ctx, requested)
 	if err == nil && status.LoadState == "not-found" {
-		return status, ErrNotInstalled
+		return status, fmt.Errorf("%w: %s", ErrNotInstalled, manager.unitName)
 	}
 	return status, err
 }
 
-func (manager *Manager) queryStatus(ctx context.Context, requested Scope) (Status, error) {
+func (manager *Manager[T]) queryStatus(ctx context.Context, requested Scope) (Status, error) {
 	if err := manager.requireLinux(); err != nil {
 		return Status{}, err
 	}
@@ -52,7 +53,7 @@ func (manager *Manager) queryStatus(ctx context.Context, requested Scope) (Statu
 	}
 	args := manager.systemctlPrefix(scope)
 	args = append(args,
-		"show", UnitName, "--no-pager",
+		"show", manager.unitName, "--no-pager",
 		"--property=LoadState", "--property=ActiveState", "--property=SubState",
 		"--property=UnitFileState", "--property=MainPID", "--property=FragmentPath",
 		"--property=DropInPaths", "--property=NeedDaemonReload",
@@ -76,7 +77,7 @@ func (manager *Manager) queryStatus(ctx context.Context, requested Scope) (Statu
 		}
 	}
 	status := Status{
-		Scope: scope, Unit: UnitName, UnitPath: unitPath,
+		Scope: scope, Unit: manager.unitName, UnitPath: unitPath,
 		LoadState: properties["LoadState"], ActiveState: properties["ActiveState"],
 		SubState: properties["SubState"], UnitFileState: properties["UnitFileState"], MainPID: pid,
 		NeedDaemonReload: properties["NeedDaemonReload"] == "yes",
@@ -84,44 +85,44 @@ func (manager *Manager) queryStatus(ctx context.Context, requested Scope) (Statu
 	// Drop-ins may override ExecStart, so the fragment alone does not state
 	// the unit's command line; leave the path unknown in that case.
 	if inactiveDropIns(properties["DropInPaths"]) {
-		status.UnitFileSettingsPath, _ = unitFileSettingsPath(unitPath)
+		status.UnitFileStatePath, _ = manager.unitFileStatePath(unitPath)
 	}
 	return status, nil
 }
 
-func (manager *Manager) Control(ctx context.Context, requested Scope, action Action) (result ControlResult, controlErr error) {
+func (manager *Manager[T]) Control(ctx context.Context, requested Scope, action Action) (result ControlResult[T], controlErr error) {
 	if err := manager.requireLinux(); err != nil {
-		return ControlResult{}, err
+		return ControlResult[T]{}, err
 	}
 	scope, err := manager.resolveScope(requested)
 	if err != nil {
-		return ControlResult{}, err
+		return ControlResult[T]{}, err
 	}
 	if err := manager.requireMutationPermission(scope); err != nil {
-		return ControlResult{}, err
+		return ControlResult[T]{}, err
 	}
 	switch action {
 	case ActionStart, ActionStop, ActionRestart:
 	default:
-		return ControlResult{}, fmt.Errorf("%w: unsupported control action %q", ErrInvalid, action)
+		return ControlResult[T]{}, fmt.Errorf("%w: unsupported control action %q", ErrInvalid, action)
 	}
 	if err := manager.prepareDataMove(ctx, scope, action); err != nil {
-		return ControlResult{}, err
+		return ControlResult[T]{}, err
 	}
 	if action != ActionStop {
 		initial, err := manager.prepareInstalledResources(ctx, scope)
-		defer func() { result.InitialSettings = initial }()
+		defer func() { result.Initial = initial }()
 		if err != nil {
-			return ControlResult{}, err
+			return ControlResult[T]{}, err
 		}
 	}
-	if err := manager.runSystemctl(ctx, scope, string(action), UnitName); err != nil {
-		return ControlResult{}, err
+	if err := manager.runSystemctl(ctx, scope, string(action), manager.unitName); err != nil {
+		return ControlResult[T]{}, err
 	}
-	return ControlResult{Scope: scope, Unit: UnitName, Action: action}, nil
+	return ControlResult[T]{Scope: scope, Unit: manager.unitName, Action: action}, nil
 }
 
-func (manager *Manager) Logs(ctx context.Context, request LogsRequest) (LogsResult, error) {
+func (manager *Manager[T]) Logs(ctx context.Context, request LogsRequest) (LogsResult, error) {
 	if err := manager.requireLinux(); err != nil {
 		return LogsResult{}, err
 	}
@@ -137,9 +138,9 @@ func (manager *Manager) Logs(ctx context.Context, request LogsRequest) (LogsResu
 	}
 	args := []string{"--no-pager", "--output=short-iso", "--lines=" + strconv.Itoa(request.Lines)}
 	if scope == ScopeUser {
-		args = append(args, "--user-unit="+UnitName)
+		args = append(args, "--user-unit="+manager.unitName)
 	} else {
-		args = append(args, "--unit="+UnitName)
+		args = append(args, "--unit="+manager.unitName)
 	}
 	if strings.TrimSpace(request.Since) != "" {
 		args = append(args, "--since", request.Since)
@@ -149,7 +150,7 @@ func (manager *Manager) Logs(ctx context.Context, request LogsRequest) (LogsResu
 		return LogsResult{}, err
 	}
 	return LogsResult{
-		Scope: scope, Unit: UnitName, Lines: request.Lines, Since: request.Since,
+		Scope: scope, Unit: manager.unitName, Lines: request.Lines, Since: request.Since,
 		Text: strings.TrimSuffix(string(result.Stdout), "\n"),
 	}, nil
 }

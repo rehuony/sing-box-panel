@@ -5,11 +5,13 @@
 package server
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"io"
 	"net"
 	"net/http"
+	"net/http/cookiejar"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -17,13 +19,14 @@ import (
 
 	"github.com/rehuony/sing-box-panel/internal/buildinfo"
 	"github.com/rehuony/sing-box-panel/internal/console"
+	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/auth"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/corecache"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/settings"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/store"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/testutil"
 )
 
-func TestServerStopsWithOpenMetricsStream(t *testing.T) {
+func TestServerStopsWithOpenLogStream(t *testing.T) {
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
@@ -106,8 +109,8 @@ func TestServerStopsWithOpenMetricsStream(t *testing.T) {
 	if response.StatusCode != http.StatusOK {
 		t.Fatalf("health response: %d", response.StatusCode)
 	}
-	client, _ = loginPanel(t, t.Context(), address)
-	request, err := http.NewRequestWithContext(t.Context(), http.MethodGet, "http://"+address+"/api/v1/metrics/stream", nil)
+	client = loginPanel(t, t.Context(), address)
+	request, err := http.NewRequestWithContext(t.Context(), http.MethodGet, "http://"+address+"/api/v1/logs/stream", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -129,9 +132,40 @@ func TestServerStopsWithOpenMetricsStream(t *testing.T) {
 	case err := <-streamDone:
 		// A client timeout or disconnect must not count as a graceful server EOF.
 		if err != nil {
-			t.Fatalf("read metrics stream through server shutdown: %v", err)
+			t.Fatalf("read log stream through server shutdown: %v", err)
 		}
 	case <-time.After(3 * time.Second):
-		t.Fatal("metrics stream did not close after server cancellation")
+		t.Fatal("log stream did not close after server cancellation")
 	}
+}
+
+// loginPanel signs in as the fixture administrator and returns a client that
+// carries the session cookie.
+func loginPanel(t *testing.T, ctx context.Context, address string) *http.Client {
+	t.Helper()
+	jar, err := cookiejar.New(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	client := &http.Client{Jar: jar, Timeout: 5 * time.Second}
+	body, err := json.Marshal(auth.LoginInput{Email: testutil.AdminEmail, Password: testutil.AdminPassword})
+	if err != nil {
+		t.Fatal(err)
+	}
+	origin := "http://" + address
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, origin+"/api/v1/auth/session", bytes.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	request.Header.Set("Origin", origin)
+	request.Header.Set("Content-Type", "application/json")
+	response, err := client.Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("login response: %d", response.StatusCode)
+	}
+	return client
 }

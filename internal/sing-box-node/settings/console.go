@@ -12,7 +12,6 @@ import (
 	"path/filepath"
 	"strconv"
 
-	"github.com/rehuony/sing-box-panel/internal/atomicfile"
 	"github.com/rehuony/sing-box-panel/internal/jsonstrict"
 	"github.com/rehuony/sing-box-panel/internal/webauth"
 )
@@ -115,5 +114,5 @@ func SaveConsole(dataDir string, console Console) error {
 	if err != nil {
 		return err
 	}
-	return atomicfile.Write(filepath.Join(dataDir, ConsoleFile), append(raw, '\n'), 0o600, atomicfile.Options{})
+	return writePrivate(filepath.Join(dataDir, ConsoleFile), append(raw, '\n'))
 }

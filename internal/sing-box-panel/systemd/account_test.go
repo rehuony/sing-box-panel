@@ -13,6 +13,7 @@ import (
 
 	"github.com/rehuony/sing-box-panel/internal/database"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/settings"
+	"github.com/rehuony/sing-box-panel/internal/systemd"
 )
 
 const testPasswdEntry = "sing-box-panel:x:991:992:Sing-Box Panel service account:/var/lib/sing-box-panel:/usr/sbin/nologin\n"
@@ -29,9 +30,9 @@ type accountFixture struct {
 func newAccountFixture(t *testing.T) *accountFixture {
 	t.Helper()
 	f := &accountFixture{managerFixture: newManagerFixture(t, 0)}
-	f.runner.run = func(name string, args []string) (CommandResult, error) {
+	f.runner.run = func(name string, args []string) (systemd.CommandResult, error) {
 		if name == f.failCommand {
-			return CommandResult{}, errors.New("injected command failure")
+			return systemd.CommandResult{}, errors.New("injected command failure")
 		}
 		switch name {
 		case "getent":
@@ -40,17 +41,17 @@ func newAccountFixture(t *testing.T) *accountFixture {
 				if args[0] == "passwd" {
 					entry = f.passwd
 				}
-				return CommandResult{Stdout: []byte(entry)}, nil
+				return systemd.CommandResult{Stdout: []byte(entry)}, nil
 			}
 			if args[0] == "passwd" {
-				return CommandResult{Stdout: []byte("root:x:0:0:root:/root:/bin/sh\n" + f.passwd)}, nil
+				return systemd.CommandResult{Stdout: []byte("root:x:0:0:root:/root:/bin/sh\n" + f.passwd)}, nil
 			}
-			return CommandResult{Stdout: []byte("root:x:0:\n" + f.group)}, nil
+			return systemd.CommandResult{Stdout: []byte("root:x:0:\n" + f.group)}, nil
 		case "systemd-sysusers":
 			f.passwd, f.group = testPasswdEntry, testGroupEntry
 		case "userdel":
 			if f.active {
-				return CommandResult{}, errors.New("user still has processes")
+				return systemd.CommandResult{}, errors.New("user still has processes")
 			}
 			f.passwd = ""
 			if f.autoGroup {
@@ -64,20 +65,20 @@ func newAccountFixture(t *testing.T) *accountFixture {
 				if f.active {
 					state, pid = "active", "123"
 				}
-				return CommandResult{Stdout: []byte("LoadState=loaded\nActiveState=" + state + "\nSubState=dead\nUnitFileState=disabled\nMainPID=" + pid + "\nFragmentPath=" + f.layout.SystemUnitPath + "\n")}, nil
+				return systemd.CommandResult{Stdout: []byte("LoadState=loaded\nActiveState=" + state + "\nSubState=dead\nUnitFileState=disabled\nMainPID=" + pid + "\nFragmentPath=" + f.layout.SystemUnitPath + "\n")}, nil
 			}
 			if slices.Contains(args, "stop") {
 				f.active = false
 			}
 		}
-		return CommandResult{}, nil
+		return systemd.CommandResult{}, nil
 	}
 	return f
 }
 
 func (f *accountFixture) install(t *testing.T) {
 	t.Helper()
-	if _, err := f.manager.Install(t.Context(), InstallRequest{Scope: ScopeSystem, SettingsPath: f.settings}); err != nil {
+	if _, err := f.manager.Install(t.Context(), systemd.InstallRequest{Scope: systemd.ScopeSystem, StatePath: f.settings}); err != nil {
 		t.Fatal(err)
 	}
 	f.runner.calls = nil
@@ -98,7 +99,7 @@ func TestSystemAccountInstallUninstallReinstall(t *testing.T) {
 			if err := os.WriteFile(payload, []byte("retained data"), 0600); err != nil {
 				t.Fatal(err)
 			}
-			result, err := f.manager.Uninstall(t.Context(), UninstallRequest{Scope: ScopeSystem})
+			result, err := f.manager.Uninstall(t.Context(), systemd.UninstallRequest{Scope: systemd.ScopeSystem})
 			if err != nil || !result.AccountRemoved || !result.GroupRemoved || result.AccountRetained || result.GroupRetained || !result.ConfigRetained || !result.DataRetained {
 				t.Fatalf("uninstall: %+v, %v", result, err)
 			}
@@ -114,7 +115,7 @@ func TestSystemAccountInstallUninstallReinstall(t *testing.T) {
 					}
 				case call.name == "userdel":
 					userdel = index
-					if !slices.Equal(call.args, []string{"--", serviceUser}) {
+					if !slices.Equal(call.args, []string{"--", Name}) {
 						t.Fatalf("unsafe user removal: %+v", call)
 					}
 				case call.name == "groupdel":
@@ -155,8 +156,8 @@ func TestSystemAccountRejectsUnrelatedAndSharedIdentities(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			f := newAccountFixture(t)
 			f.passwd, f.group = tt.passwd, tt.group
-			_, err := f.manager.Install(t.Context(), InstallRequest{Scope: ScopeSystem, SettingsPath: f.settings, Force: true})
-			if !errors.Is(err, ErrConflict) {
+			_, err := f.manager.Install(t.Context(), systemd.InstallRequest{Scope: systemd.ScopeSystem, StatePath: f.settings, Force: true})
+			if !errors.Is(err, systemd.ErrConflict) {
 				t.Fatalf("install error = %v", err)
 			}
 			if fileExists(f.layout.SystemUnitPath) {
@@ -165,8 +166,8 @@ func TestSystemAccountRejectsUnrelatedAndSharedIdentities(t *testing.T) {
 			f.passwd, f.group = "", ""
 			f.install(t)
 			f.passwd, f.group = tt.passwd, tt.group
-			_, err = f.manager.Uninstall(t.Context(), UninstallRequest{Scope: ScopeSystem, Force: true})
-			if !errors.Is(err, ErrConflict) {
+			_, err = f.manager.Uninstall(t.Context(), systemd.UninstallRequest{Scope: systemd.ScopeSystem, Force: true})
+			if !errors.Is(err, systemd.ErrConflict) {
 				t.Fatalf("uninstall error = %v", err)
 			}
 			for _, call := range f.runner.calls {
@@ -184,7 +185,7 @@ func TestSystemAccountRemovalFailuresRemainRetryable(t *testing.T) {
 			f := newAccountFixture(t)
 			f.install(t)
 			f.failCommand = command
-			result, err := f.manager.Uninstall(t.Context(), UninstallRequest{Scope: ScopeSystem})
+			result, err := f.manager.Uninstall(t.Context(), systemd.UninstallRequest{Scope: systemd.ScopeSystem})
 			if err == nil || len(result.RemovedPaths) != 0 || !fileExists(f.layout.SystemSysusersPath) {
 				t.Fatalf("lost retry evidence: %+v, %v", result, err)
 			}
@@ -195,7 +196,7 @@ func TestSystemAccountRemovalFailuresRemainRetryable(t *testing.T) {
 				t.Fatal("account removed before retained data was protected")
 			}
 			f.failCommand = ""
-			result, err = f.manager.Uninstall(t.Context(), UninstallRequest{Scope: ScopeSystem})
+			result, err = f.manager.Uninstall(t.Context(), systemd.UninstallRequest{Scope: systemd.ScopeSystem})
 			if err != nil || result.AccountRetained || result.GroupRetained {
 				t.Fatalf("retry: %+v, %v", result, err)
 			}
@@ -209,14 +210,14 @@ func TestAccountRemovalReportsUnverifiedDeletionAsUnknown(t *testing.T) {
 			f := newAccountFixture(t)
 			f.install(t)
 			base := f.runner.run
-			f.runner.run = func(name string, args []string) (CommandResult, error) {
+			f.runner.run = func(name string, args []string) (systemd.CommandResult, error) {
 				result, err := base(name, args)
 				if name == command {
 					f.failCommand = "getent"
 				}
 				return result, err
 			}
-			result, err := f.manager.Uninstall(t.Context(), UninstallRequest{Scope: ScopeSystem})
+			result, err := f.manager.Uninstall(t.Context(), systemd.UninstallRequest{Scope: systemd.ScopeSystem})
 			if err == nil || result.AccountInspected || result.AccountRetained || result.GroupRetained || result.GroupRemoved || result.AccountRemoved != (command == "groupdel") {
 				t.Fatalf("unverified deletion reported as confirmed: %+v, %v", result, err)
 			}
@@ -234,19 +235,20 @@ func TestSystemAccountRemovalAbortsBeforeMutation(t *testing.T) {
 			f.install(t)
 			f.active = true
 			if scenario == "missing userdel" {
-				f.manager.lookPath = func(name string) (string, error) {
+				f.options.LookPath = func(name string) (string, error) {
 					if name == "userdel" {
 						return "", os.ErrNotExist
 					}
 					return name, nil
 				}
+				f.rebuild(t)
 			}
 			base := f.runner.run
-			f.runner.run = func(name string, args []string) (CommandResult, error) {
+			f.runner.run = func(name string, args []string) (systemd.CommandResult, error) {
 				if name == "systemctl" && slices.Contains(args, "stop") {
 					switch scenario {
 					case "stop fails":
-						return CommandResult{}, errors.New("cannot stop")
+						return systemd.CommandResult{}, errors.New("cannot stop")
 					case "changed UID":
 						f.passwd = strings.Replace(testPasswdEntry, ":991:", ":995:", 1)
 					case "replaced unit":
@@ -261,7 +263,7 @@ func TestSystemAccountRemovalAbortsBeforeMutation(t *testing.T) {
 				}
 				return base(name, args)
 			}
-			result, err := f.manager.Uninstall(t.Context(), UninstallRequest{Scope: ScopeSystem, Force: true})
+			result, err := f.manager.Uninstall(t.Context(), systemd.UninstallRequest{Scope: systemd.ScopeSystem, Force: true})
 			if err == nil || !result.AccountRetained || len(result.RemovedPaths) > 0 {
 				t.Fatalf("uninstall: %+v, %v", result, err)
 			}
@@ -277,14 +279,14 @@ func TestSystemAccountRemovalAbortsBeforeMutation(t *testing.T) {
 func TestSystemAccountRejectsInconsistentNSSLookups(t *testing.T) {
 	f := newAccountFixture(t)
 	base := f.runner.run
-	f.runner.run = func(name string, args []string) (CommandResult, error) {
-		if name == "getent" && slices.Equal(args, []string{"passwd", serviceUser}) {
-			return CommandResult{Stdout: []byte(testPasswdEntry)}, nil
+	f.runner.run = func(name string, args []string) (systemd.CommandResult, error) {
+		if name == "getent" && slices.Equal(args, []string{"passwd", Name}) {
+			return systemd.CommandResult{Stdout: []byte(testPasswdEntry)}, nil
 		}
 		return base(name, args)
 	}
-	_, err := f.manager.Install(t.Context(), InstallRequest{Scope: ScopeSystem, SettingsPath: f.settings})
-	if !errors.Is(err, ErrConflict) || fileExists(f.layout.SystemUnitPath) {
+	_, err := f.manager.Install(t.Context(), systemd.InstallRequest{Scope: systemd.ScopeSystem, StatePath: f.settings})
+	if !errors.Is(err, systemd.ErrConflict) || fileExists(f.layout.SystemUnitPath) {
 		t.Fatalf("adopted identity omitted by enumeration: %v", err)
 	}
 }
@@ -299,11 +301,11 @@ func TestSystemAccountRemovalRequiresManagedDeclaration(t *testing.T) {
 					t.Fatal(err)
 				}
 			} else if scenario == "custom declaration" {
-				if err := os.WriteFile(f.layout.SystemSysusersPath, []byte(managedMark+"\n# customized\n"), 0644); err != nil {
+				if err := os.WriteFile(f.layout.SystemSysusersPath, []byte(testManagedMark+"\n# customized\n"), 0644); err != nil {
 					t.Fatal(err)
 				}
 			}
-			result, err := f.manager.Uninstall(t.Context(), UninstallRequest{Scope: ScopeSystem, KeepUser: scenario == "keep user", Force: true})
+			result, err := f.manager.Uninstall(t.Context(), systemd.UninstallRequest{Scope: systemd.ScopeSystem, KeepUser: scenario == "keep user", Force: true})
 			if (err != nil) != (scenario == "custom declaration") || !result.AccountRetained || !result.GroupRetained {
 				t.Fatalf("uninstall: %+v, %v", result, err)
 			}
@@ -329,7 +331,7 @@ func TestRetainedAccountPathsIncludePendingRelocation(t *testing.T) {
 	if err := settings.WriteDataLocation(f.settings, settings.DataLocation{DataDir: f.data, Move: &settings.DataMove{ID: "test", Target: target}}); err != nil {
 		t.Fatal(err)
 	}
-	paths, err := f.manager.retainedAccountPaths()
+	paths, err := f.manager.RetainedPaths()
 	if err != nil || !slices.Contains(paths, target) || !slices.Contains(paths, f.data) || !slices.Contains(paths, filepath.Dir(f.settings)) {
 		t.Fatalf("retained paths: %v, %v", paths, err)
 	}
@@ -361,7 +363,7 @@ func TestAccountRemovalRejectsUnsafeRetainedPaths(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			_, err := f.manager.Uninstall(t.Context(), UninstallRequest{Scope: ScopeSystem})
+			_, err := f.manager.Uninstall(t.Context(), systemd.UninstallRequest{Scope: systemd.ScopeSystem})
 			if err == nil {
 				t.Fatal("uninstalled with unsafe retained paths")
 			}
@@ -374,23 +376,20 @@ func TestAccountRemovalRejectsUnsafeRetainedPaths(t *testing.T) {
 	}
 }
 
-func TestSystemUnitGrantsOnlyFilesystemReadCapability(t *testing.T) {
-	for _, scope := range []Scope{ScopeSystem, ScopeUser} {
+// The panel runs no sing-box, so its units keep no capability.
+func TestUnitsGrantNoCapabilities(t *testing.T) {
+	for _, scope := range []systemd.Scope{systemd.ScopeSystem, systemd.ScopeUser} {
 		unit, err := renderUnit(scope, "/usr/local/bin/sing-box-panel", "/etc/sing-box-panel/setting.json", "/var/lib/sing-box-panel")
 		if err != nil {
 			t.Fatal(err)
 		}
-		capability := ""
-		if scope == ScopeSystem {
-			capability = "CAP_DAC_READ_SEARCH"
-		}
 		for _, directive := range []string{"CapabilityBoundingSet=", "AmbientCapabilities="} {
-			if !strings.Contains(string(unit), "\n"+directive+capability+"\n") {
+			if !strings.Contains(string(unit), "\n"+directive+"\n") {
 				t.Fatalf("%s: unexpected %s", scope, directive)
 			}
 		}
 		for _, protection := range []string{"NoNewPrivileges=true", "ProtectSystem=strict", "ProtectHome=true"} {
-			if scope == ScopeSystem && !strings.Contains(string(unit), protection+"\n") {
+			if scope == systemd.ScopeSystem && !strings.Contains(string(unit), protection+"\n") {
 				t.Fatalf("lost protection: %s", protection)
 			}
 		}
@@ -433,7 +432,7 @@ func TestAccountRemovalChecksProcessesBeforeOwnership(t *testing.T) {
 				}
 				defer lock.Close()
 			}
-			path := filepath.Join(f.manager.procRoot, "100", "task", thread, "status")
+			path := filepath.Join(f.options.ProcRoot, "100", "task", thread, "status")
 			if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
 				t.Fatal(err)
 			}
@@ -445,12 +444,13 @@ func TestAccountRemovalChecksProcessesBeforeOwnership(t *testing.T) {
 				t.Fatal(err)
 			}
 			if scenario == "missing procfs" {
-				f.manager.procRoot = filepath.Join(t.TempDir(), "missing")
+				f.options.ProcRoot = filepath.Join(t.TempDir(), "missing")
 			}
 			if scenario == "empty procfs" {
-				f.manager.procRoot = t.TempDir()
+				f.options.ProcRoot = t.TempDir()
 			}
-			result, err := f.manager.Uninstall(t.Context(), UninstallRequest{Scope: ScopeSystem})
+			f.rebuild(t)
+			result, err := f.manager.Uninstall(t.Context(), systemd.UninstallRequest{Scope: systemd.ScopeSystem})
 			if err == nil || !result.AccountRetained || !result.GroupRetained {
 				t.Fatalf("uninstall: %+v, %v", result, err)
 			}
@@ -478,7 +478,7 @@ func TestAccountRetentionReportsActualPresence(t *testing.T) {
 				if scenario == "lookup error" {
 					f.failCommand = "getent"
 				}
-				result, err := f.manager.Uninstall(t.Context(), UninstallRequest{Scope: ScopeSystem, KeepUser: keepUser})
+				result, err := f.manager.Uninstall(t.Context(), systemd.UninstallRequest{Scope: systemd.ScopeSystem, KeepUser: keepUser})
 				if (err != nil) != (scenario == "lookup error") || result.AccountInspected != (scenario != "lookup error") || result.AccountRetained != (scenario == "custom account") || result.GroupRetained != (scenario == "group only" || scenario == "custom account") {
 					t.Fatalf("incorrect account presence: %+v, %v", result, err)
 				}
@@ -501,7 +501,7 @@ func TestAccountRemovalRechecksEffectiveConfigurationAfterStop(t *testing.T) {
 	f.active = true
 	base := f.runner.run
 	changed := false
-	f.runner.run = func(name string, args []string) (CommandResult, error) {
+	f.runner.run = func(name string, args []string) (systemd.CommandResult, error) {
 		if name == "systemctl" && slices.Contains(args, "stop") {
 			changed = true
 		}
@@ -511,8 +511,8 @@ func TestAccountRemovalRechecksEffectiveConfigurationAfterStop(t *testing.T) {
 		}
 		return result, err
 	}
-	_, err := f.manager.Uninstall(t.Context(), UninstallRequest{Scope: ScopeSystem})
-	if !errors.Is(err, ErrConflict) {
+	_, err := f.manager.Uninstall(t.Context(), systemd.UninstallRequest{Scope: systemd.ScopeSystem})
+	if !errors.Is(err, systemd.ErrConflict) {
 		t.Fatalf("did not reject changed configuration: %v", err)
 	}
 	for _, call := range f.runner.calls {
@@ -536,7 +536,7 @@ func TestAccountRemovalAfterDisableReload(t *testing.T) {
 			}
 			base := f.runner.run
 			needsReload := false
-			f.runner.run = func(name string, args []string) (CommandResult, error) {
+			f.runner.run = func(name string, args []string) (systemd.CommandResult, error) {
 				if name == "systemctl" && slices.Contains(args, "disable") {
 					if err := os.Remove(link); err != nil {
 						t.Fatal(err)
@@ -555,14 +555,14 @@ func TestAccountRemovalAfterDisableReload(t *testing.T) {
 					// the manager's unit-file state outdated.
 					if !slices.Contains(args, "--no-reload") {
 						if scenario == "reload failure" {
-							return CommandResult{}, errors.New("reload failed after disable")
+							return systemd.CommandResult{}, errors.New("reload failed after disable")
 						}
 						needsReload = false
 					}
 				}
 				if name == "systemctl" && slices.Contains(args, "daemon-reload") {
 					if needsReload && scenario == "reload failure" {
-						return CommandResult{}, errors.New("reload failed after disable")
+						return systemd.CommandResult{}, errors.New("reload failed after disable")
 					}
 					needsReload = false
 				}
@@ -572,7 +572,7 @@ func TestAccountRemovalAfterDisableReload(t *testing.T) {
 				}
 				return result, err
 			}
-			result, err := f.manager.Uninstall(t.Context(), UninstallRequest{Scope: ScopeSystem})
+			result, err := f.manager.Uninstall(t.Context(), systemd.UninstallRequest{Scope: systemd.ScopeSystem})
 			if !slices.Contains(result.RemovedPaths, link) {
 				t.Fatalf("lost completed link removal: %+v", result)
 			}
@@ -617,7 +617,7 @@ func TestAccountRemovalRejectsUnknownEffectiveSettings(t *testing.T) {
 				if err := os.WriteFile(dropIn, []byte("[Service]\nExecStart=\nExecStart=/usr/local/bin/sing-box-panel server start --config \""+externalSettings+"\"\nWorkingDirectory="+external+"\n"), 0644); err != nil {
 					t.Fatal(err)
 				}
-				f.runner.run = func(name string, args []string) (CommandResult, error) {
+				f.runner.run = func(name string, args []string) (systemd.CommandResult, error) {
 					result, err := base(name, args)
 					if name == "systemctl" && slices.Contains(args, "--property=LoadState") {
 						result.Stdout = append(result.Stdout, []byte("DropInPaths="+dropIn+"\n")...)
@@ -625,11 +625,11 @@ func TestAccountRemovalRejectsUnknownEffectiveSettings(t *testing.T) {
 					return result, err
 				}
 			} else if scenario == "unresolved ExecStart" {
-				if err := os.WriteFile(f.layout.SystemUnitPath, []byte(managedMark+"\n[Service]\nEnvironment=CFG="+externalSettings+"\nExecStart=/usr/local/bin/sing-box-panel server start --config ${CFG}\nWorkingDirectory="+external+"\n"), 0644); err != nil {
+				if err := os.WriteFile(f.layout.SystemUnitPath, []byte(testManagedMark+"\n[Service]\nEnvironment=CFG="+externalSettings+"\nExecStart=/usr/local/bin/sing-box-panel server start --config ${CFG}\nWorkingDirectory="+external+"\n"), 0644); err != nil {
 					t.Fatal(err)
 				}
 			} else {
-				f.runner.run = func(name string, args []string) (CommandResult, error) {
+				f.runner.run = func(name string, args []string) (systemd.CommandResult, error) {
 					result, err := base(name, args)
 					if name == "systemctl" && slices.Contains(args, "--property=LoadState") {
 						result.Stdout = append(result.Stdout, []byte("NeedDaemonReload=yes\n")...)
@@ -637,7 +637,7 @@ func TestAccountRemovalRejectsUnknownEffectiveSettings(t *testing.T) {
 					return result, err
 				}
 			}
-			result, err := f.manager.Uninstall(t.Context(), UninstallRequest{Scope: ScopeSystem})
+			result, err := f.manager.Uninstall(t.Context(), systemd.UninstallRequest{Scope: systemd.ScopeSystem})
 			protectedExternal := false
 			for _, call := range f.runner.calls {
 				if call.name == "chown" || call.name == "userdel" || call.name == "groupdel" || (call.name == "systemctl" && (slices.Contains(call.args, "stop") || slices.Contains(call.args, "disable"))) {
@@ -659,17 +659,17 @@ func TestAccountRemovalRejectsUnknownEffectiveSettings(t *testing.T) {
 func TestRepeatedUninstallReportsAbsentAccounts(t *testing.T) {
 	f := newAccountFixture(t)
 	f.install(t)
-	if _, err := f.manager.Uninstall(t.Context(), UninstallRequest{Scope: ScopeSystem}); err != nil {
+	if _, err := f.manager.Uninstall(t.Context(), systemd.UninstallRequest{Scope: systemd.ScopeSystem}); err != nil {
 		t.Fatal(err)
 	}
 	base := f.runner.run
-	f.runner.run = func(name string, args []string) (CommandResult, error) {
+	f.runner.run = func(name string, args []string) (systemd.CommandResult, error) {
 		if name == "systemctl" && slices.Contains(args, "--property=LoadState") {
-			return CommandResult{Stdout: []byte("LoadState=not-found\nActiveState=inactive\nSubState=dead\nUnitFileState=\nMainPID=0\nFragmentPath=\n")}, nil
+			return systemd.CommandResult{Stdout: []byte("LoadState=not-found\nActiveState=inactive\nSubState=dead\nUnitFileState=\nMainPID=0\nFragmentPath=\n")}, nil
 		}
 		return base(name, args)
 	}
-	result, err := f.manager.Uninstall(t.Context(), UninstallRequest{Scope: ScopeSystem})
+	result, err := f.manager.Uninstall(t.Context(), systemd.UninstallRequest{Scope: systemd.ScopeSystem})
 	if err != nil {
 		t.Fatal(err)
 	}

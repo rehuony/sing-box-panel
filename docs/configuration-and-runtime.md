@@ -238,13 +238,13 @@ OS permissions. The panel's own data directory is a plain path field, because
 the panel host has no browse API. It provides parent and breadcrumb navigation,
 direct path entry, name filtering, hidden-file visibility and pagination.
 
-The packaged systemd service runs as `sing-box-panel`, even when installed or
+A node's packaged system service runs as `sing-box-node`, even when installed or
 started by root. Its default `CAP_DAC_READ_SEARCH` permits reading root-owned
 certificates and traversing their directories without changing file ownership
 or modes, including symlink targets. The capability covers the service's visible
-filesystem; service sandbox restrictions still apply. Older installed units need
-to be refreshed before this takes effect. Check the effective service identity,
-capabilities and drop-ins; see [systemd permissions](systemd.md#system-service).
+filesystem; service sandbox restrictions still apply. Check the effective
+service identity, capabilities and drop-ins; see
+[systemd permissions](systemd.md#system-service).
 
 Click an entry to select it, then use the toolbar's Confirm button to validate and
 use that path. Double-click a directory, or press Enter / Right Arrow on its row,

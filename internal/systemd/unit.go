@@ -7,27 +7,30 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/installation"
+	"github.com/rehuony/sing-box-panel/internal/pathguard"
 )
 
-func renderUnit(scope Scope, executablePath, settingsPath, dataDir string) ([]byte, error) {
-	template := systemUnitTemplate
+// Render returns the unit for scope that runs executable with the state at
+// statePath and its data in dataDir.
+func (manager *Manager[T]) Render(scope Scope, executablePath, statePath, dataDir string) ([]byte, error) {
+	definition := manager.definition
+	template := definition.SystemUnit
 	if scope == ScopeUser {
-		template = userUnitTemplate
+		template = definition.UserUnit
+	}
+	if template == nil {
+		return nil, fmt.Errorf("%w: %s has no %s unit", ErrInvalid, definition.Name, scope)
 	}
 	executable, err := quoteExecArgument(executablePath)
 	if err != nil {
 		return nil, err
 	}
-	settings, err := quoteExecArgument(settingsPath)
+	state, err := quoteExecArgument(statePath)
 	if err != nil {
 		return nil, err
 	}
-	data, err := quotePathDirective(dataDir)
-	if err != nil {
-		return nil, err
-	}
-	result, err := replaceDirective(template, "ExecStart=", "ExecStart="+executable+" server start --config "+settings)
+	command := executable + " " + definition.Arguments(state)
+	result, err := replaceDirective(template, "ExecStart=", "ExecStart="+command)
 	if err != nil {
 		return nil, err
 	}
@@ -39,15 +42,23 @@ func renderUnit(scope Scope, executablePath, settingsPath, dataDir string) ([]by
 	if err != nil {
 		return nil, err
 	}
-	settingsDirectory, err := quotePathDirective(filepath.Dir(settingsPath))
+	writable := []string{dataDir}
+	if definition.StateFile {
+		writable = append(writable, filepath.Dir(statePath))
+	}
+	quotedWritable := make([]string, 0, len(writable))
+	for _, path := range writable {
+		quoted, err := quotePathDirective(path)
+		if err != nil {
+			return nil, err
+		}
+		quotedWritable = append(quotedWritable, quoted)
+	}
+	result, err = replaceDirective(result, "ReadWritePaths=", "ReadWritePaths="+strings.Join(quotedWritable, " "))
 	if err != nil {
 		return nil, err
 	}
-	result, err = replaceDirective(result, "ReadWritePaths=", "ReadWritePaths="+data+" "+settingsDirectory)
-	if err != nil {
-		return nil, err
-	}
-	if scope == ScopeSystem && dataDir != "/var/lib/sing-box-panel" {
+	if scope == ScopeSystem && dataDir != "/var/lib/"+definition.Name {
 		// Custom roots are created by the installer; do not recreate the former
 		// default directory on each subsequent start.
 		result, err = replaceDirective(result, "StateDirectory=", "StateDirectory=")
@@ -58,9 +69,9 @@ func renderUnit(scope Scope, executablePath, settingsPath, dataDir string) ([]by
 	// PrivateTmp must not hide explicitly selected state or configuration.
 	// Bind only these dedicated directories, leaving the remaining sandbox intact.
 	var temporaryPaths []string
-	for _, path := range []string{dataDir, filepath.Dir(settingsPath)} {
+	for _, path := range writable {
 		for _, root := range []string{"/tmp", "/var/tmp"} {
-			inside, err := installation.DataDirectoryContainsPath(root, path)
+			inside, err := pathguard.Contains(root, path)
 			if err != nil {
 				return nil, err
 			}

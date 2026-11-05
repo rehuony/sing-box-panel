@@ -15,59 +15,60 @@ import (
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/settings"
 	panelSystemd "github.com/rehuony/sing-box-panel/internal/sing-box-panel/systemd"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/testutil"
+	"github.com/rehuony/sing-box-panel/internal/systemd"
 )
 
 type fakeSystemdService struct {
-	installRequest   panelSystemd.InstallRequest
-	uninstallRequest panelSystemd.UninstallRequest
-	statusScope      panelSystemd.Scope
-	controlScope     panelSystemd.Scope
-	controlAction    panelSystemd.Action
-	logsRequest      panelSystemd.LogsRequest
+	installRequest   systemd.InstallRequest
+	uninstallRequest systemd.UninstallRequest
+	statusScope      systemd.Scope
+	controlScope     systemd.Scope
+	controlAction    systemd.Action
+	logsRequest      systemd.LogsRequest
 
-	installResult   panelSystemd.InstallResult
-	uninstallResult panelSystemd.UninstallResult
-	statusResult    panelSystemd.Status
-	controlResult   panelSystemd.ControlResult
-	logsResult      panelSystemd.LogsResult
+	installResult   systemd.InstallResult[settings.Settings]
+	uninstallResult systemd.UninstallResult
+	statusResult    systemd.Status
+	controlResult   systemd.ControlResult[settings.Settings]
+	logsResult      systemd.LogsResult
 	err             error
-	filesResult     panelSystemd.FilesResult
+	filesResult     systemd.FilesResult
 }
 
-func (service *fakeSystemdService) Files(_ context.Context, _ panelSystemd.Scope) (panelSystemd.FilesResult, error) {
+func (service *fakeSystemdService) Files(_ context.Context, _ systemd.Scope) (systemd.FilesResult, error) {
 	return service.filesResult, service.err
 }
 
-func (service *fakeSystemdService) Install(_ context.Context, request panelSystemd.InstallRequest) (panelSystemd.InstallResult, error) {
+func (service *fakeSystemdService) Install(_ context.Context, request systemd.InstallRequest) (systemd.InstallResult[settings.Settings], error) {
 	service.installRequest = request
 	return service.installResult, service.err
 }
 
-func (service *fakeSystemdService) Uninstall(_ context.Context, request panelSystemd.UninstallRequest) (panelSystemd.UninstallResult, error) {
+func (service *fakeSystemdService) Uninstall(_ context.Context, request systemd.UninstallRequest) (systemd.UninstallResult, error) {
 	service.uninstallRequest = request
 	return service.uninstallResult, service.err
 }
 
-func (service *fakeSystemdService) Status(_ context.Context, scope panelSystemd.Scope) (panelSystemd.Status, error) {
+func (service *fakeSystemdService) Status(_ context.Context, scope systemd.Scope) (systemd.Status, error) {
 	service.statusScope = scope
 	return service.statusResult, service.err
 }
 
-func (service *fakeSystemdService) Control(_ context.Context, scope panelSystemd.Scope, action panelSystemd.Action) (panelSystemd.ControlResult, error) {
+func (service *fakeSystemdService) Control(_ context.Context, scope systemd.Scope, action systemd.Action) (systemd.ControlResult[settings.Settings], error) {
 	service.controlScope = scope
 	service.controlAction = action
 	return service.controlResult, service.err
 }
 
-func (service *fakeSystemdService) Logs(_ context.Context, request panelSystemd.LogsRequest) (panelSystemd.LogsResult, error) {
+func (service *fakeSystemdService) Logs(_ context.Context, request systemd.LogsRequest) (systemd.LogsResult, error) {
 	service.logsRequest = request
 	return service.logsResult, service.err
 }
 
 func TestSystemdInstallLoadsSettingsAndReportsResolvedPaths(t *testing.T) {
 	settingsPath := commandSettingsFixture(t)
-	service := &fakeSystemdService{installResult: panelSystemd.InstallResult{
-		Scope: panelSystemd.ScopeUser, Unit: panelSystemd.UnitName,
+	service := &fakeSystemdService{installResult: systemd.InstallResult[settings.Settings]{
+		Scope: systemd.ScopeUser, Unit: panelSystemd.UnitName,
 		UnitPath:       "/home/test/.config/systemd/user/sing-box-panel.service",
 		ExecutablePath: "/home/test/.local/bin/sing-box-panel", Enabled: true, Started: true,
 	}}
@@ -80,18 +81,18 @@ func TestSystemdInstallLoadsSettingsAndReportsResolvedPaths(t *testing.T) {
 	if stderr != "" {
 		t.Fatalf("stderr = %q", stderr)
 	}
-	var result panelSystemd.InstallResult
+	var result systemd.InstallResult[settings.Settings]
 	if err := json.Unmarshal([]byte(stdout), &result); err != nil {
 		t.Fatalf("decode stdout: %v; %s", err, stdout)
 	}
-	if result.Scope != panelSystemd.ScopeUser || !result.Enabled || !result.Started {
+	if result.Scope != systemd.ScopeUser || !result.Enabled || !result.Started {
 		t.Fatalf("result = %+v", result)
 	}
-	if service.installRequest.Scope != panelSystemd.ScopeUser || !service.installRequest.Force || !service.installRequest.Now {
+	if service.installRequest.Scope != systemd.ScopeUser || !service.installRequest.Force || !service.installRequest.Now {
 		t.Fatalf("request = %+v", service.installRequest)
 	}
 	wantSettings, _ := filepath.Abs(settingsPath)
-	if service.installRequest.SettingsPath != wantSettings || !filepath.IsAbs(service.installRequest.DataDir) {
+	if service.installRequest.StatePath != wantSettings || !filepath.IsAbs(service.installRequest.DataDir) {
 		t.Fatalf("request paths = %+v", service.installRequest)
 	}
 }
@@ -99,8 +100,8 @@ func TestSystemdInstallLoadsSettingsAndReportsResolvedPaths(t *testing.T) {
 func TestSystemdUninstallAccountOutput(t *testing.T) {
 	for _, scenario := range []string{"removed", "retained", "partial failure", "json"} {
 		t.Run(scenario, func(t *testing.T) {
-			service := &fakeSystemdService{uninstallResult: panelSystemd.UninstallResult{
-				Scope: panelSystemd.ScopeSystem, Unit: panelSystemd.UnitName,
+			service := &fakeSystemdService{uninstallResult: systemd.UninstallResult{
+				Scope: systemd.ScopeSystem, Unit: panelSystemd.UnitName,
 				ConfigRetained: true, DataRetained: true, AccountRemoved: true, GroupRemoved: true,
 			}}
 			args := []string{"systemd", "uninstall", "--scope=system"}
@@ -121,7 +122,7 @@ func TestSystemdUninstallAccountOutput(t *testing.T) {
 				t.Fatalf("request=%+v, error=%v", service.uninstallRequest, err)
 			}
 			if scenario == "json" {
-				var result panelSystemd.UninstallResult
+				var result systemd.UninstallResult
 				if err := json.Unmarshal([]byte(stdout), &result); err != nil || !result.AccountRemoved || !result.GroupRemoved || !result.DataRetained {
 					t.Fatalf("result=%+v, error=%v", result, err)
 				}
@@ -143,8 +144,8 @@ func TestSystemdUninstallAccountOutput(t *testing.T) {
 func TestSystemdStatusLabelsOnDiskSourcesAndNeverClaimsLiveSettings(t *testing.T) {
 	settingsPath := commandSettingsFixture(t)
 	absoluteSettings, _ := filepath.Abs(settingsPath)
-	unit := panelSystemd.Status{
-		Scope: panelSystemd.ScopeUser, Unit: panelSystemd.UnitName, UnitPath: "/home/test/.config/systemd/user/sing-box-panel.service",
+	unit := systemd.Status{
+		Scope: systemd.ScopeUser, Unit: panelSystemd.UnitName, UnitPath: "/home/test/.config/systemd/user/sing-box-panel.service",
 		LoadState: "loaded", ActiveState: "active", SubState: "running", UnitFileState: "enabled", MainPID: 321,
 	}
 	decode := func(t *testing.T, stdout string) systemStatusReport {
@@ -170,7 +171,7 @@ func TestSystemdStatusLabelsOnDiskSourcesAndNeverClaimsLiveSettings(t *testing.T
 		t.Fatalf("status error=%v stderr=%q", err, stderr)
 	}
 	report := decode(t, stdout)
-	if report.Service.MainPID != 321 || report.Service.ActiveState != "active" || service.statusScope != panelSystemd.ScopeUser {
+	if report.Service.MainPID != 321 || report.Service.ActiveState != "active" || service.statusScope != systemd.ScopeUser {
 		t.Fatalf("report=%+v scope=%q", report, service.statusScope)
 	}
 	if report.CLISettingsPath != absoluteSettings || report.UnitFile.Path != unit.UnitPath || report.UnitFile.Source != "unit file on disk" ||
@@ -193,7 +194,7 @@ func TestSystemdStatusLabelsOnDiskSourcesAndNeverClaimsLiveSettings(t *testing.T
 	}
 
 	// Unit file names the same file the CLI selected and it loads.
-	unit.UnitFileSettingsPath = absoluteSettings
+	unit.UnitFileStatePath = absoluteSettings
 	service = &fakeSystemdService{statusResult: unit}
 	stdout, _, err = executeSystemCommand(t, service, "--config", settingsPath, "--output=json", "systemd", "status", "--scope=user")
 	if err != nil {
@@ -248,33 +249,33 @@ func TestSystemdStatusLabelsOnDiskSourcesAndNeverClaimsLiveSettings(t *testing.T
 
 	// Unit file names a different, unreadable settings file: unit state and
 	// both paths are kept, storage stays unknown, no parse detail is shown.
-	unit.UnitFileSettingsPath = filepath.Join(t.TempDir(), "missing.json")
+	unit.UnitFileStatePath = filepath.Join(t.TempDir(), "missing.json")
 	service = &fakeSystemdService{statusResult: unit}
 	stdout, _, err = executeSystemCommand(t, service, "--config", settingsPath, "--output=json", "systemd", "status", "--scope=user")
 	if err != nil {
 		t.Fatal(err)
 	}
 	report = decode(t, stdout)
-	if report.Service.MainPID != 321 || report.UnitFile.SettingsPath != unit.UnitFileSettingsPath || report.UnitFile.MatchesCLISettings == nil || *report.UnitFile.MatchesCLISettings ||
-		report.SettingsFile.Path != unit.UnitFileSettingsPath || report.SettingsFile.State != "unavailable" || report.SettingsFile.DataDir != "" ||
+	if report.Service.MainPID != 321 || report.UnitFile.SettingsPath != unit.UnitFileStatePath || report.UnitFile.MatchesCLISettings == nil || *report.UnitFile.MatchesCLISettings ||
+		report.SettingsFile.Path != unit.UnitFileStatePath || report.SettingsFile.State != "unavailable" || report.SettingsFile.DataDir != "" ||
 		strings.Contains(stdout, "no such file") {
 		t.Fatalf("unavailable report=%+v stdout=%s", report, stdout)
 	}
 }
 
 func TestSystemdControlAndLogsPreserveOutputContracts(t *testing.T) {
-	service := &fakeSystemdService{controlResult: panelSystemd.ControlResult{
-		Scope: panelSystemd.ScopeSystem, Unit: panelSystemd.UnitName, Action: panelSystemd.ActionRestart,
+	service := &fakeSystemdService{controlResult: systemd.ControlResult[settings.Settings]{
+		Scope: systemd.ScopeSystem, Unit: panelSystemd.UnitName, Action: systemd.ActionRestart,
 	}}
 	stdout, stderr, err := executeSystemCommand(t, service, "systemd", "restart", "--scope=system")
 	if err != nil || stderr != "" || !strings.Contains(stdout, "restart system") {
 		t.Fatalf("restart stdout=%q stderr=%q error=%v", stdout, stderr, err)
 	}
-	if service.controlScope != panelSystemd.ScopeSystem || service.controlAction != panelSystemd.ActionRestart {
+	if service.controlScope != systemd.ScopeSystem || service.controlAction != systemd.ActionRestart {
 		t.Fatalf("control scope=%q action=%q", service.controlScope, service.controlAction)
 	}
 
-	service.logsResult = panelSystemd.LogsResult{Scope: panelSystemd.ScopeUser, Unit: panelSystemd.UnitName, Lines: 7, Since: "today", Text: "entry one\nentry two"}
+	service.logsResult = systemd.LogsResult{Scope: systemd.ScopeUser, Unit: panelSystemd.UnitName, Lines: 7, Since: "today", Text: "entry one\nentry two"}
 	stdout, stderr, err = executeSystemCommand(t, service, "systemd", "logs", "--scope=user", "--lines=7", "--since=today")
 	if err != nil || stderr != "" || stdout != "entry one\nentry two\n" {
 		t.Fatalf("logs stdout=%q stderr=%q error=%v", stdout, stderr, err)
@@ -285,14 +286,14 @@ func TestSystemdControlAndLogsPreserveOutputContracts(t *testing.T) {
 }
 
 func TestSystemdErrorsHaveStableExitClasses(t *testing.T) {
-	service := &fakeSystemdService{err: panelSystemd.ErrNotInstalled}
+	service := &fakeSystemdService{err: systemd.ErrNotInstalled}
 	_, _, err := executeSystemCommand(t, service, "systemd", "status", "--scope=user")
 	if ExitCode(err) != 6 {
 		t.Fatalf("not installed exit=%d error=%v", ExitCode(err), err)
 	}
 
 	settingsPath := commandSettingsFixture(t)
-	service.err = panelSystemd.ErrPermission
+	service.err = systemd.ErrPermission
 	_, _, err = executeSystemCommand(t, service, "--config", settingsPath, "systemd", "install", "--scope=system")
 	if ExitCode(err) != 5 {
 		t.Fatalf("permission exit=%d error=%v", ExitCode(err), err)
@@ -311,7 +312,7 @@ func TestSystemdErrorsHaveStableExitClasses(t *testing.T) {
 	}
 }
 
-func executeSystemCommand(t *testing.T, service panelSystemd.Service, args ...string) (string, string, error) {
+func executeSystemCommand(t *testing.T, service systemdService, args ...string) (string, string, error) {
 	t.Helper()
 	var stdout, stderr bytes.Buffer
 	command := NewRootCommand(Dependencies{CleanupHistoryPath: testHistoryPath(t),
@@ -346,8 +347,8 @@ func TestSystemdInitialCredentialsSurviveActivationFailure(t *testing.T) {
 				}
 				value.InitialPassword = testutil.AdminPassword
 				service := &fakeSystemdService{
-					installResult: panelSystemd.InstallResult{InitialSettings: &value},
-					controlResult: panelSystemd.ControlResult{InitialSettings: &value},
+					installResult: systemd.InstallResult[settings.Settings]{Initial: &value},
+					controlResult: systemd.ControlResult[settings.Settings]{Initial: &value},
 					err:           errors.New("service activation failed"),
 				}
 				stdout, stderr, err := executeSystemCommand(t, service, "--config", path, "--output", format, "systemd", action, "--scope=user")

@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/rehuony/sing-box-panel/internal/database"
+	"github.com/rehuony/sing-box-panel/internal/pathguard"
 	"github.com/rehuony/sing-box-panel/internal/procctl"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/settings"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/store"
@@ -235,7 +236,7 @@ func TestCleanupRemovesLegacyAndUnknownContents(t *testing.T) {
 			seen := make(map[string]Entry)
 			for _, entry := range report.Entries {
 				seen[entry.Path] = entry
-				if pathWithin(dir, entry.Path) && entry.Cleanup != "remove" && entry.Cleanup != "remove_link" {
+				if pathguard.Within(dir, entry.Path) && entry.Cleanup != "remove" && entry.Cleanup != "remove_link" {
 					t.Fatalf("data not included in complete cleanup: %+v", entry)
 				}
 			}

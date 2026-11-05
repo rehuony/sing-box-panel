@@ -110,7 +110,7 @@ func Save(dataDir string, enrollment Enrollment) error {
 	if err != nil {
 		return err
 	}
-	return atomicfile.Write(filepath.Join(dataDir, EnrollmentFile), append(raw, '\n'), 0o600, atomicfile.Options{})
+	return writePrivate(filepath.Join(dataDir, EnrollmentFile), append(raw, '\n'))
 }
 
 // Remove deletes the enrollment in dataDir, if any.
@@ -120,4 +120,13 @@ func Remove(dataDir string) error {
 		return fmt.Errorf("remove the enrollment: %w", err)
 	}
 	return atomicfile.SyncDir(dataDir)
+}
+
+// writePrivate publishes a file readable only by its owner. A root command
+// keeps the owner of the data directory, so a service running as its own
+// account can still read what the command wrote.
+func writePrivate(path string, data []byte) error {
+	return atomicfile.Write(path, data, 0o600, atomicfile.Options{
+		Prepare: func(file *os.File) error { return atomicfile.PreserveOwner(file, path) },
+	})
 }

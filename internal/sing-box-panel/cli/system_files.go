@@ -14,14 +14,15 @@ import (
 	"time"
 
 	"github.com/mattn/go-isatty"
+	"github.com/rehuony/sing-box-panel/internal/pathguard"
 	"github.com/rehuony/sing-box-panel/internal/procctl"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/installation"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/settings"
-	panelSystemd "github.com/rehuony/sing-box-panel/internal/sing-box-panel/systemd"
+	"github.com/rehuony/sing-box-panel/internal/systemd"
 	"github.com/spf13/cobra"
 )
 
-func newSystemCommand(state *options, service panelSystemd.Service) *cobra.Command {
+func newSystemCommand(state *options, service systemdService) *cobra.Command {
 	root := group("system", "Inspect or prune the selected instance's files and data")
 	root.AddCommand(newSystemDFCommand(state, service), newSystemPruneCommand(state, service))
 	return root
@@ -29,15 +30,15 @@ func newSystemCommand(state *options, service panelSystemd.Service) *cobra.Comma
 
 type instanceFilesReport struct {
 	installation.Report
-	Service          panelSystemd.FilesResult `json:"service"`
-	ServiceState     string                   `json:"service_state"`
-	ServiceMatches   bool                     `json:"service_matches_instance"`
-	ServiceDataDir   string                   `json:"service_data_dir,omitempty"`
-	ServiceDataKnown bool                     `json:"service_data_known"`
-	Preview          bool                     `json:"preview"`
+	Service          systemd.FilesResult `json:"service"`
+	ServiceState     string              `json:"service_state"`
+	ServiceMatches   bool                `json:"service_matches_instance"`
+	ServiceDataDir   string              `json:"service_data_dir,omitempty"`
+	ServiceDataKnown bool                `json:"service_data_known"`
+	Preview          bool                `json:"preview"`
 }
 
-func inspectInstanceFiles(ctx context.Context, path string, scope panelSystemd.Scope, service panelSystemd.Service, historyPaths ...string) (instanceFilesReport, error) {
+func inspectInstanceFiles(ctx context.Context, path string, scope systemd.Scope, service systemdService, historyPaths ...string) (instanceFilesReport, error) {
 	historyPath := installation.DefaultHistoryPath()
 	if len(historyPaths) > 0 {
 		historyPath = historyPaths[0]
@@ -49,7 +50,7 @@ func inspectInstanceFiles(ctx context.Context, path string, scope panelSystemd.S
 		return result, inspectErr
 	}
 	result.Service, err = service.Files(ctx, scope)
-	if errors.Is(err, panelSystemd.ErrUnsupportedOS) {
+	if errors.Is(err, systemd.ErrUnsupportedOS) {
 		result.ServiceState = "unsupported"
 		return result, inspectErr
 	}
@@ -58,9 +59,9 @@ func inspectInstanceFiles(ctx context.Context, path string, scope panelSystemd.S
 		return result, errors.Join(inspectErr, err)
 	}
 	result.ServiceState = "inspected"
-	result.ServiceMatches = result.Service.SettingsPath != "" && filepath.Clean(result.Service.SettingsPath) == files.SettingsPath
-	if result.Service.SettingsPath != "" {
-		dataDir, err := settings.LoadDataDir(result.Service.SettingsPath)
+	result.ServiceMatches = result.Service.StatePath != "" && filepath.Clean(result.Service.StatePath) == files.SettingsPath
+	if result.Service.StatePath != "" {
+		dataDir, err := settings.LoadDataDir(result.Service.StatePath)
 		if err == nil {
 			result.ServiceDataDir = dataDir
 			result.ServiceDataKnown = true
@@ -69,7 +70,7 @@ func inspectInstanceFiles(ctx context.Context, path string, scope panelSystemd.S
 	return result, inspectErr
 }
 
-func newSystemDFCommand(state *options, service panelSystemd.Service) *cobra.Command {
+func newSystemDFCommand(state *options, service systemdService) *cobra.Command {
 	var rawScope string
 	command := &cobra.Command{Use: "df", Short: "List selected instance files, storage paths and cleanup scope", Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
@@ -89,7 +90,7 @@ func newSystemDFCommand(state *options, service panelSystemd.Service) *cobra.Com
 	return command
 }
 
-func newSystemPruneCommand(state *options, service panelSystemd.Service) *cobra.Command {
+func newSystemPruneCommand(state *options, service systemdService) *cobra.Command {
 	var rawScope string
 	var yes bool
 	command := &cobra.Command{Use: "prune", Short: "Preview cleanup; --yes stops the instance and removes its settings and entire data directory", Args: cobra.NoArgs,
@@ -126,8 +127,8 @@ func newSystemPruneCommand(state *options, service panelSystemd.Service) *cobra.
 	return command
 }
 
-func stopInstanceForCleanup(ctx context.Context, report instanceFilesReport, service panelSystemd.Service) (*panelSystemd.UninstallResult, error) {
-	var uninstalled *panelSystemd.UninstallResult
+func stopInstanceForCleanup(ctx context.Context, report instanceFilesReport, service systemdService) (*systemd.UninstallResult, error) {
+	var uninstalled *systemd.UninstallResult
 	if report.ServiceState == "unavailable" {
 		return nil, errors.New("system service ownership could not be inspected")
 	}
@@ -135,15 +136,15 @@ func stopInstanceForCleanup(ctx context.Context, report instanceFilesReport, ser
 		if !report.ServiceDataKnown {
 			return nil, errors.New("installed service settings are unknown; resolve its ownership before cleanup")
 		}
-		overlap, err := installation.DataDirectoriesOverlap(report.DataDir, report.ServiceDataDir)
+		overlap, err := pathguard.Overlap(report.DataDir, report.ServiceDataDir)
 		if err != nil {
 			return nil, err
 		}
 		if overlap {
 			return nil, errors.New("another service configuration shares or overlaps this data directory; select that service's settings before cleanup")
 		}
-		for _, path := range []string{report.Service.SettingsPath, report.ServiceDataDir} {
-			contained, err := installation.DataDirectoryContainsPath(report.DataDir, path)
+		for _, path := range []string{report.Service.StatePath, report.ServiceDataDir} {
+			contained, err := pathguard.Contains(report.DataDir, path)
 			if err != nil {
 				return nil, err
 			}
@@ -159,17 +160,17 @@ func stopInstanceForCleanup(ctx context.Context, report instanceFilesReport, ser
 			}
 		}
 		status, err := service.Status(ctx, report.Service.Scope)
-		if err != nil && !errors.Is(err, panelSystemd.ErrNotInstalled) {
+		if err != nil && !errors.Is(err, systemd.ErrNotInstalled) {
 			return nil, err
 		}
 		if err == nil && status.LoadState == "loaded" {
-			if err := status.ValidateSettingsPath(report.SettingsPath); err != nil {
+			if err := status.ValidateStatePath(report.SettingsPath, "settings"); err != nil {
 				return nil, err
 			}
 		}
-		result, err := service.Uninstall(ctx, panelSystemd.UninstallRequest{Scope: report.Service.Scope})
+		result, err := service.Uninstall(ctx, systemd.UninstallRequest{Scope: report.Service.Scope})
 		uninstalled = &result
-		if err != nil && !errors.Is(err, panelSystemd.ErrNotInstalled) {
+		if err != nil && !errors.Is(err, systemd.ErrNotInstalled) {
 			return uninstalled, err
 		}
 	}

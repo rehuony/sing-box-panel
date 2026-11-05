@@ -8,24 +8,22 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
 
 	"github.com/rehuony/sing-box-panel/internal/database"
-	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/installation"
-	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/settings"
 )
 
-// The installer reserves this non-login identity. A matching name alone is
-// insufficient: never adopt or delete a login account, root, or a shared ID.
+// The installer reserves the service's non-login identity, named after the
+// service. A matching name alone is insufficient: never adopt or delete a
+// login account, root, or a shared ID.
 type systemAccount struct {
 	uid string
 	gid string
 }
 
-func (manager *Manager) inspectSystemAccount(ctx context.Context) (systemAccount, error) {
+func (manager *Manager[T]) inspectSystemAccount(ctx context.Context) (systemAccount, error) {
 	passwd, err := manager.runResult(ctx, "getent", "passwd")
 	if err != nil {
 		return systemAccount{}, err
@@ -34,6 +32,7 @@ func (manager *Manager) inspectSystemAccount(ctx context.Context) (systemAccount
 	if err != nil {
 		return systemAccount{}, err
 	}
+	serviceUser, serviceGroup := manager.definition.Name, manager.definition.Name
 	var account systemAccount
 	var primaryGroup string
 	var userRecord, groupRecord string
@@ -45,7 +44,7 @@ func (manager *Manager) inspectSystemAccount(ctx context.Context) (systemAccount
 			continue
 		}
 		if len(fields) != 7 || account.uid != "" || !validServiceID(fields[2]) ||
-			fields[4] != "Sing-Box Panel service account" || fields[5] != "/var/lib/sing-box-panel" || fields[6] != "/usr/sbin/nologin" {
+			fields[4] != manager.definition.AccountDescription || fields[5] != "/var/lib/"+serviceUser || fields[6] != "/usr/sbin/nologin" {
 			return account, accountConflict("user does not match the dedicated sysusers profile")
 		}
 		account.uid, primaryGroup = fields[2], fields[3]
@@ -108,6 +107,20 @@ func (manager *Manager) inspectSystemAccount(ctx context.Context) (systemAccount
 	return account, nil
 }
 
+// Account is the service's system account and group IDs; an empty ID is
+// absent.
+type Account struct {
+	UID string
+	GID string
+}
+
+// Account inspects the service's dedicated system account and refuses an
+// identity that does not match the installer's profile.
+func (manager *Manager[T]) Account(ctx context.Context) (Account, error) {
+	account, err := manager.inspectSystemAccount(ctx)
+	return Account{UID: account.uid, GID: account.gid}, err
+}
+
 func validServiceID(value string) bool {
 	id, err := strconv.ParseUint(value, 10, 32)
 	return err == nil && id > 0 && id < 1<<32-1 && strconv.FormatUint(id, 10) == value
@@ -119,7 +132,8 @@ func accountConflict(reason string) error {
 
 // Presence does not imply installer ownership. Retention also works for a
 // customized account, but must not claim a nonexistent identity was retained.
-func (manager *Manager) inspectAccountPresence(ctx context.Context, result *UninstallResult) error {
+func (manager *Manager[T]) inspectAccountPresence(ctx context.Context, result *UninstallResult) error {
+	serviceUser := manager.definition.Name
 	for _, entry := range []struct {
 		database string
 		fields   int
@@ -150,7 +164,7 @@ func (manager *Manager) inspectAccountPresence(ctx context.Context, result *Unin
 	return nil
 }
 
-func (manager *Manager) preflightAccountRemoval(ctx context.Context, keepUser bool, result *UninstallResult) (systemAccount, error) {
+func (manager *Manager[T]) preflightAccountRemoval(ctx context.Context, keepUser bool, result *UninstallResult) (systemAccount, error) {
 	// Retain unverified identities. --force only authorizes replacing/removing
 	// service files; it must never authorize deleting an unrelated OS account.
 	if err := manager.inspectAccountPresence(ctx, result); err != nil {
@@ -179,7 +193,7 @@ func (manager *Manager) preflightAccountRemoval(ctx context.Context, keepUser bo
 	if err != nil {
 		return systemAccount{}, err
 	}
-	if !bytes.Equal(declaration, sysusersTemplate) {
+	if !bytes.Equal(declaration, manager.definition.Sysusers) {
 		return systemAccount{}, accountConflict("sysusers declaration is customized")
 	}
 	account, err := manager.inspectSystemAccount(ctx)
@@ -205,17 +219,17 @@ func (manager *Manager) preflightAccountRemoval(ctx context.Context, keepUser bo
 	return account, nil
 }
 
-func (manager *Manager) validateAccountRemovalStatus(status Status) error {
+func (manager *Manager[T]) validateAccountRemovalStatus(status Status) error {
 	if status.LoadState != "not-found" &&
 		(status.LoadState != "loaded" || status.UnitPath != manager.layout.SystemUnitPath) {
 		return accountConflict("loaded service identity does not match the installed unit")
 	}
-	return status.ValidateSettingsPath(manager.layout.SystemSettingsPath)
+	return status.ValidateStatePath(manager.layout.SystemStatePath, manager.definition.StateLabel)
 }
 
 // Called only after systemd confirms termination and disable succeeds. Account
 // cleanup precedes service-file deletion so a failure remains retryable.
-func (manager *Manager) removeSystemAccount(ctx context.Context, expected systemAccount, result *UninstallResult) error {
+func (manager *Manager[T]) removeSystemAccount(ctx context.Context, expected systemAccount, result *UninstallResult) error {
 	if expected.uid == "" && expected.gid == "" {
 		return nil
 	}
@@ -236,13 +250,13 @@ func (manager *Manager) removeSystemAccount(ctx context.Context, expected system
 	if !unitStopped(status) {
 		return accountConflict("service started again during uninstall")
 	}
-	// Serialize configuration writers and exclude database owners (including
-	// manually launched root processes) before transferring retained ownership.
-	if fileExists(filepath.Dir(manager.layout.SystemSettingsPath)) {
-		lock, err := settings.TryLock(ctx, manager.layout.SystemSettingsPath)
-		if err != nil {
-			return err
-		}
+	// Serialize state writers and exclude database owners (including manually
+	// launched root processes) before transferring retained ownership.
+	lock, err := manager.definition.State.Lock(ctx, manager.layout.SystemStatePath)
+	if err != nil {
+		return err
+	}
+	if lock != nil {
 		defer lock.Close()
 	}
 	paths, err := manager.retainedAccountPaths()
@@ -276,7 +290,7 @@ func (manager *Manager) removeSystemAccount(ctx context.Context, expected system
 	if current.uid != "" {
 		// No --force or --remove. The independent process check above also
 		// covers hosts where userdel cannot inspect another process's root.
-		deleteErr := manager.run(ctx, "userdel", "--", serviceUser)
+		deleteErr := manager.run(ctx, "userdel", "--", manager.definition.Name)
 		after, inspectErr := manager.inspectSystemAccount(ctx)
 		result.AccountInspected = inspectErr == nil
 		result.AccountRetained, result.GroupRetained = false, false
@@ -295,7 +309,7 @@ func (manager *Manager) removeSystemAccount(ctx context.Context, expected system
 	}
 	// userdel may already remove the empty private group (USERGROUPS_ENAB).
 	if current.gid != "" {
-		deleteErr := manager.run(ctx, "groupdel", "--", serviceGroup)
+		deleteErr := manager.run(ctx, "groupdel", "--", manager.definition.Name)
 		after, inspectErr := manager.inspectSystemAccount(ctx)
 		result.AccountInspected = inspectErr == nil
 		result.AccountRetained, result.GroupRetained = false, false
@@ -313,31 +327,22 @@ func (manager *Manager) removeSystemAccount(ctx context.Context, expected system
 	return nil
 }
 
-func (manager *Manager) retainedAccountPaths() ([]string, error) {
-	settingsPath := manager.layout.SystemSettingsPath
-	if err := preflightSettingsPaths(settingsPath); err != nil {
+// RetainedPaths lists the existing directories whose ownership returns to
+// root when uninstall removes the system account.
+func (manager *Manager[T]) RetainedPaths() ([]string, error) { return manager.retainedAccountPaths() }
+
+func (manager *Manager[T]) retainedAccountPaths() ([]string, error) {
+	statePath := manager.layout.SystemStatePath
+	executable := manager.layout.SystemExecutablePath
+	extra, err := manager.definition.State.Retained(statePath)
+	if err != nil {
 		return nil, err
 	}
-	paths := []string{filepath.Dir(settingsPath), manager.layout.SystemDataDir}
-	configured, err := settings.ConfiguredDataDir(settingsPath)
-	if err == nil {
-		paths = append(paths, configured)
-	} else if !errors.Is(err, os.ErrNotExist) {
-		return nil, err
-	}
-	location, err := settings.ReadDataLocation(settingsPath)
-	if err == nil {
-		paths = append(paths, location.DataDir)
-		if location.Move != nil {
-			paths = append(paths, location.Move.Target)
-		}
-	} else if !errors.Is(err, os.ErrNotExist) {
-		return nil, err
-	}
+	paths := append([]string{manager.layout.SystemDataDir}, extra...)
 	unit, err := os.ReadFile(manager.layout.SystemUnitPath)
 	if err == nil {
-		if path, known := parseUnitFileSettingsPath(unit); !known || path != settingsPath {
-			return nil, accountConflict("installed service settings are unknown or different")
+		if path, known := manager.parseUnitFileStatePath(unit); !known || path != statePath {
+			return nil, accountConflict("installed service " + manager.definition.StateLabel + " are unknown or different")
 		}
 		for _, line := range strings.Split(string(unit), "\n") {
 			if value, ok := strings.CutPrefix(line, "WorkingDirectory="); ok {
@@ -357,10 +362,10 @@ func (manager *Manager) retainedAccountPaths() ([]string, error) {
 		if _, err := cleanAbsolute(path, "retained directory"); err != nil {
 			return nil, err
 		}
-		if err := installation.ValidateCleanup(installation.Report{
-			SettingsPath: settingsPath, DataDir: path,
-			Entries: []installation.Entry{{Path: manager.layout.SystemExecutablePath}},
-		}); err != nil {
+		if err := validateServiceDirectory(executable, path); err != nil {
+			return nil, err
+		}
+		if err := manager.definition.State.Validate(executable, statePath, path); err != nil {
 			return nil, err
 		}
 		if err := requireDirectory(path); errors.Is(err, os.ErrNotExist) {

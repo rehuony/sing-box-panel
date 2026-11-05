@@ -13,6 +13,7 @@ import (
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/settings"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/store"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/testutil"
+	"github.com/rehuony/sing-box-panel/internal/systemd"
 )
 
 func TestExplicitServiceRestartMovesDataAndUpdatesGeneratedPaths(t *testing.T) {
@@ -32,7 +33,7 @@ func TestExplicitServiceRestartMovesDataAndUpdatesGeneratedPaths(t *testing.T) {
 			if err := settings.Replace(fixture.settings, raw); err != nil {
 				t.Fatal(err)
 			}
-			if _, err := fixture.manager.Install(t.Context(), InstallRequest{Scope: ScopeSystem, SettingsPath: fixture.settings, DataDir: fixture.data}); err != nil {
+			if _, err := fixture.manager.Install(t.Context(), systemd.InstallRequest{Scope: systemd.ScopeSystem, StatePath: fixture.settings, DataDir: fixture.data}); err != nil {
 				t.Fatal(err)
 			}
 			target := filepath.Join(filepath.Dir(fixture.data), "moved-data")
@@ -58,20 +59,20 @@ func TestExplicitServiceRestartMovesDataAndUpdatesGeneratedPaths(t *testing.T) {
 			}
 			stopped := false
 			fixture.runner.calls = nil
-			fixture.runner.run = func(name string, args []string) (CommandResult, error) {
+			fixture.runner.run = func(name string, args []string) (systemd.CommandResult, error) {
 				if name == "systemctl" && len(args) > 1 && args[1] == "show" {
-					return CommandResult{Stdout: []byte("LoadState=loaded\nActiveState=active\nSubState=running\nUnitFileState=enabled\nMainPID=1\nFragmentPath=" + fixture.layout.SystemUnitPath + "\n")}, nil
+					return systemd.CommandResult{Stdout: []byte("LoadState=loaded\nActiveState=active\nSubState=running\nUnitFileState=enabled\nMainPID=1\nFragmentPath=" + fixture.layout.SystemUnitPath + "\n")}, nil
 				}
 				if name == "systemctl" && len(args) > 1 && args[1] == "stop" {
 					if _, err := os.Stat(target); !os.IsNotExist(err) {
 						t.Fatal("migration touched target before service stop")
 					}
 					stopped = true
-					return CommandResult{}, lease.Close()
+					return systemd.CommandResult{}, lease.Close()
 				}
-				return CommandResult{}, nil
+				return systemd.CommandResult{}, nil
 			}
-			_, err = fixture.manager.Control(t.Context(), ScopeSystem, ActionRestart)
+			_, err = fixture.manager.Control(t.Context(), systemd.ScopeSystem, systemd.ActionRestart)
 			if customized {
 				if err == nil || stopped {
 					t.Fatalf("custom unit changed or service stopped: %v", err)
@@ -111,7 +112,7 @@ func TestSystemServiceRejectsProtectedDataDirectory(t *testing.T) {
 		if err := os.WriteFile(fixture.settings, validTestSettings(path), 0600); err != nil {
 			t.Fatal(err)
 		}
-		_, err := fixture.manager.Install(t.Context(), InstallRequest{Scope: ScopeSystem, SettingsPath: fixture.settings, DataDir: path})
+		_, err := fixture.manager.Install(t.Context(), systemd.InstallRequest{Scope: systemd.ScopeSystem, StatePath: fixture.settings, DataDir: path})
 		if err == nil || !strings.Contains(err.Error(), "protected home") {
 			t.Fatalf("protected destination accepted: %s %v", path, err)
 		}
@@ -122,7 +123,7 @@ func TestSystemServiceRejectsProtectedDataDirectory(t *testing.T) {
 }
 
 func TestTemporaryServicePathsRemainVisibleWithPrivateTmp(t *testing.T) {
-	unit, err := renderUnit(ScopeUser, "/usr/local/bin/sing-box-panel", "/var/tmp/panel-config/setting.json", "/tmp/panel-data")
+	unit, err := renderUnit(systemd.ScopeUser, "/usr/local/bin/sing-box-panel", "/var/tmp/panel-config/setting.json", "/tmp/panel-data")
 	if err != nil {
 		t.Fatal(err)
 	}

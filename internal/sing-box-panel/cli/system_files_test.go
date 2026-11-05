@@ -17,7 +17,7 @@ import (
 	"github.com/rehuony/sing-box-panel/internal/procctl"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/installation"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/settings"
-	panelSystemd "github.com/rehuony/sing-box-panel/internal/sing-box-panel/systemd"
+	"github.com/rehuony/sing-box-panel/internal/systemd"
 )
 
 func TestFileTreeText(t *testing.T) {
@@ -104,7 +104,7 @@ func TestInstanceFilesTextShowsExistingContentsWithoutCleanupLabels(t *testing.T
 				{Path: "/srv/panel/notes", Role: "instance data", State: "file", Cleanup: "remove"},
 			},
 		},
-		Service: panelSystemd.FilesResult{Scope: panelSystemd.ScopeSystem, Files: []panelSystemd.FileStatus{
+		Service: systemd.FilesResult{Scope: systemd.ScopeSystem, Files: []systemd.FileStatus{
 			{Path: "/etc/systemd/panel.service", State: "managed", Managed: true},
 			{Path: "/etc/systemd/other.service", State: "unmanaged"},
 			{Path: "/etc/systemd/missing.service", State: "missing"},
@@ -305,7 +305,7 @@ type cancelingUninstallService struct {
 	cancel context.CancelFunc
 }
 
-func (service *cancelingUninstallService) Uninstall(ctx context.Context, request panelSystemd.UninstallRequest) (panelSystemd.UninstallResult, error) {
+func (service *cancelingUninstallService) Uninstall(ctx context.Context, request systemd.UninstallRequest) (systemd.UninstallResult, error) {
 	result, err := service.fakeSystemdService.Uninstall(ctx, request)
 	service.cancel()
 	return result, err
@@ -320,11 +320,11 @@ func TestSystemPruneReportsPartialResultsAndPreservesFailure(t *testing.T) {
 			defer cancel()
 			service := &cancelingUninstallService{
 				fakeSystemdService: fakeSystemdService{
-					filesResult: panelSystemd.FilesResult{SettingsPath: path, Files: []panelSystemd.FileStatus{
+					filesResult: systemd.FilesResult{StatePath: path, Files: []systemd.FileStatus{
 						{Path: servicePath, State: "managed", Managed: true},
 					}},
-					statusResult:    panelSystemd.Status{UnitFileSettingsPath: path},
-					uninstallResult: panelSystemd.UninstallResult{RemovedPaths: []string{servicePath}},
+					statusResult:    systemd.Status{UnitFileStatePath: path},
+					uninstallResult: systemd.UninstallResult{RemovedPaths: []string{servicePath}},
 				},
 				cancel: cancel,
 			}
@@ -376,10 +376,10 @@ func TestSystemDFAndPruneOutputFormats(t *testing.T) {
 	if err := os.Mkdir(filepath.Join(imports, "empty"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	service := &fakeSystemdService{filesResult: panelSystemd.FilesResult{Files: []panelSystemd.FileStatus{
+	service := &fakeSystemdService{filesResult: systemd.FilesResult{Files: []systemd.FileStatus{
 		{Path: filepath.Join(t.TempDir(), "absent-service-parent", "panel.service"), State: "missing"},
 	}}}
-	report, err := inspectInstanceFiles(context.Background(), path, panelSystemd.ScopeAuto, service, testHistoryPath(t))
+	report, err := inspectInstanceFiles(context.Background(), path, systemd.ScopeAuto, service, testHistoryPath(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -446,20 +446,20 @@ func TestSystemDFAndPruneOutputFormats(t *testing.T) {
 
 func TestSystemDFAndPruneShowServiceFiles(t *testing.T) {
 	path := commandSettingsFixture(t)
-	for _, scope := range []panelSystemd.Scope{panelSystemd.ScopeUser, panelSystemd.ScopeSystem} {
-		files := []panelSystemd.FileStatus{
+	for _, scope := range []systemd.Scope{systemd.ScopeUser, systemd.ScopeSystem} {
+		files := []systemd.FileStatus{
 			{Path: "/home/test/.config/systemd/user/sing-box-panel.service", State: "managed", Managed: true},
 		}
 		wantTree := "├── home/test/.config/systemd/user/sing-box-panel.service [service, user]"
-		if scope == panelSystemd.ScopeSystem {
-			files = []panelSystemd.FileStatus{
+		if scope == systemd.ScopeSystem {
+			files = []systemd.FileStatus{
 				{Path: "/etc/systemd/system/sing-box-panel.service", State: "managed", Managed: true},
 				{Path: "/etc/sysusers.d/sing-box-panel.conf", State: "managed", Managed: true},
 				{Path: "/etc/tmpfiles.d/sing-box-panel.conf", State: "managed", Managed: true},
 			}
 			wantTree = "├── etc/\n│   ├── systemd/system/sing-box-panel.service [service, system]\n│   ├── sysusers.d/sing-box-panel.conf [service, system]\n│   └── tmpfiles.d/sing-box-panel.conf [service, system]"
 		}
-		files = append(files, panelSystemd.FileStatus{Path: "/absent-services/missing.service", State: "missing"})
+		files = append(files, systemd.FileStatus{Path: "/absent-services/missing.service", State: "missing"})
 		for _, matches := range []bool{true, false} {
 			selectedPath := path
 			want := wantTree
@@ -467,7 +467,7 @@ func TestSystemDFAndPruneShowServiceFiles(t *testing.T) {
 				selectedPath = filepath.Join(t.TempDir(), "other.json")
 				want = strings.ReplaceAll(want, "]", ", outside scope]")
 			}
-			service := &fakeSystemdService{filesResult: panelSystemd.FilesResult{Scope: scope, SettingsPath: selectedPath, Files: files}}
+			service := &fakeSystemdService{filesResult: systemd.FilesResult{Scope: scope, StatePath: selectedPath, Files: files}}
 			for _, command := range []string{"df", "prune"} {
 				stdout, stderr, err := executeSystemCommand(t, service, "system", command, "-c", path, "--scope", string(scope))
 				if err != nil || stderr != "" {
@@ -551,7 +551,7 @@ func TestSystemDFAndPreviewShowEmptyData(t *testing.T) {
 			}
 		}
 		for _, command := range []string{"df", "prune"} {
-			stdout, _, err := executeSystemCommand(t, &fakeSystemdService{err: panelSystemd.ErrUnsupportedOS}, "-c", path, "system", command)
+			stdout, _, err := executeSystemCommand(t, &fakeSystemdService{err: systemd.ErrUnsupportedOS}, "-c", path, "system", command)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -599,7 +599,7 @@ func TestSystemDFAndPreviewAfterPruneWithoutSettings(t *testing.T) {
 			} else {
 				configArgs = []string{"-c", path}
 			}
-			service := &fakeSystemdService{err: panelSystemd.ErrUnsupportedOS}
+			service := &fakeSystemdService{err: systemd.ErrUnsupportedOS}
 			args := append([]string{"system", "prune", "--yes"}, configArgs...)
 			if _, _, err := executeSystemCommand(t, service, args...); err != nil {
 				t.Fatal(err)
@@ -650,9 +650,9 @@ func TestSystemDFAndPreviewAfterPruneWithoutSettings(t *testing.T) {
 func TestSystemDFWithoutSettingsStillInspectsServices(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "setting.json")
 	servicePath := filepath.Join(t.TempDir(), "panel.service")
-	service := &fakeSystemdService{filesResult: panelSystemd.FilesResult{
-		Scope: panelSystemd.ScopeUser, SettingsPath: path,
-		Files: []panelSystemd.FileStatus{{Path: servicePath, State: "managed", Managed: true}},
+	service := &fakeSystemdService{filesResult: systemd.FilesResult{
+		Scope: systemd.ScopeUser, StatePath: path,
+		Files: []systemd.FileStatus{{Path: servicePath, State: "managed", Managed: true}},
 	}}
 	stdout, stderr, err := executeSystemCommand(t, service, "system", "df", "-c", path, "-o", "json")
 	if err != nil || stderr != "" {
@@ -677,7 +677,7 @@ func TestSystemDFWithoutSettingsStillInspectsServices(t *testing.T) {
 	if err != nil {
 		t.Fatalf("service-only cleanup: %v", err)
 	}
-	if service.uninstallRequest.Scope != panelSystemd.ScopeUser {
+	if service.uninstallRequest.Scope != systemd.ScopeUser {
 		t.Fatal("matching orphan service was not removed")
 	}
 }
@@ -695,7 +695,7 @@ func TestSystemPruneRemovesUnknownDataAndStaleControlFile(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			service := &fakeSystemdService{err: panelSystemd.ErrUnsupportedOS}
+			service := &fakeSystemdService{err: systemd.ErrUnsupportedOS}
 			lease, err := procctl.AcquireLease(dataDir)
 			if err != nil {
 				t.Fatal(err)
@@ -769,16 +769,16 @@ func TestCleanupDistinguishesMatchingSharedAndUnrelatedServices(t *testing.T) {
 	for _, kind := range []string{"matching", "shared", "nested", "parent", "unrelated", "unknown"} {
 		t.Run(kind, func(t *testing.T) {
 			service := &fakeSystemdService{
-				filesResult:  panelSystemd.FilesResult{Scope: panelSystemd.ScopeUser, SettingsPath: path, Files: []panelSystemd.FileStatus{{Path: "fixture.service", State: "managed", Managed: true}}},
-				statusResult: panelSystemd.Status{Scope: panelSystemd.ScopeUser, UnitFileSettingsPath: path},
+				filesResult:  systemd.FilesResult{Scope: systemd.ScopeUser, StatePath: path, Files: []systemd.FileStatus{{Path: "fixture.service", State: "managed", Managed: true}}},
+				statusResult: systemd.Status{Scope: systemd.ScopeUser, UnitFileStatePath: path},
 			}
-			report, err := inspectInstanceFiles(context.Background(), path, panelSystemd.ScopeUser, service, testHistoryPath(t))
+			report, err := inspectInstanceFiles(context.Background(), path, systemd.ScopeUser, service, testHistoryPath(t))
 			if err != nil {
 				t.Fatal(err)
 			}
 			if kind != "matching" {
 				report.ServiceMatches = false
-				report.Service.SettingsPath = "/different/setting.json"
+				report.Service.StatePath = "/different/setting.json"
 			}
 			if kind == "unrelated" {
 				report.ServiceDataDir = t.TempDir()
@@ -799,7 +799,7 @@ func TestCleanupDistinguishesMatchingSharedAndUnrelatedServices(t *testing.T) {
 			if (kind == "matching" || kind == "unrelated") && err != nil {
 				t.Fatal(err)
 			}
-			if kind == "matching" && service.uninstallRequest.Scope != panelSystemd.ScopeUser {
+			if kind == "matching" && service.uninstallRequest.Scope != systemd.ScopeUser {
 				t.Fatal("matching service not uninstalled")
 			}
 			if kind != "matching" && service.uninstallRequest.Scope != "" {
@@ -860,9 +860,9 @@ func TestCleanupProtectsOtherServiceSettingsAndAliases(t *testing.T) {
 				}
 				serviceSettings = filepath.Join(alias, "other.json")
 			}
-			service := &fakeSystemdService{filesResult: panelSystemd.FilesResult{
-				Scope: panelSystemd.ScopeUser, SettingsPath: serviceSettings,
-				Files: []panelSystemd.FileStatus{{Path: filepath.Join(outside, "panel.service"), State: "managed", Managed: true}},
+			service := &fakeSystemdService{filesResult: systemd.FilesResult{
+				Scope: systemd.ScopeUser, StatePath: serviceSettings,
+				Files: []systemd.FileStatus{{Path: filepath.Join(outside, "panel.service"), State: "managed", Managed: true}},
 			}}
 			_, _, err = executeSystemCommand(t, service, "system", "prune", "-c", path, "--yes")
 			if (err != nil) != (kind != "unrelated") {
@@ -903,7 +903,7 @@ func TestSystemPruneRemovesAllDataWithInvalidRuntimeSettings(t *testing.T) {
 		t.Fatal(err)
 	}
 	// The injected service cannot invoke the host's systemd manager.
-	service := &fakeSystemdService{err: panelSystemd.ErrUnsupportedOS}
+	service := &fakeSystemdService{err: systemd.ErrUnsupportedOS}
 	stdout, stderr, err := executeSystemCommand(t, service, "--config", path, "system", "prune", "--yes")
 	if err != nil {
 		t.Fatal(err)

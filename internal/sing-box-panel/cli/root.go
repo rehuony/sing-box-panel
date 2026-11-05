@@ -16,6 +16,7 @@ import (
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/settings"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/store"
 	panelSystemd "github.com/rehuony/sing-box-panel/internal/sing-box-panel/systemd"
+	"github.com/rehuony/sing-box-panel/internal/systemd"
 	"github.com/spf13/cobra"
 )
 
@@ -27,7 +28,7 @@ type Dependencies struct {
 	Build              buildinfo.Info
 	Update             func(context.Context, string, selfupdate.ProgressFunc) (selfupdate.Result, error)
 	RunServer          func(context.Context, string) error
-	Systemd            panelSystemd.Service
+	Systemd            systemdService
 }
 
 type options struct {
@@ -43,11 +44,11 @@ func NewRootCommand(deps Dependencies) *cobra.Command {
 	if state.historyPath == "" {
 		state.historyPath = installation.DefaultHistoryPath()
 	}
-	systemdService := deps.Systemd
-	if systemdService == nil {
-		manager, err := panelSystemd.New(panelSystemd.Options{})
+	service := deps.Systemd
+	if service == nil {
+		manager, err := panelSystemd.New(systemd.Options{})
 		if err == nil {
-			systemdService = manager
+			service = manager
 		}
 	}
 	root := &cobra.Command{
@@ -73,8 +74,8 @@ func NewRootCommand(deps Dependencies) *cobra.Command {
 		newServerCommand(state, deps.RunServer),
 		newConfigCommand(state),
 		newNodeCommand(state),
-		newSystemCommand(state, systemdService),
-		newSystemdCommand(state, systemdService),
+		newSystemCommand(state, service),
+		newSystemdCommand(state, service),
 		newCompletionCommand(root),
 	)
 	return root

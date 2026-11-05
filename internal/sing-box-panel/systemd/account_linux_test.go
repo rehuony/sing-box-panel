@@ -5,6 +5,7 @@ package systemd
 import (
 	"context"
 	"errors"
+	"github.com/rehuony/sing-box-panel/internal/systemd"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -27,11 +28,12 @@ func TestSystemAccountLifecycleInContainer(t *testing.T) {
 		t.Fatal("refusing to modify accounts outside a Docker container")
 	}
 	f := newManagerFixture(t, 0)
-	f.manager.runner = containerAccountRunner{unitPath: f.layout.SystemUnitPath}
-	f.manager.lookPath = exec.LookPath
-	f.manager.procRoot = "/proc"
-	initial, err := f.manager.inspectSystemAccount(t.Context())
-	if err != nil || initial != (systemAccount{}) {
+	f.options.Runner = containerAccountRunner{unitPath: f.layout.SystemUnitPath}
+	f.options.LookPath = exec.LookPath
+	f.options.ProcRoot = "/proc"
+	f.rebuild(t)
+	initial, err := f.manager.Account(t.Context())
+	if err != nil || initial != (systemd.Account{}) {
 		t.Fatalf("container must not contain an existing service account: %+v, %v", initial, err)
 	}
 	payload := filepath.Join(f.data, "panel.db")
@@ -50,19 +52,19 @@ func TestSystemAccountLifecycleInContainer(t *testing.T) {
 		t.Fatal(err)
 	}
 	for range 2 {
-		if _, err := f.manager.Install(t.Context(), InstallRequest{Scope: ScopeSystem, SettingsPath: f.settings}); err != nil {
+		if _, err := f.manager.Install(t.Context(), systemd.InstallRequest{Scope: systemd.ScopeSystem, StatePath: f.settings}); err != nil {
 			t.Fatal(err)
 		}
-		account, err := f.manager.inspectSystemAccount(t.Context())
-		if err != nil || account.uid == "" || account.gid == "" {
+		account, err := f.manager.Account(t.Context())
+		if err != nil || account.UID == "" || account.GID == "" {
 			t.Fatalf("account not created: %+v, %v", account, err)
 		}
-		uid, _ := strconv.ParseUint(account.uid, 10, 32)
-		gid, _ := strconv.ParseUint(account.gid, 10, 32)
+		uid, _ := strconv.ParseUint(account.UID, 10, 32)
+		gid, _ := strconv.ParseUint(account.GID, 10, 32)
 		for _, path := range []string{f.settings, f.data, payload} {
 			assertFileOwner(t, path, uint32(uid), uint32(gid))
 		}
-		plain := []string{"--reuid=" + account.uid, "--regid=" + account.gid, "--clear-groups"}
+		plain := []string{"--reuid=" + account.UID, "--regid=" + account.GID, "--clear-groups"}
 		if err := exec.CommandContext(t.Context(), "setpriv", append(plain, "cat", cert)...).Run(); err == nil {
 			t.Fatal("unprivileged service user unexpectedly read the private certificate")
 		}
@@ -75,7 +77,7 @@ func TestSystemAccountLifecycleInContainer(t *testing.T) {
 		if err := exec.CommandContext(t.Context(), "setpriv", writeArgs...).Run(); err == nil {
 			t.Fatal("read capability unexpectedly permitted a normal file write")
 		}
-		result, err := f.manager.Uninstall(t.Context(), UninstallRequest{Scope: ScopeSystem})
+		result, err := f.manager.Uninstall(t.Context(), systemd.UninstallRequest{Scope: systemd.ScopeSystem})
 		if err != nil || !result.AccountRemoved || !result.GroupRemoved || result.AccountRetained || result.GroupRetained {
 			t.Fatalf("uninstall: %+v, %v", result, err)
 		}
@@ -109,14 +111,14 @@ func assertFileOwner(t *testing.T, path string, uid, gid uint32) {
 
 type containerAccountRunner struct{ unitPath string }
 
-func (runner containerAccountRunner) Run(ctx context.Context, name string, args ...string) (CommandResult, error) {
+func (runner containerAccountRunner) Run(ctx context.Context, name string, args ...string) (systemd.CommandResult, error) {
 	if name != "systemctl" {
-		return (execRunner{}).Run(ctx, name, args...)
+		return (systemd.ExecRunner{}).Run(ctx, name, args...)
 	}
 	if slices.Contains(args, "--property=LoadState") {
-		return CommandResult{Stdout: []byte("LoadState=loaded\nActiveState=inactive\nSubState=dead\nUnitFileState=disabled\nMainPID=0\nFragmentPath=" + runner.unitPath + "\n")}, nil
+		return systemd.CommandResult{Stdout: []byte("LoadState=loaded\nActiveState=inactive\nSubState=dead\nUnitFileState=disabled\nMainPID=0\nFragmentPath=" + runner.unitPath + "\n")}, nil
 	}
-	return CommandResult{}, nil
+	return systemd.CommandResult{}, nil
 }
 
 func TestBusySystemAccountInContainer(t *testing.T) {
@@ -127,17 +129,18 @@ func TestBusySystemAccountInContainer(t *testing.T) {
 		t.Fatal(err)
 	}
 	f := newManagerFixture(t, 0)
-	f.manager.runner = containerAccountRunner{unitPath: f.layout.SystemUnitPath}
-	f.manager.lookPath = exec.LookPath
-	f.manager.procRoot = "/proc"
-	initial, err := f.manager.inspectSystemAccount(t.Context())
-	if err != nil || initial != (systemAccount{}) {
+	f.options.Runner = containerAccountRunner{unitPath: f.layout.SystemUnitPath}
+	f.options.LookPath = exec.LookPath
+	f.options.ProcRoot = "/proc"
+	f.rebuild(t)
+	initial, err := f.manager.Account(t.Context())
+	if err != nil || initial != (systemd.Account{}) {
 		t.Fatalf("unsafe container account state: %+v %v", initial, err)
 	}
-	if _, err := f.manager.Install(t.Context(), InstallRequest{Scope: ScopeSystem, SettingsPath: f.settings}); err != nil {
+	if _, err := f.manager.Install(t.Context(), systemd.InstallRequest{Scope: systemd.ScopeSystem, StatePath: f.settings}); err != nil {
 		t.Fatal(err)
 	}
-	account, err := f.manager.inspectSystemAccount(t.Context())
+	account, err := f.manager.Account(t.Context())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -146,7 +149,7 @@ func TestBusySystemAccountInContainer(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	child := exec.Command("setpriv", "--reuid="+account.uid, "--regid="+account.gid, "--clear-groups", "sh", "-c", `touch "$1/ready"; exec sleep 60`, "sh", f.data)
+	child := exec.Command("setpriv", "--reuid="+account.UID, "--regid="+account.GID, "--clear-groups", "sh", "-c", `touch "$1/ready"; exec sleep 60`, "sh", f.data)
 	if err := child.Start(); err != nil {
 		t.Fatal(err)
 	}
@@ -161,26 +164,26 @@ func TestBusySystemAccountInContainer(t *testing.T) {
 	if _, err := os.Stat(ready); err != nil {
 		t.Fatalf("child did not become ready: %v", err)
 	}
-	result, err := f.manager.Uninstall(t.Context(), UninstallRequest{Scope: ScopeSystem})
-	if !errors.Is(err, ErrConflict) || !strings.Contains(err.Error(), "still used by process") {
+	result, err := f.manager.Uninstall(t.Context(), systemd.UninstallRequest{Scope: systemd.ScopeSystem})
+	if !errors.Is(err, systemd.ErrConflict) || !strings.Contains(err.Error(), "still used by process") {
 		t.Fatalf("expected independent process check to refuse busy account: %v", err)
 	}
-	current, readErr := f.manager.inspectSystemAccount(t.Context())
-	if readErr != nil || current.uid != account.uid {
+	current, readErr := f.manager.Account(t.Context())
+	if readErr != nil || current.UID != account.UID {
 		t.Fatalf("busy user no longer present: %+v %v", current, readErr)
 	}
 	info, statErr := os.Stat(f.data)
 	if statErr != nil {
 		t.Fatal(statErr)
 	}
-	uid, _ := strconv.ParseUint(account.uid, 10, 32)
+	uid, _ := strconv.ParseUint(account.UID, 10, 32)
 	stat := info.Sys().(*syscall.Stat_t)
 	if stat.Uid != uint32(uid) {
-		t.Fatalf("live user %s retained but its 0700 data directory was transferred to %d:%d; uninstall=%+v; error=%v", account.uid, stat.Uid, stat.Gid, result, err)
+		t.Fatalf("live user %s retained but its 0700 data directory was transferred to %d:%d; uninstall=%+v; error=%v", account.UID, stat.Uid, stat.Gid, result, err)
 	}
 	_ = child.Process.Kill()
 	_ = child.Wait()
-	result, err = f.manager.Uninstall(t.Context(), UninstallRequest{Scope: ScopeSystem})
+	result, err = f.manager.Uninstall(t.Context(), systemd.UninstallRequest{Scope: systemd.ScopeSystem})
 	if err != nil || !result.AccountRemoved || !result.GroupRemoved {
 		t.Fatalf("retry after stopping process: %+v, %v", result, err)
 	}

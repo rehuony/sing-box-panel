@@ -1,246 +1,241 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Package systemd implements the Linux systemd lifecycle used by the CLI.
+// Package systemd defines the panel's systemd service: its audited templates
+// and how its settings file identifies an installation, selects its data
+// directory and moves it. The shared systemd package runs the lifecycle.
 package systemd
 
 import (
+	_ "embed"
+
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
-	"os/exec"
-	"runtime"
-	"strings"
+	"path/filepath"
 
+	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/installation"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/settings"
+	"github.com/rehuony/sing-box-panel/internal/systemd"
 )
 
 const (
-	UnitName = "sing-box-panel.service"
-	// Persisted ownership marker; keep stable across CLI renames so existing
-	// installations remain recognized without weakening ownership checks.
-	managedMark  = "# Managed by sing-box-panel system install."
-	serviceUser  = "sing-box-panel"
-	serviceGroup = "sing-box-panel"
+	// Name names the panel's unit, system account, executable and data
+	// directory.
+	Name     = "sing-box-panel"
+	UnitName = Name + ".service"
+	// SystemSettingsPath is the settings file of the system service.
+	SystemSettingsPath = "/etc/sing-box-panel/setting.json"
 )
 
+// The audited packaging templates. The installer and the release artifacts use
+// the same bytes, so their security settings cannot drift apart.
 var (
-	ErrUnsupportedOS = errors.New("systemd lifecycle is supported only on Linux")
-	ErrPermission    = errors.New("system scope requires root privileges")
-	ErrNotInstalled  = errors.New("sing-box-panel systemd unit is not installed")
-	ErrConflict      = errors.New("managed systemd destination conflicts with existing content")
-	ErrInvalid       = errors.New("invalid systemd request")
+	//go:embed templates/system/sing-box-panel.service
+	systemUnitTemplate []byte
+	//go:embed templates/user/sing-box-panel.service
+	userUnitTemplate []byte
+	//go:embed templates/sysusers.d/sing-box-panel.conf
+	sysusersTemplate []byte
+	//go:embed templates/tmpfiles.d/sing-box-panel.conf
+	tmpfilesTemplate []byte
 )
 
-type Scope string
+// Manager is the panel's systemd lifecycle; it reports the settings that
+// installing or starting the service created.
+type Manager = systemd.Manager[settings.Settings]
 
-const (
-	ScopeAuto   Scope = "auto"
-	ScopeSystem Scope = "system"
-	ScopeUser   Scope = "user"
-)
-
-func ParseScope(value string) (Scope, error) {
-	scope := Scope(strings.ToLower(strings.TrimSpace(value)))
-	switch scope {
-	case ScopeAuto, ScopeSystem, ScopeUser:
-		return scope, nil
-	default:
-		return "", fmt.Errorf("%w: scope must be auto, system, or user", ErrInvalid)
+// Definition is the panel service: its settings file is its state.
+func Definition() systemd.Definition[settings.Settings] {
+	return systemd.Definition[settings.Settings]{
+		Name: Name, AccountDescription: "Sing-Box Panel service account",
+		SystemUnit: systemUnitTemplate, UserUnit: userUnitTemplate, Sysusers: sysusersTemplate, Tmpfiles: tmpfilesTemplate,
+		SystemStatePath: SystemSettingsPath, StateFlag: "--config", StateShortFlag: "-c", StateLabel: "settings", StateFile: true,
+		Arguments: func(settingsPath string) string { return "server start --config " + settingsPath },
+		State:     panelState{},
 	}
 }
 
-type Action string
-
-const (
-	ActionStart   Action = "start"
-	ActionStop    Action = "stop"
-	ActionRestart Action = "restart"
-)
-
-type Layout struct {
-	SystemUnitPath       string
-	SystemSysusersPath   string
-	SystemTmpfilesPath   string
-	SystemExecutablePath string
-	SystemSettingsPath   string
-	SystemDataDir        string
-	UserUnitPath         string
+func New(options systemd.Options) (*Manager, error) {
+	return systemd.New(Definition(), options)
 }
 
-type CommandResult struct {
-	Stdout []byte
-	Stderr []byte
-}
+// panelState is the panel's settings file and the data directory it selects.
+type panelState struct{}
 
-type Runner interface {
-	Run(context.Context, string, ...string) (CommandResult, error)
-}
-
-type Service interface {
-	Files(context.Context, Scope) (FilesResult, error)
-	Install(context.Context, InstallRequest) (InstallResult, error)
-	Uninstall(context.Context, UninstallRequest) (UninstallResult, error)
-	Status(context.Context, Scope) (Status, error)
-	Control(context.Context, Scope, Action) (ControlResult, error)
-	Logs(context.Context, LogsRequest) (LogsResult, error)
-}
-
-type FileStatus struct {
-	Path     string `json:"path"`
-	State    string `json:"state"`
-	Managed  bool   `json:"managed"`
-	Retained bool   `json:"retained,omitempty"`
-}
-
-type FilesResult struct {
-	Scope        Scope        `json:"scope"`
-	SettingsPath string       `json:"settings_path,omitempty"`
-	Files        []FileStatus `json:"files"`
-}
-
-type Options struct {
-	GOOS       string
-	EUID       func() int
-	Executable func() (string, error)
-	Runner     Runner
-	Layout     Layout
-	LookPath   func(string) (string, error)
-}
-
-type Manager struct {
-	goos       string
-	euid       func() int
-	executable func() (string, error)
-	runner     Runner
-	layout     Layout
-	lookPath   func(string) (string, error)
-	procRoot   string
-}
-
-func New(options Options) (*Manager, error) {
-	if options.GOOS == "" {
-		options.GOOS = runtime.GOOS
+func (panelState) DataDir(settingsPath, fallback string, now bool) (string, error) {
+	dataDir, err := settings.ConfiguredDataDir(settingsPath)
+	switch {
+	case errors.Is(err, os.ErrNotExist):
+		if _, statErr := os.Lstat(settingsPath); !errors.Is(statErr, os.ErrNotExist) {
+			return "", fmt.Errorf("%w: settings must be a regular file", systemd.ErrInvalid)
+		}
+		dataDir = fallback
+		if dataDir == "" {
+			dataDir = settings.Defaults().DataDir
+		}
+		location, err := settings.ReadDataLocation(settingsPath)
+		if err == nil {
+			if location.Move != nil {
+				return "", errors.New("restore settings to finish the pending data migration")
+			}
+			return location.DataDir, nil
+		}
+		if !errors.Is(err, os.ErrNotExist) {
+			return "", err
+		}
+		return dataDir, nil
+	case err != nil:
+		return "", fmt.Errorf("%w: %w", systemd.ErrInvalid, err)
+	case now:
+		if _, err := settings.Load(settingsPath); err != nil {
+			return "", fmt.Errorf("%w: %w", systemd.ErrInvalid, err)
+		}
 	}
-	if options.EUID == nil {
-		options.EUID = os.Geteuid
+	return dataDir, nil
+}
+
+func (panelState) Validate(executable, settingsPath, dataDir string) error {
+	if err := preflightSettingsPaths(settingsPath); err != nil {
+		return err
 	}
-	if options.Executable == nil {
-		options.Executable = os.Executable
+	return installation.ValidateCleanup(installation.Report{
+		HistoryPath: installation.DefaultHistoryPath(), DataDir: dataDir, SettingsPath: settingsPath,
+		Entries: []installation.Entry{{Path: executable}},
+	})
+}
+
+// preflightSettingsPaths validates the settings sidecars before
+// initialization, migration, unit writes or account preparation. The
+// mutation paths keep their own checks for concurrent edits.
+func preflightSettingsPaths(path string) error {
+	directory := filepath.Dir(path)
+	if info, err := os.Lstat(directory); err == nil {
+		if !info.IsDir() {
+			return fmt.Errorf("%w: settings directory %q must be a physical directory", systemd.ErrInvalid, directory)
+		}
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return err
 	}
-	if options.Runner == nil {
-		options.Runner = execRunner{}
+	for _, suffix := range []string{"", ".lock", ".pending", ".location"} {
+		info, err := os.Lstat(path + suffix)
+		if errors.Is(err, os.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return fmt.Errorf("inspect settings path %q: %w", path+suffix, err)
+		}
+		if !info.Mode().IsRegular() {
+			return fmt.Errorf("%w: settings path %q must be a regular file", systemd.ErrInvalid, path+suffix)
+		}
 	}
-	if options.LookPath == nil {
-		options.LookPath = exec.LookPath
+	return nil
+}
+
+func (panelState) Location(settingsPath string) (string, string, bool, error) {
+	location, err := settings.ReadDataLocation(settingsPath)
+	if errors.Is(err, os.ErrNotExist) {
+		return "", "", false, nil
 	}
-	layout, err := resolvedLayout(options.Layout)
+	if err != nil {
+		return "", "", false, err
+	}
+	target, err := settings.ConfiguredDataDir(settingsPath)
+	if errors.Is(err, os.ErrNotExist) {
+		if _, statErr := os.Lstat(settingsPath); errors.Is(statErr, os.ErrNotExist) {
+			return "", "", false, nil
+		}
+	}
+	if err != nil {
+		return "", "", false, err
+	}
+	return location.DataDir, target, location.Move != nil, nil
+}
+
+func (panelState) Relocate(ctx context.Context, settingsPath, dataDir string) error {
+	location, err := settings.ReadDataLocation(settingsPath)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if location.DataDir == dataDir && location.Move == nil {
+		return nil
+	}
+	prepared, err := installation.PrepareDataLocation(ctx, settingsPath)
+	if err != nil {
+		return err
+	}
+	if prepared.DataDir != dataDir {
+		return errors.New("data directory changed during service installation; retry with the current settings")
+	}
+	return nil
+}
+
+func (panelState) Prepare(ctx context.Context, settingsPath, dataDir string, now bool) (*settings.Settings, error) {
+	value, created, err := settings.EnsureFile(ctx, settingsPath, dataDir)
+	var initial *settings.Settings
+	if created {
+		initial = &value
+	}
+	if err != nil {
+		return initial, err
+	}
+	configured, err := settings.ConfiguredDataDir(settingsPath)
+	if err != nil || configured != dataDir {
+		return initial, errors.New("settings changed during service preparation; inspect and retry")
+	}
+	if now {
+		if _, err := settings.Load(settingsPath); err != nil {
+			return initial, err
+		}
+	}
+	return initial, nil
+}
+
+func (panelState) Owned(settingsPath string) []systemd.OwnedPath {
+	owned := []systemd.OwnedPath{
+		{Path: filepath.Dir(settingsPath), Mode: 0o700, Directory: true},
+		{Path: settingsPath, Mode: 0o600},
+	}
+	for _, suffix := range []string{".lock", ".pending", ".location"} {
+		owned = append(owned, systemd.OwnedPath{Path: settingsPath + suffix, Mode: 0o600, Optional: true})
+	}
+	return owned
+}
+
+func (panelState) Retained(settingsPath string) ([]string, error) {
+	if err := preflightSettingsPaths(settingsPath); err != nil {
+		return nil, err
+	}
+	paths := []string{filepath.Dir(settingsPath)}
+	configured, err := settings.ConfiguredDataDir(settingsPath)
+	if err == nil {
+		paths = append(paths, configured)
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return nil, err
+	}
+	location, err := settings.ReadDataLocation(settingsPath)
+	if err == nil {
+		paths = append(paths, location.DataDir)
+		if location.Move != nil {
+			paths = append(paths, location.Move.Target)
+		}
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return nil, err
+	}
+	return paths, nil
+}
+
+func (panelState) Lock(ctx context.Context, settingsPath string) (io.Closer, error) {
+	if _, err := os.Lstat(filepath.Dir(settingsPath)); err != nil {
+		return nil, nil
+	}
+	lock, err := settings.TryLock(ctx, settingsPath)
 	if err != nil {
 		return nil, err
 	}
-	return &Manager{
-		goos: options.GOOS, euid: options.EUID, executable: options.Executable,
-		runner: options.Runner, layout: layout, lookPath: options.LookPath, procRoot: "/proc",
-	}, nil
+	return lock, nil
 }
-
-type InstallRequest struct {
-	Scope        Scope  `json:"scope"`
-	SettingsPath string `json:"settings_path"`
-	DataDir      string `json:"data_dir"`
-	Force        bool   `json:"force"`
-	Now          bool   `json:"now"`
-}
-
-type InstallResult struct {
-	InitialSettings *settings.Settings `json:"-"`
-	SettingsCreated bool               `json:"settings_created"`
-	Scope           Scope              `json:"scope"`
-	Unit            string             `json:"unit"`
-	UnitPath        string             `json:"unit_path"`
-	ExecutablePath  string             `json:"executable_path"`
-	SettingsPath    string             `json:"settings_path"`
-	DataDir         string             `json:"data_dir"`
-	InstalledPaths  []string           `json:"installed_paths"`
-	Enabled         bool               `json:"enabled"`
-	Started         bool               `json:"started"`
-	PersistentState bool               `json:"persistent_state_preserved"`
-}
-
-type UninstallRequest struct {
-	Scope    Scope `json:"scope"`
-	Force    bool  `json:"force"`
-	KeepUser bool  `json:"keep_user"`
-}
-
-type UninstallResult struct {
-	Scope            Scope    `json:"scope"`
-	Unit             string   `json:"unit"`
-	RemovedPaths     []string `json:"removed_paths"`
-	Stopped          bool     `json:"stopped"`
-	Disabled         bool     `json:"disabled"`
-	ConfigRetained   bool     `json:"config_retained"`
-	DataRetained     bool     `json:"data_retained"`
-	AccountInspected bool     `json:"account_inspected"`
-	AccountRetained  bool     `json:"account_retained"`
-	GroupRetained    bool     `json:"group_retained"`
-	AccountRemoved   bool     `json:"account_removed"`
-	GroupRemoved     bool     `json:"group_removed"`
-	AccountNote      string   `json:"account_note,omitempty"`
-}
-
-// Status is systemd's own view of the unit plus one fact read from disk.
-// UnitFileSettingsPath is the --config argument written in the unit file at
-// UnitPath as it exists now; it says nothing about the command line systemd
-// loaded (see NeedDaemonReload) or the settings the running process started
-// with. It is empty when the file does not state one unambiguous path.
-type Status struct {
-	Scope                Scope  `json:"scope"`
-	Unit                 string `json:"unit"`
-	UnitPath             string `json:"unit_path"`
-	LoadState            string `json:"load_state"`
-	ActiveState          string `json:"active_state"`
-	SubState             string `json:"sub_state"`
-	UnitFileState        string `json:"unit_file_state"`
-	MainPID              int    `json:"main_pid"`
-	NeedDaemonReload     bool   `json:"need_daemon_reload"`
-	UnitFileSettingsPath string `json:"unit_file_settings_path,omitempty"`
-}
-
-type ControlResult struct {
-	InitialSettings *settings.Settings `json:"-"`
-	Scope           Scope              `json:"scope"`
-	Unit            string             `json:"unit"`
-	Action          Action             `json:"action"`
-}
-
-type LogsRequest struct {
-	Scope Scope  `json:"scope"`
-	Lines int    `json:"lines"`
-	Since string `json:"since,omitempty"`
-}
-
-type LogsResult struct {
-	Scope Scope  `json:"scope"`
-	Unit  string `json:"unit"`
-	Lines int    `json:"lines"`
-	Since string `json:"since,omitempty"`
-	Text  string `json:"text"`
-}
-
-type CommandError struct {
-	Name   string
-	Args   []string
-	Stderr string
-	Cause  error
-}
-
-func (err *CommandError) Error() string {
-	message := fmt.Sprintf("%s %s failed", err.Name, strings.Join(err.Args, " "))
-	if err.Stderr != "" {
-		message += ": " + err.Stderr
-	}
-	return message
-}
-
-func (err *CommandError) Unwrap() error { return err.Cause }

@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/rehuony/sing-box-panel/internal/database"
+	"github.com/rehuony/sing-box-panel/internal/pathguard"
 	"github.com/rehuony/sing-box-panel/internal/procctl"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/settings"
 )
@@ -154,17 +155,17 @@ func Clean(ctx context.Context, expected Report) (result CleanupResult, cleanErr
 	}
 	// Keep the settings (including a containing subdirectory) and database until
 	// other entries are gone, so an earlier failure remains diagnosable.
-	resolvedSettings, err := cleanupPath(current.SettingsPath)
+	resolvedSettings, err := pathguard.Resolve(current.SettingsPath)
 	if err != nil {
 		return result, err
 	}
-	resolvedData, err := cleanupPath(current.DataDir)
+	resolvedData, err := pathguard.Resolve(current.DataDir)
 	if err != nil {
 		return result, err
 	}
 	settingsEntry := ""
 	settingsRelative := ""
-	if pathWithin(resolvedData, resolvedSettings) {
+	if pathguard.Within(resolvedData, resolvedSettings) {
 		settingsRelative, _ = filepath.Rel(resolvedData, resolvedSettings)
 		settingsEntry = strings.Split(settingsRelative, string(filepath.Separator))[0]
 	}

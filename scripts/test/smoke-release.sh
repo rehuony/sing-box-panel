@@ -160,6 +160,8 @@ go tool sign-release validate-version --version "${release_version}"
 expected_assets=(
   SHA256SUMS
   SHA256SUMS.sig
+  sing-box-node-linux-amd64
+  sing-box-node-linux-arm64
   sing-box-panel-linux-amd64
   sing-box-panel-linux-arm64
 )
@@ -167,7 +169,7 @@ mapfile -t actual_assets < <(
   find "${release_dir}" -mindepth 1 -maxdepth 1 -printf '%f\n' | LC_ALL=C sort
 )
 if [[ ${#actual_assets[@]} -ne ${#expected_assets[@]} ]]; then
-  printf 'release directory must contain exactly four assets\n' >&2
+  printf 'release directory must contain exactly six assets\n' >&2
   exit 1
 fi
 for index in "${!expected_assets[@]}"; do
@@ -185,8 +187,8 @@ for asset_name in "${expected_assets[@]}"; do
 done
 
 checksum_entries="$(awk 'NF == 2 { name = $2; sub(/^\*/, "", name); sub(/^\.\//, "", name); print name }' "${release_dir}/SHA256SUMS" | LC_ALL=C sort)"
-if [[ "${checksum_entries}" != $'sing-box-panel-linux-amd64\nsing-box-panel-linux-arm64' ]]; then
-  printf 'SHA256SUMS must contain exactly the two release binaries\n' >&2
+if [[ "${checksum_entries}" != $'sing-box-node-linux-amd64\nsing-box-node-linux-arm64\nsing-box-panel-linux-amd64\nsing-box-panel-linux-arm64' ]]; then
+  printf 'SHA256SUMS must contain exactly the four release binaries\n' >&2
   exit 1
 fi
 go tool sign-release verify \
@@ -223,6 +225,18 @@ for expected_line in \
 done
 LC_ALL=C grep -aFq -- "${public_key}" "${release_binary}" || {
   printf 'release binary does not embed the repository update public key\n' >&2
+  exit 1
+}
+node_binary="${release_dir}/sing-box-node-linux-${architecture}"
+chmod 0755 "${node_binary}"
+assert_json 'node release version, commit and date match the frozen source' \
+  --arg version "${release_version}" \
+  --arg commit "${source_commit}" \
+  --arg date "${source_date}" \
+  '.version == $version and .commit == $commit and .date == $date' \
+  <<<"$("${node_binary}" version --json)"
+go version -m "${node_binary}" | grep -Fqx $'\tpath\tgithub.com/rehuony/sing-box-panel/cmd/sing-box-node' || {
+  printf 'node release binary metadata names another command\n' >&2
   exit 1
 }
 

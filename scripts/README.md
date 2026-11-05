@@ -9,21 +9,30 @@ contract. GitHub workflow YAML and the release signing trust root remain under
 
 ## Release installer
 
-`installer.sh` supports Linux amd64 and arm64. With no arguments it installs
-the latest published stable release; `--version vMAJOR.MINOR.PATCH` selects one
-exact release. It downloads the target binary, `SHA256SUMS`, and
-`SHA256SUMS.sig`. It obtains the Ed25519 trust root exclusively from
+`installer.sh` supports Linux amd64 and arm64 and installs one release
+component per run: `--component panel` (`sing-box-panel`) or `--component node`
+(`sing-box-node`). Without `--component` it asks on the terminal and never
+picks one itself; without a terminal the option is required. Before choosing,
+it reports each component's installed binary and version for the effective
+user and the state of its systemd unit, changing nothing. With no other
+arguments it installs the latest published stable release;
+`--version vMAJOR.MINOR.PATCH` selects one exact release. It downloads the
+target binary, `SHA256SUMS`, and `SHA256SUMS.sig`. `SHA256SUMS` must list
+exactly the four release binaries. It obtains the Ed25519 trust root exclusively from
 `.github/keypair/release-signing-public-key`, then verifies the manifest
 signature and binary checksum before executing or installing the binary. The
 installer contains no copied public-key value.
 
-The installer chooses the existing application layout from the effective user:
+The installer chooses the component's layout from the effective user:
 
-- root installs the binary at `/usr/local/bin/sing-box-panel`; default settings are at
-  `/etc/sing-box-panel/setting.json`, and default data under
-  `/var/lib/sing-box-panel`;
+- root installs the binary at `/usr/local/bin/NAME`; the panel's default
+  settings are at `/etc/sing-box-panel/setting.json`, and default data is under
+  `/var/lib/NAME`;
 - another user installs the binary under `~/.local/bin` and uses the current
   XDG configuration and data homes.
+
+The node has no settings file; its data directory holds its enrollment and
+console settings.
 
 Installation only writes the binary. Settings and data are neither read nor
 validated nor initialized, so malformed leftovers do not block replacement. An
@@ -32,7 +41,10 @@ replacement. Declining exits without download or replacement. `server start` ini
 `systemd install --now` also creates missing settings and service directories;
 there is no prerequisite `init` or foreground start. Formatted logs use color on a
 terminal unless `NO_COLOR` is set. The final summary lists installation and default
-settings/data paths plus Bash, Zsh and Fish completion commands. The installer does not
+settings/data paths; for the panel it adds Bash, Zsh and Fish completion
+commands, and for a node the enrollment and console commands. When the
+component's service was running, it says that the service still runs the
+previous binary. The installer does not
 modify shell profiles or configure, start, stop, or restart systemd; it prints
 the appropriate explicit `systemd install` and `systemd restart` commands after
 installation. Run its network-independent contract tests locally with:
@@ -135,12 +147,14 @@ The script:
 4. requires the fresh Web distribution to contain `index.html`, the single
    public `favicon.svg`, and bundled assets before loading the Go package that
    embeds `web/dist`;
-5. cross-builds Linux amd64 and arm64 with `CGO_ENABLED=0`, fixed CPU
-   baselines, `-trimpath`, and `-buildvcs=false`;
-6. embeds and verifies the committed update-verification key in both release
-   binaries;
-7. verifies the embedded release version, full source commit, and source
-   timestamp through a host-native metadata probe built with the same flags;
+5. cross-builds `sing-box-panel` and `sing-box-node` for Linux amd64 and
+   arm64 with `CGO_ENABLED=0`, fixed CPU baselines, `-trimpath`, and
+   `-buildvcs=false`;
+6. embeds and verifies the committed update-verification key in both panel
+   binaries, the ones that update themselves;
+7. verifies each command's embedded release version, full source commit, and
+   source timestamp through a host-native metadata probe built with the same
+   flags;
 8. generates and verifies `SHA256SUMS` in staging before atomically renaming
    the complete output directory.
 
@@ -148,6 +162,8 @@ The resulting directory contains exactly:
 
 - `sing-box-panel-linux-amd64`
 - `sing-box-panel-linux-arm64`
+- `sing-box-node-linux-amd64`
+- `sing-box-node-linux-arm64`
 - `SHA256SUMS`
 
 The workflow adds `SHA256SUMS.sig` only after the isolated build is complete.

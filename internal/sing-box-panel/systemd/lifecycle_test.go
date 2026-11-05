@@ -15,6 +15,7 @@ import (
 	"testing"
 
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/settings"
+	"github.com/rehuony/sing-box-panel/internal/systemd"
 )
 
 func TestUninstallChecksManagerWhenFilesAreMissing(t *testing.T) {
@@ -22,11 +23,11 @@ func TestUninstallChecksManagerWhenFilesAreMissing(t *testing.T) {
 		t.Run(scenario, func(t *testing.T) {
 			f := newManagerFixture(t, 1000)
 			queries, stops := 0, 0
-			f.runner.run = func(_ string, args []string) (CommandResult, error) {
+			f.runner.run = func(_ string, args []string) (systemd.CommandResult, error) {
 				if slices.Contains(args, "--property=LoadState") {
 					queries++
 					if scenario == "manager unavailable" {
-						return CommandResult{}, errors.New("manager unavailable")
+						return systemd.CommandResult{}, errors.New("manager unavailable")
 					}
 					load, active, pid, fragment := "loaded", "active", "123", f.layout.UserUnitPath
 					switch scenario {
@@ -43,17 +44,17 @@ func TestUninstallChecksManagerWhenFilesAreMissing(t *testing.T) {
 							active, pid = "inactive", "0"
 						}
 					}
-					return CommandResult{Stdout: []byte("LoadState=" + load + "\nActiveState=" + active + "\nSubState=dead\nUnitFileState=disabled\nMainPID=" + pid + "\nFragmentPath=" + fragment + "\n")}, nil
+					return systemd.CommandResult{Stdout: []byte("LoadState=" + load + "\nActiveState=" + active + "\nSubState=dead\nUnitFileState=disabled\nMainPID=" + pid + "\nFragmentPath=" + fragment + "\n")}, nil
 				}
 				if slices.Contains(args, "stop") {
 					stops++
 					if scenario == "stop fails" {
-						return CommandResult{}, errors.New("cannot stop service")
+						return systemd.CommandResult{}, errors.New("cannot stop service")
 					}
 				}
-				return CommandResult{}, nil
+				return systemd.CommandResult{}, nil
 			}
-			result, err := f.manager.Uninstall(t.Context(), UninstallRequest{Scope: ScopeUser})
+			result, err := f.manager.Uninstall(t.Context(), systemd.UninstallRequest{Scope: systemd.ScopeUser})
 			success := scenario == "absent" || scenario == "cached stopped" || scenario == "active"
 			if queries == 0 || (err == nil) != success {
 				t.Fatalf("uninstall: %+v, error=%v, queries=%d", result, err, queries)
@@ -87,7 +88,7 @@ func TestControlDoesNotDependOnUnrelatedInventoryDirectories(t *testing.T) {
 	if os.Geteuid() == 0 {
 		t.Skip("root bypasses directory read permissions")
 	}
-	for _, action := range []Action{ActionStart, ActionRestart} {
+	for _, action := range []systemd.Action{systemd.ActionStart, systemd.ActionRestart} {
 		for _, restore := range []bool{false, true} {
 			name := string(action)
 			if restore {
@@ -95,7 +96,7 @@ func TestControlDoesNotDependOnUnrelatedInventoryDirectories(t *testing.T) {
 			}
 			t.Run(name, func(t *testing.T) {
 				f := newManagerFixture(t, 1000)
-				if _, err := f.manager.Install(t.Context(), InstallRequest{Scope: ScopeUser, SettingsPath: f.settings}); err != nil {
+				if _, err := f.manager.Install(t.Context(), systemd.InstallRequest{Scope: systemd.ScopeUser, StatePath: f.settings}); err != nil {
 					t.Fatal(err)
 				}
 				unrelated := filepath.Join(filepath.Dir(f.layout.UserUnitPath), "unrelated.target.wants")
@@ -107,7 +108,7 @@ func TestControlDoesNotDependOnUnrelatedInventoryDirectories(t *testing.T) {
 				}
 				t.Cleanup(func() { _ = os.Chmod(unrelated, 0700) })
 				f.runner.calls = nil
-				files, err := f.manager.Files(t.Context(), ScopeUser)
+				files, err := f.manager.Files(t.Context(), systemd.ScopeUser)
 				if !os.IsPermission(err) || len(files.Files) == 0 || !files.Files[0].Managed || len(f.runner.calls) != 0 {
 					t.Fatalf("inventory must retain partial results and inspection errors: %+v %v", files, err)
 				}
@@ -118,13 +119,13 @@ func TestControlDoesNotDependOnUnrelatedInventoryDirectories(t *testing.T) {
 						}
 					}
 				}
-				f.runner.run = func(_ string, args []string) (CommandResult, error) {
+				f.runner.run = func(_ string, args []string) (systemd.CommandResult, error) {
 					if slices.Contains(args, "--property=LoadState") {
-						return CommandResult{Stdout: []byte("LoadState=loaded\nActiveState=inactive\nSubState=dead\nUnitFileState=enabled\nMainPID=0\nFragmentPath=" + f.layout.UserUnitPath + "\n")}, nil
+						return systemd.CommandResult{Stdout: []byte("LoadState=loaded\nActiveState=inactive\nSubState=dead\nUnitFileState=enabled\nMainPID=0\nFragmentPath=" + f.layout.UserUnitPath + "\n")}, nil
 					}
-					return CommandResult{}, nil
+					return systemd.CommandResult{}, nil
 				}
-				if _, err := f.manager.Control(t.Context(), ScopeUser, action); err != nil {
+				if _, err := f.manager.Control(t.Context(), systemd.ScopeUser, action); err != nil {
 					t.Fatalf("unrelated directory blocked %s: %v", action, err)
 				}
 				last := f.runner.calls[len(f.runner.calls)-1]
@@ -152,10 +153,11 @@ func TestInstallInitializesOnlyAfterPreflight(t *testing.T) {
 			}
 			switch failure {
 			case "command":
-				f.manager.lookPath = func(string) (string, error) { return "", os.ErrNotExist }
+				f.options.LookPath = func(string) (string, error) { return "", os.ErrNotExist }
+				f.rebuild(t)
 			case "manager":
-				f.runner.run = func(string, []string) (CommandResult, error) {
-					return CommandResult{}, errors.New("manager unavailable")
+				f.runner.run = func(string, []string) (systemd.CommandResult, error) {
+					return systemd.CommandResult{}, errors.New("manager unavailable")
 				}
 			case "conflict":
 				if err := os.MkdirAll(filepath.Dir(f.layout.SystemUnitPath), 0755); err != nil {
@@ -170,7 +172,7 @@ func TestInstallInitializesOnlyAfterPreflight(t *testing.T) {
 			if failure == "canceled" {
 				cancel()
 			}
-			result, err := f.manager.Install(ctx, InstallRequest{Scope: ScopeSystem, SettingsPath: f.settings, Now: true})
+			result, err := f.manager.Install(ctx, systemd.InstallRequest{Scope: systemd.ScopeSystem, StatePath: f.settings, Now: true})
 			if failure != "" {
 				if err == nil {
 					t.Fatal("preflight failure accepted")
@@ -182,7 +184,7 @@ func TestInstallInitializesOnlyAfterPreflight(t *testing.T) {
 				}
 				return
 			}
-			if err != nil || !result.SettingsCreated {
+			if err != nil || !result.StateCreated {
 				t.Fatalf("fresh install: %+v %v", result, err)
 			}
 			config, err := settings.Load(f.settings)
@@ -190,7 +192,7 @@ func TestInstallInitializesOnlyAfterPreflight(t *testing.T) {
 				t.Fatalf("settings: %+v %v", config, err)
 			}
 			before, _ := os.ReadFile(f.settings)
-			if _, err := f.manager.Install(t.Context(), InstallRequest{Scope: ScopeSystem, SettingsPath: f.settings}); err != nil {
+			if _, err := f.manager.Install(t.Context(), systemd.InstallRequest{Scope: systemd.ScopeSystem, StatePath: f.settings}); err != nil {
 				t.Fatal(err)
 			}
 			after, _ := os.ReadFile(f.settings)
@@ -208,25 +210,25 @@ func TestUninstallStoppedBrokenUnitAndPartialFailure(t *testing.T) {
 	for _, stage := range []string{"broken", "stop", "disable", "reload"} {
 		t.Run(stage, func(t *testing.T) {
 			f := newManagerFixture(t, 1000)
-			if _, err := f.manager.Install(t.Context(), InstallRequest{Scope: ScopeUser, SettingsPath: f.settings}); err != nil {
+			if _, err := f.manager.Install(t.Context(), systemd.InstallRequest{Scope: systemd.ScopeUser, StatePath: f.settings}); err != nil {
 				t.Fatal(err)
 			}
 			f.runner.calls = nil
-			f.runner.run = func(name string, args []string) (CommandResult, error) {
+			f.runner.run = func(name string, args []string) (systemd.CommandResult, error) {
 				joined := strings.Join(args, " ")
 				if strings.Contains(joined, "--property=LoadState") {
 					active, pid := "inactive", "0"
 					if stage == "stop" {
 						active, pid = "active", "123"
 					}
-					return CommandResult{Stdout: []byte("LoadState=bad-setting\nActiveState=" + active + "\nSubState=dead\nUnitFileState=enabled\nMainPID=" + pid + "\nFragmentPath=" + f.layout.UserUnitPath + "\n")}, nil
+					return systemd.CommandResult{Stdout: []byte("LoadState=bad-setting\nActiveState=" + active + "\nSubState=dead\nUnitFileState=enabled\nMainPID=" + pid + "\nFragmentPath=" + f.layout.UserUnitPath + "\n")}, nil
 				}
 				if strings.Contains(joined, " "+stage+" ") || stage == "reload" && strings.Contains(joined, "daemon-reload") {
-					return CommandResult{}, errors.New("injected " + stage)
+					return systemd.CommandResult{}, errors.New("injected " + stage)
 				}
-				return CommandResult{}, nil
+				return systemd.CommandResult{}, nil
 			}
-			result, err := f.manager.Uninstall(t.Context(), UninstallRequest{Scope: ScopeUser})
+			result, err := f.manager.Uninstall(t.Context(), systemd.UninstallRequest{Scope: systemd.ScopeUser})
 			if stage == "broken" {
 				if err != nil {
 					t.Fatal(err)
@@ -253,7 +255,7 @@ func TestGeneratedUnitsWithSystemdAnalyze(t *testing.T) {
 	if err != nil {
 		t.Skip("systemd-analyze is a CI/test dependency only")
 	}
-	for _, scope := range []Scope{ScopeSystem, ScopeUser} {
+	for _, scope := range []systemd.Scope{systemd.ScopeSystem, systemd.ScopeUser} {
 		for _, suffix := range []string{"plain", `space and $cash%literal`, `quote"and\backslash`} {
 			t.Run(string(scope)+"/"+suffix, func(t *testing.T) {
 				dir := t.TempDir()
@@ -277,7 +279,7 @@ func TestGeneratedUnitsWithSystemdAnalyze(t *testing.T) {
 
 func TestStartRestoresInstalledCustomResources(t *testing.T) {
 	f := newManagerFixture(t, 1000)
-	if _, err := f.manager.Install(t.Context(), InstallRequest{Scope: ScopeUser, SettingsPath: f.settings}); err != nil {
+	if _, err := f.manager.Install(t.Context(), systemd.InstallRequest{Scope: systemd.ScopeUser, StatePath: f.settings}); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.Remove(f.settings); err != nil {
@@ -286,13 +288,13 @@ func TestStartRestoresInstalledCustomResources(t *testing.T) {
 	if err := os.Remove(f.data); err != nil {
 		t.Fatal(err)
 	}
-	f.runner.run = func(_ string, args []string) (CommandResult, error) {
+	f.runner.run = func(_ string, args []string) (systemd.CommandResult, error) {
 		if strings.Contains(strings.Join(args, " "), "--property=LoadState") {
-			return CommandResult{Stdout: []byte("LoadState=loaded\nActiveState=inactive\nSubState=dead\nUnitFileState=enabled\nMainPID=0\nFragmentPath=" + f.layout.UserUnitPath + "\n")}, nil
+			return systemd.CommandResult{Stdout: []byte("LoadState=loaded\nActiveState=inactive\nSubState=dead\nUnitFileState=enabled\nMainPID=0\nFragmentPath=" + f.layout.UserUnitPath + "\n")}, nil
 		}
-		return CommandResult{}, nil
+		return systemd.CommandResult{}, nil
 	}
-	if _, err := f.manager.Control(t.Context(), ScopeUser, ActionStart); err != nil {
+	if _, err := f.manager.Control(t.Context(), systemd.ScopeUser, systemd.ActionStart); err != nil {
 		t.Fatal(err)
 	}
 	config, err := settings.Load(f.settings)
@@ -306,7 +308,7 @@ func TestStartRestoresInstalledCustomResources(t *testing.T) {
 
 func TestRelatedFilesAndOrphanAuxiliariesAreVisible(t *testing.T) {
 	f := newManagerFixture(t, 0)
-	if _, err := f.manager.Install(t.Context(), InstallRequest{Scope: ScopeSystem, SettingsPath: f.settings}); err != nil {
+	if _, err := f.manager.Install(t.Context(), systemd.InstallRequest{Scope: systemd.ScopeSystem, StatePath: f.settings}); err != nil {
 		t.Fatal(err)
 	}
 	unit := f.layout.SystemUnitPath
@@ -329,11 +331,11 @@ func TestRelatedFilesAndOrphanAuxiliariesAreVisible(t *testing.T) {
 		t.Fatal(err)
 	}
 	f.runner.calls = nil
-	files, err := f.manager.Files(t.Context(), ScopeSystem)
+	files, err := f.manager.Files(t.Context(), systemd.ScopeSystem)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(f.runner.calls) != 0 || files.SettingsPath != f.settings {
+	if len(f.runner.calls) != 0 || files.StatePath != f.settings {
 		t.Fatalf("orphan discovery: %+v", files)
 	}
 	found := map[string]bool{}
@@ -345,7 +347,7 @@ func TestRelatedFilesAndOrphanAuxiliariesAreVisible(t *testing.T) {
 	if !found[link] || !found[custom] {
 		t.Fatalf("related files missing: %+v", files)
 	}
-	result, err := f.manager.Uninstall(t.Context(), UninstallRequest{Scope: ScopeSystem})
+	result, err := f.manager.Uninstall(t.Context(), systemd.UninstallRequest{Scope: systemd.ScopeSystem})
 	if err != nil || len(result.RemovedPaths) != 2 {
 		t.Fatalf("orphan uninstall: %+v %v", result, err)
 	}

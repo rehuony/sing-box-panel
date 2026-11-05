@@ -218,12 +218,16 @@ build_web_distribution() {
   fi
 }
 
+# release_commands lists the binaries a release builds, each for amd64 and arm64.
+release_commands=(sing-box-panel sing-box-node)
+
 build_binary() {
   local source_root="$1"
   local operating_system="$2"
   local architecture="$3"
   local target="$4"
   local ldflags="$5"
+  local command="$6"
 
   (
     cd -- "${source_root}"
@@ -236,20 +240,30 @@ build_binary() {
         -trimpath \
         -ldflags="${ldflags}" \
         -o "${target}" \
-        ./cmd/sing-box-panel
+        "./cmd/${command}"
   )
   chmod 0755 "${target}"
 }
 
+release_binaries() {
+  local command
+
+  for command in "${release_commands[@]}"; do
+    printf '%s\n' "${command}-linux-amd64" "${command}-linux-arm64"
+  done
+}
+
 write_checksums() {
   local staging_dir="$1"
+  local binaries=()
 
+  mapfile -t binaries < <(release_binaries)
   (
     cd -- "${staging_dir}"
     if command -v sha256sum >/dev/null 2>&1; then
-      sha256sum sing-box-panel-linux-amd64 sing-box-panel-linux-arm64 >SHA256SUMS
+      sha256sum "${binaries[@]}" >SHA256SUMS
     elif command -v shasum >/dev/null 2>&1; then
-      shasum -a 256 sing-box-panel-linux-amd64 sing-box-panel-linux-arm64 >SHA256SUMS
+      shasum -a 256 "${binaries[@]}" >SHA256SUMS
     else
       echo "sha256sum or shasum is required" >&2
       return 1
@@ -273,16 +287,19 @@ check_checksums() {
   )
 }
 
+# check_binary_build verifies a release binary's build settings. Only the
+# panel updates itself, so only it must embed the update verification key.
 check_binary_build() {
   local binary="$1"
   local architecture="$2"
   local public_key="$3"
+  local command="$4"
   local architecture_baseline
   local metadata
 
   metadata="$(go version -m "${binary}")"
   for expected in \
-    $'\tpath\tgithub.com/rehuony/sing-box-panel/cmd/sing-box-panel' \
+    $'\tpath\tgithub.com/rehuony/sing-box-panel/cmd/'"${command}" \
     $'\tbuild\t-trimpath=true' \
     $'\tbuild\tCGO_ENABLED=0' \
     $'\tbuild\tGOOS=linux' \
@@ -308,7 +325,7 @@ check_binary_build() {
     echo "release binary metadata has the wrong ${architecture} baseline" >&2
     return 1
   fi
-  if [[ -n "${public_key}" ]] && ! LC_ALL=C grep -aFq -- "${public_key}" "${binary}"; then
+  if [[ "${command}" == sing-box-panel && -n "${public_key}" ]] && ! LC_ALL=C grep -aFq -- "${public_key}" "${binary}"; then
     echo "formal release binary does not contain the configured update verification key" >&2
     return 1
   fi
@@ -318,28 +335,33 @@ validate_staging() {
   local staging_dir="$1"
   local public_key="$2"
   local entry_count
+  local binary
+  local command
+  local architecture
 
-  for binary in \
-    "${staging_dir}/sing-box-panel-linux-amd64" \
-    "${staging_dir}/sing-box-panel-linux-arm64"; do
+  while IFS= read -r binary; do
+    binary="${staging_dir}/${binary}"
     if [[ ! -f "${binary}" || -L "${binary}" || ! -x "${binary}" ]]; then
       echo "release binary is missing, non-regular, symbolic, or non-executable: ${binary}" >&2
       return 1
     fi
-  done
+  done < <(release_binaries)
   if [[ ! -f "${staging_dir}/SHA256SUMS" || -L "${staging_dir}/SHA256SUMS" ]]; then
     echo "release checksum file is missing, non-regular, or symbolic" >&2
     return 1
   fi
   entry_count="$(find "${staging_dir}" -mindepth 1 -maxdepth 1 -print | wc -l | tr -d '[:space:]')"
-  if [[ "${entry_count}" != 3 ]]; then
+  if [[ "${entry_count}" != $((2 * ${#release_commands[@]} + 1)) ]]; then
     echo "release staging contains unexpected outputs" >&2
     return 1
   fi
 
   check_checksums "${staging_dir}"
-  check_binary_build "${staging_dir}/sing-box-panel-linux-amd64" amd64 "${public_key}"
-  check_binary_build "${staging_dir}/sing-box-panel-linux-arm64" arm64 "${public_key}"
+  for command in "${release_commands[@]}"; do
+    for architecture in amd64 arm64; do
+      check_binary_build "${staging_dir}/${command}-linux-${architecture}" "${architecture}" "${public_key}" "${command}"
+    done
+  done
 }
 
 verify_runtime_metadata() {
@@ -355,28 +377,41 @@ verify_runtime_metadata() {
   local probe
   local actual
   local expected
+  local command
 
   host_os="$(go env GOHOSTOS)"
   host_arch="$(go env GOHOSTARCH)"
-  if [[ "${host_os}" == linux && ("${host_arch}" == amd64 || "${host_arch}" == arm64) ]]; then
-    probe="${staging_dir}/sing-box-panel-linux-${host_arch}"
-  else
-    probe="${build_root}/sing-box-panel-metadata-probe"
-    build_binary "${source_root}" "${host_os}" "${host_arch}" "${probe}" "${ldflags}"
-  fi
-
-  actual="$("${probe}" --output json version)"
-  expected="$(printf '{"version":"%s","commit":"%s","date":"%s"}' "${version}" "${commit}" "${date}")"
-  if [[ "${actual}" != "${expected}" ]]; then
-    echo "release metadata mismatch: got ${actual}, expected ${expected}" >&2
-    return 1
-  fi
+  expected="$(printf '{"version":"%s","commit":"%s","date":"%s"' "${version}" "${commit}" "${date}")"
+  for command in "${release_commands[@]}"; do
+    if [[ "${host_os}" == linux && ("${host_arch}" == amd64 || "${host_arch}" == arm64) ]]; then
+      probe="${staging_dir}/${command}-linux-${host_arch}"
+    else
+      probe="${build_root}/${command}-metadata-probe"
+      build_binary "${source_root}" "${host_os}" "${host_arch}" "${probe}" "${ldflags}" "${command}"
+    fi
+    # The node adds its protocol version after the build identity.
+    if [[ "${command}" == sing-box-panel ]]; then
+      actual="$("${probe}" --output json version)"
+      [[ "${actual}" == "${expected}}" ]] || {
+        echo "release metadata mismatch: got ${actual}, expected ${expected}}" >&2
+        return 1
+      }
+    else
+      actual="$("${probe}" version --json)"
+      [[ "${actual}" == "${expected}",\"protocol\":* ]] || {
+        echo "release metadata mismatch: got ${actual}, expected ${expected},\"protocol\":...}" >&2
+        return 1
+      }
+    fi
+  done
 }
 
 build_distribution() (
   set -euo pipefail
 
   local mode="$1"
+  local command
+  local architecture
   local requested_output="$2"
   local version="$3"
   local date="$4"
@@ -460,12 +495,13 @@ build_distribution() (
     ldflags+=" -X=${selfupdate_package}.embeddedPublicKey=${public_key}"
   fi
 
-  build_binary \
-    "${source_root}" linux amd64 \
-    "${staging_dir}/sing-box-panel-linux-amd64" "${ldflags}"
-  build_binary \
-    "${source_root}" linux arm64 \
-    "${staging_dir}/sing-box-panel-linux-arm64" "${ldflags}"
+  for command in "${release_commands[@]}"; do
+    for architecture in amd64 arm64; do
+      build_binary \
+        "${source_root}" linux "${architecture}" \
+        "${staging_dir}/${command}-linux-${architecture}" "${ldflags}" "${command}"
+    done
+  done
   write_checksums "${staging_dir}"
   validate_staging "${staging_dir}" "${public_key}"
   if [[ "${verify_metadata}" == true ]]; then

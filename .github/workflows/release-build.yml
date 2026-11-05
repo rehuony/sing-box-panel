@@ -271,9 +271,9 @@ jobs:
             sha256sum --check --strict SHA256SUMS
           )
           mapfile -t assets < <(find "${release_dir}" -mindepth 1 -maxdepth 1 -printf '%f\n' | LC_ALL=C sort)
-          expected=(SHA256SUMS SHA256SUMS.sig sing-box-panel-linux-amd64 sing-box-panel-linux-arm64)
+          expected=(SHA256SUMS SHA256SUMS.sig sing-box-node-linux-amd64 sing-box-node-linux-arm64 sing-box-panel-linux-amd64 sing-box-panel-linux-arm64)
           if [[ "${assets[*]}" != "${expected[*]}" ]]; then
-            printf 'formal release did not produce the exact four-asset set\n' >&2
+            printf 'formal release did not produce the exact six-asset set\n' >&2
             exit 1
           fi
 
@@ -286,6 +286,8 @@ jobs:
             ${{ runner.temp }}/sing-box-panel-release/SHA256SUMS.sig
             ${{ runner.temp }}/sing-box-panel-release/sing-box-panel-linux-amd64
             ${{ runner.temp }}/sing-box-panel-release/sing-box-panel-linux-arm64
+            ${{ runner.temp }}/sing-box-panel-release/sing-box-node-linux-amd64
+            ${{ runner.temp }}/sing-box-panel-release/sing-box-node-linux-arm64
           if-no-files-found: error
           compression-level: 0
           retention-days: 7
@@ -506,7 +508,9 @@ jobs:
             "${release_dir}/SHA256SUMS" \
             "${release_dir}/SHA256SUMS.sig" \
             "${release_dir}/sing-box-panel-linux-amd64" \
-            "${release_dir}/sing-box-panel-linux-arm64"
+            "${release_dir}/sing-box-panel-linux-arm64" \
+            "${release_dir}/sing-box-node-linux-amd64" \
+            "${release_dir}/sing-box-node-linux-arm64"
 
       - name: Download and verify Draft Release
         env:
@@ -526,13 +530,13 @@ jobs:
 
           marker="<!-- sing-box-panel-release-run:${RUN_ID}:${RUN_ATTEMPT}:${SOURCE_SHA} -->"
           release_json="$(gh api "repos/${REPOSITORY}/releases/${RELEASE_ID}")"
-          expected_names='["SHA256SUMS","SHA256SUMS.sig","sing-box-panel-linux-amd64","sing-box-panel-linux-arm64"]'
+          expected_names='["SHA256SUMS","SHA256SUMS.sig","sing-box-node-linux-amd64","sing-box-node-linux-arm64","sing-box-panel-linux-amd64","sing-box-panel-linux-arm64"]'
           jq -e \
             --arg marker "${marker}" \
             --arg sha "${SOURCE_SHA}" \
             --arg tag "${RELEASE_VERSION}" \
             --argjson names "${expected_names}" \
-            '.draft == true and .prerelease == false and .tag_name == $tag and .target_commitish == $sha and ((.body // "") | contains($marker)) and ([.assets[].name] | sort) == $names and ([.assets[].name] | unique | length) == 4' \
+            '.draft == true and .prerelease == false and .tag_name == $tag and .target_commitish == $sha and ((.body // "") | contains($marker)) and ([.assets[].name] | sort) == $names and ([.assets[].name] | unique | length) == 6' \
             <<<"${release_json}" >/dev/null
           if [[ "${TAG_CREATED}" == true ]]; then
             tag_json="$(gh api "repos/${REPOSITORY}/git/ref/tags/${RELEASE_VERSION}")"
@@ -566,9 +570,9 @@ jobs:
             --repo "${REPOSITORY}" \
             --dir "${downloaded_dir}"
           mapfile -t downloaded_names < <(find "${downloaded_dir}" -mindepth 1 -maxdepth 1 -printf '%f\n' | LC_ALL=C sort)
-          expected=(SHA256SUMS SHA256SUMS.sig sing-box-panel-linux-amd64 sing-box-panel-linux-arm64)
+          expected=(SHA256SUMS SHA256SUMS.sig sing-box-node-linux-amd64 sing-box-node-linux-arm64 sing-box-panel-linux-amd64 sing-box-panel-linux-arm64)
           if [[ "${downloaded_names[*]}" != "${expected[*]}" ]]; then
-            printf 'downloaded Draft does not contain the exact four-asset set\n' >&2
+            printf 'downloaded Draft does not contain the exact six-asset set\n' >&2
             exit 1
           fi
           for asset_name in "${expected[@]}"; do
@@ -586,7 +590,9 @@ jobs:
           )
           chmod 0755 \
             "${downloaded_dir}/sing-box-panel-linux-amd64" \
-            "${downloaded_dir}/sing-box-panel-linux-arm64"
+            "${downloaded_dir}/sing-box-panel-linux-arm64" \
+            "${downloaded_dir}/sing-box-node-linux-amd64" \
+            "${downloaded_dir}/sing-box-node-linux-arm64"
           runtime_metadata="$("${downloaded_dir}/sing-box-panel-linux-amd64" --output json version)"
           source_date="$(git show -s --format=%cI "${SOURCE_SHA}")"
           jq -e \
@@ -595,11 +601,19 @@ jobs:
             --arg version "${RELEASE_VERSION}" \
             '.commit == $commit and .date == $date and .version == $version' \
             <<<"${runtime_metadata}" >/dev/null
+          node_metadata="$("${downloaded_dir}/sing-box-node-linux-amd64" version --json)"
+          jq -e \
+            --arg commit "${SOURCE_SHA}" \
+            --arg date "${source_date}" \
+            --arg version "${RELEASE_VERSION}" \
+            '.commit == $commit and .date == $date and .version == $version' \
+            <<<"${node_metadata}" >/dev/null
           public_key="$(tr -d '\n' <"${RELEASE_KEYPAIR_DIR}/release-signing-public-key")"
           for architecture in amd64 arm64; do
             binary="${downloaded_dir}/sing-box-panel-linux-${architecture}"
             go version -m "${binary}" | grep -Fqx $'\tbuild\tGOARCH='"${architecture}"
             LC_ALL=C grep -aFq -- "${public_key}" "${binary}"
+            go version -m "${downloaded_dir}/sing-box-node-linux-${architecture}" | grep -Fqx $'\tbuild\tGOARCH='"${architecture}"
           done
 
       - name: Record Draft Release

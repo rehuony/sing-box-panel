@@ -14,6 +14,7 @@ import (
 	"strings"
 
 	"github.com/rehuony/sing-box-panel/internal/database"
+	"github.com/rehuony/sing-box-panel/internal/pathguard"
 	"github.com/rehuony/sing-box-panel/internal/procctl"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/fleet"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/settings"
@@ -109,7 +110,7 @@ func Inspect(ctx context.Context, settingsPath string) (Report, error) {
 
 	}
 	settingsDir := filepath.Dir(abs)
-	if filepath.Base(settingsDir) == "sing-box-panel" && (dataDir == "" || !pathWithin(dataDir, settingsDir)) {
+	if filepath.Base(settingsDir) == "sing-box-panel" && (dataDir == "" || !pathguard.Within(dataDir, settingsDir)) {
 		entry, err := inspectEntry(settingsDir, "settings directory", "remove_if_empty")
 		if err != nil {
 			return report, err
@@ -286,7 +287,7 @@ func ValidateCleanup(report Report) error {
 	if len(report.Entries) == 0 {
 		return errors.New("instance inventory is required")
 	}
-	dataDir, err := cleanupPath(report.DataDir)
+	dataDir, err := pathguard.Resolve(report.DataDir)
 	if err != nil {
 		return err
 	}
@@ -296,37 +297,23 @@ func ValidateCleanup(report Report) error {
 	if historyPath == "" {
 		historyPath = DefaultHistoryPath()
 	}
-	contains, err := DataDirectoryContainsPath(dataDir, filepath.Dir(historyPath))
+	contains, err := pathguard.Contains(dataDir, filepath.Dir(historyPath))
 	if err != nil {
 		return err
 	}
 	if contains {
 		return errors.New("data directory contains the retained cleanup history directory; keep history outside the data directory before cleanup or migration")
 	}
-	home, _ := os.UserHomeDir()
-	configHome, _ := os.UserConfigDir()
-	cacheHome, _ := os.UserCacheDir()
-	dataHome := os.Getenv("XDG_DATA_HOME")
-	if !filepath.IsAbs(dataHome) && home != "" {
-		dataHome = filepath.Join(home, ".local", "share")
+	if err := pathguard.RejectShared(dataDir); errors.Is(err, pathguard.ErrShared) {
+		return fmt.Errorf("refusing to clean %w", err)
+	} else if err != nil {
+		return err
 	}
-	for _, shared := range []string{"/", "/etc", "/usr", "/usr/local", "/var", "/var/lib", "/opt", "/srv", "/home", "/Users", "/run", home, configHome, cacheHome, dataHome, os.TempDir()} {
-		if shared == "" {
-			continue
-		}
-		resolved, err := cleanupPath(shared)
-		if err != nil {
-			return err
-		}
-		if pathWithin(dataDir, resolved) {
-			return errors.New("refusing to clean a filesystem root, home or shared system directory")
-		}
-	}
-	executable, err := cleanupPath(report.Entries[0].Path)
+	executable, err := pathguard.Resolve(report.Entries[0].Path)
 	if err != nil {
 		return err
 	}
-	if pathWithin(dataDir, executable) {
+	if pathguard.Within(dataDir, executable) {
 		return errors.New("panel executable is inside the data directory; move it outside before cleanup")
 	}
 	for _, entry := range report.Entries {
@@ -367,69 +354,4 @@ func selectedDataDir(path string) (string, error) {
 		return "", errors.New("restore settings to finish the data directory migration before cleanup")
 	}
 	return location.DataDir, nil
-}
-
-func pathWithin(directory, path string) bool {
-	relative, err := filepath.Rel(directory, path)
-	return err == nil && relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator))
-}
-
-// DataDirectoriesOverlap identifies shared or nested service storage, including
-// aliases and directories that have not been created yet.
-func DataDirectoriesOverlap(first, second string) (bool, error) {
-	first, err := cleanupPath(first)
-	if err != nil {
-		return false, err
-	}
-	second, err = cleanupPath(second)
-	if err != nil {
-		return false, err
-	}
-	return pathWithin(first, second) || pathWithin(second, first), nil
-}
-
-// DataDirectoryContainsPath also checks parent aliases: deleting a symlink in
-// the data directory can break an external service path whose target is outside.
-func DataDirectoryContainsPath(directory, path string) (bool, error) {
-	directory, err := cleanupPath(directory)
-	if err != nil {
-		return false, err
-	}
-	path, err = filepath.Abs(path)
-	if err != nil {
-		return false, err
-	}
-	for {
-		resolved, err := cleanupPath(path)
-		if err != nil {
-			return false, err
-		}
-		if pathWithin(directory, path) || pathWithin(directory, resolved) {
-			return true, nil
-		}
-		parent := filepath.Dir(path)
-		if parent == path {
-			return false, nil
-		}
-		path = parent
-	}
-}
-
-// Resolve existing ancestors too, so aliases cannot evade shared-path checks
-// when the selected directory has not been created yet.
-func cleanupPath(path string) (string, error) {
-	path = filepath.Clean(path)
-	resolved, err := filepath.EvalSymlinks(path)
-	if err == nil || !errors.Is(err, os.ErrNotExist) {
-		return resolved, err
-	}
-	parent := filepath.Dir(path)
-	if parent == path {
-		return path, nil
-	}
-	resolved, err = cleanupPath(parent)
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(resolved, filepath.Base(path)), nil
 }

@@ -48,40 +48,42 @@ outside the current product contract.
 
 ## Installation
 
-The installer supports Linux on amd64 and arm64. With no arguments it selects
-the latest published stable GitHub Release. An explicit `--version vX.Y.Z`
-may select an already published stable release or GitHub pre-release. The
-installer authenticates the exact `SHA256SUMS` bytes and release version
-with the Ed25519 key retrieved from the repository's canonical
-`.github/keypair/release-signing-public-key` file, verifies the selected
-binary's SHA-256 digest, and installs only that binary. It does not read,
-initialize, migrate, or rewrite settings or data.
+A release has two components: the panel, `sing-box-panel`, and the node agent
+that runs sing-box on each proxy host, `sing-box-node`. The installer supports
+Linux on amd64 and arm64 and installs one component per run. With no
+arguments it selects the latest published stable GitHub Release. An explicit
+`--version vX.Y.Z` may select an already published stable release or GitHub
+pre-release. It first reports which components are installed for the current
+user and the state of their systemd services, then installs `--component panel`
+or `--component node`, or asks which one when neither is given; without a
+terminal the component is required. The installer authenticates the exact
+`SHA256SUMS` bytes and release version with the Ed25519 key retrieved from the
+repository's canonical `.github/keypair/release-signing-public-key` file,
+verifies the selected binary's SHA-256 digest, and installs only that binary.
+It does not read, initialize, migrate, or rewrite settings or data.
 
-Install for the current user:
+Install the panel for the current user, or a node as root:
 
 ```sh
-curl https://raw.githubusercontent.com/rehuony/sing-box-panel/main/scripts/installer.sh | bash
-```
-
-Install the fixed system layout as root:
-
-```sh
-curl https://raw.githubusercontent.com/rehuony/sing-box-panel/main/scripts/installer.sh | sudo bash
+curl https://raw.githubusercontent.com/rehuony/sing-box-panel/main/scripts/installer.sh | bash -s -- --component panel
+curl https://raw.githubusercontent.com/rehuony/sing-box-panel/main/scripts/installer.sh | sudo bash -s -- --component node
 ```
 
 Pin an exact published release, including a pre-release, when reproducibility
 matters:
 
 ```sh
-curl https://raw.githubusercontent.com/rehuony/sing-box-panel/main/scripts/installer.sh | bash -s -- --version v0.1.0
+curl https://raw.githubusercontent.com/rehuony/sing-box-panel/main/scripts/installer.sh | bash -s -- --component panel --version v0.1.0
 ```
 
 The default layouts are:
 
-| Effective user | Binary | Settings | Data |
-| --- | --- | --- | --- |
-| Regular user | `~/.local/bin/sing-box-panel` | `${XDG_CONFIG_HOME:-$HOME/.config}/sing-box-panel/setting.json` | `${XDG_DATA_HOME:-$HOME/.local/share}/sing-box-panel` |
-| root | `/usr/local/bin/sing-box-panel` | `/etc/sing-box-panel/setting.json` | `/var/lib/sing-box-panel` |
+| Component | Effective user | Binary | Settings | Data |
+| --- | --- | --- | --- | --- |
+| Panel | Regular user | `~/.local/bin/sing-box-panel` | `${XDG_CONFIG_HOME:-$HOME/.config}/sing-box-panel/setting.json` | `${XDG_DATA_HOME:-$HOME/.local/share}/sing-box-panel` |
+| Panel | root | `/usr/local/bin/sing-box-panel` | `/etc/sing-box-panel/setting.json` | `/var/lib/sing-box-panel` |
+| Node | Regular user | `~/.local/bin/sing-box-node` | — | `${XDG_DATA_HOME:-$HOME/.local/share}/sing-box-node` |
+| Node | root | `/usr/local/bin/sing-box-node` | — | `/var/lib/sing-box-node` |
 
 An existing binary requires overwrite confirmation; pass `--yes` for an unattended
 replacement. The formatted completion summary lists the installed binary, default
@@ -92,7 +94,7 @@ eval "$(sing-box-panel completion zsh)"
 ```
 
 The installer leaves shell startup files and systemd unchanged. Add `~/.local/bin`
-to `PATH` when it is not already present. To install and start the audited service
+to `PATH` when it is not already present. To install and start an audited service
 explicitly:
 
 ```sh
@@ -101,6 +103,15 @@ explicitly:
 
 # Root/systemd installation
 /usr/local/bin/sing-box-panel systemd install --scope=system --now
+```
+
+A node first needs its panel: enroll it with the command the panel shows when
+the node is added (`sing-box-node enroll --code ...`), or enable its local
+console (`sing-box-node console enable`) and enroll it from there. Then install
+its service the same way:
+
+```sh
+sudo /usr/local/bin/sing-box-node systemd install --scope=system --now
 ```
 
 A user service requires administrator-enabled lingering if it must continue

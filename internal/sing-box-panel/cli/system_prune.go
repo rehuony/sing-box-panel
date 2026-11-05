@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/installation"
-	panelSystemd "github.com/rehuony/sing-box-panel/internal/sing-box-panel/systemd"
 )
 
 func hasCleanupTargets(report instanceFilesReport) bool {
@@ -27,7 +26,7 @@ func hasCleanupTargets(report instanceFilesReport) bool {
 
 // The saved inventory is discovery evidence even if cleanup loses configuration
 // halfway through. Rechecking it never grants permission to delete old paths.
-func pruneInstance(ctx context.Context, report instanceFilesReport, service panelSystemd.Service) (result installation.CleanupResult, cleanupErr error) {
+func pruneInstance(ctx context.Context, report instanceFilesReport, service systemdService) (result installation.CleanupResult, cleanupErr error) {
 	result = installation.CleanupResult{Removed: []string{}, Retained: []string{}, Remaining: []string{}, Warnings: []string{}}
 	for _, file := range report.Service.Files {
 		cleanup := "retain"

@@ -4,6 +4,7 @@ package systemd
 
 import (
 	"bytes"
+	"github.com/rehuony/sing-box-panel/internal/systemd"
 	"os"
 	"path/filepath"
 	"testing"
@@ -39,7 +40,7 @@ func TestInstallChecksDirectoryToBeUsedOrCreated(t *testing.T) {
 				t.Fatal(err)
 			}
 			t.Cleanup(func() { _ = os.Chmod(parent, 0700) })
-			_, err := f.manager.Install(t.Context(), InstallRequest{Scope: ScopeUser, SettingsPath: f.settings})
+			_, err := f.manager.Install(t.Context(), systemd.InstallRequest{Scope: systemd.ScopeUser, StatePath: f.settings})
 			if scenario == "existing writable" {
 				if err != nil {
 					t.Fatalf("writable data directory requires no parent write access: %v", err)
@@ -57,7 +58,7 @@ func TestInstallChecksDirectoryToBeUsedOrCreated(t *testing.T) {
 }
 
 func TestInstallRejectsSidecarConflictsBeforeMutation(t *testing.T) {
-	for _, scope := range []Scope{ScopeSystem, ScopeUser} {
+	for _, scope := range []systemd.Scope{systemd.ScopeSystem, systemd.ScopeUser} {
 		for _, configExists := range []bool{true, false} {
 			for _, suffix := range []string{".lock", ".pending", ".location"} {
 				for _, kind := range []string{"directory", "symlink"} {
@@ -67,7 +68,7 @@ func TestInstallRejectsSidecarConflictsBeforeMutation(t *testing.T) {
 					}
 					t.Run(name, func(t *testing.T) {
 						uid := 1000
-						if scope == ScopeSystem {
+						if scope == systemd.ScopeSystem {
 							uid = 0
 						}
 						f := newManagerFixture(t, uid)
@@ -92,11 +93,11 @@ func TestInstallRejectsSidecarConflictsBeforeMutation(t *testing.T) {
 						if err != nil {
 							t.Fatal(err)
 						}
-						_, err = f.manager.Install(t.Context(), InstallRequest{Scope: scope, SettingsPath: f.settings, DataDir: f.data})
+						_, err = f.manager.Install(t.Context(), systemd.InstallRequest{Scope: scope, StatePath: f.settings, DataDir: f.data})
 						if err == nil || len(f.runner.calls) != 0 {
 							t.Fatalf("conflict detected after commands: %v, calls=%+v", err, f.runner.calls)
 						}
-						for _, path := range append(f.manager.managedPaths(scope), f.data) {
+						for _, path := range append(f.manager.ManagedPaths(scope), f.data) {
 							if _, err := os.Lstat(path); !os.IsNotExist(err) {
 								t.Fatalf("created %s before rejecting conflict: %v", path, err)
 							}

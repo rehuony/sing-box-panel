@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 
 	"github.com/rehuony/sing-box-panel/internal/database"
+	"github.com/rehuony/sing-box-panel/internal/pathguard"
 	"github.com/rehuony/sing-box-panel/internal/procctl"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/settings"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/store"
@@ -94,7 +95,7 @@ func PrepareDataLocation(ctx context.Context, path string) (settings.Settings, e
 
 func migrateDataDirectory(ctx context.Context, settingsPath string, location *settings.DataLocation, target string) error {
 	source := location.DataDir
-	overlap, err := DataDirectoriesOverlap(source, target)
+	overlap, err := pathguard.Overlap(source, target)
 	if err != nil {
 		return err
 	}
@@ -102,7 +103,7 @@ func migrateDataDirectory(ctx context.Context, settingsPath string, location *se
 		return errors.New("source and destination data directories must be separate physical locations")
 	}
 	for _, dir := range []string{source, target} {
-		inside, err := DataDirectoryContainsPath(dir, settingsPath)
+		inside, err := pathguard.Contains(dir, settingsPath)
 		if err != nil {
 			return err
 		}

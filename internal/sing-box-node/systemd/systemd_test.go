@@ -1,0 +1,172 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+package systemd
+
+import (
+	"context"
+	"errors"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"runtime"
+	"slices"
+	"strings"
+	"testing"
+
+	"github.com/rehuony/sing-box-panel/internal/sing-box-node/settings"
+	"github.com/rehuony/sing-box-panel/internal/systemd"
+	"github.com/rehuony/sing-box-panel/internal/webauth"
+)
+
+func TestUnitsGiveOnlyTheSystemServiceReadAccessAndHostCounters(t *testing.T) {
+	manager, err := New(systemd.Options{Layout: systemd.Layout{UserUnitPath: "/nonexistent/" + UnitName}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	system, err := manager.Render(systemd.ScopeSystem, "/usr/local/bin/sing-box-node", SystemDataDir, SystemDataDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, directive := range []string{
+		`ExecStart="/usr/local/bin/sing-box-node" --data-dir "/var/lib/sing-box-node" run`,
+		`ReadWritePaths="/var/lib/sing-box-node"`,
+		"User=sing-box-node",
+		"CapabilityBoundingSet=CAP_DAC_READ_SEARCH",
+		"AmbientCapabilities=CAP_DAC_READ_SEARCH",
+		"NoNewPrivileges=true",
+		"ProtectSystem=strict",
+		"ProtectProc=invisible",
+		"Environment=SING_BOX_NODE_HOST_PROC=/run/sing-box-node/host-proc",
+		"BindReadOnlyPaths=/proc/stat:/run/sing-box-node/host-proc/stat /proc/meminfo:/run/sing-box-node/host-proc/meminfo /proc/loadavg:/run/sing-box-node/host-proc/loadavg",
+	} {
+		if !strings.Contains(string(system), "\n"+directive+"\n") {
+			t.Errorf("system unit lacks %q", directive)
+		}
+	}
+	user, err := manager.Render(systemd.ScopeUser, "/home/operator/.local/bin/sing-box-node", "/home/operator/.local/share/sing-box-node", "/home/operator/.local/share/sing-box-node")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(user), "\nCapabilityBoundingSet=\n") || !strings.Contains(string(user), "\nAmbientCapabilities=\n") {
+		t.Fatalf("user unit keeps capabilities:\n%s", user)
+	}
+}
+
+type recordingRunner struct {
+	calls         [][]string
+	passwd, group string
+	unitPath      string
+}
+
+func (runner *recordingRunner) Run(_ context.Context, name string, args ...string) (systemd.CommandResult, error) {
+	runner.calls = append(runner.calls, append([]string{name}, args...))
+	switch name {
+	case "getent":
+		entry := runner.group
+		if args[0] == "passwd" {
+			entry = runner.passwd
+		}
+		if len(args) == 1 {
+			entry = map[string]string{"passwd": "root:x:0:0:root:/root:/bin/sh\n", "group": "root:x:0:\n"}[args[0]] + entry
+		}
+		return systemd.CommandResult{Stdout: []byte(entry)}, nil
+	case "systemd-sysusers":
+		runner.passwd = "sing-box-node:x:991:992:Sing-Box Node service account:/var/lib/sing-box-node:/usr/sbin/nologin\n"
+		runner.group = "sing-box-node:x:992:\n"
+	case "systemctl":
+		if slices.Contains(args, "--property=LoadState") {
+			return systemd.CommandResult{Stdout: []byte("LoadState=loaded\nActiveState=active\nSubState=running\nUnitFileState=enabled\nMainPID=12\nFragmentPath=" + runner.unitPath + "\nDropInPaths=\nNeedDaemonReload=no\n")}, nil
+		}
+	}
+	return systemd.CommandResult{}, nil
+}
+
+func TestSystemInstallStartsOnlyARunnableNodeAndGivesItsAccountTheData(t *testing.T) {
+	root := t.TempDir()
+	executable := filepath.Join(root, "bin", Name)
+	dataDir := filepath.Join(root, "data")
+	if err := os.MkdirAll(filepath.Dir(executable), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(executable, []byte("test binary"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	layout := systemd.Layout{
+		SystemUnitPath: filepath.Join(root, "system", UnitName), SystemSysusersPath: filepath.Join(root, "sysusers", Name+".conf"),
+		SystemTmpfilesPath: filepath.Join(root, "tmpfiles", Name+".conf"), SystemExecutablePath: executable,
+		SystemStatePath: dataDir, SystemDataDir: dataDir, UserUnitPath: filepath.Join(root, "user", UnitName),
+	}
+	runner := &recordingRunner{unitPath: layout.SystemUnitPath}
+	manager, err := New(systemd.Options{
+		GOOS: "linux", EUID: func() int { return 0 }, Executable: func() (string, error) { return executable, nil },
+		Runner: runner, Layout: layout, LookPath: func(name string) (string, error) { return name, nil }, ProcRoot: t.TempDir(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := systemd.InstallRequest{Scope: systemd.ScopeSystem, StatePath: dataDir, Now: true}
+
+	// A node that is neither enrolled nor has its console enabled would only
+	// fail and restart.
+	if _, err := manager.Install(t.Context(), request); !errors.Is(err, ErrNotRunnable) || len(runner.calls) != 0 {
+		t.Fatalf("install of an unrunnable node = %v after %v", err, runner.calls)
+	}
+	if _, err := os.Stat(layout.SystemUnitPath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("unit written for an unrunnable node: %v", err)
+	}
+
+	hash, err := webauth.HashPassword(t.Context(), "console-password-one")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := settings.SaveConsole(dataDir, settings.Console{Enabled: true, Listen: settings.DefaultConsoleListen, PasswordHash: hash}); err != nil {
+		t.Fatal(err)
+	}
+	result, err := manager.Install(t.Context(), request)
+	if err != nil || !result.Started || result.DataDir != dataDir {
+		t.Fatalf("install = %+v, %v", result, err)
+	}
+	want := [][]string{
+		{"chown", "--recursive", "--no-dereference", "sing-box-node:sing-box-node", dataDir},
+		{"systemctl", "--no-ask-password", "enable", "--now", UnitName},
+	}
+	for _, call := range want {
+		if !slices.ContainsFunc(runner.calls, func(got []string) bool { return slices.Equal(got, call) }) {
+			t.Errorf("install did not run %v: %v", call, runner.calls)
+		}
+	}
+	status, err := manager.Status(t.Context(), systemd.ScopeSystem)
+	if err != nil || status.UnitFileStatePath != dataDir {
+		t.Fatalf("status = %+v, %v", status, err)
+	}
+}
+
+func TestGeneratedUnitsWithSystemdAnalyze(t *testing.T) {
+	analyze, err := exec.LookPath("systemd-analyze")
+	if runtime.GOOS != "linux" || err != nil {
+		t.Skip("requires the Linux systemd parser, a CI and test dependency only")
+	}
+	manager, err := New(systemd.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, scope := range []systemd.Scope{systemd.ScopeSystem, systemd.ScopeUser} {
+		for _, suffix := range []string{"plain", `space and $cash%literal`, `quote"and\backslash`} {
+			t.Run(string(scope)+"/"+suffix, func(t *testing.T) {
+				dir := t.TempDir()
+				data := filepath.Join(dir, suffix)
+				unit, err := manager.Render(scope, "/usr/bin/true", data, data)
+				if err != nil {
+					t.Fatal(err)
+				}
+				path := filepath.Join(dir, UnitName)
+				if err := os.WriteFile(path, unit, 0o600); err != nil {
+					t.Fatal(err)
+				}
+				if output, err := exec.CommandContext(t.Context(), analyze, "verify", "--man=no", path).CombinedOutput(); err != nil {
+					t.Fatalf("systemd rejected generated unit: %v\n%s\n%s", err, output, unit)
+				}
+			})
+		}
+	}
+}

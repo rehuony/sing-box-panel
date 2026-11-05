@@ -437,10 +437,10 @@ func initialize(ctx context.Context, path string, overwrite, createDataDirectory
 }
 
 // atomicWrite publishes settings bytes. Root writers keep the owner of the
-// file they replace; see preserveOwner.
+// file they replace; see atomicfile.PreserveOwner.
 func atomicWrite(path string, data []byte, overwrite bool) error {
 	return atomicfile.Write(path, data, 0o600, atomicfile.Options{
-		Prepare:   func(file *os.File) error { return preserveOwner(file, path) },
+		Prepare:   func(file *os.File) error { return atomicfile.PreserveOwner(file, path) },
 		Exclusive: !overwrite,
 	})
 }

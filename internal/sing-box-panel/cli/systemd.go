@@ -11,28 +11,31 @@ import (
 
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/installation"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/settings"
-	panelSystemd "github.com/rehuony/sing-box-panel/internal/sing-box-panel/systemd"
+	"github.com/rehuony/sing-box-panel/internal/systemd"
 	"github.com/spf13/cobra"
 )
 
 // ConfigurationFileName is the logical name of the sing-box document in SQLite.
 const ConfigurationFileName = "config.json"
 
-func newSystemdCommand(state *options, service panelSystemd.Service) *cobra.Command {
+// systemdService is the panel's systemd lifecycle.
+type systemdService = systemd.Service[settings.Settings]
+
+func newSystemdCommand(state *options, service systemdService) *cobra.Command {
 	root := group("systemd", "Install or manage the sing-box-panel systemd service")
 	root.AddCommand(
 		newSystemInstallCommand(state, service),
 		newSystemUninstallCommand(state, service),
 		newSystemStatusCommand(state, service),
-		newSystemControlCommand(state, service, panelSystemd.ActionStart),
-		newSystemControlCommand(state, service, panelSystemd.ActionStop),
-		newSystemControlCommand(state, service, panelSystemd.ActionRestart),
+		newSystemControlCommand(state, service, systemd.ActionStart),
+		newSystemControlCommand(state, service, systemd.ActionStop),
+		newSystemControlCommand(state, service, systemd.ActionRestart),
 		newSystemLogsCommand(state, service),
 	)
 	return root
 }
 
-func newSystemInstallCommand(state *options, service panelSystemd.Service) *cobra.Command {
+func newSystemInstallCommand(state *options, service systemdService) *cobra.Command {
 	var rawScope string
 	var force, now bool
 	command := &cobra.Command{
@@ -65,11 +68,11 @@ func newSystemInstallCommand(state *options, service panelSystemd.Service) *cobr
 				}
 				dataDir = ""
 			}
-			result, err := service.Install(cmd.Context(), panelSystemd.InstallRequest{
-				Scope: scope, SettingsPath: settingsPath, DataDir: dataDir, Force: force, Now: now,
+			result, err := service.Install(cmd.Context(), systemd.InstallRequest{
+				Scope: scope, StatePath: settingsPath, DataDir: dataDir, Force: force, Now: now,
 			})
-			if result.InitialSettings != nil {
-				if outputErr := writeServerInitialization(cmd, state, *result.InitialSettings); outputErr != nil {
+			if result.Initial != nil {
+				if outputErr := writeServerInitialization(cmd, state, *result.Initial); outputErr != nil {
 					return errors.Join(err, outputErr)
 				}
 			}
@@ -89,7 +92,7 @@ func newSystemInstallCommand(state *options, service panelSystemd.Service) *cobr
 	return command
 }
 
-func newSystemUninstallCommand(state *options, service panelSystemd.Service) *cobra.Command {
+func newSystemUninstallCommand(state *options, service systemdService) *cobra.Command {
 	var rawScope string
 	var force, keepUser bool
 	command := &cobra.Command{
@@ -104,7 +107,7 @@ func newSystemUninstallCommand(state *options, service panelSystemd.Service) *co
 			if err != nil {
 				return err
 			}
-			result, err := service.Uninstall(cmd.Context(), panelSystemd.UninstallRequest{Scope: scope, Force: force, KeepUser: keepUser})
+			result, err := service.Uninstall(cmd.Context(), systemd.UninstallRequest{Scope: scope, Force: force, KeepUser: keepUser})
 			style := newFileTreeStyle(cmd.OutOrStdout(), state.format)
 			if err != nil {
 				if result.Scope != "" {
@@ -123,7 +126,7 @@ func newSystemUninstallCommand(state *options, service panelSystemd.Service) *co
 	return command
 }
 
-func uninstallText(result panelSystemd.UninstallResult, uninstallErr error, style fileTreeStyle) string {
+func uninstallText(result systemd.UninstallResult, uninstallErr error, style fileTreeStyle) string {
 	heading := style.paint("1;32", "Service uninstalled")
 	if uninstallErr != nil {
 		heading = style.paint("1;31", "Uninstall interrupted; confirmed results only")
@@ -158,8 +161,8 @@ func accountCleanupSummary(account installation.AccountCleanupResult) string {
 	return text
 }
 
-func uninstallAccountResult(result panelSystemd.UninstallResult) *installation.AccountCleanupResult {
-	if result.Scope != panelSystemd.ScopeSystem {
+func uninstallAccountResult(result systemd.UninstallResult) *installation.AccountCleanupResult {
+	if result.Scope != systemd.ScopeSystem {
 		return nil
 	}
 	state := func(retained, removed bool) string {
@@ -187,7 +190,7 @@ func uninstallAccountResult(result panelSystemd.UninstallResult) *installation.A
 // with, so the live settings are always reported as unknown, and the CLI's
 // own --config path is listed separately rather than substituted.
 type systemStatusReport struct {
-	Service           panelSystemd.Status   `json:"service"`
+	Service           systemd.Status        `json:"service"`
 	CLISettingsPath   string                `json:"cli_settings_path"`
 	UnitFile          unitFileReport        `json:"unit_file"`
 	SettingsFile      settingsFileReport    `json:"settings_file"`
@@ -233,7 +236,7 @@ const (
 	settingsStateUnknown     = "unknown"
 )
 
-func newSystemStatusCommand(state *options, service panelSystemd.Service) *cobra.Command {
+func newSystemStatusCommand(state *options, service systemdService) *cobra.Command {
 	var rawScope string
 	command := &cobra.Command{
 		Use:   "status",
@@ -259,7 +262,7 @@ func newSystemStatusCommand(state *options, service panelSystemd.Service) *cobra
 	return command
 }
 
-func buildSystemStatusReport(status panelSystemd.Status, cliSettingsPath string) systemStatusReport {
+func buildSystemStatusReport(status systemd.Status, cliSettingsPath string) systemStatusReport {
 	report := systemStatusReport{
 		Service:         status,
 		CLISettingsPath: cliSettingsPath,
@@ -274,17 +277,17 @@ func buildSystemStatusReport(status panelSystemd.Status, cliSettingsPath string)
 	if absolute, err := filepath.Abs(filepath.Clean(cliSettingsPath)); err == nil {
 		report.CLISettingsPath = absolute
 	}
-	if status.UnitFileSettingsPath == "" {
+	if status.UnitFileStatePath == "" {
 		return report
 	}
-	report.UnitFile.SettingsPath = status.UnitFileSettingsPath
+	report.UnitFile.SettingsPath = status.UnitFileStatePath
 	report.UnitFile.SettingsState = settingsStateParsed
-	match := status.UnitFileSettingsPath == report.CLISettingsPath
+	match := status.UnitFileStatePath == report.CLISettingsPath
 	report.UnitFile.MatchesCLISettings = &match
-	report.SettingsFile.Path = status.UnitFileSettingsPath
+	report.SettingsFile.Path = status.UnitFileStatePath
 	// Load failures are reported only as a state: the error text could echo
 	// settings content, and an unreadable file must not hide the unit state.
-	dataDir, err := settings.ConfiguredDataDir(status.UnitFileSettingsPath)
+	dataDir, err := settings.ConfiguredDataDir(status.UnitFileStatePath)
 	if err != nil {
 		report.SettingsFile.State = settingsStateUnavailable
 		return report
@@ -331,7 +334,7 @@ func systemStatusText(report systemStatusReport) string {
 	return output.String()
 }
 
-func newSystemControlCommand(state *options, service panelSystemd.Service, action panelSystemd.Action) *cobra.Command {
+func newSystemControlCommand(state *options, service systemdService, action systemd.Action) *cobra.Command {
 	var rawScope string
 	command := &cobra.Command{
 		Use:   string(action),
@@ -346,8 +349,8 @@ func newSystemControlCommand(state *options, service panelSystemd.Service, actio
 				return err
 			}
 			result, err := service.Control(cmd.Context(), scope, action)
-			if result.InitialSettings != nil {
-				if outputErr := writeServerInitialization(cmd, state, *result.InitialSettings); outputErr != nil {
+			if result.Initial != nil {
+				if outputErr := writeServerInitialization(cmd, state, *result.Initial); outputErr != nil {
 					return errors.Join(err, outputErr)
 				}
 			}
@@ -361,7 +364,7 @@ func newSystemControlCommand(state *options, service panelSystemd.Service, actio
 	return command
 }
 
-func newSystemLogsCommand(state *options, service panelSystemd.Service) *cobra.Command {
+func newSystemLogsCommand(state *options, service systemdService) *cobra.Command {
 	var rawScope, since string
 	var lines int
 	command := &cobra.Command{
@@ -376,7 +379,7 @@ func newSystemLogsCommand(state *options, service panelSystemd.Service) *cobra.C
 			if err != nil {
 				return err
 			}
-			result, err := service.Logs(cmd.Context(), panelSystemd.LogsRequest{Scope: scope, Lines: lines, Since: since})
+			result, err := service.Logs(cmd.Context(), systemd.LogsRequest{Scope: scope, Lines: lines, Since: since})
 			if err != nil {
 				return classifySystemError("system_logs_failed", err)
 			}
@@ -402,8 +405,8 @@ func addSystemScopeFlag(command *cobra.Command, target *string) {
 	}
 }
 
-func parseSystemScope(raw string) (panelSystemd.Scope, error) {
-	scope, err := panelSystemd.ParseScope(raw)
+func parseSystemScope(raw string) (systemd.Scope, error) {
+	scope, err := systemd.ParseScope(raw)
 	if err != nil {
 		return "", &Error{Kind: ErrorUsage, Code: "invalid_systemd_scope", Message: err.Error(), Cause: err}
 	}
@@ -412,15 +415,15 @@ func parseSystemScope(raw string) (panelSystemd.Scope, error) {
 
 func classifySystemError(code string, err error) error {
 	switch {
-	case errors.Is(err, panelSystemd.ErrUnsupportedOS):
+	case errors.Is(err, systemd.ErrUnsupportedOS):
 		return &Error{Kind: ErrorUnavailable, Code: "systemd_unsupported", Message: err.Error(), Cause: err}
-	case errors.Is(err, panelSystemd.ErrPermission):
+	case errors.Is(err, systemd.ErrPermission):
 		return &Error{Kind: ErrorPermission, Code: "systemd_permission_denied", Message: err.Error(), Cause: err}
-	case errors.Is(err, panelSystemd.ErrNotInstalled):
+	case errors.Is(err, systemd.ErrNotInstalled):
 		return &Error{Kind: ErrorUnavailable, Code: "systemd_not_installed", Message: err.Error(), Cause: err}
-	case errors.Is(err, panelSystemd.ErrConflict):
+	case errors.Is(err, systemd.ErrConflict):
 		return &Error{Kind: ErrorConflict, Code: "systemd_file_conflict", Message: err.Error(), Cause: err}
-	case errors.Is(err, panelSystemd.ErrInvalid):
+	case errors.Is(err, systemd.ErrInvalid):
 		return &Error{Kind: ErrorValidation, Code: code, Message: err.Error(), Cause: err}
 	default:
 		return &Error{Kind: ErrorUnavailable, Code: code, Message: err.Error(), Cause: err}

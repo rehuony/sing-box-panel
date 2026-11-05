@@ -16,7 +16,7 @@ import (
 )
 
 // Files inspects the installer's exact destinations without contacting systemd.
-func (manager *Manager) Files(ctx context.Context, requested Scope) (FilesResult, error) {
+func (manager *Manager[T]) Files(ctx context.Context, requested Scope) (FilesResult, error) {
 	result, err := manager.managedFiles(ctx, requested)
 	if err != nil {
 		return result, err
@@ -30,7 +30,7 @@ func (manager *Manager) Files(ctx context.Context, requested Scope) (FilesResult
 // Service preparation needs only exact installer destinations. Keep the broader
 // read-only inventory out of start/restart so unrelated directories cannot block
 // control; loaded fragments and drop-ins are verified separately before writes.
-func (manager *Manager) managedFiles(ctx context.Context, requested Scope) (FilesResult, error) {
+func (manager *Manager[T]) managedFiles(ctx context.Context, requested Scope) (FilesResult, error) {
 	if err := ctx.Err(); err != nil {
 		return FilesResult{}, err
 	}
@@ -58,23 +58,23 @@ func (manager *Manager) managedFiles(ctx context.Context, requested Scope) (File
 				if err != nil {
 					return result, err
 				}
-				item.Managed = bytes.Contains(data, []byte(managedMark))
+				item.Managed = bytes.Contains(data, []byte(manager.managedMark()))
 				if item.Managed {
 					item.State = "managed"
 				}
 				if path == manager.unitPath(scope) {
-					result.SettingsPath, _ = parseUnitFileSettingsPath(data)
+					result.StatePath, _ = manager.parseUnitFileStatePath(data)
 				}
 			}
 		}
 		result.Files = append(result.Files, item)
 	}
-	if result.SettingsPath == "" && scope == ScopeSystem && result.Files[0].State == "missing" {
-		// System scope has one fixed configuration path. Auxiliary files remain
+	if result.StatePath == "" && scope == ScopeSystem && result.Files[0].State == "missing" {
+		// System scope has one fixed state path. Auxiliary files remain
 		// discoverable after a failed installation or a manually removed unit.
 		for _, item := range result.Files[1:] {
 			if item.Managed {
-				result.SettingsPath = manager.layout.SystemSettingsPath
+				result.StatePath = manager.layout.SystemStatePath
 			}
 		}
 	}
@@ -83,14 +83,14 @@ func (manager *Manager) managedFiles(ctx context.Context, requested Scope) (File
 
 // Related artifacts are visible but never acquire removal authority merely by
 // appearing in the inventory. systemctl owns enablement links and runtime dirs.
-func (manager *Manager) relatedFiles(ctx context.Context, scope Scope, result *FilesResult) error {
+func (manager *Manager[T]) relatedFiles(ctx context.Context, scope Scope, result *FilesResult) error {
 	unit := manager.unitPath(scope)
 	bases := []string{filepath.Dir(unit)}
-	if scope == ScopeSystem && unit == "/etc/systemd/system/"+UnitName {
+	if scope == ScopeSystem && unit == "/etc/systemd/system/"+manager.unitName {
 		bases = append(bases, "/run/systemd/system", "/usr/local/lib/systemd/system", "/usr/lib/systemd/system")
 	} else if scope == ScopeUser {
 		configHome, _ := os.UserConfigDir()
-		if unit == filepath.Join(configHome, "systemd", "user", UnitName) {
+		if unit == filepath.Join(configHome, "systemd", "user", manager.unitName) {
 			bases = append(bases, "/etc/systemd/user", "/usr/local/lib/systemd/user", "/usr/lib/systemd/user")
 			if runtimeHome := os.Getenv("XDG_RUNTIME_DIR"); filepath.IsAbs(runtimeHome) {
 				bases = append(bases, filepath.Join(runtimeHome, "systemd", "user"))
@@ -99,12 +99,12 @@ func (manager *Manager) relatedFiles(ctx context.Context, scope Scope, result *F
 	}
 	slices.Sort(bases)
 	for _, base := range slices.Compact(bases) {
-		if err := relatedFilesIn(ctx, unit, base, result); err != nil {
+		if err := relatedFilesIn(ctx, manager.unitName, unit, base, result); err != nil {
 			return err
 		}
 	}
-	if scope == ScopeSystem && unit == "/etc/systemd/system/"+UnitName {
-		path := "/run/sing-box-panel"
+	if scope == ScopeSystem && unit == "/etc/systemd/system/"+manager.unitName {
+		path := "/run/" + manager.definition.Name
 		if info, err := os.Lstat(path); err == nil {
 			state := "runtime directory"
 			if !info.IsDir() {
@@ -118,7 +118,7 @@ func (manager *Manager) relatedFiles(ctx context.Context, scope Scope, result *F
 	return nil
 }
 
-func relatedFilesIn(ctx context.Context, unit, base string, result *FilesResult) error {
+func relatedFilesIn(ctx context.Context, unitName, unit, base string, result *FilesResult) error {
 	children, err := os.ReadDir(base)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err
@@ -127,7 +127,7 @@ func relatedFilesIn(ctx context.Context, unit, base string, result *FilesResult)
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		if child.Name() == UnitName+".d" && child.Type()&os.ModeSymlink != 0 {
+		if child.Name() == unitName+".d" && child.Type()&os.ModeSymlink != 0 {
 			result.Files = append(result.Files, FileStatus{Path: filepath.Join(base, child.Name()), State: "linked drop-in directory", Retained: true})
 			continue
 		}
@@ -135,7 +135,7 @@ func relatedFilesIn(ctx context.Context, unit, base string, result *FilesResult)
 			continue
 		}
 		directory := filepath.Join(base, child.Name())
-		if child.Name() == UnitName+".d" {
+		if child.Name() == unitName+".d" {
 			entries, err := os.ReadDir(directory)
 			if err != nil {
 				return err
@@ -145,7 +145,7 @@ func relatedFilesIn(ctx context.Context, unit, base string, result *FilesResult)
 				result.Files = append(result.Files, FileStatus{Path: filepath.Join(directory, entry.Name()), State: "custom", Retained: true})
 			}
 		} else if strings.HasSuffix(child.Name(), ".wants") || strings.HasSuffix(child.Name(), ".requires") {
-			path := filepath.Join(directory, UnitName)
+			path := filepath.Join(directory, unitName)
 			target, err := os.Readlink(path)
 			if errors.Is(err, os.ErrNotExist) {
 				continue
@@ -195,7 +195,7 @@ func preflightInstall(files []managedFile, force bool) error {
 	return nil
 }
 
-func preflightUninstall(paths []string, force bool) ([]string, error) {
+func preflightUninstall(paths []string, mark string, force bool) ([]string, error) {
 	existing := make([]string, 0, len(paths))
 	for _, path := range paths {
 		info, err := os.Lstat(path)
@@ -212,7 +212,7 @@ func preflightUninstall(paths []string, force bool) ([]string, error) {
 		if err != nil {
 			return nil, fmt.Errorf("read managed destination %q: %w", path, err)
 		}
-		if !bytes.Contains(data, []byte(managedMark)) && !force {
+		if !bytes.Contains(data, []byte(mark)) && !force {
 			return nil, fmt.Errorf("%w: refusing to remove unmanaged file %q; pass --force to remove it", ErrConflict, path)
 		}
 		existing = append(existing, path)

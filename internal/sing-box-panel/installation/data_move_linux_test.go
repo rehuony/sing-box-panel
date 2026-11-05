@@ -5,14 +5,10 @@
 package installation
 
 import (
-	"database/sql"
 	"os"
 	"path/filepath"
-	"strings"
 	"syscall"
 	"testing"
-
-	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/store"
 )
 
 func TestDataMoveAcrossFilesystems(t *testing.T) {

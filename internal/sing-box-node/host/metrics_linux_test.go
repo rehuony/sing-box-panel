@@ -14,7 +14,7 @@ import (
 
 func TestSamplerUsesDedicatedHostCounters(t *testing.T) {
 	proc := t.TempDir()
-	t.Setenv("SING_BOX_PANEL_HOST_PROC", proc)
+	t.Setenv("SING_BOX_NODE_HOST_PROC", proc)
 	write := func(name, contents string) {
 		t.Helper()
 		if err := os.WriteFile(filepath.Join(proc, name), []byte(contents), 0o600); err != nil {
@@ -40,7 +40,7 @@ func TestSamplerUsesDedicatedHostCounters(t *testing.T) {
 }
 
 func TestMissingHostCountersDoNotFallBackToDifferentEvidence(t *testing.T) {
-	t.Setenv("SING_BOX_PANEL_HOST_PROC", t.TempDir())
+	t.Setenv("SING_BOX_NODE_HOST_PROC", t.TempDir())
 	snapshot, cpu := readHost(t.TempDir())
 	if cpu != nil || snapshot.LoadOne != nil || snapshot.MemoryTotal != nil || snapshot.MemoryUsed != nil {
 		t.Fatalf("missing host counters produced evidence: %+v, %+v", snapshot, cpu)
@@ -53,7 +53,7 @@ func TestMissingHostCountersDoNotFallBackToDifferentEvidence(t *testing.T) {
 // Run the compiled test binary under the packaged system unit to verify the
 // real mount namespace. Ordinary unit tests use fixtures and skip this probe.
 func TestSystemServiceHostCounters(t *testing.T) {
-	if os.Getenv("SING_BOX_PANEL_HOST_PROC") != "/run/sing-box-panel/host-proc" {
+	if os.Getenv("SING_BOX_NODE_HOST_PROC") != "/run/sing-box-node/host-proc" {
 		t.Skip("requires the packaged system service mount namespace")
 	}
 	if _, err := os.Stat("/proc/stat"); !os.IsNotExist(err) {
@@ -61,7 +61,7 @@ func TestSystemServiceHostCounters(t *testing.T) {
 	}
 	for _, name := range []string{"stat", "meminfo", "loadavg"} {
 		var mount unix.Statfs_t
-		if err := unix.Statfs(filepath.Join(os.Getenv("SING_BOX_PANEL_HOST_PROC"), name), &mount); err != nil || mount.Flags&unix.ST_RDONLY == 0 {
+		if err := unix.Statfs(filepath.Join(os.Getenv("SING_BOX_NODE_HOST_PROC"), name), &mount); err != nil || mount.Flags&unix.ST_RDONLY == 0 {
 			t.Fatalf("host counter %s is not mounted read-only: %v", name, err)
 		}
 	}

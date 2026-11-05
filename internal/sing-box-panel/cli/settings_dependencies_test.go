@@ -15,7 +15,7 @@ import (
 	"github.com/rehuony/sing-box-panel/internal/selfupdate"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/server"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/settings"
-	panelSystemd "github.com/rehuony/sing-box-panel/internal/sing-box-panel/systemd"
+	"github.com/rehuony/sing-box-panel/internal/systemd"
 )
 
 func unavailableSettingsFixtures(t *testing.T) map[string]string {
@@ -62,7 +62,7 @@ func TestCommandsWithoutSettingsDependencies(t *testing.T) {
 			for _, args := range commands {
 				t.Run(strings.Join(args, " "), func(t *testing.T) {
 					var stdout, stderr bytes.Buffer
-					service := &fakeSystemdService{statusResult: panelSystemd.Status{UnitFileSettingsPath: path}}
+					service := &fakeSystemdService{statusResult: systemd.Status{UnitFileStatePath: path}}
 					root := NewRootCommand(Dependencies{CleanupHistoryPath: testHistoryPath(t),
 						Stdin: strings.NewReader("{}"), Stdout: &stdout, Stderr: &stderr,
 						Build: buildinfo.Info{Version: "v1.2.3"}, Systemd: service,
@@ -148,7 +148,7 @@ func TestInstanceCommandsIgnoreInvalidRuntimeSettings(t *testing.T) {
 	} {
 		t.Run(strings.Join(args, " "), func(t *testing.T) {
 			var stdout, stderr bytes.Buffer
-			service := &fakeSystemdService{statusResult: panelSystemd.Status{UnitFileSettingsPath: path}}
+			service := &fakeSystemdService{statusResult: systemd.Status{UnitFileStatePath: path}}
 			root := NewRootCommand(Dependencies{CleanupHistoryPath: testHistoryPath(t), Stdout: &stdout, Stderr: &stderr, Systemd: service})
 			root.SetArgs(append([]string{"--config", path, "--output=json"}, args...))
 			if err := root.ExecuteContext(t.Context()); err != nil || stderr.Len() != 0 {

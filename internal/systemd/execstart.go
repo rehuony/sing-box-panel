@@ -8,22 +8,26 @@ import (
 	"strings"
 )
 
-// unitFileSettingsPath reports the --config argument written in the unit file
-// currently on disk. It describes that file only: systemd may still run a
-// previously loaded command line, and the process may have started with other
-// settings. The second result is false whenever the file does not state one
-// unambiguous absolute path: unreadable unit, no or several effective
+// unitFileStatePath reports the state path argument written in the unit
+// file currently on disk. It describes that file only: systemd may still run
+// a previously loaded command line, and the process may have started with
+// other state. The second result is false whenever the file does not state
+// one unambiguous absolute path: unreadable unit, no or several effective
 // [Service] ExecStart lines, unsupported quoting, unresolved specifiers or
 // variables, or a relative path. Callers must then report unknown, not guess.
-func unitFileSettingsPath(unitPath string) (string, bool) {
+func (manager *Manager[T]) unitFileStatePath(unitPath string) (string, bool) {
 	data, err := os.ReadFile(unitPath)
 	if err != nil {
 		return "", false
 	}
-	return parseUnitFileSettingsPath(data)
+	return manager.parseUnitFileStatePath(data)
 }
 
-func parseUnitFileSettingsPath(unit []byte) (string, bool) {
+func (manager *Manager[T]) parseUnitFileStatePath(unit []byte) (string, bool) {
+	return parseUnitFileFlag(unit, manager.definition.StateFlag, manager.definition.StateShortFlag)
+}
+
+func parseUnitFileFlag(unit []byte, long, short string) (string, bool) {
 	execStart, ok := effectiveExecStart(string(unit))
 	if !ok {
 		return "", false
@@ -32,14 +36,15 @@ func parseUnitFileSettingsPath(unit []byte) (string, bool) {
 	if !ok || len(words) < 2 {
 		return "", false
 	}
-	return settingsArgument(words[1:])
+	return flagArgument(words[1:], long, short)
 }
 
-// settingsArgument applies the server's pflag semantics: the last --config
-// value wins, "--" ends flag parsing, and both separated and attached forms
-// are accepted. Every occurrence must resolve, so a value that only systemd
-// could expand makes the whole result unknown.
-func settingsArgument(args []string) (string, bool) {
+// flagArgument applies the commands' pflag semantics to the flag long (and
+// its short form, if any): the last value wins, "--" ends flag parsing, and
+// both separated and attached forms are accepted. Every occurrence must
+// resolve, so a value that only systemd could expand makes the whole result
+// unknown.
+func flagArgument(args []string, long, short string) (string, bool) {
 	var raw string
 	found := false
 	for index := 0; index < len(args); index++ {
@@ -49,18 +54,18 @@ func settingsArgument(args []string) (string, bool) {
 		case word == "--":
 			index = len(args)
 			continue
-		case word == "--config" || word == "-c":
+		case word == long || (short != "" && word == short):
 			if index+1 >= len(args) {
 				return "", false
 			}
 			index++
 			value = args[index]
-		case strings.HasPrefix(word, "--config="):
-			value = strings.TrimPrefix(word, "--config=")
-		case strings.HasPrefix(word, "-c="):
-			value = strings.TrimPrefix(word, "-c=")
-		case strings.HasPrefix(word, "-c") && !strings.HasPrefix(word, "--"):
-			value = strings.TrimPrefix(word, "-c")
+		case strings.HasPrefix(word, long+"="):
+			value = strings.TrimPrefix(word, long+"=")
+		case short != "" && strings.HasPrefix(word, short+"="):
+			value = strings.TrimPrefix(word, short+"=")
+		case short != "" && strings.HasPrefix(word, short) && !strings.HasPrefix(word, "--"):
+			value = strings.TrimPrefix(word, short)
 		default:
 			continue
 		}

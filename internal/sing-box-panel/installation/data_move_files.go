@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 
 	"github.com/rehuony/sing-box-panel/internal/database"
+	"github.com/rehuony/sing-box-panel/internal/pathguard"
 	"github.com/rehuony/sing-box-panel/internal/procctl"
 )
 
@@ -100,7 +101,7 @@ func copyDataMoveTree(ctx context.Context, source, target string) error {
 			if err != nil {
 				return err
 			}
-			if filepath.IsAbs(link) && pathWithin(source, link) {
+			if filepath.IsAbs(link) && pathguard.Within(source, link) {
 				rel, _ := filepath.Rel(source, link)
 				link = filepath.Join(target, rel)
 			}
@@ -186,7 +187,7 @@ func verifyDataMoveFiles(ctx context.Context, source, target string) error {
 			if err != nil {
 				return err
 			}
-			if filepath.IsAbs(original) && pathWithin(source, original) {
+			if filepath.IsAbs(original) && pathguard.Within(source, original) {
 				link, _ := filepath.Rel(source, original)
 				original = filepath.Join(target, link)
 			}

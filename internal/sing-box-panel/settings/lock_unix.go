@@ -9,11 +9,11 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
-	"syscall"
 	"time"
 
 	"golang.org/x/sys/unix"
+
+	"github.com/rehuony/sing-box-panel/internal/atomicfile"
 )
 
 // Lock serializes panel and CLI writers across atomic file replacements. The
@@ -30,7 +30,7 @@ func lockFile(ctx context.Context, path string, wait bool) (*os.File, error) {
 		return nil, fmt.Errorf("open settings lock: %w", err)
 	}
 	file := os.NewFile(uintptr(fd), path+".lock")
-	if err := preserveOwner(file, path); err != nil {
+	if err := atomicfile.PreserveOwner(file, path); err != nil {
 		file.Close()
 		return nil, err
 	}
@@ -68,23 +68,4 @@ func lockFile(ctx context.Context, path string, wait bool) (*os.File, error) {
 		case <-time.After(10 * time.Millisecond):
 		}
 	}
-}
-
-// Root CLI writes must keep a service-owned settings file readable by that
-// service after atomic replacement. Unprivileged writers keep their own owner.
-func preserveOwner(file *os.File, path string) error {
-	if os.Geteuid() != 0 {
-		return nil
-	}
-	info, err := os.Lstat(path)
-	if errors.Is(err, os.ErrNotExist) {
-		info, err = os.Stat(filepath.Dir(path))
-	}
-	if err != nil {
-		return err
-	}
-	if stat, ok := info.Sys().(*syscall.Stat_t); ok {
-		return file.Chown(int(stat.Uid), int(stat.Gid))
-	}
-	return nil
 }

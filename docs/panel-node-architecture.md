@@ -265,6 +265,8 @@ internal/
     subscription/        sources, manual nodes, inbound conversion, channels, keys, templates, renderers
     telemetry/           metrics, traffic, runtime history and log relay
     auth/ settings/
+    systemd/             the panel's unit templates and settings-file state for the shared lifecycle
+    installation/        inspection, data moves and removal of the panel's files
     store/               panel SQLite
     httpapi/             management API, Web delivery and /sub
     cli/ server/ testutil/
@@ -277,6 +279,7 @@ internal/
     host/                host metrics, public IP, read-only filesystem
     service/             the node's use cases: installs, checks, activation, supervision, recovery, core logs, filesystem
     store/               node SQLite: revisions, bundles, intents, recovery, command results
+    systemd/             the node's unit templates and data-directory state for the shared lifecycle
     settings/ cli/
 
   Infrastructure: knows nothing of sing-box, subscriptions or the fleet
@@ -285,7 +288,8 @@ internal/
   database/              SQLite opening, pragmas and data-directory locks shared by both stores
   logredact/             log redaction applied by both services
   webauth/               password hashing, login limits, origin and CSRF checks of both management APIs
-  installation/ systemd/
+  systemd/               one service's systemd lifecycle: units, dedicated account, status, control
+  pathguard/             symlink-safe containment and shared-directory checks for service directories
 
   Shared domain: both services use these and never import a service
   configuration/         strict, lossless sing-box JSON
@@ -308,8 +312,8 @@ that exist only until each service has its own installer are listed in the
 ## Packaging
 
 - One module and one release build both binaries for `linux/amd64` and `linux/arm64`; the signed `SHA256SUMS` covers both.
-- The installer takes `--component panel|node` and installs only that binary.
-- Each service has its own systemd unit. The node unit carries the privileges sing-box needs; the panel unit drops them because it no longer runs sing-box.
+- The installer takes `--component panel|node`, or asks which when neither is given, reports what is already installed, and installs only that binary.
+- Each service has its own systemd unit and dedicated account, installed by its own binary's `systemd` commands over one shared lifecycle. The node unit carries the privileges sing-box needs; the panel unit drops them because it no longer runs sing-box.
 - A node reports its build version. The panel flags nodes whose version differs from its own and can tell a node to self-update to the panel's release through the existing signed update path.
 
 ## Preserved guarantees
