@@ -1,5 +1,4 @@
 export const telemetry = {
-  demo: '演示环境',
   action: {
     failed: '{{action}}失败',
     executing: '正在提交{{action}}…',
@@ -7,7 +6,6 @@ export const telemetry = {
     verified: '{{action}}已验证',
     verifying: '正在验证{{action}}…',
   },
-  ariaLabel: '运行状态与流量',
   confirm: {
     cancel: '取消',
     restart: {
@@ -29,19 +27,11 @@ export const telemetry = {
   },
   metric: {
     download: '下行',
-    downloadShort: '下行',
-    total: '当前周期',
-    totalShort: '总量',
     upload: '上行',
-    uploadShort: '上行',
     uptime: '运行时长',
     version: '版本',
-    versionShort: '版本',
   },
   moreActions: '运行操作',
-  refresh: '刷新运行与流量状态',
-  refreshFailed: '状态刷新失败，请重试',
-  refreshStatus: '刷新状态',
   runtime: {
     evidenceUnavailable: '运行证据不可用',
     inspectionUnavailable: '无法检查运行状态',
@@ -55,14 +45,12 @@ export const telemetry = {
   startedAt: '启动于 {{value}}',
   stream: {
     reconnecting: '实时数据正在重连…',
-    compact: '重连中…',
     detail: '实时数据暂时中断，正在保留上次观测并重新连接。',
   },
   unit: {
     day: '天',
     hour: '小时',
     minute: '分钟',
-    perSecond: '/s',
     second: '秒',
   },
 } as const;

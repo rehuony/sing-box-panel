@@ -3,7 +3,6 @@
 package store
 
 import (
-	"bytes"
 	"context"
 	"crypto/sha256"
 	"database/sql"
@@ -13,8 +12,6 @@ import (
 	"fmt"
 	"strings"
 	"time"
-
-	"github.com/rehuony/sing-box-panel/internal/jsonstrict"
 )
 
 var (
@@ -146,30 +143,6 @@ func getActivationBundle(ctx context.Context, q queryRower, bundleID string) (Ac
 		return ActivationBundle{}, fmt.Errorf("parse activation bundle created_at: %w", err)
 	}
 	return bundle, nil
-}
-
-func canonicalJSONObject(value json.RawMessage, fallback string) (json.RawMessage, error) {
-	object, err := jsonstrict.CanonicalObject(value, fallback, 4<<20)
-	if err != nil {
-		return nil, errors.New("value must be one strict JSON object")
-	}
-	return object, nil
-}
-
-func canonicalJSONArray(value json.RawMessage, fallback string) (json.RawMessage, error) {
-	return canonicalJSONArrayWithLimit(value, fallback, 4<<20)
-}
-
-func canonicalJSONArrayWithLimit(value json.RawMessage, fallback string, maximum int64) (json.RawMessage, error) {
-	if len(value) == 0 {
-		value = json.RawMessage(fallback)
-	}
-	var array []any
-	if err := jsonstrict.Decode(value, maximum, &array); err != nil || array == nil {
-		return nil, errors.New("value must be one strict JSON array")
-	}
-	encoded, err := json.Marshal(array)
-	return bytes.Clone(encoded), err
 }
 
 func validMonitoringTier(value MonitoringTier) bool {

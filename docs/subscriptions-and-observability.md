@@ -428,10 +428,8 @@ Switching output client with an existing template explicitly replaces it with
 the target client's seed in the draft; cancelling settings preserves the old
 format and template. Without a template, switching leaves it absent.
 
-The standalone Demo client saves channel drafts in memory without native
-validation. Explicit Validate and Preview requests for policies still report
-that a connected panel server is required. Connected clients always validate
-before saving; a failed preview never falls back to an unvalidated save.
+The Web client validates every channel draft with the native renderer before
+saving; a failed preview never falls back to an unvalidated save.
 
 Existing channels without `policy` retain their original node-only public output
 until saved in the channel workspace. The workspace explicitly identifies this
@@ -766,8 +764,6 @@ The node dashboard shows the node's recorded period traffic against the node's
 own quota; an unlimited quota is rendered as `∞ GiB` while keeping the observed
 used-byte value. Unavailable traffic evidence remains unknown rather than being
 rendered as zero.
-
-The demo node starts with a 500 GiB monthly quota that resets on the 1st.
 
 ## Limited monitoring and traffic
 

@@ -191,7 +191,7 @@ func TestStoppedCoreSelectionCommitsWithoutLaunchingAndRetainsVersion(t *testing
 		t.Run(scenario, func(t *testing.T) {
 			ctx := context.Background()
 			db, commands, previous := seedRuntimeObservation(t, ctx)
-			if _, err := db.ClearRuntimeObservation(ctx, previous.PID, previous.ProcessStartToken); err != nil {
+			if _, err := db.ClearRuntimeObservationAndTransitions(ctx, previous.PID, previous.ProcessStartToken, nil); err != nil {
 				t.Fatal(err)
 			}
 			root, err := filepath.EvalSymlinks(t.TempDir())

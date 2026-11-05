@@ -5,7 +5,6 @@ package httpapi
 import (
 	"encoding/json"
 	"net/http"
-	"strings"
 
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/store"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/subscription"
@@ -150,15 +149,11 @@ func (handler *Handler) createSubscriptionSourceVersion(w http.ResponseWriter, r
 	writeSubscriptionResource(w, http.StatusCreated, saved.Source.UpdatedAt, saved)
 }
 
-func (handler *Handler) getSubscriptionSourceVersion(w http.ResponseWriter, request *http.Request, identifier string) {
+func (handler *Handler) getSubscriptionSourceVersion(w http.ResponseWriter, request *http.Request) {
 	if !handler.subscriptionReadRequest(w, request) {
 		return
 	}
-	sourceID, versionID, ok := splitSubscriptionSourceVersionIdentifier(identifier)
-	if !ok {
-		writeSubscriptionInvalid(w, request)
-		return
-	}
+	sourceID, versionID := request.PathValue("sourceId"), request.PathValue("versionId")
 	version, err := handler.services.Subscriptions.SubscriptionSourceVersion(request.Context(), sourceID, versionID)
 	if err != nil {
 		writeSubscriptionProblem(w, request, "subscription_source_version_read_failed", err)
@@ -167,7 +162,7 @@ func (handler *Handler) getSubscriptionSourceVersion(w http.ResponseWriter, requ
 	writeJSON(w, http.StatusOK, version)
 }
 
-func (handler *Handler) restoreSubscriptionSourceVersion(w http.ResponseWriter, request *http.Request, identifier string) {
+func (handler *Handler) restoreSubscriptionSourceVersion(w http.ResponseWriter, request *http.Request) {
 	if !handler.subscriptionMutationRequest(w, request) || !requireEmptyCoreBody(w, request) {
 		return
 	}
@@ -175,26 +170,13 @@ func (handler *Handler) restoreSubscriptionSourceVersion(w http.ResponseWriter, 
 	if !ok {
 		return
 	}
-	sourceID, versionID, ok := splitSubscriptionSourceVersionIdentifier(identifier)
-	if !ok {
-		writeSubscriptionInvalid(w, request)
-		return
-	}
+	sourceID, versionID := request.PathValue("sourceId"), request.PathValue("versionId")
 	source, err := handler.services.Subscriptions.RestoreSubscriptionSourceVersion(request.Context(), sourceID, versionID, expected)
 	if err != nil {
 		writeSubscriptionProblem(w, request, "subscription_source_version_restore_failed", err)
 		return
 	}
 	writeSubscriptionResource(w, http.StatusOK, source.UpdatedAt, source)
-}
-
-func splitSubscriptionSourceVersionIdentifier(identifier string) (string, string, bool) {
-	parts := strings.Split(identifier, "/")
-	valid := len(parts) == 2 && parts[0] != "" && parts[1] != ""
-	if !valid {
-		return "", "", false
-	}
-	return parts[0], parts[1], true
 }
 
 func (handler *Handler) deleteSubscriptionSource(w http.ResponseWriter, request *http.Request, identifier string) {

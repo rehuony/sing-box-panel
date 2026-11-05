@@ -14,7 +14,6 @@ import (
 )
 
 type sessionContextKey struct{}
-type sessionPayload = auth.AuthSession
 
 func (handler *Handler) login(w http.ResponseWriter, request *http.Request) {
 	login, rejection := handler.logins.Admit(w, request, handler.settings.Server.ExternalOrigin, maxLoginBody)

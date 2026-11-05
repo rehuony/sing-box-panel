@@ -17,12 +17,7 @@ function collectLeafKeys(value: unknown, prefix = ''): string[] {
 }
 
 const requiredDynamicKeys = [
-  ...['complete', 'partial', 'missing'].map((value) => `dashboard.coverage.${value}`),
   ...['running', 'stopped', 'failed', 'unknown'].map((value) => `dashboard.timeline.state.${value}`),
-  ...['trace', 'debug', 'info', 'warn', 'error', 'fatal']
-    .map((value) => `observability.logs.levelOption.${value}`),
-  ...['off', 'connecting', 'live', 'ended', 'error']
-    .map((value) => `observability.logs.stream.${value}`),
   ...['start', 'stop', 'restart'].map((value) => `telemetry.control.${value}`),
   ...['stop', 'restart'].flatMap((action) =>
     ['title', 'description', 'action'].map((value) => `telemetry.confirm.${action}.${value}`)),

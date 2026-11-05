@@ -201,7 +201,7 @@ func (application *Service) RestoreSubscriptionSourceVersion(
 	if err != nil {
 		return SubscriptionSource{}, err
 	}
-	stored, err := application.database.ActivateSubscriptionSourceVersionWithSchedule(
+	stored, err := application.database.ActivateSubscriptionSourceVersion(
 		ctx, sourceID, strings.TrimSpace(versionID), expectedUpdatedAt,
 		updatedAt, schedule,
 	)

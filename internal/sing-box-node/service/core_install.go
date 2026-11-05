@@ -31,9 +31,6 @@ func (application *Node) InstallCore(ctx context.Context, candidate artifacts.Ca
 	return application.PersistInstalledCore(ctx, installed)
 }
 
-func (application *Node) SetArtifactInstaller(installer ArtifactInstaller) {
-	application.artifacts = installer
-}
 func (application *Node) coreInstaller() (ArtifactInstaller, error) {
 	if application.artifacts != nil {
 		return application.artifacts, nil

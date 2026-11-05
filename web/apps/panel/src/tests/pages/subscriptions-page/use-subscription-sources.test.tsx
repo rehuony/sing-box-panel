@@ -121,9 +121,8 @@ describe('subscription sources', () => {
     expect(result.current.inManualCollection({ ...node, source_id: 'remote' })).toBe(false);
   });
   it('does not take the manual collection’s update time from one node’s runtime', async () => {
-    const { result, client } = await mount();
+    const { result } = await mount();
     expect(result.current.displayedSources[0].updated_at).toBe('');
-    expect(client.getRuntimeHistory).not.toHaveBeenCalled();
   });
   it('refreshes persisted data after all refresh outcomes without changing node visibility', async () => {
     const notice = vi.spyOn(toast, 'add');

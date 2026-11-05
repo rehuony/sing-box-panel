@@ -61,7 +61,7 @@ describe('panel log presentation and details', () => {
       duration_ms: 0, enabled: false, missing: null, nested: { values: [0, false, 'safe'] },
       custom_field: '<img src=x onerror=alert(1)>', process_started_at: item.time,
     } };
-    const client = show(createMockApiClient({
+    show(createMockApiClient({
       listPanelLogs: vi.fn().mockResolvedValue({ items: [record], total: 1 }),
     }));
     const trigger = await screen.findByRole('button', { name: 'View details: Core start operation completed' });
@@ -83,7 +83,6 @@ describe('panel log presentation and details', () => {
     await user.click(within(dialog).getByRole('button', { name: 'Copy log' }));
     expect(copy).toHaveBeenCalledWith(JSON.stringify(record, null, 2));
     expect(notify).toHaveBeenCalledWith(expect.objectContaining({ title: 'Log copied', type: 'success' }));
-    expect(client.getLog).not.toHaveBeenCalled();
     await user.keyboard('{Escape}');
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
     await waitFor(() => expect(trigger).toHaveFocus());

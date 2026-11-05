@@ -27,7 +27,7 @@ func TestLoadOrInitializeConcurrentStarts(t *testing.T) {
 	for range callers {
 		go func() {
 			<-start
-			value, created, err := LoadOrInitialize(path)
+			value, created, err := LoadOrInitialize(t.Context(), path)
 			results <- result{value, created, err}
 		}()
 	}
@@ -99,7 +99,7 @@ func TestLoadOrInitializePreservesInvalidFiles(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if _, created, err := LoadOrInitialize(path); err == nil || created {
+			if _, created, err := LoadOrInitialize(t.Context(), path); err == nil || created {
 				t.Fatalf("created = %v, error = %v; want rejection", created, err)
 			}
 			after, err := os.Lstat(path)

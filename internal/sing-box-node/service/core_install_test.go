@@ -29,10 +29,10 @@ func TestInstallCoreRecordsTheVerifiedSourceIdentityOnce(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		application.SetArtifactInstaller(fakeArtifactInstaller{result: artifacts.Result{
+		application.artifacts = fakeArtifactInstaller{result: artifacts.Result{
 			Identity: identity, BinarySHA256: testDigest(t, "cd"), BinaryPath: "/secure/artifacts/sing-box",
 			FeatureFingerprint: artifacts.FeatureFingerprint{Status: artifacts.FeatureFingerprintReported, Features: []string{"with_utls", "with_quic", "with_utls"}},
-		}})
+		}}
 		candidate := artifacts.Candidate{
 			Source: source, SHA256: testDigest(t, "ab"), Size: 1234, Version: version,
 			Architecture: coreartifact.ArchitectureAMD64, Variant: coreartifact.VariantMusl,

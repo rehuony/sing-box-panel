@@ -56,7 +56,7 @@ func TestSubscriptionSourceVersionsAppendReuseAndRestore(t *testing.T) {
 		t.Fatalf("loaded=%+v err=%v", loaded, err)
 	}
 	restored, err := database.ActivateSubscriptionSourceVersion(
-		ctx, source.ID, first.Version.ID, second.Source.UpdatedAt, now.Add(3*time.Minute),
+		ctx, source.ID, first.Version.ID, second.Source.UpdatedAt, now.Add(3*time.Minute), nil,
 	)
 	if err != nil || restored.CurrentVersionID != first.Version.ID {
 		t.Fatalf("restored=%+v err=%v", restored, err)
@@ -156,7 +156,7 @@ func TestSubscriptionSourceAndVersionWritesRollBackWhenRefreshScheduleIsStale(t 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := database.ActivateSubscriptionSourceVersionWithSchedule(
+	if _, err := database.ActivateSubscriptionSourceVersion(
 		ctx, source.ID, first.Version.ID, second.Source.UpdatedAt, now.Add(3*time.Minute), &refreshSchedule,
 	); err == nil {
 		t.Fatal("version restore succeeded despite stale refresh schedule")

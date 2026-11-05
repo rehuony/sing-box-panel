@@ -5,43 +5,12 @@ package httpapi
 import (
 	"errors"
 	"net/http"
-	"strings"
 
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/fleet"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/store"
 )
 
 const maximumNodeRequestBytes = 4 << 10
-
-// fleetRoute selects the handler of a /api/v1/nodes path, or nil when the
-// path is not a node route.
-func (handler *Handler) fleetRoute(method, path string) http.HandlerFunc {
-	rest, ok := strings.CutPrefix(path, "/api/v1/nodes")
-	if !ok || (rest != "" && !strings.HasPrefix(rest, "/")) {
-		return nil
-	}
-	parts := strings.Split(strings.TrimPrefix(rest, "/"), "/")
-	byMethod := map[string]http.HandlerFunc{}
-	switch {
-	case rest == "":
-		byMethod[http.MethodGet] = handler.listNodes
-		byMethod[http.MethodPost] = handler.createNode
-	case len(parts) == 1 && parts[0] != "":
-		id := parts[0]
-		byMethod[http.MethodGet] = func(w http.ResponseWriter, request *http.Request) { handler.getNode(w, request, id) }
-		byMethod[http.MethodPut] = func(w http.ResponseWriter, request *http.Request) { handler.updateNode(w, request, id) }
-		byMethod[http.MethodDelete] = func(w http.ResponseWriter, request *http.Request) { handler.deleteNode(w, request, id) }
-	case len(parts) == 2 && parts[0] != "" && parts[1] == "enrollment":
-		id := parts[0]
-		byMethod[http.MethodPost] = func(w http.ResponseWriter, request *http.Request) { handler.createNodeEnrollment(w, request, id) }
-	default:
-		return nil
-	}
-	if next, ok := byMethod[method]; ok {
-		return next
-	}
-	return methodNotAllowed
-}
 
 func (handler *Handler) fleetRequest(w http.ResponseWriter, request *http.Request) bool {
 	if handler.services.Fleet == nil {

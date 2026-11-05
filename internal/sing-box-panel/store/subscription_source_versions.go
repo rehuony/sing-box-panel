@@ -16,7 +16,6 @@ import (
 
 var (
 	ErrSubscriptionSourceVersionNotFound = errors.New("subscription source version not found")
-	ErrSubscriptionSourceVersionExists   = errors.New("subscription source version already exists")
 )
 
 type SubscriptionSourceVersion struct {
@@ -189,19 +188,9 @@ func (s *Store) ListSubscriptionSourceVersions(
 	return page, nil
 }
 
+// ActivateSubscriptionSourceVersion changes the current immutable version and
+// schedules the next refresh in the same transaction.
 func (s *Store) ActivateSubscriptionSourceVersion(
-	ctx context.Context,
-	sourceID string,
-	versionID string,
-	expectedUpdatedAt time.Time,
-	updatedAt time.Time,
-) (SubscriptionSource, error) {
-	return s.ActivateSubscriptionSourceVersionWithSchedule(ctx, sourceID, versionID, expectedUpdatedAt, updatedAt, nil)
-}
-
-// ActivateSubscriptionSourceVersionWithSchedule changes the current immutable
-// version and schedules the next refresh in the same transaction.
-func (s *Store) ActivateSubscriptionSourceVersionWithSchedule(
 	ctx context.Context,
 	sourceID string,
 	versionID string,

@@ -55,7 +55,7 @@ func newRuntimeServices(
 	if err := logs.SetPolicy(DefaultCoreLogPolicy); err != nil {
 		return nil, err
 	}
-	commands.SetCoreLogs(logs)
+	commands.attachCoreLogs(logs)
 	manager, err := coreruntime.NewManager(coreruntime.Options{
 		RuntimeDir: filepath.Join(dataDir, "runtime"),
 		Stdout:     logs.Writer(), Stderr: logs.Writer(),

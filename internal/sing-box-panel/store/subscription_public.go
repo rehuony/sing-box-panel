@@ -12,20 +12,6 @@ import (
 	"time"
 )
 
-// SubscriptionPreparationInputs is a point-in-time copy of the mutable
-// publication controls. Rendering happens only after the short read
-// transaction that produced this value has ended.
-type SubscriptionPreparationInputs struct {
-	Channels []SubscriptionChannel
-	Sources  []SubscriptionSource
-}
-
-type SubscriptionPreparationLimits struct {
-	MaximumChannels   int
-	MaximumSources    int
-	MaximumInputBytes int64
-}
-
 type PublicSubscriptionSourceVersion struct {
 	SourceKind      SubscriptionSourceKind
 	Name            string
@@ -125,40 +111,6 @@ func (s *Store) LoadSubscriptionNodeCatalogState(ctx context.Context) (Subscript
 		return SubscriptionNodeCatalogState{}, err
 	}
 	return state, nil
-}
-
-// LoadSubscriptionPreparationInputs takes one short, consistent database
-// snapshot of all enabled channels and sources. No rendering, network, or
-// filesystem operation occurs while the transaction is open.
-func (s *Store) LoadSubscriptionPreparationInputs(
-	ctx context.Context,
-	limits SubscriptionPreparationLimits,
-) (SubscriptionPreparationInputs, error) {
-	if s == nil || s.db == nil {
-		return SubscriptionPreparationInputs{}, errors.New("SQLite store is not open")
-	}
-	if limits.MaximumChannels < 1 || limits.MaximumSources < 1 || limits.MaximumInputBytes < 1 {
-		return SubscriptionPreparationInputs{}, errors.New("subscription preparation limits are invalid")
-	}
-	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
-	if err != nil {
-		return SubscriptionPreparationInputs{}, fmt.Errorf("begin subscription input read: %w", err)
-	}
-	defer func() { _ = tx.Rollback() }()
-
-	remainingBytes := limits.MaximumInputBytes
-	channels, err := listEnabledSubscriptionChannels(ctx, tx, limits.MaximumChannels, &remainingBytes)
-	if err != nil {
-		return SubscriptionPreparationInputs{}, err
-	}
-	sources, err := listEnabledSubscriptionSources(ctx, tx, limits.MaximumSources, &remainingBytes)
-	if err != nil {
-		return SubscriptionPreparationInputs{}, err
-	}
-	if err := tx.Commit(); err != nil {
-		return SubscriptionPreparationInputs{}, fmt.Errorf("commit subscription input read: %w", err)
-	}
-	return SubscriptionPreparationInputs{Channels: channels, Sources: sources}, nil
 }
 
 // LoadPublicSubscriptionState authenticates the token and assembles all live
@@ -327,87 +279,4 @@ func loadSubscriptionSourceVersions(ctx context.Context, tx *sql.Tx, enabledOnly
 		sources = append(sources, source)
 	}
 	return sources, rows.Err()
-}
-
-func listEnabledSubscriptionChannels(
-	ctx context.Context,
-	tx *sql.Tx,
-	maximum int,
-	remainingBytes *int64,
-) ([]SubscriptionChannel, error) {
-	rows, err := tx.QueryContext(
-		ctx,
-		`SELECT `+subscriptionChannelColumns+`
-           FROM subscription_channels
-          WHERE enabled = 1
-	          ORDER BY id ASC
-	          LIMIT ?`,
-		maximum+1,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("list enabled subscription channels: %w", err)
-	}
-	defer rows.Close()
-
-	channels := make([]SubscriptionChannel, 0)
-	for rows.Next() {
-		channel, scanErr := scanSubscriptionChannel(rows)
-		if scanErr != nil {
-			return nil, fmt.Errorf("scan enabled subscription channel: %w", scanErr)
-		}
-		if len(channels) >= maximum {
-			return nil, fmt.Errorf("%w: too many enabled channels", ErrSubscriptionLimitExceeded)
-		}
-		if int64(len(channel.Config)) > *remainingBytes {
-			return nil, fmt.Errorf("%w: enabled inputs exceed byte budget", ErrSubscriptionLimitExceeded)
-		}
-		*remainingBytes -= int64(len(channel.Config))
-		channels = append(channels, channel)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate enabled subscription channels: %w", err)
-	}
-	return channels, nil
-}
-
-func listEnabledSubscriptionSources(
-	ctx context.Context,
-	tx *sql.Tx,
-	maximum int,
-	remainingBytes *int64,
-) ([]SubscriptionSource, error) {
-	rows, err := tx.QueryContext(
-		ctx,
-		`SELECT `+subscriptionSourceColumns+`
-           FROM subscription_sources
-          WHERE enabled = 1
-	          ORDER BY id ASC
-	          LIMIT ?`,
-		maximum+1,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("list enabled subscription sources: %w", err)
-	}
-	defer rows.Close()
-
-	sources := make([]SubscriptionSource, 0)
-	for rows.Next() {
-		source, scanErr := scanSubscriptionSource(rows)
-		if scanErr != nil {
-			return nil, fmt.Errorf("scan enabled subscription source: %w", scanErr)
-		}
-		if len(sources) >= maximum {
-			return nil, fmt.Errorf("%w: too many enabled sources", ErrSubscriptionLimitExceeded)
-		}
-		inputBytes := int64(len(source.Config))
-		if inputBytes > *remainingBytes {
-			return nil, fmt.Errorf("%w: enabled inputs exceed byte budget", ErrSubscriptionLimitExceeded)
-		}
-		*remainingBytes -= inputBytes
-		sources = append(sources, source)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate enabled subscription sources: %w", err)
-	}
-	return sources, nil
 }

@@ -22,19 +22,6 @@ func decodeStrictRequest(w http.ResponseWriter, request *http.Request, limit int
 	return true
 }
 
-func optionalPositiveInt64(w http.ResponseWriter, request *http.Request, name string) (int64, bool) {
-	raw := request.URL.Query().Get(name)
-	if raw == "" {
-		return 0, true
-	}
-	value, err := strconv.ParseInt(raw, 10, 64)
-	if err != nil || value < 1 {
-		writeProblem(w, request, http.StatusBadRequest, "query_invalid", "Query invalid", name+" must be a positive integer.")
-		return 0, false
-	}
-	return value, true
-}
-
 func optionalLimit(w http.ResponseWriter, request *http.Request) (int, bool) {
 	raw := request.URL.Query().Get("limit")
 	if raw == "" {
@@ -46,4 +33,12 @@ func optionalLimit(w http.ResponseWriter, request *http.Request) (int, bool) {
 		return 0, false
 	}
 	return value, true
+}
+
+func (handler *Handler) requireCommands(w http.ResponseWriter, request *http.Request) bool {
+	if handler.services.Fleet != nil {
+		return true
+	}
+	writeProblem(w, request, http.StatusServiceUnavailable, "application_unavailable", "Application unavailable", "Configuration services are not ready.")
+	return false
 }

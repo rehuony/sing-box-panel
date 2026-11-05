@@ -59,7 +59,7 @@ func TestRuntimeControlLogsCheckedTarget(t *testing.T) {
 			switch scenario {
 			case "start":
 				action = "start"
-				if _, err := database.ClearRuntimeObservation(ctx, previous.PID, previous.ProcessStartToken); err != nil {
+				if _, err := database.ClearRuntimeObservationAndTransitions(ctx, previous.PID, previous.ProcessStartToken, nil); err != nil {
 					t.Fatal(err)
 				}
 				manager.live = coreruntime.LiveIdentity{}

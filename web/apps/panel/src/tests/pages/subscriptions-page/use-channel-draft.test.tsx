@@ -60,11 +60,11 @@ describe('channel draft', () => {
     await act(() => result.current.save());
     expect(client.updateSubscriptionChannel.mock.calls[1][2]).toBe('updated');
   });
-  it.each([false, true])('validates only native clients before a CAS save (native: %s)', async native => {
-    const { result, client, onSaved } = mount(channel, { supportsNativeChannelValidation: native });
+  it('validates with the native renderer before a CAS save', async () => {
+    const { result, client, onSaved } = mount(channel);
     act(() => result.current.addGroup());
     await act(() => result.current.save());
-    expect(client.previewSubscriptionChannel).toHaveBeenCalledTimes(native ? 1 : 0);
+    expect(client.previewSubscriptionChannel).toHaveBeenCalledOnce();
     expect(client.updateSubscriptionChannel).toHaveBeenCalledWith(channel.id, expect.objectContaining({
       enabled: channel.enabled,
       config: expect.objectContaining({ policy: result.current.policy }),
@@ -93,7 +93,7 @@ describe('channel draft', () => {
     expect(onSaved).not.toHaveBeenCalled();
   });
   it('does not persist or discard edits when native validation rejects the draft', async () => {
-    const { result, client } = mount(channel, { supportsNativeChannelValidation: true, previewSubscriptionChannel: vi.fn().mockRejectedValue(new Error('invalid')) });
+    const { result, client } = mount(channel, { previewSubscriptionChannel: vi.fn().mockRejectedValue(new Error('invalid')) });
     act(() => result.current.addGroup());
     await act(() => result.current.save());
     expect(client.updateSubscriptionChannel).not.toHaveBeenCalled();
@@ -103,7 +103,6 @@ describe('channel draft', () => {
   it('aborts pending validation on unmount and ignores its late success', async () => {
     const pending = deferred<SubscriptionPreview>();
     const { result, client, unmount, onSaved } = mount(channel, {
-      supportsNativeChannelValidation: true,
       previewSubscriptionChannel: vi.fn().mockReturnValue(pending.promise),
     });
     let saving!: Promise<void>;

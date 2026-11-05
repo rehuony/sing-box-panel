@@ -11,6 +11,18 @@ import (
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/subscription"
 )
 
+func (handler *Handler) subscriptionNodeCatalog(w http.ResponseWriter, request *http.Request) {
+	if !handler.subscriptionReadRequest(w, request) {
+		return
+	}
+	catalog, err := handler.services.Subscriptions.SubscriptionNodeCatalog(request.Context())
+	if err != nil {
+		writeSubscriptionProblem(w, request, "subscription_node_catalog_failed", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, catalog)
+}
+
 func (handler *Handler) createSubscriptionNode(w http.ResponseWriter, request *http.Request) {
 	if !handler.subscriptionMutationRequest(w, request) {
 		return

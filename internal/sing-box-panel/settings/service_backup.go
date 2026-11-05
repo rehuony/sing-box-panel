@@ -95,6 +95,6 @@ func (app *Service) RestorePanelBackup(ctx context.Context, input PanelRestoreRe
 	if err := app.commitSettingsFile(ctx, before, after); err != nil {
 		return result, err
 	}
-	app.publishSettings(next)
+	app.publishSettings()
 	return PanelRestoreResult{Settings: app.panelSettingsView(next, Revision(after)), ReauthenticationRequired: previous.Auth.Email != next.Auth.Email || previous.Auth.PasswordHash != next.Auth.PasswordHash}, nil
 }

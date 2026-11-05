@@ -161,7 +161,7 @@ func TestPrivateSourceDefaultsAndCustomValue(t *testing.T) {
 	if err := Replace(path, data); err != nil {
 		t.Fatal(err)
 	}
-	loaded, created, err := LoadOrInitialize(path)
+	loaded, created, err := LoadOrInitialize(t.Context(), path)
 	if err != nil || created || len(loaded.Subscription.PrivateSourceCIDRs) != 1 || loaded.Subscription.PrivateSourceCIDRs[0] != "10.0.0.0/8" {
 		t.Fatalf("private source allowlist not preserved: created=%t, error=%v", created, err)
 	}
@@ -172,7 +172,7 @@ func TestPendingUpdatePreventsInitialization(t *testing.T) {
 	if err := os.WriteFile(path+".pending", []byte("recovery needed"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	if _, created, err := LoadOrInitialize(path); created || !errors.Is(err, ErrPending) {
+	if _, created, err := LoadOrInitialize(t.Context(), path); created || !errors.Is(err, ErrPending) {
 		t.Fatalf("initialized over recovery: created=%t error=%v", created, err)
 	}
 	if _, err := Initialize(path, true); !errors.Is(err, ErrPending) {

@@ -100,8 +100,8 @@ func TestRuntimeRecoveryStableWindowStartsNewEpisode(t *testing.T) {
 
 			startedAt := first.Intent.Recovery.RequestedAt.Add(2 * time.Second)
 			failed := runtimeObservationFixture(bundle, 2202, "process-recovered", startedAt, startedAt.Add(time.Second))
-			if _, err := database.RecordRuntimeObservation(ctx, failed); err != nil {
-				t.Fatalf("RecordRuntimeObservation(recovered process) error = %v", err)
+			if _, err := database.RecordRuntimeObservationAndTransitions(ctx, nil, failed, nil); err != nil {
+				t.Fatalf("RecordRuntimeObservationAndTransitions(recovered process) error = %v", err)
 			}
 			decision := requestRecovery(t, ctx, database, RuntimeRecoveryInput{
 				NewEpisodeID: "episode-reset", ExpectedBundleID: bundle.ID,
@@ -186,7 +186,7 @@ func TestRuntimeRecoveryObservationFencePreservesNewIncarnation(t *testing.T) {
 	now := time.Date(2026, time.August, 29, 14, 0, 0, 0, time.UTC)
 	bundle, oldObservation := seedAppliedRuntime(t, ctx, database, now)
 	newObservation := runtimeObservationFixture(bundle, 3303, "process-new", now.Add(time.Second), now.Add(2*time.Second))
-	if _, err := database.RecordRuntimeObservation(ctx, newObservation); err != nil {
+	if _, err := database.RecordRuntimeObservationAndTransitions(ctx, &oldObservation, newObservation, nil); err != nil {
 		t.Fatal(err)
 	}
 
@@ -284,10 +284,10 @@ func seedAppliedRuntime(
 	if _, err := database.UpsertCoreArtifact(ctx, core); err != nil {
 		t.Fatal(err)
 	}
-	startup, err := database.CreateStartupArtifact(ctx, StartupArtifact{
+	startup, err := database.CreateCompiledStartupArtifact(ctx, StartupArtifact{
 		ID: "startup-runtime-recovery", CanonicalRevisionID: revision.ID, ExactCoreVersion: core.ExactVersion,
 		CoreArtifactID: core.ID, ConfigBytes: []byte(`{}`), CreatedAt: now.Add(time.Second),
-	})
+	}, CompiledStartupEvidence{ExpectedCanonicalHeadID: revision.ID})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -427,7 +427,7 @@ func completeRecoveryIntent(t *testing.T, ctx context.Context, database *Store, 
 	observation := runtimeObservationFixture(bundle, 2202, "recovery-process", at, at)
 	completeRunningIntent(t, ctx, database, *intent, nil, observation)
 	// Simulate clean process disposal; callers can install the next observed incarnation.
-	if _, err := database.ClearRuntimeObservation(ctx, observation.PID, observation.ProcessStartToken); err != nil {
+	if _, err := database.ClearRuntimeObservationAndTransitions(ctx, observation.PID, observation.ProcessStartToken, nil); err != nil {
 		t.Fatal(err)
 	}
 }

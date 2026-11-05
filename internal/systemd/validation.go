@@ -268,17 +268,6 @@ func requireRegularExecutable(path string) error {
 	return nil
 }
 
-func requireRegularFile(path, label string) error {
-	info, err := os.Lstat(path)
-	if err != nil {
-		return fmt.Errorf("inspect %s %q: %w", label, path, err)
-	}
-	if !info.Mode().IsRegular() {
-		return fmt.Errorf("%w: %s %q must be a regular file", ErrInvalid, label, path)
-	}
-	return nil
-}
-
 func requireDirectory(path string) error {
 	info, err := os.Lstat(path)
 	if err != nil {

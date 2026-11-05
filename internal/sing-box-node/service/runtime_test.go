@@ -242,8 +242,8 @@ func TestRuntimeCloseCannotClearNewerObservation(t *testing.T) {
 	newObservation.StartedAt = oldObservation.StartedAt.Add(time.Minute)
 	newObservation.ObservedAt = newObservation.StartedAt.Add(time.Second)
 	manager := &fakeRuntimeManager{closeHook: func() {
-		if _, err := database.RecordRuntimeObservation(ctx, newObservation); err != nil {
-			t.Errorf("RecordRuntimeObservation(new incarnation) error = %v", err)
+		if _, err := database.RecordRuntimeObservationAndTransitions(ctx, &oldObservation, newObservation, nil); err != nil {
+			t.Errorf("RecordRuntimeObservationAndTransitions(new incarnation) error = %v", err)
 		}
 	}}
 	services := &runtimeServices{database: database, commands: commands, manager: manager, identity: &fakeRuntimeIdentityResolver{}}
@@ -508,7 +508,7 @@ func TestStopForIntentCompletionFenceFailureLeavesEvidenceIntact(t *testing.T) {
 	newer.ProcessStartToken = "newer-stop-completion-fence"
 	newer.StartedAt = observation.ObservedAt.Add(2 * time.Second)
 	newer.ObservedAt = newer.StartedAt.Add(time.Second)
-	if _, err := database.RecordRuntimeObservation(ctx, newer); err != nil {
+	if _, err := database.RecordRuntimeObservationAndTransitions(ctx, &observation, newer, nil); err != nil {
 		t.Fatal(err)
 	}
 	err = database.CompleteRuntimeIntent(ctx, intent, true, result.Runtime, time.Now().UTC())
@@ -777,10 +777,10 @@ func seedRuntimeObservation(
 	if _, err := database.UpsertCoreArtifact(ctx, core); err != nil {
 		t.Fatal(err)
 	}
-	startup, err := database.CreateStartupArtifact(ctx, store.StartupArtifact{
+	startup, err := database.CreateCompiledStartupArtifact(ctx, store.StartupArtifact{
 		ID: "startup-runtime-test", CanonicalRevisionID: revision.ID, ExactCoreVersion: core.ExactVersion,
 		CoreArtifactID: core.ID, ConfigBytes: []byte(`{}`), CreatedAt: now,
-	})
+	}, store.CompiledStartupEvidence{ExpectedCanonicalHeadID: revision.ID})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -799,12 +799,12 @@ func seedRuntimeObservation(
 	if err != nil {
 		t.Fatal(err)
 	}
-	observation, err := database.RecordRuntimeObservation(ctx, store.RuntimeObservation{
+	observation, err := database.RecordRuntimeObservationAndTransitions(ctx, nil, store.RuntimeObservation{
 		PID: 4242, ProcessStartToken: "process-start-runtime-test", CoreArtifactID: core.ID,
 		ActivationBundleID: bundle.ID, ExactCoreVersion: core.ExactVersion,
 		ArchiveSHA256: core.ArchiveSHA256, BinarySHA256: core.BinarySHA256,
 		StartedAt: now.Add(6 * time.Second), ObservedAt: now.Add(7 * time.Second),
-	})
+	}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -841,11 +841,11 @@ func TestStartupCheckUsesRawRevisionWithExactBinaryWithoutSchema(t *testing.T) {
 	if _, err := database.UpsertCoreArtifact(ctx, core); err != nil {
 		t.Fatal(err)
 	}
-	startup, err := database.CreateStartupArtifact(ctx, store.StartupArtifact{
+	startup, err := database.CreateCompiledStartupArtifact(ctx, store.StartupArtifact{
 		ID: "startup-raw-check", CanonicalRevisionID: revision.ID,
 		ExactCoreVersion: core.ExactVersion, CoreArtifactID: core.ID,
 		ConfigBytes: raw, CreatedAt: now,
-	})
+	}, store.CompiledStartupEvidence{ExpectedCanonicalHeadID: revision.ID})
 	if err != nil {
 		t.Fatal(err)
 	}

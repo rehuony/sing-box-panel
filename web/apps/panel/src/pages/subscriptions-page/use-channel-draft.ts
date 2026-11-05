@@ -77,7 +77,7 @@ export function useChannelDraft(
   async function persist(p: ChannelPolicy = policy) {
     if (!name.trim() || p.groups.some((value) => !value.name.trim())) throw new Error(t('channels.nameRequired'));
     p = { ...p, groups: p.groups.map((value) => ({ ...value, name: value.name.trim() })) };
-    if (client.supportsNativeChannelValidation) await render(p);
+    await render(p);
     if (lifeRef.current?.signal.aborted) return;
     const result = await client.updateSubscriptionChannel(
       channel.id,

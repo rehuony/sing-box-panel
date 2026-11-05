@@ -25,7 +25,7 @@ import (
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/testutil"
 )
 
-func TestManagementOperationRegistryMatchesOpenAPIAndDispatcher(t *testing.T) {
+func TestRoutesMatchOpenAPIAndDispatcher(t *testing.T) {
 	contract := loadOpenAPIContract(t)
 	openAPIOperations := make(map[string]string)
 	for path, item := range contract.Paths.Map() {
@@ -33,8 +33,8 @@ func TestManagementOperationRegistryMatchesOpenAPIAndDispatcher(t *testing.T) {
 			openAPIOperations[strings.ToUpper(method)+" "+path] = operation.OperationID
 		}
 	}
-	registered := make(map[string]string, len(managementOperations))
-	for _, operation := range managementOperations {
+	registered := make(map[string]string, len(routes))
+	for _, operation := range routes {
 		key := operation.Method + " " + operation.Path
 		if previous, duplicate := registered[key]; duplicate {
 			t.Fatalf("duplicate registered operation %s (%s and %s)", key, previous, operation.OperationID)
@@ -59,9 +59,13 @@ func TestManagementOperationRegistryMatchesOpenAPIAndDispatcher(t *testing.T) {
 		Settings: settings.Settings{Auth: settings.Auth{Email: testutil.AdminEmail, PasswordHash: testutil.PasswordHash}},
 		Build:    buildinfo.Info{Version: "test"},
 	})
-	for _, operation := range managementOperations {
+	for _, operation := range routes {
 		requestPath := instantiateOperationPath(operation.Path)
-		if !strings.HasPrefix(requestPath, "/sub/") {
+		if operation.access != accessDownload {
+			matched, found, _ := matchRoute(httptest.NewRequest(operation.Method, "/", nil), requestPath)
+			if !found || matched.OperationID != operation.OperationID {
+				t.Errorf("%s %s dispatches to %q, want %q", operation.Method, requestPath, matched.OperationID, operation.OperationID)
+			}
 			requestPath = "/api/v1" + requestPath
 		}
 		request := httptest.NewRequest(operation.Method, requestPath, nil)

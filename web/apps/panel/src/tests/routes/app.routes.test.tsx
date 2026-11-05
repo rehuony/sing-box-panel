@@ -5,7 +5,7 @@ import { beforeAll, describe, expect, it, vi } from 'vitest';
 import { TooltipProvider } from '@shared/components/ui/tooltip';
 import { act, render, screen, waitFor, within } from '@testing-library/react';
 
-import type { ApiClient } from '@/api/api-client';
+import type { ApiClient, Session } from '@/api/api-client';
 
 import { ThemeProvider } from '@/theme';
 import { AppRoutes } from '@/routes/app.routes';
@@ -17,7 +17,6 @@ import * as pageLoaderModule from '@/routes/page-loaders';
 import { ApiClientProvider } from '@/api/api-client-context';
 import { TestRouter as MemoryRouter } from '@/tests/test-router';
 import { AuthSessionProvider } from '@/stores/auth-session-provider';
-import { createDemoApiClient } from '@/api/demo/create-demo-api-client';
 import { createMockApiClient, testNode, testSession } from '@/tests/api/mock-api-client';
 
 function LocationProbe() {
@@ -353,12 +352,31 @@ describe('application routes', () => {
     { change: 'both', email: 'updated@example.com', password: 'updated-password-123' },
   ])('signs out only after saving $change and accepts the updated account', async ({ email: nextEmail, password: nextPassword }) => {
     const user = userEvent.setup();
-    const client = createDemoApiClient();
-    const settings = await client.getPanelSettings();
-    await client.savePanelSettings({ revision: settings.revision, preferences: { ...settings.preferences, language: 'en' } });
+    let session: Session | null = testSession;
+    const invalidated = new Set<() => void>();
+    const base = createMockApiClient();
+    const client = createMockApiClient({
+      getSession: vi.fn(async () => session),
+      subscribeSessionInvalidated: vi.fn((listener: () => void) => {
+        invalidated.add(listener);
+        return () => invalidated.delete(listener);
+      }),
+      // A credential change ends every session, as the HTTP client reports it.
+      savePanelSettings: vi.fn<ApiClient['savePanelSettings']>(async (input) => {
+        const saved = await base.savePanelSettings(input);
+        session = null;
+        invalidated.forEach(listener => listener());
+        const adminEmail = input.credentials?.email ?? saved.settings.admin_email;
+        return { reauthentication_required: true, settings: { ...saved.settings, admin_email: adminEmail } };
+      }),
+      login: vi.fn<ApiClient['login']>(async (input) => {
+        session = { ...testSession, email: input.email };
+        return session;
+      }),
+    });
     renderRoutes('/settings', client);
     const email = nextEmail ?? 'admin@example.com';
-    const password = nextPassword ?? 'demo-password-123';
+    const password = nextPassword ?? 'current-password-123';
     const emailInput = await screen.findByLabelText('Email');
     if (nextEmail) {
       await user.clear(emailInput);
@@ -367,6 +385,9 @@ describe('application routes', () => {
     if (nextPassword) await user.type(screen.getByLabelText('Password', { selector: 'input' }), password);
     expect(await client.getSession()).not.toBeNull();
     await user.click(screen.getByRole('button', { name: 'Save settings' }));
+    expect(client.savePanelSettings).toHaveBeenCalledWith(expect.objectContaining({
+      credentials: { ...(nextEmail && { email }), ...(nextPassword && { new_password: password }) },
+    }));
     await screen.findByLabelText('Password');
     await user.type(screen.getByLabelText('Email'), email);
     await user.type(screen.getByLabelText('Password'), password);

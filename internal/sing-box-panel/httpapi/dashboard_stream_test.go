@@ -30,7 +30,7 @@ func TestDashboardStreamClosesTransportCleanly(t *testing.T) {
 				cancelStream <- cancel
 				streamDashboardSnapshots(w, request.WithContext(ctx), func(context.Context) (telemetry.DashboardStreamSnapshot, error) {
 					return telemetry.DashboardStreamSnapshot{}, nil
-				}, dashboardStreamInterval, dashboardStreamLifetime)
+				}, testSnapshotInterval, dashboardStreamLifetime)
 			}))
 			server.EnableHTTP2 = http2
 			server.StartTLS()
@@ -132,9 +132,9 @@ func TestDashboardStreamReportsAuthenticationStorageFailure(t *testing.T) {
 	}
 }
 
-func TestDashboardStreamUsesThirtySecondUpdatesAndExpiresForReauthentication(t *testing.T) {
-	if dashboardStreamInterval != 30*time.Second || dashboardStreamLifetime != time.Minute {
-		t.Fatalf("dashboard schedule interval=%s lifetime=%s", dashboardStreamInterval, dashboardStreamLifetime)
+func TestDashboardStreamExpiresForReauthentication(t *testing.T) {
+	if dashboardStreamLifetime != time.Minute {
+		t.Fatalf("dashboard stream lifetime=%s", dashboardStreamLifetime)
 	}
 	synctest.Test(t, func(t *testing.T) {
 		start := time.Now()
@@ -149,7 +149,7 @@ func TestDashboardStreamUsesThirtySecondUpdatesAndExpiresForReauthentication(t *
 		}
 		response := httptest.NewRecorder()
 		request := httptest.NewRequest(http.MethodGet, "/api/v1/dashboard/stream", nil)
-		streamDashboardSnapshots(response, request, load, dashboardStreamInterval, dashboardStreamLifetime)
+		streamDashboardSnapshots(response, request, load, testSnapshotInterval, dashboardStreamLifetime)
 		if len(collected) != 2 || collected[0] != 0 || collected[1] != 30*time.Second {
 			t.Fatalf("collection times=%v; want immediate and 30 seconds", collected)
 		}
@@ -187,7 +187,7 @@ func TestDashboardStreamLifetimeCancelsSnapshotCollection(t *testing.T) {
 				}
 				response := httptest.NewRecorder()
 				request := httptest.NewRequest(http.MethodGet, "/api/v1/dashboard/stream", nil)
-				streamDashboardSnapshots(response, request, load, dashboardStreamInterval, dashboardStreamLifetime)
+				streamDashboardSnapshots(response, request, load, testSnapshotInterval, dashboardStreamLifetime)
 				wantDuration := time.Minute
 				if blockedCall == 2 {
 					wantDuration = 59 * time.Second

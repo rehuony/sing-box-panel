@@ -1,65 +1,18 @@
 import type { LogEntry } from '../generated';
 
 export type {
-  CoverageStatus,
   DashboardStreamSnapshot,
   LogEntry,
-  LogPage,
   MetricsHistory,
-  MetricsHistoryBucket,
   MetricsSnapshot,
   NodeSettings,
-  NodeTrafficSettings,
   NodeTrafficUsage,
   TrafficPeriod,
-  TrafficPeriodCursor,
-  TrafficPeriodPage,
   TrafficSample,
   TrafficStatus,
 } from '../generated';
 
-export type LogSource = LogEntry['source'];
 export type LogLevel = LogEntry['level'];
-
-export interface LogFilter {
-  code?: string;
-  limit?: number;
-  since?: string;
-  until?: string;
-  afterID?: string;
-  level?: LogLevel;
-  afterTime?: string;
-  source?: LogSource;
-}
-
-export interface LogStreamFilter extends Omit<LogFilter, 'until'> {
-  lastEventID?: string;
-}
-
-export interface LogStreamEvent {
-  id: string;
-  entry: LogEntry;
-}
-
-export interface LogClearFilter {
-  before?: string;
-  source?: LogSource;
-}
-
-export interface TrafficPeriodFilter {
-  to?: string;
-  from?: string;
-  limit?: number;
-  beforeID?: string;
-  beforeTime?: string;
-}
-
-export interface MetricsHistoryFilter {
-  to: string;
-  from: string;
-  bucketSeconds: number;
-  activationBundleID?: string;
-}
 
 export type { CoreLogChunk, CoreLogFile, PanelLog, PanelLogPage } from '../generated';
 export interface PanelLogFilter {

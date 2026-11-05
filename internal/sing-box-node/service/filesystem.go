@@ -31,10 +31,8 @@ type (
 
 // Path selection and core log failures the management API maps to problems.
 var (
-	ErrInvalidPath        = host.ErrInvalidPath
-	ErrBrokenLink         = host.ErrBrokenLink
-	ErrPathType           = host.ErrPathType
-	ErrDirectoryTooLarge  = host.ErrDirectoryTooLarge
-	ErrCoreLogInvalidFile = corelogs.ErrInvalidFile
-	ErrCoreLogCurrentFile = corelogs.ErrCurrentFile
+	ErrInvalidPath       = host.ErrInvalidPath
+	ErrBrokenLink        = host.ErrBrokenLink
+	ErrPathType          = host.ErrPathType
+	ErrDirectoryTooLarge = host.ErrDirectoryTooLarge
 )

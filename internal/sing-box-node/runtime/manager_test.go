@@ -325,7 +325,6 @@ func TestManagerRestartRequiresAndUsesFreshAppliedBundle(t *testing.T) {
 	base := t.TempDir()
 	first := newRuntimeFixtureIn(t, base, "first", "1.12.8", []byte(`{"log":{"level":"warn"}}`))
 	second := newRuntimeFixtureIn(t, base, "second", "1.13.19", []byte(`{"log":{"level":"error"}}`))
-	second.runtimeDir = first.runtimeDir
 	firstProcess := newFakeProcess(4108, true)
 	secondProcess := newFakeProcess(4109, true)
 	executor := newFakeExecutor(firstProcess, secondProcess)
@@ -409,33 +408,6 @@ func TestStopCancelsInProgressStartupAndJoinsChild(t *testing.T) {
 		t.Fatalf("Wait calls = %d, want exactly one", process.WaitCalls())
 	}
 	closeManager(t, manager)
-}
-
-func TestManagerCheckHealthUsesDeclaredMonitoringLevel(t *testing.T) {
-	t.Parallel()
-
-	for _, level := range []MonitoringLevel{MonitoringLimited, MonitoringProcessOnly} {
-		t.Run(string(level), func(t *testing.T) {
-			t.Parallel()
-			fixture := newRuntimeFixture(t, "1.13.19", []byte(`{"route":{}}`))
-			process := newFakeProcess(4200+int(level[0]), true)
-			executor := newFakeExecutor(process)
-			executor.versions[fixture.bundle.BinaryPath] = fixture.bundle.ExactVersion.String()
-			probe := &fakeProbe{level: level, observation: HealthObservation{Healthy: true, Code: "evidence_ready"}}
-			manager := newTestManager(t, fixture.runtimeDir, executor, newFakeClock(), probe)
-			if err := manager.Start(testContext(t), fixture.bundle); err != nil {
-				t.Fatalf("Start: %v", err)
-			}
-			health, err := manager.CheckHealth(testContext(t))
-			if err != nil {
-				t.Fatalf("CheckHealth: %v", err)
-			}
-			if health.Level != level || !health.Healthy || health.Code != "evidence_ready" {
-				t.Fatalf("health = %+v, want declared %s evidence", health, level)
-			}
-			closeManager(t, manager)
-		})
-	}
 }
 
 func TestDefaultProcessOnlyProbeUsesInjectedClock(t *testing.T) {

@@ -10,7 +10,7 @@ import '@/i18n';
 import { loadReviewedSchema } from '@/schemas';
 import { ApiClientProvider } from '@/api/api-client-context';
 import { createMockApiClient } from '@/tests/api/mock-api-client';
-import { createDemoFilesystemApi } from '@/api/demo/demo-filesystem';
+import { createFakeFilesystemApi } from '@/tests/api/fake-filesystem';
 import { SchemaSectionForm } from '@/pages/configuration-page/schema-section-form';
 import { SubscriptionNodeForm } from '@/pages/subscriptions-page/subscription-node-form';
 import { schemaProperties, selfContainedSchema } from '@/pages/configuration-page/schema-ui';
@@ -91,7 +91,7 @@ describe('configuration path presentation', () => {
         </>
       );
     }
-    const api = createMockApiClient(createDemoFilesystemApi());
+    const api = createMockApiClient(createFakeFilesystemApi());
     render(<ApiClientProvider client={api}><Harness /></ApiClientProvider>);
     const user = userEvent.setup();
     await user.click(screen.getByRole('button', { name: /Browse server path:/ }));
@@ -112,7 +112,7 @@ describe('configuration path presentation', () => {
       private_key_path: '/etc/sing-box/certificate.pem', future: { keep: true },
     };
     render(
-      <ApiClientProvider client={createMockApiClient(createDemoFilesystemApi())}>
+      <ApiClientProvider client={createMockApiClient(createFakeFilesystemApi())}>
         <SubscriptionNodeForm disabled={false} schema={root.$defs!.Outbound as RJSFSchema}
           candidates={[]} data={data} onChange={changed}
           resolution={{ schema: root, createValidator: () => customizeValidator() }} />

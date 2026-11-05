@@ -228,32 +228,6 @@ func assertPragmaInt(
 	}
 }
 
-func assertHeadAndCounts(
-	t *testing.T,
-	ctx context.Context,
-	store *Store,
-	wantHead string,
-	wantRevisions int,
-) {
-	t.Helper()
-	head, err := store.Head(ctx)
-	if err != nil {
-		t.Fatalf("Head() error = %v", err)
-	}
-	if head == nil || head.ID != wantHead {
-		t.Fatalf("Head() = %+v, want %q", head, wantHead)
-	}
-
-	var revisions int
-	if err := store.db.QueryRowContext(ctx, `SELECT count(*) FROM canonical_revisions`).Scan(&revisions); err != nil {
-		t.Fatalf("count revisions: %v", err)
-	}
-	if revisions != wantRevisions {
-		t.Fatalf("revision count = %d, want %d", revisions, wantRevisions)
-	}
-
-}
-
 func stringsOf(value byte, count int) string {
 	buffer := make([]byte, count)
 	for i := range buffer {

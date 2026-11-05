@@ -335,19 +335,3 @@ func stableRuntimeID(prefix string, parts ...string) string {
 	}
 	return prefix + "_" + hex.EncodeToString(hash.Sum(nil))
 }
-
-func IsActivationBundleNotReady(err error) bool {
-	return errors.Is(err, store.ErrActivationBundleNotReady)
-}
-
-func IsMonitoringTierUnavailable(err error) bool {
-	return errors.Is(err, ErrMonitoringTierUnavailable)
-}
-
-func IsNoAppliedBundle(err error) bool {
-	return errors.Is(err, store.ErrNoAppliedBundle)
-}
-
-func IsNoRollbackBundle(err error) bool {
-	return errors.Is(err, store.ErrNoRollbackBundle)
-}

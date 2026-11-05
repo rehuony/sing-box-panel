@@ -1,23 +1,13 @@
 export const shell = {
   error: {
-    badge: 'Context unavailable',
-    contextUnavailable: 'Panel context is unavailable. The service may still be starting.',
-    description: 'The panel service did not answer.',
     logout: 'Sign out failed; your current session is still active',
     retry: 'Try again',
   },
   loading: {
     page: 'Loading workspace…',
-    title: 'Reading panel context',
-  },
-  panelStatus: {
-    loading: 'Checking panel status',
-    online: 'Panel online',
-    unavailable: 'Panel status unavailable',
   },
   openNavigation: 'Open navigation',
   skip: 'Skip to main content',
-  version: 'v{{version}}',
 } as const;
 
 export const nodes = {
@@ -28,10 +18,6 @@ export const nodes = {
     online: 'Online',
     pending: 'Not enrolled',
   },
-} as const;
-
-export const app = {
-  title: 'Sing-Box Panel',
 } as const;
 
 export const nav = {

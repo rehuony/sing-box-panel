@@ -35,7 +35,7 @@ func TestRuntimeConfigCleanupPreservesSQLiteEvidenceAcrossReopen(t *testing.T) {
 	}
 	startup.ID, startup.CoreArtifactID, startup.State = "disposable-config-startup", core.ID, store.StartupArtifactPending
 	startup.CheckedAt = nil
-	startup, err = database.CreateStartupArtifact(ctx, startup)
+	startup, err = database.CreateCompiledStartupArtifact(ctx, startup, store.CompiledStartupEvidence{ExpectedCanonicalHeadID: startup.CanonicalRevisionID})
 	if err != nil {
 		t.Fatal(err)
 	}

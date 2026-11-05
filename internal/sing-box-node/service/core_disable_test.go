@@ -20,7 +20,7 @@ func TestDisableCoreClearsSelectionOnlyAfterSuccessfulStop(t *testing.T) {
 			ctx := context.Background()
 			db, commands, previous := seedRuntimeObservation(t, ctx)
 			if scenario == "stopped" {
-				if _, err := db.ClearRuntimeObservation(ctx, previous.PID, previous.ProcessStartToken); err != nil {
+				if _, err := db.ClearRuntimeObservationAndTransitions(ctx, previous.PID, previous.ProcessStartToken, nil); err != nil {
 					t.Fatal(err)
 				}
 			}

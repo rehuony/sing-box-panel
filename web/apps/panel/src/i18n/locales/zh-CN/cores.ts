@@ -2,8 +2,6 @@ export const cores = {
   library: { officialLink: '官网链接', version: '版本', source: '来源', status: '状态', actions: '操作', enable: '启用', disable: '禁用', enabled: '已启用', disabled: '未启用', unknown: '状态未知', installed: '已安装', notInstalled: '未安装', download: '下载', operationFailed: '操作状态：{{status}}。可在面板日志查看操作失败，请查看面板日志。', completed: '操作已完成', running: '处理中', succeeded: '已完成', failed: '失败', canceled: '已取消' },
   action: { remove: '移除', configure: '前往配置' },
   artifact: { changed: '版本已移除。' },
-  catalog: { short: '目录' },
-  check: '运行启动检查',
   confirm: {
     action: '确认',
     cancel: '取消',
@@ -13,15 +11,10 @@ export const cores = {
   empty: { catalog: '没有匹配的目录制品。', installed: '没有匹配的已安装制品。' },
   error: {
     configurationNotSaved: '请先在配置管理中保存 sing-box 配置，再启用或校验核心。',
-    action: '核心操作失败',
     catalog: '核心目录不可用',
-    detail: '制品详情不可用',
     installed: '已安装制品不可用',
-    startup: '启动制品不可用',
   },
   filter: {
-    allArchitectures: '全部架构',
-    architecture: '架构',
     search: '搜索版本',
   },
   import: {
@@ -39,32 +32,14 @@ export const cores = {
     title: '导入压缩包',
     version: '版本号',
   },
-  install: '安装',
-  installed: { short: '已安装' },
-  loading: '正在载入制品…',
   loadingInstalled: '正在读取已安装版本…',
   loadingCatalog: '正在加载可安装版本…',
-  loadOlder: '载入更早记录',
-  refresh: '刷新目录',
   refreshInstalled: '刷新已安装列表',
   refreshCatalog: '检查 GitHub 更新',
-  schema: {
-    error: 'Schema 查询失败',
-    jsonOnly: '仅 JSON',
-    loading: '正在检查 Schema…',
-    structured: '可使用结构化 Schema',
-  },
   source: {
     official: '官方下载',
     user_verified: '手动导入',
   },
-  startup: {
-    state: { failed: '失败', pending: '待检查', ready: '就绪' },
-    title: '启动制品',
-  },
-  subtitle: '管理内核版本及对应的配置编辑能力。',
   tabs: { catalog: '可安装', installed: '已安装' },
   title: '版本管理',
-  versions: '版本',
-  value: { unknownSize: '未知大小' },
 } as const;

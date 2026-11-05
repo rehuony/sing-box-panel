@@ -58,7 +58,7 @@ func TestEachNodePublishesItsAppliedInboundsAtItsOwnHost(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	preview, err := app.RenderSubscriptionPreview(ctx, "", channel.ID)
+	preview, err := app.RenderSubscriptionDraft(ctx, "", channel.ID, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -87,7 +87,7 @@ func TestEachNodePublishesItsAppliedInboundsAtItsOwnHost(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	preview, err = app.RenderSubscriptionPreview(ctx, "", channel.ID)
+	preview, err = app.RenderSubscriptionDraft(ctx, "", channel.ID, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

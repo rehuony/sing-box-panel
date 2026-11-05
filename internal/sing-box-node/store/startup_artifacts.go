@@ -78,24 +78,6 @@ const startupArtifactSummaryColumns = `
 	    id, canonical_revision_id, exact_core_version, core_artifact_id,
 	    config_sha256, state, checked_at, created_at`
 
-// CreateStartupArtifact inserts an immutable pending candidate. Only the
-// durable checker may transition it to ready or failed.
-func (s *Store) CreateStartupArtifact(
-	ctx context.Context,
-	artifact StartupArtifact,
-) (StartupArtifact, error) {
-	prepared, err := prepareNewStartupArtifact(artifact)
-	if err != nil {
-		return StartupArtifact{}, err
-	}
-	var stored StartupArtifact
-	err = s.WithTx(ctx, func(tx *sql.Tx) error {
-		stored, err = insertStartupArtifactTx(ctx, tx, prepared)
-		return err
-	})
-	return stored, err
-}
-
 func insertStartupArtifactTx(
 	ctx context.Context,
 	tx *sql.Tx,

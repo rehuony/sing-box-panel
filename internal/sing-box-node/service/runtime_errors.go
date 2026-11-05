@@ -12,10 +12,6 @@ import (
 	coreruntime "github.com/rehuony/sing-box-panel/internal/sing-box-node/runtime"
 )
 
-func IsNoRunningCore(err error) bool {
-	return errors.Is(err, ErrNoRunningCore)
-}
-
 // ClassifyOperationFailure names runtime and core failures that are safe to
 // record in operation outcomes.
 func ClassifyOperationFailure(err error) (string, string, bool) {

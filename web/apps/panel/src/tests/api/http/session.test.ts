@@ -9,29 +9,6 @@ beforeEach(() => {
 });
 
 describe('createHttpApiClient session domain', () => {
-  it('reads the complete control-plane system status', async () => {
-    const status = {
-      panel_version: '0.1.0',
-      canonical_revision: 42,
-      applied_bundle_id: 'bundle_18',
-      running: true,
-      running_version: '1.13.19',
-      running_artifact: 'core_1',
-      configuration_state: 'sing-box-1.13.19@1',
-    };
-    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(new Response(JSON.stringify(status), {
-      status: 200,
-      headers: { 'Content-Type': 'application/json' },
-    }));
-    const client = createHttpApiClient({ baseUrl: '/panel/api/v1', fetcher }).forNode('node_a');
-
-    await expect(client.getSystemStatus()).resolves.toEqual(status);
-    expect(fetcher).toHaveBeenCalledWith(
-      '/panel/api/v1/system/status',
-      expect.objectContaining({ credentials: 'same-origin', method: 'GET' }),
-    );
-  });
-
   it('uses same-origin session endpoints and treats unauthorized as anonymous', async () => {
     const fetcher = vi.fn<typeof fetch>().mockResolvedValue(
       new Response(
@@ -69,7 +46,7 @@ describe('createHttpApiClient session domain', () => {
     );
     const client = createHttpApiClient({ fetcher }).forNode('node_a');
 
-    await expect(client.getSystemStatus()).rejects.toMatchObject({
+    await expect(client.getTrafficStatus()).rejects.toMatchObject({
       code: 'runtime_unavailable',
       message: 'The runtime executor lease is not held.',
       status: 503,
@@ -179,7 +156,7 @@ describe('createHttpApiClient session domain', () => {
     client.subscribeSessionInvalidated(invalidated);
 
     await client.login({ email: 'admin@example.com', password: 'test-password-123' });
-    await expect(client.getSystemStatus()).rejects.toMatchObject({ status: 401 });
+    await expect(client.getTrafficStatus()).rejects.toMatchObject({ status: 401 });
     await client.stopRuntime();
 
     expect(invalidated).toHaveBeenCalledOnce();

@@ -67,8 +67,9 @@ func (application *Node) ClearCoreLog(ctx context.Context, name string) (err err
 	return files.Clear(name)
 }
 
-// SetCoreLogs attaches the server-owned writer before requests are served.
-func (app *Node) SetCoreLogs(files *corelogs.Files) {
+// attachCoreLogs attaches the runtime's core log files before requests are
+// served.
+func (app *Node) attachCoreLogs(files *corelogs.Files) {
 	app.coreLogsMu.Lock()
 	defer app.coreLogsMu.Unlock()
 	app.coreLogs = files

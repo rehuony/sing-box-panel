@@ -9,6 +9,9 @@ import (
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/telemetry"
 )
 
+// testSnapshotInterval paces the controllable collector of transport tests.
+const testSnapshotInterval = 30 * time.Second
+
 // A controllable collector for transport tests; production subscriptions are
 // shared by Application and have separate concurrency tests.
 func streamDashboardSnapshots(w http.ResponseWriter, request *http.Request, load func(context.Context) (telemetry.DashboardStreamSnapshot, error), interval, lifetime time.Duration) {

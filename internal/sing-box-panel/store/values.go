@@ -16,13 +16,6 @@ type rowScanner interface {
 	Scan(...any) error
 }
 
-func nullableJSON(value json.RawMessage) any {
-	if len(value) == 0 {
-		return nil
-	}
-	return string(value)
-}
-
 func nullableTime(value *time.Time) any {
 	if value == nil {
 		return nil
@@ -71,14 +64,6 @@ func compactJSON(value json.RawMessage, defaultValue string) (json.RawMessage, e
 
 func validProcessStartToken(value string) bool {
 	return value != "" && len(value) <= 128 && strings.TrimSpace(value) == value && !strings.ContainsAny(value, "\x00\r\n")
-}
-
-func canonicalJSONObject(value json.RawMessage, fallback string) (json.RawMessage, error) {
-	object, err := jsonstrict.CanonicalObject(value, fallback, 4<<20)
-	if err != nil {
-		return nil, errors.New("value must be one strict JSON object")
-	}
-	return object, nil
 }
 
 func canonicalJSONArrayWithLimit(value json.RawMessage, fallback string, maximum int64) (json.RawMessage, error) {

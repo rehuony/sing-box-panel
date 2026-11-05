@@ -15,6 +15,14 @@ import (
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/store"
 )
 
+const (
+	maximumCoreInstallRequestBytes = 4 << 10
+	maximumCoreUploadBytes         = 128 << 20
+	maximumCoreEmptyRequestBytes   = 1 << 10
+	maximumCoreQueryBytes          = 8 << 10
+	maximumRuntimeRequestBytes     = 4 << 10
+)
+
 func (handler *Handler) listCatalogAssets(w http.ResponseWriter, request *http.Request) {
 	if !handler.requireCommands(w, request) {
 		return

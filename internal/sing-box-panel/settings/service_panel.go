@@ -202,7 +202,7 @@ func (app *Service) SavePanelSettings(ctx context.Context, input PanelSettingsWr
 	if err := app.commitSettingsFile(ctx, before, after); err != nil {
 		return PanelSettingsSaveResult{}, err
 	}
-	app.publishSettings(configurationFile)
+	app.publishSettings()
 	revision = Revision(after)
 	return PanelSettingsSaveResult{Settings: app.panelSettingsView(configurationFile, revision), ReauthenticationRequired: credentialsChanged}, nil
 }

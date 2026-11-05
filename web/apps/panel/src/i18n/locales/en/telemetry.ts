@@ -1,5 +1,4 @@
 export const telemetry = {
-  demo: 'Demo',
   action: {
     failed: '{{action}} failed',
     executing: '{{action}} in progress…',
@@ -7,7 +6,6 @@ export const telemetry = {
     verified: '{{action}} verified',
     verifying: 'Verifying {{action}}…',
   },
-  ariaLabel: 'Runtime status and traffic',
   confirm: {
     cancel: 'Cancel',
     restart: {
@@ -29,19 +27,11 @@ export const telemetry = {
   },
   metric: {
     download: 'Download',
-    downloadShort: 'Down',
-    total: 'Current period',
-    totalShort: 'Total',
     upload: 'Upload',
-    uploadShort: 'Up',
     uptime: 'Uptime',
     version: 'Version',
-    versionShort: 'Ver.',
   },
   moreActions: 'Runtime actions',
-  refresh: 'Refresh runtime and traffic status',
-  refreshFailed: 'Status refresh failed; try again',
-  refreshStatus: 'Refresh status',
   runtime: {
     evidenceUnavailable: 'Runtime evidence unavailable',
     inspectionUnavailable: 'Runtime inspection unavailable',
@@ -55,14 +45,12 @@ export const telemetry = {
   startedAt: 'Started {{value}}',
   stream: {
     reconnecting: 'Live updates reconnecting…',
-    compact: 'Reconnecting…',
     detail: 'Live updates are interrupted. Keeping the last observation while reconnecting.',
   },
   unit: {
     day: 'd',
     hour: 'h',
     minute: 'm',
-    perSecond: '/s',
     second: 's',
   },
 } as const;

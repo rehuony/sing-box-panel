@@ -14,57 +14,6 @@ import (
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/telemetry"
 )
 
-func matchObservabilityRoute(path string) (resource string, identifier string, matched bool) {
-	switch path {
-	case "/api/v1/logs/panel":
-		return "panel-logs", "", true
-
-	case "/api/v1/logs":
-		return "logs", "", true
-	case "/api/v1/logs/stream":
-		return "log-stream", "", true
-	case "/api/v1/traffic/status":
-		return "traffic-status", "", true
-	}
-	for _, candidate := range []struct {
-		prefix   string
-		resource string
-	}{
-		{prefix: "/api/v1/logs/", resource: "logs"},
-	} {
-		if strings.HasPrefix(path, candidate.prefix) {
-			identifier := strings.TrimPrefix(path, candidate.prefix)
-			if identifier == "" || strings.Contains(identifier, "/") {
-				return "invalid", "", true
-			}
-			return candidate.resource, identifier, true
-		}
-	}
-	return "", "", false
-}
-
-func (handler *Handler) observabilityHandler(method, resource, identifier string) http.HandlerFunc {
-	switch {
-	case resource == "panel-logs" && method == http.MethodGet:
-		return handler.listPanelLogs
-
-	case resource == "log-stream" && method == http.MethodGet:
-		return handler.streamDurableLogs
-	case resource == "logs" && identifier == "" && method == http.MethodGet:
-		return handler.listDurableLogs
-	case resource == "logs" && identifier == "" && method == http.MethodDelete:
-		return handler.clearDurableLogs
-	case resource == "logs" && identifier != "" && method == http.MethodGet:
-		return func(w http.ResponseWriter, request *http.Request) { handler.getDurableLog(w, request, identifier) }
-	case resource == "logs" && identifier != "" && method == http.MethodDelete:
-		return func(w http.ResponseWriter, request *http.Request) { handler.deleteDurableLog(w, request, identifier) }
-	case resource == "traffic-status" && method == http.MethodGet:
-		return handler.trafficStatus
-	default:
-		return methodNotAllowed
-	}
-}
-
 func (handler *Handler) clearDurableLogs(w http.ResponseWriter, request *http.Request) {
 	if !handler.requireCommands(w, request) {
 		return

@@ -18,12 +18,6 @@ func (f *Files) SetPolicy(policy Policy) error {
 	return f.pruneLocked()
 }
 
-func (f *Files) Prune() error {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	return f.pruneLocked()
-}
-
 func (f *Files) pruneLocked() error {
 	files, err := f.List()
 	if err != nil {

@@ -259,9 +259,9 @@ below exercise the corresponding source, API and runtime boundaries.
 | ID | Screen and accepted behavior | Contract / implementation boundary | Verification coverage | Status |
 | --- | --- | --- | --- | --- |
 | UI-01 | App shell with the layout and shell parameters of [`DESIGN.md`](../DESIGN.md); no global header or page-title band; the rail lists nodes, subscriptions, logs and settings; content fills the remaining height and scrolls with overlay scrollbars | App shell, responsive layout, shared controls | Desktop and narrow viewports, keyboard, internal scrolling without clipped controls | implemented |
-| FLEET-01 | Node overview as a searchable, paged card grid: each card shows name, host, state, core version, status and its own period usage against its own quota; the toolbar row shows the online count and summed period usage, never a summed quota; adding a node shows its one-time enrollment code | Fleet node list, node creation and traffic status APIs | Route and demo tests; empty, no-match and load-failure states | implemented |
+| FLEET-01 | Node overview as a searchable, paged card grid: each card shows name, host, state, core version, status and its own period usage against its own quota; the toolbar row shows the online count and summed period usage, never a summed quota; adding a node shows its one-time enrollment code | Fleet node list, node creation and traffic status APIs | Route tests; empty, no-match and load-failure states | implemented |
 | FLEET-02 | Opening a node shows its object row (back, name, state, version, uptime, rates, runtime controls) and tabs for overview, core versions, configuration, logs and settings; every view inside reads and commands that node only; an offline or not enrolled node keeps its last report marked stale and shows one region state in tabs that command it | Node-scoped API client, node routes | Route tests for node scoping and offline state; object row runtime tests | implemented |
-| FLEET-03 | A node's settings tab saves its name, published host and traffic quota, period and reset day as one group, and keeps re-enrollment and removal in a separate destructive section that names the node | Node rename, settings, enrollment and deletion APIs with settings revisions | Demo client validation and conflict tests; browser save, re-enroll and remove | implemented |
+| FLEET-03 | A node's settings tab saves its name, published host and traffic quota, period and reset day as one group, and keeps re-enrollment and removal in a separate destructive section that names the node | Node rename, settings, enrollment and deletion APIs with settings revisions | Settings validation and conflict tests; browser save, re-enroll and remove | implemented |
 | UI-02 | Shared action buttons in the sizes and variants of [`DESIGN.md`](../DESIGN.md), with matching square icon buttons and 44px touch targets; primary save, outlined secondary actions and semantic destructive actions; consistent hover/pressed/focus; centered dialogs; compact semantic-color Toast for all operation, loading and validation errors, without inserting error banners into page flow; repeated persistent failures reuse one notification and recovery closes it; all dropdown fields use the shared custom Select, including protocol, source and channel forms, with consistent popup styling and keyboard interaction | Shared UI and feedback | Real actions, focus return, Escape, visible validation, disabled options, no false success | implemented |
 | UI-03 | Data tables and item lists use regular-weight names, body text, statuses and row actions; table headers use medium weight; dropdown options use regular weight, with existing compact metadata sizes preserved | Shared table typography and feature-owned list styles | Browser checks across versions, sources, keys, channels, configuration rows and logs | implemented |
 | AUTH-01 | Email/password login with visible labels, password visibility, fixed seven-day persistence and reduced-motion support | Existing authenticated session, CSRF/origin/rate-limit boundaries | Login/logout/error tests, credentials never exposed | implemented |
@@ -362,8 +362,8 @@ underlying core inbound.
   `make release-smoke` checks packaged startup, persistence and signed self-update
   on a native Linux runner; both require their documented prerequisites.
 - Browser review covers responsive layouts, keyboard navigation, editor rendering,
-  settings persistence, notifications and observed runtime controls. Demo fixtures
-  do not establish native process behavior.
+  settings persistence, notifications and observed runtime controls against a
+  running panel and node.
 
 ### Deliberate distinctions and validation limits
 
@@ -383,9 +383,8 @@ underlying core inbound.
 - The build reports a large precompiled schema-validator chunk. It remains lazily
   loaded with configuration editing; the warning is not a build failure.
 
-Demo outcomes are explicitly separate from production results. Production
-feedback follows completed operations and observed runtime state rather than hardcoded
-samples.
+Feedback follows completed operations and observed runtime state rather than
+hardcoded samples.
 
 ## HTTP API and security
 
@@ -445,7 +444,7 @@ Fingerprint or other third parties. Collection has a 1.5-second budget and the
 result is cached only in page memory. SDK failures/timeouts omit the header.
 Fingerprints are untrusted, spoofable abuse signals, never authentication factors;
 missing fingerprints still receive all peer/global protections. Invalid or repeated
-fingerprint headers return 400. The demo client does not contact this HTTP boundary.
+fingerprint headers return 400.
 
 Before reading a login body or waiting for settings/password work, the server
 atomically admits at most two concurrent logins, five attempts per direct peer

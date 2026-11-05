@@ -24,7 +24,7 @@ func TestResolverRequiresVerifiedLiveObservation(t *testing.T) {
 		ArchiveSHA256: observation.ArchiveSHA256, BinarySHA256: observation.BinarySHA256,
 	}
 	inspector := &fakeInspector{}
-	resolver := newRuntimeIdentityResolverWithInspector(fakeObservationStore{observation: observation, artifact: artifact}, inspector)
+	resolver := &RuntimeIdentityResolver{store: fakeObservationStore{observation: observation, artifact: artifact}, inspector: inspector}
 	identity, err := resolver.Resolve(context.Background())
 	if err != nil {
 		t.Fatal(err)
@@ -41,7 +41,7 @@ func TestResolverRequiresVerifiedLiveObservation(t *testing.T) {
 }
 
 func TestResolverNeverFallsBackWhenNoCoreIsRunning(t *testing.T) {
-	resolver := newRuntimeIdentityResolverWithInspector(fakeObservationStore{observationErr: store.ErrRuntimeObservationNotFound}, &fakeInspector{})
+	resolver := &RuntimeIdentityResolver{store: fakeObservationStore{observationErr: store.ErrRuntimeObservationNotFound}, inspector: &fakeInspector{}}
 	if _, err := resolver.Resolve(context.Background()); !errors.Is(err, ErrNoRunningCore) {
 		t.Fatalf("Resolve error=%v", err)
 	}

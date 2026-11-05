@@ -9,11 +9,10 @@ import { pagination } from './pagination';
 import { bootstrap, common } from './common';
 import { productLogs } from './product-logs';
 import { configuration } from './configuration';
-import { observability } from './observability';
 import { subscriptions } from './subscriptions';
 import { panelSettings } from './panel-settings';
 import { enrollment, fleet, node } from './fleet';
-import { account, app, language, nav, nodes, shell, sidebar, theme } from './shell';
+import { account, language, nav, nodes, shell, sidebar, theme } from './shell';
 
 export const en = {
   enrollment,
@@ -23,7 +22,6 @@ export const en = {
   filesystem,
   account,
   channels,
-  app,
   bootstrap,
   common,
   configuration,
@@ -34,7 +32,6 @@ export const en = {
   nav,
   nodes,
   notFound,
-  observability,
   login,
   pagination,
   panelSettings,

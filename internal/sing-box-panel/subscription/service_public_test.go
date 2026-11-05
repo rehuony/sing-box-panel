@@ -113,7 +113,7 @@ func TestPublicSubscriptionTrafficSumsEveryNodesOwnPeriod(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := app.RenderSubscriptionPreview(ctx, "", channel.ID); err != nil {
+	if _, err := app.RenderSubscriptionDraft(ctx, "", channel.ID, nil); err != nil {
 		t.Fatalf("preview unexpectedly depends on traffic storage: %v", err)
 	}
 	if _, err := app.PublicSubscription(ctx, key.Token, channel.ID); err == nil {

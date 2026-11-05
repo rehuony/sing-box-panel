@@ -2,8 +2,6 @@ export const cores = {
   library: { officialLink: 'Official link', version: 'Version', source: 'Source', status: 'Status', actions: 'Actions', enable: 'Enable', disable: 'Disable', enabled: 'Enabled', disabled: 'Disabled', unknown: 'Status unknown', installed: 'Installed', notInstalled: 'Not installed', download: 'Download', operationFailed: 'Operation failed. See the panel log.', completed: 'Operation completed', running: 'Processing', succeeded: 'Completed', failed: 'Failed', canceled: 'Canceled' },
   action: { remove: 'Remove', configure: 'Open configuration' },
   artifact: { changed: 'Version removed.' },
-  catalog: { short: 'catalog' },
-  check: 'Run startup check',
   confirm: {
     action: 'Confirm',
     cancel: 'Cancel',
@@ -13,15 +11,10 @@ export const cores = {
   empty: { catalog: 'No catalog artifacts match.', installed: 'No installed artifacts match.' },
   error: {
     configurationNotSaved: 'Save a sing-box configuration in Configuration before enabling or checking a core.',
-    action: 'Core operation failed',
     catalog: 'Catalog is unavailable',
-    detail: 'Artifact details are unavailable',
     installed: 'Installed artifacts are unavailable',
-    startup: 'Startup artifacts are unavailable',
   },
   filter: {
-    allArchitectures: 'All architectures',
-    architecture: 'Architecture',
     search: 'Filter artifacts',
   },
   import: {
@@ -39,32 +32,14 @@ export const cores = {
     title: 'Import archive',
     version: 'Version',
   },
-  install: 'Install',
-  installed: { short: 'installed' },
-  loading: 'Loading artifacts…',
   loadingInstalled: 'Reading installed versions…',
   loadingCatalog: 'Loading available versions…',
-  loadOlder: 'Load older',
-  refresh: 'Refresh catalog',
   refreshInstalled: 'Refresh installed versions',
   refreshCatalog: 'Check GitHub for updates',
-  schema: {
-    error: 'Schema lookup failed',
-    jsonOnly: 'JSON only',
-    loading: 'Checking Schema…',
-    structured: 'Structured Schema available',
-  },
   source: {
     official: 'Official download',
     user_verified: 'Manual import',
   },
-  startup: {
-    state: { failed: 'Failed', pending: 'Pending', ready: 'Ready' },
-    title: 'Startup artifacts',
-  },
-  subtitle: 'Manage core versions and version-scoped configuration editing.',
   tabs: { catalog: 'Available', installed: 'Installed' },
   title: 'Versions',
-  versions: 'Versions',
-  value: { unknownSize: 'Unknown size' },
 } as const;

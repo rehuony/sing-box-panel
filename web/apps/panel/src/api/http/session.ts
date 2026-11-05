@@ -1,4 +1,4 @@
-import type { ApiClient, SystemStatus } from '../api-client';
+import type { ApiClient } from '../api-client';
 import type { HttpApiContext, SessionPayload } from './shared';
 
 import { ApiRequestError } from '../api-client';
@@ -57,12 +57,6 @@ export function createSessionHttpApi(context: HttpApiContext) {
       }
     },
     subscribeSessionInvalidated,
-    getSystemStatus(signal) {
-      return request<SystemStatus>(fetcher, `${baseUrl}/system/status`, {
-        method: 'GET',
-        signal,
-      });
-    },
 
   } satisfies Partial<ApiClient>;
 }

@@ -47,10 +47,6 @@ func NewRuntimeIdentityResolver(database runtimeIdentityStore) *RuntimeIdentityR
 	return &RuntimeIdentityResolver{store: database, inspector: runtimeIdentityPlatformInspector()}
 }
 
-func newRuntimeIdentityResolverWithInspector(database runtimeIdentityStore, inspector runtimeIdentityProcessInspector) *RuntimeIdentityResolver {
-	return &RuntimeIdentityResolver{store: database, inspector: inspector}
-}
-
 func (resolver *RuntimeIdentityResolver) Resolve(ctx context.Context) (RuntimeIdentity, error) {
 	if resolver == nil || resolver.store == nil || resolver.inspector == nil {
 		return RuntimeIdentity{}, ErrInspectionUnavailable

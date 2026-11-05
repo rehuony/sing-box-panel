@@ -23,11 +23,44 @@ the ESLint configuration, and scripts that run each application's own.
 
 ## Development
 
+Frontend work runs against the real services: start the service an
+application talks to, then start that application's Vite development server,
+which proxies `/api` to the service on this host.
+
 ```sh
 corepack enable pnpm
 pnpm install --frozen-lockfile --ignore-scripts --verify-store-integrity
-pnpm --filter @sing-box-panel/panel run demo
 ```
+
+The panel application expects a panel listening on `127.0.0.1:3000`. From the
+repository root, build it, [initialize its settings](../docs/getting-started.md#initialize-settings-and-storage)
+and start it:
+
+```sh
+make build-panel
+./bin/sing-box-panel init --config ./setting.json
+./bin/sing-box-panel server start --config ./setting.json
+```
+
+Then start the application from this directory and sign in with the
+administrator account that `init` printed:
+
+```sh
+pnpm --filter @sing-box-panel/panel run dev
+```
+
+Keep the panel's `server.base_path` and `server.external_origin` empty while
+developing: the proxy forwards `/api` unchanged and keeps the browser's `Host`,
+so the panel's origin and CSRF checks accept the development server. Pages that
+show a node's cores, configuration and telemetry need an enrolled node; register
+one with `sing-box-panel node add` and run `sing-box-node` as described in
+[Nodes](../docs/cli.md#nodes).
+
+The node console application expects a node whose console listens on
+`127.0.0.1:3001`; `sing-box-node console enable` prints its password. Start the
+application with `pnpm --filter @sing-box-panel/node run dev`. The node runtime
+requires Linux, so on another system run the node in a Linux container that
+shares the host's network.
 
 Use `make check-frontend` from the repository root for a production build, types,
 lint, all tests, Schema consistency and notices checks. From this directory,
@@ -40,16 +73,6 @@ formatting rules before checking the remaining code-quality diagnostics.
 Test environments, timeout bounds and coverage ownership are documented in
 [Testing](../docs/testing.md).
 
-Run `pnpm run demo` in `apps/panel` to start the complete panel interface with an in-memory API client.
-Demo mode never contacts the backend, so it is suitable for working on pages,
-responsive states, themes, and interaction styles without a running panel. Its
-state lives only in the browser process and resets when the development server
-or page is reloaded; use `pnpm dev` when backend integration is required.
-Demo authentication uses a tagged SHA-256 verifier so a saved backup also restores
-its password, including in another demo instance. These verifiers are only for
-demo data; production uses server-side Argon2id. Unsupported backup verifiers are
-rejected before changing demo state.
-
 ## Node console
 
 `apps/node` is the node console's application, served by `sing-box-node run`
@@ -58,8 +81,7 @@ shows the node, the panel it is enrolled with and the state of its session,
 refreshed every five seconds; the last status stays visible, marked stale,
 when the node stops answering. Its transport types under `src/api/generated/`
 are generated from `../../../api/node-openapi.yaml`. It follows the system's
-light or dark appearance. `pnpm run dev` there proxies `/api` to a console on
-`127.0.0.1:3001`.
+light or dark appearance.
 
 ## Source layout
 
@@ -80,9 +102,9 @@ on later visits.
 `components/server-path-input` owns the shared server filesystem selector.
 Configuration and subscription-node forms use it through context-aware presentation
 annotations in `configuration-path-fields`, including scalar/list representations
-and nested dialogs. Filesystem reads go through the injected `ApiClient`; demo
-mode uses a fixed in-memory directory tree. The chooser preserves hand-entered
-values until confirmation and rechecks the selected path with the server.
+and nested dialogs. Filesystem reads go through the injected `ApiClient`. The
+chooser preserves hand-entered values until confirmation and rechecks the
+selected path with the server.
 See [server path selection](../docs/configuration-and-runtime.md#selecting-server-paths)
 for filesystem scope and path semantics.
 
@@ -97,7 +119,7 @@ include this step, so no separate preparation command is needed.
 
 Configuration contracts under `src/schemas/.generated/` are exported offline
 from the committed backend Schema assets by `pnpm run generate`. They are
-build outputs and are not committed or edited by hand. Development, demo,
+build outputs and are not committed or edited by hand. Development,
 typecheck, test and build commands run generation before loading their imports;
 Vite itself does not generate them. The generated manifest binds each reviewed
 exact version to its source kind, file and SHA-256 digest. Identical Schema
@@ -243,8 +265,8 @@ choice on page load, overriding the server theme even after settings load, save,
 or discard. Missing, invalid, or inaccessible local values leave the server default
 in effect; loading a server default does not write a browser override. Color and
 radius still follow the server settings and their previews. An explicit local
-system choice follows live OS changes. Without server metadata (Vite/demo), the
-default palette provides the initial appearance beneath any local theme override.
+system choice follows live OS changes. Without server metadata (the Vite
+development server), the default palette provides the initial appearance beneath any local theme override.
 Session checks, route loading, and initial page/Tab data loading share
 `LoadingState`, whose appearance follows the loading-region pattern in
 [`DESIGN.md`](../DESIGN.md). Its brief delayed fade-in avoids flashes
@@ -298,8 +320,7 @@ page jumps do not load all records into the browser. Counts and list items are
 read from the same database snapshot, and shrinking lists return to a valid page.
 Panel-log search matches both Chinese and English event names by passing exact
 `search_codes` alongside the original `search` text. The server unions those
-matches before applying other filters, counting, and pagination. The demo client
-uses the same semantics and includes runtime transitions with their saved context.
+matches before applying other filters, counting, and pagination.
 Dashboard activity links and runtime segments use explicit keyboard focus outlines
 for inspection; keyboard navigation and focus restoration are preserved everywhere.
 

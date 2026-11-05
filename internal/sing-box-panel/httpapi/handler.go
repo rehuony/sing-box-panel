@@ -90,32 +90,11 @@ func (handler *Handler) ServeHTTP(w http.ResponseWriter, request *http.Request) 
 		http.NotFound(w, request)
 		return
 	}
-	if strings.HasPrefix(path, "/api/v1/") {
-		_, methodAllowed, pathRegistered := registeredManagementOperation(request.Method, path)
-		if !pathRegistered {
-			writeProblem(w, request, http.StatusNotFound, "operation_not_found", "Operation not found", "The API operation does not exist.")
-			return
-		}
-		if !methodAllowed {
-			methodNotAllowed(w, request)
-			return
-		}
-	}
 	switch {
-	case request.Method == http.MethodGet && path == "/api/v1/health":
-		handler.health(w)
+	case strings.HasPrefix(path, "/api/v1/"):
+		handler.serveOperation(w, request, strings.TrimPrefix(path, "/api/v1"))
 	case path == "/sub" || strings.HasPrefix(path, "/sub/"):
 		handler.publicSubscription(w, request, path)
-	case request.Method == http.MethodGet && path == "/api/v1/auth/session":
-		handler.authenticated(handler.currentSession)(w, request)
-	case request.Method == http.MethodPost && path == "/api/v1/auth/session":
-		handler.login(w, request)
-	case request.Method == http.MethodDelete && path == "/api/v1/auth/session":
-		handler.authenticated(handler.logout)(w, request)
-	case request.Method == http.MethodGet && path == "/api/v1/system/status":
-		handler.authenticated(handler.systemStatus)(w, request)
-	case handler.handleApplicationRoute(w, request, path):
-		return
 	case strings.HasPrefix(path, "/api/"):
 		writeProblem(w, request, http.StatusNotFound, "operation_not_found", "Operation not found", "The API operation does not exist.")
 	case handler.assets != nil && request.Method == http.MethodGet:
@@ -139,6 +118,6 @@ func (handler *Handler) stripBasePath(path string) (string, bool) {
 	return strings.TrimPrefix(path, base), true
 }
 
-func (handler *Handler) health(w http.ResponseWriter) {
+func (handler *Handler) health(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "version": handler.build.Version})
 }

@@ -37,7 +37,7 @@ func newServerStartCommand(state *options, run func(context.Context, string) err
 			if err := cmd.Context().Err(); err != nil {
 				return err
 			}
-			configuration, created, err := settings.LoadOrInitializeContext(cmd.Context(), state.settingsPath)
+			configuration, created, err := settings.LoadOrInitialize(cmd.Context(), state.settingsPath)
 			if created {
 				if outputErr := writeServerInitialization(cmd, state, configuration); outputErr != nil {
 					return errors.Join(err, outputErr)

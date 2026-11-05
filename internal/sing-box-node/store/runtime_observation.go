@@ -34,23 +34,6 @@ type RuntimeObservation struct {
 	StableObservedAt   *time.Time
 }
 
-func (s *Store) RecordRuntimeObservation(
-	ctx context.Context,
-	observation RuntimeObservation,
-) (RuntimeObservation, error) {
-	prepared, err := prepareRuntimeObservation(observation)
-	if err != nil {
-		return RuntimeObservation{}, err
-	}
-	err = s.WithTx(ctx, func(tx *sql.Tx) error {
-		return recordRuntimeObservationTx(ctx, tx, prepared)
-	})
-	if err != nil {
-		return RuntimeObservation{}, err
-	}
-	return s.RuntimeObservation(ctx)
-}
-
 // RecordRuntimeObservationAndTransitions replaces only the process incarnation
 // captured by expected and appends the supplied lifecycle evidence in the same
 // transaction. A late operation cannot overwrite a newer observation or add history
@@ -280,32 +263,6 @@ func (s *Store) ConfirmRuntimeObservation(
 	rows, err := result.RowsAffected()
 	if err != nil {
 		return false, fmt.Errorf("inspect fenced runtime observation confirmation: %w", err)
-	}
-	return rows == 1, nil
-}
-
-// ClearRuntimeObservation only clears the exact PID incarnation supplied by
-// its owner. A late cleanup from an old supervisor cannot erase a newer child.
-func (s *Store) ClearRuntimeObservation(
-	ctx context.Context,
-	pid int,
-	processStartToken string,
-) (bool, error) {
-	if pid <= 0 || !validProcessStartToken(processStartToken) {
-		return false, errors.New("runtime PID and process start token are required")
-	}
-	result, err := s.db.ExecContext(
-		ctx,
-		`DELETE FROM runtime_observation WHERE singleton = 1 AND pid = ? AND process_start_token = ?`,
-		pid,
-		processStartToken,
-	)
-	if err != nil {
-		return false, fmt.Errorf("clear runtime observation: %w", err)
-	}
-	rows, err := result.RowsAffected()
-	if err != nil {
-		return false, fmt.Errorf("inspect runtime observation clear: %w", err)
 	}
 	return rows == 1, nil
 }

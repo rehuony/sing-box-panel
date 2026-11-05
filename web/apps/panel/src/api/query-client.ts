@@ -29,13 +29,12 @@ export function retryableRead(error: unknown): boolean {
 
 type QueryRoot
   = | 'catalog' | 'channels' | 'coreLogFiles' | 'fleetNodes' | 'installed' | 'nodes' | 'nodeSettings'
-    | 'runtime' | 'schema' | 'settings' | 'sources' | 'tokens' | 'trafficStatus' | 'users';
+    | 'runtime' | 'schema' | 'settings' | 'sources' | 'tokens' | 'trafficStatus';
 
 const runtimeChange: readonly QueryRoot[] = ['runtime', 'nodes', 'installed'];
 const coreArtifactChange: readonly QueryRoot[] = ['installed', 'schema'];
 const sourceChange: readonly QueryRoot[] = ['sources', 'nodes', 'channels'];
 const nodeChange: readonly QueryRoot[] = ['nodes', 'channels'];
-const userChange: readonly QueryRoot[] = ['users', 'tokens'];
 const fleetChange: readonly QueryRoot[] = ['fleetNodes', 'trafficStatus', 'nodes'];
 
 // Keyed by ApiClient method, so renaming or removing a write is a type error
@@ -45,7 +44,6 @@ const invalidations: Partial<Record<keyof ApiClient, readonly QueryRoot[]>> = {
   stopRuntime: runtimeChange,
   restartRuntime: runtimeChange,
   rollbackRuntime: runtimeChange,
-  activateStartupArtifact: runtimeChange,
   enableCore: runtimeChange,
   disableCore: runtimeChange,
   installCore: coreArtifactChange,
@@ -54,10 +52,7 @@ const invalidations: Partial<Record<keyof ApiClient, readonly QueryRoot[]>> = {
   refreshCatalog: ['catalog'],
   createSubscriptionSource: sourceChange,
   updateSubscriptionSource: sourceChange,
-  deleteSubscriptionSource: sourceChange,
   refreshSubscriptionSource: sourceChange,
-  createSubscriptionSourceVersion: sourceChange,
-  restoreSubscriptionSourceVersion: sourceChange,
   createSubscriptionNode: nodeChange,
   updateSubscriptionNode: nodeChange,
   deleteSubscriptionNode: nodeChange,
@@ -68,13 +63,8 @@ const invalidations: Partial<Record<keyof ApiClient, readonly QueryRoot[]>> = {
   deleteSubscriptionChannel: ['channels'],
   createSubscriptionToken: ['tokens'],
   deleteSubscriptionToken: ['tokens'],
-  revokeSubscriptionToken: ['tokens'],
   rotateSubscriptionToken: ['tokens'],
   setSubscriptionTokenEnabled: ['tokens'],
-  createSubscriptionUser: userChange,
-  updateSubscriptionUser: userChange,
-  deleteSubscriptionUser: userChange,
-  replaceSubscriptionUserGrants: userChange,
   clearCoreLog: ['coreLogFiles'],
   deleteCoreLogFile: ['coreLogFiles'],
   savePanelSettings: ['nodes', 'settings'],
@@ -90,7 +80,7 @@ function affectedQueries(method: string): readonly QueryRoot[] {
 }
 
 /**
- * The provider owns this boundary for both HTTP and demo clients. Reads stay
+ * The provider owns this boundary for every injected client. Reads stay
  * transport-only; React queries are the sole owner of retained server data.
  */
 export function withQueryInvalidation(client: ApiClient, cache: QueryClient): ApiClient {

@@ -1,12 +1,6 @@
 import type { HttpApiContext } from './shared';
-import type { ApiClient, CreatedSubscriptionToken, SubscriptionChannel, SubscriptionChannelPage, SubscriptionNodeCatalog, SubscriptionNodeDetail, SubscriptionNodeOrder, SubscriptionNodeSummary, SubscriptionPreview, SubscriptionSource, SubscriptionSourcePage, SubscriptionSourceRefreshResult, SubscriptionSourceVersion, SubscriptionSourceVersionPage, SubscriptionSourceVersionSave, SubscriptionToken, SubscriptionTokenPage, SubscriptionTokenRotation, SubscriptionUser, SubscriptionUserGrants, SubscriptionUserPage } from '../api-client';
+import type { ApiClient, CreatedSubscriptionToken, SubscriptionChannel, SubscriptionChannelPage, SubscriptionNodeCatalog, SubscriptionNodeDetail, SubscriptionNodeOrder, SubscriptionNodeSummary, SubscriptionPreview, SubscriptionSource, SubscriptionSourcePage, SubscriptionSourceRefreshResult, SubscriptionToken, SubscriptionTokenPage, SubscriptionTokenRotation } from '../api-client';
 
-function utf8Base64(value: string): string {
-  const bytes = new TextEncoder().encode(value);
-  let binary = '';
-  for (const byte of bytes) binary += String.fromCharCode(byte);
-  return btoa(binary);
-}
 export function createSubscriptionHttpApi(context: HttpApiContext) {
   const {
     baseUrl, buildQuery, fetcher, quoteETag, request, writeHeaders, writeJSONHeaders,
@@ -77,49 +71,9 @@ export function createSubscriptionHttpApi(context: HttpApiContext) {
           signal,
         },
       );
-      // OpenAPI format: byte is Base64 on the wire; UI/demo contracts expose UTF-8 text.
+      // OpenAPI format: byte is Base64 on the wire; the UI contract exposes UTF-8 text.
       const bytes = Uint8Array.from(atob(preview.result.content), value => value.charCodeAt(0));
       return { ...preview, result: { ...preview.result, content: new TextDecoder('utf-8', { fatal: true }).decode(bytes) } };
-    },
-    listSubscriptionUsers(filter = {}, signal) {
-      const query = buildQuery({
-        limit: filter.limit ?? 50,
-        before_time: filter.beforeTime,
-        before_id: filter.beforeID,
-      });
-      return request<SubscriptionUserPage>(fetcher, `${baseUrl}/subscription/users${query}`, {
-        method: 'GET',
-        signal,
-      });
-    },
-    getSubscriptionUser(userID, signal) {
-      return request<SubscriptionUser>(fetcher, `${baseUrl}/subscription/users/${encodeURIComponent(userID)}`, {
-        method: 'GET',
-        signal,
-      });
-    },
-    createSubscriptionUser(input, signal) {
-      return request<SubscriptionUser>(fetcher, `${baseUrl}/subscription/users`, {
-        method: 'POST',
-        body: JSON.stringify(input),
-        headers: writeJSONHeaders(),
-        signal,
-      });
-    },
-    updateSubscriptionUser(userID, input, updatedAt, signal) {
-      return request<SubscriptionUser>(fetcher, `${baseUrl}/subscription/users/${encodeURIComponent(userID)}`, {
-        method: 'PUT',
-        body: JSON.stringify(input),
-        headers: writeJSONHeaders({ 'If-Match': quoteETag(updatedAt) }),
-        signal,
-      });
-    },
-    deleteSubscriptionUser(userID, updatedAt, signal) {
-      return request<void>(fetcher, `${baseUrl}/subscription/users/${encodeURIComponent(userID)}`, {
-        method: 'DELETE',
-        headers: writeHeaders({ 'If-Match': quoteETag(updatedAt) }),
-        signal,
-      });
     },
     getSubscriptionNode(id, signal) {
       return request<SubscriptionNodeDetail>(fetcher, `${baseUrl}/subscription/nodes/${encodeURIComponent(id)}`, { signal });
@@ -158,20 +112,6 @@ export function createSubscriptionHttpApi(context: HttpApiContext) {
     getSubscriptionNodeCatalog(signal) {
       return request<SubscriptionNodeCatalog>(fetcher, `${baseUrl}/subscription/nodes`, {
         method: 'GET',
-        signal,
-      });
-    },
-    getSubscriptionUserGrants(userID, signal) {
-      return request<SubscriptionUserGrants>(fetcher, `${baseUrl}/subscription/users/${encodeURIComponent(userID)}/grants`, {
-        method: 'GET',
-        signal,
-      });
-    },
-    replaceSubscriptionUserGrants(userID, grants, updatedAt, signal) {
-      return request<SubscriptionUserGrants>(fetcher, `${baseUrl}/subscription/users/${encodeURIComponent(userID)}/grants`, {
-        method: 'PUT',
-        body: JSON.stringify({ grants }),
-        headers: writeJSONHeaders({ 'If-Match': quoteETag(updatedAt) }),
         signal,
       });
     },
@@ -220,59 +160,6 @@ export function createSubscriptionHttpApi(context: HttpApiContext) {
         headers: writeHeaders(),
         signal,
       });
-    },
-    listSubscriptionSourceVersions(sourceID, filter = {}, signal) {
-      const query = buildQuery({
-        limit: filter.limit ?? 50,
-        before_time: filter.beforeTime,
-        before_id: filter.beforeID,
-      });
-      return request<SubscriptionSourceVersionPage>(
-        fetcher,
-        `${baseUrl}/subscription/sources/${encodeURIComponent(sourceID)}/versions${query}`,
-        { method: 'GET', signal },
-      );
-    },
-    getSubscriptionSourceVersion(sourceID, versionID, signal) {
-      return request<SubscriptionSourceVersion>(
-        fetcher,
-        `${baseUrl}/subscription/sources/${encodeURIComponent(sourceID)}/versions/${encodeURIComponent(versionID)}`,
-        { method: 'GET', signal },
-      );
-    },
-    createSubscriptionSourceVersion(sourceID, format, rawBody, updatedAt, signal) {
-      return request<SubscriptionSourceVersionSave>(
-        fetcher,
-        `${baseUrl}/subscription/sources/${encodeURIComponent(sourceID)}/versions`,
-        {
-          method: 'POST',
-          body: JSON.stringify({ format, raw_body: utf8Base64(rawBody) }),
-          headers: writeJSONHeaders({ 'If-Match': quoteETag(updatedAt) }),
-          signal,
-        },
-      );
-    },
-    restoreSubscriptionSourceVersion(sourceID, versionID, updatedAt, signal) {
-      return request<SubscriptionSource>(
-        fetcher,
-        `${baseUrl}/subscription/sources/${encodeURIComponent(sourceID)}/versions/${encodeURIComponent(versionID)}/restore`,
-        {
-          method: 'POST',
-          headers: writeHeaders({ 'If-Match': quoteETag(updatedAt) }),
-          signal,
-        },
-      );
-    },
-    deleteSubscriptionSource(sourceID, updatedAt, signal) {
-      return request<void>(
-        fetcher,
-        `${baseUrl}/subscription/sources/${encodeURIComponent(sourceID)}`,
-        {
-          method: 'DELETE',
-          headers: writeHeaders({ 'If-Match': quoteETag(updatedAt) }),
-          signal,
-        },
-      );
     },
     listSubscriptionTokens(filter = {}, signal) {
       const query = buildQuery({
@@ -323,13 +210,6 @@ export function createSubscriptionHttpApi(context: HttpApiContext) {
           headers: writeJSONHeaders(),
           signal,
         },
-      );
-    },
-    revokeSubscriptionToken(tokenID, signal) {
-      return request<SubscriptionToken>(
-        fetcher,
-        `${baseUrl}/subscription/tokens/${encodeURIComponent(tokenID)}/revoke`,
-        { method: 'POST', headers: writeHeaders(), signal },
       );
     },
     setSubscriptionTokenEnabled(tokenID, enabled, signal) {

@@ -10,8 +10,8 @@ import { ThemeProvider, useTheme } from '@/theme';
 import '@/i18n';
 import { ApiRequestError } from '@/api/api-client';
 import { ApiClientProvider } from '@/api/api-client-context';
+import { backupSettings } from '@/tests/api/backup-settings';
 import { TestRouter as MemoryRouter } from '@/tests/test-router';
-import { demoBackupSettings } from '@/api/demo/demo-panel-backup';
 import { createMockApiClient } from '@/tests/api/mock-api-client';
 import { PanelSettingsProvider } from '@/stores/panel-settings-provider';
 import { PanelSettingsPage } from '@/pages/panel-settings-page/panel-settings-page';
@@ -146,7 +146,7 @@ describe('panel settings', () => {
     const user = userEvent.setup();
     const client = setup();
     const view = await client.getPanelSettings();
-    const native = demoBackupSettings(view, { github: '', passwordHash: 'backup-secret' });
+    const native = backupSettings(view, { github: '', passwordHash: 'backup-secret' });
     native.data_dir = '/srv/other-machine';
     const backup = {
       format: 'sing-box-panel-backup', version: 3, exported_at: '2026-09-23T01:00:00Z',

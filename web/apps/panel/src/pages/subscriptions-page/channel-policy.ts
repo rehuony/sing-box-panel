@@ -54,17 +54,6 @@ export function initialChannelPolicy(
     default_exit: { kind: 'direct' },
   };
 }
-export function selectedNodeIDs(policy: ChannelPolicy, nodes: SubscriptionNodeSummary[]): Set<string> {
-  return new Set([
-    ...policy.selection.ids,
-    ...nodes
-      .filter(
-        (node) =>
-          policy.selection.new_node_policy === 'include' && !policy.selection.excluded_ids.includes(node.id),
-      )
-      .map((node) => node.id),
-  ]);
-}
 export function newRuleGroup(nodeIDs: string[]): ChannelRuleGroup {
   return {
     id: crypto.randomUUID(),

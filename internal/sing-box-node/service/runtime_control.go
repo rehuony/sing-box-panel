@@ -25,9 +25,6 @@ type RuntimeResponse struct {
 	Startup    *StartupArtifactSummary `json:"startup_artifact,omitempty"`
 }
 
-func (a *Node) SetRuntimeController(controller RuntimeController) {
-	a.runtimeControl = controller
-}
 func (a *Node) ExecuteRuntime(ctx context.Context, input RuntimeRequest) (RuntimeResponse, error) {
 	if a.runtimeControl == nil {
 		return RuntimeResponse{}, ErrRuntimeNotStarted

@@ -17,10 +17,8 @@ import (
 )
 
 const (
-	MaximumLogIDBytes       = 80
-	MaximumLogCodeBytes     = 128
-	MaximumLogMessageBytes  = logredact.MaximumMessageBytes
-	MaximumLogMetadataBytes = logredact.MaximumMetadataBytes
+	MaximumLogIDBytes   = 80
+	MaximumLogCodeBytes = 128
 )
 
 var (

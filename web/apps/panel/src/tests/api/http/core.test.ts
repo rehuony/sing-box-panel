@@ -10,23 +10,16 @@ describe('createHttpApiClient core and configuration domain', () => {
     expect(fetcher).toHaveBeenCalledWith(`/api/v1/nodes/node_a/core/artifacts/core%2Fone/${action}`, expect.objectContaining({ method: 'POST' }));
     expect(fetcher.mock.calls[0][1]?.body).toBeUndefined();
   });
-  it('resolves Schema support by immutable core artifact and compiles raw configuration', async () => {
+  it('compiles raw configuration for an immutable core artifact', async () => {
     const fetcher = vi.fn<typeof fetch>().mockImplementation(async () =>
       new Response(JSON.stringify({ supported: true, items: [] }), {
         status: 200, headers: { 'Content-Type': 'application/json' },
       }));
     const client = createHttpApiClient({ baseUrl: '/panel/api/v1', fetcher }).forNode('node_a');
 
-    await client.getConfigurationSupport('core/one');
-    await client.previewConfiguration({ coreArtifactID: 'core_1' });
     await client.compileConfiguration({ coreArtifactID: 'core_1' });
 
-    expect(fetcher.mock.calls[0]?.[0]).toBe('/panel/api/v1/nodes/node_a/core/artifacts/core%2Fone/configuration-support');
-    expect(fetcher).toHaveBeenNthCalledWith(2, '/panel/api/v1/nodes/node_a/config/preview', expect.objectContaining({
-      method: 'POST',
-      body: JSON.stringify({ core_artifact_id: 'core_1' }),
-    }));
-    expect(fetcher).toHaveBeenNthCalledWith(3, '/panel/api/v1/nodes/node_a/config/compile', expect.objectContaining({
+    expect(fetcher).toHaveBeenCalledWith('/panel/api/v1/nodes/node_a/config/compile', expect.objectContaining({
       method: 'POST',
       body: JSON.stringify({ core_artifact_id: 'core_1' }),
     }));
@@ -52,18 +45,14 @@ describe('createHttpApiClient core and configuration domain', () => {
     }));
   });
 
-  it('loads an exact reviewed schema and sends every runtime-history cursor filter', async () => {
+  it('loads an exact reviewed schema by encoded core artifact', async () => {
     const schema = {
       exact_version: '1.14.0',
       schema_sha256: 'a'.repeat(64),
       schema: { type: 'object' },
     };
-    const fetcher = vi.fn<typeof fetch>().mockImplementation(async (input) =>
-      new Response(JSON.stringify(String(input).includes('configuration-schema')
-        ? schema
-        : {
-            items: [], history_started_at: '2026-08-26T00:00:00Z',
-          }), {
+    const fetcher = vi.fn<typeof fetch>().mockImplementation(async () =>
+      new Response(JSON.stringify(schema), {
         status: 200,
         headers: {
           'Content-Type': 'application/json',
@@ -73,25 +62,8 @@ describe('createHttpApiClient core and configuration domain', () => {
     const client = createHttpApiClient({ baseUrl: '/panel/api/v1', fetcher }).forNode('node_a');
 
     await expect(client.getConfigurationSchema('core/one')).resolves.toEqual(schema);
-    await client.getRuntimeHistory({
-      from: '2026-08-26T00:00:00Z',
-      to: '2026-08-27T00:00:00Z',
-      state: 'unknown',
-      reason: 'heartbeat_lost',
-      activationBundleID: 'bundle_18',
-      beforeTime: '2026-08-26T12:00:00Z',
-      beforeID: 42,
-      limit: 25,
-    });
-
-    expect(fetcher).toHaveBeenNthCalledWith(
-      1,
+    expect(fetcher).toHaveBeenCalledWith(
       '/panel/api/v1/nodes/node_a/core/artifacts/core%2Fone/configuration-schema',
-      expect.objectContaining({ method: 'GET' }),
-    );
-    expect(fetcher).toHaveBeenNthCalledWith(
-      2,
-      '/panel/api/v1/nodes/node_a/core/runtime/history?from=2026-08-26T00%3A00%3A00Z&to=2026-08-27T00%3A00%3A00Z&state=unknown&reason=heartbeat_lost&activation_bundle_id=bundle_18&before_time=2026-08-26T12%3A00%3A00Z&before_id=42&limit=25',
       expect.objectContaining({ method: 'GET' }),
     );
   });

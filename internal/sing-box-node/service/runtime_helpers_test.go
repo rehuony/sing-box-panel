@@ -20,33 +20,6 @@ func openRunnerStore(t *testing.T, ctx context.Context) *store.Store {
 	return taskStore
 }
 
-func runnerTestContext(t *testing.T) context.Context {
-	t.Helper()
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	t.Cleanup(cancel)
-	return ctx
-}
-
-func receiveString(t *testing.T, ctx context.Context, values <-chan string) string {
-	t.Helper()
-	select {
-	case value := <-values:
-		return value
-	case <-ctx.Done():
-		t.Fatalf("waiting for value: %v", ctx.Err())
-		return ""
-	}
-}
-
-func waitSignal(t *testing.T, ctx context.Context, signal <-chan struct{}) {
-	t.Helper()
-	select {
-	case <-signal:
-	case <-ctx.Done():
-		t.Fatalf("waiting for signal: %v", ctx.Err())
-	}
-}
-
 type fakeClock struct {
 	mu      sync.Mutex
 	now     time.Time

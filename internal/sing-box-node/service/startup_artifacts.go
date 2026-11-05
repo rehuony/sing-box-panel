@@ -4,7 +4,6 @@ package service
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -89,8 +88,4 @@ func startupArtifactSummary(artifact store.StartupArtifactSummary) StartupArtifa
 		CoreArtifactID:   artifact.CoreArtifactID, ConfigSHA256: artifact.ConfigSHA256,
 		State: artifact.State, CheckedAt: artifact.CheckedAt, CreatedAt: artifact.CreatedAt,
 	}
-}
-
-func IsStartupArtifactNotFound(err error) bool {
-	return errors.Is(err, store.ErrStartupArtifactNotFound)
 }

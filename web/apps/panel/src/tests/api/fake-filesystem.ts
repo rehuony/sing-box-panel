@@ -1,6 +1,7 @@
-import type { ApiClient, FilesystemEntry } from '../api-client';
+// An in-memory node filesystem for path picker tests.
+import type { ApiClient, FilesystemEntry } from '@/api/api-client';
 
-import { ApiRequestError } from '../api-client';
+import { ApiRequestError } from '@/api/api-client';
 
 const base = '/var/lib/sing-box-panel/runtime';
 
@@ -17,7 +18,7 @@ function parent(path: string): string {
   return path.slice(0, path.lastIndexOf('/')) || '/';
 }
 
-export function createDemoFilesystemApi() {
+export function createFakeFilesystemApi() {
   const entries = new Map<string, FilesystemEntry>();
   for (const [kind, paths] of Object.entries({
     directory: ['/', '/etc', '/etc/sing-box', '/var', '/var/lib', '/var/lib/sing-box-panel', base, `${base}/rules`, `${base}/logs`],
@@ -27,7 +28,7 @@ export function createDemoFilesystemApi() {
     for (const path of paths) entries.set(path, { name: path.split('/').at(-1) || '/', path, kind: kind as FilesystemEntry['kind'], available: true, symlink: false });
   }
   function fail(code: string, status: number): never {
-    throw new ApiRequestError('The demo path cannot be selected.', { code, status });
+    throw new ApiRequestError('The test path cannot be selected.', { code, status });
   }
   return {
     async listFilesystemEntries(query = {}, signal) {

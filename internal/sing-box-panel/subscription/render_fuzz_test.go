@@ -54,7 +54,7 @@ func FuzzRenderIsPureAndDeterministic(f *testing.F) {
 	f.Add([]byte(`{"a":{"duplicate":1,"duplicate":2}}`))
 
 	f.Fuzz(func(t *testing.T, input []byte) {
-		if len(input) > MaximumStartupBytes+1 {
+		if len(input) > MaximumDocumentBytes+1 {
 			t.Skip()
 		}
 		original := bytes.Clone(input)

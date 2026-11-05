@@ -10,7 +10,6 @@ import type { CanonicalDraft } from '@/pages/configuration-page/use-canonical-co
 import { reviewedSchemaManifest } from '@/schemas';
 import { resolveReviewedSchema } from '@/schemas/resolve-reviewed-schema';
 import { representativeSchemaVersions } from '@/tests/schemas/schema-fixtures';
-import { visibleStructuredConfiguration } from '@/pages/configuration-page/structured-validation';
 import { encodeCanonicalDraft, parseCanonicalDraft } from '@/pages/configuration-page/use-canonical-configuration';
 import {
   collectionItemSchema,
@@ -259,12 +258,6 @@ describe('schemaUi', () => {
       }],
     });
   });
-});
-
-it('validates only fields declared by the version schema', () => {
-  expect(visibleStructuredConfiguration({
-    type: 'object', properties: { log: { type: 'object', properties: { level: { type: 'string' } } } },
-  }, { future: true, log: { future: 'retained', level: 'info' } })).toEqual({ log: { level: 'info' } });
 });
 
 const fixtures = [

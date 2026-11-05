@@ -1,5 +1,5 @@
 import type { HttpApiContext } from './shared';
-import type { ApiClient, CatalogAssetFilter, CatalogAssetList, CatalogRefresh, ConfigurationCompile, ConfigurationPreview, ConfigurationSchemaContract, ConfigurationSupport, CoreArtifact, CoreArtifactFilter, CoreArtifactPage, CoreImportUpload, RuntimeHistoryPage, RuntimeResponse, RuntimeStatus, StartupArtifactPage, StartupArtifactSummary } from '../api-client';
+import type { ApiClient, CatalogAssetFilter, CatalogAssetList, CatalogRefresh, ConfigurationCompile, ConfigurationSchemaContract, CoreArtifact, CoreArtifactFilter, CoreArtifactPage, CoreImportUpload, RuntimeStatus } from '../api-client';
 
 export function createCoreHttpApi(context: HttpApiContext) {
   const {
@@ -42,11 +42,6 @@ export function createCoreHttpApi(context: HttpApiContext) {
         method: 'GET', signal,
       });
     },
-    getCoreArtifact(artifactID, signal) {
-      return request<CoreArtifact>(fetcher, `${nodeUrl()}/core/artifacts/${encodeURIComponent(artifactID)}`, {
-        method: 'GET', signal,
-      });
-    },
     installCore(assetID, signal) {
       return request<CoreArtifact>(fetcher, `${nodeUrl()}/core/install`, {
         method: 'POST', body: JSON.stringify({ asset_id: assetID }), headers: writeJSONHeaders(), signal,
@@ -68,23 +63,9 @@ export function createCoreHttpApi(context: HttpApiContext) {
         method: 'DELETE', headers: writeHeaders(), signal,
       });
     },
-    getConfigurationSupport(artifactID, signal) {
-      return request<ConfigurationSupport>(fetcher, `${nodeUrl()}/core/artifacts/${encodeURIComponent(artifactID)}/configuration-support`, {
-        method: 'GET', signal,
-      });
-    },
     getConfigurationSchema(artifactID, signal) {
       return request<ConfigurationSchemaContract>(fetcher, `${nodeUrl()}/core/artifacts/${encodeURIComponent(artifactID)}/configuration-schema`, {
         method: 'GET', signal,
-      });
-    },
-    previewConfiguration(input, signal) {
-      return request<ConfigurationPreview>(fetcher, `${nodeUrl()}/config/preview`, {
-        method: 'POST',
-        body: JSON.stringify({
-          core_artifact_id: input.coreArtifactID,
-        }),
-        headers: writeJSONHeaders(), signal,
       });
     },
     compileConfiguration(input, signal) {
@@ -96,49 +77,8 @@ export function createCoreHttpApi(context: HttpApiContext) {
         headers: writeJSONHeaders(), signal,
       });
     },
-    listStartupArtifacts(filter, signal) {
-      const query = buildQuery({
-        canonical_revision_id: filter.canonicalRevisionID,
-        core_version: filter.coreVersion,
-        core_artifact_id: filter.coreArtifactID,
-        state: filter.state,
-        before_time: filter.beforeTime,
-        before_id: filter.beforeID,
-        limit: filter.limit ?? 100,
-      });
-      return request<StartupArtifactPage>(fetcher, `${nodeUrl()}/config/artifacts${query}`, {
-        method: 'GET', signal,
-      });
-    },
-    checkStartupArtifact(artifactID, signal) {
-      return request<StartupArtifactSummary>(fetcher, `${nodeUrl()}/core/check`, {
-        method: 'POST', body: JSON.stringify({ startup_artifact_id: artifactID }), headers: writeJSONHeaders(), signal,
-      });
-    },
-    activateStartupArtifact(artifactID, monitoringTier, signal) {
-      return request<RuntimeResponse>(fetcher, `${nodeUrl()}/config/apply`, {
-        method: 'POST',
-        body: JSON.stringify({ startup_artifact_id: artifactID, monitoring_tier: monitoringTier }),
-        headers: writeJSONHeaders(), signal,
-      });
-    },
     getRuntimeStatus(signal) {
       return request<RuntimeStatus>(fetcher, `${nodeUrl()}/core/status`, { method: 'GET', signal });
-    },
-    getRuntimeHistory(filter = {}, signal) {
-      const query = buildQuery({
-        from: filter.from,
-        to: filter.to,
-        state: filter.state,
-        reason: filter.reason,
-        activation_bundle_id: filter.activationBundleID,
-        before_time: filter.beforeTime,
-        before_id: filter.beforeID,
-        limit: filter.limit ?? 50,
-      });
-      return request<RuntimeHistoryPage>(fetcher, `${nodeUrl()}/core/runtime/history${query}`, {
-        method: 'GET', signal,
-      });
     },
     startRuntime(signal) {
       return runtimeAction('start', signal);

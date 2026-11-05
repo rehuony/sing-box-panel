@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/auth"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/settings"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/store"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/testutil"
@@ -32,7 +33,7 @@ func TestPanelBackupAuthenticationCSRFAndRevisionConflict(t *testing.T) {
 	if login.Code != 200 {
 		t.Fatal(login.Body.String())
 	}
-	var session sessionPayload
+	var session auth.AuthSession
 	if err := json.Unmarshal(login.Body.Bytes(), &session); err != nil {
 		t.Fatal(err)
 	}

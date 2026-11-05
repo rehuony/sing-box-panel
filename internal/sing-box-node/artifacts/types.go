@@ -15,7 +15,6 @@ import (
 
 var (
 	ErrArtifactStore   = errors.New("artifact store operation failed")
-	ErrUnsafeSource    = errors.New("local artifact source is unsafe")
 	ErrUnsafeExecution = errors.New("artifact version execution cannot be safely bounded")
 	ErrUnsafeURL       = errors.New("artifact download URL is unsafe")
 	ErrTooLarge        = errors.New("artifact exceeds a resource limit")

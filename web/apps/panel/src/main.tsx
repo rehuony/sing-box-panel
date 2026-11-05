@@ -5,7 +5,7 @@ import { createBrowserRouter } from 'react-router-dom';
 import i18n from '@/i18n';
 import { App } from '@/app';
 import { AppRoutes } from '@/routes/app.routes';
-import { createBrowserApiClient } from '@/api/browser-api-client';
+import { createHttpApiClient } from '@/api/http-api-client';
 import { UnsavedChangesProvider } from '@/stores/unsaved-changes-provider';
 import '@shared/styles/global.css';
 
@@ -22,8 +22,8 @@ if (rootElement === null) {
 }
 const applicationRoot = rootElement;
 
-async function bootstrap() {
-  const apiClient = await createBrowserApiClient(basePath);
+function bootstrap() {
+  const apiClient = createHttpApiClient({ baseUrl: `${basePath}/api/v1` });
   const router = createBrowserRouter([
     { path: '*', element: <UnsavedChangesProvider><AppRoutes /></UnsavedChangesProvider> },
   ], { basename: basePath || undefined });
@@ -35,4 +35,4 @@ async function bootstrap() {
   );
 }
 
-void bootstrap();
+bootstrap();

@@ -100,7 +100,7 @@ func TestPanelSettingsAuthenticationPersistenceAndRotation(t *testing.T) {
 		t.Fatal(login.Body.String())
 	}
 	cookie := login.Result().Cookies()[0]
-	var session sessionPayload
+	var session auth.AuthSession
 	if err := json.Unmarshal(login.Body.Bytes(), &session); err != nil {
 		t.Fatal(err)
 	}

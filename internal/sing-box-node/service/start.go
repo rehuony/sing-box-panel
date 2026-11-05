@@ -29,7 +29,7 @@ func (node *Node) Start(ctx context.Context) (*Runtime, error) {
 	if err := syncEnabledCore(ctx); err != nil {
 		return nil, fmt.Errorf("restore enabled core link: %w", err)
 	}
-	node.SetArtifactInstaller(installed)
+	node.artifacts = installed
 	services, err := newRuntimeServices(node.database, node, node.dataDir)
 	if err != nil {
 		return nil, fmt.Errorf("construct sing-box runtime: %w", err)
@@ -41,7 +41,7 @@ func (node *Node) Start(ctx context.Context) (*Runtime, error) {
 	runtime.stops = append(runtime.stops, services.Close)
 	services.lifetime = ctx
 	services.syncEnabledCore = syncEnabledCore
-	node.SetRuntimeController(services)
+	node.runtimeControl = services
 	if err := services.ReconcileStartup(ctx); err != nil {
 		return nil, errors.Join(fmt.Errorf("reconcile sing-box runtime: %w", err), runtime.Close())
 	}

@@ -34,12 +34,12 @@ func TestStartupArtifactBindsRawConfigurationToRevisionAndExactBinary(t *testing
 		t.Fatal(err)
 	}
 
-	startup, err := database.CreateStartupArtifact(ctx, StartupArtifact{
+	startup, err := database.CreateCompiledStartupArtifact(ctx, StartupArtifact{
 		ID: "startup-raw", CanonicalRevisionID: revision.ID, ExactCoreVersion: core.ExactVersion,
 		CoreArtifactID: core.ID, ConfigBytes: []byte("{\n  \"log\": {\"level\": \"warn\"}\n}"), CreatedAt: now.Add(time.Second),
-	})
+	}, CompiledStartupEvidence{ExpectedCanonicalHeadID: revision.ID})
 	if err != nil {
-		t.Fatalf("CreateStartupArtifact() error = %v", err)
+		t.Fatalf("CreateCompiledStartupArtifact() error = %v", err)
 	}
 	if startup.ConfigSHA256 != revision.SHA256 || string(startup.ConfigBytes) != string(revision.Document) ||
 		startup.State != StartupArtifactPending {
@@ -50,17 +50,17 @@ func TestStartupArtifactBindsRawConfigurationToRevisionAndExactBinary(t *testing
 		t.Fatalf("CompleteStartupArtifactCheck() = %+v, %v", ready, err)
 	}
 
-	_, err = database.CreateStartupArtifact(ctx, StartupArtifact{
+	_, err = database.CreateCompiledStartupArtifact(ctx, StartupArtifact{
 		ID: "startup-mismatch", CanonicalRevisionID: revision.ID, ExactCoreVersion: core.ExactVersion,
 		CoreArtifactID: core.ID, ConfigBytes: []byte(`{"log":{"level":"debug"}}`), CreatedAt: now.Add(3 * time.Second),
-	})
+	}, CompiledStartupEvidence{ExpectedCanonicalHeadID: revision.ID})
 	if err == nil || !strings.Contains(err.Error(), "does not match canonical revision") {
 		t.Fatalf("mismatched config error = %v", err)
 	}
-	_, err = database.CreateStartupArtifact(ctx, StartupArtifact{
+	_, err = database.CreateCompiledStartupArtifact(ctx, StartupArtifact{
 		ID: "startup-array", CanonicalRevisionID: revision.ID, ExactCoreVersion: core.ExactVersion,
 		CoreArtifactID: core.ID, ConfigBytes: []byte(`[]`), CreatedAt: now.Add(4 * time.Second),
-	})
+	}, CompiledStartupEvidence{ExpectedCanonicalHeadID: revision.ID})
 	if !errors.Is(err, configuration.ErrInvalidDocument) {
 		t.Fatalf("non-object config error = %v, want ErrInvalidDocument", err)
 	}

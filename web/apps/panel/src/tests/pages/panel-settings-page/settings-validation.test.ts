@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { demoBackupSettings } from '@/api/demo/demo-panel-backup';
+import { backupSettings } from '@/tests/api/backup-settings';
 import { createMockApiClient } from '@/tests/api/mock-api-client';
 import { backupFile } from '@/pages/panel-settings-page/panel-backup';
 import { invalidSettingsField, passwordError, resolveSettingsCategory } from '@/pages/panel-settings-page/settings-categories';
@@ -34,7 +34,7 @@ describe('backup import boundary', () => {
     const view = await createMockApiClient().getPanelSettings();
     return {
       format: 'sing-box-panel-backup', version: 3, exported_at: '2026-09-23T01:00:00Z',
-      panel_settings: demoBackupSettings(view, { github: '', passwordHash: 'demo-password-hash' }),
+      panel_settings: backupSettings(view, { github: '', passwordHash: 'test-password-hash' }),
     };
   }
   it('accepts only the supported envelope', async () => {

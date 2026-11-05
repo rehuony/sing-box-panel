@@ -27,7 +27,7 @@ func TestDefaultRetentionKeepsSevenUTCDatesWithoutFileCountCap(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if err := logs.Prune(); err != nil {
+	if err := logs.SetPolicy(DefaultPolicy()); err != nil {
 		t.Fatal(err)
 	}
 	files, err := logs.List()
@@ -79,13 +79,14 @@ func TestLiveSizeChangeRotatesWithoutTruncatingAndBoundsLargeWrites(t *testing.T
 			t.Fatalf("large write exceeded cap: %+v", file)
 		}
 	}
-	// An idle writer cannot keep an expired date forever.
+	// An idle writer cannot keep an expired date forever: daily maintenance
+	// leaves only the new day's file.
 	now = now.AddDate(0, 0, 8)
-	if err := logs.Prune(); err != nil {
+	if err := logs.EnsureCurrentFile(); err != nil {
 		t.Fatal(err)
 	}
 	files, err = logs.List()
-	if err != nil || len(files) != 0 {
+	if err != nil || len(files) != 1 || files[0].Name != "2026-10-01-000.log" {
 		t.Fatal(files, err)
 	}
 }

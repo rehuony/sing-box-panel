@@ -21,7 +21,7 @@ func TestCoreLogMaintenanceCreatesIdleDailyFilesAndRetriesFailure(t *testing.T) 
 			t.Fatal(err)
 		}
 		commands := FromStore(nil)
-		commands.SetCoreLogs(logs)
+		commands.attachCoreLogs(logs)
 		ctx, cancel := context.WithCancel(t.Context())
 		done := startCoreLogRetention(ctx, commands)
 		defer func() { cancel(); <-done }()

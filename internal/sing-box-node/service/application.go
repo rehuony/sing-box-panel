@@ -78,6 +78,3 @@ func (node *Node) CachedPublicIP(ctx context.Context) string { return node.publi
 
 // RunPublicIPDetection refreshes the public IP hint until ctx ends.
 func (node *Node) RunPublicIPDetection(ctx context.Context) { node.publicIP.Run(ctx) }
-
-// UsePublicIPDetector replaces public IP detection, such as in tests.
-func (node *Node) UsePublicIPDetector(detector *host.PublicIPDetector) { node.publicIP = detector }

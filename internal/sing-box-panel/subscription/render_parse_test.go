@@ -48,7 +48,7 @@ func TestRenderRejectsStrictJSONViolationsWithSafeCodes(t *testing.T) {
 func TestRenderRejectsSizeAndDepthBoundaries(t *testing.T) {
 	t.Parallel()
 
-	tooLarge := make([]byte, MaximumStartupBytes+1)
+	tooLarge := make([]byte, MaximumDocumentBytes+1)
 	for index := range tooLarge {
 		tooLarge[index] = ' '
 	}

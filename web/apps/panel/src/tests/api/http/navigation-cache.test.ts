@@ -10,15 +10,15 @@ describe('hTTP read policy', () => {
       .mockRejectedValueOnce(new TypeError('offline'))
       .mockImplementation(async () => new Response('{}'));
     const client = createHttpApiClient({ fetcher }).forNode('node_a');
-    await client.getSystemStatus();
-    await client.getSystemStatus();
+    await client.getTrafficStatus();
+    await client.getTrafficStatus();
     expect(fetcher).toHaveBeenCalledTimes(3);
   });
   it('does not retry writes or authorization failures', async () => {
     const fetcher = vi.fn<typeof fetch>().mockRejectedValueOnce(new TypeError('offline')).mockResolvedValueOnce(new Response('{}', { status: 401 }));
     const client = createHttpApiClient({ fetcher }).forNode('node_a');
     await expect(client.startRuntime()).rejects.toThrow('offline');
-    await expect(client.getSystemStatus()).rejects.toMatchObject({ status: 401 });
+    await expect(client.getTrafficStatus()).rejects.toMatchObject({ status: 401 });
     expect(fetcher).toHaveBeenCalledTimes(2);
   });
   it('bounds a stalled read including its response body', async () => {
@@ -26,7 +26,7 @@ describe('hTTP read policy', () => {
     const fetcher = vi.fn<typeof fetch>().mockImplementation((_url, init) => new Promise((_resolve, reject) => {
       init?.signal?.addEventListener('abort', () => reject(init.signal?.reason));
     }));
-    const request = createHttpApiClient({ fetcher }).forNode('node_a').getSystemStatus();
+    const request = createHttpApiClient({ fetcher }).forNode('node_a').getTrafficStatus();
     const failure = expect(request).rejects.toMatchObject({ name: 'TimeoutError' });
     await vi.advanceTimersByTimeAsync(15_000);
     await failure;

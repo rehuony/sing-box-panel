@@ -82,14 +82,14 @@ func TestAppendLogEntryValidatesStrictBoundsAndJSON(t *testing.T) {
 		{name: "invalid source", mutate: func(entry *LogEntry) { entry.Source = "journal" }},
 		{name: "invalid level", mutate: func(entry *LogEntry) { entry.Level = "notice" }},
 		{name: "invalid code", mutate: func(entry *LogEntry) { entry.Code = "Panel Ready" }},
-		{name: "oversized message", mutate: func(entry *LogEntry) { entry.Message = strings.Repeat("m", MaximumLogMessageBytes+1) }},
+		{name: "oversized message", mutate: func(entry *LogEntry) { entry.Message = strings.Repeat("m", logredact.MaximumMessageBytes+1) }},
 		{name: "message control", mutate: func(entry *LogEntry) { entry.Message = "line one\nline two" }},
 		{name: "subscription message", mutate: func(entry *LogEntry) { entry.Message = "vless://uuid@example.test:443" }},
 		{name: "duplicate metadata key", mutate: func(entry *LogEntry) { entry.Metadata = json.RawMessage(`{"a":1,"a":2}`) }},
 		{name: "metadata array", mutate: func(entry *LogEntry) { entry.Metadata = json.RawMessage(`[]`) }},
 		{name: "full config metadata", mutate: func(entry *LogEntry) { entry.Metadata = json.RawMessage(`{"outbounds":[]}`) }},
 		{name: "oversized metadata", mutate: func(entry *LogEntry) {
-			entry.Metadata = json.RawMessage(`{"value":"` + strings.Repeat("x", MaximumLogMetadataBytes) + `"}`)
+			entry.Metadata = json.RawMessage(`{"value":"` + strings.Repeat("x", logredact.MaximumMetadataBytes) + `"}`)
 		}},
 	}
 	for _, test := range tests {

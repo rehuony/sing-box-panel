@@ -17,7 +17,6 @@ export function createHttpApiClient(options: HttpApiClientOptions = {}): ApiClie
   const root = createHttpApiContext(options);
   // Every scope shares the root context's session and CSRF state.
   const build = (context: HttpApiContext, nodeID: string | null): ApiClient => ({
-    supportsNativeChannelValidation: true,
     nodeID,
     forNode: (id: string) => build(withNode(root, id), id),
     ...createSessionHttpApi(context),

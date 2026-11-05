@@ -166,7 +166,7 @@ func TestCoreHTTPRejectsAmbiguousAndOversizedInputs(t *testing.T) {
 		},
 		{
 			name: "import plain body", method: http.MethodPost,
-			target: node + "/core/import", body: strings.Repeat("x", maximumCoreImportRequestBytes+1),
+			target: node + "/core/import", body: strings.Repeat("x", 32<<10+1),
 			wantStatus: http.StatusUnsupportedMediaType, wantCode: "core_import_media_type",
 		},
 		{

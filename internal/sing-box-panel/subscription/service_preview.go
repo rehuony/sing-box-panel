@@ -11,14 +11,6 @@ import (
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/store"
 )
 
-func (application *Service) RenderSubscriptionPreview(
-	ctx context.Context,
-	userID string,
-	channelID string,
-) (SubscriptionPreview, error) {
-	return application.RenderSubscriptionDraft(ctx, userID, channelID, nil)
-}
-
 type SubscriptionDraftPreview struct {
 	Format store.SubscriptionFormat `json:"format"`
 	Config json.RawMessage          `json:"config"`

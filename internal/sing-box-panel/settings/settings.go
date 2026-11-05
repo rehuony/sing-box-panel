@@ -220,13 +220,9 @@ func parse(path string, data []byte) (Settings, error) {
 }
 
 // LoadOrInitialize loads settings, creating defaults only when the selected file
-// is absent. Concurrent callers use the same atomically published settings.
-func LoadOrInitialize(path string) (value Settings, created bool, err error) {
-	return LoadOrInitializeContext(context.Background(), path)
-}
-
-// LoadOrInitializeContext preserves startup recovery and cancellation.
-func LoadOrInitializeContext(ctx context.Context, path string) (value Settings, created bool, err error) {
+// is absent, and preserves startup recovery and cancellation. Concurrent
+// callers use the same atomically published settings.
+func LoadOrInitialize(ctx context.Context, path string) (value Settings, created bool, err error) {
 	if err := ctx.Err(); err != nil {
 		return Settings{}, false, err
 	}

@@ -20,24 +20,9 @@ func (app *Service) SettingsChanges() (<-chan struct{}, func()) {
 	}
 }
 
-// OnCommit registers a hook that receives every committed settings value
-// under the settings-file lock, in commit order. Hooks must not block or take
-// the settings lock.
-func (app *Service) OnCommit(hook func(Settings)) {
-	app.hooksMu.Lock()
-	defer app.hooksMu.Unlock()
-	app.commitHooks = append(app.commitHooks, hook)
-}
-
 // publishSettings is called under the settings-file lock after a successful
 // commit, preserving save order. Receivers do not run under this lock.
-func (app *Service) publishSettings(value Settings) {
-	app.hooksMu.Lock()
-	hooks := append([]func(Settings){}, app.commitHooks...)
-	app.hooksMu.Unlock()
-	for _, hook := range hooks {
-		hook(value)
-	}
+func (app *Service) publishSettings() {
 	app.settingsListenersMu.Lock()
 	defer app.settingsListenersMu.Unlock()
 	for changes := range app.settingsListeners {
@@ -51,6 +36,4 @@ func (app *Service) publishSettings(value Settings) {
 type listeners struct {
 	settingsListenersMu sync.Mutex
 	settingsListeners   map[chan struct{}]struct{}
-	hooksMu             sync.Mutex
-	commitHooks         []func(Settings)
 }

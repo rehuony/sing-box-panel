@@ -11,7 +11,7 @@ import { ApiRequestError } from '@/api/api-client';
 import { ApiClientProvider } from '@/api/api-client-context';
 import { ServerPathInput } from '@/components/server-path-input';
 import { createMockApiClient } from '@/tests/api/mock-api-client';
-import { createDemoFilesystemApi } from '@/api/demo/demo-filesystem';
+import { createFakeFilesystemApi } from '@/tests/api/fake-filesystem';
 
 function Harness({ mode = 'file', initial = '', readOnly = false }: { mode?: FilesystemMode; initial?: string; readOnly?: boolean }) {
   const [value, setValue] = useState(initial);
@@ -19,7 +19,7 @@ function Harness({ mode = 'file', initial = '', readOnly = false }: { mode?: Fil
 }
 
 function setup(mode: FilesystemMode = 'file', initial = '') {
-  const api = createMockApiClient(createDemoFilesystemApi());
+  const api = createMockApiClient(createFakeFilesystemApi());
   api.resolveFilesystemPath = vi.fn(api.resolveFilesystemPath);
   api.listFilesystemEntries = vi.fn(api.listFilesystemEntries);
   render(<ApiClientProvider client={api}><Harness mode={mode} initial={initial} /></ApiClientProvider>);
@@ -268,7 +268,7 @@ describe('server path input', () => {
   });
 
   it('escape closes only the nested picker and restores focus to its trigger', async () => {
-    const api = createMockApiClient(createDemoFilesystemApi());
+    const api = createMockApiClient(createFakeFilesystemApi());
     render(
       <ApiClientProvider client={api}>
         <Dialog open>
@@ -374,7 +374,7 @@ describe('server path input', () => {
   it('restores keyboard focus after entering and leaving a directory', async () => {
     const { api, user } = setup('file', '/etc');
     const dialog = await openPicker(user);
-    const childPage = await createDemoFilesystemApi().listFilesystemEntries({ path: '/etc/sing-box', limit: 10 }, undefined);
+    const childPage = await createFakeFilesystemApi().listFilesystemEntries({ path: '/etc/sing-box', limit: 10 }, undefined);
     let resolvePage!: (page: FilesystemPage) => void;
     api.listFilesystemEntries.mockImplementationOnce(() => new Promise(resolve => {
       resolvePage = resolve;

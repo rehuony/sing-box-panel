@@ -2,26 +2,11 @@
 package store
 
 import (
-	"encoding/json"
 	"time"
 )
 
 type rowScanner interface {
 	Scan(...any) error
-}
-
-func nullableJSON(value json.RawMessage) any {
-	if len(value) == 0 {
-		return nil
-	}
-	return string(value)
-}
-
-func nullableTime(value *time.Time) any {
-	if value == nil {
-		return nil
-	}
-	return formatTime(*value)
 }
 
 func formatTime(value time.Time) string {

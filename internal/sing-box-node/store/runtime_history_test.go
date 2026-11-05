@@ -187,7 +187,7 @@ func TestRuntimeObservationTransitionFencePreservesNewIncarnation(t *testing.T) 
 	newObservation.ProcessStartToken = "runtime-history-new-incarnation"
 	newObservation.StartedAt = oldObservation.StartedAt.Add(time.Minute)
 	newObservation.ObservedAt = newObservation.StartedAt.Add(time.Second)
-	if _, err := database.RecordRuntimeObservation(ctx, newObservation); err != nil {
+	if _, err := database.RecordRuntimeObservationAndTransitions(ctx, &oldObservation, newObservation, nil); err != nil {
 		t.Fatal(err)
 	}
 	transition := runtimeTransitionTestInput(

@@ -9,10 +9,8 @@ import (
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/telemetry"
 )
 
-const (
-	dashboardStreamInterval = 30 * time.Second
-	dashboardStreamLifetime = time.Minute
-)
+// dashboardStreamLifetime ends each stream so the client reauthenticates.
+const dashboardStreamLifetime = time.Minute
 
 func (handler *Handler) streamDashboard(w http.ResponseWriter, request *http.Request) {
 	if !handler.requireCommands(w, request) {

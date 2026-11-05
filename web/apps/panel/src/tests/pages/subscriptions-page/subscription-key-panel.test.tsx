@@ -53,7 +53,6 @@ it('shows the three accepted tabs without fetching users', () => {
   const client = createMockApiClient();
   render(<TestRouter><ApiClientProvider client={client}><SubscriptionsPage /></ApiClientProvider></TestRouter>);
   expect(screen.getAllByRole('tab').map(tab => tab.textContent)).toEqual(['Sources', 'Key management', 'Channels']);
-  expect(client.listSubscriptionUsers).not.toHaveBeenCalled();
   expect(client.listSubscriptionTokens).not.toHaveBeenCalled();
 });
 
@@ -225,7 +224,6 @@ it('deletes the selected revoked key, with cancellation and retry after failure'
   await user.click(within(confirmation).getByRole('button', { name: 'Delete' }));
   expect(client.deleteSubscriptionToken).toHaveBeenNthCalledWith(1, key.id);
   expect(client.deleteSubscriptionToken).toHaveBeenNthCalledWith(2, key.id);
-  expect(client.revokeSubscriptionToken).not.toHaveBeenCalled();
   await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
 });
 

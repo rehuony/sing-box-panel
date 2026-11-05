@@ -93,7 +93,7 @@ func TestRuntimeCompletionRejectsStaleOrMissingEvidence(t *testing.T) {
 				expected.ProcessStartToken = "newer-incarnation"
 				expected.StartedAt = transition.OccurredAt
 				expected.ObservedAt = transition.OccurredAt
-				if _, err := database.RecordRuntimeObservation(ctx, expected); err != nil {
+				if _, err := database.RecordRuntimeObservationAndTransitions(ctx, &observation, expected, nil); err != nil {
 					t.Fatal(err)
 				}
 			case "wrong-transition-generation":

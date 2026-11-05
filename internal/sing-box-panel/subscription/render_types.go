@@ -10,10 +10,8 @@ import (
 )
 
 const (
-	// MaximumStartupBytes bounds the final startup document accepted by Render.
-	MaximumStartupBytes = MaximumDocumentBytes
-	maximumOutbounds    = MaximumNodes
-	maximumFilters      = 10_000
+	maximumOutbounds = MaximumNodes
+	maximumFilters   = 10_000
 )
 
 var (
