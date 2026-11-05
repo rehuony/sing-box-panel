@@ -105,14 +105,17 @@ Subscription-Userinfo: upload=123; download=456; total=0
 ```
 
 Values are integer bytes, separated by a semicolon and a space. `upload` is the
-recorded outbound traffic of every node in that node's own current period, and
-`download` is the same for inbound traffic. `total` is always `0`: each node has
-its own quota, and their sum would tell a client nothing about how much it can
-still use on the node it actually uses. These counters are shared by all keys
-and channels, including user-scoped keys. They do not represent individual
-user usage, subscription file sizes, or the key's download limit.
+recorded outbound traffic of the nodes whose local inbounds the subscription
+may carry, each in its own current period, and `download` is the same for
+inbound traffic. Those are the nodes with a local inbound the key may receive
+in this channel and that is not hidden; a subscription with no local inbounds
+reports zero. `total` is always `0`: each node has its own quota, and their sum
+would tell a client nothing about how much it can still use on the node it
+actually uses. The counters belong to the nodes, so every key that reaches the
+same nodes sees the same values. They do not represent individual user usage,
+subscription file sizes, or the key's download limit.
 
-Each request reads every node's period settings and sums the recorded usage of
+Each request reads those nodes' period settings and sums the recorded usage of
 each node's current period. When a node reaches its reset day, only its new
 period's usage counts; no records means zero. Historical totals remain intact,
 and no reset job or running collector is required. Period changes take effect
@@ -133,22 +136,34 @@ so manually refresh an existing subscription to see it immediately.
 
 ## Applied local nodes and versioned sources
 
-Local nodes are derived only from the immutable startup bytes referenced by
-a node's currently applied activation bundle. Nodes report their applied
-bundles, but the panel does not derive local nodes from them yet, so it
-publishes sources and manual nodes only. Draft, failed, and unapplied
-configuration is never published. Rollback changes the applied bundle pointer
-and therefore restores the matching local-node input without re-projecting the
-current revision.
+Each node publishes local nodes from the configuration of the bundle it reports
+running: the panel finds that revision among the node's revisions, checks its
+bytes against the digest the node reported, and converts its inbounds with the
+exact core version of the bundle. Draft, failed, and unapplied configuration is
+never published. Rollback changes the applied bundle the node reports and
+therefore restores the matching local-node input without re-projecting the
+current revision. A node whose revision the panel no longer holds or whose
+digest differs, whose core version has no converter, or whose configuration
+cannot be read publishes nothing and adds a diagnostic naming it; the other
+nodes publish as usual.
+
+A local node's key and publication ID include its node, so nodes that run the
+same tags and credentials stay distinct. Its tag and its name in rendered
+channels are prefixed with its node's name, such as `tokyo · vless-in`, and the
+node catalog names its node in `node_id` and `source_name`. The catalog and
+previews list every publishing node under `node_publications`.
 
 The inbound registry accepts only the exact reviewed releases with an inbound
 family in the [support table](core-versions.md#exact-configuration-support);
 other versions fail closed.
 Each converter publishes only the client-usable inbound types available in that
 release and reports stable diagnostics for server-only or unsupported types. Multi-user inbounds
-become separate grantable credentials for user-scoped access. The panel public-host override, existing channel `public_host`, or detected
-public IP combines with each inbound `listen_port`; server certificate private keys,
-ACME configuration, and listen-side fields are never copied.
+become separate grantable credentials for user-scoped access. A node's public
+host, set in its settings, or else the public IP it reports combines with each
+inbound `listen_port`; server certificate private keys, ACME configuration, and
+listen-side fields are never copied. A node with neither publishes nothing and
+adds a `public_host_unavailable` diagnostic; the catalog still lists its
+inbounds, unavailable and without a server.
 
 Each reviewed version uses the following contract for its assigned family:
 
@@ -815,14 +830,15 @@ the later day. Changing period settings does not reset checkpoints or re-add
 lifetime counters. The raw sample's nullable deltas and coverage metadata remain
 available for historical charts, independently of daily accounting.
 
-Each node has its own quota and period, read and saved with
-`GET` and `PUT /api/v1/nodes/{nodeId}/traffic/settings`:
+Each node has its own public host, quota and period, read and saved with
+`GET` and `PUT /api/v1/nodes/{nodeId}/settings`:
 
 | Field | Meaning | Default |
 | --- | --- | --- |
-| `quota_gib` | The node's quota in GiB; `null` or `0` is unlimited | `null` |
-| `period_months` | Period length, 1 to 120 months, aligned to months counted from January 1970 | `1` |
-| `reset_day` | Day of the month, 1 to 28, on which each period starts at 00:00 UTC | `1` |
+| `public_host` | IP address or DNS name, without scheme or port, that subscriptions publish for the node's inbounds; loopback and unspecified addresses are rejected | Empty; the public IP the node reports |
+| `traffic.quota_gib` | The node's quota in GiB; `null` or `0` is unlimited | `null` |
+| `traffic.period_months` | Period length, 1 to 120 months, aligned to months counted from January 1970 | `1` |
+| `traffic.reset_day` | Day of the month, 1 to 28, on which each period starts at 00:00 UTC | `1` |
 
 A save carries the `revision` it read and fails with `412` when another save
 changed the settings first. Periods and quota status are recomputed at once

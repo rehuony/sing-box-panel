@@ -38,7 +38,6 @@ func TestPanelSettingsFileSharedWithManualAndCLIChanges(t *testing.T) {
 	before, _ := Read(app.settingsPath)
 	value, _ := Load(app.settingsPath)
 	value.Panel.Language = "en"
-	value.Panel.PublicNodeHost = "nodes.example.com"
 	value.Subscription.PrivateSourceCIDRs = []string{"10.0.0.0/8"}
 	value.Server.BasePath = "/panel"
 	raw, _ := json.Marshal(value)
@@ -49,7 +48,7 @@ func TestPanelSettingsFileSharedWithManualAndCLIChanges(t *testing.T) {
 		t.Fatalf("stale Web save overwrote file: %v", err)
 	}
 	view, err = app.PanelSettings(t.Context())
-	if err != nil || view.Preferences.Language != "en" || view.Preferences.PublicNodeHost != "nodes.example.com" || !view.RestartRequired {
+	if err != nil || view.Preferences.Language != "en" || !view.RestartRequired {
 		t.Fatalf("file edit invisible: %+v %v", view, err)
 	}
 	view.Preferences.Appearance.Radius = 0

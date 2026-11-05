@@ -3,7 +3,6 @@
 package httpapi
 
 import (
-	"context"
 	"database/sql"
 	"encoding/json"
 	"net/http"
@@ -18,6 +17,13 @@ import (
 func TestPublicSubscriptionTrafficRefreshesOn304AndIsSharedAcrossChannels(t *testing.T) {
 	ctx := t.Context()
 	db, app, handler, channel, publish := newSubscriptionPublicationHTTPFixture(t, "/panel")
+	// A node's own quota is not a subscription total: the header reports
+	// usage only.
+	nodeID := testutil.PublishNode(t, db, "edge", testutil.InboundDocument, "edge.example", "")
+	quota := int64(100)
+	if _, err := db.SaveNodeSettings(ctx, nodeID, 2, store.NodeSettings{PublicHost: "edge.example", Traffic: store.NodeTrafficSettings{QuotaGiB: &quota, PeriodMonths: 1, ResetDay: 1}}); err != nil {
+		t.Fatal(err)
+	}
 	publish()
 	key, err := app.Subscriptions.CreateSubscriptionToken(ctx, subscription.CreateSubscriptionTokenRequest{Label: "traffic"})
 	if err != nil {
@@ -29,13 +35,6 @@ func TestPublicSubscriptionTrafficRefreshesOn304AndIsSharedAcrossChannels(t *tes
 		t.Fatalf("first response status=%d traffic=%q", first.Code, first.Header().Get("Subscription-Userinfo"))
 	}
 
-	// A node's own quota is not a subscription total: the header reports
-	// usage only.
-	nodeID := testutil.CreateNode(t, db, "edge")
-	quota := int64(100)
-	if _, err := db.SaveNodeTrafficSettings(ctx, nodeID, 1, store.NodeTrafficSettings{QuotaGiB: &quota, PeriodMonths: 1, ResetDay: 1}); err != nil {
-		t.Fatal(err)
-	}
 	// Use real collector writes while the core is stopped. Only proven deltas,
 	// not the first lifetime counters, belong to the subscription's period usage.
 	now := time.Now().UTC()
@@ -59,7 +58,7 @@ func TestPublicSubscriptionTrafficRefreshesOn304AndIsSharedAcrossChannels(t *tes
 		t.Fatalf("conditional response status=%d traffic=%q", conditional.Code, conditional.Header().Get("Subscription-Userinfo"))
 	}
 	second, err := app.Subscriptions.CreateSubscriptionChannel(ctx, subscription.CreateSubscriptionChannelRequest{
-		Name: "Mihomo", Format: store.SubscriptionFormatMihomo, PublicHost: "publish.example", Enabled: true,
+		Name: "Mihomo", Format: store.SubscriptionFormatMihomo, Enabled: true,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -84,8 +83,8 @@ func TestPublicSubscriptionFailuresDoNotExposeTrafficOrConsumeDownloads(t *testi
 			t.Run(name, func(t *testing.T) {
 				ctx := t.Context()
 				db, app, handler := newSubscriptionHTTPServices(t, "")
-				// The header reads the traffic of every node.
-				testutil.CreateNode(t, db, "edge")
+				// The header reads the traffic of the node the channel carries.
+				testutil.PublishNode(t, db, "edge", testutil.InboundDocument, "edge.example", "")
 				if _, err := app.Subscriptions.CreateSubscriptionNode(ctx, json.RawMessage(`{"type":"socks","tag":"manual","server":"manual.example","server_port":1080}`)); err != nil {
 					t.Fatal(err)
 				}
@@ -108,24 +107,27 @@ func TestPublicSubscriptionFailuresDoNotExposeTrafficOrConsumeDownloads(t *testi
 				if unknown.Code != http.StatusNotFound || unknown.Header().Get("Subscription-Userinfo") != "" {
 					t.Fatalf("unknown key status=%d traffic=%q", unknown.Code, unknown.Header().Get("Subscription-Userinfo"))
 				}
-				// The resolver runs during rendering, after the initial authorization
-				// snapshot. Change state here to exercise the delivery-time checks.
-				resolver := func(context.Context) string {
-					switch failure {
-					case "authorization recheck":
-						_, err = app.Subscriptions.RevokeSubscriptionToken(ctx, key.Metadata.ID)
-					case "traffic storage":
+				// Delivery reads the clock once before its authorization snapshot and
+				// again in the final recheck. Change state there to exercise the
+				// delivery-time checks.
+				calls := 0
+				clock := func() time.Time {
+					calls++
+					switch {
+					case failure == "traffic storage" && calls == 1:
 						err = db.WithTx(ctx, func(tx *sql.Tx) error {
 							_, err := tx.ExecContext(ctx, "DROP TABLE traffic_days")
 							return err
 						})
+					case failure == "authorization recheck" && calls == 2:
+						_, err = app.Subscriptions.RevokeSubscriptionToken(ctx, key.Metadata.ID)
 					}
 					if err != nil {
 						t.Fatal(err)
 					}
-					return "public.example"
+					return time.Now()
 				}
-				handler.services.Subscriptions = subscription.New(db, app.Settings, app.Telemetry, subscription.Options{PublicIP: resolver, PublicIPCache: resolver})
+				handler.services.Subscriptions = subscription.New(db, app.Settings, app.Telemetry, subscription.Options{Now: clock})
 				etag := ""
 				if conditional {
 					etag = first.Header().Get("ETag")

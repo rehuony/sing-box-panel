@@ -129,11 +129,11 @@ describe('panel settings', () => {
   it('focuses the invalid field when save returns to its category', async () => {
     const user = userEvent.setup();
     const client = setup();
-    const address = await screen.findByLabelText('Published node address', { selector: 'input' });
-    fireEvent.change(address, { target: { value: 'https://invalid.example.com' } });
+    const origin = await screen.findByLabelText('Access origin', { selector: 'input' });
+    fireEvent.change(origin, { target: { value: 'ftp://invalid.example.com/path' } });
     await user.click(screen.getByRole('tab', { name: 'Log management' }));
     await user.click(screen.getByRole('button', { name: 'Save settings' }));
-    await waitFor(() => expect(screen.getByLabelText('Published node address', { selector: 'input' })).toHaveFocus());
+    await waitFor(() => expect(screen.getByLabelText('Access origin', { selector: 'input' })).toHaveFocus());
     expect(client.savePanelSettings).not.toHaveBeenCalled();
   });
 

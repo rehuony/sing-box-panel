@@ -25,7 +25,7 @@ func TestPublicSubscriptionTrafficSumsEveryNodesOwnPeriod(t *testing.T) {
 		t.Fatal(err)
 	}
 	channel, err := app.CreateSubscriptionChannel(ctx, CreateSubscriptionChannelRequest{
-		Name: "public", Format: store.SubscriptionFormatMihomo, PublicHost: "public.example", Enabled: true,
+		Name: "public", Format: store.SubscriptionFormatMihomo, Enabled: true,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -38,9 +38,12 @@ func TestPublicSubscriptionTrafficSumsEveryNodesOwnPeriod(t *testing.T) {
 	// Seed durable daily totals of two nodes without live samples. Node b
 	// resets on the 15th and has a quota of its own, which the header must
 	// not present as a total.
-	nodes := []string{testutil.CreateNode(t, db, "edge-a"), testutil.CreateNode(t, db, "edge-b")}
+	nodes := []string{
+		testutil.PublishNode(t, db, "edge-a", testutil.InboundDocument, "", "203.0.113.1"),
+		testutil.PublishNode(t, db, "edge-b", testutil.InboundDocument, "", "203.0.113.2"),
+	}
 	quota := int64(100)
-	if _, err := db.SaveNodeTrafficSettings(ctx, nodes[1], 1, store.NodeTrafficSettings{QuotaGiB: &quota, PeriodMonths: 1, ResetDay: 15}); err != nil {
+	if _, err := db.SaveNodeSettings(ctx, nodes[1], 2, store.NodeSettings{Traffic: store.NodeTrafficSettings{QuotaGiB: &quota, PeriodMonths: 1, ResetDay: 15}}); err != nil {
 		t.Fatal(err)
 	}
 	recordDay := func(node, day string, upload, download int64) {
@@ -80,8 +83,8 @@ func TestPublicSubscriptionTrafficSumsEveryNodesOwnPeriod(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if _, err := db.SaveNodeTrafficSettings(ctx, nodes[1], settings.Traffic.Revision, store.NodeTrafficSettings{
-				QuotaGiB: &quota, PeriodMonths: 1, ResetDay: test.resetDay,
+			if _, err := db.SaveNodeSettings(ctx, nodes[1], settings.Settings.Revision, store.NodeSettings{
+				Traffic: store.NodeTrafficSettings{QuotaGiB: &quota, PeriodMonths: 1, ResetDay: test.resetDay},
 			}); err != nil {
 				t.Fatal(err)
 			}

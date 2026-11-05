@@ -72,7 +72,7 @@ type SubscriptionTokenPage struct {
 }
 
 const subscriptionChannelColumns = `
-    id, name, format, public_host, config_json, enabled, created_at, updated_at`
+    id, name, format, config_json, enabled, created_at, updated_at`
 
 const subscriptionSourceColumns = `
 	id, name, source_kind, config_json, current_version_id, enabled,

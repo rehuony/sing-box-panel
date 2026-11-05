@@ -13,7 +13,7 @@ describe('settings validation', () => {
     expect(passwordError(password)).toBeUndefined();
   });
   it.each([
-    ['access', 'service'], ['authentication', 'service'], ['publication', 'service'],
+    ['access', 'service'], ['authentication', 'service'],
     ['storage', 'maintenance'], ['updates', 'maintenance'], ['languageGroup', 'interface'],
   ] as const)('maps the retained %s hash to %s', (hash, category) => {
     expect(resolveSettingsCategory(hash)).toBe(category);
@@ -22,8 +22,6 @@ describe('settings validation', () => {
     const view = await createMockApiClient().getPanelSettings();
     expect(invalidSettingsField(view.preferences, view.service, '')).toBeNull();
     expect(invalidSettingsField({ ...view.preferences, external_origin: 'https://panel.example.com' }, view.service, '')).toBeNull();
-    expect(invalidSettingsField({ ...view.preferences, public_node_host: 'https://invalid.example.com' }, view.service, ''))
-      .toEqual({ category: 'service', field: 'public-host' });
     expect(invalidSettingsField(view.preferences, { ...view.service, catalog_refresh_interval_hours: 0 }, ''))
       .toEqual({ category: 'maintenance', field: 'catalog-refresh-interval' });
     expect(invalidSettingsField(view.preferences, { ...view.service, sample_retention_days: 0 }, ''))

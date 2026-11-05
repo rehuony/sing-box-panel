@@ -85,7 +85,6 @@ export function useChannelDraft(
         name: name.trim(),
         enabled: channel.enabled,
         format,
-        public_host: channel.public_host,
         config: policyConfig(p),
       },
       channel.updated_at,

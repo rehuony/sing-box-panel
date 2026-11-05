@@ -47,7 +47,7 @@ func (service *Service) NodeTraffic(ctx context.Context, nodeID string, at time.
 }
 
 func (service *Service) nodeTraffic(ctx context.Context, node store.Node, at time.Time) (NodeTrafficUsage, error) {
-	start, end, err := TrafficPeriod(at, node.Traffic)
+	start, end, err := TrafficPeriod(at, node.Settings.Traffic)
 	if err != nil {
 		return NodeTrafficUsage{}, err
 	}
@@ -56,23 +56,34 @@ func (service *Service) nodeTraffic(ctx context.Context, node store.Node, at tim
 		return NodeTrafficUsage{}, err
 	}
 	usage := NodeTrafficUsage{NodeID: node.ID, Period: period}
-	if node.Traffic.QuotaGiB != nil {
-		quota := *node.Traffic.QuotaGiB * gibibyte
+	if node.Settings.Traffic.QuotaGiB != nil {
+		quota := *node.Settings.Traffic.QuotaGiB * gibibyte
 		usage.QuotaBytes = &quota
 		usage.QuotaExceeded = period.InboundBytes+period.OutboundBytes >= quota
 	}
 	return usage, nil
 }
 
-// TrafficStatus returns every node's traffic in its current period and their
-// summed usage, as public subscription headers report it.
-func (service *Service) TrafficStatus(ctx context.Context, at time.Time) (TrafficStatus, error) {
+// TrafficStatus returns the traffic of every node, or of only the nodes in
+// only when it is not nil, each in its current period, and their summed
+// usage.
+func (service *Service) TrafficStatus(ctx context.Context, at time.Time, only []string) (TrafficStatus, error) {
 	nodes, err := service.database.Nodes(ctx)
 	if err != nil {
 		return TrafficStatus{}, err
 	}
+	var wanted map[string]bool
+	if only != nil {
+		wanted = map[string]bool{}
+		for _, id := range only {
+			wanted[id] = true
+		}
+	}
 	status := TrafficStatus{CollectedAt: at.UTC(), Nodes: make([]NodeTrafficUsage, 0, len(nodes))}
 	for _, node := range nodes {
+		if wanted != nil && !wanted[node.ID] {
+			continue
+		}
 		usage, err := service.nodeTraffic(ctx, node, at)
 		if err != nil {
 			return TrafficStatus{}, err

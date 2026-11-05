@@ -4418,8 +4418,10 @@ type Bundle struct {
 	ArtifactId          string                 `protobuf:"bytes,6,opt,name=artifact_id,json=artifactId,proto3" json:"artifact_id,omitempty"`
 	AppliedAt           *timestamppb.Timestamp `protobuf:"bytes,7,opt,name=applied_at,json=appliedAt,proto3" json:"applied_at,omitempty"`
 	MonitoringTier      MonitoringTier         `protobuf:"varint,8,opt,name=monitoring_tier,json=monitoringTier,proto3,enum=sbp.node.v1.MonitoringTier" json:"monitoring_tier,omitempty"`
-	unknownFields       protoimpl.UnknownFields
-	sizeCache           protoimpl.SizeCache
+	// The exact version of the core the bundle runs with.
+	ExactCoreVersion string `protobuf:"bytes,9,opt,name=exact_core_version,json=exactCoreVersion,proto3" json:"exact_core_version,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *Bundle) Reset() {
@@ -4499,6 +4501,13 @@ func (x *Bundle) GetMonitoringTier() MonitoringTier {
 		return x.MonitoringTier
 	}
 	return MonitoringTier_MONITORING_TIER_UNSPECIFIED
+}
+
+func (x *Bundle) GetExactCoreVersion() string {
+	if x != nil {
+		return x.ExactCoreVersion
+	}
+	return ""
 }
 
 type InstalledCore struct {
@@ -5330,7 +5339,7 @@ const file_sbp_node_v1_node_proto_rawDesc = "" +
 	"\x04Host\x12\x1a\n" +
 	"\bhostname\x18\x01 \x01(\tR\bhostname\x121\n" +
 	"\bplatform\x18\x02 \x01(\v2\x15.sbp.node.v1.PlatformR\bplatform\x12\x1b\n" +
-	"\tpublic_ip\x18\x03 \x01(\tR\bpublicIp\"\xd1\x02\n" +
+	"\tpublic_ip\x18\x03 \x01(\tR\bpublicIp\"\xff\x02\n" +
 	"\x06Bundle\x12\x1b\n" +
 	"\tbundle_id\x18\x01 \x01(\tR\bbundleId\x12.\n" +
 	"\x13startup_artifact_id\x18\x02 \x01(\tR\x11startupArtifactId\x12\x1f\n" +
@@ -5341,7 +5350,8 @@ const file_sbp_node_v1_node_proto_rawDesc = "" +
 	"artifactId\x129\n" +
 	"\n" +
 	"applied_at\x18\a \x01(\v2\x1a.google.protobuf.TimestampR\tappliedAt\x12D\n" +
-	"\x0fmonitoring_tier\x18\b \x01(\x0e2\x1b.sbp.node.v1.MonitoringTierR\x0emonitoringTierJ\x04\b\x04\x10\x05\"\x80\x02\n" +
+	"\x0fmonitoring_tier\x18\b \x01(\x0e2\x1b.sbp.node.v1.MonitoringTierR\x0emonitoringTier\x12,\n" +
+	"\x12exact_core_version\x18\t \x01(\tR\x10exactCoreVersionJ\x04\b\x04\x10\x05\"\x80\x02\n" +
 	"\rInstalledCore\x129\n" +
 	"\bartifact\x18\x01 \x01(\v2\x1d.sbp.node.v1.ArtifactIdentityR\bartifact\x12#\n" +
 	"\rbinary_sha256\x18\x02 \x01(\tR\fbinarySha256\x12=\n" +

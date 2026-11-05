@@ -196,11 +196,16 @@ period and no total, because quotas belong to nodes.
 ## Subscriptions
 
 Rendering and `/sub` delivery stay in the panel and never contact a node.
-Local inbounds come from each node's applied revision, converted on the panel.
-A published endpoint uses the node's public host override or, without one, the
-public IP the node reports. Each local inbound's provenance names its node, and
-channel membership refers to node-scoped stable IDs. Third-party sources and
-manual nodes behave as today.
+Local inbounds come from each node's applied revision, converted on the panel:
+the node reports the bundle it runs, and the panel publishes the revision it
+names only when its bytes match the digest the node reported. A published
+endpoint uses the node's public host override or, without one, the public IP the
+node reports; a node with neither, or whose revision cannot be published,
+publishes nothing and is named in a diagnostic while the other nodes publish.
+Each local inbound's key, tag and provenance name its node, and channel
+membership refers to these node-scoped stable IDs. The subscription traffic
+header sums the usage of the nodes a subscription carries. Third-party sources
+and manual nodes behave as today.
 
 ## Management API and Web UI
 
@@ -210,7 +215,7 @@ compatibility, because the product has no stable release yet.
 | Scope | Resources |
 | --- | --- |
 | Fleet | `/nodes` (list with each node's reported state, add with enrollment code, rename, delete), fleet traffic status with each node's usage and quota, core catalog and artifact cache, subscriptions, panel settings, panel logs, authentication |
-| One node | `/nodes/{node_id}/…`: status, cores, configuration file and check, runtime controls, rollback, filesystem, core logs, metrics and their stream and history, dashboard stream, traffic settings and periods, and runtime history |
+| One node | `/nodes/{node_id}/…`: status, cores, configuration file and check, runtime controls, rollback, filesystem, core logs, metrics and their stream and history, dashboard stream, settings (public host, traffic quota and period), traffic periods and runtime history |
 
 OpenAPI remains the authoritative HTTP contract. The Web UI follows
 [`DESIGN.md`](../DESIGN.md)'s node-first shell: a fleet overview, a node

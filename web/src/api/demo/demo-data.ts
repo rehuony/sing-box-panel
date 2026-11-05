@@ -7,7 +7,7 @@ import type {
   LogEntry,
   MetricsHistory,
   MetricsSnapshot,
-  NodeTrafficSettings,
+  NodeSettings,
   RuntimeHistoryPage,
   RuntimeStatus,
   StartupArtifactSummary,
@@ -30,10 +30,10 @@ export interface DemoData {
   runtime: RuntimeStatus;
   catalog: CatalogAssetList;
   users: SubscriptionUser[];
+  /** The demo node's settings, including its own traffic quota and period. */
+  nodeSettings: NodeSettings;
   tokens: SubscriptionToken[];
   canonical: CanonicalSnapshot;
-  /** The demo node's own traffic quota and period. */
-  traffic: NodeTrafficSettings;
   grants: Map<string, string[]>;
   sources: SubscriptionSource[];
   channels: SubscriptionChannel[];
@@ -174,7 +174,6 @@ export function createDemoData(now = new Date()): DemoData {
     id: 'channel_demo_singbox',
     name: 'sing-box devices',
     format: 'sing-box',
-    public_host: 'panel.demo.local',
     config: { policy: demoChannelPolicy('sing-box') },
     enabled: true,
     created_at: ago(now, 4_320),
@@ -183,7 +182,6 @@ export function createDemoData(now = new Date()): DemoData {
     id: 'channel_demo_mihomo',
     name: 'Mihomo clients',
     format: 'mihomo',
-    public_host: 'panel.demo.local',
     config: { policy: demoChannelPolicy('mihomo') },
     enabled: true,
     created_at: ago(now, 2_880),
@@ -367,7 +365,7 @@ export function createDemoData(now = new Date()): DemoData {
     startupArtifacts,
     tokens,
     trafficPeriods,
-    traffic: { revision: 1, quota_gib: 500, period_months: 1, reset_day: 1 },
+    nodeSettings: { revision: 1, public_host: '', traffic: { quota_gib: 500, period_months: 1, reset_day: 1 } },
     users,
   };
 }
@@ -428,7 +426,7 @@ export function demoTrafficPeriod(data: DemoData, periodID: string, now = new Da
 
 /** The demo node's period that contains now, starting on its reset day. */
 function demoCurrentPeriod(data: DemoData, now: Date): TrafficPeriod {
-  const { period_months: months, reset_day: day } = data.traffic;
+  const { period_months: months, reset_day: day } = data.nodeSettings.traffic;
   let month = (now.getUTCFullYear() - 1970) * 12 + now.getUTCMonth();
   if (now.getUTCDate() < day) month -= 1;
   const startMonth = month - ((month % months) + months) % months;
@@ -438,7 +436,7 @@ function demoCurrentPeriod(data: DemoData, now: Date): TrafficPeriod {
 }
 
 function demoQuota(data: DemoData, period: TrafficPeriod): { quota_bytes?: number; quota_exceeded: boolean } {
-  const quota = data.traffic.quota_gib;
+  const quota = data.nodeSettings.traffic.quota_gib;
   if (quota === null || quota <= 0) return { quota_exceeded: false };
   const bytes = quota * 2 ** 30;
   return { quota_bytes: bytes, quota_exceeded: period.inbound_bytes + period.outbound_bytes >= bytes };
@@ -529,7 +527,7 @@ export function demoMetricsHistory(from: string, to: string, bucketSeconds: numb
 
 export function demoNodeCatalog(data: DemoData): SubscriptionNodeCatalog {
   return {
-    applied_bundle_id: data.runtime.applied_bundle_id ?? '',
+    node_publications: [],
     nodes: demoSourceNodeDetails(data).map(nodeSummary),
     node_orders: {},
     diagnostics: [],

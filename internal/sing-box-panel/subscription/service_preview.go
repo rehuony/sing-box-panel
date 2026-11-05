@@ -38,15 +38,13 @@ func (application *Service) RenderSubscriptionDraft(ctx context.Context, userID,
 		state.Channel.Config = draft.Config
 		state.Channel.Format = draft.Format
 	}
-	rendered, err := application.renderSubscriptionState(ctx, state)
+	rendered, _, err := application.renderSubscriptionState(ctx, state)
 	if err != nil {
 		return SubscriptionPreview{}, err
 	}
 	return SubscriptionPreview{
-		UserID: userID, AppliedBundleID: state.AppliedBundleID,
-		Channel:           applicationSubscriptionChannel(state.Channel),
-		StartupArtifactID: state.Startup.ID, CanonicalRevisionID: state.Startup.CanonicalRevisionID,
-		ExactCoreVersion: state.Startup.ExactCoreVersion, ArtifactState: state.Startup.State,
+		UserID: userID, Channel: applicationSubscriptionChannel(state.Channel),
+		NodePublications: application.localNodes(state.Nodes, false).Summaries,
 		Result: SubscriptionPreviewResult{
 			Format: rendered.Format, MediaType: rendered.MediaType,
 			Content: rendered.Content, NodeCount: rendered.NodeCount, Diagnostics: rendered.PreviewDiagnostics,
@@ -54,19 +52,23 @@ func (application *Service) RenderSubscriptionDraft(ctx context.Context, userID,
 	}, nil
 }
 
-func inboundPreviewDiagnostics(startupJSON []byte, diagnostics []ConversionDiagnostic, format RenderFormat) []PreviewDiagnostic {
-	result := make([]PreviewDiagnostic, 0, len(diagnostics))
-	if len(diagnostics) == 0 {
-		return result
+// inboundPreviewDiagnostics describes the diagnostics of every node's
+// applied configuration, naming the node and, when there is one, the inbound.
+func inboundPreviewDiagnostics(locals nodeLocals, format RenderFormat) []PreviewDiagnostic {
+	result := make([]PreviewDiagnostic, 0, len(locals.Diagnostics))
+	names := map[string]string{}
+	for _, summary := range locals.Summaries {
+		names[summary.NodeID] = summary.NodeName
 	}
-	root, _ := DecodeDocumentObject(startupJSON)
-	for _, diagnostic := range diagnostics {
+	for _, diagnostic := range locals.Diagnostics {
 		issue := PreviewDiagnostic{
 			RenderDiagnostic: RenderDiagnostic{
 				Collection: diagnostic.Collection, ItemIndex: diagnostic.ItemIndex, Code: diagnostic.Code, Format: format,
 			},
-			FieldPath: fmt.Sprintf("%s[%d]", diagnostic.Collection, diagnostic.ItemIndex),
+			FieldPath:    fmt.Sprintf("%s[%d]", diagnostic.Collection, diagnostic.ItemIndex),
+			OriginNodeID: diagnostic.NodeID, OriginNodeName: names[diagnostic.NodeID],
 		}
+		root, _ := DecodeDocumentObject(locals.Documents[diagnostic.NodeID])
 		values, _ := root[string(diagnostic.Collection)].([]any)
 		if diagnostic.ItemIndex >= 0 && diagnostic.ItemIndex < len(values) {
 			value, _ := values[diagnostic.ItemIndex].(map[string]any)

@@ -28,7 +28,7 @@ func TestPanelBackupRestoresSettings(t *testing.T) {
 	}
 	native.Auth.Email = testutil.AdminEmail
 	native.Auth.PasswordHash = testutil.ChangedPasswordHash
-	native.Panel.PublicNodeHost = "restored.example.com"
+	native.Panel.Language = "en"
 	native.Server.Port = 8080
 	backup.PanelSettings, _ = json.Marshal(native)
 	view, _ := target.PanelSettings(t.Context())
@@ -40,7 +40,7 @@ func TestPanelBackupRestoresSettings(t *testing.T) {
 		t.Fatalf("restore impact: %+v", result)
 	}
 	loaded, err := Load(target.settingsPath)
-	if err != nil || loaded.Auth.PasswordHash != native.Auth.PasswordHash || loaded.DataDir != native.DataDir || loaded.Panel.PublicNodeHost != native.Panel.PublicNodeHost {
+	if err != nil || loaded.Auth.PasswordHash != native.Auth.PasswordHash || loaded.DataDir != native.DataDir || loaded.Panel.Language != native.Panel.Language {
 		t.Fatal("incomplete settings restore", err)
 	}
 }

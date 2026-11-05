@@ -24,7 +24,7 @@ func (application *Service) CreateSubscriptionChannel(
 		return SubscriptionChannel{}, err
 	}
 	stored, err := application.database.CreateSubscriptionChannel(ctx, store.SubscriptionChannel{
-		ID: id, Name: request.Name, Format: request.Format, PublicHost: request.PublicHost,
+		ID: id, Name: request.Name, Format: request.Format,
 		Config: config, Enabled: request.Enabled, CreatedAt: application.now().UTC(),
 	})
 	if err != nil {
@@ -73,7 +73,7 @@ func (application *Service) UpdateSubscriptionChannel(
 	}
 	updatedAt := application.nextSubscriptionUpdateTime(request.ExpectedUpdatedAt)
 	stored, err := application.database.UpdateSubscriptionChannel(ctx, store.UpdateSubscriptionChannelInput{
-		ID: strings.TrimSpace(channelID), Name: request.Name, Format: request.Format, PublicHost: request.PublicHost,
+		ID: strings.TrimSpace(channelID), Name: request.Name, Format: request.Format,
 		Config: config, Enabled: request.Enabled,
 		ExpectedUpdatedAt: request.ExpectedUpdatedAt, UpdatedAt: updatedAt,
 	})

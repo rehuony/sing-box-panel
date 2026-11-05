@@ -525,6 +525,8 @@ message Bundle {
   string artifact_id = 6;
   google.protobuf.Timestamp applied_at = 7;
   MonitoringTier monitoring_tier = 8;
+  // The exact version of the core the bundle runs with.
+  string exact_core_version = 9;
 }
 
 message InstalledCore {

@@ -48,6 +48,9 @@ const (
 )
 
 type ConversionDiagnostic struct {
+	// NodeID names the node whose applied configuration the diagnostic is
+	// about.
+	NodeID     string         `json:"node_id,omitempty"`
 	Collection Collection     `json:"collection"`
 	ItemIndex  int            `json:"item_index"`
 	Code       DiagnosticCode `json:"code"`
@@ -61,6 +64,9 @@ type Node struct {
 	Tag        string          `json:"tag"`
 	Credential string          `json:"credential,omitempty"`
 	Outbound   json.RawMessage `json:"outbound"`
+	// NodeID and NodeName name the node a local inbound comes from.
+	NodeID   string `json:"node_id,omitempty"`
+	NodeName string `json:"node_name,omitempty"`
 }
 
 func PublicationDocument(nodes []Node) ([]byte, error) {

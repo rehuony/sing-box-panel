@@ -6,6 +6,8 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
+	"net"
 	"strings"
 	"time"
 )
@@ -35,11 +37,39 @@ type Node struct {
 	SessionID string
 	// InstanceID identifies the node database of its latest session.
 	InstanceID string
-	Traffic    NodeTrafficSettings
+	Settings   NodeSettings
 	// StateReport is the encoded state the node last reported, kept to show
 	// while the node is offline; nil before its first report.
 	StateReport []byte
 	ReportedAt  *time.Time
+	// Report is what the panel reads from the last state report.
+	Report NodeReport
+}
+
+// NodeSettings are the panel's settings for one node.
+type NodeSettings struct {
+	// PublicHost is the host subscriptions publish for the node's inbounds;
+	// empty uses the public IP the node reports.
+	PublicHost string
+	Traffic    NodeTrafficSettings
+	// Revision increases with every saved change.
+	Revision int64
+}
+
+// NodeReport is the part of a node's state report that other records join
+// against.
+type NodeReport struct {
+	PublicIP string
+	Applied  AppliedBundle
+}
+
+// AppliedBundle is the bundle a node reports running; empty before it applied
+// one.
+type AppliedBundle struct {
+	ID               string
+	RevisionID       string
+	ConfigSHA256     string
+	ExactCoreVersion string
 }
 
 // NewNode is a node record with a pending enrollment token.
@@ -79,7 +109,8 @@ type NodeSession struct {
 const nodeColumns = `id, name, created_at, public_key, enrolled_at, enrollment_expires_at,
 	hostname, os, arch, build_version, protocol_minor, last_seen_at, session_id,
 	instance_id, state_report, reported_at,
-	traffic_quota_gib, traffic_period_months, traffic_reset_day, traffic_settings_revision`
+	traffic_quota_gib, traffic_period_months, traffic_reset_day, public_host, settings_revision,
+	applied_bundle_id, applied_revision_id, applied_config_sha256, applied_core_version, reported_public_ip`
 
 // PanelID returns the panel's stable identity, recording candidate the first
 // time it is asked.
@@ -148,8 +179,6 @@ type NodeTrafficSettings struct {
 	// ResetDay is the day of the month, 1 to 28, on which periods start at
 	// 00:00 UTC.
 	ResetDay int
-	// Revision increases with every saved change.
-	Revision int64
 }
 
 // Limits of node traffic settings.
@@ -160,31 +189,36 @@ const (
 )
 
 var (
-	ErrNodeTrafficSettingsInvalid  = errors.New("traffic quota must be unlimited or 1 to 8589934591 GiB, the period 1 to 120 months and the reset day 1 to 28")
-	ErrNodeTrafficSettingsConflict = errors.New("the node's traffic settings changed since they were read")
+	ErrNodeSettingsInvalid  = errors.New("node settings are invalid")
+	ErrNodeSettingsConflict = errors.New("the node's settings changed since they were read")
 )
 
-// SaveNodeTrafficSettings replaces the node's traffic settings when their
-// revision is still expectedRevision. A zero quota is stored as unlimited.
-func (s *Store) SaveNodeTrafficSettings(ctx context.Context, id string, expectedRevision int64, value NodeTrafficSettings) (Node, error) {
-	if value.QuotaGiB != nil && *value.QuotaGiB == 0 {
-		value.QuotaGiB = nil
+// SaveNodeSettings replaces the node's settings when their revision is still
+// expectedRevision. A zero quota is stored as unlimited.
+func (s *Store) SaveNodeSettings(ctx context.Context, id string, expectedRevision int64, value NodeSettings) (Node, error) {
+	traffic := value.Traffic
+	if traffic.QuotaGiB != nil && *traffic.QuotaGiB == 0 {
+		traffic.QuotaGiB = nil
 	}
-	if (value.QuotaGiB != nil && (*value.QuotaGiB < 1 || *value.QuotaGiB > MaximumTrafficQuotaGiB)) ||
-		value.PeriodMonths < 1 || value.PeriodMonths > MaximumTrafficPeriodMonths || value.ResetDay < 1 || value.ResetDay > MaximumTrafficResetDay {
-		return Node{}, ErrNodeTrafficSettingsInvalid
+	if (traffic.QuotaGiB != nil && (*traffic.QuotaGiB < 1 || *traffic.QuotaGiB > MaximumTrafficQuotaGiB)) ||
+		traffic.PeriodMonths < 1 || traffic.PeriodMonths > MaximumTrafficPeriodMonths || traffic.ResetDay < 1 || traffic.ResetDay > MaximumTrafficResetDay {
+		return Node{}, fmt.Errorf("%w: the traffic quota must be unlimited or 1 to 8589934591 GiB, the period 1 to 120 months and the reset day 1 to 28", ErrNodeSettingsInvalid)
+	}
+	host, err := NormalizePublishedHost(value.PublicHost)
+	if err != nil {
+		return Node{}, fmt.Errorf("%w: %v", ErrNodeSettingsInvalid, err)
 	}
 	var quota any
-	if value.QuotaGiB != nil {
-		quota = *value.QuotaGiB
+	if traffic.QuotaGiB != nil {
+		quota = *traffic.QuotaGiB
 	}
 	node, err := scanNodeResult(s.db.QueryRowContext(ctx, `UPDATE nodes SET traffic_quota_gib = ?, traffic_period_months = ?,
-		traffic_reset_day = ?, traffic_settings_revision = traffic_settings_revision + 1
-		WHERE id = ? AND traffic_settings_revision = ? RETURNING `+nodeColumns,
-		quota, value.PeriodMonths, value.ResetDay, id, expectedRevision))
+		traffic_reset_day = ?, public_host = ?, settings_revision = settings_revision + 1
+		WHERE id = ? AND settings_revision = ? RETURNING `+nodeColumns,
+		quota, traffic.PeriodMonths, traffic.ResetDay, host, id, expectedRevision))
 	if errors.Is(err, ErrNodeNotFound) {
 		if _, lookupErr := s.Node(ctx, id); lookupErr == nil {
-			return Node{}, ErrNodeTrafficSettingsConflict
+			return Node{}, ErrNodeSettingsConflict
 		}
 	}
 	return node, err
@@ -236,9 +270,13 @@ func (s *Store) RecordNodeSession(ctx context.Context, id string, publicKey []by
 
 // RecordNodeStateReport stores the encoded state the node reported in
 // session sessionID, while that is still its session.
-func (s *Store) RecordNodeStateReport(ctx context.Context, id, sessionID string, report []byte, reportedAt time.Time) error {
-	return expectOneNode(s.db.ExecContext(ctx, `UPDATE nodes SET state_report = ?, reported_at = ?, last_seen_at = ?
-		WHERE id = ? AND session_id = ?`, report, formatTime(reportedAt), formatTime(reportedAt), id, sessionID))
+func (s *Store) RecordNodeStateReport(ctx context.Context, id, sessionID string, report []byte, summary NodeReport, reportedAt time.Time) error {
+	applied := summary.Applied
+	return expectOneNode(s.db.ExecContext(ctx, `UPDATE nodes SET state_report = ?, reported_at = ?, last_seen_at = ?,
+		applied_bundle_id = ?, applied_revision_id = ?, applied_config_sha256 = ?, applied_core_version = ?, reported_public_ip = ?
+		WHERE id = ? AND session_id = ?`, report, formatTime(reportedAt), formatTime(reportedAt),
+		nullIfEmpty(applied.ID), nullIfEmpty(applied.RevisionID), nullIfEmpty(applied.ConfigSHA256), nullIfEmpty(applied.ExactCoreVersion),
+		summary.PublicIP, id, sessionID))
 }
 
 // TouchNode records that the node enrolled with publicKey was seen at seenAt,
@@ -290,16 +328,21 @@ func scanNode(row rowScanner) (Node, error) {
 	var node Node
 	var createdAt string
 	var enrolledAt, expiresAt, lastSeenAt, sessionID, instanceID, reportedAt sql.NullString
+	var appliedID, appliedRevision, appliedSHA256, appliedVersion sql.NullString
 	var quota sql.NullInt64
+	settings := &node.Settings
 	if err := row.Scan(&node.ID, &node.Name, &createdAt, &node.PublicKey, &enrolledAt, &expiresAt,
 		&node.Hostname, &node.OS, &node.Arch, &node.BuildVersion, &node.ProtocolMinor, &lastSeenAt, &sessionID,
 		&instanceID, &node.StateReport, &reportedAt,
-		&quota, &node.Traffic.PeriodMonths, &node.Traffic.ResetDay, &node.Traffic.Revision); err != nil {
+		&quota, &settings.Traffic.PeriodMonths, &settings.Traffic.ResetDay, &settings.PublicHost, &settings.Revision,
+		&appliedID, &appliedRevision, &appliedSHA256, &appliedVersion, &node.Report.PublicIP); err != nil {
 		return Node{}, err
 	}
 	if quota.Valid {
-		node.Traffic.QuotaGiB = &quota.Int64
+		settings.Traffic.QuotaGiB = &quota.Int64
 	}
+	node.Report.Applied = AppliedBundle{ID: appliedID.String, RevisionID: appliedRevision.String,
+		ConfigSHA256: appliedSHA256.String, ExactCoreVersion: appliedVersion.String}
 	node.SessionID, node.InstanceID = sessionID.String, instanceID.String
 	var err error
 	if node.CreatedAt, err = parseTime(createdAt); err != nil {
@@ -319,4 +362,42 @@ func scanNode(row rowScanner) (Node, error) {
 		*field.target = &value
 	}
 	return node, nil
+}
+
+// NormalizePublishedHost validates a host that subscriptions publish as a
+// node's endpoint: an IP address or a DNS name, without scheme or port. The
+// empty host is kept.
+func NormalizePublishedHost(value string) (string, error) {
+	if value == "" {
+		return "", nil
+	}
+	if value != strings.TrimSpace(value) || len(value) > 253 ||
+		strings.ContainsAny(value, "/@?#[]") {
+		return "", errors.New("the public host must be an IP address or DNS name without scheme or port")
+	}
+	if address := net.ParseIP(value); address != nil {
+		if address.IsLoopback() || address.IsUnspecified() {
+			return "", errors.New("the public host cannot be a loopback or unspecified address")
+		}
+		return strings.ToLower(value), nil
+	}
+	if strings.EqualFold(value, "localhost") {
+		return "", errors.New("the public host cannot be localhost")
+	}
+	if strings.Contains(value, ":") || strings.HasPrefix(value, ".") || strings.HasSuffix(value, ".") {
+		return "", errors.New("the public host is invalid")
+	}
+	for _, label := range strings.Split(value, ".") {
+		if label == "" || len(label) > 63 || label[0] == '-' || label[len(label)-1] == '-' {
+			return "", errors.New("the public host is invalid")
+		}
+		for _, character := range label {
+			if (character >= 'a' && character <= 'z') || (character >= 'A' && character <= 'Z') ||
+				(character >= '0' && character <= '9') || character == '-' {
+				continue
+			}
+			return "", errors.New("the public host is invalid")
+		}
+	}
+	return strings.ToLower(value), nil
 }

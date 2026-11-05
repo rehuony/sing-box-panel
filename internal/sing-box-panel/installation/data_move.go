@@ -323,7 +323,7 @@ func recoverSettingsBeforeDataMove(ctx context.Context, dataDir string, value se
 		return err
 	}
 	defer panelDatabase.Close()
-	return settings.NewService(panelDatabase, value.Path(), value, settings.Options{}).RecoverPanelSettingsFileLocked(ctx)
+	return settings.NewService(panelDatabase, value.Path(), value).RecoverPanelSettingsFileLocked(ctx)
 }
 
 func requirePhysicalDataFile(dir string) error {

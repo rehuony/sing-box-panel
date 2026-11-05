@@ -19,7 +19,7 @@ func TestSubscriptionChannelCRUDValidationOrderingAndCAS(t *testing.T) {
 	now := time.Date(2026, time.August, 26, 8, 0, 0, 0, time.UTC)
 
 	beta, err := database.CreateSubscriptionChannel(ctx, SubscriptionChannel{
-		ID: "channel-beta", Name: "beta", Format: SubscriptionFormatLoon, PublicHost: "beta.example",
+		ID: "channel-beta", Name: "beta", Format: SubscriptionFormatLoon,
 		Config:  json.RawMessage(` { "exclude_tags": ["private"] } `),
 		Enabled: true, CreatedAt: now,
 	})
@@ -27,7 +27,7 @@ func TestSubscriptionChannelCRUDValidationOrderingAndCAS(t *testing.T) {
 		t.Fatal(err)
 	}
 	alpha, err := database.CreateSubscriptionChannel(ctx, SubscriptionChannel{
-		ID: "channel-alpha", Name: "alpha", Format: SubscriptionFormatSingBox, PublicHost: "alpha.example",
+		ID: "channel-alpha", Name: "alpha", Format: SubscriptionFormatSingBox,
 		Config: json.RawMessage(`{}`), Enabled: true, CreatedAt: now.Add(time.Second),
 	})
 	if err != nil {
@@ -50,13 +50,13 @@ func TestSubscriptionChannelCRUDValidationOrderingAndCAS(t *testing.T) {
 	}
 
 	if _, err := database.CreateSubscriptionChannel(ctx, SubscriptionChannel{
-		ID: "channel-other", Name: alpha.Name, Format: SubscriptionFormatMihomo, PublicHost: "other.example",
+		ID: "channel-other", Name: alpha.Name, Format: SubscriptionFormatMihomo,
 		CreatedAt: now.Add(2 * time.Second),
 	}); !errors.Is(err, ErrSubscriptionChannelExists) {
 		t.Fatalf("duplicate channel name error = %v", err)
 	}
 	if _, err := database.CreateSubscriptionChannel(ctx, SubscriptionChannel{
-		ID: "channel-invalid", Name: "bad", Format: "clash", PublicHost: "bad.example", CreatedAt: now,
+		ID: "channel-invalid", Name: "bad", Format: "clash", CreatedAt: now,
 	}); err == nil {
 		t.Fatal("unsupported channel format was accepted")
 	}
@@ -68,7 +68,7 @@ func TestSubscriptionChannelCRUDValidationOrderingAndCAS(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			_, err := database.CreateSubscriptionChannel(ctx, SubscriptionChannel{
 				ID: "invalid-" + strings.ReplaceAll(name, " ", "-"), Name: "invalid " + name,
-				Format: SubscriptionFormatSingBox, PublicHost: "invalid.example", Config: config, CreatedAt: now,
+				Format: SubscriptionFormatSingBox, Config: config, CreatedAt: now,
 			})
 			if err == nil {
 				t.Fatalf("invalid config %s was accepted", config)
@@ -77,7 +77,7 @@ func TestSubscriptionChannelCRUDValidationOrderingAndCAS(t *testing.T) {
 	}
 
 	updated, err := database.UpdateSubscriptionChannel(ctx, UpdateSubscriptionChannelInput{
-		ID: alpha.ID, Name: "alpha-renamed", Format: SubscriptionFormatMihomo, PublicHost: "renamed.example",
+		ID: alpha.ID, Name: "alpha-renamed", Format: SubscriptionFormatMihomo,
 		Config: json.RawMessage(`{"exclude_types":["direct"]}`), Enabled: false,
 		ExpectedUpdatedAt: alpha.UpdatedAt, UpdatedAt: now.Add(3 * time.Second),
 	})
@@ -88,7 +88,7 @@ func TestSubscriptionChannelCRUDValidationOrderingAndCAS(t *testing.T) {
 		t.Fatalf("updated channel = %+v", updated)
 	}
 	if _, err := database.UpdateSubscriptionChannel(ctx, UpdateSubscriptionChannelInput{
-		ID: alpha.ID, Name: "stale", Format: SubscriptionFormatLoon, PublicHost: "stale.example", Enabled: true,
+		ID: alpha.ID, Name: "stale", Format: SubscriptionFormatLoon, Enabled: true,
 		ExpectedUpdatedAt: alpha.UpdatedAt, UpdatedAt: now.Add(4 * time.Second),
 	}); !errors.Is(err, ErrSubscriptionConflict) {
 		t.Fatalf("stale channel update error = %v", err)
@@ -176,7 +176,7 @@ func TestSubscriptionTokenHashRotationRevocationExpiryAndGlobalScope(t *testing.
 	now := time.Date(2026, time.August, 26, 10, 0, 0, 0, time.UTC)
 	channel, err := database.CreateSubscriptionChannel(ctx, SubscriptionChannel{
 		ID: "channel-token", Name: "token", Format: SubscriptionFormatSingBox,
-		PublicHost: "token.example", Enabled: true, CreatedAt: now,
+		Enabled: true, CreatedAt: now,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -304,7 +304,7 @@ func TestSubscriptionNamesAndTokenMetadataAreStrict(t *testing.T) {
 	for _, name := range []string{"", " leading", "trailing ", "line\nbreak", strings.Repeat("x", 129)} {
 		_, err := database.CreateSubscriptionChannel(ctx, SubscriptionChannel{
 			ID: "channel-" + testTokenDigest(name)[:8], Name: name,
-			Format: SubscriptionFormatLoon, PublicHost: "strict.example", CreatedAt: now,
+			Format: SubscriptionFormatLoon, CreatedAt: now,
 		})
 		if err == nil {
 			t.Fatalf("invalid name %q was accepted", name)
@@ -334,7 +334,7 @@ func TestSubscriptionChannelPaginationAndEnabledLimit(t *testing.T) {
 	now := time.Date(2026, time.August, 26, 12, 0, 0, 0, time.UTC)
 	for _, id := range []string{"channel-a", "channel-c", "channel-b"} {
 		if _, err := database.CreateSubscriptionChannel(ctx, SubscriptionChannel{
-			ID: id, Name: id, Format: SubscriptionFormatSingBox, PublicHost: "page.example",
+			ID: id, Name: id, Format: SubscriptionFormatSingBox,
 			Config: json.RawMessage(`{}`), CreatedAt: now,
 		}); err != nil {
 			t.Fatal(err)
@@ -353,14 +353,14 @@ func TestSubscriptionChannelPaginationAndEnabledLimit(t *testing.T) {
 	for index := 0; index < MaximumEnabledSubscriptionChannels; index++ {
 		if _, err := database.CreateSubscriptionChannel(ctx, SubscriptionChannel{
 			ID: fmt.Sprintf("enabled-%03d", index), Name: fmt.Sprintf("enabled %03d", index),
-			Format: SubscriptionFormatLoon, PublicHost: "enabled.example", Config: json.RawMessage(`{}`), Enabled: true,
+			Format: SubscriptionFormatLoon, Config: json.RawMessage(`{}`), Enabled: true,
 			CreatedAt: now.Add(time.Duration(index+1) * time.Second),
 		}); err != nil {
 			t.Fatalf("create enabled channel %d: %v", index, err)
 		}
 	}
 	if _, err := database.CreateSubscriptionChannel(ctx, SubscriptionChannel{
-		ID: "enabled-overflow", Name: "enabled overflow", Format: SubscriptionFormatLoon, PublicHost: "overflow.example",
+		ID: "enabled-overflow", Name: "enabled overflow", Format: SubscriptionFormatLoon,
 		Config: json.RawMessage(`{}`), Enabled: true, CreatedAt: now.Add(time.Hour),
 	}); !errors.Is(err, ErrSubscriptionLimitExceeded) {
 		t.Fatalf("enabled overflow error = %v", err)

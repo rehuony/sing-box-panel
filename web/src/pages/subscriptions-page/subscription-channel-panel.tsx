@@ -105,8 +105,7 @@ export function SubscriptionChannelPanel({ active = true, toolbarTarget }: {
         let copyName = nameForCopy(number);
         while (channels.some((item) => item.name === copyName)) copyName = nameForCopy(++number);
         await client.createSubscriptionChannel({
-          name: copyName, format: fresh.format, enabled: fresh.enabled,
-          public_host: fresh.public_host, config: fresh.config,
+          name: copyName, format: fresh.format, enabled: fresh.enabled, config: fresh.config,
         }, signal);
         if (signal?.aborted) return;
         await load(signal);
@@ -130,7 +129,7 @@ export function SubscriptionChannelPanel({ active = true, toolbarTarget }: {
       const policy = initialChannelPolicy({ config: {} }, nodes);
       policy.selection.new_node_policy = 'exclude';
       const value = await client.createSubscriptionChannel(
-        { name: name.trim(), format, enabled: true, public_host: '', config: { policy } },
+        { name: name.trim(), format, enabled: true, config: { policy } },
         lifetimeRef.current?.signal,
       );
       if (lifetimeRef.current?.signal.aborted) return;

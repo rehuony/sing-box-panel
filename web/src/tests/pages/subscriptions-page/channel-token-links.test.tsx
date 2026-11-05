@@ -24,8 +24,7 @@ describe('channel copies and shared links', () => {
     const row = (await screen.findByText(channel.name)).closest('tr')!;
     await user.click(within(row).getByRole('button', { name: 'Copy' }));
     await waitFor(() => expect(client.createSubscriptionChannel).toHaveBeenCalledWith({
-      name: `${channel.name} copy`, format: channel.format, enabled: channel.enabled,
-      public_host: channel.public_host, config: channel.config,
+      name: `${channel.name} copy`, format: channel.format, enabled: channel.enabled, config: channel.config,
     }, expect.any(AbortSignal)));
     expect(client.updateSubscriptionChannel).not.toHaveBeenCalled();
   });

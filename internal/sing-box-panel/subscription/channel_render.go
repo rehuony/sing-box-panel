@@ -429,11 +429,17 @@ func (b *channelRuleBuilder) addRule(rule ChannelRule, group *RuleGroup) {
 	}
 }
 
+// channelNodeName names a node in a rendered channel. A local inbound is
+// prefixed with the name of its node, since several nodes may share tags.
 func channelNodeName(node Node) string {
+	name := node.Tag
 	if node.OriginTag != "" {
-		return node.OriginTag
+		name = node.OriginTag
 	}
-	return node.Tag
+	if node.NodeName != "" {
+		return node.NodeName + " · " + name
+	}
+	return name
 }
 
 type orderedChannelRule struct {

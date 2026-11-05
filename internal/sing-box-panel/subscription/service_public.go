@@ -36,8 +36,8 @@ type PublicSubscriptionResult struct {
 	Traffic     PublicSubscriptionTraffic `json:"-"`
 }
 
-// PublicSubscriptionTraffic reports the instance's recorded period usage,
-// including incomplete or stale totals. A zero TotalBytes means unlimited.
+// PublicSubscriptionTraffic reports recorded usage, including incomplete or
+// stale totals. TotalBytes stays zero, because quotas belong to nodes.
 type PublicSubscriptionTraffic struct {
 	UploadBytes   int64
 	DownloadBytes int64
@@ -75,11 +75,11 @@ func (application *Service) PublicSubscription(
 		}
 	}
 
-	result, err := application.renderSubscriptionState(ctx, state)
+	result, nodeIDs, err := application.renderSubscriptionState(ctx, state)
 	if err != nil {
 		return PublicSubscriptionResult{}, err
 	}
-	traffic, err := application.publicSubscriptionTraffic(ctx, now)
+	traffic, err := application.publicSubscriptionTraffic(ctx, now, nodeIDs)
 	if err != nil {
 		return PublicSubscriptionResult{}, err
 	}
@@ -92,42 +92,30 @@ func (application *Service) PublicSubscription(
 }
 
 // publicSubscriptionTraffic is the usage the subscription header reports:
-// every node's traffic in its own current period. Quotas belong to nodes, so
-// the header reports no total.
-func (application *Service) publicSubscriptionTraffic(ctx context.Context, at time.Time) (PublicSubscriptionTraffic, error) {
-	status, err := application.telemetry.TrafficStatus(ctx, at)
+// the traffic of the nodes whose inbounds the subscription carries, each in
+// its own current period. Quotas belong to nodes, so the header reports no
+// total.
+func (application *Service) publicSubscriptionTraffic(ctx context.Context, at time.Time, nodeIDs []string) (PublicSubscriptionTraffic, error) {
+	status, err := application.telemetry.TrafficStatus(ctx, at, nodeIDs)
 	if err != nil {
 		return PublicSubscriptionTraffic{}, err
 	}
 	return PublicSubscriptionTraffic{UploadBytes: status.UploadBytes, DownloadBytes: status.DownloadBytes}, nil
 }
 
-func (application *Service) renderSubscriptionState(ctx context.Context, state store.PublicSubscriptionState) (RenderResult, error) {
-	host, err := application.publicationHost(ctx, state.SubscriptionNodeControls, state.Channel.PublicHost)
-	if err != nil {
-		return RenderResult{}, err
-	}
-	var conversion InboundResult
-	var startupJSON []byte
-	if state.AppliedBundleID != "" {
-		startupJSON, err = subscriptionStartupJSON(state.Startup)
-		if err != nil {
-			return RenderResult{}, fmt.Errorf("prepare applied local subscription version: %w", err)
-		}
-		conversion, err = application.convertInboundNodes(state.Startup.ExactCoreVersion, startupJSON, host)
-		if err != nil {
-			return RenderResult{}, err
-		}
-	}
+// renderSubscriptionState renders the channel and returns the nodes whose
+// local inbounds it may carry.
+func (application *Service) renderSubscriptionState(ctx context.Context, state store.PublicSubscriptionState) (RenderResult, []string, error) {
+	locals := application.localNodes(state.Nodes, false)
 	manual, err := manualPublicationNodes(state.ManualNodes)
 	if err != nil {
-		return RenderResult{}, err
+		return RenderResult{}, nil, err
 	}
-	allNodes := append(append([]Node(nil), conversion.Nodes...), manual...)
+	allNodes := append(append([]Node(nil), locals.Nodes...), manual...)
 	for _, source := range state.Sources {
 		nodes, decodeErr := DecodeNodes(source.NormalizedNodes)
 		if decodeErr != nil {
-			return RenderResult{}, fmt.Errorf("decode current source version %q: %w", source.VersionID, decodeErr)
+			return RenderResult{}, nil, fmt.Errorf("decode current source version %q: %w", source.VersionID, decodeErr)
 		}
 		allNodes = append(allNodes, nodes...)
 	}
@@ -143,7 +131,7 @@ func (application *Service) renderSubscriptionState(ctx context.Context, state s
 	}
 	config, err := DecodeChannelConfig(state.Channel.Config)
 	if err != nil {
-		return RenderResult{}, err
+		return RenderResult{}, nil, err
 	}
 	rendered, err := RenderPolicyNodes(selectedNodes, RenderChannel{
 		Format:       RenderFormat(state.Channel.Format),
@@ -152,15 +140,15 @@ func (application *Service) renderSubscriptionState(ctx context.Context, state s
 		NodeOrder:    publicationNodeIDs(orderSubscriptionNodes(selectedNodes, state.Sources, subscriptionNodeOrders(state.NodeOrders))),
 	}, config.Policy)
 	if err != nil {
-		return RenderResult{}, err
+		return RenderResult{}, nil, err
 	}
 	if config.Policy != nil && rendered.Format == RenderFormatSingBox {
 		if err := validateSubscriptionNativeJSON(rendered.Content, "generated_configuration"); err != nil {
-			return RenderResult{}, err
+			return RenderResult{}, nil, err
 		}
 	}
-	diagnostics := make([]RenderDiagnostic, 0, len(conversion.Diagnostics)+len(rendered.Diagnostics))
-	for _, diagnostic := range conversion.Diagnostics {
+	diagnostics := make([]RenderDiagnostic, 0, len(locals.Diagnostics)+len(rendered.Diagnostics))
+	for _, diagnostic := range locals.Diagnostics {
 		diagnostics = append(diagnostics, RenderDiagnostic{
 			Collection: diagnostic.Collection, ItemIndex: diagnostic.ItemIndex,
 			Format: RenderFormat(state.Channel.Format), Code: diagnostic.Code,
@@ -168,8 +156,8 @@ func (application *Service) renderSubscriptionState(ctx context.Context, state s
 	}
 	diagnostics = append(diagnostics, rendered.Diagnostics...)
 	rendered.Diagnostics = diagnostics
-	rendered.PreviewDiagnostics = append(inboundPreviewDiagnostics(startupJSON, conversion.Diagnostics, rendered.Format), rendered.PreviewDiagnostics...)
-	return rendered, nil
+	rendered.PreviewDiagnostics = append(inboundPreviewDiagnostics(locals, rendered.Format), rendered.PreviewDiagnostics...)
+	return rendered, nodeIDsOf(selectedNodes), nil
 }
 
 func (application *Service) RecordPublicSubscriptionUse(
@@ -182,13 +170,6 @@ func (application *Service) RecordPublicSubscriptionUse(
 		return ErrPublicSubscriptionAccessDenied
 	}
 	return err
-}
-
-func subscriptionStartupJSON(startup store.AppliedStartup) ([]byte, error) {
-	if _, err := DecodeDocumentObject(startup.ConfigBytes); err != nil {
-		return nil, fmt.Errorf("%w: compiled startup is not one strict JSON object", ErrInvalidStartup)
-	}
-	return bytes.Clone(startup.ConfigBytes), nil
 }
 
 func validPublicID(value string) bool {

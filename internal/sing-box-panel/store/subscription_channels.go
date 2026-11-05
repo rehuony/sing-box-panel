@@ -8,8 +8,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net"
-	"strings"
 	"time"
 )
 
@@ -22,24 +20,22 @@ const (
 )
 
 type SubscriptionChannel struct {
-	ID         string
-	Name       string
-	Format     SubscriptionFormat
-	PublicHost string
-	Config     json.RawMessage
-	Enabled    bool
-	CreatedAt  time.Time
-	UpdatedAt  time.Time
+	ID        string
+	Name      string
+	Format    SubscriptionFormat
+	Config    json.RawMessage
+	Enabled   bool
+	CreatedAt time.Time
+	UpdatedAt time.Time
 }
 
 type SubscriptionChannelSummary struct {
-	ID         string
-	Name       string
-	Format     SubscriptionFormat
-	PublicHost string
-	Enabled    bool
-	CreatedAt  time.Time
-	UpdatedAt  time.Time
+	ID        string
+	Name      string
+	Format    SubscriptionFormat
+	Enabled   bool
+	CreatedAt time.Time
+	UpdatedAt time.Time
 }
 
 type SubscriptionChannelListFilter struct {
@@ -56,7 +52,6 @@ type UpdateSubscriptionChannelInput struct {
 	ID                string
 	Name              string
 	Format            SubscriptionFormat
-	PublicHost        string
 	Config            json.RawMessage
 	Enabled           bool
 	ExpectedUpdatedAt time.Time
@@ -82,12 +77,11 @@ func (s *Store) CreateSubscriptionChannel(
 		if _, err := tx.ExecContext(
 			ctx,
 			`INSERT INTO subscription_channels(
-	                id, name, format, public_host, config_json, enabled, created_at, updated_at
-	             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+	                id, name, format, config_json, enabled, created_at, updated_at
+	             ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
 			prepared.ID,
 			prepared.Name,
 			string(prepared.Format),
-			prepared.PublicHost,
 			string(prepared.Config),
 			boolInt(prepared.Enabled),
 			formatTime(prepared.CreatedAt),
@@ -122,7 +116,7 @@ func (s *Store) ListSubscriptionChannels(
 	if err := validateCreatedAtCursor(filter.Cursor); err != nil {
 		return SubscriptionChannelPage{}, err
 	}
-	query := `SELECT id, name, format, public_host, enabled, created_at, updated_at
+	query := `SELECT id, name, format, enabled, created_at, updated_at
 	           FROM subscription_channels`
 	args := make([]any, 0, 4)
 	if filter.Cursor != nil {
@@ -178,7 +172,7 @@ func (s *Store) UpdateSubscriptionChannel(
 			return err
 		}
 		if err := ensureSubscriptionChannelLimits(ctx, tx, prepared.ID, SubscriptionChannel{
-			ID: prepared.ID, Name: prepared.Name, Format: prepared.Format, PublicHost: prepared.PublicHost,
+			ID: prepared.ID, Name: prepared.Name, Format: prepared.Format,
 			Config: prepared.Config, Enabled: prepared.Enabled,
 		}); err != nil {
 			return err
@@ -186,11 +180,10 @@ func (s *Store) UpdateSubscriptionChannel(
 		result, err := tx.ExecContext(
 			ctx,
 			`UPDATE subscription_channels
-	                SET name = ?, format = ?, public_host = ?, config_json = ?, enabled = ?, updated_at = ?
+	                SET name = ?, format = ?, config_json = ?, enabled = ?, updated_at = ?
 	              WHERE id = ? AND updated_at = ?`,
 			prepared.Name,
 			string(prepared.Format),
-			prepared.PublicHost,
 			string(prepared.Config),
 			boolInt(prepared.Enabled),
 			formatTime(prepared.UpdatedAt),
@@ -252,10 +245,6 @@ func prepareNewSubscriptionChannel(channel SubscriptionChannel) (SubscriptionCha
 	if !validSubscriptionFormat(channel.Format) {
 		return SubscriptionChannel{}, fmt.Errorf("invalid subscription format %q", channel.Format)
 	}
-	publicHost, err := normalizeSubscriptionPublicHost(channel.PublicHost)
-	if err != nil {
-		return SubscriptionChannel{}, err
-	}
 	config, err := channelConfigObject(channel.Config)
 	if err != nil {
 		return SubscriptionChannel{}, err
@@ -266,7 +255,6 @@ func prepareNewSubscriptionChannel(channel SubscriptionChannel) (SubscriptionCha
 	} else {
 		createdAt = createdAt.UTC()
 	}
-	channel.PublicHost = publicHost
 	channel.Config = config
 	channel.CreatedAt = createdAt
 	channel.UpdatedAt = createdAt
@@ -285,10 +273,6 @@ func prepareSubscriptionChannelUpdate(
 	if !validSubscriptionFormat(input.Format) {
 		return UpdateSubscriptionChannelInput{}, fmt.Errorf("invalid subscription format %q", input.Format)
 	}
-	publicHost, err := normalizeSubscriptionPublicHost(input.PublicHost)
-	if err != nil {
-		return UpdateSubscriptionChannelInput{}, err
-	}
 	config, err := channelConfigObject(input.Config)
 	if err != nil {
 		return UpdateSubscriptionChannelInput{}, err
@@ -301,38 +285,8 @@ func prepareSubscriptionChannelUpdate(
 	if err != nil {
 		return UpdateSubscriptionChannelInput{}, err
 	}
-	input.PublicHost = publicHost
 	input.Config = config
 	return input, nil
-}
-
-func normalizeSubscriptionPublicHost(value string) (string, error) {
-	if value == "" {
-		return "", nil
-	}
-	if value != strings.TrimSpace(value) || len(value) > 253 ||
-		strings.ContainsAny(value, "/@?#[]") {
-		return "", errors.New("subscription channel public_host must be a normalized host without scheme or port")
-	}
-	if net.ParseIP(value) != nil {
-		return strings.ToLower(value), nil
-	}
-	if strings.Contains(value, ":") || strings.HasPrefix(value, ".") || strings.HasSuffix(value, ".") {
-		return "", errors.New("subscription channel public_host is invalid")
-	}
-	for _, label := range strings.Split(value, ".") {
-		if label == "" || len(label) > 63 || label[0] == '-' || label[len(label)-1] == '-' {
-			return "", errors.New("subscription channel public_host is invalid")
-		}
-		for _, character := range label {
-			if (character >= 'a' && character <= 'z') || (character >= 'A' && character <= 'Z') ||
-				(character >= '0' && character <= '9') || character == '-' {
-				continue
-			}
-			return "", errors.New("subscription channel public_host is invalid")
-		}
-	}
-	return strings.ToLower(value), nil
 }
 
 func getSubscriptionChannel(ctx context.Context, q queryRower, id string) (SubscriptionChannel, error) {
@@ -358,7 +312,6 @@ func scanSubscriptionChannel(row rowScanner) (SubscriptionChannel, error) {
 		&channel.ID,
 		&channel.Name,
 		&channel.Format,
-		&channel.PublicHost,
 		&config,
 		&enabled,
 		&createdAt,
@@ -388,7 +341,6 @@ func scanSubscriptionChannelSummary(row rowScanner) (SubscriptionChannelSummary,
 		&channel.ID,
 		&channel.Name,
 		&channel.Format,
-		&channel.PublicHost,
 		&enabled,
 		&createdAt,
 		&updatedAt,

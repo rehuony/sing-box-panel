@@ -55,7 +55,7 @@ describe('source node sorting', () => {
     const user = userEvent.setup();
     const notice = vi.spyOn(toast, 'add');
     const nodes = ['A', 'B'].map(id => ({ ...node(id), source_id: 'manual', origin: 'manual' as const }));
-    let catalog: SubscriptionNodeCatalog = { nodes, node_orders: {}, diagnostics: [], applied_bundle_id: '' };
+    let catalog: SubscriptionNodeCatalog = { nodes, node_orders: {}, diagnostics: [], node_publications: [] };
     const pending = deferred<Awaited<ReturnType<ApiClient['setSubscriptionNodeOrder']>>>();
     const client = createMockApiClient({
       getSubscriptionNodeCatalog: vi.fn(async () => structuredClone(catalog)),

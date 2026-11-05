@@ -4,6 +4,7 @@ package fleet
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"time"
 
@@ -17,6 +18,10 @@ import (
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/store"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/telemetry"
 )
+
+// errStateReportInvalid rejects a state report whose identifiers are too
+// long or contain control characters.
+var errStateReportInvalid = errors.New("the state report is malformed")
 
 // LiveMetricsInterval is a node's metrics interval while a browser views its
 // live metrics.
@@ -53,7 +58,18 @@ func (service *Service) receiveStateReport(ctx context.Context, current *session
 	if err != nil {
 		return err
 	}
-	if err := service.database.RecordNodeStateReport(ctx, current.nodeID, current.sessionID, encoded, service.now().UTC()); err != nil {
+	summary := store.NodeReport{PublicIP: report.GetHost().GetPublicIp()}
+	if applied := report.GetApplied(); applied != nil {
+		summary.Applied = store.AppliedBundle{
+			ID: applied.GetBundleId(), RevisionID: applied.GetRevisionId(),
+			ConfigSHA256: applied.GetConfigurationSha256(), ExactCoreVersion: applied.GetExactCoreVersion(),
+		}
+	}
+	if !boundedText(summary.PublicIP, 64) || !boundedText(summary.Applied.ID, 256) || !boundedText(summary.Applied.RevisionID, 256) ||
+		!boundedText(summary.Applied.ConfigSHA256, 64) || !boundedText(summary.Applied.ExactCoreVersion, 64) {
+		return errStateReportInvalid
+	}
+	if err := service.database.RecordNodeStateReport(ctx, current.nodeID, current.sessionID, encoded, summary, service.now().UTC()); err != nil {
 		return err
 	}
 	if existing != nil {

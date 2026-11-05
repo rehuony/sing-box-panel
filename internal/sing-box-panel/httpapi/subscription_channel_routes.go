@@ -28,11 +28,10 @@ func (handler *Handler) createSubscriptionChannel(w http.ResponseWriter, request
 		return
 	}
 	var input struct {
-		Name       string                   `json:"name"`
-		Format     store.SubscriptionFormat `json:"format"`
-		PublicHost string                   `json:"public_host"`
-		Config     json.RawMessage          `json:"config"`
-		Enabled    *bool                    `json:"enabled"`
+		Name    string                   `json:"name"`
+		Format  store.SubscriptionFormat `json:"format"`
+		Config  json.RawMessage          `json:"config"`
+		Enabled *bool                    `json:"enabled"`
 	}
 	if !decodeStrictRequest(w, request, maximumSubscriptionRequestBytes, &input) {
 		return
@@ -42,7 +41,7 @@ func (handler *Handler) createSubscriptionChannel(w http.ResponseWriter, request
 		return
 	}
 	channel, err := handler.services.Subscriptions.CreateSubscriptionChannel(request.Context(), subscription.CreateSubscriptionChannelRequest{
-		Name: input.Name, Format: input.Format, PublicHost: input.PublicHost,
+		Name: input.Name, Format: input.Format,
 		Config: input.Config, Enabled: *input.Enabled,
 	})
 	if err != nil {
@@ -73,11 +72,10 @@ func (handler *Handler) updateSubscriptionChannel(w http.ResponseWriter, request
 		return
 	}
 	var input struct {
-		Name       string                   `json:"name"`
-		Format     store.SubscriptionFormat `json:"format"`
-		PublicHost string                   `json:"public_host"`
-		Config     json.RawMessage          `json:"config"`
-		Enabled    *bool                    `json:"enabled"`
+		Name    string                   `json:"name"`
+		Format  store.SubscriptionFormat `json:"format"`
+		Config  json.RawMessage          `json:"config"`
+		Enabled *bool                    `json:"enabled"`
 	}
 	if !decodeStrictRequest(w, request, maximumSubscriptionRequestBytes, &input) {
 		return
@@ -87,7 +85,7 @@ func (handler *Handler) updateSubscriptionChannel(w http.ResponseWriter, request
 		return
 	}
 	channel, err := handler.services.Subscriptions.UpdateSubscriptionChannel(request.Context(), identifier, subscription.UpdateSubscriptionChannelRequest{
-		Name: input.Name, Format: input.Format, PublicHost: input.PublicHost,
+		Name: input.Name, Format: input.Format,
 		Config: input.Config, Enabled: *input.Enabled, ExpectedUpdatedAt: expected,
 	})
 	if err != nil {

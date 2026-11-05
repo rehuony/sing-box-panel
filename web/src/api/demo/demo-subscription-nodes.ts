@@ -62,7 +62,12 @@ export function createDemoNodeApi(initial: SubscriptionNodeDetail[], getSources:
     return node;
   };
   return {
-    getSubscriptionNodeCatalog: async () => ({ applied_bundle_id: 'bundle_demo_current', nodes: catalog().nodes.map(nodeSummary), diagnostics: [], node_orders: structuredClone(orders) }),
+    getSubscriptionNodeCatalog: async () => ({
+      node_publications: [],
+      nodes: catalog().nodes.map(nodeSummary),
+      diagnostics: [],
+      node_orders: structuredClone(orders),
+    }),
     getSubscriptionNode: async id => structuredClone(find(id)),
     createSubscriptionNode: async raw => {
       const node = details(`node_demo_${crypto.randomUUID()}`, raw);

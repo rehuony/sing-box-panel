@@ -22,7 +22,6 @@ type PanelPreferences struct {
 	ListenHost     string             `json:"listen_host"`
 	ListenPort     int                `json:"listen_port"`
 	ExternalOrigin string             `json:"external_origin"`
-	PublicNodeHost string             `json:"public_node_host"`
 	Language       string             `json:"language"`
 	Appearance     AppearanceSettings `json:"appearance"`
 }
@@ -68,7 +67,6 @@ func (service PanelServiceSettings) apply(value *Settings) {
 type PanelSettingsView struct {
 	AdminEmail            string               `json:"admin_email"`
 	Service               PanelServiceSettings `json:"service"`
-	DetectedPublicIP      string               `json:"detected_public_ip,omitempty"`
 	Revision              int64                `json:"revision"`
 	Preferences           PanelPreferences     `json:"preferences"`
 	GitHubTokenConfigured bool                 `json:"github_token_configured"`
@@ -113,11 +111,7 @@ func (app *Service) PanelSettings(ctx context.Context) (PanelSettingsView, error
 	if err != nil {
 		return PanelSettingsView{}, err
 	}
-	view := app.panelSettingsView(value, revision)
-	if app.publicIP != nil {
-		view.DetectedPublicIP = app.publicIP(ctx)
-	}
-	return view, nil
+	return app.panelSettingsView(value, revision), nil
 }
 
 func (app *Service) panelSettingsView(configuration Settings, revision int64) PanelSettingsView {
@@ -209,11 +203,7 @@ func (app *Service) SavePanelSettings(ctx context.Context, input PanelSettingsWr
 	}
 	app.publishSettings(configurationFile)
 	revision = Revision(after)
-	view := app.panelSettingsView(configurationFile, revision)
-	if app.publicIP != nil {
-		view.DetectedPublicIP = app.publicIP(ctx)
-	}
-	return PanelSettingsSaveResult{Settings: view, ReauthenticationRequired: credentialsChanged}, nil
+	return PanelSettingsSaveResult{Settings: app.panelSettingsView(configurationFile, revision), ReauthenticationRequired: credentialsChanged}, nil
 }
 
 func validatePanelSettings(input PanelSettingsWrite) error {
@@ -229,9 +219,6 @@ func validatePanelSettings(input PanelSettingsWrite) error {
 		if err != nil || origin != p.ExternalOrigin {
 			return ErrPanelSettingsInvalid
 		}
-	}
-	if p.PublicNodeHost != "" && !ValidPublishedHost(p.PublicNodeHost) {
-		return ErrPanelSettingsInvalid
 	}
 	for _, secret := range []string{input.GitHubToken} {
 		if len(secret) > 8192 || strings.ContainsAny(secret, "\x00\r\n") {

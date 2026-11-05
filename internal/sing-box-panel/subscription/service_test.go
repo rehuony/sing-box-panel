@@ -30,7 +30,7 @@ func TestApplicationSubscriptionChannelAndSourceCRUD(t *testing.T) {
 	app := newSubscriptionTestApplication(database)
 
 	channel, err := app.CreateSubscriptionChannel(ctx, CreateSubscriptionChannelRequest{
-		Name: "public", Format: store.SubscriptionFormatMihomo, PublicHost: "public.example",
+		Name: "public", Format: store.SubscriptionFormatMihomo,
 		Config: json.RawMessage(`{"exclude_tags":["private"]}`), Enabled: true,
 	})
 	if err != nil {
@@ -48,14 +48,14 @@ func TestApplicationSubscriptionChannelAndSourceCRUD(t *testing.T) {
 		t.Fatalf("listed channels = %+v, err=%v", listed, err)
 	}
 	updated, err := app.UpdateSubscriptionChannel(ctx, channel.ID, UpdateSubscriptionChannelRequest{
-		Name: "renamed", Format: store.SubscriptionFormatLoon, PublicHost: "renamed.example", Config: json.RawMessage(`{}`),
+		Name: "renamed", Format: store.SubscriptionFormatLoon, Config: json.RawMessage(`{}`),
 		Enabled: false, ExpectedUpdatedAt: channel.UpdatedAt,
 	})
 	if err != nil || updated.Enabled || !updated.UpdatedAt.After(channel.UpdatedAt) {
 		t.Fatalf("updated channel = %+v, err=%v", updated, err)
 	}
 	if _, err := app.UpdateSubscriptionChannel(ctx, channel.ID, UpdateSubscriptionChannelRequest{
-		Name: "stale", Format: store.SubscriptionFormatLoon, PublicHost: "stale.example", ExpectedUpdatedAt: channel.UpdatedAt,
+		Name: "stale", Format: store.SubscriptionFormatLoon, ExpectedUpdatedAt: channel.UpdatedAt,
 	}); !errors.Is(err, store.ErrSubscriptionConflict) {
 		t.Fatalf("stale application channel update error = %v", err)
 	}
@@ -99,7 +99,7 @@ func TestApplicationSubscriptionTokenPlaintextLifecycleDoesNotLeakFromReads(t *t
 	t.Cleanup(func() { _ = database.Close() })
 	app := newSubscriptionTestApplication(database)
 	channel, err := app.CreateSubscriptionChannel(ctx, CreateSubscriptionChannelRequest{
-		Name: "token channel", Format: store.SubscriptionFormatSingBox, PublicHost: "token.example", Enabled: true,
+		Name: "token channel", Format: store.SubscriptionFormatSingBox, Enabled: true,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -355,5 +355,5 @@ func (app *Service) useSettings(panelSettings *settings.Service) {
 }
 
 func testSettings(database *store.Store, path string, value settings.Settings) *settings.Service {
-	return settings.NewService(database, path, value, settings.Options{})
+	return settings.NewService(database, path, value)
 }

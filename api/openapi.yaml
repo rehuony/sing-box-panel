@@ -1520,21 +1520,21 @@ paths:
       responses:
         "200":
           $ref: "#/components/responses/TrafficStatus"
-  /nodes/{nodeId}/traffic/settings:
+  /nodes/{nodeId}/settings:
     parameters:
       - $ref: '#/components/parameters/NodeID'
     get:
-      operationId: getNodeTrafficSettings
+      operationId: getNodeSettings
       responses:
         "200":
-          description: The node's own traffic quota and period.
+          description: The panel's settings for the node.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/NodeTrafficSettings"
+                $ref: "#/components/schemas/NodeSettings"
     put:
-      operationId: saveNodeTrafficSettings
-      description: Replaces the node's traffic quota and period while revision is still current. Periods and quota status follow at once; recorded traffic is unchanged.
+      operationId: saveNodeSettings
+      description: Replaces the node's settings while revision is still current. Subscriptions, periods and quota status follow at once; recorded traffic is unchanged.
       parameters:
         - $ref: "#/components/parameters/CSRFToken"
       requestBody:
@@ -1542,14 +1542,14 @@ paths:
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/NodeTrafficSettings"
+              $ref: "#/components/schemas/NodeSettings"
       responses:
         "200":
           description: The saved settings with their new revision.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/NodeTrafficSettings"
+                $ref: "#/components/schemas/NodeSettings"
         "412":
           $ref: "#/components/responses/Problem"
         "422":
@@ -2114,7 +2114,7 @@ components:
     PanelPreferences:
       type: object
       additionalProperties: false
-      required: [listen_host, listen_port, external_origin, public_node_host, language, appearance]
+      required: [listen_host, listen_port, external_origin, language, appearance]
       properties:
         listen_host:
           type: string
@@ -2126,9 +2126,6 @@ components:
         external_origin:
           type: string
           maxLength: 2048
-        public_node_host:
-          type: string
-          maxLength: 253
         language:
           type: string
           enum: [zh-CN, en]
@@ -2311,9 +2308,6 @@ components:
       required: [revision, preferences, service, admin_email, github_token_configured, restart_required]
       properties:
         admin_email: {type: string, format: email}
-        detected_public_ip:
-          type: string
-          description: Cached best-effort public address hint; never an operator override.
         revision:
           type: integer
           format: int64
@@ -2741,24 +2735,22 @@ components:
     SubscriptionChannelSummary:
       type: object
       additionalProperties: false
-      required: [id, name, format, public_host, enabled, created_at, updated_at]
+      required: [id, name, format, enabled, created_at, updated_at]
       properties:
         id: {type: string}
         name: {type: string}
         format: {type: string, enum: [sing-box, mihomo, loon]}
-        public_host: {type: string}
         enabled: {type: boolean}
         created_at: {type: string, format: date-time}
         updated_at: {type: string, format: date-time}
     SubscriptionChannel:
       type: object
       additionalProperties: false
-      required: [id, name, format, public_host, config, enabled, created_at, updated_at]
+      required: [id, name, format, config, enabled, created_at, updated_at]
       properties:
         id: {type: string}
         name: {type: string}
         format: {type: string, enum: [sing-box, mihomo, loon]}
-        public_host: {type: string}
         config: {$ref: "#/components/schemas/SubscriptionChannelConfig"}
         enabled: {type: boolean}
         created_at: {type: string, format: date-time}
@@ -2913,8 +2905,9 @@ components:
       additionalProperties: false
       required: [collection, item_index, code]
       properties:
+        node_id: {type: string, description: The node whose applied configuration the diagnostic is about.}
         collection: {type: string, enum: [outbounds, endpoints, inbounds]}
-        item_index: {type: integer, minimum: 0}
+        item_index: {type: integer, minimum: -1, description: "-1 when the diagnostic is about a whole configuration."}
         code: {type: string}
     SubscriptionSourceVersion:
       type: object
@@ -2976,6 +2969,19 @@ components:
         tls: {type: boolean}
         reality: {type: boolean}
         sni: {type: string}
+        node_id: {type: string, description: The node a local inbound comes from.}
+    NodePublication:
+      type: object
+      additionalProperties: false
+      description: A node that publishes local inbounds, from the bundle it reports running.
+      required: [node_id, node_name, applied_bundle_id, canonical_revision_id, exact_core_version, public_host]
+      properties:
+        node_id: {type: string}
+        node_name: {type: string}
+        applied_bundle_id: {type: string}
+        canonical_revision_id: {type: string}
+        exact_core_version: {type: string}
+        public_host: {type: string, description: The host its inbounds publish; empty while the node has neither an override nor a reported public IP.}
     SubscriptionNodeOrder:
       type: object
       additionalProperties: false
@@ -2986,9 +2992,9 @@ components:
     SubscriptionNodeCatalog:
       type: object
       additionalProperties: false
-      required: [applied_bundle_id, nodes, diagnostics, node_orders]
+      required: [node_publications, nodes, diagnostics, node_orders]
       properties:
-        applied_bundle_id: {type: string}
+        node_publications: {type: array, items: {$ref: "#/components/schemas/NodePublication"}}
         nodes: {type: array, items: {$ref: "#/components/schemas/SubscriptionNodeSummary"}}
         node_orders:
           type: object
@@ -3048,7 +3054,7 @@ components:
       required: [collection, item_index, code, format]
       properties:
         collection: {type: string, enum: [outbounds, endpoints, inbounds]}
-        item_index: {type: integer, minimum: 0}
+        item_index: {type: integer, minimum: -1, description: "-1 when the diagnostic is about a whole configuration."}
         code: {type: string}
         format: {type: string, enum: [sing-box, mihomo, loon]}
     SubscriptionPreviewDiagnostic:
@@ -3058,9 +3064,11 @@ components:
       required: [collection, item_index, code, format]
       properties:
         collection: {type: string, enum: [outbounds, endpoints, inbounds]}
-        item_index: {type: integer, minimum: 0}
+        item_index: {type: integer, minimum: -1, description: "-1 when the diagnostic is about a whole configuration."}
         code: {type: string}
         format: {type: string, enum: [sing-box, mihomo, loon]}
+        origin_node_id: {type: string, description: The node whose applied configuration a local inbound diagnostic is about.}
+        origin_node_name: {type: string}
         node_id: {type: string, description: Stable publication ID when a normalized node exists.}
         node_name: {type: string}
         node_type: {type: string}
@@ -3069,15 +3077,11 @@ components:
     SubscriptionPreview:
       type: object
       additionalProperties: false
-      required: [user_id, applied_bundle_id, channel, startup_artifact_id, canonical_revision_id, exact_core_version, artifact_state, result]
+      required: [user_id, channel, node_publications, result]
       properties:
         user_id: {type: string}
-        applied_bundle_id: {type: string}
         channel: {$ref: "#/components/schemas/SubscriptionChannel"}
-        startup_artifact_id: {type: string}
-        canonical_revision_id: {type: string}
-        exact_core_version: {$ref: "#/components/schemas/ExactCoreVersion"}
-        artifact_state: {type: string, enum: [pending, ready, failed]}
+        node_publications: {type: array, items: {$ref: "#/components/schemas/NodePublication"}}
         result:
           type: object
           additionalProperties: false
@@ -3308,16 +3312,26 @@ components:
         quota_exceeded:
           type: boolean
           description: Recorded upload and download together reached the node's quota.
-    NodeTrafficSettings:
+    NodeSettings:
       type: object
       additionalProperties: false
-      required: [revision, quota_gib, period_months, reset_day]
+      required: [revision, public_host, traffic]
       properties:
         revision:
           type: integer
           format: int64
           minimum: 1
           description: The revision read; a save fails with 412 once another save changed it.
+        public_host:
+          type: string
+          maxLength: 253
+          description: The IP address or DNS name subscriptions publish for the node's inbounds, without scheme or port; empty uses the public IP the node reports.
+        traffic: {$ref: "#/components/schemas/NodeTrafficSettings"}
+    NodeTrafficSettings:
+      type: object
+      additionalProperties: false
+      required: [quota_gib, period_months, reset_day]
+      properties:
         quota_gib:
           type: [integer, "null"]
           minimum: 0
@@ -3422,15 +3436,13 @@ components:
     SubscriptionChannelInput:
       type: object
       additionalProperties: false
-      required: [name, format, public_host, config, enabled]
+      required: [name, format, config, enabled]
       properties:
         name:
           type: string
         format:
           type: string
           enum: [sing-box, mihomo, loon]
-        public_host:
-          type: string
         config:
           $ref: "#/components/schemas/SubscriptionChannelConfig"
         enabled:

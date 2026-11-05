@@ -84,19 +84,22 @@ func TestObservabilityHTTPReadsOnlyPersistedEvidence(t *testing.T) {
 	}
 	// A quota belongs to its node: the node's metrics report it, and saving
 	// it with a stale revision fails.
-	settings := authenticatedRequest(t, handler, http.MethodGet, nodePath+"/traffic/settings", "", "")
-	if settings.Code != http.StatusOK || settings.Body.String() != `{"revision":1,"quota_gib":null,"period_months":1,"reset_day":1}`+"\n" {
-		t.Fatalf("traffic settings status=%d body=%s", settings.Code, settings.Body.String())
+	settings := authenticatedRequest(t, handler, http.MethodGet, nodePath+"/settings", "", "")
+	if settings.Code != http.StatusOK || settings.Body.String() != `{"revision":1,"public_host":"","traffic":{"quota_gib":null,"period_months":1,"reset_day":1}}`+"\n" {
+		t.Fatalf("node settings status=%d body=%s", settings.Code, settings.Body.String())
 	}
-	saved := authenticatedRequest(t, handler, http.MethodPut, nodePath+"/traffic/settings", `{"revision":1,"quota_gib":1,"period_months":1,"reset_day":1}`, "")
-	if saved.Code != http.StatusOK || !strings.Contains(saved.Body.String(), `"revision":2`) {
-		t.Fatalf("save traffic settings status=%d body=%s", saved.Code, saved.Body.String())
+	saved := authenticatedRequest(t, handler, http.MethodPut, nodePath+"/settings",
+		`{"revision":1,"public_host":"Edge.Example.com","traffic":{"quota_gib":1,"period_months":1,"reset_day":1}}`, "")
+	if saved.Code != http.StatusOK || !strings.Contains(saved.Body.String(), `"revision":2`) || !strings.Contains(saved.Body.String(), `"public_host":"edge.example.com"`) {
+		t.Fatalf("save node settings status=%d body=%s", saved.Code, saved.Body.String())
 	}
 	for body, code := range map[string]int{
-		`{"revision":1,"quota_gib":2,"period_months":1,"reset_day":1}`:  http.StatusPreconditionFailed,
-		`{"revision":2,"quota_gib":2,"period_months":1,"reset_day":29}`: http.StatusUnprocessableEntity,
+		`{"revision":1,"public_host":"","traffic":{"quota_gib":2,"period_months":1,"reset_day":1}}`:                         http.StatusPreconditionFailed,
+		`{"revision":2,"public_host":"","traffic":{"quota_gib":2,"period_months":1,"reset_day":29}}`:                        http.StatusUnprocessableEntity,
+		`{"revision":2,"public_host":"https://edge.example.com","traffic":{"quota_gib":2,"period_months":1,"reset_day":1}}`: http.StatusUnprocessableEntity,
+		`{"revision":2,"public_host":"127.0.0.1","traffic":{"quota_gib":2,"period_months":1,"reset_day":1}}`:                http.StatusUnprocessableEntity,
 	} {
-		if rejected := authenticatedRequest(t, handler, http.MethodPut, nodePath+"/traffic/settings", body, ""); rejected.Code != code {
+		if rejected := authenticatedRequest(t, handler, http.MethodPut, nodePath+"/settings", body, ""); rejected.Code != code {
 			t.Fatalf("save %s status=%d body=%s, want %d", body, rejected.Code, rejected.Body.String(), code)
 		}
 	}

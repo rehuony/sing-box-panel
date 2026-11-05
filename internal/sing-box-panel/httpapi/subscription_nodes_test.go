@@ -37,7 +37,7 @@ func TestManualNodesCRUDVisibilityAndPublicationWithoutCore(t *testing.T) {
 	if catalog.Code != 200 || strings.Contains(catalog.Body.String(), "not-in-summary") {
 		t.Fatalf("catalog %d %s", catalog.Code, catalog.Body.String())
 	}
-	channel, err := app.Subscriptions.CreateSubscriptionChannel(ctx, subscription.CreateSubscriptionChannelRequest{Name: "channel", Format: store.SubscriptionFormatSingBox, PublicHost: "public.example", Enabled: true})
+	channel, err := app.Subscriptions.CreateSubscriptionChannel(ctx, subscription.CreateSubscriptionChannelRequest{Name: "channel", Format: store.SubscriptionFormatSingBox, Enabled: true})
 	if err != nil {
 		t.Fatal(err)
 	}

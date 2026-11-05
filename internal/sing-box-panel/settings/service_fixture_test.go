@@ -32,5 +32,5 @@ func settingsFileFixture(t *testing.T, value Settings) Settings {
 }
 
 func newTestService(database *store.Store, value Settings) *Service {
-	return NewService(database, value.Path(), value, Options{})
+	return NewService(database, value.Path(), value)
 }

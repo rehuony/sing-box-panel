@@ -42,7 +42,7 @@ type Options struct {
 // New composes the panel's services over database and the settings file
 // selected by configuration.
 func New(database *store.Store, configuration settings.Settings, options Options) Services {
-	panelSettings := settings.NewService(database, configuration.Path(), configuration, settings.Options{})
+	panelSettings := settings.NewService(database, configuration.Path(), configuration)
 	records := telemetry.New(database, panelSettings, telemetry.Options{Classify: fleet.ClassifyOperationFailure, Observe: options.Observe})
 	cores := corecache.New(database, records, panelSettings, corecache.Options{DataDir: configuration.DataDir, Downloader: options.Downloader})
 	configs := nodeconfig.New(database, cores)

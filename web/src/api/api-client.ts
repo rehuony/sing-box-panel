@@ -28,7 +28,7 @@ import type {
   MetricsHistory,
   MetricsHistoryFilter,
   MetricsSnapshot,
-  NodeTrafficSettings,
+  NodeSettings,
   PanelLogFilter,
   PanelLogPage,
   TrafficPeriod,
@@ -124,17 +124,18 @@ export interface ApiClient {
   stopRuntime: (signal?: AbortSignal) => Promise<RuntimeStatus>;
   getMetrics: (signal?: AbortSignal) => Promise<MetricsSnapshot>;
   startRuntime: (signal?: AbortSignal) => Promise<RuntimeStatus>;
+  getNodeSettings: (signal?: AbortSignal) => Promise<NodeSettings>;
   getSystemStatus: (signal?: AbortSignal) => Promise<SystemStatus>;
   restartRuntime: (signal?: AbortSignal) => Promise<RuntimeStatus>;
-  exportPanelBackup: (signal?: AbortSignal) => Promise<PanelBackup>;
 
+  exportPanelBackup: (signal?: AbortSignal) => Promise<PanelBackup>;
   subscribeSessionInvalidated: (listener: () => void) => () => void;
   getRuntimeStatus: (signal?: AbortSignal) => Promise<RuntimeStatus>;
   getTrafficStatus: (signal?: AbortSignal) => Promise<TrafficStatus>;
   clearCoreLog: (file: string, signal?: AbortSignal) => Promise<void>;
   getLog: (entryID: string, signal?: AbortSignal) => Promise<LogEntry>;
-  login: (input: LoginInput, signal?: AbortSignal) => Promise<Session>;
 
+  login: (input: LoginInput, signal?: AbortSignal) => Promise<Session>;
   getPanelSettings: (signal?: AbortSignal) => Promise<PanelSettingsView>;
   deleteCoreLogFile: (file: string, signal?: AbortSignal) => Promise<void>;
   listLogs: (filter?: LogFilter, signal?: AbortSignal) => Promise<LogPage>;
@@ -142,7 +143,6 @@ export interface ApiClient {
   getConfigurationFile: (signal?: AbortSignal) => Promise<ConfigurationFile>;
   installCore: (assetID: number, signal?: AbortSignal) => Promise<CoreArtifact>;
   listCoreLogFiles: (signal?: AbortSignal) => Promise<{ items: CoreLogFile[] }>;
-  getNodeTrafficSettings: (signal?: AbortSignal) => Promise<NodeTrafficSettings>;
   removeCoreArtifact: (artifactID: string, signal?: AbortSignal) => Promise<void>;
   enableCore: (artifactID: string, signal?: AbortSignal) => Promise<RuntimeStatus>;
   deleteSubscriptionToken: (tokenID: string, signal?: AbortSignal) => Promise<void>;
@@ -152,6 +152,7 @@ export interface ApiClient {
   getTrafficPeriod: (periodID: string, signal?: AbortSignal) => Promise<TrafficPeriod>;
   getSubscriptionNodeCatalog: (signal?: AbortSignal) => Promise<SubscriptionNodeCatalog>;
 
+  saveNodeSettings: (input: NodeSettings, signal?: AbortSignal) => Promise<NodeSettings>;
   listPanelLogs: (filter?: PanelLogFilter, signal?: AbortSignal) => Promise<PanelLogPage>;
   getSubscriptionUser: (userID: string, signal?: AbortSignal) => Promise<SubscriptionUser>;
   clearLogs: (filter?: LogClearFilter, signal?: AbortSignal) => Promise<{ deleted: number }>;
@@ -173,7 +174,6 @@ export interface ApiClient {
   parseSubscriptionNode: (text: string, signal?: AbortSignal) => Promise<{ outbound_json: string }>;
   checkStartupArtifact: (artifactID: string, signal?: AbortSignal) => Promise<StartupArtifactSummary>;
   restorePanelBackup: (input: PanelRestoreRequest, signal?: AbortSignal) => Promise<PanelRestoreResult>;
-  saveNodeTrafficSettings: (input: NodeTrafficSettings, signal?: AbortSignal) => Promise<NodeTrafficSettings>;
   resolveFilesystemPath: (input: FilesystemResolveInput, signal?: AbortSignal) => Promise<FilesystemSelection>;
   getMetricsHistory: (
     filter: MetricsHistoryFilter,

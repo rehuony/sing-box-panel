@@ -448,7 +448,6 @@ fields are rejected; no migration is performed.
 | `logs.core_retention_days` | Core capture retention (UTC dates including today) | `7` |
 | `logs.core_max_files` | Maximum core capture files | `0` (unlimited) |
 | `logs.core_max_file_size_mib` | Maximum capture file size | `32` MiB |
-| `panel.public_node_host` | Public node host | Empty; automatic detection |
 | `panel.language` | Language | `zh-CN` |
 | `panel.appearance.theme` | Theme | `system` |
 | `panel.appearance.color` | Color | `#6D4ED1` |
@@ -543,7 +542,7 @@ configuration resolve there on the node; see [Nodes](cli.md#nodes). The panel
 settings file and its write/recovery sidecars remain beside the selected
 `--config` path.
 
-API revision, detected public IP, configured-secret flags and restart status are
+API revision, configured-secret flags and restart status are
 response metadata and are not settings fields. File reads include credentials;
 the Web API continues to redact them. Traffic quotas and periods are not panel
 settings: each node has its own; see
@@ -567,10 +566,11 @@ updates block file commands; a conflicting external edit is never overwritten
 by automatic recovery. Keep the selected file and its directory writable by the
 service account; see [systemd permissions](systemd.md#system-service).
 
-The public-node host accepts a public IP or domain override; otherwise the
-bounded public-IP detector provides the input placeholder and publication host.
-It never rewrites the actual listener, port, TLS server name or imported node
-address. Detection failure must not publish loopback or wildcard addresses.
+Subscriptions publish each node's inbounds at that node's own public host, set
+in its settings, or else at the public IP the node reports; see
+[Applied local nodes](subscriptions-and-observability.md#applied-local-nodes-and-versioned-sources).
+The host never rewrites the actual listener, port, TLS server name or imported
+node address, and loopback or wildcard addresses are never published.
 
 New inbound entries are created locally from the selected protocol and tag.
 Credentials belong to each inbound's native configuration and are entered in its

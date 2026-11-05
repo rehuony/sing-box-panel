@@ -66,7 +66,7 @@ describe('channel draft', () => {
     await act(() => result.current.save());
     expect(client.previewSubscriptionChannel).toHaveBeenCalledTimes(native ? 1 : 0);
     expect(client.updateSubscriptionChannel).toHaveBeenCalledWith(channel.id, expect.objectContaining({
-      enabled: channel.enabled, public_host: channel.public_host,
+      enabled: channel.enabled,
       config: expect.objectContaining({ policy: result.current.policy }),
     }), channel.updated_at, expect.any(AbortSignal));
     expect(onSaved).toHaveBeenCalledOnce();

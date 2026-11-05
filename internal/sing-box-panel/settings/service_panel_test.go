@@ -33,7 +33,6 @@ func TestPanelSettingsPersistCASAndRedact(t *testing.T) {
 	p := view.Preferences
 	p.Appearance.Color = "#ABCDEF"
 	p.Appearance.Radius = 0
-	p.PublicNodeHost = "2001:db8::1"
 	p.ExternalOrigin = "https://panel.example.com"
 	input := PanelSettingsWrite{Preferences: p, Revision: view.Revision, Credentials: &CredentialsWrite{Email: new(testutil.AdminEmail), NewPassword: testutil.ChangedPassword}}
 	saved, err := app.SavePanelSettings(ctx, input)
@@ -81,12 +80,8 @@ func TestPanelSettingsPersistCASAndRedact(t *testing.T) {
 func TestPanelSettingsValidation(t *testing.T) {
 	base := PanelSettingsWrite{Preferences: PanelPreferences{ListenHost: "127.0.0.1", ListenPort: 3000, Language: "zh-CN", Appearance: AppearanceSettings{Theme: "light", Color: "#6D4ED1", Radius: 24}}}
 	cases := map[string]func(*PanelSettingsWrite){
-		"wildcard published host": func(v *PanelSettingsWrite) { v.Preferences.PublicNodeHost = "0.0.0.0" },
-		"loopback published host": func(v *PanelSettingsWrite) { v.Preferences.PublicNodeHost = "::1" },
-		"URL instead of host":     func(v *PanelSettingsWrite) { v.Preferences.PublicNodeHost = "https://example.com" },
-		"port in host":            func(v *PanelSettingsWrite) { v.Preferences.PublicNodeHost = "example.com:443" },
-		"radius":                  func(v *PanelSettingsWrite) { v.Preferences.Appearance.Radius = 33 },
-		"color":                   func(v *PanelSettingsWrite) { v.Preferences.Appearance.Color = "red" },
+		"radius": func(v *PanelSettingsWrite) { v.Preferences.Appearance.Radius = 33 },
+		"color":  func(v *PanelSettingsWrite) { v.Preferences.Appearance.Color = "red" },
 		"short password": func(v *PanelSettingsWrite) {
 			v.Credentials = &CredentialsWrite{Email: new(testutil.AdminEmail), NewPassword: "short"}
 		},

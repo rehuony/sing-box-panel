@@ -67,11 +67,15 @@ type RenderResult struct {
 // FieldPath refers to the renderer input, not a line in the generated output.
 type PreviewDiagnostic struct {
 	RenderDiagnostic
-	NodeID    string `json:"node_id,omitempty"`
-	NodeName  string `json:"node_name,omitempty"`
-	NodeType  string `json:"node_type,omitempty"`
-	FieldPath string `json:"field_path,omitempty"`
-	Reason    string `json:"reason,omitempty"`
+	// OriginNodeID and OriginNodeName name the node whose applied
+	// configuration a local inbound diagnostic is about.
+	OriginNodeID   string `json:"origin_node_id,omitempty"`
+	OriginNodeName string `json:"origin_node_name,omitempty"`
+	NodeID         string `json:"node_id,omitempty"`
+	NodeName       string `json:"node_name,omitempty"`
+	NodeType       string `json:"node_type,omitempty"`
+	FieldPath      string `json:"field_path,omitempty"`
+	Reason         string `json:"reason,omitempty"`
 }
 
 // RenderValidationError exposes a stable reason code without reflecting input data.

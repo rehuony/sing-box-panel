@@ -151,9 +151,43 @@ func writeFleetProblem(w http.ResponseWriter, request *http.Request, err error) 
 		writeProblem(w, request, http.StatusConflict, "node_name_conflict", "Node name in use", "Another node already uses this name.")
 	case errors.Is(err, fleet.ErrNameInvalid):
 		writeProblem(w, request, http.StatusUnprocessableEntity, "node_name_invalid", "Node name invalid", err.Error())
+	case errors.Is(err, store.ErrNodeSettingsConflict):
+		writeProblem(w, request, http.StatusPreconditionFailed, "node_settings_conflict", "Node settings changed", "Reload the node's settings before saving.")
+	case errors.Is(err, store.ErrNodeSettingsInvalid):
+		writeProblem(w, request, http.StatusUnprocessableEntity, "node_settings_invalid", "Node settings invalid", err.Error())
 	case errors.Is(err, fleet.ErrEndpointRequired):
 		writeProblem(w, request, http.StatusConflict, "node_endpoint_required", "Node endpoint required", err.Error())
 	default:
 		writeProblem(w, request, http.StatusInternalServerError, "node_operation_failed", "Node operation failed", "The node operation could not be completed.")
 	}
+}
+
+func (handler *Handler) nodeSettings(w http.ResponseWriter, request *http.Request) {
+	if !handler.fleetRequest(w, request) {
+		return
+	}
+	result, err := handler.services.Fleet.NodeSettings(request.Context(), requestNodeID(request))
+	if err != nil {
+		writeFleetProblem(w, request, err)
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	writeJSON(w, http.StatusOK, result)
+}
+
+func (handler *Handler) saveNodeSettings(w http.ResponseWriter, request *http.Request) {
+	if !handler.fleetRequest(w, request) {
+		return
+	}
+	var input fleet.NodeSettings
+	if !decodeStrictRequest(w, request, 4096, &input) {
+		return
+	}
+	result, err := handler.services.Fleet.SaveNodeSettings(request.Context(), requestNodeID(request), input)
+	if err != nil {
+		writeFleetProblem(w, request, err)
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	writeJSON(w, http.StatusOK, result)
 }

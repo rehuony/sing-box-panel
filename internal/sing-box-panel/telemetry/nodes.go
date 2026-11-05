@@ -147,7 +147,7 @@ func (service *Service) RecordNodeSample(ctx context.Context, nodeID, instanceID
 	if err != nil {
 		return err
 	}
-	start, end, err := TrafficPeriod(current.SampledAt, node.Traffic)
+	start, end, err := TrafficPeriod(current.SampledAt, node.Settings.Traffic)
 	if err != nil {
 		return err
 	}

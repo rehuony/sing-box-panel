@@ -37,18 +37,18 @@ func TestSubscriptionManagementHTTPCRUDStrictnessAndCAS(t *testing.T) {
 	}
 
 	ambiguous := authenticatedRequest(t, handler, http.MethodPost, "/api/v1/subscription/channels",
-		`{"name":"public","format":"sing-box","public_host":"public.example","enabled":true,"enabled":false}`, "")
+		`{"name":"public","format":"sing-box","enabled":true,"enabled":false}`, "")
 	if ambiguous.Code != http.StatusUnprocessableEntity {
 		t.Fatalf("ambiguous status=%d body=%s", ambiguous.Code, ambiguous.Body.String())
 	}
 	unknown := authenticatedRequest(t, handler, http.MethodPost, "/api/v1/subscription/channels",
-		`{"name":"public","format":"sing-box","public_host":"public.example","enabled":true,"future":true}`, "")
+		`{"name":"public","format":"sing-box","enabled":true,"future":true}`, "")
 	if unknown.Code != http.StatusUnprocessableEntity {
 		t.Fatalf("unknown field status=%d body=%s", unknown.Code, unknown.Body.String())
 	}
 
 	createdResponse := authenticatedRequest(t, handler, http.MethodPost, "/api/v1/subscription/channels",
-		`{"name":"public","format":"sing-box","public_host":"public.example","config":{},"enabled":true}`, "")
+		`{"name":"public","format":"sing-box","config":{},"enabled":true}`, "")
 	if createdResponse.Code != http.StatusCreated || createdResponse.Header().Get("ETag") == "" {
 		t.Fatalf("create status=%d etag=%q body=%s", createdResponse.Code, createdResponse.Header().Get("ETag"), createdResponse.Body.String())
 	}
@@ -71,17 +71,17 @@ func TestSubscriptionManagementHTTPCRUDStrictnessAndCAS(t *testing.T) {
 	}
 
 	missingCAS := authenticatedRequest(t, handler, http.MethodPut, "/api/v1/subscription/channels/"+channel.ID,
-		`{"name":"renamed","format":"loon","public_host":"renamed.example","config":{},"enabled":false}`, "")
+		`{"name":"renamed","format":"loon","config":{},"enabled":false}`, "")
 	if missingCAS.Code != http.StatusPreconditionRequired {
 		t.Fatalf("missing CAS status=%d body=%s", missingCAS.Code, missingCAS.Body.String())
 	}
 	updated := authenticatedRequest(t, handler, http.MethodPut, "/api/v1/subscription/channels/"+channel.ID,
-		`{"name":"renamed","format":"loon","public_host":"renamed.example","config":{},"enabled":false}`, createdResponse.Header().Get("ETag"))
+		`{"name":"renamed","format":"loon","config":{},"enabled":false}`, createdResponse.Header().Get("ETag"))
 	if updated.Code != http.StatusOK || updated.Header().Get("ETag") == createdResponse.Header().Get("ETag") {
 		t.Fatalf("update status=%d etag=%q body=%s", updated.Code, updated.Header().Get("ETag"), updated.Body.String())
 	}
 	stale := authenticatedRequest(t, handler, http.MethodPut, "/api/v1/subscription/channels/"+channel.ID,
-		`{"name":"stale","format":"loon","public_host":"stale.example","config":{},"enabled":false}`, createdResponse.Header().Get("ETag"))
+		`{"name":"stale","format":"loon","config":{},"enabled":false}`, createdResponse.Header().Get("ETag"))
 	if stale.Code != http.StatusPreconditionFailed {
 		t.Fatalf("stale status=%d body=%s", stale.Code, stale.Body.String())
 	}
@@ -318,7 +318,7 @@ func TestPublicSubscriptionHTTPFrozenPublicationAndTokenLifecycle(t *testing.T) 
 	// Channel policy is evaluated live against the published nodes.
 	update := authenticatedRequest(t, handler, http.MethodPut,
 		"/panel/api/v1/subscription/channels/"+channel.ID,
-		`{"name":"sing-box","format":"sing-box","public_host":"publish.example","config":{"exclude_tags":["publish"]},"enabled":true}`,
+		`{"name":"sing-box","format":"sing-box","config":{"exclude_tags":["publish"]},"enabled":true}`,
 		subscriptionETag(channel.UpdatedAt))
 	if update.Code != http.StatusOK {
 		t.Fatalf("channel update status=%d body=%s", update.Code, update.Body.String())
@@ -417,7 +417,7 @@ func newSubscriptionPublicationHTTPFixture(
 	ctx := context.Background()
 	database, app, handler := newSubscriptionHTTPServices(t, basePath)
 	channel, err := app.Subscriptions.CreateSubscriptionChannel(ctx, subscription.CreateSubscriptionChannelRequest{
-		Name: "sing-box", Format: store.SubscriptionFormatSingBox, PublicHost: "publish.example",
+		Name: "sing-box", Format: store.SubscriptionFormatSingBox,
 		Config: json.RawMessage(`{}`), Enabled: true,
 	})
 	if err != nil {

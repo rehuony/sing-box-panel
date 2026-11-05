@@ -3,7 +3,6 @@
 package settings
 
 import (
-	"context"
 	"crypto/rand"
 	"time"
 
@@ -19,22 +18,12 @@ type Service struct {
 	settingsPath string
 	now          func() time.Time
 	random       func([]byte) (int, error)
-	publicIP     func(context.Context) string
-}
-
-// Options supplies a Service's collaborators.
-type Options struct {
-	// PublicIP returns the detected public IP hint shown in the settings view.
-	PublicIP func(context.Context) string
 }
 
 // NewService serves the settings file at path, started with value. An empty
 // path is a read-only view of value that cannot be saved.
-func NewService(database *store.Store, path string, value Settings, options Options) *Service {
-	return &Service{
-		database: database, settings: value, settingsPath: path,
-		now: time.Now, random: rand.Read, publicIP: options.PublicIP,
-	}
+func NewService(database *store.Store, path string, value Settings) *Service {
+	return &Service{database: database, settings: value, settingsPath: path, now: time.Now, random: rand.Read}
 }
 
 // Path returns the settings file path, or "" for a read-only view.

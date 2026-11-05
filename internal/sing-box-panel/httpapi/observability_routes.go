@@ -4,14 +4,12 @@ package httpapi
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
 	"time"
 
-	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/fleet"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/store"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/telemetry"
 )
@@ -361,53 +359,12 @@ func (handler *Handler) trafficStatus(w http.ResponseWriter, request *http.Reque
 	if _, ok := strictCoreQuery(w, request); !ok {
 		return
 	}
-	status, err := handler.services.Telemetry.TrafficStatus(request.Context(), time.Now().UTC())
+	status, err := handler.services.Telemetry.TrafficStatus(request.Context(), time.Now().UTC(), nil)
 	if err != nil {
 		writeProblem(w, request, http.StatusServiceUnavailable, "traffic_status_unavailable", "Traffic status unavailable", "The recorded traffic could not be read.")
 		return
 	}
 	writeJSON(w, http.StatusOK, status)
-}
-
-func (handler *Handler) trafficSettings(w http.ResponseWriter, request *http.Request) {
-	if !handler.requireCommands(w, request) {
-		return
-	}
-	if _, ok := strictCoreQuery(w, request); !ok {
-		return
-	}
-	result, err := handler.services.Fleet.TrafficSettings(request.Context(), requestNodeID(request))
-	if err != nil {
-		writeFleetProblem(w, request, err)
-		return
-	}
-	w.Header().Set("Cache-Control", "no-store")
-	writeJSON(w, http.StatusOK, result)
-}
-
-func (handler *Handler) saveTrafficSettings(w http.ResponseWriter, request *http.Request) {
-	if !handler.requireCommands(w, request) {
-		return
-	}
-	if _, ok := strictCoreQuery(w, request); !ok {
-		return
-	}
-	var input fleet.TrafficSettings
-	if !decodeStrictRequest(w, request, 4096, &input) {
-		return
-	}
-	result, err := handler.services.Fleet.SaveTrafficSettings(request.Context(), requestNodeID(request), input)
-	switch {
-	case errors.Is(err, store.ErrNodeTrafficSettingsConflict):
-		writeProblem(w, request, http.StatusPreconditionFailed, "traffic_settings_conflict", "Traffic settings changed", "Reload the node's traffic settings before saving.")
-	case errors.Is(err, store.ErrNodeTrafficSettingsInvalid):
-		writeProblem(w, request, http.StatusUnprocessableEntity, "traffic_settings_invalid", "Traffic settings invalid", err.Error())
-	case err != nil:
-		writeFleetProblem(w, request, err)
-	default:
-		w.Header().Set("Cache-Control", "no-store")
-		writeJSON(w, http.StatusOK, result)
-	}
 }
 
 func (handler *Handler) listTrafficPeriods(w http.ResponseWriter, request *http.Request) {

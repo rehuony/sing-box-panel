@@ -97,11 +97,6 @@ function SettingsEditor({ initial }: { initial: PanelSettingsView }) {
                 {newPasswordError && <ErrorNotice id='password-error' error={t(newPasswordError)} />}
               </SettingsField>
             </SettingsGroup>
-            <SettingsGroup title={t('panelSettings.publication')}>
-              <SettingsField id='public-host' invalid={invalidField === 'public-host'} label={t('panelSettings.publicHost')} help={t('panelSettings.publicHostHelp')}>
-                <Input id='public-host' aria-invalid={invalidField === 'public-host' || undefined} value={preferences.public_node_host} placeholder={initial.detected_public_ip || t('panelSettings.autoHost')} onChange={e => update('public_node_host', e.target.value)} />
-              </SettingsField>
-            </SettingsGroup>
           </TabsContent>
           <TabsContent value='traffic'>
             <SettingsGroup title={t('panelSettings.traffic')}>

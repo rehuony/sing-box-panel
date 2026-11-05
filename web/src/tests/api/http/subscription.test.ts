@@ -97,7 +97,6 @@ describe('createHttpApiClient subscription domain', () => {
       {
         name: 'Primary',
         format: 'sing-box',
-        public_host: 'proxy.example',
         config: {},
         enabled: true,
       },

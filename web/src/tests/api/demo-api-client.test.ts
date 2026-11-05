@@ -238,11 +238,11 @@ describe('createDemoApiClient', () => {
 
   it('reports each node quota with its own usage and sums only usage for the fleet', async () => {
     const client = createDemoApiClient();
-    let settings = await client.getNodeTrafficSettings();
-    expect((await client.getMetrics()).quota_bytes).toBe(settings.quota_gib! * 2 ** 30);
+    let settings = await client.getNodeSettings();
+    expect((await client.getMetrics()).quota_bytes).toBe(settings.traffic.quota_gib! * 2 ** 30);
     for (const quotaGiB of [2, null, 0, 250]) {
       const before = await client.getMetrics();
-      settings = await client.saveNodeTrafficSettings({ ...settings, quota_gib: quotaGiB });
+      settings = await client.saveNodeSettings({ ...settings, traffic: { ...settings.traffic, quota_gib: quotaGiB } });
       const metrics = await client.getMetrics();
       expect(metrics.quota_bytes).toBe(quotaGiB ? quotaGiB * 2 ** 30 : undefined);
       expect(metrics.current_traffic_period).toEqual(before.current_traffic_period);
@@ -252,7 +252,7 @@ describe('createDemoApiClient', () => {
       expect(status.upload_bytes).toBe(metrics.current_traffic_period.outbound_bytes);
       expect(status).not.toHaveProperty('quota_bytes');
     }
-    await expect(client.saveNodeTrafficSettings({ ...settings, revision: settings.revision - 1 }))
+    await expect(client.saveNodeSettings({ ...settings, revision: settings.revision - 1 }))
       .rejects
       .toMatchObject({ status: 412 });
   });
@@ -262,11 +262,11 @@ describe('createDemoApiClient', () => {
     data.trafficPeriods[0].inbound_bytes = 768 * 2 ** 20;
     data.trafficPeriods[0].outbound_bytes = 256 * 2 ** 20;
     for (const [quota, exceeded] of [[1, true], [2, false]] as const) {
-      data.traffic.quota_gib = quota;
+      data.nodeSettings.traffic.quota_gib = quota;
       expect(demoMetrics(data).quota_exceeded).toBe(exceeded);
     }
     for (const quota of [0, null]) {
-      data.traffic.quota_gib = quota;
+      data.nodeSettings.traffic.quota_gib = quota;
       expect(demoMetrics(data).quota_bytes).toBeUndefined();
       expect(demoMetrics(data).quota_exceeded).toBe(false);
     }
@@ -291,7 +291,7 @@ describe('createDemoApiClient', () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-09-28T08:00:00Z'));
     const client = createDemoApiClient();
-    let settings = await client.getNodeTrafficSettings();
+    let settings = await client.getNodeSettings();
     const original = (await client.getMetrics()).current_traffic_period;
     const periods = new Map([[original.id, original]]);
 
@@ -301,7 +301,8 @@ describe('createDemoApiClient', () => {
       [6, 'traffic_20260701_20270101'],
       [3, 'traffic_20260701_20261001'],
     ] as const) {
-      settings = await client.saveNodeTrafficSettings({ ...settings, period_months: months });
+      const traffic = { ...settings.traffic, period_months: months };
+      settings = await client.saveNodeSettings({ ...settings, traffic });
       const current = (await client.getMetrics()).current_traffic_period;
       expect(current).toMatchObject({
         id, inbound_bytes: original.inbound_bytes, outbound_bytes: original.outbound_bytes,
@@ -319,10 +320,11 @@ describe('createDemoApiClient', () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-09-10T08:00:00Z'));
     const client = createDemoApiClient();
-    const settings = await client.getNodeTrafficSettings();
-    await client.saveNodeTrafficSettings({ ...settings, reset_day: 15 });
+    const settings = await client.getNodeSettings();
+    await client.saveNodeSettings({ ...settings, traffic: { ...settings.traffic, reset_day: 15 } });
     expect((await client.getMetrics()).current_traffic_period.id).toBe('traffic_20260815_20260915');
-    await expect(client.saveNodeTrafficSettings({ ...settings, revision: settings.revision + 1, reset_day: 29 }))
+    const invalid = { ...settings, revision: settings.revision + 1, traffic: { ...settings.traffic, reset_day: 29 } };
+    await expect(client.saveNodeSettings(invalid))
       .rejects
       .toMatchObject({ status: 422 });
   });

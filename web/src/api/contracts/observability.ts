@@ -8,6 +8,7 @@ export type {
   MetricsHistory,
   MetricsHistoryBucket,
   MetricsSnapshot,
+  NodeSettings,
   NodeTrafficSettings,
   NodeTrafficUsage,
   TrafficPeriod,

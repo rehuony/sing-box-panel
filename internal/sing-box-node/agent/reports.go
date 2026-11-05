@@ -249,7 +249,7 @@ func (reporter *reporter) bundle(ctx context.Context, bundleID string, appliedAt
 	}
 	bundle := &nodeapi.Bundle{
 		BundleId: activation.ID, StartupArtifactId: startup.ID, RevisionId: startup.CanonicalRevisionID,
-		ConfigurationSha256: startup.ConfigSHA256, ArtifactId: startup.CoreArtifactID,
+		ConfigurationSha256: startup.ConfigSHA256, ArtifactId: startup.CoreArtifactID, ExactCoreVersion: startup.ExactCoreVersion,
 		MonitoringTier: monitoringTierProto(activation.MonitoringTier),
 	}
 	if appliedAt != nil {

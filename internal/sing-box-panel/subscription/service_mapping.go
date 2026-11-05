@@ -39,7 +39,7 @@ func (application *Service) nextSubscriptionUpdateTime(expected time.Time) time.
 
 func applicationSubscriptionChannel(value store.SubscriptionChannel) SubscriptionChannel {
 	return SubscriptionChannel{
-		ID: value.ID, Name: value.Name, Format: value.Format, PublicHost: value.PublicHost,
+		ID: value.ID, Name: value.Name, Format: value.Format,
 		Config: append(json.RawMessage(nil), value.Config...), Enabled: value.Enabled,
 		CreatedAt: value.CreatedAt, UpdatedAt: value.UpdatedAt,
 	}
@@ -47,7 +47,7 @@ func applicationSubscriptionChannel(value store.SubscriptionChannel) Subscriptio
 
 func applicationSubscriptionChannelSummary(value store.SubscriptionChannelSummary) SubscriptionChannelSummary {
 	return SubscriptionChannelSummary{
-		ID: value.ID, Name: value.Name, Format: value.Format, PublicHost: value.PublicHost, Enabled: value.Enabled,
+		ID: value.ID, Name: value.Name, Format: value.Format, Enabled: value.Enabled,
 		CreatedAt: value.CreatedAt, UpdatedAt: value.UpdatedAt,
 	}
 }

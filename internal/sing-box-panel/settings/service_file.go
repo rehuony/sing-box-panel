@@ -26,14 +26,13 @@ type settingsJournal struct {
 }
 
 func panelFields(p PanelPreferences) Panel {
-	return Panel{PublicNodeHost: p.PublicNodeHost, Language: p.Language, Appearance: p.Appearance}
+	return Panel{Language: p.Language, Appearance: p.Appearance}
 }
 
 func panelValues(value Settings) storedPanelSettings {
 	return storedPanelSettings{
 		Preferences: PanelPreferences{ListenHost: value.Server.Host, ListenPort: value.Server.Port, ExternalOrigin: value.Server.ExternalOrigin,
-			PublicNodeHost: value.Panel.PublicNodeHost,
-			Language:       value.Panel.Language, Appearance: value.Panel.Appearance},
+			Language: value.Panel.Language, Appearance: value.Panel.Appearance},
 		GitHubToken: value.GitHub.Token, Auth: value.Auth,
 	}
 }

@@ -9,7 +9,6 @@ export function demoBackupSettings(view: PanelSettingsView, secrets: DemoPanelSe
   const s = view.service;
   return {
     panel: {
-      public_node_host: p.public_node_host,
       language: p.language,
       appearance: p.appearance,
     },
@@ -45,7 +44,7 @@ export function demoRestoreSettings(
     throw new ApiRequestError('Invalid configuration backup.', { status: 422, code: 'panel_backup_invalid' });
   }
   if (!hasOnlyFields(native.auth, ['email', 'password_hash'])
-    || !hasOnlyFields(native.panel, ['public_node_host', 'language', 'appearance'])
+    || !hasOnlyFields(native.panel, ['language', 'appearance'])
     || !hasOnlyFields(native.subscription, ['private_source_cidrs'])
     || !hasOnlyFields(native.logs, ['core_retention_days', 'core_max_files', 'core_max_file_size_mib'])) {
     throw new ApiRequestError('Invalid configuration backup.', { status: 422, code: 'panel_backup_invalid' });
@@ -59,7 +58,6 @@ export function demoRestoreSettings(
         listen_host: native.server.host,
         listen_port: native.server.port,
         external_origin: native.server.external_origin,
-        public_node_host: native.panel.public_node_host,
         language: native.panel.language,
         appearance: native.panel.appearance,
       },

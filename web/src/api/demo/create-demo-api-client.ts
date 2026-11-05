@@ -284,7 +284,6 @@ export function createDemoApiClient(): ApiClient {
       listen_host: '127.0.0.1',
       listen_port: 3000,
       external_origin: '',
-      public_node_host: '',
       language: 'zh-CN',
       appearance: { ...DEFAULT_APPEARANCE },
     },
@@ -719,12 +718,8 @@ export function createDemoApiClient(): ApiClient {
       return respond(
         {
           user_id: userID,
-          applied_bundle_id: state.runtime.applied_bundle_id ?? '',
           channel,
-          startup_artifact_id: state.startupArtifacts[0]?.id ?? '',
-          canonical_revision_id: state.canonical.id,
-          exact_core_version: state.runtime.running?.exact_core_version ?? '1.14.0',
-          artifact_state: state.startupArtifacts[0]?.state ?? 'ready',
+          node_publications: [],
           result: {
             format: channel.format,
             media_type: channel.format === 'sing-box' ? 'application/json' : 'text/yaml',
@@ -1131,21 +1126,27 @@ export function createDemoApiClient(): ApiClient {
     },
     getMetrics: (signal) => respond(demoMetrics(state), signal),
     getTrafficStatus: (signal) => respond(demoTrafficStatus(state), signal),
-    getNodeTrafficSettings: (signal) => respond(structuredClone(state.traffic), signal),
-    async saveNodeTrafficSettings(input, signal) {
-      if (input.revision !== state.traffic.revision) {
-        throw new ApiRequestError('Reload the node\'s traffic settings before saving.', {
-          status: 412, code: 'traffic_settings_conflict',
+    getNodeSettings: (signal) => respond(structuredClone(state.nodeSettings), signal),
+    async saveNodeSettings(input, signal) {
+      if (input.revision !== state.nodeSettings.revision) {
+        throw new ApiRequestError('Reload the node\'s settings before saving.', {
+          status: 412, code: 'node_settings_conflict',
         });
       }
-      const quota = input.quota_gib === 0 ? null : input.quota_gib;
+      const traffic = input.traffic;
+      const quota = traffic.quota_gib === 0 ? null : traffic.quota_gib;
       if ((quota !== null && !(Number.isInteger(quota) && quota >= 1 && quota <= 8589934591))
-        || !Number.isInteger(input.period_months) || input.period_months < 1 || input.period_months > 120
-        || !Number.isInteger(input.reset_day) || input.reset_day < 1 || input.reset_day > 28) {
-        throw new ApiRequestError('Traffic settings invalid.', { status: 422, code: 'traffic_settings_invalid' });
+        || !Number.isInteger(traffic.period_months) || traffic.period_months < 1 || traffic.period_months > 120
+        || !Number.isInteger(traffic.reset_day) || traffic.reset_day < 1 || traffic.reset_day > 28
+        || input.public_host.length > 253 || /[\s/:@?#]/.test(input.public_host.replace(/^\[.*\]$/, ''))) {
+        throw new ApiRequestError('Node settings invalid.', { status: 422, code: 'node_settings_invalid' });
       }
-      state.traffic = { ...input, quota_gib: quota, revision: state.traffic.revision + 1 };
-      return respond(structuredClone(state.traffic), signal);
+      state.nodeSettings = {
+        revision: state.nodeSettings.revision + 1,
+        public_host: input.public_host.toLowerCase(),
+        traffic: { ...traffic, quota_gib: quota },
+      };
+      return respond(structuredClone(state.nodeSettings), signal);
     },
     getMetricsHistory(filter, signal) {
       const result = demoMetricsHistory(filter.from, filter.to, filter.bucketSeconds);

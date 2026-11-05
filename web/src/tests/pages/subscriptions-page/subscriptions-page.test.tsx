@@ -151,7 +151,7 @@ describe('subscriptionsPage', () => {
     await user.click(await screen.findByRole('option', { name: 'Mihomo' }));
     await user.click(within(dialog).getByRole('button', { name: 'Add channel' }));
     expect(client.createSubscriptionChannel).toHaveBeenCalledWith({
-      name: 'Mobile clients', format: 'mihomo', public_host: '', enabled: true,
+      name: 'Mobile clients', format: 'mihomo', enabled: true,
       config: { policy: { selection: { ids: [], excluded_ids: [], new_node_policy: 'exclude' },
         groups: [], default_exit: { kind: 'direct' } } },
     }, expect.any(AbortSignal));

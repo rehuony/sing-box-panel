@@ -60,7 +60,7 @@ func TestRefreshCatalogHonorsConfiguredRefreshInterval(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = database.Close() })
-	panelSettings := settings.NewService(database, "", settings.Settings{GitHub: settings.GitHub{CatalogRefreshIntervalHours: 12}}, settings.Options{})
+	panelSettings := settings.NewService(database, "", settings.Settings{GitHub: settings.GitHub{CatalogRefreshIntervalHours: 12}})
 	application := New(database, telemetry.New(database, panelSettings, telemetry.Options{}), panelSettings, Options{})
 	now := time.Date(2026, time.August, 27, 8, 0, 0, 0, time.UTC)
 	application.now = func() time.Time { return now }

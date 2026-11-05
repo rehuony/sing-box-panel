@@ -113,8 +113,6 @@ func writeSubscriptionProblem(w http.ResponseWriter, request *http.Request, code
 		writeProblem(w, request, http.StatusUnprocessableEntity, "subscription_limit_exceeded", "Subscription limit exceeded", "The enabled subscription inputs exceed the supported count or byte budget.")
 	case errors.Is(err, store.ErrSubscriptionTokenInactive):
 		writeProblem(w, request, http.StatusConflict, "subscription_token_inactive", "Subscription token inactive", "The subscription token is expired or revoked.")
-	case errors.Is(err, subscription.ErrSubscriptionPreviewArtifactState):
-		writeProblem(w, request, http.StatusConflict, "subscription_preview_unavailable", "Subscription preview unavailable", "The startup artifact is not ready or stale.")
 	default:
 		// Validation errors at this boundary are intentionally not reflected: a
 		// source config may contain credentials or other operator-only values.

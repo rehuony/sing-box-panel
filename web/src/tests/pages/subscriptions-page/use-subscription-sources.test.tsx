@@ -44,14 +44,16 @@ describe('subscription sources', () => {
 
   it.each([false, true])('saves the current order revision and refetches after a conflict: %s', async conflict => {
     const getCatalog = vi.fn<ApiClient['getSubscriptionNodeCatalog']>().mockResolvedValue({
-      applied_bundle_id: '', nodes: [], diagnostics: [], node_orders: { manual: { ids: [], revision: 3 } },
+      node_publications: [], nodes: [], diagnostics: [], node_orders: { manual: { ids: [], revision: 3 } },
     });
     const saveOrder = vi.fn<ApiClient['setSubscriptionNodeOrder']>();
     if (conflict) saveOrder.mockRejectedValue(new ApiRequestError('Changed', { status: 412, code: 'subscription_version_conflict' }));
     else saveOrder.mockResolvedValue({ ids: [], revision: 4 });
     const { result } = await mount({ getSubscriptionNodeCatalog: getCatalog, setSubscriptionNodeOrder: saveOrder });
     await waitFor(() => expect(result.current.nodeLoading).toBe(false));
-    getCatalog.mockResolvedValue({ applied_bundle_id: '', nodes: [], diagnostics: [], node_orders: { manual: { ids: [], revision: 4 } } });
+    getCatalog.mockResolvedValue({
+      node_publications: [], nodes: [], diagnostics: [], node_orders: { manual: { ids: [], revision: 4 } },
+    });
     await act(async () => {
       const saved = result.current.reorderNodes('manual', []);
       if (conflict) await expect(saved).rejects.toMatchObject({ status: 412 });

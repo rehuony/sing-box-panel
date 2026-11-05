@@ -117,8 +117,8 @@ var managementOperations = []managementOperation{
 	{Method: http.MethodGet, Path: "/nodes/{nodeId}/metrics/history", OperationID: "getMetricsHistory"},
 	{Method: http.MethodGet, Path: "/traffic/status", OperationID: "getTrafficStatus"},
 	{Method: http.MethodGet, Path: "/nodes/{nodeId}/traffic/periods", OperationID: "listTrafficPeriods"},
-	{Method: http.MethodGet, Path: "/nodes/{nodeId}/traffic/settings", OperationID: "getNodeTrafficSettings"},
-	{Method: http.MethodPut, Path: "/nodes/{nodeId}/traffic/settings", OperationID: "saveNodeTrafficSettings"},
+	{Method: http.MethodGet, Path: "/nodes/{nodeId}/settings", OperationID: "getNodeSettings"},
+	{Method: http.MethodPut, Path: "/nodes/{nodeId}/settings", OperationID: "saveNodeSettings"},
 	{Method: http.MethodGet, Path: "/nodes/{nodeId}/traffic/periods/{periodId}", OperationID: "getTrafficPeriod"},
 }
 

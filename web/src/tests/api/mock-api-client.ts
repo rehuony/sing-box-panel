@@ -142,7 +142,6 @@ export const testSubscriptionChannels: SubscriptionChannel[] = [
     id: 'channel_sing_box',
     name: 'Primary sing-box',
     format: 'sing-box',
-    public_host: 'proxy.example',
     config: { exclude_tags: ['private'] },
     enabled: true,
     created_at: '2026-08-26T07:00:00Z',
@@ -314,7 +313,6 @@ export function createMockApiClient(overrides: Partial<ApiClient> = {}): Mocked<
         listen_host: '127.0.0.1',
         listen_port: 3000,
         external_origin: '',
-        public_node_host: '',
         language: 'en',
         appearance: { ...DEFAULT_APPEARANCE },
       },
@@ -372,12 +370,8 @@ export function createMockApiClient(overrides: Partial<ApiClient> = {}): Mocked<
     deleteSubscriptionChannel: vi.fn<ApiClient['deleteSubscriptionChannel']>().mockResolvedValue(undefined),
     previewSubscriptionChannel: vi.fn<ApiClient['previewSubscriptionChannel']>().mockResolvedValue({
       user_id: 'user_1',
-      applied_bundle_id: 'bundle_19',
       channel: testSubscriptionChannels[0],
-      startup_artifact_id: testStartupArtifact.id,
-      canonical_revision_id: testRevision.id,
-      exact_core_version: '1.13.19',
-      artifact_state: 'ready',
+      node_publications: [],
       result: {
         format: 'sing-box',
         media_type: 'application/json',
@@ -399,7 +393,7 @@ export function createMockApiClient(overrides: Partial<ApiClient> = {}): Mocked<
     setSubscriptionNodeOrder: vi.fn<ApiClient['setSubscriptionNodeOrder']>(),
     parseSubscriptionNode: vi.fn<ApiClient['parseSubscriptionNode']>(),
     getSubscriptionNodeCatalog: vi.fn<ApiClient['getSubscriptionNodeCatalog']>().mockResolvedValue({
-      applied_bundle_id: 'bundle_19',
+      node_publications: [],
       node_orders: {},
       nodes: [],
       diagnostics: [],
@@ -468,8 +462,8 @@ export function createMockApiClient(overrides: Partial<ApiClient> = {}): Mocked<
     getTrafficStatus: vi.fn<ApiClient['getTrafficStatus']>().mockResolvedValue(testTrafficStatus),
     listTrafficPeriods: vi.fn<ApiClient['listTrafficPeriods']>(),
     getTrafficPeriod: vi.fn<ApiClient['getTrafficPeriod']>(),
-    getNodeTrafficSettings: vi.fn<ApiClient['getNodeTrafficSettings']>(),
-    saveNodeTrafficSettings: vi.fn<ApiClient['saveNodeTrafficSettings']>(),
+    getNodeSettings: vi.fn<ApiClient['getNodeSettings']>(),
+    saveNodeSettings: vi.fn<ApiClient['saveNodeSettings']>(),
   };
   const result = { ...client, ...overrides } as Mocked<ApiClient>;
   // A node's client shares the mocks, so tests observe node-scoped calls.

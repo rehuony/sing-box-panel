@@ -97,9 +97,9 @@ func (handler *Handler) nodeResource(method, resource string) http.HandlerFunc {
 		byMethod[http.MethodGet] = handler.streamDashboard
 	case "/traffic/periods":
 		byMethod[http.MethodGet] = handler.listTrafficPeriods
-	case "/traffic/settings":
-		byMethod[http.MethodGet] = handler.trafficSettings
-		byMethod[http.MethodPut] = handler.saveTrafficSettings
+	case "/settings":
+		byMethod[http.MethodGet] = handler.nodeSettings
+		byMethod[http.MethodPut] = handler.saveNodeSettings
 	default:
 		if identifier, ok := strings.CutPrefix(resource, "/traffic/periods/"); ok {
 			if identifier == "" || strings.Contains(identifier, "/") {

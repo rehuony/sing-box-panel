@@ -5,9 +5,6 @@ package subscription
 import (
 	"context"
 	"encoding/json"
-	"errors"
-	"net"
-	"strconv"
 
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/store"
 )
@@ -29,46 +26,12 @@ func (app *Service) subscriptionCatalog(ctx context.Context) (SubscriptionNodeCa
 	if err != nil {
 		return SubscriptionNodeCatalog{}, nil, err
 	}
-	host, err := app.publicationHostWithResolver(ctx, "", app.publicIPCache)
-	if err != nil {
-		return SubscriptionNodeCatalog{}, nil, err
-	}
-	conversionHost := host
-	if conversionHost == "" {
-		conversionHost = "validation.invalid"
-	}
-	var conversion InboundResult
-	listeners := make(map[string]string)
-	if state.AppliedBundleID != "" {
-		startupJSON, err := subscriptionStartupJSON(state.Startup)
-		if err != nil {
-			return SubscriptionNodeCatalog{}, nil, err
-		}
-		conversion, err = app.convertInboundNodes(state.Startup.ExactCoreVersion, startupJSON, conversionHost)
-		if errors.Is(err, ErrUnsupportedCoreVersion) {
-			conversion.Diagnostics = []ConversionDiagnostic{{Collection: CollectionInbounds, ItemIndex: -1, Code: DiagnosticUnsupportedVersion}}
-		} else if err != nil {
-			return SubscriptionNodeCatalog{}, nil, err
-		}
-		var startup struct {
-			Inbounds []struct {
-				Tag    string `json:"tag"`
-				Listen string `json:"listen"`
-				Port   int    `json:"listen_port"`
-			} `json:"inbounds"`
-		}
-		if err := json.Unmarshal(startupJSON, &startup); err != nil {
-			return SubscriptionNodeCatalog{}, nil, err
-		}
-		for _, inbound := range startup.Inbounds {
-			listeners[inbound.Tag] = net.JoinHostPort(inbound.Listen, strconv.Itoa(inbound.Port))
-		}
-	}
+	locals := app.localNodes(state.Nodes, true)
 	manual, err := manualPublicationNodes(state.ManualNodes)
 	if err != nil {
 		return SubscriptionNodeCatalog{}, nil, err
 	}
-	nodes := append(append([]Node(nil), conversion.Nodes...), manual...)
+	nodes := append(append([]Node(nil), locals.Nodes...), manual...)
 	sourceNames := map[string]string{"local": "手动节点", "manual": "手动节点"}
 	enabledSources := map[string]bool{"local": true, "manual": true}
 	manualByKey := make(map[string]store.ManualSubscriptionNode)
@@ -90,7 +53,13 @@ func (app *Service) subscriptionCatalog(ctx context.Context) (SubscriptionNodeCa
 		return SubscriptionNodeCatalog{}, nil, store.ErrSubscriptionLimitExceeded
 	}
 	nodes = orderSubscriptionNodes(nodes, state.Sources, subscriptionNodeOrders(state.NodeOrders))
-	result := SubscriptionNodeCatalog{AppliedBundleID: state.AppliedBundleID, Diagnostics: conversion.Diagnostics, Nodes: make([]SubscriptionNodeSummary, 0, len(nodes)), NodeOrders: subscriptionNodeOrders(state.NodeOrders)}
+	result := SubscriptionNodeCatalog{
+		NodePublications: locals.Summaries, Diagnostics: locals.Diagnostics,
+		Nodes: make([]SubscriptionNodeSummary, 0, len(nodes)), NodeOrders: subscriptionNodeOrders(state.NodeOrders),
+	}
+	if result.NodePublications == nil {
+		result.NodePublications = []NodePublicationSummary{}
+	}
 	if result.Diagnostics == nil {
 		result.Diagnostics = []ConversionDiagnostic{}
 	}
@@ -111,8 +80,11 @@ func (app *Service) subscriptionCatalog(ctx context.Context) (SubscriptionNodeCa
 			if summary.Name == "" {
 				summary.Name = node.Tag
 			}
-			summary.Listener = listeners[summary.Name]
-			if host == "" {
+			summary.SourceName, summary.NodeID = node.NodeName, node.NodeID
+			summary.Listener = locals.Listeners[node.Key]
+			// A node without a public host keeps its inbounds visible as
+			// unavailable, without the placeholder host.
+			if locals.Hostless[node.NodeID] {
 				summary.Server = ""
 				summary.Available = false
 				decoded, decodeErr := DecodeDocument(node.Outbound)
@@ -121,14 +93,14 @@ func (app *Service) subscriptionCatalog(ctx context.Context) (SubscriptionNodeCa
 				}
 				outbound := decoded.(map[string]any)
 				delete(outbound, "server")
-				if tls, ok := outbound["tls"].(map[string]any); ok && tls["server_name"] == conversionHost {
+				if tls, ok := outbound["tls"].(map[string]any); ok && tls["server_name"] == catalogHost {
 					delete(tls, "server_name")
 				}
 				node.Outbound, err = json.Marshal(outbound)
 				if err != nil {
 					return SubscriptionNodeCatalog{}, nil, err
 				}
-				if summary.SNI == conversionHost {
+				if summary.SNI == catalogHost {
 					summary.SNI = ""
 				}
 			}

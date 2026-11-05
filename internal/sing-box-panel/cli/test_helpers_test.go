@@ -66,7 +66,7 @@ func openPanelFixture(t *testing.T, path string) (*store.Store, *settings.Servic
 	if err != nil {
 		t.Fatal(err)
 	}
-	return database, settings.NewService(database, absolute, settings.Settings{DataDir: dataDir}, settings.Options{})
+	return database, settings.NewService(database, absolute, settings.Settings{DataDir: dataDir})
 }
 
 func initialPasswordFromOutput(t *testing.T, output, hash string) string {

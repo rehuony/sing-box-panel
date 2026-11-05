@@ -8,7 +8,7 @@ import type { ApiClient, CoreLogChunk, CoreLogFile,
   LogStreamEvent,
   MetricsHistory,
   MetricsSnapshot,
-  NodeTrafficSettings,
+  NodeSettings,
   PanelLogPage,
   TrafficPeriod,
   TrafficPeriodFilter,
@@ -250,11 +250,11 @@ export function createObservabilityHttpApi(context: HttpApiContext) {
         signal,
       });
     },
-    getNodeTrafficSettings(signal) {
-      return request<NodeTrafficSettings>(fetcher, `${nodeUrl()}/traffic/settings`, { method: 'GET', signal });
+    getNodeSettings(signal) {
+      return request<NodeSettings>(fetcher, `${nodeUrl()}/settings`, { method: 'GET', signal });
     },
-    saveNodeTrafficSettings(input, signal) {
-      return request<NodeTrafficSettings>(fetcher, `${nodeUrl()}/traffic/settings`, {
+    saveNodeSettings(input, signal) {
+      return request<NodeSettings>(fetcher, `${nodeUrl()}/settings`, {
         method: 'PUT',
         signal,
         headers: writeJSONHeaders(),

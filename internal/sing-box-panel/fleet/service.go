@@ -332,40 +332,52 @@ func validName(name string) bool {
 	return true
 }
 
-// TrafficSettings is a node's own traffic quota and period: a null quota is
-// unlimited, and each period of PeriodMonths starts at 00:00 UTC on ResetDay.
-// Revision guards saves against concurrent changes.
-type TrafficSettings struct {
-	Revision     int64  `json:"revision"`
+// NodeSettings are the panel's settings for one node. Revision guards saves
+// against concurrent changes.
+type NodeSettings struct {
+	Revision int64 `json:"revision"`
+	// PublicHost is the host subscriptions publish for the node's inbounds;
+	// empty uses the public IP the node reports.
+	PublicHost string              `json:"public_host"`
+	Traffic    NodeTrafficSettings `json:"traffic"`
+}
+
+// NodeTrafficSettings is a node's own traffic quota and period: a null quota
+// is unlimited, and each period of PeriodMonths starts at 00:00 UTC on
+// ResetDay.
+type NodeTrafficSettings struct {
 	QuotaGiB     *int64 `json:"quota_gib"`
 	PeriodMonths int    `json:"period_months"`
 	ResetDay     int    `json:"reset_day"`
 }
 
-func (service *Service) TrafficSettings(ctx context.Context, id string) (TrafficSettings, error) {
+func (service *Service) NodeSettings(ctx context.Context, id string) (NodeSettings, error) {
 	record, err := service.database.Node(ctx, id)
 	if err != nil {
-		return TrafficSettings{}, err
+		return NodeSettings{}, err
 	}
-	return trafficSettingsView(record.Traffic), nil
+	return nodeSettingsView(record.Settings), nil
 }
 
-// SaveTrafficSettings replaces the node's traffic settings if they are still
-// at value.Revision. Periods and quota status follow at once; recorded
-// traffic is unchanged.
-func (service *Service) SaveTrafficSettings(ctx context.Context, id string, value TrafficSettings) (result TrafficSettings, err error) {
+// SaveNodeSettings replaces the node's settings if they are still at
+// value.Revision. Subscriptions, periods and quota status follow at once;
+// recorded traffic is unchanged.
+func (service *Service) SaveNodeSettings(ctx context.Context, id string, value NodeSettings) (result NodeSettings, err error) {
 	defer func() {
-		service.records.RecordOperation(ctx, "node.traffic_settings.save", "Node traffic settings save", err, telemetry.OperationLogContext{NodeID: id})
+		service.records.RecordOperation(ctx, "node.settings.save", "Node settings save", err, telemetry.OperationLogContext{NodeID: id})
 	}()
-	record, err := service.database.SaveNodeTrafficSettings(ctx, id, value.Revision, store.NodeTrafficSettings{
-		QuotaGiB: value.QuotaGiB, PeriodMonths: value.PeriodMonths, ResetDay: value.ResetDay,
+	record, err := service.database.SaveNodeSettings(ctx, id, value.Revision, store.NodeSettings{
+		PublicHost: value.PublicHost,
+		Traffic:    store.NodeTrafficSettings{QuotaGiB: value.Traffic.QuotaGiB, PeriodMonths: value.Traffic.PeriodMonths, ResetDay: value.Traffic.ResetDay},
 	})
 	if err != nil {
-		return TrafficSettings{}, err
+		return NodeSettings{}, err
 	}
-	return trafficSettingsView(record.Traffic), nil
+	return nodeSettingsView(record.Settings), nil
 }
 
-func trafficSettingsView(value store.NodeTrafficSettings) TrafficSettings {
-	return TrafficSettings{Revision: value.Revision, QuotaGiB: value.QuotaGiB, PeriodMonths: value.PeriodMonths, ResetDay: value.ResetDay}
+func nodeSettingsView(value store.NodeSettings) NodeSettings {
+	return NodeSettings{Revision: value.Revision, PublicHost: value.PublicHost, Traffic: NodeTrafficSettings{
+		QuotaGiB: value.Traffic.QuotaGiB, PeriodMonths: value.Traffic.PeriodMonths, ResetDay: value.Traffic.ResetDay,
+	}}
 }

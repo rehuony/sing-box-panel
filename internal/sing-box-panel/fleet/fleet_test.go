@@ -87,7 +87,7 @@ func startFleet(t *testing.T, now func() time.Time) testFleet {
 	value.DataDir = dataDir
 	value.Server.BasePath = basePath
 	value.Nodes.Endpoint = listener.Addr().String()
-	panelSettings := settings.NewService(database, "", value, settings.Options{})
+	panelSettings := settings.NewService(database, "", value)
 	records := telemetry.New(database, panelSettings, telemetry.Options{})
 	cores := corecache.New(database, records, panelSettings, corecache.Options{DataDir: dataDir})
 	configs := nodeconfig.New(database, cores)

@@ -114,7 +114,6 @@ CREATE TABLE "subscription_channels" (
     name TEXT NOT NULL UNIQUE CHECK (name <> ''),
     format TEXT NOT NULL CHECK (format IN ('sing-box', 'mihomo', 'loon')),
     config_json TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(config_json)),
-    public_host TEXT NOT NULL DEFAULT '',
     enabled INTEGER NOT NULL DEFAULT 1 CHECK (enabled IN (0, 1)),
     created_at TEXT NOT NULL CHECK (created_at <> ''),
     updated_at TEXT NOT NULL CHECK (updated_at <> '')
@@ -234,7 +233,17 @@ CREATE TABLE nodes (
     traffic_quota_gib INTEGER CHECK (traffic_quota_gib IS NULL OR traffic_quota_gib BETWEEN 1 AND 8589934591),
     traffic_period_months INTEGER NOT NULL DEFAULT 1 CHECK (traffic_period_months BETWEEN 1 AND 120),
     traffic_reset_day INTEGER NOT NULL DEFAULT 1 CHECK (traffic_reset_day BETWEEN 1 AND 28),
-    traffic_settings_revision INTEGER NOT NULL DEFAULT 1 CHECK (traffic_settings_revision >= 1),
+    -- The host subscriptions publish for the node's inbounds; empty uses
+    -- the public IP the node reports.
+    public_host TEXT NOT NULL DEFAULT '' CHECK (length(public_host) <= 253),
+    settings_revision INTEGER NOT NULL DEFAULT 1 CHECK (settings_revision >= 1),
+    -- What the node last reported running, kept beside the encoded report so
+    -- subscriptions can find the applied revision in the same read.
+    applied_bundle_id TEXT,
+    applied_revision_id TEXT,
+    applied_config_sha256 TEXT,
+    applied_core_version TEXT,
+    reported_public_ip TEXT NOT NULL DEFAULT '' CHECK (length(reported_public_ip) <= 64),
     state_report BLOB,
     reported_at TEXT,
     CHECK ((state_report IS NULL) = (reported_at IS NULL)),

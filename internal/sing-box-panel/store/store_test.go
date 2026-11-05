@@ -168,8 +168,8 @@ func TestWithTxRollsBackCallbackFailure(t *testing.T) {
 		if _, err := tx.ExecContext(
 			ctx,
 			`INSERT INTO subscription_channels(
-		        id, name, format, config_json, public_host, created_at, updated_at
-		     ) VALUES ('channel-1', 'default', 'sing-box', '{}', 'example.test', ?, ?)`,
+		        id, name, format, config_json, created_at, updated_at
+		     ) VALUES ('channel-1', 'default', 'sing-box', '{}', ?, ?)`,
 			now,
 			now,
 		); err != nil {

@@ -37,39 +37,69 @@ type PublicSubscriptionSourceVersion struct {
 
 // PublicSubscriptionState is one point-in-time authorization and publication
 // view. Mutable channel, user, grants, and source pointers are read in the same
-// transaction as the applied local startup version.
+// transaction as every node's applied configuration.
 type PublicSubscriptionState struct {
 	SubscriptionNodeControls
-	TokenID         string
-	UserID          string
-	AppliedBundleID string
-	Channel         SubscriptionChannel
-	Startup         AppliedStartup
-	Grants          []string
-	Sources         []PublicSubscriptionSourceVersion
+	TokenID string
+	UserID  string
+	Channel SubscriptionChannel
+	Nodes   []NodePublication
+	Grants  []string
+	Sources []PublicSubscriptionSourceVersion
 }
 
 type SubscriptionNodeCatalogState struct {
 	SubscriptionNodeControls
-	AppliedBundleID string
-	Startup         AppliedStartup
-	Sources         []PublicSubscriptionSourceVersion
+	Nodes   []NodePublication
+	Sources []PublicSubscriptionSourceVersion
 }
 
-// ErrNoAppliedBundle means there is nothing to publish: no applied local
-// configuration, source or manual node.
+// ErrNoAppliedBundle means there is nothing to publish: no node with an
+// applied configuration, source or manual node.
 var ErrNoAppliedBundle = errors.New("no applied configuration is available")
 
-// AppliedStartup is the applied startup configuration that local inbounds
-// come from. Until nodes report their applied configurations to the panel,
-// no state carries one and subscriptions publish sources and manual nodes.
-type AppliedStartup struct {
-	ID                  string
-	CanonicalRevisionID string
-	ExactCoreVersion    string
-	CoreArtifactID      string
-	ConfigBytes         []byte
-	State               string
+// NodePublication is one node's applied configuration, the input of its
+// local inbounds. Document is the panel's revision the node reports running,
+// nil when the panel no longer holds it.
+type NodePublication struct {
+	NodeID           string
+	NodeName         string
+	PublicHost       string
+	ReportedPublicIP string
+	BundleID         string
+	ExactCoreVersion string
+	ConfigSHA256     string
+	RevisionID       string
+	Document         []byte
+}
+
+// loadNodePublications reads every node that reports an applied bundle,
+// with the revision it runs.
+func loadNodePublications(ctx context.Context, tx *sql.Tx) ([]NodePublication, error) {
+	rows, err := tx.QueryContext(ctx, `SELECT n.id, n.name, n.public_host, n.reported_public_ip, n.applied_bundle_id,
+           coalesce(n.applied_core_version, ''), coalesce(n.applied_config_sha256, ''), coalesce(n.applied_revision_id, ''), r.document_json
+         FROM nodes AS n
+         LEFT JOIN canonical_revisions AS r ON r.id = n.applied_revision_id AND r.node_id = n.id
+         WHERE n.applied_bundle_id IS NOT NULL
+         ORDER BY n.name COLLATE NOCASE, n.id`)
+	if err != nil {
+		return nil, fmt.Errorf("read node publications: %w", err)
+	}
+	defer rows.Close()
+	publications := []NodePublication{}
+	for rows.Next() {
+		var value NodePublication
+		var document sql.NullString
+		if err := rows.Scan(&value.NodeID, &value.NodeName, &value.PublicHost, &value.ReportedPublicIP, &value.BundleID,
+			&value.ExactCoreVersion, &value.ConfigSHA256, &value.RevisionID, &document); err != nil {
+			return nil, err
+		}
+		if document.Valid {
+			value.Document = []byte(document.String)
+		}
+		publications = append(publications, value)
+	}
+	return publications, rows.Err()
 }
 
 func (s *Store) LoadSubscriptionNodeCatalogState(ctx context.Context) (SubscriptionNodeCatalogState, error) {
@@ -80,6 +110,10 @@ func (s *Store) LoadSubscriptionNodeCatalogState(ctx context.Context) (Subscript
 	defer func() { _ = tx.Rollback() }()
 	var state SubscriptionNodeCatalogState
 	state.Sources, err = loadSubscriptionSourceVersions(ctx, tx, false)
+	if err != nil {
+		return state, err
+	}
+	state.Nodes, err = loadNodePublications(ctx, tx)
 	if err != nil {
 		return state, err
 	}
@@ -249,13 +283,17 @@ func loadSubscriptionPublicationState(
 	if err != nil {
 		return err
 	}
+	state.Nodes, err = loadNodePublications(ctx, tx)
+	if err != nil {
+		return err
+	}
 	state.SubscriptionNodeControls, err = loadSubscriptionNodeControls(ctx, tx)
 	if err != nil {
 		return err
 	}
 	// Management preview can validate a draft before the first source exists.
 	// Public delivery retains its existing publication availability boundary.
-	if publicDelivery && state.AppliedBundleID == "" && len(state.Sources) == 0 && len(state.ManualNodes) == 0 {
+	if publicDelivery && len(state.Nodes) == 0 && len(state.Sources) == 0 && len(state.ManualNodes) == 0 {
 		return ErrNoAppliedBundle
 	}
 	return nil

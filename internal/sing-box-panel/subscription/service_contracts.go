@@ -4,7 +4,6 @@ package subscription
 
 import (
 	"encoding/json"
-	"errors"
 	"time"
 
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/store"
@@ -12,41 +11,35 @@ import (
 
 const subscriptionTokenEntropyBytes = 32
 
-var ErrSubscriptionPreviewArtifactState = errors.New("startup artifact cannot be previewed")
-
 type SubscriptionChannel struct {
-	ID         string                   `json:"id"`
-	Name       string                   `json:"name"`
-	Format     store.SubscriptionFormat `json:"format"`
-	PublicHost string                   `json:"public_host"`
-	Config     json.RawMessage          `json:"config"`
-	Enabled    bool                     `json:"enabled"`
-	CreatedAt  time.Time                `json:"created_at"`
-	UpdatedAt  time.Time                `json:"updated_at"`
+	ID        string                   `json:"id"`
+	Name      string                   `json:"name"`
+	Format    store.SubscriptionFormat `json:"format"`
+	Config    json.RawMessage          `json:"config"`
+	Enabled   bool                     `json:"enabled"`
+	CreatedAt time.Time                `json:"created_at"`
+	UpdatedAt time.Time                `json:"updated_at"`
 }
 
 type SubscriptionChannelSummary struct {
-	ID         string                   `json:"id"`
-	Name       string                   `json:"name"`
-	Format     store.SubscriptionFormat `json:"format"`
-	PublicHost string                   `json:"public_host"`
-	Enabled    bool                     `json:"enabled"`
-	CreatedAt  time.Time                `json:"created_at"`
-	UpdatedAt  time.Time                `json:"updated_at"`
+	ID        string                   `json:"id"`
+	Name      string                   `json:"name"`
+	Format    store.SubscriptionFormat `json:"format"`
+	Enabled   bool                     `json:"enabled"`
+	CreatedAt time.Time                `json:"created_at"`
+	UpdatedAt time.Time                `json:"updated_at"`
 }
 
 type CreateSubscriptionChannelRequest struct {
-	Name       string                   `json:"name"`
-	Format     store.SubscriptionFormat `json:"format"`
-	PublicHost string                   `json:"public_host"`
-	Config     json.RawMessage          `json:"config"`
-	Enabled    bool                     `json:"enabled"`
+	Name    string                   `json:"name"`
+	Format  store.SubscriptionFormat `json:"format"`
+	Config  json.RawMessage          `json:"config"`
+	Enabled bool                     `json:"enabled"`
 }
 
 type UpdateSubscriptionChannelRequest struct {
 	Name              string                   `json:"name"`
 	Format            store.SubscriptionFormat `json:"format"`
-	PublicHost        string                   `json:"public_host"`
 	Config            json.RawMessage          `json:"config"`
 	Enabled           bool                     `json:"enabled"`
 	ExpectedUpdatedAt time.Time                `json:"expected_updated_at"`
@@ -177,13 +170,15 @@ type SubscriptionNodeSummary struct {
 	Type               string   `json:"type"`
 	Tag                string   `json:"tag"`
 	Credential         string   `json:"credential,omitempty"`
+	// NodeID names the node a local inbound comes from.
+	NodeID string `json:"node_id,omitempty"`
 }
 
 type SubscriptionNodeCatalog struct {
-	NodeOrders      map[string]NodeOrder      `json:"node_orders"`
-	AppliedBundleID string                    `json:"applied_bundle_id"`
-	Nodes           []SubscriptionNodeSummary `json:"nodes"`
-	Diagnostics     []ConversionDiagnostic    `json:"diagnostics"`
+	NodeOrders       map[string]NodeOrder      `json:"node_orders"`
+	NodePublications []NodePublicationSummary  `json:"node_publications"`
+	Nodes            []SubscriptionNodeSummary `json:"nodes"`
+	Diagnostics      []ConversionDiagnostic    `json:"diagnostics"`
 }
 
 // SubscriptionToken deliberately omits both plaintext and token_sha256. The
@@ -254,14 +249,10 @@ type SubscriptionTokenRotation struct {
 }
 
 type SubscriptionPreview struct {
-	UserID              string                    `json:"user_id"`
-	AppliedBundleID     string                    `json:"applied_bundle_id"`
-	Channel             SubscriptionChannel       `json:"channel"`
-	StartupArtifactID   string                    `json:"startup_artifact_id"`
-	CanonicalRevisionID string                    `json:"canonical_revision_id"`
-	ExactCoreVersion    string                    `json:"exact_core_version"`
-	ArtifactState       string                    `json:"artifact_state"`
-	Result              SubscriptionPreviewResult `json:"result"`
+	UserID           string                    `json:"user_id"`
+	Channel          SubscriptionChannel       `json:"channel"`
+	NodePublications []NodePublicationSummary  `json:"node_publications"`
+	Result           SubscriptionPreviewResult `json:"result"`
 }
 
 // SubscriptionPreviewResult is an authenticated projection of rendered bytes and
