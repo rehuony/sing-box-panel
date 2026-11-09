@@ -5,8 +5,8 @@ import { MemoryRouter, useLocation, useNavigate } from 'react-router-dom';
 
 import { useHashTab } from '@/hooks/use-hash-tab';
 
-function Tabs({ prefix, values, clear = [] }: { prefix: string; values: string[]; clear?: string[] }) {
-  const [tab, setTab] = useHashTab(prefix, values, values[0], clear);
+function Tabs({ prefix, values }: { prefix: string; values: string[] }) {
+  const [tab, setTab] = useHashTab(prefix, values, values[0]);
   const location = useLocation();
   const navigate = useNavigate();
   return (
@@ -26,11 +26,11 @@ function Tabs({ prefix, values, clear = [] }: { prefix: string; values: string[]
 
 describe('hash tab navigation', () => {
   it.each([
-    ['/cores', 'cores-', ['installed', 'catalog']],
-    ['/configuration', 'configuration-', ['visual', 'advanced']],
-    ['/configuration', 'configuration-visual/', ['log', 'route']],
-    ['/panel', 'panel-', ['security', 'appearance']],
-    ['/observability', 'logs-', ['core', 'panel']],
+    ['/nodes/n1/cores', 'cores-', ['installed', 'catalog']],
+    ['/nodes/n1/configuration', 'configuration-', ['visual', 'advanced']],
+    ['/nodes/n1/configuration', 'configuration-visual/', ['log', 'route']],
+    ['/settings', 'panel-', ['service', 'interface']],
+    ['/subscriptions', 'subscription-', ['sources', 'channels']],
   ] as const)('restores deep links and history on %s (%s)', async (path, prefix, values) => {
     const user = userEvent.setup();
     const url = `${path}?keep=1#${prefix}${values[1]}`;
@@ -44,20 +44,20 @@ describe('hash tab navigation', () => {
     await user.click(screen.getByRole('button', { name: 'Forward' }));
     expect(screen.getByLabelText('Current tab')).toHaveTextContent(values[0]);
   });
-  it('falls back for unknown hashes and removes only obsolete log query fields', async () => {
+  it('falls back for unknown hashes', async () => {
     const user = userEvent.setup();
     render(
-      <MemoryRouter initialEntries={['/observability?tab=panel&task=abc&keep=1#unknown']}>
-        <Tabs prefix='logs-' values={['core', 'panel']} clear={['tab', 'task']} />
+      <MemoryRouter initialEntries={['/settings?keep=1#unknown']}>
+        <Tabs prefix='panel-' values={['service', 'backup']} />
       </MemoryRouter>,
     );
-    expect(screen.getByLabelText('Current tab')).toHaveTextContent('core');
-    await user.click(screen.getByRole('button', { name: 'panel' }));
-    expect(screen.getByLabelText('Location')).toHaveTextContent('/observability?keep=1#logs-panel');
+    expect(screen.getByLabelText('Current tab')).toHaveTextContent('service');
+    await user.click(screen.getByRole('button', { name: 'backup' }));
+    expect(screen.getByLabelText('Location')).toHaveTextContent('/settings?keep=1#panel-backup');
   });
   it('reads the visual parent tab from a nested configuration link', () => {
     render(
-      <MemoryRouter initialEntries={['/configuration#configuration-visual/route']}>
+      <MemoryRouter initialEntries={['/nodes/n1/configuration#configuration-visual/route']}>
         <Tabs prefix='configuration-' values={['visual', 'advanced']} />
       </MemoryRouter>,
     );

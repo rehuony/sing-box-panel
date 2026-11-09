@@ -246,9 +246,10 @@ upgrade path from earlier formats. Authentication, checked configuration snapsho
 panel release signatures remain enforced; the core installation trust boundary
 is described in [Core versions](core-versions.md#checks-and-recorded-hashes).
 
-The screens are login, dashboard, installed/available versions, sources,
-manual nodes, source detail, subscription keys, channels, channel detail, visual
-configuration, JSON configuration, panel settings, core logs and panel logs.
+The screens are login, the node overview grid and, for each node, its
+overview, installed/available versions, visual and JSON configuration, core
+logs and settings; subscriptions with sources, manual nodes, source detail,
+subscription keys, channels and channel detail; panel logs; and panel settings.
 Detail tabs and feedback are local states, not duplicate screens.
 
 ### Requirement → screen → contract → implementation → verification

@@ -4,7 +4,6 @@ export function useHashTab<T extends string>(
   prefix: string,
   values: readonly T[],
   fallback: T,
-  clearSearchParams: readonly string[] = [],
 ): [T, (value: string) => void] {
   const location = useLocation();
   const navigate = useNavigate();
@@ -15,10 +14,7 @@ export function useHashTab<T extends string>(
   return [value, (next) => {
     if (!values.includes(next as T)) return;
     const hash = `#${prefix}${next}`;
-    const params = new URLSearchParams(location.search);
-    clearSearchParams.forEach((key) => params.delete(key));
-    const search = params.size ? `?${params}` : '';
-    if (location.hash === hash && location.search === search) return;
-    void navigate({ pathname: location.pathname, search, hash }, { state: location.state });
+    if (location.hash === hash) return;
+    void navigate({ pathname: location.pathname, search: location.search, hash }, { state: location.state });
   }];
 }

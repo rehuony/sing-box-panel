@@ -85,7 +85,7 @@ user it is `$XDG_DATA_HOME/sing-box-panel`, or
 
 The settings file is the single source for all panel settings. The Web UI,
 `config init/show/get/set/verify`, and manual edits use this same file. Shared fields retain
-their existing sections; `panel` adds the public node host, language and appearance. The Web form exposes service paths, version check interval, metric retention and sing-box log retention. Panel events are retained indefinitely; subscription source policy remains a file/API setting. Inbound credentials are edited directly in the native sing-box configuration. Changing `data_dir` moves
+their existing sections; `panel` holds the language and appearance. The Web form exposes service paths, version check interval, metric retention and sing-box log retention; each node's published host and traffic quota belong to that node's settings. Panel events are retained indefinitely; subscription source policy remains a file/API setting. Inbound credentials are edited directly in the native sing-box configuration. Changing `data_dir` moves
 existing storage on the next explicit start, with interruption recovery.
 Sing-box documents, subscriptions and runtime evidence remain in SQLite.
 See the [complete field mapping](configuration-and-runtime.md#shared-settings-file).

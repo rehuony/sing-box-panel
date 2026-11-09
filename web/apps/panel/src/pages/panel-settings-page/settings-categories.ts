@@ -9,24 +9,6 @@ export function passwordError(password: string) {
   return length < 12 || length > 128 ? 'panelSettings.passwordLength' : undefined;
 }
 
-// Preserve links to sections that now belong to a broader category.
-export const settingsHashValues = [...settingsCategories, 'access', 'authentication', 'storage', 'updates', 'languageGroup'] as const;
-
-export function resolveSettingsCategory(value: typeof settingsHashValues[number]): SettingsCategory {
-  switch (value) {
-    case 'access':
-    case 'authentication':
-      return 'service';
-    case 'storage':
-    case 'updates':
-      return 'maintenance';
-    case 'languageGroup':
-      return 'interface';
-    default:
-      return value;
-  }
-}
-
 function validIP(value: string) {
   if (value.includes(':')) {
     try {

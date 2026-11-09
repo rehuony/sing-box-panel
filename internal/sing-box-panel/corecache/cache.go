@@ -57,6 +57,9 @@ func (application *Service) CacheOfficial(ctx context.Context, assetID int64) (r
 	if err != nil {
 		return store.CachedArtifact{}, err
 	}
+	if cached, reused, err := application.reuseOfficial(ctx, source, asset); err != nil || reused {
+		return cached, err
+	}
 	return application.storeArchive(func(destination io.Writer) (int64, error) {
 		downloader, err := application.archiveDownloader()
 		if err != nil {
@@ -69,6 +72,47 @@ func (application *Service) CacheOfficial(ctx context.Context, assetID int64) (r
 		}
 		return application.record(ctx, source, digest, asset.Size, asset.Architecture, asset.Variant, asset.Version)
 	})
+}
+
+// reuseOfficial marks and returns the cached copy of an official asset when
+// its archive is still on disk with the recorded size and digest. A missing or
+// altered archive is not reused, so the caller downloads it again.
+func (application *Service) reuseOfficial(ctx context.Context, source coreartifact.Source, asset Asset) (store.CachedArtifact, bool, error) {
+	existing, err := application.database.OfficialCachedArtifact(ctx, source.RepositoryID(), source.ReleaseID(), source.AssetID())
+	if errors.Is(err, store.ErrCachedArtifactNotFound) {
+		return store.CachedArtifact{}, false, nil
+	}
+	if err != nil {
+		return store.CachedArtifact{}, false, err
+	}
+	application.cacheMu.Lock()
+	defer application.cacheMu.Unlock()
+	digest, err := archiveDigest(application.archivePath(existing.SHA256), asset.Size)
+	if err != nil || digest.String() != existing.SHA256 || (asset.HasAPIDigest && digest != asset.APIDigest) {
+		return store.CachedArtifact{}, false, nil
+	}
+	cached, err := application.record(ctx, source, digest, asset.Size, asset.Architecture, asset.Variant, asset.Version)
+	return cached, err == nil, err
+}
+
+// archiveDigest hashes the archive at path, which must hold exactly size bytes.
+func archiveDigest(path string, size int64) (coreartifact.SHA256, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return coreartifact.SHA256{}, err
+	}
+	defer file.Close()
+	hash := sha256.New()
+	written, err := io.Copy(hash, io.LimitReader(file, size+1))
+	if err != nil {
+		return coreartifact.SHA256{}, err
+	}
+	if written != size {
+		return coreartifact.SHA256{}, fmt.Errorf("cached core archive holds %d bytes, not %d", written, size)
+	}
+	var sum [32]byte
+	copy(sum[:], hash.Sum(nil))
+	return coreartifact.NewSHA256(sum), nil
 }
 
 // CacheUpload moves a staged upload into the cache as a user-verified

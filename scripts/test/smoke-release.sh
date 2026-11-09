@@ -452,12 +452,13 @@ authenticated_get() {
     "${panel_origin}${path}"
 }
 
-authenticated_put() {
-  local path="$1"
-  local expected_status="${2:-200}"
+authenticated_write() {
+  local method="$1"
+  local path="$2"
+  local expected_status="${3:-200}"
   local response_status
   response_status="$(curl --silent --show-error --max-time 10 \
-    --request PUT \
+    --request "${method}" \
     --header "Origin: ${panel_origin}" \
     --header "X-CSRF-Token: ${csrf_token}" \
     --cookie "${cookie_jar}" \
@@ -467,7 +468,7 @@ authenticated_put() {
     --write-out '%{http_code}' \
     "${panel_origin}${path}")"
   if [[ "${response_status}" != "${expected_status}" ]]; then
-    printf 'PUT %s returned %s, expected %s\n' "${path}" "${response_status}" "${expected_status}" >&2
+    printf '%s %s returned %s, expected %s\n' "${method}" "${path}" "${response_status}" "${expected_status}" >&2
     return 1
   fi
   cat "${smoke_root}/response.json"
@@ -482,27 +483,33 @@ jq '{email: .login_email, password: .login_password}' "${smoke_root}/initial-cre
     "${panel_origin}/api/v1/auth/session" >"${smoke_root}/session.json"
 csrf_token="$(jq -er '.csrfToken' "${smoke_root}/session.json")"
 status_payload="$(authenticated_get '/api/v1/system/status')"
-assert_json 'fresh instance initializes configuration history without starting a core' --arg version "${probe_version}" \
-  '.panel_version == $version and .canonical_revision == 1 and .running == false' <<<"${status_payload}"
+assert_json 'fresh instance reports the probe build on Linux' --arg version "${probe_version}" \
+  '.panel_version == $version and .platform.os == "linux"' <<<"${status_payload}"
 curl --fail-with-body --silent --show-error --max-time 5 "${panel_origin}/" >"${smoke_root}/index.html"
 grep -qi '<html' "${smoke_root}/index.html"
 
+created_node="$(jq -n '{name: "smoke-node"}' | authenticated_write POST '/api/v1/nodes' 201)"
+assert_json 'adding a node issues a one-time enrollment code' \
+  '.node.state == "pending" and (.code | length > 0)' <<<"${created_node}"
+node_path="/api/v1/nodes/$(jq -er '.node.id' <<<"${created_node}")"
+file_path="${node_path}/config/file"
+
 configuration_fixture="${workspace_root}/scripts/testdata/release-configuration.json"
-initial_file="$(authenticated_get '/api/v1/config/file')"
+initial_file="$(authenticated_get "${file_path}")"
 assert_json 'fresh editable file' \
   '.revision == 1 and .content == "{}" and .syntax_valid == true and (.canonical_revision_id | length > 0)' <<<"${initial_file}"
 file_write="$(jq --rawfile content "${configuration_fixture}" '{revision, content: $content}' <<<"${initial_file}")"
-saved_file="$(authenticated_put '/api/v1/config/file' <<<"${file_write}")"
+saved_file="$(authenticated_write PUT "${file_path}" <<<"${file_write}")"
 assert_json 'valid file preserves exact text and links immutable history' \
   --argjson input "${file_write}" \
   '.revision == ($input.revision + 1) and .content == $input.content and .syntax_valid == true and (.canonical_revision_id | length > 0)' \
   <<<"${saved_file}"
-stale_save="$(authenticated_put '/api/v1/config/file' 412 <<<"${file_write}")"
+stale_save="$(authenticated_write PUT "${file_path}" 412 <<<"${file_write}")"
 assert_json 'stale editable-file writes are rejected' '.code == "configuration_file_conflict"' <<<"${stale_save}"
 
 panel_settings="$(authenticated_get '/api/v1/panel/settings')"
 settings_write="$(jq '{revision, preferences: (.preferences | .language = "en" | .appearance.theme = "dark")}' <<<"${panel_settings}")"
-saved_settings="$(authenticated_put '/api/v1/panel/settings' <<<"${settings_write}")"
+saved_settings="$(authenticated_write PUT '/api/v1/panel/settings' <<<"${settings_write}")"
 assert_json 'panel settings are saved through the current settings API' \
   '.reauthentication_required == false and .settings.preferences.language == "en" and .settings.preferences.appearance.theme == "dark"' <<<"${saved_settings}"
 saved_settings="$(jq '.settings | {revision, preferences, github_token_configured}' <<<"${saved_settings}")"
@@ -510,7 +517,7 @@ settings_digest="$(sha256sum "${settings_path}" | cut -d ' ' -f 1)"
 
 # Unfinished text must survive an update without falling back to the valid head.
 draft_write="$(jq --arg content $'{\n  "log": ' '{revision, content: $content}' <<<"${saved_file}")"
-saved_draft="$(authenticated_put '/api/v1/config/file' <<<"${draft_write}")"
+saved_draft="$(authenticated_write PUT "${file_path}" <<<"${draft_write}")"
 assert_json 'unfinished JSON remains editable without a usable canonical revision' \
   --argjson input "${draft_write}" \
   '.revision == ($input.revision + 1) and .content == $input.content and .syntax_valid == false and (.canonical_revision_id // "") == ""' \
@@ -541,9 +548,13 @@ run_installed config verify >/dev/null
 
 start_panel "${release_version}"
 updated_status="$(authenticated_get '/api/v1/system/status')"
-assert_json 'release retains history and does not start a core implicitly' --arg version "${release_version}" \
-  '.panel_version == $version and .canonical_revision == 2 and .running == false' <<<"${updated_status}"
-persisted_file="$(authenticated_get '/api/v1/config/file')"
+assert_json 'restarted panel reports the release build' --arg version "${release_version}" \
+  '.panel_version == $version' <<<"${updated_status}"
+persisted_node="$(authenticated_get "${node_path}")"
+assert_json 'the registered node survives the update and is still awaiting enrollment' \
+  --argjson created "${created_node}" '.id == $created.node.id and .name == "smoke-node" and .state == "pending"' \
+  <<<"${persisted_node}"
+persisted_file="$(authenticated_get "${file_path}")"
 assert_json 'unfinished configuration text and revision survive restart unchanged' \
   --argjson saved "${saved_draft}" '. == $saved' <<<"${persisted_file}"
 persisted_settings="$(authenticated_get '/api/v1/panel/settings')"
@@ -554,17 +565,17 @@ assert_json 'panel preferences and credential-presence flags survive restart unc
 
 phase 'correct the draft through the new binary and verify another restart'
 file_write="$(jq --rawfile content "${configuration_fixture}" '{revision, content: $content}' <<<"${persisted_file}")"
-corrected_file="$(authenticated_put '/api/v1/config/file' <<<"${file_write}")"
+corrected_file="$(authenticated_write PUT "${file_path}" <<<"${file_write}")"
 assert_json 'corrected text reconnects to the existing valid history' \
   --argjson saved "${saved_file}" \
   --argjson input "${file_write}" \
   '.revision == ($input.revision + 1) and .syntax_valid == true and .content == $saved.content and .canonical_revision_id == $saved.canonical_revision_id' \
   <<<"${corrected_file}"
-stale_save="$(authenticated_put '/api/v1/config/file' 412 <<<"${draft_write}")"
+stale_save="$(authenticated_write PUT "${file_path}" 412 <<<"${draft_write}")"
 assert_json 'CAS remains enforced after self-update' '.code == "configuration_file_conflict"' <<<"${stale_save}"
 stop_panel
 start_panel "${release_version}"
-persisted_file="$(authenticated_get '/api/v1/config/file')"
+persisted_file="$(authenticated_get "${file_path}")"
 assert_json 'corrected configuration persists across the second restart' \
   --argjson saved "${corrected_file}" '. == $saved' <<<"${persisted_file}"
 stop_panel

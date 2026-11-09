@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { backupSettings } from '@/tests/api/backup-settings';
 import { createMockApiClient } from '@/tests/api/mock-api-client';
 import { backupFile } from '@/pages/panel-settings-page/panel-backup';
-import { invalidSettingsField, passwordError, resolveSettingsCategory } from '@/pages/panel-settings-page/settings-categories';
+import { invalidSettingsField, passwordError } from '@/pages/panel-settings-page/settings-categories';
 
 describe('settings validation', () => {
   it.each(['short', '密'.repeat(11), 'x'.repeat(129)])('rejects passwords outside character boundaries', password => {
@@ -11,12 +11,6 @@ describe('settings validation', () => {
   });
   it.each(['', '密'.repeat(12), '密'.repeat(128), '  password with spaces  '])('accepts valid passwords or unchanged input', password => {
     expect(passwordError(password)).toBeUndefined();
-  });
-  it.each([
-    ['access', 'service'], ['authentication', 'service'],
-    ['storage', 'maintenance'], ['updates', 'maintenance'], ['languageGroup', 'interface'],
-  ] as const)('maps the retained %s hash to %s', (hash, category) => {
-    expect(resolveSettingsCategory(hash)).toBe(category);
   });
   it('returns the category and field that prevent submission', async () => {
     const view = await createMockApiClient().getPanelSettings();

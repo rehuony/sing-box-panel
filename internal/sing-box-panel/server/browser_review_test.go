@@ -26,7 +26,7 @@ import (
 // TestBrowserReview serves the real HTTP boundary and built web assets against
 // an isolated database for manual browser verification on development hosts.
 // It deliberately has no runtime executor: it cannot validate process lifecycle.
-// Run with SBP_BROWSER_REVIEW=1 go test ./internal/server -run '^TestBrowserReview$' -v -timeout 30m.
+// Run with SBP_BROWSER_REVIEW=1 go test ./internal/sing-box-panel/server -run '^TestBrowserReview$' -v -timeout 30m.
 func TestBrowserReview(t *testing.T) {
 	if os.Getenv("SBP_BROWSER_REVIEW") != "1" {
 		t.Skip("opt-in browser review")

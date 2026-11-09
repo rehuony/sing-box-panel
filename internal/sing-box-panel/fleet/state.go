@@ -14,7 +14,6 @@ import (
 
 	"github.com/rehuony/sing-box-panel/internal/configuration"
 	"github.com/rehuony/sing-box-panel/internal/nodeapi"
-	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/nodeconfig"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/store"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/telemetry"
 )
@@ -80,16 +79,16 @@ func (service *Service) receiveStateReport(ctx context.Context, current *session
 }
 
 // seedConfiguration saves the configuration a node already runs as its
-// editable file while that file is still the empty document the node was
-// created with. Saving at that revision fails harmlessly if it was edited.
+// editable file, under the node's revision ID, while that file is still the
+// empty document the node was created with. Saving at that revision fails
+// harmlessly if it was edited.
 func (service *Service) seedConfiguration(ctx context.Context, nodeID string, existing *nodeapi.ConfigurationRevision) {
 	file, err := service.configs.ConfigurationFile(ctx, nodeID)
 	if err != nil || file.Revision != 1 || file.Content != string(configuration.Empty().CanonicalJSON()) {
 		return
 	}
-	if _, err := service.configs.SaveConfigurationFile(ctx, nodeID, nodeconfig.ConfigurationFileWrite{
-		Revision: file.Revision, Content: string(existing.GetContent()),
-	}); err == nil {
+	if _, err := service.configs.SeedConfigurationFile(ctx, nodeID, file.Revision,
+		existing.GetRevisionId(), string(existing.GetContent())); err == nil {
 		service.recordNodeEvent(store.LogLevelInfo, "node.configuration_seeded", "Node configuration taken from the configuration it runs", nodeID)
 	}
 }

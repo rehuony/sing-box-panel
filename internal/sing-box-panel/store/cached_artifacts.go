@@ -68,6 +68,18 @@ func (s *Store) CachedArtifact(ctx context.Context, id string) (CachedArtifact, 
 	return artifact, err
 }
 
+// OfficialCachedArtifact returns the cached copy of one official release
+// asset, the most recently used if the asset was ever recorded twice.
+func (s *Store) OfficialCachedArtifact(ctx context.Context, repositoryID, releaseID, assetID int64) (CachedArtifact, error) {
+	artifact, err := scanCachedArtifact(s.db.QueryRowContext(ctx, `SELECT `+cachedArtifactColumns+` FROM cached_artifacts
+		WHERE source_kind = 'official' AND repository_id = ? AND release_id = ? AND asset_id = ?
+		ORDER BY used_at DESC, id LIMIT 1`, repositoryID, releaseID, assetID))
+	if errors.Is(err, sql.ErrNoRows) {
+		return CachedArtifact{}, ErrCachedArtifactNotFound
+	}
+	return artifact, err
+}
+
 // OfficialArtifactsUnusedSince lists the official archives no install asked
 // for since before; they can be downloaded again when needed.
 func (s *Store) OfficialArtifactsUnusedSince(ctx context.Context, before time.Time) ([]CachedArtifact, error) {

@@ -5,6 +5,7 @@ package nodeconfig
 import (
 	"context"
 	"errors"
+	"regexp"
 	"time"
 
 	"github.com/rehuony/sing-box-panel/internal/configuration"
@@ -49,6 +50,34 @@ func (application *Service) SaveConfigurationFile(ctx context.Context, nodeID st
 	update, err := store.NewConfigurationFileUpdate(application.random, application.now(), input.Revision, input.Content)
 	if err != nil {
 		return ConfigurationFile{}, err
+	}
+	file, err := application.database.SaveConfigurationFile(ctx, nodeID, update.ExpectedRevision, update.Content, update.Revision)
+	if err != nil {
+		return ConfigurationFile{}, err
+	}
+	return configurationFileView(file), nil
+}
+
+// reportedRevisionID matches the revision IDs the panel issues.
+var reportedRevisionID = regexp.MustCompile(`^rev_[0-9a-f]{32}$`)
+
+// SeedConfigurationFile saves the configuration nodeID already runs as its
+// file, under the revision ID the node reports for it, so the panel holds the
+// revision the node applies and publishes its inbounds without a restart. A
+// malformed ID, or one the panel already uses, is replaced by a new one.
+func (application *Service) SeedConfigurationFile(ctx context.Context, nodeID string, expected int64, revisionID, content string) (ConfigurationFile, error) {
+	update, err := store.NewConfigurationFileUpdate(application.random, application.now(), expected, content)
+	if err != nil {
+		return ConfigurationFile{}, err
+	}
+	if reportedRevisionID.MatchString(revisionID) {
+		_, err := application.database.GetCanonicalRevision(ctx, revisionID)
+		switch {
+		case errors.Is(err, store.ErrCanonicalRevisionNotFound):
+			update.Revision.ID = revisionID
+		case err != nil:
+			return ConfigurationFile{}, err
+		}
 	}
 	file, err := application.database.SaveConfigurationFile(ctx, nodeID, update.ExpectedRevision, update.Content, update.Revision)
 	if err != nil {

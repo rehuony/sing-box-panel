@@ -151,8 +151,11 @@ node's [console](#node-console) can exchange a code too, while the node runs.
 The panel's configuration for a node is authoritative. The first state report
 of each session carries the configuration of the bundle the node runs, if any;
 while the node's editable file is still the empty document it was created with,
-that report seeds it, so a node enrolled again keeps its configuration. After
-that, changes flow only from the panel. "Unapplied changes" means the panel's saved revision or selected core
+that report seeds it, so a node enrolled again keeps its configuration. The seed
+keeps the revision ID the node reports unless the panel already uses that ID,
+so the node's inbounds stay published without a restart. After that, changes
+flow only from the panel, and the node records each revision under the panel's
+ID even when its document matches the one it runs. "Unapplied changes" means the panel's saved revision or selected core
 differs from what the node reports as applied.
 
 Both services use SQLite through `modernc.org/sqlite`, each with its own

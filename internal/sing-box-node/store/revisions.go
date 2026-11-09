@@ -56,8 +56,9 @@ type BootstrapState struct {
 	Head   *CanonicalRevision
 }
 
-// saveCanonicalRevisionTx records runtime evidence inside a saved-file transaction.
-// A byte-identical document reuses the current head.
+// saveCanonicalRevisionTx records a new revision under its own ID and makes it
+// the head, even when its document matches the current head: the panel
+// identifies revisions by ID, and the node reports the one it applies.
 func saveCanonicalRevisionTx(
 	ctx context.Context,
 	tx *sql.Tx,
@@ -87,9 +88,6 @@ func saveCanonicalRevisionTx(
 		))
 		if err != nil {
 			return CanonicalRevision{}, fmt.Errorf("read canonical head revision: %w", err)
-		}
-		if head.SHA256 == prepared.SHA256 {
-			return head, nil
 		}
 		sequence = head.Sequence + 1
 	}

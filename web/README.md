@@ -62,6 +62,12 @@ application with `pnpm --filter @sing-box-panel/node run dev`. The node runtime
 requires Linux, so on another system run the node in a Linux container that
 shares the host's network.
 
+`.claude/launch.json` starts all four: `.claude/dev/panel.sh` runs the panel,
+`.claude/dev/node.sh` runs a node enrolled with it in a Debian container on the
+host network, and each application's development server runs on `5173` (panel)
+or `5174` (node console). Their binaries, settings and data stay in the ignored
+`.claude/dev/state/`; the first start prints the credentials once.
+
 Use `make check-frontend` from the repository root for a production build, types,
 lint, all tests, Schema consistency and notices checks. From this directory,
 `pnpm run build` builds both applications and `pnpm test` runs every package's
@@ -159,9 +165,12 @@ README.
 ## HTTP client and authentication
 
 At runtime the browser client uses same-origin `/api/v1` endpoints for the
-session, live dashboard context, the single saved configuration, panel settings,
-subscription publication, persistent logs and exact core-artifact operations. Cookie-backed writes retain
-the session CSRF token, and saved-file writes include the numeric revision in the request.
+session, the fleet and node enrollment, panel settings, subscription
+publication, panel logs and the core catalog. Everything about one node goes
+through `/api/v1/nodes/{nodeId}/…`: the node workspace gives its pages a client
+scoped to that node, so its cores, configuration, runtime, logs, telemetry and
+settings never reach another node. Cookie-backed writes retain the session CSRF
+token, and saved-file writes include the numeric revision in the request.
 
 Production login lazily collects a FingerprintJS visitor ID with the locally
 bundled SDK and sends it only in `X-Client-Fingerprint`. Collection is bounded to
@@ -184,10 +193,11 @@ concurrently, and the version library reads runtime status only once on entry.
 Runtime responses are published independently of artifact listings and discarded
 when newer shared runtime evidence arrives while the request is pending.
 
-TanStack Query v5 owns session-local query state: system metadata (30 seconds),
-installed core lists (15 seconds), release catalogs (60 seconds), subscription
-summaries and node catalogs (5 seconds), and resolved artifact-bound Schema
-contracts (5 minutes). Inactive queries expire after 5 minutes. Configuration,
+TanStack Query v5 owns session-local query state: the fleet's nodes and traffic
+status (15 seconds), installed core lists (15 seconds), release catalogs (60
+seconds), subscription summaries and node catalogs (5 seconds), and resolved
+artifact-bound Schema contracts (5 minutes). Node-scoped reads carry the node in
+their key, so nodes never share cached data. Inactive queries expire after 5 minutes. Configuration,
 credentials and file content are read on demand; settings are retained only by
 an active provider. Nothing is persisted in browser storage. Shared query keys
 coalesce pending reads and preserve unchanged object references. Background
@@ -197,8 +207,9 @@ writes are never automatically retried. Writes invalidate related resources,
 apply returned evidence, and reconcile ambiguous failures. Session changes cancel
 queries, clear the cache and reject responses from earlier sessions.
 
-The shell renders after authentication while context, settings and page queries
-load independently. Failed context refresh preserves the workspace and drafts.
+The shell renders after authentication while settings and page queries load
+independently. The fleet list and an open node's workspace refresh the node list
+every 15 seconds; a failed refresh keeps the last report, the workspace and drafts.
 Sources poll every 15 seconds only while their page and browser tab are visible;
 sources and channels share the node catalog. Batch source refresh uses at most
 three concurrent operations and one final list refresh. The backend also limits
@@ -213,16 +224,17 @@ the running server handles periodic refresh using the configured interval.
 
 ## Telemetry
 
-Telemetry uses a stable Zustand store with separate subscriptions for runtime,
-metrics, history and connection health. History is subscribed only by the
-Dashboard; logs only by the visible log page. The live metrics stream stays
+Each node workspace owns one telemetry store for that node, a stable Zustand
+store with separate subscriptions for runtime, metrics, history and connection
+health. History is subscribed only by the node's overview; core logs only by its
+visible logs tab. The live metrics stream stays
 connected across browser tab switches so received samples remain continuous.
 Hidden tabs pause history, logs and polling until they become visible again.
 Normal server rotation sends a control event and reconnects immediately. Other
 failures use jittered exponential backoff (at most 30 seconds) and a five-second
 notification grace period. A 25-second idle watchdog detects half-open streams.
 Live snapshots become stale after 10 seconds, history after 45 seconds. History
-delays stay in the dashboard and do not trigger the global live-connection Toast.
+delays stay in the overview and do not trigger the global live-connection Toast.
 Period traffic reads the recorded monthly ledger independently of live sampling:
 empty periods show zero, stopped/stale collection retains usage and quota status,
 and no period-completeness label is displayed.
@@ -236,11 +248,11 @@ or samples older than three seconds show `—`, while measured zero remains zero
 Live chart samples preserve gaps and never contribute to accounted traffic totals.
 
 The runtime timeline keeps 48 half-hour segments with time marks anchored to the
-dashboard snapshot, including dates at both endpoints. Narrow cards retain the
+overview snapshot, including dates at both endpoints. Narrow cards retain the
 start, midpoint and end marks. Segment tooltips expose the complete interval and
 observed state on hover or keyboard focus. Recent activity keeps two compact rows
 with the same localized event names and severity badges as panel logs. Each row
-opens the panel-log tab; its tooltip exposes the full name and occurrence time.
+opens the panel logs page; its tooltip exposes the full name and occurrence time.
 Activity times include dates for earlier days and years for earlier years, and
 update at local midnight independently of delayed runtime snapshots.
 
@@ -282,12 +294,15 @@ also appears before JavaScript starts. Explicit light/dark preferences remain
 supported. Reduced motion, reduced transparency, and increased contrast
 preferences are respected.
 
-The six main pages omit the visible page-title band while retaining a screen
-reader heading. Their content fills the space below the runtime toolbar and
-ends at the same bottom inset as the sidebar. Tables and forms scroll within
-that space when needed, keeping panel actions reachable. The dashboard scrolls
-in the full-height shell behind the floating runtime toolbar; the toolbar
-surroundings remain transparent and the scrollbar sits at the viewport edge.
+The shell is a floating sidebar beside one scrolling content region. The
+sidebar lists Nodes, Subscriptions, Logs and Settings, with the theme cycle,
+language menu and sign-out in its footer; narrow screens open it as an
+off-canvas panel. Pages omit a visible title band while retaining a screen
+reader heading: a list page starts with one toolbar row, tabs or filters at the
+start and actions at the end. Opening a node shows its object row and its tabs
+(overview, cores, configuration, logs, settings). Content ends at the same
+bottom inset as the sidebar; tables and forms scroll within that space when
+needed, keeping their actions reachable.
 
 ## Login
 
@@ -321,7 +336,7 @@ read from the same database snapshot, and shrinking lists return to a valid page
 Panel-log search matches both Chinese and English event names by passing exact
 `search_codes` alongside the original `search` text. The server unions those
 matches before applying other filters, counting, and pagination.
-Dashboard activity links and runtime segments use explicit keyboard focus outlines
+Overview activity links and runtime segments use explicit keyboard focus outlines
 for inspection; keyboard navigation and focus restoration are preserved everywhere.
 
 Workspace tables for versions, sources, keys, channels and panel logs use the data
@@ -329,8 +344,8 @@ table pattern and table measurements in [`DESIGN.md`](../DESIGN.md).
 
 ## Pages and navigation
 
-The six navigation entries host 15 views using local tabs/dialogs instead
-of feedback-page copies. Sources, manual nodes, subscription keys and native
+The four navigation entries and a node's five tabs host every view; details
+use local tabs and dialogs instead of separate pages. Sources, manual nodes, subscription keys and native
 channel rules share node provenance and independent visibility. Channel preview
 and delivery have one server renderer; remote rule references are fetched only
 by subscribing clients. Native editors preserve unknown fields and scalar/list
@@ -339,12 +354,10 @@ charts and overlays, with semantic status colors kept independent.
 
 Management tabs use URL fragments: `#cores-installed` / `#cores-catalog`,
 `#configuration-visual` / `#configuration-advanced` (visual sections append `/route`,
-`/inbounds`, etc.), `#panel-service`, `#panel-traffic`, `#panel-logs`,
-`#panel-interface`, `#panel-maintenance`, `#panel-backup` (earlier section names
-such as `#panel-authentication` open the category that now contains them), and
-`#logs-core` / `#logs-panel`. Direct links, reloads and browser history restore the
-selected tab; legacy log query links still open their requested view. Tab switches
-preserve unrelated query parameters and route state. Subscription tabs retain
+`/inbounds`, etc.) inside a node, and `#panel-service`, `#panel-traffic`,
+`#panel-logs`, `#panel-interface`, `#panel-maintenance` and `#panel-backup` in
+panel settings. Direct links, reloads and browser history restore the selected
+tab. Tab switches preserve query parameters and route state. Subscription tabs retain
 `#subscription-sources`, `#subscription-tokens`, and `#subscription-channels`.
 
 ## Panel logs
@@ -491,8 +504,8 @@ Discard changes resets the draft and continues to the requested destination.
 Subscription areas return to their initial lists after leaving. Reloading or
 closing the page uses the browser's native unsaved-changes prompt, and signing
 out requires confirmation while edits are pending. No draft or embedded
-configuration secrets are written to browser storage. Server startup persists an
-empty configuration if none exists. The file API uses its own numeric compare-and-swap revision;
+configuration secrets are written to browser storage. Adding a node initializes
+its configuration to `{}`. The file API uses its own numeric compare-and-swap revision;
 immutable canonical revisions remain internal runtime evidence.
 
 ## Error feedback

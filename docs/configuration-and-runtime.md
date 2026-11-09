@@ -394,14 +394,13 @@ not a sequence number. Manual edits, including formatting changes, invalidate
 older forms; stale writes return a conflict without changing either resource.
 The Web UI has six categories: service settings, traffic usage, log management,
 interface preferences, system maintenance, and backup and restore. Service settings
-groups access, authentication, and node publication; interface preferences groups
+groups access and authentication; interface preferences groups
 appearance and language; system maintenance groups storage and version updates.
 Log management controls only sing-box capture files; panel events do not expire automatically.
-Each topic keeps its own section heading. Previous category hashes open the
-corresponding merged category.
+Each topic keeps its own section heading.
 Desktop uses an internal sidebar; narrow screens use a category selector.
 All topics share one draft and Save button. Hash navigation and browser history
-retain the draft; leaving `/panel` or closing the page warns about unsaved changes.
+retain the draft; leaving `/settings` or closing the page warns about unsaved changes.
 Validation locates the offending category and field; failed saves retain drafts.
 Email and new password are separate inline fields in Authentication. Neither requires
 an old password or repeated password confirmation. Both remain drafts until the shared
@@ -418,18 +417,14 @@ are hidden in this UI and preserved during ordinary saves.
 Existing file fields retain their paths. Web-only preferences are added under
 `panel`, with matching defaults. Hidden subscription source access fields remain supported in the file and API. The `service` API projection covers non-secret service options and is optional on writes. Settings validation and revision checks cover the entire file. Changing service options that are captured at startup displays a restart notice.
 
-Unused `subscription.author`, `subscription.provider`, `logs.retention_days`, and `auth.secure_cookie`
-have been removed, together with API fields `subscription_author`,
-`subscription_provider`, `log_retention_days`, and `service.secure_cookie`. This is a breaking development
-change: configuration validation, settings writes, and backup restore reject these
-fields. Remove them from existing files/backups, or use `config init --force` to
-replace settings with current defaults (including a new administrator password).
+Configuration validation, settings writes and backup restore reject any field
+outside the table below. `config init --force` replaces settings with current
+defaults, including a new administrator password.
 
 Session Cookie `Secure` follows the active `server.external_origin`: HTTPS enables
 it and HTTP disables it. When no external origin is configured, the actual request
 TLS state determines it. Forwarded headers cannot override this policy. Origin
-changes take effect after restart. Backups whose settings contain the removed
-fields are rejected; no migration is performed.
+changes take effect after restart.
 
 | Settings field | Web field | Generated default |
 | --- | --- | --- |

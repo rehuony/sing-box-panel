@@ -12,7 +12,7 @@ import { useUnsavedChanges } from '@/hooks/use-unsaved-changes';
 import { describeRequestError } from '@/components/error-notice';
 import { usePanelSettings } from '@/stores/panel-settings.store';
 
-import { invalidSettingsField, passwordError, resolveSettingsCategory, settingsHashValues } from './settings-categories';
+import { invalidSettingsField, passwordError, settingsCategories } from './settings-categories';
 
 export function usePanelSettingsDraft(incoming: PanelSettingsView) {
   const [initial, setInitial] = useState(incoming);
@@ -26,8 +26,7 @@ export function usePanelSettingsDraft(incoming: PanelSettingsView) {
   const [service, setService] = useState(initial.service);
   const [github, setGithub] = useState('');
   const [clearGithub, setClearGithub] = useState(false);
-  const [categoryHash, setCategory] = useHashTab('panel-', settingsHashValues, 'service');
-  const category = resolveSettingsCategory(categoryHash);
+  const [category, setCategory] = useHashTab('panel-', settingsCategories, 'service');
   const [saving, setSaving] = useState(false);
   const [invalidField, setInvalidField] = useState<string | null>(null);
   useEffect(() => {

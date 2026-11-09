@@ -276,3 +276,21 @@ func assertArtifactIDs(t *testing.T, artifacts []CoreArtifact, want ...string) {
 		}
 	}
 }
+
+func TestRecordRevisionKeepsThePanelsIDForAnUnchangedDocument(t *testing.T) {
+	ctx := testContext(t)
+	store := openTestStore(t, ctx)
+	now := time.Date(2026, time.November, 9, 9, 0, 0, 0, time.UTC)
+	document := json.RawMessage(`{"log":{"level":"info"}}`)
+	// A node enrolled again receives its running document under a new ID.
+	for _, id := range []string{"revision-before", "revision-after"} {
+		recorded, err := store.RecordRevision(ctx, id, document, now)
+		if err != nil || recorded.ID != id {
+			t.Fatalf("RecordRevision(%s) = %+v, %v", id, recorded, err)
+		}
+		head, err := store.Head(ctx)
+		if err != nil || head == nil || head.ID != id {
+			t.Fatalf("head after %s = %+v, %v", id, head, err)
+		}
+	}
+}

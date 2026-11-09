@@ -31,12 +31,9 @@ Every command is at most two words deep; each group adds one verb.
 `server start` runs the panel in the current terminal. Background
 operation belongs to the `systemd` service commands.
 
-The `core`, `channel`, `source`, `token`, `log`, and `metrics` command groups
-have been removed, including their shell completions; no hidden aliases remain.
-Use version management, subscriptions, logs, and the dashboard in the Web UI.
-Automation can use the unchanged authenticated [HTTP API](../api/panel-openapi.yaml).
-Update scripts and regenerate installed shell completions after upgrading.
-`version` reports the panel executable's version and `update` updates that
+Core versions, configuration, subscriptions, logs and telemetry are managed in
+the Web UI, per node where they belong to one; automation can use the
+authenticated [HTTP API](../api/panel-openapi.yaml). `version` reports the panel executable's version and `update` updates that
 executable; sing-box version management belongs to the Web UI.
 
 Service commands previously under `system` now use `systemd`. File inspection

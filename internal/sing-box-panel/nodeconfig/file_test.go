@@ -102,3 +102,31 @@ func TestConfigurationFileConcurrentSavesHaveOneWinner(t *testing.T) {
 		t.Fatalf("successes=%d conflicts=%d", successes, conflicts)
 	}
 }
+
+func TestSeedConfigurationFileKeepsAFreeReportedRevisionID(t *testing.T) {
+	ctx := context.Background()
+	db, err := store.Open(ctx, filepath.Join(t.TempDir(), "panel.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	app := New(db, nil)
+	used, err := app.SaveConfigurationFile(ctx, testutil.CreateNode(t, db, "other"), ConfigurationFileWrite{Content: `{"log":{}}`})
+	if err != nil {
+		t.Fatal(err)
+	}
+	const free = "rev_0123456789abcdef0123456789abcdef"
+	for _, test := range []struct {
+		node, reported string
+		kept           bool
+	}{
+		{node: "free", reported: free, kept: true},
+		{node: "taken", reported: used.CanonicalRevisionID},
+		{node: "malformed", reported: "rev_not-a-panel-id"},
+	} {
+		seeded, err := app.SeedConfigurationFile(ctx, testutil.CreateNode(t, db, test.node), 0, test.reported, `{"inbounds":[]}`)
+		if err != nil || (seeded.CanonicalRevisionID == test.reported) != test.kept || seeded.CanonicalRevisionID == "" {
+			t.Fatalf("%s: seeded=%+v err=%v", test.node, seeded, err)
+		}
+	}
+}
