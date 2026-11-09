@@ -80,7 +80,7 @@ describe('node console', () => {
     await user.click(screen.getByRole('button', { name: 'Sign in' }));
     expect(await screen.findByRole('heading', { name: 'Enroll this node' })).toBeInTheDocument();
     expect(screen.getByLabelText('Enrollment code')).toBeInTheDocument();
-    expect(screen.queryByRole('region', { name: 'Connection' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: 'Panel' })).not.toBeInTheDocument();
     expect(screen.getAllByText('edge-tokyo').length).toBeGreaterThan(0);
 
     await user.click(screen.getByRole('button', { name: 'Sign out' }));
@@ -109,9 +109,8 @@ describe('node console', () => {
     await user.clear(code);
     await user.type(code, 'fresh-code');
     await user.click(screen.getByRole('button', { name: 'Enroll' }));
-    const connection = await screen.findByRole('region', { name: 'Connection' });
-    expect(connection).toHaveTextContent('Connecting');
-    expect(connection).toHaveTextContent('panel.example.com:8443');
+    expect(await screen.findByRole('region', { name: 'Panel' })).toHaveTextContent('panel.example.com:8443');
+    expect(screen.getByRole('region', { name: 'edge-tokyo' })).toHaveTextContent('Connecting');
     const enrollment = requests.filter(request => request.path === '/api/v1/enrollment').at(-1)!;
     expect(new Headers(enrollment.init?.headers).get('X-CSRF-Token')).toBe('csrf');
     expect(JSON.parse(String(enrollment.init?.body))).toEqual({ code: 'fresh-code' });
@@ -124,14 +123,17 @@ describe('node console', () => {
     const user = userEvent.setup();
     render(<App />);
 
-    expect(await screen.findByRole('region', { name: 'Connection' })).toHaveTextContent('Connected');
-    await user.click(screen.getByRole('button', { name: 'Unenroll' }));
+    expect(await screen.findByRole('region', { name: 'Panel' })).toBeInTheDocument();
+    expect(screen.getByRole('region', { name: 'edge-tokyo' })).toHaveTextContent('Connected');
+    await user.click(screen.getByRole('button', { name: 'More actions' }));
+    await user.click(await screen.findByRole('menuitem', { name: 'Unenroll' }));
     const dialog = screen.getByRole('alertdialog');
     expect(dialog).toHaveTextContent('Unenroll from panel.example.com:8443?');
     await user.click(within(dialog).getByRole('button', { name: 'Cancel' }));
     expect(requests.some(request => request.method === 'DELETE' && request.path === '/api/v1/enrollment')).toBe(false);
 
-    await user.click(screen.getByRole('button', { name: 'Unenroll' }));
+    await user.click(screen.getByRole('button', { name: 'More actions' }));
+    await user.click(await screen.findByRole('menuitem', { name: 'Unenroll' }));
     await user.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Unenroll' }));
     expect(await screen.findByRole('heading', { name: 'Enroll this node' })).toBeInTheDocument();
     expect(requests.some(request => request.method === 'DELETE' && request.path === '/api/v1/enrollment')).toBe(true);

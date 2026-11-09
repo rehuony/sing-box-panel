@@ -1,0 +1,150 @@
+/* The sign-in prompt's mirror and motion; its scene draws on a canvas. */
+
+@keyframes login-prompt-shake {
+  0%,
+  100% {
+    translate: 0;
+  }
+  20% {
+    translate: -6px;
+  }
+  40% {
+    translate: 5px;
+  }
+  60% {
+    translate: -3px;
+  }
+  80% {
+    translate: 2px;
+  }
+}
+
+@keyframes login-glyph-in {
+  from {
+    opacity: 0;
+    scale: 0.3;
+  }
+}
+
+@keyframes login-output-in {
+  from {
+    opacity: 0;
+    translate: 0 -6px;
+  }
+}
+
+@keyframes login-caret-blink {
+  50% {
+    opacity: 0;
+  }
+}
+
+.login-prompt--shake {
+  animation: login-prompt-shake 360ms var(--ease-out);
+}
+
+.login-prompt__output {
+  animation: login-output-in var(--dur-short) var(--ease-out);
+}
+
+.login-prompt__mirror {
+  --prompt-cell: 0.75em;
+}
+
+/* The input scrolls a little past its last character; the mirror can follow it there. */
+.login-prompt__glyph.login-prompt__end {
+  width: calc(var(--prompt-cell) * 2);
+  justify-content: flex-start;
+}
+
+/* One cell per character, as wide as the input's character with its letter spacing. */
+.login-prompt__glyph {
+  position: relative;
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: var(--prompt-cell);
+  height: 1.5em;
+  animation: login-glyph-in var(--dur-short) var(--ease-out);
+}
+
+.login-prompt__glyph[data-selected] {
+  background: color-mix(in oklab, var(--primary) 35%, transparent);
+}
+
+.login-prompt__dot {
+  display: block;
+  width: 0.5em;
+  height: 0.5em;
+  border-radius: 999px;
+  background: currentcolor;
+}
+
+/* The cursor takes no width: a block in the last cell, a bar between characters. */
+.login-prompt__caret {
+  position: absolute;
+  z-index: 1;
+  top: 50%;
+  left: calc((var(--prompt-cell) - 0.55em) / 2);
+  width: 0.55em;
+  height: 1.15em;
+  border-radius: 2px;
+  translate: 0 -50%;
+  background: var(--primary);
+  animation: login-caret-blink 1.06s steps(1) infinite;
+}
+
+.login-prompt__caret--bar {
+  left: -1px;
+  width: 2px;
+}
+
+/* The input keeps the selection but never paints it; the mirror does. */
+.login-prompt__input::selection {
+  background: transparent;
+  color: transparent;
+}
+
+/* Autofilled text stays in the mirror, not in the transparent input. */
+.login-prompt__input:-webkit-autofill {
+  -webkit-text-fill-color: transparent;
+  transition: background-color 9999s;
+}
+
+/*
+ * Signing in morphs the prompt into the console card: the box grows from one
+ * to the other while the card, unscaled and anchored at its top, is revealed
+ * inside it and the prompt fades out.
+ */
+::view-transition-group(console-card) {
+  animation-duration: 420ms;
+  animation-timing-function: var(--ease-out);
+}
+
+::view-transition-image-pair(console-card) {
+  overflow: hidden;
+  border-radius: var(--radius-card);
+}
+
+::view-transition-old(console-card),
+::view-transition-new(console-card) {
+  height: 100%;
+  animation-duration: var(--dur-short);
+  object-fit: none;
+  object-position: top center;
+}
+
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation-duration: var(--dur-short);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .login-prompt--shake,
+  .login-prompt__output,
+  .login-prompt__glyph,
+  .login-prompt__caret {
+    animation: none;
+  }
+}

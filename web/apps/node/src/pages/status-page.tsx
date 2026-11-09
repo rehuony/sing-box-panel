@@ -1,11 +1,12 @@
 import type { ReactNode } from 'react';
 
 import { useTranslation } from 'react-i18next';
-import { Badge } from '@shared/components/ui/badge';
 import { useEffect, useRef, useState } from 'react';
 import { Button } from '@shared/components/ui/button';
 import { Spinner } from '@shared/components/ui/spinner';
+import { Check, Copy, Ellipsis, Link2, Server, Unlink } from 'lucide-react';
 import { formatDateTime, formatRelativeTime } from '@shared/lib/format-time';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@shared/components/ui/dropdown-menu';
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@shared/components/ui/dialog';
 import {
   AlertDialog,
@@ -18,53 +19,87 @@ import {
   AlertDialogTitle,
 } from '@shared/components/ui/alert-dialog';
 
+import type { FieldControl } from '@/components/console-field';
 import type { Connection, ConsoleStatus, Enrollment, Session } from '@/api/generated';
 
+import { ConsoleCard } from '@/components/console-card';
 import { ConsoleFrame } from '@/components/console-frame';
 import { EnrollmentForm } from '@/components/enrollment-form';
 import { ConsoleRequestError, getStatus, logout, unenroll } from '@/api/console-client';
 
 /** How often the page refreshes the node's link with its panel. */
 const REFRESH_INTERVAL_MS = 5_000;
+/** How long a copy action shows that it copied. */
+const COPIED_MS = 1_500;
 
-const stateTone: Record<Connection['state'], string> = {
-  connected: 'bg-[var(--color-success)]',
-  connecting: 'bg-[var(--color-info)]',
-  disconnected: 'bg-[var(--color-warning)]',
-  unenrolled: 'bg-[var(--color-text-faint)]',
-};
-
-const stateVariant: Record<Connection['state'], 'success' | 'warning' | 'info' | 'secondary'> = {
-  connected: 'success',
-  connecting: 'info',
-  disconnected: 'warning',
-  unenrolled: 'secondary',
+const stateTone: Record<Connection['state'], { dot: string; text: string }> = {
+  connected: { dot: 'bg-[var(--color-success)]', text: 'text-[var(--color-success-text)]' },
+  connecting: { dot: 'bg-[var(--color-info)]', text: 'text-[var(--color-info-text)]' },
+  disconnected: { dot: 'bg-[var(--color-warning)]', text: 'text-[var(--color-warning-text)]' },
+  unenrolled: { dot: 'bg-[var(--color-text-faint)]', text: 'text-muted-foreground' },
 };
 
 function panelAddress(enrollment: Enrollment): string {
   return `${enrollment.panel_endpoint}${enrollment.panel_path}`;
 }
 
-function Section({ children, className = '', title }: { children: ReactNode; className?: string; title: string }) {
+/** Rows that belong together, on a raised inset surface. */
+function Group({ children, title }: { children: ReactNode; title: string }) {
   return (
-    <section aria-label={title} className={`flex flex-col gap-4 rounded-[var(--radius-card)] border bg-card p-4 sm:p-5 ${className}`}>
-      <h2 className='text-sm font-semibold'>{title}</h2>
-      {children}
+    <section aria-label={title} className='flex flex-col gap-2'>
+      <h3 className='px-1 text-xs font-medium text-muted-foreground'>{title}</h3>
+      <dl className='divide-y overflow-hidden rounded-lg bg-[var(--color-surface-raised)]'>{children}</dl>
     </section>
   );
 }
 
-function Rows({ children }: { children: ReactNode }) {
-  return <dl className='grid grid-cols-[minmax(7rem,auto)_minmax(0,1fr)] gap-x-4 gap-y-2 text-sm'>{children}</dl>;
+function Row({ children, copy, label }: { children: ReactNode; copy?: string; label: string }) {
+  return (
+    <div className={`flex min-h-11 items-center justify-between gap-6 py-2.5 pl-4 ${copy === undefined ? 'pr-4' : 'pr-2'}`}>
+      <dt className='shrink-0 text-sm text-[var(--color-text-secondary)]'>{label}</dt>
+      <dd className='flex min-w-0 items-center justify-end gap-1 text-right text-sm'>
+        {children}
+        {copy === undefined ? null : <CopyButton label={label} value={copy} />}
+      </dd>
+    </div>
+  );
 }
 
-function Row({ label, children }: { label: string; children: ReactNode }) {
+function CopyButton({ label, value }: { label: string; value: string }) {
+  const { t } = useTranslation();
+  const [copied, setCopied] = useState(false);
+  useEffect(() => {
+    if (!copied) return;
+    const timer = window.setTimeout(setCopied, COPIED_MS, false);
+    return () => window.clearTimeout(timer);
+  }, [copied]);
   return (
-    <>
-      <dt className='text-muted-foreground'>{label}</dt>
-      <dd className='min-w-0'>{children}</dd>
-    </>
+    <Button
+      aria-label={copied ? t('details.copied') : t('details.copy', { label })}
+      className='shrink-0 text-muted-foreground'
+      onClick={() => {
+        void navigator.clipboard?.writeText(value).then(() => setCopied(true), () => undefined);
+      }}
+      size='icon-xs'
+      variant='ghost'
+    >
+      {copied ? <Check aria-hidden='true' className='text-[var(--color-success)]' /> : <Copy aria-hidden='true' />}
+    </Button>
   );
+}
+
+/** The node's own values, which the field behind the card mixes into its text. */
+function nodeWords(status: ConsoleStatus): string[] {
+  const { enrollment, node } = status;
+  const words = [node.hostname, node.version, `${node.os}/${node.arch}`, node.os, node.arch, `protocol ${node.protocol}`];
+  if (enrollment) {
+    const port = /:(\d+)$/.exec(enrollment.panel_endpoint)?.[1];
+    const { node_id: nodeId, panel_id: panelId } = enrollment;
+    words.push(panelAddress(enrollment), nodeId, nodeId.slice(0, 9), nodeId.slice(-8), panelId);
+    if (port) words.push(`:${port}`);
+    words.push(enrollment.trust === 'pin' ? 'pinned' : 'system ca');
+  }
+  return words;
 }
 
 // An identifier stays on one line; hovering shows all of it.
@@ -72,73 +107,95 @@ function Code({ value }: { value: string }) {
   return <span className='block truncate font-mono text-xs leading-5' title={value}>{value}</span>;
 }
 
-function ConnectionSection({ status }: { status: ConsoleStatus }) {
+/** The node as a device: its tile with a presence dot, its hostname and its link state. */
+function Identity({ action, stale, status }: { action?: ReactNode; stale: boolean; status: ConsoleStatus }) {
   const { i18n, t } = useTranslation();
   const locale = i18n.resolvedLanguage ?? 'en';
-  const { connection, enrollment } = status;
+  const { connection, node } = status;
+  const tone = stateTone[connection.state];
   return (
-    <section aria-label={t('connection.title')} className='flex flex-col gap-3 rounded-[var(--radius-card)] border bg-card p-4 sm:p-5'>
-      <div className='flex min-w-0 items-center gap-3'>
-        <span aria-hidden='true' className={`size-2.5 shrink-0 rounded-full ${stateTone[connection.state]}`} />
-        <p className='min-w-0 truncate text-xl font-semibold'>{t(`connection.state.${connection.state}`)}</p>
-        <Badge className='ms-auto shrink-0' title={formatDateTime(connection.since, locale)} variant={stateVariant[connection.state]}>
-          {t('connection.since', { time: formatRelativeTime(connection.since, locale) })}
-        </Badge>
+    <header className='flex items-center gap-4 p-5 sm:p-6'>
+      <span aria-hidden='true' className='relative grid size-12 shrink-0 place-items-center rounded-[var(--radius-card)] border bg-[var(--color-surface-raised)] text-[var(--color-text-secondary)]'>
+        <Server className='size-5' strokeWidth={1.75} />
+        <span className={`absolute -right-1 -bottom-1 size-3.5 rounded-full border-[3px] border-card ${tone.dot}`} />
+      </span>
+      <div className='min-w-0 flex-1'>
+        <h2 className='truncate font-[family-name:var(--font-display)] text-xl font-semibold' title={node.hostname}>{node.hostname}</h2>
+        <p className='flex min-w-0 items-center gap-1.5 text-sm'>
+          <span className={`shrink-0 font-medium ${tone.text}`}>{t(`connection.state.${connection.state}`)}</span>
+          <span aria-hidden='true' className='text-[var(--color-text-faint)]'>·</span>
+          {stale
+            ? <span aria-hidden='true' className='truncate text-[var(--color-warning-text)]' title={t('console.stale')}>{t('console.staleShort')}</span>
+            : <span className='truncate text-muted-foreground' title={formatDateTime(connection.since, locale)}>{formatRelativeTime(connection.since, locale)}</span>}
+        </p>
+        <span className='sr-only' role='status'>{stale ? t('console.stale') : ''}</span>
       </div>
-      {enrollment
+      {action}
+    </header>
+  );
+}
+
+/** Why the node is not connected, while it keeps trying. */
+function hasProblem(connection: Connection): boolean {
+  return connection.last_error !== undefined || connection.retry_at !== undefined;
+}
+
+/**
+ * The problem to show for next: its own, or while the node is connecting
+ * again, the previous one, so the card keeps its height until it connects.
+ */
+function nextProblem(next: ConsoleStatus, previous: Connection | null): Connection | null {
+  if (hasProblem(next.connection)) return next.connection;
+  return next.connection.state === 'connecting' ? previous : null;
+}
+
+function ConnectionProblem({ connection, retrying }: { connection: Connection; retrying: boolean }) {
+  const { i18n, t } = useTranslation();
+  const locale = i18n.resolvedLanguage ?? 'en';
+  return (
+    <div className='flex flex-col gap-1 rounded-lg border border-[var(--color-warning-border)] bg-[var(--color-warning-soft)] px-4 py-3 text-sm'>
+      {connection.last_error !== undefined
+        ? <p className='font-mono text-xs leading-5 wrap-anywhere text-[var(--color-warning-text)]'>{connection.last_error}</p>
+        : null}
+      {connection.retry_at !== undefined
         ? (
-            <p className='min-w-0 truncate text-sm text-muted-foreground' title={panelAddress(enrollment)}>
-              {t('connection.panel', { address: panelAddress(enrollment) })}
+            <p className='text-[var(--color-text-secondary)]'>
+              {t('connection.retryAt')}
+              {' · '}
+              {retrying
+                ? t('connection.retrying')
+                : (
+                    <span title={formatDateTime(connection.retry_at, locale)}>
+                      {formatRelativeTime(connection.retry_at, locale)}
+                    </span>
+                  )}
             </p>
           )
         : null}
-      {connection.retry_at !== undefined || connection.last_error !== undefined
-        ? (
-            <Rows>
-              {connection.retry_at !== undefined
-                ? (
-                    <Row label={t('connection.retryAt')}>
-                      <span title={formatDateTime(connection.retry_at, locale)}>
-                        {formatRelativeTime(connection.retry_at, locale)}
-                      </span>
-                    </Row>
-                  )
-                : null}
-              {connection.last_error !== undefined
-                ? (
-                    <Row label={t('connection.lastError')}>
-                      <span className='font-mono text-xs leading-5 wrap-anywhere text-[var(--color-danger-text)]'>{connection.last_error}</span>
-                    </Row>
-                  )
-                : null}
-            </Rows>
-          )
-        : null}
-    </section>
+    </div>
   );
 }
 
-function NodeRows({ status }: { status: ConsoleStatus }) {
+function NodeGroup({ status }: { status: ConsoleStatus }) {
   const { t } = useTranslation();
   return (
-    <Rows>
-      <Row label={t('details.hostname')}><Code value={status.node.hostname} /></Row>
+    <Group title={t('details.node')}>
       <Row label={t('details.version')}><Code value={status.node.version} /></Row>
       <Row label={t('details.platform')}><Code value={`${status.node.os}/${status.node.arch}`} /></Row>
       <Row label={t('details.protocol')}><Code value={status.node.protocol} /></Row>
-    </Rows>
+    </Group>
   );
 }
 
-interface EnrollmentActionsProps {
+interface EnrollmentMenuProps {
   csrfToken: string;
   enrollment: Enrollment;
   onSignedOut: () => void;
   onStatus: (status: ConsoleStatus) => void;
 }
 
-/** Re-enrollment and unenrollment, kept apart from the status they change. */
-function EnrollmentActions({ csrfToken, enrollment, onSignedOut, onStatus }: EnrollmentActionsProps) {
+/** Re-enrollment and unenrollment, kept in the card's menu, apart from the status they change. */
+function EnrollmentMenu({ csrfToken, enrollment, onSignedOut, onStatus }: EnrollmentMenuProps) {
   const { t } = useTranslation();
   const [reenrolling, setReenrolling] = useState(false);
   const [confirmUnenroll, setConfirmUnenroll] = useState(false);
@@ -165,23 +222,22 @@ function EnrollmentActions({ csrfToken, enrollment, onSignedOut, onStatus }: Enr
   }
 
   return (
-    <Section className='border-[var(--color-danger-border)]' title={t('danger.title')}>
-      <div className='flex flex-col divide-y'>
-        <div className='flex flex-wrap items-center gap-3 pb-4'>
-          <div className='min-w-0 flex-1'>
-            <p className='text-sm font-medium'>{t('danger.reenroll')}</p>
-            <p className='text-sm text-muted-foreground'>{t('danger.reenrollDescription')}</p>
-          </div>
-          <Button onClick={() => setReenrolling(true)} variant='outline'>{t('danger.reenroll')}</Button>
-        </div>
-        <div className='flex flex-wrap items-center gap-3 pt-4'>
-          <div className='min-w-0 flex-1'>
-            <p className='text-sm font-medium'>{t('danger.unenroll')}</p>
-            <p className='text-sm text-muted-foreground'>{t('danger.unenrollDescription')}</p>
-          </div>
-          <Button onClick={() => setConfirmUnenroll(true)} variant='destructive'>{t('danger.unenroll')}</Button>
-        </div>
-      </div>
+    <>
+      <DropdownMenu>
+        <DropdownMenuTrigger render={<Button aria-label={t('danger.more')} size='icon-sm' variant='ghost' />}>
+          <Ellipsis aria-hidden='true' />
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align='end' sideOffset={8}>
+          <DropdownMenuItem onClick={() => setReenrolling(true)}>
+            <Link2 aria-hidden='true' />
+            {t('danger.reenroll')}
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={() => setConfirmUnenroll(true)} variant='destructive'>
+            <Unlink aria-hidden='true' />
+            {t('danger.unenroll')}
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
       <Dialog onOpenChange={setReenrolling} open={reenrolling}>
         <DialogContent>
           <DialogHeader>
@@ -224,31 +280,48 @@ function EnrollmentActions({ csrfToken, enrollment, onSignedOut, onStatus }: Enr
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </Section>
+    </>
   );
 }
 
 interface StatusPageProps {
   session: Session;
+  field: FieldControl;
   onSignedOut: () => void;
+  /** The status read while signing in, if any; the page opens on it without loading. */
+  initialStatus: ConsoleStatus | null;
 }
 
-export function StatusPage({ session, onSignedOut }: StatusPageProps) {
+export function StatusPage({ field, initialStatus, session, onSignedOut }: StatusPageProps) {
   const { t } = useTranslation();
-  const [status, setStatus] = useState<ConsoleStatus | null>(null);
+  const [status, setStatus] = useState<ConsoleStatus | null>(initialStatus);
+  const [problem, setProblem] = useState<Connection | null>(
+    () => initialStatus ? nextProblem(initialStatus, null) : null,
+  );
   const [stale, setStale] = useState(false);
   const [signingOut, setSigningOut] = useState(false);
   const signedOutRef = useRef(onSignedOut);
   signedOutRef.current = onSignedOut;
 
+  const fieldRef = useRef(field);
+  fieldRef.current = field;
+  const hadStatusRef = useRef(initialStatus !== null);
+
+  useEffect(() => {
+    if (status) field.setWords(nodeWords(status));
+  }, [field, status]);
+
   useEffect(() => {
     let active = true;
-    async function refresh() {
+    async function refresh(pulse: boolean) {
       try {
         const next = await getStatus();
         if (!active) return;
         setStatus(next);
+        setProblem(previous => nextProblem(next, previous));
         setStale(false);
+        // Each refresh ripples once through the field behind the card.
+        if (pulse) fieldRef.current.pulse('refresh');
       } catch (error) {
         if (!active) return;
         // A session that ended, or a console turned off, ends this page.
@@ -259,8 +332,8 @@ export function StatusPage({ session, onSignedOut }: StatusPageProps) {
         setStale(true);
       }
     }
-    void refresh();
-    const timer = window.setInterval(() => void refresh(), REFRESH_INTERVAL_MS);
+    if (!hadStatusRef.current) void refresh(false);
+    const timer = window.setInterval(() => void refresh(true), REFRESH_INTERVAL_MS);
     return () => {
       active = false;
       window.clearInterval(timer);
@@ -278,54 +351,66 @@ export function StatusPage({ session, onSignedOut }: StatusPageProps) {
 
   function accept(next: ConsoleStatus) {
     setStatus(next);
+    setProblem(previous => nextProblem(next, previous));
     setStale(false);
   }
 
-  let content: ReactNode;
+  let card: ReactNode;
   if (status === null) {
-    content = (
-      <div aria-busy='true' className='flex min-h-48 items-center justify-center rounded-[var(--radius-card)] border bg-card'>
+    card = (
+      <ConsoleCard aria-busy='true' className='grid min-h-48 place-items-center' ref={field.anchor}>
         <Spinner />
         <span className='sr-only'>{t('console.loading')}</span>
-      </div>
+      </ConsoleCard>
     );
   } else if (status.enrollment === null) {
-    content = (
-      <>
-        <Section title={t('enroll.title')}>
-          <p className='-mt-2 text-sm text-muted-foreground'>{t('enroll.description')}</p>
-          <EnrollmentForm csrfToken={session.csrfToken} onEnrolled={accept} onSignedOut={onSignedOut} submitLabel={t('enroll.submit')} />
-        </Section>
-        <Section title={t('details.node')}><NodeRows status={status} /></Section>
-      </>
+    card = (
+      <ConsoleCard aria-label={status.node.hostname} ref={field.anchor}>
+        <Identity stale={stale} status={status} />
+        <div className='flex flex-col gap-6 border-t px-5 pt-5 pb-6 sm:px-6'>
+          <section aria-labelledby='console-enroll-title' className='flex flex-col gap-4'>
+            <div className='flex flex-col gap-1'>
+              <h3 className='text-sm font-semibold' id='console-enroll-title'>{t('enroll.title')}</h3>
+              <p className='text-sm text-muted-foreground'>{t('enroll.description')}</p>
+            </div>
+            <EnrollmentForm csrfToken={session.csrfToken} onEnrolled={accept} onSignedOut={onSignedOut} submitLabel={t('enroll.submit')} />
+          </section>
+          <NodeGroup status={status} />
+        </div>
+      </ConsoleCard>
     );
   } else {
-    content = (
-      <>
-        <ConnectionSection status={status} />
-        <Section title={t('details.title')}>
-          <Rows>
-            <Row label={t('details.panelAddress')}><Code value={panelAddress(status.enrollment)} /></Row>
-            <Row label={t('details.nodeId')}><Code value={status.enrollment.node_id} /></Row>
-            <Row label={t('details.trust.label')}>{t(`details.trust.${status.enrollment.trust}`)}</Row>
-          </Rows>
-          <div className='border-t pt-4'><NodeRows status={status} /></div>
-        </Section>
-        <EnrollmentActions
-          csrfToken={session.csrfToken}
-          enrollment={status.enrollment}
-          onSignedOut={onSignedOut}
-          onStatus={accept}
+    card = (
+      <ConsoleCard aria-label={status.node.hostname} ref={field.anchor}>
+        <Identity
+          action={(
+            <EnrollmentMenu
+              csrfToken={session.csrfToken}
+              enrollment={status.enrollment}
+              onSignedOut={onSignedOut}
+              onStatus={accept}
+            />
+          )}
+          stale={stale}
+          status={status}
         />
-      </>
+        <div className='flex flex-col gap-5 border-t px-5 pt-5 pb-6 sm:px-6'>
+          {problem ? <ConnectionProblem connection={problem} retrying={!hasProblem(status.connection)} /> : null}
+          <Group title={t('details.panel')}>
+            <Row copy={panelAddress(status.enrollment)} label={t('details.address')}><Code value={panelAddress(status.enrollment)} /></Row>
+            <Row copy={status.enrollment.node_id} label={t('details.nodeId')}><Code value={status.enrollment.node_id} /></Row>
+            <Row label={t('details.trust.label')}>{t(`details.trust.${status.enrollment.trust}`)}</Row>
+          </Group>
+          <NodeGroup status={status} />
+        </div>
+      </ConsoleCard>
     );
   }
 
   return (
-    <ConsoleFrame busy={signingOut} hostname={status?.node.hostname} onSignOut={() => void signOut()}>
+    <ConsoleFrame busy={signingOut} onSignOut={() => void signOut()}>
       <h1 className='sr-only'>{t('console.title')}</h1>
-      <p className='-mb-2 min-h-5 text-sm text-[var(--color-warning-text)]' role='status'>{stale ? t('console.stale') : ''}</p>
-      {content}
+      {card}
     </ConsoleFrame>
   );
 }

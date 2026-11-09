@@ -69,7 +69,7 @@ export function EnrollmentForm({ actions, csrfToken, onEnrolled, onSignedOut, su
           aria-describedby={`${id}-error`}
           aria-invalid={error ? true : undefined}
           autoComplete='off'
-          className='min-h-24 resize-none font-mono text-xs break-all'
+          className='min-h-24 resize-none font-mono text-base break-all md:text-xs'
           id={`${id}-code`}
           maxLength={4200}
           onChange={(event) => {
