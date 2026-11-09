@@ -308,11 +308,15 @@ type runtimeView struct {
 }
 
 type trafficView struct {
-	SampledAt     time.Time `json:"sampled_at"`
-	UploadBytes   int64     `json:"upload_bytes"`
-	DownloadBytes int64     `json:"download_bytes"`
-	Connections   int64     `json:"connections"`
-	MemoryBytes   int64     `json:"memory_bytes"`
+	UploadBytes   int64            `json:"upload_bytes"`
+	DownloadBytes int64            `json:"download_bytes"`
+	Live          *liveTrafficView `json:"live"`
+}
+
+type liveTrafficView struct {
+	SampledAt   time.Time `json:"sampled_at"`
+	Connections int64     `json:"connections"`
+	MemoryBytes int64     `json:"memory_bytes"`
 }
 
 type enrollmentView struct {
@@ -366,9 +370,9 @@ func (handler *Handler) view(ctx context.Context, status agent.Status) statusVie
 		}
 	}
 	if traffic := readings.Traffic; traffic != nil {
-		view.Traffic = &trafficView{
-			SampledAt: traffic.SampledAt, UploadBytes: traffic.UploadBytes, DownloadBytes: traffic.DownloadBytes,
-			Connections: traffic.Connections, MemoryBytes: traffic.MemoryBytes,
+		view.Traffic = &trafficView{UploadBytes: traffic.UploadBytes, DownloadBytes: traffic.DownloadBytes}
+		if live := traffic.Live; live != nil {
+			view.Traffic.Live = &liveTrafficView{SampledAt: live.SampledAt, Connections: live.Connections, MemoryBytes: live.MemoryBytes}
 		}
 	}
 	return view

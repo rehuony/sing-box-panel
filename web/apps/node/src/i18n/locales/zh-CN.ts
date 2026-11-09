@@ -142,6 +142,7 @@ export const zhCN: NodeTranslation = {
       cores_other: '{{count}} 核',
       download: '下载',
       load: '负载 {{load}}',
+      noCounters: '核心未提供流量计数',
       noCore: '未选择核心',
       pid: 'PID {{pid}}',
       protocol: '协议 {{protocol}}',

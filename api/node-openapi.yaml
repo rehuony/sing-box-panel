@@ -255,8 +255,8 @@ components:
             - {type: 'null'}
         traffic:
           description: >-
-            The core's cumulative traffic for this node instance; null unless a
-            core runs with a loopback Clash API to read it from.
+            The node's cumulative core traffic as last counted, kept across core
+            and node restarts; null until the node has read its saved totals.
           oneOf:
             - {$ref: '#/components/schemas/TrafficReading'}
             - {type: 'null'}
@@ -309,14 +309,27 @@ components:
     TrafficReading:
       type: object
       additionalProperties: false
-      required: [sampled_at, upload_bytes, download_bytes, connections, memory_bytes]
+      required: [upload_bytes, download_bytes, live]
+      properties:
+        upload_bytes: {type: integer, minimum: 0}
+        download_bytes: {type: integer, minimum: 0}
+        live:
+          description: >-
+            The running core's counters as last read; null unless a core runs
+            with a loopback Clash API to read them from. Rates come from the
+            totals of two live readings and their times.
+          oneOf:
+            - {$ref: '#/components/schemas/LiveTraffic'}
+            - {type: 'null'}
+    LiveTraffic:
+      type: object
+      additionalProperties: false
+      required: [sampled_at, connections, memory_bytes]
       properties:
         sampled_at:
           type: string
           format: date-time
-          description: When the counters were read; rates come from two readings and their times.
-        upload_bytes: {type: integer, minimum: 0}
-        download_bytes: {type: integer, minimum: 0}
+          description: When the counters were read.
         connections: {type: integer, minimum: 0}
         memory_bytes:
           type: integer

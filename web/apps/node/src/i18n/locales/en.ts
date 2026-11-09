@@ -140,6 +140,7 @@ export const en = {
       cores_other: '{{count}} cores',
       download: 'Download',
       load: 'load {{load}}',
+      noCounters: 'the core reports no counters',
       noCore: 'no core selected',
       pid: 'pid {{pid}}',
       protocol: 'protocol {{protocol}}',

@@ -231,8 +231,9 @@ A node's console is how an operator on the node host enrolls it without the
 panel CLI's command line: it exchanges an enrollment code, re-enrolls the node
 with a new code, unenrolls it, and shows the node's link with its panel. It
 also shows read-only readings of the node itself: its core's state and version,
-the host's CPU, load, memory and disk, its cumulative traffic and connections
-while a core with a loopback Clash API runs, and its detected public address.
+the host's CPU, load, memory and disk, its cumulative core traffic as last
+counted, live connections while a core with a loopback Clash API runs, and its
+detected public address.
 It cannot edit the node's configuration or control its runtime; the panel does
 that. [`api/node-openapi.yaml`](../api/node-openapi.yaml) is its HTTP contract.
 The console's Web application, `web/apps/node`, is embedded only in the node

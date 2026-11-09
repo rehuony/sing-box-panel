@@ -49,6 +49,25 @@ function Parts({ children }: { children: ReactNode[] }) {
   );
 }
 
+/** An upload and a download value, each after its arrow. */
+function UpDown({ download, upload }: { download: string; upload: string }) {
+  const { t } = useTranslation();
+  return (
+    <span className='inline-flex gap-x-3'>
+      <span>
+        <span aria-hidden='true'>↑ </span>
+        <span className='sr-only'>{t('terminal.value.upload')}</span>
+        {upload}
+      </span>
+      <span>
+        <span aria-hidden='true'>↓ </span>
+        <span className='sr-only'>{t('terminal.value.download')}</span>
+        {download}
+      </span>
+    </span>
+  );
+}
+
 function Row({ children, label }: { children: ReactNode; label: string }) {
   return (
     <div className='contents'>
@@ -148,6 +167,9 @@ export function StatusReadout({ now, rates, stale, status }: StatusReadoutProps)
     );
   } else {
     const { connection, enrollment, host, node, runtime, traffic } = status;
+    const live = traffic?.live ?? null;
+    // Without a running core nothing flows, so its rates are a known zero rather than unknown.
+    const idle = live === null && runtime?.state === 'stopped';
     const address = enrollment ? panelAddress(enrollment) : null;
     const memory = host ? percentOf(host.memory_used, host.memory_total) : null;
     const disk = host ? percentOf(host.disk_used, host.disk_total) : null;
@@ -188,43 +210,37 @@ export function StatusReadout({ now, rates, stale, status }: StatusReadoutProps)
             : <Unavailable />}
         </Row>
         <Row label={t('terminal.row.traffic')}>
-          {traffic
+          {live || idle
             ? (
                 <Parts>
                   {[
-                    <span className='inline-flex gap-x-3' key='rates'>
-                      <span>
-                        <span aria-hidden='true'>↑ </span>
-                        <span className='sr-only'>{t('terminal.value.upload')}</span>
-                        {formatRate(rates?.upload ?? null, locale)}
-                      </span>
-                      <span>
-                        <span aria-hidden='true'>↓ </span>
-                        <span className='sr-only'>{t('terminal.value.download')}</span>
-                        {formatRate(rates?.download ?? null, locale)}
-                      </span>
-                    </span>,
-                    t('terminal.value.connections', { count: traffic.connections }),
+                    <UpDown
+                      download={formatRate(live ? rates?.download ?? null : 0, locale)}
+                      key='rates'
+                      upload={formatRate(live ? rates?.upload ?? null : 0, locale)}
+                    />,
+                    t('terminal.value.connections', { count: live?.connections ?? 0 }),
                   ]}
                 </Parts>
               )
-            : <Unavailable />}
+            : (
+                <Parts>
+                  {[
+                    <Unavailable key='rates' />,
+                    runtime?.state === 'running'
+                      ? <span className='text-[var(--color-terminal-muted)]' key='why'>{t('terminal.value.noCounters')}</span>
+                      : null,
+                  ]}
+                </Parts>
+              )}
         </Row>
         <Row label={t('terminal.row.total')}>
           {traffic
             ? (
-                <span className='flex gap-x-3'>
-                  <span>
-                    <span aria-hidden='true'>↑ </span>
-                    <span className='sr-only'>{t('terminal.value.upload')}</span>
-                    {formatBytes(traffic.upload_bytes, locale)}
-                  </span>
-                  <span>
-                    <span aria-hidden='true'>↓ </span>
-                    <span className='sr-only'>{t('terminal.value.download')}</span>
-                    {formatBytes(traffic.download_bytes, locale)}
-                  </span>
-                </span>
+                <UpDown
+                  download={formatBytes(traffic.download_bytes, locale)}
+                  upload={formatBytes(traffic.upload_bytes, locale)}
+                />
               )
             : <Unavailable />}
         </Row>
@@ -268,7 +284,8 @@ export function StatusReadout({ now, rates, stale, status }: StatusReadoutProps)
           <Parts>
             {[
               `${node.os}/${node.arch}`,
-              node.public_ip ? <Copyable key='ip' label={t('terminal.row.publicIp')} value={node.public_ip} /> : <Unavailable key='ip' />,
+              // An address not yet detected is left out rather than marked.
+              node.public_ip ? <Copyable key='ip' label={t('terminal.row.publicIp')} value={node.public_ip} /> : null,
             ]}
           </Parts>
         </Row>

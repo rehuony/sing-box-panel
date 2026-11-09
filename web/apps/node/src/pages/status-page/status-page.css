@@ -1,4 +1,4 @@
-/* The terminal's selection, lines and meters; its layout is in utilities. */
+/* The terminal's selection, scrollbar, lines and meters; its layout is in utilities. */
 
 @keyframes status-line-type {
   from {
@@ -10,6 +10,11 @@
 .status-terminal ::selection {
   background: var(--color-terminal-selection);
   color: currentcolor;
+}
+
+/* The scrollbar takes the selection's band, so the terminal keeps one tint for both. */
+.status-terminal [data-slot='scroll-area-thumb'] {
+  background: var(--color-terminal-selection);
 }
 
 /* A new line types itself out from the left, a cell at a time. */

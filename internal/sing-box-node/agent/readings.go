@@ -33,13 +33,19 @@ type RuntimeReading struct {
 	StartedAt      *time.Time
 }
 
-// TrafficReading is the core's cumulative traffic for this node instance.
+// TrafficReading is the node's cumulative core traffic as last counted.
 type TrafficReading struct {
-	SampledAt     time.Time
 	UploadBytes   int64
 	DownloadBytes int64
-	Connections   int64
-	MemoryBytes   int64
+	// Live is the running core's counters; nil while none are read.
+	Live *LiveTraffic
+}
+
+// LiveTraffic is one reading of the running core's counters.
+type LiveTraffic struct {
+	SampledAt   time.Time
+	Connections int64
+	MemoryBytes int64
 }
 
 // ReadingsSource reads the node's current readings. Nothing it reads waits
@@ -63,9 +69,11 @@ func readingsOf(node *service.Node, sampler *host.Sampler, dataDir string) Readi
 		readings.Host = sampler.Sample(dataDir)
 		if traffic := node.LatestTraffic(); traffic != nil {
 			readings.Traffic = &TrafficReading{
-				SampledAt: traffic.SampledAt.UTC(), UploadBytes: traffic.UploadTotal, DownloadBytes: traffic.DownloadTotal,
-				Connections: traffic.Connections, MemoryBytes: traffic.MemoryBytes,
+				UploadBytes: traffic.UploadTotal, DownloadBytes: traffic.DownloadTotal,
+				Live: &LiveTraffic{SampledAt: traffic.SampledAt.UTC(), Connections: traffic.Connections, MemoryBytes: traffic.MemoryBytes},
 			}
+		} else if upload, download, ok := node.TrafficTotals(); ok {
+			readings.Traffic = &TrafficReading{UploadBytes: upload, DownloadBytes: download}
 		}
 		readings.PublicIP = node.CachedPublicIP(ctx)
 		return readings

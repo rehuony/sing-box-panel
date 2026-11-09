@@ -61,6 +61,19 @@ func (node *Node) LatestTraffic() *TrafficSample {
 	return &sample
 }
 
+// TrafficTotals returns the node's cumulative core traffic as last counted,
+// whether or not a core runs now; ok is false until the node has read its
+// saved totals.
+func (node *Node) TrafficTotals() (upload, download int64, ok bool) {
+	collector := &node.traffic
+	collector.mu.Lock()
+	defer collector.mu.Unlock()
+	if !collector.loaded {
+		return 0, 0, false
+	}
+	return collector.checkpoint.UploadTotal, collector.checkpoint.DownloadTotal, true
+}
+
 // RunTrafficCollection reads the running core's counters every second and
 // keeps the instance's cumulative traffic until ctx ends.
 func (node *Node) RunTrafficCollection(ctx context.Context) {

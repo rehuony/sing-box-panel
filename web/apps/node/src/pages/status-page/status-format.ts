@@ -19,13 +19,13 @@ export interface TrafficRates {
 }
 
 /**
- * Rates between two readings of the core's cumulative counters, over the time
- * between the readings. Null without two readings, or when the counters went
- * back, as they do when the node restarts.
+ * Rates between two live readings of the core's cumulative counters, over the
+ * time between the readings. Null without two live readings, or when the
+ * counters went back.
  */
 export function trafficRates(previous: TrafficReading | null, next: TrafficReading | null): TrafficRates | null {
-  if (!previous || !next) return null;
-  const seconds = (Date.parse(next.sampled_at) - Date.parse(previous.sampled_at)) / 1_000;
+  if (!previous?.live || !next?.live) return null;
+  const seconds = (Date.parse(next.live.sampled_at) - Date.parse(previous.live.sampled_at)) / 1_000;
   const upload = next.upload_bytes - previous.upload_bytes;
   const download = next.download_bytes - previous.download_bytes;
   if (!(seconds > 0) || upload < 0 || download < 0) return null;

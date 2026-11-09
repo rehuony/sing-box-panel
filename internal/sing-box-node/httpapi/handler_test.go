@@ -97,7 +97,10 @@ func TestConsoleAdmitsOnlyItsOperatorOnALoopbackHost(t *testing.T) {
 				SampledAt: started, CPUPercent: &cpu, CPUCount: 4, LoadOne: &load,
 				MemoryTotal: &total, MemoryUsed: &used, DiskTotal: &total, DiskUsed: &used,
 			},
-			Traffic:  &agent.TrafficReading{SampledAt: started, UploadBytes: 1024, DownloadBytes: 4096, Connections: 3, MemoryBytes: 64 << 20},
+			Traffic: &agent.TrafficReading{
+				UploadBytes: 1024, DownloadBytes: 4096,
+				Live: &agent.LiveTraffic{SampledAt: started, Connections: 3, MemoryBytes: 64 << 20},
+			},
 			PublicIP: "203.0.113.7",
 		}
 	}

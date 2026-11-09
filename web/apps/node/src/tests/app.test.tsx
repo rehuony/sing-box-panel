@@ -19,7 +19,7 @@ const readings: Pick<ConsoleStatus, 'host' | 'runtime' | 'traffic'> = {
     sampled_at: '2026-11-05T08:00:00Z',
   },
   runtime: { enabled_version: '1.12.0', pid: 4242, running_version: '1.12.0', started_at: '2026-11-05T07:00:00Z', state: 'running' },
-  traffic: null,
+  traffic: { download_bytes: 0, live: null, upload_bytes: 0 },
 };
 const unenrolled: ConsoleStatus = {
   connection: { since: '2026-11-05T08:00:00Z', state: 'unenrolled' },
@@ -98,6 +98,8 @@ describe('node console', () => {
     expect(terminal).toHaveTextContent('Not enrolled');
     expect(terminal).toHaveTextContent('1.12.0');
     expect(terminal).toHaveTextContent('203.0.113.7');
+    // A running core that reports no counters has unknown rates, not zero ones.
+    expect(terminal).toHaveTextContent('the core reports no counters');
     expect(screen.getByRole('log', { name: 'Terminal output' })).toHaveTextContent('Run enroll with a code from the panel.');
 
     await user.type(screen.getByRole('combobox', { name: 'Command' }), 'logout{Enter}');

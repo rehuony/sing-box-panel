@@ -92,7 +92,8 @@ export function StatusPage({ field, initialStatus, session, onSignedOut }: Statu
   const [signingOut, setSigningOut] = useState(false);
 
   const statusRef = useRef(initialStatus);
-  const trafficRef = useRef(initialStatus?.traffic ?? null);
+  // The last reading with live counters, which the next one's rates count from.
+  const trafficRef = useRef(initialStatus?.traffic?.live ? initialStatus.traffic : null);
   const lastErrorRef = useRef<string | undefined>(undefined);
   const staleRef = useRef(false);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -116,10 +117,10 @@ export function StatusPage({ field, initialStatus, session, onSignedOut }: Statu
     statusRef.current = next;
     // Rates come from consecutive readings of the counters, not from refreshes.
     const previous = trafficRef.current;
-    if (next.traffic === null) {
+    if (!next.traffic?.live) {
       trafficRef.current = null;
       setRates(null);
-    } else if (next.traffic.sampled_at !== previous?.sampled_at) {
+    } else if (next.traffic.live.sampled_at !== previous?.live?.sampled_at) {
       trafficRef.current = next.traffic;
       setRates(trafficRates(previous, next.traffic));
     }
