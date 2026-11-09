@@ -27,15 +27,9 @@ interface DurationLabels {
   second: string;
 }
 
-export function formatUptime(
-  startedAt: string | undefined,
-  now: number,
-  labels: DurationLabels,
-): string {
-  if (startedAt === undefined) return `0${labels.second}`;
-  const started = new Date(startedAt).getTime();
-  if (!Number.isFinite(started) || started > now) return `0${labels.second}`;
-  const seconds = Math.floor((now - started) / 1_000);
+/** A span of time in its two largest units, such as "3d 4h"; negative spans count as none. */
+export function formatDuration(milliseconds: number, labels: DurationLabels): string {
+  const seconds = Number.isFinite(milliseconds) && milliseconds > 0 ? Math.floor(milliseconds / 1_000) : 0;
   const days = Math.floor(seconds / 86_400);
   const hours = Math.floor((seconds % 86_400) / 3_600);
   const minutes = Math.floor((seconds % 3_600) / 60);
@@ -43,4 +37,13 @@ export function formatUptime(
   if (hours > 0) return `${hours}${labels.hour} ${minutes}${labels.minute}`;
   if (minutes > 0) return `${minutes}${labels.minute}`;
   return `${seconds}${labels.second}`;
+}
+
+export function formatUptime(
+  startedAt: string | undefined,
+  now: number,
+  labels: DurationLabels,
+): string {
+  if (startedAt === undefined) return `0${labels.second}`;
+  return formatDuration(now - new Date(startedAt).getTime(), labels);
 }

@@ -58,7 +58,7 @@ export function App() {
     void check();
   }, [check]);
 
-  // The prompt becomes the card: the browser morphs one into the other where it can.
+  // The prompt becomes the terminal window: the browser morphs one into the other where it can.
   function enter(session: Session, status: ConsoleStatus | null) {
     // A view transition captures the page as soon as its callback returns, so the update must be synchronous.
     // eslint-disable-next-line react/dom-no-flush-sync

@@ -15,6 +15,7 @@ import (
 	"strings"
 	"testing"
 	"testing/fstest"
+	"time"
 
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/getkin/kin-openapi/openapi3filter"
@@ -22,6 +23,7 @@ import (
 
 	"github.com/rehuony/sing-box-panel/internal/buildinfo"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-node/agent"
+	"github.com/rehuony/sing-box-panel/internal/sing-box-node/host"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-node/settings"
 	"github.com/rehuony/sing-box-panel/internal/webauth"
 )
@@ -86,7 +88,20 @@ func TestConsoleAdmitsOnlyItsOperatorOnALoopbackHost(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	handler := NewHandler(Options{DataDir: dataDir, Link: link, Build: buildinfo.Info{Version: "test"}})
+	cpu, load, total, used := 12.5, 0.4, uint64(8<<30), uint64(3<<30)
+	started := time.Date(2026, time.November, 9, 8, 0, 0, 0, time.UTC)
+	readings := func(context.Context) agent.Readings {
+		return agent.Readings{
+			Runtime: &agent.RuntimeReading{State: "running", EnabledVersion: "1.14.3", PID: 42, RunningVersion: "1.14.3", StartedAt: &started},
+			Host: &host.Snapshot{
+				SampledAt: started, CPUPercent: &cpu, CPUCount: 4, LoadOne: &load,
+				MemoryTotal: &total, MemoryUsed: &used, DiskTotal: &total, DiskUsed: &used,
+			},
+			Traffic:  &agent.TrafficReading{SampledAt: started, UploadBytes: 1024, DownloadBytes: 4096, Connections: 3, MemoryBytes: 64 << 20},
+			PublicIP: "203.0.113.7",
+		}
+	}
+	handler := NewHandler(Options{DataDir: dataDir, Link: link, Readings: readings, Build: buildinfo.Info{Version: "test"}})
 	router, err := legacy.NewRouter(loadContract(t))
 	if err != nil {
 		t.Fatal(err)
@@ -158,6 +173,11 @@ func TestConsoleAdmitsOnlyItsOperatorOnALoopbackHost(t *testing.T) {
 	if err := json.Unmarshal(response.Body.Bytes(), &status); err != nil || status.Enrollment == nil || status.Enrollment.NodeID != "node" ||
 		status.Enrollment.Trust != "system" || status.Connection.State != agent.ConnectionConnecting {
 		t.Fatalf("status = %s", response.Body.String())
+	}
+	// The node's own readings ride along, read-only.
+	if status.Node.PublicIP != "203.0.113.7" || status.Runtime == nil || status.Runtime.State != "running" || status.Runtime.PID != 42 ||
+		status.Host == nil || *status.Host.CPUPercent != cpu || status.Traffic == nil || status.Traffic.DownloadBytes != 4096 {
+		t.Fatalf("readings = %s", response.Body.String())
 	}
 	// State changes need the session's CSRF token.
 	expect(serve(http.MethodDelete, "/api/v1/enrollment", "", nil), http.StatusForbidden, "csrf_failed")

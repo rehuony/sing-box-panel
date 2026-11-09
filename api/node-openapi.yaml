@@ -3,8 +3,9 @@ info:
   title: sing-box-node console API
   version: 0.1.0
   description: >-
-    Local console of one node: enrollment with a panel and the state of the
-    node's session with it. The console is disabled unless an operator enables
+    Local console of one node: enrollment with a panel, the state of the
+    node's session with it, and read-only readings of the node's core, host
+    and traffic. The console is disabled unless an operator enables
     it with sing-box-node console enable, listens only on a loopback address,
     and answers only requests whose Host names a loopback host (localhost,
     127.0.0.0/8 or ::1, any port); other hosts receive 421. While disabled in
@@ -103,7 +104,9 @@ paths:
   /status:
     get:
       operationId: getConsoleStatus
-      description: The node, the panel it is enrolled with, and the state of its session with that panel.
+      description: >-
+        The node, the panel it is enrolled with, the state of its session with
+        that panel, and the node's current core, host and traffic readings.
       responses:
         "200":
           $ref: "#/components/responses/ConsoleStatus"
@@ -195,7 +198,7 @@ components:
         application/json:
           schema: {$ref: '#/components/schemas/Session'}
     ConsoleStatus:
-      description: The node and its link with its panel.
+      description: The node, its link with its panel, and its own readings.
       content:
         application/json:
           schema: {$ref: '#/components/schemas/ConsoleStatus'}
@@ -231,7 +234,7 @@ components:
     ConsoleStatus:
       type: object
       additionalProperties: false
-      required: [node, enrollment, connection]
+      required: [node, enrollment, connection, runtime, host, traffic]
       properties:
         node: {$ref: '#/components/schemas/NodeInfo'}
         enrollment:
@@ -240,10 +243,27 @@ components:
             - {$ref: '#/components/schemas/Enrollment'}
             - {type: 'null'}
         connection: {$ref: '#/components/schemas/Connection'}
+        runtime:
+          description: The node's core process as the node observes it; null when the node cannot read it.
+          oneOf:
+            - {$ref: '#/components/schemas/RuntimeReading'}
+            - {type: 'null'}
+        host:
+          description: Host-wide counters, sampled at most once a second; null when the node cannot sample them.
+          oneOf:
+            - {$ref: '#/components/schemas/HostReading'}
+            - {type: 'null'}
+        traffic:
+          description: >-
+            The core's cumulative traffic for this node instance; null unless a
+            core runs with a loopback Clash API to read it from.
+          oneOf:
+            - {$ref: '#/components/schemas/TrafficReading'}
+            - {type: 'null'}
     NodeInfo:
       type: object
       additionalProperties: false
-      required: [version, protocol, os, arch, hostname]
+      required: [version, protocol, os, arch, hostname, public_ip]
       properties:
         version: {type: string}
         protocol:
@@ -252,6 +272,56 @@ components:
         os: {type: string}
         arch: {type: string}
         hostname: {type: string}
+        public_ip:
+          type: string
+          description: The public address the node last detected; empty while unknown.
+    RuntimeReading:
+      type: object
+      additionalProperties: false
+      required: [state]
+      properties:
+        state:
+          type: string
+          enum: [stopped, running, stale, inspection_unavailable]
+        enabled_version:
+          type: string
+          description: The exact version of the selected core; absent when none is selected.
+        pid: {type: integer, minimum: 1}
+        running_version: {type: string}
+        started_at: {type: string, format: date-time}
+    HostReading:
+      type: object
+      additionalProperties: false
+      required: [sampled_at, cpu_percent, cpu_count, load_one, memory_total, memory_used, disk_total, disk_used]
+      description: Each counter is null when the host does not report it; cpu_percent is null on the first sample.
+      properties:
+        sampled_at: {type: string, format: date-time}
+        cpu_percent: {type: [number, 'null'], minimum: 0}
+        cpu_count: {type: integer, minimum: 0}
+        load_one: {type: [number, 'null'], minimum: 0}
+        memory_total: {type: [integer, 'null'], minimum: 0}
+        memory_used: {type: [integer, 'null'], minimum: 0}
+        disk_total:
+          type: [integer, 'null']
+          minimum: 0
+          description: The size of the file system that holds the node's data directory.
+        disk_used: {type: [integer, 'null'], minimum: 0}
+    TrafficReading:
+      type: object
+      additionalProperties: false
+      required: [sampled_at, upload_bytes, download_bytes, connections, memory_bytes]
+      properties:
+        sampled_at:
+          type: string
+          format: date-time
+          description: When the counters were read; rates come from two readings and their times.
+        upload_bytes: {type: integer, minimum: 0}
+        download_bytes: {type: integer, minimum: 0}
+        connections: {type: integer, minimum: 0}
+        memory_bytes:
+          type: integer
+          minimum: 0
+          description: The core process's memory as its Clash API reports it.
     Enrollment:
       type: object
       additionalProperties: false

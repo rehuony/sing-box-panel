@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
+import { formatRate, formatUptime } from '@shared/lib/telemetry-format';
 
 import type { RuntimeStatus } from '@/api/api-client';
 
-import { formatRate, formatUptime } from '@/utils/telemetry-format';
 import { runtimeMatchesAction } from '@/components/node-workspace/use-runtime-control';
 
 const labels = { day: 'd', hour: 'h', minute: 'm', second: 's' };

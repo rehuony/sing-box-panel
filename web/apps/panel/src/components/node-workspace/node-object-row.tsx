@@ -10,6 +10,7 @@ import { Spinner } from '@shared/components/ui/spinner';
 import { toast } from '@shared/components/ui/toast-manager';
 import { buttonVariants } from '@shared/components/ui/button-variants';
 import { formatDateTime, formatRelativeTime } from '@shared/lib/format-time';
+import { EM_DASH, formatRate, formatUptime } from '@shared/lib/telemetry-format';
 import {
   Tooltip,
   TooltipContent,
@@ -49,7 +50,6 @@ import type { FleetNode } from '@/api/api-client';
 
 import { NodeStateBadge } from '@/components/node-state-badge';
 import { ShellNavigationTrigger } from '@/components/app-shell';
-import { EM_DASH, formatRate, formatUptime } from '@/utils/telemetry-format';
 
 import type { RuntimeAction } from './use-runtime-control';
 

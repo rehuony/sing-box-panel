@@ -59,6 +59,19 @@
   --color-brand-navy: oklch(20.8% 0.042 265.755);
   --color-brand-orange: oklch(70.5% 0.18 47.6);
 
+  /* The node console's terminal: surface, text, prompt parts and window controls. */
+  --color-terminal: #f8f8fa;
+  --color-terminal-text: oklch(24% 0.015 280);
+  --color-terminal-muted: oklch(50% 0.015 280);
+  --color-terminal-border: #e2e2e9;
+  --color-terminal-selection: oklch(24% 0.015 280 / 14%);
+  --color-terminal-user: #b4237a;
+  --color-terminal-path: #0b7189;
+  --color-terminal-symbol: #8a6a00;
+  --color-window-close: #ff5f57;
+  --color-window-minimize: #febc2e;
+  --color-window-zoom: #28c840;
+
   /* Component roles that follow the roles above. */
   --sidebar: var(--card);
   --sidebar-foreground: var(--foreground);
@@ -170,6 +183,14 @@
   --color-syntax-keyword: #d5a0d7;
   --color-brand-navy: oklch(17% 0.03 265.755);
   --color-brand-orange: oklch(76% 0.16 55);
+  --color-terminal: #25262f;
+  --color-terminal-text: #f8f8f2;
+  --color-terminal-muted: oklch(72% 0.02 280);
+  --color-terminal-border: #34353f;
+  --color-terminal-selection: oklch(97% 0.01 100 / 20%);
+  --color-terminal-user: #f079bd;
+  --color-terminal-path: #8be9fd;
+  --color-terminal-symbol: #f1fa8c;
   --shadow-card: 0 14px 34px -24px #000000b8;
   --shadow-panel: inset 0 1px 0 oklch(100% 0 0 / 8%), 0 28px 72px -34px #000000d1;
 }

@@ -135,8 +135,8 @@ export function PasswordPrompt({ attempt, message, messageId, onChange, phase, r
 
   return (
     <div
-      // Shares its view-transition name with the console card it becomes.
-      className={cn('relative w-full font-[family-name:var(--font-data)] [view-transition-name:console-card]', shaking && 'login-prompt--shake')}
+      // Shares its view-transition name with the terminal window it becomes.
+      className={cn('relative w-full font-[family-name:var(--font-data)] [view-transition-name:console-window]', shaking && 'login-prompt--shake')}
       onAnimationEnd={(event) => {
         if (event.animationName === 'login-prompt-shake') setShaking(false);
       }}

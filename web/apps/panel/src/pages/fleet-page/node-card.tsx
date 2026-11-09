@@ -1,11 +1,11 @@
 import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
+import { formatBytes } from '@shared/lib/telemetry-format';
 import { formatDateTime, formatRelativeTime } from '@shared/lib/format-time';
 
 import type { FleetNode, NodeTrafficUsage } from '@/api/api-client';
 
 import { nodePath } from '@/utils/node-path';
-import { formatBytes } from '@/utils/telemetry-format';
 import { NodeStateBadge } from '@/components/node-state-badge';
 
 function UsageMeter({ usage }: { usage: NodeTrafficUsage | undefined }) {

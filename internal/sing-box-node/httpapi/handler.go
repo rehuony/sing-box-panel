@@ -8,6 +8,7 @@
 package httpapi
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/json"
 	"errors"
@@ -27,6 +28,7 @@ import (
 	"github.com/rehuony/sing-box-panel/internal/jsonstrict"
 	"github.com/rehuony/sing-box-panel/internal/nodeapi"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-node/agent"
+	"github.com/rehuony/sing-box-panel/internal/sing-box-node/host"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-node/settings"
 	"github.com/rehuony/sing-box-panel/internal/webauth"
 )
@@ -44,7 +46,10 @@ type Options struct {
 	// password change or a disabled console takes effect at once.
 	DataDir string
 	Link    *agent.Link
-	Build   buildinfo.Info
+	// Readings reads the node's runtime, host and traffic for the status;
+	// nil leaves them null.
+	Readings agent.ReadingsSource
+	Build    buildinfo.Info
 	// Assets is the console's Web application; nil serves the API only.
 	Assets fs.FS
 	// Logf records enrollment changes; nil discards them.
@@ -55,6 +60,7 @@ type Options struct {
 type Handler struct {
 	dataDir  string
 	link     *agent.Link
+	readings agent.ReadingsSource
 	build    buildinfo.Info
 	logf     func(format string, args ...any)
 	now      func() time.Time
@@ -69,7 +75,7 @@ func NewHandler(options Options) *Handler {
 		logf = func(string, ...any) {}
 	}
 	return &Handler{
-		dataDir: options.DataDir, link: options.Link, build: options.Build, logf: logf, now: time.Now,
+		dataDir: options.DataDir, link: options.Link, readings: options.Readings, build: options.Build, logf: logf, now: time.Now,
 		logins: webauth.NewLoginLimiter(time.Now), sessions: newSessions(), assets: options.Assets,
 	}
 }
@@ -279,6 +285,9 @@ type statusView struct {
 	Node       nodeView        `json:"node"`
 	Enrollment *enrollmentView `json:"enrollment"`
 	Connection connectionView  `json:"connection"`
+	Runtime    *runtimeView    `json:"runtime"`
+	Host       *host.Snapshot  `json:"host"`
+	Traffic    *trafficView    `json:"traffic"`
 }
 
 type nodeView struct {
@@ -287,6 +296,23 @@ type nodeView struct {
 	OS       string `json:"os"`
 	Arch     string `json:"arch"`
 	Hostname string `json:"hostname"`
+	PublicIP string `json:"public_ip"`
+}
+
+type runtimeView struct {
+	State          string     `json:"state"`
+	EnabledVersion string     `json:"enabled_version,omitempty"`
+	PID            int        `json:"pid,omitempty"`
+	RunningVersion string     `json:"running_version,omitempty"`
+	StartedAt      *time.Time `json:"started_at,omitempty"`
+}
+
+type trafficView struct {
+	SampledAt     time.Time `json:"sampled_at"`
+	UploadBytes   int64     `json:"upload_bytes"`
+	DownloadBytes int64     `json:"download_bytes"`
+	Connections   int64     `json:"connections"`
+	MemoryBytes   int64     `json:"memory_bytes"`
 }
 
 type enrollmentView struct {
@@ -306,7 +332,7 @@ type connectionView struct {
 	RetryAt   *time.Time            `json:"retry_at,omitempty"`
 }
 
-func (handler *Handler) view(status agent.Status) statusView {
+func (handler *Handler) view(ctx context.Context, status agent.Status) statusView {
 	hostname, _ := os.Hostname()
 	view := statusView{
 		Node: nodeView{
@@ -328,11 +354,28 @@ func (handler *Handler) view(status agent.Status) statusView {
 			PanelEndpoint: enrollment.Endpoint, PanelPath: enrollment.Path, PanelID: enrollment.PanelID, NodeID: enrollment.NodeID, Trust: trust,
 		}
 	}
+	if handler.readings == nil {
+		return view
+	}
+	readings := handler.readings(ctx)
+	view.Node.PublicIP, view.Host = readings.PublicIP, readings.Host
+	if runtime := readings.Runtime; runtime != nil {
+		view.Runtime = &runtimeView{
+			State: runtime.State, EnabledVersion: runtime.EnabledVersion, PID: runtime.PID,
+			RunningVersion: runtime.RunningVersion, StartedAt: runtime.StartedAt,
+		}
+	}
+	if traffic := readings.Traffic; traffic != nil {
+		view.Traffic = &trafficView{
+			SampledAt: traffic.SampledAt, UploadBytes: traffic.UploadBytes, DownloadBytes: traffic.DownloadBytes,
+			Connections: traffic.Connections, MemoryBytes: traffic.MemoryBytes,
+		}
+	}
 	return view
 }
 
-func (handler *Handler) status(w http.ResponseWriter, _ *http.Request, _ settings.Console, _ *session) {
-	writeJSON(w, http.StatusOK, handler.view(handler.link.Status()))
+func (handler *Handler) status(w http.ResponseWriter, request *http.Request, _ settings.Console, _ *session) {
+	writeJSON(w, http.StatusOK, handler.view(request.Context(), handler.link.Status()))
 }
 
 func (handler *Handler) enroll(w http.ResponseWriter, request *http.Request, _ settings.Console, _ *session) {
@@ -359,17 +402,17 @@ func (handler *Handler) enroll(w http.ResponseWriter, request *http.Request, _ s
 		return
 	}
 	handler.logf("console: enrolled as node %s with the panel at %s", status.Enrollment.NodeID, status.Enrollment.Endpoint)
-	writeJSON(w, http.StatusOK, handler.view(status))
+	writeJSON(w, http.StatusOK, handler.view(request.Context(), status))
 }
 
-func (handler *Handler) unenroll(w http.ResponseWriter, _ *http.Request, _ settings.Console, _ *session) {
+func (handler *Handler) unenroll(w http.ResponseWriter, request *http.Request, _ settings.Console, _ *session) {
 	status, err := handler.link.Unenroll()
 	if err != nil {
 		writeProblem(w, http.StatusInternalServerError, "unenrollment_failed", "Unenrollment failed", err.Error())
 		return
 	}
 	handler.logf("console: unenrolled the node")
-	writeJSON(w, http.StatusOK, handler.view(status))
+	writeJSON(w, http.StatusOK, handler.view(request.Context(), status))
 }
 
 func decodeRequest(w http.ResponseWriter, request *http.Request, limit int64, target any) bool {

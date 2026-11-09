@@ -32,3 +32,8 @@ if (typeof Element.prototype.getAnimations !== 'function') {
 
 // jsdom draws nothing; the sign-in scene skips a canvas without a context.
 Object.defineProperty(HTMLCanvasElement.prototype, 'getContext', { configurable: true, value: () => null });
+
+// jsdom lays nothing out, so there is nothing to scroll into view.
+if (typeof Element.prototype.scrollIntoView !== 'function') {
+  Element.prototype.scrollIntoView = () => undefined;
+}

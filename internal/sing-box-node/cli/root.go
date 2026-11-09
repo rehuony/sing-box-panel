@@ -94,10 +94,10 @@ func newRunCommand(deps Dependencies, dataDir *string) *cobra.Command {
 					return fmt.Errorf("console: %w", err)
 				}
 				defer listener.Close()
-				handler := httpapi.NewHandler(httpapi.Options{
-					DataDir: *dataDir, Link: link, Build: deps.Build, Assets: nodeweb.Assets(), Logf: logger.Printf,
-				})
-				options.Console = func(ctx context.Context) error {
+				options.Console = func(ctx context.Context, readings agent.ReadingsSource) error {
+					handler := httpapi.NewHandler(httpapi.Options{
+						DataDir: *dataDir, Link: link, Readings: readings, Build: deps.Build, Assets: nodeweb.Assets(), Logf: logger.Printf,
+					})
 					logger.Printf("console listening on http://%s", listener.Addr())
 					return httpapi.Serve(ctx, listener, handler)
 				}

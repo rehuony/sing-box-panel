@@ -2,13 +2,13 @@ import { useTranslation } from 'react-i18next';
 import { useQuery } from '@tanstack/react-query';
 import { Input } from '@shared/components/ui/input';
 import { Button } from '@shared/components/ui/button';
+import { formatBytes } from '@shared/lib/telemetry-format';
 import { useDeferredValue, useMemo, useState } from 'react';
 import { ArrowDown, ArrowUp, Search, SearchX, Server } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@shared/components/ui/tooltip';
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@shared/components/ui/empty';
 
 import { queries } from '@/api/queries';
-import { formatBytes } from '@/utils/telemetry-format';
 import { useApiClient } from '@/api/api-client-context';
 import { LoadingState } from '@/components/loading-state';
 import { ListPagination } from '@/components/list-pagination';

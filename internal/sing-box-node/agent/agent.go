@@ -55,8 +55,9 @@ type Options struct {
 	Connected func()
 	// Console, if set, serves the local console beside the node's sessions
 	// until its context ends; its error stops the node. Through the console
-	// an unenrolled node can be enrolled.
-	Console func(ctx context.Context) error
+	// an unenrolled node can be enrolled, and readings shows the node's own
+	// state.
+	Console func(ctx context.Context, readings ReadingsSource) error
 }
 
 func (options Options) logf(format string, args ...any) {
@@ -162,9 +163,11 @@ func Run(ctx context.Context, link *Link, options Options) (runErr error) {
 	defer func() { stop(nil); background.Wait() }()
 	background.Go(func() { node.RunPublicIPDetection(ctx) })
 	background.Go(func() { node.RunTrafficCollection(ctx) })
+	// The sessions' reports and the console share one host sampler.
+	sampler := &host.Sampler{}
 	if options.Console != nil {
 		background.Go(func() {
-			if err := options.Console(ctx); err != nil {
+			if err := options.Console(ctx, readingsOf(node, sampler, dataDir)); err != nil {
 				stop(fmt.Errorf("console: %w", err))
 			}
 		})
@@ -173,7 +176,6 @@ func Run(ctx context.Context, link *Link, options Options) (runErr error) {
 	slots := make(chan struct{}, maximumCommands)
 	var inFlight sync.WaitGroup
 	defer inFlight.Wait()
-	sampler := &host.Sampler{}
 	link.supervise(ctx, func(attempt context.Context, enrollment settings.Enrollment, connected func()) error {
 		connection, err := dial(enrollment.Endpoint, enrollment.Path, enrollment.Pin)
 		if err != nil {
