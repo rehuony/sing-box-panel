@@ -20,7 +20,7 @@ export function SubscriptionsPage() {
   return (
     <div className='@container flex w-full flex-col gap-4 *:min-w-0 min-h-0 min-w-0 flex-1'>
       <h1 className='sr-only'>{t('subscriptions.title')}</h1>
-      <Tabs className='min-h-0 flex-1 gap-[var(--workspace-content-gap)] rounded-[var(--radius-card)] border bg-card px-4 pt-4 pb-2 sm:px-6 sm:pt-6' onValueChange={selectArea} value={area}>
+      <Tabs className='min-h-0 flex-1 gap-[var(--workspace-content-gap)] rounded-[var(--radius-card)] border bg-[var(--color-surface-translucent)] px-4 pt-4 pb-2 sm:px-6 sm:pt-6' onValueChange={selectArea} value={area}>
         <WorkspaceToolbar>
           <ShellNavigationTrigger />
           <TabsList aria-label={t('subscriptions.tabs.label')} className='max-w-full flex-none justify-start self-start overflow-x-auto [scrollbar-width:none] *:data-[slot=tabs-trigger]:flex-none'>

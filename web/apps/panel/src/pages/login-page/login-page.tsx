@@ -1,23 +1,27 @@
-import type { FormEvent } from 'react';
+import type { FormEvent, ReactNode } from 'react';
 
-import { Eye, EyeOff } from 'lucide-react';
+import { Unplug } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import { Input } from '@shared/components/ui/input';
 import { useEffect, useRef, useState } from 'react';
 import { Button } from '@shared/components/ui/button';
 import { Spinner } from '@shared/components/ui/spinner';
-import { toast } from '@shared/components/ui/toast-manager';
+import { LanguageMenu } from '@shared/components/language-menu';
 import { Navigate, useLocation, useNavigate } from 'react-router-dom';
-import { Field, FieldGroup, FieldLabel } from '@shared/components/ui/field';
-import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupInput } from '@shared/components/ui/input-group';
+import { ThemeCycleButton } from '@shared/components/theme-cycle-button';
+import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@shared/components/ui/empty';
 
+import { useTheme } from '@/theme';
 import { ApiRequestError } from '@/api/api-client';
+import { useBackdrop } from '@/components/backdrop';
 import { PanelLogo } from '@/components/panel-logo';
-import { LoadingState } from '@/components/loading-state';
 import { useAuthSession } from '@/stores/auth-session.store';
 
-import { LoginScene } from './login-scene';
-import './login-page.css';
+import type { PromptLine, PromptPhase } from './login-prompt';
+
+import { LoginPrompt } from './login-prompt';
+
+/** How long a sign-in shows its success before the panel opens. */
+const SUCCESS_HOLD_MS = 520;
 
 interface LoginLocationState {
   from?: string;
@@ -35,164 +39,176 @@ function safeReturnTarget(value: unknown): string {
   }
 }
 
+/** A first row across the window, then the view centred below it. */
+function SignInFrame({ busy = false, children }: { busy?: boolean; children: ReactNode }) {
+  const { cycleTheme, preference } = useTheme();
+  return (
+    <div className='flex min-h-svh flex-col'>
+      <header className='flex h-16 shrink-0 items-center gap-3 px-4 sm:px-6'>
+        <PanelLogo />
+        <div className='ms-auto flex shrink-0 items-center gap-1'>
+          <ThemeCycleButton onCycle={cycleTheme} preference={preference} />
+          <LanguageMenu />
+        </div>
+      </header>
+      {/* The bottom inset matches the first row, so the view sits at the window's centre. */}
+      <main aria-busy={busy || undefined} className='flex min-w-0 flex-1 flex-col items-center justify-center px-4 pb-16 outline-none sm:px-6'>
+        {children}
+      </main>
+    </div>
+  );
+}
+
 export function LoginPage() {
   const { t } = useTranslation();
   const { login, retrySession, status } = useAuthSession();
+  const field = useBackdrop();
   const location = useLocation();
   const navigate = useNavigate();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [showPassword, setShowPassword] = useState(false);
-  const [error, setError] = useState('');
-  const [invalidField, setInvalidField] = useState<'email' | 'password' | null>(null);
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [focusedField, setFocusedField] = useState<'email' | 'password' | null>(null);
+  const [message, setMessage] = useState('');
+  const [invalid, setInvalid] = useState<PromptLine | null>(null);
+  const [attempt, setAttempt] = useState(0);
+  const [phase, setPhase] = useState<PromptPhase>('idle');
   const controllerRef = useRef<AbortController | null>(null);
-  const toastIdRef = useRef<string | null>(null);
   const emailRef = useRef<HTMLInputElement>(null);
   const passwordRef = useRef<HTMLInputElement>(null);
   const returnTarget = safeReturnTarget((location.state as LoginLocationState | null)?.from);
 
-  useEffect(() => () => {
-    controllerRef.current?.abort();
-    if (toastIdRef.current !== null) toast.close(toastIdRef.current);
-  }, []);
+  useEffect(() => () => controllerRef.current?.abort(), []);
 
-  if (status === 'authenticated') return <Navigate replace to={returnTarget} />;
+  useEffect(() => {
+    field.setBusy(phase === 'submitting');
+    return () => field.setBusy(false);
+  }, [field, phase]);
 
-  function clearError() {
-    setError('');
-    setInvalidField(null);
-    if (toastIdRef.current !== null) {
-      toast.close(toastIdRef.current);
-      toastIdRef.current = null;
-    }
+  // A sign-in in progress holds the prompt through its success before the panel opens.
+  if (status === 'authenticated' && phase === 'idle') return <Navigate replace to={returnTarget} />;
+
+  if (status === 'checking') {
+    return (
+      <SignInFrame busy>
+        <Spinner />
+        <span className='sr-only'>{t('login.checking')}</span>
+      </SignInFrame>
+    );
   }
 
-  function reportError(message: string, field: 'email' | 'password' | null = null) {
-    clearError();
-    setError(message);
-    setInvalidField(field);
-    toastIdRef.current = toast.add({ title: message, type: 'error' });
+  if (status === 'unavailable') {
+    return (
+      <SignInFrame>
+        <Empty className='max-w-sm flex-none rounded-[var(--radius-card)] border border-solid bg-[var(--color-surface-translucent)] p-8 shadow-[var(--shadow-card)]' ref={field.anchor}>
+          <EmptyHeader>
+            <EmptyMedia className='mb-3 size-12 rounded-[var(--radius-card)] border bg-[var(--color-surface-raised)] text-muted-foreground [&_svg]:size-6'>
+              <Unplug aria-hidden='true' strokeWidth={1.5} />
+            </EmptyMedia>
+            <EmptyTitle><h1>{t('login.unavailable.title')}</h1></EmptyTitle>
+            <EmptyDescription role='alert'>{t('login.unavailable.description')}</EmptyDescription>
+          </EmptyHeader>
+          <EmptyContent>
+            <Button onClick={retrySession} variant='outline'>{t('login.unavailable.retry')}</Button>
+          </EmptyContent>
+        </Empty>
+      </SignInFrame>
+    );
   }
 
-  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (controllerRef.current !== null) return;
+  function refuse(text: string, line: PromptLine | null) {
+    setMessage(text);
+    setInvalid(line);
+    setAttempt(current => current + 1);
+    field.pulse('error');
+    if (line === 'email') emailRef.current?.focus();
+    if (line === 'password') passwordRef.current?.focus();
+  }
+
+  function clear() {
+    if (message === '') return;
+    setMessage('');
+    setInvalid(null);
+  }
+
+  async function submit() {
+    if (phase !== 'idle') return;
     const normalizedEmail = email.trim().toLowerCase();
     // The server validates addresses, including Unicode addresses that native
     // HTML email validation rejects. Only require a value before submitting.
     if (!normalizedEmail) {
-      reportError(t('login.error.email'), 'email');
-      emailRef.current?.focus();
+      refuse(t('login.error.email'), 'email');
       return;
     }
     if (!password) {
-      reportError(t('login.error.empty'), 'password');
-      passwordRef.current?.focus();
+      refuse(t('login.error.empty'), 'password');
       return;
     }
     const controller = new AbortController();
     controllerRef.current = controller;
-    clearError();
-    setIsSubmitting(true);
+    clear();
+    setPhase('submitting');
     try {
       await login({ email: normalizedEmail, password }, controller.signal);
-      setPassword('');
-      navigate(returnTarget, { replace: true });
     } catch (reason) {
       if (controller.signal.aborted) return;
-      reportError(reason instanceof ApiRequestError && reason.status === 401
+      setPhase('idle');
+      refuse(reason instanceof ApiRequestError && reason.status === 401
         ? t('login.error.unauthorized')
         : reason instanceof ApiRequestError && reason.status === 429
           ? t('login.error.rateLimited')
-          : t('login.error.unreachable'));
+          : t('login.error.unreachable'), null);
+      return;
     } finally {
-      if (!controller.signal.aborted) setIsSubmitting(false);
       controllerRef.current = null;
     }
+    setPhase('success');
+    field.pulse('success');
+    const hold = window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : SUCCESS_HOLD_MS;
+    await new Promise(resolve => window.setTimeout(resolve, hold));
+    if (controller.signal.aborted) return;
+    // The browser cross-fades from the prompt to the panel where it can.
+    void navigate(returnTarget, { replace: true, viewTransition: true });
   }
 
   return (
-    <main className='login-page' aria-busy={status === 'checking' || undefined}>
-      <div className='login-window'>
-        <div className='login-showcase'>
-          <PanelLogo />
-          <LoginScene
-            focusedField={focusedField}
-            passwordVisible={showPassword}
-            isSubmitting={isSubmitting}
-            hasError={Boolean(error)}
-            status={status === 'anonymous' ? 'ready' : status}
-          />
-          <p className='login-showcase__tagline'>{t('login.tagline')}</p>
-        </div>
-        <section className='login-panel' aria-labelledby={status === 'checking' ? undefined : 'login-title'}>
-          <div className='login-panel__content'>
-            {status === 'checking'
-              ? <LoadingState fullScreen={false} label={t('login.checking')} />
-              : status === 'unavailable'
-                ? (
-                    <div className='login-panel__unavailable'>
-                      <header className='login-panel__header'>
-                        <h1 id='login-title'>{t('login.unavailable.title')}</h1>
-                        <p className='login-panel__description' role='alert'>
-                          {t('login.unavailable.description')}
-                        </p>
-                      </header>
-                      <Button size='lg' onClick={retrySession} type='button'>
-                        {t('login.unavailable.retry')}
-                      </Button>
-                    </div>
-                  )
-                : (
-                    <>
-                      <header className='login-panel__header'>
-                        <h1 id='login-title'>{t('login.title')}</h1>
-                      </header>
-                      <form noValidate onSubmit={handleSubmit} aria-busy={isSubmitting}>
-                        {error && <p className='sr-only' id='login-error'>{error}</p>}
-                        <FieldGroup>
-                          <Field data-invalid={invalidField === 'email'} data-disabled={isSubmitting}
-                            onFocus={() => setFocusedField('email')}
-                            onBlur={event => {
-                              if (!event.currentTarget.contains(event.relatedTarget)) setFocusedField(null);
-                            }}>
-                            <FieldLabel htmlFor='login-email'>{t('login.email.label')}</FieldLabel>
-                            <Input ref={emailRef} id='login-email' name='email' type='text' inputMode='email' autoComplete='username' autoCapitalize='none' autoCorrect='off' spellCheck={false} required maxLength={254} autoFocus disabled={isSubmitting} placeholder={t('login.email.placeholder')} value={email} onChange={(event) => {
-                              setEmail(event.target.value);
-                              clearError();
-                            }} aria-invalid={invalidField === 'email'} aria-describedby={error && invalidField !== 'password' ? 'login-error' : undefined} />
-                          </Field>
-                          <Field data-invalid={invalidField === 'password'} data-disabled={isSubmitting}
-                            onFocus={() => setFocusedField('password')}
-                            onBlur={event => {
-                              if (!event.currentTarget.contains(event.relatedTarget)) setFocusedField(null);
-                            }}>
-                            <FieldLabel htmlFor='login-password'>{t('login.password.label')}</FieldLabel>
-                            <InputGroup>
-                              <InputGroupInput ref={passwordRef} id='login-password' name='password' type={showPassword ? 'text' : 'password'} autoComplete='current-password' required disabled={isSubmitting} placeholder={t('login.password.placeholder')} value={password} onChange={(event) => {
-                                setPassword(event.target.value);
-                                clearError();
-                              }} aria-invalid={invalidField === 'password'} aria-describedby={error && invalidField !== 'email' ? 'login-error' : undefined} />
-                              <InputGroupAddon align='inline-end'>
-                                <InputGroupButton className='login-panel__password-toggle' size='icon-sm' aria-label={t(showPassword ? 'login.password.hide' : 'login.password.show')} aria-pressed={showPassword} disabled={isSubmitting} onClick={() => setShowPassword(current => !current)}>
-                                  {showPassword ? <EyeOff /> : <Eye />}
-                                </InputGroupButton>
-                              </InputGroupAddon>
-                            </InputGroup>
-                          </Field>
-                        </FieldGroup>
-                        <Button className='login-panel__submit' disabled={isSubmitting} size='lg' type='submit'>
-                          {isSubmitting && <Spinner data-icon='inline-start' />}
-                          {t(isSubmitting ? 'login.submit.pending' : 'login.submit.label')}
-                        </Button>
-                      </form>
-                    </>
-                  )}
-          </div>
-        </section>
-      </div>
-    </main>
+    <SignInFrame>
+      <h1 className='sr-only' id='login-title'>{t('login.title')}</h1>
+      <form
+        aria-busy={phase === 'submitting' || undefined}
+        aria-labelledby='login-title'
+        className='w-full max-w-md'
+        noValidate
+        onSubmit={(event: FormEvent<HTMLFormElement>) => {
+          event.preventDefault();
+          void submit();
+        }}
+      >
+        <LoginPrompt
+          attempt={attempt}
+          email={email}
+          emailRef={emailRef}
+          invalid={invalid}
+          message={message}
+          onEmailChange={(value) => {
+            if (value.length > email.length) field.pulse('key');
+            setEmail(value);
+            clear();
+          }}
+          onEmailEnter={(event) => {
+            event.preventDefault();
+            if (email.trim() !== '' && password === '') passwordRef.current?.focus();
+            else void submit();
+          }}
+          onPasswordChange={(value) => {
+            if (value.length > password.length) field.pulse('key');
+            setPassword(value);
+            clear();
+          }}
+          password={password}
+          passwordRef={passwordRef}
+          phase={phase}
+          ref={field.anchor}
+        />
+      </form>
+    </SignInFrame>
   );
 }

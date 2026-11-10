@@ -54,6 +54,7 @@ var routes = []route{
 	{http.MethodGet, "/core/catalog/assets", "listCoreCatalogAssets", accessSession, (*Handler).listCatalogAssets},
 	{http.MethodPost, "/core/catalog/refresh", "refreshCoreCatalog", accessSession, (*Handler).refreshCatalog},
 
+	{http.MethodGet, "/fleet/status", "getFleetStatus", accessSession, (*Handler).fleetStatus},
 	{http.MethodGet, "/nodes", "listNodes", accessSession, (*Handler).listNodes},
 	{http.MethodPost, "/nodes", "createNode", accessSession, (*Handler).createNode},
 	{http.MethodGet, "/nodes/{nodeId}", "getNode", accessSession, withPathValue("nodeId", (*Handler).getNode)},

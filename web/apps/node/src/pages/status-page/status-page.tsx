@@ -1,10 +1,10 @@
 import type { MouseEvent } from 'react';
+import type { FieldControl } from '@shared/components/glyph-field';
 
 import { useTranslation } from 'react-i18next';
 import { useEffect, useRef, useState } from 'react';
 
 import type { ConsoleStatus, Session } from '@/api/generated';
-import type { FieldControl } from '@/components/console-field';
 
 import { ConsoleFrame } from '@/components/console-frame';
 import { ConsoleRequestError, enroll, getStatus, logout, unenroll } from '@/api/console-client';
@@ -359,7 +359,7 @@ export function StatusPage({ field, initialStatus, session, onSignedOut }: Statu
       */}
       <section
         aria-label={host}
-        className='status-terminal flex aspect-[3/2] w-[min(100%,64rem,calc((100svh-9rem)*1.5))] flex-col max-sm:aspect-auto max-sm:h-[min(32rem,calc(100svh-9rem))] max-sm:w-full overflow-hidden rounded-[var(--radius-card)] border border-[var(--color-terminal-border)] bg-[var(--color-terminal)] font-[family-name:var(--font-data)] text-compact text-[var(--color-terminal-text)] shadow-[var(--shadow-card)] [view-transition-name:console-window]'
+        className='status-terminal flex aspect-[3/2] w-[min(100%,64rem,calc((100svh-9rem)*1.5))] flex-col max-sm:aspect-auto max-sm:h-[min(32rem,calc(100svh-9rem))] max-sm:w-full overflow-hidden rounded-[var(--radius-card)] border border-border bg-card font-[family-name:var(--font-data)] text-compact text-foreground shadow-[var(--shadow-card)] [view-transition-name:console-window]'
         onClick={focusPrompt}
         ref={field.anchor}
       >
@@ -372,7 +372,7 @@ export function StatusPage({ field, initialStatus, session, onSignedOut }: Statu
           <p className='pointer-events-none absolute inset-x-24 truncate text-center font-[family-name:var(--font-body)] font-medium'>
             {`console@${host}:~`}
           </p>
-          <p className='ms-auto flex shrink-0 items-center gap-2 text-[var(--color-terminal-muted)]'>
+          <p className='ms-auto flex shrink-0 items-center gap-2 text-muted-foreground'>
             {stale ? <span className='text-[var(--color-warning-text)]'>{t('terminal.stale')}</span> : null}
             {status && tone
               ? (

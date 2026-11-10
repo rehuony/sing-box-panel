@@ -7,6 +7,7 @@ import { Input } from '@shared/components/ui/input';
 import { Button } from '@shared/components/ui/button';
 import { toast } from '@shared/components/ui/toast-manager';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@shared/components/ui/tooltip';
 import { InputGroup, InputGroupAddon, InputGroupInput } from '@shared/components/ui/input-group';
 import {
   AlertDialog,
@@ -136,7 +137,7 @@ function SettingsForm({ node, settings }: { node: FleetNode; settings: NodeSetti
   }
 
   return (
-    <form className='flex flex-col gap-5 rounded-[var(--radius-card)] border bg-card p-4 sm:p-6' noValidate onSubmit={submit}>
+    <form className='flex flex-1 flex-col gap-5 rounded-[var(--radius-card)] border bg-[var(--color-surface-translucent)] p-4 sm:p-6' noValidate onSubmit={submit}>
       <SettingsGroup title={t('node.settings.identity')}>
         <SettingsField id='node-name' invalid={invalid === 'name'} label={t('node.settings.name')}>
           <Input aria-invalid={invalid === 'name' || undefined} autoComplete='off' id='node-name' maxLength={64} onChange={event => update('name', event.target.value)} spellCheck={false} value={draft.name} />
@@ -162,7 +163,7 @@ function SettingsForm({ node, settings }: { node: FleetNode; settings: NodeSetti
           <Input aria-invalid={invalid === 'resetDay' || undefined} className='tabular-nums' id='node-reset-day' inputMode='numeric' max={28} min={1} onChange={event => update('resetDay', event.target.value)} type='number' value={draft.resetDay} />
         </SettingsField>
       </SettingsGroup>
-      <footer className='-mx-4 -mb-4 flex items-center gap-3 border-t px-4 py-3 sm:-mx-6 sm:-mb-6 sm:px-6'>
+      <footer className='-mx-4 -mb-4 mt-auto flex items-center gap-3 border-t px-4 py-3 sm:-mx-6 sm:-mb-6 sm:px-6'>
         <p className='min-h-5 min-w-0 flex-1 truncate text-sm text-muted-foreground' role='status' title={message || undefined}>{message}</p>
         <Button onClick={() => {
           setDraft(saved);
@@ -204,24 +205,17 @@ function DangerZone({ node }: { node: FleetNode }) {
   const error = confirm === 'reenroll' ? reenroll.error : confirm === 'remove' ? remove.error : null;
 
   return (
-    <section aria-labelledby='node-danger-title' className='flex flex-col gap-4 rounded-[var(--radius-card)] border border-[var(--color-danger-border)] bg-card p-4 sm:p-6'>
-      <h2 className='text-sm font-semibold' id='node-danger-title'>{t('node.danger.title')}</h2>
-      <div className='flex flex-col gap-4 divide-y sm:gap-0'>
-        <div className='flex flex-wrap items-center gap-3 pb-4'>
-          <div className='min-w-0 flex-1'>
-            <p className='text-sm font-medium'>{t('node.danger.reenroll')}</p>
-            <p className='text-sm text-muted-foreground'>{t('node.danger.reenrollDescription')}</p>
-          </div>
-          <Button onClick={() => setConfirm('reenroll')} variant='outline'>{t('node.danger.reenroll')}</Button>
-        </div>
-        <div className='flex flex-wrap items-center gap-3 pt-0 sm:pt-4'>
-          <div className='min-w-0 flex-1'>
-            <p className='text-sm font-medium'>{t('node.danger.remove')}</p>
-            <p className='text-sm text-muted-foreground'>{t('node.danger.removeDescription')}</p>
-          </div>
-          <Button onClick={() => setConfirm('remove')} variant='destructive'>{t('node.danger.remove')}</Button>
-        </div>
-      </div>
+    // One row: each action says what it does on hover, and its confirmation spells out the consequences.
+    <section aria-labelledby='node-danger-title' className='flex flex-wrap items-center gap-3 rounded-[var(--radius-card)] border border-[var(--color-danger-border)] bg-[var(--color-surface-translucent)] p-4 sm:px-6'>
+      <h2 className='me-auto text-sm font-semibold' id='node-danger-title'>{t('node.danger.title')}</h2>
+      <Tooltip>
+        <TooltipTrigger render={<Button onClick={() => setConfirm('reenroll')} variant='outline' />}>{t('node.danger.reenroll')}</TooltipTrigger>
+        <TooltipContent>{t('node.danger.reenrollDescription')}</TooltipContent>
+      </Tooltip>
+      <Tooltip>
+        <TooltipTrigger render={<Button onClick={() => setConfirm('remove')} variant='destructive' />}>{t('node.danger.remove')}</TooltipTrigger>
+        <TooltipContent>{t('node.danger.removeDescription')}</TooltipContent>
+      </Tooltip>
       <AlertDialog
         onOpenChange={(open) => {
           if (!open && !pending) {
@@ -267,13 +261,14 @@ export function NodeSettingsPage() {
   const client = useApiClient();
   const settings = useQuery(queries.nodeSettings(client));
   return (
-    <section className='flex min-w-0 flex-col gap-4'>
+    // The settings group takes the height above the destructive row, so its action bar sits at the view's foot.
+    <section className='flex min-w-0 flex-1 flex-col gap-4'>
       <h1 className='sr-only'>{t('node.tabs.settings')}</h1>
       {settings.data
         ? <SettingsForm key={`${settings.data.revision}:${node.name}`} node={node} settings={settings.data} />
         : settings.isError
           ? (
-              <div className='flex min-h-40 flex-col items-center justify-center gap-3 rounded-[var(--radius-card)] border bg-card p-6 text-center' role='status'>
+              <div className='flex min-h-40 flex-col items-center justify-center gap-3 rounded-[var(--radius-card)] border bg-[var(--color-surface-translucent)] p-6 text-center' role='status'>
                 <p className='text-sm'>{describeRequestError(settings.error)}</p>
                 <Button onClick={() => void settings.refetch()} variant='outline'>{t('shell.error.retry')}</Button>
               </div>

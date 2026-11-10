@@ -23,6 +23,7 @@ export const nodes = {
 export const nav = {
   logs: '日志',
   nodes: '节点',
+  overview: '概览',
   settings: '设置',
   subscriptions: '订阅',
 } as const;

@@ -28,14 +28,14 @@ export function retryableRead(error: unknown): boolean {
 }
 
 type QueryRoot
-  = | 'catalog' | 'channels' | 'coreLogFiles' | 'fleetNodes' | 'installed' | 'nodes' | 'nodeSettings'
-    | 'runtime' | 'schema' | 'settings' | 'sources' | 'tokens' | 'trafficStatus';
+  = | 'catalog' | 'channels' | 'coreLogFiles' | 'fleetNodes' | 'fleetStatus' | 'installed' | 'nodes' | 'nodeSettings'
+    | 'runtime' | 'schema' | 'settings' | 'sources' | 'tokens';
 
 const runtimeChange: readonly QueryRoot[] = ['runtime', 'nodes', 'installed'];
 const coreArtifactChange: readonly QueryRoot[] = ['installed', 'schema'];
 const sourceChange: readonly QueryRoot[] = ['sources', 'nodes', 'channels'];
 const nodeChange: readonly QueryRoot[] = ['nodes', 'channels'];
-const fleetChange: readonly QueryRoot[] = ['fleetNodes', 'trafficStatus', 'nodes'];
+const fleetChange: readonly QueryRoot[] = ['fleetNodes', 'fleetStatus', 'nodes'];
 
 // Keyed by ApiClient method, so renaming or removing a write is a type error
 // here instead of a silently skipped invalidation.
@@ -72,7 +72,7 @@ const invalidations: Partial<Record<keyof ApiClient, readonly QueryRoot[]>> = {
   renameNode: fleetChange,
   deleteNode: fleetChange,
   createNodeEnrollment: ['fleetNodes'],
-  saveNodeSettings: ['nodeSettings', 'trafficStatus', 'nodes'],
+  saveNodeSettings: ['nodeSettings', 'fleetStatus', 'nodes'],
 };
 
 function affectedQueries(method: string): readonly QueryRoot[] {

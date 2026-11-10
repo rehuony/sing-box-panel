@@ -82,9 +82,9 @@ export function PanelLogsPage() {
         />
       </div>
       {logs.error != null && <ErrorNotice error={logs.error} title={t('productLogs.unavailable')} />}
-      <div className='flex min-h-80 flex-1 flex-col overflow-hidden rounded-[var(--radius-card)] border bg-card'>
+      <div className='flex min-h-80 flex-1 flex-col overflow-hidden rounded-[var(--radius-card)] border bg-[var(--color-surface-translucent)]'>
         <ScrollArea aria-busy={loading} className='flex-1' viewportClassName='flex flex-col'>
-          <table className='workspace-table w-full min-w-195 flex-none table-fixed border-collapse'>
+          <table className='workspace-table w-full min-w-195 flex-none table-fixed border-collapse [&_td]:px-4 [&_th]:px-4 [&_th]:text-left [&_th]:text-muted-foreground [&_td:last-child]:text-center [&_th:last-child]:text-center'>
             <thead>
               <tr>
                 {columns.map(column => (

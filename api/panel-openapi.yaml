@@ -655,6 +655,21 @@ paths:
       responses:
         "200":
           $ref: "#/components/responses/RuntimeStatus"
+  /fleet/status:
+    get:
+      operationId: getFleetStatus
+      description: >-
+        Every registered node with the metrics and recorded traffic getMetrics
+        returns for it, in one read for the fleet overview. Quotas belong to
+        nodes and are never summed.
+      responses:
+        "200":
+          description: Nodes ordered by name, each with its metrics.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/FleetStatus'}
+        "503":
+          $ref: '#/components/responses/Problem'
   /nodes:
     get:
       operationId: listNodes
@@ -2212,6 +2227,21 @@ components:
         items:
           type: array
           items: {$ref: '#/components/schemas/Node'}
+    FleetStatus:
+      type: object
+      additionalProperties: false
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: {$ref: '#/components/schemas/NodeStatus'}
+    NodeStatus:
+      type: object
+      additionalProperties: false
+      required: [node, metrics]
+      properties:
+        node: {$ref: '#/components/schemas/Node'}
+        metrics: {$ref: '#/components/schemas/MetricsSnapshot'}
     NodeNameRequest:
       type: object
       additionalProperties: false
@@ -3236,7 +3266,7 @@ components:
         upload_bytes_per_second:
           type: [number, "null"]
           minimum: 0
-          description: Upload bytes per second over the actual interval between adjacent samples the node reported for the same process incarnation. Nodes sample once a second while a client streams their metrics; null for the first sample, after a decrease, or when the interval exceeds three seconds.
+          description: Upload bytes per second over the actual interval between adjacent samples the node reported for the same process incarnation. Nodes sample once a second while a client streams their metrics and every ten seconds otherwise; null for the first sample, after a decrease, or when the interval exceeds fifteen seconds.
         download_bytes_per_second:
           type: [number, "null"]
           minimum: 0

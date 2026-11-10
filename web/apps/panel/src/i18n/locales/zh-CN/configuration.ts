@@ -202,7 +202,6 @@ export const configuration = {
     version: '配置版本',
     unsupported: '{{version}} 暂无可视化编辑规则。可使用 JSON 编辑，或选择受支持的配置版本。',
     manageVersions: '前往版本管理',
-    noInstalledDescription: '请先前往版本管理下载核心版本，再使用可视化编辑和配置校验。',
     noInstalledOption: '暂无版本',
     noInstalledTitle: '尚未安装核心版本',
     error: {

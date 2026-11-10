@@ -69,7 +69,7 @@ function NodeUnavailable({ node }: { node: FleetNode }) {
   });
   const pending = node.state === 'pending';
   return (
-    <Empty className='min-h-80 rounded-[var(--radius-card)] border border-solid bg-card' role='status'>
+    <Empty className='min-h-80 rounded-[var(--radius-card)] border border-solid bg-[var(--color-surface-translucent)]' role='status'>
       <EmptyHeader>
         <EmptyMedia className='mb-3 size-12 rounded-[var(--radius-card)] border bg-[var(--color-surface-raised)] text-muted-foreground [&_svg]:size-6'>
           {pending ? <KeyRound aria-hidden='true' strokeWidth={1.5} /> : <CloudOff aria-hidden='true' strokeWidth={1.5} />}
@@ -159,15 +159,13 @@ export function NodeWorkspace() {
   if (nodes.isPending) return <LoadingState label={t('shell.loading.page')} fullScreen={false} />;
   return (
     <WorkspaceState>
-      <Empty className='rounded-[var(--radius-card)] border border-solid bg-card' role='status'>
+      <Empty className='rounded-[var(--radius-card)] border border-solid bg-[var(--color-surface-translucent)]' role='status'>
         <EmptyHeader>
           <EmptyMedia className='mb-3 size-12 rounded-[var(--radius-card)] border bg-[var(--color-surface-raised)] text-muted-foreground [&_svg]:size-6'>
             <SearchX aria-hidden='true' strokeWidth={1.5} />
           </EmptyMedia>
           <EmptyTitle>{t(nodes.isError ? 'nodes.loadFailed' : 'node.missing.title')}</EmptyTitle>
-          <EmptyDescription>
-            {nodes.isError ? describeRequestError(nodes.error) : t('node.missing.description')}
-          </EmptyDescription>
+          {nodes.isError ? <EmptyDescription>{describeRequestError(nodes.error)}</EmptyDescription> : null}
         </EmptyHeader>
         <EmptyContent className='flex-row justify-center'>
           {nodes.isError

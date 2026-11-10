@@ -18,8 +18,8 @@ const TYPE_MAX_STEPS = 48;
 
 const toneClass: Record<LineTone, string> = {
   danger: 'text-[var(--color-danger-text)]',
-  muted: 'text-[var(--color-terminal-muted)]',
-  plain: 'text-[var(--color-terminal-text)]',
+  muted: 'text-muted-foreground',
+  plain: 'text-foreground',
   success: 'text-[var(--color-success-text)]',
   warning: 'text-[var(--color-warning-text)]',
 };
@@ -41,7 +41,7 @@ function Line({ clock, host, line }: { clock: Intl.DateTimeFormat; host: string;
       style={typed ? typing(line) : undefined}
     >
       {line.stamp
-        ? <time className='me-[1ch] text-[var(--color-terminal-muted)]' dateTime={new Date(line.at).toISOString()}>{clock.format(line.at)}</time>
+        ? <time className='me-[1ch] text-muted-foreground' dateTime={new Date(line.at).toISOString()}>{clock.format(line.at)}</time>
         : null}
       {line.prompt === undefined
         ? null
@@ -51,7 +51,7 @@ function Line({ clock, host, line }: { clock: Intl.DateTimeFormat; host: string;
               {' '}
             </>
           )}
-      {line.term === undefined ? null : <span className='inline-block min-w-[11ch] pe-[1ch] text-[var(--color-terminal-text)]'>{line.term}</span>}
+      {line.term === undefined ? null : <span className='inline-block min-w-[11ch] pe-[1ch] text-foreground'>{line.term}</span>}
       {line.text}
       {line.pending ? <Spinner aria-hidden='true' className='ms-2 inline size-3.5 align-[-2px]' /> : null}
     </p>

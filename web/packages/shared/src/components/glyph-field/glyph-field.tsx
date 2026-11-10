@@ -15,7 +15,7 @@ export type FieldPulse = 'key' | 'error' | 'success' | 'refresh';
  */
 export type FieldMode = 'interactive' | 'calm';
 
-export interface ConsoleFieldHandle {
+export interface GlyphFieldHandle {
   pulse: (kind: FieldPulse) => void;
 }
 
@@ -28,15 +28,19 @@ export interface FieldControl {
   anchor: (element: HTMLElement | null) => void;
 }
 
-interface ConsoleFieldProps {
+interface GlyphFieldProps {
+  /** The height of the page's first row, which the field leaves clear. */
+  top?: number;
   /** While true, glyphs keep streaming toward the anchor. */
-  busy: boolean;
+  busy?: boolean;
   mode: FieldMode;
-  /** Values of this node the field mixes into its text in calm mode. */
+  /** The share of its sign-in opacity the field keeps in calm mode. */
+  calmOpacity?: number;
+  /** Values of the product's own the field mixes into its text in calm mode. */
   words: readonly string[];
-  /** The element the field centers on and keeps clear of; the window's center while null. */
-  anchor: HTMLElement | null;
-  ref?: Ref<ConsoleFieldHandle>;
+  /** The element the field centers on and keeps clear of; the window's center without one. */
+  anchor?: HTMLElement | null;
+  ref?: Ref<GlyphFieldHandle>;
 }
 
 type Tone = 'accent' | 'success' | 'danger';
@@ -96,7 +100,6 @@ const LAYERS = [
 const AREA_PER_GLYPH = 5000;
 const CANDIDATES = 5;
 const ANISOTROPY = 2.4;
-const FIRST_ROW = 64;
 const EDGE = 4;
 const CLEAR_X = 16;
 const CLEAR_Y = 14;
@@ -128,7 +131,7 @@ const WAVE_BAND = 90;
 const REFRESH_HEAT = 0.35;
 const HEAT_DECAY = 1.4;
 const MAXIMUM_STEP = 0.05;
-// Calm mode fades the field and favours the node's own values.
+// Calm mode fades the field, by default to this share, and favours the product's own values.
 const CALM_ALPHA = 0.6;
 const ALPHA_RATE = 2;
 const VISIBILITY_RATE = 4;
@@ -189,6 +192,7 @@ function approach(value: number, target: number, step: number): number {
 }
 
 interface Engine {
+  relayout: () => void;
   takeWords: () => void;
   changeMode: () => void;
   clearAnchor: () => void;
@@ -196,20 +200,22 @@ interface Engine {
 }
 
 /**
- * The console's backdrop: protocol names, settings, addresses and log
- * fragments in the data face, scattered over three tilted layers. Behind
- * sign-in the pointer pushes and leans them aside, keystrokes stream them
- * toward the password, and the outcome sends a wave or a shock through them.
- * Behind the signed-in view it is calm: fainter, still under the pointer,
- * pulsing once per status refresh and rewriting itself with the node's own
- * values. Glyphs the anchor covers move to its edge or fade. Under reduced
+ * The backdrop of sign-in and the signed-in views: protocol names, settings,
+ * addresses and log fragments in the data face, scattered over three tilted
+ * layers. Behind sign-in the pointer pushes and leans them aside, keystrokes
+ * stream them toward the password, and the outcome sends a wave or a shock
+ * through them. Behind a signed-in view it is calm: fainter, still under the
+ * pointer, pulsing once per refresh and rewriting itself with the product's
+ * own values. Glyphs the anchor covers move to its edge or fade. Under reduced
  * motion it is a still field that only changes colour.
  */
-export function ConsoleField({ anchor, busy, mode, ref, words }: ConsoleFieldProps) {
+export function GlyphField({
+  anchor = null, busy = false, calmOpacity = CALM_ALPHA, mode, ref, top = 0, words,
+}: GlyphFieldProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const engineRef = useRef<Engine | null>(null);
-  const settingsRef = useRef({ anchor, busy, mode, words });
-  settingsRef.current = { anchor, busy, mode, words };
+  const settingsRef = useRef({ anchor, busy, calmOpacity, mode, top, words });
+  settingsRef.current = { anchor, busy, calmOpacity, mode, top, words };
 
   useImperativeHandle(ref, () => ({ pulse: kind => engineRef.current?.pulse(kind) }), []);
 
@@ -226,7 +232,7 @@ export function ConsoleField({ anchor, busy, mode, ref, words }: ConsoleFieldPro
     let ratio = 1;
     let pointer: { x: number; y: number } | null = null;
     let wave: Wave | null = null;
-    let fieldAlpha = settingsRef.current.mode === 'calm' ? CALM_ALPHA : 1;
+    let fieldAlpha = settingsRef.current.mode === 'calm' ? settingsRef.current.calmOpacity : 1;
     let frame = 0;
     let lastStep = 0;
 
@@ -240,7 +246,8 @@ export function ConsoleField({ anchor, busy, mode, ref, words }: ConsoleFieldPro
     }
 
     function outside(x: number, y: number, extent: { x: number; y: number }) {
-      return x - extent.x < EDGE || x + extent.x > width - EDGE || y - extent.y < FIRST_ROW || y + extent.y > height;
+      const { top } = settingsRef.current;
+      return x - extent.x < EDGE || x + extent.x > width - EDGE || y - extent.y < top || y + extent.y > height;
     }
 
     /** Text for depth: in calm mode often one of the node's values that fits the layer. */
@@ -300,7 +307,8 @@ export function ConsoleField({ anchor, busy, mode, ref, words }: ConsoleFieldPro
       canvas!.width = Math.round(width * ratio);
       canvas!.height = Math.round(height * ratio);
       const rect = anchorRect();
-      const total = Math.round(width * Math.max(0, height - FIRST_ROW) / AREA_PER_GLYPH);
+      const { top } = settingsRef.current;
+      const total = Math.round(width * Math.max(0, height - top) / AREA_PER_GLYPH);
       glyphs = [];
       LAYERS.forEach((layer, index) => {
         const depth = index as FieldDepth;
@@ -313,7 +321,7 @@ export function ConsoleField({ anchor, busy, mode, ref, words }: ConsoleFieldPro
           let best: { x: number; y: number; score: number } | null = null;
           for (let candidate = 0; candidate < CANDIDATES; candidate++) {
             const x = extent.x + EDGE + Math.random() * (width - 2 * (extent.x + EDGE));
-            const y = FIRST_ROW + extent.y + Math.random() * (height - FIRST_ROW - 2 * extent.y);
+            const y = top + extent.y + Math.random() * (height - top - 2 * extent.y);
             if (outside(x, y, extent) || covers(rect, x, y, extent)) continue;
             let score = Number.POSITIVE_INFINITY;
             for (const other of placed) {
@@ -400,7 +408,7 @@ export function ConsoleField({ anchor, busy, mode, ref, words }: ConsoleFieldPro
       lastStep = now;
       const target = center();
       const front = wave ? (now - wave.start) / 1000 * WAVE_SPEED : 0;
-      const alphaTarget = settingsRef.current.mode === 'calm' ? CALM_ALPHA : 1;
+      const alphaTarget = settingsRef.current.mode === 'calm' ? settingsRef.current.calmOpacity : 1;
       fieldAlpha = approach(fieldAlpha, alphaTarget, ALPHA_RATE * seconds);
       let active = fieldAlpha !== alphaTarget;
       for (const glyph of glyphs) {
@@ -482,6 +490,7 @@ export function ConsoleField({ anchor, busy, mode, ref, words }: ConsoleFieldPro
         wake();
       },
       clearAnchor,
+      relayout,
       pulse(kind) {
         if (kind === 'key') {
           streamToward(KEY_GLYPHS);
@@ -605,6 +614,14 @@ export function ConsoleField({ anchor, busy, mode, ref, words }: ConsoleFieldPro
   useEffect(() => {
     engineRef.current?.changeMode();
   }, [mode]);
+
+  // A view with another first row places the field again below it.
+  const placedTopRef = useRef(top);
+  useEffect(() => {
+    if (placedTopRef.current === top) return;
+    placedTopRef.current = top;
+    engineRef.current?.relayout();
+  }, [top]);
 
   useEffect(() => {
     engineRef.current?.takeWords();

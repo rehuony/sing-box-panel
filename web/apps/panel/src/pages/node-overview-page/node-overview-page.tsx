@@ -37,11 +37,11 @@ function gibibytes(value: number | undefined, locale: string): string {
 }
 // Axis labels at 0, 6, 12, 18 and 24 hours; narrow cards keep the ends and the middle.
 const axisTime: Record<number, string> = {
-  0: 'col-start-1 row-start-1 flex w-max gap-1 whitespace-nowrap @max-[400px]:flex-col @max-[400px]:gap-0',
+  0: 'col-start-1 row-start-1 flex w-max gap-1 whitespace-nowrap',
   6: 'col-start-2 row-start-1 w-max -translate-x-1/2 whitespace-nowrap @max-[650px]:hidden',
   12: 'col-start-3 row-start-1 w-max -translate-x-1/2 whitespace-nowrap @max-[650px]:col-start-2',
   18: 'col-start-4 row-start-1 w-max -translate-x-1/2 whitespace-nowrap @max-[650px]:hidden',
-  24: 'col-start-4 row-start-1 flex w-max gap-1 justify-self-end whitespace-nowrap @max-[650px]:col-start-2 @max-[400px]:flex-col @max-[400px]:items-end @max-[400px]:gap-0',
+  24: 'col-start-4 row-start-1 flex w-max gap-1 justify-self-end whitespace-nowrap @max-[650px]:col-start-2',
 };
 const legendSwatch = {
   running: 'bg-[var(--color-success)]',
@@ -54,7 +54,7 @@ export function NodeOverviewPage() {
   const { t } = useTranslation();
   useDashboardSubscription();
   return (
-    <div className='@container flex min-w-0 flex-col gap-4'>
+    <div className='@container flex min-w-0 flex-1 flex-col gap-4'>
       <h1 className='sr-only'>{t('node.tabs.overview')}</h1>
       <DashboardStatus />
       <DashboardMetrics />
@@ -125,7 +125,7 @@ function DashboardMetrics() {
   return (
     <div className='grid flex-none grid-cols-4 gap-4 @max-[650px]:grid-cols-2'>
       {metrics.map(({ key, icon: Icon, value, detail }) => (
-        <section key={key} className='grid min-w-0 gap-2.5 rounded-[var(--radius-card)] border bg-card p-5 @max-[850px]:p-4'>
+        <section key={key} className='grid min-w-0 gap-2.5 rounded-[var(--radius-card)] border bg-[var(--color-surface-translucent)] p-5 @max-[850px]:p-4'>
           <div className='flex items-center justify-between text-compact text-muted-foreground'>
             <span>{t(`dashboard.metric.${key}`)}</span>
             <Icon size={18} />
@@ -153,7 +153,7 @@ function DashboardCharts() {
   return (
     <div className='grid min-h-min flex-1 grid-cols-[minmax(0,1.8fr)_minmax(0,1fr)] gap-4 @max-[850px]:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)] @max-[650px]:flex-none @max-[650px]:grid-cols-1'>
       <Tabs
-        className='relative flex min-w-0 flex-col rounded-[var(--radius-card)] border bg-card gap-2 px-2 pt-4 pb-1'
+        className='relative flex min-w-0 flex-col rounded-[var(--radius-card)] border bg-[var(--color-surface-translucent)] gap-2 px-2 pt-4 pb-1'
         render={<section />}
         value={range}
         onValueChange={(value) => setRange(value as typeof range)}
@@ -187,7 +187,7 @@ function DashboardCharts() {
           </TabsContent>
         ))}
       </Tabs>
-      <section className='relative flex min-w-0 flex-col rounded-[var(--radius-card)] border bg-card gap-2 px-2 pt-4 pb-1'>
+      <section className='relative flex min-w-0 flex-col rounded-[var(--radius-card)] border bg-[var(--color-surface-translucent)] gap-2 px-2 pt-4 pb-1'>
         <header className='mx-3 flex min-h-(--control-height) items-center justify-between gap-2 @max-[850px]:flex-wrap'>
           <h2 className='m-0 text-sm font-semibold'>
             {t('dashboard.trend.connections')}
@@ -251,7 +251,7 @@ function DashboardHistory() {
   return (
     <div className='grid min-h-45 flex-none grid-cols-[minmax(0,1.8fr)_minmax(0,1fr)] gap-4 @max-[650px]:grid-cols-1'>
       <section
-        className='@container relative flex min-w-0 flex-col rounded-[var(--radius-card)] border bg-card min-h-45 gap-3 p-5 @max-[850px]:p-4'
+        className='@container relative flex min-w-0 flex-col rounded-[var(--radius-card)] border bg-[var(--color-surface-translucent)] min-h-45 gap-3 p-5 @max-[850px]:p-4'
         aria-label={t('dashboard.timeline.title')}
         aria-busy={current === null}
       >
@@ -314,7 +314,7 @@ function DashboardHistory() {
         </div>
       </section>
       <section
-        className='@container relative flex min-w-0 flex-col rounded-[var(--radius-card)] border bg-card min-h-45 gap-3 p-5 @max-[850px]:p-4'
+        className='@container relative flex min-w-0 flex-col rounded-[var(--radius-card)] border bg-[var(--color-surface-translucent)] min-h-45 gap-3 p-5 @max-[850px]:p-4'
         aria-label={t('dashboard.activity.title')}
         aria-busy={current === null}
       >

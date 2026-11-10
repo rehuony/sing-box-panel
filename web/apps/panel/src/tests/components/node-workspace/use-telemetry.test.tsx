@@ -152,7 +152,7 @@ describe('useTelemetry', () => {
     expect(result.current.snapshot).toBe(testMetrics);
     expect(result.current.runtimeStatus).toBe(testRuntimeStatus);
     expect(client.getRuntimeStatus).not.toHaveBeenCalled();
-    expect(client.getTrafficStatus).not.toHaveBeenCalled();
+    expect(client.getFleetStatus).not.toHaveBeenCalled();
     expect(client.listPanelLogs).not.toHaveBeenCalled();
   });
 

@@ -7,7 +7,6 @@ import type {
   NodeSettings,
   PanelLogFilter,
   PanelLogPage,
-  TrafficStatus,
 } from './contracts/observability';
 import type {
   CatalogAssetFilter,
@@ -25,6 +24,7 @@ import type {
   ConfigurationFile,
   ConfigurationFileWrite,
   Node as FleetNode,
+  FleetStatus,
   LoginInputWritable as LoginInput,
   NodeEnrollment,
   PanelBackup,
@@ -62,6 +62,7 @@ export type {
   ConfigurationFile,
   ConfigurationFileWrite,
   Node as FleetNode,
+  FleetStatus,
   DynamicObject as JsonObject,
   LoginInputWritable as LoginInput,
   NodeEnrollment,
@@ -93,19 +94,20 @@ export interface ApiClient {
   logout: (signal?: AbortSignal) => Promise<void>;
   getSession: (signal?: AbortSignal) => Promise<Session | null>;
   stopRuntime: (signal?: AbortSignal) => Promise<RuntimeStatus>;
+  /** Every node with its metrics, for the fleet overview. */
+  getFleetStatus: (signal?: AbortSignal) => Promise<FleetStatus>;
   getMetrics: (signal?: AbortSignal) => Promise<MetricsSnapshot>;
   startRuntime: (signal?: AbortSignal) => Promise<RuntimeStatus>;
   getNodeSettings: (signal?: AbortSignal) => Promise<NodeSettings>;
-  restartRuntime: (signal?: AbortSignal) => Promise<RuntimeStatus>;
 
+  restartRuntime: (signal?: AbortSignal) => Promise<RuntimeStatus>;
   exportPanelBackup: (signal?: AbortSignal) => Promise<PanelBackup>;
   subscribeSessionInvalidated: (listener: () => void) => () => void;
   getRuntimeStatus: (signal?: AbortSignal) => Promise<RuntimeStatus>;
-  getTrafficStatus: (signal?: AbortSignal) => Promise<TrafficStatus>;
   clearCoreLog: (file: string, signal?: AbortSignal) => Promise<void>;
+
   /** Removes the node and its key and ends its session. */
   deleteNode: (nodeID: string, signal?: AbortSignal) => Promise<void>;
-
   login: (input: LoginInput, signal?: AbortSignal) => Promise<Session>;
   getPanelSettings: (signal?: AbortSignal) => Promise<PanelSettingsView>;
   deleteCoreLogFile: (file: string, signal?: AbortSignal) => Promise<void>;

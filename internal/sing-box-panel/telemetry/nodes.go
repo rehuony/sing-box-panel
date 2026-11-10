@@ -18,7 +18,9 @@ const (
 	// keep accounting exact whichever samples are stored.
 	trafficPersistInterval = 9 * time.Second
 	// maximumLiveRateGap is the longest interval a live rate is derived over.
-	maximumLiveRateGap = 3 * time.Second
+	// It covers the baseline ten-second sampling, so every reporting node
+	// has a recent rate; a node someone views samples each second.
+	maximumLiveRateGap = 15 * time.Second
 	// liveSampleLifetime is how long a node's latest sample counts as current.
 	liveSampleLifetime = 30 * time.Second
 )

@@ -23,6 +23,7 @@ export const nodes = {
 export const nav = {
   logs: 'Logs',
   nodes: 'Nodes',
+  overview: 'Overview',
   settings: 'Settings',
   subscriptions: 'Subscriptions',
 } as const;

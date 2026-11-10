@@ -46,7 +46,7 @@ describe('createHttpApiClient session domain', () => {
     );
     const client = createHttpApiClient({ fetcher }).forNode('node_a');
 
-    await expect(client.getTrafficStatus()).rejects.toMatchObject({
+    await expect(client.getFleetStatus()).rejects.toMatchObject({
       code: 'runtime_unavailable',
       message: 'The runtime executor lease is not held.',
       status: 503,
@@ -156,7 +156,7 @@ describe('createHttpApiClient session domain', () => {
     client.subscribeSessionInvalidated(invalidated);
 
     await client.login({ email: 'admin@example.com', password: 'test-password-123' });
-    await expect(client.getTrafficStatus()).rejects.toMatchObject({ status: 401 });
+    await expect(client.getFleetStatus()).rejects.toMatchObject({ status: 401 });
     await client.stopRuntime();
 
     expect(invalidated).toHaveBeenCalledOnce();

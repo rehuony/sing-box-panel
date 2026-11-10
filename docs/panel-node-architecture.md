@@ -190,7 +190,8 @@ command, after a new runtime transition, and when a periodic check finds a
 change such as a new public IP. It sends a metrics sample every ten seconds.
 While a browser views a node's live metrics, the panel sends `TelemetryControl`
 to raise that node to one sample per second and lowers it again when the last
-viewer leaves. The fleet overview uses baseline samples. Traffic counters ride
+viewer leaves. The fleet overview and the nodes view read every node's baseline samples at once
+through `/fleet/status`, with rates averaged over ten seconds. Traffic counters ride
 on metrics samples. The panel stores each node's last state report, keeping it
 visible while the node is offline, and stores metrics history, traffic periods
 and runtime history per node, with the existing retention settings. The
@@ -218,12 +219,13 @@ compatibility, because the product has no stable release yet.
 
 | Scope | Resources |
 | --- | --- |
-| Fleet | `/nodes` (list with each node's reported state, add with enrollment code, rename, delete), fleet traffic status with each node's usage and quota, core catalog and artifact cache, subscriptions, panel settings, panel logs, authentication |
+| Fleet | `/fleet/status` (every node with its metrics), `/nodes` (list with each node's reported state, add with enrollment code, rename, delete), fleet traffic status with each node's usage and quota, core catalog and artifact cache, subscriptions, panel settings, panel logs, authentication |
 | One node | `/nodes/{node_id}/…`: status, cores, configuration file and check, runtime controls, rollback, filesystem, core logs, metrics and their stream and history, dashboard stream, settings (public host, traffic quota and period), traffic periods and runtime history |
 
 OpenAPI remains the authoritative HTTP contract. The Web UI follows
-[`DESIGN.md`](../DESIGN.md)'s node-first shell: a fleet overview, a node
-workspace (dashboard, cores, configuration, logs), subscriptions and settings.
+[`DESIGN.md`](../DESIGN.md)'s node-first shell: an overview of the fleet's key
+figures, the node list, a node workspace (dashboard, cores, configuration,
+logs, settings), subscriptions, logs and settings.
 
 ## Node console
 

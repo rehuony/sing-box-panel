@@ -49,7 +49,7 @@ function SettingsEditor({ initial }: { initial: PanelSettingsView }) {
     submit,
   } = usePanelSettingsDraft(initial);
   return (
-    <form className='flex min-h-0 flex-1 flex-col rounded-[var(--radius-card)] border bg-card px-4 pt-4 pb-2 sm:px-6 sm:pt-6' noValidate onSubmit={submit}>
+    <form className='flex min-h-0 flex-1 flex-col rounded-[var(--radius-card)] border bg-[var(--color-surface-translucent)] px-4 pt-4 pb-2 sm:px-6 sm:pt-6' noValidate onSubmit={submit}>
       <div className='mb-4 sm:hidden'>
         <Select value={category} onValueChange={value => value && setCategory(value)}>
           <SelectTrigger aria-label={t('panelSettings.category')} className='w-full'><SelectValue>{t(`panelSettings.${category}`)}</SelectValue></SelectTrigger>

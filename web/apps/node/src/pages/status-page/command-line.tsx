@@ -207,7 +207,7 @@ export function CommandLine({
           autoCapitalize='off'
           autoComplete='off'
           autoCorrect='off'
-          className='status-prompt min-w-[12ch] flex-1 bg-transparent p-0 text-base leading-5 text-[var(--color-terminal-text)] outline-none placeholder:text-[var(--color-terminal-muted)] sm:text-compact'
+          className='status-prompt min-w-[12ch] flex-1 bg-transparent p-0 text-base leading-5 text-foreground outline-none placeholder:text-muted-foreground sm:text-compact'
           data-slot='status-prompt-input'
           enterKeyHint='send'
           maxLength={4200}
@@ -238,13 +238,13 @@ export function CommandLine({
                       className={cn(
                         'inline-block min-w-[11ch] rounded-[2px]',
                         chosen
-                          ? 'bg-[var(--color-terminal-text)] text-[var(--color-terminal)] shadow-[0_0_0_2px_var(--color-terminal-text)]'
-                          : 'text-[var(--color-terminal-text)]',
+                          ? 'bg-foreground text-card shadow-[0_0_0_2px_var(--foreground)]'
+                          : 'text-foreground',
                       )}
                     >
                       {command.name}
                     </span>
-                    <span className={chosen ? 'text-[var(--color-terminal-text)]' : 'text-[var(--color-terminal-muted)]'}>
+                    <span className={chosen ? 'text-foreground' : 'text-muted-foreground'}>
                       {command.description}
                     </span>
                   </li>

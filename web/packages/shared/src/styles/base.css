@@ -150,16 +150,17 @@ h3 {
   outline-offset: -1px;
 }
 
+/* Selection is a soft band that keeps each text's colour. */
 ::selection {
-  background: var(--primary);
-  color: var(--primary-foreground);
+  background: var(--color-selection);
+  color: currentcolor;
   text-shadow: none;
 }
 
 /* Native scrollers that are not a scroll area; in the base layer so a utility can hide them. */
 @layer base {
   * {
-    scrollbar-color: var(--color-border-strong) transparent;
+    scrollbar-color: var(--color-selection) transparent;
     scrollbar-width: thin;
   }
 }

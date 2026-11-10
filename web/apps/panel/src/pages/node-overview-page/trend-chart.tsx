@@ -95,9 +95,9 @@ export function TrendChart({
               label: t(
                 kind === 'traffic' ? 'dashboard.trend.download' : 'dashboard.trend.connections',
               ),
-              stroke: color('--primary'),
+              stroke: color('--chart-1'),
               // Keep the grid visible through the fill instead of tinting it with an opaque surface color.
-              fill: `color-mix(in srgb, ${color('--primary')} 8%, transparent)`,
+              fill: `color-mix(in srgb, ${color('--chart-1')} 8%, transparent)`,
               width: 2,
               spanGaps: false,
               points: { show: live, size: 3 },
@@ -194,7 +194,7 @@ export function TrendChart({
   }
   return (
     <div
-      className='relative min-h-40 flex-1 outline-none @max-[650px]:min-h-65'
+      className='relative min-h-40 flex-1 outline-none @max-[650px]:min-h-48'
       role='figure'
       aria-label={t(`dashboard.trend.${kind}`)}
       aria-describedby={descriptionId}
@@ -229,7 +229,7 @@ export function TrendChart({
               return (
                 <span className='flex items-baseline justify-between gap-5' key={metric}>
                   <span className='flex items-center gap-1.5 text-muted-foreground'>
-                    <i className={`size-1.5 flex-none rounded-full ${metric === 'upload' ? 'bg-chart-2' : 'bg-primary'}`} aria-hidden='true' />
+                    <i className={`size-1.5 flex-none rounded-full ${metric === 'upload' ? 'bg-chart-2' : 'bg-chart-1'}`} aria-hidden='true' />
                     {t(`dashboard.trend.${metric}`)}
                   </span>
                   <span className='font-semibold whitespace-nowrap tabular-nums'>

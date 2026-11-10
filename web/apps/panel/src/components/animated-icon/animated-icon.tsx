@@ -3,6 +3,7 @@ import type { ComponentPropsWithoutRef } from 'react';
 import {
   Activity as StaticActivityIcon,
   Boxes as StaticBoxesIcon,
+  Gauge as StaticGaugeIcon,
   Radio as StaticRadioIcon,
   Settings as StaticSettingsIcon,
 } from 'lucide-react';
@@ -10,6 +11,7 @@ import {
 import { usePrefersReducedMotion } from '@/hooks/use-prefers-reduced-motion';
 
 import { BoxesIcon } from './icons/boxes-icon';
+import { GaugeIcon } from './icons/gauge-icon';
 import { RadioIcon } from './icons/radio-icon';
 import { ActivityIcon } from './icons/activity-icon';
 import { SettingsIcon } from './icons/settings-icon';
@@ -22,6 +24,10 @@ const ICONS = {
   nodes: {
     animated: BoxesIcon,
     fallback: StaticBoxesIcon,
+  },
+  overview: {
+    animated: GaugeIcon,
+    fallback: StaticGaugeIcon,
   },
   settings: {
     animated: SettingsIcon,

@@ -640,6 +640,12 @@ func TestNodeReportsStateHistoryAndTraffic(t *testing.T) {
 		metrics.LiveSample == nil || metrics.LiveSample.ActiveConnections != 3 || metrics.Host == nil || metrics.Host.CPUCount != 2 {
 		t.Fatalf("node metrics = %+v", metrics)
 	}
+	// The fleet overview reads every node at once, its rate averaged over the baseline interval.
+	status, err := service.Status(t.Context())
+	if err != nil || len(status) != 1 || status[0].Node.ID != node.id || status[0].Metrics.LiveSample == nil ||
+		status[0].Metrics.LiveSample.UploadBytesPerSecond == nil || *status[0].Metrics.LiveSample.UploadBytesPerSecond != 30 {
+		t.Fatalf("fleet status = %+v, %v; want the node with its ten-second rate", status, err)
+	}
 	view, err := service.Node(t.Context(), node.id)
 	if err != nil || view.ReportedAt == nil || view.PublicIP != "203.0.113.7" || view.Runtime == nil ||
 		view.Runtime.ObservationState != "running" || view.Runtime.Running == nil || view.Runtime.Running.PID != 42 {

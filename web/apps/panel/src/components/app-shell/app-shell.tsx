@@ -2,9 +2,11 @@ import type { CSSProperties } from 'react';
 
 import { LogOut } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import { useQuery } from '@tanstack/react-query';
 import { Button } from '@shared/components/ui/button';
 import { Spinner } from '@shared/components/ui/spinner';
 import { motion, useReducedMotion } from 'motion/react';
+import { formatRate } from '@shared/lib/telemetry-format';
 import { Suspense, useEffect, useRef, useState } from 'react';
 
 import '@/i18n';
@@ -34,8 +36,12 @@ import {
 import type { PagePath } from '@/routes/page-loaders';
 
 import { useTheme } from '@/theme';
+import { queries } from '@/api/queries';
+import { fleetWords } from '@/utils/fleet-summary';
+import { useBackdrop } from '@/components/backdrop';
 import { PanelLogo } from '@/components/panel-logo';
 import { preloadPage } from '@/routes/page-loaders';
+import { useApiClient } from '@/api/api-client-context';
 import { ErrorNotice } from '@/components/error-notice';
 import { AnimatedIcon } from '@/components/animated-icon';
 import { LoadingState } from '@/components/loading-state';
@@ -43,6 +49,7 @@ import { useAuthSession } from '@/stores/auth-session.store';
 import { useUnsavedChangesContext } from '@/stores/unsaved-changes.store';
 
 const navigationItems = [
+  { icon: 'overview', labelKey: 'nav.overview', page: 'overview', to: '/overview' },
   { icon: 'nodes', labelKey: 'nav.nodes', page: 'nodes', to: '/nodes' },
   { icon: 'subscriptions', labelKey: 'nav.subscriptions', page: 'subscriptions', to: '/subscriptions' },
   { icon: 'logs', labelKey: 'nav.logs', page: 'logs', to: '/logs' },
@@ -109,8 +116,21 @@ function WorkspaceLoadingState() {
   return <LoadingState label={t('shell.loading.page')} fullScreen={false} />;
 }
 
+/** Hands the fleet's own values to the backdrop behind the shell. */
+function useFleetWords() {
+  const { i18n } = useTranslation();
+  const locale = i18n.resolvedLanguage ?? i18n.language ?? 'en';
+  const client = useApiClient();
+  const { setWords } = useBackdrop();
+  const fleet = useQuery({ ...queries.fleetStatus(client), refetchInterval: 30_000 });
+  useEffect(() => {
+    setWords(fleetWords(fleet.data?.items ?? [], value => formatRate(value, locale)));
+  }, [fleet.data, locale, setWords]);
+}
+
 export function AppShell() {
   const { t } = useTranslation();
+  useFleetWords();
   const { logout, session } = useAuthSession();
   const { cycleTheme, preference } = useTheme();
   const { confirmNavigation } = useUnsavedChangesContext();
@@ -120,7 +140,7 @@ export function AppShell() {
   const [logoutError, setLogoutError] = useState<unknown | null>(null);
   const [loggingOut, setLoggingOut] = useState(false);
   useEffect(() => {
-    preloadPage('nodes');
+    preloadPage('overview');
   }, []);
   useEffect(() => {
     if (scrollRef.current) scrollRef.current.scrollTop = 0;

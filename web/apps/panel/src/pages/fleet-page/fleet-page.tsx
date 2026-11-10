@@ -2,157 +2,177 @@ import { useTranslation } from 'react-i18next';
 import { useQuery } from '@tanstack/react-query';
 import { Input } from '@shared/components/ui/input';
 import { Button } from '@shared/components/ui/button';
-import { formatBytes } from '@shared/lib/telemetry-format';
+import { Search, SearchX, Server } from 'lucide-react';
 import { useDeferredValue, useMemo, useState } from 'react';
-import { ArrowDown, ArrowUp, Search, SearchX, Server } from 'lucide-react';
-import { Tooltip, TooltipContent, TooltipTrigger } from '@shared/components/ui/tooltip';
+import { ScrollArea } from '@shared/components/ui/scroll-area';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@shared/components/ui/tabs';
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@shared/components/ui/empty';
+
+import type { NodeStatus } from '@/utils/fleet-summary';
 
 import { queries } from '@/api/queries';
 import { useApiClient } from '@/api/api-client-context';
 import { LoadingState } from '@/components/loading-state';
-import { ListPagination } from '@/components/list-pagination';
+import { usePageVisible } from '@/hooks/use-page-visible';
+import { AddNodeDialog } from '@/components/add-node-dialog';
 import { ShellNavigationTrigger } from '@/components/app-shell';
 import { describeRequestError } from '@/components/error-notice';
+import { WorkspaceToolbar, WorkspaceToolbarActions } from '@/components/workspace-toolbar';
 
 import { NodeCard } from './node-card';
-import { AddNodeDialog } from './add-node-dialog';
+
+/** How often the view reads the fleet while it is in view. */
+const REFRESH_MS = 5_000;
+
+const FILTERS = ['all', 'online', 'offline', 'pending'] as const;
+type Filter = typeof FILTERS[number];
 
 const emptyMedia = 'mb-3 size-12 rounded-[var(--radius-card)] border bg-[var(--color-surface-raised)] text-muted-foreground [&_svg]:size-6';
+const emptyRegion = 'min-h-0 flex-1 rounded-[var(--radius-card)] border border-solid bg-[var(--color-surface-translucent)]';
 
-/** The fleet: every node as a card, with the fleet's online count and summed period usage. */
+function counts(items: readonly NodeStatus[]): Record<Filter, number> {
+  const result = { all: items.length, offline: 0, online: 0, pending: 0 };
+  for (const { node } of items) result[node.state] += 1;
+  return result;
+}
+
+/**
+ * Nodes that need attention lead: offline, then over quota, then not
+ * enrolled; the rest follow by name. Live load never reorders the grid, so
+ * cards stay where they are between refreshes.
+ */
+function attention({ metrics, node }: NodeStatus): number {
+  if (node.state === 'offline') return 0;
+  if (metrics.quota_exceeded) return 1;
+  if (node.state === 'pending') return 2;
+  return 3;
+}
+
+/**
+ * The fleet: every node as a card with its live load. One fixed toolbar row
+ * filters by state, with each state's count, then searches and adds a node;
+ * the grid scrolls in its own region below it.
+ */
 export function FleetPage() {
   const { i18n, t } = useTranslation();
   const locale = i18n.resolvedLanguage ?? i18n.language ?? 'en';
   const client = useApiClient();
-  const nodes = useQuery({ ...queries.fleetNodes(client), refetchInterval: 15_000 });
-  const traffic = useQuery({ ...queries.trafficStatus(client), refetchInterval: 30_000 });
+  const visible = usePageVisible();
+  const status = useQuery({
+    ...queries.fleetStatus(client),
+    enabled: visible,
+    refetchInterval: visible ? REFRESH_MS : false,
+  });
   const [search, setSearch] = useState('');
   const query = useDeferredValue(search.trim().toLowerCase());
-  const [page, setPage] = useState(1);
-  const [size, setSize] = useState(10);
-  const items = useMemo(() => nodes.data?.items ?? [], [nodes.data]);
-  const matching = useMemo(() => query === ''
-    ? items
-    : items.filter(node => [node.name, node.hostname, node.public_ip ?? ''].some(value => value.toLowerCase().includes(query))), [items, query]);
-  const pages = Math.max(1, Math.ceil(matching.length / size));
-  const current = Math.min(page, pages);
-  if (current !== page) setPage(current);
-  const visible = matching.slice((current - 1) * size, current * size);
-  const usage = new Map(traffic.data?.nodes.map(item => [item.node_id, item]));
-  const online = items.filter(node => node.state === 'online').length;
-  const refresh = () => {
-    void nodes.refetch();
-    void traffic.refetch();
-  };
+  const [filter, setFilter] = useState<Filter>('all');
+  const items = useMemo(() => {
+    const names = new Intl.Collator(locale, { numeric: true });
+    return [...status.data?.items ?? []]
+      .sort((a, b) => attention(a) - attention(b) || names.compare(a.node.name, b.node.name));
+  }, [locale, status.data]);
+  const totals = useMemo(() => counts(items), [items]);
+  const matching = useMemo(() => items.filter(({ node }) => (filter === 'all' || node.state === filter)
+    && (query === '' || [node.name, node.hostname, node.public_ip ?? ''].some(value => value.toLowerCase().includes(query)))), [filter, items, query]);
+  const refresh = () => void status.refetch();
+  // The row keeps its controls before the first read and while any node exists;
+  // an empty fleet leads with adding one instead.
+  const controls = status.isPending || items.length > 0;
 
   let content;
-  if (nodes.isPending) {
+  if (status.isPending) {
     content = <LoadingState label={t('fleet.loading')} fullScreen={false} />;
-  } else if (nodes.isError) {
+  } else if (status.data === undefined) {
     content = (
-      <Empty className='rounded-[var(--radius-card)] border border-solid bg-card' role='status'>
+      <Empty className={emptyRegion} role='status'>
         <EmptyHeader>
           <EmptyMedia className={emptyMedia}><SearchX aria-hidden='true' strokeWidth={1.5} /></EmptyMedia>
           <EmptyTitle>{t('nodes.loadFailed')}</EmptyTitle>
-          <EmptyDescription>{describeRequestError(nodes.error)}</EmptyDescription>
+          <EmptyDescription>{describeRequestError(status.error)}</EmptyDescription>
         </EmptyHeader>
         <EmptyContent><Button onClick={refresh} variant='outline'>{t('shell.error.retry')}</Button></EmptyContent>
       </Empty>
     );
   } else if (items.length === 0) {
     content = (
-      <Empty className='rounded-[var(--radius-card)] border border-solid bg-card' role='status'>
+      <Empty className={emptyRegion} role='status'>
         <EmptyHeader>
           <EmptyMedia className={emptyMedia}><Server aria-hidden='true' strokeWidth={1.5} /></EmptyMedia>
           <EmptyTitle>{t('fleet.empty.title')}</EmptyTitle>
-          <EmptyDescription>{t('fleet.empty.description')}</EmptyDescription>
         </EmptyHeader>
         <EmptyContent><AddNodeDialog onAdded={refresh} /></EmptyContent>
       </Empty>
     );
   } else if (matching.length === 0) {
     content = (
-      <Empty className='rounded-[var(--radius-card)] border border-solid bg-card' role='status'>
+      <Empty className={emptyRegion} role='status'>
         <EmptyHeader>
           <EmptyMedia className={emptyMedia}><SearchX aria-hidden='true' strokeWidth={1.5} /></EmptyMedia>
           <EmptyTitle>{t('fleet.noMatch.title')}</EmptyTitle>
-          <EmptyDescription>{t('fleet.noMatch.description')}</EmptyDescription>
         </EmptyHeader>
-        <EmptyContent><Button onClick={() => setSearch('')} variant='outline'>{t('fleet.noMatch.clear')}</Button></EmptyContent>
+        <EmptyContent>
+          <Button
+            onClick={() => {
+              setSearch('');
+              setFilter('all');
+            }}
+            variant='outline'
+          >
+            {t('fleet.noMatch.clear')}
+          </Button>
+        </EmptyContent>
       </Empty>
     );
   } else {
     content = (
-      <>
-        <ul aria-label={t('nav.nodes')} className='grid grid-cols-[repeat(auto-fill,minmax(min(100%,18rem),1fr))] content-start gap-4'>
-          {visible.map(node => <li className='flex min-w-0 flex-col *:flex-1' key={node.id}><NodeCard node={node} usage={usage.get(node.id)} /></li>)}
+      <ScrollArea className='min-h-0 flex-1'>
+        <ul aria-label={t('nav.nodes')} className='grid grid-cols-[repeat(auto-fill,minmax(min(100%,22rem),1fr))] content-start gap-4'>
+          {matching.map(item => <li className='flex min-w-0 flex-col *:flex-1' key={item.node.id}><NodeCard item={item} now={status.dataUpdatedAt} /></li>)}
         </ul>
-        <ListPagination
-          onPageChange={setPage}
-          onPageSizeChange={(value) => {
-            setSize(value);
-            setPage(1);
-          }}
-          page={current}
-          pageSize={size}
-          pages={pages}
-        />
-      </>
+      </ScrollArea>
     );
   }
 
-  const upload = traffic.data?.upload_bytes;
-  const download = traffic.data?.download_bytes;
+  // Size containment keeps the cards out of the workspace's height, so the view
+  // fills it exactly and the grid scrolls below the fixed toolbar row.
   return (
-    <section className='flex min-w-0 flex-1 flex-col gap-[var(--workspace-content-gap)]'>
+    <Tabs className='min-h-0 min-w-0 flex-1 gap-[var(--workspace-content-gap)] [contain:size]' onValueChange={value => setFilter(value as Filter)} value={filter}>
       <h1 className='sr-only'>{t('nav.nodes')}</h1>
-      <div className='flex flex-wrap items-center gap-3'>
+      <WorkspaceToolbar>
         <ShellNavigationTrigger />
-        <div className='relative min-w-0 flex-1 sm:w-64 sm:flex-none'>
-          <Search aria-hidden='true' className='pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground' />
-          <Input
-            aria-label={t('fleet.search')}
-            className='pl-9'
-            onChange={(event) => {
-              setSearch(event.target.value);
-              setPage(1);
-            }}
-            placeholder={t('fleet.search')}
-            type='search'
-            value={search}
-          />
-        </div>
-        <div className='flex min-w-0 items-center gap-4 text-xs text-muted-foreground max-sm:order-last max-sm:w-full'>
-          <span className='whitespace-nowrap' role='status'>
-            {nodes.data ? t('fleet.online', { count: online, total: items.length }) : '—'}
-          </span>
-          <Tooltip>
-            <TooltipTrigger
-              render={(
-                <span
-                  aria-label={t('fleet.usage', { upload: formatBytes(upload, locale), download: formatBytes(download, locale) })}
-                  className='flex items-center gap-2 font-mono whitespace-nowrap tabular-nums outline-none'
-                  role='group'
-                  tabIndex={0}
-                />
-              )}
-            >
-              <span aria-hidden='true' className='flex items-center gap-1'>
-                <ArrowUp className='size-3.5 text-chart-2' />
-                {formatBytes(upload, locale)}
-              </span>
-              <span aria-hidden='true' className='flex items-center gap-1'>
-                <ArrowDown className='size-3.5 text-primary' />
-                {formatBytes(download, locale)}
-              </span>
-            </TooltipTrigger>
-            <TooltipContent>{t('fleet.usageHint')}</TooltipContent>
-          </Tooltip>
-        </div>
-        {items.length > 0 ? <div className='ml-auto'><AddNodeDialog onAdded={refresh} /></div> : null}
-      </div>
-      {content}
-    </section>
+        {controls
+          ? (
+              // Phones put the search and adding beside the navigation and give the filter its own full row.
+              <TabsList aria-label={t('fleet.filter.label')} className='max-sm:order-last max-sm:w-full'>
+                {FILTERS.map(value => (
+                  <TabsTrigger key={value} value={value}>
+                    {value === 'all' ? t('fleet.filter.all') : t(`nodes.state.${value}`)}
+                    {status.data ? <span className='font-[family-name:var(--font-data)] text-xs text-muted-foreground tabular-nums'>{totals[value]}</span> : null}
+                  </TabsTrigger>
+                ))}
+              </TabsList>
+            )
+          : null}
+        {controls
+          ? (
+              <WorkspaceToolbarActions className='max-sm:min-w-0'>
+                <div className='relative min-w-0 flex-1 sm:w-64 sm:flex-none'>
+                  <Search aria-hidden='true' className='pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground' />
+                  <Input
+                    aria-label={t('fleet.search')}
+                    className='pl-9'
+                    onChange={event => setSearch(event.target.value)}
+                    placeholder={t('fleet.search')}
+                    type='search'
+                    value={search}
+                  />
+                </div>
+                <AddNodeDialog onAdded={refresh} />
+              </WorkspaceToolbarActions>
+            )
+          : null}
+      </WorkspaceToolbar>
+      <TabsContent className='flex min-h-0 flex-col' value={filter}>{content}</TabsContent>
+    </Tabs>
   );
 }

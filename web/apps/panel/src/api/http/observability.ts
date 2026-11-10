@@ -3,8 +3,7 @@ import type { ApiClient, CoreLogChunk, CoreLogFile,
   DashboardStreamSnapshot,
   MetricsSnapshot,
   NodeSettings,
-  PanelLogPage,
-  TrafficStatus } from '../api-client';
+  PanelLogPage } from '../api-client';
 
 import { ApiRequestError } from '../api-client';
 import { readJSONEvents } from './event-stream';
@@ -93,12 +92,6 @@ export function createObservabilityHttpApi(context: HttpApiContext) {
     },
     getMetrics(signal) {
       return request<MetricsSnapshot>(fetcher, `${nodeUrl()}/metrics`, {
-        method: 'GET',
-        signal,
-      });
-    },
-    getTrafficStatus(signal) {
-      return request<TrafficStatus>(fetcher, `${baseUrl}/traffic/status`, {
         method: 'GET',
         signal,
       });

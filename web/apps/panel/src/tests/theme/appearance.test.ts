@@ -24,15 +24,16 @@ describe('initial appearance', () => {
 });
 
 describe('appearance tokens', () => {
-  it('defaults to system and matches the server first-paint palette', () => {
+  it('defaults to system and derives only the accent roles the stylesheet defaults to', () => {
     expect(DEFAULT_APPEARANCE.theme).toBe('system');
-    const names = ['--color-canvas', '--accent'];
+    const names = ['--primary', '--accent', '--color-accent-hover'];
     for (const [dark, expected] of [
-      [false, ['#fdf8f6', '#faf0ea']],
-      [true, ['#1b181e', '#34221c']],
+      [false, ['#6d4ed1', '#ebe9f6', '#6045b8']],
+      [true, ['#a08ce1', '#312c49', '#ab9ae5']],
     ] as const) {
-      const tokens = appearanceTokens({ ...DEFAULT_APPEARANCE, color: '#C65B13' }, dark);
+      const tokens = appearanceTokens(DEFAULT_APPEARANCE, dark);
       expect(names.map(name => tokens[name])).toEqual(expected);
+      expect(tokens).not.toHaveProperty('--color-canvas');
     }
   });
   it('keeps accent text readable for arbitrary colors in both themes', () => {

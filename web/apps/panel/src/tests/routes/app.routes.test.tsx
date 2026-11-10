@@ -73,7 +73,7 @@ describe('application routes', () => {
     }
   });
 
-  it('opens the node overview once the session is ready', async () => {
+  it('opens the fleet overview once the session is ready', async () => {
     let resolveSession!: (value: typeof testSession) => void;
     const session = new Promise<typeof testSession>(resolve => {
       resolveSession = resolve;
@@ -84,7 +84,9 @@ describe('application routes', () => {
     expect(checking.closest('main')).toHaveAttribute('aria-busy', 'true');
     await act(async () => resolveSession(testSession));
     expect(await screen.findByRole('link', { name: testNode.name })).toBeVisible();
-    expect(screen.getByLabelText('Current route')).toHaveTextContent(/^\/nodes$/);
+    expect(screen.getByLabelText('Current route')).toHaveTextContent(/^\/overview$/);
+    expect(screen.getByRole('heading', { name: 'Overview' })).toBeInTheDocument();
+    expect(client.getFleetStatus).toHaveBeenCalled();
     expect(client.forNode).not.toHaveBeenCalled();
   });
 
@@ -289,7 +291,7 @@ describe('application routes', () => {
     expect(client.login).not.toHaveBeenCalled();
   });
 
-  it('reports validation through a toast and describes the focused invalid field', async () => {
+  it('prints validation below the prompt and describes the focused invalid field', async () => {
     const user = userEvent.setup();
     const client = createMockApiClient({ getSession: vi.fn().mockResolvedValue(null) });
     renderRoutes('/login', client);
@@ -299,7 +301,7 @@ describe('application routes', () => {
     expect(email).toHaveFocus();
     expect(email).toBeInvalid();
     expect(email).toHaveAccessibleDescription('Enter a valid email address.');
-    expect(await screen.findByText('Enter a valid email address.', { selector: '[data-slot="toast-title"]' })).toBeVisible();
+    expect(screen.getByRole('alert')).toHaveTextContent('Enter a valid email address.');
 
     await user.type(email, 'admin@example.com');
     expect(email).not.toHaveAttribute('aria-describedby');
@@ -307,7 +309,7 @@ describe('application routes', () => {
     expect(password).toHaveFocus();
     expect(password).toBeInvalid();
     expect(password).toHaveAccessibleDescription('Enter your password to continue.');
-    expect(await screen.findByText('Enter your password to continue.', { selector: '[data-slot="toast-title"]' })).toBeVisible();
+    expect(screen.getByRole('alert')).toHaveTextContent('Enter your password to continue.');
     expect(client.login).not.toHaveBeenCalled();
   });
 
@@ -325,18 +327,18 @@ describe('application routes', () => {
     const password = screen.getByLabelText('Password');
     await user.type(email, 'admin@example.com');
     await user.type(password, 'incorrect-password{Enter}');
+    // A pending sign-in keeps its lines and ignores another submit.
     const submit = screen.getByRole('button', { name: /Signing in/ });
-    expect(submit).toBeDisabled();
-    expect(password).toBeDisabled();
+    expect(password).toHaveAttribute('readonly');
     await user.click(submit);
     expect(client.login).toHaveBeenCalledTimes(1);
 
     await act(async () => rejectLogin(new ApiRequestError('Invalid credentials', { status: 401, code: 'unauthorized' })));
-    expect(await screen.findByText('The email or password is incorrect.', { selector: '[data-slot="toast-title"]' })).toBeVisible();
+    expect(await screen.findByRole('alert')).toHaveTextContent('The email or password is incorrect.');
     expect(email).toHaveValue('admin@example.com');
     expect(password).toHaveValue('incorrect-password');
     expect(password).toHaveAccessibleDescription('The email or password is incorrect.');
-    expect(password).toBeEnabled();
+    expect(password).not.toHaveAttribute('readonly');
     expect(screen.getByRole('button', { name: 'Sign in' })).toBeEnabled();
   });
 

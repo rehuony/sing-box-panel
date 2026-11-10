@@ -199,7 +199,7 @@ export function CoresPage() {
           <ErrorNotice error={library.catalogError} title={t('cores.error.catalog')} />
         )}
         <TabsContent
-          className='flex min-h-80 flex-1 flex-col overflow-hidden rounded-[var(--radius-card)] border bg-card'
+          className='flex min-h-80 flex-1 flex-col overflow-hidden rounded-[var(--radius-card)] border bg-[var(--color-surface-translucent)]'
           value={tab}
           aria-busy={listLoading}
         >

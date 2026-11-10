@@ -1,6 +1,6 @@
 import { useTranslation } from 'react-i18next';
+import { Empty, EmptyHeader, EmptyMedia, EmptyTitle } from '@shared/components/ui/empty';
 import { FileWarning, KeyRound, Layers3, Network, Route, Rss, SearchX, Send } from 'lucide-react';
-import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@shared/components/ui/empty';
 
 import { LoadingState } from '@/components/loading-state';
 
@@ -34,7 +34,6 @@ export function SubscriptionContentState({ loading = false, kind = 'nodes', titl
           <Icon />
         </EmptyMedia>
         <EmptyTitle>{title}</EmptyTitle>
-        <EmptyDescription>{t(`subscriptions.states.${kind}`)}</EmptyDescription>
       </EmptyHeader>
     </Empty>
   );

@@ -124,11 +124,40 @@ func (service *Service) NodeMetrics(ctx context.Context, nodeID string) (telemet
 	return snapshot.Metrics, err
 }
 
+// NodeStatus is one node with its live evidence and recorded traffic.
+type NodeStatus struct {
+	Node    Node                      `json:"node"`
+	Metrics telemetry.MetricsSnapshot `json:"metrics"`
+}
+
+// Status returns every node with its metrics, in one read for the fleet
+// overview.
+func (service *Service) Status(ctx context.Context) ([]NodeStatus, error) {
+	records, err := service.database.Nodes(ctx)
+	if err != nil {
+		return nil, err
+	}
+	nodes := make([]NodeStatus, 0, len(records))
+	for _, record := range records {
+		snapshot, err := service.recordSnapshot(ctx, record)
+		if err != nil {
+			return nil, err
+		}
+		nodes = append(nodes, NodeStatus{Node: service.view(record), Metrics: snapshot.Metrics})
+	}
+	return nodes, nil
+}
+
 func (service *Service) metricsStreamSnapshot(ctx context.Context, nodeID string) (MetricsStreamSnapshot, error) {
 	record, err := service.database.Node(ctx, nodeID)
 	if err != nil {
 		return MetricsStreamSnapshot{}, err
 	}
+	return service.recordSnapshot(ctx, record)
+}
+
+func (service *Service) recordSnapshot(ctx context.Context, record store.Node) (MetricsStreamSnapshot, error) {
+	nodeID := record.ID
 	var applied *telemetry.AppliedBundle
 	var runtime RuntimeStatus
 	if state := nodeState(record); state != nil {

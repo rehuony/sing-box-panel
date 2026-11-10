@@ -184,3 +184,163 @@
 [data-slot='toast'] {
   border-radius: var(--radius-card);
 }
+
+/*
+ * A terminal prompt's input line: the transparent input keeps the value and
+ * selection, the mirror draws one cell per character, its selection and cursor.
+ */
+
+@keyframes prompt-shake {
+  0%,
+  100% {
+    translate: 0;
+  }
+  20% {
+    translate: -6px;
+  }
+  40% {
+    translate: 5px;
+  }
+  60% {
+    translate: -3px;
+  }
+  80% {
+    translate: 2px;
+  }
+}
+
+@keyframes prompt-output-in {
+  from {
+    opacity: 0;
+    translate: 0 -6px;
+  }
+}
+
+@keyframes prompt-cell-in {
+  from {
+    opacity: 0;
+    scale: 0.3;
+  }
+}
+
+@keyframes prompt-caret-blink {
+  50% {
+    opacity: 0;
+  }
+}
+
+/* A refused prompt shakes once; its output row slides down from it. */
+.prompt-shake {
+  animation: prompt-shake 360ms var(--ease-out);
+}
+
+.prompt-output {
+  animation: prompt-output-in var(--dur-short) var(--ease-out);
+}
+
+/* One cell per character, as wide as the input's character with its letter spacing; the mirror sets --prompt-cell. */
+.prompt-input__cell {
+  position: relative;
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: var(--prompt-cell);
+  height: 1.5em;
+  animation: prompt-cell-in var(--dur-short) var(--ease-out);
+}
+
+/* The input scrolls a little past its last character; the mirror can follow it there. */
+.prompt-input__cell.prompt-input__end {
+  width: calc(var(--prompt-cell) * 2);
+  justify-content: flex-start;
+}
+
+.prompt-input__cell[data-selected] {
+  background: color-mix(in oklab, var(--primary) 35%, transparent);
+}
+
+.prompt-input__dot {
+  display: block;
+  width: 0.5em;
+  height: 0.5em;
+  border-radius: 999px;
+  background: currentcolor;
+}
+
+/* The cursor takes no width: a block in the last cell, a bar between characters. */
+.prompt-input__caret {
+  position: absolute;
+  z-index: 1;
+  top: 50%;
+  left: calc((var(--prompt-cell) - 0.55em) / 2);
+  width: 0.55em;
+  height: 1.15em;
+  border-radius: 2px;
+  translate: 0 -50%;
+  background: var(--primary);
+  animation: prompt-caret-blink 1.06s steps(1) infinite;
+}
+
+.prompt-input__caret--bar {
+  left: -1px;
+  width: 2px;
+}
+
+/* The input keeps the selection but never paints it; the mirror does. */
+.prompt-input::selection {
+  background: transparent;
+  color: transparent;
+}
+
+/* Autofilled text stays in the mirror, not in the transparent input. */
+.prompt-input:-webkit-autofill {
+  -webkit-text-fill-color: transparent;
+  transition: background-color 9999s;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .prompt-shake,
+  .prompt-output,
+  .prompt-input__cell,
+  .prompt-input__caret {
+    animation: none;
+  }
+}
+
+/* Ten cells of the monospace grid, filled from the left. */
+.cell-meter {
+  --meter-color: currentcolor;
+
+  flex: none;
+  width: 10ch;
+  height: 0.75em;
+  background: linear-gradient(
+    90deg,
+    var(--meter-color) var(--meter-fill, 0%),
+    color-mix(in oklab, var(--muted-foreground) 30%, transparent) 0
+  );
+  mask: repeating-linear-gradient(90deg, #000 0 calc(1ch - 2px), transparent 0 1ch);
+}
+
+/* A set number of cells across its container, each an equal share of the width. */
+.cell-meter[data-cells] {
+  width: 100%;
+  mask: repeating-linear-gradient(
+    90deg,
+    #000 0 calc(100% / var(--meter-cells) - 2px),
+    transparent 0 calc(100% / var(--meter-cells))
+  );
+}
+
+.cell-meter[data-tone='success'] {
+  --meter-color: var(--color-success);
+}
+
+.cell-meter[data-tone='warning'] {
+  --meter-color: var(--color-warning);
+}
+
+.cell-meter[data-tone='danger'] {
+  --meter-color: var(--color-danger);
+}

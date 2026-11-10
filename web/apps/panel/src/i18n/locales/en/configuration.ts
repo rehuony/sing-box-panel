@@ -202,7 +202,6 @@ export const configuration = {
     version: 'Configuration version',
     unsupported: 'No visual editor schema for {{version}}. Edit JSON or select a supported configuration version.',
     manageVersions: 'Go to version management',
-    noInstalledDescription: 'Download a core version in version management to use visual editing and configuration validation.',
     noInstalledOption: 'None',
     noInstalledTitle: 'No core versions installed',
     error: {

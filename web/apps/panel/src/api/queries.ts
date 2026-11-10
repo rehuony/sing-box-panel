@@ -11,7 +11,7 @@ type Platform = NonNullable<SystemStatus['platform']>;
 export const queries = {
   settings: (client: ApiClient) => queryOptions({ queryKey: ['settings'], queryFn: ({ signal }) => client.getPanelSettings(signal), staleTime: Infinity, gcTime: 0, refetchOnWindowFocus: false }),
   fleetNodes: (client: ApiClient) => queryOptions({ queryKey: ['fleetNodes'], queryFn: ({ signal }) => client.listFleetNodes(signal), staleTime: 15_000 }),
-  trafficStatus: (client: ApiClient) => queryOptions({ queryKey: ['trafficStatus'], queryFn: ({ signal }) => client.getTrafficStatus(signal), staleTime: 15_000 }),
+  fleetStatus: (client: ApiClient) => queryOptions({ queryKey: ['fleetStatus'], queryFn: ({ signal }) => client.getFleetStatus(signal), staleTime: 5_000 }),
   nodeSettings: (client: ApiClient) => queryOptions({ queryKey: ['nodeSettings', client.nodeID], queryFn: ({ signal }) => client.getNodeSettings(signal), staleTime: 0, gcTime: 0, refetchOnWindowFocus: false }),
   // Node-scoped reads carry the node in their key, so nodes never share data.
   coreLogFiles: (client: ApiClient) => queryOptions({ queryKey: ['coreLogFiles', client.nodeID], queryFn: ({ signal }) => client.listCoreLogFiles(signal), staleTime: 5000 }),

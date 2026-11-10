@@ -1,11 +1,14 @@
 import type { HttpApiContext } from './shared';
-import type { ApiClient, FleetNode, NodeEnrollment } from '../api-client';
+import type { ApiClient, FleetNode, FleetStatus, NodeEnrollment } from '../api-client';
 
 export function createFleetHttpApi({ baseUrl, fetcher, request, writeHeaders, writeJSONHeaders }: HttpApiContext) {
   const nodeUrl = (nodeID: string) => `${baseUrl}/nodes/${encodeURIComponent(nodeID)}`;
   return {
     listFleetNodes(signal) {
       return request<{ items: FleetNode[] }>(fetcher, `${baseUrl}/nodes`, { method: 'GET', signal });
+    },
+    getFleetStatus(signal) {
+      return request<FleetStatus>(fetcher, `${baseUrl}/fleet/status`, { method: 'GET', signal });
     },
     createNode(name, signal) {
       return request<NodeEnrollment>(fetcher, `${baseUrl}/nodes`, {
@@ -25,5 +28,5 @@ export function createFleetHttpApi({ baseUrl, fetcher, request, writeHeaders, wr
         method: 'POST', headers: writeHeaders(), signal,
       });
     },
-  } satisfies Pick<ApiClient, 'listFleetNodes' | 'createNode' | 'renameNode' | 'deleteNode' | 'createNodeEnrollment'>;
+  } satisfies Pick<ApiClient, 'listFleetNodes' | 'getFleetStatus' | 'createNode' | 'renameNode' | 'deleteNode' | 'createNodeEnrollment'>;
 }

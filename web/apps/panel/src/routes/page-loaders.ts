@@ -1,4 +1,5 @@
 export const pageLoaders = {
+  'overview': () => import('@/pages/overview-page/overview-page').then(page => ({ default: page.OverviewPage })),
   'nodes': () => import('@/pages/fleet-page/fleet-page').then(page => ({ default: page.FleetPage })),
   'node-overview': () => import('@/pages/node-overview-page/node-overview-page').then(page => ({ default: page.NodeOverviewPage })),
   'node-cores': () => import('@/pages/cores-page/cores-page').then(page => ({ default: page.CoresPage })),

@@ -1,4 +1,4 @@
-import type { CSSProperties, ReactNode } from 'react';
+import type { ReactNode } from 'react';
 
 import { cn } from '@shared/lib/utils';
 import { Check, Copy } from 'lucide-react';
@@ -6,6 +6,7 @@ import { useTranslation } from 'react-i18next';
 import { Button } from '@shared/components/ui/button';
 import { Fragment, useEffect, useState } from 'react';
 import { Spinner } from '@shared/components/ui/spinner';
+import { CellMeter } from '@shared/components/cell-meter';
 import { formatBytes, formatDuration, formatRate, formatUptime } from '@shared/lib/telemetry-format';
 
 import type { ConsoleStatus, RuntimeReading } from '@/api/generated';
@@ -23,7 +24,7 @@ const coreTone: Record<RuntimeReading['state'], string> = {
   inspection_unavailable: 'text-[var(--color-warning-text)]',
   running: 'text-[var(--color-success-text)]',
   stale: 'text-[var(--color-warning-text)]',
-  stopped: 'text-[var(--color-terminal-muted)]',
+  stopped: 'text-muted-foreground',
 };
 
 /**
@@ -41,7 +42,7 @@ function Parts({ children }: { children: ReactNode[] }) {
           {index > 0 ? ' ' : null}
           <span className='inline-block max-w-full wrap-anywhere'>
             {part}
-            {index < parts.length - 1 ? <span aria-hidden='true' className='text-[var(--color-terminal-muted)]'>{'\u00A0·'}</span> : null}
+            {index < parts.length - 1 ? <span aria-hidden='true' className='text-muted-foreground'>{'\u00A0·'}</span> : null}
           </span>
         </Fragment>
       ))}
@@ -71,7 +72,7 @@ function UpDown({ download, upload }: { download: string; upload: string }) {
 function Row({ children, label }: { children: ReactNode; label: string }) {
   return (
     <div className='contents'>
-      <dt className='text-[var(--color-terminal-muted)]'>{label}</dt>
+      <dt className='text-muted-foreground'>{label}</dt>
       <dd className='flex min-h-5 min-w-0 items-center'>{children}</dd>
     </div>
   );
@@ -79,7 +80,7 @@ function Row({ children, label }: { children: ReactNode; label: string }) {
 
 function Unavailable() {
   const { t } = useTranslation();
-  return <span className='text-[var(--color-terminal-muted)]'>{t('common.unavailable')}</span>;
+  return <span className='text-muted-foreground'>{t('common.unavailable')}</span>;
 }
 
 function CopyButton({ label, value }: { label: string; value: string }) {
@@ -95,8 +96,8 @@ function CopyButton({ label, value }: { label: string; value: string }) {
       aria-label={copied ? t('terminal.copied') : t('terminal.copy', { label })}
       // The button stays a small mark in the line; its target reaches past it.
       className={cn(
-        'relative size-5 min-h-5 rounded-[var(--radius-control)] text-[var(--color-terminal-muted)] after:absolute after:-inset-2.5',
-        'hover:bg-[var(--color-terminal-selection)] hover:text-[var(--color-terminal-text)]',
+        'relative size-5 min-h-5 rounded-[var(--radius-control)] text-muted-foreground after:absolute after:-inset-2.5',
+        'hover:bg-[var(--color-selection)] hover:text-foreground',
       )}
       onClick={() => {
         void navigator.clipboard?.writeText(value).then(() => setCopied(true), () => undefined);
@@ -118,22 +119,10 @@ function Copyable({ label, value }: { label: string; value: string }) {
   );
 }
 
-/**
- * A share drawn as ten cells, filled to the nearest cell and toned as it nears
- * full. Its number beside it carries the value, so a phone leaves it out.
- */
+/** A share as ten cells, toned as it nears full. Its number beside it carries the value, so a phone leaves it out. */
 function Meter({ percent }: { percent: number | null }) {
   if (percent === null) return null;
-  const cells = percent < 0.5 ? 0 : Math.max(1, Math.round(percent / 10));
-  const tone = percent >= 95 ? 'danger' : percent >= 80 ? 'warning' : undefined;
-  return (
-    <span
-      aria-hidden='true'
-      className='status-meter max-sm:hidden'
-      data-tone={tone}
-      style={{ '--meter-fill': `${cells * 10}%` } as CSSProperties}
-    />
-  );
+  return <CellMeter className='max-sm:hidden' percent={percent} tone={percent >= 95 ? 'danger' : percent >= 80 ? 'warning' : undefined} />;
 }
 
 interface StatusReadoutProps {
@@ -183,7 +172,7 @@ export function StatusReadout({ now, rates, stale, status }: StatusReadoutProps)
               retry === null
                 ? null
                 : (
-                    <span className='text-[var(--color-terminal-muted)]' key='retry'>
+                    <span className='text-muted-foreground' key='retry'>
                       {retry > 0 ? t('terminal.value.retryIn', { duration: formatDuration(retry, duration) }) : t('terminal.value.retrying')}
                     </span>
                   ),
@@ -201,7 +190,7 @@ export function StatusReadout({ now, rates, stale, status }: StatusReadoutProps)
                     <span className={coreTone[runtime.state]} key='state'>{t(`terminal.value.core.${runtime.state}`)}</span>,
                     runtime.state === 'running'
                       ? runtime.running_version
-                      : runtime.enabled_version ?? <span className='text-[var(--color-terminal-muted)]' key='none'>{t('terminal.value.noCore')}</span>,
+                      : runtime.enabled_version ?? <span className='text-muted-foreground' key='none'>{t('terminal.value.noCore')}</span>,
                     runtime.started_at ? t('terminal.value.uptime', { duration: formatUptime(runtime.started_at, now, duration) }) : null,
                     runtime.pid === undefined ? null : t('terminal.value.pid', { pid: runtime.pid }),
                   ]}
@@ -228,7 +217,7 @@ export function StatusReadout({ now, rates, stale, status }: StatusReadoutProps)
                   {[
                     <Unavailable key='rates' />,
                     runtime?.state === 'running'
-                      ? <span className='text-[var(--color-terminal-muted)]' key='why'>{t('terminal.value.noCounters')}</span>
+                      ? <span className='text-muted-foreground' key='why'>{t('terminal.value.noCounters')}</span>
                       : null,
                   ]}
                 </Parts>

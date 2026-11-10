@@ -57,3 +57,6 @@ if (typeof Element.prototype.getAnimations !== 'function') {
   Element.prototype.getAnimations = () => [];
   Object.defineProperty(globalThis, 'BASE_UI_ANIMATIONS_DISABLED', { configurable: true, value: true });
 }
+
+// jsdom draws nothing; the glyph field skips a canvas without a context.
+Object.defineProperty(HTMLCanvasElement.prototype, 'getContext', { configurable: true, value: () => null });

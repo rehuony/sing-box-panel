@@ -269,7 +269,7 @@ function ObjectRowLayout({ actions, context, node }: ObjectRowLayoutProps) {
   return (
     <header
       aria-label={t('node.objectRow', { name: node.name })}
-      className='flex min-h-[var(--shell-header-height)] flex-col justify-center gap-1 rounded-[var(--radius-card)] border bg-card px-2 py-2 sm:px-3 lg:flex-row lg:items-center lg:gap-3'
+      className='flex min-h-[var(--shell-header-height)] flex-col justify-center gap-1 rounded-[var(--radius-card)] border bg-[var(--color-surface-translucent)] px-2 py-2 sm:px-3 lg:flex-row lg:items-center lg:gap-3'
     >
       <div className='flex min-w-0 items-center gap-2 lg:contents'>
         <ShellNavigationTrigger />
@@ -371,7 +371,7 @@ function LiveObjectRow({ node }: { node: FleetNode }) {
       </span>
       <ContextValue icon={Clock3} label={t('telemetry.metric.uptime')} title={uptimeTitle} value={uptime} />
       <ContextValue icon={ArrowUp} label={t('telemetry.metric.upload')} tone='text-chart-2' value={formatRate(uploadRate, locale)} />
-      <ContextValue icon={ArrowDown} label={t('telemetry.metric.download')} tone='text-primary' value={formatRate(downloadRate, locale)} />
+      <ContextValue icon={ArrowDown} label={t('telemetry.metric.download')} tone='text-chart-1' value={formatRate(downloadRate, locale)} />
       <StreamStatus reconnecting={reconnecting} />
     </>
   );

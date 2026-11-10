@@ -46,7 +46,8 @@ export function contrastRatio(first: string, second: string): number {
 export function appearanceTokens(appearance: AppearanceSettings, dark = false): Record<string, string> {
   const color = /^#[\dA-F]{6}$/i.test(appearance.color) ? appearance.color : DEFAULT_APPEARANCE.color;
   const base = rgb(color);
-  const surface: RGB = dark ? [24, 23, 30] : [255, 255, 255];
+  // The card surface, the same under every accent: #25262f and #f8f8fa.
+  const surface: RGB = dark ? [37, 38, 47] : [248, 248, 250];
   const soft = hex(mix(base, surface, dark ? 0.84 : 0.91));
   let foreground = base;
   const target: RGB = dark ? [255, 255, 255] : [0, 0, 0];
@@ -66,15 +67,6 @@ export function appearanceTokens(appearance: AppearanceSettings, dark = false): 
     '--primary-foreground': onAccent,
     '--color-accent-hover': hex(mix(foreground, target, 0.12)),
     '--accent': soft,
-    '--color-canvas': hex(mix(base, surface, dark ? 0.98 : 0.96)),
-    '--card': hex(mix(base, surface, 0.995)),
-    '--popover': hex(mix(base, surface, 0.995)),
-    '--muted': hex(mix(base, surface, 0.96)),
-    // The dark raised surface is fixed; an empty value leaves the stylesheet's.
-    '--color-surface-raised': dark ? '' : hex(mix(base, surface, 0.96)),
-    '--border': hex(mix(base, surface, dark ? 0.68 : 0.84)),
-    '--input': hex(mix(base, surface, dark ? 0.68 : 0.84)),
-    '--color-border-strong': hex(mix(base, surface, dark ? 0.58 : 0.74)),
     '--radius-card': `${radius}px`,
     '--radius-control': `${radius / 2}px`,
     '--radius-window': `${Math.min(32, radius * 7 / 6)}px`,

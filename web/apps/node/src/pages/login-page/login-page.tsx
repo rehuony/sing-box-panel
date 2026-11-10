@@ -1,10 +1,10 @@
 import type { FormEvent } from 'react';
+import type { FieldControl } from '@shared/components/glyph-field';
 
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import type { ConsoleStatus, Session } from '@/api/generated';
-import type { FieldControl } from '@/components/console-field';
 
 import { ConsoleFrame } from '@/components/console-frame';
 import { ConsoleRequestError, getStatus, login } from '@/api/console-client';

@@ -13,6 +13,7 @@ import { ConfigurationSessionsProvider } from '@/stores/configuration-session-pr
 
 import { loadPage } from './page-loaders';
 
+const OverviewPage = lazy(() => loadPage('overview'));
 const FleetPage = lazy(() => loadPage('nodes'));
 const NodeOverviewPage = lazy(() => loadPage('node-overview'));
 const CoresPage = lazy(() => loadPage('node-cores'));
@@ -61,7 +62,8 @@ export function AppRoutes() {
       <Routes>
         <Route element={<ProtectedRoute />}>
           <Route element={<AppShell />}>
-            <Route element={<Navigate replace to='/nodes' />} index />
+            <Route element={<Navigate replace to='/overview' />} index />
+            <Route element={<OverviewPage />} path='overview' />
             <Route element={<FleetPage />} path='nodes' />
             <Route element={<NodeWorkspace />} path='nodes/:nodeId'>
               <Route element={<NodeOverviewPage />} index />

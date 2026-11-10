@@ -6,7 +6,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { ScrollArea } from '@shared/components/ui/scroll-area';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@shared/components/ui/tooltip';
 import { ArrowDownToLine, Eraser, Pause, Play, SearchX, SquareTerminal, Trash2 } from 'lucide-react';
-import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@shared/components/ui/empty';
+import { Empty, EmptyContent, EmptyHeader, EmptyMedia, EmptyTitle } from '@shared/components/ui/empty';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@shared/components/ui/alert-dialog';
 
 import { ErrorNotice } from '@/components/error-notice';
@@ -265,9 +265,6 @@ export function NodeLogsPage() {
                       <EmptyTitle>
                         {t(!log.files.length ? 'productLogs.emptyCore' : cleared && !log.text ? 'productLogs.cleared' : 'productLogs.empty')}
                       </EmptyTitle>
-                      <EmptyDescription>
-                        {t(!log.files.length ? 'productLogs.emptyCoreDescription' : cleared && !log.text ? 'productLogs.clearedDescription' : 'productLogs.emptyDescription')}
-                      </EmptyDescription>
                     </EmptyHeader>
                     {log.paused && !log.text.trim() && (
                       <EmptyContent>

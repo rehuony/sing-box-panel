@@ -1,19 +1,19 @@
 import type { ReactNode } from 'react';
+import type { FieldControl, GlyphFieldHandle } from '@shared/components/glyph-field';
 
 import { flushSync } from 'react-dom';
 import { Power, Unplug } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@shared/components/ui/button';
 import { Spinner } from '@shared/components/ui/spinner';
+import { GlyphField } from '@shared/components/glyph-field';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@shared/components/ui/empty';
 
 import type { ConsoleStatus, Session } from '@/api/generated';
-import type { ConsoleFieldHandle, FieldControl } from '@/components/console-field';
 
 import { LoginPage } from '@/pages/login-page';
 import { StatusPage } from '@/pages/status-page';
-import { ConsoleField } from '@/components/console-field';
 import { ConsoleFrame } from '@/components/console-frame';
 import { ConsoleRequestError, getSession } from '@/api/console-client';
 
@@ -31,7 +31,7 @@ function prefersReducedMotion(): boolean {
 export function App() {
   const { t } = useTranslation();
   const [state, setState] = useState<ConsoleState>({ kind: 'checking' });
-  const fieldRef = useRef<ConsoleFieldHandle>(null);
+  const fieldRef = useRef<GlyphFieldHandle>(null);
   const [anchor, setAnchor] = useState<HTMLElement | null>(null);
   const [fieldBusy, setFieldBusy] = useState(false);
   const [fieldWords, setFieldWords] = useState<readonly string[]>([]);
@@ -120,11 +120,13 @@ export function App() {
   // The wrapper isolates it above the page background.
   return (
     <div className='relative isolate'>
-      <ConsoleField
+      <GlyphField
         anchor={anchor}
         busy={fieldBusy}
         mode={state.kind === 'signed-in' ? 'calm' : 'interactive'}
         ref={fieldRef}
+        // The first row of the console frame stays clear.
+        top={64}
         words={fieldWords}
       />
       {view}

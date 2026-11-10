@@ -686,8 +686,9 @@ PID and start token; it is shown only while the node reports that process
 running and for 30 seconds after the reading. Its nullable
 `upload_bytes_per_second` and `download_bytes_per_second` fields are calculated
 by the panel from adjacent samples of the same process and their actual
-elapsed time, so they exist only while a node samples once a second. A first
-sample, process change, decrease, or interval over three seconds has no rate. Existing cumulative fields remain available; the bundled Web client
+elapsed time: one-second rates while a node is viewed, ten-second averages
+otherwise. A first sample, process change, decrease, or interval over fifteen
+seconds has no rate. Existing cumulative fields remain available; the bundled Web client
 uses the new rate fields directly. Live samples do not enter the persisted accounting totals.
 Collector availability and historical sampling quality remain separate from
 recorded period usage. Snapshots use narrow runtime
@@ -860,6 +861,9 @@ A node's metrics report its own `quota_bytes`, absent while unlimited, and
 reach it, even while collection is stopped. `GET /api/v1/traffic/status` lists
 every node's current period, quota and `quota_exceeded`, and sums only usage
 into `upload_bytes` and `download_bytes`; quotas are never summed.
+`GET /api/v1/fleet/status` returns every node with the metrics snapshot
+`GET /api/v1/nodes/{nodeId}/metrics` returns for it, so the overview and the
+nodes view read the fleet's load, live rates and period usage in one request.
 
 Raw samples follow the required `traffic.sample_retention_days` setting, which
 is initialized to 90 and accepts 1 through 366 days. A settings file without

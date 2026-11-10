@@ -1,4 +1,4 @@
-/* The terminal's selection, scrollbar, lines and meters; its layout is in utilities. */
+/* The terminal's lines; its layout is in utilities. */
 
 @keyframes status-line-type {
   from {
@@ -6,47 +6,13 @@
   }
 }
 
-/* Selected text keeps its own colour over a soft band, as in a terminal. */
-.status-terminal ::selection {
-  background: var(--color-terminal-selection);
-  color: currentcolor;
-}
-
-/* The scrollbar takes the selection's band, so the terminal keeps one tint for both. */
-.status-terminal [data-slot='scroll-area-thumb'] {
-  background: var(--color-terminal-selection);
-}
-
 /* A new line types itself out from the left, a cell at a time. */
 .status-line {
   animation: status-line-type var(--type-duration, 0ms) steps(var(--type-steps, 1), end) both;
 }
 
-/* Ten cells of the monospace grid, filled from the left. */
-.status-meter {
-  --meter-color: var(--color-terminal-text);
-
-  flex: none;
-  width: 10ch;
-  height: 0.75em;
-  background: linear-gradient(
-    90deg,
-    var(--meter-color) var(--meter-fill, 0%),
-    color-mix(in oklab, var(--color-terminal-muted) 30%, transparent) 0
-  );
-  mask: repeating-linear-gradient(90deg, #000 0 calc(1ch - 2px), transparent 0 1ch);
-}
-
-.status-meter[data-tone='warning'] {
-  --meter-color: var(--color-warning);
-}
-
-.status-meter[data-tone='danger'] {
-  --meter-color: var(--color-danger);
-}
-
 .status-prompt {
-  caret-color: var(--color-terminal-text);
+  caret-color: var(--foreground);
 }
 
 @media (prefers-reduced-motion: reduce) {

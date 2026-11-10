@@ -10,6 +10,7 @@ import type {
   CoreArtifactPage,
   DashboardStreamSnapshot,
   FleetNode,
+  FleetStatus,
   MetricsHistory,
   MetricsSnapshot,
   NodeSettings,
@@ -21,7 +22,6 @@ import type {
   SubscriptionSource,
   SubscriptionToken,
   TrafficPeriod,
-  TrafficStatus,
 } from '@/api/api-client';
 
 import { reviewedSchemaManifest } from '@/schemas';
@@ -197,12 +197,7 @@ export const testMetrics: MetricsSnapshot = {
   quota_exceeded: false,
 };
 
-export const testTrafficStatus: TrafficStatus = {
-  collected_at: '2026-08-26T07:34:00Z',
-  upload_bytes: testTrafficPeriod.outbound_bytes,
-  download_bytes: testTrafficPeriod.inbound_bytes,
-  nodes: [{ node_id: 'node_a', current_traffic_period: testTrafficPeriod, quota_exceeded: false }],
-};
+export const testFleetStatus: FleetStatus = { items: [{ node: testNode, metrics: testMetrics }] };
 
 export const testMetricsHistory: MetricsHistory = {
   from: '2026-08-26T07:30:00Z',
@@ -277,6 +272,7 @@ export function createMockApiClient(overrides: Partial<ApiClient> = {}): Mocked<
     nodeID: null,
     forNode: vi.fn<ApiClient['forNode']>(),
     listFleetNodes: vi.fn<ApiClient['listFleetNodes']>().mockResolvedValue({ items: [testNode] }),
+    getFleetStatus: vi.fn<ApiClient['getFleetStatus']>().mockResolvedValue(testFleetStatus),
     createNode: vi.fn<ApiClient['createNode']>(),
     renameNode: vi.fn<ApiClient['renameNode']>(),
     deleteNode: vi.fn<ApiClient['deleteNode']>(),
@@ -435,7 +431,6 @@ export function createMockApiClient(overrides: Partial<ApiClient> = {}): Mocked<
       });
     }),
     getMetrics: vi.fn<ApiClient['getMetrics']>().mockResolvedValue(testMetrics),
-    getTrafficStatus: vi.fn<ApiClient['getTrafficStatus']>().mockResolvedValue(testTrafficStatus),
     getNodeSettings: vi.fn<ApiClient['getNodeSettings']>().mockResolvedValue(testNodeSettings),
     saveNodeSettings: vi.fn<ApiClient['saveNodeSettings']>(async input => ({ ...input, revision: input.revision + 1 })),
   };

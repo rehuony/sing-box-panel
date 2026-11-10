@@ -6,10 +6,8 @@ export type {
   MetricsHistory,
   MetricsSnapshot,
   NodeSettings,
-  NodeTrafficUsage,
   TrafficPeriod,
   TrafficSample,
-  TrafficStatus,
 } from '../generated';
 
 export type LogLevel = LogEntry['level'];

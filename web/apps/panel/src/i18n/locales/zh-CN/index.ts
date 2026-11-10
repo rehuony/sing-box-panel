@@ -1,6 +1,7 @@
 import { cores } from './cores';
 import { login } from './login';
 import { channels } from './channels';
+import { overview } from './overview';
 import { notFound } from './not-found';
 import { dashboard } from './dashboard';
 import { telemetry } from './telemetry';
@@ -32,6 +33,7 @@ export const zhCN = {
   nav,
   nodes,
   notFound,
+  overview,
   login,
   pagination,
   panelSettings,

@@ -1,34 +1,45 @@
 /* Design tokens: light and dark values, preference overrides and the Tailwind theme mapping. */
 
 :root {
-  /* Neutrals. The panel recomputes the accent-derived values from the saved accent. */
-  --color-canvas: #f9f8fd;
+  /* Neutrals: the terminal's cool greys, the same under every accent. */
+  --color-canvas: #eeeef2;
   --background: var(--color-canvas);
-  --foreground: oklch(22% 0.018 274);
-  --card: #fefeff;
+  --foreground: oklch(24% 0.015 280);
+  --card: #f8f8fa;
   --card-foreground: var(--foreground);
-  --popover: #fefeff;
+  --popover: #fcfcfd;
   --popover-foreground: var(--foreground);
   --color-surface: var(--card);
-  --color-surface-raised: #f9f8fd;
-  --muted: #f9f8fd;
-  --muted-foreground: oklch(48% 0.018 274);
+  --color-surface-raised: #f0f0f4;
+  /* Cards and the rail let the glyph field show through; floating layers stay opaque. */
+  --color-surface-translucent: color-mix(in oklab, var(--card) 72%, transparent);
+  --color-surface-dense: color-mix(in oklab, var(--card) 90%, transparent);
+  /* Fields stay opaque so the glyph field never shows behind typed text. */
+  --color-field: var(--card);
+  --muted: #f0f0f4;
+  --muted-foreground: oklch(50% 0.015 280);
   --secondary: var(--muted);
   --secondary-foreground: var(--foreground);
-  --border: #e8e3f8;
-  --input: #e8e3f8;
+  --border: #e2e2e9;
+  --input: #e2e2e9;
   --input-focus: color-mix(in oklch, var(--foreground) 25%, var(--background));
-  --color-border-strong: #d9d1f3;
-  --color-text-secondary: oklch(43% 0.02 274);
-  --color-text-faint: oklch(51% 0.016 280);
+  --color-border-strong: #cfcfd9;
+  --color-text-secondary: oklch(40% 0.015 280);
+  --color-text-faint: oklch(54% 0.012 280);
+  --color-selection: oklch(24% 0.015 280 / 14%);
 
-  /* Accent. */
+  /* Accent. The panel recomputes these from the saved accent. */
   --primary: #6d4ed1;
   --primary-foreground: #ffffff;
   --ring: var(--primary);
   --color-accent-hover: #6045b8;
-  --accent: #f2effb;
+  --accent: #ebe9f6;
   --accent-foreground: var(--primary);
+
+  /* Highlights: data series and the terminal prompt's parts. */
+  --color-highlight-cyan: #0b7189;
+  --color-highlight-magenta: #b4237a;
+  --color-highlight-yellow: #8a6a00;
 
   /* States. */
   --color-success: oklch(59% 0.14 165);
@@ -51,7 +62,7 @@
   --destructive-foreground: #ffffff;
 
   /* Scrim, code syntax and the brand. */
-  --color-scrim: oklch(22% 0.018 274 / 34%);
+  --color-scrim: oklch(24% 0.015 280 / 34%);
   --color-syntax-property: #245fa1;
   --color-syntax-string: #21774b;
   --color-syntax-number: #9a541e;
@@ -59,21 +70,13 @@
   --color-brand-navy: oklch(20.8% 0.042 265.755);
   --color-brand-orange: oklch(70.5% 0.18 47.6);
 
-  /* The node console's terminal: surface, text, prompt parts and window controls. */
-  --color-terminal: #f8f8fa;
-  --color-terminal-text: oklch(24% 0.015 280);
-  --color-terminal-muted: oklch(50% 0.015 280);
-  --color-terminal-border: #e2e2e9;
-  --color-terminal-selection: oklch(24% 0.015 280 / 14%);
-  --color-terminal-user: #b4237a;
-  --color-terminal-path: #0b7189;
-  --color-terminal-symbol: #8a6a00;
+  /* The node console's terminal window controls. */
   --color-window-close: #ff5f57;
   --color-window-minimize: #febc2e;
   --color-window-zoom: #28c840;
 
   /* Component roles that follow the roles above. */
-  --sidebar: var(--card);
+  --sidebar: var(--color-surface-translucent);
   --sidebar-foreground: var(--foreground);
   --sidebar-primary: var(--primary);
   --sidebar-primary-foreground: var(--primary-foreground);
@@ -81,9 +84,9 @@
   --sidebar-accent-foreground: var(--accent-foreground);
   --sidebar-border: var(--border);
   --sidebar-ring: var(--ring);
-  --chart-1: var(--primary);
-  --chart-2: var(--color-brand-orange);
-  --chart-3: var(--color-info);
+  --chart-1: var(--color-highlight-cyan);
+  --chart-2: var(--color-highlight-magenta);
+  --chart-3: var(--color-highlight-yellow);
   --chart-4: var(--color-success);
   --chart-5: var(--color-text-secondary);
 
@@ -98,7 +101,6 @@
   --text-base: 1rem;
   --text-xl: 1.25rem;
   --text-2xl: 1.5rem;
-  --text-3xl: 1.75rem;
 
   /* Shape and density. */
   --space-2xs: 0.25rem;
@@ -127,9 +129,9 @@
   --shell-edge: 1rem;
 
   /* Surfaces and motion. */
-  --shadow-card: 0 2px 5px -2px oklch(22% 0.018 274 / 6%), 0 10px 24px -18px oklch(22% 0.018 274 / 16%);
+  --shadow-card: 0 2px 5px -2px oklch(24% 0.015 280 / 6%), 0 10px 24px -18px oklch(24% 0.015 280 / 16%);
   --shadow-popover: 0 4px 6px -1px rgb(0 0 0 / 10%), 0 2px 4px -2px rgb(0 0 0 / 10%);
-  --shadow-panel: inset 0 1px 0 oklch(100% 0 0 / 65%), 0 18px 48px -28px oklch(30% 0.05 286 / 30%);
+  --shadow-panel: inset 0 1px 0 oklch(100% 0 0 / 65%), 0 18px 48px -28px oklch(30% 0.015 280 / 30%);
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
   --ease-in: cubic-bezier(0.7, 0, 0.84, 0);
   --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
@@ -143,22 +145,27 @@
 
 :root.dark,
 :root[data-resolved-theme='dark'] {
-  --color-canvas: #1a1822;
-  --foreground: oklch(94% 0.01 286);
-  --card: #18171f;
-  --popover: #18171f;
-  --color-surface-raised: oklch(24% 0.02 274);
-  --muted: #1b1925;
-  --muted-foreground: oklch(70% 0.016 286);
-  --border: #332957;
-  --input: #332957;
-  --color-border-strong: #3c2e69;
-  --color-text-secondary: oklch(76% 0.016 286);
-  --color-text-faint: oklch(60% 0.018 286);
-  --primary: #947edd;
+  --color-canvas: #1c1d24;
+  --foreground: #f8f8f2;
+  --card: #25262f;
+  --popover: #2b2c36;
+  --color-surface-raised: #2d2e38;
+  --color-field: color-mix(in oklab, var(--input) 30%, var(--card));
+  --muted: #2b2c36;
+  --muted-foreground: oklch(72% 0.02 280);
+  --border: #34353f;
+  --input: #34353f;
+  --color-border-strong: #464753;
+  --color-text-secondary: oklch(84% 0.012 280);
+  --color-text-faint: oklch(62% 0.018 280);
+  --color-selection: oklch(97% 0.01 100 / 20%);
+  --primary: #a08ce1;
   --primary-foreground: #17151e;
-  --color-accent-hover: #a18de1;
-  --accent: #26203b;
+  --color-accent-hover: #ab9ae5;
+  --accent: #312c49;
+  --color-highlight-cyan: #8be9fd;
+  --color-highlight-magenta: #f079bd;
+  --color-highlight-yellow: #f1fa8c;
   --color-success: oklch(72% 0.14 165);
   --color-success-soft: oklch(27% 0.055 165);
   --color-success-text: oklch(83% 0.105 165);
@@ -176,21 +183,13 @@
   --color-info-text: oklch(82% 0.095 248);
   --color-info-border: oklch(47% 0.075 248);
   --destructive-foreground: #17151e;
-  --color-scrim: oklch(7% 0.01 274 / 68%);
+  --color-scrim: oklch(7% 0.01 280 / 68%);
   --color-syntax-property: #88bdf3;
   --color-syntax-string: #9ac99d;
   --color-syntax-number: #e7b685;
   --color-syntax-keyword: #d5a0d7;
   --color-brand-navy: oklch(17% 0.03 265.755);
   --color-brand-orange: oklch(76% 0.16 55);
-  --color-terminal: #25262f;
-  --color-terminal-text: #f8f8f2;
-  --color-terminal-muted: oklch(72% 0.02 280);
-  --color-terminal-border: #34353f;
-  --color-terminal-selection: oklch(97% 0.01 100 / 20%);
-  --color-terminal-user: #f079bd;
-  --color-terminal-path: #8be9fd;
-  --color-terminal-symbol: #f1fa8c;
   --shadow-card: 0 14px 34px -24px #000000b8;
   --shadow-panel: inset 0 1px 0 oklch(100% 0 0 / 8%), 0 28px 72px -34px #000000d1;
 }
@@ -201,6 +200,8 @@
     --border: #2a374c47;
     --color-border-strong: #2a374c7a;
     --muted-foreground: #4c586a;
+    --color-surface-translucent: var(--card);
+    --color-surface-dense: var(--card);
   }
 }
 
@@ -253,8 +254,6 @@
   --text-compact--line-height: 1.25rem;
   --text-xl--letter-spacing: -0.01em;
   --text-2xl--letter-spacing: -0.02em;
-  --text-3xl--line-height: 2.25rem;
-  --text-3xl--letter-spacing: -0.02em;
 }
 
 /* Touch controls keep a generous target without overriding desktop size variants. */

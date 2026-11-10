@@ -123,7 +123,7 @@ export function ConfigurationPage() {
   return (
     <div className='@container flex min-h-0 min-w-0 flex-1 flex-col gap-4'>
       <h1 className='sr-only'>{t('configuration.title')}</h1>
-      <section className='flex min-h-0 flex-1 flex-col rounded-[var(--radius-card)] border bg-card px-(--configuration-inset) pt-(--configuration-inset) pb-2 [--configuration-inset:24px] @max-[40rem]:[--configuration-inset:16px]' aria-label={t('configuration.title')} aria-busy={loading}>
+      <section className='flex min-h-0 flex-1 flex-col rounded-[var(--radius-card)] border bg-[var(--color-surface-translucent)] px-(--configuration-inset) pt-(--configuration-inset) pb-2 [--configuration-inset:24px] @max-[40rem]:[--configuration-inset:16px]' aria-label={t('configuration.title')} aria-busy={loading}>
         <Tabs className='min-h-0 flex-1 gap-0' value={editor} onValueChange={setSelectedEditor}>
           <div className='flex min-w-0 flex-none items-center justify-between gap-2 border-b pb-4 max-sm:flex-wrap'>
             <TabsList aria-label={t('configuration.sections')}>
@@ -192,7 +192,6 @@ export function ConfigurationPage() {
                         ? (
                             <div className='flex h-full min-h-48 flex-col items-center justify-center gap-3 text-center' role='status'>
                               <h2 className='m-0 text-base font-semibold'>{t('configuration.schema.noInstalledTitle')}</h2>
-                              <p className='m-0 max-w-160 text-muted-foreground'>{t('configuration.schema.noInstalledDescription')}</p>
                               <Link className={buttonVariants()} data-slot='button' data-size='default' data-variant='default' to={`${nodePath(node.id, 'cores')}#cores-catalog`}>
                                 {t('configuration.schema.manageVersions')}
                               </Link>

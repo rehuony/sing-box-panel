@@ -1,16 +1,4 @@
 export const subscriptions = {
-  states: {
-    sources: '添加订阅来源，导入并管理其中的节点。',
-    nodes: '可从订阅来源导入节点，或添加手动节点。',
-    candidates: '添加节点或策略组，作为本组的候选出口。',
-    groups: '创建策略组，组织候选节点并配置流量出口。',
-    rules: '添加匹配规则，为命中的流量指定出口。',
-    keys: '创建订阅密钥，用于获取渠道的订阅配置。',
-    activeKeys: '在密钥管理中创建或启用密钥，再复制订阅链接。',
-    channels: '创建分发渠道，选择输出客户端并配置节点与规则。',
-    search: '尝试其他关键词，或清空搜索查看全部内容。',
-    preview: '查看标题右侧的问题详情，定位原因后重新预览。',
-  },
   nodes: {
     sortableCard: '可排序节点卡片',
     dragInstructions: '按 F2 开始排序，方向键移动，再按 F2 完成，Escape 取消。',

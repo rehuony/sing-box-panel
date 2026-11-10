@@ -7,6 +7,7 @@ import { TooltipProvider } from '@shared/components/ui/tooltip';
 import type { ApiClient } from '@/api/api-client';
 
 import { ThemeProvider } from '@/theme';
+import { Backdrop } from '@/components/backdrop';
 import { ApiClientProvider } from '@/api/api-client-context';
 import { AuthSessionProvider } from '@/stores/auth-session-provider';
 
@@ -22,7 +23,7 @@ export function App({ apiClient, router }: AppProps) {
         <TooltipProvider delay={200} closeDelay={100}>
           <Toaster>
             <AuthSessionProvider>
-              <RouterProvider router={router} />
+              <Backdrop><RouterProvider router={router} /></Backdrop>
             </AuthSessionProvider>
           </Toaster>
         </TooltipProvider>

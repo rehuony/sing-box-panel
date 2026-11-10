@@ -39,6 +39,20 @@ func (handler *Handler) listNodes(w http.ResponseWriter, request *http.Request) 
 	}{nodes})
 }
 
+func (handler *Handler) fleetStatus(w http.ResponseWriter, request *http.Request) {
+	if !handler.fleetRequest(w, request) {
+		return
+	}
+	nodes, err := handler.services.Fleet.Status(request.Context())
+	if err != nil {
+		writeProblem(w, request, http.StatusServiceUnavailable, "fleet_status_unavailable", "Fleet status unavailable", "The nodes' metrics could not be read.")
+		return
+	}
+	writeJSON(w, http.StatusOK, struct {
+		Items []fleet.NodeStatus `json:"items"`
+	}{nodes})
+}
+
 func (handler *Handler) createNode(w http.ResponseWriter, request *http.Request) {
 	if !handler.fleetRequest(w, request) {
 		return
