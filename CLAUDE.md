@@ -10,7 +10,7 @@
 
 ## Architecture and Evolution
 
-- The product is moving from one binary that manages a single host to one panel service and multiple node services. The panel connects to every node, aggregates their data, manages each node's configuration, and publishes subscriptions; a node reports its local configuration and system state and carries out the panel's management commands. Treat the present directory layout, frameworks, and development tools as useful context, not permanent architectural constraints.
+- The product is one panel service and multiple node services. The panel holds a session with every node, aggregates their data, manages each node's configuration, and publishes subscriptions; a node reports its local configuration and system state and carries out the panel's management commands. Treat the present directory layout, frameworks, and development tools as useful context, not permanent architectural constraints.
 - Place code by the service that owns it (panel, node, or shared) as recorded in the architecture guide. Shared packages must not depend on either service's composition or transport.
 - Preserve clear separation between entry points, transport, application and domain behavior, persistence, and presentation. Change these boundaries deliberately and update affected callers, tests, contracts, and documentation together.
 - Keep the web interface coupled to documented backend contracts rather than backend implementation details.

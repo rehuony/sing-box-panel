@@ -1,7 +1,7 @@
 <div align="center">
   <img src="web/packages/shared/public/favicon.svg" width="128" height="128" alt="sing-box-panel icon">
   <h1>sing-box-panel</h1>
-  <p>A Linux control plane for one exact, verifiable sing-box runtime.</p>
+  <p>A Linux control plane for a fleet of exact, verifiable sing-box runtimes.</p>
   <div>
     <img src="https://img.shields.io/badge/Linux-amd64%20%7C%20arm64-FCC624?logo=linux&logoColor=black" alt="Linux amd64 and arm64">
     <img src="https://img.shields.io/badge/Go-1.26-00ADD8?logo=go&logoColor=white" alt="Go 1.26">
@@ -17,33 +17,39 @@
   </div>
 </div>
 
-sing-box-panel manages exact-version sing-box binaries, immutable
-configuration and activation artifacts, subscriptions, and
-sanitized operational metadata. Release builds embed the React interface and
-the SQLite schema in one Go executable, so a target host does not need Go,
-Node.js, pnpm, or a separate SQLite CLI.
+sing-box-panel manages sing-box on any number of Linux hosts from one panel.
+The panel, `sing-box-panel`, holds every node's configuration, the core version
+catalog, subscriptions and aggregated telemetry, and runs no sing-box itself. A
+node, `sing-box-node`, runs one exact-version sing-box on its host, reports its
+state and carries out the panel's commands. Release builds embed each service's
+React interface and SQLite schema in its Go executable, so a target host does
+not need Go, Node.js, pnpm, or a separate SQLite CLI.
 
 ## Features
 
+- Manage a fleet from one panel: nodes dial out to the panel over gRPC, enroll
+  with a one-time code and a node-generated Ed25519 key, and keep running their
+  applied configuration while the panel is unreachable.
 - Manage official and administrator-imported sing-box artifacts by exact
   version and Linux architecture (amd64 or arm64), with recorded installation hashes.
-  Each platform uses the static musl build.
-- Edit one lossless sing-box JSON document, validate every candidate with
-  the selected exact binary, and add structured editing only for versions that
-  have a committed native or project-reviewed JSON Schema.
+  The panel caches and verifies each archive and nodes install from it. Each
+  platform uses the static musl build.
+- Edit one lossless sing-box JSON document per node, validate every candidate
+  with the selected exact binary on that node, and add structured editing only
+  for versions that have a committed native or project-reviewed JSON Schema.
 - Keep canonical revisions, checked startup artifacts, applied bundles, and
   rollback bundles separate and immutable; roll back to the previous bundle
   through the authenticated API.
 - Publish live, authorized subscriptions in sing-box, Mihomo, and Loon formats
-  from the last applied local nodes and current third-party source versions.
-- Manage core versions, configuration and subscriptions through the embedded React
-  UI and versioned HTTP API; maintain panel settings and services through a focused
-  CLI and audited systemd integration.
-- Return completed operation results, serialize process controls, and retain
-  sanitized logs and immutable runtime history.
+  from each node's last applied inbounds and current third-party source versions.
+- Manage nodes, core versions, configuration and subscriptions through the
+  embedded React UI and versioned HTTP API; maintain panel settings, nodes and
+  services through a focused CLI and audited systemd integration.
+- Return completed operation results, serialize each node's process controls,
+  and retain sanitized logs and immutable runtime history.
 
 The supported deployment targets are `linux/amd64` and `linux/arm64`. Windows,
-macOS, BSD, multiple simultaneous sing-box runtimes, and external databases are
+macOS, BSD, more than one sing-box runtime on a node, and external databases are
 outside the current product contract.
 
 ## Installation
@@ -141,7 +147,7 @@ has no alternate UI input.
 ## Quick start
 
 Install the locked frontend dependencies, run the repository checks, and build
-the web-enabled binary:
+both binaries with their Web applications:
 
 ```sh
 make deps
@@ -168,11 +174,13 @@ prints the bound panel URL and streams formatted panel logs. Existing settings
 are never overwritten by startup.
 
 The default listener is `127.0.0.1:3000`. The settings file contains a random
-password hash and must not be committed. Keep `server start` active for configuration checks and core process controls.
-Use the Web UI for catalog refresh, installation, import and subscription management.
+password hash and must not be committed. The panel runs no sing-box: add a node
+in the Web UI, then enroll and start `sing-box-node` on a Linux host with the
+command the panel shows. Use the Web UI for nodes, catalog refresh, installation,
+import, configuration and subscription management.
 
-See [Getting started](docs/getting-started.md) for the first configuration,
-settings precedence, and systemd deployment paths.
+See [Getting started](docs/getting-started.md) for adding the first node, the
+first configuration, settings precedence, and systemd deployment paths.
 
 ## Documentation
 
@@ -183,6 +191,7 @@ settings precedence, and systemd deployment paths.
 | Install exact versions and inspect configuration capabilities | [Core versions](docs/core-versions.md) |
 | Edit, check, apply, and restart configuration; roll back through the API | [Configuration and runtime](docs/configuration-and-runtime.md) |
 | Publish subscriptions and inspect operational data | [Subscriptions and observability](docs/subscriptions-and-observability.md) |
+| Understand the panel and node services, their protocol and state ownership | [Panel and node architecture](docs/panel-node-architecture.md) |
 | Integrate with the API and operate its security boundary | [HTTP API and security](docs/architecture.md#http-api-and-security) |
 | Build, sign, test, and publish release artifacts | [Release process](docs/release.md) |
 
@@ -200,7 +209,7 @@ docs/                Guides, architecture, testing, packaging, and release proce
 internal/            Go packages: sing-box-panel/ and sing-box-node/ per service, shared ones beside them
 scripts/             End-user installation, release, and local test scripts
 tools/               Maintainer commands run through go tool
-web/                 React/Vite application managed with pnpm
+web/                 pnpm workspace: the panel and node console React applications and their shared package
 DESIGN.md            Visual identity, design tokens, and interface rules
 ```
 

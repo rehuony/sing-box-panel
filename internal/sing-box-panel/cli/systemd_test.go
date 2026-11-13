@@ -180,14 +180,17 @@ func TestSystemdStatusLabelsOnDiskSourcesAndNeverClaimsLiveSettings(t *testing.T
 		report.SettingsFile.DataDir != "" || report.SettingsFile.DatabasePath != "" {
 		t.Fatalf("unknown unit settings report=%+v", report)
 	}
-	if report.Configuration.Name != "config.json" || report.Configuration.Table != "configuration_file" || report.Configuration.DatabasePath != "" {
+	if report.Configuration.Name != "config.json" || report.Configuration.Table != "node_configurations" || report.Configuration.DatabasePath != "" {
 		t.Fatalf("configuration location=%+v", report.Configuration)
 	}
 	text, _, err := executeSystemCommand(t, service, "--config", settingsPath, "systemd", "status", "--scope=user")
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"settings in unit file\tunknown", "live settings\tunknown", "on disk; systemd reports no daemon reload needed"} {
+	for _, want := range []string{
+		"settings in unit file\tunknown", "live settings\tunknown", "on disk; systemd reports no daemon reload needed",
+		"each node's config.json stored in sqlite table node_configurations of the service database",
+	} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("status text %q lacks %q", text, want)
 		}
@@ -214,7 +217,8 @@ func TestSystemdStatusLabelsOnDiskSourcesAndNeverClaimsLiveSettings(t *testing.T
 	}
 	for _, want := range []string{
 		"pid=321", unit.UnitPath, "(unit file on disk; same as --config)", "live settings\tunknown",
-		loaded.DataDir + " (settings file on disk)", "config.json stored in sqlite table configuration_file",
+		loaded.DataDir + " (settings file on disk)",
+		"each node's config.json stored in sqlite table node_configurations of " + filepath.Join(loaded.DataDir, "panel.db"),
 	} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("status text %q lacks %q", text, want)

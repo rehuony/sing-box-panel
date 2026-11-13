@@ -25,7 +25,7 @@ The selected release must have a complete `MAJOR.MINOR.PATCH` version.
 
 Official packages use the static musl variant for Linux amd64 or arm64.
 Installation inspects the actual executable; the environment must be able to
-execute its architecture. Runtime enablement requires the panel server's Linux
+execute its architecture. Runtime enablement requires the node's Linux
 architecture. Selecting an architecture does not provide emulation.
 
 ## Multiple installations of one version

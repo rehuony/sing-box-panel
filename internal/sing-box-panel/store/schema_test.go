@@ -114,6 +114,11 @@ func TestFreshSchemaContainsOnlyCurrentStorage(t *testing.T) {
 	if err := db.db.QueryRowContext(t.Context(), `SELECT count(*) FROM sqlite_schema WHERE name IN ('schema_migrations', 'panel_settings', 'tasks')`).Scan(&obsolete); err != nil || obsolete != 0 {
 		t.Fatalf("obsolete storage objects: %d %v", obsolete, err)
 	}
+	// The CLI reports this name to operators as the configuration's storage.
+	var reported int
+	if err := db.db.QueryRowContext(t.Context(), `SELECT count(*) FROM sqlite_schema WHERE type = 'table' AND name = ?`, ConfigurationFileTable).Scan(&reported); err != nil || reported != 1 {
+		t.Fatalf("configuration file table %q: %d %v", ConfigurationFileTable, reported, err)
+	}
 	var violations int
 	rows, err := db.db.QueryContext(t.Context(), "PRAGMA foreign_key_check")
 	if err != nil {

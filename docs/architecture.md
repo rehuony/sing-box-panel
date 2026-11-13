@@ -11,14 +11,12 @@ operations and schemas remain in [OpenAPI](../api/panel-openapi.yaml).
 
 ## Repository layout
 
-The product is moving from one binary that manages a single host to one panel
-service and multiple node services. The panel connects to every node,
-aggregates their data, manages each node's configuration and publishes
-subscriptions; a node reports its local configuration and system state and
-carries out the panel's management commands. Nodes enroll with the panel, hold
-authenticated sessions and carry out its typed commands; the panel runs no
-sing-box. Node reports of metrics, traffic and state follow. The target
-services, protocol and package layout are in
+The product is one panel service and any number of node services. The panel
+holds an authenticated session with every node, aggregates their data, manages
+each node's configuration and publishes subscriptions; it runs no sing-box. A
+node enrolls with the panel, runs one sing-box, reports its configuration,
+state, metrics and traffic, and carries out the panel's typed commands. The
+services, their protocol and state ownership are in
 [Panel and node architecture](panel-node-architecture.md).
 
 | Path | Contents |
@@ -129,7 +127,7 @@ systemd            -> atomicfile, database, pathguard
 node:artifacts     -> atomicfile, coreartifact
 node:runtime       -> atomicfile, coreartifact, singbox
 node:corelogs      -> logredact
-node:store         -> configuration, coreartifact, database, jsonstrict
+node:store         -> configuration, coreartifact, database
 node:service       -> configuration, coreartifact, database, jsonstrict,
                       node:artifacts, node:corelogs, node:host, node:runtime,
                       node:store
@@ -137,11 +135,12 @@ node:settings      -> atomicfile, jsonstrict, nodeapi, webauth
 node:agent         -> buildinfo, coreartifact, nodeapi, procctl, node:artifacts,
                       node:corelogs, node:host, node:service, node:settings,
                       node:store
-node:httpapi       -> buildinfo, jsonstrict, nodeapi, node:agent, node:settings,
-                      webauth
+node:httpapi       -> buildinfo, jsonstrict, nodeapi, node:agent, node:host,
+                      node:settings, webauth
 node:systemd       -> node:settings, systemd
 node:cli           -> buildinfo, nodeapi, node:agent, node:httpapi,
-                      node:settings, node:systemd, systemd, webauth
+                      node:settings, node:systemd, systemd, web/apps/node,
+                      webauth
 
 panel:store        -> configuration, database, jsonstrict, logredact
 panel:auth         -> panel:store, webauth

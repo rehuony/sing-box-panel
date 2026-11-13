@@ -1,7 +1,7 @@
 # CLI reference
 
-The sing-box-panel CLI manages panel settings, the panel service, systemd
-integration, installation files, and the panel executable. Manage sing-box
+The sing-box-panel CLI manages panel settings, node registration, the panel
+service, systemd integration, installation files, and the panel executable. Manage sing-box
 versions and runtime, subscriptions, logs, and metrics through the Web UI.
 Running the root command or a command group without a leaf prints help.
 
@@ -370,7 +370,7 @@ absent or stale control endpoint reports `stopped`; permission, timeout, and
 protocol failures remain errors rather than implying the process stopped.
 
 `stop` requests graceful shutdown through a private Unix socket. Success means
-HTTP requests, workers, the managed core, and database cleanup have completed
+HTTP requests, node sessions, workers, and database cleanup have completed
 and the data-directory lease has been released. It does not signal a stored
 process ID. A timeout ends the caller's wait without force-killing the panel;
 check `server status` or wait again with `server stop`. Stopping an already
@@ -504,8 +504,8 @@ without ownership checks. Failure to remove all contents is an error, not a
 successful partial wipe.
 
 For a manually started instance, cleanup waits for the panel's shutdown result.
-The panel stops and joins its managed core, closes its database, and releases its
-runtime lease before acknowledging success. A matching systemd installation is
+The panel ends its node sessions, closes its database, and releases its
+runtime lease before acknowledging success; nodes keep running their cores. A matching systemd installation is
 stopped and disabled before its service files are removed. A failed or timed-out
 stop aborts data cleanup; unrelated instances are never stopped to clear a lock.
 
@@ -580,9 +580,9 @@ was read successfully, and supplies `data_dir`, `database_path`, and
 `unavailable` means the file or its location could not be read or validated;
 `unknown` means no path was determined. Neither case hides the unit state,
 and the command never prints
-settings content or parse details. `configuration` always names the logical
-`config.json` and its storage: the `configuration_file` table of the service
-database.
+settings content or parse details. `configuration` always names each node's
+logical `config.json` and its storage: the `node_configurations` table of the
+service database.
 
 ## Exit codes and signals
 

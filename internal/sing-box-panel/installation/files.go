@@ -44,15 +44,13 @@ type Report struct {
 
 // Known names provide descriptive roles; every entry inside DataDir is in scope.
 var knownDataPaths = []struct{ name, role string }{
-	{"artifacts", "installed core files"},
-	{"runtime", "runtime configuration and process files"},
+	{"artifact-cache", "verified core archives that nodes install from"},
 	{"imports", "staged core uploads"},
-	{"logs/core", "core logs"},
 	{fleet.IdentityFile, "TLS key and certificate for direct node connections"},
 	{"panel-control.sock", "local process control"},
 	{"panel.db-shm", "database shared memory"},
 	{"panel.db-wal", "database write-ahead log"},
-	{"panel.db", "database (configuration, panel logs and product state)"},
+	{"panel.db", "database (nodes and their configurations, panel logs and product state)"},
 	{procctl.LeaseFileName, "process ownership lock"},
 }
 

@@ -87,7 +87,7 @@ make snapshot OUT=/absolute/path/to/new-output-directory
 The output directory must not already exist and its parent must already be a
 directory. A snapshot uses version `dev`; its commit and date come from
 `HEAD`. Uncommitted application changes, untracked files, ignored files, and
-existing `web/node_modules` or `web/dist` do not enter or block the build.
+existing `web/node_modules` or `web/apps/*/dist` do not enter or block the build.
 
 ## Formal release
 

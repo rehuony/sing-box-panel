@@ -46,6 +46,10 @@ func readConfigurationFile(row interface{ Scan(...any) error }) (ConfigurationFi
 	return value, err
 }
 
+// ConfigurationFileTable names the table that holds every node's editable
+// configuration file, for reports that tell operators where it is stored.
+const ConfigurationFileTable = "node_configurations"
+
 const configurationFileColumns = `revision, content, canonical_revision_id, updated_at`
 
 // ConfigurationFile returns nodeID's file; revision 0 before the first save.

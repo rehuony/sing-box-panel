@@ -11,11 +11,13 @@ import (
 
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/installation"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/settings"
+	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/store"
 	"github.com/rehuony/sing-box-panel/internal/systemd"
 	"github.com/spf13/cobra"
 )
 
-// ConfigurationFileName is the logical name of the sing-box document in SQLite.
+// ConfigurationFileName is the logical name of each node's sing-box document
+// in SQLite.
 const ConfigurationFileName = "config.json"
 
 // systemdService is the panel's systemd lifecycle.
@@ -271,7 +273,7 @@ func buildSystemStatusReport(status systemd.Status, cliSettingsPath string) syst
 			SettingsState: settingsStateUnknown,
 		},
 		SettingsFile:      settingsFileReport{Source: sourceSettingsFileOnDisk, State: settingsStateUnknown},
-		Configuration:     configurationLocation{Name: ConfigurationFileName, Storage: "sqlite", Table: "configuration_file"},
+		Configuration:     configurationLocation{Name: ConfigurationFileName, Storage: "sqlite", Table: store.ConfigurationFileTable},
 		LiveSettingsState: settingsStateUnknown,
 	}
 	if absolute, err := filepath.Abs(filepath.Clean(cliSettingsPath)); err == nil {
@@ -319,18 +321,19 @@ func systemStatusText(report systemStatusReport) string {
 	}
 	fmt.Fprintf(&output, "cli settings\t%s (this command's --config)\n", report.CLISettingsPath)
 	fmt.Fprintf(&output, "live settings\t%s (running process not inspected)\n", report.LiveSettingsState)
+	database := "the service database"
 	switch report.SettingsFile.State {
 	case settingsStateLoaded:
 		fmt.Fprintf(&output, "data dir\t%s (%s)\ndatabase\t%s (%s)\n",
 			report.SettingsFile.DataDir, report.SettingsFile.Source, report.SettingsFile.DatabasePath, report.SettingsFile.Source)
-		fmt.Fprintf(&output, "configuration\t%s stored in %s table %s of %s", report.Configuration.Name, report.Configuration.Storage, report.Configuration.Table, report.Configuration.DatabasePath)
+		database = report.Configuration.DatabasePath
 	case settingsStateUnavailable:
 		fmt.Fprintf(&output, "data dir\tunknown (%s unreadable or invalid)\ndatabase\tunknown\n", report.SettingsFile.Source)
-		fmt.Fprintf(&output, "configuration\t%s stored in %s table %s of the service database", report.Configuration.Name, report.Configuration.Storage, report.Configuration.Table)
 	default:
 		output.WriteString("data dir\tunknown\ndatabase\tunknown\n")
-		fmt.Fprintf(&output, "configuration\t%s stored in %s table %s of the service database", report.Configuration.Name, report.Configuration.Storage, report.Configuration.Table)
 	}
+	fmt.Fprintf(&output, "configuration\teach node's %s stored in %s table %s of %s",
+		report.Configuration.Name, report.Configuration.Storage, report.Configuration.Table, database)
 	return output.String()
 }
 

@@ -65,24 +65,24 @@ The CLI's `config` group instead manages the panel settings file; see
 ### Disposable execution files
 
 Saving updates SQLite; it does not write a separate sing-box JSON file. Checking
-or running a configuration materializes its exact snapshot bytes as
-`runtime/configs/<config-sha256>.json`, with private directory permissions and
+or running a configuration materializes its exact snapshot bytes on the node as
+`runtime/configs/<config-sha256>.json` in the node's data directory, with private directory permissions and
 file mode `0600`. Identical bytes share the same file while in use. The hash is
 the configuration digest, independently of the installed core archive digest.
 
 A check releases its file when it finishes, including rejection or cancellation.
 A running child retains its file until its process wait completes, even if a
-stop request times out. When the last user releases a file, the panel removes
+stop request times out. When the last user releases a file, the node removes
 it. Normally only the running configuration remains; checking a different
 configuration can temporarily add another file, and a completed stop leaves
 none. Restart, rollback and recovery reconstruct files from immutable SQLite
 startup records as needed. Cleanup does not remove the saved text or history.
 
 After successful startup reconciliation, while holding the runtime ownership
-lock, the panel also removes unused hash-named snapshots and abandoned writing
+lock, the node also removes unused hash-named snapshots and abandoned writing
 temporary files. It does not clean when a prior core may still be alive. Symlinks,
 subdirectories and unrelated filenames are left untouched. Cleanup failures
-produce `runtime.config_cleanup_failed` panel warnings and are retried on later
+produce `runtime.config_cleanup_failed` warnings in the node's log and are retried on later
 cleanup passes; they do not turn successful checks or starts into failures.
 
 Ordinary CI and signed releases exercise this same file API across a real
@@ -263,8 +263,8 @@ typed into the form field. Selection never creates a file or directory. Confirmi
 the current target type and existence again and updates only the form draft.
 Manual paths and the ordinary Save / Validate / runtime workflows remain available.
 
-Relative paths are resolved against `data_dir/runtime`, the managed core's working
-directory, and selections fill in absolute paths. Missing initial paths open the
+Relative paths are resolved against `runtime/` in the node's data directory, the
+core's working directory, and selections fill in absolute paths. Missing initial paths open the
 nearest existing parent with a notice. Errors appear once in the center of the
 directory area, replacing its entries until a retry or navigation clears the error.
 Symbolic links retain their selected path while their target determines the type.
@@ -344,7 +344,7 @@ Rollback uses the previous immutable bundle and its corresponding configuration
 and binary evidence; it does not reinterpret current configuration.
 
 Core operations return the completed resource or observed runtime state in the
-requesting call. The server holds the process lease and serializes configuration
+requesting call. The node holds its process lease and serializes configuration
 checks and process controls. Catalog, artifact and source maintenance are exposed
 through the Web UI and authenticated HTTP API. Interrupted requests are canceled at safe boundaries;
 completed side effects retain their evidence. There is no generic operation queue.
@@ -356,7 +356,7 @@ with the verified PID, process start token, exact core, recorded installation ha
 activation bundle. Installation hashes are metadata and are not compared against
 core files during checks, activation, rollback or recovery. Configuration snapshot
 and Schema digests remain checked. See [core verification boundaries](core-versions.md#checks-and-recorded-hashes).
-While that identity remains verified, the panel refreshes
+While that identity remains verified, the node refreshes
 its persisted observation watermark every 30 seconds so a later recovery can
 distinguish current evidence from a stale process incarnation.
 
@@ -379,8 +379,8 @@ Stable dedupe keys and verified PID/start-token fencing prevent a stale request
 from changing a newer process incarnation. Database initialization adds one
 `history_initialized` marker and does not infer earlier uptime from logs.
 
-Runtime recovery uses a dedicated persisted record: at most three attempts with
-1, 5 and 30 second delays. Deadlines survive panel restarts. Five minutes of
+Runtime recovery runs on the node and uses a dedicated persisted record: at most
+three attempts with 1, 5 and 30 second delays. Deadlines survive node restarts. Five minutes of
 continuously verified healthy runtime reset an episode; downtime alone does not.
 Explicit lifecycle requests supersede the old recovery episode.
 
@@ -628,17 +628,17 @@ another configuration source. Status and stop continue to locate the old
 instance before relocation. Keep this sidecar with the selected settings file.
 
 On the next explicit `server start`, the panel requires exclusive ownership of
-both the old runtime and database and proves that the recorded core has exited.
+the old data directory and its database.
 It copies files, takes a consistent SQLite snapshot (including committed WAL),
-rebases installed-core and pending-import paths, verifies the copied content,
+records the move, verifies the copied content,
 and only then removes the source data and commits the new location. This works
 across filesystems. Interrupted copies are rebuilt; interrupted cleanup resumes
 from the verified destination. Relocation markers block ordinary database access
 to unfinished locations. Missing established storage, nonempty destinations,
 nested instances, overlapping paths and settings located inside either data
-root fail closed. Native sing-box JSON and historical evidence are unchanged;
-operator-specified absolute paths inside native JSON remain the operator's
-responsibility. Relative native paths still resolve under `data_dir/runtime`.
+root fail closed. Native sing-box JSON and historical evidence are unchanged.
+Paths inside native JSON name files on each node, so moving the panel's data
+does not affect them.
 
 For generated systemd units, an explicit `systemd restart` stops the service,
 performs the move outside its sandbox, updates directory/ownership declarations,

@@ -175,7 +175,7 @@ private key is stored locally at the Git-ignored
 the packaging script. Packaging also rejects a source commit containing that
 path, even if someone force-added it through the ignore rule.
 
-The script never moves or edits the caller's `web/node_modules` or `web/dist`.
+The script never moves or edits the caller's `web/node_modules` or `web/apps/*/dist`.
 All uncommitted files are intentionally ignored: use `make build` when testing
 working-tree source changes.
 

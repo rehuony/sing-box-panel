@@ -167,32 +167,54 @@ This runs in the foreground. Stop it with `Ctrl+C`, or run
 Use `server status` with the same settings to inspect the process. For
 background operation, install and start the systemd service instead.
 
-The server exposes the embedded UI and management API and exclusively owns the
-core process. Keep it active for configuration checks, enabling/disabling a core,
-start/stop/restart, and rollback through the authenticated API. Manage catalogs,
-installed cores, subscriptions, logs, and metrics in the Web UI. The CLI provides panel settings, service and
+The server exposes the embedded UI, the management API and the node service on
+one port, and runs no sing-box. Configuration checks, enabling or disabling a
+core, start, stop, restart, and rollback through the authenticated API are
+commands the panel sends to a node, so that node must be online; saving a
+node's configuration works while it is offline. Manage nodes, catalogs,
+installed cores, subscriptions, logs, and metrics in the Web UI. The CLI provides panel settings, node registration, service and
 installation maintenance; its panel status/stop controls use the owner-only Unix socket.
 
-Runtime recovery and configured source refresh keep their own bounded schedules.
-There is no generic operation queue or detached polling API.
+Source refresh, catalog refresh and retention keep their own bounded schedules
+on the panel; each node recovers its own runtime. There is no generic operation
+queue or detached polling API.
+
+## Add a node
+
+The panel manages sing-box only on nodes. Add one in the Web UI's Nodes view,
+or with `./bin/sing-box-panel node add NAME --config ./setting.json`. Either
+shows a one-time enrollment command that is valid for one hour. Run it on the
+node's Linux host, then start the node:
+
+```sh
+./bin/sing-box-node enroll --code <code>
+./bin/sing-box-node run
+```
+
+The node dials the panel, so the code must name an address the node can reach:
+the generated loopback listener serves a node on the same host, and a node on
+another host needs `nodes.endpoint` or `server.external_origin`. See
+[Nodes](cli.md#nodes) for the node's data directory and states, and
+[Panel and node architecture](panel-node-architecture.md) for enrollment and
+trust.
 
 ## Edit the sing-box configuration
 
-Log in to the Web UI and open Configuration. The panel keeps one sing-box
-document, logically named `config.json`, as text in the `configuration_file`
-table of `panel.db`. The Web editor manages it; there is no separately editable
-file on disk or CLI for its content. Before accepting requests, startup creates
-and saves this minimal document if no configuration exists:
+Log in to the Web UI, open the node and select its Configuration tab. The panel
+keeps one sing-box document per node, logically named `config.json`, as text in
+the `node_configurations` table of `panel.db`. The Web editor manages it; there
+is no separately editable file on disk or CLI for its content. Adding a node
+saves this minimal document as its first configuration:
 
 ```json
 {}
 ```
 
-You can install and enable a core immediately without first saving an empty
-configuration manually. Edit and save the configuration in the Web editor,
+You can install and enable a core on the node immediately without first saving
+a configuration manually. Edit and save the configuration in the Web editor,
 then use Validate configuration to check the saved text and Start or Restart
-to load it. Repeated starts preserve existing configuration, including invalid
-or unfinished text.
+to load it. The saved text, including invalid or unfinished text, is kept
+across panel and node restarts.
 Concurrent saves use the current file revision and reject stale edits instead
 of merging implicitly. Invalid JSON can be saved as text but blocks validation,
 Enable, Start, and Restart until corrected. Core lifecycle and artifact management

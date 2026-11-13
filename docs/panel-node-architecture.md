@@ -1,11 +1,10 @@
 # Panel and node architecture
 
-This guide is the target design for splitting the single-host binary into one
-panel service and any number of node services. It owns service responsibilities,
-the panel–node protocol, node identity, state ownership and failure behavior.
-Package placement follows the [code layout](#code-layout) below. The
-[architecture guide](architecture.md) describes the packages as they are today
-and adopts this layout as the split lands.
+This guide describes the product's two services: one panel and any number of
+nodes. It owns service responsibilities, the panel–node protocol, node identity,
+state ownership and failure behavior. Package placement follows the
+[code layout](#code-layout) below; the [architecture guide](architecture.md)
+lists each package's responsibility and the dependency direction.
 
 - [Services](#services) and [topology](#topology)
 - [Panel–node protocol](#panelnode-protocol) and [identity and trust](#identity-and-trust)
@@ -99,9 +98,9 @@ by reading it again each second, so the protocol has no follow command.
 
 Panel and node are released together. Within `v1` the contract changes only
 additively, and `Hello` carries a minor protocol version. The panel accepts a
-node with the same major version, records its build version, and rejects with a
-clear problem any command the node's minor version does not support. A
-breaking change moves to a new package.
+node with the same major version and records its build version and minor
+version. The contract is at minor version 0, so every command is available to
+every accepted node. A breaking change moves to a new package.
 
 ## Identity and trust
 
@@ -159,14 +158,14 @@ ID even when its document matches the one it runs. "Unapplied changes" means the
 differs from what the node reports as applied.
 
 Both services use SQLite through `modernc.org/sqlite`, each with its own
-baseline schema. Neither has an upgrade path from the single-host format.
+baseline schema. Neither has an upgrade path from an earlier format.
 
 ## Commands and consistency
 
 - Every command carries a request ID. The node records each result under its request ID for a day, so a repeated request returns the recorded result, and it runs runtime-changing commands through its prepare, perform and complete intent with a generation, so an interrupted command recovers after a node restart.
 - The panel checks a revision against the exact Schema of the core it is for before sending it: the selected core for enable and check, and the core the node reports enabled for start and restart. The node accepts a revision ID only with the same bytes and rejects bytes that do not match the digest.
 - A command that can change the node's state keeps only its deadline once sent: a browser that disconnects does not cancel a change the node already started.
-- A management mutation for a node waits for that node's result within the command deadline and returns the completed result, as single-host mutations do today.
+- A management mutation for a node waits for that node's result within the command deadline and returns the completed result.
 - An offline node rejects commands at once with a `node_offline` problem. Commands are never queued. A command to a node whose session has not yet reported its state waits for that report within its deadline. Saving a node's configuration stays a panel-local write and works while the node is offline.
 - When a session drops while a command is in flight, the API returns a `node_result_unknown` problem. The node's next state report settles the outcome. The UI shows reported state and never assumes success.
 - A node reports the state a state-changing command left before it sends the command's result, so the panel's reported state is current when the API answers.
@@ -210,12 +209,12 @@ publishes nothing and is named in a diagnostic while the other nodes publish.
 Each local inbound's key, tag and provenance name its node, and channel
 membership refers to these node-scoped stable IDs. The subscription traffic
 header sums the usage of the nodes a subscription carries. Third-party sources
-and manual nodes behave as today.
+and manual nodes belong to the panel and depend on no node.
 
 ## Management API and Web UI
 
-The management API stays at `/api/v1` and is redesigned in place without
-compatibility, because the product has no stable release yet.
+The management API is rooted at `/api/v1`. Fleet resources sit at its root and
+each node's resources under that node.
 
 | Scope | Resources |
 | --- | --- |
@@ -315,24 +314,23 @@ web/                     pnpm workspace: apps/panel, apps/node (each embedded by
 `main` packages, shared packages depend on neither service, each service
 imports the other only through `internal/nodeapi`, and `cmd/sing-box-node`
 embeds neither the panel's Web UI nor Schema assets, and `cmd/sing-box-panel`
-does not embed the node console's. Placements
-that exist only until each service has its own installer are listed in the
-[architecture guide](architecture.md#package-layout).
+does not embed the node console's. Maintainer tools are programs that nothing
+imports and may use any package.
 
 ## Packaging
 
 - One module and one release build both binaries for `linux/amd64` and `linux/arm64`; the signed `SHA256SUMS` covers both.
 - The installer takes `--component panel|node`, or asks which when neither is given, reports what is already installed, and installs only that binary.
 - Each service has its own systemd unit and dedicated account, installed by its own binary's `systemd` commands over one shared lifecycle. The node unit carries the privileges sing-box needs; the panel unit drops them because it no longer runs sing-box.
-- A node reports its build version. The panel flags nodes whose version differs from its own and can tell a node to self-update to the panel's release through the existing signed update path.
+- A node reports its build version in each session; the panel records it and returns it with the node in the management API. A node's binary is replaced by running the installer on its host. Only the panel binary has a signed self-update command.
 
 ## Preserved guarantees
 
-The split keeps the documented single-host guarantees and moves each to its
-owner: authenticated management with CSRF and origin checks and login limits on
-the panel and the node console; SSRF-safe source acquisition on the panel; exact-version artifact
+Each documented guarantee sits with the service that owns it: authenticated
+management with CSRF and origin checks and login limits on the panel and the
+node console; SSRF-safe source acquisition on the panel; exact-version artifact
 verification on both sides of distribution; immutable checked startup artifacts
 and `sing-box check` before activation on the node; optimistic concurrency for
 configuration and settings writes on the panel; and completed-result responses
-for management mutations. Changing any of these still needs an explicit product
+for management mutations. Changing any of these needs an explicit product
 decision.

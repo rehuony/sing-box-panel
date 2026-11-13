@@ -119,7 +119,7 @@ func TestInspectStillRejectsInvalidExistingSettings(t *testing.T) {
 
 func TestInspectAndCleanRemoveAllDataAndKeepOutsideFiles(t *testing.T) {
 	path, dir := fixture(t)
-	for _, name := range []string{"artifacts/sha256/core/sing-box", "runtime/configs/current.json", "logs/core/2026-09-19-000.log", "imports/core-upload-test", "notes.txt", "logs/operator-notes.txt", "legacy/nested/unknown.bin"} {
+	for _, name := range []string{"artifact-cache/archive.tar.gz", "imports/core-upload-test", "notes.txt", "logs/operator-notes.txt", "legacy/nested/unknown.bin"} {
 		putFile(t, filepath.Join(dir, name))
 	}
 	outside := filepath.Join(filepath.Dir(dir), "original-core.tar.gz")
@@ -135,11 +135,13 @@ func TestInspectAndCleanRemoveAllDataAndKeepOutsideFiles(t *testing.T) {
 	if report.DatabaseIdentity != "sing-box-panel" {
 		t.Fatalf("identity=%s", report.DatabaseIdentity)
 	}
-	seen := map[string]bool{}
+	roles := map[string]string{}
 	for _, entry := range report.Entries {
-		seen[entry.Path] = true
+		roles[entry.Path] = entry.Role
 	}
-	if !seen[filepath.Join(dir, "logs/core/2026-09-19-000.log")] || !seen[filepath.Join(dir, "legacy/nested/unknown.bin")] {
+	// Files the panel creates are named; anything else is still in scope.
+	if roles[filepath.Join(dir, "artifact-cache/archive.tar.gz")] != "verified core archives that nodes install from" ||
+		roles[filepath.Join(dir, "legacy/nested/unknown.bin")] != "instance data" {
 		t.Fatalf("incomplete inventory=%+v", report.Entries)
 	}
 	after, err := os.ReadFile(filepath.Join(dir, "panel.db"))
@@ -156,7 +158,7 @@ func TestInspectAndCleanRemoveAllDataAndKeepOutsideFiles(t *testing.T) {
 	if len(result.Removed) == 0 {
 		t.Fatal("cleanup removed nothing")
 	}
-	for _, name := range []string{path, filepath.Join(dir, "panel.db"), filepath.Join(dir, "artifacts"), filepath.Join(dir, "runtime"), filepath.Join(dir, "imports"), filepath.Join(dir, "logs/core"), filepath.Join(dir, procctl.LeaseFileName), filepath.Join(dir, "notes.txt"), filepath.Join(dir, "legacy"), dir} {
+	for _, name := range []string{path, filepath.Join(dir, "panel.db"), filepath.Join(dir, "artifact-cache"), filepath.Join(dir, "imports"), filepath.Join(dir, "logs"), filepath.Join(dir, procctl.LeaseFileName), filepath.Join(dir, "notes.txt"), filepath.Join(dir, "legacy"), dir} {
 		if _, err := os.Lstat(name); !os.IsNotExist(err) {
 			t.Fatalf("managed path remains: %s %v", name, err)
 		}

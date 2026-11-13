@@ -770,7 +770,7 @@ rendered as zero.
 
 `process_only` reports child-process health without counters. `limited`
 requires the final configuration to enable a
-Clash API on a numeric loopback address with a non-empty secret. The panel
+Clash API on a numeric loopback address with a non-empty secret. The node
 reads that configuration and never modifies startup bytes.
 
 `reason_code: process_only` and `monitoring_tier: process_only` explain missing
