@@ -4,6 +4,7 @@
 // dial out to the panel; the panel never connects to a node. Within v1 the
 // contract changes only additively, and Hello carries the node's minor
 // protocol version so the panel can reject commands an older node lacks.
+// Minor version 1 adds FetchRelease, UpdateNode and StateReport.last_update.
 syntax = "proto3";
 
 package sbp.node.v1;
@@ -26,6 +27,12 @@ service NodeService {
   // FetchArtifact streams one cached core artifact, authorized by a grant
   // issued in the node's current session.
   rpc FetchArtifact(FetchArtifactRequest) returns (stream FetchArtifactResponse);
+  // FetchRelease streams the panel's node release for the node's platform.
+  // It has its own signed handshake, apart from Connect, so a running node
+  // and the node's update command can both use it: the node sends Hello and
+  // Proof, the panel sends Challenge, then ReleaseHeader and the binary in
+  // chunks. Since minor version 1.
+  rpc FetchRelease(stream FetchReleaseRequest) returns (stream FetchReleaseResponse);
 }
 
 // ProtocolVersion identifies this contract. The panel accepts nodes with the
@@ -142,6 +149,8 @@ message Command {
     ListCoreLogs list_core_logs = 29;
     DeleteCoreLog delete_core_log = 30;
     ClearCoreLog clear_core_log = 31;
+    // Since minor version 1.
+    UpdateNode update_node = 32;
   }
 }
 
@@ -316,6 +325,13 @@ message ClearCoreLog {
   string file = 1;
 }
 
+// UpdateNode updates the node to the panel's release of version. The node
+// fetches it with FetchRelease, verifies it with the release key embedded in
+// its own binary, and installs it or stages it for its root update helper.
+message UpdateNode {
+  string version = 1;
+}
+
 // Result answers one command.
 message Result {
   string request_id = 1;
@@ -329,6 +345,7 @@ message Result {
     ResolveOutcome resolve = 14;
     CoreLogOutcome core_log = 15;
     StartupArtifactsOutcome startup_artifacts = 17;
+    UpdateOutcome update = 18;
   }
 }
 
@@ -449,6 +466,25 @@ message ResolveOutcome {
   bool symlink = 5;
 }
 
+// UpdateOutcome is how an UpdateNode command left the node.
+message UpdateOutcome {
+  UpdateState state = 1;
+  string version = 2;
+}
+
+enum UpdateState {
+  UPDATE_STATE_UNSPECIFIED = 0;
+  // The node already runs the version.
+  UPDATE_STATE_UP_TO_DATE = 1;
+  // The node installed the version and its service restarts into it now.
+  UPDATE_STATE_RESTARTING = 2;
+  // The node's system service staged the version for its root update
+  // helper, which installs it and restarts the service.
+  UPDATE_STATE_STAGED = 3;
+  // The node installed the version, which runs once the node is restarted.
+  UPDATE_STATE_RESTART_REQUIRED = 4;
+}
+
 message CoreLogOutcome {
   repeated CoreLogFile files = 1;
   CoreLogChunk chunk = 2;
@@ -496,6 +532,19 @@ message StateReport {
   // file is still the empty document it was created with.
   ConfigurationRevision existing_configuration = 6;
   RuntimeStatus runtime = 7;
+  // The node's last update attempt, absent when it has made none. After a
+  // root update helper's attempt the node reports its result once it runs
+  // again. Since minor version 1.
+  UpdateAttempt last_update = 8;
+}
+
+message UpdateAttempt {
+  string version = 1;
+  bool succeeded = 2;
+  // On failure, a short code such as signature_invalid,
+  // service_not_active or helper_unavailable.
+  string code = 3;
+  google.protobuf.Timestamp finished_at = 4;
 }
 
 message Host {
@@ -590,4 +639,35 @@ message FetchArtifactResponse {
   ArtifactIdentity artifact = 1;
   int64 size = 2;
   bytes data = 3;
+}
+
+// FetchReleaseRequest is one node-to-panel frame of FetchRelease: Hello,
+// whose node ID, protocol and platform the panel uses, then Proof.
+message FetchReleaseRequest {
+  oneof frame {
+    Hello hello = 1;
+    Proof proof = 2;
+  }
+}
+
+// FetchReleaseResponse is one panel-to-node frame of FetchRelease:
+// Challenge, then ReleaseHeader, then the binary in chunks.
+message FetchReleaseResponse {
+  oneof frame {
+    Challenge challenge = 1;
+    ReleaseHeader header = 2;
+    bytes chunk = 3;
+  }
+}
+
+// ReleaseHeader describes the node binary that follows: the release
+// version, the binary's size and lowercase hexadecimal SHA-256, and the
+// release's signed checksum manifest with its signature, which the node
+// verifies with its embedded release key.
+message ReleaseHeader {
+  string version = 1;
+  int64 size = 2;
+  string sha256 = 3;
+  bytes checksums = 4;
+  bytes signature = 5;
 }

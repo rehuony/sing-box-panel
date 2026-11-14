@@ -79,6 +79,43 @@ type Definition[T any] struct {
 	// the quoted state path.
 	Arguments func(quotedStatePath string) string
 	State     State[T]
+	// Companions are units a system installation keeps beside the service's
+	// unit, such as its root update helper, rendered with the executable
+	// and the data directory.
+	Companions []Companion
+	// CompanionArguments renders a companion's ExecStart arguments after
+	// the executable around the quoted data directory.
+	CompanionArguments func(quotedDataDir string) string
+}
+
+// Companion is a unit installed, inspected and removed with a system
+// service. In its audited template, ExecStart runs the executable with the
+// definition's CompanionArguments, ReadWritePaths names the executable's
+// directory and the data directory, and PathExists names Watch inside the
+// data directory; each directive is optional.
+type Companion struct {
+	// Name is the unit's file name, such as NAME-update.path.
+	Name     string
+	Template []byte
+	// Watch is the path inside the data directory that PathExists names.
+	Watch string
+	// Enable enables and starts the companion with the service; the others
+	// are started by an enabled companion.
+	Enable bool
+}
+
+// ScopeEnvironment is set by each service unit to its scope, so a service
+// knows how it is supervised.
+const ScopeEnvironment = "SING_BOX_SYSTEMD_SCOPE"
+
+// RunningScope returns the scope of the unit that runs this process, if a
+// unit does.
+func RunningScope() (Scope, bool) {
+	switch scope := Scope(os.Getenv(ScopeEnvironment)); scope {
+	case ScopeSystem, ScopeUser:
+		return scope, true
+	}
+	return "", false
 }
 
 // State is what a service keeps outside its unit and the lifecycle consults:
@@ -284,6 +321,18 @@ type Status struct {
 	MainPID           int    `json:"main_pid"`
 	NeedDaemonReload  bool   `json:"need_daemon_reload"`
 	UnitFileStatePath string `json:"unit_file_state_path,omitempty"`
+	// Companions are systemd's view of the companion units of a system
+	// installation.
+	Companions []UnitState `json:"companions,omitempty"`
+}
+
+// UnitState is systemd's view of one companion unit.
+type UnitState struct {
+	Unit          string `json:"unit"`
+	LoadState     string `json:"load_state"`
+	ActiveState   string `json:"active_state"`
+	SubState      string `json:"sub_state"`
+	UnitFileState string `json:"unit_file_state"`
 }
 
 type ControlResult[T any] struct {

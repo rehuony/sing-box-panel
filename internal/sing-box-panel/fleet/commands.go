@@ -13,6 +13,7 @@ import (
 
 	"github.com/rehuony/sing-box-panel/internal/database"
 	"github.com/rehuony/sing-box-panel/internal/nodeapi"
+	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/releases"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/store"
 )
 
@@ -53,6 +54,9 @@ func (service *Service) run(ctx context.Context, nodeID string, body nodeapi.Com
 	current := service.sessions.get(nodeID)
 	if current == nil {
 		return nil, ErrNodeOffline
+	}
+	if current.protocolMinor < commandMinor(body) {
+		return nil, ErrNodeUpgradeRequired
 	}
 	// The panel acts on a node only once it knows the node's state.
 	select {
@@ -108,13 +112,31 @@ func (service *Service) run(ctx context.Context, nodeID string, body nodeapi.Com
 // session failures of the panel.
 func ClassifyOperationFailure(err error) (string, string, bool) {
 	var problem *CommandProblem
+	var update *NodeUpdateFailure
+	var release *releases.Failure
 	switch {
 	case errors.As(err, &problem):
 		return problem.Code, problem.Detail, true
-	case errors.Is(err, ErrNodeOffline):
-		return "node_offline", ErrNodeOffline.Error(), true
-	case errors.Is(err, ErrNodeResultUnknown):
-		return "node_result_unknown", ErrNodeResultUnknown.Error(), true
+	case errors.As(err, &update):
+		return "node_update_failed", update.Error(), true
+	case errors.As(err, &release):
+		return release.Code, "The update failed with " + release.Code + ".", true
+	}
+	for _, known := range []struct {
+		target error
+		code   string
+	}{
+		{ErrNodeOffline, "node_offline"},
+		{ErrNodeResultUnknown, "node_result_unknown"},
+		{ErrNodeUpgradeRequired, "node_upgrade_required"},
+		{ErrNodeRestartRequired, "node_restart_required"},
+		{ErrNodeUpdateTimeout, "node_update_timeout"},
+		{releases.ErrUnavailable, "node_update_unavailable"},
+		{releases.ErrPlatformUnsupported, "node_platform_unsupported"},
+	} {
+		if errors.Is(err, known.target) {
+			return known.code, known.target.Error(), true
+		}
 	}
 	return "", "", false
 }

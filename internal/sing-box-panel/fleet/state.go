@@ -76,6 +76,10 @@ func (service *Service) receiveStateReport(ctx context.Context, current *session
 	if existing != nil {
 		service.seedConfiguration(ctx, current.nodeID, existing)
 	}
+	if last := report.GetLastUpdate(); last != nil && !proto.Equal(last, current.lastUpdate) {
+		current.lastUpdate = last
+		service.recordUpdateReport(current.nodeID, last)
+	}
 	current.open()
 	return nil
 }
@@ -183,6 +187,7 @@ func (service *Service) collectStatus(ctx context.Context) (FleetSnapshot, error
 	service.statusMu.Lock()
 	previous := service.statusItems
 	service.statusMu.Unlock()
+	release := service.releaseVersion()
 	items := make(map[string]statusEncoding, len(records))
 	snapshot := FleetSnapshot{Nodes: make([]NodeStatus, 0, len(records)), Encoded: make([]json.RawMessage, 0, len(records))}
 	for _, record := range records {
@@ -191,7 +196,7 @@ func (service *Service) collectStatus(ctx context.Context) (FleetSnapshot, error
 		if err != nil {
 			return FleetSnapshot{}, err
 		}
-		status := NodeStatus{Node: service.view(record), Metrics: metrics.Metrics}
+		status := NodeStatus{Node: nodeView(record, state, release), Metrics: metrics.Metrics}
 		status.Metrics.LatestSample, status.Metrics.CurrentTrafficData.Counters = nil, nil
 		last, known := previous[record.ID]
 		item, err := encodeStatus(status, last, known)

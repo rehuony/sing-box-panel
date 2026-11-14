@@ -37,11 +37,17 @@ import (
 
 const (
 	keepaliveInterval = 30 * time.Second
-	keepaliveTimeout  = 10 * time.Second
-	handshakeTimeout  = 15 * time.Second
-	enrollTimeout     = 30 * time.Second
-	minimumBackoff    = time.Second
-	maximumBackoff    = time.Minute
+	// enrollmentCheckInterval is how often a running node looks for an
+	// enrollment saved while it runs.
+	enrollmentCheckInterval = 3 * time.Second
+	// resultCheckInterval is how often a running node looks for the result
+	// of its root update helper.
+	resultCheckInterval = 2 * time.Second
+	keepaliveTimeout    = 10 * time.Second
+	handshakeTimeout    = 15 * time.Second
+	enrollTimeout       = 30 * time.Second
+	minimumBackoff      = time.Second
+	maximumBackoff      = time.Minute
 	// maximumCommands bounds the commands a node runs at once; more wait
 	// for a slot until their deadline.
 	maximumCommands = 8
@@ -58,6 +64,8 @@ type Options struct {
 	// an unenrolled node can be enrolled, and readings shows the node's own
 	// state.
 	Console func(ctx context.Context, readings ReadingsSource) error
+	// Update adjusts how the node updates itself when the panel asks.
+	Update UpdateOptions
 }
 
 func (options Options) logf(format string, args ...any) {
@@ -163,6 +171,12 @@ func Run(ctx context.Context, link *Link, options Options) (runErr error) {
 	defer func() { stop(nil); background.Wait() }()
 	background.Go(func() { node.RunPublicIPDetection(ctx) })
 	background.Go(func() { node.RunTrafficCollection(ctx) })
+	// An enrollment saved by sing-box-node enroll while the node runs
+	// replaces the current one, as the console's does.
+	background.Go(func() { link.watch(ctx, enrollmentCheckInterval, options.logf) })
+	self := newUpdates(dataDir, link.build, options.Update)
+	self.load()
+	background.Go(func() { self.watch(ctx, resultCheckInterval) })
 	// The sessions' reports and the console share one host sampler.
 	sampler := &host.Sampler{}
 	if options.Console != nil {
@@ -183,7 +197,13 @@ func Run(ctx context.Context, link *Link, options Options) (runErr error) {
 		}
 		defer connection.Close()
 		client := nodeapi.NewNodeServiceClient(connection)
-		commands := &executor{node: node, database: database, fetch: fetchArtifact(client), now: time.Now, slots: slots}
+		commands := &executor{
+			node: node, database: database, fetch: fetchArtifact(client), now: time.Now, slots: slots, updates: self,
+			fetchRelease: func(ctx context.Context, version, dir string) error {
+				_, err := fetchRelease(ctx, client, enrollment, link.build, version, dir)
+				return err
+			},
+		}
 		identity := sessionIdentity{enrollment: enrollment, instanceID: instanceID, build: link.build}
 		return holdSession(attempt, ctx, client, identity, commands, sampler, dataDir, &inFlight, func() {
 			options.logf("connected to panel %s as node %s", enrollment.Endpoint, enrollment.NodeID)
@@ -264,6 +284,7 @@ func holdSession(attempt, lifetime context.Context, client nodeapi.NodeServiceCl
 	}
 	// The panel accepts commands once it has the node's state.
 	reports := newReporter(commands.node, commands.database, sampler, dataDir, send, welcome.GetRuntimeHistoryAfter())
+	reports.updates = commands.updates
 	if err := reports.start(ctx); err != nil {
 		return fmt.Errorf("report state: %w", err)
 	}
@@ -326,6 +347,9 @@ func holdSession(attempt, lifetime context.Context, client nodeapi.NodeServiceCl
 					_ = reports.reportChange(ctx, command.GetRequestId())
 				}
 				_ = send(&nodeapi.ConnectRequest{Frame: &nodeapi.ConnectRequest_Result{Result: result}})
+				if followUp := commands.takeFollowUp(command.GetRequestId()); followUp != nil {
+					followUp()
+				}
 			}()
 		case frame.GetCancel() != nil:
 			runningMu.Lock()

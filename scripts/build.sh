@@ -294,8 +294,8 @@ check_checksums() {
   )
 }
 
-# check_binary_build verifies a release binary's build settings. Only the
-# panel updates itself, so only it must embed the update verification key.
+# check_binary_build verifies a release binary's build settings. Both
+# binaries update themselves, so both must embed the update verification key.
 check_binary_build() {
   local binary="$1"
   local architecture="$2"
@@ -332,7 +332,7 @@ check_binary_build() {
     echo "release binary metadata has the wrong ${architecture} baseline" >&2
     return 1
   fi
-  if [[ "${command}" == sing-box-panel && -n "${public_key}" ]] && ! LC_ALL=C grep -aFq -- "${public_key}" "${binary}"; then
+  if [[ -n "${public_key}" ]] && ! LC_ALL=C grep -aFq -- "${public_key}" "${binary}"; then
     echo "formal release binary does not contain the configured update verification key" >&2
     return 1
   fi

@@ -537,7 +537,7 @@ func TestAccountRemovalAfterDisableReload(t *testing.T) {
 			base := f.runner.run
 			needsReload := false
 			f.runner.run = func(name string, args []string) (systemd.CommandResult, error) {
-				if name == "systemctl" && slices.Contains(args, "disable") {
+				if name == "systemctl" && slices.Contains(args, "disable") && slices.Contains(args, UnitName) {
 					if err := os.Remove(link); err != nil {
 						t.Fatal(err)
 					}

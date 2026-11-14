@@ -272,6 +272,28 @@ func TestGeneratedUnitsWithSystemdAnalyze(t *testing.T) {
 				if err != nil {
 					t.Fatalf("systemd rejected generated unit: %v\n%s\n%s", err, output, unit)
 				}
+				if scope != systemd.ScopeSystem {
+					return
+				}
+				manager, err := New(systemd.Options{Layout: systemd.Layout{UserUnitPath: "/nonexistent/user/" + UnitName}})
+				if err != nil {
+					t.Fatal(err)
+				}
+				var helpers []string
+				for _, companion := range Definition().Companions {
+					rendered, err := manager.RenderCompanion(companion, "/usr/bin/true", data)
+					if err != nil {
+						t.Fatal(err)
+					}
+					helper := filepath.Join(dir, companion.Name)
+					if err := os.WriteFile(helper, rendered, 0600); err != nil {
+						t.Fatal(err)
+					}
+					helpers = append(helpers, helper)
+				}
+				if output, err := exec.CommandContext(t.Context(), analyze, append([]string{"verify", "--man=no"}, helpers...)...).CombinedOutput(); err != nil {
+					t.Fatalf("systemd rejected the update helper units: %v\n%s", err, output)
+				}
 			})
 		}
 	}
@@ -348,7 +370,8 @@ func TestRelatedFilesAndOrphanAuxiliariesAreVisible(t *testing.T) {
 		t.Fatalf("related files missing: %+v", files)
 	}
 	result, err := f.manager.Uninstall(t.Context(), systemd.UninstallRequest{Scope: systemd.ScopeSystem})
-	if err != nil || len(result.RemovedPaths) != 2 {
+	// The sysusers and tmpfiles declarations and the update helper's units.
+	if err != nil || len(result.RemovedPaths) != 4 {
 		t.Fatalf("orphan uninstall: %+v %v", result, err)
 	}
 	if _, err := os.Stat(custom); err != nil {

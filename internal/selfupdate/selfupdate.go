@@ -1,7 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Package selfupdate downloads, verifies, and atomically installs published
-// sing-box-panel release binaries.
+// Package selfupdate fetches, verifies and installs signed release binaries
+// of the panel and the node. Its steps are shared by the panel's update
+// command, the panel's node release cache, both services' updates from the
+// panel and the root update helper of a system service: fetch a release's
+// files, verify staged files, and install a verified binary.
 package selfupdate
 
 import (
@@ -16,24 +19,30 @@ import (
 	"runtime"
 	"time"
 
-	"github.com/rehuony/sing-box-panel/internal/atomicfile"
 	releasecontract "github.com/rehuony/sing-box-panel/internal/release"
 	"golang.org/x/mod/semver"
 )
 
 const (
-	checksumAssetName  = "SHA256SUMS"
-	signatureAssetName = "SHA256SUMS.sig"
-	maxReleaseBytes    = 1 << 20
-	maxChecksumBytes   = 1 << 20
-	maxSignatureBytes  = 1 << 10
-	maxBinaryBytes     = 256 << 20
+	// ChecksumsName and SignatureName are the signed checksum manifest of a
+	// release and its detached signature.
+	ChecksumsName = "SHA256SUMS"
+	SignatureName = "SHA256SUMS.sig"
+
+	maxReleaseBytes = 1 << 20
+	// MaxChecksumBytes, MaxSignatureBytes and MaxBinaryBytes bound the files
+	// of a release.
+	MaxChecksumBytes  = 1 << 20
+	MaxSignatureBytes = 1 << 10
+	MaxBinaryBytes    = 256 << 20
 )
 
 var (
-	// defaultLatestReleaseURL can be replaced only at link time for an isolated
-	// release smoke test. Production builds use the repository's latest releasecontract.
-	defaultLatestReleaseURL = "https://api.github.com/repos/rehuony/sing-box-panel/releases/latest"
+	// defaultReleasesURL can be replaced only at link time for an isolated
+	// release smoke test. Production builds use the repository's releases:
+	// the latest stable release is defaultReleasesURL/latest and one exact
+	// release is defaultReleasesURL/tags/VERSION.
+	defaultReleasesURL = "https://api.github.com/repos/rehuony/sing-box-panel/releases"
 
 	// embeddedPublicKey is populated by the formal release build through -X. A
 	// release binary without a valid key fails closed before fetching assets.
@@ -52,24 +61,70 @@ var (
 	ErrExecutableInvalid       = errors.New("current executable is invalid")
 	ErrExecutableChanged       = errors.New("current executable changed during self-update")
 	ErrStagedExecutableInvalid = errors.New("staged executable identity is invalid")
+	ErrStagedFileInvalid       = errors.New("staged release file is missing, not a regular file or too large")
+	// ErrUpToDate reports a release of the version that already runs.
+	ErrUpToDate = errors.New("the release is the version that already runs")
+	// ErrVersionNotNewer refuses a release older than the version that runs.
+	ErrVersionNotNewer = errors.New("the release is older than the version that runs")
+	// ErrExecutableNotWritable reports a process that may not replace its
+	// executable and has no update helper to do it.
+	ErrExecutableNotWritable = errors.New("this process may not replace its executable; run the update command with write access to it")
+	ErrNoPreviousExecutable  = errors.New("no previous executable is kept beside the current one")
+	// ErrNotActive reports a service that did not stay active after it was
+	// restarted into a new version.
+	ErrNotActive = errors.New("the service did not stay active after the update")
 )
 
+// Binary is one of the release's executables. It selects the release asset
+// and the Go command path a staged binary must carry.
+type Binary string
+
+const (
+	Panel Binary = "sing-box-panel"
+	Node  Binary = "sing-box-node"
+)
+
+const modulePath = "github.com/rehuony/sing-box-panel"
+
+// AssetName is the release asset of the binary for a platform.
+func (binary Binary) AssetName(goos, goarch string) string {
+	return string(binary) + "-" + goos + "-" + goarch
+}
+
+func (binary Binary) commandPath() string { return modulePath + "/cmd/" + string(binary) }
+
+func (binary Binary) valid() bool { return binary == Panel || binary == Node }
+
+// SupportedPlatform reports whether releases carry binaries for a platform.
+func SupportedPlatform(goos, goarch string) bool {
+	return goos == "linux" && (goarch == "amd64" || goarch == "arm64")
+}
+
 type Options struct {
-	HTTPClient       *http.Client
-	LatestReleaseURL string
-	GOOS             string
-	GOARCH           string
-	Executable       func() (string, error)
-	PublicKey        ed25519.PublicKey
+	// Binary is the executable this updater fetches, verifies and installs.
+	Binary     Binary
+	HTTPClient *http.Client
+	// ReleasesURL is the GitHub releases API of the repository; tests point
+	// it at a local server.
+	ReleasesURL string
+	// Token, if set, authenticates GitHub API requests.
+	Token      string
+	GOOS       string
+	GOARCH     string
+	Executable func() (string, error)
+	// PublicKey replaces the release key embedded at build time.
+	PublicKey ed25519.PublicKey
 }
 
 type Updater struct {
+	binary                   Binary
 	client                   *http.Client
-	latestReleaseURL         string
+	releasesURL              string
+	token                    string
 	goos                     string
 	goarch                   string
 	executable               func() (string, error)
-	validateStagedExecutable func(string, string, string) error
+	validateStagedExecutable func(path string, binary Binary, goos, goarch string) error
 	publicKey                ed25519.PublicKey
 	publicKeyErr             error
 	afterTargetSnapshot      func()
@@ -99,8 +154,8 @@ func New(options Options) *Updater {
 	if options.HTTPClient == nil {
 		options.HTTPClient = &http.Client{Timeout: 10 * time.Minute}
 	}
-	if options.LatestReleaseURL == "" {
-		options.LatestReleaseURL = defaultLatestReleaseURL
+	if options.ReleasesURL == "" {
+		options.ReleasesURL = defaultReleasesURL
 	}
 	if options.GOOS == "" {
 		options.GOOS = runtime.GOOS
@@ -117,26 +172,65 @@ func New(options Options) *Updater {
 		publicKey, publicKeyErr = releasecontract.ParsePublicKey(embeddedPublicKey)
 	}
 	return &Updater{
-		client: options.HTTPClient, latestReleaseURL: options.LatestReleaseURL,
+		binary: options.Binary, client: options.HTTPClient, releasesURL: options.ReleasesURL, token: options.Token,
 		goos: options.GOOS, goarch: options.GOARCH, executable: options.Executable,
 		validateStagedExecutable: validateStagedExecutable,
 		publicKey:                publicKey, publicKeyErr: publicKeyErr,
 	}
 }
 
-func (updater *Updater) Update(ctx context.Context, currentVersion string, report ProgressFunc) (Result, error) {
-	if updater.goos != "linux" || updater.goarch != "amd64" && updater.goarch != "arm64" {
-		return Result{}, fmt.Errorf("%w: %s/%s", ErrUnsupportedPlatform, updater.goos, updater.goarch)
+// AssetName is the release asset this updater installs.
+func (updater *Updater) AssetName() string {
+	return updater.binary.AssetName(updater.goos, updater.goarch)
+}
+
+// ready checks what every update needs before it touches the network or
+// the executable: a known binary, a supported platform, a release build and
+// a valid verification key.
+func (updater *Updater) ready(currentVersion string) error {
+	if !updater.binary.valid() {
+		return fmt.Errorf("%w: unknown binary %q", ErrUnsupportedPlatform, updater.binary)
+	}
+	if !SupportedPlatform(updater.goos, updater.goarch) {
+		return fmt.Errorf("%w: %s/%s", ErrUnsupportedPlatform, updater.goos, updater.goarch)
 	}
 	if err := releasecontract.ValidateVersion(currentVersion); err != nil {
-		return Result{}, fmt.Errorf("%w: got %q", ErrInvalidVersion, currentVersion)
+		return fmt.Errorf("%w: got %q", ErrInvalidVersion, currentVersion)
 	}
+	return updater.keyReady()
+}
+
+func (updater *Updater) keyReady() error {
 	if updater.publicKeyErr != nil || len(updater.publicKey) != ed25519.PublicKeySize {
-		return Result{}, ErrVerificationKeyInvalid
+		return ErrVerificationKeyInvalid
+	}
+	return nil
+}
+
+// Ready reports whether the process can update from currentVersion at all.
+func (updater *Updater) Ready(currentVersion string) error { return updater.ready(currentVersion) }
+
+// Latest returns the version of the newest stable release.
+func (updater *Updater) Latest(ctx context.Context) (string, error) {
+	latest, err := updater.release(ctx, "")
+	if err != nil {
+		return "", err
+	}
+	return latest.TagName, nil
+}
+
+// Update installs the latest stable release over the current executable
+// when it is newer than currentVersion. The checksum manifest's signature is
+// verified before the executable is inspected or the binary downloaded, and
+// the binary is staged beside the executable, verified and installed under
+// the update lock.
+func (updater *Updater) Update(ctx context.Context, currentVersion string, report ProgressFunc) (Result, error) {
+	if err := updater.ready(currentVersion); err != nil {
+		return Result{}, err
 	}
 
 	report.emit(Progress{Stage: StageCheckRelease})
-	latest, err := updater.latest(ctx)
+	latest, err := updater.release(ctx, "")
 	if err != nil {
 		return Result{}, err
 	}
@@ -144,34 +238,16 @@ func (updater *Updater) Update(ctx context.Context, currentVersion string, repor
 	if semver.Compare(currentVersion, latest.TagName) >= 0 {
 		return result, nil
 	}
-
-	binaryName := "sing-box-panel-" + updater.goos + "-" + updater.goarch
-	binaryAsset, err := findAsset(latest.Assets, binaryName)
+	binaryAsset, err := findAsset(latest.Assets, updater.AssetName())
 	if err != nil {
 		return Result{}, err
 	}
-	checksumAsset, err := findAsset(latest.Assets, checksumAssetName)
-	if err != nil {
-		return Result{}, err
-	}
-	signatureAsset, err := findAsset(latest.Assets, signatureAssetName)
-	if err != nil {
-		return Result{}, err
-	}
-
 	report.emit(Progress{Stage: StageVerifyRelease, Version: latest.TagName})
-	checksums, err := updater.downloadBytes(ctx, checksumAsset, maxChecksumBytes)
+	signed, err := updater.manifest(ctx, latest)
 	if err != nil {
-		return Result{}, fmt.Errorf("download %s: %w", checksumAssetName, err)
+		return Result{}, err
 	}
-	signature, err := updater.downloadBytes(ctx, signatureAsset, maxSignatureBytes)
-	if err != nil {
-		return Result{}, fmt.Errorf("download %s: %w", signatureAssetName, err)
-	}
-	if err := releasecontract.Verify(updater.publicKey, latest.TagName, checksums, signature); err != nil {
-		return Result{}, fmt.Errorf("%w: %v", ErrSignatureInvalid, err)
-	}
-	expected, err := parseChecksum(checksums, binaryName)
+	expected, err := parseChecksum(signed.checksums, updater.AssetName())
 	if err != nil {
 		return Result{}, err
 	}
@@ -196,7 +272,7 @@ func (updater *Updater) Update(ctx context.Context, currentVersion string, repor
 	if err := requireExecutableDigest(targetPath, targetDigest); err != nil {
 		return Result{}, err
 	}
-	confirmedLatest, err := updater.latest(ctx)
+	confirmedLatest, err := updater.release(ctx, "")
 	if err != nil {
 		return Result{}, err
 	}
@@ -207,59 +283,26 @@ func (updater *Updater) Update(ctx context.Context, currentVersion string, repor
 		)
 	}
 
-	temporary, err := os.CreateTemp(filepath.Dir(targetPath), ".sing-box-panel-update-*")
+	stage, err := os.MkdirTemp(filepath.Dir(targetPath), "."+filepath.Base(targetPath)+"-update-*")
 	if err != nil {
 		return Result{}, fmt.Errorf("stage update beside executable: %w", err)
 	}
-	temporaryPath := temporary.Name()
-	closed := false
-	defer func() {
-		if !closed {
-			_ = temporary.Close()
-		}
-		_ = os.Remove(temporaryPath)
-	}()
-
-	actual, err := updater.downloadFile(ctx, binaryAsset, temporary, maxBinaryBytes, report)
-	if err != nil {
-		return Result{}, fmt.Errorf("download %s: %w", binaryName, err)
-	}
-	report.emit(Progress{Stage: StageVerifyBinary})
-	if actual != expected {
-		return Result{}, fmt.Errorf(
-			"%w: %s expected %x, got %x",
-			ErrChecksumInvalid, binaryName, expected, actual,
-		)
-	}
-	if err := temporary.Chmod(targetMode); err != nil {
-		return Result{}, fmt.Errorf("set staged executable permissions: %w", err)
-	}
-	if err := temporary.Sync(); err != nil {
-		return Result{}, fmt.Errorf("sync staged executable: %w", err)
-	}
-	if err := temporary.Close(); err != nil {
-		return Result{}, fmt.Errorf("close staged executable: %w", err)
-	}
-	closed = true
-	if err := updater.validateStagedExecutable(temporaryPath, updater.goos, updater.goarch); err != nil {
+	defer func() { _ = os.RemoveAll(stage) }()
+	if err := signed.write(stage); err != nil {
 		return Result{}, err
 	}
-	if err := requireExecutableDigest(targetPath, targetDigest); err != nil {
+	if err := updater.downloadAsset(ctx, binaryAsset, stage, expected, report); err != nil {
+		return Result{}, err
+	}
+	report.emit(Progress{Stage: StageVerifyBinary})
+	staged, err := updater.Verify(stage, latest.TagName, currentVersion)
+	if err != nil {
 		return Result{}, err
 	}
 	report.emit(Progress{Stage: StageInstall})
-	// Cancellation is honored until the atomic replacement commit point. Once
-	// Rename starts, the update is committed and only durability work remains.
-	if err := ctx.Err(); err != nil {
+	if err := updater.installLocked(ctx, staged, targetPath, targetMode, targetDigest); err != nil {
 		return Result{}, err
 	}
-	if err := os.Rename(temporaryPath, targetPath); err != nil {
-		return Result{}, fmt.Errorf("replace current executable: %w", err)
-	}
-	if err := atomicfile.SyncDir(filepath.Dir(targetPath)); err != nil {
-		return Result{}, err
-	}
-
 	result.Updated = true
 	result.Version = latest.TagName
 	result.ExecutablePath = targetPath

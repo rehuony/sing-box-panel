@@ -66,8 +66,73 @@ func (manager *Manager[T]) Render(scope Scope, executablePath, statePath, dataDi
 			return nil, err
 		}
 	}
-	// PrivateTmp must not hide explicitly selected state or configuration.
-	// Bind only these dedicated directories, leaving the remaining sandbox intact.
+	return bindTemporaryPaths(result, writable)
+}
+
+// RenderCompanion returns a companion unit of a system installation that
+// runs executable with its data in dataDir.
+func (manager *Manager[T]) RenderCompanion(companion Companion, executablePath, dataDir string) ([]byte, error) {
+	result := companion.Template
+	var err error
+	if hasDirective(result, "ExecStart=") {
+		if manager.definition.CompanionArguments == nil {
+			return nil, fmt.Errorf("%w: %s has no companion arguments", ErrInvalid, manager.definition.Name)
+		}
+		executable, err := quoteExecArgument(executablePath)
+		if err != nil {
+			return nil, err
+		}
+		data, err := quoteExecArgument(dataDir)
+		if err != nil {
+			return nil, err
+		}
+		if result, err = replaceDirective(result, "ExecStart=", "ExecStart="+executable+" "+manager.definition.CompanionArguments(data)); err != nil {
+			return nil, err
+		}
+	}
+	writable := []string{filepath.Dir(executablePath), dataDir}
+	if hasDirective(result, "ReadWritePaths=") {
+		quoted := make([]string, 0, len(writable))
+		for _, path := range writable {
+			value, err := quotePathDirective(path)
+			if err != nil {
+				return nil, err
+			}
+			quoted = append(quoted, value)
+		}
+		if result, err = replaceDirective(result, "ReadWritePaths=", "ReadWritePaths="+strings.Join(quoted, " ")); err != nil {
+			return nil, err
+		}
+	}
+	if hasDirective(result, "PathExists=") {
+		watched, err := workingDirectoryValue(filepath.Join(dataDir, companion.Watch))
+		if err != nil || companion.Watch == "" {
+			return nil, fmt.Errorf("%w: the watched path cannot be represented losslessly", ErrInvalid)
+		}
+		if result, err = replaceDirective(result, "PathExists=", "PathExists="+watched); err != nil {
+			return nil, err
+		}
+	}
+	if hasDirective(result, "PrivateTmp=") {
+		return bindTemporaryPaths(result, writable[1:])
+	}
+	return result, nil
+}
+
+func hasDirective(source []byte, prefix string) bool {
+	for _, line := range strings.Split(string(source), "\n") {
+		if strings.HasPrefix(line, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+// bindTemporaryPaths keeps PrivateTmp from hiding explicitly selected state
+// or configuration: it binds only these dedicated directories, leaving the
+// remaining sandbox intact.
+func bindTemporaryPaths(result []byte, writable []string) ([]byte, error) {
+	var err error
 	var temporaryPaths []string
 	for _, path := range writable {
 		for _, root := range []string{"/tmp", "/var/tmp"} {

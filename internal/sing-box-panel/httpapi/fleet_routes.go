@@ -17,6 +17,7 @@ import (
 	"github.com/rehuony/sing-box-panel/internal/coreartifact"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/corecache"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/fleet"
+	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/releases"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/store"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/telemetry"
 )
@@ -178,8 +179,10 @@ type fleetCommandRequest struct {
 type fleetCommandResult struct {
 	NodeID string `json:"node_id"`
 	OK     bool   `json:"ok"`
-	Code   string `json:"code,omitempty"`
-	Title  string `json:"title,omitempty"`
+	// Skipped marks a node a sequential update did not reach.
+	Skipped bool   `json:"skipped,omitempty"`
+	Code    string `json:"code,omitempty"`
+	Title   string `json:"title,omitempty"`
 }
 
 // fleetCommandSummary ends a fleet command's stream.
@@ -187,6 +190,7 @@ type fleetCommandSummary struct {
 	Total     int `json:"total"`
 	Succeeded int `json:"succeeded"`
 	Failed    int `json:"failed"`
+	Skipped   int `json:"skipped"`
 }
 
 // Bounds of a fleet command request.
@@ -256,8 +260,23 @@ func (handler *Handler) fleetCommands(w http.ResponseWriter, request *http.Reque
 			return
 		}
 		failure = "core_install_failed"
+	case "update":
+		// Updates run one node at a time: each must come back with the
+		// panel's version before the next starts, and a failure stops them.
+		if handler.services.Releases == nil {
+			nodeUpdateProblem(releases.ErrUnavailable).write(w, request)
+			return
+		}
+		if _, err := handler.services.Releases.NodeVersion(); err != nil {
+			nodeUpdateProblem(err).write(w, request)
+			return
+		}
+		command = func(ctx context.Context, node fleet.Node) error {
+			return handler.services.Fleet.UpdateNodeAndWait(ctx, node.ID)
+		}
+		run = handler.services.Fleet.RunSequential
 	default:
-		invalid("action must be start, stop, restart or install_core.")
+		invalid("action must be start, stop, restart, install_core or update.")
 		return
 	}
 	nodes, err := handler.services.Fleet.BatchNodes(request.Context(), fleet.BatchTarget{NodeIDs: input.NodeIDs, Tag: input.Tag})
@@ -268,6 +287,9 @@ func (handler *Handler) fleetCommands(w http.ResponseWriter, request *http.Reque
 	handler.streamBatch(w, request, nodes, run, command, func(err error) problemDetails {
 		if problem, known := batchInstallProblem(err); known {
 			return problem
+		}
+		if input.Action == "update" {
+			return nodeUpdateProblem(err)
 		}
 		return nodeCommandProblem(failure, err)
 	})
@@ -315,6 +337,9 @@ func (handler *Handler) streamBatch(w http.ResponseWriter, request *http.Request
 			switch {
 			case result.Err == nil:
 				summary.Succeeded++
+			case errors.Is(result.Err, fleet.ErrSkipped):
+				item.Skipped = true
+				summary.Skipped++
 			default:
 				summary.Failed++
 				failure := problem(result.Err)

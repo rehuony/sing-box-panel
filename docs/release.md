@@ -11,8 +11,8 @@ The release path has one responsibility at each boundary:
    is accessed.
 3. An Ed25519 signature authenticates the release version and checksum
    manifest.
-4. Native Linux amd64 and arm64 smoke tests exercise the packaged binaries and
-   authenticated self-update.
+4. Native Linux amd64 and arm64 smoke tests exercise the packaged binaries,
+   authenticated self-update and a node update through the panel.
 5. GitHub Actions creates and verifies a Draft Release.
 6. A maintainer reviews and publishes that draft.
 
@@ -48,8 +48,12 @@ tests for the packaged panel binary, HTTP startup, persistent state, and
 authenticated self-update. The shared scenario writes through the current
 editable-file API. It checks exact text (including whitespace and large integers),
 stale-write rejection, unfinished JSON, the runtime snapshot identity, panel
-settings, and correction of the saved draft after update. Go integration tests
-verify the immutable snapshot bytes, digest and metadata across database reopen.
+settings, and correction of the saved draft after update. It then seeds the
+updated panel's release cache with the node binaries of the signed release,
+enrolls a lower-version node probe, updates it through the panel's node update
+API, and checks that the restarted node runs the release and reports its
+update. Go integration tests verify the immutable snapshot bytes, digest and
+metadata across database reopen.
 
 On a native Linux amd64 or arm64 development machine, run as a non-root user:
 
@@ -98,7 +102,9 @@ make release VERSION=v0.1.0 OUT=/absolute/path/to/new-output-directory
 ```
 
 The public Ed25519 update-verification key is committed at
-`.github/keypair/release-signing-public-key` and is embedded in both panel binaries, the ones that update themselves.
+`.github/keypair/release-signing-public-key` and is embedded in all four
+binaries: both the panel and the node update themselves, and the panel also
+verifies the node release it distributes.
 It is the repository's release trust root, not a secret or a per-build input.
 The release commit and date are always derived from `HEAD`; the date is the
 source commit timestamp and cannot be overridden by the caller.
@@ -277,7 +283,9 @@ For every release:
 4. Open the generated Draft Release and review its version, target commit,
    generated notes, and six assets.
 5. Publish the draft once. Only a published, non-prerelease GitHub Release is
-   visible to `sing-box-panel update`.
+   visible to `sing-box-panel update` and the panel's update check. Nodes
+   never read GitHub: each panel serves them the node binaries of its own
+   release.
 
 Exercise the formal build, version rejection, and output-cleanup behavior
 locally with:

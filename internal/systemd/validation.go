@@ -55,6 +55,9 @@ func (manager *Manager[T]) resolveScope(scope Scope) (Scope, error) {
 	if parsed == ScopeUser && manager.definition.UserUnit == nil {
 		return "", fmt.Errorf("%w: %s has no user service", ErrInvalid, manager.definition.Name)
 	}
+	if parsed == ScopeUser && manager.layout.UserUnitPath == "" {
+		return "", fmt.Errorf("%w: user scope needs $XDG_CONFIG_HOME or $HOME", ErrInvalid)
+	}
 	return parsed, nil
 }
 
@@ -139,17 +142,27 @@ func validateServiceDirectory(executablePath, dataDir string) error {
 	return nil
 }
 
-func (manager *Manager[T]) installFiles(scope Scope, unit []byte, dataDir string) []managedFile {
+func (manager *Manager[T]) installFiles(scope Scope, unit []byte, dataDir string) ([]managedFile, error) {
 	files := []managedFile{{path: manager.unitPath(scope), data: unit}}
 	if scope == ScopeSystem {
-		path, _ := quotePathDirective(dataDir)
+		path, err := quotePathDirective(dataDir)
+		if err != nil {
+			return nil, err
+		}
 		tmpfiles := strings.Replace(string(manager.definition.Tmpfiles), "/var/lib/"+manager.definition.Name, path, 1)
 		files = append(files,
 			managedFile{path: manager.layout.SystemSysusersPath, data: manager.definition.Sysusers},
 			managedFile{path: manager.layout.SystemTmpfilesPath, data: []byte(tmpfiles)},
 		)
+		for _, companion := range manager.definition.Companions {
+			data, err := manager.RenderCompanion(companion, manager.layout.SystemExecutablePath, dataDir)
+			if err != nil {
+				return nil, err
+			}
+			files = append(files, managedFile{path: manager.companionPath(companion.Name), data: data})
+		}
 	}
-	return files
+	return files, nil
 }
 
 // ManagedPaths lists the files the installer writes for scope.
@@ -159,8 +172,16 @@ func (manager *Manager[T]) managedPaths(scope Scope) []string {
 	paths := []string{manager.unitPath(scope)}
 	if scope == ScopeSystem {
 		paths = append(paths, manager.layout.SystemSysusersPath, manager.layout.SystemTmpfilesPath)
+		for _, companion := range manager.definition.Companions {
+			paths = append(paths, manager.companionPath(companion.Name))
+		}
 	}
 	return paths
+}
+
+// companionPath is where a companion unit sits: beside the system unit.
+func (manager *Manager[T]) companionPath(name string) string {
+	return filepath.Join(filepath.Dir(manager.layout.SystemUnitPath), name)
 }
 
 func (manager *Manager[T]) unitPath(scope Scope) string {
@@ -200,9 +221,11 @@ func (manager *Manager[T]) runResult(ctx context.Context, name string, args ...s
 }
 
 func resolvedLayout[T any](definition Definition[T], layout Layout) (Layout, error) {
-	configDir, err := os.UserConfigDir()
-	if err != nil && layout.UserUnitPath == "" {
-		return Layout{}, fmt.Errorf("resolve user config directory: %w", err)
+	// A process without a home, such as a root unit, has no user scope; its
+	// user unit path stays empty and user scope is refused.
+	userUnitPath := ""
+	if configDir, err := os.UserConfigDir(); err == nil {
+		userUnitPath = filepath.Join(configDir, "systemd", "user", definition.Name+".service")
 	}
 	name := definition.Name
 	defaults := Layout{
@@ -212,7 +235,7 @@ func resolvedLayout[T any](definition Definition[T], layout Layout) (Layout, err
 		SystemExecutablePath: "/usr/local/bin/" + name,
 		SystemStatePath:      definition.SystemStatePath,
 		SystemDataDir:        "/var/lib/" + name,
-		UserUnitPath:         filepath.Join(configDir, "systemd", "user", name+".service"),
+		UserUnitPath:         userUnitPath,
 	}
 	for _, override := range []struct{ value, target *string }{
 		{&layout.SystemUnitPath, &defaults.SystemUnitPath}, {&layout.SystemSysusersPath, &defaults.SystemSysusersPath},
@@ -230,6 +253,9 @@ func resolvedLayout[T any](definition Definition[T], layout Layout) (Layout, err
 		"system state path": defaults.SystemStatePath, "system data directory": defaults.SystemDataDir,
 		"user unit path": defaults.UserUnitPath,
 	} {
+		if value == "" && name == "user unit path" {
+			continue
+		}
 		if _, err := cleanAbsolute(value, name); err != nil {
 			return Layout{}, err
 		}

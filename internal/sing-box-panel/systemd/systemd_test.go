@@ -185,7 +185,7 @@ func TestSystemInstallRequiresRootAndConventionalLayout(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Scope != systemd.ScopeSystem || result.Started || len(result.InstalledPaths) != 3 {
+	if result.Scope != systemd.ScopeSystem || result.Started || len(result.InstalledPaths) != 5 {
 		t.Fatalf("Install() = %+v", result)
 	}
 	wantCalls := []recordedCommand{
@@ -205,6 +205,7 @@ func TestSystemInstallRequiresRootAndConventionalLayout(t *testing.T) {
 		{name: "chown", args: []string{"--recursive", "--no-dereference", Name + ":" + Name, fixture.data}},
 		{name: "systemctl", args: []string{"--no-ask-password", "daemon-reload"}},
 		{name: "systemctl", args: []string{"--no-ask-password", "enable", UnitName}},
+		{name: "systemctl", args: []string{"--no-ask-password", "enable", "--now", UpdatePathUnit}},
 	}
 	if !reflect.DeepEqual(fixture.runner.calls, wantCalls) {
 		t.Fatalf("commands = %#v, want %#v", fixture.runner.calls, wantCalls)

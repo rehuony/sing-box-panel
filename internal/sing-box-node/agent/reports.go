@@ -41,6 +41,8 @@ type reporter struct {
 	dataDir  string
 	send     func(*nodeapi.ConnectRequest) error
 	interval chan time.Duration
+	// updates holds the node's last update attempt, if it can update.
+	updates *updates
 
 	mu sync.Mutex
 	// lastReport is the encoded state report the panel last received.
@@ -208,6 +210,9 @@ func (reporter *reporter) stateReport(ctx context.Context) (*nodeapi.StateReport
 	report := &nodeapi.StateReport{
 		Host:    &nodeapi.Host{Hostname: hostname, Platform: platform(), PublicIp: reporter.node.CachedPublicIP(ctx)},
 		Runtime: runtimeOutcome(service.RuntimeResponse{Status: status}).GetStatus(),
+	}
+	if reporter.updates != nil {
+		report.LastUpdate = reporter.updates.report()
 	}
 	hub, err := reporter.database.RuntimeHubState(ctx)
 	if err != nil {

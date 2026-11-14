@@ -1,0 +1,13 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Managed by sing-box-panel system install.
+
+[Unit]
+Description=Sing-Box Panel update request
+Documentation=https://github.com/rehuony/sing-box-panel
+
+[Path]
+PathExists=/var/lib/sing-box-panel/updates/request
+Unit=sing-box-panel-update.service
+
+[Install]
+WantedBy=paths.target

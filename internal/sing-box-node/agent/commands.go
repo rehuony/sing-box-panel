@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"sync"
 	"time"
 
 	"google.golang.org/protobuf/proto"
@@ -34,6 +35,42 @@ type executor struct {
 	now   func() time.Time
 	// slots bounds the commands that run at once.
 	slots chan struct{}
+	// updates applies UpdateNode with releases fetchRelease receives.
+	updates      *updates
+	fetchRelease releaseFetcher
+
+	followMu sync.Mutex
+	// followUps run after the panel has a command's result.
+	followUps map[string]func()
+}
+
+// takeFollowUp returns the work to do once the panel has the result of
+// requestID, such as restarting into an update.
+func (executor *executor) takeFollowUp(requestID string) func() {
+	executor.followMu.Lock()
+	defer executor.followMu.Unlock()
+	followUp := executor.followUps[requestID]
+	delete(executor.followUps, requestID)
+	return followUp
+}
+
+func (executor *executor) updateNode(ctx context.Context, requestID string, request *nodeapi.UpdateNode) nodeapi.ResultOutcome {
+	if executor.updates == nil || executor.fetchRelease == nil {
+		return problem("update_unsupported", "This node cannot update itself.")
+	}
+	state, restart, err := executor.updates.apply(ctx, request.GetVersion(), executor.fetchRelease)
+	if err != nil {
+		return updateFailure(err)
+	}
+	if restart != nil {
+		executor.followMu.Lock()
+		if executor.followUps == nil {
+			executor.followUps = map[string]func(){}
+		}
+		executor.followUps[requestID] = restart
+		executor.followMu.Unlock()
+	}
+	return &nodeapi.Result_Update{Update: &nodeapi.UpdateOutcome{State: state, Version: request.GetVersion()}}
 }
 
 // execute runs command and returns its result. A command that changes state
@@ -129,6 +166,8 @@ func (executor *executor) run(ctx context.Context, command *nodeapi.Command) nod
 		return executor.listStartupArtifacts(ctx, body.ListStartupArtifacts)
 	case *nodeapi.Command_InstallCore:
 		return executor.installCore(ctx, body.InstallCore)
+	case *nodeapi.Command_UpdateNode:
+		return executor.updateNode(ctx, command.GetRequestId(), body.UpdateNode)
 	case *nodeapi.Command_RemoveCore:
 		if err := node.RemoveCoreArtifact(ctx, body.RemoveCore.GetArtifactId()); err != nil {
 			return failure(err)

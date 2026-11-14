@@ -30,6 +30,11 @@ func TestProofBindsPanelNodeAndNonce(t *testing.T) {
 		"nonce": func() bool { return VerifyProof(publicKey, "panel-a", "node-a", otherNonce, proof) },
 		"key":   func() bool { return VerifyProof(otherKey, "panel-a", "node-a", nonce, proof) },
 		"short": func() bool { return VerifyProof(publicKey, "panel-a", "node-a", nonce[:16], proof) },
+		// A session proof opens no FetchRelease, and a release proof no session.
+		"context": func() bool { return VerifyReleaseProof(publicKey, "panel-a", "node-a", nonce, proof) },
+		"release": func() bool {
+			return VerifyProof(publicKey, "panel-a", "node-a", nonce, SignReleaseProof(privateKey, "panel-a", "node-a", nonce))
+		},
 	} {
 		if verify() {
 			t.Errorf("proof verified with a different %s", name)

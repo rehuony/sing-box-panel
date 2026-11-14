@@ -105,7 +105,8 @@ func TestRepresentativeHTTPResponsesConformToOpenAPI(t *testing.T) {
 		Services: newTestServices(t, database, value),
 	})
 
-	configurationFile := testNodePath(t, database) + "/config/file"
+	nodePath := testNodePath(t, database)
+	configurationFile := nodePath + "/config/file"
 	serveConformingRequest(t, router, handler, http.MethodPut, configurationFile,
 		`{"revision":0,"content":"{}"}`, http.StatusOK, true, nil)
 
@@ -153,6 +154,11 @@ func TestRepresentativeHTTPResponsesConformToOpenAPI(t *testing.T) {
 	serveConformingRequest(t, router, handler, http.MethodGet,
 		"/api/v1/subscription/sources/"+source.ID+"/versions/"+version.Version.ID,
 		"", http.StatusOK, true, nil)
+
+	// A development build reports its version and updates nothing.
+	serveConformingRequest(t, router, handler, http.MethodGet, "/api/v1/system/update", "", http.StatusOK, true, nil)
+	serveConformingRequest(t, router, handler, http.MethodPost, "/api/v1/system/update", "", http.StatusConflict, true, nil)
+	serveConformingRequest(t, router, handler, http.MethodPost, nodePath+"/update", "", http.StatusConflict, true, nil)
 }
 
 func serveConformingRequest(

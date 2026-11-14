@@ -123,6 +123,9 @@ func newSystemdCommand(dataDir *string, service systemdService) *cobra.Command {
 			if result.NeedDaemonReload {
 				text += "\nsystemd reports a daemon reload is needed; restart the service to apply unit changes"
 			}
+			for _, companion := range result.Companions {
+				text += fmt.Sprintf("\nHelper:    %s, %s (%s), %s", companion.Unit, companion.ActiveState, companion.SubState, companion.UnitFileState)
+			}
 			return write(cmd, result, text)
 		},
 	}

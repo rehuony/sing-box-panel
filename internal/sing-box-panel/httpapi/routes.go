@@ -45,6 +45,9 @@ var routes = []route{
 	{http.MethodPost, "/auth/session", "createSession", accessPublic, (*Handler).login},
 	{http.MethodDelete, "/auth/session", "deleteSession", accessSession, (*Handler).logout},
 	{http.MethodGet, "/system/status", "getSystemStatus", accessSession, (*Handler).systemStatus},
+	{http.MethodGet, "/system/update", "getSystemUpdate", accessSession, (*Handler).systemUpdate},
+	{http.MethodPost, "/system/update", "startSystemUpdate", accessSession, (*Handler).startSystemUpdate},
+	{http.MethodPost, "/system/update/check", "checkSystemUpdate", accessSession, (*Handler).checkSystemUpdate},
 
 	{http.MethodGet, "/panel/settings", "getPanelSettings", accessSession, (*Handler).getPanelSettings},
 	{http.MethodPut, "/panel/settings", "savePanelSettings", accessSession, (*Handler).savePanelSettings},
@@ -65,6 +68,7 @@ var routes = []route{
 	{http.MethodPost, "/nodes/{nodeId}/enrollment", "createNodeEnrollment", accessSession, withPathValue("nodeId", (*Handler).createNodeEnrollment)},
 	{http.MethodGet, "/nodes/{nodeId}/settings", "getNodeSettings", accessNode, (*Handler).nodeSettings},
 	{http.MethodPut, "/nodes/{nodeId}/settings", "saveNodeSettings", accessNode, (*Handler).saveNodeSettings},
+	{http.MethodPost, "/nodes/{nodeId}/update", "updateNodeRelease", accessNode, (*Handler).updateNodeRelease},
 
 	{http.MethodGet, "/nodes/{nodeId}/filesystem/entries", "listFilesystemEntries", accessNode, (*Handler).listFilesystemEntries},
 	{http.MethodGet, "/nodes/{nodeId}/filesystem/resolve", "resolveFilesystemPath", accessNode, (*Handler).resolveFilesystemPath},

@@ -38,7 +38,7 @@ func TestDownloadProgressTracksWrittenBytes(t *testing.T) {
 			})}})
 			var destination bytes.Buffer
 			var events []Progress
-			digest, err := updater.downloadFile(t.Context(), asset{BrowserDownloadURL: "https://example.com/binary", Size: test.metadataSize}, &destination, maxBinaryBytes, func(progress Progress) {
+			digest, err := updater.downloadFile(t.Context(), asset{BrowserDownloadURL: "https://example.com/binary", Size: test.metadataSize}, &destination, MaxBinaryBytes, func(progress Progress) {
 				if progress.Stage != StageDownload || progress.Downloaded != int64(destination.Len()) {
 					t.Fatalf("progress=%+v written=%d", progress, destination.Len())
 				}
@@ -71,9 +71,9 @@ func TestDownloadFailureNeverReportsComplete(t *testing.T) {
 		maximum int64
 		want    error
 	}{
-		{"truncated", io.MultiReader(strings.NewReader("partial"), iotest.ErrReader(io.ErrUnexpectedEOF)), maxBinaryBytes, io.ErrUnexpectedEOF},
+		{"truncated", io.MultiReader(strings.NewReader("partial"), iotest.ErrReader(io.ErrUnexpectedEOF)), MaxBinaryBytes, io.ErrUnexpectedEOF},
 		{"oversized", strings.NewReader("oversized"), 4, ErrReleaseInvalid},
-		{"empty", strings.NewReader(""), maxBinaryBytes, ErrReleaseInvalid},
+		{"empty", strings.NewReader(""), MaxBinaryBytes, ErrReleaseInvalid},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			updater := New(Options{HTTPClient: &http.Client{Transport: progressTransport(func(req *http.Request) (*http.Response, error) {
@@ -101,9 +101,9 @@ func TestDownloadProgressHonorsCancellationDuringTransfer(t *testing.T) {
 	defer server.Close()
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
-	updater := New(Options{HTTPClient: server.Client(), LatestReleaseURL: server.URL})
+	updater := New(Options{Binary: Panel, HTTPClient: server.Client(), ReleasesURL: server.URL})
 	var downloaded int64
-	_, err := updater.downloadFile(ctx, asset{BrowserDownloadURL: server.URL}, io.Discard, maxBinaryBytes, func(progress Progress) {
+	_, err := updater.downloadFile(ctx, asset{BrowserDownloadURL: server.URL}, io.Discard, MaxBinaryBytes, func(progress Progress) {
 		if progress.Complete {
 			t.Fatal("cancelled transfer reported completion")
 		}

@@ -180,6 +180,12 @@ func Run(ctx context.Context, settingsPath string, build buildinfo.Info, assets 
 	catalogContext, stopCatalog := context.WithCancel(ctx)
 	catalogDone := startCatalogRefresh(catalogContext, catalogRefreshServices{cores: services.Cores, settings: services.Settings})
 	defer func() { stopCatalog(); <-catalogDone }()
+	// Releases records an update its root helper applied, then checks for
+	// new releases on the catalog refresh interval.
+	releaseContext, stopReleases := context.WithCancel(ctx)
+	releasesDone := make(chan struct{})
+	go func() { defer close(releasesDone); services.Releases.Run(releaseContext) }()
+	defer func() { stopReleases(); <-releasesDone }()
 	records.RecordEvent(telemetry.LogRecordRequest{
 		Source: store.LogSourcePanel, Level: store.LogLevelInfo, Code: "panel.ready",
 		Message:  "Panel HTTP server is ready",

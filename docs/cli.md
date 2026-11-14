@@ -22,7 +22,7 @@ The node binary has its own tree, described under [Nodes](#nodes):
 
 ```text
 sing-box-node
-├─ version | enroll | run
+├─ version | enroll | run | update
 ├─ console status | enable | disable | password
 └─ systemd install | uninstall | status | start | stop | restart | logs
 ```
@@ -307,7 +307,28 @@ installed cores in `artifacts/`, disposable configurations in `runtime/` and
 its core logs in `logs/core/` in the same data directory, and runs the managed
 sing-box with `runtime/` as its working directory. A node shows `pending` until it enrolls, then `online` while it
 holds a session and `offline` otherwise. Removing a node, or enrolling it
-again, ends its current session.
+again, ends its current session. Enrolling a node while it runs saves the new
+enrollment, and the running node switches to it within a few seconds; `enroll`
+says so when it finds the node running.
+
+`sing-box-node update` updates the node to the release of the panel it is
+enrolled with. It fetches the release from the panel with the node's
+enrollment, verifies it with the release key built into the binary (the
+signature, the binary's checksum, build identity and platform, and a version
+newer than its own), and replaces the binary, which needs write access to it,
+such as with `sudo` for `/usr/local/bin`. The running node keeps its version
+until its service restarts; `--restart` restarts it at once, which restarts its
+core and briefly interrupts its proxy. The panel can also update an online node
+itself, from the node's settings or in a batch; see
+[Panel and node architecture](panel-node-architecture.md#packaging).
+
+```sh
+sudo sing-box-node update --restart
+```
+
+`sing-box-node update --apply-staged` is the entry point of the system
+service's root update helper, which the helper unit runs; see
+[systemd packaging](systemd.md#update-helper).
 
 A node can instead be enrolled from its local [console](panel-node-architecture.md#node-console),
 which is off by default:
@@ -666,8 +687,8 @@ line before the error is printed. `--output=json` and `--output=jsonl` suppress
 progress and preserve the existing structured result and error formats.
 
 It is available only to strict v-prefixed release builds on Linux amd64 and
-arm64. The selected release must attach both platform binaries, `SHA256SUMS`,
-and `SHA256SUMS.sig`. The command verifies the embedded Ed25519 trust root and
+arm64. The selected release must attach the panel binary for the platform,
+`SHA256SUMS`, and `SHA256SUMS.sig`. The command verifies the embedded Ed25519 trust root and
 the selected binary digest, then requires the staged file to carry the expected
 Go command, module, Linux target, architecture, and disabled-CGO build identity.
 Updates for one executable are serialized through an adjacent process lock;
@@ -677,6 +698,10 @@ the lock is held. Cancellation is honored until that replacement commit point.
 Any missing or invalid evidence, concurrent replacement, changing release, or
 prior cancellation leaves the running executable unchanged.
 
-The invoking user must be able to write the executable's directory. Replacing
-the file does not restart an already-running systemd service. See
-[Release process](release.md) for the signing and publication procedure.
+The invoking user must be able to write the executable's directory. The
+replaced binary is kept beside it as `sing-box-panel.previous`. Replacing the
+file does not restart an already-running systemd service. The Web UI's panel
+settings offer the same update, which a system service hands to its root update
+helper and which restarts the panel. `update --apply-staged --data-dir DIR` is
+that helper's entry point; see [systemd packaging](systemd.md#update-helper).
+See [Release process](release.md) for the signing and publication procedure.

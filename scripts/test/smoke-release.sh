@@ -239,9 +239,14 @@ go version -m "${node_binary}" | grep -Fqx $'\tpath\tgithub.com/rehuony/sing-box
   printf 'node release binary metadata names another command\n' >&2
   exit 1
 }
+LC_ALL=C grep -aFq -- "${public_key}" "${node_binary}" || {
+  printf 'node release binary does not embed the repository update public key\n' >&2
+  exit 1
+}
 
 smoke_root="$(mktemp -d "${RUNNER_TEMP:-/tmp}/sing-box-panel-release-smoke.XXXXXX")"
 panel_pid=""
+node_pid=""
 mock_pid=""
 
 terminate_process() {
@@ -268,6 +273,7 @@ cleanup() {
   local log_path
 
   set +e
+  terminate_process "${node_pid}"
   terminate_process "${panel_pid}"
   terminate_process "${mock_pid}"
   if [[ ${smoke_status} -ne 0 ]]; then
@@ -333,6 +339,8 @@ jq -n \
   --argjson assets "${asset_metadata}" \
   '{tag_name: $tag, draft: false, prerelease: false, assets: $assets}' \
   >"${mock_root}/latest"
+mkdir -p -- "${mock_root}/tags"
+cp -- "${mock_root}/latest" "${mock_root}/tags/${release_version}"
 python3 -m http.server "${mock_port}" \
   --bind 127.0.0.1 \
   --directory "${mock_root}" \
@@ -341,12 +349,13 @@ mock_pid=$!
 wait_for_url "${mock_origin}/latest"
 
 probe_version="v0.0.0-smoke"
-phase 'build and initialize the lower-version probe'
+phase 'build and initialize the lower-version probes'
 install_dir="${smoke_root}/install"
 settings_path="${smoke_root}/config/setting.json"
 smoke_config_home="${smoke_root}/xdg-config"
 smoke_data_home="${smoke_root}/xdg-data"
 installed_binary="${install_dir}/sing-box-panel"
+installed_node="${install_dir}/sing-box-node"
 mkdir -p -- "${install_dir}" "$(dirname -- "${settings_path}")" "${smoke_config_home}" "${smoke_data_home}"
 if [[ ! -s "${workspace_root}/web/apps/panel/dist/index.html" || ! -s "${workspace_root}/web/apps/node/dist/index.html" ]]; then
   printf 'web/apps/panel/dist and web/apps/node/dist must be built before the native smoke-test probe\n' >&2
@@ -358,22 +367,24 @@ fi
   go_path="$(go env GOPATH)"
   go_module_cache="$(go env GOMODCACHE)"
   go_build_cache="$(go env GOCACHE)"
-  env \
-    CGO_ENABLED=0 \
-    GOARCH="${architecture}" \
-    GOOS=linux \
-    GOAMD64=v1 GOARM64=v8.0 GOENV=off GOEXPERIMENT= GOFIPS140=off GOWORK=off \
-    GOPATH="${go_path}" GOMODCACHE="${go_module_cache}" GOCACHE="${go_build_cache}" \
-    GOFLAGS='-mod=readonly' \
-    GOTOOLCHAIN=local \
-    go build \
-      -buildvcs=false \
-      -trimpath \
-      -ldflags="-s -w -X=github.com/rehuony/sing-box-panel/internal/buildinfo.version=${probe_version} -X=github.com/rehuony/sing-box-panel/internal/buildinfo.commit=${source_commit} -X=github.com/rehuony/sing-box-panel/internal/buildinfo.date=${source_date} -X=github.com/rehuony/sing-box-panel/internal/selfupdate.embeddedPublicKey=${public_key} -X=github.com/rehuony/sing-box-panel/internal/selfupdate.defaultLatestReleaseURL=${mock_origin}/latest" \
-      -o "${installed_binary}" \
-      ./cmd/sing-box-panel
+  for command in sing-box-panel sing-box-node; do
+    env \
+      CGO_ENABLED=0 \
+      GOARCH="${architecture}" \
+      GOOS=linux \
+      GOAMD64=v1 GOARM64=v8.0 GOENV=off GOEXPERIMENT= GOFIPS140=off GOWORK=off \
+      GOPATH="${go_path}" GOMODCACHE="${go_module_cache}" GOCACHE="${go_build_cache}" \
+      GOFLAGS='-mod=readonly' \
+      GOTOOLCHAIN=local \
+      go build \
+        -buildvcs=false \
+        -trimpath \
+        -ldflags="-s -w -X=github.com/rehuony/sing-box-panel/internal/buildinfo.version=${probe_version} -X=github.com/rehuony/sing-box-panel/internal/buildinfo.commit=${source_commit} -X=github.com/rehuony/sing-box-panel/internal/buildinfo.date=${source_date} -X=github.com/rehuony/sing-box-panel/internal/selfupdate.embeddedPublicKey=${public_key} -X=github.com/rehuony/sing-box-panel/internal/selfupdate.defaultReleasesURL=${mock_origin}" \
+        -o "${install_dir}/${command}" \
+        "./cmd/${command}"
+  done
 )
-chmod 0755 "${installed_binary}"
+chmod 0755 "${installed_binary}" "${installed_node}"
 probe_metadata="$(${installed_binary} --output json version)"
 assert_json 'probe version' --arg version "${probe_version}" '.version == $version' <<<"${probe_metadata}"
 
@@ -578,6 +589,56 @@ start_panel "${release_version}"
 persisted_file="$(authenticated_get "${file_path}")"
 assert_json 'corrected configuration persists across the second restart' \
   --argjson saved "${corrected_file}" '. == $saved' <<<"${persisted_file}"
+
+phase 'update a lower-version node through the panel'
+# The panel distributes the node release of its own version. Seed its cache
+# with the signed local release; the panel verifies it with its embedded key.
+panel_data_dir="$(jq -er '.data_dir' "${settings_path}")"
+release_cache="${panel_data_dir}/release-cache/${release_version}"
+mkdir -p -- "${release_cache}"
+for asset_name in SHA256SUMS SHA256SUMS.sig sing-box-node-linux-amd64 sing-box-node-linux-arm64; do
+  cp -- "${release_dir}/${asset_name}" "${release_cache}/${asset_name}"
+done
+node_data_dir="${smoke_root}/node-data"
+node_enrollment="$(jq -n '{name: "smoke-update"}' | authenticated_write POST '/api/v1/nodes' 201)"
+update_node_path="/api/v1/nodes/$(jq -er '.node.id' <<<"${node_enrollment}")"
+"${installed_node}" --data-dir "${node_data_dir}" enroll --code "$(jq -er '.code' <<<"${node_enrollment}")" >/dev/null
+start_node() {
+  "${installed_node}" --data-dir "${node_data_dir}" run >"${smoke_root}/node-$1.log" 2>&1 &
+  node_pid=$!
+}
+wait_for_node() {
+  local expected_version="$1"
+  local count
+
+  for ((count = 0; count < 120; count++)); do
+    if authenticated_get "${update_node_path}" | jq -e --arg version "${expected_version}" \
+      '.state == "online" and .reported_at != null and .build_version == $version' >/dev/null 2>&1; then
+      return 0
+    fi
+    sleep 0.25
+  done
+  printf 'node did not come online as %s\n' "${expected_version}" >&2
+  return 1
+}
+start_node "${probe_version}"
+wait_for_node "${probe_version}"
+assert_json 'the panel offers the lower-version node its release' \
+  '.update_available == true and .last_update == null' <<<"$(authenticated_get "${update_node_path}")"
+node_update="$(authenticated_write POST "${update_node_path}/update" <<<'')"
+assert_json 'a foreground node installs the panel release and waits for a restart' \
+  --arg version "${release_version}" '.state == "restart_required" and .version == $version' <<<"${node_update}"
+cmp "${installed_node}" "${node_binary}"
+terminate_process "${node_pid}"
+node_pid=""
+start_node "${release_version}"
+wait_for_node "${release_version}"
+assert_json 'the restarted node runs the release and reports its update' \
+  --arg version "${release_version}" \
+  '.update_available == false and .last_update.succeeded == true and .last_update.version == $version' \
+  <<<"$(authenticated_get "${update_node_path}")"
+terminate_process "${node_pid}"
+node_pid=""
 stop_panel
 
 printf 'release smoke test passed for linux/%s at %s\n' "${architecture}" "${source_commit}"

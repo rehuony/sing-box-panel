@@ -7,6 +7,7 @@ import (
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
+	"crypto/sha256"
 	"crypto/tls"
 	"errors"
 	"fmt"
@@ -30,10 +31,13 @@ import (
 
 	"github.com/rehuony/sing-box-panel/internal/buildinfo"
 	"github.com/rehuony/sing-box-panel/internal/nodeapi"
+	"github.com/rehuony/sing-box-panel/internal/release"
+	"github.com/rehuony/sing-box-panel/internal/selfupdate"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-node/agent"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/corecache"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/fleet"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/nodeconfig"
+	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/releases"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/settings"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/store"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/telemetry"
@@ -67,12 +71,67 @@ type testFleet struct {
 	database *store.Store
 	endpoint string
 	dataDir  string
+	// releaseKey verifies the node release in the panel's cache.
+	releaseKey ed25519.PublicKey
+}
+
+// fleetSetup adjusts a served fleet: the panel's clock, its version, and a
+// signed node release of that version in its cache, by architecture.
+type fleetSetup struct {
+	now     func() time.Time
+	version string
+	release map[string][]byte
 }
 
 // startFleet serves a fleet and a stand-in Web server on one loopback port,
 // with the node service under basePath.
 func startFleet(t *testing.T, now func() time.Time) testFleet {
 	t.Helper()
+	return startFleetWith(t, fleetSetup{now: now})
+}
+
+// cacheRelease writes a node release of version signed with a new key into
+// the panel's release cache and returns the key that verifies it.
+func cacheRelease(t *testing.T, dataDir, version string, binaries map[string][]byte) ed25519.PublicKey {
+	t.Helper()
+	public, private, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(dataDir, releases.CacheDir, version)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	var checksums strings.Builder
+	for _, arch := range []string{"amd64", "arm64"} {
+		name := selfupdate.Node.AssetName("linux", arch)
+		binary := binaries[arch]
+		if binary == nil {
+			binary = []byte("node binary for " + arch)
+		}
+		fmt.Fprintf(&checksums, "%x  %s\n", sha256.Sum256(binary), name)
+		if err := os.WriteFile(filepath.Join(dir, name), binary, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	signature, err := release.Sign(private, version, []byte(checksums.String()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, data := range map[string][]byte{selfupdate.ChecksumsName: []byte(checksums.String()), selfupdate.SignatureName: signature} {
+		if err := os.WriteFile(filepath.Join(dir, name), data, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return public
+}
+
+func startFleetWith(t *testing.T, setup fleetSetup) testFleet {
+	t.Helper()
+	now := setup.now
+	if setup.version == "" {
+		setup.version = "test"
+	}
 	dataDir := t.TempDir()
 	database, err := store.Open(t.Context(), filepath.Join(dataDir, "panel.db"))
 	if err != nil {
@@ -91,8 +150,14 @@ func startFleet(t *testing.T, now func() time.Time) testFleet {
 	records := telemetry.New(database, panelSettings, telemetry.Options{})
 	cores := corecache.New(database, records, panelSettings, corecache.Options{DataDir: dataDir})
 	configs := nodeconfig.New(database, cores)
+	var releaseKey ed25519.PublicKey
+	if setup.release != nil {
+		releaseKey = cacheRelease(t, dataDir, setup.version, setup.release)
+	}
+	build := buildinfo.Info{Version: setup.version}
 	service := fleet.New(database, panelSettings, records, configs, cores, fleet.Options{
-		Build: buildinfo.Info{Version: "test"}, Now: now,
+		Build: build, Now: now,
+		Releases: releases.New(build, dataDir, panelSettings, records, releases.Options{PublicKey: releaseKey}),
 	})
 	web, nodes := fleet.SplitListener(listener)
 	webServer := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = io.WriteString(w, "web") })}
@@ -109,7 +174,7 @@ func startFleet(t *testing.T, now func() time.Time) testFleet {
 	})
 	return testFleet{
 		service: service, configs: configs, cores: cores, records: records, database: database,
-		endpoint: listener.Addr().String(), dataDir: dataDir,
+		endpoint: listener.Addr().String(), dataDir: dataDir, releaseKey: releaseKey,
 	}
 }
 
@@ -257,11 +322,14 @@ func reenrollAndUnenroll(t *testing.T, service *fleet.Service, link *agent.Link,
 	waitState(t, service, enrollment.Node.ID, fleet.StateOffline)
 }
 
-// rawNode speaks the protocol directly to exercise the panel's checks.
+// rawNode speaks the protocol directly to exercise the panel's checks. Its
+// Hello names protocol minor version minor and build version build.
 type rawNode struct {
 	client nodeapi.NodeServiceClient
 	key    ed25519.PrivateKey
 	id     string
+	minor  uint32
+	build  string
 }
 
 // dialRaw connects over TLS, or over cleartext HTTP/2 as a reverse proxy on
@@ -329,8 +397,8 @@ func (node *rawNode) handshake(t *testing.T, key ed25519.PrivateKey) (nodeapi.No
 		t.Fatal(err)
 	}
 	if err := stream.Send(&nodeapi.ConnectRequest{Frame: &nodeapi.ConnectRequest_Hello{Hello: &nodeapi.Hello{
-		NodeId: node.id, Protocol: &nodeapi.ProtocolVersion{Major: nodeapi.ProtocolMajor}, Platform: &nodeapi.Platform{Os: "linux", Arch: "amd64"},
-		InstanceId: "instance-a",
+		NodeId: node.id, Protocol: &nodeapi.ProtocolVersion{Major: nodeapi.ProtocolMajor, Minor: node.minor},
+		Platform: &nodeapi.Platform{Os: "linux", Arch: "amd64"}, BuildVersion: node.build, InstanceId: "instance-a",
 	}}}); err != nil {
 		t.Fatal(err)
 	}

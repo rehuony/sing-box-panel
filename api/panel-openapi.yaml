@@ -286,6 +286,46 @@ paths:
       responses:
         "200":
           $ref: "#/components/responses/SystemStatus"
+  /system/update:
+    get:
+      operationId: getSystemUpdate
+      description: >-
+        The panel's version, the newest stable release it knows, when it last
+        checked, and the state of its update. The panel checks on the catalog
+        refresh interval.
+      responses:
+        "200":
+          $ref: "#/components/responses/SystemUpdate"
+    post:
+      operationId: startSystemUpdate
+      description: >-
+        Starts updating the panel to the newest stable release it knows, in
+        the background. A system service downloads and verifies the release
+        and stages it for its root update helper, which installs it and
+        restarts the panel; a panel that may replace its executable installs
+        it and, under a user unit, restarts, or otherwise waits for a manual
+        restart. Follow the state with getSystemUpdate; the panel restarts,
+        so the connection ends.
+      parameters:
+        - $ref: "#/components/parameters/CSRFToken"
+      responses:
+        "202":
+          $ref: "#/components/responses/SystemUpdate"
+        "409":
+          $ref: "#/components/responses/Problem"
+  /system/update/check:
+    post:
+      operationId: checkSystemUpdate
+      description: Asks GitHub for the newest stable release now.
+      parameters:
+        - $ref: "#/components/parameters/CSRFToken"
+      responses:
+        "200":
+          $ref: "#/components/responses/SystemUpdate"
+        "409":
+          $ref: "#/components/responses/Problem"
+        "502":
+          $ref: "#/components/responses/Problem"
   /nodes/{nodeId}/config/preview:
     parameters:
       - $ref: '#/components/parameters/NodeID'
@@ -720,8 +760,11 @@ paths:
         deadline; the batch keeps running when the client disconnects.
         install_core installs exact_version from the official catalog archive
         for each node's recorded platform, caching each platform's archive
-        once, when its first node needs it. Problems found before any node
-        runs answer as a problem.
+        once, when its first node needs it. update runs updateNodeRelease on one
+        node at a time instead: it waits for each node to come back reporting
+        the panel's version, for at most five minutes, and stops at the first
+        failure, reporting the nodes after it as skipped. Problems found
+        before any node runs answer as a problem.
       parameters:
         - $ref: "#/components/parameters/CSRFToken"
       requestBody:
@@ -1645,6 +1688,36 @@ paths:
           $ref: "#/components/responses/Problem"
         "422":
           $ref: "#/components/responses/Problem"
+  /nodes/{nodeId}/update:
+    parameters:
+      - $ref: '#/components/parameters/NodeID'
+    post:
+      operationId: updateNodeRelease
+      description: >-
+        Asks the node to update itself to the panel's release, which the
+        panel caches and verifies first. The node fetches it from the panel,
+        verifies it with its own release key, and installs it or stages it
+        for its root update helper; restarting the node restarts its core, so
+        its proxy is briefly interrupted. A panel that is not a release build
+        answers node_update_unavailable, a node whose protocol predates
+        updates node_upgrade_required, and a node already updating
+        node_update_in_progress.
+      parameters:
+        - $ref: "#/components/parameters/CSRFToken"
+      responses:
+        "200":
+          description: How the update left the node.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/NodeUpdate'}
+        "409":
+          $ref: "#/components/responses/Problem"
+        "502":
+          $ref: "#/components/responses/Problem"
+        "503":
+          $ref: "#/components/responses/Problem"
+        default:
+          $ref: "#/components/responses/Problem"
   /nodes/{nodeId}/traffic/periods:
     parameters:
       - $ref: '#/components/parameters/NodeID'
@@ -2051,6 +2124,9 @@ components:
     SystemStatus:
       description: The panel's build and platform.
       content: {application/json: {schema: {$ref: "#/components/schemas/SystemStatus"}}}
+    SystemUpdate:
+      description: The panel's version, the newest release it knows and the state of its update.
+      content: {application/json: {schema: {$ref: "#/components/schemas/SystemUpdate"}}}
     StartupArtifactPage:
       description: Page of immutable startup artifacts.
       content: {application/json: {schema: {$ref: "#/components/schemas/StartupArtifactPage"}}}
@@ -2293,7 +2369,7 @@ components:
     Node:
       type: object
       additionalProperties: false
-      required: [id, name, state, created_at, enrolled_at, last_seen_at, hostname, os, arch, build_version, tags]
+      required: [id, name, state, created_at, enrolled_at, last_seen_at, hostname, os, arch, build_version, tags, update_available, last_update]
       properties:
         id: {type: string}
         name: {type: string, minLength: 1, maxLength: 64}
@@ -2334,6 +2410,71 @@ components:
         runtime:
           $ref: "#/components/schemas/RuntimeStatus"
           description: The runtime state the node last reported; absent before its first report.
+        update_available:
+          type: boolean
+          description: The node is enrolled and its version differs from the panel's release; always false on a panel that is not a release build.
+        last_update:
+          description: The node's last update attempt as it last reported it; after its root update helper's attempt the node reports it once it runs again.
+          oneOf:
+            - {$ref: '#/components/schemas/UpdateAttempt'}
+            - {type: 'null'}
+    UpdateAttempt:
+      type: object
+      additionalProperties: false
+      required: [version, succeeded, code, finished_at]
+      properties:
+        version: {type: string}
+        succeeded: {type: boolean}
+        code:
+          type: string
+          description: On failure, a short code such as signature_invalid, version_not_newer, service_not_active or helper_unavailable (the root update helper did not take a staged release within two minutes); empty on success.
+        finished_at:
+          type: [string, "null"]
+          format: date-time
+    NodeUpdate:
+      type: object
+      additionalProperties: false
+      required: [node_id, version, state]
+      properties:
+        node_id: {type: string}
+        version: {type: string, description: The panel's release the node was asked to run.}
+        state:
+          type: string
+          enum: [up_to_date, restarting, staged, restart_required]
+          description: >-
+            up_to_date: the node already runs it. restarting: the node
+            installed it and its service restarts now. staged: the node's
+            system service staged it for its root update helper, which
+            installs it and restarts the node. restart_required: the node
+            installed it and runs it once restarted.
+    SystemUpdate:
+      type: object
+      additionalProperties: false
+      required: [current_version, supported, latest_version, checked_at, check_failure, update_available, state, target_version, last_attempt]
+      properties:
+        current_version: {type: string}
+        supported:
+          type: boolean
+          description: The panel is a release build on linux/amd64 or linux/arm64 and can update itself.
+        latest_version: {type: [string, "null"]}
+        checked_at: {type: [string, "null"], format: date-time}
+        check_failure:
+          type: [string, "null"]
+          description: The code of the last check's failure.
+        update_available: {type: boolean}
+        state:
+          type: string
+          enum: [idle, updating, staged, restarting, restart_required]
+          description: >-
+            updating: the release is being downloaded, verified and installed
+            or staged. staged: the root update helper installs it and
+            restarts the panel. restarting: the panel's unit restarts into it.
+            restart_required: it runs once the panel is restarted.
+        target_version: {type: [string, "null"]}
+        last_attempt:
+          oneOf:
+            - {$ref: '#/components/schemas/UpdateAttempt'}
+            - {type: 'null'}
     NodePage:
       type: object
       additionalProperties: false
@@ -2375,7 +2516,7 @@ components:
       properties:
         action:
           type: string
-          enum: [start, stop, restart, install_core]
+          enum: [start, stop, restart, install_core, update]
         node_ids:
           type: array
           minItems: 1
@@ -2401,6 +2542,9 @@ components:
       properties:
         node_id: {type: string}
         ok: {type: boolean}
+        skipped:
+          type: boolean
+          description: Set on the nodes an update did not reach after an earlier node failed.
         code:
           type: string
           description: On failure, the problem code the single-node operation answers with.
@@ -2410,12 +2554,13 @@ components:
     FleetCommandSummary:
       type: object
       additionalProperties: false
-      required: [total, succeeded, failed]
+      required: [total, succeeded, failed, skipped]
       description: The data of a fleet command's done event.
       properties:
         total: {type: integer, minimum: 0}
         succeeded: {type: integer, minimum: 0}
         failed: {type: integer, minimum: 0}
+        skipped: {type: integer, minimum: 0}
     FleetStreamFrame:
       type: object
       additionalProperties: false

@@ -34,7 +34,7 @@ func run() int {
 	go watchSignalContext(signals, watcherDone, cancel, &signalExit)
 
 	build := buildinfo.Current()
-	updater := selfupdate.New(selfupdate.Options{})
+	updater := selfupdate.New(selfupdate.Options{Binary: selfupdate.Panel})
 	root := cli.NewRootCommand(cli.Dependencies{
 		Stdin:  os.Stdin,
 		Stdout: os.Stdout,

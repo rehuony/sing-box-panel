@@ -129,6 +129,18 @@ func TestSystemInstallStartsOnlyARunnableNodeAndGivesItsAccountTheData(t *testin
 	want := [][]string{
 		{"chown", "--recursive", "--no-dereference", "sing-box-node:sing-box-node", dataDir},
 		{"systemctl", "--no-ask-password", "enable", "--now", UnitName},
+		{"systemctl", "--no-ask-password", "enable", "--now", UpdatePathUnit},
+	}
+	// The root update helper watches the node's request and applies it with
+	// the installed executable.
+	for unit, line := range map[string]string{
+		UpdatePathUnit:    "PathExists=" + filepath.Join(dataDir, "updates", "request"),
+		UpdateServiceUnit: `ExecStart="` + executable + `" --data-dir "` + dataDir + `" update --apply-staged`,
+	} {
+		content, err := os.ReadFile(filepath.Join(filepath.Dir(layout.SystemUnitPath), unit))
+		if err != nil || !slices.Contains(strings.Split(string(content), "\n"), line) {
+			t.Errorf("%s lacks %q: %v\n%s", unit, line, err, content)
+		}
 	}
 	for _, call := range want {
 		if !slices.ContainsFunc(runner.calls, func(got []string) bool { return slices.Equal(got, call) }) {
@@ -165,6 +177,24 @@ func TestGeneratedUnitsWithSystemdAnalyze(t *testing.T) {
 				}
 				if output, err := exec.CommandContext(t.Context(), analyze, "verify", "--man=no", path).CombinedOutput(); err != nil {
 					t.Fatalf("systemd rejected generated unit: %v\n%s\n%s", err, output, unit)
+				}
+				if scope != systemd.ScopeSystem {
+					return
+				}
+				paths := []string{}
+				for _, companion := range Definition().Companions {
+					rendered, err := manager.RenderCompanion(companion, "/usr/bin/true", data)
+					if err != nil {
+						t.Fatal(err)
+					}
+					path := filepath.Join(dir, companion.Name)
+					if err := os.WriteFile(path, rendered, 0o600); err != nil {
+						t.Fatal(err)
+					}
+					paths = append(paths, path)
+				}
+				if output, err := exec.CommandContext(t.Context(), analyze, append([]string{"verify", "--man=no"}, paths...)...).CombinedOutput(); err != nil {
+					t.Fatalf("systemd rejected the update helper units: %v\n%s", err, output)
 				}
 			})
 		}

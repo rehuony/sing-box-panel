@@ -22,6 +22,7 @@ import (
 	"github.com/rehuony/sing-box-panel/internal/nodeapi"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/corecache"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/nodeconfig"
+	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/releases"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/settings"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/store"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/telemetry"
@@ -63,6 +64,11 @@ type Node struct {
 	ReportedAt *time.Time     `json:"reported_at"`
 	PublicIP   string         `json:"public_ip"`
 	Runtime    *RuntimeStatus `json:"runtime,omitempty"`
+	// UpdateAvailable reports an enrolled node whose version differs from
+	// the node release the panel distributes.
+	UpdateAvailable bool `json:"update_available"`
+	// LastUpdate is the node's last update attempt as it reported it.
+	LastUpdate *UpdateAttempt `json:"last_update"`
 }
 
 // Enrollment is a one-time code that enrolls, or re-enrolls, a node.
@@ -80,6 +86,9 @@ type Options struct {
 	// Now and Random default to the system clock and crypto/rand.
 	Now    func() time.Time
 	Random func([]byte) (int, error)
+	// Releases distributes the node release; without it nodes cannot be
+	// updated from the panel.
+	Releases *releases.Service
 }
 
 // Service manages the panel's nodes.
@@ -89,6 +98,7 @@ type Service struct {
 	records  *telemetry.Service
 	configs  *nodeconfig.Service
 	cores    *corecache.Service
+	releases *releases.Service
 	build    buildinfo.Info
 	now      func() time.Time
 	random   func([]byte) (int, error)
@@ -116,7 +126,7 @@ func New(database *store.Store, panelSettings *settings.Service, records *teleme
 	configs *nodeconfig.Service, cores *corecache.Service, options Options,
 ) *Service {
 	service := &Service{
-		database: database, settings: panelSettings, records: records, configs: configs, cores: cores, build: options.Build,
+		database: database, settings: panelSettings, records: records, configs: configs, cores: cores, releases: options.Releases, build: options.Build,
 		now: time.Now, random: rand.Read, sessions: sessions{byNode: map[string]*session{}},
 		viewers: map[string]int{}, metricsFeeds: map[string]*telemetry.Feed[MetricsStreamSnapshot]{},
 	}
@@ -313,6 +323,12 @@ func (service *Service) enrollment(record store.Node, code nodeapi.EnrollmentCod
 }
 
 func (service *Service) view(record store.Node) Node {
+	return nodeView(record, nodeState(record), service.releaseVersion())
+}
+
+// nodeView shows record with reported, the state decoded from its last
+// report, against release, the node release the panel distributes.
+func nodeView(record store.Node, reported *NodeState, release string) Node {
 	state := StateOffline
 	switch {
 	case record.EnrolledAt == nil:
@@ -326,10 +342,12 @@ func (service *Service) view(record store.Node) Node {
 		Hostname: record.Hostname, OS: record.OS, Arch: record.Arch, BuildVersion: record.BuildVersion,
 		Tags: record.Settings.Tags,
 	}
-	if reported := nodeState(record); reported != nil {
+	if reported != nil {
 		runtime := runtimeStatusView(reported.Report.GetRuntime())
 		view.ReportedAt, view.PublicIP, view.Runtime = &reported.ReportedAt, reported.Report.GetHost().GetPublicIp(), &runtime
+		view.LastUpdate = updateAttemptView(reported.Report.GetLastUpdate())
 	}
+	view.UpdateAvailable = release != "" && record.EnrolledAt != nil && record.BuildVersion != "" && record.BuildVersion != release
 	return view
 }
 

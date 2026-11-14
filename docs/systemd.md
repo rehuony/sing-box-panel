@@ -1,7 +1,7 @@
 # systemd packaging
 
-The panel and each node run as their own systemd service. Their unit, sysusers
-and tmpfiles templates in
+The panel and each node run as their own systemd service. Their unit, update
+helper, sysusers and tmpfiles templates in
 [`internal/sing-box-panel/systemd/templates`](../internal/sing-box-panel/systemd/templates)
 and [`internal/sing-box-node/systemd/templates`](../internal/sing-box-node/systemd/templates)
 are packaging inputs. CI validates source, build behavior, and generated units with `systemd-analyze verify`;
@@ -19,6 +19,8 @@ console settings, `node.db` and installed cores. Those commands are Linux-only
 and never invoke a shell. Every systemd scope is reported in command output;
 `--scope=auto` resolves to `system` for root and to `user` otherwise.
 
+Every service unit sets `SING_BOX_SYSTEMD_SCOPE` to its scope, `system` or
+`user`, so the service knows how it is supervised when it updates itself.
 The panel's units invoke `server start` in the foreground and set
 `SING_BOX_PANEL_SUPERVISOR=systemd` to identify the panel's service owner.
 Manual terminal runs do not set that marker. They remain stoppable through
@@ -43,9 +45,11 @@ use the `/usr/lib` destinations below. System scope requires root and fixes the
 executable and state: `/usr/local/bin/sing-box-panel` with settings
 `/etc/sing-box-panel/setting.json`, and `/usr/local/bin/sing-box-node` with data
 in `/var/lib/sing-box-node`. Panel data defaults to `/var/lib/sing-box-panel`;
-a configured dedicated directory is rendered into the unit and tmpfiles rule. It creates
+a configured dedicated directory is rendered into the unit, the [update
+helper](#update-helper)'s units and the tmpfiles rule. It creates
 the dedicated account/directories, assigns ownership of the
-state and data paths, reloads systemd, and enables the unit. User scope
+state and data paths, reloads systemd, enables the unit, and enables and starts
+the update helper's path unit. User scope
 writes only the current user's XDG systemd unit.
 
 A node service started with `--now`, or started later, needs a node that can
@@ -105,7 +109,8 @@ The ownership marker embedded in installed files, `# Managed by NAME system
 install.`, remains stable across CLI renames so existing managed units stay
 recognizable.
 
-`systemd uninstall` verifies the loaded state, stops active services, then disables
+`systemd uninstall` verifies the loaded state, disables and stops the update
+helper's units in system scope, stops active services, then disables
 the exact scope and removes only files
 at the built-in installer's audited destinations. Settings and data are retained.
 System scope also removes the dedicated service user and its empty private group
@@ -180,7 +185,9 @@ Unresolvable or unsafe data locations must be repaired, or use `--keep-user`.
 single effective `[Service] ExecStart` line of the unit file on disk (the
 panel's `--config`, the node's `--data-dir`) and, for the panel, the data
 directory, database, and configuration storage declared by that settings file
-as it exists now. The panel CLI's own `--config` path is listed separately. Drop-in overrides, unreadable units, several effective commands, or
+as it exists now. The panel CLI's own `--config` path is listed separately. In
+system scope it also reports the update helper's two units. Drop-in overrides,
+unreadable units, several effective commands, or
 unresolved specifiers leave the unit-file settings path unknown rather than
 guessed, a unit edited after loading is flagged stale, and the running
 process's settings are never inspected or claimed. `systemd logs --lines N
@@ -209,6 +216,8 @@ templates directory above:
 | Source | Destination |
 | --- | --- |
 | `system/NAME.service` | `/usr/lib/systemd/system/NAME.service` |
+| `system/NAME-update.path` | `/usr/lib/systemd/system/NAME-update.path` |
+| `system/NAME-update.service` | `/usr/lib/systemd/system/NAME-update.service` |
 | `sysusers.d/NAME.conf` | `/usr/lib/sysusers.d/NAME.conf` |
 | `tmpfiles.d/NAME.conf` | `/usr/lib/tmpfiles.d/NAME.conf` |
 
@@ -254,6 +263,44 @@ systemctl show sing-box-node -p User -p Group -p CapabilityBoundingSet -p Ambien
 ```
 
 Review customized units before replacement.
+
+## Update helper
+
+A system service runs as its dedicated account under `ProtectSystem=strict`, so
+it cannot replace its own executable in `/usr/local/bin`. Each system
+installation therefore keeps two companion units beside its service unit, which
+`systemd install`, `uninstall` and `status` cover with it:
+
+- `NAME-update.path` watches `updates/request` in the service's data directory. Installation enables and starts it whether or not the service starts; uninstallation disables and stops it before the service, so no update starts while the service is removed.
+- `NAME-update.service` is a root oneshot that the path unit starts. It runs `sing-box-node --data-dir DIR update --apply-staged` or `sing-box-panel update --apply-staged --data-dir DIR`, with the data directory written into the unit at installation, never read from the service's settings.
+
+The service downloads and verifies a release itself, stages it in
+`updates/VERSION/` (the binary for its platform, `SHA256SUMS` and
+`SHA256SUMS.sig`) and then writes `updates/request`, holding only the version.
+The helper treats everything in the data directory as the service account's:
+
+- It removes the request before any work, so a failed attempt does not start again, and accepts its content only as one strict release version, which it compares with the entries of `updates/` and never uses as a path.
+- It opens the data directory and everything below it without following a symbolic link, reads only regular files within their size bounds, and copies the staged files into a new directory beside the executable, which only root writes, before reading them.
+- It verifies the copies with the release key embedded in the installed binary, which it runs as: the signature over the version and checksums, the binary's checksum, its Go command, module and platform, and a version newer than its own. An equal or older version is refused.
+- It installs under the executable's update lock, keeping the replaced binary as `NAME.previous`, restarts the service and waits up to 30 seconds for systemd to report it active for 5 seconds in a row. Otherwise it restores `NAME.previous` and restarts the service again.
+- A service whose request is still there two minutes after it staged the release concludes that the helper did not start, for example because its path unit is disabled or hit systemd's start limit: it withdraws the request and the staged release and records a failed attempt with the code `helper_unavailable`, so the panel's update returns to idle and a node reports the attempt. A request that is gone means the helper took it, and the service waits for its result.
+- It writes `updates/result` (version, success or a short failure code, and time) through the directory's descriptor, as a new file renamed into place, before each restart, so the service that starts reads the outcome; a refused release is recorded without a restart, and the running service picks the result up within seconds. The panel shows it and records it in its log, and a node reports it in its state report.
+
+The helper unit is hardened like the service units: `NoNewPrivileges`,
+`ProtectSystem=strict`, `ProtectHome`, `PrivateTmp`, `PrivateDevices`,
+`ProtectProc=invisible`, the kernel, clock, hostname and control-group
+protections, `RestrictNamespaces`, `RestrictSUIDSGID`, `MemoryDenyWriteExecute`
+and `LockPersonality`. It has no network (`PrivateNetwork=true`) and may open
+only Unix sockets, which it needs to ask systemd to restart the service. Its
+only capability is `CAP_DAC_OVERRIDE`, to read and write the service account's
+private updates directory, and it may write only the executable's directory and
+the data directory (`ReadWritePaths`). Its `UMask` is `0022` and it gives the
+result mode 0644, so the service can read it.
+
+A user service and a process in the foreground replace their executable
+themselves when they may write it; a user service then asks its manager to
+restart its unit. The `update` commands do the same for an operator who runs
+them with write access to the executable.
 
 ## User service
 

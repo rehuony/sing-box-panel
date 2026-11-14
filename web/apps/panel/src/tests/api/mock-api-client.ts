@@ -41,6 +41,8 @@ export const testNode: FleetNode = {
   arch: 'arm64',
   build_version: '0.1.0',
   tags: [],
+  update_available: false,
+  last_update: null,
 };
 
 export const testNodeSettings: NodeSettings = {

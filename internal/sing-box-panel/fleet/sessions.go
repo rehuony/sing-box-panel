@@ -22,6 +22,12 @@ type session struct {
 	nodeID     string
 	instanceID string
 	sessionID  string
+	// protocolMinor and buildVersion are what the node's Hello named.
+	protocolMinor uint32
+	buildVersion  string
+	// lastUpdate is the update attempt the panel last recorded for the
+	// node; the session loop alone uses it.
+	lastUpdate *nodeapi.UpdateAttempt
 	// ready closes when the node's first state report is recorded; only
 	// then does the session accept commands.
 	ready     chan struct{}
@@ -53,6 +59,16 @@ func newSession(ctx context.Context, cancel context.CancelCauseFunc, stream node
 // open lets the session accept commands.
 func (current *session) open() {
 	current.readyOnce.Do(func() { close(current.ready) })
+}
+
+// isReady reports whether the session accepts commands.
+func (current *session) isReady() bool {
+	select {
+	case <-current.ready:
+		return true
+	default:
+		return false
+	}
 }
 
 // expect registers a command whose result deliver hands over.

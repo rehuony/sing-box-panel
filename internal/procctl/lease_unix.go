@@ -45,3 +45,22 @@ func unlockAndCloseRuntimeExecutorLease(file *os.File) error {
 	}
 	return nil
 }
+
+func leaseHeld(path string) (bool, error) {
+	fd, err := unix.Open(path, unix.O_RDONLY|unix.O_CLOEXEC|unix.O_NOFOLLOW, 0)
+	if errors.Is(err, unix.ENOENT) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	defer unix.Close(fd)
+	if err := unix.Flock(fd, unix.LOCK_SH|unix.LOCK_NB); err != nil {
+		if errors.Is(err, unix.EWOULDBLOCK) || errors.Is(err, unix.EAGAIN) {
+			return true, nil
+		}
+		return false, err
+	}
+	_ = unix.Flock(fd, unix.LOCK_UN)
+	return false, nil
+}

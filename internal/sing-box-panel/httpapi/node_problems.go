@@ -46,6 +46,9 @@ var nodeProblems = map[string]nodeProblem{
 	"filesystem_directory_too_large": {http.StatusUnprocessableEntity, "filesystem_directory_too_large", "Filesystem selection unavailable"},
 	"core_log_invalid":               {http.StatusBadRequest, "core_log_invalid", "Invalid log file"},
 	"core_log_current":               {http.StatusConflict, "core_log_current", "Current log is protected"},
+	"update_unsupported":             {http.StatusConflict, "node_update_unsupported", "Node cannot update itself"},
+	"update_permission_denied":       {http.StatusConflict, "node_update_permission_denied", "Node cannot replace its binary"},
+	"update_in_progress":             {http.StatusConflict, "node_update_in_progress", "Node update in progress"},
 }
 
 // writeNodeProblem reports a failed node command. Failures the node

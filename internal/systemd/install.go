@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 
 	"github.com/rehuony/sing-box-panel/internal/atomicfile"
 )
@@ -37,7 +38,10 @@ func (manager *Manager[T]) Install(ctx context.Context, request InstallRequest) 
 	if err != nil {
 		return InstallResult[T]{}, err
 	}
-	files := manager.installFiles(scope, unit, dataDir)
+	files, err := manager.installFiles(scope, unit, dataDir)
+	if err != nil {
+		return InstallResult[T]{}, err
+	}
 	if err := preflightInstall(files, request.Force); err != nil {
 		return InstallResult[T]{}, err
 	}
@@ -92,6 +96,13 @@ func (manager *Manager[T]) Install(ctx context.Context, request InstallRequest) 
 	enableArgs = append(enableArgs, manager.unitName)
 	if err := manager.runSystemctl(ctx, scope, enableArgs...); err != nil {
 		return InstallResult[T]{}, err
+	}
+	// Companions such as the update helper's path unit run whether or not
+	// the service starts now.
+	if names := manager.enabledCompanions(scope); len(names) != 0 {
+		if err := manager.runSystemctl(ctx, scope, append([]string{"enable", "--now"}, names...)...); err != nil {
+			return InstallResult[T]{}, err
+		}
 	}
 
 	return InstallResult[T]{
@@ -167,6 +178,10 @@ func (manager *Manager[T]) Uninstall(ctx context.Context, request UninstallReque
 	if len(existing) == 0 && len(links) == 0 && status.LoadState == "not-found" && unitStopped(status) {
 		result.Stopped = true
 		return result, nil
+	}
+	// The update helper must not act on a service being removed.
+	if err := manager.stopCompanions(ctx, scope, existing); err != nil {
+		return result, err
 	}
 	if !unitStopped(status) {
 		if status.UnitPath != manager.unitPath(scope) {
@@ -258,6 +273,42 @@ func (manager *Manager[T]) Uninstall(ctx context.Context, request UninstallReque
 		return result, err
 	}
 	return result, nil
+}
+
+// enabledCompanions names the companions enabled with the service.
+func (manager *Manager[T]) enabledCompanions(scope Scope) []string {
+	var names []string
+	if scope == ScopeSystem {
+		for _, companion := range manager.definition.Companions {
+			if companion.Enable {
+				names = append(names, companion.Name)
+			}
+		}
+	}
+	return names
+}
+
+// stopCompanions disables and stops the installed companions, the enabled
+// ones first so they start no other.
+func (manager *Manager[T]) stopCompanions(ctx context.Context, scope Scope, existing []string) error {
+	if scope != ScopeSystem {
+		return nil
+	}
+	for _, enabled := range []bool{true, false} {
+		for _, companion := range manager.definition.Companions {
+			if companion.Enable != enabled || !slices.Contains(existing, manager.companionPath(companion.Name)) {
+				continue
+			}
+			args := []string{"stop", companion.Name}
+			if enabled {
+				args = []string{"disable", "--now", companion.Name}
+			}
+			if err := manager.runSystemctl(ctx, scope, args...); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 func unitStopped(status Status) bool {

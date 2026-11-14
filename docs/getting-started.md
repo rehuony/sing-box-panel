@@ -250,3 +250,15 @@ node's user unit grant no capabilities. TUN, transparent proxying, raw sockets,
 and privileged ports on a node require a reviewed local override. See the authoritative
 [systemd packaging guide](systemd.md) before deploying a
 system service.
+
+## Update the panel and nodes
+
+A release build updates itself to a newer signed release. Through the
+management API the panel checks for and installs the newest stable release
+(`/system/update`), and updates a node to the panel's own release
+(`/nodes/{nodeId}/update`, or many nodes with `/fleet/commands`); nodes never
+contact GitHub. Restarting a node restarts its core, so its proxy is briefly
+interrupted. From a shell, `sing-box-panel update` and `sing-box-node update`
+do the same; see the [CLI reference](cli.md). A system service hands each
+update to its root update helper, described in the
+[systemd packaging guide](systemd.md#update-helper).

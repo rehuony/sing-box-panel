@@ -306,6 +306,10 @@ func systemStatusText(report systemStatusReport) string {
 	var output strings.Builder
 	fmt.Fprintf(&output, "service\t%s %s\t%s\t%s (%s)\t%s\tpid=%d\n",
 		service.Scope, service.Unit, service.LoadState, service.ActiveState, service.SubState, service.UnitFileState, service.MainPID)
+	for _, companion := range service.Companions {
+		fmt.Fprintf(&output, "update helper\t%s\t%s\t%s (%s)\t%s\n",
+			companion.Unit, companion.LoadState, companion.ActiveState, companion.SubState, companion.UnitFileState)
+	}
 	unitNote := "on disk; systemd reports no daemon reload needed"
 	if report.UnitFile.Stale {
 		unitNote = "on disk; systemd reports daemon reload needed; restart to apply command changes"

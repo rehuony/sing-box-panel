@@ -17,7 +17,7 @@ lists each package's responsibility and the dependency direction.
 
 | Service | Runs on | Responsibilities | Never does |
 | --- | --- | --- | --- |
-| Panel (`sing-box-panel`) | One host | Web UI and management API; node registry, enrollment and sessions; each node's editable configuration and revisions; the core version catalog and artifact cache; subscription sources, manual nodes, channels, keys, templates, rendering and `/sub` delivery; aggregated metrics, traffic, runtime history and panel logs | Run sing-box, read node hosts' files, fetch anything on a node's behalf except core artifacts |
+| Panel (`sing-box-panel`) | One host | Web UI and management API; node registry, enrollment and sessions; each node's editable configuration and revisions; the core version catalog and artifact cache; the node release of its own version that nodes update from; subscription sources, manual nodes, channels, keys, templates, rendering and `/sub` delivery; aggregated metrics, traffic, runtime history and panel logs | Run sing-box, read node hosts' files, fetch anything on a node's behalf except core artifacts and its node release |
 | Node (`sing-box-node`) | Every proxy host | One sing-box runtime: verified core installs, configuration check and activation, process supervision and recovery, rollback bundles; host metrics, public IP, read-only filesystem browsing, core logs and traffic counters; reports its host, configuration and runtime state; carries out panel commands; an optional loopback console for its enrollment | Accept connections from its panel or from other hosts, serve the panel's Web UI, hold subscription data or the panel's administrator credentials |
 
 The panel host runs no sing-box. A panel host that should also carry proxy
@@ -68,6 +68,7 @@ code differs from the contract.
 | `Enroll` | Unary | Exchanges a one-time enrollment token and the node's public key for a node identity |
 | `Connect` | Bidirectional stream | The control session: handshake, commands, results and events |
 | `FetchArtifact` | Server stream | Streams one cached core artifact to a node, authorized by a grant issued in the session |
+| `FetchRelease` | Bidirectional stream | Streams the panel's node release for the node's platform after its own signed handshake, to a running node or to the node's `update` command |
 
 The session handshake runs inside `Connect` before any command:
 
@@ -91,16 +92,28 @@ Frames are `oneof` envelopes:
 The command bodies are typed: check configuration; enable and disable a core;
 check and activate a startup artifact; start, stop, restart and roll back;
 install, remove and list cores; list startup artifacts; read the runtime
-status; browse and resolve filesystem paths; and list, read, delete and clear
-core log files. A command that uses the configuration carries the node's saved
+status; browse and resolve filesystem paths; list, read, delete and clear
+core log files; and update the node to the panel's release. A command that uses the configuration carries the node's saved
 revision: its ID, file revision, SHA-256 and bytes. The panel follows a core log
 by reading it again each second, so the protocol has no follow command.
 
 Panel and node are released together. Within `v1` the contract changes only
 additively, and `Hello` carries a minor protocol version. The panel accepts a
 node with the same major version and records its build version and minor
-version. The contract is at minor version 0, so every command is available to
-every accepted node. A breaking change moves to a new package.
+version. Each command belongs to the minor version that added it, and the
+panel refuses to send a command to a node whose session names an older minor
+version, answering `node_upgrade_required` without contacting the node. The
+contract is at minor version 1, which adds `FetchRelease`, `UpdateNode` and the
+state report's last update attempt; every other command is in minor version 0.
+A breaking change moves to a new package.
+
+`FetchRelease` authenticates on its own, apart from `Connect`, so the node's
+`update` command can use it while the node's service holds the session:
+
+1. The node sends `Hello` with its node ID, protocol version and platform.
+2. The panel answers `Challenge` with a random nonce and the panel ID.
+3. The node answers `Proof`, an Ed25519 signature over a release context string, the panel ID, the node ID and the nonce; the context differs from the session's, so neither proof is accepted by the other handshake.
+4. The panel sends `ReleaseHeader`, the release version, the binary's size and SHA-256 and the release's signed `SHA256SUMS` with `SHA256SUMS.sig`, then the binary for the node's platform in 64 KiB chunks.
 
 ## Identity and trust
 
@@ -138,6 +151,8 @@ node's [console](#node-console) can exchange a code too, while the node runs.
 | Checked startup artifact, applied bundle and rollback bundle | Node, which keeps the bytes of the applied and previous bundles | The panel records their digests and the node's evidence |
 | Installed core files | Node | The panel records which node has which artifact |
 | Version catalog, official and imported artifacts | Panel, which caches and verifies them, and removes official archives that no node reports installed and no install asked for in the last ten minutes | Nodes fetch them from the panel |
+| Node release of the panel's version | Panel, which downloads both platforms' node binaries with the release's signed checksums into `release-cache/VERSION/`, verifies them with its embedded key and removes other versions | Nodes fetch it with `FetchRelease` and verify it again with their own embedded key |
+| Executables and their last update attempt | Each service, which replaces its own binary when it may or stages a release for its root update helper | The node reports its last attempt in its state report |
 | Runtime process, intents and recovery | Node | The panel shows the reported state |
 | Host facts, metrics, public IP, filesystem | Node, live | The panel keeps bounded metrics history |
 | Traffic counters | Node, cumulative across core restarts in a durable checkpoint | The panel computes each node's deltas, its periods from its own reset day, and its usage against its own quota |
@@ -171,6 +186,7 @@ baseline schema. Neither has an upgrade path from an earlier format.
 - A node reports the state a state-changing command left before it sends the command's result, so the panel's reported state is current when the API answers.
 - Applying a configuration sends the revision, its digest and bytes, and the selected artifact identity. The node checks that the artifact is installed and verified, runs `sing-box check`, replaces the process through the existing preflight, keeps the previous bundle for rollback, and reports the new bundle. A failed check leaves the running process untouched.
 - Installing a core first caches the archive on the panel, then sends its identity, size and a fetch grant that lasts only while the command runs. The node streams the archive with `FetchArtifact`, verifies its digest and the exact version the binary reports, publishes it atomically and records it under the same artifact ID as the panel.
+- Updating a node first caches and verifies the panel's node release, then sends `UpdateNode` with the panel's version. The node fetches the release with `FetchRelease`, verifies its signature with its own embedded key, the binary's checksum, its build identity and platform and a version newer than its own, and answers how it left itself: up to date, restarting into the new version, staged for its root update helper, or installed and waiting for a manual restart. Restarting a node restarts its core, so its proxy is briefly interrupted. See [Packaging](#packaging) for how each kind of installation replaces its binary.
 
 ## Failure behavior
 
@@ -181,6 +197,7 @@ baseline schema. Neither has an upgrade path from an earlier format.
 | Reconnect | The node sends a full state report first, then the runtime transitions the panel lacks. The panel records the report before accepting commands for the node |
 | Lost telemetry | Traffic stays exact through cumulative counters and the node checkpoint: the first sample after a gap proves the traffic of the whole gap. Runtime transitions are the node's durable history and are sent again from where the panel's copy ends. Metrics samples are not buffered |
 | Recreated node database | The node's new instance ID starts a new traffic segment and a new history sequence; the panel keeps what it recorded before |
+| Failed update | A release that does not verify leaves the binary untouched. A system service that does not stay active after its helper installed a release is put back on the previous binary and restarted; the node reports the failed attempt with its code once it runs again, and a batch update stops there. A staged release whose helper never takes it is withdrawn after two minutes and reported as `helper_unavailable` |
 
 ## Telemetry
 
@@ -229,13 +246,16 @@ each node's resources under that node.
 
 | Scope | Resources |
 | --- | --- |
-| Fleet | `/fleet/status` (the nodes with their metrics, filtered by state, tag and text, and paged) and `/fleet/stream` (the same nodes, then their changes), `/fleet/commands` (start, stop, restart or install a core version on listed nodes or every node with a tag, streaming each node's outcome), `/nodes` (list with each node's reported state and tags, add with enrollment code, rename, delete), fleet traffic status with each node's usage and quota, core catalog and artifact cache, subscriptions, panel settings, panel logs, authentication |
-| One node | `/nodes/{node_id}/…`: status, cores, configuration file and check, runtime controls, rollback, filesystem, core logs, metrics and their stream and history, dashboard stream, settings (public host, traffic quota and period, tags), traffic periods and runtime history |
+| Fleet | `/fleet/status` (the nodes with their metrics, filtered by state, tag and text, and paged) and `/fleet/stream` (the same nodes, then their changes), `/fleet/commands` (start, stop, restart, install a core version or update on listed nodes or every node with a tag, streaming each node's outcome), `/nodes` (list with each node's reported state, tags, whether an update is available and its last update attempt, add with enrollment code, rename, delete), fleet traffic status with each node's usage and quota, core catalog and artifact cache, `/system/update` (the panel's version, the newest release, a check and the panel's own update), subscriptions, panel settings, panel logs, authentication |
+| One node | `/nodes/{node_id}/…`: status, cores, configuration file and check, runtime controls, rollback, filesystem, core logs, metrics and their stream and history, dashboard stream, settings (public host, traffic quota and period, tags), update to the panel's release, traffic periods and runtime history |
 
 A fleet command runs the single-node operation on each selected node, at most
 four at once, records each as its own operation and streams each node's outcome
 as it finishes, then a summary, so progress and partial success are visible; an
-unknown node ID is that node's failure. It keeps running when its client
+unknown node ID is that node's failure. An update runs one node at a time
+instead: each node must come back reporting the panel's version within five
+minutes, or report why its update failed, before the next starts, and the first
+failure stops the batch, reporting the remaining nodes as skipped. It keeps running when its client
 disconnects, so every selected node receives the command that was confirmed.
 Installing a core version picks, for each node, the official catalog archive of
 that version for the node's recorded platform, and caches each platform's
@@ -288,7 +308,8 @@ cmd/
 internal/
   sing-box-panel/        panel service: imports shared packages, never the node
     app/                 the one composition of the panel's services
-    fleet/               node registry, enrollment, gRPC sessions, command routing, presence
+    fleet/               node registry, enrollment, gRPC sessions, command routing, presence, node updates
+    releases/            the node release cache of the panel's version and the panel's own updates
     nodeconfig/          per-node editable file, revisions, check and apply through fleet
     corecache/           upstream catalog discovery, artifact cache and distribution
     schema/              exact-version Schema manifest and assets for the editor
@@ -344,7 +365,9 @@ imports and may use any package.
 - One module and one release build both binaries for `linux/amd64` and `linux/arm64`; the signed `SHA256SUMS` covers both.
 - The installer takes `--component panel|node`, or asks which when neither is given, reports what is already installed, and installs only that binary.
 - Each service has its own systemd unit and dedicated account, installed by its own binary's `systemd` commands over one shared lifecycle. The node unit carries the privileges sing-box needs; the panel unit drops them because it no longer runs sing-box.
-- A node reports its build version in each session; the panel records it and returns it with the node in the management API. A node's binary is replaced by running the installer on its host. Only the panel binary has a signed self-update command.
+- A node reports its build version in each session; the panel records it and returns it with the node in the management API, with whether it differs from the panel's release.
+- Both binaries embed the release key and update themselves only to a signed release newer than the running version. The panel updates from the latest stable GitHub release, from its settings or with `sing-box-panel update`; nodes update to the panel's own release, from the panel or with `sing-box-node update`, and never contact GitHub.
+- How a binary is replaced depends on how it runs. A process that may write its executable, a user service or one in the foreground, verifies and installs the release itself; a user service then restarts its unit, and a foreground process keeps running the old version until it is restarted. A system service runs as its dedicated account with a read-only system, so it stages the verified release in `updates/VERSION/` of its data directory and writes `updates/request` naming the version. Its root update helper, the `NAME-update.path` and `NAME-update.service` units, copies the staged files beside the executable before reading them, verifies them with the installed binary's key, refuses anything older than or equal to the installed version, installs, restarts the service and, when it does not stay active, restores the previous binary and restarts again. The helper writes `updates/result` before each restart, and a refused release without one; the service reads it when it starts or, while it runs, within seconds, and reports it. See the [systemd packaging guide](systemd.md#update-helper).
 
 ## Preserved guarantees
 

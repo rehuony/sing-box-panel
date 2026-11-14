@@ -59,7 +59,7 @@ bash scripts/test/installer-test.sh
 workflow. It never publishes, uploads, signs, installs, or retains artifacts.
 `test/smoke-release.sh` validates signed artifacts and exercises native startup,
 editable configuration and panel settings persistence, authenticated self-update,
-and restart. `test/release-contract.sh` builds disposable candidates from the
+restart, and a node update through the panel. `test/release-contract.sh` builds disposable candidates from the
 current working tree, signs them with a newly generated test key, and invokes
 that same scenario in ordinary CI and local Linux checks. It never reads the
 repository's private key or replaces the committed public key. Temporary keys,

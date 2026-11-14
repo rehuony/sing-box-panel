@@ -63,7 +63,7 @@ nothing imports.
 | --- | --- | --- |
 | Shared (`internal/`) | `buildinfo`, `console`, `jsonstrict` | Build identity and its display, terminal output, strict JSON decoding and canonical objects |
 | | `atomicfile` | Crash-safe file publication and directory syncs for both services and the tools |
-| | `release`, `selfupdate` | Release-version validation and signatures; download and atomic binary replacement |
+| | `release`, `selfupdate` | Release-version validation and signatures; fetching, verifying and atomically installing either binary, staging a release for a system service's root update helper, and the helper's staged apply |
 | | `procctl` | Private local control of a running service without an OS service manager; the service lifetime and lease, never background processes |
 | | `database` | SQLite opening, connection pragmas, baseline schema identity and data-directory locks shared by both stores |
 | | `logredact` | Credential and configuration-body redaction for log text and metadata, applied by both services |
@@ -93,7 +93,8 @@ nothing imports.
 | | `schema` | The exact-version Schema manifest and assets for the editor and validators |
 | | `nodeconfig` | Each node's editable configuration file, canonical revisions, Schema support, preview and the exact-Schema check before a command |
 | | `subscription` | Sources, manual nodes, inbound conversion, channels, keys, users, templates and renderers, preview and `/sub` delivery |
-| | `fleet` | The node registry, enrollment codes, the TLS identity nodes pin, the node gRPC service sharing the Web port under the base path, authenticated node sessions, the typed commands sent over them and the short-lived grants under which nodes fetch cached archives |
+| | `fleet` | The node registry, enrollment codes, the TLS identity nodes pin, the node gRPC service sharing the Web port under the base path, authenticated node sessions, the typed commands sent over them and the protocol minor version each needs, batch commands over many nodes, node updates and the release stream they fetch, the shared fleet snapshot and the short-lived grants under which nodes fetch cached archives |
+| | `releases` | The panel's releases: the verified cache of the node release of the panel's version that nodes update from, and the panel's own update checks and updates |
 | | `app` | The one composition of the panel's services over a store and a settings file, used by the server and the transport tests |
 | | `httpapi` | The management API, Web delivery and subscription output over `app.Services` |
 | | `installation` | Inspection, moves and removal of the panel's persistent files |
@@ -122,7 +123,7 @@ procctl, release, singbox, webauth, node:host (no module imports)
 configuration      -> jsonstrict
 logredact          -> jsonstrict
 nodeapi            -> jsonstrict
-selfupdate         -> atomicfile, release
+selfupdate         -> atomicfile, jsonstrict, release
 systemd            -> atomicfile, database, pathguard
 node:artifacts     -> atomicfile, coreartifact
 node:runtime       -> atomicfile, coreartifact, singbox
@@ -132,15 +133,16 @@ node:service       -> configuration, coreartifact, database, jsonstrict,
                       node:artifacts, node:corelogs, node:host, node:runtime,
                       node:store
 node:settings      -> atomicfile, jsonstrict, nodeapi, webauth
-node:agent         -> buildinfo, coreartifact, nodeapi, procctl, node:artifacts,
-                      node:corelogs, node:host, node:service, node:settings,
-                      node:store
+node:agent         -> buildinfo, coreartifact, nodeapi, procctl, release,
+                      selfupdate, systemd, node:artifacts, node:corelogs,
+                      node:host, node:service, node:settings, node:store,
+                      node:systemd
 node:httpapi       -> buildinfo, jsonstrict, nodeapi, node:agent, node:host,
                       node:settings, webauth
-node:systemd       -> node:settings, systemd
-node:cli           -> buildinfo, nodeapi, node:agent, node:httpapi,
-                      node:settings, node:systemd, systemd, web/apps/node,
-                      webauth
+node:systemd       -> selfupdate, node:settings, systemd
+node:cli           -> buildinfo, nodeapi, procctl, selfupdate, node:agent,
+                      node:httpapi, node:settings, node:systemd, systemd,
+                      web/apps/node, webauth
 
 panel:store        -> configuration, database, jsonstrict, logredact
 panel:auth         -> panel:store, webauth
@@ -154,19 +156,23 @@ panel:nodeconfig   -> configuration, panel:corecache, panel:schema, panel:store
 panel:subscription -> configuration, coreartifact, database, jsonstrict,
                       panel:schema, panel:settings, panel:store,
                       panel:telemetry, singbox
-panel:fleet        -> atomicfile, buildinfo, configuration, database, nodeapi,
-                      panel:corecache, panel:nodeconfig, panel:settings,
+panel:releases     -> buildinfo, release, selfupdate, systemd, panel:settings,
                       panel:store, panel:telemetry
-panel:app          -> buildinfo, panel:auth, panel:corecache, panel:fleet,
-                      panel:nodeconfig, panel:settings, panel:store,
-                      panel:subscription, panel:telemetry
+panel:fleet        -> atomicfile, buildinfo, configuration, database, nodeapi,
+                      panel:corecache, panel:nodeconfig, panel:releases,
+                      panel:settings, panel:store, panel:telemetry
+panel:app          -> buildinfo, systemd, panel:auth, panel:corecache,
+                      panel:fleet, panel:nodeconfig, panel:releases,
+                      panel:settings, panel:store, panel:subscription,
+                      panel:systemd, panel:telemetry
 panel:httpapi      -> buildinfo, configuration, coreartifact, jsonstrict,
-                      panel:app, panel:auth, panel:corecache, panel:fleet,
-                      panel:nodeconfig, panel:schema, panel:settings,
-                      panel:store, panel:subscription, panel:telemetry, webauth
+                      selfupdate, panel:app, panel:auth, panel:corecache,
+                      panel:fleet, panel:nodeconfig, panel:releases,
+                      panel:schema, panel:settings, panel:store,
+                      panel:subscription, panel:telemetry, webauth
 panel:installation -> database, jsonstrict, pathguard, procctl, panel:fleet,
                       panel:settings, panel:store
-panel:systemd      -> panel:installation, panel:settings, systemd
+panel:systemd      -> selfupdate, panel:installation, panel:settings, systemd
 panel:cli          -> buildinfo, console, pathguard, procctl, selfupdate,
                       panel:app, panel:fleet, panel:installation,
                       panel:settings, panel:store, panel:systemd, systemd,

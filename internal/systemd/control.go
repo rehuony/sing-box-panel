@@ -4,11 +4,13 @@ package systemd
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // ValidateStatePath checks the on-disk state identity without treating stale
@@ -35,12 +37,124 @@ func (status Status) ValidateStatePath(expected, label string) error {
 	return nil
 }
 
+// Status reports the service's unit and, for a system installation, its
+// companion units.
 func (manager *Manager[T]) Status(ctx context.Context, requested Scope) (Status, error) {
+	status, err := manager.unitStatus(ctx, requested)
+	if err != nil || status.Scope != ScopeSystem {
+		return status, err
+	}
+	for _, companion := range manager.definition.Companions {
+		state, err := manager.companionStatus(ctx, companion.Name)
+		if err != nil {
+			return status, err
+		}
+		status.Companions = append(status.Companions, state)
+	}
+	return status, nil
+}
+
+func (manager *Manager[T]) unitStatus(ctx context.Context, requested Scope) (Status, error) {
 	status, err := manager.queryStatus(ctx, requested)
 	if err == nil && status.LoadState == "not-found" {
 		return status, fmt.Errorf("%w: %s", ErrNotInstalled, manager.unitName)
 	}
 	return status, err
+}
+
+func (manager *Manager[T]) companionStatus(ctx context.Context, name string) (UnitState, error) {
+	args := append(manager.systemctlPrefix(ScopeSystem), "show", name, "--no-pager",
+		"--property=LoadState", "--property=ActiveState", "--property=SubState", "--property=UnitFileState")
+	result, err := manager.runResult(ctx, "systemctl", args...)
+	if err != nil {
+		return UnitState{}, err
+	}
+	state := UnitState{Unit: name}
+	for _, line := range strings.Split(strings.TrimSpace(string(result.Stdout)), "\n") {
+		key, value, _ := strings.Cut(line, "=")
+		switch key {
+		case "LoadState":
+			state.LoadState = value
+		case "ActiveState":
+			state.ActiveState = value
+		case "SubState":
+			state.SubState = value
+		case "UnitFileState":
+			state.UnitFileState = value
+		}
+	}
+	if state.LoadState == "" || state.ActiveState == "" {
+		return UnitState{}, fmt.Errorf("%w: systemctl omitted the state of %s", ErrInvalid, name)
+	}
+	return state, nil
+}
+
+// RequestRestart queues a restart of the service without waiting for it,
+// so the service itself can ask for one: systemd stops it as part of the
+// job.
+func (manager *Manager[T]) RequestRestart(ctx context.Context, scope Scope) error {
+	if err := manager.requireLinux(); err != nil {
+		return err
+	}
+	scope, err := manager.resolveScope(scope)
+	if err != nil {
+		return err
+	}
+	return manager.runSystemctl(ctx, scope, "--no-block", "restart", manager.unitName)
+}
+
+// ErrNotActive reports a service that did not stay active after a restart.
+var ErrNotActive = errors.New("the service did not stay active")
+
+// restartPoll is how often RestartAndWait reads the service's state.
+var restartPoll = time.Second
+
+// RestartAndWait restarts the service and waits until systemd reports it
+// active throughout settle. timeout bounds becoming active: the service
+// fails with ErrNotActive when it is not active once timeout has passed, or
+// when it stops being active before settle ends; a settle period that began
+// in time runs to its end.
+func (manager *Manager[T]) RestartAndWait(ctx context.Context, scope Scope, timeout, settle time.Duration) error {
+	if err := manager.requireLinux(); err != nil {
+		return err
+	}
+	scope, err := manager.resolveScope(scope)
+	if err != nil {
+		return err
+	}
+	if err := manager.requireMutationPermission(scope); err != nil {
+		return err
+	}
+	deadline := time.Now().Add(timeout)
+	if err := manager.runSystemctl(ctx, scope, "restart", manager.unitName); err != nil {
+		return fmt.Errorf("%w: %w", ErrNotActive, err)
+	}
+	var activeSince time.Time
+	for {
+		status, err := manager.queryStatus(ctx, scope)
+		if err != nil {
+			return err
+		}
+		now := time.Now()
+		state := status.ActiveState + "/" + status.SubState
+		switch {
+		case status.ActiveState == "active" && activeSince.IsZero():
+			activeSince = now
+		case status.ActiveState == "active":
+		case !activeSince.IsZero():
+			return fmt.Errorf("%w: %s became %s within %s of starting", ErrNotActive, manager.unitName, state, settle)
+		case now.After(deadline):
+			return fmt.Errorf("%w: %s is %s after %s", ErrNotActive, manager.unitName, state, timeout)
+		}
+		if !activeSince.IsZero() && now.Sub(activeSince) >= settle {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(restartPoll):
+		}
+	}
 }
 
 func (manager *Manager[T]) queryStatus(ctx context.Context, requested Scope) (Status, error) {

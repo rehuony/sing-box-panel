@@ -252,3 +252,43 @@ func (link *Link) reconnect(ctx context.Context, generation uint64, enrollment s
 		backoff = min(2*backoff, maximumBackoff)
 	}
 }
+
+// watch replaces the enrollment with the one in the data directory whenever
+// that changes, every interval until ctx ends, as the console's enrollment
+// does: an operator who enrolls the node with sing-box-node enroll while it
+// runs switches it to the new panel. A missing or unreadable file keeps the
+// current enrollment.
+func (link *Link) watch(ctx context.Context, interval time.Duration, logf func(string, ...any)) {
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			link.reload(logf)
+		}
+	}
+}
+
+// reload switches to the enrollment saved in the data directory if it
+// differs from the current one.
+func (link *Link) reload(logf func(string, ...any)) bool {
+	link.changing.Lock()
+	defer link.changing.Unlock()
+	saved, err := settings.Load(link.dataDir)
+	if err != nil {
+		return false
+	}
+	current, _, _ := link.current()
+	if current != nil && sameEnrollment(*current, saved) {
+		return false
+	}
+	link.replace(&saved)
+	logf("the saved enrollment changed; switching to node %s of the panel at %s%s", saved.NodeID, saved.Endpoint, saved.Path)
+	return true
+}
+
+func sameEnrollment(a, b settings.Enrollment) bool {
+	return a.Endpoint == b.Endpoint && a.Path == b.Path && a.Pin == b.Pin && a.PanelID == b.PanelID && a.NodeID == b.NodeID && a.Key.Equal(b.Key)
+}

@@ -12,6 +12,7 @@ import (
 
 	"github.com/rehuony/sing-box-panel/internal/buildinfo"
 	"github.com/rehuony/sing-box-panel/internal/nodeapi"
+	"github.com/rehuony/sing-box-panel/internal/procctl"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-node/agent"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-node/httpapi"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-node/settings"
@@ -46,7 +47,7 @@ func NewRootCommand(deps Dependencies) *cobra.Command {
 		service = defaultSystemd()
 	}
 	root.AddCommand(newVersionCommand(deps.Build), newEnrollCommand(deps, dataDir), newRunCommand(deps, dataDir),
-		newConsoleCommand(dataDir), newSystemdCommand(dataDir, service))
+		newUpdateCommand(deps, dataDir, service), newConsoleCommand(dataDir), newSystemdCommand(dataDir, service))
 	return root
 }
 
@@ -61,7 +62,12 @@ func newEnrollCommand(deps Dependencies, dataDir *string) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			_, err = fmt.Fprintf(cmd.OutOrStdout(), "Enrolled as node %s with the panel at %s%s. Start the node with: sing-box-node run\n", enrollment.NodeID, enrollment.Endpoint, enrollment.Path)
+			next := "Start the node with: sing-box-node run"
+			// A running node notices the saved enrollment within seconds.
+			if running, err := procctl.LeaseHeld(*dataDir); err == nil && running {
+				next = "The running node switches to it within a few seconds."
+			}
+			_, err = fmt.Fprintf(cmd.OutOrStdout(), "Enrolled as node %s with the panel at %s%s. %s\n", enrollment.NodeID, enrollment.Endpoint, enrollment.Path, next)
 			return err
 		},
 	}

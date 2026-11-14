@@ -156,6 +156,10 @@ func (server *nodeServer) Connect(stream nodeapi.NodeService_ConnectServer) erro
 	}
 	current := newSession(ctx, cancel, stream)
 	current.nodeID, current.instanceID, current.sessionID = node.ID, instanceID, sessionID
+	current.protocolMinor, current.buildVersion = hello.GetProtocol().GetMinor(), hello.GetBuildVersion()
+	if reported := nodeState(node); reported != nil {
+		current.lastUpdate = reported.Report.GetLastUpdate()
+	}
 	err = service.database.RecordNodeSession(ctx, node.ID, node.PublicKey, store.NodeSession{
 		ID: sessionID, InstanceID: instanceID, OS: hello.GetPlatform().GetOs(), Arch: hello.GetPlatform().GetArch(), BuildVersion: hello.GetBuildVersion(),
 		ProtocolMinor: int(hello.GetProtocol().GetMinor()), SeenAt: service.now().UTC(),

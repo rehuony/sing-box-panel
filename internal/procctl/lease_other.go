@@ -13,3 +13,5 @@ func openAndLockLease(string) (*os.File, error) {
 func unlockAndCloseRuntimeExecutorLease(file *os.File) error {
 	return file.Close()
 }
+
+func leaseHeld(string) (bool, error) { return false, ErrLeaseUnsupported }

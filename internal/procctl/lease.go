@@ -52,3 +52,10 @@ func (lease *Lease) Close() error {
 	})
 	return lease.err
 }
+
+// LeaseHeld reports whether a process owns the data directory now. It never
+// creates the lease file, so a command run as another user leaves no file
+// the owner cannot open.
+func LeaseHeld(dataDirectory string) (bool, error) {
+	return leaseHeld(filepath.Join(dataDirectory, LeaseFileName))
+}

@@ -15,11 +15,6 @@ import (
 	"strings"
 )
 
-const (
-	panelCommandPath = "github.com/rehuony/sing-box-panel/cmd/sing-box-panel"
-	panelModulePath  = "github.com/rehuony/sing-box-panel"
-)
-
 func (updater *Updater) executableTarget() (string, os.FileMode, error) {
 	rawPath, err := updater.executable()
 	if err != nil {
@@ -76,16 +71,18 @@ func requireExecutableDigest(path string, expected [sha256.Size]byte) error {
 	return nil
 }
 
-func validateStagedExecutable(path, expectedGOOS, expectedGOARCH string) error {
+func validateStagedExecutable(path string, binary Binary, expectedGOOS, expectedGOARCH string) error {
 	info, err := buildinfo.ReadFile(path)
 	if err != nil {
 		return fmt.Errorf("%w: read Go build information: %v", ErrStagedExecutableInvalid, err)
 	}
-	return validateStagedBuildIdentity(info, expectedGOOS, expectedGOARCH)
+	return validateStagedBuildIdentity(info, binary, expectedGOOS, expectedGOARCH)
 }
 
-func validateStagedBuildIdentity(info *buildinfo.BuildInfo, expectedGOOS, expectedGOARCH string) error {
-	if info == nil || info.Path != panelCommandPath || info.Main.Path != panelModulePath {
+// validateStagedBuildIdentity requires the binary's own Go command, built
+// without cgo for the expected platform.
+func validateStagedBuildIdentity(info *buildinfo.BuildInfo, binary Binary, expectedGOOS, expectedGOARCH string) error {
+	if info == nil || info.Path != binary.commandPath() || info.Main.Path != modulePath {
 		return fmt.Errorf("%w: unexpected Go command or module path", ErrStagedExecutableInvalid)
 	}
 	wantedSettings := map[string]string{
@@ -141,7 +138,7 @@ func parseChecksum(data []byte, assetName string) ([sha256.Size]byte, error) {
 		}
 		fields := strings.Fields(line)
 		if len(fields) != 2 {
-			return result, fmt.Errorf("%w: malformed %s entry", ErrChecksumInvalid, checksumAssetName)
+			return result, fmt.Errorf("%w: malformed %s entry", ErrChecksumInvalid, ChecksumsName)
 		}
 		name := strings.TrimPrefix(fields[1], "*")
 		name = strings.TrimPrefix(name, "./")
@@ -159,7 +156,7 @@ func parseChecksum(data []byte, assetName string) ([sha256.Size]byte, error) {
 		found = true
 	}
 	if err := scanner.Err(); err != nil {
-		return result, fmt.Errorf("%w: read %s: %v", ErrChecksumInvalid, checksumAssetName, err)
+		return result, fmt.Errorf("%w: read %s: %v", ErrChecksumInvalid, ChecksumsName, err)
 	}
 	if !found {
 		return result, fmt.Errorf("%w: no entry for %s", ErrChecksumInvalid, assetName)

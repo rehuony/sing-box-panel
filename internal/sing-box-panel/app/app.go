@@ -6,15 +6,21 @@
 package app
 
 import (
+	"context"
+	"errors"
+
 	"github.com/rehuony/sing-box-panel/internal/buildinfo"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/auth"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/corecache"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/fleet"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/nodeconfig"
+	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/releases"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/settings"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/store"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/subscription"
+	panelsystemd "github.com/rehuony/sing-box-panel/internal/sing-box-panel/systemd"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/telemetry"
+	"github.com/rehuony/sing-box-panel/internal/systemd"
 )
 
 // Services are the panel use cases the management API and /sub delegate to.
@@ -26,6 +32,7 @@ type Services struct {
 	Subscriptions *subscription.Service
 	Telemetry     *telemetry.Service
 	Fleet         *fleet.Service
+	Releases      *releases.Service
 }
 
 // Options adjusts the composition.
@@ -37,6 +44,8 @@ type Options struct {
 	Observe func(store.LogEntry)
 	// Downloader replaces the downloader of official core archives.
 	Downloader corecache.Downloader
+	// Releases adjusts where the panel's releases come from.
+	Releases releases.Options
 }
 
 // New composes the panel's services over database and the settings file
@@ -46,6 +55,11 @@ func New(database *store.Store, configuration settings.Settings, options Options
 	records := telemetry.New(database, panelSettings, telemetry.Options{Classify: fleet.ClassifyOperationFailure, Observe: options.Observe})
 	cores := corecache.New(database, records, panelSettings, corecache.Options{DataDir: configuration.DataDir, Downloader: options.Downloader})
 	configs := nodeconfig.New(database, cores)
+	releaseOptions := options.Releases
+	if releaseOptions.Restart == nil {
+		releaseOptions.Restart = restartPanel
+	}
+	panelReleases := releases.New(options.Build, configuration.DataDir, panelSettings, records, releaseOptions)
 	return Services{
 		Sessions:      auth.NewSessions(database, panelSettings),
 		Settings:      panelSettings,
@@ -53,6 +67,20 @@ func New(database *store.Store, configuration settings.Settings, options Options
 		Cores:         cores,
 		Subscriptions: subscription.New(database, panelSettings, records, subscription.Options{}),
 		Telemetry:     records,
-		Fleet:         fleet.New(database, panelSettings, records, configs, cores, fleet.Options{Build: options.Build}),
+		Fleet:         fleet.New(database, panelSettings, records, configs, cores, fleet.Options{Build: options.Build, Releases: panelReleases}),
+		Releases:      panelReleases,
 	}
+}
+
+// restartPanel queues a restart of the systemd unit that runs the panel.
+func restartPanel(ctx context.Context) error {
+	scope, supervised := systemd.RunningScope()
+	if !supervised {
+		return errors.New("the panel does not run under systemd")
+	}
+	manager, err := panelsystemd.New(systemd.Options{})
+	if err != nil {
+		return err
+	}
+	return manager.RequestRestart(ctx, scope)
 }

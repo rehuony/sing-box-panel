@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"io"
 
+	"github.com/rehuony/sing-box-panel/internal/selfupdate"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-node/settings"
 	"github.com/rehuony/sing-box-panel/internal/systemd"
 )
@@ -36,7 +37,26 @@ var (
 	sysusersTemplate []byte
 	//go:embed templates/tmpfiles.d/sing-box-node.conf
 	tmpfilesTemplate []byte
+	//go:embed templates/system/sing-box-node-update.path
+	updatePathTemplate []byte
+	//go:embed templates/system/sing-box-node-update.service
+	updateServiceTemplate []byte
 )
+
+// The root update helper of the system service: a path unit that watches
+// the update request in the data directory and the oneshot service it
+// starts, which applies the staged release.
+const (
+	UpdatePathUnit    = Name + "-update.path"
+	UpdateServiceUnit = Name + "-update.service"
+)
+
+func updateCompanions() []systemd.Companion {
+	return []systemd.Companion{
+		{Name: UpdatePathUnit, Template: updatePathTemplate, Watch: selfupdate.UpdatesDir + "/" + selfupdate.RequestName, Enable: true},
+		{Name: UpdateServiceUnit, Template: updateServiceTemplate},
+	}
+}
 
 // Manager is the node's systemd lifecycle; the node creates no state when
 // it is installed.
@@ -52,8 +72,10 @@ func Definition() systemd.Definition[struct{}] {
 		Name: Name, AccountDescription: "Sing-Box Node service account",
 		SystemUnit: systemUnitTemplate, UserUnit: userUnitTemplate, Sysusers: sysusersTemplate, Tmpfiles: tmpfilesTemplate,
 		SystemStatePath: SystemDataDir, StateFlag: "--data-dir", StateLabel: "data directory",
-		Arguments: func(dataDir string) string { return "--data-dir " + dataDir + " run" },
-		State:     nodeState{},
+		Arguments:          func(dataDir string) string { return "--data-dir " + dataDir + " run" },
+		State:              nodeState{},
+		Companions:         updateCompanions(),
+		CompanionArguments: func(dataDir string) string { return "--data-dir " + dataDir + " update --apply-staged" },
 	}
 }
 
