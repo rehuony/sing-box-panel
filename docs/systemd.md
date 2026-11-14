@@ -316,13 +316,34 @@ grant no capability and cannot provide TUN, transparent-proxy, raw-socket, or
 privileged-port access. They are intended for ordinary user-owned proxy
 listeners.
 
-Both services use restart-on-failure and stop the complete process group. Their
-sandbox permits only Unix, IPv4, IPv6, and netlink sockets and keeps the data
-directory, and the panel's settings directory, writable. The panel's system
-template explicitly permits `/etc/sing-box-panel`; rendered user units permit
-the selected state and data directories. After upgrading an older installation, rerun `systemd install` to
-refresh the unit and ownership before saving preferences through the Web UI.
-Use `--force` when replacing an older generated template after reviewing changes.
+Both services use restart-on-failure and stop the complete process group. Both
+set `NoNewPrivileges`, `UMask=0077` and `RemoveIPC`, may open only Unix, IPv4,
+IPv6, and netlink sockets, and filter system calls with
+`SystemCallArchitectures`, `RestrictNamespaces`, `RestrictRealtime`,
+`RestrictSUIDSGID`, `MemoryDenyWriteExecute` and `LockPersonality`.
+
+The panel's user unit also empties its `CapabilityBoundingSet` and confines the
+file system with `ProtectSystem=strict`, `ProtectHome=read-only`, `PrivateTmp`,
+`PrivateDevices` and the kernel, clock, hostname and control-group protections;
+only the selected settings and data directories are writable. The panel's
+system template explicitly permits `/etc/sing-box-panel`.
+
+The node's user unit does not confine the file system or the kernel interfaces,
+and its bounding set is not emptied. A user manager applies those settings only
+by running the service in a user namespace that maps only its user, and there
+`/`, `/home` and every other root-owned directory appear owned by `nobody`. The
+node's artifact store requires every ancestor of its data directory to be owned
+by root or the node's user and not writable by others, so in that namespace it
+refuses to run a core; and outside one, an empty `CapabilityBoundingSet` cannot
+be applied and the unit fails to start. The node's user unit therefore keeps
+only the settings that apply without a namespace, listed above. A user-scope
+node runs with its user's full file access: it, its cores and anything they run
+can read and write wherever that user can. Use the system service where the
+node must be confined to its data directory.
+
+After upgrading an older installation, rerun `systemd install` to refresh the
+unit and ownership before saving preferences through the Web UI. Use `--force`
+when replacing an older generated template after reviewing changes.
 
 After editing the panel's `data_dir`, an explicit `systemd restart` coordinates a stopped
 relocation and refreshes generated working-directory, sandbox and tmpfiles paths.

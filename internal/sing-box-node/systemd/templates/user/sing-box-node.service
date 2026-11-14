@@ -21,20 +21,11 @@ UMask=0077
 RuntimeDirectory=sing-box-node
 RuntimeDirectoryMode=0700
 
+# No file system or kernel protection, unlike the system unit: a user manager
+# applies them only in a user namespace, which hides the root ownership the
+# artifact store checks.
 NoNewPrivileges=true
-CapabilityBoundingSet=
 AmbientCapabilities=
-PrivateTmp=true
-PrivateDevices=true
-ProtectSystem=strict
-ProtectHome=read-only
-ReadWritePaths=%h/.local/share/sing-box-node
-ProtectHostname=true
-ProtectClock=true
-ProtectKernelTunables=true
-ProtectKernelModules=true
-ProtectKernelLogs=true
-ProtectControlGroups=true
 LockPersonality=true
 MemoryDenyWriteExecute=true
 RestrictNamespaces=true

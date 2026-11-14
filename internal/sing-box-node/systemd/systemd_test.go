@@ -47,8 +47,18 @@ func TestUnitsGiveOnlyTheSystemServiceReadAccessAndHostCounters(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(user), "\nCapabilityBoundingSet=\n") || !strings.Contains(string(user), "\nAmbientCapabilities=\n") {
-		t.Fatalf("user unit keeps capabilities:\n%s", user)
+	if !strings.Contains(string(user), "\nAmbientCapabilities=\n") || !strings.Contains(string(user), "\nNoNewPrivileges=true\n") {
+		t.Fatalf("user unit can gain privileges:\n%s", user)
+	}
+	// A user manager applies these only in a user namespace, in which the
+	// artifact store sees no root-owned directory and refuses to run cores.
+	for _, directive := range []string{
+		"CapabilityBoundingSet=", "PrivateTmp=", "PrivateDevices=", "ProtectSystem=", "ProtectHome=", "ReadWritePaths=",
+		"ProtectHostname=", "ProtectClock=", "ProtectKernelTunables=", "ProtectKernelModules=", "ProtectKernelLogs=", "ProtectControlGroups=",
+	} {
+		if strings.Contains(string(user), "\n"+directive) {
+			t.Errorf("user unit sets %s, which needs a user namespace", directive)
+		}
 	}
 }
 

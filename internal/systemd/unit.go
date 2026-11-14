@@ -54,9 +54,13 @@ func (manager *Manager[T]) Render(scope Scope, executablePath, statePath, dataDi
 		}
 		quotedWritable = append(quotedWritable, quoted)
 	}
-	result, err = replaceDirective(result, "ReadWritePaths=", "ReadWritePaths="+strings.Join(quotedWritable, " "))
-	if err != nil {
-		return nil, err
+	// A template that confines the file system names the writable paths
+	// exactly once; one without ProtectSystem may leave them out.
+	if hasDirective(result, "ProtectSystem=") || hasDirective(result, "ReadWritePaths=") {
+		result, err = replaceDirective(result, "ReadWritePaths=", "ReadWritePaths="+strings.Join(quotedWritable, " "))
+		if err != nil {
+			return nil, err
+		}
 	}
 	if scope == ScopeSystem && dataDir != "/var/lib/"+definition.Name {
 		// Custom roots are created by the installer; do not recreate the former
@@ -66,7 +70,10 @@ func (manager *Manager[T]) Render(scope Scope, executablePath, statePath, dataDi
 			return nil, err
 		}
 	}
-	return bindTemporaryPaths(result, writable)
+	if hasDirective(result, "PrivateTmp=") {
+		return bindTemporaryPaths(result, writable)
+	}
+	return result, nil
 }
 
 // RenderCompanion returns a companion unit of a system installation that
