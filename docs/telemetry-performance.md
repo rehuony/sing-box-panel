@@ -1,120 +1,112 @@
-# Data and interaction refactor verification
+# Telemetry performance
 
-## Scope
+Measurements of the panel's fleet reads, traffic writes and metrics history,
+and what they do and do not show. The behavior is described in
+[Subscriptions and observability](subscriptions-and-observability.md) and the
+[panel and node architecture](panel-node-architecture.md#telemetry).
 
-The refactor preserves REST/SSE routes, persisted traffic accounting and the
-existing visual system. Ordinary reads use a session-local TanStack Query cache;
-runtime, metrics and dashboard history use separate Zustand subscriptions.
-Live collection runs every second, accounting checkpoints remain ten
-seconds, and subscribed clients share each history snapshot. The chart's live
-traffic view retains two minutes of received collector rates independently of
-history refreshes; the connection chart still replaces its overlapping tail at
-the persistence watermark. Rate calculation belongs to the collector, so skipped
-browser snapshots cannot dilute the current rate. The historical verification
-results below describe the earlier two-second cadence, not a benchmark of the
-current one-second stream.
+## What a fleet read costs
 
-The behavior and proxy configuration are documented in
-[Subscriptions and observability](subscriptions-and-observability.md)
-and the [Web application](../web/README.md).
+The fleet views read every node with its metrics from one snapshot. Reading
+it is one query for the nodes (`store.Nodes`); each node's last state report is
+decoded once, and its live evidence, current period and newest accepted
+traffic sample come from the telemetry ledger in memory. The ledger reads the
+store only the first time it needs a node's period or newest sample after the
+panel starts, and again when a rollover or a changed reset day or period length
+asks for another range. Every accepted sample updates it from the result of
+its own transaction; a rejected one leaves it as it is.
 
-## Automated verification, 2026-09-27
+The same read encodes each node's item once, for every reader. A node whose
+item differs from its previous one only in when it was read keeps its previous
+item and encoding, so an unchanged node is the same bytes in every snapshot.
 
-- `make check`: Go formatting, module consistency, vet, all Go tests,
-  TypeScript, ESLint, 194 logic tests, 456 React tests, production build,
-  8 build-contract tests, third-party notices, support generation checks,
-  installer tests and OpenAPI validation.
-- `go test -race ./internal/application ./internal/httpapi ./internal/publicip
-  ./internal/runtime ./internal/server ./internal/store`: passed on macOS arm64
-  and in the existing Linux arm64 contract container. Linux coverage includes
-  cancellation/shutdown with an open metrics stream.
-- `bash scripts/test/core-contract.sh`: passed in the Linux arm64 container
-  against pinned official binaries for 1.13.19, 1.13.20, 1.13.21, 1.14.0,
-  1.14.1 and 1.14.2. Artifact checksums passed.
-- `git diff --check`: passed.
+`/fleet/stream` shares one snapshot among every client and reads a new one
+every two seconds while anyone streams it. Each connection gets every node it
+selects once, then only the nodes whose encoding changed and the IDs that went
+away; a read with no change sends nothing. `/fleet/status` returns the shared
+snapshot while it is at most two seconds old, without a query, and reads a new
+one otherwise; a panel write that changes what the snapshot shows, such as a
+rename or a command's result, makes the next read a new one. Its `ETag` is a
+digest of the response, so a client holding the same page gets `304`.
 
-New regression coverage owns request deduplication, cancellation, targeted
-invalidation, ambiguous write outcomes, session changes and late responses;
-three-worker subscription refresh; retained settings drafts and conflict
-revisions; two-second live samples with ten-second accounting, restart,
-regression, collection failure and UTC-period boundaries; shared snapshots and
-slow readers; half-open streams, visibility and dashboard subscription lifetime;
-normal renewal, recovery grace and terminal 401; and history/live chart gaps and
-watermark replacement. The reconnect test advances **virtual** time by 30 minutes;
-it is not a real-network soak result.
+Before this design, a fleet read made one query for the nodes and three more
+per node (the node row again, its period's daily totals and its newest
+accepted sample) and decoded each state report twice, and each of the
+overview, the nodes view and the shell polled it on its own.
 
-## History benchmark
+## Benchmarks
 
-Command:
+Commands, run on Apple M5, macOS arm64, Go 1.26, each three times with the
+same result to within a few percent:
+
+```sh
+go test ./internal/sing-box-panel/fleet/ -run '^$' \
+  -bench 'BenchmarkFleetStatus|BenchmarkRecordNodeSample' -benchtime=20x -benchmem
+```
+
+`BenchmarkFleetStatus` reads the fleet of 50, 200 or 1000 nodes that each
+reported a state with a running core and two stored traffic samples, without a
+stream, so every read is a new snapshot; one read before the timer fills what
+the stored samples did not. The new read includes encoding every node, which
+the HTTP layer did on every request before. `BenchmarkRecordNodeSample` stores
+one sample of 200 such nodes, each ten seconds after the node's last.
+
+| Benchmark | Before | After | Allocations before → after |
+| --- | ---: | ---: | ---: |
+| Fleet read, 50 nodes | 2.37 ms | 0.29 ms | 16,875 → 4,131 |
+| Fleet read, 200 nodes | 10.97 ms | 1.02 ms | 67,402 → 16,290 |
+| Fleet read, 1000 nodes | 94.8 ms | 4.89 ms | 337,839 → 81,106 |
+| Stored sample | 155–182 µs | 151–181 µs | 307 → 315 |
+
+A CPU profile of the 1000-node read, before encoding moved into it, put about
+95% of it in the one `store.Nodes` query and about 3% in decoding state
+reports, so the decoded reports are not cached. Storing a sample is unchanged:
+its time is the transaction's commit, and the read of the node row it makes
+for the period settings is about a fifth of its CPU. At the ten-second
+baseline, 500 nodes store about 50 samples a second, under 10 ms of work per
+second, so that read stays.
+
+## Fleet frame size
+
+The 1000-node benchmark fleet encodes to 1.34 MB, 1,331 bytes per node. Fleet
+items leave out the newest stored sample and the period's counters, which only
+a node's own views read; that removes about 460 bytes per node. Real nodes
+report core checksums, artifact IDs and host metrics, so a node is closer to
+2 KB, and the whole fleet passes the 1 MiB that bounds a node's stream frames
+at about 500 nodes. Fleet stream frames are therefore bounded at 16 MiB on the
+panel. Only a connection's first frame carries the whole
+fleet; nodes report every ten seconds, so a later frame carries about a fifth
+of the online nodes, and none while nothing changes. `limit` and `cursor` page
+large fleets through `/fleet/status`.
+
+## Metrics history
 
 ```sh
 go test ./internal/sing-box-panel/store -run '^$' \
   -bench '^BenchmarkMetricsHistoryNinetyDays' -benchtime=1x -benchmem
 ```
 
-Apple M5, macOS arm64, 777,600 samples covering 90 days. Each range was measured
-once; these observations are not a statistical speedup claim.
+One node with one sample every ten seconds for 90 days, 777,600 samples,
+measured three times per range on Apple M5; single observations, not a
+statistical claim.
 
 | Query range | Elapsed | Allocated | Allocations |
 | --- | ---: | ---: | ---: |
-| 1 hour | 162.18 ms | 30,496 B | 1,156 |
-| 24 hours | 206.74 ms | 125,472 B | 5,709 |
-| 90 days | 4.583 s | 230,640 B | 13,243 |
+| 1 hour | 93–94 ms | 30.8 KB | 1,158 |
+| 24 hours | 137–138 ms | 120 KB | 5,704–5,710 |
+| 90 days | 4.52–4.59 s | 228–231 KB | 13,242–13,248 |
 
-The pre-refactor 90-day baseline was approximately 4.791 s. The full-range
-query remains expensive. The principal improvement here is sharing aggregation
-between clients and stopping it outside the dashboard, rather than changing
-historical coverage/accounting semantics. These are database query timings,
-not dashboard page-load timings.
+The full range stays expensive. The dashboard stream shares one read among its
+viewers and runs only while one is open, so the cost is per refresh, not per
+viewer.
 
-## Browser and proxy checks
+## Not measured
 
-The real HTTP server and production web build were served against the opt-in,
-isolated browser-review database:
-
-```sh
-SBP_BROWSER_REVIEW=1 SBP_BROWSER_NODES=500 \
-  go test ./internal/sing-box-panel/server -run '^TestBrowserReview$' -v -timeout 30m
-```
-
-Verified in the Codex browser at desktop size and 390×844: 500-node source
-search, pagination, refresh retaining page two, node editor opening and Escape
-close, light/dark presentation, candidate selection and F2/arrow-key reordering
-with saved order. The narrow source page had equal viewport and scroll widths
-(390 px), and its node dialog remained within the viewport. Browser logs had
-no warnings or errors during this check. This fixture has **no runtime executor**;
-its empty metrics are not evidence of live Linux collection latency.
-
-A separate production demo build verified the 1-hour/24-hour charts, the
-live tail, and keyboard cursor tooltips in a real browser, with no console
-warnings or errors. Those values are synthetic demo data, not a measurement of
-the runtime collector.
-
-An isolated Nginx 1.31.6 instance proxied the fixture over loopback with
-`proxy_buffering off` and a 75-second read timeout. Metrics and dashboard were
-read concurrently through two consecutive connections each (about 118 seconds):
-
-| Stream | Events | Heartbeats | Largest event gap | Renewal times |
-| --- | ---: | ---: | ---: | --- |
-| Metrics | 61 | 10 | 2.008 s | 59.019 s, 59.004 s |
-| Dashboard | 5 | 10 | 30.005 s | 59.018 s, 59.006 s |
-
-Initial response headers arrived in 16–18 ms, and renewed connections in 3–4 ms.
-Both streams received the control event before closure. This verifies a real
-local Nginx hop; it does not verify a deployed TLS/CDN/remote proxy chain.
-
-## Outstanding deployment acceptance
-
-No claim is made yet for interaction feedback p95 ≤100 ms, cached page usability
-≤200 ms, or sample-to-visible p95 ≤3 s under **150 ms RTT plus 4× CPU throttling**.
-Those conditions were not available through the browser control interface.
-A continuous 30-minute real-network browser soak and live Linux collection
-profiling also remain unverified; unit/race/core-contract results do not replace
-them. External downloads and subscription-source timings were not benchmarked.
-
-For deployment acceptance, keep one production build and the same 500-node,
-90-day dataset for both revisions, apply the stated RTT/CPU settings, and record
-browser input-to-paint, cached navigation-to-usable, and live-sample timestamp
-to visible paint distributions. Check network traces across at least 30 renewal
-cycles, offline/recovery, revoked authentication, hidden/visible tabs and a slow
-second client. Record external-source transfer times separately from panel work.
+- A live fleet: the benchmarks read nodes stored in the database, so many
+  connected nodes reporting at once, network latency and many TLS connections
+  were not exercised; real nodes also send larger reports than the fixtures.
+- Proxies: the fleet stream and fleet command stream behind a reverse proxy
+  were not exercised; they use the same server-sent event framing and
+  heartbeats as the node streams.
+- Linux: every figure comes from macOS; SQLite commit times differ by file
+  system and disk.

@@ -21,7 +21,7 @@ func (handler *Handler) streamMetrics(w http.ResponseWriter, request *http.Reque
 		return
 	}
 	nodeID := requestNodeID(request)
-	streamSnapshots(w, request, "metrics", time.Minute, func(context.Context) (<-chan telemetry.SnapshotResult[fleet.MetricsStreamSnapshot], func()) {
+	streamSnapshots(w, request, "metrics", time.Minute, maximumSnapshotFrameBytes, func(context.Context) (<-chan telemetry.SnapshotResult[fleet.MetricsStreamSnapshot], func()) {
 		return handler.services.Fleet.SubscribeMetrics(nodeID)
 	}, func(value fleet.MetricsStreamSnapshot) ([]byte, error) { return json.Marshal(value) })
 }

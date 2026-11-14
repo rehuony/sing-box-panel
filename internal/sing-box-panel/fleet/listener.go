@@ -38,6 +38,10 @@ func (service *Service) Serve(ctx context.Context, listeners NodeListeners) erro
 	}
 	// No session survives the process that held it.
 	if err := service.database.ClearNodeSessions(ctx); err != nil {
+		// A stop requested while the service starts is not a failure.
+		if ctx.Err() != nil && errors.Is(err, context.Canceled) {
+			return closeListeners(nil)
+		}
 		return closeListeners(err)
 	}
 	options := []grpc.ServerOption{

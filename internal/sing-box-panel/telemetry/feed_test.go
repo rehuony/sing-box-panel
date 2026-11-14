@@ -19,6 +19,9 @@ func TestSnapshotFeedSharesLatestAndStopsWithoutSubscribers(t *testing.T) {
 		if got := <-fast; got.Value != 1 {
 			t.Fatal(got)
 		}
+		if value, ok := feed.Latest(2 * time.Second); !ok || value != 1 {
+			t.Fatalf("latest = %d, %t; want the shared read", value, ok)
+		}
 		time.Sleep(6 * time.Second)
 		synctest.Wait()
 		if calls.Load() != 4 {
@@ -33,6 +36,9 @@ func TestSnapshotFeedSharesLatestAndStopsWithoutSubscribers(t *testing.T) {
 		synctest.Wait()
 		if calls.Load() != 4 {
 			t.Fatal("collector continued without subscribers")
+		}
+		if _, ok := feed.Latest(time.Second); ok {
+			t.Fatal("a read older than the allowed age was returned")
 		}
 	})
 }

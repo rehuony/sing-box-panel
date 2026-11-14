@@ -3,11 +3,22 @@
 package httpapi
 
 import (
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"net/http"
+	"strconv"
+	"sync"
+	"time"
+	"unicode/utf8"
 
+	"github.com/rehuony/sing-box-panel/internal/coreartifact"
+	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/corecache"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/fleet"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/store"
+	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/telemetry"
 )
 
 const maximumNodeRequestBytes = 4 << 10
@@ -39,18 +50,353 @@ func (handler *Handler) listNodes(w http.ResponseWriter, request *http.Request) 
 	}{nodes})
 }
 
+// Bounds of the fleet status filters.
+const (
+	maximumFleetPageLimit  = 1000
+	maximumFleetQueryRunes = 256
+)
+
+// fleetStatusFilter reads the filters of a fleet status read or stream, and
+// with paged the page's limit and cursor, or writes the problem.
+func (handler *Handler) fleetStatusFilter(w http.ResponseWriter, request *http.Request, paged bool) (fleet.StatusFilter, int, string, bool) {
+	if handler.services.Fleet == nil {
+		writeProblem(w, request, http.StatusServiceUnavailable, "application_unavailable", "Application unavailable", "Node services are not ready.")
+		return fleet.StatusFilter{}, 0, "", false
+	}
+	names := []string{"state", "tag", "q"}
+	if paged {
+		names = append(names, "limit", "cursor")
+	}
+	query, ok := strictCoreQuery(w, request, names...)
+	if !ok {
+		return fleet.StatusFilter{}, 0, "", false
+	}
+	filter := fleet.StatusFilter{State: query.Get("state"), Tag: query.Get("tag"), Query: query.Get("q")}
+	invalid := func(detail string) (fleet.StatusFilter, int, string, bool) {
+		writeProblem(w, request, http.StatusBadRequest, "fleet_filter_invalid", "Fleet filter invalid", detail)
+		return fleet.StatusFilter{}, 0, "", false
+	}
+	switch filter.State {
+	case "", fleet.StatePending, fleet.StateOnline, fleet.StateOffline:
+	default:
+		return invalid("state must be pending, online or offline.")
+	}
+	if filter.Tag != "" && !store.ValidNodeTag(filter.Tag) {
+		return invalid("tag must be 1 to 32 lowercase letters, digits, hyphens or underscores.")
+	}
+	if utf8.RuneCountInString(filter.Query) > maximumFleetQueryRunes {
+		return invalid("q must be at most 256 characters.")
+	}
+	limit := 0
+	if raw := query.Get("limit"); raw != "" {
+		value, err := strconv.Atoi(raw)
+		if err != nil || value < 1 || value > maximumFleetPageLimit {
+			return invalid("limit must be between 1 and 1000.")
+		}
+		limit = value
+	}
+	cursor := query.Get("cursor")
+	if cursor != "" && !fleet.ValidStatusCursor(cursor) {
+		return invalid(fleet.ErrStatusCursorInvalid.Error())
+	}
+	return filter, limit, cursor, true
+}
+
+// fleetStatus answers with the shared fleet snapshot while it is fresh. Its
+// ETag is the response's digest, so a client holding the same page gets 304.
 func (handler *Handler) fleetStatus(w http.ResponseWriter, request *http.Request) {
-	if !handler.fleetRequest(w, request) {
+	filter, limit, cursor, ok := handler.fleetStatusFilter(w, request, true)
+	if !ok {
 		return
 	}
-	nodes, err := handler.services.Fleet.Status(request.Context())
+	snapshot, err := handler.services.Fleet.Status(request.Context())
 	if err != nil {
 		writeProblem(w, request, http.StatusServiceUnavailable, "fleet_status_unavailable", "Fleet status unavailable", "The nodes' metrics could not be read.")
 		return
 	}
-	writeJSON(w, http.StatusOK, struct {
-		Items []fleet.NodeStatus `json:"items"`
-	}{nodes})
+	page, err := snapshot.Page(filter, limit, cursor)
+	if err != nil {
+		writeProblem(w, request, http.StatusBadRequest, "fleet_filter_invalid", "Fleet filter invalid", err.Error())
+		return
+	}
+	body, err := json.Marshal(page)
+	if err != nil {
+		writeProblem(w, request, http.StatusInternalServerError, "fleet_status_unavailable", "Fleet status unavailable", "The nodes' metrics could not be encoded.")
+		return
+	}
+	digest := sha256.Sum256(body)
+	etag := quoteETag(hex.EncodeToString(digest[:16]))
+	w.Header().Set("ETag", etag)
+	w.Header().Set("Cache-Control", "private, no-cache")
+	if noneMatchHits(request.Header.Get("If-None-Match"), etag) {
+		w.WriteHeader(http.StatusNotModified)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(append(body, '\n'))
+}
+
+// fleetStreamLifetime ends each fleet stream so the client reauthenticates.
+const fleetStreamLifetime = time.Minute
+
+// maximumFleetFrameBytes bounds one frame of the fleet stream, whose first
+// frame carries every node it selects.
+const maximumFleetFrameBytes = 16 << 20
+
+// streamFleetStatus streams the nodes the filter selects: all of them first,
+// then, from the shared snapshot read every two seconds, only the nodes that
+// changed and the ones that went away.
+func (handler *Handler) streamFleetStatus(w http.ResponseWriter, request *http.Request) {
+	filter, _, _, ok := handler.fleetStatusFilter(w, request, false)
+	if !ok {
+		return
+	}
+	changes := fleet.NewStatusChanges(filter)
+	streamSnapshots(w, request, "fleet", fleetStreamLifetime, maximumFleetFrameBytes, func(context.Context) (<-chan telemetry.SnapshotResult[fleet.FleetSnapshot], func()) {
+		return handler.services.Fleet.SubscribeStatus()
+	}, func(snapshot fleet.FleetSnapshot) ([]byte, error) {
+		frame, changed := changes.Next(snapshot)
+		if !changed {
+			return nil, nil
+		}
+		return json.Marshal(frame)
+	})
+}
+
+// fleetCommandRequest is one command for many nodes: listed by ID, or every
+// node with a tag.
+type fleetCommandRequest struct {
+	Action       string   `json:"action"`
+	NodeIDs      []string `json:"node_ids"`
+	Tag          string   `json:"tag"`
+	ExactVersion string   `json:"exact_version"`
+}
+
+// fleetCommandResult is one node's outcome; a failure carries the problem
+// code and title the single-node operation answers with.
+type fleetCommandResult struct {
+	NodeID string `json:"node_id"`
+	OK     bool   `json:"ok"`
+	Code   string `json:"code,omitempty"`
+	Title  string `json:"title,omitempty"`
+}
+
+// fleetCommandSummary ends a fleet command's stream.
+type fleetCommandSummary struct {
+	Total     int `json:"total"`
+	Succeeded int `json:"succeeded"`
+	Failed    int `json:"failed"`
+}
+
+// Bounds of a fleet command request.
+const (
+	maximumFleetCommandNodes        = 1000
+	maximumFleetCommandRequestBytes = 64 << 10
+)
+
+// fleetCommands runs one action on many nodes, a few at once, and streams
+// every node's outcome as it finishes, so progress and partial success are
+// visible. Problems found before any node runs answer as a problem.
+func (handler *Handler) fleetCommands(w http.ResponseWriter, request *http.Request) {
+	if !handler.fleetRequest(w, request) {
+		return
+	}
+	var input fleetCommandRequest
+	if !decodeStrictRequest(w, request, maximumFleetCommandRequestBytes, &input) {
+		return
+	}
+	invalid := func(detail string) {
+		writeProblem(w, request, http.StatusUnprocessableEntity, "fleet_command_invalid", "Fleet command invalid", detail)
+	}
+	if (len(input.NodeIDs) == 0) == (input.Tag == "") {
+		invalid("Give either node_ids or tag.")
+		return
+	}
+	if len(input.NodeIDs) > maximumFleetCommandNodes {
+		invalid("node_ids lists at most 1000 nodes.")
+		return
+	}
+	for _, nodeID := range input.NodeIDs {
+		if !store.ValidIdentifier(nodeID) {
+			invalid("node_ids contains an invalid node ID.")
+			return
+		}
+	}
+	if input.Tag != "" && !store.ValidNodeTag(input.Tag) {
+		invalid("tag must be 1 to 32 lowercase letters, digits, hyphens or underscores.")
+		return
+	}
+	if (input.Action == "install_core") != (input.ExactVersion != "") {
+		invalid("exact_version is required for install_core and not allowed for other actions.")
+		return
+	}
+	var command func(context.Context, fleet.Node) error
+	failure := "runtime_" + input.Action + "_failed"
+	run := handler.services.Fleet.RunBatch
+	switch input.Action {
+	case "start":
+		command = func(ctx context.Context, node fleet.Node) error {
+			_, err := handler.services.Fleet.StartRuntime(ctx, node.ID)
+			return err
+		}
+	case "stop":
+		command = func(ctx context.Context, node fleet.Node) error {
+			_, err := handler.services.Fleet.StopRuntime(ctx, node.ID)
+			return err
+		}
+	case "restart":
+		command = func(ctx context.Context, node fleet.Node) error {
+			_, err := handler.services.Fleet.RestartRuntime(ctx, node.ID)
+			return err
+		}
+	case "install_core":
+		var ok bool
+		if command, ok = handler.versionInstaller(w, request, input.ExactVersion); !ok {
+			return
+		}
+		failure = "core_install_failed"
+	default:
+		invalid("action must be start, stop, restart or install_core.")
+		return
+	}
+	nodes, err := handler.services.Fleet.BatchNodes(request.Context(), fleet.BatchTarget{NodeIDs: input.NodeIDs, Tag: input.Tag})
+	if err != nil {
+		writeFleetProblem(w, request, err)
+		return
+	}
+	handler.streamBatch(w, request, nodes, run, command, func(err error) problemDetails {
+		if problem, known := batchInstallProblem(err); known {
+			return problem
+		}
+		return nodeCommandProblem(failure, err)
+	})
+}
+
+// batchRunner runs a batch command on nodes and reports each outcome.
+type batchRunner func(context.Context, []fleet.BatchNode, func(context.Context, fleet.Node) error, func(fleet.BatchResult))
+
+// streamBatch runs command on nodes and streams a result event per node as
+// it finishes, then a done event. The batch runs to its end when the client
+// leaves; heartbeats keep an idle connection open meanwhile.
+func (handler *Handler) streamBatch(w http.ResponseWriter, request *http.Request, nodes []fleet.BatchNode,
+	run batchRunner, command func(context.Context, fleet.Node) error, problem func(error) problemDetails,
+) {
+	stream, ok := newEventStream(request.Context(), w, time.Time{}, maximumSnapshotFrameBytes)
+	if !ok {
+		writeProblem(w, request, http.StatusInternalServerError, "stream_unavailable", "Stream unavailable", "The transport does not support streaming.")
+		return
+	}
+	results := make(chan fleet.BatchResult, len(nodes))
+	go func() {
+		defer close(results)
+		run(request.Context(), nodes, command, func(result fleet.BatchResult) { results <- result })
+	}()
+	// The client keeps reading only while every write succeeds.
+	connected := stream.open() == nil
+	send := func(name string, value any) {
+		if !connected {
+			return
+		}
+		data, err := json.Marshal(value)
+		connected = err == nil && stream.event(name, data) == nil
+	}
+	heartbeat := time.NewTicker(10 * time.Second)
+	defer heartbeat.Stop()
+	summary := fleetCommandSummary{Total: len(nodes)}
+	for {
+		select {
+		case result, more := <-results:
+			if !more {
+				send("done", summary)
+				return
+			}
+			item := fleetCommandResult{NodeID: result.NodeID, OK: result.Err == nil}
+			switch {
+			case result.Err == nil:
+				summary.Succeeded++
+			default:
+				summary.Failed++
+				failure := problem(result.Err)
+				item.Code, item.Title = failure.code, failure.title
+			}
+			send("result", item)
+		case <-heartbeat.C:
+			connected = connected && stream.heartbeat() == nil
+		}
+	}
+}
+
+// Failures of a batch install before a node is commanded.
+var (
+	errNodePlatformUnknown  = errors.New("the node has not reported its platform")
+	errCoreAssetUnavailable = errors.New("the version has no official archive for the node's platform")
+	errCoreDownloadFailed   = errors.New("the panel could not download and verify the release asset")
+)
+
+func batchInstallProblem(err error) (problemDetails, bool) {
+	switch {
+	case errors.Is(err, errNodePlatformUnknown):
+		return problemDetails{http.StatusConflict, "node_platform_unknown", "Node platform unknown", err.Error()}, true
+	case errors.Is(err, errCoreAssetUnavailable):
+		return problemDetails{http.StatusConflict, "core_asset_unavailable", "Core archive unavailable", err.Error()}, true
+	case errors.Is(err, errCoreDownloadFailed):
+		return problemDetails{http.StatusBadGateway, "core_download_failed", "Core download failed", err.Error()}, true
+	}
+	return problemDetails{}, false
+}
+
+// platformArchive is the official archive of one platform in a batch
+// install, cached once, when the first node of that platform needs it.
+type platformArchive struct {
+	assetID int64
+	once    sync.Once
+	cached  store.CachedArtifact
+	err     error
+}
+
+// versionInstaller returns a command that installs exactVersion on a node
+// from the official catalog archive for the node's own platform, or writes
+// the problem when the catalog has no archive of that version.
+func (handler *Handler) versionInstaller(w http.ResponseWriter, request *http.Request, exactVersion string) (func(context.Context, fleet.Node) error, bool) {
+	if _, err := coreartifact.ParseExactVersion(exactVersion); err != nil {
+		writeProblem(w, request, http.StatusUnprocessableEntity, "core_install_invalid", "Core install request invalid", "exact_version must be an exact sing-box version.")
+		return nil, false
+	}
+	assets, err := handler.services.Cores.ListCatalogAssets(request.Context(), corecache.CatalogAssetFilter{ExactVersion: exactVersion})
+	switch {
+	case corecache.IsCatalogNotInitialized(err):
+		writeProblem(w, request, http.StatusConflict, "catalog_not_initialized", "Catalog not initialized", "Refresh the core catalog before installing an asset.")
+		return nil, false
+	case err != nil:
+		writeProblem(w, request, http.StatusInternalServerError, "core_install_failed", "Core install failed", "The catalog could not be inspected before installation.")
+		return nil, false
+	case len(assets.Assets) == 0:
+		writeProblem(w, request, http.StatusUnprocessableEntity, "core_install_invalid", "Core install request invalid", "The catalog has no official archive of this version.")
+		return nil, false
+	}
+	archives := map[string]*platformArchive{}
+	for _, asset := range assets.Assets {
+		platform := string(asset.OperatingSystem) + "/" + string(asset.Architecture)
+		if archives[platform] == nil {
+			archives[platform] = &platformArchive{assetID: asset.AssetID}
+		}
+	}
+	return func(ctx context.Context, node fleet.Node) error {
+		if node.OS == "" || node.Arch == "" {
+			return errNodePlatformUnknown
+		}
+		archive := archives[node.OS+"/"+node.Arch]
+		if archive == nil {
+			return errCoreAssetUnavailable
+		}
+		archive.once.Do(func() { archive.cached, archive.err = handler.services.Cores.CacheOfficial(ctx, archive.assetID) })
+		if archive.err != nil {
+			return errCoreDownloadFailed
+		}
+		_, err := handler.services.Fleet.InstallCore(ctx, node.ID, archive.cached)
+		return err
+	}, true
 }
 
 func (handler *Handler) createNode(w http.ResponseWriter, request *http.Request) {
@@ -127,21 +473,25 @@ func writeEnrollment(w http.ResponseWriter, statusCode int, enrollment fleet.Enr
 }
 
 func writeFleetProblem(w http.ResponseWriter, request *http.Request, err error) {
+	fleetProblem(err).write(w, request)
+}
+
+func fleetProblem(err error) problemDetails {
 	switch {
 	case errors.Is(err, store.ErrNodeNotFound):
-		writeProblem(w, request, http.StatusNotFound, "node_not_found", "Node not found", "The node does not exist.")
+		return problemDetails{http.StatusNotFound, "node_not_found", "Node not found", "The node does not exist."}
 	case errors.Is(err, store.ErrNodeNameConflict):
-		writeProblem(w, request, http.StatusConflict, "node_name_conflict", "Node name in use", "Another node already uses this name.")
+		return problemDetails{http.StatusConflict, "node_name_conflict", "Node name in use", "Another node already uses this name."}
 	case errors.Is(err, fleet.ErrNameInvalid):
-		writeProblem(w, request, http.StatusUnprocessableEntity, "node_name_invalid", "Node name invalid", err.Error())
+		return problemDetails{http.StatusUnprocessableEntity, "node_name_invalid", "Node name invalid", err.Error()}
 	case errors.Is(err, store.ErrNodeSettingsConflict):
-		writeProblem(w, request, http.StatusPreconditionFailed, "node_settings_conflict", "Node settings changed", "Reload the node's settings before saving.")
+		return problemDetails{http.StatusPreconditionFailed, "node_settings_conflict", "Node settings changed", "Reload the node's settings before saving."}
 	case errors.Is(err, store.ErrNodeSettingsInvalid):
-		writeProblem(w, request, http.StatusUnprocessableEntity, "node_settings_invalid", "Node settings invalid", err.Error())
+		return problemDetails{http.StatusUnprocessableEntity, "node_settings_invalid", "Node settings invalid", err.Error()}
 	case errors.Is(err, fleet.ErrEndpointRequired):
-		writeProblem(w, request, http.StatusConflict, "node_endpoint_required", "Node endpoint required", err.Error())
+		return problemDetails{http.StatusConflict, "node_endpoint_required", "Node endpoint required", err.Error()}
 	default:
-		writeProblem(w, request, http.StatusInternalServerError, "node_operation_failed", "Node operation failed", "The node operation could not be completed.")
+		return problemDetails{http.StatusInternalServerError, "node_operation_failed", "Node operation failed", "The node operation could not be completed."}
 	}
 }
 

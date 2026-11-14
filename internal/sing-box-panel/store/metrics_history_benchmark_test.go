@@ -18,6 +18,9 @@ func BenchmarkMetricsHistoryNinetyDays(b *testing.B) {
 		b.Fatal(err)
 	}
 	b.Cleanup(func() { _ = database.Close() })
+	if err := createTestNode(ctx, database); err != nil {
+		b.Fatal(err)
+	}
 	from := time.Date(2026, time.June, 1, 0, 0, 0, 0, time.UTC)
 	bundle := seedTrafficActivationBundle(b, ctx, database, from.Add(-time.Hour))
 	if _, err := database.db.ExecContext(ctx, `
@@ -29,19 +32,19 @@ func BenchmarkMetricsHistoryNinetyDays(b *testing.B) {
 			 WHERE a.d + b.d*10 + c.d*100 + d.d*1000 + e.d*10000 + f.d*100000 < 777600
 		)
 		INSERT INTO traffic_samples(
-			activation_bundle_id, pid, process_start_token, sampled_at,
+			node_id, instance_id, activation_bundle_id, pid, process_start_token, sampled_at,
 			memory_bytes, active_connections, upload_total, download_total,
 			upload_delta, download_delta, interval_start, interval_end,
 			coverage, accepted, diagnostic_code
 		)
-		SELECT ?, 606, 'benchmark-process',
+		SELECT ?, 'benchmark-instance', ?, 606, 'benchmark-process',
 		       strftime('%Y-%m-%dT%H:%M:%S', ? + (n+1)*10, 'unixepoch') || '.000000000Z',
 		       1048576 + n%4096, n%64, n+1, (n+1)*2, 1, 2,
 		       strftime('%Y-%m-%dT%H:%M:%S', ? + n*10, 'unixepoch') || '.000000000Z',
 		       strftime('%Y-%m-%dT%H:%M:%S', ? + (n+1)*10, 'unixepoch') || '.000000000Z',
 		       'complete', 1, ''
 		  FROM samples
-		 ORDER BY n`, bundle.ID, from.Unix(), from.Unix(), from.Unix()); err != nil {
+		 ORDER BY n`, testNodeID, bundle.ID, from.Unix(), from.Unix(), from.Unix()); err != nil {
 		b.Fatal(err)
 	}
 	for _, test := range []struct {
@@ -54,7 +57,7 @@ func BenchmarkMetricsHistoryNinetyDays(b *testing.B) {
 	} {
 		b.Run(test.name, func(b *testing.B) {
 			end := from.Add(90 * 24 * time.Hour)
-			filter := MetricsHistoryFilter{From: end.Add(-test.span), To: end, BucketSeconds: test.bucket, ActivationBundleID: bundle.ID}
+			filter := MetricsHistoryFilter{NodeID: testNodeID, From: end.Add(-test.span), To: end, BucketSeconds: test.bucket, ActivationBundleID: bundle.ID}
 			for range b.N {
 				history, err := database.MetricsHistory(ctx, filter)
 				if err != nil {

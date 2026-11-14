@@ -315,11 +315,11 @@ persistence, security boundaries and runtime semantics.
 ### Persistence and preserved guarantees
 
 `internal/sing-box-panel/store/schema.sql` is the panel's storage baseline,
-schema version 21. It creates each node's editable configuration and canonical
+schema version 22. It creates each node's editable configuration and canonical
 revisions, the cached core archives, subscription state, shared subscription
 node order, each node's runtime history, traffic samples, counter checkpoint
 and durable daily traffic accounting, login sessions, the node registry with
-enrollment token hashes, node public keys, each node's traffic quota and period and its last state report,
+enrollment token hashes, node public keys, each node's traffic quota and period, tags and its last state report,
 and operational records directly. Each node keeps its
 runtime evidence in its own `node.db`, defined in
 `internal/sing-box-node/store/schema.sql`. Settings live in the selected

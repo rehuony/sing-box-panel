@@ -236,6 +236,8 @@ CREATE TABLE nodes (
     -- The host subscriptions publish for the node's inbounds; empty uses
     -- the public IP the node reports.
     public_host TEXT NOT NULL DEFAULT '' CHECK (length(public_host) <= 253),
+    -- The node's tags: a sorted JSON array of distinct names.
+    tags TEXT NOT NULL DEFAULT '[]' CHECK (json_valid(tags) AND json_type(tags) = 'array'),
     settings_revision INTEGER NOT NULL DEFAULT 1 CHECK (settings_revision >= 1),
     -- What the node last reported running, kept beside the encoded report so
     -- subscriptions can find the applied revision in the same read.

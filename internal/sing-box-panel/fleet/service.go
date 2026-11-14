@@ -57,6 +57,8 @@ type Node struct {
 	OS           string     `json:"os"`
 	Arch         string     `json:"arch"`
 	BuildVersion string     `json:"build_version"`
+	// Tags are the node's tags from its settings, sorted.
+	Tags []string `json:"tags"`
 	// The state the node last reported; stale while the node is offline.
 	ReportedAt *time.Time     `json:"reported_at"`
 	PublicIP   string         `json:"public_ip"`
@@ -96,6 +98,11 @@ type Service struct {
 	viewersMu    sync.Mutex
 	viewers      map[string]int
 	metricsFeeds map[string]*telemetry.Feed[MetricsStreamSnapshot]
+	// statusFeed shares one fleet snapshot among everyone streaming it;
+	// statusItems holds each node's item of the latest read.
+	statusFeed  *telemetry.Feed[FleetSnapshot]
+	statusMu    sync.Mutex
+	statusItems map[string]statusEncoding
 
 	identityMu sync.Mutex
 	identity   *Identity
@@ -119,6 +126,7 @@ func New(database *store.Store, panelSettings *settings.Service, records *teleme
 	if options.Random != nil {
 		service.random = options.Random
 	}
+	service.statusFeed = telemetry.NewFeed(StatusStreamInterval, service.collectStatus)
 	return service
 }
 
@@ -189,6 +197,7 @@ func (service *Service) FindNode(ctx context.Context, idOrName string) (Node, er
 // AddNode registers a node and returns the code that enrolls it.
 func (service *Service) AddNode(ctx context.Context, name string) (result Enrollment, err error) {
 	defer func() {
+		service.expireStatus()
 		service.records.RecordOperation(ctx, "node.create", "Node creation", err, telemetry.OperationLogContext{NodeID: result.Node.ID})
 	}()
 	if !validName(name) {
@@ -222,6 +231,7 @@ func (service *Service) AddNode(ctx context.Context, name string) (result Enroll
 // replaces the node's key and ends its session.
 func (service *Service) IssueEnrollment(ctx context.Context, id string) (result Enrollment, err error) {
 	defer func() {
+		service.expireStatus()
 		service.records.RecordOperation(ctx, "node.enrollment.issue", "Node enrollment code", err, telemetry.OperationLogContext{NodeID: id})
 	}()
 	code, err := service.newCode(ctx)
@@ -237,6 +247,7 @@ func (service *Service) IssueEnrollment(ctx context.Context, id string) (result 
 
 func (service *Service) RenameNode(ctx context.Context, id, name string) (result Node, err error) {
 	defer func() {
+		service.expireStatus()
 		service.records.RecordOperation(ctx, "node.rename", "Node rename", err, telemetry.OperationLogContext{NodeID: id})
 	}()
 	if !validName(name) {
@@ -252,6 +263,7 @@ func (service *Service) RenameNode(ctx context.Context, id, name string) (result
 // DeleteNode removes a node and its key and ends its session.
 func (service *Service) DeleteNode(ctx context.Context, id string) (err error) {
 	defer func() {
+		service.expireStatus()
 		service.records.RecordOperation(ctx, "node.delete", "Node deletion", err, telemetry.OperationLogContext{NodeID: id})
 	}()
 	if err := service.database.DeleteNode(ctx, id); err != nil {
@@ -312,6 +324,7 @@ func (service *Service) view(record store.Node) Node {
 		ID: record.ID, Name: record.Name, State: state, CreatedAt: record.CreatedAt,
 		EnrolledAt: record.EnrolledAt, LastSeenAt: record.LastSeenAt,
 		Hostname: record.Hostname, OS: record.OS, Arch: record.Arch, BuildVersion: record.BuildVersion,
+		Tags: record.Settings.Tags,
 	}
 	if reported := nodeState(record); reported != nil {
 		runtime := runtimeStatusView(reported.Report.GetRuntime())
@@ -340,6 +353,9 @@ type NodeSettings struct {
 	// empty uses the public IP the node reports.
 	PublicHost string              `json:"public_host"`
 	Traffic    NodeTrafficSettings `json:"traffic"`
+	// Tags are up to 16 names of 1 to 32 lowercase letters, digits, hyphens
+	// and underscores, stored sorted and distinct.
+	Tags []string `json:"tags"`
 }
 
 // NodeTrafficSettings is a node's own traffic quota and period: a null quota
@@ -364,11 +380,13 @@ func (service *Service) NodeSettings(ctx context.Context, id string) (NodeSettin
 // recorded traffic is unchanged.
 func (service *Service) SaveNodeSettings(ctx context.Context, id string, value NodeSettings) (result NodeSettings, err error) {
 	defer func() {
+		service.expireStatus()
 		service.records.RecordOperation(ctx, "node.settings.save", "Node settings save", err, telemetry.OperationLogContext{NodeID: id})
 	}()
 	record, err := service.database.SaveNodeSettings(ctx, id, value.Revision, store.NodeSettings{
 		PublicHost: value.PublicHost,
 		Traffic:    store.NodeTrafficSettings{QuotaGiB: value.Traffic.QuotaGiB, PeriodMonths: value.Traffic.PeriodMonths, ResetDay: value.Traffic.ResetDay},
+		Tags:       value.Tags,
 	})
 	if err != nil {
 		return NodeSettings{}, err
@@ -379,5 +397,5 @@ func (service *Service) SaveNodeSettings(ctx context.Context, id string, value N
 func nodeSettingsView(value store.NodeSettings) NodeSettings {
 	return NodeSettings{Revision: value.Revision, PublicHost: value.PublicHost, Traffic: NodeTrafficSettings{
 		QuotaGiB: value.Traffic.QuotaGiB, PeriodMonths: value.Traffic.PeriodMonths, ResetDay: value.Traffic.ResetDay,
-	}}
+	}, Tags: value.Tags}
 }

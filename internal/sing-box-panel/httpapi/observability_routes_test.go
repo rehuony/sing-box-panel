@@ -83,21 +83,27 @@ func TestObservabilityHTTPReadsOnlyPersistedEvidence(t *testing.T) {
 		t.Fatalf("node metrics status=%d body=%s", metrics.Code, metrics.Body.String())
 	}
 	// A quota belongs to its node: the node's metrics report it, and saving
-	// it with a stale revision fails.
+	// it with a stale revision fails. Tags are stored sorted and distinct.
 	settings := authenticatedRequest(t, handler, http.MethodGet, nodePath+"/settings", "", "")
-	if settings.Code != http.StatusOK || settings.Body.String() != `{"revision":1,"public_host":"","traffic":{"quota_gib":null,"period_months":1,"reset_day":1}}`+"\n" {
+	if settings.Code != http.StatusOK || settings.Body.String() != `{"revision":1,"public_host":"","traffic":{"quota_gib":null,"period_months":1,"reset_day":1},"tags":[]}`+"\n" {
 		t.Fatalf("node settings status=%d body=%s", settings.Code, settings.Body.String())
 	}
 	saved := authenticatedRequest(t, handler, http.MethodPut, nodePath+"/settings",
-		`{"revision":1,"public_host":"Edge.Example.com","traffic":{"quota_gib":1,"period_months":1,"reset_day":1}}`, "")
-	if saved.Code != http.StatusOK || !strings.Contains(saved.Body.String(), `"revision":2`) || !strings.Contains(saved.Body.String(), `"public_host":"edge.example.com"`) {
+		`{"revision":1,"public_host":"Edge.Example.com","traffic":{"quota_gib":1,"period_months":1,"reset_day":1},"tags":["eu","edge_1","eu"]}`, "")
+	if saved.Code != http.StatusOK || !strings.Contains(saved.Body.String(), `"revision":2`) || !strings.Contains(saved.Body.String(), `"public_host":"edge.example.com"`) ||
+		!strings.Contains(saved.Body.String(), `"tags":["edge_1","eu"]`) {
 		t.Fatalf("save node settings status=%d body=%s", saved.Code, saved.Body.String())
 	}
+	tooMany := `"t0","t1","t2","t3","t4","t5","t6","t7","t8","t9","t10","t11","t12","t13","t14","t15","t16"`
 	for body, code := range map[string]int{
-		`{"revision":1,"public_host":"","traffic":{"quota_gib":2,"period_months":1,"reset_day":1}}`:                         http.StatusPreconditionFailed,
-		`{"revision":2,"public_host":"","traffic":{"quota_gib":2,"period_months":1,"reset_day":29}}`:                        http.StatusUnprocessableEntity,
-		`{"revision":2,"public_host":"https://edge.example.com","traffic":{"quota_gib":2,"period_months":1,"reset_day":1}}`: http.StatusUnprocessableEntity,
-		`{"revision":2,"public_host":"127.0.0.1","traffic":{"quota_gib":2,"period_months":1,"reset_day":1}}`:                http.StatusUnprocessableEntity,
+		`{"revision":2,"public_host":"","traffic":{"quota_gib":2,"period_months":1,"reset_day":1},"tags":["EU"]}`:                              http.StatusUnprocessableEntity,
+		`{"revision":2,"public_host":"","traffic":{"quota_gib":2,"period_months":1,"reset_day":1},"tags":[""]}`:                                http.StatusUnprocessableEntity,
+		`{"revision":2,"public_host":"","traffic":{"quota_gib":2,"period_months":1,"reset_day":1},"tags":["` + strings.Repeat("a", 33) + `"]}`: http.StatusUnprocessableEntity,
+		`{"revision":2,"public_host":"","traffic":{"quota_gib":2,"period_months":1,"reset_day":1},"tags":[` + tooMany + `]}`:                   http.StatusUnprocessableEntity,
+		`{"revision":1,"public_host":"","traffic":{"quota_gib":2,"period_months":1,"reset_day":1}}`:                                            http.StatusPreconditionFailed,
+		`{"revision":2,"public_host":"","traffic":{"quota_gib":2,"period_months":1,"reset_day":29}}`:                                           http.StatusUnprocessableEntity,
+		`{"revision":2,"public_host":"https://edge.example.com","traffic":{"quota_gib":2,"period_months":1,"reset_day":1}}`:                    http.StatusUnprocessableEntity,
+		`{"revision":2,"public_host":"127.0.0.1","traffic":{"quota_gib":2,"period_months":1,"reset_day":1}}`:                                   http.StatusUnprocessableEntity,
 	} {
 		if rejected := authenticatedRequest(t, handler, http.MethodPut, nodePath+"/settings", body, ""); rejected.Code != code {
 			t.Fatalf("save %s status=%d body=%s, want %d", body, rejected.Code, rejected.Body.String(), code)

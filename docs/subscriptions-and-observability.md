@@ -701,7 +701,7 @@ resume when visible. Normal rotation sends
 `event: control` with `{"type":"reconnect"}` before the one-minute authentication
 limit. Older clients may ignore that event. The client reconnects immediately;
 unexpected failures use jittered exponential backoff capped at 30 seconds.
-Metrics and dashboard streams send heartbeat comments every ten seconds. A
+Metrics, dashboard and fleet streams send heartbeat comments every ten seconds. A
 25-second idle watchdog reconnects half-open responses, and 401 ends the session.
 Live data is stale after ten seconds without a snapshot; history after 45 seconds.
 Error feedback has a five-second grace period. Last observations remain visible;
@@ -837,10 +837,15 @@ on the node's settings tab, saved together with the node's name:
 | `traffic.quota_gib` | The node's quota in GiB; `null` or `0` is unlimited | `null` |
 | `traffic.period_months` | Period length, 1 to 120 months, aligned to months counted from January 1970 | `1` |
 | `traffic.reset_day` | Day of the month, 1 to 28, on which each period starts at 00:00 UTC | `1` |
+| `tags` | Up to 16 tags of 1 to 32 lowercase letters, digits, `-` and `_`, stored sorted and without duplicates; fleet reads filter by them and fleet commands select by them | `[]` |
 
 A save carries the `revision` it read and fails with `412` when another save
 changed the settings first. Periods and quota status are recomputed at once
-from the node's daily ledger; saved traffic does not change. Each node has its
+from the node's daily ledger; saved traffic does not change. The panel keeps
+each node's current period and newest accepted sample in memory: every stored
+sample updates them from its own transaction, a read of a range the panel does
+not hold, after a rollover or a changed reset day or period length, reads the
+daily ledger once, and the quota comes from the node's settings at every read. Each node has its
 own daily totals, samples, checkpoint and recorded periods, updated in one
 transaction; removing a node removes them. A node's current usage, period
 details and paginated period list read its durable daily ledger, even after raw
@@ -862,8 +867,27 @@ reach it, even while collection is stopped. `GET /api/v1/traffic/status` lists
 every node's current period, quota and `quota_exceeded`, and sums only usage
 into `upload_bytes` and `download_bytes`; quotas are never summed.
 `GET /api/v1/fleet/status` returns every node with the metrics snapshot
-`GET /api/v1/nodes/{nodeId}/metrics` returns for it, so the overview and the
-nodes view read the fleet's load, live rates and period usage in one request.
+`GET /api/v1/nodes/{nodeId}/metrics` returns for it, without `latest_sample`
+and the period's `counters`, so the overview and the nodes view read the
+fleet's load, live rates and period usage in one request. One read of the
+fleet is a single query for the nodes; their live evidence and recorded traffic
+come from memory, and each node's item is encoded once for every reader. An
+item that differs from the node's previous one only in `collected_at` keeps the
+previous item, so `collected_at` in a fleet item is when the panel first read
+the values it shows. `GET /api/v1/fleet/stream` shares one such snapshot among
+every client, read every two seconds only while a client streams it: a
+connection's first `fleet` event has `reset` set and every selected node, and
+later events carry only the nodes whose item changed in `items` and the IDs of
+nodes deleted or no longer selected in `removed`; a read with no change sends
+no event. `/fleet/status` answers from the shared snapshot while it is at most
+two seconds old, and a panel write that changes what it shows, such as adding,
+renaming or removing a node, saving its settings or a command's result, makes
+the next read a new one. Both accept `state` (`pending`, `online` or
+`offline`), `tag` and `q` (part of a node's name, hostname or public IP,
+ignoring case); `/fleet/status` also pages with `limit` and the `next_cursor` of
+the previous page as `cursor`, and without parameters both return every node.
+`/fleet/status` sends an `ETag` digest of its body, so a client holding an
+unchanged page gets `304`.
 
 Raw samples follow the required `traffic.sample_retention_days` setting, which
 is initialized to 90 and accepts 1 through 366 days. A settings file without

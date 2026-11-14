@@ -3,7 +3,9 @@
 package fleet
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"sync"
 	"time"
@@ -124,28 +126,106 @@ func (service *Service) NodeMetrics(ctx context.Context, nodeID string) (telemet
 	return snapshot.Metrics, err
 }
 
-// NodeStatus is one node with its live evidence and recorded traffic.
+// StatusStreamInterval is how often the shared fleet snapshot is read again
+// while anyone streams it, and the oldest snapshot Status reuses.
+const StatusStreamInterval = 2 * time.Second
+
+// NodeStatus is one node in the fleet views with its live evidence and
+// recorded traffic, without the newest stored sample and the period's
+// counters that only the node's own metrics carry.
 type NodeStatus struct {
 	Node    Node                      `json:"node"`
 	Metrics telemetry.MetricsSnapshot `json:"metrics"`
 }
 
-// Status returns every node with its metrics, in one read for the fleet
-// overview.
-func (service *Service) Status(ctx context.Context) ([]NodeStatus, error) {
+// FleetSnapshot is every node with its metrics, read at one time, in name
+// order, with each node's JSON encoding, made once for every reader.
+type FleetSnapshot struct {
+	Nodes   []NodeStatus
+	Encoded []json.RawMessage
+}
+
+// Status returns the fleet snapshot: the shared one while it is at most
+// StatusStreamInterval old, or else a new read.
+func (service *Service) Status(ctx context.Context) (FleetSnapshot, error) {
+	if snapshot, ok := service.statusFeed.Latest(StatusStreamInterval); ok {
+		return snapshot, nil
+	}
+	return service.collectStatus(ctx)
+}
+
+// expireStatus makes the next fleet read see a write the panel answered,
+// such as a renamed node or the state a command left. Node reports, which
+// arrive constantly, reach readers with the next shared read instead.
+func (service *Service) expireStatus() {
+	service.statusFeed.Expire()
+}
+
+// SubscribeStatus streams the fleet snapshot every StatusStreamInterval.
+// One read serves every subscriber, and none runs without them.
+func (service *Service) SubscribeStatus() (<-chan telemetry.SnapshotResult[FleetSnapshot], func()) {
+	return service.statusFeed.Subscribe()
+}
+
+// statusEncoding is one node's item in a fleet snapshot and its encoding.
+type statusEncoding struct {
+	status  NodeStatus
+	encoded json.RawMessage
+}
+
+// collectStatus reads every node with its metrics: one query for the
+// nodes, and each node's live evidence and recorded traffic from memory.
+func (service *Service) collectStatus(ctx context.Context) (FleetSnapshot, error) {
 	records, err := service.database.Nodes(ctx)
 	if err != nil {
-		return nil, err
+		return FleetSnapshot{}, err
 	}
-	nodes := make([]NodeStatus, 0, len(records))
+	service.statusMu.Lock()
+	previous := service.statusItems
+	service.statusMu.Unlock()
+	items := make(map[string]statusEncoding, len(records))
+	snapshot := FleetSnapshot{Nodes: make([]NodeStatus, 0, len(records)), Encoded: make([]json.RawMessage, 0, len(records))}
 	for _, record := range records {
-		snapshot, err := service.recordSnapshot(ctx, record)
+		state := nodeState(record)
+		metrics, err := service.recordSnapshot(ctx, record, state)
 		if err != nil {
-			return nil, err
+			return FleetSnapshot{}, err
 		}
-		nodes = append(nodes, NodeStatus{Node: service.view(record), Metrics: snapshot.Metrics})
+		status := NodeStatus{Node: service.view(record), Metrics: metrics.Metrics}
+		status.Metrics.LatestSample, status.Metrics.CurrentTrafficData.Counters = nil, nil
+		last, known := previous[record.ID]
+		item, err := encodeStatus(status, last, known)
+		if err != nil {
+			return FleetSnapshot{}, err
+		}
+		items[record.ID] = item
+		snapshot.Nodes = append(snapshot.Nodes, item.status)
+		snapshot.Encoded = append(snapshot.Encoded, item.encoded)
 	}
-	return nodes, nil
+	service.statusMu.Lock()
+	service.statusItems = items
+	service.statusMu.Unlock()
+	return snapshot, nil
+}
+
+// encodeStatus encodes a node's item. While it differs from the node's
+// previous item only in when its metrics were read, the previous item and
+// encoding stay, so an unchanged node encodes to the same bytes in every
+// snapshot: streams send only changes, and an unchanged page keeps its ETag.
+func encodeStatus(status NodeStatus, previous statusEncoding, known bool) (statusEncoding, error) {
+	if known {
+		unchanged := status
+		unchanged.Metrics.CollectedAt = previous.status.Metrics.CollectedAt
+		encoded, err := json.Marshal(unchanged)
+		if err != nil {
+			return statusEncoding{}, err
+		}
+		if bytes.Equal(encoded, previous.encoded) {
+			return previous, nil
+		}
+	}
+	encoded, err := json.Marshal(status)
+	return statusEncoding{status: status, encoded: encoded}, err
 }
 
 func (service *Service) metricsStreamSnapshot(ctx context.Context, nodeID string) (MetricsStreamSnapshot, error) {
@@ -153,20 +233,21 @@ func (service *Service) metricsStreamSnapshot(ctx context.Context, nodeID string
 	if err != nil {
 		return MetricsStreamSnapshot{}, err
 	}
-	return service.recordSnapshot(ctx, record)
+	return service.recordSnapshot(ctx, record, nodeState(record))
 }
 
-func (service *Service) recordSnapshot(ctx context.Context, record store.Node) (MetricsStreamSnapshot, error) {
-	nodeID := record.ID
+// recordSnapshot returns the metrics of the node in record, whose last
+// report decodes to state.
+func (service *Service) recordSnapshot(ctx context.Context, record store.Node, state *NodeState) (MetricsStreamSnapshot, error) {
 	var applied *telemetry.AppliedBundle
 	var runtime RuntimeStatus
-	if state := nodeState(record); state != nil {
+	if state != nil {
 		runtime = runtimeStatusView(state.Report.GetRuntime())
 		if bundle := state.Report.GetApplied(); bundle != nil {
 			applied = &telemetry.AppliedBundle{ID: bundle.GetBundleId(), MonitoringTier: monitoringTierView(bundle.GetMonitoringTier())}
 		}
 	}
-	metrics, err := service.records.NodeMetrics(ctx, nodeID, applied)
+	metrics, err := service.records.NodeMetrics(ctx, record, applied)
 	if err != nil {
 		return MetricsStreamSnapshot{}, err
 	}

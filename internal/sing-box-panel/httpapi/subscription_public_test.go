@@ -11,6 +11,7 @@ import (
 
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/store"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/subscription"
+	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/telemetry"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/testutil"
 )
 
@@ -35,22 +36,18 @@ func TestPublicSubscriptionTrafficRefreshesOn304AndIsSharedAcrossChannels(t *tes
 		t.Fatalf("first response status=%d traffic=%q", first.Code, first.Header().Get("Subscription-Userinfo"))
 	}
 
-	// Use real collector writes while the core is stopped. Only proven deltas,
-	// not the first lifetime counters, belong to the subscription's period usage.
+	// Record the node's samples as its session does. Only proven deltas, not
+	// the first lifetime counters, belong to the subscription's period usage.
 	now := time.Now().UTC()
 	start := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC)
-	input := store.TrafficSampleInput{
-		NodeID: nodeID, InstanceID: "instance", ActivationBundleID: "bundle-traffic", PID: 101, ProcessStartToken: "traffic-process",
-		PeriodStart: start, PeriodEnd: start.AddDate(0, 1, 0), SampledAt: start,
-		UploadTotal: 1000, DownloadTotal: 2000,
-	}
-	if _, err := db.RecordTrafficSample(ctx, input); err != nil {
-		t.Fatal(err)
-	}
-	input.SampledAt = start.Add(time.Nanosecond)
-	input.UploadTotal, input.DownloadTotal = 1123, 2456
-	if _, err := db.RecordTrafficSample(ctx, input); err != nil {
-		t.Fatal(err)
+	for index, totals := range [][2]int64{{1000, 2000}, {1123, 2456}} {
+		if err := app.Telemetry.RecordNodeSample(ctx, nodeID, "instance", telemetry.NodeSample{
+			SampledAt: start.Add(time.Duration(index) * 10 * time.Second),
+			Traffic: &telemetry.NodeTraffic{ActivationBundleID: "bundle-traffic", PID: 101, ProcessStartToken: "traffic-process",
+				UploadTotal: totals[0], DownloadTotal: totals[1]},
+		}); err != nil {
+			t.Fatal(err)
+		}
 	}
 	conditional := publicSubscriptionConditionalRequest(handler, path, first.Header().Get("ETag"))
 	if conditional.Code != http.StatusNotModified || conditional.Body.Len() != 0 || conditional.Header().Get("ETag") != first.Header().Get("ETag") ||
@@ -127,7 +124,13 @@ func TestPublicSubscriptionFailuresDoNotExposeTrafficOrConsumeDownloads(t *testi
 					}
 					return time.Now()
 				}
-				handler.services.Subscriptions = subscription.New(db, app.Settings, app.Telemetry, subscription.Options{Now: clock})
+				// A new telemetry service has read no traffic yet, so the
+				// header reads the dropped ledger.
+				records := app.Telemetry
+				if failure == "traffic storage" {
+					records = telemetry.New(db, app.Settings, telemetry.Options{})
+				}
+				handler.services.Subscriptions = subscription.New(db, app.Settings, records, subscription.Options{Now: clock})
 				etag := ""
 				if conditional {
 					etag = first.Header().Get("ETag")

@@ -26,6 +26,16 @@ func writeJSON(w http.ResponseWriter, status int, value any) {
 	_ = json.NewEncoder(w).Encode(value)
 }
 
+// problemDetails is a problem response before it is written.
+type problemDetails struct {
+	status              int
+	code, title, detail string
+}
+
+func (problem problemDetails) write(w http.ResponseWriter, request *http.Request) {
+	writeProblem(w, request, problem.status, problem.code, problem.title, problem.detail)
+}
+
 func writeProblem(w http.ResponseWriter, request *http.Request, status int, code, title, detail string) {
 	w.Header().Set("Content-Type", "application/problem+json; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")

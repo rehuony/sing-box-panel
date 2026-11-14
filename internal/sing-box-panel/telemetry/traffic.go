@@ -36,22 +36,11 @@ type TrafficStatus struct {
 	Nodes         []NodeTrafficUsage `json:"nodes"`
 }
 
-// NodeTraffic returns a node's recorded traffic in the period that contains
-// at. A successful empty ledger is zero; a storage failure remains an error.
-func (service *Service) NodeTraffic(ctx context.Context, nodeID string, at time.Time) (NodeTrafficUsage, error) {
-	node, err := service.database.Node(ctx, nodeID)
-	if err != nil {
-		return NodeTrafficUsage{}, err
-	}
-	return service.nodeTraffic(ctx, node, at)
-}
-
+// nodeTraffic returns a node's recorded traffic in the period that contains
+// at, against the quota in node's settings. A successful empty ledger is
+// zero; a storage failure remains an error.
 func (service *Service) nodeTraffic(ctx context.Context, node store.Node, at time.Time) (NodeTrafficUsage, error) {
-	start, end, err := TrafficPeriod(at, node.Settings.Traffic)
-	if err != nil {
-		return NodeTrafficUsage{}, err
-	}
-	period, err := service.database.AggregateTrafficPeriod(ctx, node.ID, start, end, at)
+	period, err := service.trafficPeriod(ctx, node, at)
 	if err != nil {
 		return NodeTrafficUsage{}, err
 	}

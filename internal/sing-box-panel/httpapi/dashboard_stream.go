@@ -20,7 +20,7 @@ func (handler *Handler) streamDashboard(w http.ResponseWriter, request *http.Req
 		return
 	}
 	nodeID := requestNodeID(request)
-	streamSnapshots(w, request, "dashboard", dashboardStreamLifetime, func(context.Context) (<-chan telemetry.SnapshotResult[telemetry.DashboardStreamSnapshot], func()) {
+	streamSnapshots(w, request, "dashboard", dashboardStreamLifetime, maximumSnapshotFrameBytes, func(context.Context) (<-chan telemetry.SnapshotResult[telemetry.DashboardStreamSnapshot], func()) {
 		return handler.services.Telemetry.SubscribeDashboard(nodeID)
 	}, encodeDashboardSnapshot)
 }

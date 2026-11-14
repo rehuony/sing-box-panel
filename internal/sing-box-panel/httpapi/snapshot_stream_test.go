@@ -15,7 +15,7 @@ const testSnapshotInterval = 30 * time.Second
 // A controllable collector for transport tests; production subscriptions are
 // shared by Application and have separate concurrency tests.
 func streamDashboardSnapshots(w http.ResponseWriter, request *http.Request, load func(context.Context) (telemetry.DashboardStreamSnapshot, error), interval, lifetime time.Duration) {
-	streamSnapshots(w, request, "dashboard", lifetime, func(ctx context.Context) (<-chan telemetry.SnapshotResult[telemetry.DashboardStreamSnapshot], func()) {
+	streamSnapshots(w, request, "dashboard", lifetime, maximumSnapshotFrameBytes, func(ctx context.Context) (<-chan telemetry.SnapshotResult[telemetry.DashboardStreamSnapshot], func()) {
 		ctx, cancel := context.WithCancel(ctx)
 		ch := make(chan telemetry.SnapshotResult[telemetry.DashboardStreamSnapshot], 1)
 		done := make(chan struct{})

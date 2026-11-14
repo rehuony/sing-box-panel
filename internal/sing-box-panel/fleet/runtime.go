@@ -357,8 +357,10 @@ func (service *Service) configuration(ctx context.Context, nodeID string, valida
 	}, nil
 }
 
-// recordCommand records the outcome of a management command for a node.
+// recordCommand records the outcome of a state-changing command for a node,
+// and makes the next fleet read show the state it left.
 func (service *Service) recordCommand(ctx context.Context, code, message, nodeID string, err *error) {
+	service.expireStatus()
 	service.records.RecordOperation(ctx, code, message, *err, telemetry.OperationLogContext{NodeID: nodeID})
 }
 

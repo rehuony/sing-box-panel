@@ -189,11 +189,22 @@ command, after a new runtime transition, and when a periodic check finds a
 change such as a new public IP. It sends a metrics sample every ten seconds.
 While a browser views a node's live metrics, the panel sends `TelemetryControl`
 to raise that node to one sample per second and lowers it again when the last
-viewer leaves. The fleet overview and the nodes view read every node's baseline samples at once
-through `/fleet/status`, with rates averaged over ten seconds. Traffic counters ride
+viewer leaves. The fleet overview and the nodes view read every node's baseline samples at once,
+with rates averaged over ten seconds, from one fleet snapshot: `/fleet/stream`
+shares it among every client and refreshes it every two seconds while anyone
+streams it, sending each client every node once and then only the nodes that
+changed, and `/fleet/status` answers from it while it is at most two seconds
+old. A panel write that changes what the snapshot shows, such as a rename,
+saved node settings or a command's result, makes the next read a new one; node
+reports reach readers with the next shared read. Streaming the fleet does not
+change how often nodes sample. Traffic counters ride
 on metrics samples. The panel stores each node's last state report, keeping it
 visible while the node is offline, and stores metrics history, traffic periods
-and runtime history per node, with the existing retention settings. The
+and runtime history per node, with the existing retention settings. It keeps
+each node's latest metrics sample, current period and newest accepted traffic sample
+in memory, updated by every accepted sample, so a fleet snapshot is one query for
+the nodes whatever their number; a period the panel does not hold, after a
+rollover or a changed period setting, is read from the daily ledger once. The
 subscription header reports the summed usage of every node's own current
 period and no total, because quotas belong to nodes.
 
@@ -218,8 +229,19 @@ each node's resources under that node.
 
 | Scope | Resources |
 | --- | --- |
-| Fleet | `/fleet/status` (every node with its metrics), `/nodes` (list with each node's reported state, add with enrollment code, rename, delete), fleet traffic status with each node's usage and quota, core catalog and artifact cache, subscriptions, panel settings, panel logs, authentication |
-| One node | `/nodes/{node_id}/…`: status, cores, configuration file and check, runtime controls, rollback, filesystem, core logs, metrics and their stream and history, dashboard stream, settings (public host, traffic quota and period), traffic periods and runtime history |
+| Fleet | `/fleet/status` (the nodes with their metrics, filtered by state, tag and text, and paged) and `/fleet/stream` (the same nodes, then their changes), `/fleet/commands` (start, stop, restart or install a core version on listed nodes or every node with a tag, streaming each node's outcome), `/nodes` (list with each node's reported state and tags, add with enrollment code, rename, delete), fleet traffic status with each node's usage and quota, core catalog and artifact cache, subscriptions, panel settings, panel logs, authentication |
+| One node | `/nodes/{node_id}/…`: status, cores, configuration file and check, runtime controls, rollback, filesystem, core logs, metrics and their stream and history, dashboard stream, settings (public host, traffic quota and period, tags), traffic periods and runtime history |
+
+A fleet command runs the single-node operation on each selected node, at most
+four at once, records each as its own operation and streams each node's outcome
+as it finishes, then a summary, so progress and partial success are visible; an
+unknown node ID is that node's failure. It keeps running when its client
+disconnects, so every selected node receives the command that was confirmed.
+Installing a core version picks, for each node, the official catalog archive of
+that version for the node's recorded platform, and caches each platform's
+archive once, when its first node needs it; a node without a recorded platform,
+a platform the version has no archive for, and a platform whose archive cannot
+be cached fail on their own.
 
 OpenAPI remains the authoritative HTTP contract. The Web UI follows
 [`DESIGN.md`](../DESIGN.md)'s node-first shell: an overview of the fleet's key

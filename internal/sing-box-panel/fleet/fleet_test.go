@@ -573,6 +573,85 @@ func TestStateChangingCommandsOutliveTheirCaller(t *testing.T) {
 	}
 }
 
+func TestBatchReportsEachNodesOutcome(t *testing.T) {
+	served := startFleet(t, nil)
+	enrollment, err := served.service.AddNode(t.Context(), "edge")
+	if err != nil {
+		t.Fatal(err)
+	}
+	node := &rawNode{client: dialRaw(t, served.endpoint, basePath, true)}
+	if err := node.enroll(t, enrollment.Code); err != nil {
+		t.Fatal(err)
+	}
+	stream, err := node.connect(t, node.key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitState(t, served.service, node.id, fleet.StateOnline)
+	pending, err := served.service.AddNode(t.Context(), "pending")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The online node answers its one stop command.
+	answered := make(chan error, 1)
+	go func() {
+		frame, err := stream.Recv()
+		if err == nil && frame.GetCommand().GetStopRuntime() == nil {
+			err = fmt.Errorf("expected a stop command, got %v", frame)
+		}
+		if err == nil {
+			err = stream.Send(&nodeapi.ConnectRequest{Frame: &nodeapi.ConnectRequest_Result{Result: &nodeapi.Result{
+				RequestId: frame.GetCommand().GetRequestId(),
+				Outcome:   &nodeapi.Result_Runtime{Runtime: &nodeapi.RuntimeOutcome{Status: &nodeapi.RuntimeStatus{ObservationState: "stopped"}}},
+			}}})
+		}
+		answered <- err
+	}()
+	nodes, err := served.service.BatchNodes(t.Context(), fleet.BatchTarget{NodeIDs: []string{node.id, pending.Node.ID, "node_missing", node.id}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	outcomes := map[string]error{}
+	var order []string
+	served.service.RunBatch(t.Context(), nodes, func(ctx context.Context, node fleet.Node) error {
+		_, err := served.service.StopRuntime(ctx, node.ID)
+		return err
+	}, func(result fleet.BatchResult) {
+		outcomes[result.NodeID] = result.Err
+		order = append(order, result.NodeID)
+	})
+	if err := <-answered; err != nil {
+		t.Fatal(err)
+	}
+	// An unknown ID is reported before any node runs; a repeated one runs once.
+	if len(order) != 3 || order[0] != "node_missing" || outcomes[node.id] != nil ||
+		!errors.Is(outcomes[pending.Node.ID], fleet.ErrNodeOffline) || !errors.Is(outcomes["node_missing"], store.ErrNodeNotFound) {
+		t.Fatalf("batch outcomes = %v in order %v; want the online node stopped and each other node's own failure", outcomes, order)
+	}
+}
+
+// TestStatusShowsThePanelsWritesWhileStreamed renames a node while a stream
+// holds a fresh shared snapshot: the next read shows the new name at once.
+func TestStatusShowsThePanelsWritesWhileStreamed(t *testing.T) {
+	served := startFleet(t, nil)
+	enrollment, err := served.service.AddNode(t.Context(), "edge")
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshots, unsubscribe := served.service.SubscribeStatus()
+	defer unsubscribe()
+	if first := <-snapshots; first.Err != nil || len(first.Value.Nodes) != 1 {
+		t.Fatalf("first snapshot = %+v", first)
+	}
+	if _, err := served.service.RenameNode(t.Context(), enrollment.Node.ID, "edge-renamed"); err != nil {
+		t.Fatal(err)
+	}
+	status, err := served.service.Status(t.Context())
+	if err != nil || len(status.Nodes) != 1 || status.Nodes[0].Node.Name != "edge-renamed" {
+		t.Fatalf("status after the rename = %+v, %v", status.Nodes, err)
+	}
+}
+
 func TestNodeReportsStateHistoryAndTraffic(t *testing.T) {
 	served := startFleet(t, nil)
 	service := served.service
@@ -640,10 +719,12 @@ func TestNodeReportsStateHistoryAndTraffic(t *testing.T) {
 		metrics.LiveSample == nil || metrics.LiveSample.ActiveConnections != 3 || metrics.Host == nil || metrics.Host.CPUCount != 2 {
 		t.Fatalf("node metrics = %+v", metrics)
 	}
-	// The fleet overview reads every node at once, its rate averaged over the baseline interval.
+	// The fleet overview reads every node at once, its rate averaged over the
+	// baseline interval, without the stored detail only the node's view reads.
 	status, err := service.Status(t.Context())
-	if err != nil || len(status) != 1 || status[0].Node.ID != node.id || status[0].Metrics.LiveSample == nil ||
-		status[0].Metrics.LiveSample.UploadBytesPerSecond == nil || *status[0].Metrics.LiveSample.UploadBytesPerSecond != 30 {
+	if err != nil || len(status.Nodes) != 1 || status.Nodes[0].Node.ID != node.id || status.Nodes[0].Metrics.LiveSample == nil ||
+		status.Nodes[0].Metrics.LiveSample.UploadBytesPerSecond == nil || *status.Nodes[0].Metrics.LiveSample.UploadBytesPerSecond != 30 ||
+		status.Nodes[0].Metrics.LatestSample != nil || status.Nodes[0].Metrics.CurrentTrafficData.Counters != nil || metrics.LatestSample == nil {
 		t.Fatalf("fleet status = %+v, %v; want the node with its ten-second rate", status, err)
 	}
 	view, err := service.Node(t.Context(), node.id)

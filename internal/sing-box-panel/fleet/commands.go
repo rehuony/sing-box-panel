@@ -5,12 +5,15 @@ package fleet
 import (
 	"context"
 	"errors"
+	"slices"
+	"sync"
 	"time"
 
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/rehuony/sing-box-panel/internal/database"
 	"github.com/rehuony/sing-box-panel/internal/nodeapi"
+	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/store"
 )
 
 // DefaultCommandTimeout bounds a command when the caller sets no deadline.
@@ -114,4 +117,90 @@ func ClassifyOperationFailure(err error) (string, string, bool) {
 		return "node_result_unknown", ErrNodeResultUnknown.Error(), true
 	}
 	return "", "", false
+}
+
+// BatchConcurrency is how many nodes a batch command runs on at once.
+const BatchConcurrency = 4
+
+// BatchTarget selects the nodes of a batch command: NodeIDs, or every node
+// with Tag.
+type BatchTarget struct {
+	NodeIDs []string
+	Tag     string
+}
+
+// BatchNode is one node a batch command selects; Node is nil for an ID of
+// no node.
+type BatchNode struct {
+	ID   string
+	Node *Node
+}
+
+// BatchResult is one node's outcome in a batch command.
+type BatchResult struct {
+	NodeID string
+	Err    error
+}
+
+// BatchNodes returns the nodes target selects: the listed IDs in order
+// without repeats, or every node with the tag in name order.
+func (service *Service) BatchNodes(ctx context.Context, target BatchTarget) ([]BatchNode, error) {
+	records, err := service.database.Nodes(ctx)
+	if err != nil {
+		return nil, err
+	}
+	known := make(map[string]*Node, len(records))
+	var nodes []BatchNode
+	for _, record := range records {
+		view := service.view(record)
+		known[record.ID] = &view
+		if target.Tag != "" && slices.Contains(view.Tags, target.Tag) {
+			nodes = append(nodes, BatchNode{ID: record.ID, Node: &view})
+		}
+	}
+	if target.Tag == "" {
+		seen := make(map[string]bool, len(target.NodeIDs))
+		for _, nodeID := range target.NodeIDs {
+			if !seen[nodeID] {
+				seen[nodeID] = true
+				nodes = append(nodes, BatchNode{ID: nodeID, Node: known[nodeID]})
+			}
+		}
+	}
+	return nodes, nil
+}
+
+// RunBatch runs command on each node, at most BatchConcurrency at once, and
+// calls report with each node's outcome as it finishes, one call at a time.
+// An ID of no node is reported at once with store.ErrNodeNotFound and does
+// not run. command records each node's operation as the single-node command
+// does. The batch keeps running when ctx is cancelled, so every selected
+// node receives the command that was confirmed; each command keeps its own
+// deadline. RunBatch returns once every node is reported.
+func (service *Service) RunBatch(ctx context.Context, nodes []BatchNode, command func(context.Context, Node) error, report func(BatchResult)) {
+	ctx = context.WithoutCancel(ctx)
+	var reporting sync.Mutex
+	finish := func(result BatchResult) {
+		reporting.Lock()
+		defer reporting.Unlock()
+		report(result)
+	}
+	for _, node := range nodes {
+		if node.Node == nil {
+			finish(BatchResult{NodeID: node.ID, Err: store.ErrNodeNotFound})
+		}
+	}
+	slots := make(chan struct{}, BatchConcurrency)
+	var wait sync.WaitGroup
+	for _, node := range nodes {
+		if node.Node == nil {
+			continue
+		}
+		slots <- struct{}{}
+		wait.Go(func() {
+			defer func() { <-slots }()
+			finish(BatchResult{NodeID: node.ID, Err: command(ctx, *node.Node)})
+		})
+	}
+	wait.Wait()
 }

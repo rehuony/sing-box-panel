@@ -86,7 +86,7 @@ func (handler *Handler) coreConfigurationSchema(w http.ResponseWriter, request *
 	etag := configurationSchemaETag(result)
 	w.Header().Set("ETag", etag)
 	w.Header().Set("Cache-Control", "private, no-cache")
-	if publicSubscriptionETagMatches(request.Header.Get("If-None-Match"), etag) {
+	if noneMatchHits(request.Header.Get("If-None-Match"), etag) {
 		w.WriteHeader(http.StatusNotModified)
 		return
 	}
@@ -102,20 +102,24 @@ func configurationSchemaETag(contract nodeconfig.ConfigurationSchema) string {
 }
 
 func writeConfigurationProblem(w http.ResponseWriter, request *http.Request, code string, err error) {
+	configurationProblem(code, err).write(w, request)
+}
+
+func configurationProblem(code string, err error) problemDetails {
 	switch {
 	case errors.Is(err, nodeconfig.ErrConfigurationNotSaved):
-		writeProblem(w, request, http.StatusConflict, "configuration_not_saved", "Configuration not saved", "Save a sing-box configuration in Configuration before enabling or checking a core.")
+		return problemDetails{http.StatusConflict, "configuration_not_saved", "Configuration not saved", "Save a sing-box configuration in Configuration before enabling or checking a core."}
 	case errors.Is(err, store.ErrConfigurationFileUnparsed):
-		writeProblem(w, request, http.StatusUnprocessableEntity, "configuration_file_unparsed", "Saved configuration invalid", "Correct the saved JSON before checking or running the configuration.")
+		return problemDetails{http.StatusUnprocessableEntity, "configuration_file_unparsed", "Saved configuration invalid", "Correct the saved JSON before checking or running the configuration."}
 	case errors.Is(err, store.ErrCachedArtifactNotFound):
-		writeProblem(w, request, http.StatusNotFound, "core_artifact_not_found", "Core artifact not found", "The selected immutable core artifact does not exist.")
+		return problemDetails{http.StatusNotFound, "core_artifact_not_found", "Core artifact not found", "The selected immutable core artifact does not exist."}
 	case errors.Is(err, schema.ErrConfigurationSchemaUnavailable):
-		writeProblem(w, request, http.StatusConflict, "configuration_schema_unavailable", "Configuration schema unavailable", err.Error())
+		return problemDetails{http.StatusConflict, "configuration_schema_unavailable", "Configuration schema unavailable", err.Error()}
 	case errors.Is(err, configuration.ErrInvalidDocument):
-		writeProblem(w, request, http.StatusUnprocessableEntity, "configuration_invalid", "Configuration invalid", err.Error())
+		return problemDetails{http.StatusUnprocessableEntity, "configuration_invalid", "Configuration invalid", err.Error()}
 	case errors.Is(err, nodeconfig.ErrConfigurationSchemaValidation):
-		writeProblem(w, request, http.StatusUnprocessableEntity, "configuration_schema_validation_failed", "Configuration schema validation failed", err.Error())
+		return problemDetails{http.StatusUnprocessableEntity, "configuration_schema_validation_failed", "Configuration schema validation failed", err.Error()}
 	default:
-		writeProblem(w, request, http.StatusInternalServerError, code, "Configuration operation failed", "The configuration operation could not be completed.")
+		return problemDetails{http.StatusInternalServerError, code, "Configuration operation failed", "The configuration operation could not be completed."}
 	}
 }

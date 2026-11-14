@@ -87,6 +87,8 @@ function SettingsForm({ node, settings }: { node: FleetNode; settings: NodeSetti
         await client.saveNodeSettings({
           revision: settings.revision,
           public_host: value.publicHost.trim(),
+          // Tags are edited elsewhere; saving keeps them.
+          tags: settings.tags,
           traffic: {
             quota_gib: quota === 0 ? null : quota,
             period_months: Number(value.months),

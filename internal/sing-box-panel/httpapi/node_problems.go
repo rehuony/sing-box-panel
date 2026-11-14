@@ -51,23 +51,26 @@ var nodeProblems = map[string]nodeProblem{
 // writeNodeProblem reports a failed node command. Failures the node
 // describes keep its detail; code names any other failure.
 func writeNodeProblem(w http.ResponseWriter, request *http.Request, code string, err error) {
+	nodeCommandProblem(code, err).write(w, request)
+}
+
+func nodeCommandProblem(code string, err error) problemDetails {
 	var problem *fleet.CommandProblem
 	switch {
 	case errors.Is(err, store.ErrNodeNotFound):
-		writeFleetProblem(w, request, err)
+		return fleetProblem(err)
 	case errors.Is(err, fleet.ErrNodeOffline):
-		writeProblem(w, request, http.StatusServiceUnavailable, "node_offline", "Node offline", "The node is not connected. Commands are not queued; retry when it is online.")
+		return problemDetails{http.StatusServiceUnavailable, "node_offline", "Node offline", "The node is not connected. Commands are not queued; retry when it is online."}
 	case errors.Is(err, fleet.ErrNodeResultUnknown):
-		writeProblem(w, request, http.StatusBadGateway, "node_result_unknown", "Node result unknown", "The node's session ended before it answered. Reload its state before retrying.")
+		return problemDetails{http.StatusBadGateway, "node_result_unknown", "Node result unknown", "The node's session ended before it answered. Reload its state before retrying."}
 	case errors.Is(err, context.DeadlineExceeded):
-		writeProblem(w, request, http.StatusGatewayTimeout, "node_timeout", "Node did not answer", "The node did not answer in time. Reload its state before retrying.")
+		return problemDetails{http.StatusGatewayTimeout, "node_timeout", "Node did not answer", "The node did not answer in time. Reload its state before retrying."}
 	case errors.As(err, &problem):
 		if known, ok := nodeProblems[problem.Code]; ok {
-			writeProblem(w, request, known.status, known.code, known.title, problem.Detail)
-			return
+			return problemDetails{known.status, known.code, known.title, problem.Detail}
 		}
-		writeProblem(w, request, http.StatusBadGateway, code, "Node command failed", problem.Detail)
+		return problemDetails{http.StatusBadGateway, code, "Node command failed", problem.Detail}
 	default:
-		writeConfigurationProblem(w, request, code, err)
+		return configurationProblem(code, err)
 	}
 }

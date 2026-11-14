@@ -5,9 +5,11 @@ package store
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net"
+	"slices"
 	"strings"
 	"time"
 )
@@ -52,6 +54,8 @@ type NodeSettings struct {
 	// empty uses the public IP the node reports.
 	PublicHost string
 	Traffic    NodeTrafficSettings
+	// Tags are sorted and distinct.
+	Tags []string
 	// Revision increases with every saved change.
 	Revision int64
 }
@@ -109,7 +113,7 @@ type NodeSession struct {
 const nodeColumns = `id, name, created_at, public_key, enrolled_at, enrollment_expires_at,
 	hostname, os, arch, build_version, protocol_minor, last_seen_at, session_id,
 	instance_id, state_report, reported_at,
-	traffic_quota_gib, traffic_period_months, traffic_reset_day, public_host, settings_revision,
+	traffic_quota_gib, traffic_period_months, traffic_reset_day, public_host, tags, settings_revision,
 	applied_bundle_id, applied_revision_id, applied_config_sha256, applied_core_version, reported_public_ip`
 
 // PanelID returns the panel's stable identity, recording candidate the first
@@ -193,8 +197,44 @@ var (
 	ErrNodeSettingsConflict = errors.New("the node's settings changed since they were read")
 )
 
+// Limits of node tags.
+const (
+	MaximumNodeTags      = 16
+	MaximumNodeTagLength = 32
+)
+
+// ValidNodeTag reports whether tag is 1 to 32 lowercase letters, digits,
+// hyphens and underscores.
+func ValidNodeTag(tag string) bool {
+	if tag == "" || len(tag) > MaximumNodeTagLength {
+		return false
+	}
+	for _, character := range tag {
+		if (character < 'a' || character > 'z') && (character < '0' || character > '9') && character != '-' && character != '_' {
+			return false
+		}
+	}
+	return true
+}
+
+// NormalizeNodeTags returns tags sorted and without duplicates, or an error
+// when one is invalid or there are more than 16.
+func NormalizeNodeTags(tags []string) ([]string, error) {
+	normalized := slices.Compact(append([]string{}, slices.Sorted(slices.Values(tags))...))
+	if len(normalized) > MaximumNodeTags {
+		return nil, fmt.Errorf("a node has at most %d tags", MaximumNodeTags)
+	}
+	for _, tag := range normalized {
+		if !ValidNodeTag(tag) {
+			return nil, errors.New("each tag must be 1 to 32 lowercase letters, digits, hyphens or underscores")
+		}
+	}
+	return normalized, nil
+}
+
 // SaveNodeSettings replaces the node's settings when their revision is still
-// expectedRevision. A zero quota is stored as unlimited.
+// expectedRevision. A zero quota is stored as unlimited; tags are stored
+// sorted and distinct.
 func (s *Store) SaveNodeSettings(ctx context.Context, id string, expectedRevision int64, value NodeSettings) (Node, error) {
 	traffic := value.Traffic
 	if traffic.QuotaGiB != nil && *traffic.QuotaGiB == 0 {
@@ -208,14 +248,22 @@ func (s *Store) SaveNodeSettings(ctx context.Context, id string, expectedRevisio
 	if err != nil {
 		return Node{}, fmt.Errorf("%w: %v", ErrNodeSettingsInvalid, err)
 	}
+	tags, err := NormalizeNodeTags(value.Tags)
+	if err != nil {
+		return Node{}, fmt.Errorf("%w: %v", ErrNodeSettingsInvalid, err)
+	}
+	encodedTags, err := json.Marshal(tags)
+	if err != nil {
+		return Node{}, err
+	}
 	var quota any
 	if traffic.QuotaGiB != nil {
 		quota = *traffic.QuotaGiB
 	}
 	node, err := scanNodeResult(s.db.QueryRowContext(ctx, `UPDATE nodes SET traffic_quota_gib = ?, traffic_period_months = ?,
-		traffic_reset_day = ?, public_host = ?, settings_revision = settings_revision + 1
+		traffic_reset_day = ?, public_host = ?, tags = ?, settings_revision = settings_revision + 1
 		WHERE id = ? AND settings_revision = ? RETURNING `+nodeColumns,
-		quota, traffic.PeriodMonths, traffic.ResetDay, host, id, expectedRevision))
+		quota, traffic.PeriodMonths, traffic.ResetDay, host, string(encodedTags), id, expectedRevision))
 	if errors.Is(err, ErrNodeNotFound) {
 		if _, lookupErr := s.Node(ctx, id); lookupErr == nil {
 			return Node{}, ErrNodeSettingsConflict
@@ -330,16 +378,23 @@ func scanNode(row rowScanner) (Node, error) {
 	var enrolledAt, expiresAt, lastSeenAt, sessionID, instanceID, reportedAt sql.NullString
 	var appliedID, appliedRevision, appliedSHA256, appliedVersion sql.NullString
 	var quota sql.NullInt64
+	var tags string
 	settings := &node.Settings
 	if err := row.Scan(&node.ID, &node.Name, &createdAt, &node.PublicKey, &enrolledAt, &expiresAt,
 		&node.Hostname, &node.OS, &node.Arch, &node.BuildVersion, &node.ProtocolMinor, &lastSeenAt, &sessionID,
 		&instanceID, &node.StateReport, &reportedAt,
-		&quota, &settings.Traffic.PeriodMonths, &settings.Traffic.ResetDay, &settings.PublicHost, &settings.Revision,
+		&quota, &settings.Traffic.PeriodMonths, &settings.Traffic.ResetDay, &settings.PublicHost, &tags, &settings.Revision,
 		&appliedID, &appliedRevision, &appliedSHA256, &appliedVersion, &node.Report.PublicIP); err != nil {
 		return Node{}, err
 	}
 	if quota.Valid {
 		settings.Traffic.QuotaGiB = &quota.Int64
+	}
+	if err := json.Unmarshal([]byte(tags), &settings.Tags); err != nil {
+		return Node{}, fmt.Errorf("decode node tags: %w", err)
+	}
+	if settings.Tags == nil {
+		settings.Tags = []string{}
 	}
 	node.Report.Applied = AppliedBundle{ID: appliedID.String, RevisionID: appliedRevision.String,
 		ConfigSHA256: appliedSHA256.String, ExactCoreVersion: appliedVersion.String}

@@ -40,12 +40,14 @@ export const testNode: FleetNode = {
   os: 'linux',
   arch: 'arm64',
   build_version: '0.1.0',
+  tags: [],
 };
 
 export const testNodeSettings: NodeSettings = {
   revision: 1,
   public_host: '',
   traffic: { quota_gib: null, period_months: 1, reset_day: 1 },
+  tags: [],
 };
 
 export const testRevision: CanonicalSnapshot = {

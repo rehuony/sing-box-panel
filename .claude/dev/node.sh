@@ -1,25 +1,35 @@
 #!/bin/sh
 # Runs a development node, enrolled with the development panel and with its
 # console on 127.0.0.1:3001. The node runtime needs Linux, so the node runs
-# in a Debian container on the host network; its binary and data stay in
-# .claude/dev/state (ignored). Start the panel first. The first start prints
-# the console password once.
+# in a Debian container on the host network. Its binary is shared in
+# .claude/dev/state/bin/linux; its data stays in
+# .claude/dev/state/node-<generation> (ignored), the generation of the panel
+# it enrolls with, such as p22n2; earlier generations stay untouched on disk.
+# Start the panel first. The first start of a generation adds or re-enrolls
+# dev-node with that panel and prints the console password once.
 set -eu
 cd "$(dirname "$0")/../.."
 state=.claude/dev/state
 
+schema() { sed -n 's/^[[:space:]]*CurrentSchemaVersion = \([0-9][0-9]*\)$/\1/p' "$1"; }
+panel_schema=$(schema internal/sing-box-panel/store/store.go)
+node_schema=$(schema internal/sing-box-node/store/store.go)
+[ -n "$panel_schema" ] && [ -n "$node_schema" ] || { echo "storage schema versions not found" >&2; exit 1; }
+generation=p${panel_schema}n${node_schema}
+instance=$state/node-$generation
+
 image=debian:trixie-slim
 name=sbp-dev-node
 binaries="$PWD/$state/bin/linux:/opt/sbp:ro"
-data="$PWD/$state/node:/var/lib/sing-box-node"
+data="$PWD/$instance:/var/lib/sing-box-node"
 
 [ -f web/apps/node/dist/index.html ] || make build-frontend
-mkdir -p "$state/bin/linux" "$state/node"
+mkdir -p "$state/bin/linux" "$instance"
 GOOS=linux GOARCH="$(go env GOARCH)" CGO_ENABLED=0 go build -o "$state/bin/linux/" ./cmd/sing-box-node
 
-if [ ! -f "$state/node/enrollment.json" ]; then
+if [ ! -f "$instance/enrollment.json" ]; then
   go build -o "$state/bin/" ./cmd/sing-box-panel
-  settings=$state/panel/setting.json
+  settings=$state/panel-$generation/setting.json
   # A node left registered by an earlier data directory gets a new code.
   issued=$("$state/bin/sing-box-panel" node add dev-node --config "$settings" -o json 2>/dev/null ||
     "$state/bin/sing-box-panel" node enroll dev-node --config "$settings" -o json)
@@ -27,7 +37,7 @@ if [ ! -f "$state/node/enrollment.json" ]; then
   docker run --rm --network host -v "$binaries" -v "$data" "$image" \
     /opt/sbp/sing-box-node enroll --data-dir /var/lib/sing-box-node --code "$code"
 fi
-if [ ! -f "$state/node/console.json" ]; then
+if [ ! -f "$instance/console.json" ]; then
   docker run --rm -v "$binaries" -v "$data" "$image" \
     /opt/sbp/sing-box-node console enable --data-dir /var/lib/sing-box-node
 fi

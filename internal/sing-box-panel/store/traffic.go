@@ -23,7 +23,7 @@ type TrafficPeriod struct {
 	PeriodEnd          time.Time       `json:"period_end"`
 	InboundBytes       int64           `json:"inbound_bytes"`
 	OutboundBytes      int64           `json:"outbound_bytes"`
-	Counters           json.RawMessage `json:"counters"`
+	Counters           json.RawMessage `json:"counters,omitempty"`
 	CreatedAt          time.Time       `json:"created_at"`
 }
 

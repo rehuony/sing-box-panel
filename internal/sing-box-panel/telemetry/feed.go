@@ -105,6 +105,25 @@ func (f *Feed[T]) run(ctx context.Context, generation uint64, delay time.Duratio
 	}
 }
 
+// Latest returns the newest value read within maxAge, if any.
+func (f *Feed[T]) Latest(maxAge time.Duration) (T, bool) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.cached == nil || time.Since(f.collected) > maxAge {
+		var zero T
+		return zero, false
+	}
+	return f.cached.Value, true
+}
+
+// Expire stops the newest value counting as fresh for Latest and for new
+// subscribers. A running feed keeps its schedule.
+func (f *Feed[T]) Expire() {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.collected = time.Time{}
+}
+
 // Bind sets the lifetime of shared reads before the first subscriber.
 func (f *Feed[T]) Bind(ctx context.Context) {
 	f.mu.Lock()

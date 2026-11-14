@@ -40,7 +40,7 @@ func (handler *Handler) publicSubscription(w http.ResponseWriter, request *http.
 		return
 	}
 	etag := quoteETag(result.ETag)
-	notModified := publicSubscriptionETagMatches(request.Header.Get("If-None-Match"), etag)
+	notModified := noneMatchHits(request.Header.Get("If-None-Match"), etag)
 	bodyBytes := int64(len(result.Body))
 	if notModified {
 		bodyBytes = 0
@@ -60,18 +60,6 @@ func (handler *Handler) publicSubscription(w http.ResponseWriter, request *http.
 	w.Header().Set("Content-Type", result.MediaType)
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(result.Body)
-}
-
-func publicSubscriptionETagMatches(header string, current string) bool {
-	for _, candidate := range strings.Split(header, ",") {
-		candidate = strings.TrimSpace(candidate)
-		// If-None-Match uses weak comparison, including ETags weakened by
-		// an intermediary when it compresses the response (RFC 9110 §13.1.2).
-		if candidate == "*" || strings.TrimPrefix(candidate, "W/") == strings.TrimPrefix(current, "W/") {
-			return true
-		}
-	}
-	return false
 }
 
 var errPublicSubscriptionUnavailable = errors.New("public subscription service unavailable")

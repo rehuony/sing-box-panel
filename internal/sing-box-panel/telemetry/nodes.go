@@ -94,12 +94,55 @@ type MetricsSnapshot struct {
 	QuotaExceeded      bool                 `json:"quota_exceeded"`
 }
 
-// liveNode is the newest evidence of one node.
+// liveNode is the newest evidence of one node and its recorded traffic.
 type liveNode struct {
 	instanceID  string
 	host        *HostMetrics
 	traffic     *LiveTrafficSample
 	persistedAt time.Time
+	ledger      trafficLedger
+}
+
+// trafficLedger is a node's recorded traffic as the panel last stored or
+// read it, so reads need no query: the period it last stored or read and
+// its newest accepted sample. version counts the samples stored since the
+// panel started; a read stores what it loaded only while no sample was
+// stored after it began, so it never replaces newer totals.
+type trafficLedger struct {
+	period *store.TrafficPeriod
+	// latest is the newest accepted sample once latestKnown; nil then means
+	// the node has none.
+	latest      *store.TrafficSample
+	latestKnown bool
+	version     uint64
+}
+
+// record keeps what storing a sample returned. A rejected sample changed no
+// totals, and its period was summed only up to its own day, so it leaves the
+// ledger as it is. The period was read in the storing transaction; when
+// another sample was stored since version, either result may be the older
+// one, so the period is read again on demand.
+func (ledger *trafficLedger) record(result store.TrafficSampleResult, version uint64) {
+	sample := result.Sample
+	if !sample.Accepted {
+		return
+	}
+	if ledger.version == version {
+		period := result.Period
+		ledger.period = &period
+	} else {
+		ledger.period = nil
+	}
+	// An accepted sample is newer than every sample accepted before it.
+	if ledger.latest == nil || newerSample(sample, *ledger.latest) {
+		ledger.latest, ledger.latestKnown = &sample, true
+	}
+	ledger.version++
+}
+
+// newerSample orders samples as the store's newest-first reads do.
+func newerSample(sample, than store.TrafficSample) bool {
+	return sample.SampledAt.After(than.SampledAt) || (sample.SampledAt.Equal(than.SampledAt) && sample.ID > than.ID)
 }
 
 type liveNodes struct {
@@ -107,15 +150,38 @@ type liveNodes struct {
 	nodes map[string]*liveNode
 }
 
+// entry returns the node's live entry, adding an empty one. The caller holds
+// mu.
+func (nodes *liveNodes) entry(nodeID string) *liveNode {
+	live := nodes.nodes[nodeID]
+	if live == nil {
+		live = &liveNode{}
+		nodes.nodes[nodeID] = live
+	}
+	return live
+}
+
+// keepLoaded applies to the node's ledger what a read of the store loaded,
+// unless the node was forgotten or a sample was stored after version, the
+// ledger's version when the read began: that sample's totals are newer.
+func (nodes *liveNodes) keepLoaded(nodeID string, live *liveNode, version uint64, apply func(*trafficLedger)) {
+	nodes.mu.Lock()
+	defer nodes.mu.Unlock()
+	if nodes.nodes[nodeID] == live && live.ledger.version == version {
+		apply(&live.ledger)
+	}
+}
+
 // RecordNodeSample keeps a node's sample as its live evidence and stores its
 // traffic at most every few seconds, and at once when the core process or
 // node instance changes.
 func (service *Service) RecordNodeSample(ctx context.Context, nodeID, instanceID string, sample NodeSample) error {
 	service.live.mu.Lock()
-	live := service.live.nodes[nodeID]
-	if live == nil || live.instanceID != instanceID {
-		live = &liveNode{instanceID: instanceID}
-		service.live.nodes[nodeID] = live
+	live := service.live.entry(nodeID)
+	if live.instanceID != instanceID {
+		// A recreated node database starts new live evidence; its recorded
+		// traffic stays.
+		live.instanceID, live.traffic, live.persistedAt = instanceID, nil, time.Time{}
 	}
 	live.host = sample.Host
 	traffic := sample.Traffic
@@ -141,6 +207,7 @@ func (service *Service) RecordNodeSample(ctx context.Context, nodeID, instanceID
 	}
 	persist := !sameProcess || live.persistedAt.IsZero() || current.SampledAt.Sub(live.persistedAt) >= trafficPersistInterval
 	live.traffic = current
+	version := live.ledger.version
 	service.live.mu.Unlock()
 	if !persist {
 		return nil
@@ -170,28 +237,92 @@ func (service *Service) RecordNodeSample(ctx context.Context, nodeID, instanceID
 	if result.Sample.Accepted && current.SampledAt.After(live.persistedAt) {
 		live.persistedAt = current.SampledAt
 	}
+	live.ledger.record(result, version)
 	return nil
 }
 
-// ForgetNode drops a node's live evidence, such as when it is removed.
+// ForgetNode drops a node's live evidence and recorded traffic, such as when
+// it is removed.
 func (service *Service) ForgetNode(nodeID string) {
 	service.live.mu.Lock()
 	defer service.live.mu.Unlock()
 	delete(service.live.nodes, nodeID)
 }
 
+// trafficPeriod returns the node's recorded traffic in its period that
+// contains at. The ledger answers while it holds that period; a period
+// rollover or a changed reset day or period length is a different range,
+// which is read once and kept.
+func (service *Service) trafficPeriod(ctx context.Context, node store.Node, at time.Time) (store.TrafficPeriod, error) {
+	start, end, err := TrafficPeriod(at, node.Settings.Traffic)
+	if err != nil {
+		return store.TrafficPeriod{}, err
+	}
+	service.live.mu.Lock()
+	live := service.live.entry(node.ID)
+	if cached := live.ledger.period; cached != nil && cached.PeriodStart.Equal(start) && cached.PeriodEnd.Equal(end) {
+		period := *cached
+		service.live.mu.Unlock()
+		return period, nil
+	}
+	version := live.ledger.version
+	service.live.mu.Unlock()
+	period, err := service.database.AggregateTrafficPeriod(ctx, node.ID, start, end, at)
+	if err != nil {
+		return store.TrafficPeriod{}, err
+	}
+	cached := period
+	service.live.keepLoaded(node.ID, live, version, func(ledger *trafficLedger) { ledger.period = &cached })
+	return period, nil
+}
+
+// latestSample returns the node's newest accepted sample, or nil when it has
+// none. It is read once; stored samples keep it current after that.
+func (service *Service) latestSample(ctx context.Context, nodeID string) (*store.TrafficSample, error) {
+	service.live.mu.Lock()
+	live := service.live.entry(nodeID)
+	if live.ledger.latestKnown {
+		latest := copySample(live.ledger.latest)
+		service.live.mu.Unlock()
+		return latest, nil
+	}
+	version := live.ledger.version
+	service.live.mu.Unlock()
+	sample, err := service.database.LatestAcceptedTrafficSample(ctx, nodeID)
+	var latest *store.TrafficSample
+	switch {
+	case errors.Is(err, sql.ErrNoRows):
+	case err != nil:
+		return nil, err
+	default:
+		latest = &sample
+	}
+	service.live.keepLoaded(nodeID, live, version, func(ledger *trafficLedger) { ledger.latest, ledger.latestKnown = latest, true })
+	return copySample(latest), nil
+}
+
+func copySample(sample *store.TrafficSample) *store.TrafficSample {
+	if sample == nil {
+		return nil
+	}
+	value := *sample
+	return &value
+}
+
 // NodeMetrics returns a node's live evidence with its recorded traffic in the
-// current period. applied is the bundle the node reports, nil when none.
-func (service *Service) NodeMetrics(ctx context.Context, nodeID string, applied *AppliedBundle) (MetricsSnapshot, error) {
+// current period. node is the node's record as the caller read it, whose
+// settings give its period and quota; applied is the bundle the node
+// reports, nil when none.
+func (service *Service) NodeMetrics(ctx context.Context, node store.Node, applied *AppliedBundle) (MetricsSnapshot, error) {
 	now := service.now().UTC()
 	result := MetricsSnapshot{CollectedAt: now}
-	usage, err := service.NodeTraffic(ctx, nodeID, now)
+	usage, err := service.nodeTraffic(ctx, node, now)
 	if err != nil {
 		return MetricsSnapshot{}, err
 	}
 	result.CurrentTrafficData, result.QuotaBytes, result.QuotaExceeded = usage.Period, usage.QuotaBytes, usage.QuotaExceeded
 	service.live.mu.Lock()
-	if live := service.live.nodes[nodeID]; live != nil {
+	if live := service.live.nodes[node.ID]; live != nil {
 		if live.host != nil && now.Sub(live.host.SampledAt) <= liveSampleLifetime {
 			host := *live.host
 			result.Host = &host
@@ -211,15 +342,15 @@ func (service *Service) NodeMetrics(ctx context.Context, nodeID string, applied 
 		result.ReasonCode = "process_only"
 		return result, nil
 	}
-	sample, err := service.database.LatestAcceptedTrafficSample(ctx, nodeID)
-	if errors.Is(err, sql.ErrNoRows) {
-		result.ReasonCode = "no_collector_sample"
-		return result, nil
-	}
+	sample, err := service.latestSample(ctx, node.ID)
 	if err != nil {
 		return MetricsSnapshot{}, err
 	}
-	result.LatestSample = &sample
+	if sample == nil {
+		result.ReasonCode = "no_collector_sample"
+		return result, nil
+	}
+	result.LatestSample = sample
 	if sample.ActivationBundleID != applied.ID || now.Sub(sample.SampledAt) > liveSampleLifetime {
 		result.ReasonCode = "stale_collector_sample"
 		return result, nil

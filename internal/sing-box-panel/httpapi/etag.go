@@ -22,3 +22,16 @@ func parseIfMatch(value string) (string, error) {
 func quoteETag(identifier string) string {
 	return `"` + identifier + `"`
 }
+
+// noneMatchHits reports whether an If-None-Match header matches current.
+// If-None-Match uses weak comparison, including ETags weakened by an
+// intermediary when it compresses the response (RFC 9110 §13.1.2).
+func noneMatchHits(header string, current string) bool {
+	for _, candidate := range strings.Split(header, ",") {
+		candidate = strings.TrimSpace(candidate)
+		if candidate == "*" || strings.TrimPrefix(candidate, "W/") == strings.TrimPrefix(current, "W/") {
+			return true
+		}
+	}
+	return false
+}

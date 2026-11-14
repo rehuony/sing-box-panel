@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/store"
+	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/telemetry"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/testutil"
 )
 
@@ -116,6 +117,9 @@ func TestPublicSubscriptionTrafficSumsEveryNodesOwnPeriod(t *testing.T) {
 	if _, err := app.RenderSubscriptionDraft(ctx, "", channel.ID, nil); err != nil {
 		t.Fatalf("preview unexpectedly depends on traffic storage: %v", err)
 	}
+	// A new telemetry service has read no traffic yet, so the header reads
+	// the dropped ledger.
+	app.telemetry = telemetry.New(db, app.settings, telemetry.Options{})
 	if _, err := app.PublicSubscription(ctx, key.Token, channel.ID); err == nil {
 		t.Fatal("traffic storage failure returned a successful subscription")
 	}

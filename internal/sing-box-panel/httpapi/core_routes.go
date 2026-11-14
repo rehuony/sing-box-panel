@@ -194,33 +194,8 @@ func (handler *Handler) installCore(w http.ResponseWriter, request *http.Request
 	if !decodeStrictRequest(w, request, maximumCoreInstallRequestBytes, &input) {
 		return
 	}
-	if input.AssetID == nil || *input.AssetID < 1 {
-		writeProblem(w, request, http.StatusUnprocessableEntity, "core_install_invalid", "Core install request invalid", "asset_id must be a positive integer.")
-		return
-	}
-	assets, err := handler.services.Cores.ListCatalogAssets(request.Context(), corecache.CatalogAssetFilter{})
-	if err != nil {
-		if corecache.IsCatalogNotInitialized(err) {
-			writeProblem(w, request, http.StatusConflict, "catalog_not_initialized", "Catalog not initialized", "Refresh the core catalog before installing an asset.")
-			return
-		}
-		writeProblem(w, request, http.StatusInternalServerError, "core_install_failed", "Core install failed", "The catalog could not be inspected before installation.")
-		return
-	}
-	found := false
-	for _, asset := range assets.Assets {
-		if asset.AssetID == *input.AssetID {
-			found = true
-			break
-		}
-	}
-	if !found {
-		writeProblem(w, request, http.StatusUnprocessableEntity, "core_install_invalid", "Core install request invalid", "The catalog asset cannot be installed.")
-		return
-	}
-	cached, err := handler.services.Cores.CacheOfficial(request.Context(), *input.AssetID)
-	if err != nil {
-		writeProblem(w, request, http.StatusBadGateway, "core_download_failed", "Core download failed", "The panel could not download and verify the release asset.")
+	cached, ok := handler.cacheCatalogAsset(w, request, input.AssetID)
+	if !ok {
 		return
 	}
 	result, err := handler.services.Fleet.InstallCore(request.Context(), requestNodeID(request), cached)
@@ -229,6 +204,42 @@ func (handler *Handler) installCore(w http.ResponseWriter, request *http.Request
 		return
 	}
 	writeJSON(w, http.StatusOK, result)
+}
+
+// cacheCatalogAsset downloads and verifies the official archive of catalog
+// asset assetID into the panel's cache, the step before a node installs it,
+// or writes the problem.
+func (handler *Handler) cacheCatalogAsset(w http.ResponseWriter, request *http.Request, assetID *int64) (store.CachedArtifact, bool) {
+	if assetID == nil || *assetID < 1 {
+		writeProblem(w, request, http.StatusUnprocessableEntity, "core_install_invalid", "Core install request invalid", "asset_id must be a positive integer.")
+		return store.CachedArtifact{}, false
+	}
+	assets, err := handler.services.Cores.ListCatalogAssets(request.Context(), corecache.CatalogAssetFilter{})
+	if err != nil {
+		if corecache.IsCatalogNotInitialized(err) {
+			writeProblem(w, request, http.StatusConflict, "catalog_not_initialized", "Catalog not initialized", "Refresh the core catalog before installing an asset.")
+			return store.CachedArtifact{}, false
+		}
+		writeProblem(w, request, http.StatusInternalServerError, "core_install_failed", "Core install failed", "The catalog could not be inspected before installation.")
+		return store.CachedArtifact{}, false
+	}
+	found := false
+	for _, asset := range assets.Assets {
+		if asset.AssetID == *assetID {
+			found = true
+			break
+		}
+	}
+	if !found {
+		writeProblem(w, request, http.StatusUnprocessableEntity, "core_install_invalid", "Core install request invalid", "The catalog asset cannot be installed.")
+		return store.CachedArtifact{}, false
+	}
+	cached, err := handler.services.Cores.CacheOfficial(request.Context(), *assetID)
+	if err != nil {
+		writeProblem(w, request, http.StatusBadGateway, "core_download_failed", "Core download failed", "The panel could not download and verify the release asset.")
+		return store.CachedArtifact{}, false
+	}
+	return cached, true
 }
 
 func (handler *Handler) importCore(w http.ResponseWriter, request *http.Request) {

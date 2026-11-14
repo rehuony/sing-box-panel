@@ -659,16 +659,92 @@ paths:
     get:
       operationId: getFleetStatus
       description: >-
-        Every registered node with the metrics and recorded traffic getMetrics
-        returns for it, in one read for the fleet overview. Quotas belong to
-        nodes and are never summed.
+        Registered nodes with the metrics and recorded traffic getMetrics
+        returns for each, without latest_sample and the period's counters, in
+        one read for the fleet views. The panel answers from the snapshot
+        streamFleetStatus shares while it is at most two seconds old, and
+        reads a new one otherwise. Without parameters every node is
+        returned. Quotas belong to nodes and are never summed.
+      parameters:
+        - $ref: "#/components/parameters/FleetState"
+        - $ref: "#/components/parameters/FleetTag"
+        - $ref: "#/components/parameters/FleetQuery"
+        - $ref: "#/components/parameters/FleetLimit"
+        - $ref: "#/components/parameters/FleetCursor"
+        - $ref: "#/components/parameters/IfNoneMatch"
       responses:
         "200":
-          description: Nodes ordered by name, each with its metrics.
+          description: The selected nodes ordered by name, each with its metrics.
+          headers:
+            ETag:
+              description: Digest of the response body; an unchanged page answers If-None-Match with 304.
+              schema:
+                type: string
           content:
             application/json:
               schema: {$ref: '#/components/schemas/FleetStatus'}
+        "304":
+          description: The page matches If-None-Match.
+          headers:
+            ETag:
+              description: Digest of the unchanged response body.
+              schema:
+                type: string
+        "400":
+          $ref: '#/components/responses/Problem'
         "503":
+          $ref: '#/components/responses/Problem'
+  /fleet/stream:
+    get:
+      operationId: streamFleetStatus
+      summary: Stream the selected nodes, then their changes every two seconds
+      parameters:
+        - $ref: "#/components/parameters/FleetState"
+        - $ref: "#/components/parameters/FleetTag"
+        - $ref: "#/components/parameters/FleetQuery"
+      responses:
+        '200':
+          description: Server-sent fleet events, each limited to 16 MiB including UTF-8 framing. Each data field is a FleetStreamFrame. The first frame of a connection has reset true and every selected node in name order, as getFleetStatus returns them; later frames carry only the nodes whose item differs from what this connection last received and the IDs of nodes deleted or no longer selected, and a read with no difference sends no frame. A node's item keeps its collected_at while nothing else in it changes. One shared read every two seconds serves every client, and it runs only while a client streams; streaming does not change how often nodes sample. Invalid parameters and initial snapshot failures return a Problem response before opening the stream. Heartbeat comments arrive every ten seconds. A control event with type reconnect precedes normal rotation within one minute; clients should immediately renew authentication and start again from a reset frame.
+          content:
+            text/event-stream:
+              schema: {type: string}
+        default: {$ref: '#/components/responses/Problem'}
+  /fleet/commands:
+    post:
+      operationId: runFleetCommand
+      description: >-
+        Runs one action on the listed nodes, or on every node with a tag, at
+        most four nodes at once, and streams every node's outcome as it
+        finishes, so progress and partial success are visible. Each node's
+        command is the single-node operation, recorded as one, with its own
+        deadline; the batch keeps running when the client disconnects.
+        install_core installs exact_version from the official catalog archive
+        for each node's recorded platform, caching each platform's archive
+        once, when its first node needs it. Problems found before any node
+        runs answer as a problem.
+      parameters:
+        - $ref: "#/components/parameters/CSRFToken"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/FleetCommand'}
+      responses:
+        "200":
+          description: >-
+            Server-sent events: one result event per selected node as it
+            finishes, whose data is a FleetCommandResult, then one done event
+            whose data is a FleetCommandSummary. An ID of no node is reported
+            at once. Heartbeat comments arrive every ten seconds while the
+            batch runs.
+          content:
+            text/event-stream:
+              schema: {type: string}
+        "409":
+          $ref: '#/components/responses/Problem'
+        "422":
+          $ref: '#/components/responses/Problem'
+        default:
           $ref: '#/components/responses/Problem'
   /nodes:
     get:
@@ -1633,6 +1709,41 @@ components:
       required: false
       schema:
         type: string
+    FleetState:
+      name: state
+      in: query
+      description: Only nodes in this state.
+      schema:
+        type: string
+        enum: [pending, online, offline]
+    FleetTag:
+      name: tag
+      in: query
+      description: Only nodes with this tag.
+      schema:
+        $ref: "#/components/schemas/NodeTag"
+    FleetQuery:
+      name: q
+      in: query
+      description: Only nodes whose name, hostname or public IP contains this text, ignoring case.
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 256
+    FleetLimit:
+      name: limit
+      in: query
+      description: At most this many nodes; without it every selected node.
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 1000
+    FleetCursor:
+      name: cursor
+      in: query
+      description: The next_cursor of the previous page. It holds a position in name order, so pages continue correctly when nodes change.
+      schema:
+        type: string
     Limit:
       name: limit
       in: query
@@ -2182,7 +2293,7 @@ components:
     Node:
       type: object
       additionalProperties: false
-      required: [id, name, state, created_at, enrolled_at, last_seen_at, hostname, os, arch, build_version]
+      required: [id, name, state, created_at, enrolled_at, last_seen_at, hostname, os, arch, build_version, tags]
       properties:
         id: {type: string}
         name: {type: string, minLength: 1, maxLength: 64}
@@ -2209,6 +2320,10 @@ components:
         build_version:
           type: string
           description: The node's build version, reported in its latest session.
+        tags:
+          type: array
+          description: The node's tags from its settings, sorted.
+          items: {$ref: '#/components/schemas/NodeTag'}
         reported_at:
           type: [string, "null"]
           format: date-time
@@ -2235,13 +2350,89 @@ components:
         items:
           type: array
           items: {$ref: '#/components/schemas/NodeStatus'}
+        next_cursor:
+          type: string
+          description: Continues with the next page; absent on the last page.
     NodeStatus:
       type: object
       additionalProperties: false
       required: [node, metrics]
       properties:
         node: {$ref: '#/components/schemas/Node'}
-        metrics: {$ref: '#/components/schemas/MetricsSnapshot'}
+        metrics:
+          $ref: '#/components/schemas/MetricsSnapshot'
+          description: The node's metrics without latest_sample and the period's counters.
+    NodeTag:
+      type: string
+      minLength: 1
+      maxLength: 32
+      pattern: '^[a-z0-9_-]+$'
+    FleetCommand:
+      type: object
+      additionalProperties: false
+      required: [action]
+      description: Exactly one of node_ids and tag selects the nodes.
+      properties:
+        action:
+          type: string
+          enum: [start, stop, restart, install_core]
+        node_ids:
+          type: array
+          minItems: 1
+          maxItems: 1000
+          items: {type: string}
+          description: The nodes, each commanded once.
+        tag:
+          $ref: '#/components/schemas/NodeTag'
+          description: Every node with this tag.
+        exact_version:
+          $ref: '#/components/schemas/ExactCoreVersion'
+          description: >-
+            The version install_core installs; required for install_core
+            only, and the catalog must have it for some platform. A node with
+            no recorded platform fails with node_platform_unknown, a platform
+            the version has no archive for with core_asset_unavailable, and
+            every node of a platform whose archive cannot be cached with
+            core_download_failed.
+    FleetCommandResult:
+      type: object
+      additionalProperties: false
+      required: [node_id, ok]
+      properties:
+        node_id: {type: string}
+        ok: {type: boolean}
+        code:
+          type: string
+          description: On failure, the problem code the single-node operation answers with.
+        title:
+          type: string
+          description: On failure, the problem title the single-node operation answers with.
+    FleetCommandSummary:
+      type: object
+      additionalProperties: false
+      required: [total, succeeded, failed]
+      description: The data of a fleet command's done event.
+      properties:
+        total: {type: integer, minimum: 0}
+        succeeded: {type: integer, minimum: 0}
+        failed: {type: integer, minimum: 0}
+    FleetStreamFrame:
+      type: object
+      additionalProperties: false
+      required: [reset, items, removed]
+      description: The data of a streamFleetStatus event.
+      properties:
+        reset:
+          type: boolean
+          description: The frame holds every selected node; the client replaces what it held.
+        items:
+          type: array
+          description: Selected nodes in name order, each as getFleetStatus returns it; without reset, only those that changed.
+          items: {$ref: '#/components/schemas/NodeStatus'}
+        removed:
+          type: array
+          description: IDs of nodes deleted or no longer selected since the previous frame.
+          items: {type: string}
     NodeNameRequest:
       type: object
       additionalProperties: false
@@ -3214,7 +3405,7 @@ components:
     TrafficPeriod:
       type: object
       additionalProperties: false
-      required: [id, period_start, period_end, inbound_bytes, outbound_bytes, counters, created_at]
+      required: [id, period_start, period_end, inbound_bytes, outbound_bytes, created_at]
       properties:
         id: {type: string}
         activation_bundle_id: {type: string}
@@ -3222,7 +3413,9 @@ components:
         period_end: {type: string, format: date-time}
         inbound_bytes: {type: integer, format: int64, minimum: 0}
         outbound_bytes: {type: integer, format: int64, minimum: 0}
-        counters: {$ref: "#/components/schemas/DynamicObject"}
+        counters:
+          $ref: "#/components/schemas/DynamicObject"
+          description: Aggregation metadata; always present except in fleet status items.
         created_at: {type: string, format: date-time}
     TrafficSample:
       type: object
@@ -3296,11 +3489,16 @@ components:
         reason_code: {type: string, enum: [not_applied, process_only, no_collector_sample, stale_collector_sample]}
         applied_bundle_id: {type: string}
         monitoring_tier: {type: string, enum: [process_only, limited]}
-        collected_at: {type: string, format: date-time}
+        collected_at:
+          type: string
+          format: date-time
+          description: When the panel read the metrics. In fleet status items, when it first read the values the item shows, so an unchanged node keeps the same item.
         current_traffic_period:
           $ref: "#/components/schemas/TrafficPeriod"
           description: The node's recorded sing-box upload and download usage in its current period, including zero before collection. Retained when live collection is unavailable.
-        latest_sample: {$ref: "#/components/schemas/TrafficSample"}
+        latest_sample:
+          $ref: "#/components/schemas/TrafficSample"
+          description: The newest stored sample when the applied bundle has the limited tier; never in fleet status items.
         live_sample: {$ref: "#/components/schemas/LiveTrafficSample"}
         quota_bytes:
           type: integer
@@ -3345,7 +3543,7 @@ components:
     NodeSettings:
       type: object
       additionalProperties: false
-      required: [revision, public_host, traffic]
+      required: [revision, public_host, traffic, tags]
       properties:
         revision:
           type: integer
@@ -3357,6 +3555,11 @@ components:
           maxLength: 253
           description: The IP address or DNS name subscriptions publish for the node's inbounds, without scheme or port; empty uses the public IP the node reports.
         traffic: {$ref: "#/components/schemas/NodeTrafficSettings"}
+        tags:
+          type: array
+          maxItems: 16
+          description: Up to 16 tags, stored sorted and without duplicates.
+          items: {$ref: '#/components/schemas/NodeTag'}
     NodeTrafficSettings:
       type: object
       additionalProperties: false
