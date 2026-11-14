@@ -26,6 +26,7 @@ export const telemetry = {
     stop: 'Stop',
   },
   metric: {
+    connections: 'Connections',
     download: 'Download',
     upload: 'Upload',
     uptime: 'Uptime',

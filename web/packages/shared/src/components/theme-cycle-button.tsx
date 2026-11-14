@@ -16,8 +16,15 @@ const themeIcons = {
   system: MonitorCog,
 } satisfies Record<ThemePreference, typeof Sun>;
 
+interface ThemeCycleButtonProps {
+  onCycle: () => void;
+  preference: ThemePreference;
+  /** Compact in a row of actions; embedded inside a bar. */
+  size?: 'icon-sm' | 'icon-xs';
+}
+
 /** Cycles the theme preference through light, system and dark; the application owns the preference. */
-export function ThemeCycleButton({ onCycle, preference }: { onCycle: () => void; preference: ThemePreference }) {
+export function ThemeCycleButton({ onCycle, preference, size = 'icon-sm' }: ThemeCycleButtonProps) {
   const { t } = useTranslation();
   const nextPreference = nextThemePreference(preference);
   const Icon = themeIcons[preference];
@@ -34,7 +41,7 @@ export function ThemeCycleButton({ onCycle, preference }: { onCycle: () => void;
             aria-label={label}
             data-theme-preference={preference}
             onClick={onCycle}
-            size='icon-sm'
+            size={size}
             variant='ghost'
           />
         )}

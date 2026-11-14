@@ -1,5 +1,6 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
+import { CSPProvider } from '@shared/components/ui/csp-provider';
 
 import i18n from '@/i18n';
 import { App } from '@/app';
@@ -17,6 +18,6 @@ applyThemePreference(storedThemePreference())();
 
 createRoot(rootElement).render(
   <StrictMode>
-    <App />
+    <CSPProvider><App /></CSPProvider>
   </StrictMode>,
 );

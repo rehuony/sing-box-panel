@@ -42,12 +42,6 @@ export function hostLoad({ metrics, node }: NodeStatus): HostLoad {
   };
 }
 
-/** A load share turns warning from 80% and danger from 95%. */
-export function loadTone(percent: number | null): 'warning' | 'danger' | undefined {
-  if (percent === null) return undefined;
-  return percent >= 95 ? 'danger' : percent >= 80 ? 'warning' : undefined;
-}
-
 /** Upload and download together in the node's current period. */
 export function periodUsage(metrics: MetricsSnapshot): number {
   const period = metrics.current_traffic_period;
@@ -63,8 +57,10 @@ export interface FleetFigures {
   upload: number;
   offline: number;
   pending: number;
-  /** Enrolled nodes whose core runs, of the enrolled ones. */
+  /** Online nodes whose core runs, and whose core is stopped; every other enrolled node's core is unknown. */
   running: number;
+  stopped: number;
+  unknown: number;
   download: number;
   enrolled: number;
   /** Nodes that reached their own quota. */
@@ -79,17 +75,23 @@ function sum(values: (number | null)[]): number | null {
 
 export function fleetFigures(items: readonly NodeStatus[]): FleetFigures {
   const rates = items.map(nodeRates);
+  const online = items.filter(item => item.node.state === 'online');
+  const running = online.filter(item => item.node.runtime?.observation_state === 'running').length;
+  const stopped = online.filter(item => item.node.runtime?.observation_state === 'stopped').length;
+  const enrolled = items.filter(item => item.node.state !== 'pending').length;
   return {
     connections: items.reduce((total, item) => total + (item.metrics.live_sample?.active_connections ?? 0), 0),
     download: items.reduce((total, item) => total + item.metrics.current_traffic_period.inbound_bytes, 0),
-    enrolled: items.filter(item => item.node.state !== 'pending').length,
+    enrolled,
     exhausted: items.filter(item => item.metrics.quota_exceeded).length,
     offline: items.filter(item => item.node.state === 'offline').length,
-    online: items.filter(item => item.node.state === 'online').length,
+    online: online.length,
     pending: items.filter(item => item.node.state === 'pending').length,
     rates: { download: sum(rates.map(rate => rate.download)), upload: sum(rates.map(rate => rate.upload)) },
-    running: items.filter(item => item.node.state !== 'pending' && item.node.runtime?.observation_state === 'running').length,
+    running,
+    stopped,
     total: items.length,
+    unknown: enrolled - running - stopped,
     upload: items.reduce((total, item) => total + item.metrics.current_traffic_period.outbound_bytes, 0),
   };
 }

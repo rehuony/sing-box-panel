@@ -47,3 +47,9 @@ export function formatUptime(
   if (startedAt === undefined) return `0${labels.second}`;
   return formatDuration(now - new Date(startedAt).getTime(), labels);
 }
+
+/** The tone a share takes as it nears full: warning from 80%, danger from 95%. */
+export function shareTone(percent: number | null): 'danger' | 'warning' | undefined {
+  if (percent === null) return undefined;
+  return percent >= 95 ? 'danger' : percent >= 80 ? 'warning' : undefined;
+}

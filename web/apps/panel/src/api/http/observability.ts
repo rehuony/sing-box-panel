@@ -3,6 +3,7 @@ import type { ApiClient, CoreLogChunk, CoreLogFile,
   DashboardStreamSnapshot,
   MetricsSnapshot,
   NodeSettings,
+  NodeUpdate,
   PanelLogPage } from '../api-client';
 
 import { ApiRequestError } from '../api-client';
@@ -98,6 +99,9 @@ export function createObservabilityHttpApi(context: HttpApiContext) {
     },
     getNodeSettings(signal) {
       return request<NodeSettings>(fetcher, `${nodeUrl()}/settings`, { method: 'GET', signal });
+    },
+    updateNode(signal) {
+      return request<NodeUpdate>(fetcher, `${nodeUrl()}/update`, { method: 'POST', headers: writeHeaders(), signal });
     },
     saveNodeSettings(input, signal) {
       return request<NodeSettings>(fetcher, `${nodeUrl()}/settings`, {

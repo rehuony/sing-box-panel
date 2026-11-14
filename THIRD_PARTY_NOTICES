@@ -88,6 +88,14 @@ License: MIT
 License documents:
   - LICENSE (SHA-256: 05c6130cda97e7600ca91427a41e8a065efcf82365fc0293e7de80faec494c07)
 
+Component: @codemirror/merge
+Ecosystem: web-package
+Version: 6.12.3
+Source: https://code.haverbeke.berlin/codemirror/merge.git
+License: MIT
+License documents:
+  - LICENSE (SHA-256: 7c6e3a020c1db4725560be9120b96eb2305ae7d37d155ee20e6023bb27ad144e)
+
 Component: @codemirror/search
 Ecosystem: web-package
 Version: 6.7.2
@@ -2479,6 +2487,33 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+================================================================================
+SHA-256: 7c6e3a020c1db4725560be9120b96eb2305ae7d37d155ee20e6023bb27ad144e
+Applies to:
+  - web-package:@codemirror/merge@6.12.3 — LICENSE
+--------------------------------------------------------------------------------
+MIT License
+
+Copyright (C) 2018-2022 by Marijn Haverbeke <marijn@haverbeke.berlin> and others
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+THE SOFTWARE.
 
 ================================================================================
 SHA-256: 7e744ae18ef84389d576469a5781172b0d50b7981111109f6da7cbc6b4188288

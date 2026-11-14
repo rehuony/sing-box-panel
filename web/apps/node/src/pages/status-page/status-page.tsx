@@ -3,6 +3,7 @@ import type { FieldControl } from '@shared/components/glyph-field';
 
 import { useTranslation } from 'react-i18next';
 import { useEffect, useRef, useState } from 'react';
+import { appendEntries, CommandLine, echo, logLine, settleEntry, TerminalBuffer, WindowMarks } from '@shared/components/terminal';
 
 import type { ConsoleStatus, Session } from '@/api/generated';
 
@@ -10,15 +11,13 @@ import { ConsoleFrame } from '@/components/console-frame';
 import { ConsoleRequestError, enroll, getStatus, logout, unenroll } from '@/api/console-client';
 
 import type { TrafficRates } from './status-format';
-import type { BufferEntry, PromptKind } from './buffer-entries';
+import type { BufferEntry, StatusBlock } from './buffer-entries';
 
 import { LinkClock } from './link-clock';
-import { CommandLine } from './command-line';
 import { statusEvents } from './status-events';
-import { TerminalBuffer } from './terminal-buffer';
+import { StatusReadout } from './status-readout';
+import { freezeStatus, shellPrompt, statusBlock } from './buffer-entries';
 import { connectionTone, nodeWords, panelAddress, trafficRates } from './status-format';
-import { appendEntries, echo, freezeStatus, logLine, statusBlock } from './buffer-entries';
-import './status-page.css';
 
 /** How often the page refreshes the node's status. */
 const REFRESH_INTERVAL_MS = 5_000;
@@ -26,6 +25,10 @@ const REFRESH_INTERVAL_MS = 5_000;
 const CODE_ECHO_LENGTH = 12;
 /** The command the terminal opens on, as if it had just been typed. */
 const STATUS_COMMAND = 'status';
+/** The host the prompt names before the node reports its own. */
+const DEFAULT_HOST = 'sing-box-node';
+const CODE_PROMPT = { kind: 'code' } as const;
+const CONFIRM_PROMPT = { kind: 'confirm' } as const;
 
 type EnrollCommand = 'enroll' | 're-enroll';
 
@@ -85,6 +88,7 @@ export function StatusPage({ field, initialStatus, session, onSignedOut }: Statu
     .format(Date.parse(value));
 
   const [status, setStatus] = useState<ConsoleStatus | null>(initialStatus);
+  const host = status?.node.hostname ?? DEFAULT_HOST;
   const [rates, setRates] = useState<TrafficRates | null>(null);
   const [now, setNow] = useState(Date.now);
   const [stale, setStale] = useState(false);
@@ -99,7 +103,7 @@ export function StatusPage({ field, initialStatus, session, onSignedOut }: Statu
   const inputRef = useRef<HTMLInputElement>(null);
   // The terminal opens on the status command's output, as if it had just been run.
   const [entries, setEntries] = useState<BufferEntry[]>(() => [
-    echo('shell', STATUS_COMMAND),
+    echo(shellPrompt(initialStatus?.node.hostname ?? DEFAULT_HOST), STATUS_COMMAND),
     statusBlock(),
     ...(initialStatus ? statusEvents(null, initialStatus, { clock, lastError: lastErrorRef, t }) : []),
   ]);
@@ -109,7 +113,7 @@ export function StatusPage({ field, initialStatus, session, onSignedOut }: Statu
   }
 
   function settle(id: number) {
-    setEntries(current => current.map(entry => entry.id === id && entry.kind === 'line' ? { ...entry, pending: false } : entry));
+    setEntries(current => settleEntry(current, id));
   }
 
   function accept(next: ConsoleStatus) {
@@ -215,11 +219,11 @@ export function StatusPage({ field, initialStatus, session, onSignedOut }: Statu
     const code = input.trim();
     // An empty line backs out, which a phone without Escape needs.
     if (code === '') {
-      print(echo('code', ''), logLine('muted', t('terminal.log.cancelled')));
+      print(echo(CODE_PROMPT, ''), logLine('muted', t('terminal.log.cancelled')));
       setMode({ kind: 'command' });
       return;
     }
-    print(echo('code', code.length > CODE_ECHO_LENGTH ? `${code.slice(0, CODE_ECHO_LENGTH)}…` : code));
+    print(echo(CODE_PROMPT, code.length > CODE_ECHO_LENGTH ? `${code.slice(0, CODE_ECHO_LENGTH)}…` : code));
     const pending = logLine('muted', t('terminal.log.enrolling'), { pending: true });
     print(pending);
     setMode({ kind: 'running' });
@@ -243,7 +247,7 @@ export function StatusPage({ field, initialStatus, session, onSignedOut }: Statu
 
   async function answer(input: string, address: string) {
     const reply = input.trim();
-    print(echo('confirm', reply));
+    print(echo(CONFIRM_PROMPT, reply));
     if (!/^y(?:es)?$/i.test(reply)) {
       print(logLine('muted', t('terminal.log.cancelled')));
       setMode({ kind: 'command' });
@@ -270,7 +274,7 @@ export function StatusPage({ field, initialStatus, session, onSignedOut }: Statu
 
   function execute(input: string) {
     const entry = input.trim();
-    print(echo('shell', entry));
+    print(echo(shellPrompt(host), entry));
     if (entry === '') return;
     const [name] = entry.split(/\s+/);
     switch (name) {
@@ -319,7 +323,7 @@ export function StatusPage({ field, initialStatus, session, onSignedOut }: Statu
 
   function cancel() {
     if (mode.kind !== 'code' && mode.kind !== 'confirm') return;
-    print(echo(mode.kind, '^C'), logLine('muted', t('terminal.log.cancelled')));
+    print(echo(mode.kind === 'code' ? CODE_PROMPT : CONFIRM_PROMPT, '^C'), logLine('muted', t('terminal.log.cancelled')));
     setMode({ kind: 'command' });
   }
 
@@ -330,19 +334,19 @@ export function StatusPage({ field, initialStatus, session, onSignedOut }: Statu
     inputRef.current?.focus({ preventScroll: true });
   }
 
-  const host = status?.node.hostname ?? 'sing-box-node';
   const tone = status ? connectionTone[status.connection.state] : null;
+  const commands = [...commandsFor(status), 'exit' as const].map(name => ({ description: t(`terminal.help.${helpKeys[name]}`), name }));
 
   let input = null;
   if (mode.kind !== 'running') {
-    const prompt: PromptKind = mode.kind === 'command' ? 'shell' : mode.kind;
+    const prompt = mode.kind === 'command' ? shellPrompt(host) : mode.kind === 'code' ? CODE_PROMPT : CONFIRM_PROMPT;
     input = (
       <CommandLine
-        commands={[...commandsFor(status), 'exit' as const].map(name => ({ description: t(`terminal.help.${helpKeys[name]}`), name }))}
-        host={host}
+        // Commands take no arguments, so only the first word completes.
+        completions={(_words, index) => index === 0 ? commands : []}
         inputRef={inputRef}
         label={t(`terminal.input.${mode.kind}`)}
-        placeholder={prompt === 'shell' ? 'help' : undefined}
+        placeholder={prompt.kind === 'shell' ? 'help' : undefined}
         prompt={prompt}
         onCancel={cancel}
         onSubmit={submit}
@@ -364,11 +368,7 @@ export function StatusPage({ field, initialStatus, session, onSignedOut }: Statu
         ref={field.anchor}
       >
         <header className='relative flex h-10 shrink-0 items-center px-4'>
-          <span aria-hidden='true' className='flex gap-2'>
-            <span className='size-3 rounded-full bg-[var(--color-window-close)]' />
-            <span className='size-3 rounded-full bg-[var(--color-window-minimize)]' />
-            <span className='size-3 rounded-full bg-[var(--color-window-zoom)]' />
-          </span>
+          <WindowMarks />
           <p className='pointer-events-none absolute inset-x-24 truncate text-center font-[family-name:var(--font-body)] font-medium'>
             {`console@${host}:~`}
           </p>
@@ -384,7 +384,12 @@ export function StatusPage({ field, initialStatus, session, onSignedOut }: Statu
               : null}
           </p>
         </header>
-        <TerminalBuffer entries={entries} host={host} live={{ now, rates, status }} stale={stale}>
+        <TerminalBuffer
+          entries={entries}
+          renderBlock={(block: StatusBlock) => (
+            <StatusReadout {...(block.frozen ?? { now, rates, status })} stale={!block.frozen && stale} />
+          )}
+        >
           {input}
         </TerminalBuffer>
       </section>

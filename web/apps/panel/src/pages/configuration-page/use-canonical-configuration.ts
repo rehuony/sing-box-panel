@@ -82,6 +82,8 @@ export function useCanonicalConfiguration() {
     ? { status: 'ready', error: null }
     : { status: 'loading', error: null });
   const [saving, setSaving] = useState(false);
+  // Each retry after a failed read reads the file again.
+  const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
     if (restored) return;
@@ -95,7 +97,12 @@ export function useCanonicalConfiguration() {
       if (!controller.signal.aborted) setLoadState({ status: 'error', error });
     });
     return () => controller.abort();
-  }, [client, replaceDraft, restored]);
+  }, [attempt, client, replaceDraft, restored]);
+
+  const reload = useCallback(() => {
+    setLoadState({ status: 'loading', error: null });
+    setAttempt(current => current + 1);
+  }, []);
 
   const state = useMemo<FileState>(() => {
     if (loadState.status === 'error') return { status: 'error', file: null, content: '', error: loadState.error };
@@ -148,5 +155,7 @@ export function useCanonicalConfiguration() {
   }, [resetDraft]);
   useUnsavedChanges(dirty, reset, saving, { allowSamePathNavigation: true });
 
-  return { state, draft: parsed.draft, editorError: parsed.error, dirty, saving, save, reset, update, updateText };
+  return {
+    state, draft: parsed.draft, editorError: parsed.error, dirty, saving, save, reload, reset, update, updateText,
+  };
 }

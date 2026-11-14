@@ -1,10 +1,10 @@
 import type { TFunction } from 'i18next';
+import type { LogLine } from '@shared/components/terminal';
+
+import { logLine } from '@shared/components/terminal';
 
 import type { ConsoleStatus, RuntimeReading } from '@/api/generated';
 
-import type { LogLine } from './buffer-entries';
-
-import { logLine } from './buffer-entries';
 import { panelAddress } from './status-format';
 
 interface EventContext {

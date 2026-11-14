@@ -30,5 +30,11 @@ export function useInstalledConfigurationVersions() {
     return result;
   }, [state.artifacts]);
 
-  return { ...state, artifactsByVersion, versions };
+  // Reads again only what failed, so a retry after an outage does not refetch what already arrived.
+  function retry() {
+    if (installed.error) void installed.refetch();
+    if (runtime.error) void runtime.refetch();
+  }
+
+  return { ...state, artifactsByVersion, retry, versions };
 }

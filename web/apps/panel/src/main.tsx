@@ -1,6 +1,7 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { createBrowserRouter } from 'react-router-dom';
+import { CSPProvider } from '@shared/components/ui/csp-provider';
 
 import i18n from '@/i18n';
 import { App } from '@/app';
@@ -30,7 +31,7 @@ function bootstrap() {
 
   createRoot(applicationRoot).render(
     <StrictMode>
-      <App apiClient={apiClient} router={router} />
+      <CSPProvider><App apiClient={apiClient} router={router} /></CSPProvider>
     </StrictMode>,
   );
 }

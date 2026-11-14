@@ -4,6 +4,9 @@ package server
 
 import (
 	"context"
+	"crypto/ed25519"
+	"crypto/rand"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"net"
@@ -11,15 +14,22 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"slices"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
+	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/timestamppb"
+
 	"github.com/rehuony/sing-box-panel/internal/buildinfo"
+	"github.com/rehuony/sing-box-panel/internal/nodeapi"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/app"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/httpapi"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/settings"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/store"
+	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/telemetry"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/testutil"
 )
 
@@ -27,6 +37,8 @@ import (
 // an isolated database for manual browser verification on development hosts.
 // It deliberately has no runtime executor: it cannot validate process lifecycle.
 // Run with SBP_BROWSER_REVIEW=1 go test ./internal/sing-box-panel/server -run '^TestBrowserReview$' -v -timeout 30m.
+// SBP_BROWSER_NODES sets the number of subscription nodes; SBP_BROWSER_FLEET
+// seeds that many fleet nodes, none with 0, in place of the two default ones.
 func TestBrowserReview(t *testing.T) {
 	if os.Getenv("SBP_BROWSER_REVIEW") != "1" {
 		t.Skip("opt-in browser review")
@@ -58,7 +70,20 @@ func TestBrowserReview(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	commands := app.New(db, configuration, app.Options{})
+	fleetCount := -1
+	if raw := os.Getenv("SBP_BROWSER_FLEET"); raw != "" {
+		count, err := strconv.Atoi(raw)
+		if err != nil || count < 0 || count > 1000 {
+			t.Fatal("SBP_BROWSER_FLEET must be in 0..1000")
+		}
+		fleetCount = count
+	}
+	build := buildinfo.Info{Version: "browser-review"}
+	if fleetCount >= 0 {
+		// A release version, so nodes that run another one offer an update.
+		build.Version = reviewRelease
+	}
+	commands := app.New(db, configuration, app.Options{Build: build})
 	nodeCount := 2
 	if raw := os.Getenv("SBP_BROWSER_NODES"); raw != "" {
 		count, err := strconv.Atoi(raw)
@@ -73,11 +98,14 @@ func TestBrowserReview(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	// Fleet nodes without sessions, so node-scoped pages show offline nodes.
-	for _, name := range []string{"edge-tokyo", "edge-frankfurt"} {
-		testutil.CreateNode(t, db, name)
+	if fleetCount >= 0 {
+		go feedReviewFleet(ctx, commands.Telemetry, seedReviewFleet(t, db, fleetCount))
+	} else {
+		// Fleet nodes that never enrolled, so node-scoped pages show their states.
+		for _, name := range []string{"edge-tokyo", "edge-frankfurt"} {
+			testutil.CreateNode(t, db, name)
+		}
 	}
-	build := buildinfo.Info{Version: "browser-review"}
 	handler := httpapi.NewHandler(httpapi.HandlerOptions{
 		Settings: configuration, Build: build, Services: commands,
 		Assets: os.DirFS("../../../web/apps/panel/dist"),
@@ -92,5 +120,185 @@ func TestBrowserReview(t *testing.T) {
 	t.Log("Browser review: http://127.0.0.1:3337/panel (isolated database; no runtime executor)")
 	if err := server.Serve(listener); err != nil && err != http.ErrServerClosed {
 		t.Fatal(err)
+	}
+}
+
+// reviewRelease is the panel release a seeded review fleet runs against.
+const reviewRelease = "v0.9.1"
+
+// reviewNode is a seeded node the review server shows online, with the
+// totals its simulated core has counted.
+type reviewNode struct {
+	id, instance     string
+	index            int
+	upload, download int64
+}
+
+// seedReviewFleet adds count fleet nodes in mixed states and returns the
+// online ones: every sixth never enrolled; of the rest, every other one has a
+// recorded session and a state report, which the review server shows online,
+// and the others went offline at increasing times. Every fourth has a long
+// name, every node carries one to three tags, every eighth enrolled one runs
+// an older release, and online nodes cycle through no quota, a reached quota,
+// a nearly reached one and a comfortable one.
+func seedReviewFleet(t *testing.T, database *store.Store, count int) []*reviewNode {
+	t.Helper()
+	ctx, now := t.Context(), time.Now().UTC()
+	regions := []string{"hk", "jp", "sg", "us", "de", "uk"}
+	var online []*reviewNode
+	for index := range count {
+		region := regions[index%len(regions)]
+		name := fmt.Sprintf("%s-edge-%03d", region, index+1)
+		if index%4 == 3 {
+			name = fmt.Sprintf("%s-equinix-premium-relay-%03d-with-a-rather-long-name", region, index+1)
+		}
+		token := sha256.Sum256(fmt.Appendf(nil, "token-review-%03d", index+1))
+		node, err := database.CreateNode(ctx, store.NewNode{
+			ID: fmt.Sprintf("node_review_%03d", index+1), Name: name,
+			CreatedAt: now.Add(-time.Duration(index) * time.Hour), ExpiresAt: now.Add(time.Hour), TokenHash: token,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		tags := []string{region}
+		if index%4 == 3 {
+			tags = append(tags, "premium")
+		}
+		if index%3 == 0 {
+			tags = append(tags, "cn2")
+		}
+		slices.Sort(tags)
+		var quota *int64
+		switch index % 10 {
+		case 0:
+			quota = new(int64(1))
+		case 2:
+			quota = new(int64(2))
+		case 4:
+			quota = new(int64(500))
+		}
+		if _, err := database.SaveNodeSettings(ctx, node.ID, 1, store.NodeSettings{
+			Traffic: store.NodeTrafficSettings{PeriodMonths: 1, ResetDay: 1, QuotaGiB: quota}, Tags: tags,
+		}); err != nil {
+			t.Fatal(err)
+		}
+		if index%6 == 5 {
+			continue
+		}
+		key := make([]byte, ed25519.PublicKeySize)
+		if _, err := rand.Read(key); err != nil {
+			t.Fatal(err)
+		}
+		arch, version := "amd64", reviewRelease
+		if index%2 == 1 {
+			arch = "arm64"
+		}
+		if index%8 == 0 {
+			version = "v0.9.0"
+		}
+		if _, err := database.EnrollNode(ctx, token, store.NodeEnrollment{
+			PublicKey: key, Hostname: name + ".review.example.net", OS: "linux", Arch: arch,
+			BuildVersion: version, EnrolledAt: now.Add(-time.Duration(index) * time.Hour),
+		}); err != nil {
+			t.Fatal(err)
+		}
+		seen := now.Add(-time.Duration(index*7) * time.Minute)
+		if index%2 == 1 {
+			if err := database.TouchNode(ctx, node.ID, key, seen); err != nil {
+				t.Fatal(err)
+			}
+			continue
+		}
+		session := fmt.Sprintf("session_review_%03d", index+1)
+		if err := database.RecordNodeSession(ctx, node.ID, key, store.NodeSession{
+			ID: session, InstanceID: "instance_" + session, OS: "linux", Arch: arch, BuildVersion: version, SeenAt: now,
+		}); err != nil {
+			t.Fatal(err)
+		}
+		report, summary := reviewReport(index, now)
+		encoded, err := proto.Marshal(report)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := database.RecordNodeStateReport(ctx, node.ID, session, encoded, summary, now); err != nil {
+			t.Fatal(err)
+		}
+		online = append(online, &reviewNode{id: node.ID, instance: "instance_" + session, index: index})
+	}
+	return online
+}
+
+// reviewReport is what an online review node reports: a running core, or
+// every tenth a stopped one, under one of two core versions.
+func reviewReport(index int, now time.Time) (*nodeapi.StateReport, store.NodeReport) {
+	core, bundle := "1.13.19", fmt.Sprintf("bundle_review_%03d", index+1)
+	if index%3 == 1 {
+		core = "1.12.8"
+	}
+	runtime := &nodeapi.RuntimeStatus{ObservationState: "running", AppliedBundleId: bundle, DesiredRunning: true, Running: &nodeapi.RunningCore{
+		Pid: int64(1000 + index), ProcessStartToken: "token", ExactCoreVersion: core, CoreArtifactId: "artifact",
+		ActivationBundleId: bundle, StartedAt: timestamppb.New(now.Add(-time.Duration(index*97) * time.Minute)),
+	}}
+	if index%10 == 6 {
+		runtime = &nodeapi.RuntimeStatus{ObservationState: "stopped", AppliedBundleId: bundle}
+	}
+	ip := fmt.Sprintf("203.0.113.%d", index%250+1)
+	report := &nodeapi.StateReport{
+		Host:    &nodeapi.Host{PublicIp: ip, Platform: &nodeapi.Platform{Os: "linux", Arch: "amd64"}},
+		Applied: &nodeapi.Bundle{BundleId: bundle, RevisionId: "revision", ConfigurationSha256: strings.Repeat("a", 64), ExactCoreVersion: core},
+		Runtime: runtime,
+	}
+	return report, store.NodeReport{PublicIP: ip, Applied: store.AppliedBundle{ID: bundle, RevisionID: "revision", ExactCoreVersion: core}}
+}
+
+// feedReviewFleet sends every online review node a sample every five
+// seconds: host load that reaches the warning and danger thresholds on some
+// nodes, and, while the core runs, traffic at the node's own rate. The first
+// two samples count each quota's share, so quotas read reached, nearly
+// reached or comfortable.
+func feedReviewFleet(ctx context.Context, records *telemetry.Service, nodes []*reviewNode) {
+	sample := func(node *reviewNode, at time.Time) {
+		cpu, load, memory, disk := float64(node.index*37%100), float64(node.index%9)/2, uint64(8<<30), uint64(64<<30)
+		memoryUsed, diskUsed := memory*uint64(node.index*53%100)/100, disk*uint64(node.index*71%100)/100
+		value := telemetry.NodeSample{SampledAt: at, Host: &telemetry.HostMetrics{
+			SampledAt: at, CPUPercent: &cpu, CPUCount: 4, LoadOne: &load,
+			MemoryTotal: &memory, MemoryUsed: &memoryUsed, DiskTotal: &disk, DiskUsed: &diskUsed,
+		}}
+		if node.index%10 != 6 {
+			value.Traffic = &telemetry.NodeTraffic{
+				ActivationBundleID: fmt.Sprintf("bundle_review_%03d", node.index+1), PID: 1000 + node.index, ProcessStartToken: "token",
+				UploadTotal: node.upload, DownloadTotal: node.download, Connections: int64(node.index * 3 % 200), MemoryBytes: 64 << 20,
+			}
+		}
+		_ = records.RecordNodeSample(ctx, node.id, node.instance, value)
+	}
+	start := time.Now().Add(-3 * time.Minute)
+	for _, node := range nodes {
+		sample(node, start)
+		switch node.index % 10 {
+		case 0:
+			node.download = 1288 << 20
+		case 2:
+			node.download = 1894 << 20
+		default:
+			node.download = int64(node.index+1) << 24
+		}
+		node.upload = node.download / 4
+		sample(node, time.Now().Add(-20*time.Second))
+	}
+	ticker := time.NewTicker(5 * time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case at := <-ticker.C:
+			for _, node := range nodes {
+				rate := int64(node.index%7+1) << 17
+				node.download += rate * 5
+				node.upload += rate * 5 / 3
+				sample(node, at)
+			}
+		}
 	}
 }

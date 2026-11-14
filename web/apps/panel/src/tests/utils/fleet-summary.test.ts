@@ -21,7 +21,9 @@ describe('fleet summary', () => {
       status('away', { state: 'offline' }, { current_traffic_period: period(50, 50), quota_bytes: 10 }),
     ];
     const figures = fleetFigures(items);
-    expect(figures).toMatchObject({ download: 450, exhausted: 0, offline: 1, online: 1, upload: 150 });
+    expect(figures).toMatchObject({
+      download: 450, exhausted: 0, offline: 1, online: 1, running: 0, stopped: 1, unknown: 1, upload: 150,
+    });
     // The stopped node's rates are a known zero; the offline one adds nothing unknown to them.
     expect(figures.rates).toEqual({ download: 0, upload: 0 });
     expect(fleetFigures([items[1]!]).rates).toEqual({ download: null, upload: null });

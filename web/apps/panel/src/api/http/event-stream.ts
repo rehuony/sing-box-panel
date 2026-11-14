@@ -2,13 +2,23 @@ import { ApiRequestError } from '../api-client';
 
 export class StreamRotation extends Error {}
 
-const frameByteLimit = 1_048_576;
+const defaultFrameByteLimit = 1_048_576;
 
-/** Bounded SSE decoder shared by telemetry and raw-output transports. */
+/** Bounded SSE decoder shared by telemetry and raw-output transports: the data of every event of one type. */
 export async function* readJSONEvents<T>(
   response: Response,
   expectedType: string,
+  frameByteLimit = defaultFrameByteLimit,
 ): AsyncGenerator<T> {
+  for await (const { data } of readNamedJSONEvents<T>(response, [expectedType], frameByteLimit)) yield data;
+}
+
+/** The same decoder for a stream of several event types, each event with its type. */
+export async function* readNamedJSONEvents<T>(
+  response: Response,
+  expectedTypes: readonly string[],
+  frameByteLimit = defaultFrameByteLimit,
+): AsyncGenerator<{ event: string; data: T }> {
   if (!response.headers.get('Content-Type')?.startsWith('text/event-stream') || !response.body) {
     throw new ApiRequestError('The endpoint did not return an event stream.', {
       code: 'stream_invalid',
@@ -52,12 +62,12 @@ export async function* readJSONEvents<T>(
           const data = lines.filter(line => line.startsWith('data:')).map(line => line.slice(5)).join('\n');
           if (JSON.parse(data).type === 'reconnect') throw new StreamRotation();
         }
-        if (event === expectedType) {
+        if (event !== undefined && expectedTypes.includes(event)) {
           const data = lines
             .filter((line) => line.startsWith('data:'))
             .map((line) => line.slice(5).trimStart())
             .join('\n');
-          yield JSON.parse(data) as T;
+          yield { data: JSON.parse(data) as T, event };
         }
         boundary = /\r?\n\r?\n/.exec(buffer);
       }

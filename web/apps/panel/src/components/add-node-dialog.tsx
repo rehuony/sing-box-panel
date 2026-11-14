@@ -16,7 +16,8 @@ import { describeRequestError } from '@/components/error-notice';
 import { NodeEnrollmentDialog } from '@/components/node-enrollment-dialog';
 
 /** Registers a node by name, then shows the one-time code that enrolls it. */
-export function AddNodeDialog({ onAdded }: { onAdded: () => void }) {
+/** Adds a node and shows its enrollment code; in a strip on a phone the action keeps only its icon. */
+export function AddNodeDialog({ iconOnPhone = false, onAdded }: { iconOnPhone?: boolean; onAdded: () => void }) {
   const { t } = useTranslation();
   const client = useApiClient();
   const [open, setOpen] = useState(false);
@@ -43,16 +44,16 @@ export function AddNodeDialog({ onAdded }: { onAdded: () => void }) {
   return (
     <>
       <Button
+        className={iconOnPhone ? 'max-sm:w-(--control-height) max-sm:px-0' : undefined}
         onClick={() => {
           setName('');
           setMissing(false);
           create.reset();
           setOpen(true);
         }}
-        size='sm'
       >
         <Plus aria-hidden='true' data-icon='inline-start' />
-        {t('fleet.add.action')}
+        <span className={iconOnPhone ? 'max-sm:sr-only' : undefined}>{t('fleet.add.action')}</span>
       </Button>
       <Dialog
         onOpenChange={setOpen}

@@ -12,8 +12,10 @@ export type {
   CoreArtifact,
   CoreArtifactPage,
   RuntimeHistoryPage,
+  RuntimeResponse,
   RuntimeStatus,
   RuntimeTransition,
+  StartupArtifactPage,
   StartupArtifactSummary,
 } from '../generated';
 

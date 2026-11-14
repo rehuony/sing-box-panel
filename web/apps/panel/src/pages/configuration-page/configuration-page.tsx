@@ -10,17 +10,34 @@ import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectVa
 
 import { nodePath } from '@/utils/node-path';
 import { useHashTab } from '@/hooks/use-hash-tab';
+import { ApiRequestError } from '@/api/api-client';
 import { useApiClient } from '@/api/api-client-context';
 import { LoadingState } from '@/components/loading-state';
 import { useCurrentNode } from '@/stores/current-node.store';
 import { useOptionalSharedTelemetry } from '@/components/node-workspace';
-import { describeRequestError, ErrorNotice } from '@/components/error-notice';
+import { describeProblem, describeRequestError } from '@/components/error-notice';
 import { useConfigurationSessionStore } from '@/stores/configuration-session.store';
 
 import { DynamicGeneralEditor } from './dynamic-general-editor';
 import { useConfigurationSchema } from './use-configuration-schema';
+import { ConfigurationCopyDialog } from './configuration-copy-dialog';
 import { useCanonicalConfiguration } from './use-canonical-configuration';
+import { AppliedConfigurationsDialog } from './applied-configurations-dialog';
 import { useInstalledConfigurationVersions } from './use-installed-configuration-versions';
+
+/** A region whose data could not be read: what failed, why, and a retry, in place of an empty panel. */
+function RegionError({ error, onRetry, title }: { error: unknown; onRetry: () => void; title: string }) {
+  const { t } = useTranslation();
+  return (
+    <div className='flex h-full min-h-48 flex-col items-center justify-center gap-3 px-4 text-center' role='status'>
+      <h2 className='m-0 text-sm font-medium'>{title}</h2>
+      <p className='m-0 max-w-md text-sm text-muted-foreground wrap-anywhere'>
+        {describeProblem(error instanceof ApiRequestError ? error.code : undefined, describeRequestError(error))}
+      </p>
+      <Button onClick={onRetry} type='button' variant='outline'>{t('shell.error.retry')}</Button>
+    </div>
+  );
+}
 
 const AdvancedConfigurationEditor = lazy(() => import('./advanced-configuration-editor').then(module => ({ default: module.AdvancedConfigurationEditor })));
 
@@ -153,7 +170,13 @@ export function ConfigurationPage() {
                   )}
               <TabsTrigger disabled={!fileReady} value='advanced'>{t('configuration.tab.advanced')}</TabsTrigger>
             </TabsList>
-            <div className='ml-auto flex max-w-full min-w-0 max-sm:ml-0'>
+            <div className='ml-auto flex max-w-full min-w-0 items-center gap-2 max-sm:ml-0 max-sm:flex-wrap'>
+              <AppliedConfigurationsDialog />
+              <ConfigurationCopyDialog
+                disabled={locked}
+                draft={canonical.state.content}
+                onReplace={canonical.updateText}
+              />
               <Select
                 disabled={installed.status !== 'ready' || noInstalledVersions}
                 value={schemaVersion || null}
@@ -174,20 +197,23 @@ export function ConfigurationPage() {
             </div>
           </div>
           {schema.status === 'error' && (
-            <p className='m-0 border-b px-4 py-2 text-xs text-[var(--color-text-secondary)]' role='alert'>
-              {t('configuration.schema.failClosed')}
-              :
-              {' '}
-              {describeRequestError(schema.error)}
-            </p>
+            <div className='flex items-center gap-3 border-b px-4 py-2' role='alert'>
+              <p className='m-0 min-w-0 flex-1 text-xs text-[var(--color-text-secondary)] wrap-anywhere'>
+                {t('configuration.schema.failClosed')}
+                :
+                {' '}
+                {describeRequestError(schema.error)}
+              </p>
+              <Button onClick={schema.retry} size='sm' type='button' variant='outline'>{t('shell.error.retry')}</Button>
+            </div>
           )}
           {canonical.state.status === 'error'
-            ? <div className='min-h-0 flex-1 overflow-hidden pt-2'><ErrorNotice error={canonical.state.error} title={t('configuration.error.unavailable')} /></div>
+            ? <div className='min-h-0 flex-1 overflow-hidden pt-2'><RegionError error={canonical.state.error} onRetry={canonical.reload} title={t('configuration.error.unavailable')} /></div>
             : (
                 <>
                   <TabsContent className='min-h-0 flex-1 overflow-hidden pt-2 has-[>[data-configuration-general]]:mr-[calc(-1*var(--configuration-inset))] has-[>[data-configuration-general]]:pt-0' value='visual'>
                     {installed.status === 'error'
-                      ? <ErrorNotice error={installed.error} title={t('configuration.error.versionsUnavailable')} />
+                      ? <RegionError error={installed.error} onRetry={installed.retry} title={t('configuration.error.versionsUnavailable')} />
                       : noInstalledVersions
                         ? (
                             <div className='flex h-full min-h-48 flex-col items-center justify-center gap-3 text-center' role='status'>

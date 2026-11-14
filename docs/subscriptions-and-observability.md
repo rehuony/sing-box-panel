@@ -715,8 +715,8 @@ projections rather than loading complete saved configurations.
 
 Live, history and log streams have independent browser ownership. The live metrics
 stream stays connected across browser tab switches and continues collecting
-received samples. Hidden tabs pause history, logs and polling; those subscriptions
-resume when visible. Normal rotation sends
+received samples. Hidden tabs pause history, logs, the fleet stream and polling;
+those subscriptions resume when visible. Normal rotation sends
 `event: control` with `{"type":"reconnect"}` before the one-minute authentication
 limit. Older clients may ignore that event. The client reconnects immediately;
 unexpected failures use jittered exponential backoff capped at 30 seconds.
@@ -887,7 +887,7 @@ every node's current period, quota and `quota_exceeded`, and sums only usage
 into `upload_bytes` and `download_bytes`; quotas are never summed.
 `GET /api/v1/fleet/status` returns every node with the metrics snapshot
 `GET /api/v1/nodes/{nodeId}/metrics` returns for it, without `latest_sample`
-and the period's `counters`, so the overview and the nodes view read the
+and the period's `counters`, so the nodes home and the status line read the
 fleet's load, live rates and period usage in one request. One read of the
 fleet is a single query for the nodes; their live evidence and recorded traffic
 come from memory, and each node's item is encoded once for every reader. An
@@ -906,7 +906,11 @@ the next read a new one. Both accept `state` (`pending`, `online` or
 ignoring case); `/fleet/status` also pages with `limit` and the `next_cursor` of
 the previous page as `cursor`, and without parameters both return every node.
 `/fleet/status` sends an `ETag` digest of its body, so a client holding an
-unchanged page gets `304`.
+unchanged page gets `304`. The Web client follows the fleet stream while its
+page is visible and applies each event to every fleet view, keeping the
+panel's order of names ignoring ASCII case, then IDs; a reconnect starts again
+from a reset event, and a stream that stays down hands over to one
+`/fleet/status` read.
 
 Raw samples follow the required `traffic.sample_retention_days` setting, which
 is initialized to 90 and accepts 1 through 366 days. A settings file without

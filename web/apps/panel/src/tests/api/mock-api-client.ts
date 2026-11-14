@@ -21,6 +21,7 @@ import type {
   SubscriptionChannel,
   SubscriptionSource,
   SubscriptionToken,
+  SystemUpdate,
   TrafficPeriod,
 } from '@/api/api-client';
 
@@ -43,6 +44,18 @@ export const testNode: FleetNode = {
   tags: [],
   update_available: false,
   last_update: null,
+};
+
+export const testSystemUpdate: SystemUpdate = {
+  current_version: 'v1.0.0',
+  supported: true,
+  latest_version: 'v1.1.0',
+  checked_at: '2026-08-26T07:00:00Z',
+  check_failure: null,
+  update_available: true,
+  state: 'idle',
+  target_version: null,
+  last_attempt: null,
 };
 
 export const testNodeSettings: NodeSettings = {
@@ -428,6 +441,19 @@ export function createMockApiClient(overrides: Partial<ApiClient> = {}): Mocked<
         else signal?.addEventListener('abort', () => resolve(), { once: true });
       });
     }),
+    streamFleetStatus: vi.fn<ApiClient['streamFleetStatus']>(async function* (signal) {
+      await new Promise<void>((resolve) => {
+        if (signal?.aborted) resolve();
+        else signal?.addEventListener('abort', () => resolve(), { once: true });
+      });
+    }),
+    listStartupArtifacts: vi.fn<ApiClient['listStartupArtifacts']>().mockResolvedValue({ items: [testStartupArtifact] }),
+    activateStartupArtifact: vi.fn<ApiClient['activateStartupArtifact']>(),
+    runFleetCommand: vi.fn<ApiClient['runFleetCommand']>(async function* (command) {
+      const ids = command.node_ids ?? [];
+      for (const id of ids) yield { result: { node_id: id, ok: true } };
+      yield { done: { failed: 0, skipped: 0, succeeded: ids.length, total: ids.length } };
+    }),
     streamDashboard: vi.fn<ApiClient['streamDashboard']>(async function* (signal) {
       await new Promise<void>((resolve) => {
         if (signal?.aborted) resolve();
@@ -437,6 +463,10 @@ export function createMockApiClient(overrides: Partial<ApiClient> = {}): Mocked<
     getMetrics: vi.fn<ApiClient['getMetrics']>().mockResolvedValue(testMetrics),
     getNodeSettings: vi.fn<ApiClient['getNodeSettings']>().mockResolvedValue(testNodeSettings),
     saveNodeSettings: vi.fn<ApiClient['saveNodeSettings']>(async input => ({ ...input, revision: input.revision + 1 })),
+    getSystemUpdate: vi.fn<ApiClient['getSystemUpdate']>().mockResolvedValue(testSystemUpdate),
+    checkSystemUpdate: vi.fn<ApiClient['checkSystemUpdate']>().mockResolvedValue(testSystemUpdate),
+    startSystemUpdate: vi.fn<ApiClient['startSystemUpdate']>().mockResolvedValue({ ...testSystemUpdate, state: 'updating' }),
+    updateNode: vi.fn<ApiClient['updateNode']>().mockResolvedValue({ node_id: 'node-a', version: 'v1.1.0', state: 'staged' }),
   };
   const result = { ...client, ...overrides } as Mocked<ApiClient>;
   // A node's client shares the mocks, so tests observe node-scoped calls.

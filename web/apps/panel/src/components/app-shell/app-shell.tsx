@@ -1,115 +1,23 @@
-import type { CSSProperties } from 'react';
-
-import { LogOut } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useQuery } from '@tanstack/react-query';
-import { Button } from '@shared/components/ui/button';
-import { Spinner } from '@shared/components/ui/spinner';
-import { motion, useReducedMotion } from 'motion/react';
+import { Suspense, useEffect, useRef } from 'react';
+import { Outlet, useLocation } from 'react-router-dom';
 import { formatRate } from '@shared/lib/telemetry-format';
-import { Suspense, useEffect, useRef, useState } from 'react';
+import { ScrollArea } from '@shared/components/ui/scroll-area';
 
 import '@/i18n';
-import { ScrollArea } from '@shared/components/ui/scroll-area';
-import { LanguageMenu } from '@shared/components/language-menu';
-import { NavLink, Outlet, useLocation } from 'react-router-dom';
-import { useSidebar } from '@shared/components/ui/sidebar-context';
-import { ThemeCycleButton } from '@shared/components/theme-cycle-button';
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from '@shared/components/ui/tooltip';
-import {
-  Sidebar,
-  SidebarContent,
-  SidebarFooter,
-  SidebarGroup,
-  SidebarGroupContent,
-  SidebarHeader,
-  SidebarMenu,
-  SidebarMenuButton,
-  SidebarMenuItem,
-  SidebarProvider,
-} from '@shared/components/ui/sidebar';
-
-import type { PagePath } from '@/routes/page-loaders';
-
-import { useTheme } from '@/theme';
 import { queries } from '@/api/queries';
 import { fleetWords } from '@/utils/fleet-summary';
 import { useBackdrop } from '@/components/backdrop';
-import { PanelLogo } from '@/components/panel-logo';
 import { preloadPage } from '@/routes/page-loaders';
 import { useApiClient } from '@/api/api-client-context';
-import { ErrorNotice } from '@/components/error-notice';
-import { AnimatedIcon } from '@/components/animated-icon';
 import { LoadingState } from '@/components/loading-state';
 import { useAuthSession } from '@/stores/auth-session.store';
-import { useUnsavedChangesContext } from '@/stores/unsaved-changes.store';
+import { useReloadOnPanelVersion } from '@/hooks/use-panel-update';
+import { useCommandSession } from '@/stores/command-session.store';
+import { StatusLine, useShellScope } from '@/components/status-line';
 
-const navigationItems = [
-  { icon: 'overview', labelKey: 'nav.overview', page: 'overview', to: '/overview' },
-  { icon: 'nodes', labelKey: 'nav.nodes', page: 'nodes', to: '/nodes' },
-  { icon: 'subscriptions', labelKey: 'nav.subscriptions', page: 'subscriptions', to: '/subscriptions' },
-  { icon: 'logs', labelKey: 'nav.logs', page: 'logs', to: '/logs' },
-  { icon: 'settings', labelKey: 'nav.settings', page: 'settings', to: '/settings' },
-] as const satisfies readonly { icon: string; labelKey: string; page: PagePath; to: string }[];
-
-function isNavigationItemActive(pathname: string, to: string): boolean {
-  return pathname === to || pathname.startsWith(`${to}/`);
-}
-
-function ShellNavigationItem({
-  item,
-  pathname,
-}: {
-  item: typeof navigationItems[number];
-  pathname: string;
-}) {
-  const { t } = useTranslation();
-  const { setOpenMobile } = useSidebar();
-  const reducedMotion = useReducedMotion();
-  const [iconActive, setIconActive] = useState(false);
-  const active = isNavigationItemActive(pathname, item.to);
-
-  return (
-    <SidebarMenuItem>
-      <SidebarMenuButton
-        className='relative isolate gap-3 overflow-visible px-3 font-medium text-[var(--color-text-secondary)] transition-[background-color,color] duration-[var(--dur-short)] ease-out hover:bg-[var(--color-surface-raised)] data-active:bg-transparent data-active:text-foreground [&_svg]:size-[18px]'
-        isActive={active}
-        onBlur={() => setIconActive(false)}
-        onClick={() => setOpenMobile(false)}
-        onFocus={() => {
-          setIconActive(true);
-          preloadPage(item.page);
-        }}
-        onPointerEnter={() => {
-          setIconActive(true);
-          preloadPage(item.page);
-        }}
-        onPointerDown={() => preloadPage(item.page)}
-        onPointerLeave={() => setIconActive(false)}
-        render={<NavLink to={item.to} />}
-        size='lg'
-        tooltip={t(item.labelKey)}
-      >
-        {active
-          ? (
-              <motion.span
-                aria-hidden
-                className='pointer-events-none absolute inset-0 -z-10 rounded-[inherit] bg-accent'
-                layoutId='panel-navigation-selection'
-                transition={reducedMotion ? { duration: 0 } : { type: 'spring', bounce: 0, duration: 0.35 }}
-              />
-            )
-          : null}
-        <AnimatedIcon active={iconActive} name={item.icon} size={18} />
-        <span>{t(item.labelKey)}</span>
-      </SidebarMenuButton>
-    </SidebarMenuItem>
-  );
-}
+import { useFleetStream } from './use-fleet-stream';
 
 function WorkspaceLoadingState() {
   const { t } = useTranslation();
@@ -122,51 +30,68 @@ function useFleetWords() {
   const locale = i18n.resolvedLanguage ?? i18n.language ?? 'en';
   const client = useApiClient();
   const { setWords } = useBackdrop();
-  const fleet = useQuery({ ...queries.fleetStatus(client), refetchInterval: 30_000 });
+  const fleet = useQuery(queries.fleetStatus(client));
   useEffect(() => {
     setWords(fleetWords(fleet.data?.items ?? [], value => formatRate(value, locale)));
   }, [fleet.data, locale, setWords]);
 }
 
+/** Whether a key typed here belongs to what has focus: a field, an editor, a menu or a dialog. */
+function typingTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof Element)) return false;
+  return target.closest('input, textarea, select, [contenteditable]:not([contenteditable="false"]), .cm-editor, [role="dialog"], [role="alertdialog"], [role="menu"], [role="listbox"]') !== null;
+}
+
+/** A modal layer holds focus, so the command line cannot take it. */
+function modalOpen(): boolean {
+  return document.querySelector('[role="dialog"][aria-modal="true"], [role="alertdialog"]') !== null;
+}
+
+/** Ctrl or Cmd+K anywhere, or `:` outside fields, editors and dialogs, opens the command line. */
+function useCommandShortcut() {
+  useEffect(() => {
+    function onKeyDown(event: KeyboardEvent) {
+      const { open, setOpen } = useCommandSession.getState();
+      const commandKey = event.key.toLowerCase() === 'k' && (event.metaKey || event.ctrlKey) && !event.altKey && !event.shiftKey;
+      const colon = event.key === ':' && !event.metaKey && !event.ctrlKey && !event.altKey && !typingTarget(event.target);
+      if (!(commandKey || colon) || modalOpen()) return;
+      event.preventDefault();
+      if (!open) setOpen(true);
+      else if (commandKey) document.querySelector<HTMLInputElement>('[data-slot="terminal-input"]')?.focus();
+    }
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, []);
+}
+
+/**
+ * The signed-in shell: the workspace filling the window at the shell's inset
+ * and the status line below it, which names the scope and its windows and
+ * reads commands.
+ */
 export function AppShell() {
   const { t } = useTranslation();
+  useFleetStream();
   useFleetWords();
-  const { logout, session } = useAuthSession();
-  const { cycleTheme, preference } = useTheme();
-  const { confirmNavigation } = useUnsavedChangesContext();
+  useCommandShortcut();
+  useReloadOnPanelVersion();
+  const { session } = useAuthSession();
+  const shell = useShellScope();
   const location = useLocation();
   const mainRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
-  const [logoutError, setLogoutError] = useState<unknown | null>(null);
-  const [loggingOut, setLoggingOut] = useState(false);
   useEffect(() => {
-    preloadPage('overview');
+    preloadPage('nodes');
   }, []);
   useEffect(() => {
     if (scrollRef.current) scrollRef.current.scrollTop = 0;
     mainRef.current?.focus({ preventScroll: true });
   }, [location.pathname]);
 
-  async function signOut() {
-    setLoggingOut(true);
-    setLogoutError(null);
-    try {
-      await logout();
-    } catch (error) {
-      setLogoutError(error);
-    } finally {
-      setLoggingOut(false);
-    }
-  }
-
   if (session === null) return null;
 
   return (
-    <SidebarProvider
-      className='h-dvh min-h-0 overflow-hidden'
-      open
-      style={{ '--sidebar-width': 'var(--shell-sidebar-width)' } as CSSProperties}
-    >
+    <div className='flex h-dvh min-h-0 flex-col gap-3 overflow-hidden p-[var(--shell-edge)] max-sm:gap-0 max-sm:p-0'>
       <a
         className='fixed top-3 left-4 z-[var(--z-modal)] -translate-y-[160%] rounded-[var(--radius-control)] bg-primary px-4 py-3 text-sm font-medium text-primary-foreground transition-transform duration-[var(--dur-short)] ease-[var(--ease-out)] focus:translate-y-0'
         href='#main-content'
@@ -177,56 +102,18 @@ export function AppShell() {
       >
         {t('shell.skip')}
       </a>
-      <Sidebar className='p-[var(--shell-edge)]' collapsible='offcanvas' variant='floating'>
-        <SidebarHeader className='min-h-19 justify-center p-4'>
-          <PanelLogo />
-        </SidebarHeader>
-        <SidebarContent className='p-2'>
-          <SidebarGroup className='p-0'>
-            <SidebarGroupContent>
-              <SidebarMenu className='gap-1'>
-                {navigationItems.map(item => (
-                  <ShellNavigationItem item={item} key={item.to} pathname={location.pathname} />
-                ))}
-              </SidebarMenu>
-            </SidebarGroupContent>
-          </SidebarGroup>
-        </SidebarContent>
-        <SidebarFooter className='flex-row items-center gap-2 p-3'>
-          <ThemeCycleButton onCycle={cycleTheme} preference={preference} />
-          <LanguageMenu />
-          <Tooltip>
-            <TooltipTrigger
-              render={(
-                <Button
-                  aria-label={loggingOut ? t('account.signingOut') : t('account.signOut')}
-                  className='ml-auto'
-                  disabled={loggingOut}
-                  onClick={() => confirmNavigation(() => void signOut())}
-                  size='icon-sm'
-                  variant='ghost'
-                />
-              )}
-            >
-              {loggingOut ? <Spinner /> : <LogOut aria-hidden='true' />}
-            </TooltipTrigger>
-            <TooltipContent>{loggingOut ? t('account.signingOut') : t('account.signOut')}</TooltipContent>
-          </Tooltip>
-        </SidebarFooter>
-      </Sidebar>
-
       <ScrollArea
-        className='h-dvh min-w-0 flex-1'
-        viewportClassName='flex flex-col px-4 py-[var(--shell-edge)] md:pr-[var(--shell-edge)] md:pl-0'
+        className='min-h-0 min-w-0 flex-1'
+        viewportClassName='flex flex-col max-sm:p-[var(--shell-edge)]'
         viewportRef={scrollRef}
       >
-        {logoutError === null ? null : <ErrorNotice error={logoutError} title={t('shell.error.logout')} />}
         <main className='@container flex min-w-0 flex-1 flex-col outline-none' id='main-content' ref={mainRef} tabIndex={-1}>
           <Suspense fallback={<WorkspaceLoadingState />}>
             <Outlet />
           </Suspense>
         </main>
       </ScrollArea>
-    </SidebarProvider>
+      <StatusLine shell={shell} />
+    </div>
   );
 }

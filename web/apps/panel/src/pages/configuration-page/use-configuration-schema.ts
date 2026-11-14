@@ -13,7 +13,7 @@ type SchemaState
     | { status: 'error'; artifactID: string; resolution: null; error: unknown }
     | { status: 'ready'; artifactID: string; resolution: ReviewedSchemaResolution; error: null };
 
-export function useConfigurationSchema(artifact: CoreArtifact | null): SchemaState {
+export function useConfigurationSchema(artifact: CoreArtifact | null): SchemaState & { retry: () => void } {
   const client = useApiClient();
   const version = artifact?.exact_version ?? '';
   const enabled = artifact !== null && hasReviewedSchemaVersion(version);
@@ -21,8 +21,9 @@ export function useConfigurationSchema(artifact: CoreArtifact | null): SchemaSta
     queryKey: ['schema', artifact?.id, version], enabled, staleTime: 300_000,
     queryFn: ({ signal }) => resolveReviewedSchema(client.getConfigurationSchema(artifact!.id, signal), version),
   });
-  if (!artifact || !enabled) return { status: 'unavailable', artifactID: artifact?.id ?? null, resolution: null, error: null };
-  if (query.data) return { status: 'ready', artifactID: artifact.id, resolution: query.data, error: null };
-  if (query.error) return { status: 'error', artifactID: artifact.id, resolution: null, error: query.error };
-  return { status: 'loading', artifactID: artifact.id, resolution: null, error: null };
+  const retry = () => void query.refetch();
+  if (!artifact || !enabled) return { status: 'unavailable', artifactID: artifact?.id ?? null, resolution: null, error: null, retry };
+  if (query.data) return { status: 'ready', artifactID: artifact.id, resolution: query.data, error: null, retry };
+  if (query.error) return { status: 'error', artifactID: artifact.id, resolution: null, error: query.error, retry };
+  return { status: 'loading', artifactID: artifact.id, resolution: null, error: null, retry };
 }

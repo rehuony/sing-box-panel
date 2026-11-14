@@ -324,15 +324,16 @@ export function CoresPage() {
                 : <div className='grid min-h-40 flex-1 place-content-center justify-items-center gap-2.5 px-5 py-6 text-center text-sm text-muted-foreground' role='status'>{t(`cores.empty.${tab}`)}</div>
               : null}
           </ScrollArea>
+          <ListPagination
+            className='border-t px-2 pb-2'
+            page={page}
+            pages={pages}
+            pageSize={size}
+            disabled={listLoading || count === 0}
+            onPageChange={next => setPagination({ tab, search, size, page: next })}
+            onPageSizeChange={setSize}
+          />
         </TabsContent>
-        <ListPagination
-          page={page}
-          pages={pages}
-          pageSize={size}
-          disabled={listLoading || count === 0}
-          onPageChange={next => setPagination({ tab, search, size, page: next })}
-          onPageSizeChange={setSize}
-        />
       </Tabs>
       {importOpen && canImport && (
         <CoreImportDialog

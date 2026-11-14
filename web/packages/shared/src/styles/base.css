@@ -38,16 +38,13 @@ input[type='radio'] {
   min-width: 0;
 }
 
-[data-slot='sheet-overlay'] {
-  z-index: var(--z-modal);
+/* Base UI hides the native scrollbar of scroll areas and select lists with this class; its inline rule is off under the CSP. */
+.base-ui-disable-scrollbar {
+  scrollbar-width: none;
 }
 
-[data-slot='sheet-content'] {
-  z-index: calc(var(--z-modal) + 1);
-}
-
-[data-sidebar='sidebar'][role='dialog'] {
-  z-index: calc(var(--z-modal) + 1);
+.base-ui-disable-scrollbar::-webkit-scrollbar {
+  display: none;
 }
 
 @layer base {

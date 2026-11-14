@@ -206,7 +206,7 @@ command, after a new runtime transition, and when a periodic check finds a
 change such as a new public IP. It sends a metrics sample every ten seconds.
 While a browser views a node's live metrics, the panel sends `TelemetryControl`
 to raise that node to one sample per second and lowers it again when the last
-viewer leaves. The fleet overview and the nodes view read every node's baseline samples at once,
+viewer leaves. The nodes home and the status line read every node's baseline samples at once,
 with rates averaged over ten seconds, from one fleet snapshot: `/fleet/stream`
 shares it among every client and refreshes it every two seconds while anyone
 streams it, sending each client every node once and then only the nodes that
@@ -264,9 +264,10 @@ a platform the version has no archive for, and a platform whose archive cannot
 be cached fail on their own.
 
 OpenAPI remains the authoritative HTTP contract. The Web UI follows
-[`DESIGN.md`](../DESIGN.md)'s node-first shell: an overview of the fleet's key
-figures, the node list, a node workspace (dashboard, cores, configuration,
-logs, settings), subscriptions, logs and settings.
+[`DESIGN.md`](../DESIGN.md)'s node-first shell: a status line that names the
+scope and its windows and reads commands, the nodes home with the fleet's key
+figures and one pane per node, a node's windows (overview, cores,
+configuration, logs, settings), subscriptions, logs and settings.
 
 ## Node console
 

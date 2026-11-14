@@ -1,7 +1,6 @@
 import { cores } from './cores';
 import { login } from './login';
 import { channels } from './channels';
-import { overview } from './overview';
 import { notFound } from './not-found';
 import { dashboard } from './dashboard';
 import { telemetry } from './telemetry';
@@ -12,8 +11,8 @@ import { productLogs } from './product-logs';
 import { configuration } from './configuration';
 import { subscriptions } from './subscriptions';
 import { panelSettings } from './panel-settings';
-import { enrollment, fleet, node } from './fleet';
-import { account, language, nav, nodes, shell, sidebar, theme } from './shell';
+import { enrollment, fleet, node, tags } from './fleet';
+import { account, command, language, nav, nodes, shell, terminal, theme } from './shell';
 
 export const zhCN = {
   enrollment,
@@ -24,6 +23,7 @@ export const zhCN = {
   account,
   channels,
   bootstrap,
+  command,
   common,
   configuration,
   cores,
@@ -33,12 +33,12 @@ export const zhCN = {
   nav,
   nodes,
   notFound,
-  overview,
   login,
   pagination,
   panelSettings,
-  sidebar,
   shell,
+  terminal,
   subscriptions,
+  tags,
   telemetry,
 } as const;

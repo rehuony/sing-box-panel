@@ -9,15 +9,16 @@ import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectVa
 
 import type { PanelSettingsView } from '@/api/api-client';
 
+import { TitleStrip } from '@/components/title-strip';
 import { ErrorNotice } from '@/components/error-notice';
 import { LoadingState } from '@/components/loading-state';
-import { ShellNavigationTrigger } from '@/components/app-shell';
 import { usePanelSettings } from '@/stores/panel-settings.store';
 import { DEFAULT_APPEARANCE, THEME_PRESETS } from '@/theme/appearance';
 import { SettingsField, SettingsGroup } from '@/components/settings-field';
 
 import { settingsCategories } from './settings-categories';
 import { PanelBackupSettings } from './panel-backup-settings';
+import { PanelUpdateSettings } from './panel-update-settings';
 import { AppearanceColorPicker } from './appearance-color-picker';
 import { usePanelSettingsDraft } from './use-panel-settings-draft';
 
@@ -49,17 +50,19 @@ function SettingsEditor({ initial }: { initial: PanelSettingsView }) {
     submit,
   } = usePanelSettingsDraft(initial);
   return (
-    <form className='flex min-h-0 flex-1 flex-col rounded-[var(--radius-card)] border bg-[var(--color-surface-translucent)] px-4 pt-4 pb-2 sm:px-6 sm:pt-6' noValidate onSubmit={submit}>
-      <div className='mb-4 sm:hidden'>
-        <Select value={category} onValueChange={value => value && setCategory(value)}>
-          <SelectTrigger aria-label={t('panelSettings.category')} className='w-full'><SelectValue>{t(`panelSettings.${category}`)}</SelectValue></SelectTrigger>
-          <SelectContent>{settingsCategories.map(key => <SelectItem key={key} value={key}>{t(`panelSettings.${key}`)}</SelectItem>)}</SelectContent>
-        </Select>
-      </div>
-      <Tabs className='min-h-0 flex-1 gap-7 max-sm:flex-col max-sm:gap-4' orientation='vertical' value={category} onValueChange={value => setCategory(String(value))}>
-        <TabsList aria-label={t('panelSettings.title')} className='h-full w-52 flex-none items-stretch justify-start gap-2 overflow-y-auto border-r pr-5 max-[1000px]:w-40 max-sm:hidden *:data-[slot=tabs-trigger]:min-h-(--control-height) *:data-[slot=tabs-trigger]:flex-none *:data-[slot=tabs-trigger]:justify-start *:data-[slot=tabs-trigger]:px-4 *:data-[slot=tabs-trigger]:py-2 *:data-[slot=tabs-trigger]:text-left *:data-[slot=tabs-trigger]:whitespace-normal *:data-[slot=tabs-trigger]:after:hidden *:data-[slot=tabs-trigger]:data-active:bg-accent *:data-[slot=tabs-trigger]:data-active:text-primary' variant='line'>
-          {settingsCategories.map(key => <TabsTrigger value={key} key={key}>{t(`panelSettings.${key}`)}</TabsTrigger>)}
+    <Tabs className='min-h-0 flex-1 gap-3' value={category} onValueChange={value => setCategory(String(value))}>
+      <TitleStrip>
+        <TabsList aria-label={t('panelSettings.title')} className='max-w-full overflow-x-auto [scrollbar-width:none] max-sm:hidden'>
+          {settingsCategories.map(key => <TabsTrigger className='flex-none' value={key} key={key}>{t(`panelSettings.${key}`)}</TabsTrigger>)}
         </TabsList>
+        <div className='min-w-0 flex-1 sm:hidden'>
+          <Select value={category} onValueChange={value => value && setCategory(value)}>
+            <SelectTrigger aria-label={t('panelSettings.category')} className='w-full'><SelectValue>{t(`panelSettings.${category}`)}</SelectValue></SelectTrigger>
+            <SelectContent>{settingsCategories.map(key => <SelectItem key={key} value={key}>{t(`panelSettings.${key}`)}</SelectItem>)}</SelectContent>
+          </Select>
+        </div>
+      </TitleStrip>
+      <form className='flex min-h-0 flex-1 flex-col rounded-[var(--radius-card)] border bg-[var(--color-surface-translucent)] px-4 pt-4 pb-2 sm:px-6 sm:pt-6' noValidate onSubmit={submit}>
         <ScrollArea className='-mr-4 min-w-0 flex-1 sm:-mr-6' viewportClassName='pt-1 pr-5 pb-6 pl-1 sm:pr-7 *:data-[slot=tabs-content]:flex *:data-[slot=tabs-content]:flex-col *:data-[slot=tabs-content]:gap-5'>
           {invalidField && <ErrorNotice error={t('panelSettings.invalidField')} />}
           <TabsContent value='service'>
@@ -187,15 +190,16 @@ function SettingsEditor({ initial }: { initial: PanelSettingsView }) {
                 <Input id='catalog-refresh-interval' aria-invalid={invalidField === 'catalog-refresh-interval' || undefined} type='number' min={1} max={720} required value={service.catalog_refresh_interval_hours} onChange={e => updateService('catalog_refresh_interval_hours', Number(e.target.value))} />
               </SettingsField>
             </SettingsGroup>
+            <PanelUpdateSettings />
           </TabsContent>
           <TabsContent value='backup'><PanelBackupSettings busy={saving} onBusyChange={setSaving} onRestored={restored} /></TabsContent>
         </ScrollArea>
-      </Tabs>
-      <footer className='mt-2 flex flex-none flex-wrap items-center justify-end gap-x-3 gap-y-2 border-t pt-2'>
-        {initial.restart_required && <p className='mr-auto min-w-0 flex-1 text-sm text-muted-foreground wrap-anywhere max-sm:basis-full' role='status'>{t('panelSettings.restartPending')}</p>}
-        <Button disabled={saving || !dirty} type='submit'>{t(saving ? 'panelSettings.saving' : 'panelSettings.save')}</Button>
-      </footer>
-    </form>
+        <footer className='mt-2 flex flex-none flex-wrap items-center justify-end gap-x-3 gap-y-2 border-t pt-2'>
+          {initial.restart_required && <p className='mr-auto min-w-0 flex-1 text-sm text-muted-foreground wrap-anywhere max-sm:basis-full' role='status'>{t('panelSettings.restartPending')}</p>}
+          <Button disabled={saving || !dirty} type='submit'>{t(saving ? 'panelSettings.saving' : 'panelSettings.save')}</Button>
+        </footer>
+      </form>
+    </Tabs>
   );
 }
 
@@ -203,9 +207,8 @@ export function PanelSettingsPage() {
   const { t } = useTranslation();
   const { view, error, reload } = usePanelSettings();
   return (
-    <section className='flex min-h-0 min-w-0 flex-1 flex-col gap-4'>
+    <section className='flex min-h-0 min-w-0 flex-1 flex-col gap-3'>
       <h1 className='sr-only'>{t('panelSettings.title')}</h1>
-      <div className='flex md:hidden'><ShellNavigationTrigger /></div>
       {error
         ? (
             <>

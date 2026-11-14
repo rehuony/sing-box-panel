@@ -398,7 +398,7 @@ groups access and authentication; interface preferences groups
 appearance and language; system maintenance groups storage and version updates.
 Log management controls only sing-box capture files; panel events do not expire automatically.
 Each topic keeps its own section heading.
-Desktop uses an internal sidebar; narrow screens use a category selector.
+The categories are tabs in the settings window's title strip; narrow screens use a category selector there.
 All topics share one draft and Save button. Hash navigation and browser history
 retain the draft; leaving `/settings` or closing the page warns about unsaved changes.
 Validation locates the offending category and field; failed saves retain drafts.
@@ -588,8 +588,8 @@ retains the current view and preview; Discard changes restores saved settings
 before navigating. Reset changes only theme color/radius and still requires
 saving. Help is in hover/click tips.
 
-The theme selected in panel settings is the server default. The sidebar theme
-button applies and persists a browser-only override immediately, without making
+The theme selected in panel settings is the server default. The status line's theme
+button (the More menu on phones) applies and persists a browser-only override immediately, without making
 requests or changing the settings form. On page load, a valid local choice takes
 precedence over the server theme, including an explicit `system` choice. Saving
 or discarding panel settings leaves this local override intact; color and radius

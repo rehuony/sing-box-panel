@@ -1,7 +1,7 @@
 # Telemetry performance
 
-Measurements of the panel's fleet reads, traffic writes and metrics history,
-and what they do and do not show. The behavior is described in
+Measurements of the panel's fleet reads, traffic writes, metrics history and
+the interface's pane screen, and what they do and do not show. The behavior is described in
 [Subscriptions and observability](subscriptions-and-observability.md) and the
 [panel and node architecture](panel-node-architecture.md#telemetry).
 
@@ -74,7 +74,7 @@ a node's own views read; that removes about 460 bytes per node. Real nodes
 report core checksums, artifact IDs and host metrics, so a node is closer to
 2 KB, and the whole fleet passes the 1 MiB that bounds a node's stream frames
 at about 500 nodes. Fleet stream frames are therefore bounded at 16 MiB on the
-panel. Only a connection's first frame carries the whole
+panel and in the Web client. Only a connection's first frame carries the whole
 fleet; nodes report every ten seconds, so a later frame carries about a fifth
 of the online nodes, and none while nothing changes. `limit` and `cursor` page
 large fleets through `/fleet/status`.
@@ -116,6 +116,39 @@ baseline a frame carries about a fifth of the online nodes, so a 500-node fleet
 streams about 160 KB every two seconds to each viewer. The heap figure includes
 the simulated nodes' own connections and buffers; the panel's share is lower.
 
+## Pane screen
+
+```sh
+SBP_BROWSER_REVIEW=1 SBP_BROWSER_FLEET=500 go test ./internal/sing-box-panel/server \
+  -run '^TestBrowserReview$' -v -count=1 -timeout 60m
+```
+
+The browser review serves the built interface from `web/apps/panel/dist` on
+`127.0.0.1:3337` with a seeded fleet of long names, tags and mixed states:
+every sixth node never enrolled, half the fleet online with reports and a
+sample every five seconds, the rest offline. Headless Chrome 157 on Apple M5, at 1440×900 and device scale
+2 in the light theme, signed in as the fixture administrator, opened the home
+screen and ran three passes. Each pass switched the state filter from offline
+to all five times, timing the click to the second frame after it, then scrolled
+the list 40 px a frame for 120 frames. The heap was read after a forced
+collection; single runs, not a statistical claim.
+
+| Measure | 200 nodes | 500 nodes |
+| --- | ---: | ---: |
+| Panes, list height | 200, 9,388 px | 500, 23,488 px |
+| Elements in the page | 9,901 | 24,460 |
+| JavaScript heap | 56 MiB | 127–143 MiB |
+| Scroll frame, median and p95 | 16.7 ms, 16.8 ms | 16.7 ms, 16.8 ms |
+| Longest scroll frame | 16.8 ms | 16.8 ms; 117 ms once in the first pass |
+| Filter switch, offline to all, median per pass | 91–97 ms, 133 panes added | 194–202 ms, 333 panes added |
+
+Headless Chrome draws on a 60 Hz frame clock, so a 16.7 ms frame means none
+was dropped; the figures do not show the headroom below a frame. The first 48
+panes render at once and the rest use `content-visibility: auto`, so scrolling
+paints only the panes coming into view. Mounting is what grows with the fleet:
+the filter switch costs about 0.6 ms a pane added and reaches 200 ms at 500
+nodes, and the heap grows by about 0.3 MiB a node.
+
 ## Metrics history
 
 ```sh
@@ -142,6 +175,9 @@ viewer.
 - Separate hosts: the live fleet runs in one process on loopback, so network
   latency, loss and many TLS connections across real network interfaces were
   not exercised; real nodes also send larger reports than the simulated ones.
+- Browser timing on a display: the pane screen was measured in headless
+  Chrome, whose 60 Hz frame clock hides headroom below a frame; the delay from
+  a sample to the screen was not measured.
 - Proxies: the fleet stream and fleet command stream behind a reverse proxy
   were not exercised; they use the same server-sent event framing and
   heartbeats as the node streams.

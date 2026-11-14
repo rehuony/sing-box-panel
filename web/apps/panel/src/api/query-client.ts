@@ -29,7 +29,7 @@ export function retryableRead(error: unknown): boolean {
 
 type QueryRoot
   = | 'catalog' | 'channels' | 'coreLogFiles' | 'fleetNodes' | 'fleetStatus' | 'installed' | 'nodes' | 'nodeSettings'
-    | 'runtime' | 'schema' | 'settings' | 'sources' | 'tokens';
+    | 'runtime' | 'schema' | 'settings' | 'sources' | 'systemUpdate' | 'tokens';
 
 const runtimeChange: readonly QueryRoot[] = ['runtime', 'nodes', 'installed'];
 const coreArtifactChange: readonly QueryRoot[] = ['installed', 'schema'];
@@ -73,6 +73,9 @@ const invalidations: Partial<Record<keyof ApiClient, readonly QueryRoot[]>> = {
   deleteNode: fleetChange,
   createNodeEnrollment: ['fleetNodes'],
   saveNodeSettings: ['nodeSettings', 'fleetStatus', 'nodes'],
+  checkSystemUpdate: ['systemUpdate'],
+  startSystemUpdate: ['systemUpdate'],
+  updateNode: ['fleetNodes', 'fleetStatus'],
 };
 
 function affectedQueries(method: string): readonly QueryRoot[] {

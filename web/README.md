@@ -182,8 +182,7 @@ for limits, proxy behavior and privacy boundaries.
 
 ## Data loading and caching
 
-Navigation preloads route modules on sidebar hover, keyboard focus and pointer
-press, sharing each pending download with navigation. A failed speculative import
+The status line's windows preload route modules on hover and keyboard focus, sharing each pending download with navigation. A failed speculative import
 does not interrupt the current page; the next unloaded route reloads the document
 to recover Vite's shared CSS/module preload state. Configuration downloads the
 reviewed Schema/validator modules in parallel with the authenticated Schema
@@ -193,8 +192,8 @@ concurrently, and the version library reads runtime status only once on entry.
 Runtime responses are published independently of artifact listings and discarded
 when newer shared runtime evidence arrives while the request is pending.
 
-TanStack Query v5 owns session-local query state: the fleet's nodes and traffic
-status (15 seconds), installed core lists (15 seconds), release catalogs (60
+TanStack Query v5 owns session-local query state: the fleet status, fed by the
+fleet stream, the fleet's nodes and traffic status (15 seconds), installed core lists (15 seconds), release catalogs (60
 seconds), subscription summaries and node catalogs (5 seconds), and resolved
 artifact-bound Schema contracts (5 minutes). Node-scoped reads carry the node in
 their key, so nodes never share cached data. Inactive queries expire after 5 minutes. Configuration,
@@ -223,6 +222,14 @@ catalog immediately, initializes a missing cache, and offers a forced refresh;
 the running server handles periodic refresh using the configured interval.
 
 ## Telemetry
+
+The shell follows the panel's fleet stream while the page is visible and
+applies each event to the fleet status query: a reset event replaces the fleet,
+later events replace the nodes that changed and drop the removed ones, in the
+panel's order. The nodes home, the status line and the command line read one live fleet
+without polling; a stream that stays down for its five-second grace hands over
+to one read of the status, whose failure marks the last reading as no longer
+updating.
 
 Each node workspace owns one telemetry store for that node, a stable Zustand
 store with separate subscriptions for runtime, metrics, history and connection
@@ -269,7 +276,7 @@ inherits the same page background and surface tokens as the panel. Authenticated
 settings loads and saves update this shared state; unsaved appearance previews
 are cleared when leaving settings or ending the session. The appearance selector
 edits the server default in the settings draft; only saving settings writes it to
-the backend. The sidebar shortcut immediately changes a separate browser preference
+the backend. The status line's theme action immediately changes a separate browser preference
 through a Zustand store with `persist`, using the existing `sing-box-panel.theme`
 localStorage key and raw light/dark/system values. It makes no API requests and
 never edits or dirties the settings draft. The store synchronously restores that
@@ -294,15 +301,36 @@ also appears before JavaScript starts. Explicit light/dark preferences remain
 supported. Reduced motion, reduced transparency, and increased contrast
 preferences are respected.
 
-The shell is a floating sidebar beside one scrolling content region. The
-sidebar lists Nodes, Subscriptions, Logs and Settings, with the theme cycle,
-language menu and sign-out in its footer; narrow screens open it as an
-off-canvas panel. Pages omit a visible title band while retaining a screen
-reader heading: a list page starts with one toolbar row, tabs or filters at the
-start and actions at the end. Opening a node shows its object row and its tabs
-(overview, cores, configuration, logs, settings). Content ends at the same
-bottom inset as the sidebar; tables and forms scroll within that space when
-needed, keeping their actions reachable.
+The shell is one scrolling content region with a status line below it. The
+status line names the scope (`fleet`, or `fleet ›` a node with its previous and
+next nodes), lists the scope's windows as numbered tabs (`1 nodes` to
+`4 settings`, or a node's `1 overview` to `5 settings`), shows the fleet
+readout and the panel's update, and carries the theme cycle, language menu and
+sign-out; below 640px it is a tab bar along the window's foot with a more
+menu. Window names are command words in every language; their tooltips and
+accessible names are translated. Pages omit a visible title band while
+retaining a screen reader heading: every view starts with one title strip,
+the window's marks and then its toolbar, or in a node its name, state, context
+values and runtime controls. Tables and forms scroll within the space above
+the status line, keeping their actions reachable.
+
+Ctrl or Cmd+K, `:` outside fields and dialogs, or the status line's prompt
+action opens the command line (`components/status-line`). It parses commands
+in `utils/panel-commands.ts` (`help`, `clear`, `logout`, window numbers,
+`open`, `goto`, `filter`, and `start`, `stop`, `restart` and `update` on a name,
+a glob, `tag:<tag>` or `all`), completes the word under the caret, and prints to
+one output panel above the line that stays until closed. Batches from the
+command line or from selected panes confirm first, stream each node's result
+from `/fleet/commands` and keep running when the line closes, ending in a toast
+then. The terminal parts are shared with the node console from
+`packages/shared/src/components/terminal`.
+
+The nodes home renders every node as a memoized pane that redraws only when
+its own fleet entry changes or the shared 30-second clock moves; panes off
+screen skip layout and paint through `content-visibility` with their fixed
+height. The browser review harness seeds a fleet with
+`SBP_BROWSER_FLEET=<n>` (`panel-review` in `.claude/launch.json` runs 200),
+half of the enrolled nodes online with live readings.
 
 ## Login
 
@@ -456,7 +484,7 @@ available fields into basic settings, authentication, TLS, transport, connection
 and advanced settings; rule dialogs separate matching conditions from actions.
 Fields use a single column even in complex sections, leaving enough space for long
 labels beside their controls; narrow forms place labels above controls. A sole tab is hidden. On narrow screens
-the navigation rail becomes slimmer and long labels wrap. Navigation and the active
+the section list becomes slimmer and long labels wrap. The section list and the active
 configuration panel scroll independently. Up/down keys navigate sections. Switching tabs
 keeps the same form mounted, preserving pending edits and optional-object state.
 Editing a discriminated object's fields also commits the displayed branch's required

@@ -1,9 +1,18 @@
 import type { HttpApiContext } from './shared';
-import type { ApiClient, PanelBackup, PanelRestoreResult, PanelSettingsSaveResult, PanelSettingsView } from '../api-client';
+import type { ApiClient, PanelBackup, PanelRestoreResult, PanelSettingsSaveResult, PanelSettingsView, SystemUpdate } from '../api-client';
 
 export function createPanelSettingsHttpApi(context: HttpApiContext) {
-  const { baseUrl, fetcher, request, writeJSONHeaders } = context;
+  const { baseUrl, fetcher, request, writeHeaders, writeJSONHeaders } = context;
   return {
+    getSystemUpdate(signal) {
+      return request<SystemUpdate>(fetcher, `${baseUrl}/system/update`, { method: 'GET', signal });
+    },
+    checkSystemUpdate(signal) {
+      return request<SystemUpdate>(fetcher, `${baseUrl}/system/update/check`, { method: 'POST', headers: writeHeaders(), signal });
+    },
+    startSystemUpdate(signal) {
+      return request<SystemUpdate>(fetcher, `${baseUrl}/system/update`, { method: 'POST', headers: writeHeaders(), signal });
+    },
     exportPanelBackup(signal) {
       return request<PanelBackup>(fetcher, `${baseUrl}/panel/backup`, { method: 'GET', signal });
     },
@@ -22,5 +31,6 @@ export function createPanelSettingsHttpApi(context: HttpApiContext) {
       if (result.reauthentication_required) context.invalidateSession();
       return result;
     },
-  } satisfies Pick<ApiClient, 'getPanelSettings' | 'savePanelSettings' | 'exportPanelBackup' | 'restorePanelBackup'>;
+  } satisfies Pick<ApiClient, 'getPanelSettings' | 'savePanelSettings' | 'exportPanelBackup' | 'restorePanelBackup'
+  | 'getSystemUpdate' | 'checkSystemUpdate' | 'startSystemUpdate'>;
 }

@@ -1,4 +1,4 @@
 export const notFound = {
-  return: '返回概览',
+  return: '全部节点',
   title: '此页面不存在',
 } as const;

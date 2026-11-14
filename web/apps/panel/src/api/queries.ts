@@ -13,6 +13,7 @@ export const queries = {
   fleetNodes: (client: ApiClient) => queryOptions({ queryKey: ['fleetNodes'], queryFn: ({ signal }) => client.listFleetNodes(signal), staleTime: 15_000 }),
   fleetStatus: (client: ApiClient) => queryOptions({ queryKey: ['fleetStatus'], queryFn: ({ signal }) => client.getFleetStatus(signal), staleTime: 5_000 }),
   nodeSettings: (client: ApiClient) => queryOptions({ queryKey: ['nodeSettings', client.nodeID], queryFn: ({ signal }) => client.getNodeSettings(signal), staleTime: 0, gcTime: 0, refetchOnWindowFocus: false }),
+  systemUpdate: (client: ApiClient) => queryOptions({ queryKey: ['systemUpdate'], queryFn: ({ signal }) => client.getSystemUpdate(signal), staleTime: 0 }),
   // Node-scoped reads carry the node in their key, so nodes never share data.
   coreLogFiles: (client: ApiClient) => queryOptions({ queryKey: ['coreLogFiles', client.nodeID], queryFn: ({ signal }) => client.listCoreLogFiles(signal), staleTime: 5000 }),
   runtime: (client: ApiClient) => queryOptions({ queryKey: ['runtime', client.nodeID], queryFn: ({ signal }) => client.getRuntimeStatus(signal), staleTime: 0 }),
@@ -37,6 +38,21 @@ export const queries = {
     select: data => ({
       ...data, assets: data.assets.filter(asset => asset.os === platform?.os && asset.arch === platform.arch),
     }),
+  }),
+  /** Every version the catalog has an archive of, newest first, for installing on several platforms at once. */
+  catalogVersions: (client: ApiClient) => queryOptions({
+    queryKey: ['catalog', 'versions'], staleTime: 60_000,
+    queryFn: async ({ signal }) => {
+      try {
+        return await client.listCatalogAssets({}, signal);
+      } catch (error) {
+        if (!(error instanceof ApiRequestError) || error.code !== 'catalog_not_initialized') throw error;
+        await client.refreshCatalog(false, signal);
+        return client.listCatalogAssets({}, signal);
+      }
+    },
+    select: data => [...new Set(data.assets.map(asset => asset.version))]
+      .sort((left, right) => right.localeCompare(left, 'en', { numeric: true })),
   }),
   nodes: (client: ApiClient) => queryOptions({ queryKey: ['nodes'], queryFn: ({ signal }) => client.getSubscriptionNodeCatalog(signal), staleTime: 5_000 }),
   sources: (client: ApiClient) => queryOptions({

@@ -8,6 +8,7 @@ import { Empty, EmptyHeader, EmptyTitle } from '@shared/components/ui/empty';
 
 import type { LogLevel, PanelLog } from '@/api/api-client';
 
+import { TitleStrip } from '@/components/title-strip';
 import { useApiClient } from '@/api/api-client-context';
 import { ErrorNotice } from '@/components/error-notice';
 import { SelectField } from '@/components/select-field';
@@ -15,7 +16,6 @@ import { LoadingState } from '@/components/loading-state';
 import { usePageVisible } from '@/hooks/use-page-visible';
 import { PanelLogLevel } from '@/components/panel-log-level';
 import { ListPagination } from '@/components/list-pagination';
-import { ShellNavigationTrigger } from '@/components/app-shell';
 import { formatLogTime, logTitle } from '@/utils/panel-log-presentation';
 
 import { PanelLogDetails } from './panel-log-details';
@@ -57,8 +57,7 @@ export function PanelLogsPage() {
   return (
     <section className='flex min-h-0 min-w-0 flex-1 flex-col gap-[var(--workspace-content-gap)]'>
       <h1 className='sr-only'>{t('nav.logs')}</h1>
-      <div className='flex flex-wrap items-center gap-3'>
-        <ShellNavigationTrigger />
+      <TitleStrip>
         <Input
           ref={searchRef}
           aria-label={t('productLogs.searchPanel')}
@@ -80,7 +79,7 @@ export function PanelLogsPage() {
           }}
           items={[{ value: '', label: t('productLogs.allLevels') }, ...['trace', 'debug', 'info', 'warn', 'error', 'fatal'].map((value) => ({ value, label: value.toUpperCase() }))]}
         />
-      </div>
+      </TitleStrip>
       {logs.error != null && <ErrorNotice error={logs.error} title={t('productLogs.unavailable')} />}
       <div className='flex min-h-80 flex-1 flex-col overflow-hidden rounded-[var(--radius-card)] border bg-[var(--color-surface-translucent)]'>
         <ScrollArea aria-busy={loading} className='flex-1' viewportClassName='flex flex-col'>
@@ -121,6 +120,18 @@ export function PanelLogsPage() {
             ? <LoadingState label={t('productLogs.loading')} fullScreen={false} />
             : <Empty role='status'><EmptyHeader><EmptyTitle>{t('productLogs.empty')}</EmptyTitle></EmptyHeader></Empty>)}
         </ScrollArea>
+        <ListPagination
+          className='border-t px-2 pb-2'
+          page={page}
+          pages={pages}
+          pageSize={limit}
+          disabled={loading || result.total === 0}
+          onPageChange={setPage}
+          onPageSizeChange={value => {
+            setLimit(value);
+            setPage(1);
+          }}
+        />
       </div>
       <PanelLogDetails
         item={selected}
@@ -128,17 +139,6 @@ export function PanelLogsPage() {
         onOpenChange={setDetailsOpen}
         onClosed={() => setSelected(null)}
         returnFocus={() => triggerRef.current?.isConnected ? triggerRef.current : searchRef.current}
-      />
-      <ListPagination
-        page={page}
-        pages={pages}
-        pageSize={limit}
-        disabled={loading || result.total === 0}
-        onPageChange={setPage}
-        onPageSizeChange={value => {
-          setLimit(value);
-          setPage(1);
-        }}
       />
     </section>
   );

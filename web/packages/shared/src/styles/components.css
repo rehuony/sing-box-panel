@@ -344,3 +344,25 @@
 .cell-meter[data-tone='danger'] {
   --meter-color: var(--color-danger);
 }
+
+/* A terminal's new output types itself out from the left, a cell at a time. */
+
+@keyframes terminal-line-type {
+  from {
+    clip-path: inset(0 100% 0 0);
+  }
+}
+
+.terminal-line {
+  animation: terminal-line-type var(--type-duration, 0ms) steps(var(--type-steps, 1), end) both;
+}
+
+.terminal-input {
+  caret-color: var(--foreground);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .terminal-line {
+    animation: none;
+  }
+}

@@ -4,14 +4,11 @@ import { useTranslation } from 'react-i18next';
 import { buttonVariants } from '@shared/components/ui/button-variants';
 import { Empty, EmptyContent, EmptyHeader, EmptyMedia } from '@shared/components/ui/empty';
 
-import { ShellNavigationTrigger } from '@/components/app-shell';
-
 export function NotFoundPage() {
   const { t } = useTranslation();
 
   return (
     <section className='flex min-h-0 flex-1 flex-col gap-4'>
-      <div className='flex md:hidden'><ShellNavigationTrigger /></div>
       <Empty className='rounded-[var(--radius-card)] border border-solid bg-[var(--color-surface-translucent)]'>
         <EmptyHeader>
           <EmptyMedia className='mb-3 size-12 rounded-[var(--radius-card)] border bg-[var(--color-surface-raised)] text-muted-foreground [&_svg]:size-6'>
@@ -20,7 +17,7 @@ export function NotFoundPage() {
           <h1 className='text-sm font-medium' data-slot='empty-title'>{t('notFound.title')}</h1>
         </EmptyHeader>
         <EmptyContent>
-          <Link className={buttonVariants()} to='/overview'>{t('notFound.return')}</Link>
+          <Link className={buttonVariants()} to='/nodes'>{t('notFound.return')}</Link>
         </EmptyContent>
       </Empty>
     </section>

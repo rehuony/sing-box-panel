@@ -1,19 +1,19 @@
 import { useTranslation } from 'react-i18next';
 
-/** An upload and a download value, each after its arrow in its series colour. */
+/** A download and an upload value, each after its arrow in its series colour. */
 export function UpDown({ download, upload }: { download: string; upload: string }) {
   const { t } = useTranslation();
   return (
     <span className='inline-flex min-w-0 flex-wrap gap-x-3'>
       <span className='whitespace-nowrap'>
-        <span aria-hidden='true' className='text-chart-2'>↑ </span>
-        <span className='sr-only'>{t('telemetry.metric.upload')}</span>
-        {upload}
-      </span>
-      <span className='whitespace-nowrap'>
         <span aria-hidden='true' className='text-chart-1'>↓ </span>
         <span className='sr-only'>{t('telemetry.metric.download')}</span>
         {download}
+      </span>
+      <span className='whitespace-nowrap'>
+        <span aria-hidden='true' className='text-chart-2'>↑ </span>
+        <span className='sr-only'>{t('telemetry.metric.upload')}</span>
+        {upload}
       </span>
     </span>
   );

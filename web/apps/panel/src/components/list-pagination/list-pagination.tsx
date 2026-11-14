@@ -1,3 +1,4 @@
+import { cn } from '@shared/lib/utils';
 import { useId, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Input } from '@shared/components/ui/input';
@@ -6,7 +7,9 @@ import { ChevronLeft, ChevronRight } from 'lucide-react';
 
 import { SelectField } from '@/components/select-field';
 
-export function ListPagination({ page, pages, pageSize, disabled = false, onPageChange, onPageSizeChange }: {
+export function ListPagination({ className, page, pages, pageSize, disabled = false, onPageChange, onPageSizeChange }: {
+  /** Places the footer on its list's surface, such as with a hairline above it. */
+  className?: string;
   page: number;
   pages: number;
   pageSize: number;
@@ -31,7 +34,7 @@ export function ListPagination({ page, pages, pageSize, disabled = false, onPage
   }
 
   return (
-    <footer className='flex flex-none items-center justify-between gap-4 pt-2'>
+    <footer className={cn('flex flex-none items-center justify-between gap-4 pt-2', className)}>
       <SelectField
         aria-label={t('pagination.pageSize')}
         className='border-0 bg-transparent px-2 text-muted-foreground dark:bg-transparent'

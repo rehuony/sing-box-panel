@@ -255,12 +255,11 @@ system service.
 
 ## Update the panel and nodes
 
-A release build updates itself to a newer signed release. Through the
-management API the panel checks for and installs the newest stable release
-(`/system/update`), and updates a node to the panel's own release
-(`/nodes/{nodeId}/update`, or many nodes with `/fleet/commands`); nodes never
-contact GitHub. Restarting a node restarts its core, so its proxy is briefly
-interrupted. From a shell, `sing-box-panel update` and `sing-box-node update`
-do the same; see the [CLI reference](cli.md). A system service hands each
-update to its root update helper, described in the
+A release build updates itself to a newer signed release. The panel settings'
+maintenance category shows the panel's version and the newest stable release
+and updates the panel; a node's settings tab updates that node to the panel's
+own release, and nodes never contact GitHub. Restarting a node restarts its
+core, so its proxy is briefly interrupted. From a shell, `sing-box-panel update`
+and `sing-box-node update` do the same; see the [CLI reference](cli.md). A
+system service hands each update to its root update helper, described in the
 [systemd packaging guide](systemd.md#update-helper).

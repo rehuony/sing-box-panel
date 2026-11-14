@@ -26,6 +26,7 @@ export const telemetry = {
     stop: '停止',
   },
   metric: {
+    connections: '连接',
     download: '下行',
     upload: '上行',
     uptime: '运行时长',

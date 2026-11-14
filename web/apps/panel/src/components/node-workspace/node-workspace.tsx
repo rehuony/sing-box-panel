@@ -4,58 +4,26 @@ import { CloudOff, KeyRound, SearchX } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ScrollArea } from '@shared/components/ui/scroll-area';
 import { buttonVariants } from '@shared/components/ui/button-variants';
+import { Link, Outlet, useLocation, useParams } from 'react-router-dom';
 import { formatDateTime, formatRelativeTime } from '@shared/lib/format-time';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Link, NavLink, Outlet, useLocation, useParams } from 'react-router-dom';
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@shared/components/ui/empty';
 
-import type { NodeTab } from '@/utils/node-path';
-import type { PagePath } from '@/routes/page-loaders';
 import type { FleetNode, NodeEnrollment } from '@/api/api-client';
 
 import { queries } from '@/api/queries';
 import { nodePath } from '@/utils/node-path';
-import { preloadPage } from '@/routes/page-loaders';
 import { useApiClient } from '@/api/api-client-context';
 import { LoadingState } from '@/components/loading-state';
 import { withQueryInvalidation } from '@/api/query-client';
-import { ShellNavigationTrigger } from '@/components/app-shell';
 import { CurrentNodeContext } from '@/stores/current-node.store';
 import { NodeEnrollmentDialog } from '@/components/node-enrollment-dialog';
 import { describeRequestError, ErrorNotice } from '@/components/error-notice';
 import { ApiClientContext } from '@/api/api-client-context/api-client-context';
 import { ConfigurationSessionProvider } from '@/stores/configuration-session-provider';
 
-import { NodeObjectRow } from './node-object-row';
+import { NodeStrip } from './node-strip';
 import { TelemetryProvider } from './telemetry-provider';
-
-const tabs = [
-  { tab: undefined, labelKey: 'node.tabs.overview', page: 'node-overview' },
-  { tab: 'cores', labelKey: 'node.tabs.cores', page: 'node-cores' },
-  { tab: 'configuration', labelKey: 'node.tabs.configuration', page: 'node-configuration' },
-  { tab: 'logs', labelKey: 'node.tabs.logs', page: 'node-logs' },
-  { tab: 'settings', labelKey: 'node.tabs.settings', page: 'node-settings' },
-] as const satisfies readonly { tab: NodeTab | undefined; labelKey: string; page: PagePath }[];
-
-function NodeTabs({ node }: { node: FleetNode }) {
-  const { t } = useTranslation();
-  return (
-    <nav aria-label={t('node.tabs.label')} className='-mb-px flex min-w-0 gap-1 overflow-x-auto [scrollbar-width:none]'>
-      {tabs.map(item => (
-        <NavLink
-          className='relative inline-flex h-[var(--control-height)] shrink-0 items-center rounded-[var(--radius-control)] px-3 text-sm font-medium whitespace-nowrap text-muted-foreground transition-colors duration-[var(--dur-short)] ease-out outline-none after:absolute after:inset-x-3 after:bottom-0 after:h-0.5 after:rounded-full after:bg-foreground after:opacity-0 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring aria-[current=page]:text-foreground aria-[current=page]:after:opacity-100'
-          end
-          key={item.page}
-          onFocus={() => preloadPage(item.page)}
-          onPointerEnter={() => preloadPage(item.page)}
-          to={nodePath(node.id, item.tab)}
-        >
-          {t(item.labelKey)}
-        </NavLink>
-      ))}
-    </nav>
-  );
-}
 
 /** What a tab shows in place of its view while the node cannot answer commands. */
 function NodeUnavailable({ node }: { node: FleetNode }) {
@@ -108,12 +76,9 @@ function NodeLayout({ node }: { node: FleetNode }) {
     if (scrollRef.current) scrollRef.current.scrollTop = 0;
   }, [location.pathname]);
   return (
-    <div className='flex min-h-0 min-w-0 flex-1 flex-col gap-2'>
-      <div className='flex flex-none flex-col gap-1 border-b'>
-        <NodeObjectRow node={node} />
-        <NodeTabs node={node} />
-      </div>
-      <ScrollArea className='-mx-1 flex-1' viewportClassName='flex flex-col px-1 pt-2' viewportRef={scrollRef}>
+    <div className='flex min-h-0 min-w-0 flex-1 flex-col gap-3'>
+      <NodeStrip node={node} />
+      <ScrollArea className='-mx-1 flex-1' viewportClassName='flex flex-col px-1' viewportRef={scrollRef}>
         {node.state === 'online' || settings ? <Outlet /> : <NodeUnavailable node={node} />}
       </ScrollArea>
     </div>
@@ -138,16 +103,10 @@ function NodeScope({ node }: { node: FleetNode }) {
   );
 }
 
-function WorkspaceState({ children }: { children: React.ReactNode }) {
-  return (
-    <div className='flex min-h-0 flex-1 flex-col gap-4'>
-      <div className='flex items-center'><ShellNavigationTrigger /></div>
-      {children}
-    </div>
-  );
-}
-
-/** The node's object row and tabs above the tab's view; every view inside reads this node only. */
+/**
+ * The node's title strip above the window's view; every view inside reads
+ * this node only. The status line lists the windows.
+ */
 export function NodeWorkspace() {
   const { t } = useTranslation();
   const { nodeId = '' } = useParams();
@@ -158,7 +117,7 @@ export function NodeWorkspace() {
   if (node !== undefined) return <NodeScope key={node.id} node={node} />;
   if (nodes.isPending) return <LoadingState label={t('shell.loading.page')} fullScreen={false} />;
   return (
-    <WorkspaceState>
+    <div className='flex min-h-0 flex-1 flex-col'>
       <Empty className='rounded-[var(--radius-card)] border border-solid bg-[var(--color-surface-translucent)]' role='status'>
         <EmptyHeader>
           <EmptyMedia className='mb-3 size-12 rounded-[var(--radius-card)] border bg-[var(--color-surface-raised)] text-muted-foreground [&_svg]:size-6'>
@@ -174,6 +133,6 @@ export function NodeWorkspace() {
           <Link className={buttonVariants()} to='/nodes'>{t('node.missing.action')}</Link>
         </EmptyContent>
       </Empty>
-    </WorkspaceState>
+    </div>
   );
 }

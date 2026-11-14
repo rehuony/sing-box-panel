@@ -1,8 +1,8 @@
 import { useLocation } from 'react-router-dom';
 import userEvent from '@testing-library/user-event';
 import { Toaster } from '@shared/components/ui/toast';
-import { beforeAll, describe, expect, it, vi } from 'vitest';
 import { TooltipProvider } from '@shared/components/ui/tooltip';
+import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { act, render, screen, waitFor, within } from '@testing-library/react';
 
 import type { ApiClient, Session } from '@/api/api-client';
@@ -13,9 +13,11 @@ import '@/i18n';
 import { ApiRequestError } from '@/api/api-client';
 import { pageLoaders } from '@/routes/page-loaders';
 import { appearanceTokens } from '@/theme/appearance';
+import { useFleetView } from '@/stores/fleet-view.store';
 import * as pageLoaderModule from '@/routes/page-loaders';
 import { ApiClientProvider } from '@/api/api-client-context';
 import { TestRouter as MemoryRouter } from '@/tests/test-router';
+import { useCommandSession } from '@/stores/command-session.store';
 import { AuthSessionProvider } from '@/stores/auth-session-provider';
 import { createMockApiClient, testNode, testSession } from '@/tests/api/mock-api-client';
 
@@ -54,11 +56,17 @@ beforeAll(async () => {
   await Promise.all(Object.values(pageLoaders).map(load => load()));
 });
 
+// The command line and the selection outlive one view, so each test starts them afresh.
+afterEach(() => {
+  useCommandSession.setState({ entries: [], open: false, pending: null, running: false });
+  useFleetView.getState().clearSelection();
+});
+
 describe('application routes', () => {
-  it('requests preloading on sidebar hover and focus without navigating', async () => {
+  it('requests preloading on window hover and focus without navigating', async () => {
     const user = userEvent.setup();
     renderRoutes('/nodes');
-    const link = await screen.findByRole('link', { name: 'Subscriptions' });
+    const link = await screen.findByRole('link', { name: '2: Subscriptions' });
     const load = vi.spyOn(pageLoaderModule, 'preloadPage');
     try {
       await user.hover(link);
@@ -73,7 +81,7 @@ describe('application routes', () => {
     }
   });
 
-  it('opens the fleet overview once the session is ready', async () => {
+  it('opens the nodes screen once the session is ready', async () => {
     let resolveSession!: (value: typeof testSession) => void;
     const session = new Promise<typeof testSession>(resolve => {
       resolveSession = resolve;
@@ -84,8 +92,8 @@ describe('application routes', () => {
     expect(checking.closest('main')).toHaveAttribute('aria-busy', 'true');
     await act(async () => resolveSession(testSession));
     expect(await screen.findByRole('link', { name: testNode.name })).toBeVisible();
-    expect(screen.getByLabelText('Current route')).toHaveTextContent(/^\/overview$/);
-    expect(screen.getByRole('heading', { name: 'Overview' })).toBeInTheDocument();
+    expect(screen.getByLabelText('Current route')).toHaveTextContent(/^\/nodes$/);
+    expect(screen.getByRole('heading', { name: 'Nodes' })).toBeInTheDocument();
     expect(client.getFleetStatus).toHaveBeenCalled();
     expect(client.forNode).not.toHaveBeenCalled();
   });
@@ -95,13 +103,13 @@ describe('application routes', () => {
     const client = createMockApiClient();
     renderRoutes('/nodes', client);
     await user.click(await screen.findByRole('link', { name: testNode.name }));
-    const row = await screen.findByRole('banner', { name: `Node ${testNode.name}` });
-    expect(row).toHaveTextContent('Online');
+    const strip = await screen.findByRole('group', { name: `Node ${testNode.name}` });
+    expect(strip).toHaveTextContent('Online');
     expect(client.forNode).toHaveBeenCalledWith(testNode.id);
-    await user.click(screen.getByRole('link', { name: 'Core versions' }));
+    await user.click(screen.getByRole('link', { name: '2: Core versions' }));
     expect(await screen.findByRole('tab', { name: 'Installed' })).toBeInTheDocument();
     expect(screen.getByLabelText('Current route')).toHaveTextContent(`/nodes/${testNode.id}/cores`);
-    expect(screen.getByRole('banner', { name: `Node ${testNode.name}` })).toBeInTheDocument();
+    expect(screen.getByRole('group', { name: `Node ${testNode.name}` })).toBeInTheDocument();
   });
 
   it('shows an offline node’s state in place of views that command it, and keeps its settings', async () => {
@@ -112,7 +120,7 @@ describe('application routes', () => {
     expect(await screen.findByText('Node offline')).toBeVisible();
     expect(client.listCoreArtifacts).not.toHaveBeenCalled();
     expect(screen.queryByRole('button', { name: 'Stop' })).not.toBeInTheDocument();
-    await user.click(within(screen.getByRole('navigation', { name: 'Node views' })).getByRole('link', { name: 'Settings' }));
+    await user.click(within(screen.getByRole('navigation', { name: 'Windows' })).getByRole('link', { name: '5: Settings' }));
     expect(await screen.findByRole('textbox', { name: 'Published host' })).toBeInTheDocument();
   });
 
@@ -188,35 +196,96 @@ describe('application routes', () => {
   it('navigates panel destinations through the shared shell', async () => {
     const user = userEvent.setup();
     renderRoutes('/nodes');
-    const subscriptions = await screen.findByRole('link', { name: 'Subscriptions' });
+    const subscriptions = await screen.findByRole('link', { name: '2: Subscriptions' });
     const scroller = document.querySelector<HTMLDivElement>('[data-slot="scroll-area-viewport"]')!;
     scroller.scrollTop = 400;
     await user.click(subscriptions);
     expect(await screen.findByRole('heading', { name: 'Subscriptions' })).toBeInTheDocument();
-    for (const name of ['Nodes', 'Logs', 'Settings']) expect(screen.getByRole('link', { name })).toBeInTheDocument();
+    for (const name of ['1: Nodes', '3: Logs', '4: Settings']) expect(screen.getByRole('link', { name })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Sign out' })).toBeInTheDocument();
     expect(screen.queryByRole('banner')).not.toBeInTheDocument();
     expect(document.getElementById('main-content')).toHaveFocus();
     expect(scroller.scrollTop).toBe(0);
   });
 
-  it('keeps appearance controls and icon-only sign out in the mobile navigation sheet', async () => {
+  it('carries theme, language and sign out in the phone tab bar\'s more menu', async () => {
     const user = userEvent.setup();
-    const originalInnerWidth = window.innerWidth;
-    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 390 });
-
+    const matchMedia = vi.spyOn(window, 'matchMedia').mockImplementation(query => ({
+      addEventListener: () => undefined,
+      addListener: () => undefined,
+      dispatchEvent: () => false,
+      matches: query === '(max-width: 639.98px)',
+      media: query,
+      onchange: null,
+      removeEventListener: () => undefined,
+      removeListener: () => undefined,
+    }));
     try {
       renderRoutes('/nodes');
-      await user.click(await screen.findByRole('button', { name: 'Open navigation' }));
-      expect(screen.getByRole('button', { name: /Theme:/ })).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: 'Open language menu' })).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: 'Sign out' })).toBeInTheDocument();
+      expect(await screen.findByRole('link', { name: '2: Subscriptions' })).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /Theme:/ })).not.toBeInTheDocument();
+      await user.click(screen.getByRole('button', { name: 'More' }));
+      expect(await screen.findByRole('menuitemradio', { name: 'Dark' })).toBeInTheDocument();
+      expect(screen.getByRole('menuitemradio', { name: '简体中文' })).toBeInTheDocument();
+      expect(screen.getByRole('menuitem', { name: 'Sign out' })).toBeInTheDocument();
     } finally {
-      Object.defineProperty(window, 'innerWidth', {
-        configurable: true,
-        value: originalInnerWidth,
-      });
+      matchMedia.mockRestore();
     }
+  });
+
+  it('opens windows and nodes from the command line', async () => {
+    const user = userEvent.setup();
+    renderRoutes('/nodes');
+    await screen.findByRole('link', { name: '2: Subscriptions' });
+    await user.keyboard(':');
+    const line = screen.getByRole('combobox', { name: 'Command' });
+    expect(line).toHaveFocus();
+    await user.type(line, '3{Enter}');
+    await waitFor(() => expect(screen.getByLabelText('Current route')).toHaveTextContent(/^\/logs$/));
+    expect(screen.queryByRole('combobox', { name: 'Command' })).not.toBeInTheDocument();
+
+    await user.keyboard('{Control>}k{/Control}');
+    await user.type(screen.getByRole('combobox', { name: 'Command' }), `goto ${testNode.name.slice(0, 3)}{Tab} cores{Enter}`);
+    await waitFor(() => expect(screen.getByLabelText('Current route')).toHaveTextContent(`/nodes/${testNode.id}/cores`));
+
+    await user.keyboard(':');
+    await user.type(screen.getByRole('combobox', { name: 'Command' }), 'nonsense{Enter}');
+    expect(screen.getByRole('log')).toHaveTextContent('command not found: nonsense');
+    await user.keyboard('{Escape}');
+    expect(screen.queryByRole('combobox', { name: 'Command' })).not.toBeInTheDocument();
+  });
+
+  it('asks before a batch from the command line and prints each node\'s result', async () => {
+    const user = userEvent.setup();
+    const client = createMockApiClient();
+    renderRoutes('/nodes', client);
+    await screen.findByRole('link', { name: testNode.name });
+    await user.keyboard(':');
+    await user.type(screen.getByRole('combobox', { name: 'Command' }), 'restart all{Enter}');
+    const log = screen.getByRole('log');
+    expect(log).toHaveTextContent(`Restart 1 node: ${testNode.name}`);
+    expect(log).toHaveTextContent('Restarting a core briefly drops its connections.');
+    expect(client.runFleetCommand).not.toHaveBeenCalled();
+    await user.type(screen.getByRole('textbox', { name: 'Confirm with y' }), 'y{Enter}');
+    expect(client.runFleetCommand).toHaveBeenCalledWith({ action: 'restart', node_ids: [testNode.id] });
+    await waitFor(() => expect(log).toHaveTextContent('1 succeeded · 0 failed · 0 skipped'));
+    expect(log).toHaveTextContent(`${testNode.name}done`);
+  });
+
+  it('runs a batch on the selected panes after its confirmation', async () => {
+    const user = userEvent.setup();
+    const client = createMockApiClient();
+    renderRoutes('/nodes', client);
+    await user.click(await screen.findByRole('checkbox', { name: `Select ${testNode.name}` }));
+    const actions = screen.getByRole('group', { name: 'Batch actions' });
+    await user.click(within(actions).getByRole('button', { name: 'Stop' }));
+    const dialog = await screen.findByRole('alertdialog', { name: 'Stop 1 node?' });
+    expect(dialog).toHaveTextContent('Stopping a core drops its connections until it starts again.');
+    await user.click(within(dialog).getByRole('button', { name: 'Stop 1 node' }));
+    expect(client.runFleetCommand).toHaveBeenCalledWith({ action: 'stop', node_ids: [testNode.id] });
+    expect(await screen.findByRole('log')).toHaveTextContent('1 succeeded');
+    await user.keyboard('{Escape}');
+    expect(screen.queryByRole('checkbox', { name: `Select ${testNode.name}`, checked: true })).toBeInTheDocument();
   });
 
   it.each(['/missing', '/tasks?task=task_1', `/nodes/${testNode.id}/missing`])('renders the authenticated not-found page for %s', async path => {

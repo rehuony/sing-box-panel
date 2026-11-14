@@ -1,4 +1,4 @@
 export const notFound = {
-  return: 'Back to overview',
+  return: 'All nodes',
   title: 'This page does not exist',
 } as const;

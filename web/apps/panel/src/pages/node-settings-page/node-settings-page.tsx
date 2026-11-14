@@ -26,6 +26,7 @@ import { queries } from '@/api/queries';
 import { ApiRequestError } from '@/api/api-client';
 import { useApiClient } from '@/api/api-client-context';
 import { LoadingState } from '@/components/loading-state';
+import { MAX_TAGS, TagInput } from '@/components/tag-input';
 import { useCurrentNode } from '@/stores/current-node.store';
 import { useUnsavedChanges } from '@/hooks/use-unsaved-changes';
 import { describeRequestError } from '@/components/error-notice';
@@ -38,6 +39,7 @@ interface Draft {
   months: string;
   resetDay: string;
   publicHost: string;
+  tags: readonly string[];
 }
 
 type DraftField = keyof Draft;
@@ -49,6 +51,7 @@ function draftOf(node: FleetNode, settings: NodeSettings): Draft {
     quota: settings.traffic.quota_gib ? String(settings.traffic.quota_gib) : '',
     months: String(settings.traffic.period_months),
     resetDay: String(settings.traffic.reset_day),
+    tags: settings.tags,
   };
 }
 
@@ -78,7 +81,7 @@ function SettingsForm({ node, settings }: { node: FleetNode; settings: NodeSetti
   const [message, setMessage] = useState('');
   const nameChanged = draft.name !== node.name;
   const settingsChanged = draft.publicHost !== saved.publicHost || draft.quota !== saved.quota
-    || draft.months !== saved.months || draft.resetDay !== saved.resetDay;
+    || draft.months !== saved.months || draft.resetDay !== saved.resetDay || draft.tags.join() !== saved.tags.join();
   const dirty = nameChanged || settingsChanged;
   const save = useMutation({
     mutationFn: async (value: Draft) => {
@@ -87,13 +90,12 @@ function SettingsForm({ node, settings }: { node: FleetNode; settings: NodeSetti
         await client.saveNodeSettings({
           revision: settings.revision,
           public_host: value.publicHost.trim(),
-          // Tags are edited elsewhere; saving keeps them.
-          tags: settings.tags,
           traffic: {
             quota_gib: quota === 0 ? null : quota,
             period_months: Number(value.months),
             reset_day: Number(value.resetDay),
           },
+          tags: [...value.tags],
         });
       }
       if (nameChanged) await client.renameNode(node.id, value.name);
@@ -114,7 +116,7 @@ function SettingsForm({ node, settings }: { node: FleetNode; settings: NodeSetti
   });
   useUnsavedChanges(dirty, () => setDraft(saved), save.isPending);
 
-  function update(field: DraftField, value: string) {
+  function update<Field extends DraftField>(field: Field, value: Draft[Field]) {
     setDraft(current => ({ ...current, [field]: value }));
     if (invalid === field) {
       setInvalid(null);
@@ -147,6 +149,18 @@ function SettingsForm({ node, settings }: { node: FleetNode; settings: NodeSetti
         <SettingsField help={t('node.settings.publicHostHelp')} id='node-public-host' invalid={invalid === 'publicHost'} label={t('node.settings.publicHost')}>
           <Input aria-invalid={invalid === 'publicHost' || undefined} autoComplete='off' className='font-mono' id='node-public-host' maxLength={253} onChange={event => update('publicHost', event.target.value)} placeholder={node.public_ip || 'node.example.com'} spellCheck={false} value={draft.publicHost} />
         </SettingsField>
+        <SettingsField id='node-tags' invalid={invalid === 'tags'} label={t('node.settings.tags')}>
+          <TagInput
+            id='node-tags'
+            invalid={invalid === 'tags'}
+            onChange={tags => update('tags', tags)}
+            onReject={(reason) => {
+              setInvalid('tags');
+              setMessage(t(`node.settings.invalid.tags.${reason}`, { count: MAX_TAGS }));
+            }}
+            value={draft.tags}
+          />
+        </SettingsField>
       </SettingsGroup>
       <SettingsGroup title={t('node.settings.traffic')}>
         <SettingsField help={t('node.settings.quotaHelp')} id='node-quota' invalid={invalid === 'quota'} label={t('node.settings.quota')}>
@@ -177,6 +191,62 @@ function SettingsForm({ node, settings }: { node: FleetNode; settings: NodeSetti
         <Button type='submit'>{t(save.isPending ? 'node.settings.saving' : 'node.settings.save')}</Button>
       </footer>
     </form>
+  );
+}
+
+/** The node's version against the panel's release, and the action that updates it. */
+function VersionRow({ node }: { node: FleetNode }) {
+  const { t } = useTranslation();
+  const client = useApiClient();
+  const cache = useQueryClient();
+  const [confirming, setConfirming] = useState(false);
+  const update = useMutation({
+    mutationFn: () => client.updateNode(),
+    onSuccess: (result) => {
+      setConfirming(false);
+      toast.add({ title: t(`node.version.result.${result.state}`, { name: node.name, version: result.version }), type: 'success' });
+    },
+    onSettled: () => cache.invalidateQueries({ queryKey: ['fleetNodes'] }),
+  });
+  const last = node.last_update;
+  const detail = last && !last.succeeded
+    ? t('node.version.lastFailed', { version: last.version, code: last.code })
+    : node.update_available ? t('node.version.available') : t('node.version.current');
+  return (
+    <section aria-labelledby='node-version-title' className='flex flex-wrap items-center gap-x-3 gap-y-2 rounded-[var(--radius-card)] border bg-[var(--color-surface-translucent)] p-4 sm:px-6'>
+      <h2 className='text-sm font-semibold' id='node-version-title'>{t('node.version.title')}</h2>
+      <p className='me-auto flex min-w-0 items-baseline gap-2 text-sm'>
+        <span className='font-mono'>{node.build_version || '—'}</span>
+        <span className='truncate text-muted-foreground' title={detail}>{detail}</span>
+      </p>
+      {node.update_available && (
+        <Button onClick={() => {
+          update.reset();
+          setConfirming(true);
+        }} variant='outline'>
+          {t('node.version.update')}
+        </Button>
+      )}
+      <AlertDialog onOpenChange={(open) => {
+        if (!open && !update.isPending) setConfirming(false);
+      }} open={confirming}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t('node.version.confirmTitle', { name: node.name })}</AlertDialogTitle>
+            <AlertDialogDescription>{t('node.version.confirm', { name: node.name, current: node.build_version })}</AlertDialogDescription>
+          </AlertDialogHeader>
+          {update.error ? <p className='text-sm text-[var(--color-danger-text)]' role='alert'>{describeRequestError(update.error)}</p> : null}
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
+            <AlertDialogAction onClick={() => {
+              if (!update.isPending) update.mutate();
+            }}>
+              {t(update.isPending ? 'node.version.updating' : 'node.version.updateAction')}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </section>
   );
 }
 
@@ -256,7 +326,7 @@ function DangerZone({ node }: { node: FleetNode }) {
   );
 }
 
-/** The node's name, published host and traffic period in one group, and its re-enrollment and removal. */
+/** The node's name, published host and traffic period in one group, its version, and its re-enrollment and removal. */
 export function NodeSettingsPage() {
   const { t } = useTranslation();
   const node = useCurrentNode();
@@ -276,6 +346,7 @@ export function NodeSettingsPage() {
               </div>
             )
           : <LoadingState className='min-h-80' label={t('node.settings.loading')} fullScreen={false} />}
+      {node.enrolled_at && <VersionRow node={node} />}
       <DangerZone node={node} />
     </section>
   );

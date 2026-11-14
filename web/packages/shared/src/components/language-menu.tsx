@@ -68,7 +68,7 @@ function LanguageGlyph({ active }: { active: boolean }) {
 }
 
 /** Chooses the interface language; the choice is remembered in this browser. */
-export function LanguageMenu() {
+export function LanguageMenu({ size = 'icon-sm' }: { size?: 'icon-sm' | 'icon-xs' }) {
   const { i18n, t } = useTranslation();
   const [open, setOpen] = useState(false);
 
@@ -84,7 +84,7 @@ export function LanguageMenu() {
         render={(
           <Button
             aria-label={t('language.menu')}
-            size='icon-sm'
+            size={size}
             variant='ghost'
           />
         )}

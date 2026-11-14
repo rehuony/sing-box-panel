@@ -1,5 +1,19 @@
 import type { HttpApiContext } from './shared';
-import type { ApiClient, CatalogAssetFilter, CatalogAssetList, CatalogRefresh, ConfigurationCompile, ConfigurationSchemaContract, CoreArtifact, CoreArtifactFilter, CoreArtifactPage, CoreImportUpload, RuntimeStatus } from '../api-client';
+import type {
+  ApiClient,
+  CatalogAssetFilter,
+  CatalogAssetList,
+  CatalogRefresh,
+  ConfigurationCompile,
+  ConfigurationSchemaContract,
+  CoreArtifact,
+  CoreArtifactFilter,
+  CoreArtifactPage,
+  CoreImportUpload,
+  RuntimeResponse,
+  RuntimeStatus,
+  StartupArtifactPage,
+} from '../api-client';
 
 export function createCoreHttpApi(context: HttpApiContext) {
   const {
@@ -98,6 +112,18 @@ export function createCoreHttpApi(context: HttpApiContext) {
     },
     restartRuntime(signal) {
       return runtimeAction('restart', signal);
+    },
+    listStartupArtifacts(before, signal) {
+      const query = buildQuery({ before_id: before?.id, before_time: before?.created_at, limit: 20, state: 'ready' });
+      return request<StartupArtifactPage>(fetcher, `${nodeUrl()}/config/artifacts${query}`, { method: 'GET', signal });
+    },
+    activateStartupArtifact(startupArtifactID, monitoringTier, signal) {
+      return request<RuntimeResponse>(fetcher, `${nodeUrl()}/core/activate`, {
+        method: 'POST',
+        body: JSON.stringify({ monitoring_tier: monitoringTier, startup_artifact_id: startupArtifactID }),
+        headers: writeJSONHeaders(),
+        signal,
+      });
     },
     rollbackRuntime(activationBundleID, signal) {
       return request<RuntimeStatus>(fetcher, `${nodeUrl()}/core/rollback`, {

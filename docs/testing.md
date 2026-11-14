@@ -33,7 +33,7 @@ actions; they do not repeat every domain case through a complete editing journey
 | Select hover/Home/Escape behavior | Third-party select behavior; application value conversion and accessibility forwarding remain |
 | Every translated diagnostic rendered through a full dialog | Existing i18n key checks plus representative log-detail/error wiring |
 | Toast-manager timeouts, dismissal/type matrices and update behavior | Third-party implementation; `error-notice.test.tsx` retains application deduplication, recovery and accessible descriptions |
-| Standalone theme-button cycling journey | Settings submit smoke already checks the sidebar preference stays independent of server defaults |
+| Standalone theme-button cycling journey | Settings submit smoke already checks the status line's theme preference stays independent of server defaults |
 | Repeated pagination keyboard/boundary matrices on the cores page | `list-pagination.test.tsx` owns custom entry/cancel/bounds; core page retains filtering/page reset wiring |
 | Schema help hover mechanics, closing animations, repeated map editing and fixed tab/field order | `info-tooltip.test.tsx` owns custom help behavior; `schema-map-fields.test.tsx` owns map editing; staged cancel checks remain; decorative order/animation assertions removed |
 | Dashboard tab mechanics and exact timeline segment count | Third-party tabs and presentation detail; `runtime-timeline.test.ts` retains evidence/gap logic |
