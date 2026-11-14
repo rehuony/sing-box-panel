@@ -186,8 +186,9 @@ single effective `[Service] ExecStart` line of the unit file on disk (the
 panel's `--config`, the node's `--data-dir`) and, for the panel, the data
 directory, database, and configuration storage declared by that settings file
 as it exists now. The panel CLI's own `--config` path is listed separately. In
-system scope it also reports the update helper's two units. Drop-in overrides,
-unreadable units, several effective commands, or
+system scope it also reports the update helper's two units. Nonempty drop-ins,
+including global `service.d/` ones that some container hosts add to every
+service, unreadable units, several effective commands, or
 unresolved specifiers leave the unit-file settings path unknown rather than
 guessed, a unit edited after loading is flagged stale, and the running
 process's settings are never inspected or claimed. `systemd logs --lines N

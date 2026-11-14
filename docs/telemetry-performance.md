@@ -79,6 +79,43 @@ fleet; nodes report every ten seconds, so a later frame carries about a fifth
 of the online nodes, and none while nothing changes. `limit` and `cursor` page
 large fleets through `/fleet/status`.
 
+## Live fleet
+
+```sh
+SBP_FLEET_SCALE=200,500 go test ./internal/sing-box-panel/fleet/ \
+  -run TestFleetAtScale -v -timeout 30m
+```
+
+`TestFleetAtScale` is opt-in. It serves the fleet on a loopback listener and
+connects simulated nodes over TLS, each on its own connection, through the real
+enrollment, handshake and session code. Every node reports a running core,
+then sends 30 metrics samples with traffic counters, one a second of wall time
+and ten seconds apart in sample time, so every sample is stored, and a state
+report every tenth sample. Every node changes in every two-second snapshot. One
+client follows the shared snapshot the way `/fleet/stream` does. The test
+fails if a node's period does not hold the traffic of every sample after its
+first, or if a warm snapshot costs as much as reading one node row per node,
+which any per-node query would. Single runs on Apple M5 (macOS arm64) and in a
+Linux arm64 container on the same machine (10 cores, Go 1.26.10):
+
+| Measure | 200 nodes, macOS | 200 nodes, Linux | 500 nodes, macOS | 500 nodes, Linux |
+| --- | ---: | ---: | ---: | ---: |
+| Enroll and connect every node | 0.62 s | 1.57 s | 1.54 s | 2.48 s |
+| First snapshot, the ledger loading each node | 9.6 ms | 17.3 ms | 14.0 ms | 30.8 ms |
+| Warm snapshot | 1.44 ms | 5.11 ms | 9.81 ms | 10.09 ms |
+| One node row read per node, for comparison | 4.87 ms | 14.23 ms | 24.23 ms | 32.82 ms |
+| First stream frame | 306 KB | 247 KB | 807 KB | 811 KB |
+| Later frames, every node changed | 326 KB every 2 s | 330 KB every 2 s | 817 KB every 2 s | 826 KB every 2 s |
+| Samples stored | 200 a second | 200 a second | 500 a second | 500 a second |
+| Samples lost | none | none | none | none |
+| Heap, panel and simulated nodes | 29.8 MiB | 31.7 MiB | 75.7 MiB | 73.8 MiB |
+
+A node's item is 1.2–1.6 KB. The later frames carry every node because the
+accelerated nodes sample faster than the snapshot refreshes; at the ten-second
+baseline a frame carries about a fifth of the online nodes, so a 500-node fleet
+streams about 160 KB every two seconds to each viewer. The heap figure includes
+the simulated nodes' own connections and buffers; the panel's share is lower.
+
 ## Metrics history
 
 ```sh
@@ -102,11 +139,11 @@ viewer.
 
 ## Not measured
 
-- A live fleet: the benchmarks read nodes stored in the database, so many
-  connected nodes reporting at once, network latency and many TLS connections
-  were not exercised; real nodes also send larger reports than the fixtures.
+- Separate hosts: the live fleet runs in one process on loopback, so network
+  latency, loss and many TLS connections across real network interfaces were
+  not exercised; real nodes also send larger reports than the simulated ones.
 - Proxies: the fleet stream and fleet command stream behind a reverse proxy
   were not exercised; they use the same server-sent event framing and
   heartbeats as the node streams.
-- Linux: every figure comes from macOS; SQLite commit times differ by file
-  system and disk.
+- Linux hardware: the Linux figures come from a container on the macOS
+  machine; SQLite commit times differ by file system and disk.

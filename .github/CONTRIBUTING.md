@@ -34,7 +34,7 @@ make deps
 ```
 
 Use a supported Linux environment when changing Linux-only installer, systemd,
-runtime identity, or release behavior.
+update helper, runtime identity, or release behavior.
 
 ## Making Changes
 
@@ -43,8 +43,9 @@ runtime identity, or release behavior.
 - Keep transport, application, domain, persistence, and presentation
   responsibilities separate.
 - Add or update focused tests with behavioral changes.
-- Keep `api/panel-openapi.yaml`, `api/node-openapi.yaml`, CLI help, Web clients, and user documentation aligned
-  with public contract changes.
+- Keep `api/panel-openapi.yaml`, `api/node-openapi.yaml`, the panel–node protocol
+  in `api/proto` (regenerate `internal/nodeapi` with `make generate`), CLI help,
+  Web clients, and user documentation aligned with public contract changes.
 - Run `make notices` when production dependencies change and include the
   resulting `THIRD_PARTY_NOTICES` update.
 - Follow the version-onboarding and release guides for core-version or packaging
@@ -65,8 +66,8 @@ The daily root targets are `deps` (locked dependencies), `build` (both local
 binaries), `check` (ordinary validation), and `fmt` (Go formatting). Plain `make`
 lists every target with its usage. To narrow validation, use `make check-backend` for Go
 formatting, modules, vet, and tests; `make check-frontend` for Web build, types, lint,
-tests, and notices; or `make check-contracts` for shell, installer, OpenAPI, and
-offline core-support checks. Web package scripts prepare their generated inputs
+tests, and notices; or `make check-contracts` for shell, installer, protocol
+lint and generated-code, OpenAPI, and offline core-support checks. Web package scripts prepare their generated inputs
 before typechecking, testing, or building. `make check` shares one Web generation,
 typecheck and production build across its checks; `check-frontend` then runs lint,
 all Vitest projects, Schema consistency and notices checks.
@@ -90,7 +91,10 @@ make release-verify
 ```
 
 Release verification builds committed `HEAD` in an isolated source snapshot;
-it does not include uncommitted working-tree changes.
+it does not include uncommitted working-tree changes. On native Linux amd64 or
+arm64, as a non-root user, also run `make release-smoke`, which signs disposable
+builds of the working tree with a new test key and runs the release smoke
+scenario, including the panel's self-update and a node update through the panel.
 
 Record every command run and any intentionally omitted check in the pull
 request. Do not weaken checks merely to make a change pass.
