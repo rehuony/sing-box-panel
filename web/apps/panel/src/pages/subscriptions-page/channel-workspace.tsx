@@ -73,6 +73,10 @@ export function ChannelWorkspace({ active = true, toolbarTarget, channel, nodes,
     dirty,
     needsUpgrade,
     conflict,
+    ruleTextResults,
+    setRuleView,
+    changeRuleText,
+    invalidTextGroup,
     confirmNavigation,
     render,
     save,
@@ -89,7 +93,16 @@ export function ChannelWorkspace({ active = true, toolbarTarget, channel, nodes,
           <Button size='icon-sm' variant='ghost' aria-label={t('channels.back')} title={t('channels.back')} disabled={busy} onClick={() => confirmNavigation(onBack)}><ArrowLeft /></Button>
           <Button size='icon-sm' variant='ghost' aria-label={t('channels.distribution')} title={t('channels.distribution')} disabled={busy} onClick={() => setOptionsOpen(true)}><Settings2 /></Button>
           <Button size='icon-sm' variant='ghost' aria-label={t('channels.preview')} title={t('channels.preview')} disabled={busy} onClick={() => void showPreview()}><Eye /></Button>
-          <Button size='sm' disabled={busy || conflict || (!dirty && !needsUpgrade)} onClick={() => void save()}>
+          <Button size='sm' disabled={busy || conflict || (!dirty && !needsUpgrade)} onClick={() => {
+            if (invalidTextGroup) {
+              // Show the text that needs fixing; its last valid rules stay unsaved.
+              setGroupID(invalidTextGroup.id);
+              setGroupTab('rules');
+              toast.add({ title: t('channels.ruleTextUnsaved', { name: invalidTextGroup.name }), type: 'error' });
+              return;
+            }
+            void save();
+          }}>
             <Save data-icon='inline-start' />
             {t('channels.save')}
           </Button>
@@ -98,7 +111,7 @@ export function ChannelWorkspace({ active = true, toolbarTarget, channel, nodes,
       <div className='flex min-h-0 flex-1 flex-col gap-3 overflow-hidden @max-[740px]/channel-editor:overflow-y-auto @max-[740px]/channel-editor:pe-1'>
         {needsUpgrade && <p role='status' className='text-sm text-muted-foreground'>{t('channels.legacyUpgradeHint')}</p>}
         {conflict && <ErrorNotice error={t('channels.formatConflict')} />}
-        <div className='grid min-h-0 flex-1 grid-cols-[220px_minmax(0,1fr)] gap-4 @max-[740px]/channel-editor:flex @max-[740px]/channel-editor:flex-none @max-[740px]/channel-editor:flex-col'>
+        <div className='grid min-h-0 flex-1 grid-cols-[220px_minmax(0,1fr)] gap-4 @max-[740px]/channel-editor:flex @max-[740px]/channel-editor:flex-none @max-[740px]/channel-editor:flex-col @max-[740px]/channel-editor:has-[[data-rule-text]]:flex-[1_0_auto]'>
           <aside className='flex min-h-0 min-w-0 flex-col gap-4 overflow-hidden border-r pe-4 @max-[740px]/channel-editor:overflow-visible @max-[740px]/channel-editor:border-r-0 @max-[740px]/channel-editor:p-0' aria-label={t('channels.groups')}>
             <div className='flex flex-none flex-wrap items-center gap-2 [&>button]:ms-auto [&>h2]:text-sm [&>h2]:font-medium'>
               <h2>{t('channels.groups')}</h2>
@@ -181,6 +194,8 @@ export function ChannelWorkspace({ active = true, toolbarTarget, channel, nodes,
                   key={group.id} group={group} groups={policy.groups} nodes={nodes}
                   tab={groupTab} onTabChange={setGroupTab}
                   format={format} busy={busy} onChange={updateGroup} nextSortIndex={nextRuleIndex(policy)}
+                  ruleText={ruleTextResults.get(group.id)}
+                  onRuleView={view => setRuleView(group, view)} onRuleTextChange={text => changeRuleText(group, text)}
                 />
               )
             : (

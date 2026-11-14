@@ -250,6 +250,25 @@ Rule and rule-set actions sit beside the node/rule tabs. Their dialogs omit exit
 and enablement fields: new rules start enabled and route through their group.
 Editing existing rules, including their priority, preserves their enabled state
 and explicit exit.
+Beside them, an entries/text switch shows a group's rules as Clash classic
+lines, one per rule in priority order: `DOMAIN`, `DOMAIN-SUFFIX`,
+`DOMAIN-KEYWORD`, `IP-CIDR` or `IP-CIDR6`, and `RULE-SET,name,link[,format[,behavior]]`,
+whose missing format is inferred from the link and whose proxied GitHub link is
+kept direct and marked accelerated. Blank lines, lines starting with `#` or
+`//`, a YAML list marker and quotes around a line are ignored, so a pasted
+Clash rule list converts directly; a trailing `no-resolve`, and a policy name
+after a match value, are left out with a note, because the group sets the
+exit. A rule-set link may hold commas: the link is everything between the name
+and the trailing format and behavior, so every saved rule reads back the same.
+Other rule types,
+invalid values, formats the client cannot use and repeated rule-set names are
+listed by line. A line that matches one of the group's rules from when the text
+view opened, by type and value or by rule-set name, keeps that rule's ID, exit
+and enabled state; lines take the group's existing indices in line order, and
+further lines continue after the channel's largest index. Valid text becomes
+the group's rules as it is typed. While a line has a problem, the text stays,
+switching back to entries and saving are refused, and leaving asks about the
+unsaved text. The server's channel policy validation remains the final check.
 Existing groups retain their candidate snapshot when new nodes arrive.
 Unavailable, hidden or cyclic node dependencies cannot silently become direct
 traffic: unavailable designated exits become reject actions. Group and native

@@ -506,3 +506,40 @@ it('removes references to a deleted strategy group in the saved policy', async (
     { ...parent, group_ids: [], candidate_order: [] },
   ]);
 });
+
+it('edits rules as text, keeping each rule’s identity and holding invalid text back from saving', async () => {
+  const user = userEvent.setup();
+  const add = vi.spyOn(toast, 'add');
+  const groups = [{
+    ...newRuleGroup([node.id]), id: 'group-one', name: 'Tokyo',
+    rules: [{
+      id: 'rule-a', kind: 'domain_suffix' as const, value: 'example.com', enabled: true, sort_index: 10,
+      exit: { kind: 'node' as const, id: node.id },
+    }],
+  }];
+  const client = mount({ ...channel, config: { policy: { ...channel.config.policy!, groups } } });
+  await user.click(screen.getByRole('tab', { name: 'Exit rules' }));
+  await user.click(screen.getByRole('tab', { name: 'Text' }));
+  const text = screen.getByRole('textbox', { name: 'Rules as text, one per line' });
+  expect(text).toHaveValue('DOMAIN-SUFFIX,example.com');
+  // Retyping a letter passes through text without the rule; it keeps its exit.
+  await user.type(text, '{Backspace}m{Enter}DOMAIN,api.example.com{Enter}GEOIP,CN');
+  expect(screen.getByRole('list', { name: 'Problems in the rule text' })).toHaveTextContent(/Line 3.*Unsupported match type GEOIP/);
+  await user.click(screen.getByRole('tab', { name: 'Entries' }));
+  expect(screen.getByRole('tab', { name: 'Text' })).toHaveAttribute('aria-selected', 'true');
+  await user.click(screen.getByRole('button', { name: /Save changes/ }));
+  expect(client.updateSubscriptionChannel).not.toHaveBeenCalled();
+  expect(add).toHaveBeenCalledWith(expect.objectContaining({ title: 'Fix the rule text of “Tokyo” before saving.' }));
+  expect(text).toHaveValue('DOMAIN-SUFFIX,example.com\nDOMAIN,api.example.com\nGEOIP,CN');
+
+  await user.type(text, '{Backspace>9}');
+  await user.click(screen.getByRole('tab', { name: 'Entries' }));
+  expect(screen.getByRole('list', { name: 'Exit rules' })).toHaveTextContent('api.example.com');
+  await user.click(screen.getByRole('button', { name: /Save changes/ }));
+  await waitFor(() => expect(client.updateSubscriptionChannel).toHaveBeenCalledOnce());
+  const saved = vi.mocked(client.updateSubscriptionChannel).mock.calls[0][1].config?.policy?.groups[0].rules;
+  expect(saved?.map(rule => [rule.id === 'rule-a', rule.kind, rule.value, rule.sort_index, rule.exit])).toEqual([
+    [true, 'domain_suffix', 'example.com', 10, { kind: 'node', id: node.id }],
+    [false, 'domain', 'api.example.com', 20, { kind: 'group-default' }],
+  ]);
+});
