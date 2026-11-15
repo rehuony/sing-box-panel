@@ -75,7 +75,8 @@ export function parseCommand(line: string): PanelCommand | null {
           if (!isOneOf(stateFilters, value)) return { kind: 'usage', verb };
           state = value;
         } else if (lower.startsWith('tag:')) {
-          tag = word.slice('tag:'.length);
+          // Tags are lowercase, and the rest of the grammar ignores case too.
+          tag = lower.slice('tag:'.length);
           if (tag === '') return { kind: 'usage', verb };
         } else {
           text.push(word);
@@ -113,9 +114,10 @@ export function resolveNode(value: string, items: readonly NodeStatus[]): NodeSt
  * node by name or ID.
  */
 export function resolveTargets(target: string, items: readonly NodeStatus[]): NodeStatus[] {
-  if (target.toLowerCase() === 'all') return [...items];
-  if (target.toLowerCase().startsWith('tag:')) {
-    const tag = target.slice('tag:'.length);
+  const lower = target.toLowerCase();
+  if (lower === 'all') return [...items];
+  if (lower.startsWith('tag:')) {
+    const tag = lower.slice('tag:'.length);
     return items.filter(item => item.node.tags.includes(tag));
   }
   if (/[*?]/.test(target)) return items.filter(item => globMatches(target, item.node.name));

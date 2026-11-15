@@ -59,9 +59,9 @@ export function isLogLine(entry: LogLine | TerminalBlock): entry is LogLine {
   return entry.kind === 'line';
 }
 
-/** Appends entries, dropping the oldest past the limit. */
-export function appendEntries<Entry>(entries: readonly Entry[], added: readonly Entry[]): Entry[] {
-  return [...entries, ...added].slice(-MAX_ENTRIES);
+/** Appends entries, dropping the oldest past the limit, which `extra` raises for output that must stay whole. */
+export function appendEntries<Entry>(entries: readonly Entry[], added: readonly Entry[], extra = 0): Entry[] {
+  return [...entries, ...added].slice(-(MAX_ENTRIES + extra));
 }
 
 /** Marks a pending line as settled, keeping every other entry. */

@@ -1,8 +1,9 @@
 import { useLocation } from 'react-router-dom';
 import userEvent from '@testing-library/user-event';
+import { logLine } from '@shared/components/terminal';
 import { Toaster } from '@shared/components/ui/toast';
+import { beforeAll, describe, expect, it, vi } from 'vitest';
 import { TooltipProvider } from '@shared/components/ui/tooltip';
-import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { act, render, screen, waitFor, within } from '@testing-library/react';
 
 import type { ApiClient, Session } from '@/api/api-client';
@@ -54,12 +55,6 @@ async function openSignOut(user: ReturnType<typeof userEvent.setup>) {
 beforeAll(async () => {
   // Import modules without populating the prefetch cache exercised below.
   await Promise.all(Object.values(pageLoaders).map(load => load()));
-});
-
-// The command line and the selection outlive one view, so each test starts them afresh.
-afterEach(() => {
-  useCommandSession.setState({ entries: [], open: false, pending: null, running: false });
-  useFleetView.getState().clearSelection();
 });
 
 describe('application routes', () => {
@@ -326,9 +321,16 @@ describe('application routes', () => {
     });
     renderRoutes('/', client);
     expect(await screen.findByRole('button', { name: 'Sign out' })).toBeInTheDocument();
+    act(() => {
+      useCommandSession.getState().print(logLine('plain', 'restart all'));
+      useFleetView.getState().setFilter({ search: 'hk', tag: 'edge' });
+    });
 
     act(() => invalidate());
     expect(await screen.findByLabelText('Password')).toBeInTheDocument();
+    // The output and the filters belonged to the session that ended.
+    expect(useCommandSession.getState().entries).toEqual([]);
+    expect(useFleetView.getState()).toMatchObject({ search: '', tag: null });
   });
 
   it('keeps the authenticated view and reports a failed sign out', async () => {

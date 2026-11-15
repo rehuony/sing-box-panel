@@ -101,6 +101,7 @@ export const command = {
     confirm_one: '{{action}} {{count}} 个节点：{{names}}',
     confirm_other: '{{action}} {{count}} 个节点：{{names}}',
     failed: '失败：{{reason}}',
+    incomplete: '批量操作在给出汇总前中断了报告；请查看各节点的状态',
     interrupts: {
       install_core: '安装核心不会改变正在运行的内容；需在各节点上选用它。',
       restart: '重启核心会短暂中断其连接。',
@@ -115,6 +116,7 @@ export const command = {
     skipped: '因先前失败而跳过',
     summary: '成功 {{succeeded}} · 失败 {{failed}} · 跳过 {{skipped}}',
     toast: '{{action}}已完成',
+    toastIncomplete: '{{action}}未报告结果',
   },
   confirm: '输入 y 确认',
   dismiss: '关闭输出',

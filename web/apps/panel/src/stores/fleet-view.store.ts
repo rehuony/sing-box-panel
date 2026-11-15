@@ -6,6 +6,8 @@ export type FleetStateFilter = 'all' | StateFilter;
 
 interface FleetViewState {
   search: string;
+  /** Ends the signed-in session's filters and selection. */
+  reset: () => void;
   tag: string | null;
   /** Where a Shift+click range starts. */
   anchor: string | null;
@@ -31,6 +33,7 @@ export const useFleetView = create<FleetViewState>()(set => ({
   anchor: null,
   clearFilters: () => set({ search: '', state: 'all', tag: null }),
   clearSelection: () => set({ anchor: null, selected: new Set() }),
+  reset: () => set({ anchor: null, search: '', selected: new Set(), state: 'all', tag: null, visible: [] }),
   search: '',
   select: ids => set(state => ({ selected: new Set([...state.selected, ...ids]) })),
   selected: new Set(),

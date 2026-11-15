@@ -11,6 +11,7 @@ import { fleetWords } from '@/utils/fleet-summary';
 import { useBackdrop } from '@/components/backdrop';
 import { preloadPage } from '@/routes/page-loaders';
 import { useApiClient } from '@/api/api-client-context';
+import { useFleetView } from '@/stores/fleet-view.store';
 import { LoadingState } from '@/components/loading-state';
 import { useAuthSession } from '@/stores/auth-session.store';
 import { useReloadOnPanelVersion } from '@/hooks/use-panel-update';
@@ -65,6 +66,18 @@ function useCommandShortcut() {
 }
 
 /**
+ * The command output, prompt and history and the home screen's filters and
+ * selection belong to one signed-in session: the shell leaves whenever the
+ * session ends, by signing out or expiring, and takes them with it.
+ */
+function useSessionScopedState() {
+  useEffect(() => () => {
+    useCommandSession.getState().reset();
+    useFleetView.getState().reset();
+  }, []);
+}
+
+/**
  * The signed-in shell: the workspace filling the window at the shell's inset
  * and the status line below it, which names the scope and its windows and
  * reads commands.
@@ -74,6 +87,7 @@ export function AppShell() {
   useFleetStream();
   useFleetWords();
   useCommandShortcut();
+  useSessionScopedState();
   useReloadOnPanelVersion();
   const { session } = useAuthSession();
   const shell = useShellScope();

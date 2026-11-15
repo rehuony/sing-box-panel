@@ -62,7 +62,10 @@ function Line({ clock, line }: { clock: Intl.DateTimeFormat; line: LogLine }) {
         ? line.text
         : (
             <>
-              <span className='min-w-[11ch] flex-none pe-[1ch] text-foreground'>{line.term}</span>
+              {/* A long term, such as a node's name, ends in an ellipsis at half the line. */}
+              <span className='max-w-1/2 min-w-[11ch] flex-none truncate pe-[1ch] text-foreground' title={line.term}>
+                {line.term}
+              </span>
               <span className='min-w-0'>{line.text}</span>
             </>
           )}
@@ -112,8 +115,10 @@ export function TerminalBuffer<Block extends TerminalBlock>({
 
   return (
     <ScrollArea
-      className={cn('min-h-0 flex-1', className)}
-      viewportClassName={viewportClassName}
+      // A column, so the viewport shrinks to the buffer's share even where the
+      // container caps its height without setting one, as the command output does.
+      className={cn('flex min-h-0 flex-1 flex-col', className)}
+      viewportClassName={cn('min-h-0 flex-1', viewportClassName)}
       viewportProps={{
         onScroll: (event) => {
           const viewport = event.currentTarget;

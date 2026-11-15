@@ -26,7 +26,7 @@ describe('panel commands', () => {
     expect(parseCommand('goto "Tokyo edge" configuration')).toEqual({ kind: 'goto', node: 'Tokyo edge', window: 'configuration' });
     expect(parseCommand('goto hk-1')).toEqual({ kind: 'goto', node: 'hk-1' });
     expect(parseCommand('goto hk-1 nowhere')).toEqual({ kind: 'usage', verb: 'goto' });
-    expect(parseCommand('filter state:offline tag:hk edge')).toEqual({ kind: 'filter', state: 'offline', tag: 'hk', text: 'edge' });
+    expect(parseCommand('filter state:offline TAG:HK edge')).toEqual({ kind: 'filter', state: 'offline', tag: 'hk', text: 'edge' });
     expect(parseCommand('filter')).toEqual({ kind: 'filter', state: null, tag: null, text: '' });
     expect(parseCommand('filter state:asleep')).toEqual({ kind: 'usage', verb: 'filter' });
     expect(parseCommand('restart hk-*')).toEqual({ kind: 'batch', target: 'hk-*', verb: 'restart' });
@@ -38,7 +38,7 @@ describe('panel commands', () => {
   it('resolves targets by name, ID, glob, tag and all', () => {
     const ids = (target: string) => resolveTargets(target, fleet).map(item => item.node.id);
     expect(ids('all')).toEqual(['a', 'b', 'c', 'd']);
-    expect(ids('tag:hk')).toEqual(['a', 'b']);
+    expect(ids('Tag:HK')).toEqual(['a', 'b']);
     expect(ids('HK-*')).toEqual(['a', 'b']);
     expect(ids('*edge')).toEqual(['c']);
     expect(ids('us-?')).toEqual(['d']);

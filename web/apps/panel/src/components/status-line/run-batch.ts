@@ -43,16 +43,27 @@ interface BatchRun {
  * Runs one action on the nodes and prints each node's result to the command
  * output as it arrives, then the summary. It is not tied to any view, so
  * leaving the command line or the window never cancels it; when the command
- * line is closed at the end, a toast carries the summary.
+ * line is closed at the end, a toast carries the summary, or says that the
+ * batch stopped reporting before it. One batch runs at a time, and signing
+ * out stops following it: the panel still finishes it, but its lines never
+ * reach the next session.
  */
 export async function runBatch({ action, client, exactVersion, nodes, t }: BatchRun): Promise<void> {
   const session = useCommandSession.getState();
+  if (session.running) {
+    session.print(logLine('danger', t('command.batch.busy')));
+    return;
+  }
+  const { generation } = session;
+  const current = () => useCommandSession.getState().generation === generation;
   const label = t(`command.batch.action.${action}`);
   const names = new Map(nodes.map(item => [item.node.id, item.node.name]));
   const header = logLine('muted', t('command.batch.running', { action: label, count: nodes.length }), { pending: true });
   session.setRunning(true);
+  session.reserve(nodes.length);
   session.print(header);
   let summary: FleetCommandSummary | null = null;
+  let failure: string | null = null;
   try {
     const command: FleetCommand = {
       action,
@@ -60,6 +71,7 @@ export async function runBatch({ action, client, exactVersion, nodes, t }: Batch
       ...(exactVersion ? { exact_version: exactVersion } : {}),
     };
     for await (const event of client.runFleetCommand(command)) {
+      if (!current()) break;
       if ('done' in event) {
         summary = event.done;
         continue;
@@ -71,16 +83,26 @@ export async function runBatch({ action, client, exactVersion, nodes, t }: Batch
       else session.print(logLine('danger', t('command.batch.failed', { reason: describeProblem(result.code, result.title ?? result.code ?? '') }), { term }));
     }
   } catch (error) {
-    session.print(logLine('danger', describeRequestError(error)));
+    failure = describeRequestError(error);
   } finally {
-    const current = useCommandSession.getState();
-    current.settle(header.id);
-    current.setRunning(false);
+    if (current()) {
+      session.settle(header.id);
+      session.setRunning(false);
+    }
   }
-  if (summary === null) return;
+  if (!current()) return;
+  const closed = !useCommandSession.getState().open;
+  if (summary === null) {
+    // Without a summary some nodes' outcomes are unknown, so the ending is a failure the user must see.
+    const reason = failure ?? t('command.batch.incomplete');
+    session.print(logLine('danger', reason));
+    if (closed) toast.add({ description: reason, title: t('command.batch.toastIncomplete', { action: label }), type: 'error' });
+    return;
+  }
+  if (failure !== null) session.print(logLine('danger', failure));
   const line = t('command.batch.summary', summary);
-  useCommandSession.getState().print(logLine(summary.failed > 0 ? 'warning' : 'success', line));
-  if (!useCommandSession.getState().open) {
+  session.print(logLine(summary.failed > 0 ? 'warning' : 'success', line));
+  if (closed) {
     toast.add({
       description: line,
       title: t('command.batch.toast', { action: label }),

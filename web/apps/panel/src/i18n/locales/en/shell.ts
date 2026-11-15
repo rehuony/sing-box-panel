@@ -101,6 +101,7 @@ export const command = {
     confirm_one: '{{action}} {{count}} node: {{names}}',
     confirm_other: '{{action}} {{count}} nodes: {{names}}',
     failed: 'failed: {{reason}}',
+    incomplete: 'the batch stopped reporting before its summary; check each node\'s state',
     interrupts: {
       install_core: 'Installing a core does not change what runs; select it on each node to use it.',
       restart: 'Restarting a core briefly drops its connections.',
@@ -115,6 +116,7 @@ export const command = {
     skipped: 'skipped after an earlier failure',
     summary: '{{succeeded}} succeeded · {{failed}} failed · {{skipped}} skipped',
     toast: '{{action}} finished',
+    toastIncomplete: '{{action}} did not report its outcome',
   },
   confirm: 'Confirm with y',
   dismiss: 'Close output',

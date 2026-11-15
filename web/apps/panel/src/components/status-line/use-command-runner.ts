@@ -118,7 +118,11 @@ export function useCommandRunner({ items, prompt, scope }: ShellScopeState) {
     }
   }
 
-  /** Only y or yes runs the batch the line asked about; anything else cancels it. */
+  /**
+   * Only y or yes runs the batch the line asked about; anything else cancels
+   * it. The prompt outlives closing the line, so another batch may have
+   * started since it asked; runBatch then refuses it as busy.
+   */
   function answer(input: string) {
     const reply = input.trim();
     print(echo(CONFIRM_PROMPT, reply));

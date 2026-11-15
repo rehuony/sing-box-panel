@@ -320,10 +320,14 @@ in `utils/panel-commands.ts` (`help`, `clear`, `logout`, window numbers,
 `open`, `goto`, `filter`, and `start`, `stop`, `restart` and `update` on a name,
 a glob, `tag:<tag>` or `all`), completes the word under the caret, and prints to
 one output panel above the line that stays until closed. Batches from the
-command line or from selected panes confirm first, stream each node's result
-from `/fleet/commands` and keep running when the line closes, ending in a toast
-then. The terminal parts are shared with the node console from
-`packages/shared/src/components/terminal`.
+command line or from selected panes confirm first, run one at a time, stream
+each node's result from `/fleet/commands` into output that keeps room for every
+node's line, and keep running when the line closes, ending in a toast then,
+which also says when a batch stopped before its summary. The output, a pending
+confirmation, the command history and the home screen's filters and selection
+end with the signed-in session; a batch still running then finishes on the
+panel without printing into the next session. The terminal parts are shared
+with the node console from `packages/shared/src/components/terminal`.
 
 The nodes home renders every node as a memoized pane that redraws only when
 its own fleet entry changes or the shared 30-second clock moves; panes off
